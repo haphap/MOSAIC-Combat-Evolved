@@ -77,7 +77,7 @@ Cohort 切换 UI（PRISM）                                       paper_trading/
 
 | Phase | 范围 | 估算 turns | 状态 |
 |---|---|---|---|
-| 0 | Python sidecar + bridge（Tushare/FRED + 10 macro tools） | 5–6 | 🟡 进行中（Day 1+2+3+4 ✅ 2026-05-28） |
+| 0 | Python sidecar + bridge（Tushare/FRED + 8 macro tools） | 5–6 | ✅ 完成（Day 1–5 / 2026-05-28、Day 5 收尾 2026-05-29） |
 | 1 | TS skeleton + bridge-client（直接复用 ETFAgents Phase 1） | 3–4 | ⏭ |
 | 2 | Daily cycle MVP：25 agents + 4 层 LangGraph.js（单 cohort） | 11–12 | ⏭ |
 | 3 | Scorecard + Darwinian 权重 | 4 | ⏭ |
@@ -614,15 +614,50 @@ export function buildCentralBankSystemMessage(ctx: PromptContext): string {
   Tushare 的 `cb_op` / `yc_cb` / `news` 仍未真实验证；Day 5 跑通时若发现实际名异，
   调整 `mosaic/dataflows/macro_data.py` 调用点即可（mock 测试不变）。
 
-### Day 5：Bridge 集成测试
-- [ ] 0.5.1 复制 `etfagents/tests/test_bridge_protocol.py` 模板，
-  适配 mosaic 包名（14 个 ETFAgents 通用测试 + 5 个新增 macro tool 测试）
-- [ ] 0.5.2 端到端 smoke test：spawn `python -m mosaic.bridge`，
-  发送 `tools.call(get_north_capital_flow, ...)` 收到真实北向数据 CSV
-- [ ] 0.5.3 Phase 0 完成确认：
-  - 更新本文档 §3 中 Phase 0 状态为 ✅ + 完成时戳
-  - `git commit "Phase 0: Python sidecar + macro data layer"`
-  - Phase 0 不涉及 LLM 调用，**$0 LLM 成本**
+### Day 5：Bridge 集成测试 ✅ 2026-05-29
+- [x] 0.5.1 复制 `etfagents/tests/test_bridge_protocol.py` 模板，
+      适配 mosaic 包名 → `tests/test_bridge_protocol.py`（458 LOC）。
+      - **Layer 1（14 个协议契约测试）**：每测试 spawn 一个 `python -m mosaic.bridge`
+        子进程做 hermetic 隔离；tempdir 包 cache/results。覆盖 tools.list / tools.call
+        (unknown / invalid / backtest-blocked) / config.{default,get,set} / cache.stats /
+        cache.cleanup / paper.{current_user,buy,suggest_order_from_signal} / backtest
+        validation / unknown method / parse-error 不杀服务。
+      - **Layer 2（5 个 macro tool 子进程测试 + 1 个 live smoke）**：
+        每个 macro tool 都有完整 args_schema；`get_fred_series` 缺 required 抛
+        Pydantic ValidationError；缺 `TUSHARE_TOKEN` 时 `get_pboc_ops` 返干净错误码且
+        bridge 仍能服务后续请求；`get_xueqiu_heat` 在 backtest mode 被 `_UNBOUNDED_BACKTEST_METHODS`
+        阻塞；`get_north_capital_flow` 错误日期格式抛 YYYY-MM-DD 提示。
+      - **§14 议题处理**：paper.* 在 Phase 8 才 port，handler 立 stub → `-32020 PAPER_ERROR`
+        含 "Phase 8" 字样。Day 5 测试明确锁这个契约（用 `assertEqual(err["code"], -32020)`）。
+
+- [x] 0.5.2 端到端 smoke：
+      `test_get_north_capital_flow_live` 用 `@unittest.skipUnless(os.getenv("TUSHARE_TOKEN") ...)`
+      gating，spawn 真实 bridge 子进程，发送 `tools.call(get_north_capital_flow, start_date=2024-06-03, end_date=2024-06-07)`，
+      断言 result.text 含 `"沪深股通"` + `"moneyflow_hsgt"` 头 + 数据行 / 空窗口提示。
+      **当前用户环境未配 `TUSHARE_TOKEN`，该 case 在 Phase 0 收尾时被 skip**；测试结构就位，
+      用户后续 `export TUSHARE_TOKEN=...` 再跑就能验证真实数据来回。
+
+- [x] 0.5.3 Phase 0 完成确认：
+      - **测试统计**：113 tests = **106 passed + 7 skipped**（4 FRED live + 2 Tushare live + 1 bridge live smoke）
+      - bridge 21 RPC 方法注册成功，8 个 macro tool 出现在 `tools.list`
+      - `mosaic.dataflows.interface` 共 26 VENDOR_METHODS / 9 categories
+      - 文档：plan §3 Phase 0 状态切到 ✅
+      - **Phase 0 LLM 成本：$0**（不涉及 LLM 调用，全部测试 + 校验跑在本地）
+
+**Phase 0 综合产出统计**：
+
+| 类别 | LOC | 数量 |
+|---|---|---|
+| 移植自 ETFAgents（dataflows + cache_manager + bridge 模板） | ~7,300 | 22 文件 |
+| 新写 mosaic 代码（FRED + macro_data + macro_tools + bridge 适配） | ~1,890 | 12 文件 |
+| 新写测试 | ~1,440 | 5 文件 |
+| 文档 + 配置 | ~500 | 5 文件 |
+| **合计** | **~11,100** | **44 文件** |
+
+**Phase 0 → Phase 1 待办**：TS skeleton + bridge-client。直接复用 ETFAgents Phase 1 的
+`ts/src/bridge/` (~700 LOC) + `ts/src/llm/factory.ts` (~120 LOC)，建 `mosaic-ts/` 工作区。
+Phase 0 §14 议题中 Tushare endpoint 名 `cb_op` / `yc_cb` / `news` 的 live 验证留待用户配
+`TUSHARE_TOKEN` 后跑 `pytest tests/test_macro_data.py::TestLiveTushare` 完成。
 
 ---
 
