@@ -10,6 +10,7 @@
 
 import { Command } from "commander";
 import { registerBridgePing } from "./commands/bridge-ping.js";
+import { registerDailyCycle } from "./commands/daily-cycle.js";
 import { registerToolCall } from "./commands/tool-call.js";
 import { registerToolLoop } from "./commands/tool-loop.js";
 
@@ -23,5 +24,6 @@ program
 registerBridgePing(program);
 registerToolCall(program);
 registerToolLoop(program);
+registerDailyCycle(program);
 
 await program.parseAsync(process.argv);

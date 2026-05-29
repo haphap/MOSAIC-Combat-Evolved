@@ -1118,6 +1118,44 @@ Phase 0 §14 议题中 Tushare endpoint 名 `cb_op` / `yc_cb` / `news` 的 live 
 
 ### Sub-step 2F：Daily cycle MVP CLI smoke
 
+**2F 设计决策**：
+
+1. **CLI flag 集合**（参考 cli/commands/tool-loop.ts 模式）：
+   - `--cohort <name>`（默认 cohort_default）
+   - `--date <YYYY-MM-DD>`（默认今日，A 股 trading 日历不在 Phase 2 范围）
+   - `--fake-llm`：用 mock LLM 跑端到端，sidecar / tool / graph 都是真的，
+     仅 LLM 调用是 canned。零 API cost。**主验证渠道**。
+   - `--llm-provider <lemonade|anthropic>`：默认从 .env 读
+     LEMONADE_BASE_URL 推断。Phase 2F 实测用 lemonade。
+   - `--out <path>`：JSON dump 最终 state（含 4 layer outputs +
+     portfolio_actions）。默认 stdout。
+
+2. **打印格式**：4 块（L1 regime / L2 sector picks / L3 superinvestor picks
+   / L4 + portfolio_actions），每块 ≤ 20 行。彩色分层（chalk），对终端
+   可读。`--out` 模式输出原始 JSON 不做 ANSI 染色。
+
+3. **错误处理优先级**：bridge 启动失败 / sidecar tool 调用失败 → log + 继续
+   （当前 layer 用 fallback output 占位）。LLM 调用失败 → bubble up 让 CLI
+   exit 1。这避免一个 tool 故障让整个 25-agent cycle 挂。
+
+4. **smoke 测试矩阵**：
+   - **`pnpm dev daily-cycle --fake-llm`**: 必跑通；sidecar + 8 个 macro
+     tool 都真调用（FRED / Tushare token 从 .env），LLM 用 mock。这验证
+     bridge 链 + dataflows + LangGraph 全栈。
+   - **`pnpm dev daily-cycle`** (lemonade)：跑过即可，不强制断言成本。
+     验证 lemonade 本地工具调用 + 中文输出。
+   - 不做 anthropic 跑，留给用户本地 + 生产期。
+
+5. **不写 unit 测试**：CLI 命令本身是 thin wrapper，逻辑都已 covered 在
+   2A-2E 的 228 个测试里。2F 的"测试" = `--fake-llm` smoke 跑出非空
+   portfolio_actions 即合格。
+
+6. **Phase 2 出口标准**（plan §11.2 末已定）：
+   - 25 agents 全部写完 ✓
+   - LangGraph.js 4 层装配跑通 1 次完整 daily cycle ✓ via 2E e2e test
+   - `pnpm dev daily-cycle --fake-llm` 跑通 → smoke 输出 portfolio_actions
+   - PR `phase-2-daily-cycle-mvp → main`
+
 - [ ] `mosaic-ts/src/cli/commands/daily-cycle.ts` —— 新 CLI 命令
       `pnpm dev daily-cycle [--cohort cohort_default] [--date YYYY-MM-DD] [--dry-run]`
 - [ ] 真 sidecar + lemonade 跑通一次完整 cycle（25 agents 串完）

@@ -62,7 +62,7 @@ const API_KEY_ENV: Record<string, string[]> = {
   openrouter: ["OPENROUTER_API_KEY", "OPENAI_API_KEY"],
   ollama: [], // local, no key
   vllm: [], // local, no key
-  lemonade: ["LEMONADE_API_KEY"], // optional; local server may not need it
+  lemonade: [], // local, no key (set LEMONADE_API_KEY only for hosted instances)
   minimax: ["MINIMAX_API_KEY", "OPENAI_API_KEY"],
   deepseek: ["DEEPSEEK_API_KEY", "OPENAI_API_KEY"],
   anthropic: ["ANTHROPIC_API_KEY"],
