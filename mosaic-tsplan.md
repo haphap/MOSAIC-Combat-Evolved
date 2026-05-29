@@ -1013,6 +1013,51 @@ Phase 0 §14 议题中 Tushare endpoint 名 `cb_op` / `yc_cb` / `news` 的 live 
 7. **L3 subgraph**：buildLayer3Graph(deps) 拓扑 START → 4 nodes（并发） →
    END。无 aggregator —— Layer-4 cio 才做最终聚合。
 
+**2D.3 设计决策**（Layer 4 decision agents）：
+
+1. **Layer-4 factory 与 L1/L2/L3 显著不同**：**不调 BridgeApi 工具**，纯
+   synthesis。每个 L4 节点：load prompt → buildUserContext（读特定上游 layers）
+   → 单次 LLM invoke（无 tool loop） → 结构化抽取 → 写 state.layer4_outputs。
+   这让 L4 节点更便宜（每节点 1-2 次 LLM call vs L1-3 的 3-4 次）。
+
+2. **L4 是小 DAG，不是并行 fan-out**：plan §5.4 输入依赖关系如下，
+   buildLayer4Graph 必须显式建出来：
+   ```
+   START ─┬→ cro ────────────┐
+          └→ alpha_discovery ─┴→ autonomous_execution → cio → END
+   ```
+   - cro + alpha_discovery 并行（都读 L1+L2+L3）
+   - autonomous_execution 等 cro+alpha 完成后跑（读其结果 + L3 picks）
+   - cio 最后跑（读所有上层 + L4 cro/alpha/auto_exec）
+   LangGraph 的多 incoming-edge 自动 superstep barrier 处理这个依赖。
+
+3. **types.ts 给 L4 outputs 都加 confidence**：CRO / AlphaDiscovery /
+   AutoExec / CIO 都加 agent-level `confidence: number`，与 L1-3 对齐。
+   `AutoExecOutput.trades[].conviction` 是 per-trade，与 agent confidence
+   并存。
+
+4. **CIO 双写状态**：`state.layer4_outputs.cio` + `state.portfolio_actions`。
+   后者是顶层便利字段（Phase 3 scorecard / TUI 直接读），由 cio 单一写入，
+   replace reducer 一致。
+
+5. **Darwinian weights / JANUS regime 的占位策略**：
+   - autonomous_execution prompt 提到"Darwinian weights" 的概念，但 2D.3
+     用 stub（uniform weights = 1/N）；Phase 3 scorecard 落地后真实 weights
+     从 `state.continuity_context` 流入。
+   - cio prompt 提到"JANUS regime" 概念，但 2D.3 阶段 JANUS 不存在
+     （Phase 6 落地）。cio 直接看 `state.layer1_consensus` 当 regime 信号。
+   - 两个 stub 都在 prompt 里**明确说出来**："本 cycle 没有 Darwinian /
+     JANUS 上下文，按 uniform / 单 cohort 处理"。Phase 3/6 接入时改 prompt。
+
+6. **Schema 严格度递增**：
+   - cro: 简单（rejected_picks 列表 + 风险描述）
+   - alpha_discovery: 简单（novel_picks 列表 + 为什么别人没看到）
+   - autonomous_execution: 中等（trades 含 size_pct + conviction）
+   - **cio**: 严格（portfolio_actions 含 ticker / action / target_weight /
+     holding_period / dissent_notes）。target_weight 必须 sum to 1.0
+     ±0.05 容差（schema 用 superRefine 校验）。dissent_notes 在 cio 与
+     auto_exec 不一致时必须非空。
+
 ### Sub-step 2E：4 层 LangGraph.js graph 装配
 
 - [ ] `mosaic-ts/src/graph/daily_cycle.ts` —— `buildDailyCycleGraph()`

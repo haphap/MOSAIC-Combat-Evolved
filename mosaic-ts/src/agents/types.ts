@@ -265,11 +265,15 @@ export interface CroOutput {
   rejected_picks: Array<{ ticker: string; reason: string }>;
   correlated_risks: string[];
   black_swan_scenarios: string[];
+  /** Self-rated confidence in [0, 1]. Same semantics as L1/L2/L3. */
+  confidence: number;
 }
 
 export interface AlphaDiscoveryOutput {
   agent: "alpha_discovery";
   novel_picks: Array<{ ticker: string; why_missed_by_others: string }>;
+  /** Self-rated confidence in [0, 1]. */
+  confidence: number;
 }
 
 export interface AutoExecOutput {
@@ -280,6 +284,8 @@ export interface AutoExecOutput {
     size_pct: number;
     conviction: number;
   }>;
+  /** Self-rated confidence in [0, 1]. */
+  confidence: number;
 }
 
 export interface PortfolioAction {
@@ -295,6 +301,8 @@ export interface PortfolioAction {
 export interface CioOutput {
   agent: "cio";
   portfolio_actions: PortfolioAction[];
+  /** Self-rated confidence in [0, 1]. */
+  confidence: number;
 }
 
 export interface Layer4Outputs {

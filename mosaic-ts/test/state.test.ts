@@ -57,6 +57,7 @@ describe("state reducers", () => {
         rejected_picks: [{ ticker: "600519.SH", reason: "too crowded" }],
         correlated_risks: ["liquor concentration"],
         black_swan_scenarios: ["regulator action"],
+        confidence: 0.4,
       };
       const after = layer4Reducer(empty, { cro });
       expect(after.cro).toEqual(cro);
@@ -73,10 +74,15 @@ describe("state reducers", () => {
           rejected_picks: [],
           correlated_risks: [],
           black_swan_scenarios: [],
+          confidence: 0,
         },
       };
       const stage2 = layer4Reducer(stage1, {
-        alpha_discovery: { agent: "alpha_discovery", novel_picks: [] },
+        alpha_discovery: {
+          agent: "alpha_discovery",
+          novel_picks: [],
+          confidence: 0,
+        },
       });
       expect(stage2.cro).not.toBeNull();
       expect(stage2.alpha_discovery).not.toBeNull();
@@ -187,6 +193,7 @@ describe("DailyCycleState integration via reducer composition", () => {
       rejected_picks: [{ ticker: "600519.SH", reason: "too crowded" }],
       correlated_risks: [],
       black_swan_scenarios: [],
+      confidence: 0.3,
     };
     const start = emptyLayer4();
     const stage1 = layer4Reducer(start, { cro });
