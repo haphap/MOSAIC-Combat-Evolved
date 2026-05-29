@@ -19,6 +19,7 @@ from . import calendar  # noqa: F401
 from . import config  # noqa: F401
 from . import darwinian  # noqa: F401
 from . import paper  # noqa: F401
+from . import prism  # noqa: F401
 from . import prompts  # noqa: F401
 from . import scorecard  # noqa: F401
 from . import tools  # noqa: F401

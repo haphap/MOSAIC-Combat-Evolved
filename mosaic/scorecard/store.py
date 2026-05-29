@@ -141,6 +141,21 @@ CREATE TABLE IF NOT EXISTS autoresearch_log (
 
 CREATE INDEX IF NOT EXISTS idx_arlog_version
     ON autoresearch_log(prompt_version_id);
+
+-- Phase 5 PRISM: cohort training run tracking (Plan section 7).
+CREATE TABLE IF NOT EXISTS cohort_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    cohort TEXT NOT NULL,
+    date TEXT NOT NULL,                         -- YYYY-MM-DD
+    cycle_started_at TEXT,                      -- ISO-8601
+    cycle_completed_at TEXT,                    -- ISO-8601
+    llm_calls INTEGER,
+    llm_cost_usd REAL,
+    cio_action TEXT,
+    cio_target_weight REAL,
+    notes TEXT,
+    UNIQUE(cohort, date)
+);
 """
 
 
@@ -881,6 +896,109 @@ class ScorecardStore:
         sql += " ORDER BY l.created_at DESC, l.id DESC"
         with self._connect() as conn:
             return [dict(r) for r in conn.execute(sql, params).fetchall()]
+
+    # ── cohort_runs (Phase 5 PRISM) ──────────────────────────────────────
+
+    def create_cohort_run(
+        self,
+        cohort: str,
+        date: str,
+        notes: Optional[str] = None,
+    ) -> int:
+        """INSERT OR IGNORE a cohort run entry and return its id."""
+        now = _utcnow_iso()
+        with self._connect() as conn:
+            cur = conn.execute(
+                """
+                INSERT INTO cohort_runs (cohort, date, cycle_started_at, notes)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(cohort, date) DO UPDATE SET cohort = cohort
+                RETURNING id
+                """,
+                (cohort, date, now, _truncate(notes, 500)),
+            )
+            return int(cur.fetchone()["id"])
+
+    def complete_cohort_run(
+        self,
+        run_id: int,
+        llm_calls: Optional[int] = None,
+        llm_cost_usd: Optional[float] = None,
+        cio_action: Optional[str] = None,
+        cio_target_weight: Optional[float] = None,
+    ) -> None:
+        """Mark a cohort run as completed with optional metrics."""
+        now = _utcnow_iso()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE cohort_runs SET
+                    cycle_completed_at = ?,
+                    llm_calls = ?,
+                    llm_cost_usd = ?,
+                    cio_action = ?,
+                    cio_target_weight = ?
+                WHERE id = ?
+                """,
+                (now, llm_calls, llm_cost_usd, cio_action, cio_target_weight, run_id),
+            )
+
+    def get_cohort_runs(
+        self,
+        cohort: str,
+        since_date: Optional[str] = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """Return cohort runs, newest first."""
+        sql = "SELECT * FROM cohort_runs WHERE cohort = ?"
+        params: list[Any] = [cohort]
+        if since_date:
+            sql += " AND date >= ?"
+            params.append(since_date)
+        sql += " ORDER BY date DESC LIMIT ?"
+        params.append(limit)
+        with self._connect() as conn:
+            return [dict(r) for r in conn.execute(sql, params).fetchall()]
+
+    def get_cohort_status_summary(self, cohort: str) -> dict[str, Any]:
+        """Return summary status for a cohort.
+
+        Returns {cohort, n_runs, last_date, n_mutations, sharpe_latest}.
+        """
+        with self._connect() as conn:
+            cur = conn.execute(
+                "SELECT COUNT(*) AS n, MAX(date) AS last_date "
+                "FROM cohort_runs WHERE cohort = ?",
+                (cohort,),
+            )
+            row = cur.fetchone()
+            n_runs = row["n"] if row else 0
+            last_date = row["last_date"] if row else None
+
+            # Count mutations from prompt_versions.
+            cur2 = conn.execute(
+                "SELECT COUNT(*) AS n FROM prompt_versions WHERE cohort = ?",
+                (cohort,),
+            )
+            n_mutations = cur2.fetchone()["n"]
+
+            # Latest Sharpe from prompt_versions (most recent post_sharpe).
+            cur3 = conn.execute(
+                "SELECT post_sharpe FROM prompt_versions "
+                "WHERE cohort = ? AND post_sharpe IS NOT NULL "
+                "ORDER BY decided_at DESC LIMIT 1",
+                (cohort,),
+            )
+            sharpe_row = cur3.fetchone()
+            sharpe_latest = float(sharpe_row["post_sharpe"]) if sharpe_row else None
+
+        return {
+            "cohort": cohort,
+            "n_runs": n_runs,
+            "last_date": last_date,
+            "n_mutations": n_mutations,
+            "sharpe_latest": sharpe_latest,
+        }
 
 
 # ---------------------------------------------------------------------------

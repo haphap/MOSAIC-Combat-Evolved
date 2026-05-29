@@ -333,6 +333,42 @@ export interface AutoresearchActiveBranch {
   created_at: string;
 }
 
+// --------------------------------------------------------- PRISM (Phase 5)
+
+export interface CohortInfo {
+  name: string;
+  start: string;
+  end: string;
+  description: string;
+  has_branch: boolean;
+  n_runs: number;
+  last_run_date: string | null;
+}
+
+export interface CohortTrainResult {
+  started: boolean;
+  cohort: string;
+  message: string;
+  run_id?: number;
+}
+
+export interface CohortStatus {
+  cohort: string;
+  n_runs: number;
+  n_mutations: number;
+  last_date: string | null;
+  sharpe_latest: number | null;
+}
+
+export interface CohortComparison {
+  cohort: string;
+  n_runs: number;
+  n_mutations: number;
+  n_kept: number;
+  n_reverted: number;
+  latest_date: string | null;
+}
+
 // --------------------------------------------------------- helpers
 
 /**
@@ -602,5 +638,33 @@ export class BridgeApi {
     path: string;
   }): Promise<{ ok: boolean }> {
     return this.client.call<{ ok: boolean }>("autoresearch.cleanup_worktree", params);
+  }
+
+  // prism.* (Phase 5)
+  prismListCohorts(): Promise<{ cohorts: CohortInfo[] }> {
+    return this.client.call<{ cohorts: CohortInfo[] }>("prism.list_cohorts", {});
+  }
+
+  prismTrainCohort(params: {
+    cohort_name: string;
+    start_date?: string;
+    end_date?: string;
+    dry_run?: boolean;
+  }): Promise<CohortTrainResult> {
+    return this.client.call<CohortTrainResult>("prism.train_cohort", params);
+  }
+
+  prismCohortStatus(params: { cohort_name: string }): Promise<CohortStatus> {
+    return this.client.call<CohortStatus>("prism.cohort_status", params);
+  }
+
+  prismCompareCohorts(params?: {
+    metric?: string;
+    since?: string;
+  }): Promise<{ comparisons: CohortComparison[] }> {
+    return this.client.call<{ comparisons: CohortComparison[] }>(
+      "prism.compare_cohorts",
+      params ?? {},
+    );
   }
 }
