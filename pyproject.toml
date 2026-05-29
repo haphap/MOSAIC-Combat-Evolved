@@ -20,6 +20,7 @@ dependencies = [
 # Day 2+ data layer
 data = [
     "pandas>=2.3.0",
+    "numpy>=1.26",
     "requests>=2.32.4",
     "tushare>=1.4.21",
     "akshare>=1.16.0",

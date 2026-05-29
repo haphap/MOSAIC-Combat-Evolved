@@ -85,7 +85,7 @@ Cohort 切换 UI（PRISM）                                       paper_trading/
 | 4 | Autoresearch（git + SQLite，prompt mutation + keep/revert） | 5–6 | ✅ 完成 |
 | 5 | PRISM 7 cohort 训练编排 | 5–6 | ✅ 完成（训练编排落地：§1 并发模型 cohort 顺序/layer 顺序/layer 内≤5 并发；§11.6 5A–5E） |
 | 6 | JANUS 元层（port ATLAS 571 LOC） | 3 | ✅ 完成（元加权落地：7 cohort rolling 准确度 → feasibility-aware softmax → regime 信号 → 跨 cohort blend；§11.7 6A–6D） |
-| 7 | MiroFish 反身性模拟（port ATLAS ~2,800 LOC + Tushare 适配） | 4–5 | ⏭ |
+| 7 | MiroFish 反身性模拟（port ATLAS ~2,800 LOC + Tushare 适配） | 4–5 | ✅ 完成（numpy 情景引擎：相关蒙特卡洛 base/bull/bear/tail + 事件注入 + 打分；前向训练环 + mirofish_runs 隔离账本；§11.8 7A–7E） |
 | 8 | 执行层（paper + backtrader，复用 ETFAgents） | 4 | ⏭ |
 | 9 | Ink TUI + CLI + 文档 + CI 部署 | 6–8 | ⏭ |
 | **总计** | | **50–58 turns / 6.5–9.5 个月业余工时** | |
@@ -2288,6 +2288,118 @@ ATLAS `Janus` 类（2 个时间窗 cohort：18month / 10year）：
 - 用 JANUS regime 信号反向驱动 paper-trading 仓位（Phase 8 执行层）。
 - TUI 权重漂移曲线可视化（Phase 9）。
 - 真实多 cohort 训练数据下的调参（运行期，依赖 Phase 5 实跑）。
+
+---
+
+## 11.8 Phase 7 详细任务（Sub-step 7A–7E）— MiroFish 反身性 / 前向模拟
+
+> 估算 4–5 turns。分支：`phase-7-mirofish`。**目标**：port ATLAS `mirofish/`
+> (~2,800 LOC) 的**前向训练**思想到 MOSAIC —— 用合成「未来情景」（蒙特卡洛
+> 相关价格路径 + 事件注入）让 agent 在「可能发生什么」上做决策，再用合成结果
+> 打分、形成与真实 P&L **隔离**的反身性反馈环。Phase 7 出口后：
+> `pnpm dev mirofish train --fake-llm` 能 (1) 生成 base/bull/bear/tail 情景，
+> (2) 把情景喂给 agent 拿推荐，(3) 对合成价格路径打分，(4) 落 mirofish_runs
+> 账本 —— 一条不碰实盘的「想象力」训练通道。
+
+### ATLAS MiroFish 拆解（5 模块）与 MOSAIC 取舍
+
+| ATLAS 模块 | 作用 | MOSAIC 处理 |
+|---|---|---|
+| `mirofish_futures_generator.py` | **纯 numpy** 相关价格路径蒙特卡洛（Cholesky）+ 情景类型 + 事件注入 | **核心移植**（无 LLM，最值钱）→ `mosaic/mirofish/scenarios.py` |
+| `mirofish_trainer.py` | 把情景喂 agent → 拿 rec → 对路径打分 → 更新权重 | 拆成 Python 打分（`score_recommendation`）+ TS LLM agent-rec（`mirofish/trainer.ts`） |
+| `mirofish_seed_generator.py` | 市场情报 briefing（价格/macro/agent 辩论）作 swarm 种子 | **简化**：MOSAIC 用现有 scorecard/regime 数据，不重写 FMP/FRED briefing；情景起点价取 A 股 ETF |
+| `mirofish_context.py` | 把预测注入 prompt | 推迟（Phase 7 只做训练环，prompt 注入等真实跑） |
+| `mirofish_bridge.py` | ATLAS 自己的桥 | 不需要（MOSAIC 用统一 JSON-RPC bridge） |
+
+### MOSAIC 适配（关键差异，写清楚）
+
+1. **职责切分**（沿用 autoresearch/prism 架构）：Python sidecar 拥有 numpy 情景
+   生成 + 打分 + 持久化；TS 拥有 LLM agent-rec 步骤 + 编排。**不跨语言传 numpy**
+   （情景以 JSON dict 过桥）。
+2. **资产 US → A 股 regime ETF/指数**：ATLAS 用 SPY/QQQ/TLT/GLD/XLE/VXX/HYG。
+   MOSAIC 用：`000300.SH`(沪深300)、`510050.SH`(上证50ETF)、`159915.SZ`(创业板ETF)、
+   `511010.SH`(国债ETF≈TLT)、`518880.SH`(黄金ETF)、`512880.SH`(证券ETF≈高 beta)、
+   `513050.SH`(中概互联≈成长)。`ASSET_PARAMS`(vol/drift) + `CORRELATIONS` 按 A 股
+   特征重设（创业板/证券高 vol、国债/黄金避险负相关、沪深300 为锚）。
+3. **情景类型保留**：base(0.5)/bull(0.2)/bear(0.2)/tail_up(0.05)/tail_down(0.05)，
+   drift 调整 + 事件注入（A 股事件：业绩季 / 解禁 / 政策窗口 / 春节 / FOMC 外溢）。
+4. **打分**：port `score_recommendation` —— rec(BUY/SELL/HOLD + tickers + conviction)
+   对情景 cumulative_return 打分（方向对×收益，conviction 加权奖惩），0–1。
+5. **反馈隔离**：MiroFish 是**合成训练**，结果落独立 `mirofish_runs` 账本（不写
+   `recommendations` / 不进真实 scorecard alpha）。是否反哺 Darwinian 权重 = 推迟
+   决策（先把训练环跑通，记 §14 待决）。
+6. **确定性**：scenario 引擎接受 `seed` 参数（`np.random.default_rng(seed)`），让
+   `--fake-llm` smoke + 测试可重复断言。
+
+### Sub-step 7A：`mosaic/mirofish/scenarios.py` 情景引擎（纯 Python numpy）
+
+- [x] `ASSET_PARAMS`(A 股 7 资产 vol/drift) + `CORRELATIONS`（A 股相关结构）。
+- [x] `generate_correlated_returns(tickers, num_days, adjustments, seed)`：Cholesky
+      相关正态（奇异时 SVD 兜底，port 原逻辑）。
+- [x] `generate_scenario(scenario_type, start_prices, num_days, seed)` → dict：
+      drift 调整（base/bull/bear/tail_up/tail_down 乘子）+ `generate_price_path` +
+      `_generate_events`（A 股事件注入）+ `final_state`（regime 判定）。
+- [x] `generate_all_scenarios(start_prices, num_days, seed)` → 5 情景。
+- [x] `score_recommendation(rec, scenario)` → float[0,1]（port ATLAS 打分 + conviction
+      奖惩）。
+- [x] tests：`tests/test_mirofish.py`（固定 seed 可重复、价格路径长度/收益符号、
+      相关矩阵正定兜底、bull>bear SPY 收益、打分方向 + conviction 奖惩）。
+
+### Sub-step 7B：`mirofish_runs` 持久化 + RPC handlers
+
+- [x] `mosaic/scorecard/store.py`：`mirofish_runs` 表（date, scenario_type,
+      n_scenarios, agent, avg_score, detail_json, created_at）+ `record_mirofish_run`
+      / `get_mirofish_history`。
+- [x] `mosaic/bridge/handlers/mirofish.py`：
+    - `mirofish.generate_scenarios(num_days?, scenarios?, seed?)` → 情景 dict 列表。
+    - `mirofish.score_recommendation(recommendation, scenario)` → {score}。
+    - `mirofish.record_run(date, scenario_type, agent, avg_score, detail?)` → {id}。
+    - `mirofish.get_history(days?)` → 账本。
+    - 注册进 `handlers/__init__.py`。
+- [x] tests：`tests/test_bridge_mirofish.py`（RPC 路由 + deps-light guarded import）。
+
+### Sub-step 7C：TS 前向训练器 + CLI
+
+- [x] `mosaic-ts/src/mirofish/trainer.ts` —— `runMirofishTraining({cohort, numDays,
+      scenarios, agents, fakeLlm, deps})`：① `mirofish.generate_scenarios` 拿情景；
+      ② 对每个 (scenario, agent) 用 LLM（`forceAgent` 风格 / `--fake-llm` canned
+      rec）拿推荐；③ `mirofish.score_recommendation` 打分；④ `mirofish.record_run`
+      落账。无真实 LLM 时用确定性 canned rec。
+- [x] `mosaic-ts/src/bridge/types.ts` —— `MirofishScenario` / `MirofishRunResult` 等
+      接口 + `mirofishGenerateScenarios` / `mirofishScoreRecommendation` /
+      `mirofishRecordRun` / `mirofishGetHistory` wrappers。
+- [x] `mosaic-ts/src/cli/commands/mirofish.ts` —— `generate` / `train` / `history`
+      子命令（picocolors 表格，复用 `_format.pad`），注册进 `cli/index.ts`。
+- [x] tests：`mosaic-ts/test/mirofish_trainer.test.ts`（mock api + canned LLM：
+      scenario→rec→score→record 调用序列、fakeLlm 透传）。
+
+### Sub-step 7D：端到端 fake-llm smoke
+
+- [x] `pnpm dev mirofish train --fake-llm --seed 42` 端到端跑通：生成 5 情景 →
+      每 agent 拿 canned rec → 打分 → mirofish_runs 落账 → 表格汇总。
+- [x] `pnpm dev mirofish generate --seed 42 --print` 确定性情景输出可重复。
+
+### Sub-step 7E：文档 + 验证 + PR
+
+- [x] plan §3 表 Phase 7 → ✅；§11.8 勾选 + 时戳；`mosaic-ts/README.md` 加 mirofish CLI；
+      `pyproject` `.[data]` 显式加 `numpy`。
+- [x] 验证矩阵：`pnpm typecheck/lint/test` + `ruff` + dependency-light `pytest` 全绿。
+- [x] PR `phase-7-mirofish → main`。
+
+### Phase 7 出口标准
+
+- `mosaic/mirofish/scenarios.py` 纯 numpy 情景引擎落地：相关蒙特卡洛 + 5 情景 +
+  事件注入 + 打分，固定 seed 可重复，全有测试覆盖。
+- `mirofish.{generate_scenarios,score_recommendation,record_run,get_history}` RPC +
+  TS wrapper + CLI + `mirofish_runs` 账本。
+- `pnpm dev mirofish train --fake-llm --seed 42` 端到端跑通（合成训练，不碰实盘）。
+
+### 不在 Phase 7 范围
+
+- MiroFish 反哺 Darwinian 真实权重（隔离原则；是否接入记 §14 待决）。
+- LLM swarm 多 actor 角色扮演模拟（ATLAS seed_generator 的 30+ actor）—— MOSAIC
+  先做「情景→agent rec→打分」训练环，多 actor swarm 推迟。
+- prompt 注入 MiroFish 预测（`mirofish_context` 等价物）—— 等真实跑再做。
 
 ---
 

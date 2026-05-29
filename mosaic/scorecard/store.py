@@ -172,6 +172,20 @@ CREATE TABLE IF NOT EXISTS janus_runs (
     created_at TEXT NOT NULL,                   -- ISO-8601
     UNIQUE(date)
 );
+
+-- Phase 7 MiroFish: synthetic forward-training runs (Plan §11.8). Isolated
+-- from real P&L / scorecard alpha — this is imagination-mode training only.
+CREATE TABLE IF NOT EXISTS mirofish_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    date TEXT NOT NULL,                         -- YYYY-MM-DD
+    agent TEXT NOT NULL,
+    scenario_type TEXT NOT NULL,                -- base/bull/bear/tail_up/tail_down/all
+    n_scenarios INTEGER,
+    avg_score REAL,
+    detail_json TEXT,
+    created_at TEXT NOT NULL,                   -- ISO-8601
+    UNIQUE(date, agent, scenario_type)
+);
 """
 
 
@@ -1093,6 +1107,48 @@ class ScorecardStore:
         with self._connect() as conn:
             cur = conn.execute(
                 "SELECT * FROM janus_runs ORDER BY date DESC LIMIT ?", (days,)
+            )
+            return [dict(r) for r in cur.fetchall()]
+
+    # ── mirofish_runs (Phase 7 MiroFish, Plan §11.8) ─────────────────────
+
+    def record_mirofish_run(
+        self,
+        *,
+        date: str,
+        agent: str,
+        scenario_type: str,
+        n_scenarios: int,
+        avg_score: Optional[float],
+        detail_json: Optional[str] = None,
+    ) -> int:
+        """Upsert a synthetic forward-training run (idempotent on
+        (date, agent, scenario_type))."""
+        with self._connect() as conn:
+            cur = conn.execute(
+                """
+                INSERT INTO mirofish_runs (
+                    date, agent, scenario_type, n_scenarios, avg_score,
+                    detail_json, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(date, agent, scenario_type) DO UPDATE SET
+                    n_scenarios = excluded.n_scenarios,
+                    avg_score = excluded.avg_score,
+                    detail_json = excluded.detail_json,
+                    created_at = excluded.created_at
+                RETURNING id
+                """,
+                (date, agent, scenario_type, n_scenarios, avg_score,
+                 _truncate(detail_json, 4000), _utcnow_iso()),
+            )
+            return int(cur.fetchone()["id"])
+
+    def get_mirofish_history(self, days: int = 30) -> list[dict[str, Any]]:
+        """Return the most recent ``days`` mirofish_runs rows, newest first
+        (row LIMIT, not a calendar window)."""
+        with self._connect() as conn:
+            cur = conn.execute(
+                "SELECT * FROM mirofish_runs ORDER BY date DESC, id DESC LIMIT ?", (days,)
             )
             return [dict(r) for r in cur.fetchall()]
 
