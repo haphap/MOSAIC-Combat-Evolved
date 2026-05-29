@@ -521,6 +521,208 @@ def get_industry_policy(
     )
 
 
+# ============================================================ 8. USD/CNY FX
+
+
+def get_usdcny(curr_date: str, look_back_days: int = 30) -> str:
+    """Fetch the USD/CNY exchange rate over a window (Tushare ``fx_daily``).
+
+    Window = ``[curr_date - look_back_days, curr_date]``. Tushare ``fx_daily``
+    only carries the offshore ``USDCNH.FXCM`` pair (FXCM), which tracks
+    onshore USD/CNY closely and is the de-facto CNY-pressure gauge. Dates are
+    GMT (one day behind Beijing) per the Tushare doc.
+
+    Used by ``dollar`` (DXY/CNY/north-flow triangulation).
+    """
+    start_date, end_date = _date_range_from_lookback(curr_date, look_back_days)
+    df = _query_tushare(
+        "fx_daily",
+        ts_code="USDCNH.FXCM",
+        start_date=_to_tushare_date(start_date),
+        end_date=_to_tushare_date(end_date),
+    )
+    return _df_to_markdown_csv(
+        df,
+        title=f"USD/CNY (offshore USDCNH.FXCM) ({start_date} → {end_date})",
+        subtitle="Source: Tushare fx_daily. bid_close/ask_close = CNH per USD. Dates GMT.",
+        empty_note=f"No fx_daily rows for USDCNH.FXCM between {start_date} and {end_date}.",
+    )
+
+
+# ============================================================ 9. Commodity futures
+
+
+# Continuous main-contract ts_codes (品种主连) for the headline commodities the
+# ``commodities`` agent tracks. ``XX.EXG`` is Tushare's main-contract convention.
+_COMMODITY_CONTRACTS = (
+    ("SC.INE", "原油 / Crude Oil"),
+    ("CU.SHF", "铜 / Copper"),
+    ("AU.SHF", "黄金 / Gold"),
+    ("RB.SHF", "螺纹钢 / Rebar"),
+    ("I.DCE", "铁矿石 / Iron Ore"),
+    ("M.DCE", "豆粕 / Soybean Meal"),
+)
+
+
+def get_commodity_prices(curr_date: str, look_back_days: int = 30) -> str:
+    """Fetch a basket of continuous commodity-futures prices (Tushare ``fut_daily``).
+
+    Window = ``[curr_date - look_back_days, curr_date]``. Pulls the main
+    continuous contract for a fixed basket spanning energy (原油), metals
+    (铜/黄金/螺纹/铁矿) and agriculture (豆粕) so the ``commodities`` agent can
+    read oil / metals / ag regimes plus a China-demand signal in one call.
+
+    Used by ``commodities``.
+    """
+    start_date, end_date = _date_range_from_lookback(curr_date, look_back_days)
+    try:
+        import pandas as pd  # noqa: PLC0415
+    except ImportError as exc:
+        raise DataVendorUnavailable(
+            "pandas is required for the commodity basket."
+        ) from exc
+
+    frames = []
+    for ts_code, label in _COMMODITY_CONTRACTS:
+        df = _query_tushare(
+            "fut_daily",
+            ts_code=ts_code,
+            start_date=_to_tushare_date(start_date),
+            end_date=_to_tushare_date(end_date),
+        )
+        if df is not None and not df.empty:
+            keep = [c for c in ("ts_code", "trade_date", "close", "settle", "vol", "oi") if c in df.columns]
+            sub = df[keep].copy()
+            sub.insert(0, "commodity", label)
+            frames.append(sub)
+
+    merged = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+    return _df_to_markdown_csv(
+        merged,
+        title=f"商品期货主连 / Commodity Futures Basket ({start_date} → {end_date})",
+        subtitle="Source: Tushare fut_daily (continuous main contracts). close/settle = price; vol 手; oi 持仓手.",
+        empty_note=f"No fut_daily rows for the commodity basket between {start_date} and {end_date}.",
+    )
+
+
+# ============================================================ 10. iVX proxy (yfinance)
+
+
+def get_ivx(curr_date: str, look_back_days: int = 30, index_symbol: str = "000300.SS") -> str:
+    """Compute a China implied-volatility proxy (iVX) from index realized vol.
+
+    No public iVX feed exists, so we approximate it: pull the CSI 300
+    (``000300.SS``) daily closes from yfinance over the window and report
+    annualized realized volatility (std of daily log returns × √252) alongside
+    the close series. The ``volatility`` agent uses this as the ``ivx_regime``
+    input.
+
+    Used by ``volatility``.
+    """
+    start_date, end_date = _date_range_from_lookback(curr_date, look_back_days)
+    try:
+        import numpy as np  # noqa: PLC0415
+        import pandas as pd  # noqa: PLC0415
+        import yfinance as yf  # noqa: PLC0415
+    except ImportError as exc:
+        raise DataVendorUnavailable(
+            "yfinance + pandas are required for get_ivx. Install via `.[data]`."
+        ) from exc
+
+    # yfinance end is exclusive — bump one day so curr_date is included.
+    yf_end = _shift_date(end_date, 1)
+    try:
+        raw = yf.download(
+            index_symbol, start=start_date, end=yf_end, progress=False, auto_adjust=True
+        )
+    except Exception as exc:
+        raise DataVendorUnavailable(f"yfinance download for {index_symbol} failed: {exc}") from exc
+
+    if raw is None or raw.empty or "Close" not in raw.columns:
+        return _df_to_markdown_csv(
+            pd.DataFrame(),
+            title=f"iVX proxy ({index_symbol}) ({start_date} → {end_date})",
+            empty_note=f"No yfinance data for {index_symbol} between {start_date} and {end_date}.",
+        )
+
+    close = raw["Close"].squeeze()
+    log_ret = np.log(close / close.shift(1)).dropna()
+    realized_vol = float(log_ret.std() * np.sqrt(252) * 100) if len(log_ret) > 1 else float("nan")
+
+    out = pd.DataFrame({"date": close.index.strftime("%Y-%m-%d"), "close": close.values})
+    return _df_to_markdown_csv(
+        out,
+        title=f"iVX proxy ({index_symbol}) ({start_date} → {end_date})",
+        subtitle=(
+            f"annualized_realized_vol_pct={realized_vol:.2f}. "
+            "Proxy: std(daily log return)×√252. Source: yfinance (no public iVX feed)."
+        ),
+        empty_note=f"No yfinance data for {index_symbol}.",
+    )
+
+
+# ============================================================ 11. ETF indicator
+
+
+def get_etf_indicator(symbol: str, curr_date: str, look_back_days: int = 30) -> str:
+    """Fetch ETF price + daily indicators over a window (Tushare ``fund_daily``).
+
+    Window = ``[curr_date - look_back_days, curr_date]``. Returns the ETF's
+    daily close / pct_chg / volume / amount, which the ``volatility`` agent
+    uses for the VIX/iVX-ratio (510050.SH 上证50ETF) regime read.
+
+    Used by ``volatility``.
+    """
+    start_date, end_date = _date_range_from_lookback(curr_date, look_back_days)
+    from .tushare import _normalize_ts_code  # noqa: PLC0415
+
+    df = _query_tushare(
+        "fund_daily",
+        ts_code=_normalize_ts_code(symbol),
+        start_date=_to_tushare_date(start_date),
+        end_date=_to_tushare_date(end_date),
+    )
+    if df is not None and not df.empty:
+        keep = [c for c in ("trade_date", "close", "pct_chg", "vol", "amount") if c in df.columns]
+        if keep:
+            df = df[keep]
+    return _df_to_markdown_csv(
+        df,
+        title=f"ETF 指标 / ETF Indicator {symbol} ({start_date} → {end_date})",
+        subtitle="Source: Tushare fund_daily. close=price; pct_chg=日涨跌%; vol 手; amount 千元.",
+        empty_note=f"No fund_daily rows for {symbol} between {start_date} and {end_date}.",
+    )
+
+
+# ============================================================ 12. ETF fund flow (share)
+
+
+def get_fund_flow(symbol: str, curr_date: str, look_back_days: int = 30) -> str:
+    """Fetch ETF share changes over a window (Tushare ``fund_share``).
+
+    Window = ``[curr_date - look_back_days, curr_date]``. ETF 份额 (fd_share, 万)
+    rising = net creation (inflow), falling = redemption (outflow) — a clean
+    institutional fund-flow signal for A-share ETFs.
+
+    Used by ``institutional_flow``.
+    """
+    start_date, end_date = _date_range_from_lookback(curr_date, look_back_days)
+    from .tushare import _normalize_ts_code  # noqa: PLC0415
+
+    df = _query_tushare(
+        "fund_share",
+        ts_code=_normalize_ts_code(symbol),
+        start_date=_to_tushare_date(start_date),
+        end_date=_to_tushare_date(end_date),
+    )
+    return _df_to_markdown_csv(
+        df,
+        title=f"ETF 份额变动 / Fund Share Flow {symbol} ({start_date} → {end_date})",
+        subtitle="Source: Tushare fund_share. fd_share 基金份额(万). Rising=inflow, falling=redemption.",
+        empty_note=f"No fund_share rows for {symbol} between {start_date} and {end_date}.",
+    )
+
+
 # ============================================================ public exports
 
 __all__ = [
@@ -531,4 +733,9 @@ __all__ = [
     "get_us_china_spread",
     "get_xueqiu_heat",
     "get_industry_policy",
+    "get_usdcny",
+    "get_commodity_prices",
+    "get_ivx",
+    "get_etf_indicator",
+    "get_fund_flow",
 ]

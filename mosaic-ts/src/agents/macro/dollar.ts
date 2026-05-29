@@ -1,10 +1,9 @@
 /**
  * dollar Layer-1 macro agent (Plan §5.1).
  *
- * Plan §5.1 wants `get_fred_series(DTWEXBGS)` + `get_usdcny` +
- * `get_north_capital_flow`. Phase 0 lacks `get_usdcny`; substitute with
- * `get_us_china_spread` (CN-US 10Y spread is the de-facto USDCNY driver).
- * Tracked in plan §14 #8.
+ * Plan §5.1 tools: `get_fred_series(DTWEXBGS)` + `get_usdcny` +
+ * `get_north_capital_flow` — all now available (macro-tools gap closed,
+ * plan §14 #8). `get_us_china_spread` retained as a corroborating signal.
  */
 
 import type { DollarOutput } from "../types.js";
@@ -18,6 +17,7 @@ import { DOLLAR_FIELD_NAMES, DollarSchema } from "./_schemas.js";
 
 export const REQUIRED_TOOLS = [
   "get_fred_series",
+  "get_usdcny",
   "get_north_capital_flow",
   "get_us_china_spread",
 ] as const;

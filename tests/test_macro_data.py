@@ -386,6 +386,114 @@ def test_get_industry_policy_empty_results(mock_query_pro):
     assert "No policy-flagged news rows" in out
 
 
+# --------------------------------------------------------------------- 8. USD/CNY
+
+
+def test_get_usdcny_uses_usdcnh_pair(mock_query_pro):
+    canned = _df_with_rows(
+        [{"ts_code": "USDCNH.FXCM", "trade_date": "20240628", "bid_close": 7.26, "ask_close": 7.27}]
+    )
+    m = mock_query_pro(canned)
+    out = macro_data.get_usdcny("2024-06-30", look_back_days=7)
+    assert m.call_args.kwargs["ts_code"] == "USDCNH.FXCM"
+    assert m.call_args.kwargs["start_date"] == "20240623"
+    assert "USD/CNY" in out
+    assert "7.26" in out
+
+
+def test_get_usdcny_empty(mock_query_pro):
+    mock_query_pro(pd.DataFrame())
+    assert "No fx_daily rows" in macro_data.get_usdcny("2024-06-30", look_back_days=3)
+
+
+# --------------------------------------------------------------------- 9. Commodity prices
+
+
+def test_get_commodity_prices_basket(mock_query_pro):
+    canned = _df_with_rows(
+        [{"ts_code": "CU.SHF", "trade_date": "20240628", "close": 80000, "settle": 79900, "vol": 12, "oi": 50}]
+    )
+    m = mock_query_pro(canned)
+    out = macro_data.get_commodity_prices("2024-06-30", look_back_days=7)
+    # one query per basket contract
+    assert m.call_count == len(macro_data._COMMODITY_CONTRACTS)
+    assert "Commodity Futures Basket" in out
+    assert "铜 / Copper" in out
+
+
+def test_get_commodity_prices_all_empty(mock_query_pro):
+    mock_query_pro(pd.DataFrame())
+    assert "No fut_daily rows" in macro_data.get_commodity_prices("2024-06-30", look_back_days=3)
+
+
+# --------------------------------------------------------------------- 10. iVX proxy
+
+
+@pytest.fixture
+def fake_yf_module(monkeypatch):
+    """Stand-in for yfinance.download."""
+
+    class _StubYf:
+        def __init__(self, df):
+            self._df = df
+
+        def download(self, symbol, start=None, end=None, progress=False, auto_adjust=True):
+            return self._df
+
+    def _make(df):
+        monkeypatch.setitem(__import__("sys").modules, "yfinance", _StubYf(df))
+
+    return _make
+
+
+def test_get_ivx_computes_realized_vol(fake_yf_module):
+    idx = pd.date_range("2024-06-20", periods=6, freq="D")
+    df = pd.DataFrame({"Close": [3500, 3520, 3490, 3530, 3510, 3550]}, index=idx)
+    fake_yf_module(df)
+    out = macro_data.get_ivx("2024-06-26", look_back_days=10)
+    assert "iVX proxy" in out
+    assert "annualized_realized_vol_pct" in out
+
+
+def test_get_ivx_empty(fake_yf_module):
+    fake_yf_module(pd.DataFrame())
+    assert "No yfinance data" in macro_data.get_ivx("2024-06-26", look_back_days=5)
+
+
+# --------------------------------------------------------------------- 11. ETF indicator
+
+
+def test_get_etf_indicator_selects_columns(mock_query_pro):
+    canned = _df_with_rows(
+        [{"trade_date": "20240628", "close": 2.85, "pct_chg": 0.7, "vol": 1000, "amount": 2850, "extra": "drop"}]
+    )
+    m = mock_query_pro(canned)
+    out = macro_data.get_etf_indicator("510050.SH", "2024-06-30", look_back_days=7)
+    assert m.call_args.kwargs["ts_code"] == "510050.SH"
+    assert "ETF Indicator 510050.SH" in out
+    assert "pct_chg" in out
+    assert "extra" not in out
+
+
+# --------------------------------------------------------------------- 12. Fund flow
+
+
+def test_get_fund_flow_emits_shares(mock_query_pro):
+    canned = _df_with_rows(
+        [{"ts_code": "510300.SH", "trade_date": "20240628", "fd_share": 206733.28}]
+    )
+    m = mock_query_pro(canned)
+    out = macro_data.get_fund_flow("510300.SH", "2024-06-30", look_back_days=7)
+    assert m.call_args.kwargs["ts_code"] == "510300.SH"
+    assert "Fund Share Flow" in out
+    assert "fd_share" in out
+
+
+def test_get_fund_flow_empty(mock_query_pro):
+    mock_query_pro(pd.DataFrame())
+    assert "No fund_share rows" in macro_data.get_fund_flow("510300.SH", "2024-06-30", 3)
+
+
 # --------------------------------------------------------------------- live integration
 
 

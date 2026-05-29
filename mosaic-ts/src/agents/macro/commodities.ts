@@ -1,9 +1,9 @@
 /**
  * commodities Layer-1 macro agent (Plan §5.1).
  *
- * Plan §5.1 wants `get_commodity_prices` (general); Phase 0 lacks that.
- * Substitution: `get_fred_series(DCOILWTICO)` + `get_fred_series(GOLDPMGBD228NLBM)`
- * + `get_yield_curve_cn` (CN curve as a China-demand proxy). Tracked plan §14 #8.
+ * Plan §5.1 tools: `get_commodity_prices` (now available — macro-tools gap
+ * closed, plan §14 #8) + `get_fred_series(DCOILWTICO, GOLDPMGBD228NLBM)`.
+ * `get_yield_curve_cn` retained as a China-demand proxy.
  */
 
 import type { CommoditiesOutput } from "../types.js";
@@ -15,7 +15,11 @@ import {
 } from "./_factory.js";
 import { COMMODITIES_FIELD_NAMES, CommoditiesSchema } from "./_schemas.js";
 
-export const REQUIRED_TOOLS = ["get_fred_series", "get_yield_curve_cn"] as const;
+export const REQUIRED_TOOLS = [
+  "get_commodity_prices",
+  "get_fred_series",
+  "get_yield_curve_cn",
+] as const;
 
 export const commoditiesSpec: LayerOneAgentSpec<CommoditiesOutput> = {
   agentId: "commodities",

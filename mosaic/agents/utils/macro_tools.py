@@ -312,6 +312,208 @@ def get_industry_policy(
     return route_to_vendor("get_industry_policy", curr_date, look_back_days, src)
 
 
+# ============================================================ USD/CNY
+
+
+@tool
+def get_usdcny(
+    curr_date: Annotated[
+        str,
+        "Current date (yyyy-mm-dd). The query window ends here.",
+    ],
+    look_back_days: Annotated[
+        int,
+        "How many calendar days of FX history to fetch.",
+    ] = 30,
+) -> str:
+    """
+    Retrieve the USD/CNY exchange rate over a window (offshore USDCNH.FXCM).
+
+    Tushare ``fx_daily`` carries the offshore ``USDCNH.FXCM`` pair, which
+    tracks onshore USD/CNY closely and is the de-facto CNY-pressure gauge.
+    Used by ``dollar`` to triangulate DXY / CNY / north-bound flow.
+
+    Args:
+        curr_date: yyyy-mm-dd window end.
+        look_back_days: window length in calendar days, default 30.
+
+    Returns:
+        Markdown header + CSV with bid/ask close (CNH per USD). Dates are GMT.
+    """
+    return route_to_vendor("get_usdcny", curr_date, look_back_days)
+
+
+# ============================================================ Commodity prices
+
+
+@tool
+def get_commodity_prices(
+    curr_date: Annotated[
+        str,
+        "Current date (yyyy-mm-dd). The query window ends here.",
+    ],
+    look_back_days: Annotated[
+        int,
+        "How many calendar days of futures history to fetch.",
+    ] = 30,
+) -> str:
+    """
+    Retrieve a basket of continuous commodity-futures prices over a window.
+
+    Tushare ``fut_daily`` for the main continuous contracts spanning energy
+    (原油 SC), metals (铜 CU / 黄金 AU / 螺纹 RB / 铁矿 I) and agriculture
+    (豆粕 M). Lets ``commodities`` read oil / metals / ag regimes plus a
+    China-demand signal in one call.
+
+    Args:
+        curr_date: yyyy-mm-dd window end.
+        look_back_days: window length in calendar days, default 30.
+
+    Returns:
+        Markdown header + CSV with commodity, ts_code, trade_date, close,
+        settle, vol, oi.
+    """
+    return route_to_vendor("get_commodity_prices", curr_date, look_back_days)
+
+
+# ============================================================ iVX proxy
+
+
+@tool
+def get_ivx(
+    curr_date: Annotated[
+        str,
+        "Current date (yyyy-mm-dd). The query window ends here.",
+    ],
+    look_back_days: Annotated[
+        int,
+        "How many calendar days of index history to fetch.",
+    ] = 30,
+) -> str:
+    """
+    Compute a China implied-volatility proxy (iVX) from index realized vol.
+
+    No public iVX feed exists, so this pulls the CSI 300 (``000300.SS``) from
+    yfinance and reports annualized realized volatility (std of daily log
+    returns × √252) plus the close series. Used by ``volatility`` for the
+    ``ivx_regime`` read.
+
+    Args:
+        curr_date: yyyy-mm-dd window end.
+        look_back_days: window length in calendar days, default 30.
+
+    Returns:
+        Markdown header (carrying annualized_realized_vol_pct) + CSV of closes.
+    """
+    return route_to_vendor("get_ivx", curr_date, look_back_days)
+
+
+# ============================================================ ETF indicator
+
+
+@tool
+def get_etf_indicator(
+    symbol: Annotated[
+        str,
+        "ETF ticker (e.g. '510050.SH' 上证50ETF, '510300.SH' 沪深300ETF).",
+    ],
+    curr_date: Annotated[
+        str,
+        "Current date (yyyy-mm-dd). The query window ends here.",
+    ],
+    look_back_days: Annotated[
+        int,
+        "How many calendar days of ETF history to fetch.",
+    ] = 30,
+) -> str:
+    """
+    Retrieve ETF daily price + indicators over a window (Tushare ``fund_daily``).
+
+    Returns the ETF's daily close / pct_chg / volume / amount. Used by
+    ``volatility`` for the VIX/iVX-ratio (510050.SH) regime read.
+
+    Args:
+        symbol: ETF ticker.
+        curr_date: yyyy-mm-dd window end.
+        look_back_days: window length in calendar days, default 30.
+
+    Returns:
+        Markdown header + CSV with trade_date, close, pct_chg, vol, amount.
+    """
+    return route_to_vendor("get_etf_indicator", symbol, curr_date, look_back_days)
+
+
+# ============================================================ ETF fund flow
+
+
+@tool
+def get_fund_flow(
+    symbol: Annotated[
+        str,
+        "ETF ticker (e.g. '510300.SH'). Tracks share creation / redemption.",
+    ],
+    curr_date: Annotated[
+        str,
+        "Current date (yyyy-mm-dd). The query window ends here.",
+    ],
+    look_back_days: Annotated[
+        int,
+        "How many calendar days of share history to fetch.",
+    ] = 30,
+) -> str:
+    """
+    Retrieve ETF share changes over a window (Tushare ``fund_share``).
+
+    ETF 份额 (fd_share, 万) rising = net creation (inflow), falling =
+    redemption (outflow) — a clean institutional fund-flow signal. Used by
+    ``institutional_flow``.
+
+    Args:
+        symbol: ETF ticker.
+        curr_date: yyyy-mm-dd window end.
+        look_back_days: window length in calendar days, default 30.
+
+    Returns:
+        Markdown header + CSV with ts_code, trade_date, fd_share (万).
+    """
+    return route_to_vendor("get_fund_flow", symbol, curr_date, look_back_days)
+
+
+# ============================================================ ETF price data
+
+
+@tool
+def get_etf_price_data(
+    symbol: Annotated[
+        str,
+        "ETF ticker (e.g. '510300.SH', '159915.SZ').",
+    ],
+    start_date: Annotated[
+        str,
+        "Start date in yyyy-mm-dd format (inclusive).",
+    ],
+    end_date: Annotated[
+        str,
+        "End date in yyyy-mm-dd format (inclusive).",
+    ],
+) -> str:
+    """
+    Retrieve ETF daily OHLCV price data over a date range (Tushare ``fund_daily``).
+
+    Returns the ETF's daily open/high/low/close + volume/amount. Used by
+    ``emerging_markets`` to read HK / A-share / EM-proxy ETF price action.
+
+    Args:
+        symbol: ETF ticker.
+        start_date: yyyy-mm-dd inclusive lower bound.
+        end_date: yyyy-mm-dd inclusive upper bound.
+
+    Returns:
+        Header + CSV of daily ETF OHLCV.
+    """
+    return route_to_vendor("get_etf_price_data", symbol, start_date, end_date)
+
+
 # ============================================================ public exports
 
 __all__ = [
@@ -323,4 +525,10 @@ __all__ = [
     "get_us_china_spread",
     "get_xueqiu_heat",
     "get_industry_policy",
+    "get_usdcny",
+    "get_commodity_prices",
+    "get_ivx",
+    "get_etf_indicator",
+    "get_fund_flow",
+    "get_etf_price_data",
 ]

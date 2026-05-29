@@ -22,6 +22,11 @@ from .macro_data import (
     get_us_china_spread as get_us_china_spread_impl,
     get_xueqiu_heat as get_xueqiu_heat_impl,
     get_industry_policy as get_industry_policy_impl,
+    get_usdcny as get_usdcny_impl,
+    get_commodity_prices as get_commodity_prices_impl,
+    get_ivx as get_ivx_impl,
+    get_etf_indicator as get_etf_indicator_macro_impl,
+    get_fund_flow as get_fund_flow_impl,
 )
 from .tushare import (
     get_etf_daily as get_tushare_etf_daily,
@@ -123,6 +128,11 @@ TOOLS_CATEGORIES = {
             "get_us_china_spread",
             "get_xueqiu_heat",
             "get_industry_policy",
+            "get_usdcny",
+            "get_commodity_prices",
+            "get_ivx",
+            "get_etf_indicator",
+            "get_fund_flow",
         ]
     }
 }
@@ -240,6 +250,21 @@ VENDOR_METHODS = {
     "get_industry_policy": {
         "tushare": get_industry_policy_impl,
     },
+    "get_usdcny": {
+        "tushare": get_usdcny_impl,
+    },
+    "get_commodity_prices": {
+        "tushare": get_commodity_prices_impl,
+    },
+    "get_ivx": {
+        "yfinance": get_ivx_impl,
+    },
+    "get_etf_indicator": {
+        "tushare": get_etf_indicator_macro_impl,
+    },
+    "get_fund_flow": {
+        "tushare": get_fund_flow_impl,
+    },
 }
 
 _RANGE_DATE_METHODS = {
@@ -270,6 +295,11 @@ _CURRENT_DATE_METHODS = {
     "get_yield_curve_cn": 0,
     "get_us_china_spread": 0,
     "get_industry_policy": 0,
+    "get_usdcny": 0,
+    "get_commodity_prices": 0,
+    "get_ivx": 0,
+    "get_etf_indicator": 1,
+    "get_fund_flow": 1,
 }
 
 _UNBOUNDED_BACKTEST_METHODS = {

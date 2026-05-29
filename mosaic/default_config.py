@@ -120,6 +120,12 @@ DEFAULT_CONFIG = {
         "get_xueqiu_heat": "akshare",
         "get_industry_policy": "tushare",
         "get_fred_series": "fred",
+        # Macro layer gap-fill (Plan §14 #8 / §11.5 4.0 P1)
+        "get_usdcny": "tushare",
+        "get_commodity_prices": "tushare",
+        "get_ivx": "yfinance",
+        "get_etf_indicator": "tushare",
+        "get_fund_flow": "tushare",
     },
     "snapshot_max_age_days": 30,
     "backtest_cache_max_age_days": 90,
