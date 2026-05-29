@@ -80,6 +80,7 @@ export class BridgeClient {
     } catch (err) {
       const error = new BridgeStartupError(
         `Failed to spawn ${this.python.python}: ${(err as Error).message}`,
+        err,
       );
       this.startError = error;
       throw error;
@@ -88,7 +89,7 @@ export class BridgeClient {
     this.child = child;
 
     child.on("error", (err) => {
-      const error = new BridgeStartupError(`Bridge process error: ${err.message}`);
+      const error = new BridgeStartupError(`Bridge process error: ${err.message}`, err);
       this.startError = error;
       this.failPending(error);
     });
@@ -174,7 +175,7 @@ export class BridgeClient {
         if (err) {
           this.pending.delete(id);
           if (timer) clearTimeout(timer);
-          reject(new BridgeTransportError(`Failed to write request: ${err.message}`));
+          reject(new BridgeTransportError(`Failed to write request: ${err.message}`, err));
         }
       });
     });
@@ -215,6 +216,7 @@ export class BridgeClient {
       this.failPending(
         new BridgeTransportError(
           `Bridge emitted non-JSON line: ${line.slice(0, 200)} (${(err as Error).message})`,
+          err,
         ),
       );
       return;

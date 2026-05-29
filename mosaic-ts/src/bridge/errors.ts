@@ -31,8 +31,14 @@ export class RpcError extends Error {
   readonly data: unknown;
   readonly method: string;
 
-  constructor(method: string, code: number, message: string, data: unknown = undefined) {
-    super(`${method} failed [${code}]: ${message}`);
+  constructor(
+    method: string,
+    code: number,
+    message: string,
+    data: unknown = undefined,
+    cause?: unknown,
+  ) {
+    super(`${method} failed [${code}]: ${message}`, cause !== undefined ? { cause } : undefined);
     this.method = method;
     this.code = code;
     this.data = data;
@@ -42,9 +48,17 @@ export class RpcError extends Error {
 /** Thrown when the bridge subprocess cannot be located or started. */
 export class BridgeStartupError extends Error {
   override readonly name = "BridgeStartupError";
+
+  constructor(message: string, cause?: unknown) {
+    super(message, cause !== undefined ? { cause } : undefined);
+  }
 }
 
 /** Thrown when a request times out or the bridge dies mid-call. */
 export class BridgeTransportError extends Error {
   override readonly name = "BridgeTransportError";
+
+  constructor(message: string, cause?: unknown) {
+    super(message, cause !== undefined ? { cause } : undefined);
+  }
 }

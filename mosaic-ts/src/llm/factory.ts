@@ -32,14 +32,23 @@ const OPENAI_COMPATIBLE = new Set([
 
 const NATIVE_PROVIDERS = new Set(["anthropic"]);
 
-/** Default base URLs per provider when the bridge config doesn't specify one. */
+/** Default base URLs per provider when the bridge config doesn't specify one.
+ *
+ * The Lemonade default below targets the standard `lemonade-server-dev`
+ * binary on AMD Ryzen AI / NPU builds. If `--provider lemonade` connects to a
+ * different port (some builds use 11434 for Ollama compat, others run the
+ * SDK directly on a custom port), override at the call site:
+ *   - CLI: pass `--baseUrl http://<host>:<port>/api/v0` (LlmOptions.baseUrl).
+ *   - Config: set `backend_url` in the bridge config (config.set / .env).
+ * Verify the actual URL from the `lemonade-server-dev` startup log.
+ */
 const DEFAULT_BASE_URL: Record<string, string | undefined> = {
   openai: undefined, // SDK default
   xai: "https://api.x.ai/v1",
   openrouter: "https://openrouter.ai/api/v1",
   ollama: "http://localhost:11434/v1",
   vllm: "http://localhost:8000/v1",
-  lemonade: "http://localhost:8000/api/v0", // AMD Lemonade default
+  lemonade: "http://localhost:8000/api/v0",
   minimax: "https://api.minimax.chat/v1",
   deepseek: "https://api.deepseek.com/v1",
 };

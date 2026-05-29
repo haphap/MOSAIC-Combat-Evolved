@@ -8,7 +8,24 @@ export function registerToolCall(program: Command): void {
     .description("Invoke a bridge tool directly. Args is a JSON object string.")
     .option("--as-of-date <date>", "Backtest mode: clamp date arguments to this YYYY-MM-DD")
     .action(async (name: string, argsJson: string | undefined, opts: { asOfDate?: string }) => {
-      const args: Record<string, unknown> = argsJson ? JSON.parse(argsJson) : {};
+      let args: Record<string, unknown> = {};
+      if (argsJson) {
+        try {
+          const parsed: unknown = JSON.parse(argsJson);
+          if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+            console.error(
+              pc.red('error: argsJson must be a JSON object (e.g. \'{"ticker":"600519.SH"}\')'),
+            );
+            process.exitCode = 1;
+            return;
+          }
+          args = parsed as Record<string, unknown>;
+        } catch (err) {
+          console.error(pc.red(`error: argsJson is not valid JSON — ${(err as Error).message}`));
+          process.exitCode = 1;
+          return;
+        }
+      }
       const client = new BridgeClient();
       const api = new BridgeApi(client);
       try {

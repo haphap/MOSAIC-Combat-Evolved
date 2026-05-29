@@ -1,13 +1,16 @@
 /**
- * Typed wrappers for the 21 RPC methods exposed by `mosaic.bridge` (Phase 0).
+ * Wire-level type definitions for the JSON-RPC methods exposed by
+ * `mosaic.bridge` (Phase 0 surface = 21 RPC methods registered).
  *
  * Keep this file as the single source of truth for the wire-level shapes.
  * If a method's params/result change on the Python side, update the type
  * here in the same commit.
  *
- * Phase 4+ will expand this surface (scorecard.* / autoresearch.* /
- * prism.* / janus.* / mirofish.* / prompts.*); add typed wrappers as those
- * RPCs land.
+ * The :class:`BridgeApi` helper at the bottom only provides typed wrappers
+ * for the subset of methods currently exercised by the TS front-end. The
+ * remaining methods are reachable via ``client.call(method, params)`` and
+ * will get typed wrappers as later phases need them (Phase 8 paper-trading
+ * workflow, Phase 4+ scorecard / autoresearch / prism / janus / mirofish).
  */
 
 import type { BridgeClient } from "./client.js";
@@ -57,8 +60,52 @@ export interface CacheStats {
 
 export type CacheCategory = "api" | "signals" | "snapshots" | "checkpoints";
 
-/** MOSAIC config — open shape; read defaults from `config.default`. */
-export type MosaicConfig = Record<string, unknown>;
+/**
+ * MOSAIC config — the canonical Phase 0 fields are typed below; the bridge
+ * exposes other keys (e.g. tool_vendors, role_brief_specs, memory_log_path)
+ * that vary by phase, so the index signature keeps the shape open.
+ *
+ * Phase 2+ will tighten further (cohort state, agent debate budgets, etc.) —
+ * follow up in plan §14 #7 when those land.
+ */
+export interface MosaicConfig {
+  // ----- LLM (Plan §1, §13.3) -----
+  /** "anthropic" | "openai" | "deepseek" | "lemonade" | ... — see `src/llm/factory.ts`. */
+  llm_provider: string;
+  deep_think_llm: string;
+  quick_think_llm: string;
+  /** Optional override base URL — usually left null and resolved per-provider. */
+  backend_url: string | null;
+  /** "low" | "medium" | "high" — maps to Anthropic extended-thinking budget. */
+  anthropic_effort: string | null;
+
+  // ----- Output (Plan §10) -----
+  /** "Chinese" (default) | "English" | "Bilingual". */
+  output_language: string;
+  research_depth_name: string;
+
+  // ----- Cohort (Plan §1, §9) -----
+  /** Active cohort key, must exist in `cohorts` below. */
+  active_cohort: string;
+  /** 7 cohorts × {start, end} ISO date strings (Plan §9). */
+  cohorts: Record<string, { start: string; end: string }>;
+
+  // ----- Autoresearch (Plan §1, §8) -----
+  autoresearch: {
+    agent_mutation_cooldown_hours: number;
+    keep_revert_lockout_days: number;
+    keep_threshold_delta_sharpe: number;
+    monthly_modification_cap_per_cohort: number;
+    evaluation_horizon_trading_days: number;
+  };
+
+  // ----- Data vendors (Phase 0) -----
+  data_vendors: Record<string, string>;
+  tool_vendors: Record<string, string>;
+
+  // ----- Open extension for fields not yet stabilised. -----
+  [key: string]: unknown;
+}
 
 export interface PaperAccount {
   user_id: string;
@@ -125,8 +172,13 @@ export type BacktestResult = Record<string, unknown>;
 // --------------------------------------------------------- helpers
 
 /**
- * Ergonomic helper around a BridgeClient. Methods are 1:1 with RPC names
- * (with dots replaced by camelCase grouping).
+ * Ergonomic helper around a BridgeClient. Provides typed wrappers for the
+ * subset of RPC methods the TS front-end currently uses (Phase 0/1: tools.* +
+ * config.* + cache.* + read-only paper.* + backtest.*). The Python sidecar
+ * registers more (`paper.{register,login,logout,reset_account,buy,sell,
+ * suggest_order_from_signal}`, `cache.{clear,details}`); those are reachable
+ * via ``client.call(method, params)`` and will get typed wrappers when Phase 8
+ * lands the paper-trading workflow.
  */
 export class BridgeApi {
   constructor(private readonly client: BridgeClient) {}
