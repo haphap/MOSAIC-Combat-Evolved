@@ -256,3 +256,100 @@ class TestScorer:
         out2 = scorer.score_pending("cohort_default", "2024-07-02")
         assert out1["scored"] == 2
         assert out2["scored"] == 0  # nothing pending after first pass
+
+    def test_weekend_today_snaps_backward(self, populated_store, monkeypatch):
+        """PR #3 review hotfix #2: when today=Saturday/Sunday, scorer must
+        snap BACKWARD to the previous trading day. Snapping forward would
+        fetch nonexistent close prices and prematurely mark rows scored."""
+        _populate_calendar()
+        # Mon 06-24 + 5 trading days = Mon 07-01. To make the row maturity
+        # check correct we need today's last_trading_day >= Mon 07-01.
+        # Sunday 2024-07-07 → snap backward → Fri 07-05. But Mon 07-01 ≤ Fri
+        # 07-05, so the 5d window IS matured.
+        prices = {
+            ("688981.SH", "2024-06-24"): 100.0,
+            ("688981.SH", "2024-07-01"): 105.0,
+            ("600519.SH", "2024-06-24"): 1000.0,
+            ("600519.SH", "2024-07-01"): 1020.0,
+            ("000300.SH", "2024-06-24"): 3500.0,
+            ("000300.SH", "2024-07-01"): 3535.0,
+        }
+        monkeypatch.setattr(scorer_module, "_fetch_close", _make_fetcher(prices))
+
+        # Sunday — would have snapped FORWARD to Mon 07-08 in the old code,
+        # causing _fetch_close(t_5d) to fetch a future date.
+        scorer = Scorer(populated_store)
+        out = scorer.score_pending("cohort_default", "2024-07-07")
+        assert out["scored"] == 2
+        assert out["skipped_missing"] == 0  # no NULL'd rows
+
+    def test_immature_row_when_today_is_weekend_too_close(
+        self, populated_store, monkeypatch
+    ):
+        """If today is Saturday and last trading day < row.date + 5td, the
+        row must remain pending — not be force-scored against future data."""
+        _populate_calendar()
+        # Row date = Mon 06-24. last_trading_day for Sat 06-29 = Fri 06-28.
+        # cutoff_5d = previous_trading_day(Fri 06-28, 5) = Fri 06-21.
+        # Row dated Mon 06-24 > 06-21 → not in pending list → out["scored"] = 0.
+        monkeypatch.setattr(scorer_module, "_fetch_close", _make_fetcher({}))
+        scorer = Scorer(populated_store)
+        out = scorer.score_pending("cohort_default", "2024-06-29")  # Saturday
+        assert out["scored"] == 0
+        # Row should still be pending after this call
+        pending = populated_store.list_pending(cohort="cohort_default")
+        assert len(pending) > 0
+
+
+# ---------------------------------------------------------------------------
+# Index detection (PR #3 review hotfix #3)
+# ---------------------------------------------------------------------------
+
+
+class TestIndexDetection:
+    def test_canonical_csi300_is_index(self):
+        from mosaic.scorecard.scorer import _is_a_share_index
+
+        assert _is_a_share_index("000300.SH") is True
+
+    def test_sse_indices(self):
+        from mosaic.scorecard.scorer import _is_a_share_index
+
+        assert _is_a_share_index("000016.SH") is True  # 上证50
+        assert _is_a_share_index("000905.SH") is True  # 中证500
+        assert _is_a_share_index("000001.SH") is True  # 上证综指
+
+    def test_szse_indices(self):
+        from mosaic.scorecard.scorer import _is_a_share_index
+
+        assert _is_a_share_index("399001.SZ") is True  # 深证成指
+        assert _is_a_share_index("399006.SZ") is True  # 创业板指
+        assert _is_a_share_index("399300.SZ") is True  # alt CSI300
+
+    def test_csi_national_index(self):
+        from mosaic.scorecard.scorer import _is_a_share_index
+
+        assert _is_a_share_index("932000.SH") is True
+
+    def test_szse_main_board_stock_is_not_index(self):
+        """000001.SZ is Ping An Bank (a stock), NOT an index — same prefix
+        as SSE 000001.SH (上证综指 / index). Market suffix disambiguates."""
+        from mosaic.scorecard.scorer import _is_a_share_index
+
+        assert _is_a_share_index("000001.SZ") is False
+
+    def test_typical_stocks_are_not_indices(self):
+        from mosaic.scorecard.scorer import _is_a_share_index
+
+        assert _is_a_share_index("600519.SH") is False  # 茅台
+        assert _is_a_share_index("688981.SH") is False  # 中芯国际
+        assert _is_a_share_index("002371.SZ") is False  # 中创新航
+        assert _is_a_share_index("300750.SZ") is False  # 宁德时代
+
+    def test_invalid_format_rejected(self):
+        from mosaic.scorecard.scorer import _is_a_share_index
+
+        assert _is_a_share_index("000300") is False  # no market suffix
+        assert _is_a_share_index("000300.HK") is False  # wrong market
+        assert _is_a_share_index("0000300.SH") is False  # too long
+        assert _is_a_share_index("00030.SH") is False  # too short

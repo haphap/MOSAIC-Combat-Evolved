@@ -2,13 +2,13 @@
  * Phase 3E CLI: ``pnpm dev scorecard``.
  *
  * Reads ``scorecard.list_skill`` from the bridge and prints a per-agent
- * skill table sorted by sharpe_30d descending. Quartile 1 (top 25%) →
+ * skill table sorted by sharpe_window descending. Quartile 1 (top 25%) →
  * green, quartile 4 (bottom 25%) → red, in-between dim.
  *
- * The bridge handler computes mean_alpha_5d / sharpe_30d on the fly from
- * scored recommendations; this CLI just renders. For canonical
- * window-bound 30d Sharpe (used by autonomous_execution), use
- * ``pnpm dev darwinian`` instead.
+ * The bridge handler computes mean_alpha_5d / sharpe_window on the fly from
+ * scored recommendations. The window is whatever the caller asked for via
+ * ``--since`` (all-time when omitted) — for canonical rolling-30-calendar-day
+ * Sharpe used by autonomous_execution, see ``pnpm dev darwinian``.
  */
 
 import type { Command } from "commander";
@@ -25,7 +25,9 @@ interface ScorecardOptions {
 export function registerScorecard(program: Command): void {
   program
     .command("scorecard")
-    .description("Per-agent skill table (mean alpha_5d + sharpe_30d) from scored recommendations.")
+    .description(
+      "Per-agent skill table (mean alpha_5d + sharpe_window) from scored recommendations.",
+    )
     .option("--cohort <name>", "Cohort id (default cohort_default)")
     .option("--since <date>", "Restrict to rows with date >= YYYY-MM-DD (default: all-time)")
     .option("--out <path>", "Write JSON to <path> instead of pretty-printing")
@@ -91,10 +93,10 @@ function printScorecardTable(
     return;
   }
 
-  // Sort by sharpe_30d descending (None / null sinks to bottom).
+  // Sort by sharpe_window descending (None / null sinks to bottom).
   const sorted = [...rows].sort((a, b) => {
-    const sa = a.sharpe_30d;
-    const sb = b.sharpe_30d;
+    const sa = a.sharpe_window;
+    const sb = b.sharpe_window;
     if (sa === null && sb === null) return 0;
     if (sa === null) return 1;
     if (sb === null) return -1;
@@ -114,7 +116,7 @@ function printScorecardTable(
     const w = weights[r.agent];
     const quartile = w?.quartile ?? null;
     const colourer = quartile === 1 ? pc.green : quartile === 4 ? pc.red : (s: string) => s;
-    const sharpe = r.sharpe_30d === null ? "(n<5)" : r.sharpe_30d.toFixed(2);
+    const sharpe = r.sharpe_window === null ? "(n<5)" : r.sharpe_window.toFixed(2);
     const weight = w ? w.weight.toFixed(2) : pc.dim("–");
     const q = quartile === null ? "–" : String(quartile);
     const meanAlphaPct = `${(r.mean_alpha_5d * 100).toFixed(2)}%`;
@@ -124,7 +126,7 @@ function printScorecardTable(
   }
 
   const totalObs = sorted.reduce((s, r) => s + r.n_obs, 0);
-  const ranked = sorted.filter((r) => r.sharpe_30d !== null).length;
+  const ranked = sorted.filter((r) => r.sharpe_window !== null).length;
   console.log(
     pc.dim(
       `\n  ${sorted.length} agents, ${totalObs} scored observations, ${ranked} with sufficient data (n≥5).`,

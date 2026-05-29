@@ -188,8 +188,14 @@ export interface SkillRow {
   agent: string;
   /** Sample mean of alpha_5d across the queried window. */
   mean_alpha_5d: number;
-  /** Annualized Sharpe over the same sample (null when n_obs < 5). */
-  sharpe_30d: number | null;
+  /**
+   * Annualized Sharpe over the queried window (since `since` param to
+   * all-time). Null when n_obs < 5. Note: this is NOT the rolling-30-day
+   * Sharpe — that lives on ``DarwinianAgentWeight.sharpe_30``.
+   * Renamed from ``sharpe_30d`` in the PR #3 review hotfix to make the
+   * window-dependent semantic explicit.
+   */
+  sharpe_window: number | null;
   n_obs: number;
 }
 

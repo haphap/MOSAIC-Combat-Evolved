@@ -1,9 +1,18 @@
 """Darwinian weights compute (Plan §11.3 sub-step 3C).
 
 Reads scored rows from ``ScorecardStore.list_scored``, computes per-agent
-rolling Sharpe over 30 / 90 trading-day windows, projects to a continuous
-weight in [0.3, 2.5], and upserts the (cohort, agent, date) row in
-``darwinian_weights``.
+rolling Sharpe over 30 / 90 **calendar-day** windows, projects to a
+continuous weight in [0.3, 2.5], and upserts the (cohort, agent, date) row
+in ``darwinian_weights``.
+
+**Window semantics — calendar days, not trading days** (PR #3 review hotfix):
+The cutoff is computed via ``today - timedelta(days=N)``, which is calendar
+days. At daily-cycle cadence (one alpha_5d per trading day) this gives
+≈ N × 5/7 trading observations. We accept the calendar-day approximation
+because (a) it's simpler, (b) it's robust against missed cycles (a
+holiday-shortened week still has ~21 calendar-day observations even when
+trading days are thin), and (c) the Sharpe estimate is dominated by sample
+size rather than the precise window edge.
 
 Weight formula (plan §11.3 design decision #6):
 
@@ -34,9 +43,10 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-# Trading-day windows
-WINDOW_30 = 30
-WINDOW_90 = 90
+# Calendar-day windows. Re-named from WINDOW_30/WINDOW_90 in the PR #3
+# review hotfix to make the (calendar, not trading) semantic explicit.
+CALENDAR_DAYS_30 = 30
+CALENDAR_DAYS_90 = 90
 
 # Below this number of scored observations, we don't trust Sharpe.
 MIN_OBS_FOR_SHARPE = 5
@@ -110,8 +120,8 @@ def compute_weights(store, cohort: str, today: str) -> dict:
     # Compute 30d and 90d Sharpe per agent.
     per_agent_sharpe: dict[str, dict[str, Optional[float]]] = {}
     for agent, rows in by_agent.items():
-        rows_30 = _filter_recent(rows, today, WINDOW_30)
-        rows_90 = _filter_recent(rows, today, WINDOW_90)
+        rows_30 = _filter_recent(rows, today, CALENDAR_DAYS_30)
+        rows_90 = _filter_recent(rows, today, CALENDAR_DAYS_90)
         per_agent_sharpe[agent] = {
             "n_30": len(rows_30),
             "sharpe_30": _sharpe([r["alpha_5d"] for r in rows_30]),

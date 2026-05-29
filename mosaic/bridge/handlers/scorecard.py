@@ -4,13 +4,19 @@ Surface (Plan §11.3 design decision #10 — scorecard / darwinian namespaces):
     * scorecard.append           (state: dict) → {ingested: int}
     * scorecard.score_pending    (cohort: str, today: str) → outcome dict
     * scorecard.list_skill       (cohort: str, since?: str)
-                                 → [{agent, mean_alpha_5d, sharpe_30d, n_obs}]
+                                 → [{agent, mean_alpha_5d, sharpe_window, n_obs}]
 
 The TypeScript front-end calls scorecard.append at end of each
 `pnpm dev daily-cycle` run (the CLI passes the final state dict). Score
 cron (operator-driven, daily after market close) calls scorecard.score_pending
 followed by darwinian.compute. List_skill is read-only — used by the
 `pnpm dev scorecard` CLI in 3E.
+
+Note (PR #3 review hotfix #4): this handler returns ``sharpe_window``,
+NOT ``sharpe_30d``. The window is determined by the ``since`` parameter
+(all-time when omitted) — it does NOT match the rolling 30-day Sharpe in
+``darwinian.compute``. The two are intentionally different views of the
+same data; the field name reflects that.
 """
 
 from __future__ import annotations
@@ -122,15 +128,16 @@ def scorecard_list_skill(params: dict[str, Any]) -> dict[str, Any]:
 
     Returns:
         {"rows": [
-            {"agent": ..., "mean_alpha_5d": float, "sharpe_30d": float | None,
+            {"agent": ..., "mean_alpha_5d": float, "sharpe_window": float | None,
              "n_obs": int},
             ...
         ]}
 
-    Note: ``sharpe_30d`` here is computed from ALL scored rows since
-    ``since`` (or all-time when since omitted), not the rolling 30 trading
-    days used by ``darwinian.compute``. Use ``darwinian.get_weights`` for
-    the canonical 30d-window Sharpe.
+    Note (PR #3 review hotfix #4): ``sharpe_window`` is computed from ALL
+    scored rows since ``since`` (or all-time when since omitted) — the
+    window is whatever the caller asked for, not necessarily 30 days.
+    Use ``darwinian.get_weights`` for the canonical rolling-30-calendar-day
+    Sharpe.
     """
     cohort = _require_str(params, "cohort")
     since: Optional[str] = params.get("since") or None
@@ -165,7 +172,7 @@ def scorecard_list_skill(params: dict[str, Any]) -> dict[str, Any]:
             {
                 "agent": agent,
                 "mean_alpha_5d": mean,
-                "sharpe_30d": sharpe,
+                "sharpe_window": sharpe,
                 "n_obs": n,
             }
         )

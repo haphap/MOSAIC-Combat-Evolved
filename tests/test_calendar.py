@@ -137,3 +137,32 @@ class TestFallback:
         assert cal.is_trading_day("2024-06-22") is False
         # 2024-06-24 = Monday → trading
         assert cal.is_trading_day("2024-06-24") is True
+
+
+class TestCacheCap:
+    """PR #3 review hotfix #5: cache must not grow unbounded."""
+
+    def test_cap_clears_at_threshold(self, monkeypatch):
+        # Disable Tushare → forces weekday-fill path which writes one cache
+        # entry per calendar day in the requested window.
+        monkeypatch.setattr(
+            cal,
+            "_fetch_trade_cal_via_tushare",
+            lambda start, end: None,
+        )
+        # Tighten the cap so the test stays fast.
+        monkeypatch.setattr(cal, "_CACHE_MAX_ENTRIES", 100)
+
+        # First query — fills ~120 entries (60d window each side + content)
+        cal.is_trading_day("2024-01-15")
+        first_size = len(cal._calendar_cache)
+        assert first_size > 0
+
+        # Walk to a far-future date that triggers a refresh window
+        cal.is_trading_day("2030-06-15")
+        # Cache should have been cleared and refilled with the new window
+        # (rather than monotonically grown to ~6.5 years × 365 ≈ 2400 entries)
+        size_after_jump = len(cal._calendar_cache)
+        assert size_after_jump < 1000, (
+            f"cache should have been capped; grew to {size_after_jump} entries"
+        )

@@ -27,6 +27,15 @@ logger = logging.getLogger(__name__)
 _calendar_cache: dict[date, bool] = {}
 _cache_loaded_for: tuple[date, date] | None = None
 
+# Cap (PR #3 review hotfix #5): every ``_ensure_cache`` call may expand the
+# window by 60 days, so a long-running daemon (e.g. autoresearch cron) that
+# walks across many widely-separated dates could grow the cache without
+# bound. 5000 entries ≈ 14 years of trading days — far more than any single
+# cohort backtest needs. When this is exceeded we drop the cache and force
+# a fresh refetch on the next query. The bounds in ``_cache_loaded_for``
+# are also reset so existing entries don't get stale-served.
+_CACHE_MAX_ENTRIES = 5000
+
 
 def _parse_date(date_str: str) -> date:
     """Accept YYYY-MM-DD or YYYYMMDD; raise on anything else."""
@@ -51,14 +60,38 @@ def _ensure_cache(start: date, end: date) -> None:
     """Lazily populate ``_calendar_cache`` covering [start, end].
 
     If the requested range is not fully contained in the cache, re-fetch.
+
+    Cap behaviour (PR #3 review hotfix #5): when the cache is already
+    large (> ½ of ``_CACHE_MAX_ENTRIES``) and a new fetch is needed, drop
+    the existing cache and fetch only the request window — don't merge
+    with old bounds. This keeps memory bounded in long-running daemons
+    that walk widely-separated dates.
     """
     global _cache_loaded_for
     if _cache_loaded_for and _cache_loaded_for[0] <= start and end <= _cache_loaded_for[1]:
         return
 
+    # Cap: if cache is already large, evict before fetching a new window
+    # (so the merged window doesn't blow past the cap).
+    cache_was_capped = len(_calendar_cache) > _CACHE_MAX_ENTRIES // 2
+    if cache_was_capped:
+        logger.info(
+            "calendar cache evicted (had %d entries, cap=%d) before fetching new window",
+            len(_calendar_cache),
+            _CACHE_MAX_ENTRIES,
+        )
+        _calendar_cache.clear()
+        _cache_loaded_for = None
+
     # Pull a generous window around the request to avoid frequent re-fetches.
-    fetch_start = min(start, _cache_loaded_for[0]) if _cache_loaded_for else start
-    fetch_end = max(end, _cache_loaded_for[1]) if _cache_loaded_for else end
+    # When we just evicted, fetch only the request window (don't merge with
+    # the cleared bounds — that would defeat the cap).
+    if _cache_loaded_for and not cache_was_capped:
+        fetch_start = min(start, _cache_loaded_for[0])
+        fetch_end = max(end, _cache_loaded_for[1])
+    else:
+        fetch_start = start
+        fetch_end = end
     fetch_start = fetch_start - timedelta(days=30)
     fetch_end = fetch_end + timedelta(days=30)
 

@@ -42,6 +42,28 @@ def _benchmark_ticker() -> str:
 # ---------------------------------------------------------------------------
 
 
+# Index code-space allowlist (PR #3 review hotfix #3). Each entry is
+# (prefix, market_suffix) — e.g. SSE indices use 000xxx.SH while the SZ
+# stock with the same numeric prefix (000001.SZ = Ping An Bank) is *not* an
+# index. The market suffix disambiguates.
+_INDEX_PREFIXES: tuple[tuple[str, str], ...] = (
+    ("000", "SH"),  # SSE: 000300 沪深300, 000016 上证50, 000905 中证500, 000001 上证综指
+    ("399", "SZ"),  # SZSE: 399001 深证成指, 399006 创业板指, 399300 (alt CSI300)
+    ("932", "SH"),  # CSI national indices (post-2023)
+)
+
+
+def _is_a_share_index(norm: str) -> bool:
+    """Return True for A-share index ts_codes that need pro.index_daily."""
+    code, _, market = norm.partition(".")
+    if len(code) != 6 or market not in ("SH", "SZ"):
+        return False
+    for prefix, expected_market in _INDEX_PREFIXES:
+        if code.startswith(prefix) and market == expected_market:
+            return True
+    return False
+
+
 def _fetch_close(ts_code: str, target_date_iso: str) -> Optional[float]:
     """Return the close price of ``ts_code`` on ``target_date_iso``, or None
     if the row is missing (suspension, holiday after wrong alignment, etc).
@@ -68,8 +90,16 @@ def _fetch_close(ts_code: str, target_date_iso: str) -> Optional[float]:
     api_date = _to_api_date(target_date_iso)
     norm = _normalize_ts_code(ts_code)
     try:
-        # Indices (000300.SH) need pro.index_daily; A-share / HK / US use _fetch_price_data
-        if norm.endswith(".SH") and norm.startswith("000") and len(norm.split(".")[0]) == 6:
+        # Route to pro.index_daily for known A-share index prefixes
+        # (PR #3 review hotfix #3). Previously detected via implicit
+        # "000xxx.SH" heuristic which missed legitimate indices like
+        # 399300.SZ. Allowlist of canonical A-share index code spaces:
+        #   * 000xxx.SH — SSE indices (000300 沪深300, 000016 上证50,
+        #                              000905 中证500, 000001 上证综指)
+        #   * 399xxx.SZ — SZSE indices (399001 深证成指, 399006 创业板指,
+        #                               399300 alt CSI300)
+        #   * 932xxx.SH — CSI national indices (newer, post-2023)
+        if _is_a_share_index(norm):
             df = pro.index_daily(ts_code=norm, start_date=api_date, end_date=api_date)
         else:
             df = _fetch_price_data(pro, norm, api_date, api_date)
@@ -120,20 +150,24 @@ class Scorer:
         forward_return_21d is left NULL alongside scored_at = today —
         i.e. we mark scored once 5d is filled).
 
+        Snap-direction (PR #3 review hotfix #2): when ``today`` falls on a
+        weekend or public holiday, snap **backward** to the previous trading
+        day. Snapping forward would yield a future date, causing the scorer
+        to fetch nonexistent close prices and prematurely mark rows as
+        scored with NULL returns.
+
         Returns ``{"scored": int, "skipped_immature": int, "skipped_missing": int}``.
         """
-        from mosaic.dataflows.calendar import next_trading_day  # local import to avoid cycle at module load
+        from mosaic.dataflows.calendar import (  # local import to avoid cycle at module load
+            next_trading_day,
+            previous_trading_day,
+        )
 
-        # Cutoff: rows whose date + 5 trading days ≤ today are at least 5d-eligible.
-        # We don't need date+21 to be matured; the 21d slot can stay NULL.
-        # But we DO need the row's date itself to be ≤ today - 5 trading days
-        # (otherwise the 5d window hasn't even closed yet).
-        five_days_back = next_trading_day(today, 0)  # snap today to a trading day
-        # Use previous_trading_day to compute the cutoff for "rows whose 5d
-        # forward window has closed by today".
-        from mosaic.dataflows.calendar import previous_trading_day
-
-        cutoff_5d = previous_trading_day(five_days_back, HORIZON_5D)
+        # Snap today BACKWARD to the last completed trading day. The 5d
+        # forward window has only matured if its end date is ≤ today's
+        # last-completed trading day.
+        last_trading_day = previous_trading_day(today, 0)
+        cutoff_5d = previous_trading_day(last_trading_day, HORIZON_5D)
 
         pending = self.store.list_pending(cohort=cohort, before_date=cutoff_5d)
 
@@ -156,14 +190,17 @@ class Scorer:
             t_5d = next_trading_day(d0, HORIZON_5D)
             t_21d = next_trading_day(d0, HORIZON_21D)
 
-            # 5d horizon: must be on-or-before today; otherwise skip the whole row.
-            if t_5d > today:
+            # 5d horizon: must be on-or-before today's last completed trading
+            # day; otherwise skip the whole row.
+            if t_5d > last_trading_day:
                 outcome["skipped_immature"] += 1
                 continue
 
             close_d0 = _fetch_close(row.ticker, d0)
             close_5d = _fetch_close(row.ticker, t_5d)
-            close_21d = _fetch_close(row.ticker, t_21d) if t_21d <= today else None
+            close_21d = (
+                _fetch_close(row.ticker, t_21d) if t_21d <= last_trading_day else None
+            )
 
             forward_return_5d: Optional[float] = None
             forward_return_21d: Optional[float] = None

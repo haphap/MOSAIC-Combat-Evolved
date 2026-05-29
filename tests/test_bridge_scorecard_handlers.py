@@ -227,12 +227,12 @@ class TestScorecardListSkill:
         ackman = agents["ackman"]
         assert ackman["n_obs"] == 6
         assert ackman["mean_alpha_5d"] > 0
-        assert ackman["sharpe_30d"] > 0
+        assert ackman["sharpe_window"] > 0
 
         druck = agents["druckenmiller"]
         assert druck["n_obs"] == 6
         assert druck["mean_alpha_5d"] < 0
-        assert druck["sharpe_30d"] < 0
+        assert druck["sharpe_window"] < 0
 
     def test_below_min_obs_yields_null_sharpe(self, tmp_store):
         # 4 obs < MIN_OBS = 5 → sharpe NULL
@@ -279,7 +279,7 @@ class TestScorecardListSkill:
         result = dispatch("scorecard.list_skill", {"cohort": "cohort_default"})
         cio = next(r for r in result["rows"] if r["agent"] == "cio")
         assert cio["n_obs"] == 4
-        assert cio["sharpe_30d"] is None
+        assert cio["sharpe_window"] is None
 
     def test_invalid_since_param(self, tmp_store):
         with pytest.raises(RpcError):
