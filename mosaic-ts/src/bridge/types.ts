@@ -274,6 +274,24 @@ export interface DarwinianAgentWeight {
 /** ``{ <agent>: DarwinianAgentWeight }``; empty object means no weights computed yet. */
 export type DarwinianWeightTable = Record<string, DarwinianAgentWeight>;
 
+// --------------------------------------------------------- prompts (Phase 4B)
+
+export type PromptLang = "zh" | "en";
+
+/** Returned by ``prompts.read``. ``path`` is repo-relative. */
+export interface PromptReadResult {
+  content: string;
+  path: string;
+}
+
+/** Returned by ``prompts.write``: commit fields present only when a branch
+ *  was given (the mutation path); working-tree writes return just ``paths``. */
+export interface PromptWriteResult {
+  commit_hash?: string;
+  branch?: string;
+  paths: string[];
+}
+
 // --------------------------------------------------------- helpers
 
 /**
@@ -456,5 +474,30 @@ export class BridgeApi {
       cohort,
       ...(date ? { date } : {}),
     });
+  }
+
+  // prompts.* (Phase 4B)
+  promptsRead(
+    agent: string,
+    cohort: string,
+    lang: PromptLang,
+    ref?: string,
+  ): Promise<PromptReadResult> {
+    return this.client.call<PromptReadResult>("prompts.read", {
+      agent,
+      cohort,
+      lang,
+      ...(ref ? { ref } : {}),
+    });
+  }
+
+  promptsWrite(params: {
+    agent: string;
+    cohort: string;
+    contents: Partial<Record<PromptLang, string>>;
+    branch?: string;
+    message?: string;
+  }): Promise<PromptWriteResult> {
+    return this.client.call<PromptWriteResult>("prompts.write", params);
   }
 }
