@@ -1085,7 +1085,11 @@ class ScorecardStore:
             return int(cur.fetchone()["id"])
 
     def get_janus_history(self, days: int = 30) -> list[dict[str, Any]]:
-        """Return the most recent ``days`` JANUS runs, newest first."""
+        """Return the most recent ``days`` JANUS runs, newest first.
+
+        ``days`` is a row LIMIT, not a calendar window — janus_runs holds one
+        row per date, so it equals a day-window only when dates are contiguous.
+        """
         with self._connect() as conn:
             cur = conn.execute(
                 "SELECT * FROM janus_runs ORDER BY date DESC LIMIT ?", (days,)

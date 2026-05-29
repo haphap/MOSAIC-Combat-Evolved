@@ -16,9 +16,12 @@ Pure functions over a ``ScorecardStore`` — no LLM, no network.
 
 from __future__ import annotations
 
+import logging
 import math
 from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping, Optional
+
+logger = logging.getLogger(__name__)
 
 # Raw weight constraints (ATLAS parity); made feasibility-aware in
 # ``softmax_with_constraints`` so any cohort count N normalises cleanly.
@@ -108,6 +111,13 @@ def softmax_with_constraints(scores: Mapping[str, float]) -> dict[str, float]:
         if all(floor - 1e-9 <= v <= ceil + 1e-9 for v in renorm.values()):
             return renorm
         w = renorm
+    # Unreachable in practice (floor·N ≤ 1 ≤ ceil·N guarantees a fixed point),
+    # but make a future regression loud rather than silently out-of-bound.
+    logger.warning(
+        "softmax_with_constraints: clamp+renorm did not converge in 50 iters "
+        "(n=%d, floor=%.4f, ceil=%.4f); returning approximate weights",
+        n, floor, ceil,
+    )
     return w
 
 
@@ -124,6 +134,9 @@ def compute_cohort_weights(
     for c in cohorts:
         m = cohort_accuracy(store, c, now_iso, window_days)
         accuracy[c] = m
+        # ATLAS compression: maps Sharpe → [0,1] and saturates at |sharpe| ≥ 1,
+        # so once a cohort clears ±1 the score is hit-rate-dominated (a 3.0 and
+        # a 1.0 Sharpe weight identically on this term). Intentional.
         norm_sharpe = max(0.0, min(1.0, (m["sharpe"] + 1.0) / 2.0))
         raw[c] = 0.5 * m["hit_rate"] + 0.5 * norm_sharpe
     return softmax_with_constraints(raw), accuracy
@@ -176,6 +189,13 @@ def blend_recommendations(
     weighted long/short conviction (using target_weight_pct as strength), the
     higher side wins, and a direction conflict halves the loser off the winner
     and flags ``contested``.
+
+    Note: this is effectively a *live-mode* construct. It joins CIO picks across
+    cohorts on the same ``date``; the 7 PRISM cohorts occupy disjoint historical
+    windows (crisis_2008 in 2008, euphoria_2021 in 2020–21, …), so multiple
+    cohorts only co-exist on a given date once they are all scored for "today".
+    Over a historical date the blend is usually a single cohort per ticker (no
+    actual cross-cohort blending).
     """
     by_ticker: dict[str, list[tuple[str, dict[str, Any]]]] = {}
     for cohort, w in weights.items():
