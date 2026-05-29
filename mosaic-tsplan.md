@@ -84,7 +84,7 @@ Cohort 切换 UI（PRISM）                                       paper_trading/
 | 3.5 | qlib 历史数据底座 + 两段式向量化回测 | 5–6 | ✅ 完成（PR #4 merged 2026-05-29，3.5A–3.5F 全做完） |
 | 4 | Autoresearch（git + SQLite，prompt mutation + keep/revert） | 5–6 | ✅ 完成 |
 | 5 | PRISM 7 cohort 训练编排 | 5–6 | ✅ 完成（训练编排落地：§1 并发模型 cohort 顺序/layer 顺序/layer 内≤5 并发；§11.6 5A–5E） |
-| 6 | JANUS 元层（port ATLAS 571 LOC） | 3 | ⏭ |
+| 6 | JANUS 元层（port ATLAS 571 LOC） | 3 | ✅ 完成（元加权落地：7 cohort rolling 准确度 → feasibility-aware softmax → regime 信号 → 跨 cohort blend；§11.7 6A–6D） |
 | 7 | MiroFish 反身性模拟（port ATLAS ~2,800 LOC + Tushare 适配） | 4–5 | ⏭ |
 | 8 | 执行层（paper + backtrader，复用 ETFAgents） | 4 | ⏭ |
 | 9 | Ink TUI + CLI + 文档 + CI 部署 | 6–8 | ⏭ |
@@ -2181,6 +2181,113 @@ autoresearch）。`max_agents_concurrent` 形参定义了但没用；`complete_c
   lemonade/anthropic 预算，不在本 PR 代码范围。
 - cohort 之间的 prompt 迁移学习 / 跨 cohort 知识共享（Phase 6 JANUS 元层）。
 - 训练进度断点续跑的持久化队列（先用 cooldown 幂等兜底，足够 MVP）。
+
+---
+
+## 11.7 Phase 6 详细任务（Sub-step 6A–6D）— JANUS 元加权层
+
+> 估算 3 turns。分支：`phase-6-janus`。**目标**：port ATLAS `janus.py`（571 LOC）
+> 的元加权思想到 MOSAIC —— 在 7 个 PRISM regime cohort **之上**再加一层，按各
+> cohort 近期预测准确度（rolling hit_rate + Sharpe）动态加权、融合它们的当日
+> 推荐，并把 cohort 权重差作为 regime 信号。Phase 6 出口后：
+> `pnpm dev janus run` 能产出「跨 cohort 融合推荐 + regime 标签 + 各 cohort
+> 30 天准确度」，并落库 + 留历史供 TUI（Phase 9）画权重漂移曲线。
+
+### 从 ATLAS 移植的核心思想（保留）
+
+ATLAS `Janus` 类（2 个时间窗 cohort：18month / 10year）：
+- `calculate_cohort_metrics`：rolling 窗内 hit_rate（方向对不对）+ 加权收益的
+  年化 Sharpe。
+- `_softmax_with_constraints`：raw_score = 0.5·hit_rate + 0.5·norm_sharpe →
+  softmax → 加 floor/ceiling 约束（MIN/MAX_WEIGHT）+ 重归一。
+- `regime_signal`：短窗 vs 长窗权重差 > 阈值 → NOVEL/HISTORICAL/MIXED。
+- `blend_recommendations`：按 cohort 权重对同 ticker 的多 cohort 推荐做
+  conviction 加权融合，方向冲突时 `contested` 并打折。
+- `run_daily`：load → update_weights → blend → regime → 落 daily + history。
+
+### MOSAIC 适配（关键差异，写清楚避免照抄踩坑）
+
+1. **数据源 JSON-file → SQLite**：ATLAS 读 `recommendations_<cohort>.json` +
+   `scored_outcomes.json`。MOSAIC 全在 `data/scorecard.db`：
+   - 各 cohort 的「推荐」= 该 cohort 的 **CIO 行**（`recommendations` 表
+     `agent='cio'`，即 Layer-4 最终组合动作）。
+   - 准确度 = `list_scored(cohort, agent='cio', since_date)` 的已评分行
+     （`forward_return_5d` + `action`）。hit = (LONG/BUY 且 ret>0) 或
+     (SHORT/SELL/REDUCE 且 ret<0)。
+2. **2 cohort → 7 regime cohort**：cohort 集 = PRISM 的 7 个（`COHORT_CONFIGS`）。
+3. **softmax 约束必须 feasibility-aware**：ATLAS 的 MIN_WEIGHT=0.2 对 2 cohort
+   可行，但 7 cohort × 0.2 = 1.4 > 1 不可行。改为 `floor = min(MIN_WEIGHT,
+   0.5/N)`、`ceiling = max(MAX_WEIGHT, 1.5/N)`，保证任意 N 都可归一；逻辑同
+   ATLAS（floor→renorm→ceiling→renorm）。
+4. **conviction 来源**：CIO conviction 已按 §14 R-A2 写 NULL，故 blend 用
+   `target_weight_pct`（仓位权重 0–100）作 cohort 内 per-pick 强度。
+5. **regime 信号**：ATLAS 是「短窗 vs 长窗」二元差。MOSAIC 7 cohort 无单一轴，
+   改为「**当前最高权 cohort 的 regime 标签**」（crisis / bull / recovery /
+   rate_tightening / euphoria…）+ 权重集中度（max_weight − uniform，> 阈值 =
+   `CONCENTRATED`，否则 `DIFFUSE`）。即输出 `{dominant_cohort, regime_label,
+   concentration}`。
+6. **落盘**：新增 `janus_runs` 表（date, weights_json, regime_label,
+   dominant_cohort, concentration, n_blended, n_contested, created_at）+
+   `get_janus_history(days)`。daily 全量输出走 RPC 返回，不必落 blended 明细
+   （与 ATLAS history-summary 一致）。
+
+### Sub-step 6A：`mosaic/janus/` 核心元加权（纯 Python，无 LLM）
+
+- [x] `mosaic/janus/__init__.py` + `mosaic/janus/meta.py`：
+    - `cohort_accuracy(store, cohort, now_iso, window_days=30) → {hit_rate, sharpe, n}`
+      （读 `list_scored(cohort,'cio',since)`，算 hit_rate + 加权收益年化 Sharpe）。
+    - `compute_cohort_weights(store, cohorts, now_iso, window_days) → {cohort: weight}`
+      （raw=0.5·hit+0.5·norm_sharpe → `softmax_with_constraints`）。
+    - `softmax_with_constraints(scores, n) → weights`（feasibility-aware floor/ceiling）。
+    - `regime_signal(weights, cohort_configs) → {dominant_cohort, regime_label, concentration}`。
+    - `blend_recommendations(store, weights, date) → {blended:[...], contested:[...]}`
+      （跨 cohort 同 ticker 按权重 × target_weight_pct 融合 + 冲突打折，port
+      ATLAS `_blend_ticker_recommendations`）。
+    - `run_daily(store, cohorts, date, window_days) → output dict` + 落 `janus_runs`。
+- [x] `mosaic/scorecard/store.py`：加 `janus_runs` 表 + `record_janus_run` /
+      `get_janus_history`。
+- [x] tests：`tests/test_janus.py`（accuracy hit/sharpe、softmax 约束在 N=2/7
+      都可行且 sum=1、regime dominant/concentration、blend 冲突打折 + contested）。
+
+### Sub-step 6B：`janus.*` RPC handlers
+
+- [x] `mosaic/bridge/handlers/janus.py`：
+    - `janus.run_daily(date?, window_days?)` → 全量 output（weights/regime/blended/
+      contested/accuracy）+ 落库。
+    - `janus.get_weights(date?, window_days?)` → 只算权重 + accuracy（不 blend）。
+    - `janus.regime(date?, window_days?)` → 只 regime 信号。
+    - `janus.get_history(days?)` → `janus_runs` 历史（TUI 用）。
+    - 注册进 `handlers/__init__.py`。
+- [x] tests：`tests/test_bridge_janus.py`（RPC 路由 + 落库 + 空数据兜底）。
+
+### Sub-step 6C：TS wrappers + `pnpm dev janus` CLI
+
+- [x] `mosaic-ts/src/bridge/types.ts`：`JanusRunResult` / `JanusWeights` /
+      `JanusRegime` / `JanusHistoryEntry` 接口 + `janusRunDaily` / `janusGetWeights`
+      / `janusRegime` / `janusGetHistory` wrappers。
+- [x] `mosaic-ts/src/cli/commands/janus.ts`：`run` / `weights` / `regime` /
+      `history` 子命令（picocolors 表格，复用 `_format.pad`），注册进 `cli/index.ts`。
+- [x] tests：CLI 走真 bridge（dependency-light 下 janus 不需要 langchain，能跑）。
+
+### Sub-step 6D：文档 + 验证 + PR
+
+- [x] plan §3 表 Phase 6 → ✅；§11.7 勾选 + 时戳；`mosaic-ts/README.md` 加 janus CLI。
+- [x] 验证矩阵：`pnpm typecheck/lint/test` + `ruff` + dependency-light `pytest` 全绿。
+- [x] PR `phase-6-janus → main`。
+
+### Phase 6 出口标准
+
+- `mosaic/janus/meta.py` 元加权落地：cohort 准确度 → feasibility-aware softmax
+  权重 → regime 信号 → 跨 cohort blend，全有测试覆盖（含 N=7 约束可行性）。
+- `janus.{run_daily,get_weights,regime,get_history}` RPC 注册 + TS wrapper + CLI。
+- `janus_runs` 表落库 + 历史查询。
+- `pnpm dev janus run` 端到端跑通（空数据→equal weights 兜底；有数据→加权融合）。
+
+### 不在 Phase 6 范围
+
+- 用 JANUS regime 信号反向驱动 paper-trading 仓位（Phase 8 执行层）。
+- TUI 权重漂移曲线可视化（Phase 9）。
+- 真实多 cohort 训练数据下的调参（运行期，依赖 Phase 5 实跑）。
 
 ---
 

@@ -371,6 +371,60 @@ export interface CohortComparison {
   latest_date: string | null;
 }
 
+// --------------------------------------------------------- JANUS (Phase 6)
+
+export interface JanusCohortAccuracy {
+  hit_rate: number;
+  sharpe: number;
+  n: number;
+}
+
+export interface JanusRegime {
+  date?: string;
+  dominant_cohort: string | null;
+  regime_label: string;
+  concentration: number;
+  concentration_state?: "CONCENTRATED" | "DIFFUSE";
+}
+
+export interface JanusWeights {
+  date: string;
+  cohort_weights: Record<string, number>;
+  cohort_accuracy: Record<string, JanusCohortAccuracy>;
+}
+
+export interface JanusBlendedRec {
+  ticker: string;
+  direction: "LONG" | "SHORT";
+  blended_weight_pct: number;
+  contested: boolean;
+  cohort_breakdown: Record<
+    string,
+    { action: string; target_weight_pct: number | null; weight: number }
+  >;
+}
+
+export interface JanusRunResult {
+  date: string;
+  cohort_weights: Record<string, number>;
+  regime: JanusRegime;
+  cohort_accuracy: Record<string, JanusCohortAccuracy>;
+  blended_recommendations: JanusBlendedRec[];
+  contested_tickers: string[];
+}
+
+export interface JanusHistoryEntry {
+  id: number;
+  date: string;
+  weights_json: string;
+  regime_label: string | null;
+  dominant_cohort: string | null;
+  concentration: number | null;
+  n_blended: number;
+  n_contested: number;
+  created_at: string;
+}
+
 // --------------------------------------------------------- helpers
 
 /**
@@ -675,5 +729,22 @@ export class BridgeApi {
     cio_target_weight?: number;
   }): Promise<{ ok: boolean }> {
     return this.client.call<{ ok: boolean }>("prism.complete_cohort_run", params);
+  }
+
+  // janus.* (Phase 6)
+  janusRunDaily(params?: { date?: string; window_days?: number }): Promise<JanusRunResult> {
+    return this.client.call<JanusRunResult>("janus.run_daily", params ?? {});
+  }
+
+  janusGetWeights(params?: { date?: string; window_days?: number }): Promise<JanusWeights> {
+    return this.client.call<JanusWeights>("janus.get_weights", params ?? {});
+  }
+
+  janusRegime(params?: { date?: string; window_days?: number }): Promise<JanusRegime> {
+    return this.client.call<JanusRegime>("janus.regime", params ?? {});
+  }
+
+  janusGetHistory(params?: { days?: number }): Promise<{ history: JanusHistoryEntry[] }> {
+    return this.client.call<{ history: JanusHistoryEntry[] }>("janus.get_history", params ?? {});
   }
 }
