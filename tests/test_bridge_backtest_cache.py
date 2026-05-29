@@ -312,5 +312,102 @@ def test_all_5_methods_registered():
         "backtest.complete_run",
         "backtest.get_run",
         "backtest.list_runs",
+        "backtest.run_historical",
     }
     assert expected.issubset(set(all_methods()))
+
+
+# ===========================================================================
+# Phase 3.5E: backtest.run_historical (qlib stage-2 trigger)
+# ===========================================================================
+
+
+class TestRunHistoricalHandler:
+    """Validates routing + error envelopes; full qlib integration is
+    exercised by the 3.5F end-to-end CLI smoke."""
+
+    def test_invalid_run_id_type(self, patched_store: ScorecardStore):
+        with pytest.raises(RpcError, match="positive integer"):
+            dispatch("backtest.run_historical", {"run_id": "abc"})
+
+    def test_invalid_run_id_negative(self, patched_store: ScorecardStore):
+        with pytest.raises(RpcError, match="positive integer"):
+            dispatch("backtest.run_historical", {"run_id": -1})
+
+    def test_run_not_found(self, patched_store: ScorecardStore):
+        # No qlib data needed — error fires before qlib.init when run is missing
+        with pytest.raises(RpcError, match="not found"):
+            dispatch("backtest.run_historical", {"run_id": 99999})
+
+    def test_run_with_no_actions_raises(self, patched_store: ScorecardStore):
+        run_id = patched_store.create_backtest_run(
+            cohort="cohort_default",
+            start_date="2024-01-01",
+            end_date="2024-01-31",
+            prompt_commit_hash="empty",
+        )
+        # Run exists but no append_actions called → no cached actions
+        with pytest.raises(RpcError, match="no cached actions"):
+            dispatch("backtest.run_historical", {"run_id": run_id})
+
+    def test_invalid_benchmark_type(self, patched_store: ScorecardStore):
+        with pytest.raises(RpcError, match="non-empty string"):
+            dispatch(
+                "backtest.run_historical",
+                {"run_id": 1, "benchmark": ""},
+            )
+
+    def test_invalid_deal_price_type(self, patched_store: ScorecardStore):
+        with pytest.raises(RpcError, match="must be a string"):
+            dispatch(
+                "backtest.run_historical",
+                {"run_id": 1, "deal_price": 12345},
+            )
+
+    def test_metrics_dict_shape_via_mock(
+        self, patched_store: ScorecardStore, monkeypatch
+    ):
+        """When qlib path succeeds, handler returns BacktestMetrics.to_dict()."""
+        run_id = patched_store.create_backtest_run(
+            cohort="cohort_default",
+            start_date="2024-01-01",
+            end_date="2024-01-31",
+            prompt_commit_hash="abc",
+        )
+        patched_store.append_backtest_actions(run_id, "2024-01-15", SAMPLE_ACTIONS)
+
+        # Mock run_backtest to skip qlib.init / qlib.backtest entirely
+        from mosaic.backtest import BacktestMetrics
+
+        def fake_run_backtest(**kwargs):
+            return BacktestMetrics(
+                run_id=kwargs["run_id"],
+                cohort="cohort_default",
+                start_date="2024-01-01",
+                end_date="2024-01-31",
+                benchmark=kwargs.get("benchmark", "SH000300"),
+                n_trade_days=20,
+                total_return=0.05,
+                annualized_return=0.6,
+                sharpe=2.5,
+                max_drawdown=-0.10,
+                benchmark_return=0.02,
+                alpha=0.03,
+                initial_cash=kwargs.get("initial_cash", 1_000_000.0),
+                final_value=1_050_000.0,
+            )
+
+        import mosaic.backtest
+
+        monkeypatch.setattr(mosaic.backtest, "run_backtest", fake_run_backtest)
+
+        result = dispatch("backtest.run_historical", {"run_id": run_id})
+        assert result["sharpe"] == 2.5
+        assert result["alpha"] == pytest.approx(0.03)
+        assert result["benchmark"] == "SH000300"
+        assert result["run_id"] == run_id
+        assert result["n_trade_days"] == 20
+        # All keys JSON-serialisable
+        import json
+
+        json.dumps(result)

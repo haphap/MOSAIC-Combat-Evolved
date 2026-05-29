@@ -199,6 +199,30 @@ export interface BacktestRunInfo {
   last_trade_date?: string | null;
 }
 
+/** Returned by ``backtest.run_historical``. Mirrors
+ *  ``mosaic.backtest.qlib_runner.BacktestMetrics`` (Phase 3.5D dataclass). */
+export interface BacktestMetricsResult {
+  run_id: number;
+  cohort: string;
+  start_date: string;
+  end_date: string;
+  benchmark: string;
+  n_trade_days: number;
+  /** Compounded total return over the window, decimal (0.05 = 5%). */
+  total_return: number;
+  /** ``(1 + total_return)^(252/n) - 1`` — annualized. */
+  annualized_return: number;
+  /** ``mean(daily_return) / std(daily_return) * sqrt(252)``. */
+  sharpe: number;
+  /** Signed (negative) value, e.g. -0.20 means -20% peak-to-trough. */
+  max_drawdown: number;
+  benchmark_return: number;
+  /** ``total_return - benchmark_return`` (no CAPM beta). */
+  alpha: number;
+  initial_cash: number;
+  final_value: number;
+}
+
 // --------------------------------------------------------- scorecard / darwinian (Phase 3D)
 
 /** Outcome of a ``scorecard.score_pending`` call. */
@@ -366,6 +390,22 @@ export class BridgeApi {
     since?: string;
   }): Promise<{ runs: BacktestRunInfo[] }> {
     return this.client.call<{ runs: BacktestRunInfo[] }>("backtest.list_runs", opts ?? {});
+  }
+
+  backtestRunHistorical(
+    runId: number,
+    opts?: {
+      initial_cash?: number;
+      benchmark?: string;
+      open_cost?: number;
+      close_cost?: number;
+      deal_price?: string;
+    },
+  ): Promise<BacktestMetricsResult> {
+    return this.client.call<BacktestMetricsResult>("backtest.run_historical", {
+      run_id: runId,
+      ...opts,
+    });
   }
 
   // scorecard.* (Phase 3D)

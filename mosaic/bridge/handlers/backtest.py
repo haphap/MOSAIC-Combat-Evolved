@@ -347,3 +347,72 @@ def backtest_list_runs(params: dict[str, Any]) -> dict[str, Any]:
     except Exception as exc:
         raise RpcError(BACKTEST_ERROR, f"{type(exc).__name__}: {exc}") from exc
     return {"runs": runs}
+
+
+# --------------------------------------------------------- Phase 3.5E: stage-2 qlib trigger
+
+
+@method("backtest.run_historical")
+def backtest_run_historical(params: dict[str, Any]) -> dict[str, Any]:
+    """Stage-2 of the two-stage backtest: replay cached actions through qlib.
+
+    Params:
+        run_id:              int — must reference an existing row in
+                                   ``backtest_runs`` with at least one
+                                   appended action (stage-1 must have run).
+        initial_cash:        float (optional, default 1_000_000.0)
+        benchmark:           str (optional, default "SH000300")
+        open_cost:           float (optional, default 0.0003)
+        close_cost:          float (optional, default 0.0013)
+        deal_price:          str (optional, default "close")
+
+    Returns:
+        BacktestMetrics dict — see ``mosaic.backtest.qlib_runner.BacktestMetrics``.
+
+    Raises BACKTEST_ERROR with actionable message when:
+      - run_id not found
+      - qlib data dir missing (point to ingest setup)
+      - run has no cached actions (run --fill first)
+    """
+    run_id = params.get("run_id")
+    if not isinstance(run_id, int) or run_id <= 0:
+        raise RpcError(INVALID_PARAMS, "'run_id' must be a positive integer")
+
+    initial_cash = _opt_float(params, "initial_cash", 1_000_000.0)
+    benchmark = params.get("benchmark", "SH000300")
+    if not isinstance(benchmark, str) or not benchmark.strip():
+        raise RpcError(INVALID_PARAMS, "'benchmark' must be a non-empty string")
+    open_cost = _opt_float(params, "open_cost", 0.0003)
+    close_cost = _opt_float(params, "close_cost", 0.0013)
+    deal_price = params.get("deal_price", "close")
+    if not isinstance(deal_price, str):
+        raise RpcError(INVALID_PARAMS, "'deal_price' must be a string")
+
+    try:
+        from mosaic.backtest import QlibInitError, run_backtest
+    except ImportError as exc:
+        raise RpcError(
+            BACKTEST_ERROR,
+            f"backtest package import failed: {type(exc).__name__}: {exc}. "
+            "Did you install pyqlib? See plan §11.4 sub-step 3.5A.",
+        ) from exc
+
+    try:
+        metrics = run_backtest(
+            run_id=run_id,
+            store=_store(),
+            initial_cash=initial_cash,
+            benchmark=benchmark,
+            open_cost=open_cost,
+            close_cost=close_cost,
+            deal_price=deal_price,
+        )
+    except QlibInitError as exc:
+        raise RpcError(BACKTEST_ERROR, f"qlib init failed: {exc}") from exc
+    except ValueError as exc:
+        # run_id not found / no cached actions — surface as BACKTEST_ERROR
+        raise RpcError(BACKTEST_ERROR, str(exc)) from exc
+    except Exception as exc:
+        raise RpcError(BACKTEST_ERROR, f"{type(exc).__name__}: {exc}") from exc
+
+    return metrics.to_dict()
