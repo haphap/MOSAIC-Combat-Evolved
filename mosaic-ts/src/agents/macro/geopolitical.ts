@@ -1,9 +1,9 @@
 /**
  * geopolitical Layer-1 macro agent (Plan §5.1).
  *
- * Plan §5.1 lists `get_global_news(geopolitical)` + `get_us_china_relations`;
- * Phase 0 has neither. Substitution per plan §14 #8: use `get_xueqiu_heat`
- * (retail attention captures geopolitical events fast) + `get_industry_policy`
+ * Plan §5.1 tools: `get_us_china_relations` (now available — Tsinghua sino-US
+ * relations index, macro-tools gap closed §14 #8) + `get_xueqiu_heat` (retail
+ * attention captures geopolitical events fast) + `get_industry_policy`
  * (filters policy news incl. trade-war / export-control language).
  */
 
@@ -16,7 +16,11 @@ import {
 } from "./_factory.js";
 import { GEOPOLITICAL_FIELD_NAMES, GeopoliticalSchema } from "./_schemas.js";
 
-export const REQUIRED_TOOLS = ["get_xueqiu_heat", "get_industry_policy"] as const;
+export const REQUIRED_TOOLS = [
+  "get_us_china_relations",
+  "get_xueqiu_heat",
+  "get_industry_policy",
+] as const;
 
 export const geopoliticalSpec: LayerOneAgentSpec<GeopoliticalOutput> = {
   agentId: "geopolitical",

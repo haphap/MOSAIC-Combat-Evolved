@@ -99,13 +99,13 @@ describe("AGENTS_BY_LAYER.macro", () => {
 
 describe("each macro agent spec wires the right factory inputs", () => {
   const cases = [
-    { name: "geopolitical", spec: geopoliticalSpec, expected_tools: 2 },
+    { name: "geopolitical", spec: geopoliticalSpec, expected_tools: 3 },
     { name: "dollar", spec: dollarSpec, expected_tools: 4 },
     { name: "yield_curve", spec: yieldCurveSpec, expected_tools: 3 },
     { name: "commodities", spec: commoditiesSpec, expected_tools: 3 },
     { name: "volatility", spec: volatilitySpec, expected_tools: 3 },
     { name: "emerging_markets", spec: emergingMarketsSpec, expected_tools: 3 },
-    { name: "news_sentiment", spec: newsSentimentSpec, expected_tools: 3 },
+    { name: "news_sentiment", spec: newsSentimentSpec, expected_tools: 4 },
     { name: "institutional_flow", spec: institutionalFlowSpec, expected_tools: 3 },
   ] as const;
 
@@ -279,6 +279,7 @@ describe("buildGeopoliticalNode (factory smoke)", () => {
       required: ["curr_date"],
     };
     const FAKE_TOOL_METADATAS: ToolMetadata[] = [
+      { name: "get_us_china_relations", description: "x", args_schema: TOOL_SCHEMA },
       { name: "get_xueqiu_heat", description: "x", args_schema: TOOL_SCHEMA },
       { name: "get_industry_policy", description: "x", args_schema: TOOL_SCHEMA },
     ];

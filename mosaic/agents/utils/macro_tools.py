@@ -514,6 +514,71 @@ def get_etf_price_data(
     return route_to_vendor("get_etf_price_data", symbol, start_date, end_date)
 
 
+# ============================================================ Caixin sentiment
+
+
+@tool
+def get_caixin_sentiment(
+    curr_date: Annotated[
+        str,
+        "Current date (yyyy-mm-dd). The query window ends here.",
+    ],
+    look_back_days: Annotated[
+        int,
+        "How many calendar days of Caixin coverage to scan.",
+    ] = 7,
+) -> str:
+    """
+    Retrieve Caixin (财新) news / market-sentiment coverage over a window.
+
+    Runs Caixin-focused queries through opencli (Google News + zh Search),
+    date-filtered to the window. Caixin is a high-signal A-share financial
+    outlet, so this is a quality-press counterweight to retail Xueqiu heat.
+    Used by ``news_sentiment``.
+
+    Args:
+        curr_date: yyyy-mm-dd window end.
+        look_back_days: window length in calendar days, default 7.
+
+    Returns:
+        Markdown header + Caixin coverage block.
+    """
+    return route_to_vendor("get_caixin_sentiment", curr_date, look_back_days)
+
+
+# ============================================================ Sino-US relations
+
+
+@tool
+def get_us_china_relations(
+    curr_date: Annotated[
+        str,
+        "Current date (yyyy-mm-dd). The query window ends here.",
+    ],
+    look_back_days: Annotated[
+        int,
+        "How many calendar days of relations-index history to fetch (monthly "
+        "series; default ~1 year).",
+    ] = 365,
+) -> str:
+    """
+    Retrieve the Tsinghua sino-US relations index over a window.
+
+    Monthly index (~[-9, +9]; **negative = tension**) from Tsinghua's Institute
+    of International Relations. Returns the windowed series + a latest-value /
+    trend summary. Used by ``geopolitical`` to anchor US-China escalation reads
+    on a hard, point-in-time index instead of headline vibes.
+
+    Args:
+        curr_date: yyyy-mm-dd window end.
+        look_back_days: window length in calendar days, default 365.
+
+    Returns:
+        Markdown header + CSV of date,index plus a trend line.
+    """
+    return route_to_vendor("get_us_china_relations", curr_date, look_back_days)
+
+
 # ============================================================ public exports
 
 __all__ = [
@@ -531,4 +596,6 @@ __all__ = [
     "get_etf_indicator",
     "get_fund_flow",
     "get_etf_price_data",
+    "get_caixin_sentiment",
+    "get_us_china_relations",
 ]

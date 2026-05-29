@@ -2283,7 +2283,7 @@ autoresearch）。`max_agents_concurrent` 形参定义了但没用；`complete_c
    | Plan §5.1 期望 | Phase 0 实际有 | 2C.2 替代 / 处理 |
    |---|---|---|
    | `get_property_data` (china) | ❌ | 用 `get_north_capital_flow` 替代（仍未补）|
-   | `get_us_china_relations` (geopolitical) | ❌ | 用 `get_xueqiu_heat` + `get_industry_policy`（地缘相关关键词）|
+   | `get_us_china_relations` (geopolitical) | ✅ 已补（清华中美关系指数 CSV）| wired into geopolitical |
    | `get_usdcny` (dollar) | ✅ 已补（fx_daily USDCNH.FXCM）| wired into dollar REQUIRED_TOOLS |
    | `get_commodity_prices` (commodities) | ✅ 已补（fut_daily 主连篮子）| wired into commodities |
    | `get_ivx` (volatility) | ✅ 已补（yfinance CSI300 realized-vol proxy）| wired into volatility |
@@ -2291,17 +2291,19 @@ autoresearch）。`max_agents_concurrent` 形参定义了但没用；`complete_c
    | `get_etf_price_data(EEM)` (emerging_markets) | ✅ 已补（fund_daily ETF OHLCV）| wired into emerging_markets |
    | `get_etf_price_data(2800.HK)` (emerging_markets) | ✅ 同上 | 同上（用 510300.SH 等 A 股 ETF 代理）|
    | `get_news` (news_sentiment) | ✅ opencli（已包装）| wired into news_sentiment REQUIRED_TOOLS |
-   | `get_caixin_sentiment` (news_sentiment) | ❌ | 用 `get_xueqiu_heat`（仍未补）|
+   | `get_caixin_sentiment` (news_sentiment) | ✅ 已补（opencli 财新 query）| wired into news_sentiment |
    | `get_fund_flow` (institutional_flow) | ✅ 已补（fund_share）| wired into institutional_flow |
 
    **✅ 已完成（phase-4-macro-tools，2026-05-29）**：补齐 6 个核心缺口工具
    `get_usdcny` / `get_commodity_prices` / `get_ivx` / `get_etf_indicator` /
    `get_fund_flow` / `get_etf_price_data`（数据源用户指定：tushare fx_daily /
    fut_daily / yfinance / fund_daily / fund_share / fund_daily），并把
-   `get_news`(opencli) 接入 news_sentiment。14 个 macro 工具全部注册 + 路由 +
-   测试覆盖。**仍未补**：`get_property_data` (china) / `get_us_china_relations`
-   (geopolitical) / `get_caixin_sentiment` (news_sentiment) —— 保留现有替代
-   工具，后续按需补。
+   `get_news`(opencli) 接入 news_sentiment。**Phase 6 补全（phase-6-macro-tools，
+   2026-05-30）**：`get_caixin_sentiment`（opencli 财新 query → news_sentiment）+
+   `get_us_china_relations`（清华中美关系指数 CSV，`MOSAIC_SINO_US_CSV` 可覆盖 →
+   geopolitical）。**16 个 macro 工具全部注册 + 路由 + 测试覆盖。仅剩
+   `get_property_data` (china)** —— 无单一现成数据源（房地产综合指标），暂保留
+   `get_north_capital_flow` 替代，后续按需补。
 
 9. **跨 PR 累积的 review 待办（Phase 4 启动前清理 / 或 Phase 5 集中 hotfix）**：
 

@@ -543,3 +543,64 @@ def get_news_for_queries(
         blocks.append(f"#### Search: {query}\n\n{text}")
 
     return "\n\n".join(blocks)
+
+
+# Caixin (财新) is a high-signal A-share financial outlet; these queries pull
+# its recent coverage as a market-sentiment proxy (Plan §5.1 news_sentiment).
+_CAIXIN_QUERIES = ("财新 市场情绪", "财新 A股", "财新 经济")
+
+
+def get_caixin_sentiment(curr_date: str, look_back_days: int = 7, limit: int = 10) -> str:
+    """Caixin (财新) news/sentiment over a window via opencli (Plan §5.1).
+
+    Window = ``[curr_date - look_back_days, curr_date]``. Runs a small set of
+    Caixin-focused Google News + Search (zh) queries through opencli, date-
+    filters to the window end, and returns a markdown block. Used by
+    ``news_sentiment`` as a quality-press counterweight to retail Xueqiu heat.
+    """
+    end_dt = _parse_date(curr_date)
+    start_date = (end_dt - timedelta(days=look_back_days)).strftime("%Y-%m-%d")
+
+    items: list[dict] = []
+    errors: list[str] = []
+    for query in _CAIXIN_QUERIES:
+        news, err = _safe_run_opencli(
+            ["google", "news", query, "--limit", str(limit), "--format", "json"]
+        )
+        if err:
+            errors.append(f"{query}: {err}")
+        else:
+            items.extend(news)
+        search, err2 = _safe_run_opencli(
+            ["google", "search", query, "--lang", "zh", "--limit", str(limit), "--format", "json"]
+        )
+        if err2:
+            errors.append(f"{query}: {err2}")
+        else:
+            items.extend(search)
+
+    items = _filter_by_date(_dedupe_records(items, ("url", "title")), curr_date)
+
+    if not items:
+        detail = (
+            f"No Caixin (财新) coverage found via opencli between {start_date} "
+            f"and {curr_date}."
+        )
+        if errors:
+            detail += f" Source errors: {'; '.join(errors[:3])}."
+        return detail
+
+    block = _format_block(
+        "Caixin / 财新 Coverage",
+        [
+            (
+                f"- {it.get('title', 'No title')} "
+                f"(source: {it.get('source', 'Unknown')}, date: {it.get('date', 'Unknown')})\n"
+                f"  Link: {it.get('url', '')}"
+            )
+            for it in items[:limit]
+        ],
+    )
+    header = f"## 财新情绪 / Caixin Sentiment, {start_date} → {curr_date}:\n\n"
+    return _date_cutoff_warning(curr_date) + header + block
+
