@@ -112,4 +112,32 @@ describe("BridgeClient against real sidecar", () => {
       await client.close();
     }
   });
+
+  it("Phase 3D scorecard / darwinian wrappers reach a live bridge", async () => {
+    const client = new BridgeClient();
+    const api = new BridgeApi(client);
+    try {
+      await client.start();
+      // Empty cohort: list_skill returns no rows, get_weights returns empty table.
+      const skill = await api.scorecardListSkill("test_cohort_phase3d_unused");
+      expect(skill.rows).toEqual([]);
+      const weights = await api.darwinianGetWeights("test_cohort_phase3d_unused");
+      expect(weights.weights).toEqual({});
+
+      // score_pending on empty cohort returns zero counts (idempotent).
+      const scoreOutcome = await api.scorecardScorePending(
+        "test_cohort_phase3d_unused",
+        "2024-07-01",
+      );
+      expect(scoreOutcome.scored).toBe(0);
+      expect(scoreOutcome.skipped_immature).toBe(0);
+      expect(scoreOutcome.skipped_missing).toBe(0);
+
+      // compute on empty cohort: no rows written.
+      const computeOutcome = await api.darwinianCompute("test_cohort_phase3d_unused", "2024-07-01");
+      expect(computeOutcome.written).toBe(0);
+    } finally {
+      await client.close();
+    }
+  });
 });
