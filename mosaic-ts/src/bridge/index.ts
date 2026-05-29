@@ -1,0 +1,49 @@
+export type { BridgeClientOptions } from "./client.js";
+export { BridgeClient } from "./client.js";
+export {
+  AUTORESEARCH_ERROR,
+  BACKTEST_ERROR,
+  BACKTEST_REJECTED,
+  BridgeStartupError,
+  BridgeTransportError,
+  CONFIG_ERROR,
+  DATA_VENDOR_UNAVAILABLE,
+  INTERNAL_ERROR,
+  INVALID_PARAMS,
+  INVALID_REQUEST,
+  JANUS_ERROR,
+  METHOD_NOT_FOUND,
+  MIROFISH_ERROR,
+  PAPER_ERROR,
+  PARSE_ERROR,
+  PRISM_ERROR,
+  RpcError,
+  SCORECARD_ERROR,
+  TOOL_EXECUTION_ERROR,
+} from "./errors.js";
+export type { ResolvedPython } from "./python.js";
+export { findRepoRoot, resolvePython } from "./python.js";
+export type { BridgeToolFactoryOptions } from "./tools.js";
+export {
+  bridgeToolFromMetadata,
+  jsonSchemaToZod,
+  listBridgeTools,
+  pickBridgeTools,
+} from "./tools.js";
+export type {
+  BacktestResult,
+  BacktestRunParams,
+  BacktestSignalsByDate,
+  CacheCategory,
+  CacheStats,
+  JsonSchemaObject,
+  JsonSchemaProperty,
+  MosaicConfig,
+  PaperAccount,
+  PaperPosition,
+  PaperTrade,
+  ToolCallContext,
+  ToolCallResult,
+  ToolMetadata,
+} from "./types.js";
+export { BridgeApi } from "./types.js";

@@ -733,6 +733,31 @@ Phase 0 §14 议题中 Tushare endpoint 名 `cb_op` / `yc_cb` / `news` 的 live 
    （Fed 决议 / 财报季 / 地缘冲突）。A 股需要本地化（业绩季 / 解禁 / 政策窗
    口 / 财报集中披露 / 春节假期）。Phase 7 启动前定。
 
+7. **Phase 1 review follow-ups**（PR #1 review 留下的 6 个非阻塞项，集中在
+   Phase 2 落 agent 之前清掉）：
+   - **R1**：`mosaic-ts/src/cli/commands/tool-call.ts` 的 `JSON.parse(argsJson)`
+     无 try/catch，畸形 JSON 直接抛 SyntaxError 把 stack 打到 terminal。包成
+     友好 CLI 错误。
+   - **R2**：`mosaic-ts/src/bridge/types.ts` 的 `BridgeApi` docstring 说 "21 RPC
+     methods" 但只 typed 包了 12 个；缺 `paper.{register,login,logout,
+     reset_account,buy,sell,suggest_order_from_signal}` + `cache.details`。
+     要么 Phase 8 补全，要么改文案为 "selected wrappers"。
+   - **R3**：`mosaic-ts/src/llm/factory.ts` 的 Lemonade base URL
+     `http://localhost:8000/api/v0` 是从内存写的、未实弹验证。加注释引导用户
+     看 `lemonade-server-dev` 启动日志，或暴露 `MOSAIC_LLM_BASE_URL` env override。
+   - **代码细项 (1)**：`mosaic-ts/src/bridge/tools.ts` 的 `prop.default as never`
+     太宽。放宽 `JsonSchemaProperty.default` 的 type 注解或用 `as
+     Parameters<typeof field.default>[0]` 收敛 cast。
+   - **代码细项 (3)**：3 个 error class（RpcError、BridgeStartupError、
+     BridgeTransportError）不传 `{ cause: err }`，丢失原始 stack chain。补上
+     ES2022 cause 链。
+   - **代码细项 (5)**：`MosaicConfig = Record<string, unknown>` 太松。Phase 2
+     落 agent state / cohort / autoresearch 字段时拉成 Zod-validated schema
+     或 discriminated union。
+
+   不阻塞 PR #1 merge。Phase 1 PR #1 提交时已修了真 correctness bug
+   （tool-loop forced-final 用 unbound LLM），其余记此追踪。
+
 ---
 
 ## 15. 工作流约定（沿用 ETFAgents）
