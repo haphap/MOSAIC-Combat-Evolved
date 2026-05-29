@@ -100,13 +100,13 @@ describe("AGENTS_BY_LAYER.macro", () => {
 describe("each macro agent spec wires the right factory inputs", () => {
   const cases = [
     { name: "geopolitical", spec: geopoliticalSpec, expected_tools: 2 },
-    { name: "dollar", spec: dollarSpec, expected_tools: 3 },
+    { name: "dollar", spec: dollarSpec, expected_tools: 4 },
     { name: "yield_curve", spec: yieldCurveSpec, expected_tools: 3 },
-    { name: "commodities", spec: commoditiesSpec, expected_tools: 2 },
-    { name: "volatility", spec: volatilitySpec, expected_tools: 2 },
+    { name: "commodities", spec: commoditiesSpec, expected_tools: 3 },
+    { name: "volatility", spec: volatilitySpec, expected_tools: 3 },
     { name: "emerging_markets", spec: emergingMarketsSpec, expected_tools: 3 },
-    { name: "news_sentiment", spec: newsSentimentSpec, expected_tools: 2 },
-    { name: "institutional_flow", spec: institutionalFlowSpec, expected_tools: 2 },
+    { name: "news_sentiment", spec: newsSentimentSpec, expected_tools: 3 },
+    { name: "institutional_flow", spec: institutionalFlowSpec, expected_tools: 3 },
   ] as const;
 
   for (const { name, spec, expected_tools } of cases) {

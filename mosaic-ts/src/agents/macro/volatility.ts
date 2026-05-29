@@ -1,10 +1,9 @@
 /**
  * volatility Layer-1 macro agent (Plan §5.1).
  *
- * Plan §5.1 wants `get_ivx` + `get_etf_indicator(510050.SH)`; Phase 0 has
- * neither. Substitution: `get_fred_series(VIXCLS)` + `get_yield_curve_cn`
- * (curve volatility is a passable iVX proxy until ETF tools land in Phase 8).
- * Tracked plan §14 #8.
+ * Plan §5.1 tools: `get_ivx` + `get_etf_indicator(510050.SH)` (now available —
+ * macro-tools gap closed, plan §14 #8) + `get_fred_series(VIXCLS)`.
+ * `get_ivx` is a yfinance CSI-300 realized-vol proxy (no public iVX feed).
  */
 
 import type { VolatilityOutput } from "../types.js";
@@ -16,7 +15,7 @@ import {
 } from "./_factory.js";
 import { VOLATILITY_FIELD_NAMES, VolatilitySchema } from "./_schemas.js";
 
-export const REQUIRED_TOOLS = ["get_fred_series", "get_yield_curve_cn"] as const;
+export const REQUIRED_TOOLS = ["get_fred_series", "get_ivx", "get_etf_indicator"] as const;
 
 export const volatilitySpec: LayerOneAgentSpec<VolatilityOutput> = {
   agentId: "volatility",

@@ -1,10 +1,9 @@
 /**
  * institutional_flow Layer-1 macro agent (Plan §5.1).
  *
- * Plan §5.1 wants `get_north_capital_flow` + `get_lhb_ranking` +
- * `get_fund_flow`. Phase 0 has the first two; `get_fund_flow` missing.
- * Substitution: just the two existing tools (the LHB ranking already
- * captures most fund-flow info in A-share). Tracked plan §14 #8.
+ * Plan §5.1 tools: `get_north_capital_flow` + `get_lhb_ranking` +
+ * `get_fund_flow` — all now available (macro-tools gap closed, plan §14 #8).
+ * `get_fund_flow` reads ETF share creation/redemption (fund_share).
  */
 
 import type { InstitutionalFlowOutput } from "../types.js";
@@ -16,7 +15,11 @@ import {
 } from "./_factory.js";
 import { INSTITUTIONAL_FLOW_FIELD_NAMES, InstitutionalFlowSchema } from "./_schemas.js";
 
-export const REQUIRED_TOOLS = ["get_north_capital_flow", "get_lhb_ranking"] as const;
+export const REQUIRED_TOOLS = [
+  "get_north_capital_flow",
+  "get_lhb_ranking",
+  "get_fund_flow",
+] as const;
 
 export const institutionalFlowSpec: LayerOneAgentSpec<InstitutionalFlowOutput> = {
   agentId: "institutional_flow",

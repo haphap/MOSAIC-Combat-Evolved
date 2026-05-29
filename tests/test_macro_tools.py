@@ -18,8 +18,6 @@ Covers:
 
 from __future__ import annotations
 
-from unittest import mock
-
 import pytest
 from langchain_core.tools import BaseTool
 
@@ -77,6 +75,31 @@ _EXPECTED_TOOLS = {
         "required": {"curr_date"},
         "optional": {"look_back_days", "src"},
         "vendor_method": "get_industry_policy",
+    },
+    "get_usdcny": {
+        "required": {"curr_date"},
+        "optional": {"look_back_days"},
+        "vendor_method": "get_usdcny",
+    },
+    "get_commodity_prices": {
+        "required": {"curr_date"},
+        "optional": {"look_back_days"},
+        "vendor_method": "get_commodity_prices",
+    },
+    "get_ivx": {
+        "required": {"curr_date"},
+        "optional": {"look_back_days"},
+        "vendor_method": "get_ivx",
+    },
+    "get_etf_indicator": {
+        "required": {"symbol", "curr_date"},
+        "optional": {"look_back_days"},
+        "vendor_method": "get_etf_indicator",
+    },
+    "get_fund_flow": {
+        "required": {"symbol", "curr_date"},
+        "optional": {"look_back_days"},
+        "vendor_method": "get_fund_flow",
     },
 }
 
@@ -213,6 +236,29 @@ class TestDispatch:
             {"curr_date": "2024-06-30", "look_back_days": 14, "src": "wallstreetcn"}
         )
         assert patched_route["args"] == ("2024-06-30", 14, "wallstreetcn")
+
+    def test_get_usdcny_invocation(self, patched_route):
+        macro_tools.get_usdcny.invoke({"curr_date": "2024-06-30"})
+        assert patched_route["method"] == "get_usdcny"
+        assert patched_route["args"] == ("2024-06-30", 30)
+
+    def test_get_commodity_prices_invocation(self, patched_route):
+        macro_tools.get_commodity_prices.invoke({"curr_date": "2024-06-30", "look_back_days": 60})
+        assert patched_route["args"] == ("2024-06-30", 60)
+
+    def test_get_ivx_invocation(self, patched_route):
+        macro_tools.get_ivx.invoke({"curr_date": "2024-06-30"})
+        assert patched_route["args"] == ("2024-06-30", 30)
+
+    def test_get_etf_indicator_invocation(self, patched_route):
+        macro_tools.get_etf_indicator.invoke({"symbol": "510050.SH", "curr_date": "2024-06-30"})
+        assert patched_route["args"] == ("510050.SH", "2024-06-30", 30)
+
+    def test_get_fund_flow_invocation(self, patched_route):
+        macro_tools.get_fund_flow.invoke(
+            {"symbol": "510300.SH", "curr_date": "2024-06-30", "look_back_days": 5}
+        )
+        assert patched_route["args"] == ("510300.SH", "2024-06-30", 5)
 
 
 # --------------------------------------------------------------------- bridge handler
