@@ -171,7 +171,13 @@ export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Prom
     let deltaSharpe: number | undefined;
 
     try {
-      const evalResult = await deps.api.autoresearchEvaluatePending({ cohort });
+      // Scope evaluation to the version we just triggered, so an N-agent layer
+      // does N single-version evaluations instead of N full-cohort scans
+      // (§11.6 O(N²) fix). The result therefore contains at most this version.
+      const evalResult = await deps.api.autoresearchEvaluatePending({
+        cohort,
+        version_id: versionId,
+      });
       const thisEval = evalResult.results.find((r) => r.version_id === versionId);
       if (thisEval) {
         if (thisEval.status === "kept" || thisEval.status === "reverted") {

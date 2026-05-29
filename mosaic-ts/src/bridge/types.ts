@@ -600,6 +600,7 @@ export class BridgeApi {
 
   autoresearchEvaluatePending(params?: {
     cohort?: string;
+    version_id?: number;
   }): Promise<{ results: AutoresearchEvalResult[] }> {
     return this.client.call<{ results: AutoresearchEvalResult[] }>(
       "autoresearch.evaluate_pending",

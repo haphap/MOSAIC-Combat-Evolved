@@ -268,13 +268,18 @@ def autoresearch_record_mutation(params: dict[str, Any]) -> dict[str, Any]:
 
 @method("autoresearch.evaluate_pending")
 def autoresearch_evaluate_pending(params: dict[str, Any]) -> dict[str, Any]:
-    """Evaluate all pending versions that have a modification commit.
+    """Evaluate pending versions that have a modification commit.
 
     For each version: if both backtest runs (base + mod) are complete,
     compute delta and decide. Otherwise, report needs_fill.
 
     Params:
-        cohort: str | None -- filter to a specific cohort
+        cohort:     str | None -- filter to a specific cohort
+        version_id: int | None -- evaluate only this version (the orchestrator
+                    passes the version it just triggered, so a layer of N agents
+                    does N single-version evaluations instead of N full-cohort
+                    scans — §14 R-A/§11.6 O(N²) fix). When omitted, scans all
+                    pending versions (resume / `prism evaluate` CLI contract).
 
     Returns:
         {"results": [{version_id, status, delta_sharpe?}, ...]}
@@ -285,13 +290,23 @@ def autoresearch_evaluate_pending(params: dict[str, Any]) -> dict[str, Any]:
     cohort = params.get("cohort")
     if cohort is not None and not isinstance(cohort, str):
         raise RpcError(INVALID_PARAMS, "'cohort' must be a string when provided")
+    version_id_filter = params.get("version_id")
+    if version_id_filter is not None and (
+        not isinstance(version_id_filter, int) or isinstance(version_id_filter, bool)
+    ):
+        raise RpcError(INVALID_PARAMS, "'version_id' must be an integer when provided")
 
     store = _store()
     config = _config()
     cohorts_cfg = config.get("cohorts", {})
 
-    # Get pending versions with a mod commit.
-    versions = store.list_prompt_versions(cohort=cohort, status="pending")
+    # Scope the work set. With a version_id we evaluate just that one row (O(1)
+    # lookup, still pending+mutated-gated below); otherwise scan all pending.
+    if version_id_filter is not None:
+        one = store.get_prompt_version(version_id_filter)
+        versions = [one] if one and one.get("status") == "pending" else []
+    else:
+        versions = store.list_prompt_versions(cohort=cohort, status="pending")
     results: list[dict[str, Any]] = []
 
     for v in versions:

@@ -2168,9 +2168,12 @@ autoresearch）。`max_agents_concurrent` 形参定义了但没用；`complete_c
 - **deps-light 双注册崩溃修复**：`test_prism.py` / `test_bridge_autoresearch.py`
   的 except 分支先查 `sys.modules`（包 __init__ 在 tools 失败前已注册过
   prism/autoresearch），命中则复用，不再 re-exec 致 `@method` 重复注册。
+- **O(N²) evaluate_pending ✅ 已修复（2026-05-30）**：`autoresearch.evaluate_pending`
+  加可选 `version_id` 参数；orchestrator 评估时只传刚 trigger 的 version，使一个
+  N-agent layer 做 N 次单 version 评估而非 N 次全 cohort 扫描。缺省（无 version_id）
+  仍扫全部 pending（`prism evaluate` / 断点续跑契约不变）。
 - **遗留（同 4C–4F 限制）**：fake-llm 下终态仍是 `needs_fill`（keep/revert/merge
-  需 qlib stage-2）；O(N²) evaluate_pending 每 agent 全扫 cohort（serial bridge
-  下正确但偏费，后续可改成只评估被触发的 version）。
+  需 qlib stage-2）。
 
 ### 不在 Phase 5 范围（避免 scope creep）
 

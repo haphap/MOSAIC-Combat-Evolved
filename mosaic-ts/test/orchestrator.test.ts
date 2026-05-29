@@ -240,5 +240,10 @@ describe("runAutoresearchCycle", () => {
 
     expect(result.mutations[0]?.status).toBe("kept");
     expect(result.mutations[0]?.delta_sharpe).toBe(0.15);
+    // §11.6 O(N²) fix: evaluation is scoped to the version just triggered.
+    expect(api.autoresearchEvaluatePending).toHaveBeenCalledWith({
+      cohort: "cohort_default",
+      version_id: 1,
+    });
   });
 });

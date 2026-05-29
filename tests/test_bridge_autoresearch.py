@@ -44,6 +44,7 @@ except Exception:
 # Module-level references to handler functions.
 autoresearch_trigger = _ar.autoresearch_trigger
 autoresearch_record_mutation = _ar.autoresearch_record_mutation
+autoresearch_evaluate_pending = _ar.autoresearch_evaluate_pending
 autoresearch_get_log = _ar.autoresearch_get_log
 autoresearch_list_active_branches = _ar.autoresearch_list_active_branches
 autoresearch_prepare_worktree = _ar.autoresearch_prepare_worktree
@@ -187,6 +188,53 @@ class TestAutoresearchRecordMutation(unittest.TestCase):
         log = self.store.get_log()
         mutated_entries = [e for e in log if e["event"] == "mutated"]
         self.assertEqual(len(mutated_entries), 1)
+
+
+class TestAutoresearchEvaluatePending(unittest.TestCase):
+    """Test autoresearch.evaluate_pending — esp. the version_id scoping (§11.6 O(N²) fix)."""
+
+    def setUp(self):
+        self._tmpdir = TemporaryDirectory()
+        self.db_path = Path(self._tmpdir.name) / "scorecard.db"
+        self.store = ScorecardStore(db_path=self.db_path)
+        self._store_patch = patch.object(_ar, "_store", return_value=self.store)
+        self._store_patch.start()
+
+    def tearDown(self):
+        self._store_patch.stop()
+        self._tmpdir.cleanup()
+
+    def _mutated_version(self, branch: str) -> int:
+        vid = self.store.create_prompt_version(
+            cohort="euphoria_2021", agent="volatility",
+            branch_name=branch, base_commit_hash="a" * 40,
+        )
+        self.store.set_version_mutation(vid, "b" * 40, "x")
+        return vid
+
+    def test_version_id_scopes_to_one_version(self):
+        # Two mutated pending versions; ask for just the second.
+        self._mutated_version("cohort/euphoria_2021/auto/volatility/2021-01-01")
+        vid2 = self._mutated_version("cohort/euphoria_2021/auto/cro/2021-01-01")
+        result = autoresearch_evaluate_pending({"version_id": vid2})
+        ids = [r["version_id"] for r in result["results"]]
+        self.assertEqual(ids, [vid2])
+        # No backtest runs exist → needs_fill (proves it reached evaluation).
+        self.assertEqual(result["results"][0]["status"], "needs_fill")
+
+    def test_scan_all_without_version_id(self):
+        self._mutated_version("cohort/euphoria_2021/auto/volatility/2021-01-01")
+        self._mutated_version("cohort/euphoria_2021/auto/cro/2021-01-01")
+        result = autoresearch_evaluate_pending({"cohort": "euphoria_2021"})
+        self.assertEqual(len(result["results"]), 2)
+
+    def test_unknown_version_id_returns_empty(self):
+        result = autoresearch_evaluate_pending({"version_id": 99999})
+        self.assertEqual(result["results"], [])
+
+    def test_version_id_must_be_int(self):
+        with self.assertRaises(RpcError):
+            autoresearch_evaluate_pending({"version_id": "nope"})
 
 
 class TestAutoresearchGetLog(unittest.TestCase):
