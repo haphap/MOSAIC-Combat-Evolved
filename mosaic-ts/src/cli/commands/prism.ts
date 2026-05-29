@@ -11,12 +11,22 @@
 import type { Command } from "commander";
 import pc from "picocolors";
 import { BridgeApi, BridgeClient, RpcError } from "../../bridge/index.js";
+import { createLlmFromConfig } from "../../llm/factory.js";
+import { type CohortTrainingResult, runCohortTraining } from "../../prism/trainer.js";
+import { buildFakeLlmHandle } from "../_backtest_helpers.js";
 
 interface TrainOptions {
-  cohort: string;
+  cohort?: string;
+  all?: boolean;
   start?: string;
   end?: string;
   dryRun?: boolean;
+  fakeLlm?: boolean;
+  maxConcurrent?: string;
+  maxMutations?: string;
+  llmProvider?: string;
+  model?: string;
+  baseUrl?: string;
 }
 
 interface StatusOptions {
@@ -75,36 +85,95 @@ export function registerPrism(program: Command): void {
 
   cmd
     .command("train")
-    .description("Initiate training for a cohort.")
-    .requiredOption("--cohort <name>", "Cohort name to train")
+    .description("Train a cohort (or all 7): layers sequential, ≤N agents concurrent per layer.")
+    .option("--cohort <name>", "Cohort name to train")
+    .option("--all", "Train all 7 cohorts sequentially")
     .option("--start <date>", "Override start date (YYYY-MM-DD)")
     .option("--end <date>", "Override end date (YYYY-MM-DD)")
-    .option("--dry-run", "Validate without starting training")
+    .option("--dry-run", "Select + generate only; no branch/DB side effects")
+    .option("--fake-llm", "Use in-memory mock LLM (zero cost)")
+    .option("--max-concurrent <n>", "Max agents trained concurrently per layer (default 5)")
+    .option("--max-mutations <n>", "Mutations attempted per agent (default 1)")
+    .option("--llm-provider <name>", "Override LLM provider")
+    .option("--model <name>", "Override LLM model")
+    .option("--base-url <url>", "Override LLM base URL")
     .action(async (opts: TrainOptions) => {
       const client = new BridgeClient();
       const api = new BridgeApi(client);
 
+      if (!opts.all && !opts.cohort) {
+        console.error(pc.red("error: provide --cohort <name> or --all"));
+        process.exitCode = 1;
+        return;
+      }
+
       try {
         await client.start();
+        const config = await api.configGet();
+        const llmHandle = opts.fakeLlm
+          ? buildFakeLlmHandle()
+          : createLlmFromConfig(config, {
+              tier: "deep",
+              ...(opts.llmProvider ? { provider: opts.llmProvider } : {}),
+              ...(opts.model ? { model: opts.model } : {}),
+              ...(opts.baseUrl ? { baseUrl: opts.baseUrl } : {}),
+            });
+
+        const maxAgentsConcurrent = opts.maxConcurrent
+          ? Number.parseInt(opts.maxConcurrent, 10)
+          : 5;
+        const maxMutationsPerAgent = opts.maxMutations ? Number.parseInt(opts.maxMutations, 10) : 1;
+        const dryRun = opts.dryRun ?? false;
+
+        // Resolve the cohort list.
+        let cohorts: string[];
+        if (opts.all) {
+          const { cohorts: list } = await api.prismListCohorts();
+          cohorts = list.map((c) => c.name);
+        } else {
+          cohorts = [opts.cohort as string];
+        }
+
         console.log(
-          pc.bold(`\nprism train -- cohort=${opts.cohort}` + `${opts.dryRun ? " [DRY RUN]" : ""}`),
+          pc.bold(
+            `\nprism train -- cohorts=[${cohorts.join(", ")}] ` +
+              `max-concurrent=${maxAgentsConcurrent}${dryRun ? " [DRY RUN]" : ""}` +
+              `${opts.fakeLlm ? " [FAKE LLM]" : ""}`,
+          ),
         );
 
-        const result = await api.prismTrainCohort({
-          cohort_name: opts.cohort,
-          ...(opts.start ? { start_date: opts.start } : {}),
-          ...(opts.end ? { end_date: opts.end } : {}),
-          ...(opts.dryRun != null ? { dry_run: opts.dryRun } : {}),
-        });
+        const common = {
+          maxAgentsConcurrent,
+          maxMutationsPerAgent,
+          dryRun,
+          ...(opts.fakeLlm ? { fakeLlm: true } : {}),
+          deps: { llm: llmHandle.llm, api },
+          onLog: (msg: string) => console.log(pc.dim(`  ${msg}`)),
+        };
 
-        if (result.started) {
-          console.log(pc.green(`  training started: ${result.message}`));
-          if (result.run_id != null) {
-            console.log(pc.dim(`  run_id: ${result.run_id}`));
+        // Per-cohort: create branch + run shell, train, then close the ledger.
+        const train = async (cohort: string): Promise<CohortTrainingResult> => {
+          let runId: number | undefined;
+          if (!dryRun) {
+            const shell = await api.prismTrainCohort({ cohort_name: cohort });
+            runId = shell.run_id;
+            if (runId != null) console.log(pc.dim(`  ${cohort}: run_id=${runId}`));
           }
-        } else {
-          console.log(pc.yellow(`  ${result.message}`));
-        }
+          const result = await runCohortTraining({ cohort, ...common });
+          if (!dryRun && runId != null) {
+            const llmCalls = countAgents(result);
+            await api.prismCompleteCohortRun({ run_id: runId, llm_calls: llmCalls });
+          }
+          return result;
+        };
+
+        const results = opts.all
+          ? // runPrismTraining keeps cohorts sequential; but we need the
+            // shell+complete ledger per cohort, so train() wraps each.
+            await sequential(cohorts, train)
+          : [await train(cohorts[0] as string)];
+
+        printTrainingResults(results);
       } catch (err) {
         handleError(err, client);
       } finally {
@@ -210,4 +279,39 @@ function handleError(err: unknown, client: BridgeClient): void {
 
 function pad(s: string, width: number): string {
   return s.length >= width ? s : s + " ".repeat(width - s.length);
+}
+
+/** Run an async fn over items strictly in sequence (cohorts never overlap). */
+async function sequential<T, R>(
+  items: ReadonlyArray<T>,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const out: R[] = [];
+  for (const item of items) out.push(await fn(item));
+  return out;
+}
+
+/** Total agent training steps across all layers of a cohort result. */
+function countAgents(result: CohortTrainingResult): number {
+  return result.layers.reduce((n, l) => n + l.agents.length, 0);
+}
+
+const STATUS_COLOR: Record<string, (s: string) => string> = {
+  kept: pc.green,
+  reverted: pc.red,
+  error: pc.red,
+};
+
+function printTrainingResults(results: ReadonlyArray<CohortTrainingResult>): void {
+  for (const r of results) {
+    console.log(pc.cyan(`\n=== ${r.cohort} ===`));
+    for (const layer of r.layers) {
+      const counts: Record<string, number> = {};
+      for (const a of layer.agents) counts[a.status] = (counts[a.status] ?? 0) + 1;
+      const summary = Object.entries(counts)
+        .map(([s, n]) => `${(STATUS_COLOR[s] ?? pc.yellow)(s)}=${n}`)
+        .join(" ");
+      console.log(`  ${pad(layer.layer, 14)} ${layer.agents.length} agents  ${summary}`);
+    }
+  }
 }

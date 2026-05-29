@@ -311,6 +311,24 @@ class TestPrismHandler(unittest.TestCase):
         self.assertIn("comparisons", result)
         self.assertEqual(len(result["comparisons"]), 7)
 
+    def test_complete_cohort_run_closes_ledger(self):
+        # Open a run, then close it via the RPC and verify the ledger row.
+        run_id = self.store.create_cohort_run("crisis_2008", "2024-01-15")
+        result = _prism.prism_complete_cohort_run({
+            "run_id": run_id,
+            "llm_calls": 25,
+        })
+        self.assertTrue(result["ok"])
+        runs = self.store.get_cohort_runs("crisis_2008")
+        row = next(r for r in runs if r["id"] == run_id)
+        self.assertIsNotNone(row["cycle_completed_at"])
+        self.assertEqual(row["llm_calls"], 25)
+
+    def test_complete_cohort_run_rejects_bad_run_id(self):
+        from mosaic.bridge.protocol import RpcError
+        with self.assertRaises(RpcError):
+            _prism.prism_complete_cohort_run({"run_id": "nope"})
+
 
 if __name__ == "__main__":
     unittest.main()

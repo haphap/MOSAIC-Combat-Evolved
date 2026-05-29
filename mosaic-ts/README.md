@@ -58,7 +58,8 @@ pnpm dev autoresearch revert --version-id 12                                    
 
 # Phase 5 PRISM (7-cohort training orchestration)
 pnpm dev prism list                                  # 7 cohorts + branch/run status
-pnpm dev prism train --cohort crisis_2008 [--dry-run]
+pnpm dev prism train --cohort crisis_2008 --fake-llm [--max-concurrent 5] [--max-mutations 1] [--dry-run]
+pnpm dev prism train --all --fake-llm                # train all 7 cohorts sequentially (layers sequential, ≤5 agents/layer concurrent)
 pnpm dev prism status --cohort crisis_2008
 pnpm dev prism compare [--metric sharpe] [--since YYYY-MM-DD]
 ```

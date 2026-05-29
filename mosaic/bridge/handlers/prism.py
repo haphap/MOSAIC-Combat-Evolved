@@ -176,3 +176,43 @@ def prism_compare_cohorts(params: dict[str, Any]) -> dict[str, Any]:
     comparisons = compare_cohorts(store, metric=metric, since_date=since)
 
     return {"comparisons": comparisons}
+
+
+# ---------------------------------------------------------------------------
+# prism.complete_cohort_run
+# ---------------------------------------------------------------------------
+
+
+@method("prism.complete_cohort_run")
+def prism_complete_cohort_run(params: dict[str, Any]) -> dict[str, Any]:
+    """Close a cohort_run ledger row after training finishes (Plan §11.6 5B).
+
+    Params:
+        run_id:            int
+        llm_calls:         int | None
+        llm_cost_usd:      float | None
+        cio_action:        str | None
+        cio_target_weight: float | None
+    """
+    run_id = params.get("run_id")
+    if not isinstance(run_id, int) or isinstance(run_id, bool):
+        raise RpcError(INVALID_PARAMS, "'run_id' must be an integer")
+
+    def _opt_num(key: str, types: tuple):
+        v = params.get(key)
+        if v is not None and (not isinstance(v, types) or isinstance(v, bool)):
+            raise RpcError(INVALID_PARAMS, f"'{key}' has the wrong type")
+        return v
+
+    cio_action = params.get("cio_action")
+    if cio_action is not None and not isinstance(cio_action, str):
+        raise RpcError(INVALID_PARAMS, "'cio_action' must be a string")
+
+    _store().complete_cohort_run(
+        run_id,
+        llm_calls=_opt_num("llm_calls", (int,)),
+        llm_cost_usd=_opt_num("llm_cost_usd", (int, float)),
+        cio_action=cio_action,
+        cio_target_weight=_opt_num("cio_target_weight", (int, float)),
+    )
+    return {"ok": True}

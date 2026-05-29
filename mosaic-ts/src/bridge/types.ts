@@ -664,4 +664,14 @@ export class BridgeApi {
       params ?? {},
     );
   }
+
+  prismCompleteCohortRun(params: {
+    run_id: number;
+    llm_calls?: number;
+    llm_cost_usd?: number;
+    cio_action?: string;
+    cio_target_weight?: number;
+  }): Promise<{ ok: boolean }> {
+    return this.client.call<{ ok: boolean }>("prism.complete_cohort_run", params);
+  }
 }
