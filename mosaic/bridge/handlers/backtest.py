@@ -213,3 +213,137 @@ def backtest_run_candidate_pool(params: dict[str, Any]) -> dict[str, Any]:
         raise RpcError(BACKTEST_ERROR, f"{type(exc).__name__}: {exc}") from exc
 
     return _jsonable(result.to_dict())
+
+
+# --------------------------------------------------------- Phase 3.5C: two-stage backtest cache
+
+
+def _store():
+    """Lazy-import scorecard store to keep this module's import graph thin."""
+    from mosaic.scorecard import ScorecardStore
+
+    return ScorecardStore()
+
+
+@method("backtest.create_run")
+def backtest_create_run(params: dict[str, Any]) -> dict[str, Any]:
+    """Open a new backtest run row (Plan §11.4 sub-step 3.5C).
+
+    Params:
+        cohort:              str
+        start_date:          str (YYYY-MM-DD)
+        end_date:            str (YYYY-MM-DD)
+        prompt_commit_hash:  str — opaque tag tying this run to a prompt
+                                   version (Phase 4 git mutation hash;
+                                   for now any deterministic id works).
+
+    Returns:
+        {"run_id": <int>}
+
+    Idempotent: same (cohort, start_date, end_date, prompt_commit_hash) →
+    same run_id (UPSERT).
+    """
+    cohort = _require_str(params, "cohort")
+    start_date = _require_str(params, "start_date")
+    end_date = _require_str(params, "end_date")
+    prompt_commit_hash = _require_str(params, "prompt_commit_hash")
+    try:
+        run_id = _store().create_backtest_run(
+            cohort=cohort,
+            start_date=start_date,
+            end_date=end_date,
+            prompt_commit_hash=prompt_commit_hash,
+        )
+    except Exception as exc:
+        raise RpcError(BACKTEST_ERROR, f"{type(exc).__name__}: {exc}") from exc
+    return {"run_id": run_id}
+
+
+@method("backtest.append_actions")
+def backtest_append_actions(params: dict[str, Any]) -> dict[str, Any]:
+    """Push one trade-day's portfolio_actions into a backtest run.
+
+    Params:
+        run_id:     int
+        trade_date: str (YYYY-MM-DD)
+        actions:    list of {ticker, action, target_weight, [holding_period],
+                             [dissent_notes]} — same shape as
+                    ``state.portfolio_actions``.
+
+    Returns:
+        {"appended": <int>} — rows actually written (after schema filtering).
+
+    Idempotent: re-appending the same (run_id, trade_date, ticker) updates
+    action / target_weight / holding_period / dissent_notes via ON CONFLICT
+    DO UPDATE.
+    """
+    run_id = params.get("run_id")
+    if not isinstance(run_id, int) or run_id <= 0:
+        raise RpcError(INVALID_PARAMS, "'run_id' must be a positive integer")
+    trade_date = _require_str(params, "trade_date")
+    actions = params.get("actions")
+    if not isinstance(actions, list):
+        raise RpcError(INVALID_PARAMS, "'actions' must be an array")
+    try:
+        n = _store().append_backtest_actions(
+            run_id=run_id, trade_date=trade_date, actions=actions
+        )
+    except Exception as exc:
+        raise RpcError(BACKTEST_ERROR, f"{type(exc).__name__}: {exc}") from exc
+    return {"appended": n}
+
+
+@method("backtest.complete_run")
+def backtest_complete_run(params: dict[str, Any]) -> dict[str, Any]:
+    """Mark a backtest run as fully populated (stage-1 done).
+
+    After this is called, Phase 3.5D's qlib runner can replay actions
+    from the table without worrying about partial coverage.
+    """
+    run_id = params.get("run_id")
+    if not isinstance(run_id, int) or run_id <= 0:
+        raise RpcError(INVALID_PARAMS, "'run_id' must be a positive integer")
+    try:
+        _store().complete_backtest_run(run_id)
+    except Exception as exc:
+        raise RpcError(BACKTEST_ERROR, f"{type(exc).__name__}: {exc}") from exc
+    return {"ok": True}
+
+
+@method("backtest.get_run")
+def backtest_get_run(params: dict[str, Any]) -> dict[str, Any]:
+    """Fetch a backtest run row + summary stats."""
+    run_id = params.get("run_id")
+    if not isinstance(run_id, int) or run_id <= 0:
+        raise RpcError(INVALID_PARAMS, "'run_id' must be a positive integer")
+    store = _store()
+    try:
+        run = store.get_backtest_run(run_id)
+    except Exception as exc:
+        raise RpcError(BACKTEST_ERROR, f"{type(exc).__name__}: {exc}") from exc
+    if run is None:
+        raise RpcError(BACKTEST_ERROR, f"backtest run {run_id} not found")
+    # Cheap aggregate: action count
+    actions = store.get_backtest_actions(run_id)
+    run["action_count"] = len(actions)
+    distinct_dates = sorted({a["trade_date"] for a in actions})
+    run["distinct_trade_days"] = len(distinct_dates)
+    run["first_trade_date"] = distinct_dates[0] if distinct_dates else None
+    run["last_trade_date"] = distinct_dates[-1] if distinct_dates else None
+    return run
+
+
+@method("backtest.list_runs")
+def backtest_list_runs(params: dict[str, Any]) -> dict[str, Any]:
+    """List backtest runs, optionally filtered by cohort + since timestamp."""
+    cohort = params.get("cohort")
+    if cohort is not None and not isinstance(cohort, str):
+        raise RpcError(INVALID_PARAMS, "'cohort' must be a string when provided")
+    since = params.get("since")
+    if since is not None and not isinstance(since, str):
+        raise RpcError(INVALID_PARAMS, "'since' must be a string when provided")
+    try:
+        runs = _store().list_backtest_runs(cohort=cohort, since=since)
+    except Exception as exc:
+        raise RpcError(BACKTEST_ERROR, f"{type(exc).__name__}: {exc}") from exc
+    return {"runs": runs}

@@ -171,6 +171,34 @@ export interface BacktestRunParams {
 /** BacktraderBacktestResult.to_dict() — open shape; consumers should pick fields. */
 export type BacktestResult = Record<string, unknown>;
 
+// --------------------------------------------------------- backtest cache (Phase 3.5C)
+
+/** Shape accepted by ``backtest.append_actions`` — one trade decision. */
+export interface BacktestActionInput {
+  ticker: string;
+  action: "BUY" | "SELL" | "HOLD" | "REDUCE";
+  target_weight: number;
+  holding_period?: string;
+  dissent_notes?: string;
+}
+
+/** Returned by ``backtest.get_run`` and ``backtest.list_runs``. */
+export interface BacktestRunInfo {
+  id: number;
+  cohort: string;
+  start_date: string;
+  end_date: string;
+  prompt_commit_hash: string;
+  created_at: string;
+  /** ISO-8601 when stage-1 fill finished; null while still in progress. */
+  completed_at: string | null;
+  /** Only present in ``backtest.get_run`` response. */
+  action_count?: number;
+  distinct_trade_days?: number;
+  first_trade_date?: string | null;
+  last_trade_date?: string | null;
+}
+
 // --------------------------------------------------------- scorecard / darwinian (Phase 3D)
 
 /** Outcome of a ``scorecard.score_pending`` call. */
@@ -301,6 +329,43 @@ export class BridgeApi {
   // backtest.*
   backtestRunCandidatePool(params: BacktestRunParams): Promise<BacktestResult> {
     return this.client.call<BacktestResult>("backtest.run_candidate_pool", params);
+  }
+
+  // backtest.* (Phase 3.5C two-stage cache)
+  backtestCreateRun(params: {
+    cohort: string;
+    start_date: string;
+    end_date: string;
+    prompt_commit_hash: string;
+  }): Promise<{ run_id: number }> {
+    return this.client.call<{ run_id: number }>("backtest.create_run", params);
+  }
+
+  backtestAppendActions(
+    runId: number,
+    tradeDate: string,
+    actions: BacktestActionInput[],
+  ): Promise<{ appended: number }> {
+    return this.client.call<{ appended: number }>("backtest.append_actions", {
+      run_id: runId,
+      trade_date: tradeDate,
+      actions,
+    });
+  }
+
+  backtestCompleteRun(runId: number): Promise<{ ok: boolean }> {
+    return this.client.call<{ ok: boolean }>("backtest.complete_run", { run_id: runId });
+  }
+
+  backtestGetRun(runId: number): Promise<BacktestRunInfo> {
+    return this.client.call<BacktestRunInfo>("backtest.get_run", { run_id: runId });
+  }
+
+  backtestListRuns(opts?: {
+    cohort?: string;
+    since?: string;
+  }): Promise<{ runs: BacktestRunInfo[] }> {
+    return this.client.call<{ runs: BacktestRunInfo[] }>("backtest.list_runs", opts ?? {});
   }
 
   // scorecard.* (Phase 3D)
