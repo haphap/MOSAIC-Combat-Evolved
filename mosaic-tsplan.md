@@ -1005,14 +1005,29 @@ pnpm dev daily-cycle --cohort cohort_default --dry-run   2F 后必跑通
    不阻塞 PR #1 merge。Phase 1 PR #1 提交时已修了真 correctness bug
    （tool-loop forced-final 用 unbound LLM），其余记此追踪。
 
-8. **`get_property_data` 工具缺失**：plan §5.1 china agent 列出 3 个工具
-   `get_pboc_ops` / `get_industry_policy` / `get_property_data`，但 Phase 0
-   `mosaic/dataflows/macro_data.py` 只实现了前 2 个。Phase 2C.1 china agent
-   暂用 `get_north_capital_flow` 替代（北向资金侧面反映外资对地产+消费的
-   态度）。**TODO：Phase 4 autoresearch 启动前在 macro_data.py 加
-   `get_property_data(curr_date, look_back_days=30)`**：可走 Tushare
-   `realestate_sales` / 70 大中城市房价 endpoint 之一，或 akshare
-   `macro_china_real_estate_climate_index`。
+8. **Layer-1 macro tools 缺口**（plan §5.1 列出的工具 vs Phase 0 macro_data 实际
+   实现的工具差距，影响 2C 的 agent prompt）：
+
+   | Plan §5.1 期望 | Phase 0 实际有 | 2C.2 替代 / 处理 |
+   |---|---|---|
+   | `get_property_data` (china) | ❌ | 用 `get_north_capital_flow` 替代 |
+   | `get_us_china_relations` (geopolitical) | ❌ | 用 `get_xueqiu_heat` + `get_industry_policy`（地缘相关关键词）|
+   | `get_usdcny` (dollar) | ❌ | 用 `get_fred_series(DTWEXBGS)` + `get_north_capital_flow` |
+   | `get_commodity_prices` (commodities) | ❌ | 用 `get_fred_series(DCOILWTICO)` + `get_fred_series(GOLDPMGBD228NLBM)` |
+   | `get_ivx` (volatility) | ❌ | 仅用 `get_fred_series(VIXCLS)` + `get_yield_curve_cn` 推断 |
+   | `get_etf_indicator(510050.SH)` (volatility) | ❌（ETF 工具 Phase 1+） | 同上 |
+   | `get_etf_price_data(EEM)` (emerging_markets) | ❌ | 用 `get_north_capital_flow` + `get_us_china_spread` |
+   | `get_etf_price_data(2800.HK)` (emerging_markets) | ❌ | 同上 |
+   | `get_news` (news_sentiment) | ✅ dataflows 有，未 macro_tools 包装 | Phase 0 Day 4 已包 `get_industry_policy`（含 news），用它 |
+   | `get_caixin_sentiment` (news_sentiment) | ❌ | 用 `get_xueqiu_heat` |
+   | `get_fund_flow` (institutional_flow) | ❌ | 用 `get_lhb_ranking` |
+
+   **TODO Phase 4 autoresearch 启动前**补齐 `get_property_data` /
+   `get_usdcny` / `get_commodity_prices` / `get_ivx` / `get_etf_*` /
+   `get_caixin_sentiment` / `get_fund_flow` 至少其中 4 个核心的（property /
+   usdcny / commodity / ivx）。每补一个，对应 agent prompt 的"工具列表"和
+   置信度门槛同步收紧（plan §11.2 2C 设计决策 #3 提到 Phase 4 会
+   autoresearch 迭代 prompt）。
 
 ---
 
