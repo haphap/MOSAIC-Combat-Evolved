@@ -9,6 +9,8 @@
  */
 
 import { Command } from "commander";
+import { registerBacktest } from "./commands/backtest.js";
+import { registerBacktestFill } from "./commands/backtest-fill.js";
 import { registerBridgePing } from "./commands/bridge-ping.js";
 import { registerDailyCycle } from "./commands/daily-cycle.js";
 import { registerDarwinian } from "./commands/darwinian.js";
@@ -29,5 +31,7 @@ registerToolLoop(program);
 registerDailyCycle(program);
 registerScorecard(program);
 registerDarwinian(program);
+registerBacktestFill(program);
+registerBacktest(program);
 
 await program.parseAsync(process.argv);

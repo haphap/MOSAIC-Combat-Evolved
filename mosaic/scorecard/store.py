@@ -67,6 +67,37 @@ CREATE TABLE IF NOT EXISTS darwinian_weights (
     quartile INTEGER,                           -- 1 (best) ... 4 (worst)
     UNIQUE(cohort, agent, date)
 );
+
+-- Phase 3.5C: two-stage backtest cache (Plan §11.4 design decision #7).
+-- Stage 1 (TS): batch-runs daily-cycles for [start, end] writing to
+-- backtest_actions. Stage 2 (Python qlib): replays from this table — pure
+-- read, no LLM calls — so mutation evaluation in Phase 4 is fast and
+-- deterministic.
+CREATE TABLE IF NOT EXISTS backtest_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    cohort TEXT NOT NULL,
+    start_date TEXT NOT NULL,                   -- YYYY-MM-DD
+    end_date TEXT NOT NULL,                     -- YYYY-MM-DD
+    prompt_commit_hash TEXT NOT NULL,           -- tracks which prompt version this run used
+    created_at TEXT NOT NULL,
+    completed_at TEXT,                          -- NULL = stage 1 in progress / failed
+    UNIQUE(cohort, start_date, end_date, prompt_commit_hash)
+);
+
+CREATE TABLE IF NOT EXISTS backtest_actions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL REFERENCES backtest_runs(id) ON DELETE CASCADE,
+    trade_date TEXT NOT NULL,                   -- YYYY-MM-DD
+    ticker TEXT NOT NULL,
+    action TEXT NOT NULL,                       -- BUY/SELL/HOLD/REDUCE
+    target_weight REAL NOT NULL,                -- [0, 1]
+    holding_period TEXT,                        -- 1W/1M/3M/6M/1Y/5Y+ or NULL
+    dissent_notes TEXT,
+    UNIQUE(run_id, trade_date, ticker)
+);
+
+CREATE INDEX IF NOT EXISTS idx_btactions_run_date
+    ON backtest_actions(run_id, trade_date);
 """
 
 
@@ -414,6 +445,155 @@ class ScorecardStore:
                 }
                 for row in cur.fetchall()
             }
+
+    # ── backtest_runs / backtest_actions (Phase 3.5C two-stage cache) ─────
+
+    def create_backtest_run(
+        self,
+        *,
+        cohort: str,
+        start_date: str,
+        end_date: str,
+        prompt_commit_hash: str,
+    ) -> int:
+        """Open a new backtest run row and return its id.
+
+        Idempotent: if a run with the same (cohort, start_date, end_date,
+        prompt_commit_hash) already exists, returns its id instead of
+        creating a duplicate (UPSERT-style).
+        """
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        with self._connect() as conn:
+            cur = conn.execute(
+                """
+                INSERT INTO backtest_runs (
+                    cohort, start_date, end_date, prompt_commit_hash, created_at
+                ) VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(cohort, start_date, end_date, prompt_commit_hash)
+                DO UPDATE SET created_at = created_at  -- no-op; preserves original timestamp
+                RETURNING id
+                """,
+                (cohort, start_date, end_date, prompt_commit_hash, now),
+            )
+            row = cur.fetchone()
+            return int(row["id"])
+
+    def append_backtest_actions(
+        self,
+        run_id: int,
+        trade_date: str,
+        actions: list[dict[str, Any]],
+    ) -> int:
+        """Insert (or upsert) per-trade-day portfolio_actions for a run.
+
+        ``actions`` is the list-shape produced by CIO's portfolio_actions:
+        each item must have ``ticker``, ``action``, ``target_weight``,
+        and may have ``holding_period`` and ``dissent_notes``.
+        """
+        rows = []
+        for a in actions:
+            ticker = a.get("ticker")
+            action = a.get("action")
+            target_weight = a.get("target_weight")
+            if not isinstance(ticker, str) or not ticker:
+                continue
+            if action not in ("BUY", "SELL", "HOLD", "REDUCE"):
+                continue
+            if not isinstance(target_weight, (int, float)):
+                continue
+            rows.append(
+                {
+                    "run_id": run_id,
+                    "trade_date": trade_date,
+                    "ticker": ticker,
+                    "action": action,
+                    "target_weight": float(target_weight),
+                    "holding_period": a.get("holding_period"),
+                    "dissent_notes": _truncate(a.get("dissent_notes"), 500),
+                }
+            )
+        if not rows:
+            return 0
+        with self._connect() as conn:
+            conn.executemany(
+                """
+                INSERT INTO backtest_actions (
+                    run_id, trade_date, ticker, action,
+                    target_weight, holding_period, dissent_notes
+                ) VALUES (
+                    :run_id, :trade_date, :ticker, :action,
+                    :target_weight, :holding_period, :dissent_notes
+                )
+                ON CONFLICT(run_id, trade_date, ticker) DO UPDATE SET
+                    action = excluded.action,
+                    target_weight = excluded.target_weight,
+                    holding_period = excluded.holding_period,
+                    dissent_notes = excluded.dissent_notes
+                """,
+                rows,
+            )
+        return len(rows)
+
+    def complete_backtest_run(self, run_id: int) -> None:
+        """Mark a backtest run as fully populated (stage-1 done)."""
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE backtest_runs SET completed_at = ? WHERE id = ?",
+                (now, run_id),
+            )
+
+    def get_backtest_run(self, run_id: int) -> Optional[dict[str, Any]]:
+        with self._connect() as conn:
+            cur = conn.execute(
+                "SELECT id, cohort, start_date, end_date, prompt_commit_hash, "
+                "       created_at, completed_at "
+                "FROM backtest_runs WHERE id = ?",
+                (run_id,),
+            )
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+    def list_backtest_runs(
+        self,
+        cohort: Optional[str] = None,
+        since: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
+        sql = (
+            "SELECT id, cohort, start_date, end_date, prompt_commit_hash, "
+            "       created_at, completed_at FROM backtest_runs WHERE 1=1"
+        )
+        params: list[Any] = []
+        if cohort:
+            sql += " AND cohort = ?"
+            params.append(cohort)
+        if since:
+            sql += " AND created_at >= ?"
+            params.append(since)
+        sql += " ORDER BY created_at DESC"
+        with self._connect() as conn:
+            return [dict(r) for r in conn.execute(sql, params).fetchall()]
+
+    def get_backtest_actions(
+        self,
+        run_id: int,
+        trade_date: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
+        sql = (
+            "SELECT trade_date, ticker, action, target_weight, holding_period, "
+            "       dissent_notes FROM backtest_actions WHERE run_id = ?"
+        )
+        params: list[Any] = [run_id]
+        if trade_date:
+            sql += " AND trade_date = ?"
+            params.append(trade_date)
+        sql += " ORDER BY trade_date, ticker"
+        with self._connect() as conn:
+            return [dict(r) for r in conn.execute(sql, params).fetchall()]
 
 
 # ---------------------------------------------------------------------------

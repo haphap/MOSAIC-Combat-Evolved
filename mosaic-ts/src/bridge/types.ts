@@ -171,6 +171,58 @@ export interface BacktestRunParams {
 /** BacktraderBacktestResult.to_dict() — open shape; consumers should pick fields. */
 export type BacktestResult = Record<string, unknown>;
 
+// --------------------------------------------------------- backtest cache (Phase 3.5C)
+
+/** Shape accepted by ``backtest.append_actions`` — one trade decision. */
+export interface BacktestActionInput {
+  ticker: string;
+  action: "BUY" | "SELL" | "HOLD" | "REDUCE";
+  target_weight: number;
+  holding_period?: string;
+  dissent_notes?: string;
+}
+
+/** Returned by ``backtest.get_run`` and ``backtest.list_runs``. */
+export interface BacktestRunInfo {
+  id: number;
+  cohort: string;
+  start_date: string;
+  end_date: string;
+  prompt_commit_hash: string;
+  created_at: string;
+  /** ISO-8601 when stage-1 fill finished; null while still in progress. */
+  completed_at: string | null;
+  /** Only present in ``backtest.get_run`` response. */
+  action_count?: number;
+  distinct_trade_days?: number;
+  first_trade_date?: string | null;
+  last_trade_date?: string | null;
+}
+
+/** Returned by ``backtest.run_historical``. Mirrors
+ *  ``mosaic.backtest.qlib_runner.BacktestMetrics`` (Phase 3.5D dataclass). */
+export interface BacktestMetricsResult {
+  run_id: number;
+  cohort: string;
+  start_date: string;
+  end_date: string;
+  benchmark: string;
+  n_trade_days: number;
+  /** Compounded total return over the window, decimal (0.05 = 5%). */
+  total_return: number;
+  /** ``(1 + total_return)^(252/n) - 1`` — annualized. */
+  annualized_return: number;
+  /** ``mean(daily_return) / std(daily_return) * sqrt(252)``. */
+  sharpe: number;
+  /** Signed (negative) value, e.g. -0.20 means -20% peak-to-trough. */
+  max_drawdown: number;
+  benchmark_return: number;
+  /** ``total_return - benchmark_return`` (no CAPM beta). */
+  alpha: number;
+  initial_cash: number;
+  final_value: number;
+}
+
 // --------------------------------------------------------- scorecard / darwinian (Phase 3D)
 
 /** Outcome of a ``scorecard.score_pending`` call. */
@@ -301,6 +353,75 @@ export class BridgeApi {
   // backtest.*
   backtestRunCandidatePool(params: BacktestRunParams): Promise<BacktestResult> {
     return this.client.call<BacktestResult>("backtest.run_candidate_pool", params);
+  }
+
+  // backtest.* (Phase 3.5C two-stage cache)
+  backtestCreateRun(params: {
+    cohort: string;
+    start_date: string;
+    end_date: string;
+    prompt_commit_hash: string;
+  }): Promise<{ run_id: number }> {
+    return this.client.call<{ run_id: number }>("backtest.create_run", params);
+  }
+
+  backtestAppendActions(
+    runId: number,
+    tradeDate: string,
+    actions: BacktestActionInput[],
+  ): Promise<{ appended: number }> {
+    return this.client.call<{ appended: number }>("backtest.append_actions", {
+      run_id: runId,
+      trade_date: tradeDate,
+      actions,
+    });
+  }
+
+  backtestCompleteRun(runId: number): Promise<{ ok: boolean }> {
+    return this.client.call<{ ok: boolean }>("backtest.complete_run", { run_id: runId });
+  }
+
+  backtestGetRun(runId: number): Promise<BacktestRunInfo> {
+    return this.client.call<BacktestRunInfo>("backtest.get_run", { run_id: runId });
+  }
+
+  backtestListRuns(opts?: {
+    cohort?: string;
+    since?: string;
+  }): Promise<{ runs: BacktestRunInfo[] }> {
+    return this.client.call<{ runs: BacktestRunInfo[] }>("backtest.list_runs", opts ?? {});
+  }
+
+  backtestRunHistorical(
+    runId: number,
+    opts?: {
+      initial_cash?: number;
+      benchmark?: string;
+      open_cost?: number;
+      close_cost?: number;
+      deal_price?: string;
+    },
+  ): Promise<BacktestMetricsResult> {
+    return this.client.call<BacktestMetricsResult>("backtest.run_historical", {
+      run_id: runId,
+      ...opts,
+    });
+  }
+
+  // calendar.* (PR #4 review hotfix #2 — replaces weekday-only filter)
+  calendarListTradingDays(start: string, end: string): Promise<{ trading_days: string[] }> {
+    return this.client.call<{ trading_days: string[] }>("calendar.list_trading_days", {
+      start,
+      end,
+    });
+  }
+
+  calendarIsTradingDay(date: string): Promise<{ is_trading: boolean }> {
+    return this.client.call<{ is_trading: boolean }>("calendar.is_trading_day", { date });
+  }
+
+  calendarNextTradingDay(date: string, n = 1): Promise<{ date: string }> {
+    return this.client.call<{ date: string }>("calendar.next_trading_day", { date, n });
   }
 
   // scorecard.* (Phase 3D)

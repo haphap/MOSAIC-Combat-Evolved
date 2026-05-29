@@ -31,7 +31,10 @@ export {
   pickBridgeTools,
 } from "./tools.js";
 export type {
+  BacktestActionInput,
+  BacktestMetricsResult,
   BacktestResult,
+  BacktestRunInfo,
   BacktestRunParams,
   BacktestSignalsByDate,
   CacheCategory,

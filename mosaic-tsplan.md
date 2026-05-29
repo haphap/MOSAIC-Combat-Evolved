@@ -1406,6 +1406,208 @@ pnpm dev daily-cycle --cohort cohort_default --dry-run   2F 后必跑通
 
 ---
 
+## 11.4 Phase 3.5 详细任务（Sub-step 3.5A–3.5F）
+
+**目标**：接入 qlib 作为历史数据底座 + 向量化回测引擎。Phase 4 autoresearch
+评估时间从"等 1 周看 1 个 5d Sharpe 数据点"压到"秒级历史回放"——单天可跑
+数百次 mutation。同时为 Phase 5 PRISM 多 cohort 训练、Phase 8 backtest
+执行打底。
+
+**用户决策（2026-05-29）**：
+- 整合方式 **(a)(ii) 重整合**——直接 import qlib，用 qlib 的 backtest.executor
+  + Strategy 接口（不自己写回测引擎）。MOSAIC 的 LangGraph daily-cycle 适配成
+  qlib `BaseStrategy.generate_trade_decision()`。
+- 数据范围：**全部 A 股 1990-至今**（沪 + 深 + 创业 + 科创板 + 已退市）。
+- 时机：**立刻做 Phase 3.5**，不先做 forward-time Phase 4 MVP。
+- 数据源优先级：**Tushare primary**（你已有 token，可靠 > 免费）。akshare
+  作为 fallback 用于 Tushare 缺失的退市股。
+- 增量更新：**手动**（operator 跑 `pnpm dev qlib-update`）。daily-cycle 不
+  自动 refresh data，保持确定性。
+- 失败 ingest：**skip ticker**（gap > 1% 的 ticker 整支跳过，写入
+  `data/qlib_skipped.txt`），survivorship-bias 在边际牺牲，数据质量优先。
+
+### Phase 3.5 整体设计决策
+
+1. **数据存储**：`~/.qlib/qlib_data/cn_data/` 为 qlib 标准路径，`QLIB_CN_DATA_PATH`
+   env 可覆盖（`mosaic/dataflows/qlib_local.py` 已有此逻辑）。gitignored。
+   预估容量 1.5-2 GB（5500+ tickers × 35 年 × OHLCV + factor）。
+
+2. **依赖管理**：`pyproject.toml` 加 `pyqlib >= 0.9.6`（最新稳定版）+
+   `cython`（pyqlib 原生扩展依赖）。`pyqlib` 是 200+ MB 包；放在
+   optional dependency group `[backtest]` 里，普通 daily-cycle 跑不需要。
+
+3. **Ingest 流程**：
+   - 主源：Tushare `pro.daily(ts_code=*, start_date=19900101, end_date=YYYYMMDD)`
+     —— 分批拉，每个 ticker 一次 call。Tushare 速率：免费档 200 次/分钟，
+     2000 积分档 500 次/分钟。**全 ingest 估算**：5500 tickers × 35 年 × 250
+     bars / batch_size 200 ≈ 30-60 分钟单次完整下载。
+   - akshare fallback：Tushare 返回空或 5xx 错误时尝试 akshare
+     `stock_zh_a_hist`（特别是退市股）。
+   - dump：自己实现 CSV → qlib binary 转换（参考 qlib `scripts/dump_bin.py`），
+     不依赖 qlib 的 collector 脚本（它对 CN 数据支持有 gap）。
+
+4. **Survivorship-bias-free universe**：通过 Tushare `stock_basic(list_status='L,D,P')`
+   拉所有上市 / 退市 / 暂停的 ticker，写入 `instruments/all.txt`。
+   benchmark constituents（CSI300/500 等）取每个交易日的 point-in-time 名单
+   ——用 Tushare `index_weight(index_code, trade_date)` 接口，按月采样然后
+   插值。
+
+5. **Skip 策略**（决策 III）：**任何 gap > 1%** 的 ticker（实际 vs 期望
+   bar 数）整支不入 universe，记录到 `data/qlib_skipped.txt` 供后续
+   review。这意味着部分早期退市股会缺失，但保证 backtest 数据干净。
+
+6. **Backtest 语义（strict point-in-time）**：
+   - Daily cycle 跑 `as_of_date = current_trading_day`，bridge 工具自动
+     clamp end_date（Phase 0 backtest mode 已实现）。
+   - 成交时点：**next_open** —— A 股 T+1 制度，今天的 portfolio_actions 在
+     明天开盘成交。
+   - Slippage：**8 bps**（qlib CN default）。
+   - Commission：**3 bps buy + 13 bps sell**（A 股零售实际，含印花税单边）。
+   - Initial cash：**¥1,000,000** 默认，CLI flag 可改。
+   - Benchmark：**000300.SH 沪深300**（与 Phase 3 scorer 一致）。
+
+7. **Strategy adapter**（3.5C 关键）：MOSAIC 的 LangGraph daily-cycle 输出是
+   `state.portfolio_actions[]`，每元素 `{ticker, action, target_weight}`。
+   qlib 的 `BaseStrategy.generate_trade_decision(trade_step)` 期望返回
+   `TradeDecision`。adapter 流程：
+   - 进入 step → 取当前 trading_day → 构造 initial DailyCycleState（active_cohort
+     + as_of_date = trading_day + mode = backtest）。
+   - 调 `buildDailyCycleGraph(deps).invoke(state)` —— 但这是 TS！
+   - **跨语言挑战**：Python qlib 跑回测，但 daily-cycle 在 TS。两个方案：
+     - 方案 A：qlib runner 通过 BridgeClient 调 TS 的 `daily_cycle.run` RPC
+       (TS → 反向 RPC server)。复杂。
+     - 方案 B：daily-cycle 跑在 TS 端，TS 把 portfolio_actions 流式 push 到
+       Python，Python 端 qlib 收消费。架构清晰。
+     - **方案 C（采纳）**：把 daily-cycle 提前批量跑完（per backtest day），
+       结果存 SQLite，然后 qlib runner 单纯读 SQLite + 执行成交。**两阶段
+       回测**：阶段 1 = TS 跑 N 个 daily-cycle 写表，阶段 2 = Python qlib
+       从表读 portfolio_actions 跑回测。
+   - 方案 C 优势：解耦语言、可重跑、Phase 4 mutation 时只需重跑阶段 1 的
+     变化部分（agent 级 cache），qlib 阶段 2 永远是确定性回放。
+
+8. **Two-stage backtest 缓存表**（新增 SQLite schema）：
+   ```sql
+   CREATE TABLE backtest_runs (
+     id INTEGER PRIMARY KEY,
+     cohort TEXT NOT NULL,
+     start_date TEXT NOT NULL,
+     end_date TEXT NOT NULL,
+     prompt_commit_hash TEXT NOT NULL,           -- 关联 git commit (Phase 4)
+     created_at TEXT NOT NULL,
+     UNIQUE(cohort, start_date, end_date, prompt_commit_hash)
+   );
+   CREATE TABLE backtest_actions (
+     id INTEGER PRIMARY KEY,
+     run_id INTEGER REFERENCES backtest_runs(id),
+     trade_date TEXT NOT NULL,
+     ticker TEXT NOT NULL,
+     action TEXT NOT NULL,
+     target_weight REAL NOT NULL,
+     holding_period TEXT,
+     dissent_notes TEXT,
+     UNIQUE(run_id, trade_date, ticker)
+   );
+   ```
+   表落在 `data/scorecard.db` 同一个文件（已有 recommendations + darwinian_weights）。
+
+9. **Phase 4 重写指引**：3.5 落地后，Phase 4 evaluation 流程变成：
+   - mutate prompt → git commit → trigger `backtest.run_historical(cohort,
+     start, end)` → 用新 prompt 跑 N=60 天 daily-cycle（阶段 1） → qlib
+     回测（阶段 2） → 得到 post Sharpe → 与 base prompt 的同期 backtest
+     比较 → ΔSharpe ≥ 0.1 keep / 否则 revert。
+   - 评估时间从 5 个真实交易日 → ~10 分钟（60 天 daily-cycle 跑 60 次 LLM × 25
+     agents 用 lemonade 本地推理）。Phase 4 PR 时再细化。
+
+10. **不在 Phase 3.5 范围**：
+    - 不接 qlib 自己的 model 训练（我们有 25-agent prediction layer）
+    - 不接 qlib 的 factor library
+    - 不做 PRISM 多 cohort（Phase 5）
+    - 不做 paper trading 实盘（Phase 8 后段）
+    - 不做 RD-Agent 的 Researcher/Developer 拆分（Phase 4 决定，Phase 3.5
+      只搭基础设施）
+
+### Sub-step 3.5A：pyqlib 依赖 + 现有 qlib_local.py sanity
+
+- [ ] `pyproject.toml` 加 optional dep group `[backtest]`
+      包含 pyqlib + cython
+- [ ] `mosaic/dataflows/qlib_local.py` —— 现有 454 LOC 港口源，验证 read
+      路径仍工作（端到端用一个手工造的 10-ticker × 1-月 mini dataset 测）
+- [ ] `tests/test_qlib_local.py` —— 端到端 read 测试（不依赖真 qlib_data）
+- [ ] `.gitignore` 加 `~/.qlib/`（防止用户误提交 1.5GB 数据）
+- [ ] 设计决策：pyqlib import 失败时 graceful degradation
+      （DataVendorUnavailable）—— qlib_local.py 已有此模式
+
+### Sub-step 3.5B：Bulk ingest pipeline
+
+- [ ] `mosaic/dataflows/qlib_ingest.py` —— 主入口
+    - `ingest_full(start='1990-01-01', end='today')` —— 全量
+    - `ingest_incremental(today)` —— 单日增量
+    - `_fetch_ticker_bars(ts_code, start, end)` —— Tushare 优先 / akshare fallback
+    - `_dump_to_qlib_bin(df, ts_code, output_dir)` —— CSV → 二进制
+    - `_build_universe_lists()` —— `instruments/all.txt` + `csi300.txt` 等
+    - 速率限制 + 重试 + 进度条（tqdm）
+- [ ] `mosaic/dataflows/qlib_dump.py` —— qlib binary 格式 writer（参考
+      qlib `scripts/dump_bin.py` 实现）
+- [ ] `tests/test_qlib_ingest.py` —— mock Tushare/akshare，测 dump 路径
+- [ ] CLI: `python -m mosaic.dataflows.qlib_ingest --full` /
+      `--incremental 2024-12-15`
+
+### Sub-step 3.5C：Strategy adapter（two-stage 阶段 1）
+
+- [ ] `mosaic-ts/src/cli/commands/backtest-fill.ts` —— TS 命令
+      `pnpm dev backtest-fill --cohort X --start --end`
+    - 对 [start, end] 每个交易日调一次 `buildDailyCycleGraph().invoke()`
+    - 把 `portfolio_actions` 写入 `backtest_actions` 表（通过新 RPC）
+- [ ] `mosaic/scorecard/store.py` —— 加 backtest_runs / backtest_actions
+      schema + upsert API
+- [ ] 新 RPC: `backtest.append_actions(run_id, date, actions[])`
+- [ ] 增量缓存：同 (cohort, dates, prompt_commit) 已有 → 跳过
+
+### Sub-step 3.5D：Backtest runner（two-stage 阶段 2）
+
+- [ ] `mosaic/backtest/__init__.py`
+- [ ] `mosaic/backtest/qlib_runner.py` —— 主入口
+    - `run_backtest(run_id) → metrics` ——读取 backtest_actions，构造 qlib
+      Strategy（仅读表，不调 LLM），跑 qlib executor，返回指标
+    - 指标：total_return / annualized_return / sharpe / max_drawdown /
+      ic / alpha / beta / turnover
+- [ ] `mosaic/backtest/qlib_strategy.py` —— qlib BaseStrategy 子类，从
+      backtest_actions 表读 trade decisions
+- [ ] `tests/test_qlib_runner.py` —— mocked qlib data，测端到端
+
+### Sub-step 3.5E：Bridge handler + TS wrapper
+
+- [ ] `mosaic/bridge/handlers/backtest.py` —— 替换 Phase 0 PAPER_ERROR stub
+    - `backtest.run_historical(cohort, start, end, prompt_commit_hash?)
+       → metrics dict + run_id`
+    - `backtest.list_runs(cohort, since?) → [{run_id, ...}]`
+    - `backtest.get_metrics(run_id) → metrics`
+- [ ] `mosaic-ts/src/bridge/types.ts` —— BridgeApi.backtestRunHistorical
+      / .backtestListRuns / .backtestGetMetrics + interfaces
+- [ ] `tests/test_bridge_backtest.py` —— in-process handler tests
+
+### Sub-step 3.5F：CLI
+
+- [ ] `mosaic-ts/src/cli/commands/backtest.ts` —— `pnpm dev backtest
+      --cohort cohort_default --start 2023-01-01 --end 2023-12-31`
+    - Step 1: 调 `backtest-fill` 跑 daily-cycles 写表（如 commit 已 cached
+      则跳过）
+    - Step 2: 调 `backtest.run_historical` 跑 qlib executor
+    - 输出：metrics 表 + ASCII equity curve（picocolors）
+    - `--out path` JSON dump 完整 equity curve
+
+### Phase 3.5 出口标准
+
+- pyqlib 装好，`python -c "import qlib"` 不抛
+- 运行 `python -m mosaic.dataflows.qlib_ingest --full` 后 `~/.qlib/qlib_data/cn_data/`
+  约 1.5 GB，包含全 A 股 1990-至今（minus skipped tickers）
+- `pnpm dev backtest --cohort cohort_default --start 2024-01-01
+  --end 2024-03-31` 跑通端到端，输出 metrics 表
+- skipped tickers 列表 `data/qlib_skipped.txt` 存在（透明记录）
+- PR `phase-3.5-qlib-integration → main`
+
+---
+
 ## 12. 风险登记
 
 | 风险 | 影响 | 缓解 |

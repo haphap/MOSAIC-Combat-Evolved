@@ -32,6 +32,14 @@ trading = [
     "backtrader>=1.9.78.123",
     "bcrypt>=4.0",
 ]
+# Phase 3.5 qlib integration — heavy data + vectorized backtest engine.
+# Separate group so per-cycle CLI users (no backtest) don't pull pyqlib's
+# 200+ MB cython wheels.
+backtest = [
+    "pyqlib>=0.9.6",
+    "tqdm>=4.66",
+    "scipy>=1.13",  # qlib dependency, declared explicitly for clarity
+]
 # LLM providers (Phase 1+)
 llm = [
     "langchain-anthropic>=0.3.15",
@@ -47,7 +55,7 @@ test = [
     "pytest-asyncio>=0.23",
 ]
 all = [
-    "mosaic[data,trading,llm,test]",
+    "mosaic[data,trading,llm,test,backtest]",
 ]
 
 [tool.setuptools.packages.find]
