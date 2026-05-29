@@ -661,6 +661,151 @@ Phase 0 §14 议题中 Tushare endpoint 名 `cb_op` / `yc_cb` / `news` 的 live 
 
 ---
 
+## 11.2 Phase 2 详细任务（Sub-step 2A–2F）
+
+> 估算 11–12 turns，~8,600 LOC TS。
+> 分支：`phase-2-daily-cycle-mvp`（已建，内含 Phase 1 review follow-ups 收口
+> commit `e74b766` + Lemonade port fixup `e0c3142`）。
+> 目标：跑通单 cohort（`cohort_default`）的 daily cycle MVP，4 层 25 agents
+> 在 LangGraph.js 上完整调度一次，输出可读报告。
+
+### 关键设计决策（写在前面以免后续走偏）
+
+1. **State 形状**：MOSAIC 不沿用 ETFAgents 的 flat-30-key state（25 agents flat
+   会爆到 40+ field 太吵）。改用 **per-layer output maps keyed by agent ID**，
+   reducer 用 dict-merge（`{...prev, ...next}`）。这样：
+   - 多个 L1 agents 可以并发往 `layer1_outputs` 写入而不冲突
+   - 状态 key 数从 40+ 降到 ~12
+   - 每层有一个 aggregated consensus（`layer1_consensus: RegimeSignal | null`
+     等）由 layer-end aggregator 节点写入
+   ```ts
+   // mosaic-ts/src/agents/state.ts 概念
+   {
+     active_cohort: string;           // "cohort_default" / "cohort_euphoria_2021"
+     as_of_date: string;              // YYYY-MM-DD; "" 表示 live
+     mode: "live" | "backtest";
+     // memory（沿用 ETFAgents pattern）
+     continuity_context: Record<string, string>;
+     lesson_context: Record<string, string>;
+     method_context: Record<string, string>;
+     // layer outputs（dict-merge reducer）
+     layer1_outputs: Record<string, MacroAgentOutput>;
+     layer1_consensus: RegimeSignal | null;
+     layer2_outputs: Record<string, SectorAgentOutput>;
+     layer2_consensus: SectorConsensus | null;
+     layer3_outputs: Record<string, SuperinvestorOutput>;
+     layer4_outputs: { cro, alpha_discovery, autonomous_execution, cio };
+     // observability
+     llm_calls: LlmCallRecord[];      // append reducer
+     trace_id: string;
+   }
+   ```
+
+2. **Output 类型**：state.ts 只用 TS interface（编译期）；运行期 Zod schema 跟
+   每个 agent 定义在 `agents/<layer>/<agent>.ts` 旁边。`z.infer` 桥接两端。
+
+3. **Cohort path resolver**：fallback 链 `cohort_xxx/<layer>/<agent>.<lang>.md`
+   缺失则回 `cohort_default/<layer>/<agent>.<lang>.md`。让 PRISM (Phase 5) 训练
+   后的 cohort prompt 与未训练的 cohort 共享 baseline。
+
+4. **2A 范围控制**：只创建 1 对 prompt 占位（`central_bank.{zh,en}.md`）作为
+   loader 测试 fixture；剩余 24 对（48 个 .md）随 2C/2D 各 agent wire-up 时创建。
+   避免 2A 一上来就有 50 个空模板文件污染 diff。
+
+5. **Phase 2 不做 cohort 切换 UI**：plan §1 启动 cohort 是 `euphoria_2021`，但
+   Phase 2 全程跑 `cohort_default` 基线 prompt（plan §10.1）。Cohort 切换机制
+   留 Phase 5 PRISM 落地。
+
+### Sub-step 2A：Foundation（拆 2A.1 + 2A.2 两个 commit）
+
+**2A.1 — State + 路径 + scaffold**
+- [ ] 创建 `prompts/mosaic/cohort_default/{macro,sector,superinvestor,decision}/`
+      目录骨架（含 `.gitkeep`）
+- [ ] 创建 fixture：`prompts/mosaic/cohort_default/macro/central_bank.{zh,en}.md`
+- [ ] 写 `mosaic-ts/src/agents/types.ts` —— layer-1/2/3/4 output 接口（per Plan §5）
+- [ ] 写 `mosaic-ts/src/agents/state.ts` —— LangGraph.js Annotation root + 12 fields
+      with reducers
+- [ ] 写 `mosaic-ts/src/agents/prompts/cohorts.ts` —— path resolver +
+      `findPromptsRoot()` (under repoRoot/prompts/mosaic/)
+- [ ] 写 `mosaic-ts/src/agents/prompts/loader.ts` —— `loadPrompt({agent, layer,
+      cohort, language})` 读 .md，cache，fallback 链
+- [ ] tests：`test/state.test.ts`（reducer 行为、defaults）+
+      `test/prompt_loader.test.ts`（fallback 链、缺失文件错误）
+
+**2A.2 — 移植 4 个 ETFAgents helpers**（直接复用类，~800 LOC）
+- [ ] `ts/src/agents/helpers/content.ts` (60) → `mosaic-ts/src/agents/helpers/content.ts`
+- [ ] `ts/src/agents/helpers/process_narration.ts` (201) → 对应路径
+- [ ] `ts/src/agents/helpers/tool_report_chain.ts` (328) → 对应路径
+- [ ] `ts/src/agents/helpers/structured_output.ts` (214) → 对应路径
+- [ ] 测试：`test/process_narration.test.ts` 等沿用 ETFAgents 测试模板
+
+### Sub-step 2B：Vertical slice（central_bank 端到端）
+
+证明 1 个 agent 走完 prompt → tool → schema → node → state.write 完整链路。
+其他 24 agents 按这个模板批量做。
+
+- [ ] 写完 `central_bank` 真 prompt（zh + en，不再 placeholder）
+- [ ] `mosaic-ts/src/agents/layer1/central_bank.ts` —— Zod output schema +
+      build node function（接 BridgeClient + LLM + 3 个工具：`get_pboc_ops` /
+      `get_fred_series(FEDFUNDS)` / `get_yield_curve_cn`）
+- [ ] node 内：load_prompt → bind_tools → tool_loop（复用 Phase 1 的 runToolLoop
+      逻辑，可能要 extract 出 helper）→ structured_output 解析 → 写入
+      `layer1_outputs.central_bank`
+- [ ] vitest 用 mock LLM + mock BridgeApi 验证完整流转
+
+### Sub-step 2C：Layer 1 剩余 9 macro agents + aggregator
+
+按 2B pattern 批量做：
+- [ ] 9 × {prompt zh+en, schema, node, test} = 27 deliverables
+- [ ] `aggregateLayer1` 节点：把 10 个 `MacroAgentOutput` 合成 `RegimeSignal`
+- [ ] LangGraph 局部装配：10 macro nodes 并发 → aggregator → 写
+      `layer1_consensus`
+
+### Sub-step 2D：Layer 2/3/4（15 agents + cohort fanout 工具）
+
+- [ ] Layer 2: 7 sector agents（同模板，工具用 sector-specific holdings/research）
+- [ ] Layer 3: 4 superinvestor agents（哲学过滤器；prompts 重头戏）
+- [ ] Layer 4: cro / alpha_discovery / autonomous_execution / cio
+      （Plan §5.4，cio 是 final aggregator）
+- [ ] cohort fanout helper：从 `layer1_consensus` 派生不同 cohort 的 view
+      （Phase 5 PRISM 用）
+
+### Sub-step 2E：4 层 LangGraph.js graph 装配
+
+- [ ] `mosaic-ts/src/graph/daily_cycle.ts` —— `buildDailyCycleGraph()`
+- [ ] State propagation：L1 → L2（按 RegimeSignal 决定 sector 启用集）→
+      L3 → L4
+- [ ] Conditional edge：CRO 否决 → 回 L4 重做 alpha_discovery（max 1 轮，
+      避免死循环）
+- [ ] 大约 ~500 LOC，参考 ETFAgents `graph/etf_graph.py` 架构
+
+### Sub-step 2F：Daily cycle MVP CLI smoke
+
+- [ ] `mosaic-ts/src/cli/commands/daily-cycle.ts` —— 新 CLI 命令
+      `pnpm dev daily-cycle [--cohort cohort_default] [--date YYYY-MM-DD] [--dry-run]`
+- [ ] 真 sidecar + lemonade 跑通一次完整 cycle（25 agents 串完）
+- [ ] 输出：4 层报告 + final portfolio_actions 表
+- [ ] 验证 LLM 成本（plan §13 估算 $0.125/cycle，实测 / 校准）
+
+### 2A → 2F 验证矩阵（每个 sub-step 完成后）
+
+```
+pnpm typecheck     必绿
+pnpm lint          必绿
+pnpm test          必绿（增量加测试）
+pnpm dev daily-cycle --cohort cohort_default --dry-run   2F 后必跑通
+```
+
+### Phase 2 出口标准
+
+- 25 agents 全部写完（prompt zh+en、schema、node、单测）
+- LangGraph.js 4 层装配跑通 1 次完整 daily cycle
+- 输出形态稳定（`layer4_outputs.cio.portfolio_actions[]` 是 Phase 3 scorecard 的
+  输入契约）
+- PR `phase-2-daily-cycle-mvp → main`，类似 PR #1 流程
+
+---
+
 ## 12. 风险登记
 
 | 风险 | 影响 | 缓解 |
