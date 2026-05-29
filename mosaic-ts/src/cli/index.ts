@@ -9,11 +9,13 @@
  */
 
 import { Command } from "commander";
+import { registerAutoresearch } from "./commands/autoresearch.js";
 import { registerBacktest } from "./commands/backtest.js";
 import { registerBacktestFill } from "./commands/backtest-fill.js";
 import { registerBridgePing } from "./commands/bridge-ping.js";
 import { registerDailyCycle } from "./commands/daily-cycle.js";
 import { registerDarwinian } from "./commands/darwinian.js";
+import { registerPrism } from "./commands/prism.js";
 import { registerScorecard } from "./commands/scorecard.js";
 import { registerToolCall } from "./commands/tool-call.js";
 import { registerToolLoop } from "./commands/tool-loop.js";
@@ -33,5 +35,7 @@ registerScorecard(program);
 registerDarwinian(program);
 registerBacktestFill(program);
 registerBacktest(program);
+registerAutoresearch(program);
+registerPrism(program);
 
 await program.parseAsync(process.argv);

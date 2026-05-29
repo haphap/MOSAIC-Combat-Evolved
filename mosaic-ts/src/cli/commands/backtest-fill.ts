@@ -44,6 +44,8 @@ interface BacktestFillOptions {
   vetoThreshold?: string;
   /** Pretty progress every N trade days. */
   logEvery?: string;
+  /** Override prompts root directory (for worktree evaluation). */
+  promptsRoot?: string;
 }
 
 export function registerBacktestFill(program: Command): void {
@@ -69,6 +71,7 @@ export function registerBacktestFill(program: Command): void {
       "CRO veto threshold (rejected/pool > this triggers replay; default 0.5)",
     )
     .option("--log-every <n>", "Print progress every N trade days (default 5)")
+    .option("--prompts-root <path>", "Override prompts root directory (for worktree evaluation)")
     .action(async (opts: BacktestFillOptions) => {
       const client = new BridgeClient();
       const api = new BridgeApi(client);
@@ -119,6 +122,7 @@ export function registerBacktestFill(program: Command): void {
           api,
           config,
           vetoThreshold,
+          ...(opts.promptsRoot ? { promptsRoot: opts.promptsRoot } : {}),
         });
 
         let completed = 0;

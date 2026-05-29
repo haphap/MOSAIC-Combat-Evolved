@@ -25,6 +25,7 @@ import type { PortfolioAction } from "../../agents/types.js";
 import { BridgeApi, BridgeClient, RpcError } from "../../bridge/index.js";
 import { buildDailyCycleGraph } from "../../graph/daily_cycle.js";
 import { createLlmFromConfig, type LlmHandle } from "../../llm/factory.js";
+import { pad } from "../_format.js";
 
 interface DailyCycleOptions {
   cohort?: string;
@@ -257,9 +258,7 @@ function printPortfolioTable(actions: PortfolioAction[]): void {
   console.log(pc.dim(`  total_weight = ${totalWeight.toFixed(2)}`));
 }
 
-function pad(s: string, w: number): string {
-  return s.length >= w ? s : s + " ".repeat(w - s.length);
-}
+// pad() imported from ../_format.js (§14 R-T2: shared CJK + ANSI-aware).
 
 // ---------------------------------------------------------------------------
 // Fake LLM for --fake-llm mode
