@@ -236,10 +236,11 @@ describe("pickPromptLanguage", () => {
 
 describe("buildUserContext", () => {
   it("includes as_of_date / mode / cohort", () => {
-    const ctx = buildUserContext(SAMPLE_STATE);
+    const ctx = buildUserContext(SAMPLE_STATE, "central_bank");
     expect(ctx).toContain("2024-06-24");
     expect(ctx).toContain("live");
     expect(ctx).toContain("cohort_default");
+    expect(ctx).toContain("central_bank");
   });
 });
 

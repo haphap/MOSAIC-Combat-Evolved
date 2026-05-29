@@ -10,7 +10,7 @@
  */
 
 import { z } from "zod";
-import type { CentralBankOutput, MacroAgentOutput } from "../types.js";
+import type { CentralBankOutput, ChinaOutput, MacroAgentOutput } from "../types.js";
 
 // ---------------------------------------------------------------------------
 // Shared base helpers
@@ -82,6 +82,54 @@ export const CENTRAL_BANK_FIELD_NAMES = [
 ] as const;
 
 // ---------------------------------------------------------------------------
+// 2. china (Plan §5.1)
+// ---------------------------------------------------------------------------
+
+export const ChinaSchema = z
+  .object({
+    agent: z.literal("china"),
+    policy_direction: z
+      .enum(["PRO_GROWTH", "BALANCED", "RESTRAINING"])
+      .describe(
+        "Aggregate Chinese policy posture for the as_of_date window. " +
+          "PRO_GROWTH = stimulus / industry support; BALANCED = wait-and-see; " +
+          "RESTRAINING = anti-speculation / regulation tightening.",
+      ),
+    sector_focus: z
+      .array(z.string().min(1))
+      .min(1)
+      .max(8)
+      .describe(
+        "Sectors the policy text is steering capital toward (e.g. " +
+          "'semiconductor', 'ai', 'new energy', '新质生产力'). Use the agent's tool " +
+          "outputs verbatim; do not paraphrase into broader categories.",
+      ),
+    risk_drivers: z
+      .array(z.string().min(1))
+      .min(1)
+      .max(8)
+      .describe(
+        "Domestic risks flagged by the latest policy / capital-flow signals " +
+          "(e.g. 'property leverage', 'youth unemployment', 'local government debt').",
+      ),
+    key_drivers: KEY_DRIVERS,
+    confidence: CONFIDENCE,
+  })
+  .describe(
+    "China-domestic policy stance read for one daily-cycle date. Required: " +
+      "blend industrial-policy + capital-flow signals; do not infer policy from " +
+      "PBOC operations alone (that's the central_bank agent's territory).",
+  );
+
+export const CHINA_FIELD_NAMES = [
+  "policy_direction",
+  "sector_focus",
+  "risk_drivers",
+  "key_drivers",
+  "confidence",
+] as const;
+
+// ---------------------------------------------------------------------------
 // Type-check guards: zod schema must produce the canonical TS interface.
 // These are unused at runtime; they exist to make `tsc` reject schema drift.
 // ---------------------------------------------------------------------------
@@ -93,5 +141,13 @@ type _CentralBankSchemaIsCentralBankOutput =
     ? true
     : never;
 const _centralBankSchemaCheck: _CentralBankSchemaIsCentralBankOutput = true;
+
+type _ChinaSchemaIsChinaOutput =
+  z.infer<typeof ChinaSchema> extends Omit<ChinaOutput, "agent"> & { agent: "china" }
+    ? true
+    : never;
+const _chinaSchemaCheck: _ChinaSchemaIsChinaOutput = true;
+
 export type _MacroSchemaGuards = MacroAgentOutput; // re-exported so unused-import lint stays quiet
 void _centralBankSchemaCheck;
+void _chinaSchemaCheck;

@@ -819,6 +819,50 @@ Phase 0 §14 议题中 Tushare endpoint 名 `cb_op` / `yc_cb` / `news` 的 live 
 - [ ] LangGraph 局部装配：10 macro nodes 并发 → aggregator → 写
       `layer1_consensus`
 
+**2C 拆 3 个子提交**（一气干完容易失控）：
+
+* **2C.1** — factory 抽象 + china（第 2 个 agent，证明 factory 可复用）
+* **2C.2** — 剩余 8 个 macro agents 批量加（geopolitical / dollar /
+  yield_curve / commodities / volatility / emerging_markets /
+  news_sentiment / institutional_flow）
+* **2C.3** — `aggregateLayer1` → `RegimeSignal` + LangGraph L1 fan-out
+  装配（10 macro 并发 → aggregator）
+
+**2C 设计决策**（在抽 factory 前定，避免后续 8 个 agent 反工）：
+
+1. **`buildLayerOneAgentNode<TOutput>(spec, deps)` factory**：把 central_bank
+   两阶段执行抽出来。`spec` 携带 agent-specific 配置（agentId / schema /
+   fieldNames / requiredTools / render / fallback / 可选 extractor system），
+   `deps` 携带 `{llmHandle, api, config, onLog?}`。Factory 内部走完
+   `loadPrompt → pickBridgeTools → runAgentToolLoop → invokeStructuredOrFreetext
+   → state update`。每个 macro agent 文件 ~50-80 LOC（vs 2B 的 213 LOC）。
+
+2. **agent 文件结构**：每个 macro agent 一个 `.ts`，导出 `<agent>Spec` +
+   `build<Agent>Node = (deps) => buildLayerOneAgentNode(spec, deps)`。这样：
+   - 测试可以 import `<agent>Spec` 在 unit 层独立验证 spec 合法性
+   - 2D 的 sector / superinvestor / decision agent 可以参考这个 pattern
+     建自己的 layer-specific factory（Layer-2 工具不同，Layer-3 哲学过滤器
+     系统提示不同，Layer-4 输入是上层输出而不是 BridgeApi 工具）
+
+3. **prompts 真值密度策略**：剩余 9 个 macro agent 的 prompt 都按
+   `central_bank` 同款风格写（**双工具最低要求 + 量化约束 + 输出 schema 描述
+   + 写作约束**），但 prompt 长度控制在 30-60 行/语言。Phase 4 autoresearch
+   会迭代这些 prompt，初版"可工作 + 输出契约清晰"即可，不追求完美措辞。
+
+4. **`get_property_data` 不存在的临时处理**：plan §5.1 china agent 列了
+   `get_property_data`，但 Phase 0 macro_data 没实现。china agent 暂用
+   `get_north_capital_flow` 替代（北向资金侧面反映外资对地产/消费的态度），
+   并在 plan §14 加一条 follow-up：Phase 4 autoresearch 之前补
+   `get_property_data` 工具到 mosaic/dataflows/macro_data.py。
+
+5. **Aggregator 算法（2C.3）**：`aggregateLayer1` 简单加权：
+   - stance 投票：每个 agent 的 stance 字段（央行/中国/美元/曲线 → 偏多/偏空
+     映射，volatility/news_sentiment 反向）按 confidence 加权得到 BULLISH /
+     BEARISH / NEUTRAL
+   - `layer_1_consensus_score` = mean(confidence) × stance_alignment_ratio
+   - `key_drivers` 取每个 agent confidence>0.5 的最强 1 条 driver concat
+   不在 2C.3 引入 LLM 二次判断（保持 deterministic，便于回测复现）。
+
 ### Sub-step 2D：Layer 2/3/4（15 agents + cohort fanout 工具）
 
 - [ ] Layer 2: 7 sector agents（同模板，工具用 sector-specific holdings/research）
@@ -960,6 +1004,15 @@ pnpm dev daily-cycle --cohort cohort_default --dry-run   2F 后必跑通
 
    不阻塞 PR #1 merge。Phase 1 PR #1 提交时已修了真 correctness bug
    （tool-loop forced-final 用 unbound LLM），其余记此追踪。
+
+8. **`get_property_data` 工具缺失**：plan §5.1 china agent 列出 3 个工具
+   `get_pboc_ops` / `get_industry_policy` / `get_property_data`，但 Phase 0
+   `mosaic/dataflows/macro_data.py` 只实现了前 2 个。Phase 2C.1 china agent
+   暂用 `get_north_capital_flow` 替代（北向资金侧面反映外资对地产+消费的
+   态度）。**TODO：Phase 4 autoresearch 启动前在 macro_data.py 加
+   `get_property_data(curr_date, look_back_days=30)`**：可走 Tushare
+   `realestate_sales` / 70 大中城市房价 endpoint 之一，或 akshare
+   `macro_china_real_estate_climate_index`。
 
 ---
 
