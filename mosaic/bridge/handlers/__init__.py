@@ -12,6 +12,7 @@ Later phases will add: autoresearch, prism, janus, mirofish.
 
 from __future__ import annotations
 
+from . import autoresearch  # noqa: F401
 from . import backtest  # noqa: F401
 from . import cache  # noqa: F401
 from . import calendar  # noqa: F401

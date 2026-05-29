@@ -292,6 +292,47 @@ export interface PromptWriteResult {
   paths: string[];
 }
 
+// --------------------------------------------------------- autoresearch (Phase 4C/4D)
+
+/** Returned by ``autoresearch.trigger``. */
+export interface AutoresearchTriggerResult {
+  version_id: number;
+  agent: string;
+  branch_name: string;
+  base_commit: string;
+}
+
+/** One entry in the ``autoresearch.evaluate_pending`` results array. */
+export interface AutoresearchEvalResult {
+  version_id: number;
+  status: string;
+  delta_sharpe?: number;
+  detail?: string;
+}
+
+/** A single autoresearch log row from ``autoresearch.get_log``. */
+export interface AutoresearchLogEntry {
+  id: number;
+  prompt_version_id: number | null;
+  event: string;
+  detail: string | null;
+  created_at: string;
+  cohort: string | null;
+  agent: string | null;
+  branch_name: string | null;
+}
+
+/** A pending feature branch from ``autoresearch.list_active_branches``. */
+export interface AutoresearchActiveBranch {
+  id: number;
+  cohort: string;
+  agent: string;
+  branch_name: string;
+  base_commit_hash: string;
+  modification_commit_hash: string | null;
+  created_at: string;
+}
+
 // --------------------------------------------------------- helpers
 
 /**
@@ -499,5 +540,67 @@ export class BridgeApi {
     message?: string;
   }): Promise<PromptWriteResult> {
     return this.client.call<PromptWriteResult>("prompts.write", params);
+  }
+
+  // autoresearch.* (Phase 4C/4D)
+  autoresearchTrigger(params: {
+    cohort: string;
+    force_agent?: string;
+  }): Promise<AutoresearchTriggerResult> {
+    return this.client.call<AutoresearchTriggerResult>("autoresearch.trigger", params);
+  }
+
+  autoresearchRecordMutation(params: {
+    version_id: number;
+    commit_hash: string;
+    summary?: string;
+  }): Promise<{ ok: boolean }> {
+    return this.client.call<{ ok: boolean }>("autoresearch.record_mutation", params);
+  }
+
+  autoresearchEvaluatePending(params?: {
+    cohort?: string;
+  }): Promise<{ results: AutoresearchEvalResult[] }> {
+    return this.client.call<{ results: AutoresearchEvalResult[] }>(
+      "autoresearch.evaluate_pending",
+      params ?? {},
+    );
+  }
+
+  autoresearchGetLog(params?: {
+    cohort?: string;
+    days?: number;
+  }): Promise<{ entries: AutoresearchLogEntry[] }> {
+    return this.client.call<{ entries: AutoresearchLogEntry[] }>(
+      "autoresearch.get_log",
+      params ?? {},
+    );
+  }
+
+  autoresearchListActiveBranches(params?: {
+    cohort?: string;
+  }): Promise<{ branches: AutoresearchActiveBranch[] }> {
+    return this.client.call<{ branches: AutoresearchActiveBranch[] }>(
+      "autoresearch.list_active_branches",
+      params ?? {},
+    );
+  }
+
+  autoresearchRevertModification(params: {
+    version_id: number;
+  }): Promise<{ ok: boolean }> {
+    return this.client.call<{ ok: boolean }>("autoresearch.revert_modification", params);
+  }
+
+  autoresearchPrepareWorktree(params: {
+    branch: string;
+  }): Promise<{ path: string }> {
+    return this.client.call<{ path: string }>("autoresearch.prepare_worktree", params);
+  }
+
+  autoresearchCleanupWorktree(params: {
+    path: string;
+  }): Promise<{ ok: boolean }> {
+    return this.client.call<{ ok: boolean }>("autoresearch.cleanup_worktree", params);
   }
 }

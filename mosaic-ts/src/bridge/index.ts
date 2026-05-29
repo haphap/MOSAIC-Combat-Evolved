@@ -31,6 +31,10 @@ export {
   pickBridgeTools,
 } from "./tools.js";
 export type {
+  AutoresearchActiveBranch,
+  AutoresearchEvalResult,
+  AutoresearchLogEntry,
+  AutoresearchTriggerResult,
   BacktestActionInput,
   BacktestMetricsResult,
   BacktestResult,

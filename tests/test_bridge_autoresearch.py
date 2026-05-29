@@ -1,0 +1,322 @@
+"""Tests for mosaic.bridge.handlers.autoresearch RPC routing (Plan ss11.5 4C/4D)."""
+
+from __future__ import annotations
+
+import importlib.util
+import subprocess
+import sys
+import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import MagicMock, patch
+
+# Import the autoresearch handler module directly, bypassing the handlers
+# __init__.py (which pulls in tools.py that needs langchain_core).
+import mosaic.bridge.protocol  # noqa: E402
+import mosaic.bridge.registry  # noqa: E402
+
+_HANDLER_PATH = (
+    Path(__file__).resolve().parent.parent
+    / "mosaic" / "bridge" / "handlers" / "autoresearch.py"
+)
+_spec = importlib.util.spec_from_file_location(
+    "mosaic.bridge.handlers.autoresearch", str(_HANDLER_PATH)
+)
+_ar = importlib.util.module_from_spec(_spec)
+sys.modules[_spec.name] = _ar
+_spec.loader.exec_module(_ar)
+
+from mosaic.bridge.protocol import RpcError
+from mosaic.scorecard.store import ScorecardStore
+
+# Module-level references to handler functions.
+autoresearch_trigger = _ar.autoresearch_trigger
+autoresearch_record_mutation = _ar.autoresearch_record_mutation
+autoresearch_get_log = _ar.autoresearch_get_log
+autoresearch_list_active_branches = _ar.autoresearch_list_active_branches
+autoresearch_prepare_worktree = _ar.autoresearch_prepare_worktree
+autoresearch_cleanup_worktree = _ar.autoresearch_cleanup_worktree
+autoresearch_revert_modification = _ar.autoresearch_revert_modification
+
+# The module path used by patch() -- must match sys.modules key above.
+_MOD = "mosaic.bridge.handlers.autoresearch"
+
+
+def _make_git_repo(path: Path) -> None:
+    """Initialize a bare-minimum git repo with an initial commit on main."""
+    subprocess.run(["git", "init", "-b", "main", str(path)],
+                   capture_output=True, check=True)
+    subprocess.run(["git", "-C", str(path), "config", "user.name", "test"],
+                   capture_output=True, check=True)
+    subprocess.run(["git", "-C", str(path), "config", "user.email", "test@test.local"],
+                   capture_output=True, check=True)
+    readme = path / "README.md"
+    readme.write_text("# test\n")
+    subprocess.run(["git", "-C", str(path), "add", "."],
+                   capture_output=True, check=True)
+    subprocess.run(["git", "-C", str(path), "commit", "-m", "init"],
+                   capture_output=True, check=True)
+
+
+class TestAutoresearchTrigger(unittest.TestCase):
+    """Test autoresearch.trigger RPC handler."""
+
+    def setUp(self):
+        self._tmpdir = TemporaryDirectory()
+        self.tmp = Path(self._tmpdir.name)
+        self.db_path = self.tmp / "scorecard.db"
+        self.repo_path = self.tmp / "repo"
+        self.repo_path.mkdir()
+        _make_git_repo(self.repo_path)
+
+        self.store = ScorecardStore(db_path=self.db_path)
+        self._store_patch = patch.object(_ar, "_store", return_value=self.store)
+        self._repo_patch = patch.object(_ar, "_repo_root", return_value=self.repo_path)
+        self._store_patch.start()
+        self._repo_patch.start()
+
+    def tearDown(self):
+        self._store_patch.stop()
+        self._repo_patch.stop()
+        self._tmpdir.cleanup()
+
+    def test_trigger_creates_version_and_branch(self):
+        result = autoresearch_trigger({
+            "cohort": "euphoria_2021",
+            "force_agent": "volatility",
+        })
+        self.assertIn("version_id", result)
+        self.assertEqual(result["agent"], "volatility")
+        self.assertIn("cohort/euphoria_2021/auto/volatility/", result["branch_name"])
+        self.assertIsInstance(result["base_commit"], str)
+        self.assertTrue(len(result["base_commit"]) >= 7)
+
+    def test_trigger_idempotent(self):
+        """Calling trigger twice for the same date/agent returns the same version."""
+        r1 = autoresearch_trigger({
+            "cohort": "euphoria_2021",
+            "force_agent": "volatility",
+        })
+        r2 = autoresearch_trigger({
+            "cohort": "euphoria_2021",
+            "force_agent": "volatility",
+        })
+        self.assertEqual(r1["version_id"], r2["version_id"])
+
+    def test_trigger_rejects_invalid_params(self):
+        with self.assertRaises(RpcError) as ctx:
+            autoresearch_trigger({"cohort": ""})
+        self.assertIn("non-empty", ctx.exception.message)
+
+
+class TestAutoresearchRecordMutation(unittest.TestCase):
+    """Test autoresearch.record_mutation RPC handler."""
+
+    def setUp(self):
+        self._tmpdir = TemporaryDirectory()
+        self.db_path = Path(self._tmpdir.name) / "scorecard.db"
+        self.store = ScorecardStore(db_path=self.db_path)
+        self._store_patch = patch.object(_ar, "_store", return_value=self.store)
+        self._store_patch.start()
+
+    def tearDown(self):
+        self._store_patch.stop()
+        self._tmpdir.cleanup()
+
+    def test_record_mutation_updates_version(self):
+        vid = self.store.create_prompt_version(
+            cohort="euphoria_2021",
+            agent="volatility",
+            branch_name="cohort/euphoria_2021/auto/volatility/2021-01-01",
+            base_commit_hash="a" * 40,
+        )
+        result = autoresearch_record_mutation({
+            "version_id": vid,
+            "commit_hash": "b" * 40,
+            "summary": "improved risk handling",
+        })
+        self.assertTrue(result["ok"])
+
+        v = self.store.get_prompt_version(vid)
+        self.assertEqual(v["modification_commit_hash"], "b" * 40)
+        self.assertEqual(v["modification_summary"], "improved risk handling")
+
+    def test_record_mutation_appends_log(self):
+        vid = self.store.create_prompt_version(
+            cohort="euphoria_2021",
+            agent="volatility",
+            branch_name="cohort/euphoria_2021/auto/volatility/2021-01-02",
+            base_commit_hash="a" * 40,
+        )
+        autoresearch_record_mutation({
+            "version_id": vid,
+            "commit_hash": "c" * 40,
+        })
+        log = self.store.get_log()
+        mutated_entries = [e for e in log if e["event"] == "mutated"]
+        self.assertEqual(len(mutated_entries), 1)
+
+
+class TestAutoresearchGetLog(unittest.TestCase):
+    """Test autoresearch.get_log RPC handler."""
+
+    def setUp(self):
+        self._tmpdir = TemporaryDirectory()
+        self.db_path = Path(self._tmpdir.name) / "scorecard.db"
+        self.store = ScorecardStore(db_path=self.db_path)
+        self._store_patch = patch.object(_ar, "_store", return_value=self.store)
+        self._store_patch.start()
+
+    def tearDown(self):
+        self._store_patch.stop()
+        self._tmpdir.cleanup()
+
+    def test_get_log_empty(self):
+        result = autoresearch_get_log({})
+        self.assertEqual(result["entries"], [])
+
+    def test_get_log_with_entries(self):
+        vid = self.store.create_prompt_version(
+            cohort="euphoria_2021",
+            agent="volatility",
+            branch_name="test-branch",
+            base_commit_hash="a" * 40,
+        )
+        self.store.append_log(vid, "triggered", "test entry")
+        result = autoresearch_get_log({})
+        self.assertEqual(len(result["entries"]), 1)
+        self.assertEqual(result["entries"][0]["event"], "triggered")
+
+    def test_get_log_cohort_filter(self):
+        vid = self.store.create_prompt_version(
+            cohort="euphoria_2021",
+            agent="volatility",
+            branch_name="test-branch-filter",
+            base_commit_hash="a" * 40,
+        )
+        self.store.append_log(vid, "triggered", "test")
+        result = autoresearch_get_log({"cohort": "crisis_2008"})
+        self.assertEqual(len(result["entries"]), 0)
+
+
+class TestAutoresearchListActiveBranches(unittest.TestCase):
+    """Test autoresearch.list_active_branches RPC handler."""
+
+    def setUp(self):
+        self._tmpdir = TemporaryDirectory()
+        self.db_path = Path(self._tmpdir.name) / "scorecard.db"
+        self.store = ScorecardStore(db_path=self.db_path)
+        self._store_patch = patch.object(_ar, "_store", return_value=self.store)
+        self._store_patch.start()
+
+    def tearDown(self):
+        self._store_patch.stop()
+        self._tmpdir.cleanup()
+
+    def test_empty_when_no_pending(self):
+        result = autoresearch_list_active_branches({})
+        self.assertEqual(result["branches"], [])
+
+    def test_lists_pending_versions(self):
+        self.store.create_prompt_version(
+            cohort="euphoria_2021",
+            agent="volatility",
+            branch_name="cohort/euphoria_2021/auto/volatility/2021-01-01",
+            base_commit_hash="a" * 40,
+        )
+        result = autoresearch_list_active_branches({})
+        self.assertEqual(len(result["branches"]), 1)
+        self.assertEqual(result["branches"][0]["agent"], "volatility")
+
+
+class TestAutoresearchWorktree(unittest.TestCase):
+    """Test prepare/cleanup_worktree RPC handlers."""
+
+    def setUp(self):
+        self._tmpdir = TemporaryDirectory()
+        self.tmp = Path(self._tmpdir.name)
+        self.repo_path = self.tmp / "repo"
+        self.repo_path.mkdir()
+        _make_git_repo(self.repo_path)
+
+        self._repo_patch = patch.object(_ar, "_repo_root", return_value=self.repo_path)
+        self._repo_patch.start()
+
+    def tearDown(self):
+        self._repo_patch.stop()
+        self._tmpdir.cleanup()
+
+    def test_prepare_and_cleanup_worktree(self):
+        result = autoresearch_prepare_worktree({"branch": "main"})
+        self.assertIn("path", result)
+        wt_path = Path(result["path"])
+        self.assertTrue(wt_path.exists())
+
+        cleanup_result = autoresearch_cleanup_worktree({"path": result["path"]})
+        self.assertTrue(cleanup_result["ok"])
+
+    def test_prepare_worktree_invalid_branch(self):
+        with self.assertRaises(RpcError):
+            autoresearch_prepare_worktree({"branch": ""})
+
+
+class TestAutoresearchRevertModification(unittest.TestCase):
+    """Test autoresearch.revert_modification RPC handler."""
+
+    def setUp(self):
+        self._tmpdir = TemporaryDirectory()
+        self.tmp = Path(self._tmpdir.name)
+        self.db_path = self.tmp / "scorecard.db"
+        self.repo_path = self.tmp / "repo"
+        self.repo_path.mkdir()
+        _make_git_repo(self.repo_path)
+
+        self.store = ScorecardStore(db_path=self.db_path)
+        self._store_patch = patch.object(_ar, "_store", return_value=self.store)
+        self._repo_patch = patch.object(_ar, "_repo_root", return_value=self.repo_path)
+        self._store_patch.start()
+        self._repo_patch.start()
+
+    def tearDown(self):
+        self._store_patch.stop()
+        self._repo_patch.stop()
+        self._tmpdir.cleanup()
+
+    def test_revert_pending_version(self):
+        vid = self.store.create_prompt_version(
+            cohort="euphoria_2021",
+            agent="volatility",
+            branch_name="cohort/euphoria_2021/auto/volatility/2021-01-01",
+            base_commit_hash="a" * 40,
+        )
+        result = autoresearch_revert_modification({"version_id": vid})
+        self.assertTrue(result["ok"])
+        updated = self.store.get_prompt_version(vid)
+        self.assertEqual(updated["status"], "revert")
+
+    def test_revert_kept_within_lockout_blocked(self):
+        """A recently kept version cannot be reverted within lockout period."""
+        from datetime import datetime, timezone
+
+        vid = self.store.create_prompt_version(
+            cohort="euphoria_2021",
+            agent="volatility",
+            branch_name="cohort/euphoria_2021/auto/volatility/2021-01-02",
+            base_commit_hash="a" * 40,
+        )
+        # Decide as keep just now.
+        now_str = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        self.store.decide_version(vid, "keep", decided_at=now_str)
+
+        with self.assertRaises(RpcError) as ctx:
+            autoresearch_revert_modification({"version_id": vid})
+        self.assertIn("lockout", ctx.exception.message)
+
+    def test_revert_nonexistent_version_fails(self):
+        with self.assertRaises(RpcError) as ctx:
+            autoresearch_revert_modification({"version_id": 9999})
+        self.assertIn("not found", ctx.exception.message)
+
+
+if __name__ == "__main__":
+    unittest.main()
