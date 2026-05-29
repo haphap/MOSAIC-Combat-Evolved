@@ -1060,6 +1060,55 @@ Phase 0 §14 议题中 Tushare endpoint 名 `cb_op` / `yc_cb` / `news` 的 live 
 
 ### Sub-step 2E：4 层 LangGraph.js graph 装配
 
+**2E 设计决策**（落地 daily_cycle.ts 之前）：
+
+1. **顺序复合，subgraph 用 delta wrapper 调用**：L1/L2/L3/L4 都是已经
+   compile 的 StateGraph，且共享同一个 `DailyCycleState` 注解。**实测发现**
+   把 compiled subgraph 直接传给 `addNode("layer1", l1)` 时，subgraph 返回
+   的是完整 output state（含累积的 `llm_calls`），parent 的 appendReducer
+   会把它再追加到自己已有的 `llm_calls` 上 —— 4 层串完后 llm_calls 数从
+   25 膨胀到 120+，加 replay 后到 243。所以我们用 `invokeSubgraph` wrapper
+   显式计算 append-reducer 字段（llm_calls / messages）的 delta，
+   replace / dict-merge channel 直接转发（这两类 reducer 对相同内容的
+   重复更新是幂等的）。
+
+2. **拓扑**：
+   ```
+   START → layer1 → layer2 → layer3 → layer4 → [veto_check]
+                                                  ↓ replay
+                                                  layer4_replay → END
+                                                  ↓ end
+                                                  END
+   ```
+   每个 layer 节点是 compiled subgraph。`veto_check` 是 conditional edge
+   函数，读 `state.layer4_outputs.cro` 决定走 replay 还是 end。
+
+3. **CRO veto loop 用拓扑保证 max 1 replay**：不引入 `daily_cycle_retries`
+   状态字段。`layer4_replay → END` 是无条件边，所以图最多走一次 replay 路
+   径。如果 replay 后 cro 仍然不满意，下一次 daily cycle 再处理（或 phase
+   3 把 retries 接入）。这避免在 state 上加新 channel 影响所有现有
+   fixtures。
+
+4. **layer4_replay subgraph**：`START → alpha_discovery → auto_exec → cio
+   → END`（不重跑 cro，复用 state 里现有 cro 输出）。alpha_discovery 在
+   replay 时读到的 `layer4_outputs.cro` 是第一轮的 rejected_picks，可以
+   据此找替代候选。auto_exec 同样看到 cro 的反对，不会再选被拒的 ticker。
+
+5. **veto 触发条件**：cro.rejected_picks 数 > L3 picks 总数 × 0.5。空集
+   或低拒绝率直接 END。`getCandidatePoolSize(state)` 计算 L3 superinvestor
+   各 agent picks 的并集大小。这是简单启发式，phase 3 scorecard 后可换
+   为基于历史命中率的自适应阈值。
+
+6. **CLI 入口推迟到 2F**：2E 只产出 `buildDailyCycleGraph(deps)` 工厂，
+   返回 compiled graph，不写 CLI command；CLI/smoke 是 2F 的事，方便
+   2E 单独跑 vitest 单测。
+
+7. **llm_calls / messages append-reducer 安全性**：通过 `invokeSubgraph`
+   wrapper 主动 slice 出 delta（`result.llm_calls.slice(state.llm_calls.length)`），
+   parent 的 appendReducer 只接收新增条目。我们在测试里 assert：跑完
+   一次 daily cycle 后 llm_calls.length = sum(per-layer agent count) =
+   25（无 veto 路径）或 28（含 replay 的 alpha+auto+cio 各 +1）。
+
 - [ ] `mosaic-ts/src/graph/daily_cycle.ts` —— `buildDailyCycleGraph()`
 - [ ] State propagation：L1 → L2（按 RegimeSignal 决定 sector 启用集）→
       L3 → L4

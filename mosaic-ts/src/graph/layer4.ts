@@ -66,3 +66,31 @@ export function buildLayer4Graph(deps: BuildLayer4GraphDeps) {
 
   return graph.compile();
 }
+
+/**
+ * Layer-4 *replay* subgraph (Plan §11.2 sub-step 2E).
+ *
+ * Topology: START → alpha_discovery → autonomous_execution → cio → END.
+ *
+ * Used by the daily-cycle veto loop (max 1 replay): when the first L4
+ * pass produced cro.rejected_picks > 50% of the L3 candidate pool, the
+ * daily cycle re-runs alpha + auto_exec + cio (skipping cro — its
+ * rejected_picks from the first pass remain in state and inform the
+ * replay's alpha + auto_exec context).
+ */
+export function buildLayer4ReplayGraph(deps: BuildLayer4GraphDeps) {
+  // biome-ignore lint/suspicious/noExplicitAny: see graph/layer1.ts comment
+  let graph: any = new StateGraph(DailyCycleState);
+  graph = graph
+    .addNode("alpha_discovery", buildAlphaDiscoveryNode(deps))
+    .addNode("autonomous_execution", buildAutonomousExecutionNode(deps))
+    .addNode("cio", buildCioNode(deps));
+
+  graph = graph
+    .addEdge(START, "alpha_discovery")
+    .addEdge("alpha_discovery", "autonomous_execution")
+    .addEdge("autonomous_execution", "cio")
+    .addEdge("cio", END);
+
+  return graph.compile();
+}
