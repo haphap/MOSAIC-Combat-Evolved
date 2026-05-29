@@ -35,10 +35,14 @@ _ANNUALIZATION = math.sqrt(252.0 / 5.0)
 
 
 def _store():
-    """Lazy-import so `mosaic.bridge` doesn't pull SQLite at startup."""
-    from mosaic.scorecard import ScorecardStore
+    """Lazy-import so `mosaic.bridge` doesn't pull SQLite at startup.
 
-    return ScorecardStore()
+    §14 R-T4: returns the cached singleton (one SQLite connection factory
+    per db_path) instead of a fresh ScorecardStore per call.
+    """
+    from mosaic.scorecard import get_store
+
+    return get_store()
 
 
 def _require_str(params: dict, key: str) -> str:

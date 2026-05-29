@@ -19,12 +19,15 @@ columns once they're populated).
 
 from __future__ import annotations
 
+import logging
 import os
 import sqlite3
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Optional
+
+logger = logging.getLogger(__name__)
 
 # Resolve <repoRoot>/data/scorecard.db at import time.
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -98,6 +101,46 @@ CREATE TABLE IF NOT EXISTS backtest_actions (
 
 CREATE INDEX IF NOT EXISTS idx_btactions_run_date
     ON backtest_actions(run_id, trade_date);
+
+-- Phase 4 autoresearch: prompt mutation provenance + audit log (Plan §7, §11.5).
+-- A "version" is one feature-branch attempt at improving one agent's prompt.
+-- Lifecycle: created (pending, no mod_commit yet) → mutation recorded
+-- (mod_commit filled) → evaluated (pre/post/delta filled) → decided
+-- (status = keep | revert). branch_name is globally unique (one branch per
+-- attempt). modification_commit_hash links to backtest_runs.prompt_commit_hash.
+CREATE TABLE IF NOT EXISTS prompt_versions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    cohort TEXT NOT NULL,
+    agent TEXT NOT NULL,
+    branch_name TEXT NOT NULL,                  -- cohort/<cohort>/auto/<agent>/<YYYY-MM-DD>
+    base_commit_hash TEXT NOT NULL,             -- main HEAD the branch forked from
+    modification_commit_hash TEXT,              -- NULL until TS mutator commits the rewrite
+    modification_summary TEXT,                  -- LLM-authored one-line "what changed"
+    created_at TEXT NOT NULL,                   -- ISO-8601
+    status TEXT NOT NULL,                       -- pending / keep / revert
+    decided_at TEXT,                            -- ISO-8601, set when status leaves pending
+    pre_sharpe REAL,                            -- base prompt backtest Sharpe
+    post_sharpe REAL,                           -- mutated prompt backtest Sharpe
+    delta_sharpe REAL,                          -- post - pre
+    UNIQUE(branch_name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_pv_pending
+    ON prompt_versions(status, created_at) WHERE status = 'pending';
+
+CREATE INDEX IF NOT EXISTS idx_pv_cohort_agent
+    ON prompt_versions(cohort, agent, created_at);
+
+CREATE TABLE IF NOT EXISTS autoresearch_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    prompt_version_id INTEGER REFERENCES prompt_versions(id) ON DELETE CASCADE,
+    event TEXT NOT NULL,                        -- triggered/mutated/evaluated/kept/reverted
+    detail TEXT,
+    created_at TEXT NOT NULL                    -- ISO-8601
+);
+
+CREATE INDEX IF NOT EXISTS idx_arlog_version
+    ON autoresearch_log(prompt_version_id);
 """
 
 
@@ -338,7 +381,7 @@ class ScorecardStore:
     ) -> None:
         """Used by Phase 3B scorer to fill the scoring columns."""
         with self._connect() as conn:
-            conn.execute(
+            cur = conn.execute(
                 """
                 UPDATE recommendations SET
                     forward_return_5d = :forward_return_5d,
@@ -355,6 +398,13 @@ class ScorecardStore:
                     "scored_at": scored_at,
                 },
             )
+            # §14 R-T5: surface a silent no-op (row_id absent) instead of
+            # swallowing it — Phase 4 may add a purge path that deletes rows
+            # out from under a scorer pass.
+            if cur.rowcount == 0:
+                logger.warning(
+                    "update_scoring: no recommendation row with id=%s (no-op)", row_id
+                )
 
     def list_scored(
         self,
@@ -595,10 +645,253 @@ class ScorecardStore:
         with self._connect() as conn:
             return [dict(r) for r in conn.execute(sql, params).fetchall()]
 
+    # ── prompt_versions (Phase 4 autoresearch, Plan §7 / §11.5 4A) ────────
+
+    def create_prompt_version(
+        self,
+        *,
+        cohort: str,
+        agent: str,
+        branch_name: str,
+        base_commit_hash: str,
+        created_at: Optional[str] = None,
+    ) -> int:
+        """Open a pending prompt-version row (the "shell" created by
+        ``autoresearch.trigger`` before the TS mutator has produced content).
+
+        Idempotent on ``branch_name``: re-calling with an existing branch
+        returns the existing row's id (so a re-triggered cycle for the same
+        (cohort, agent, date) doesn't create duplicates).
+        """
+        created_at = created_at or _utcnow_iso()
+        with self._connect() as conn:
+            cur = conn.execute(
+                """
+                INSERT INTO prompt_versions (
+                    cohort, agent, branch_name, base_commit_hash,
+                    created_at, status
+                ) VALUES (?, ?, ?, ?, ?, 'pending')
+                ON CONFLICT(branch_name) DO UPDATE SET branch_name = branch_name
+                RETURNING id
+                """,
+                (cohort, agent, branch_name, base_commit_hash, created_at),
+            )
+            return int(cur.fetchone()["id"])
+
+    def set_version_mutation(
+        self,
+        version_id: int,
+        modification_commit_hash: str,
+        modification_summary: Optional[str] = None,
+    ) -> None:
+        """Back-fill the mutation commit + summary once the TS mutator has
+        written and committed the rewrite (``autoresearch.record_mutation``)."""
+        with self._connect() as conn:
+            cur = conn.execute(
+                """
+                UPDATE prompt_versions
+                SET modification_commit_hash = :mod, modification_summary = :summary
+                WHERE id = :id
+                """,
+                {
+                    "id": version_id,
+                    "mod": modification_commit_hash,
+                    "summary": _truncate(modification_summary, 1000),
+                },
+            )
+            if cur.rowcount == 0:
+                logger.warning(
+                    "set_version_mutation: no prompt_version id=%s", version_id
+                )
+
+    def set_version_eval(
+        self,
+        version_id: int,
+        pre_sharpe: Optional[float],
+        post_sharpe: Optional[float],
+        delta_sharpe: Optional[float],
+    ) -> None:
+        """Record the backtest evaluation (Plan §11.5 4C ``compute_delta``)."""
+        with self._connect() as conn:
+            cur = conn.execute(
+                """
+                UPDATE prompt_versions
+                SET pre_sharpe = :pre, post_sharpe = :post, delta_sharpe = :delta
+                WHERE id = :id
+                """,
+                {
+                    "id": version_id,
+                    "pre": pre_sharpe,
+                    "post": post_sharpe,
+                    "delta": delta_sharpe,
+                },
+            )
+            if cur.rowcount == 0:
+                logger.warning("set_version_eval: no prompt_version id=%s", version_id)
+
+    def decide_version(
+        self,
+        version_id: int,
+        status: str,
+        decided_at: Optional[str] = None,
+    ) -> None:
+        """Terminal transition: ``status`` ∈ {keep, revert}."""
+        if status not in ("keep", "revert"):
+            raise ValueError(f"status must be 'keep' or 'revert', got {status!r}")
+        decided_at = decided_at or _utcnow_iso()
+        with self._connect() as conn:
+            cur = conn.execute(
+                "UPDATE prompt_versions SET status = ?, decided_at = ? WHERE id = ?",
+                (status, decided_at, version_id),
+            )
+            if cur.rowcount == 0:
+                logger.warning("decide_version: no prompt_version id=%s", version_id)
+
+    def get_prompt_version(self, version_id: int) -> Optional[dict[str, Any]]:
+        with self._connect() as conn:
+            cur = conn.execute(
+                "SELECT * FROM prompt_versions WHERE id = ?", (version_id,)
+            )
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+    def get_version_by_branch(self, branch_name: str) -> Optional[dict[str, Any]]:
+        """Lookup used by ``autoresearch.trigger`` for idempotency."""
+        with self._connect() as conn:
+            cur = conn.execute(
+                "SELECT * FROM prompt_versions WHERE branch_name = ?", (branch_name,)
+            )
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+    def list_prompt_versions(
+        self,
+        cohort: Optional[str] = None,
+        status: Optional[str] = None,
+        agent: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
+        sql = "SELECT * FROM prompt_versions WHERE 1=1"
+        params: list[Any] = []
+        if cohort:
+            sql += " AND cohort = ?"
+            params.append(cohort)
+        if status:
+            sql += " AND status = ?"
+            params.append(status)
+        if agent:
+            sql += " AND agent = ?"
+            params.append(agent)
+        sql += " ORDER BY created_at DESC, id DESC"
+        with self._connect() as conn:
+            return [dict(r) for r in conn.execute(sql, params).fetchall()]
+
+    def list_active_branches(
+        self, cohort: Optional[str] = None
+    ) -> list[dict[str, Any]]:
+        """Pending versions = feature branches that still exist in git
+        (not yet merged/deleted). Used by ``autoresearch.list_active_branches``."""
+        sql = (
+            "SELECT id, cohort, agent, branch_name, base_commit_hash, "
+            "       modification_commit_hash, created_at "
+            "FROM prompt_versions WHERE status = 'pending'"
+        )
+        params: list[Any] = []
+        if cohort:
+            sql += " AND cohort = ?"
+            params.append(cohort)
+        sql += " ORDER BY created_at DESC"
+        with self._connect() as conn:
+            return [dict(r) for r in conn.execute(sql, params).fetchall()]
+
+    def last_mutation_at(self, cohort: str, agent: str) -> Optional[str]:
+        """Most recent prompt_version created_at for (cohort, agent), any
+        status. Feeds the 24h cooldown check."""
+        with self._connect() as conn:
+            cur = conn.execute(
+                "SELECT MAX(created_at) AS m FROM prompt_versions "
+                "WHERE cohort = ? AND agent = ?",
+                (cohort, agent),
+            )
+            row = cur.fetchone()
+            return row["m"] if row and row["m"] else None
+
+    def count_mutations_this_month(self, cohort: str, now_iso: str) -> int:
+        """Count prompt_versions created in the same calendar month as
+        ``now_iso`` (YYYY-MM prefix match). Feeds the monthly cap check."""
+        month_prefix = now_iso[:7]  # YYYY-MM
+        with self._connect() as conn:
+            cur = conn.execute(
+                "SELECT COUNT(*) AS c FROM prompt_versions "
+                "WHERE cohort = ? AND substr(created_at, 1, 7) = ?",
+                (cohort, month_prefix),
+            )
+            return int(cur.fetchone()["c"])
+
+    # ── autoresearch_log ──────────────────────────────────────────────────
+
+    def append_log(
+        self,
+        version_id: Optional[int],
+        event: str,
+        detail: Optional[str] = None,
+        created_at: Optional[str] = None,
+    ) -> int:
+        created_at = created_at or _utcnow_iso()
+        with self._connect() as conn:
+            cur = conn.execute(
+                """
+                INSERT INTO autoresearch_log (prompt_version_id, event, detail, created_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (version_id, event, _truncate(detail, 1000), created_at),
+            )
+            return int(cur.lastrowid)
+
+    def get_log(
+        self,
+        cohort: Optional[str] = None,
+        days: Optional[int] = None,
+        now_iso: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
+        """Audit trail, newest first. ``cohort`` filters via the parent
+        prompt_version; ``days`` keeps entries with created_at within the
+        trailing window (relative to ``now_iso`` or current UTC)."""
+        sql = (
+            "SELECT l.id, l.prompt_version_id, l.event, l.detail, l.created_at, "
+            "       v.cohort, v.agent, v.branch_name "
+            "FROM autoresearch_log l "
+            "LEFT JOIN prompt_versions v ON v.id = l.prompt_version_id "
+            "WHERE 1=1"
+        )
+        params: list[Any] = []
+        if cohort:
+            sql += " AND v.cohort = ?"
+            params.append(cohort)
+        if days is not None:
+            from datetime import datetime, timedelta, timezone
+
+            base = (
+                datetime.fromisoformat(now_iso)
+                if now_iso
+                else datetime.now(timezone.utc)
+            )
+            cutoff = (base - timedelta(days=days)).isoformat()
+            sql += " AND l.created_at >= ?"
+            params.append(cutoff)
+        sql += " ORDER BY l.created_at DESC, l.id DESC"
+        with self._connect() as conn:
+            return [dict(r) for r in conn.execute(sql, params).fetchall()]
+
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _utcnow_iso() -> str:
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
 def _truncate(text: Optional[str], max_len: int) -> Optional[str]:

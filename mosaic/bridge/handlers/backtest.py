@@ -219,10 +219,13 @@ def backtest_run_candidate_pool(params: dict[str, Any]) -> dict[str, Any]:
 
 
 def _store():
-    """Lazy-import scorecard store to keep this module's import graph thin."""
-    from mosaic.scorecard import ScorecardStore
+    """Lazy-import scorecard store to keep this module's import graph thin.
 
-    return ScorecardStore()
+    §14 R-T4: use the cached singleton.
+    """
+    from mosaic.scorecard import get_store
+
+    return get_store()
 
 
 @method("backtest.create_run")
