@@ -5,8 +5,8 @@ of International Relations (http://www.tuiir.tsinghua.edu.cn/kycg/zwgxsj.htm).
 The index is roughly [-9, +9]; **negative = tension / confrontation**, positive
 = cooperation. CSV layout: header ``年份,1月,…,12月``; one row per year.
 
-Path resolution: ``MOSAIC_SINO_US_CSV`` env override, else
-``/home/hap/sino-us-relation.csv`` (where the user keeps the downloaded file).
+Path resolution: ``MOSAIC_SINO_US_CSV`` env override, else the tracked copy
+shipped with the package at ``mosaic/dataflows/reference/sino_us_relations.csv``.
 """
 
 from __future__ import annotations
@@ -19,11 +19,13 @@ from pathlib import Path
 from .exceptions import DataVendorUnavailable
 
 _DATE_FMT = "%Y-%m-%d"
-_DEFAULT_CSV = "/home/hap/sino-us-relation.csv"
+# Tracked reference copy shipped with the package; override with MOSAIC_SINO_US_CSV.
+_DEFAULT_CSV = Path(__file__).resolve().parent / "reference" / "sino_us_relations.csv"
 
 
 def _csv_path() -> Path:
-    return Path(os.getenv("MOSAIC_SINO_US_CSV") or _DEFAULT_CSV)
+    env = os.getenv("MOSAIC_SINO_US_CSV")
+    return Path(env) if env else _DEFAULT_CSV
 
 
 def _load_matrix(path: Path) -> dict[int, list[float | None]]:
