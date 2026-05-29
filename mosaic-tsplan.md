@@ -863,6 +863,52 @@ Phase 0 §14 议题中 Tushare endpoint 名 `cb_op` / `yc_cb` / `news` 的 live 
    - `key_drivers` 取每个 agent confidence>0.5 的最强 1 条 driver concat
    不在 2C.3 引入 LLM 二次判断（保持 deterministic，便于回测复现）。
 
+**2C.3 设计决策**（aggregator + graph 装配前定）：
+
+   **Stance 映射表**（每个 agent 字段 → vote {-1, 0, +1}）：
+   | Agent | 字段 | +1 (BULLISH) | -1 (BEARISH) | 0 (NEUTRAL) |
+   |---|---|---|---|---|
+   | central_bank | stance | ACCOMMODATIVE | TIGHTENING | NEUTRAL |
+   | china | policy_direction | PRO_GROWTH | RESTRAINING | BALANCED |
+   | geopolitical | escalation_level | 1 / 2 | 4 / 5 | 3 |
+   | dollar | dxy_trend | WEAKENING | STRENGTHENING | STABLE |
+   | yield_curve | recession_signal | GREEN | RED | YELLOW |
+   | commodities | china_demand_signal | ACCELERATING | DECELERATING | STEADY |
+   | volatility | regime_filter | RISK_ON | RISK_OFF | NEUTRAL |
+   | emerging_markets | em_relative | OUTPERFORMING | UNDERPERFORMING | INLINE |
+   | news_sentiment | retail_sentiment_score + contrarian_flag | score > 0.3 且 contrarian=false | score < -0.3 OR contrarian=true 且 score>0 | 其他 |
+   | institutional_flow | sum(sectors_in_out.net_amount_cny) | > +1B CNY | < -1B CNY | 中间 |
+
+   **加权阈值**：weighted_sum / total_weight > +0.3 → BULLISH，< -0.3 → BEARISH，
+   ±0.3 之间 → NEUTRAL。这个阈值偏保守，避免 10 个 agent 出现"轻度偏多"
+   （比如 6 个 weak +1，4 个 weak -1）就直接喊 BULLISH。
+
+   **`layer_1_consensus_score`**：mean_confidence × alignment_ratio。其中
+   `alignment_ratio` = (与 final stance 同方向 vote 的 agent 数) / 10。
+   这个数 ≤ mean_confidence，反映"agents 之间共识强度"。下游 Layer 2/3 拿
+   它做 sector / superinvestor 启用门槛。
+
+   **LangGraph fan-out 拓扑**：
+   ```
+   START ─┬→ central_bank ──┬→ aggregate_l1 → END
+          ├→ china ─────────┤
+          ├→ geopolitical ──┤
+          ├→ dollar ────────┤
+          ├→ yield_curve ───┤
+          ├→ commodities ───┤
+          ├→ volatility ────┤
+          ├→ em ────────────┤
+          ├→ news_sentiment ┤
+          └→ institutional ─┘
+   ```
+   10 个 macro 节点从 START 并行扇出（LangGraph 看到多 edge from same source
+   会自动并发），所有节点跑完后 fan-in 到 aggregator。`layer1_outputs` 的
+   dict-merge reducer 自动收 10 个 agent 的写入。
+
+   **2C.3 范围控制**：subgraph 终点是 END（不是 Layer 2 入口）。2D 落 sector
+   agent 时把 END 换成 `layer2_subgraph_entry` 即可；Phase 2C.3 完结时
+   `aggregate_l1 → END` 是合法终态，可以直接 invoke 跑出 `layer1_consensus`。
+
 ### Sub-step 2D：Layer 2/3/4（15 agents + cohort fanout 工具）
 
 - [ ] Layer 2: 7 sector agents（同模板，工具用 sector-specific holdings/research）
