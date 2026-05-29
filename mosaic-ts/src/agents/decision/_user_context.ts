@@ -148,6 +148,42 @@ export function renderDarwinianWeightsStub(): string {
   );
 }
 
+/**
+ * Real Darwinian weights renderer (Plan §11.3 sub-step 3F).
+ *
+ * ``weights`` shape matches ``DarwinianWeightTable`` from the bridge:
+ *   ``{ <agent>: { weight, sharpe_30, sharpe_90, quartile } }``.
+ *
+ * Empty / undefined input falls through to the stub renderer so the
+ * autonomous_execution prompt always sees a coherent block. This matches
+ * Plan §11.3 design decision #7 — the first ~30 days of any cohort have
+ * insufficient data to compute Sharpe, so weight=1.0 uniform is the
+ * legitimate fallback (equivalent to the Phase 2 stub behaviour).
+ */
+export function renderDarwinianWeights(
+  weights:
+    | Record<string, { weight: number; sharpe_30: number | null; quartile: number | null }>
+    | undefined,
+  date?: string,
+): string {
+  if (!weights || Object.keys(weights).length === 0) {
+    return renderDarwinianWeightsStub();
+  }
+
+  const entries = Object.entries(weights).sort((a, b) => b[1].weight - a[1].weight);
+  const lines: string[] = [
+    `## Darwinian weights${date ? ` (${date})` : ""}`,
+    `* Per-agent multiplier in [0.3, 2.5] from rolling 30d Sharpe.`,
+    `* Use these to size your trades — overweight agents in quartile 1, underweight quartile 4.`,
+  ];
+  for (const [agent, w] of entries) {
+    const sharpe = w.sharpe_30 === null ? "n<5" : w.sharpe_30.toFixed(2);
+    const q = w.quartile === null ? "?" : `Q${w.quartile}`;
+    lines.push(`  - ${agent}: weight=${w.weight.toFixed(2)}, sharpe_30=${sharpe} (${q})`);
+  }
+  return lines.join("\n");
+}
+
 export function renderJanusRegimeStub(): string {
   return (
     `## JANUS multi-cohort regime\n` +

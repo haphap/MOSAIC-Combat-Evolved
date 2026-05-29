@@ -396,8 +396,15 @@ class MacroToolBridgeTests(_BridgeTestCase):
             k: v for k, v in os.environ.items()
             if k not in ("TUSHARE_TOKEN", "TUSHARE_API_TOKEN", "TS_TOKEN")
         }
+        # mosaic/__init__.py calls load_dotenv() at import; setting the keys
+        # to empty strings rather than deleting them prevents that from
+        # repopulating from a developer's local .env file (load_dotenv
+        # default is override=False, so it won't replace an existing key).
         env.update(
             {
+                "TUSHARE_TOKEN": "",
+                "TUSHARE_API_TOKEN": "",
+                "TS_TOKEN": "",
                 "MOSAIC_CACHE_DIR": str(self._cache_dir),
                 "MOSAIC_RESULTS_DIR": str(self._results_dir),
                 "PYTHONUNBUFFERED": "1",

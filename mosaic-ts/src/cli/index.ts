@@ -11,6 +11,8 @@
 import { Command } from "commander";
 import { registerBridgePing } from "./commands/bridge-ping.js";
 import { registerDailyCycle } from "./commands/daily-cycle.js";
+import { registerDarwinian } from "./commands/darwinian.js";
+import { registerScorecard } from "./commands/scorecard.js";
 import { registerToolCall } from "./commands/tool-call.js";
 import { registerToolLoop } from "./commands/tool-loop.js";
 
@@ -25,5 +27,7 @@ registerBridgePing(program);
 registerToolCall(program);
 registerToolLoop(program);
 registerDailyCycle(program);
+registerScorecard(program);
+registerDarwinian(program);
 
 await program.parseAsync(process.argv);

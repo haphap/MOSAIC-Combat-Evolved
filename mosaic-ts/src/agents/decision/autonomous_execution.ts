@@ -1,8 +1,16 @@
 /**
- * autonomous_execution Layer-4 (Plan §5.4).
+ * autonomous_execution Layer-4 (Plan §5.4 + Plan §11.3 sub-step 3F).
+ *
  * Reads L3 picks + L4 cro / alpha (peer L4 outputs); produces concrete
- * trade actions with size_pct + conviction. Darwinian weights stubbed
- * uniform 1/N until Phase 3 scorecard lands.
+ * trade actions with size_pct + conviction.
+ *
+ * Phase 3F change: Darwinian weights are no longer a static stub. The
+ * ``buildAutonomousExecutionNode`` factory wraps the static spec with a
+ * deps-aware async ``buildUserContext`` that fetches per-agent weights
+ * via ``deps.api.darwinianGetWeights``. When the bridge is unavailable,
+ * weights have not been computed yet (empty cohort), or the call errors,
+ * the renderer transparently falls back to the original stub — matching
+ * the uniform 1.0 baseline that Phase 2 used.
  */
 
 import type { DailyCycleStateType } from "../state.js";
@@ -15,12 +23,15 @@ import {
 } from "./_factory.js";
 import { AUTONOMOUS_EXECUTION_FIELD_NAMES, AutonomousExecutionSchema } from "./_schemas.js";
 import {
+  renderDarwinianWeights,
   renderDarwinianWeightsStub,
   renderLayer3Context,
   renderLayer4PeerContext,
 } from "./_user_context.js";
 
-function buildUserContext(state: DailyCycleStateType): string {
+/** Build the static portion of the user-context (peers + L3 picks). The
+ *  Darwinian weights block is injected by the factory wrapper below. */
+function buildBaseUserContext(state: DailyCycleStateType, weightsBlock: string): string {
   const date = state.as_of_date || new Date().toISOString().slice(0, 10);
   return (
     `Cycle context for autonomous_execution (Layer 4):\n` +
@@ -28,13 +39,45 @@ function buildUserContext(state: DailyCycleStateType): string {
     `* mode:       ${state.mode || "live"}\n\n` +
     `${renderLayer3Context(state)}\n\n` +
     `${renderLayer4PeerContext(state, ["autonomous_execution", "cio"])}\n\n` +
-    `${renderDarwinianWeightsStub()}\n\n` +
+    `${weightsBlock}\n\n` +
     `Translate the Layer-3 picks (after subtracting cro's rejected_picks and ` +
     `optionally adding alpha_discovery's novel_picks) into concrete trade actions ` +
-    `with size_pct in [0, 1]. Use uniform 1/N weights for now (Phase 3 will plug ` +
-    `in real Darwinian weights). HOLD with size_pct = 0 is fine for picks that ` +
-    `are valid but already in the portfolio at target weight.`
+    `with size_pct in [0, 1]. Apply the Darwinian weights above as a per-agent ` +
+    `multiplier when sizing each pick (an agent in quartile 1 gets more weight than ` +
+    `quartile 4). HOLD with size_pct = 0 is fine for picks that are valid but ` +
+    `already in the portfolio at target weight.`
   );
+}
+
+/** Synchronous fallback used by the static spec (and tests that don't
+ *  want to mock the bridge). Always renders the stub. */
+function buildUserContextSync(state: DailyCycleStateType): string {
+  return buildBaseUserContext(state, renderDarwinianWeightsStub());
+}
+
+/** Async user-context: tries to fetch real Darwinian weights via the
+ *  bridge; on any failure falls back to the stub block. */
+async function buildUserContextWithWeights(
+  state: DailyCycleStateType,
+  deps: LayerFourAgentDeps,
+): Promise<string> {
+  if (!deps.api) {
+    return buildUserContextSync(state);
+  }
+  const cohort = state.active_cohort || "cohort_default";
+  const date = state.as_of_date || new Date().toISOString().slice(0, 10);
+
+  let weightsBlock = renderDarwinianWeightsStub();
+  try {
+    const result = await deps.api.darwinianGetWeights(cohort, date);
+    weightsBlock = renderDarwinianWeights(result.weights, date);
+  } catch (err) {
+    deps.onLog?.(
+      `autonomous_execution: darwinian.get_weights failed (${(err as Error).message}); ` +
+        `falling back to uniform stub`,
+    );
+  }
+  return buildBaseUserContext(state, weightsBlock);
 }
 
 export const autonomousExecutionSpec: LayerFourAgentSpec<AutoExecOutput> = {
@@ -42,13 +85,23 @@ export const autonomousExecutionSpec: LayerFourAgentSpec<AutoExecOutput> = {
   schema: AutonomousExecutionSchema,
   fieldNames: AUTONOMOUS_EXECUTION_FIELD_NAMES,
   stateUpdateField: "autonomous_execution",
-  buildUserContext,
+  // Static spec uses sync stub fallback; the factory below wraps this for
+  // async deps-aware injection. Tests that import the spec directly still
+  // get a working buildUserContext without bridge mocks.
+  buildUserContext: buildUserContextSync,
   render: renderAutonomousExecution,
   fallback: fallbackAutonomousExecution,
 };
 
 export function buildAutonomousExecutionNode(deps: LayerFourAgentDeps): LayerFourAgentNode {
-  return buildLayerFourAgentNode(autonomousExecutionSpec, deps);
+  // Per-instance spec that closes over deps.api so buildUserContext can
+  // call the bridge for Darwinian weights. The static spec above retains
+  // the sync stub for callers that don't go through this factory.
+  const specWithWeights: LayerFourAgentSpec<AutoExecOutput> = {
+    ...autonomousExecutionSpec,
+    buildUserContext: (state) => buildUserContextWithWeights(state, deps),
+  };
+  return buildLayerFourAgentNode(specWithWeights, deps);
 }
 
 export function renderAutonomousExecution(o: AutoExecOutput): string {

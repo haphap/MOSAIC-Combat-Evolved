@@ -46,8 +46,10 @@ export interface LayerFourAgentSpec<TOutput extends Layer4AgentOutput> {
   fieldNames: ReadonlyArray<string>;
   /** The Layer4Outputs slot this agent populates. */
   stateUpdateField: keyof Layer4Outputs;
-  /** Build the user-context prose; each L4 agent reads different upstream layers. */
-  buildUserContext: (state: DailyCycleStateType) => string;
+  /** Build the user-context prose; each L4 agent reads different upstream layers.
+   *  May be async — autonomous_execution fetches Darwinian weights from the
+   *  bridge (Plan §11.3 sub-step 3F). */
+  buildUserContext: (state: DailyCycleStateType) => string | Promise<string>;
   render: (output: TOutput) => string;
   fallback: (analysisText: string) => TOutput;
   structuredOnlySentences?: ReadonlyArray<string>;
@@ -84,7 +86,7 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
     });
 
     // Phase 1: synthesis (no tools, single invoke).
-    const userContext = spec.buildUserContext(state);
+    const userContext = await spec.buildUserContext(state);
     const analysisResponse = await deps.llmHandle.llm.invoke([
       new SystemMessage(systemPrompt),
       new HumanMessage(userContext),

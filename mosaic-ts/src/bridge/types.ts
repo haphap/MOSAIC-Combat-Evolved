@@ -171,6 +171,57 @@ export interface BacktestRunParams {
 /** BacktraderBacktestResult.to_dict() — open shape; consumers should pick fields. */
 export type BacktestResult = Record<string, unknown>;
 
+// --------------------------------------------------------- scorecard / darwinian (Phase 3D)
+
+/** Outcome of a ``scorecard.score_pending`` call. */
+export interface ScorecardScoreOutcome {
+  /** Rows that received forward-return + alpha values. */
+  scored: number;
+  /** Rows whose 5d horizon has not yet matured at the current date. */
+  skipped_immature: number;
+  /** Rows where Tushare returned no close (suspension / missing data). */
+  skipped_missing: number;
+}
+
+/** One row of ``scorecard.list_skill`` aggregate output. */
+export interface SkillRow {
+  agent: string;
+  /** Sample mean of alpha_5d across the queried window. */
+  mean_alpha_5d: number;
+  /**
+   * Annualized Sharpe over the queried window (since `since` param to
+   * all-time). Null when n_obs < 5. Note: this is NOT the rolling-30-day
+   * Sharpe — that lives on ``DarwinianAgentWeight.sharpe_30``.
+   * Renamed from ``sharpe_30d`` in the PR #3 review hotfix to make the
+   * window-dependent semantic explicit.
+   */
+  sharpe_window: number | null;
+  n_obs: number;
+}
+
+/** Outcome of a ``darwinian.compute`` call. */
+export interface DarwinianComputeOutcome {
+  /** Rows upserted into ``darwinian_weights``. */
+  written: number;
+  /** Of which, how many fell back to weight=1.0 (insufficient observations). */
+  agents_uniform_fallback: number;
+}
+
+/** Per-agent Darwinian weight payload returned by ``darwinian.get_weights``. */
+export interface DarwinianAgentWeight {
+  /** Continuous multiplier in [0.3, 2.5] (Plan §11.3 design decision #6). */
+  weight: number;
+  /** Annualized rolling 30-day Sharpe; null when insufficient data. */
+  sharpe_30: number | null;
+  /** Annualized rolling 90-day Sharpe; null when insufficient data. */
+  sharpe_90: number | null;
+  /** 1 (best) to 4 (worst); informational only — multiplier is the weight. */
+  quartile: number | null;
+}
+
+/** ``{ <agent>: DarwinianAgentWeight }``; empty object means no weights computed yet. */
+export type DarwinianWeightTable = Record<string, DarwinianAgentWeight>;
+
 // --------------------------------------------------------- helpers
 
 /**
@@ -250,5 +301,39 @@ export class BridgeApi {
   // backtest.*
   backtestRunCandidatePool(params: BacktestRunParams): Promise<BacktestResult> {
     return this.client.call<BacktestResult>("backtest.run_candidate_pool", params);
+  }
+
+  // scorecard.* (Phase 3D)
+  scorecardAppend(state: Record<string, unknown>): Promise<{ ingested: number }> {
+    return this.client.call<{ ingested: number }>("scorecard.append", { state });
+  }
+
+  scorecardScorePending(cohort: string, today: string): Promise<ScorecardScoreOutcome> {
+    return this.client.call<ScorecardScoreOutcome>("scorecard.score_pending", {
+      cohort,
+      today,
+    });
+  }
+
+  scorecardListSkill(cohort: string, since?: string): Promise<{ rows: SkillRow[] }> {
+    return this.client.call<{ rows: SkillRow[] }>("scorecard.list_skill", {
+      cohort,
+      ...(since ? { since } : {}),
+    });
+  }
+
+  // darwinian.* (Phase 3D)
+  darwinianCompute(cohort: string, today: string): Promise<DarwinianComputeOutcome> {
+    return this.client.call<DarwinianComputeOutcome>("darwinian.compute", {
+      cohort,
+      today,
+    });
+  }
+
+  darwinianGetWeights(cohort: string, date?: string): Promise<{ weights: DarwinianWeightTable }> {
+    return this.client.call<{ weights: DarwinianWeightTable }>("darwinian.get_weights", {
+      cohort,
+      ...(date ? { date } : {}),
+    });
   }
 }
