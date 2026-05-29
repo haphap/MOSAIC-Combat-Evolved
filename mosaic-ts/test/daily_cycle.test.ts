@@ -238,6 +238,38 @@ describe("checkCroVeto", () => {
     // 2 / 3 = 0.66 > 0.5 → replay.
     expect(checkCroVeto(s, 0.5)).toBe("replay");
   });
+
+  it("dedupes rejected_picks by ticker (review hotfix #3)", () => {
+    // Pool = 3, but CRO rejects ticker A twice (regulatory + concentration)
+    // and B once. Raw count = 3 → 100% → would trip replay; deduped = 2/3 →
+    // 66% → still trips. Use a case where dedupe DOES change the outcome:
+    // pool = 5, CRO rejects A 3× (3 risks) + B 1× = 4 raw entries →
+    // 4/5 = 80% → replay. Deduped = 2 unique tickers / 5 = 40% → end.
+    const s = emptyState();
+    s.layer3_outputs = {
+      druckenmiller: {
+        agent: "druckenmiller",
+        picks: [druckPick("A"), druckPick("B"), druckPick("C"), druckPick("D"), druckPick("E")],
+        philosophy_note: "x",
+        key_drivers: ["d"],
+        confidence: 0.5,
+      },
+    };
+    s.layer4_outputs.cro = {
+      agent: "cro",
+      rejected_picks: [
+        { ticker: "A", reason: "regulatory" },
+        { ticker: "A", reason: "concentration" },
+        { ticker: "A", reason: "valuation" },
+        { ticker: "B", reason: "liquidity" },
+      ],
+      correlated_risks: [],
+      black_swan_scenarios: [],
+      confidence: 0.5,
+    };
+    // Raw count would be 4/5 = 0.8 → replay. Deduped is 2/5 = 0.4 → end.
+    expect(checkCroVeto(s, 0.5)).toBe("end");
+  });
 });
 
 // ============================================================ canned outputs for 25 agents

@@ -144,6 +144,11 @@ export const DailyCycleState = Annotation.Root({
   }),
 
   // ----- Final action surface (CIO output, mirrored for downstream readers). -----
+  // ``replaceReducer`` is intentional: when the CRO veto loop fires (Plan §11.2
+  // sub-step 2E), the layer4_replay subgraph's CIO writes a *new*
+  // portfolio_actions array which fully supersedes the first-pass CIO output.
+  // The replace semantics also match the single-writer invariant — only CIO
+  // ever populates this channel; no concurrent appenders exist.
   portfolio_actions: Annotation<PortfolioAction[]>({
     reducer: replaceReducer,
     default: () => [],

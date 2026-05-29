@@ -82,8 +82,14 @@ export function getCandidatePoolSize(state: DailyCycleStateType): number {
 }
 
 /**
- * CRO veto check. Routes to ``replay`` when cro rejected > threshold * pool,
- * else to ``end``.
+ * CRO veto check. Routes to ``replay`` when the fraction of *unique* L3
+ * candidate tickers rejected by CRO exceeds ``threshold``, else to ``end``.
+ *
+ * Dedupe rationale: cro.rejected_picks may legitimately contain the same
+ * ticker more than once when CRO cites multiple distinct risks
+ * (e.g. regulatory + concentration). Counting raw entries would inflate the
+ * rate and trip the veto on a single-ticker double-flag. The semantically
+ * correct heuristic is "fraction of unique candidate tickers CRO objected to".
  *
  * Exported for unit testing the routing decision in isolation.
  */
@@ -94,7 +100,8 @@ export function checkCroVeto(state: DailyCycleStateType, threshold = 0.5): "repl
   const pool = getCandidatePoolSize(state);
   if (pool === 0) return "end"; // no L3 picks at all → nothing to replay against
 
-  const rate = cro.rejected_picks.length / pool;
+  const uniqueRejected = new Set(cro.rejected_picks.map((r) => r.ticker)).size;
+  const rate = uniqueRejected / pool;
   return rate > threshold ? "replay" : "end";
 }
 
@@ -105,11 +112,36 @@ interface InvokeOnly {
 }
 
 /**
+ * Append-reducer channels in ``DailyCycleState`` (Plan §11.2 design decision
+ * 2E #1). ``invokeSubgraph`` MUST slice these to a delta before forwarding
+ * to the parent; otherwise the parent's appendReducer double-counts entries
+ * already present in the subgraph's input state.
+ *
+ * If a new append-reducer channel is added to ``DailyCycleState``, append its
+ * key here AND extend ``invokeSubgraph`` below. The ``satisfies`` clause
+ * enforces every key resolves to ``ReadonlyArray<unknown>`` on the state
+ * type so a non-array channel can't be added by mistake.
+ */
+const _APPEND_REDUCER_CHANNELS = ["messages", "llm_calls"] as const satisfies ReadonlyArray<
+  keyof {
+    [K in keyof DailyCycleStateType as DailyCycleStateType[K] extends ReadonlyArray<unknown>
+      ? K
+      : never]: DailyCycleStateType[K];
+  }
+>;
+
+/**
  * Wrap a compiled subgraph as a parent-graph node, computing deltas for
  * append-reducer channels (``llm_calls``, ``messages``) so they don't
  * double-count when the subgraph's full output state flows back to the
  * parent's append reducer. Replace / dict-merge channels are forwarded
  * verbatim — those reducers are idempotent under same-content updates.
+ *
+ * IMPORTANT: when adding a new append-reducer channel to ``DailyCycleState``,
+ * extend the explicit slice below. The ``APPEND_REDUCER_CHANNELS`` const
+ * above is a documentation marker; TypeScript can't enforce that this
+ * function handles every entry, so the convention is: same PR that adds
+ * the channel must update both lists.
  */
 function invokeSubgraph(
   subgraph: InvokeOnly,
@@ -119,7 +151,10 @@ function invokeSubgraph(
     const prevLlmLen = state.llm_calls?.length ?? 0;
     const prevMsgLen = state.messages?.length ?? 0;
     return {
+      // ── append-reducer channels: must slice to delta (see APPEND_REDUCER_CHANNELS) ──
       messages: result.messages.slice(prevMsgLen),
+      llm_calls: result.llm_calls.slice(prevLlmLen),
+      // ── replace / dict-merge channels: idempotent under same-content updates ──
       layer1_outputs: result.layer1_outputs,
       layer1_consensus: result.layer1_consensus,
       layer2_outputs: result.layer2_outputs,
@@ -127,7 +162,6 @@ function invokeSubgraph(
       layer3_outputs: result.layer3_outputs,
       layer4_outputs: result.layer4_outputs,
       portfolio_actions: result.portfolio_actions,
-      llm_calls: result.llm_calls.slice(prevLlmLen),
     } as DailyCycleStateUpdate;
   };
 }

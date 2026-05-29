@@ -79,6 +79,17 @@ export function buildLayer4Graph(deps: BuildLayer4GraphDeps) {
  * daily cycle re-runs alpha + auto_exec + cio (skipping cro — its
  * rejected_picks from the first pass remain in state and inform the
  * replay's alpha + auto_exec context).
+ *
+ * **Asymmetry vs buildLayer4Graph (intentional)**: the replay graph
+ * deliberately omits the ``cro`` node so the topology can guarantee
+ * max-1-replay (``layer4_replay → END`` is unconditional; if cro ran in
+ * replay, a second veto could fire). Trade-off: if alpha_discovery
+ * surfaces a *new* novel pick during replay, that ticker is never
+ * adversarially reviewed by CRO. The implicit assumption is that the
+ * replay's alpha is constrained by the first-pass cro context (renderer
+ * surfaces rejected_picks + correlated_risks + black_swan_scenarios) and
+ * tends toward consolidation, not exploration. Phase 3's scorecard will
+ * track replay outcomes and surface this if it becomes a real risk.
  */
 export function buildLayer4ReplayGraph(deps: BuildLayer4GraphDeps) {
   // biome-ignore lint/suspicious/noExplicitAny: see graph/layer1.ts comment
