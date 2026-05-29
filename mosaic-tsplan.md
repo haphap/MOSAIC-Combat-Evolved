@@ -82,7 +82,7 @@ Cohort 切换 UI（PRISM）                                       paper_trading/
 | 2 | Daily cycle MVP：25 agents + 4 层 LangGraph.js（单 cohort） | 11–12 | ✅ 完成（PR #2 merged 2026-05-29） |
 | 3 | Scorecard + Darwinian 权重 | 4 | ✅ 完成（PR #3 merged 2026-05-29，3A–3F 全做完） |
 | 3.5 | qlib 历史数据底座 + 两段式向量化回测 | 5–6 | ✅ 完成（PR #4 merged 2026-05-29，3.5A–3.5F 全做完） |
-| 4 | Autoresearch（git + SQLite，prompt mutation + keep/revert） | 5–6 | 🟡 **规划完成**（§11.5 定 4A–4F；checkpoint 已确认：目标 cohort=crisis_2008，待开工 4A） |
+| 4 | Autoresearch（git + SQLite，prompt mutation + keep/revert） | 5–6 | ✅ 完成 |
 | 5 | PRISM 7 cohort 训练编排 | 5–6 | ⏭ |
 | 6 | JANUS 元层（port ATLAS 571 LOC） | 3 | ⏭ |
 | 7 | MiroFish 反身性模拟（port ATLAS ~2,800 LOC + Tushare 适配） | 4–5 | ⏭ |
