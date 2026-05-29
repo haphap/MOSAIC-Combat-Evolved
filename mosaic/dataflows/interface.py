@@ -12,7 +12,8 @@ from .y_finance import (
 )
 from .yfinance_news import get_news_yfinance, get_global_news_yfinance
 from .brave_news import get_news as get_brave_news, get_global_news as get_brave_global_news
-from .opencli_news import get_news as get_opencli_news, get_global_news as get_opencli_global_news
+from .opencli_news import get_news as get_opencli_news, get_global_news as get_opencli_global_news, get_caixin_sentiment as get_caixin_sentiment_impl
+from .sino_us import get_us_china_relations as get_us_china_relations_impl
 from .fred import get_fred_series as get_fred_series_impl
 from .macro_data import (
     get_pboc_ops as get_pboc_ops_impl,
@@ -133,6 +134,8 @@ TOOLS_CATEGORIES = {
             "get_ivx",
             "get_etf_indicator",
             "get_fund_flow",
+            "get_caixin_sentiment",
+            "get_us_china_relations",
         ]
     }
 }
@@ -145,6 +148,7 @@ VENDOR_LIST = [
     "opencli",
     "fred",
     "akshare",
+    "tsinghua",
 ]
 
 # Mapping of methods to their vendor-specific implementations
@@ -265,6 +269,12 @@ VENDOR_METHODS = {
     "get_fund_flow": {
         "tushare": get_fund_flow_impl,
     },
+    "get_caixin_sentiment": {
+        "opencli": get_caixin_sentiment_impl,
+    },
+    "get_us_china_relations": {
+        "tsinghua": get_us_china_relations_impl,
+    },
 }
 
 _RANGE_DATE_METHODS = {
@@ -300,6 +310,8 @@ _CURRENT_DATE_METHODS = {
     "get_ivx": 0,
     "get_etf_indicator": 1,
     "get_fund_flow": 1,
+    "get_caixin_sentiment": 0,
+    "get_us_china_relations": 0,
 }
 
 _UNBOUNDED_BACKTEST_METHODS = {

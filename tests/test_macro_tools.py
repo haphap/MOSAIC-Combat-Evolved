@@ -106,6 +106,16 @@ _EXPECTED_TOOLS = {
         "optional": set(),
         "vendor_method": "get_etf_price_data",
     },
+    "get_caixin_sentiment": {
+        "required": {"curr_date"},
+        "optional": {"look_back_days"},
+        "vendor_method": "get_caixin_sentiment",
+    },
+    "get_us_china_relations": {
+        "required": {"curr_date"},
+        "optional": {"look_back_days"},
+        "vendor_method": "get_us_china_relations",
+    },
 }
 
 
@@ -271,6 +281,16 @@ class TestDispatch:
         )
         assert patched_route["method"] == "get_etf_price_data"
         assert patched_route["args"] == ("510300.SH", "2024-06-01", "2024-06-30")
+
+    def test_get_caixin_sentiment_invocation(self, patched_route):
+        macro_tools.get_caixin_sentiment.invoke({"curr_date": "2024-06-30"})
+        assert patched_route["method"] == "get_caixin_sentiment"
+        assert patched_route["args"] == ("2024-06-30", 7)
+
+    def test_get_us_china_relations_invocation(self, patched_route):
+        macro_tools.get_us_china_relations.invoke({"curr_date": "2024-06-30", "look_back_days": 180})
+        assert patched_route["method"] == "get_us_china_relations"
+        assert patched_route["args"] == ("2024-06-30", 180)
 
 
 # --------------------------------------------------------------------- bridge handler

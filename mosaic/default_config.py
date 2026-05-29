@@ -126,6 +126,8 @@ DEFAULT_CONFIG = {
         "get_ivx": "yfinance",
         "get_etf_indicator": "tushare",
         "get_fund_flow": "tushare",
+        "get_caixin_sentiment": "opencli",
+        "get_us_china_relations": "tsinghua",
     },
     "snapshot_max_age_days": 30,
     "backtest_cache_max_age_days": 90,

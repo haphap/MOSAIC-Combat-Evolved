@@ -1,10 +1,10 @@
 /**
  * news_sentiment Layer-1 macro agent (Plan §5.1).
  *
- * Plan §5.1 tools: `get_xueqiu_heat` + `get_news` (opencli — already wired) +
- * `get_caixin_sentiment`. `get_news` now added; `get_industry_policy` (a
- * policy-keyword filter over Tushare news) retained. `get_caixin_sentiment`
- * still missing — tracked plan §14 #8.
+ * Plan §5.1 tools: `get_xueqiu_heat` + `get_news` (opencli) +
+ * `get_caixin_sentiment` (now available — Caixin/财新 via opencli, gap closed
+ * §14 #8). `get_industry_policy` (policy-keyword filter over Tushare news)
+ * retained as a corroborator.
  */
 
 import type { NewsSentimentOutput } from "../types.js";
@@ -16,7 +16,12 @@ import {
 } from "./_factory.js";
 import { NEWS_SENTIMENT_FIELD_NAMES, NewsSentimentSchema } from "./_schemas.js";
 
-export const REQUIRED_TOOLS = ["get_xueqiu_heat", "get_news", "get_industry_policy"] as const;
+export const REQUIRED_TOOLS = [
+  "get_xueqiu_heat",
+  "get_news",
+  "get_caixin_sentiment",
+  "get_industry_policy",
+] as const;
 
 export const newsSentimentSpec: LayerOneAgentSpec<NewsSentimentOutput> = {
   agentId: "news_sentiment",
