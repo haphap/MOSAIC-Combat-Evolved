@@ -21,15 +21,25 @@ from mosaic.scorecard.store import (
     ScorecardStore,
     expand_state_to_recommendations,
 )
+from mosaic.scorecard.weights import (
+    MIN_OBS_FOR_SHARPE,
+    WEIGHT_MAX,
+    WEIGHT_MIN,
+    compute_weights,
+)
 
 __all__ = [
     "DEFAULT_BENCHMARK",
     "DEFAULT_DB_PATH",
     "HORIZON_5D",
     "HORIZON_21D",
+    "MIN_OBS_FOR_SHARPE",
     "PendingRow",
     "ScoreOutcome",
     "Scorer",
     "ScorecardStore",
+    "WEIGHT_MAX",
+    "WEIGHT_MIN",
+    "compute_weights",
     "expand_state_to_recommendations",
 ]
