@@ -78,9 +78,9 @@ Cohort 切换 UI（PRISM）                                       paper_trading/
 | Phase | 范围 | 估算 turns | 状态 |
 |---|---|---|---|
 | 0 | Python sidecar + bridge（Tushare/FRED + 8 macro tools） | 5–6 | ✅ 完成（Day 1–5 / 2026-05-28、Day 5 收尾 2026-05-29） |
-| 1 | TS skeleton + bridge-client（直接复用 ETFAgents Phase 1） | 3–4 | ⏭ |
-| 2 | Daily cycle MVP：25 agents + 4 层 LangGraph.js（单 cohort） | 11–12 | ⏭ |
-| 3 | Scorecard + Darwinian 权重 | 4 | ⏭ |
+| 1 | TS skeleton + bridge-client（直接复用 ETFAgents Phase 1） | 3–4 | ✅ 完成（PR #1 merged 2026-05-29） |
+| 2 | Daily cycle MVP：25 agents + 4 层 LangGraph.js（单 cohort） | 11–12 | ✅ 完成（PR #2 merged 2026-05-29） |
+| 3 | Scorecard + Darwinian 权重 | 4 | 🔄 **进行中**（3A 完成 2026-05-29，3B-3F 待做） |
 | 4 | Autoresearch（git + SQLite，prompt mutation + keep/revert） | 5–6 | ⏭ |
 | 5 | PRISM 7 cohort 训练编排 | 5–6 | ⏭ |
 | 6 | JANUS 元层（port ATLAS 571 LOC） | 3 | ⏭ |
@@ -1178,6 +1178,231 @@ pnpm dev daily-cycle --cohort cohort_default --dry-run   2F 后必跑通
 - 输出形态稳定（`layer4_outputs.cio.portfolio_actions[]` 是 Phase 3 scorecard 的
   输入契约）
 - PR `phase-2-daily-cycle-mvp → main`，类似 PR #1 流程
+
+---
+
+## 11.3 Phase 3 详细任务（Sub-step 3A–3F）
+
+**目标**：把每个 daily cycle 的 25 agent 输出落进 SQLite，按 forward return
+打分，算每 agent 的 rolling Sharpe + Darwinian 权重；在 autonomous_execution
+里把 Phase-2 留的 stub 替换成真权重。Phase 3 出口后 Phase 4 autoresearch
+就有真信号可用（Δ Sharpe ≥ 0.1 keep 阈值）。
+
+### Phase 3 整体设计决策
+
+1. **存储位置**：`<repoRoot>/data/scorecard.db`，gitignored，单文件多 cohort
+   共享。同一个 db 在 Phase 4 autoresearch 也会用（plan §7 prompt_versions
+   表共库）。建库由 Python sidecar handler 自动初始化（migrations 简单粗暴：
+   `CREATE TABLE IF NOT EXISTS …`）。
+
+2. **打分时机**：`scorecard.append` 在每次 `pnpm dev daily-cycle` 跑完后
+   自动调用（写入 pending recommendations）。`scorecard.score_pending` 是
+   单独命令（建议每天交易后 17:00 跑）；不在 daily cycle 主流程里同步阻塞。
+   这避免 daily cycle 速度被 Tushare 行情查询拖慢。
+
+3. **Forward return horizon**：5d primary（与 Plan §13 Phase 4 keep 阈值
+   一致 —— 5 个交易日 Δ Sharpe）；21d secondary（tail watch）。**不算 1d**：
+   A 股日内噪声大；T+1 制度下 1d 也无法实际兑现。
+
+4. **Forward return 时间对齐**：`next_trading_day(date + N_trading_days)`，
+   不用日历日。A 股双休 + 节假日多，日历对齐会把节假日也算进 horizon。
+   `mosaic/dataflows/calendar.py` 提供交易日历（akshare 或 Tushare
+   trade_cal 接口）。
+
+5. **Benchmark**：默认 `000300.SH`（沪深300）算 alpha；可通过 env
+   `MOSAIC_BENCHMARK_TICKER` 覆盖。alpha 公式：
+   `alpha_5d = stock_return_5d - benchmark_return_5d`。
+   不做 beta 调整（CAPM）—— Phase 5 PRISM 时再考虑。
+
+6. **Darwinian weight 公式**：
+   ```
+   weight = clip(0.5 + rolling_sharpe_30d, 0.3, 2.5)
+   ```
+   - Sharpe 不显著 (|Sharpe| < 0.5) → weight ≈ 1.0
+   - 强者 (Sharpe ≥ 2.0) → weight 2.5（25× 强弱差异是上限，避免极端集中）
+   - 弱者 (Sharpe ≤ -0.2) → weight 0.3
+   - 30d rolling 是最短窗口；90d/180d 在 Phase 4 autoresearch 才会用。
+   - quartile 字段是 informational only（前端展示分位），multiplier 是连续值。
+
+7. **空数据 fallback**：cohort 启动 < 30 个交易日时，rolling Sharpe 计算
+   不足 → 所有 agent weight = 1.0（uniform）。这与 Phase 2 stub 行为
+   完全等价，让前 30 天 daily cycle 的 portfolio 不被 Phase 3 改变 ——
+   仅记录数据，不影响决策。3F 把 weight 注入 autonomous_execution 时
+   prompt 也明确告诉 agent："如果 weights 都是 1.0 你就当是 uniform
+   stub，不要据此 over-interpret"。
+
+8. **Weight 注入点（3F）**：只 autonomous_execution agent 的 user context
+   读 weights（其他 agent 通过 output 自带 confidence 表达置信度，无需
+   weight）。具体做法：`renderDarwinianWeights(state, api)` 通过 BridgeApi
+   查 `darwinian.get_weights(cohort, date)`，把每个 L3 superinvestor 的
+   weight 拼到 user message 里。auto_exec prompt 已经写好对 weight 的
+   理解（plan §11.2 2D.3 #5）。
+
+9. **JANUS regime stub 不在本 phase 处理**：plan §11.2 2D.3 #5 留下两个
+   stub —— Darwinian + JANUS。Phase 3 仅替换 Darwinian；JANUS 是 Phase 6
+   多 cohort blend 的事。3F 不动 cio.ts。
+
+10. **Bridge handler 命名**：`scorecard.*` + `darwinian.*` 两个命名空间。
+    与 Phase 0 已有的 `tools.*` / `config.*` / `cache.*` / `paper.*` /
+    `backtest.*` 一致，单 RPC method 用 `<ns>.<verb>`。
+
+### Sub-step 3A：SQLite schema + 持久化层 ✅ **已完成** (2026-05-29)
+
+- [x] `mosaic/scorecard/__init__.py` —— package 标记 ✅
+- [x] `mosaic/scorecard/store.py` —— SQLiteStore 类 ✅
+    - `init_schema()` —— CREATE TABLE IF NOT EXISTS recommendations
+      + darwinian_weights（plan §7 schema）✅
+    - `append_from_state(state: dict)` —— 接收一个 daily-cycle 终态 dict
+      （完整 state JSON），从中抽取每个 agent 的输出 + portfolio_actions，
+      写入 recommendations 表（每行 = 一个 agent + 一个 ticker 的建议）。
+      pending（forward_return_5d / scored_at 都是 NULL）。✅
+    - `list_pending(cohort, before_date)` —— 返回需要打分的行 ✅
+    - `update_scoring(row_id, forward_return_5d, forward_return_21d, alpha_5d, scored_at)` ✅
+    - `list_scored(cohort, agent?, since_date?)` —— 返回已打分行（alpha_5d IS NOT NULL）✅
+    - `upsert_darwinian_weights(rows)` —— 批量 upsert Darwinian 权重 ✅
+    - `get_darwinian_weights(cohort, date?)` —— 查询权重（date=None 时返回每个 agent 最新值）✅
+    - `expand_state_to_recommendations(state)` —— 纯函数，state → rows 展开 ✅
+- [x] `tests/test_scorecard_store.py` —— 21 tests, all passing ✅
+    - expand_state_to_recommendations: L2 longs → rows, L2 shorts excluded,
+      relationship_mapper excluded, L3 picks → rows, L3 philosophy fallback,
+      L4 cio actions → rows, L1 not persisted, row count, missing date raises,
+      truncation ✅
+    - ScorecardStore: schema creation, append idempotency (UNIQUE constraint),
+      upsert preserves scoring columns, list_pending filters, cohort isolation,
+      empty state, list_scored excludes pending ✅
+    - Darwinian weights: upsert/get, CHECK constraint (weight 0.3-2.5),
+      latest per agent when date omitted ✅
+
+**3A 实现备注**：
+- UNIQUE(cohort, agent, ticker, date) 约束确保幂等 ingest
+- ON CONFLICT DO UPDATE 保留 scoring 列（forward_return_5d/21d/alpha_5d/scored_at）不被覆盖
+- L2 relationship_mapper 被正确跳过（output shape 不同，无 longs/shorts）
+- L2 shorts 不入表（A 股做空不可行）
+- L1 macro agents 不持久化（无 ticker，regime 信号是 inputs 不是 predictions）
+- 默认 DB 路径：`<repoRoot>/data/scorecard.db`（可通过 MOSAIC_DATA_DIR env 覆盖）
+
+**3A 设计决策**：
+- 一个 `state` ingest 会展开成 (10 + 7 + 4 + 4 = 25 agent rows × 1+
+  ticker per agent) 行 recommendations。**只展开有 ticker 的输出**：
+  L1 macro agents 没 ticker，跳过（regime 信号不入 recommendations 表）。
+- L2 sector：每个 long pick 一行；shorts 暂不入表（A 股做空不可行）。
+- L3 superinvestor：每个 picks[]  一行。
+- L4 cio: 每个 portfolio_actions[] 一行，agent 字段填 "cio"。
+- `target_weight_pct` 字段：L4 cio 写真值；L2/L3 写 `conviction × 100`
+  作为 conviction 占比的近似（Phase 3 scorecard 关心的是「方向 +
+  置信度」，target_weight 仅 L4 真实有意义）。
+- `rationale_snapshot`：thesis（L2/L3）/ dissent_notes（L4 cio）/
+  philosophy_note（L3）— 取 ≤ 200 字符的关键文字快照。
+
+### Sub-step 3B：Forward-return scorer
+
+- [ ] `mosaic/scorecard/scorer.py` —— Scorer 类
+    - `score_pending(cohort, today: date)` —— pull list_pending(cohort, today
+      - 5 trading days)，调 Tushare 取每个 ticker 的收盘价 + 基准 5d/21d
+      forward return + alpha；UPDATE recommendations 表。
+    - 内部用 `dataflows/calendar.py` 算 next_trading_day(date, n)
+- [ ] `mosaic/dataflows/calendar.py` —— get_trading_calendar() 缓存版
+- [ ] `tests/test_scorecard_scorer.py` —— mocked Tushare + benchmark；测
+  正常打分 + 缺数据回退（ticker 停牌）+ 跨节假日对齐
+
+**3B 设计决策**：
+- 停牌的 ticker forward_return 写 NULL，scored_at 仍然填日期（避免无限
+  pending）。Phase 4 autoresearch 计算 Sharpe 时 NULL 直接 drop。
+- Benchmark 数据来自同一个 Tushare daily 接口，不单独 vendor。
+- 缓存复用 mosaic/cache_manager 的 SQLite price_daily 缓存，避免每天
+  重新拉一遍。
+
+### Sub-step 3C：Darwinian weights compute
+
+- [ ] `mosaic/scorecard/weights.py` —— compute_weights(cohort, today)
+    - 对每个 (cohort, agent) 取 rolling 30d / 90d 的 alpha_5d 序列
+    - Sharpe = mean / std × sqrt(252)
+    - weight = clip(0.5 + sharpe_30d, 0.3, 2.5)
+    - quartile = 1-4 by sharpe_30d 在 cohort 内的排名
+    - INSERT INTO darwinian_weights (UNIQUE on (cohort, agent, date))
+    - 空数据 fallback: < 30 trading days of scored data → weight = 1.0
+- [ ] `tests/test_scorecard_weights.py`
+
+**3C 设计决策**：
+- Rolling Sharpe 用 alpha_5d（已剔除 benchmark），不用 raw return —— 否
+  则牛市里所有 agent 都「显得很厉害」。
+- annualization √252 标准做法。**注意 5d horizon 的 Sharpe 是「5d 周期
+  的年化」**，不是「日 Sharpe 年化」；不与日频 Sharpe 直接可比。
+- quartile 是 informational only。weight 数学上是连续的；quartile 只是
+  方便前端 UI 把 agent 染色（top quartile 绿 / bottom 红）。
+
+### Sub-step 3D：Bridge handlers + TS wrappers
+
+- [ ] `mosaic/bridge/handlers/scorecard.py` —— register_handlers:
+    - `scorecard.append` (state: dict) → bool
+    - `scorecard.score_pending` (cohort: str, today: str) → {scored: int}
+    - `scorecard.list_skill` (cohort: str, since: str) →
+       [{agent, mean_alpha_5d, sharpe_30d, n_obs}]
+- [ ] `mosaic/bridge/handlers/darwinian.py` —— register_handlers:
+    - `darwinian.compute` (cohort, today) → {written: int}
+    - `darwinian.get_weights` (cohort, date) →
+       {agent: {weight, sharpe_30d, quartile}}
+- [ ] `mosaic-ts/src/bridge/api.ts` —— 加 scorecardAppend / scoreCardScore /
+      scorecardListSkill / darwinianCompute / darwinianGetWeights typed
+      wrappers
+- [ ] `mosaic-ts/src/bridge/types.ts` —— SkillRow / DarwinianWeights interfaces
+- [ ] `tests/test_bridge_protocol.py` 加 5 个 RPC 路由测试
+- [ ] `mosaic-ts/test/bridge_scorecard.test.ts` —— TS 端 wrapper 单测
+
+**3D 设计决策**：
+- `scorecard.append` 直接接 state dict，不要 cohort/date 参数 —— state 自带。
+- `list_skill` 返回的 mean_alpha_5d / sharpe_30d 直接给 CLI / TUI 展示，
+  不暴露 raw recommendations 行（前端不需要那么细）。
+- 所有 RPC method idempotent —— append 同一 (cohort, agent, ticker, date)
+  靠 UNIQUE 约束 +  ON CONFLICT DO UPDATE 实现，多次调用安全。
+
+### Sub-step 3E：CLI visualization
+
+- [ ] `mosaic-ts/src/cli/commands/scorecard.ts` —— `pnpm dev scorecard`
+    - `--cohort cohort_default` (default)
+    - `--since 30d` —— 看最近 30 天
+    - 输出 per-agent 表格：agent / mean_alpha_5d / sharpe_30d / quartile
+      / n_obs，按 sharpe_30d 排序，染色 top/bottom quartile
+- [ ] `mosaic-ts/src/cli/commands/darwinian.ts` —— `pnpm dev darwinian`
+    - 输出 per-agent weight 表
+    - `--date YYYY-MM-DD` 可指定看历史某日（默认最新）
+- [ ] CLI 用 picocolors 染色，与 daily-cycle CLI 风格一致
+
+**3E 设计决策**：
+- 不做 TUI（plan §9 Phase 9 才做）；现在是 plain stdout 表格。
+- 不做 export to CSV / JSON 格式；--out 留 Phase 4 autoresearch 评估时
+  再加（届时 Δ Sharpe 计算需要它）。
+
+### Sub-step 3F：Wire Darwinian weights into autonomous_execution
+
+- [ ] `mosaic-ts/src/agents/decision/_user_context.ts` ——
+      `renderDarwinianWeights(state, api): Promise<string>` 替代
+      `renderDarwinianWeightsStub()`。注意：变成 async，因为要查 bridge。
+- [ ] `mosaic-ts/src/agents/decision/autonomous_execution.ts` —— 更新
+      `buildUserContext` 改为 async；factory 也要支持 async user context
+      builder（_factory.ts）
+- [ ] `mosaic-ts/src/agents/decision/_factory.ts` —— buildUserContext 类型
+      改成 `(state) => string | Promise<string>`
+- [ ] 测试更新：autonomous_execution 端到端测加 `darwinian.get_weights` mock
+
+**3F 设计决策**：
+- 不动 cio.ts —— JANUS 留 Phase 6。
+- 空数据 fallback（前 30 天 cohort）：bridge 返回 weight = 1.0 给所有
+  agent，prompt 自动收敛到与 stub 等价的行为；CLI 输出 Darwinian table
+  全 1.0 也是合法状态。
+- 这一步会让 daily-cycle CLI 的 autonomous_execution agent 多 1 次
+  bridge round-trip（`darwinian.get_weights`）。可接受 —— 整 daily cycle
+  本来就 N 个 bridge call，多 1 个不是瓶颈。
+
+### Phase 3 出口标准
+
+- 一次 daily cycle 跑完后 SQLite recommendations 表自动多 25-50 行
+- `pnpm dev scorecard --cohort cohort_default` 输出非空表（前提：scorecard
+  跑过几天 + score_pending 跑完）
+- `pnpm dev darwinian` 输出非空 weight 表
+- autonomous_execution prompt 在 user context 中收到非 stub 文本（即
+  `renderDarwinianWeights` 真实返回，不是 stub 占位）
+- PR `phase-3-scorecard → main`，类似 PR #2 流程
 
 ---
 
