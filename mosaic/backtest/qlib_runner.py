@@ -225,39 +225,35 @@ def _summarise_portfolio(
 ) -> BacktestMetrics:
     """Boil ``portfolio_dict`` (from qlib.backtest) down to BacktestMetrics.
 
-    qlib's ``portfolio_dict[<freq>]`` is one of:
-      * a tuple ``(metrics_df, positions_dict)`` — current qlib release shape
-      * an object with ``.generate()`` returning a DataFrame — older path
-      * a DataFrame directly — fallback
+    qlib's ``portfolio_dict[<freq>]`` shape (verified on qlib 0.x editable
+    install): ``tuple[pd.DataFrame, dict[Timestamp, position]]``. The
+    DataFrame has columns: account / return / total_turnover / turnover /
+    total_cost / cost / value / cash / bench (indexed by datetime).
+
+    Pinned to this shape (PR #4 review #4): the previous defensive
+    fallback chain (tuple / .generate() / DataFrame) was speculation —
+    masked the bug where unit-test mocks used .generate() but real qlib
+    returns tuple. Single shape + clear error if qlib ever changes.
     """
     import math
 
     import pandas as pd
 
-    # qlib's portfolio_dict is keyed by step name (typically "1day").
+    # qlib's portfolio_dict is keyed by step name — typically "1day".
     if "1day" in portfolio_dict:
         port = portfolio_dict["1day"]
     else:
+        # Fallback to first available frequency
         port = next(iter(portfolio_dict.values()))
 
-    # Resolve to a DataFrame irrespective of qlib's wrapping
-    report_df: pd.DataFrame
-    if isinstance(port, tuple) and len(port) > 0 and isinstance(port[0], pd.DataFrame):
-        report_df = port[0]
-    elif hasattr(port, "generate"):
-        gen_out = port.generate()
-        if isinstance(gen_out, pd.DataFrame):
-            report_df = gen_out
-        elif isinstance(gen_out, dict):
-            # generate() can return {key: df} — pick first DataFrame
-            df_candidates = [v for v in gen_out.values() if isinstance(v, pd.DataFrame)]
-            report_df = df_candidates[0] if df_candidates else pd.DataFrame()
-        else:
-            report_df = pd.DataFrame()
-    elif isinstance(port, pd.DataFrame):
-        report_df = port
-    else:
-        report_df = pd.DataFrame()
+    if not isinstance(port, tuple) or len(port) < 1 or not isinstance(port[0], pd.DataFrame):
+        raise ValueError(
+            "Unexpected qlib portfolio_dict shape: expected "
+            "tuple[pd.DataFrame, dict] (qlib 0.x convention) but got "
+            f"{type(port).__name__}. qlib upstream may have changed; "
+            "update _summarise_portfolio."
+        )
+    report_df = port[0]
 
     if not isinstance(report_df, pd.DataFrame) or report_df.empty:
         return BacktestMetrics(

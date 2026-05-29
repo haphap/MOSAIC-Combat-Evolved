@@ -408,6 +408,22 @@ export class BridgeApi {
     });
   }
 
+  // calendar.* (PR #4 review hotfix #2 — replaces weekday-only filter)
+  calendarListTradingDays(start: string, end: string): Promise<{ trading_days: string[] }> {
+    return this.client.call<{ trading_days: string[] }>("calendar.list_trading_days", {
+      start,
+      end,
+    });
+  }
+
+  calendarIsTradingDay(date: string): Promise<{ is_trading: boolean }> {
+    return this.client.call<{ is_trading: boolean }>("calendar.is_trading_day", { date });
+  }
+
+  calendarNextTradingDay(date: string, n = 1): Promise<{ date: string }> {
+    return this.client.call<{ date: string }>("calendar.next_trading_day", { date, n });
+  }
+
   // scorecard.* (Phase 3D)
   scorecardAppend(state: Record<string, unknown>): Promise<{ ingested: number }> {
     return this.client.call<{ ingested: number }>("scorecard.append", { state });

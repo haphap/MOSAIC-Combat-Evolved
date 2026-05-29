@@ -119,10 +119,20 @@ def _create_class():
         ) from exc
 
     class _MosaicCachedStrategy(WeightStrategyBase):
-        """Real qlib subclass — assembled at first call."""
+        """Real qlib subclass — assembled at first call.
 
-        # Filled by from_actions_dict() before backtest starts
-        _mosaic_weights_by_date: dict[str, dict[str, float]] = {}
+        Bug fix (PR #4 review #1, HIGH): originally
+        ``_mosaic_weights_by_date`` was a class-level dict, which would
+        be shared across all strategy instances created in the same
+        process — running two backtests (e.g. base + mutation) would
+        cross-contaminate weights. Moved to ``__init__`` so each
+        instance has its own dict.
+        """
+
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            # Per-instance cache — populated by ``from_actions_dict``.
+            self._mosaic_weights_by_date: dict[str, dict[str, float]] = {}
 
         def generate_target_weight_position(
             self,

@@ -29,6 +29,11 @@ import type {
 import { BridgeApi, BridgeClient, RpcError } from "../../bridge/index.js";
 import { buildDailyCycleGraph } from "../../graph/daily_cycle.js";
 import { createLlmFromConfig, type LlmHandle } from "../../llm/factory.js";
+import {
+  buildFakeLlmHandle,
+  enumerateTradingDays,
+  makeInitialState,
+} from "../_backtest_helpers.js";
 
 interface BacktestOptions {
   cohort?: string;
@@ -190,7 +195,7 @@ async function fillStage1(
         ...(opts.baseUrl ? { baseUrl: opts.baseUrl } : {}),
       });
 
-  const tradeDays = enumerateWeekdays(opts.start, opts.end);
+  const tradeDays = await enumerateTradingDays(api, opts.start, opts.end);
   const vetoThreshold = opts.vetoThreshold ? Number(opts.vetoThreshold) : 0.5;
   const logEvery = Number.parseInt(opts.logEvery ?? "5", 10);
 
@@ -266,79 +271,6 @@ function printMetrics(m: BacktestMetricsResult, totalElapsed: string): void {
 
 function pad(s: string, width: number): string {
   return s.length >= width ? s : s + " ".repeat(width - s.length);
-}
-
-// ---------------------------------------------------------------------------
-// Helpers (duplicated from backtest-fill.ts to keep that file's surface stable)
-// ---------------------------------------------------------------------------
-
-function enumerateWeekdays(start: string, end: string): string[] {
-  const out: string[] = [];
-  const startDate = new Date(`${start}T00:00:00Z`);
-  const endDate = new Date(`${end}T00:00:00Z`);
-  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
-    throw new Error("invalid --start / --end (must be YYYY-MM-DD)");
-  }
-  if (startDate > endDate) return out;
-  const cur = new Date(startDate.getTime());
-  while (cur <= endDate) {
-    const dow = cur.getUTCDay();
-    if (dow !== 0 && dow !== 6) {
-      const yyyy = cur.getUTCFullYear();
-      const mm = String(cur.getUTCMonth() + 1).padStart(2, "0");
-      const dd = String(cur.getUTCDate()).padStart(2, "0");
-      out.push(`${yyyy}-${mm}-${dd}`);
-    }
-    cur.setUTCDate(cur.getUTCDate() + 1);
-  }
-  return out;
-}
-
-function makeInitialState(cohort: string, asOfDate: string): DailyCycleStateType {
-  return {
-    messages: [],
-    active_cohort: cohort,
-    as_of_date: asOfDate,
-    mode: "backtest",
-    trace_id: `bt-${asOfDate}-${Date.now()}`,
-    continuity_context: {},
-    lesson_context: {},
-    method_context: {},
-    layer1_outputs: {},
-    layer1_consensus: null,
-    layer2_outputs: {},
-    layer2_consensus: null,
-    layer3_outputs: {},
-    layer4_outputs: { cro: null, alpha_discovery: null, autonomous_execution: null, cio: null },
-    portfolio_actions: [],
-    llm_calls: [],
-  };
-}
-
-class FakeChatModel {
-  bindTools(_tools: unknown): FakeChatModel {
-    return this;
-  }
-  withStructuredOutput(_schema: unknown): { invoke: () => Promise<unknown> } {
-    return {
-      invoke: async () => {
-        throw new Error("--fake-llm: structured output unavailable, fallback");
-      },
-    };
-  }
-  async invoke(_messages: unknown): Promise<{ content: string }> {
-    return { content: "(--fake-llm) fallback" };
-  }
-}
-
-function buildFakeLlmHandle(): LlmHandle {
-  // biome-ignore lint/suspicious/noExplicitAny: minimal LlmHandle shim
-  return {
-    llm: new FakeChatModel() as any,
-    provider: "fake",
-    model: "fake-llm-mock",
-    baseUrl: undefined,
-  };
 }
 
 // Suppress unused for the BacktestRunInfo import (kept for future enrichment)

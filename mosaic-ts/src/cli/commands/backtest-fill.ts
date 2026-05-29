@@ -10,8 +10,9 @@
  * runner then replays from this table (no LLM calls needed during
  * replay → fast + deterministic).
  *
- * Calendar resolution: uses ``mosaic.dataflows.calendar`` (Tushare
- * trade_cal) which is already wired through the bridge from Phase 3B.
+ * Trading-day enumeration uses the bridge's calendar.list_trading_days
+ * (PR #4 review hotfix #2) — skips A-share holidays so we don't waste
+ * LLM calls on closed days.
  *
  * Cache key: (cohort, start_date, end_date, prompt_commit_hash). Re-running
  * with the same key short-circuits — operator-driven mutation evaluation
@@ -25,6 +26,11 @@ import type { BacktestActionInput } from "../../bridge/index.js";
 import { BridgeApi, BridgeClient, RpcError } from "../../bridge/index.js";
 import { buildDailyCycleGraph } from "../../graph/daily_cycle.js";
 import { createLlmFromConfig, type LlmHandle } from "../../llm/factory.js";
+import {
+  buildFakeLlmHandle,
+  enumerateTradingDays,
+  makeInitialState,
+} from "../_backtest_helpers.js";
 
 interface BacktestFillOptions {
   cohort?: string;
@@ -84,17 +90,8 @@ export function registerBacktestFill(program: Command): void {
               ...(opts.baseUrl ? { baseUrl: opts.baseUrl } : {}),
             });
 
-        // Resolve trade calendar via the bridge handler the daily-cycle
-        // already uses. Since this CLI iterates trade days locally, ask
-        // the Python side for the calendar slice through a small helper:
-        // we use the get_yield_curve_cn tool? No — simplest: ask the
-        // sidecar to enumerate trading days. There isn't a dedicated RPC
-        // for that, so use an inline loop with weekday-only fallback when
-        // the canonical helper isn't reachable. The Tushare-aligned
-        // calendar path is invoked transparently by the Python scorer +
-        // Darwinian; for stage-1 fill the daily-cycle itself is what
-        // consumes the date, so weekday-only fallback is acceptable.
-        const tradeDays = enumerateWeekdays(opts.start, opts.end);
+        // Use bridge calendar to skip A-share holidays (review #2)
+        const tradeDays = await enumerateTradingDays(api, opts.start, opts.end);
         if (tradeDays.length === 0) {
           console.error(pc.red("error: no trade days in [start, end]"));
           process.exitCode = 1;
@@ -196,83 +193,4 @@ export function registerBacktestFill(program: Command): void {
         await client.close();
       }
     });
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/** Enumerate Mon-Fri YYYY-MM-DD strings in [start, end] (inclusive).
- *  Calendar holidays are not filtered here — daily-cycle runs may produce
- *  fallback outputs on closed days, which is acceptable for stage-1
- *  cache fill. The qlib runner in 3.5D maps to true trading-day prices. */
-function enumerateWeekdays(start: string, end: string): string[] {
-  const out: string[] = [];
-  const startDate = new Date(`${start}T00:00:00Z`);
-  const endDate = new Date(`${end}T00:00:00Z`);
-  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
-    throw new Error("invalid --start / --end (must be YYYY-MM-DD)");
-  }
-  if (startDate > endDate) return out;
-  const cur = new Date(startDate.getTime());
-  while (cur <= endDate) {
-    const dow = cur.getUTCDay();
-    if (dow !== 0 && dow !== 6) {
-      const yyyy = cur.getUTCFullYear();
-      const mm = String(cur.getUTCMonth() + 1).padStart(2, "0");
-      const dd = String(cur.getUTCDate()).padStart(2, "0");
-      out.push(`${yyyy}-${mm}-${dd}`);
-    }
-    cur.setUTCDate(cur.getUTCDate() + 1);
-  }
-  return out;
-}
-
-function makeInitialState(cohort: string, asOfDate: string): DailyCycleStateType {
-  return {
-    messages: [],
-    active_cohort: cohort,
-    as_of_date: asOfDate,
-    mode: "backtest",
-    trace_id: `bt-${asOfDate}-${Date.now()}`,
-    continuity_context: {},
-    lesson_context: {},
-    method_context: {},
-    layer1_outputs: {},
-    layer1_consensus: null,
-    layer2_outputs: {},
-    layer2_consensus: null,
-    layer3_outputs: {},
-    layer4_outputs: { cro: null, alpha_discovery: null, autonomous_execution: null, cio: null },
-    portfolio_actions: [],
-    llm_calls: [],
-  };
-}
-
-// Identical to daily-cycle.ts FakeChatModel — duplicated rather than imported
-// to keep that file's surface stable.
-class FakeChatModel {
-  bindTools(_tools: unknown): FakeChatModel {
-    return this;
-  }
-  withStructuredOutput(_schema: unknown): { invoke: () => Promise<unknown> } {
-    return {
-      invoke: async () => {
-        throw new Error("--fake-llm: structured output unavailable, fallback");
-      },
-    };
-  }
-  async invoke(_messages: unknown): Promise<{ content: string }> {
-    return { content: "(--fake-llm) fallback" };
-  }
-}
-
-function buildFakeLlmHandle(): LlmHandle {
-  // biome-ignore lint/suspicious/noExplicitAny: minimal LlmHandle shim
-  return {
-    llm: new FakeChatModel() as any,
-    provider: "fake",
-    model: "fake-llm-mock",
-    baseUrl: undefined,
-  };
 }

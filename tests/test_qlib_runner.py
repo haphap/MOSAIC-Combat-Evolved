@@ -121,8 +121,14 @@ class TestLoadWeights:
 
 
 def _synth_portfolio_dict(returns: list[float], bench: list[float]) -> dict:
-    """Build a fake portfolio_dict matching qlib's
-    PortfolioMetrics.generate() output schema."""
+    """Build a fake portfolio_dict matching qlib 0.x's actual return shape:
+    ``{<freq>: tuple[pd.DataFrame, dict]}``. Pinned in PR #4 review hotfix
+    so unit tests catch shape regressions when qlib upgrades.
+
+    Real qlib columns observed via smoke: account / return / total_turnover /
+    turnover / total_cost / cost / value / cash / bench (indexed by datetime).
+    Synthetic minimal subset is enough for _summarise_portfolio.
+    """
     df = pd.DataFrame(
         {
             "return": returns,
@@ -131,12 +137,9 @@ def _synth_portfolio_dict(returns: list[float], bench: list[float]) -> dict:
             "turnover": [0.0] * len(returns),
         }
     )
-
-    class _PortStub:
-        def generate(self):
-            return df
-
-    return {"1day": _PortStub()}
+    # Position dict per day — kept empty in tests, real qlib fills it in.
+    positions: dict = {}
+    return {"1day": (df, positions)}
 
 
 class TestSummarisePortfolio:
@@ -220,12 +223,7 @@ class TestSummarisePortfolio:
 
     def test_no_return_column_falls_back_to_value(self):
         df = pd.DataFrame({"value": [1_000_000, 1_010_000, 1_020_000, 1_015_000]})
-
-        class _Stub:
-            def generate(self):
-                return df
-
-        port = {"1day": _Stub()}
+        port = {"1day": (df, {})}
         m = _summarise_portfolio(
             portfolio_dict=port,
             run_id=1,
@@ -242,11 +240,7 @@ class TestSummarisePortfolio:
         assert m.total_return == pytest.approx(0.015, abs=1e-6)
 
     def test_empty_dataframe_returns_zeros(self):
-        class _Stub:
-            def generate(self):
-                return pd.DataFrame()
-
-        port = {"1day": _Stub()}
+        port = {"1day": (pd.DataFrame(), {})}
         m = _summarise_portfolio(
             portfolio_dict=port,
             run_id=1,
@@ -259,6 +253,26 @@ class TestSummarisePortfolio:
         assert m.n_trade_days == 0
         assert m.total_return == 0.0
         assert m.final_value == 1_000_000.0
+
+    def test_unexpected_shape_raises(self):
+        """PR #4 review #4: pin to qlib 0.x tuple shape, raise on drift."""
+
+        class _LegacyStub:
+            def generate(self):
+                return pd.DataFrame({"return": [0.0]})
+
+        # Old .generate()-having shape (no longer supported).
+        port = {"1day": _LegacyStub()}
+        with pytest.raises(ValueError, match="Unexpected qlib portfolio_dict shape"):
+            _summarise_portfolio(
+                portfolio_dict=port,
+                run_id=1,
+                cohort="c",
+                start_date="2024-01-01",
+                end_date="2024-01-01",
+                benchmark="SH000300",
+                initial_cash=1_000_000.0,
+            )
 
     def test_to_dict_serialisable(self):
         m = BacktestMetrics(
