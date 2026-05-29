@@ -223,24 +223,41 @@ def _summarise_portfolio(
     benchmark: str,
     initial_cash: float,
 ) -> BacktestMetrics:
-    """Boil ``portfolio_dict`` (from qlib.backtest) down to BacktestMetrics."""
+    """Boil ``portfolio_dict`` (from qlib.backtest) down to BacktestMetrics.
+
+    qlib's ``portfolio_dict[<freq>]`` is one of:
+      * a tuple ``(metrics_df, positions_dict)`` — current qlib release shape
+      * an object with ``.generate()`` returning a DataFrame — older path
+      * a DataFrame directly — fallback
+    """
     import math
 
     import pandas as pd
 
     # qlib's portfolio_dict is keyed by step name (typically "1day").
-    # The 'report' (PortAnaRecord-like) dataframe has per-day equity / bench.
-    # We pull the "1day" level — fallback to first key if absent.
     if "1day" in portfolio_dict:
         port = portfolio_dict["1day"]
     else:
         port = next(iter(portfolio_dict.values()))
 
-    # PortfolioMetrics object exposes a .generate() method returning DataFrame.
-    if hasattr(port, "generate"):
-        report_df = port.generate()
+    # Resolve to a DataFrame irrespective of qlib's wrapping
+    report_df: pd.DataFrame
+    if isinstance(port, tuple) and len(port) > 0 and isinstance(port[0], pd.DataFrame):
+        report_df = port[0]
+    elif hasattr(port, "generate"):
+        gen_out = port.generate()
+        if isinstance(gen_out, pd.DataFrame):
+            report_df = gen_out
+        elif isinstance(gen_out, dict):
+            # generate() can return {key: df} — pick first DataFrame
+            df_candidates = [v for v in gen_out.values() if isinstance(v, pd.DataFrame)]
+            report_df = df_candidates[0] if df_candidates else pd.DataFrame()
+        else:
+            report_df = pd.DataFrame()
+    elif isinstance(port, pd.DataFrame):
+        report_df = port
     else:
-        report_df = port  # already a DataFrame
+        report_df = pd.DataFrame()
 
     if not isinstance(report_df, pd.DataFrame) or report_df.empty:
         return BacktestMetrics(
