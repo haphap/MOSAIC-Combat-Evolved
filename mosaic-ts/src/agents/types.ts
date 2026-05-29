@@ -165,6 +165,8 @@ export interface SectorAgentOutputBase {
   /** [-1, 1], where +1 = max bullish on the sector. */
   sector_score: number;
   key_drivers: string[];
+  /** Self-rated confidence in [0, 1]. Same semantics as Layer 1. */
+  confidence: number;
 }
 
 export interface RelationshipMapperOutput {
@@ -172,9 +174,38 @@ export interface RelationshipMapperOutput {
   supply_chains: Array<{ name: string; tickers: string[]; risk: string }>;
   ownership_clusters: Array<{ cluster_id: string; tickers: string[] }>;
   contagion_risks: string[];
+  key_drivers: string[];
+  /** Self-rated confidence in [0, 1]. */
+  confidence: number;
 }
 
-export type SectorAgentOutput = SectorAgentOutputBase | RelationshipMapperOutput;
+export type SectorAgentOutput =
+  | SemiconductorOutput
+  | EnergyOutput
+  | BiotechOutput
+  | ConsumerOutput
+  | IndustrialsOutput
+  | FinancialsOutput
+  | RelationshipMapperOutput;
+
+export interface SemiconductorOutput extends SectorAgentOutputBase {
+  agent: "semiconductor";
+}
+export interface EnergyOutput extends SectorAgentOutputBase {
+  agent: "energy";
+}
+export interface BiotechOutput extends SectorAgentOutputBase {
+  agent: "biotech";
+}
+export interface ConsumerOutput extends SectorAgentOutputBase {
+  agent: "consumer";
+}
+export interface IndustrialsOutput extends SectorAgentOutputBase {
+  agent: "industrials";
+}
+export interface FinancialsOutput extends SectorAgentOutputBase {
+  agent: "financials";
+}
 
 /** Aggregated sector view written by the L2 aggregator. */
 export interface SectorConsensus {

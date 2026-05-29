@@ -911,12 +911,64 @@ Phase 0 §14 议题中 Tushare endpoint 名 `cb_op` / `yc_cb` / `news` 的 live 
 
 ### Sub-step 2D：Layer 2/3/4（15 agents + cohort fanout 工具）
 
+**2D 拆 3 个子提交**：
+* **2D.1** — Layer 2 / 7 sector agents（含 relationship_mapper） + Layer-2 factory + L2 subgraph
+* **2D.2** — Layer 3 / 4 superinvestor agents（哲学过滤器，prompts 重头戏）+ L3 subgraph
+* **2D.3** — Layer 4 / 4 decision agents（cro/alpha/autonomous/cio）+ L4 subgraph
+
+按 Plan §5.2/5.3/5.4 配置：
+
 - [ ] Layer 2: 7 sector agents（同模板，工具用 sector-specific holdings/research）
 - [ ] Layer 3: 4 superinvestor agents（哲学过滤器；prompts 重头戏）
 - [ ] Layer 4: cro / alpha_discovery / autonomous_execution / cio
       （Plan §5.4，cio 是 final aggregator）
 - [ ] cohort fanout helper：从 `layer1_consensus` 派生不同 cohort 的 view
       （Phase 5 PRISM 用）
+
+**2D.1 设计决策**（Layer 2 sector agents）：
+
+1. **Layer-2 factory 独立**（不复用 Layer-1 factory）。两点关键差异：
+   - Layer 2 节点 **读上游 state**：`state.layer1_consensus` (`RegimeSignal`) +
+     `state.layer1_outputs.{china, institutional_flow, ...}` 的 sector_focus
+     等字段。把这些塞进 phase-1 system message context（"当前宏观 regime: ...
+     sector_focus 列表：..."），让 sector agent 在选 longs/shorts 时知道
+     宏观背景。
+   - 写入位置不同（`layer2_outputs` vs `layer1_outputs`）；factory 的 state
+     update 路径必须独立。
+
+2. **6 个标准 sector agents 共享 schema 形态**（半导体/能源/医药/消费/工业/
+   金融），都是 `{longs: SectorPick[], shorts: SectorPick[], sector_score,
+   key_drivers, confidence}`。每个 agent 用 z.literal(<id>) 区分。
+   `relationship_mapper` 输出形态完全不同（supply_chains / ownership_clusters
+   / contagion_risks），但走同一 factory（factory 是 schema-agnostic）。
+
+3. **types.ts 补 `confidence` 到 sector base**：原始定义没有；Phase 3 scorecard
+   + Phase 5 PRISM 都需要 sector-level 置信度，现在补上避免日后改契约。
+
+4. **工具缺口处理**（Plan §5.2 列出的 ETF 工具 Phase 0/1 都没有）：
+   `get_etf_holdings(*)` / `get_industry_research` / `get_top_holdings_overlap`
+   等都缺。2D.1 sector agents 退而求其次用：
+   - `get_industry_policy`（按 sector 关键词 filter）
+   - `get_xueqiu_heat`（板块龙头股的散户关注度 → 散户对 sector 的认知）
+   - `get_lhb_ranking`（当日 LHB 上榜个股按 sector 聚合）
+   - `get_north_capital_flow`（北向资金的 sector preference proxy；真实的
+     by-sector flow 在 Phase 4+ 接 `moneyflow_hsgt_top10` 后再替换）
+
+   每个 sector agent 的 prompt 明确说"由于 ETF 工具不可用，picks 必须基于
+   板块龙头 + 政策 + 资金流向 三角推断，不要编造未在工具返回中出现的 ticker"。
+   `confidence ≤ 0.5` cap on 所有 sector agents until Phase 4 ETF tools land。
+
+5. **`relationship_mapper` 单独处理**：
+   - Plan §5.2 的 `get_top_holdings_overlap` / `get_related_party_transactions`
+     都不存在（ETF 持仓 + 股东网络数据均缺）。
+   - 2D.1 的 relationship_mapper 仅做 **跨 sector 资金流向相关性** 推断，
+     基于 `state.layer2_outputs.*.sector_score` + 北向资金的 sector breakdown。
+     输出 contagion_risks 仍有意义，supply_chains / ownership_clusters
+     直接列已知大产业链（半导体设备链 / 新能源车链 / 白酒消费链）的硬编码
+     映射作为占位。Phase 4 接真实工具后改。
+
+6. **L2 subgraph 入口契约**：buildLayer2Graph 假定 `layer1_consensus` 已写入
+   （即从 L1 subgraph 聚合器输出过来）。空状态下退化到 NEUTRAL regime。
 
 ### Sub-step 2E：4 层 LangGraph.js graph 装配
 
