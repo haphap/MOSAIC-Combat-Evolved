@@ -46,43 +46,17 @@ def ensure_baseline_run(
     return {"run_id": None, "needs_fill": True}
 
 
-def _find_run_sharpe(
-    store,
-    cohort: str,
-    start_date: str,
-    end_date: str,
-    commit_hash: str,
-) -> Optional[float]:
-    """Locate a completed run matching the commit and return its sharpe.
+def _find_run_sharpe(store, run_id: int) -> Optional[float]:
+    """Get the Sharpe ratio for a completed backtest run via qlib stage-2."""
+    try:
+        from mosaic.backtest import run_backtest
 
-    The sharpe is stored on the backtest_runs row via qlib stage-2
-    (``backtest.run_historical``). If unavailable we fall back to None.
-    """
-    runs = store.list_backtest_runs(cohort=cohort)
-    for run in runs:
-        if (
-            run["start_date"] == start_date
-            and run["end_date"] == end_date
-            and run["prompt_commit_hash"] == commit_hash
-            and run["completed_at"] is not None
-        ):
-            # Try to get sharpe from the run's metrics. The qlib runner
-            # stores results externally; for the MVP we check if the run
-            # has a sharpe field attached (Phase 3.5E stores it via
-            # BacktestMetrics). If not available, attempt stage-2 import.
-            sharpe = run.get("sharpe")
-            if sharpe is not None:
-                return float(sharpe)
-            # Fall back: try to compute from qlib if available.
-            try:
-                from mosaic.backtest import run_backtest
-
-                metrics = run_backtest(run_id=run["id"], store=store)
-                return float(metrics.sharpe)
-            except Exception:
-                # qlib not available or run has no actions -- return None
-                return None
-    return None
+        metrics = run_backtest(run_id=run_id, store=store)
+        return float(metrics.sharpe)
+    except ImportError:
+        return None
+    except Exception:
+        return None
 
 
 def compute_delta(
@@ -145,8 +119,8 @@ def compute_delta(
         )
 
     # Retrieve Sharpe for each run.
-    pre_sharpe = _find_run_sharpe(store, cohort, start_date, end_date, base_commit)
-    post_sharpe = _find_run_sharpe(store, cohort, start_date, end_date, mod_commit)
+    pre_sharpe = _find_run_sharpe(store, base_result["run_id"])
+    post_sharpe = _find_run_sharpe(store, mod_result["run_id"])
 
     if pre_sharpe is None:
         raise ValueError(

@@ -104,6 +104,20 @@ def autoresearch_trigger(params: dict[str, Any]) -> dict[str, Any]:
     if not cap_result:
         raise RpcError(AUTORESEARCH_ERROR, cap_result.reason)
 
+    # Early idempotency check when force_agent is known (avoids cooldown
+    # rejection on what would be a no-op duplicate trigger).
+    if force_agent:
+        today_str = now.strftime("%Y-%m-%d")
+        branch_name = f"cohort/{cohort}/auto/{force_agent}/{today_str}"
+        existing = store.get_version_by_branch(branch_name)
+        if existing:
+            return {
+                "version_id": existing["id"],
+                "agent": existing["agent"],
+                "branch_name": existing["branch_name"],
+                "base_commit": existing["base_commit_hash"],
+            }
+
     # Select agent.
     agent = _select_agent(store, cohort, force_agent, config, now)
 
@@ -164,6 +178,13 @@ def _select_agent(
     from mosaic.autoresearch.constraints import check_cooldown
 
     if force_agent:
+        # Still enforce cooldown even when agent is forced.
+        cd = check_cooldown(store, cohort, force_agent, now, config)
+        if not cd:
+            raise RpcError(
+                AUTORESEARCH_ERROR,
+                f"forced agent '{force_agent}' is on cooldown: {cd.reason}",
+            )
         return force_agent
 
     # Get Darwinian weights (which include sharpe_30) for agent ranking.

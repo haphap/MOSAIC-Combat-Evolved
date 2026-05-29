@@ -56,8 +56,12 @@ def train_cohort(
 
     return {
         "started": True,
+        "training_active": False,
         "cohort": cohort_name,
-        "message": f"training initiated for {cohort_name} [{start} .. {end}]",
+        "message": (
+            "cohort infrastructure created (branch + run entry); "
+            "full training requires TS daily-cycle integration"
+        ),
         "run_id": run_id,
     }
 

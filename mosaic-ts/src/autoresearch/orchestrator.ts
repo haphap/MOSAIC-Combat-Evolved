@@ -48,6 +48,8 @@ export interface CycleResult {
 export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Promise<CycleResult> {
   const {
     cohort,
+    // evalDays is reserved for future use when backtest-fill integration
+    // allows specifying the evaluation window directly from the orchestrator.
     maxMutations = 1,
     dryRun = false,
     forceAgent,
@@ -162,8 +164,9 @@ export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Prom
           evalStatus = "needs_fill";
         }
       }
-    } catch {
-      // Evaluation not ready yet; that is expected
+    } catch (err) {
+      // Evaluation not ready yet or crashed; log for visibility
+      log(`evaluation error: ${(err as Error).message ?? "unknown"}`);
     }
 
     // 8. Cleanup worktree
