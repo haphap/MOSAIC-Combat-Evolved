@@ -106,6 +106,7 @@ const BASE_CONFIG: MosaicConfig = {
   deep_think_llm: "fake",
   quick_think_llm: "fake",
   backend_url: null,
+  anthropic_base_url: null,
   anthropic_effort: null,
   output_language: "Chinese",
   research_depth_name: "标准",

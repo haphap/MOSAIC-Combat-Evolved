@@ -123,8 +123,7 @@ function createAnthropic(
       "Missing API key for provider 'anthropic'. Set ANTHROPIC_API_KEY in the environment.",
     );
   }
-  const baseUrl =
-    options.baseUrl ?? (config.anthropic_base_url as string | null | undefined) ?? undefined;
+  const baseUrl = options.baseUrl ?? config.anthropic_base_url ?? undefined;
 
   // Plan §1: anthropic_effort drives the per-request thinking effort.
   // Anthropic's "extended thinking" surface keeps shifting; we forward the
@@ -170,11 +169,7 @@ function createOpenAiCompatible(
   //   3. config.backend_url from the bridge config
   //   4. DEFAULT_BASE_URL[provider]
   const envBaseUrl = pickProviderEnvBaseUrl(provider);
-  const baseUrl =
-    options.baseUrl ??
-    envBaseUrl ??
-    (config.backend_url as string | null | undefined) ??
-    DEFAULT_BASE_URL[provider];
+  const baseUrl = options.baseUrl ?? envBaseUrl ?? config.backend_url ?? DEFAULT_BASE_URL[provider];
 
   const apiKey = pickApiKey(provider);
   const requiresKey = (API_KEY_ENV[provider] ?? []).length > 0;

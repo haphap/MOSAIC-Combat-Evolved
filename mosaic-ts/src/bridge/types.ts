@@ -76,6 +76,8 @@ export interface MosaicConfig {
   quick_think_llm: string;
   /** Optional override base URL — usually left null and resolved per-provider. */
   backend_url: string | null;
+  /** Optional override base URL specifically for the Anthropic provider. */
+  anthropic_base_url: string | null;
   /** "low" | "medium" | "high" — maps to Anthropic extended-thinking budget. */
   anthropic_effort: string | null;
 

@@ -224,10 +224,17 @@ export class BridgeClient {
     const id = response.id;
     if (typeof id !== "number") {
       // Parse-error responses from the server may carry id=null. We can't
-      // correlate those to a pending call, so fail everything pending.
+      // correlate those to a pending call, so fail everything pending —
+      // include the stderr tail so the caller can see whatever Python logged
+      // before the protocol-level error (much more useful than just the bare
+      // RPC error message).
       if (isErrorEnvelope(response)) {
+        const stderr = this.stderrBuffer.slice(-1000).trim();
+        const stderrSuffix = stderr ? `\nstderr tail:\n${stderr}` : "";
         this.failPending(
-          new BridgeTransportError(`Bridge protocol error (no id): ${response.error.message}`),
+          new BridgeTransportError(
+            `Bridge protocol error (no id): ${response.error.message}${stderrSuffix}`,
+          ),
         );
       }
       return;
