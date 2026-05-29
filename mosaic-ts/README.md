@@ -62,6 +62,12 @@ pnpm dev prism train --cohort crisis_2008 --fake-llm [--max-concurrent 5] [--max
 pnpm dev prism train --all --fake-llm                # train all 7 cohorts sequentially (layers sequential, ≤5 agents/layer concurrent)
 pnpm dev prism status --cohort crisis_2008
 pnpm dev prism compare [--metric sharpe] [--since YYYY-MM-DD]
+
+# Phase 6 JANUS (meta-weighting over the 7 regime cohorts)
+pnpm dev janus run [--date YYYY-MM-DD] [--window 30]    # weights + regime + blended recs (persisted)
+pnpm dev janus weights [--date YYYY-MM-DD] [--window 30]
+pnpm dev janus regime [--date YYYY-MM-DD]
+pnpm dev janus history [--days 30]
 ```
 
 ## Python interpreter resolution

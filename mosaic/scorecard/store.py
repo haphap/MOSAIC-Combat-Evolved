@@ -158,6 +158,20 @@ CREATE TABLE IF NOT EXISTS cohort_runs (
     notes TEXT,
     UNIQUE(cohort, date)
 );
+
+-- Phase 6 JANUS: daily meta-weighting output (Plan §11.7).
+CREATE TABLE IF NOT EXISTS janus_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    date TEXT NOT NULL,                         -- YYYY-MM-DD
+    weights_json TEXT NOT NULL,                 -- {cohort: weight}
+    regime_label TEXT,
+    dominant_cohort TEXT,
+    concentration REAL,
+    n_blended INTEGER,
+    n_contested INTEGER,
+    created_at TEXT NOT NULL,                   -- ISO-8601
+    UNIQUE(date)
+);
 """
 
 
@@ -455,6 +469,30 @@ class ScorecardStore:
         with self._connect() as conn:
             cur = conn.execute(sql, params)
             return [dict(row) for row in cur.fetchall()]
+
+    def list_recommendations(
+        self,
+        cohort: str,
+        agent: Optional[str] = None,
+        date: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
+        """Return recommendation rows (scored or not) filtered by cohort and
+        optionally agent / date. Used by JANUS to read CIO picks for blending."""
+        sql = (
+            "SELECT id, cohort, agent, ticker, date, action, conviction, "
+            "       target_weight_pct, rationale_snapshot FROM recommendations "
+            "WHERE cohort = ?"
+        )
+        params: list[Any] = [cohort]
+        if agent:
+            sql += " AND agent = ?"
+            params.append(agent)
+        if date:
+            sql += " AND date = ?"
+            params.append(date)
+        sql += " ORDER BY date, id"
+        with self._connect() as conn:
+            return [dict(r) for r in conn.execute(sql, params).fetchall()]
 
     # ── darwinian_weights (placeholder; populated by Phase 3C) ────────────
 
@@ -1008,10 +1046,53 @@ class ScorecardStore:
             "sharpe_latest": sharpe_latest,
         }
 
+    # ── janus_runs (Phase 6 JANUS, Plan §11.7) ───────────────────────────
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
+    def record_janus_run(
+        self,
+        *,
+        date: str,
+        weights_json: str,
+        regime_label: Optional[str],
+        dominant_cohort: Optional[str],
+        concentration: Optional[float],
+        n_blended: int,
+        n_contested: int,
+    ) -> int:
+        """Upsert the daily JANUS meta-weighting output (idempotent on date)."""
+        with self._connect() as conn:
+            cur = conn.execute(
+                """
+                INSERT INTO janus_runs (
+                    date, weights_json, regime_label, dominant_cohort,
+                    concentration, n_blended, n_contested, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(date) DO UPDATE SET
+                    weights_json = excluded.weights_json,
+                    regime_label = excluded.regime_label,
+                    dominant_cohort = excluded.dominant_cohort,
+                    concentration = excluded.concentration,
+                    n_blended = excluded.n_blended,
+                    n_contested = excluded.n_contested,
+                    created_at = excluded.created_at
+                RETURNING id
+                """,
+                (
+                    date, weights_json, regime_label, dominant_cohort,
+                    concentration, n_blended, n_contested, _utcnow_iso(),
+                ),
+            )
+            return int(cur.fetchone()["id"])
+
+    def get_janus_history(self, days: int = 30) -> list[dict[str, Any]]:
+        """Return the most recent ``days`` JANUS runs, newest first."""
+        with self._connect() as conn:
+            cur = conn.execute(
+                "SELECT * FROM janus_runs ORDER BY date DESC LIMIT ?", (days,)
+            )
+            return [dict(r) for r in cur.fetchall()]
+
+
 
 
 def _utcnow_iso() -> str:
