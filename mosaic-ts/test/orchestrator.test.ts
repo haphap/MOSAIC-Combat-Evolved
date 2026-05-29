@@ -78,6 +78,31 @@ describe("runAutoresearchCycle", () => {
     // promptsWrite should NOT be called in dry-run mode
     expect(api.promptsWrite).not.toHaveBeenCalled();
     expect(api.autoresearchRecordMutation).not.toHaveBeenCalled();
+    // trigger must be told it's a dry run so it skips branch/DB persistence
+    expect(api.autoresearchTrigger).toHaveBeenCalledWith({
+      cohort: "cohort_default",
+      dry_run: true,
+    });
+  });
+
+  it("fakeLlm is threaded through to the mutator", async () => {
+    const api = fakeBridgeApi();
+    const llm = new FakeLlm();
+
+    await runAutoresearchCycle({
+      cohort: "cohort_default",
+      dryRun: true,
+      fakeLlm: true,
+      maxMutations: 1,
+      deps: { llm: llm as never, api },
+    });
+
+    expect(mockedMutate).toHaveBeenCalledWith({
+      cohort: "cohort_default",
+      agent: "volatility",
+      deps: { llm: llm as never, api },
+      fakeLlm: true,
+    });
   });
 
   it("full cycle triggers, mutates, writes, and records", async () => {

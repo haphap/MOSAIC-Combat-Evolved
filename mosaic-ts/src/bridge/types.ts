@@ -296,10 +296,12 @@ export interface PromptWriteResult {
 
 /** Returned by ``autoresearch.trigger``. */
 export interface AutoresearchTriggerResult {
-  version_id: number;
+  /** Null when triggered with dry_run=true (no version row was created). */
+  version_id: number | null;
   agent: string;
   branch_name: string;
   base_commit: string;
+  dry_run?: boolean;
 }
 
 /** One entry in the ``autoresearch.evaluate_pending`` results array. */
@@ -582,6 +584,7 @@ export class BridgeApi {
   autoresearchTrigger(params: {
     cohort: string;
     force_agent?: string;
+    dry_run?: boolean;
   }): Promise<AutoresearchTriggerResult> {
     return this.client.call<AutoresearchTriggerResult>("autoresearch.trigger", params);
   }

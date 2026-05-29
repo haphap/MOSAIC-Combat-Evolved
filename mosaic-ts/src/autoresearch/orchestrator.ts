@@ -25,6 +25,8 @@ export interface AutoresearchCycleOptions {
   maxMutations?: number;
   dryRun?: boolean;
   forceAgent?: string;
+  /** Use the deterministic canned mutation (Plan §11.5 4F --fake-llm smoke). */
+  fakeLlm?: boolean;
   deps: {
     llm: BaseChatModel;
     api: BridgeApi;
@@ -34,7 +36,7 @@ export interface AutoresearchCycleOptions {
 
 export interface MutationResult {
   agent: string;
-  version_id: number;
+  version_id: number | null;
   status: "kept" | "reverted" | "dry_run" | "needs_fill" | "error";
   delta_sharpe?: number;
   summary?: string;
@@ -53,6 +55,7 @@ export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Prom
     maxMutations = 1,
     dryRun = false,
     forceAgent,
+    fakeLlm = false,
     deps,
     onLog,
   } = opts;
@@ -67,6 +70,7 @@ export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Prom
       triggerResult = await deps.api.autoresearchTrigger({
         cohort,
         ...(forceAgent ? { force_agent: forceAgent } : {}),
+        ...(dryRun ? { dry_run: true } : {}),
       });
     } catch (err) {
       log(`trigger blocked: ${(err as Error).message}`);
@@ -84,6 +88,7 @@ export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Prom
         cohort,
         agent: triggerResult.agent,
         deps: { llm: deps.llm, api: deps.api },
+        ...(fakeLlm ? { fakeLlm: true } : {}),
       });
     } catch (err) {
       results.push({
@@ -108,6 +113,18 @@ export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Prom
       continue;
     }
 
+    // Past dry-run, trigger must have persisted a version row.
+    const versionId = triggerResult.version_id;
+    if (versionId == null) {
+      results.push({
+        agent: triggerResult.agent,
+        version_id: null,
+        status: "error",
+        error: "trigger returned no version_id (non-dry-run)",
+      });
+      continue;
+    }
+
     // 4. Write prompts on branch
     let writeResult: Awaited<ReturnType<BridgeApi["promptsWrite"]>>;
     try {
@@ -121,7 +138,7 @@ export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Prom
     } catch (err) {
       results.push({
         agent: triggerResult.agent,
-        version_id: triggerResult.version_id,
+        version_id: versionId,
         status: "error",
         error: `write failed: ${(err as Error).message}`,
       });
@@ -130,7 +147,7 @@ export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Prom
 
     // 5. Record mutation in store
     await deps.api.autoresearchRecordMutation({
-      version_id: triggerResult.version_id,
+      version_id: versionId,
       commit_hash: writeResult.commit_hash ?? "unknown",
       summary: mutation.modification_summary,
     });
@@ -155,7 +172,7 @@ export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Prom
 
     try {
       const evalResult = await deps.api.autoresearchEvaluatePending({ cohort });
-      const thisEval = evalResult.results.find((r) => r.version_id === triggerResult.version_id);
+      const thisEval = evalResult.results.find((r) => r.version_id === versionId);
       if (thisEval) {
         if (thisEval.status === "kept" || thisEval.status === "reverted") {
           evalStatus = thisEval.status;
@@ -181,7 +198,7 @@ export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Prom
     // 9. Record result
     results.push({
       agent: triggerResult.agent,
-      version_id: triggerResult.version_id,
+      version_id: versionId,
       status: evalStatus,
       ...(deltaSharpe != null ? { delta_sharpe: deltaSharpe } : {}),
       summary: mutation.modification_summary,

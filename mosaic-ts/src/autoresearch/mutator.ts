@@ -132,6 +132,24 @@ export interface MutateOptions {
   since?: string;
   /** Override the prompts root (tests; defaults to the repo's prompts/mosaic). */
   promptsRoot?: string;
+  /**
+   * Deterministic canned mutation instead of an LLM call (Plan §11.5 4F):
+   * appends a marker line to zh+en so ``--fake-llm`` smoke runs are
+   * repeatable and zero-cost. The marker keeps every required section /
+   * schema field intact, so it passes ``assertPromptInvariants``.
+   */
+  fakeLlm?: boolean;
+}
+
+/** Deterministic rewrite for ``--fake-llm`` mode (Plan §11.5 4F decision). */
+function cannedMutation(zh: string, en: string): Mutation {
+  const marker = "autoresearch fake-llm marker";
+  return {
+    zh_prompt: `${zh.replace(/\s+$/, "")}\n\n<!-- ${marker} -->\n`,
+    en_prompt: `${en.replace(/\s+$/, "")}\n\n<!-- ${marker} -->\n`,
+    modification_summary: "fake-llm: append deterministic marker",
+    rationale: "fake-llm smoke mutation (no real LLM call)",
+  };
 }
 
 /**
@@ -141,13 +159,20 @@ export interface MutateOptions {
  * structured output.
  */
 export async function mutate(opts: MutateOptions): Promise<Mutation> {
-  const { cohort, agent, deps, since, promptsRoot } = opts;
+  const { cohort, agent, deps, since, promptsRoot, fakeLlm } = opts;
 
   const rootOpt = promptsRoot !== undefined ? { promptsRoot } : {};
   const [zh, en] = await Promise.all([
     loadPrompt({ agent, cohort, language: "zh", noCache: true, ...rootOpt }),
     loadPrompt({ agent, cohort, language: "en", noCache: true, ...rootOpt }),
   ]);
+
+  if (fakeLlm) {
+    const mutation = cannedMutation(zh, en);
+    assertPromptInvariants(zh, mutation.zh_prompt);
+    assertPromptInvariants(en, mutation.en_prompt);
+    return mutation;
+  }
 
   const perf = await describePerformance(deps.api, cohort, agent, since);
 

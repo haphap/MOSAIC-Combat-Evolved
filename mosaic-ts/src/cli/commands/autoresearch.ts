@@ -98,6 +98,7 @@ export function registerAutoresearch(program: Command): void {
           maxMutations,
           dryRun: opts.dryRun ?? false,
           ...(opts.agent ? { forceAgent: opts.agent } : {}),
+          ...(opts.fakeLlm ? { fakeLlm: true } : {}),
           deps: { llm: llmHandle.llm, api },
           onLog: (msg) => console.log(pc.dim(`  ${msg}`)),
         });
@@ -115,7 +116,7 @@ export function registerAutoresearch(program: Command): void {
                   : pc.yellow;
           console.log(
             `  ${pad(m.agent, 20)} ${statusColor(pad(m.status, 12))} ` +
-              `v${m.version_id}` +
+              `${m.version_id != null ? `v${m.version_id}` : "(dry-run)"}` +
               (m.delta_sharpe != null ? ` delta=${m.delta_sharpe.toFixed(4)}` : "") +
               (m.summary ? ` -- ${m.summary}` : "") +
               (m.error ? ` [${m.error}]` : ""),

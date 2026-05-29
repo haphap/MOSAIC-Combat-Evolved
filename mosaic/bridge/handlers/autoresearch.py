@@ -84,9 +84,12 @@ def autoresearch_trigger(params: dict[str, Any]) -> dict[str, Any]:
     Params:
         cohort:       str
         force_agent:  str | None -- bypass selection, use this agent
+        dry_run:      bool -- select + check constraints only; do NOT create
+                      the git branch or prompt_versions row (version_id=None)
 
     Returns:
         {version_id, agent, branch_name, base_commit}
+        (version_id is None when dry_run=True)
     """
     from mosaic.autoresearch.constraints import check_cooldown, check_monthly_cap
 
@@ -94,6 +97,7 @@ def autoresearch_trigger(params: dict[str, Any]) -> dict[str, Any]:
     force_agent = params.get("force_agent") or None
     if force_agent is not None and not isinstance(force_agent, str):
         raise RpcError(INVALID_PARAMS, "'force_agent' must be a string")
+    dry_run = bool(params.get("dry_run", False))
 
     store = _store()
     config = _config()
@@ -138,9 +142,20 @@ def autoresearch_trigger(params: dict[str, Any]) -> dict[str, Any]:
     if not cooldown_result:
         raise RpcError(AUTORESEARCH_ERROR, cooldown_result.reason)
 
-    # Create branch.
     git = _git_ops()
     base_commit = git.current_commit()
+
+    # Dry-run: report the selection (agent + would-be branch) without
+    # creating a git branch or a prompt_versions row (Plan §11.5 4E: dry-run
+    # "只生成不提交"). version_id=None signals the orchestrator not to persist.
+    if dry_run:
+        return {
+            "version_id": None,
+            "agent": agent,
+            "branch_name": branch_name,
+            "base_commit": base_commit,
+            "dry_run": True,
+        }
 
     # Create branch in git.
     try:

@@ -47,6 +47,20 @@ pnpm build                   # emit dist/
 pnpm dev bridge-ping
 pnpm dev tool-call <name> [argsJson]
 pnpm dev tool-loop [--tool name] [--model name] [--question text]
+
+# Phase 4 autoresearch (prompt mutation loop)
+pnpm dev autoresearch trigger --cohort crisis_2008 --agent volatility --fake-llm  # one-shot generate+commit+eval+decide (zero-cost smoke)
+pnpm dev autoresearch trigger --cohort crisis_2008 --dry-run --fake-llm           # select+generate only, no branch/DB side effects
+pnpm dev autoresearch evaluate --cohort crisis_2008                               # evaluate pending mutations (resume)
+pnpm dev autoresearch log --cohort crisis_2008 --days 7                           # audit log
+pnpm dev autoresearch branches --cohort crisis_2008                               # active feature branches
+pnpm dev autoresearch revert --version-id 12                                      # manual revert (respects 3-day keep-lockout)
+
+# Phase 5 PRISM (7-cohort training orchestration)
+pnpm dev prism list                                  # 7 cohorts + branch/run status
+pnpm dev prism train --cohort crisis_2008 [--dry-run]
+pnpm dev prism status --cohort crisis_2008
+pnpm dev prism compare [--metric sharpe] [--since YYYY-MM-DD]
 ```
 
 ## Python interpreter resolution

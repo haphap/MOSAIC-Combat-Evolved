@@ -114,6 +114,26 @@ class TestAutoresearchTrigger(unittest.TestCase):
             autoresearch_trigger({"cohort": ""})
         self.assertIn("non-empty", ctx.exception.message)
 
+    def test_trigger_dry_run_has_no_side_effects(self):
+        """dry_run selects the agent but creates no branch and no version row."""
+        result = autoresearch_trigger({
+            "cohort": "euphoria_2021",
+            "force_agent": "volatility",
+            "dry_run": True,
+        })
+        self.assertIsNone(result["version_id"])
+        self.assertTrue(result["dry_run"])
+        self.assertEqual(result["agent"], "volatility")
+        # No prompt_versions row persisted.
+        self.assertEqual(len(self.store.list_prompt_versions()), 0)
+        # No git branch created.
+        git_branch = subprocess.run(
+            ["git", "-C", str(self.repo_path), "branch", "--list",
+             result["branch_name"]],
+            capture_output=True, text=True, check=True,
+        ).stdout.strip()
+        self.assertEqual(git_branch, "")
+
 
 class TestAutoresearchRecordMutation(unittest.TestCase):
     """Test autoresearch.record_mutation RPC handler."""
