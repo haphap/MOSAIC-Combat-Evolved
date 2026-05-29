@@ -8,26 +8,32 @@ import sys
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-# Import the autoresearch handler module directly, bypassing the handlers
-# __init__.py (which pulls in tools.py that needs langchain_core).
-import mosaic.bridge.protocol  # noqa: E402
-import mosaic.bridge.registry  # noqa: E402
-
-_HANDLER_PATH = (
-    Path(__file__).resolve().parent.parent
-    / "mosaic" / "bridge" / "handlers" / "autoresearch.py"
-)
-_spec = importlib.util.spec_from_file_location(
-    "mosaic.bridge.handlers.autoresearch", str(_HANDLER_PATH)
-)
-_ar = importlib.util.module_from_spec(_spec)
-sys.modules[_spec.name] = _ar
-_spec.loader.exec_module(_ar)
-
+# Imported eagerly so the dynamic handler load below (which bypasses the
+# handlers __init__) still resolves these without tripping E402.
+import mosaic.bridge.protocol  # noqa: F401
 from mosaic.bridge.protocol import RpcError
 from mosaic.scorecard.store import ScorecardStore
+
+# Import the autoresearch handler. Prefer the normal package import (which
+# registers the @method handlers exactly once); only fall back to an isolated
+# module exec when the package __init__ can't be imported (e.g. langchain_core
+# missing in an offline sandbox). Re-exec'ing after a successful package import
+# would double-register the RPC methods and raise.
+try:
+    from mosaic.bridge.handlers import autoresearch as _ar
+except Exception:
+    _HANDLER_PATH = (
+        Path(__file__).resolve().parent.parent
+        / "mosaic" / "bridge" / "handlers" / "autoresearch.py"
+    )
+    _spec = importlib.util.spec_from_file_location(
+        "mosaic.bridge.handlers.autoresearch", str(_HANDLER_PATH)
+    )
+    _ar = importlib.util.module_from_spec(_spec)
+    sys.modules[_spec.name] = _ar
+    _spec.loader.exec_module(_ar)
 
 # Module-level references to handler functions.
 autoresearch_trigger = _ar.autoresearch_trigger

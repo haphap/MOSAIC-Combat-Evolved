@@ -11,11 +11,9 @@ from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock, patch
 
 # Import prism modules directly to avoid pulling in tools.py deps.
-import mosaic.bridge.protocol  # noqa: E402
-import mosaic.bridge.registry  # noqa: E402
+import mosaic.bridge.protocol  # noqa: F401
 
 from mosaic.prism.cohorts import (
-    COHORT_CONFIGS,
     get_cohort,
     get_cohort_prompt_dir,
     list_cohorts,
@@ -23,17 +21,22 @@ from mosaic.prism.cohorts import (
 from mosaic.prism.trainer import compare_cohorts, ensure_cohort_branch, train_cohort
 from mosaic.scorecard.store import ScorecardStore
 
-# Import the prism handler module directly (bypass handlers __init__.py).
-_HANDLER_PATH = (
-    Path(__file__).resolve().parent.parent
-    / "mosaic" / "bridge" / "handlers" / "prism.py"
-)
-_spec = importlib.util.spec_from_file_location(
-    "mosaic.bridge.handlers.prism", str(_HANDLER_PATH)
-)
-_prism = importlib.util.module_from_spec(_spec)
-sys.modules[_spec.name] = _prism
-_spec.loader.exec_module(_prism)
+# Import the prism handler. Prefer the normal package import; fall back to an
+# isolated module exec only when the package __init__ can't be imported (no
+# langchain). Re-exec'ing after a successful import double-registers @method.
+try:
+    from mosaic.bridge.handlers import prism as _prism
+except Exception:
+    _HANDLER_PATH = (
+        Path(__file__).resolve().parent.parent
+        / "mosaic" / "bridge" / "handlers" / "prism.py"
+    )
+    _spec = importlib.util.spec_from_file_location(
+        "mosaic.bridge.handlers.prism", str(_HANDLER_PATH)
+    )
+    _prism = importlib.util.module_from_spec(_spec)
+    sys.modules[_spec.name] = _prism
+    _spec.loader.exec_module(_prism)
 
 _MOD = "mosaic.bridge.handlers.prism"
 

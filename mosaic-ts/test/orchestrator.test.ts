@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { BridgeApi } from "../src/bridge/types.js";
 import { runAutoresearchCycle } from "../src/autoresearch/orchestrator.js";
+import type { BridgeApi } from "../src/bridge/types.js";
 
 // Mock the mutator module
 vi.mock("../src/autoresearch/mutator.js", () => ({
@@ -72,8 +72,8 @@ describe("runAutoresearchCycle", () => {
     });
 
     expect(result.mutations).toHaveLength(1);
-    expect(result.mutations[0].status).toBe("dry_run");
-    expect(result.mutations[0].summary).toBe("tighten thresholds");
+    expect(result.mutations[0]?.status).toBe("dry_run");
+    expect(result.mutations[0]?.summary).toBe("tighten thresholds");
 
     // promptsWrite should NOT be called in dry-run mode
     expect(api.promptsWrite).not.toHaveBeenCalled();
@@ -92,8 +92,8 @@ describe("runAutoresearchCycle", () => {
     });
 
     expect(result.mutations).toHaveLength(1);
-    expect(result.mutations[0].agent).toBe("volatility");
-    expect(result.mutations[0].version_id).toBe(1);
+    expect(result.mutations[0]?.agent).toBe("volatility");
+    expect(result.mutations[0]?.version_id).toBe(1);
 
     // Full cycle calls: trigger -> mutate -> write -> record -> worktree -> eval -> cleanup
     expect(api.autoresearchTrigger).toHaveBeenCalledWith({ cohort: "cohort_default" });
@@ -157,10 +157,10 @@ describe("runAutoresearchCycle", () => {
     });
 
     expect(result.mutations).toHaveLength(2);
-    expect(result.mutations[0].version_id).toBe(1);
-    expect(result.mutations[0].agent).toBe("volatility");
-    expect(result.mutations[1].version_id).toBe(2);
-    expect(result.mutations[1].agent).toBe("sentiment");
+    expect(result.mutations[0]?.version_id).toBe(1);
+    expect(result.mutations[0]?.agent).toBe("volatility");
+    expect(result.mutations[1]?.version_id).toBe(2);
+    expect(result.mutations[1]?.agent).toBe("sentiment");
     expect(api.autoresearchTrigger).toHaveBeenCalledTimes(2);
     expect(mockedMutate).toHaveBeenCalledTimes(2);
   });
@@ -177,8 +177,8 @@ describe("runAutoresearchCycle", () => {
     });
 
     expect(result.mutations).toHaveLength(1);
-    expect(result.mutations[0].status).toBe("error");
-    expect(result.mutations[0].error).toContain("invariant violated");
+    expect(result.mutations[0]?.status).toBe("error");
+    expect(result.mutations[0]?.error).toContain("invariant violated");
     expect(api.promptsWrite).not.toHaveBeenCalled();
   });
 
@@ -213,7 +213,7 @@ describe("runAutoresearchCycle", () => {
       deps: { llm: llm as never, api },
     });
 
-    expect(result.mutations[0].status).toBe("kept");
-    expect(result.mutations[0].delta_sharpe).toBe(0.15);
+    expect(result.mutations[0]?.status).toBe("kept");
+    expect(result.mutations[0]?.delta_sharpe).toBe(0.15);
   });
 });

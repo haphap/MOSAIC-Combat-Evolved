@@ -30,7 +30,7 @@ class TestEnsureBaselineRun(unittest.TestCase):
 
     def test_needs_fill_when_run_not_completed(self):
         # Create an incomplete run.
-        run_id = self.store.create_backtest_run(
+        self.store.create_backtest_run(
             cohort="euphoria_2021",
             start_date="2020-07-01",
             end_date="2021-02-18",

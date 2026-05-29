@@ -622,21 +622,15 @@ export class BridgeApi {
     );
   }
 
-  autoresearchRevertModification(params: {
-    version_id: number;
-  }): Promise<{ ok: boolean }> {
+  autoresearchRevertModification(params: { version_id: number }): Promise<{ ok: boolean }> {
     return this.client.call<{ ok: boolean }>("autoresearch.revert_modification", params);
   }
 
-  autoresearchPrepareWorktree(params: {
-    branch: string;
-  }): Promise<{ path: string }> {
+  autoresearchPrepareWorktree(params: { branch: string }): Promise<{ path: string }> {
     return this.client.call<{ path: string }>("autoresearch.prepare_worktree", params);
   }
 
-  autoresearchCleanupWorktree(params: {
-    path: string;
-  }): Promise<{ ok: boolean }> {
+  autoresearchCleanupWorktree(params: { path: string }): Promise<{ ok: boolean }> {
     return this.client.call<{ ok: boolean }>("autoresearch.cleanup_worktree", params);
   }
 

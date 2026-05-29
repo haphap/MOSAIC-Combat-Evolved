@@ -73,7 +73,9 @@ export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Prom
       break;
     }
 
-    log(`triggered: agent=${triggerResult.agent} version_id=${triggerResult.version_id} branch=${triggerResult.branch_name}`);
+    log(
+      `triggered: agent=${triggerResult.agent} version_id=${triggerResult.version_id} branch=${triggerResult.branch_name}`,
+    );
 
     // 2. Mutate: generate prompt rewrite via LLM
     let mutation: Awaited<ReturnType<typeof mutate>>;
@@ -153,9 +155,7 @@ export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Prom
 
     try {
       const evalResult = await deps.api.autoresearchEvaluatePending({ cohort });
-      const thisEval = evalResult.results.find(
-        (r) => r.version_id === triggerResult.version_id,
-      );
+      const thisEval = evalResult.results.find((r) => r.version_id === triggerResult.version_id);
       if (thisEval) {
         if (thisEval.status === "kept" || thisEval.status === "reverted") {
           evalStatus = thisEval.status;
@@ -183,7 +183,7 @@ export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Prom
       agent: triggerResult.agent,
       version_id: triggerResult.version_id,
       status: evalStatus,
-      delta_sharpe: deltaSharpe,
+      ...(deltaSharpe != null ? { delta_sharpe: deltaSharpe } : {}),
       summary: mutation.modification_summary,
     });
   }

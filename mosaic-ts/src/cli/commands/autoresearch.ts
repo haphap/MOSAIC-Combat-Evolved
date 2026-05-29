@@ -11,10 +11,10 @@
 
 import type { Command } from "commander";
 import pc from "picocolors";
+import { runAutoresearchCycle } from "../../autoresearch/orchestrator.js";
 import { BridgeApi, BridgeClient, RpcError } from "../../bridge/index.js";
 import { createLlmFromConfig } from "../../llm/factory.js";
 import { buildFakeLlmHandle } from "../_backtest_helpers.js";
-import { runAutoresearchCycle } from "../../autoresearch/orchestrator.js";
 
 interface TriggerOptions {
   cohort?: string;
@@ -97,7 +97,7 @@ export function registerAutoresearch(program: Command): void {
           evalDays,
           maxMutations,
           dryRun: opts.dryRun ?? false,
-          forceAgent: opts.agent,
+          ...(opts.agent ? { forceAgent: opts.agent } : {}),
           deps: { llm: llmHandle.llm, api },
           onLog: (msg) => console.log(pc.dim(`  ${msg}`)),
         });
@@ -189,9 +189,7 @@ export function registerAutoresearch(program: Command): void {
           console.log(pc.dim("  no log entries"));
         } else {
           console.log(
-            pc.cyan(
-              `\n  ${pad("time", 20)} ${pad("event", 12)} ${pad("agent", 16)} detail`,
-            ),
+            pc.cyan(`\n  ${pad("time", 20)} ${pad("event", 12)} ${pad("agent", 16)} detail`),
           );
           console.log(pc.dim(`  ${"─".repeat(70)}`));
           for (const e of entries) {
@@ -229,9 +227,7 @@ export function registerAutoresearch(program: Command): void {
           console.log(pc.dim("  no active branches"));
         } else {
           console.log(
-            pc.cyan(
-              `\n  ${pad("id", 6)} ${pad("agent", 16)} ${pad("branch", 36)} created`,
-            ),
+            pc.cyan(`\n  ${pad("id", 6)} ${pad("agent", 16)} ${pad("branch", 36)} created`),
           );
           console.log(pc.dim(`  ${"─".repeat(74)}`));
           for (const b of branches) {

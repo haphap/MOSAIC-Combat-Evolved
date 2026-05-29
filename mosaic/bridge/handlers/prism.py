@@ -59,7 +59,7 @@ def _require_str(params: dict, key: str) -> str:
 @method("prism.list_cohorts")
 def prism_list_cohorts(params: dict[str, Any]) -> dict[str, Any]:
     """List all 7 cohorts with status info."""
-    from mosaic.prism.cohorts import COHORT_CONFIGS, list_cohorts
+    from mosaic.prism.cohorts import list_cohorts
 
     store = _store()
     git = _git()

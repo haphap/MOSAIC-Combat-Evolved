@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from ..protocol import AUTORESEARCH_ERROR, INTERNAL_ERROR, INVALID_PARAMS, RpcError
+from ..protocol import AUTORESEARCH_ERROR, INVALID_PARAMS, RpcError
 from ..registry import method
 
 
@@ -315,9 +315,13 @@ def autoresearch_evaluate_pending(params: dict[str, Any]) -> dict[str, Any]:
             updated_version = store.get_prompt_version(version_id)
             git = _git_ops()
             status = decide(store, git, updated_version, config)
+            # decide() returns the stored state-machine value (keep/revert);
+            # expose the past-tense form (kept/reverted) on the RPC boundary so
+            # it matches the autoresearch_log event names and the TS consumers.
+            rpc_status = {"keep": "kept", "revert": "reverted"}.get(status, status)
             results.append({
                 "version_id": version_id,
-                "status": status,
+                "status": rpc_status,
                 "delta_sharpe": delta_result["delta_sharpe"],
             })
         except ValueError as exc:

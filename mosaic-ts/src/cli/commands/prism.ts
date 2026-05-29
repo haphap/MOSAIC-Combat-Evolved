@@ -87,17 +87,14 @@ export function registerPrism(program: Command): void {
       try {
         await client.start();
         console.log(
-          pc.bold(
-            `\nprism train -- cohort=${opts.cohort}` +
-              `${opts.dryRun ? " [DRY RUN]" : ""}`,
-          ),
+          pc.bold(`\nprism train -- cohort=${opts.cohort}` + `${opts.dryRun ? " [DRY RUN]" : ""}`),
         );
 
         const result = await api.prismTrainCohort({
           cohort_name: opts.cohort,
-          start_date: opts.start,
-          end_date: opts.end,
-          dry_run: opts.dryRun,
+          ...(opts.start ? { start_date: opts.start } : {}),
+          ...(opts.end ? { end_date: opts.end } : {}),
+          ...(opts.dryRun != null ? { dry_run: opts.dryRun } : {}),
         });
 
         if (result.started) {
@@ -166,8 +163,8 @@ export function registerPrism(program: Command): void {
         );
 
         const { comparisons } = await api.prismCompareCohorts({
-          metric: opts.metric,
-          since: opts.since,
+          ...(opts.metric ? { metric: opts.metric } : {}),
+          ...(opts.since ? { since: opts.since } : {}),
         });
 
         console.log(
