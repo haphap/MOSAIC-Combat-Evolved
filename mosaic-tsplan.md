@@ -80,8 +80,9 @@ Cohort 切换 UI（PRISM）                                       paper_trading/
 | 0 | Python sidecar + bridge（Tushare/FRED + 8 macro tools） | 5–6 | ✅ 完成（Day 1–5 / 2026-05-28、Day 5 收尾 2026-05-29） |
 | 1 | TS skeleton + bridge-client（直接复用 ETFAgents Phase 1） | 3–4 | ✅ 完成（PR #1 merged 2026-05-29） |
 | 2 | Daily cycle MVP：25 agents + 4 层 LangGraph.js（单 cohort） | 11–12 | ✅ 完成（PR #2 merged 2026-05-29） |
-| 3 | Scorecard + Darwinian 权重 | 4 | 🔄 **进行中**（3A 完成 2026-05-29，3B-3F 待做） |
-| 4 | Autoresearch（git + SQLite，prompt mutation + keep/revert） | 5–6 | ⏭ |
+| 3 | Scorecard + Darwinian 权重 | 4 | ✅ 完成（PR #3 merged 2026-05-29，3A–3F 全做完） |
+| 3.5 | qlib 历史数据底座 + 两段式向量化回测 | 5–6 | ✅ 完成（PR #4 merged 2026-05-29，3.5A–3.5F 全做完） |
+| 4 | Autoresearch（git + SQLite，prompt mutation + keep/revert） | 5–6 | 🟡 **规划中**（§11.5 已定 4A–4F，待用户确认 checkpoint 后开工） |
 | 5 | PRISM 7 cohort 训练编排 | 5–6 | ⏭ |
 | 6 | JANUS 元层（port ATLAS 571 LOC） | 3 | ⏭ |
 | 7 | MiroFish 反身性模拟（port ATLAS ~2,800 LOC + Tushare 适配） | 4–5 | ⏭ |
@@ -1608,6 +1609,404 @@ pnpm dev daily-cycle --cohort cohort_default --dry-run   2F 后必跑通
 
 ---
 
+## 11.5 Phase 4 详细任务（Sub-step 4A–4F）
+
+> 估算 5–6 turns。分支：`phase-4-autoresearch`（待开工时建）。
+> **目标**：闭合 ATLAS 的自我改进回路 —— 让系统自动 (1) 选一个 agent、
+> (2) 用 LLM 改写它的 prompt、(3) git 提交到 feature branch、(4) 用 Phase 3.5
+> 两段式回测算改前/改后 Δ Sharpe、(5) 按 Δ Sharpe ≥ 0.1 决定 keep（merge）
+> 或 revert（删 branch），全程受 §1/§8 约束（24h 冷却 / 3 天 keep 锁定 /
+> 月度 100 次上限）约束。Phase 4 出口后系统能在单 cohort 上每天自我迭代
+> prompt 且有数据支撑的优胜劣汰。
+
+### Phase 4 起跑前的事实基线（写在最前，避免重复造轮子）
+
+Phase 0–3.5 已落地、Phase 4 直接复用的关键设施（**已验证可用**）：
+
+| 设施 | 位置 | Phase 4 用途 |
+|---|---|---|
+| `backtest_runs.prompt_commit_hash` 列 + UNIQUE(cohort,start,end,prompt_commit_hash) | `mosaic/scorecard/store.py` | **核心**：每个 prompt 版本的回测结果天然按 commit hash 隔离缓存。改前/改后就是两个 commit hash 的两条 run。 |
+| 两段式回测：`backtest-fill`(TS stage-1) → `backtest.run_historical`(qlib stage-2) | `mosaic-ts/.../backtest-fill.ts` + `mosaic/bridge/handlers/backtest.py` | 评估引擎直接调，秒级回放得到 Sharpe（plan §3.5 设计决策 #9） |
+| `backtest.{create_run,append_actions,complete_run,run_historical,list_runs,get_run}` RPC | `mosaic/bridge/handlers/backtest.py` | 评估编排复用，**无需新写回测 RPC** |
+| TS prompt loader：`loadPrompt({agent,cohort,language,promptsRoot?,noCache})` + `clearPromptCache()` + cohort→cohort_default fallback | `mosaic-ts/src/agents/prompts/{loader,cohorts}.ts` | mutator 读现有 prompt；**已有 `promptsRoot?` 形参**，4C worktree 评估可直接用 |
+| `AGENTS_BY_LAYER` / `LAYER_BY_AGENT` / `ALL_AGENTS` | `mosaic-ts/src/agents/prompts/cohorts.ts` | mutator 选 agent + 定位 layer 目录 |
+| `scorecard.list_skill` / `darwinian.get_weights` RPC | `mosaic/bridge/handlers/{scorecard,darwinian}.py` | mutator 把 agent 近期表现喂给 LLM 作为「改什么」的依据 |
+| `config.autoresearch` 约束块（cooldown/lockout/keep_threshold/monthly_cap/horizon） | `mosaic/default_config.py` | 约束执行器直接读，**无需新增配置** |
+| 25 × 2 prompt `.md` 已在 `prompts/mosaic/cohort_default/{macro,sector,superinvestor,decision}/` | repo 内 | git mutation 的对象 |
+
+**还没有、Phase 4 要新建的**：`prompt_versions` + `autoresearch_log` 两张表
+（plan §7）、git_ops 模块、mutation 生成器（TS）、评估器、keep/revert 决策器、
+`autoresearch.*` + `prompts.*` RPC、`pnpm dev autoresearch` CLI。
+
+### Phase 4 整体设计决策（开工前定，避免后续走偏）
+
+1. **职责切分沿用全局架构原则**（plan §2）：
+   - **TS 端**：mutation LLM 编排（读 prompt + skill → 生成改写）、评估编排
+     （驱动 backtest-fill 两段式）、CLI、orchestrator 主循环。
+   - **Python 端**：git 操作（branch/commit/merge/worktree）、SQLite
+     （prompt_versions / autoresearch_log）、约束判定、Δ Sharpe 计算（读两条
+     backtest run 的 metrics）。
+   - 即「TS 出主意 + 编排，Python 落盘 + 算账」。`git` / `sqlite3` 重逻辑全
+     在 Python，与 ETFAgents 一致。
+
+2. **评估方法 = 回测优先（backtest-primary），不等 5 个真实交易日**（plan §3.5
+   设计决策 #9 已定调，正式取代 §8 原协议的「5 交易日后 evaluate」）：
+   ```
+   mutate → git commit (feature branch) → 对 base_commit 与 mod_commit 各跑一遍
+   两段式回测（同 cohort、同 eval 窗口）→ ΔSharpe = post_sharpe − pre_sharpe
+   → ΔSharpe ≥ keep_threshold(0.1) ? keep(merge) : revert(删 branch)
+   ```
+   - **eval 窗口**：默认取 cohort 时段内**最后 N=60 个交易日**（可
+     `--eval-days` 覆盖）。单 cohort（cohort_default 用 euphoria_2021 区间或
+     用户选定区间）固定窗口，保证改前改后**同期可比**。
+   - `pre_sharpe` 来自 base prompt 在该窗口的回测；若已 cache（同
+     cohort+window+base_commit）直接读，不重算。
+   - 评估耗时 ≈ 跑 N 天 daily-cycle（stage-1，用 **lemonade 本地 LLM** 零
+     API 成本）+ 秒级 qlib 回放（stage-2）。plan §3.5 估 ~10 分钟/次。
+   - **forward-time 路径不在 Phase 4 MVP 范围**：生产实盘上线后可用
+     `scorecard.score_pending` 的真实 5d/21d alpha 做二次确认，但那是
+     Phase 8 执行层 + 实盘运行的事；Phase 4 只做 backtest-based 评估闭环。
+
+3. **git 模型 MVP 简化：单 trunk on `main`，per-cohort 演化 trunk 推迟到
+   Phase 5**。plan §8 画的是 7 条 `cohort/<name>/main` 长寿 trunk + feature
+   branch 的两层结构，那是 PRISM 多 cohort 才需要的。Phase 4 单 cohort MVP：
+   - mutation 直接从 `main` 切短寿 feature branch
+     `cohort/<cohort>/auto/<agent>/<YYYY-MM-DD>`（命名沿用 plan §1）。
+   - 每条 feature branch **只含 1 个 commit**，只动
+     `prompts/mosaic/<cohort>/<layer>/<agent>.{zh,en}.md`。
+   - keep = 把该 commit cherry-pick / fast-forward 回 `main`；revert = 删
+     branch。
+   - Phase 5 PRISM 落地时再把 `main` 升级成「main 存代码 + cohort/<name>/main
+     存各 cohort 演化」的两层模型（plan §8）。**这条简化记入 §14 待决，请用户
+     确认**。
+
+4. **mutation 粒度：一次只改一个 agent 的一对 prompt（zh + en 同步改）**。
+   - 中英文必须语义一致（autoresearch 不能让两个语言版本漂移）。做法：mutator
+     一次 LLM 调用，structured output 同时产出 `{zh_prompt, en_prompt,
+     modification_summary, rationale}`，两个语言版本由同一次推理保证一致。
+   - 受 §1 约束：同一 (cohort, agent) **24h 内最多 1 次新 mutation**。
+
+5. **prompt 改写的「护栏」**（防止 LLM 把 prompt 改坏）：
+   - **保结构**：mutator 的 meta-prompt 强制保留每个 agent 的「输出 schema
+     描述段」「工具最低使用要求段」（这些是 structured_output 解析成功的前提，
+     改坏会让整个 agent 输出失败）。4B 用一个 `assertPromptInvariants(text)`
+     做轻量校验（检查关键 section 标题 / schema 字段名仍在）。
+   - **限幅**：改写后长度变化 ≤ ±40%，避免 LLM 把 30 行 prompt 膨胀成 200 行。
+   - **必须有实质改动**：改写后与原文 normalized 后不得完全相同（否则
+     trigger 视为 no-op，不创建 version）。
+
+6. **约束执行集中在 Python 端**（single source of truth，避免 TS / Python 双
+   实现漂移）：cooldown / monthly_cap 在 `autoresearch.trigger` 创建 version
+   前查 prompt_versions 表判定；keep-lockout 在 `autoresearch.evaluate` 决策
+   时判定。TS orchestrator 只是调用方，约束逻辑不在 TS。
+
+7. **幂等 & 可重入**：
+   - `autoresearch.trigger` 对同一 (cohort, agent, date) 已有 pending version
+     → 返回既有 version，不重复创建（幂等）。
+   - 评估失败 / 中断后可重跑：`evaluate_pending` 扫所有 `status='pending'` 的
+     version，逐个评估；已有完整 backtest run（按 commit hash）直接读不重跑。
+
+8. **store 单例 + 连接复用（顺带修 §14 R-T4）**：Phase 4 autoresearch 高频调
+   SQLite（trigger / log / version 状态机）。把 bridge handler 的
+   `_store()` 改成 **module-level 单例（按 db_path 缓存）**，避免每个 RPC new
+   一个 connection。`scorecard.py` / `darwinian.py` / `backtest.py` 的 `_store()`
+   统一收敛到 `mosaic/scorecard/__init__.py` 的 `get_store(db_path=None)`。
+
+9. **`update_scoring` rowcount 防御（顺带修 §14 R-T5）**：Phase 4 可能加
+   purge old recommendations 路径；先把 `update_scoring` 在 `cur.rowcount==0`
+   时 `log.warning` 补上，避免静默 no-op。
+
+10. **CIO conviction 可比性（顺带定 §14 R-A2）**：autoresearch 比较 per-agent
+    Sharpe 时，CIO 的 "conviction" 实为 target_weight（仓位权重，非真置信度）。
+    **决策：Phase 4 评估 CIO mutation 时，用组合层 Sharpe（整个 portfolio 的
+    回测 Sharpe）而非 per-pick conviction**，因此 CIO 的 conviction 不可比问题
+    在 Phase 4 不影响 —— 评估永远基于「整组 portfolio_actions 跑出来的回测
+    Sharpe」，不是 agent 自报 conviction。per-agent skill（scorecard.list_skill）
+    只用于 mutator「选改哪个 agent + 改什么方向」的输入，不直接进 keep/revert
+    判据。这条同时澄清了 §14 R-A2。
+
+11. **不在 Phase 4 范围**（避免 scope creep）：
+    - 多 cohort 并发训练（Phase 5 PRISM）
+    - per-cohort 演化 trunk 两层 git 模型（Phase 5，见决策 #3）
+    - JANUS 元层 / MiroFish（Phase 6/7）
+    - RD-Agent 风格的 Researcher/Developer 拆分（plan §3.5 已记，Phase 4 只做
+      单 LLM mutator，不拆角色）
+    - prompt 多样性 / 探索-利用策略（先做「贪心：表现差的 agent 优先改」，
+      bandit / 温度调度推迟）
+
+### Sub-step 4A：SQLite schema + git_ops 基础 + 约束判定
+
+> 纯 Python，无 LLM。把 plan §7 的 prompt_versions / autoresearch_log 落库，
+> 写 git 操作封装，实现 3 个约束判定。这是后续所有 sub-step 的地基。
+
+- [ ] `mosaic/scorecard/store.py` —— 加 plan §7 两张表到 `_SCHEMA_SQL`
+      （`CREATE TABLE IF NOT EXISTS`，与现有表共库 `data/scorecard.db`）：
+    - `prompt_versions(id, cohort, agent, branch_name, base_commit_hash,
+      modification_commit_hash, modification_summary, created_at, status,
+      decided_at, pre_sharpe, post_sharpe, delta_sharpe)`
+      + `idx_pv_pending ON (status, created_at) WHERE status='pending'`
+    - `autoresearch_log(id, prompt_version_id FK, event, detail, created_at)`
+    - 新增 store 方法：`create_prompt_version(...)→id`（pending 起始）、
+      `get_prompt_version(id)`、`list_prompt_versions(cohort?, status?, agent?)`、
+      `set_version_eval(id, pre, post, delta)`、`decide_version(id, status,
+      decided_at)`、`count_mutations_this_month(cohort)`、
+      `last_mutation_at(cohort, agent)`、`append_log(version_id, event, detail)`、
+      `get_log(cohort?, days?)`、`list_active_branches(cohort?)`（status='pending'
+      或 'keep'-未清理的 branch）。
+- [ ] `mosaic/autoresearch/__init__.py` + `mosaic/autoresearch/git_ops.py` ——
+      薄封装 `git` CLI（subprocess，scoped 到 repo root，fail-loud）：
+    - `current_commit()` / `current_branch()`
+    - `create_branch(name, from_ref='main')`
+    - `write_and_commit(paths_and_contents: dict[str,str], message, branch)`
+      —— 在指定 branch 上写文件 + `git add` + `git commit`，返回 commit hash
+    - `merge_to_main(branch, ff_only=True)` / `delete_branch(name)`
+    - `show_file(ref, path) → str`（`git show <ref>:<path>`，给 prompts.read 用）
+    - `add_worktree(ref) → path` / `remove_worktree(path)`（4C 评估用，隔离
+      checkout 不动主工作树）
+    - **安全**：所有写操作前 assert 当前无未提交改动（`git status --porcelain`
+      为空），否则抛清晰错误（避免污染用户工作树）。
+- [ ] `mosaic/autoresearch/constraints.py` —— 3 个纯函数（读 config.autoresearch
+      + store）：
+    - `check_cooldown(store, cohort, agent, now) → ok|reason`（24h）
+    - `check_monthly_cap(store, cohort, now) → ok|reason`（≤100/月）
+    - `check_keep_lockout(store, version, now) → ok|reason`（keep 后 3 天内不能
+      revert）
+- [ ] 收敛 store 单例：`mosaic/scorecard/__init__.py` 加 `get_store(db_path=None)`
+      模块级缓存（修 §14 R-T4）；`update_scoring` 加 rowcount 警告（修 §14 R-T5）。
+- [ ] tests：`tests/test_autoresearch_store.py`（version 状态机 + log + 计数）
+      、`tests/test_git_ops.py`（在 `tmp_path` 里 `git init` 造迷你 repo 测
+      branch/commit/merge/worktree/show_file）、`tests/test_autoresearch_constraints.py`。
+
+**4A 设计决策**：
+- git_ops 用 subprocess 调系统 `git`，不引 GitPython（少一个依赖；ETFAgents
+  也没用 GitPython）。所有命令 `check=True` + 捕获 stderr 进异常 message。
+- prompt_versions 与 backtest_runs 通过 `modification_commit_hash` ↔
+  `prompt_commit_hash` 关联（**不加 FK**，因为 backtest run 可能晚于 version
+  创建，且 base_commit 的 run 可能复用）。关联在查询层 join。
+- worktree 放 `data/worktrees/<branch-slug>/`（gitignored），评估完即删。
+
+### Sub-step 4B：Mutation 生成器（TS）+ `prompts.*` RPC（Python）
+
+> TS 读现有 prompt + agent 近期 skill → LLM 生成改写。Python 提供 prompt 读写
+> 的 git-aware RPC。
+
+- [ ] `mosaic/bridge/handlers/prompts.py` —— 新 handler（plan §6.2）：
+    - `prompts.read(agent, cohort, lang, ref?)` —— ref 缺省读工作树磁盘文件；
+      给 ref（commit/branch）时走 `git_ops.show_file`。返回 `{content, path}`。
+    - `prompts.write(agent, cohort, lang, content, branch?)` —— branch 缺省直
+      写工作树（危险，仅测试用）；给 branch 时走
+      `git_ops.write_and_commit`（在 branch 上提交），返回 `{commit_hash}`。
+    - 注册进 `handlers/__init__.py`（把注释里的 "prompts" 落实）。
+- [ ] `mosaic-ts/src/autoresearch/mutator.ts` —— mutation 生成器：
+    - 输入：`{cohort, agent, deps:{llmHandle, api}}`
+    - 流程：① `loadPrompt({agent,cohort,'zh'/'en', noCache:true})` 拿现 prompt；
+      ② `api.scorecardListSkill(cohort)` + `api.darwinianGetWeights(cohort)` 拿
+      该 agent 近期 mean_alpha / sharpe / weight；③ 组装「prompt 工程师」
+      meta-prompt（角色：你在优化一个 A 股交易 agent 的系统提示；这是它的现有
+      prompt + 近期表现；请提出一个**聚焦的**改进改写）；④ structured output
+      产出 `{zh_prompt, en_prompt, modification_summary, rationale}`；⑤
+      `assertPromptInvariants` 校验护栏（决策 #5）。
+    - 不直接写盘 / 不碰 git —— 返回改写结果给 orchestrator（4E）由它调
+      `prompts.write` 落到 branch。
+- [ ] `mosaic-ts/src/bridge/{api,types}.ts` —— 加 `promptsRead` / `promptsWrite`
+      typed wrappers + 接口。
+- [ ] tests：`mosaic-ts/test/mutator.test.ts`（mock LLM + mock BridgeApi：护栏
+      生效、length 限幅、no-op 检测、zh/en 同步）；`tests/test_bridge_prompts.py`
+      （read 工作树 / read ref / write to branch 的 RPC 路由 + git roundtrip）。
+
+**4B 设计决策**：
+- meta-prompt 用 **English**（reasoning quality；与 §default_config 注释「内部
+  agent debate 用英文」一致），但产出的 `zh_prompt` 仍是中文 prompt 内容。
+- mutator 只「提议」不「落盘」：保证可在 orchestrator 层做 dry-run（生成但不
+  commit）。
+- skill 数据缺失（前 30 天 cold start，scorecard 还没数据）时，mutator 退化为
+  「基于 prompt 自身可读性 / 约束清晰度」的泛化改进，meta-prompt 里明确告知
+  「无近期表现数据，做保守的清晰化改写」。
+
+### Sub-step 4C：评估引擎（backtest-based Δ Sharpe）
+
+> 最复杂的一步。把「一个 pending version」变成「pre/post Sharpe + ΔSharpe」。
+> 复用 Phase 3.5 两段式回测，git worktree 隔离改前/改后 prompt。
+
+- [ ] `mosaic-ts/src/cli/commands/backtest-fill.ts` —— 加 `--prompts-root <path>`
+      flag（透传给 `buildDailyCycleGraph` → `loadPrompt({promptsRoot})`）。
+      让 stage-1 能从 worktree 的 `prompts/mosaic` 读改后 prompt，而不是只读主
+      工作树。**这是 4C 唯一需要改的现有 TS 文件**（loader 已支持 promptsRoot 形参）。
+    - 串改：`buildDailyCycleGraph(deps)` → graph 构造时把 `promptsRoot` 传到
+      各 agent node 的 `loadPrompt` 调用。需检查 daily_cycle/factory 是否已透传
+      `config.promptsRoot`；若没有，4C 补一条 deps 字段（向后兼容，缺省
+      `findPromptsRoot()`）。
+- [ ] `mosaic/autoresearch/evaluator.py` —— 评估编排（Python 侧只做 git
+      worktree + Δ 计算；驱动 stage-1 fill 的 TS 命令由 orchestrator 在 4E 调）：
+    - `ensure_baseline_run(cohort, window, base_commit) → run_id`：若
+      `backtest_runs(cohort, window, base_commit)` 已 complete 直接返回；否则
+      返回「需要 fill」信号（实际 fill 由 TS orchestrator 触发，见 #决策）。
+    - `compute_delta(version_id) → {pre_sharpe, post_sharpe, delta_sharpe}`：读
+      base_commit run + mod_commit run 的 `run_historical` metrics（Sharpe），
+      算差，写回 `prompt_versions`（`set_version_eval`）+ `append_log('evaluated')`。
+- [ ] `autoresearch.prepare_worktree(branch) → {path}` /
+      `autoresearch.cleanup_worktree(path)` RPC（4D 的 handler 文件里一起注册）
+      —— 让 TS orchestrator 能：① 让 Python 在 worktree checkout mod_commit；
+      ② TS 用 `--prompts-root <worktree>/prompts/mosaic` 跑 backtest-fill；③
+      跑完清理 worktree。
+- [ ] tests：`tests/test_autoresearch_evaluator.py`（造两条 mock backtest run，
+      验 ΔSharpe 计算 + 写回 + 日志）；worktree 生命周期测（复用 4A git_ops 测
+      基建）。
+
+**4C 设计决策**（跨语言评估流程，写清楚避免 4E 反工）：
+- **评估的真实编排在 TS（4E orchestrator）**，因为 stage-1 fill 是 TS 命令
+  （要跑 LangGraph daily-cycle + LLM）。Python evaluator 只负责 (a) 提供
+  worktree、(b) 在两条 run 都 fill+run_historical 完之后算 ΔSharpe。
+- **完整评估时序**（4E 把它串起来）：
+  ```
+  1. (Python) prepare_worktree(feature_branch) → wt_path   # checkout mod_commit
+  2. (TS) backtest-fill --cohort C --start..--end --prompt-commit-hash <mod>
+          --prompts-root wt_path/prompts/mosaic               # stage-1 改后
+  3. (TS) backtest.run_historical(run_id=mod_run)            # stage-2 改后 → post_sharpe
+  4. base run 若无缓存：用主工作树（main）跑同窗口 fill + run_historical → pre_sharpe
+  5. (Python) compute_delta(version_id)                       # 读两条 run metrics 算差
+  6. (Python) cleanup_worktree(wt_path)
+  ```
+- base run 复用：同 (cohort, window, base_commit) 的 run 一旦算过，后续所有改
+  自同一 base 的 mutation 共享这条 pre_sharpe，**不重复跑**（这是 prompt_commit_hash
+  缓存设计的最大收益）。
+- worktree 而非 `git checkout`：避免在评估期间切换主工作树分支（用户可能正在
+  主工作树上看代码 / 跑 daily-cycle）。worktree 是只读用途，评估完即删。
+
+### Sub-step 4D：keep/revert 决策 + `autoresearch.*` RPC + git merge
+
+- [ ] `mosaic/autoresearch/decider.py` —— `decide(store, git, version) → action`：
+    - 读 `delta_sharpe`；`< keep_threshold(0.1)` → revert；`≥` → 先过
+      `check_keep_lockout` → keep。
+    - keep：`git_ops.merge_to_main(branch)` → `decide_version(keep)` +
+      `append_log('kept')`。
+    - revert：`git_ops.delete_branch(branch)` → `decide_version(revert)` +
+      `append_log('reverted')`。
+- [ ] `mosaic/bridge/handlers/autoresearch.py` —— plan §6.2 RPC：
+    - `autoresearch.trigger(cohort, force_agent?)` —— 选 agent（缺省：
+      scorecard 里 sharpe 最低且过 cooldown 的）+ 过 cooldown/monthly_cap →
+      创建 pending version 的「壳」（branch 名 + base_commit；实际 mutation 内容
+      由 TS mutator 产出后经 prompts.write 提交，再回填 mod_commit）。返回
+      `{version_id, agent, branch_name, base_commit}`。
+    - `autoresearch.record_mutation(version_id, mod_commit, summary)` —— TS 提交
+      改写后回填 mod_commit + summary，version 转 pending-evaluable。
+    - `autoresearch.evaluate_pending(cohort?)` —— 对 pending 且已有 mod_commit 的
+      version 调 evaluator + decider（注：需要 TS 先把 backtest run fill 好；
+      RPC 在 run 齐备时算 Δ + 决策，缺 run 时返回 "needs_fill" 让 orchestrator 补）。
+    - `autoresearch.get_log(cohort?, days?)` / `autoresearch.list_active_branches()`
+      / `autoresearch.revert_modification(version_id)`（手动 revert，过 lockout）。
+    - `autoresearch.prepare_worktree` / `cleanup_worktree`（4C 用）。
+    - 注册进 `handlers/__init__.py`。
+- [ ] `mosaic-ts/src/bridge/{api,types}.ts` —— autoresearch.* typed wrappers + 接口。
+- [ ] tests：`tests/test_autoresearch_decider.py`（keep / revert / lockout 拦截 /
+      cap 拦截 + git 副作用 mock）；`tests/test_bridge_autoresearch.py`（RPC 路由
+      + 幂等 trigger + 状态机）；`mosaic-ts/test/bridge_autoresearch.test.ts`。
+
+**4D 设计决策**：
+- trigger 与 mutation 分两步 RPC（trigger 建壳 → TS mutator 生成 →
+  record_mutation 回填）。原因：mutation 内容由 TS LLM 产出，Python trigger 时
+  还没有内容；先占坑（拿 base_commit + branch 名 + 过约束）能让幂等 & cooldown
+  判定基于「坑」而非「内容」，避免并发重复改同一 agent。
+- `evaluate_pending` 设计成「能算就算、缺 run 就报 needs_fill」，把「跑 stage-1
+  fill」的副作用留给 TS orchestrator —— 保持 Python handler 无 LLM 依赖、可单测。
+
+### Sub-step 4E：Orchestrator（TS）+ `pnpm dev autoresearch` CLI
+
+- [ ] `mosaic-ts/src/autoresearch/orchestrator.ts` —— 把 4B/4C/4D 串成一轮：
+    ```
+    runAutoresearchCycle({cohort, evalDays, maxMutations, dryRun, deps}):
+      for n in 1..maxMutations:
+        t = api.autoresearchTrigger(cohort)            # 选 agent + 占坑（过约束）
+        if t == null: break                            # 无可改 agent（全在 cooldown / cap 满）
+        m = mutator.mutate({cohort, agent:t.agent, deps})
+        if dryRun: print(m); continue                  # 只生成不提交
+        w = api.promptsWrite(agent, cohort, 'zh', m.zh, branch:t.branch)  # + en
+        api.autoresearchRecordMutation(t.version_id, w.commit_hash, m.summary)
+        # 评估
+        wt = api.autoresearchPrepareWorktree(t.branch)
+        runMod = backtestFill(cohort, window, mod_commit, promptsRoot:wt.path)
+        api.backtestRunHistorical(runMod)              # post sharpe
+        ensureBaselineFilled(cohort, window, base_commit)   # pre sharpe（缓存复用）
+        api.autoresearchEvaluatePending(cohort)        # Python 算 Δ + 决策 keep/revert
+        api.autoresearchCleanupWorktree(wt.path)
+    ```
+- [ ] `mosaic-ts/src/cli/commands/autoresearch.ts` —— 子命令组：
+    - `pnpm dev autoresearch trigger --cohort C [--agent X] [--max N] [--dry-run]`
+      —— 跑生成 + 提交 + 评估 + 决策（一条龙）。`--dry-run` 只生成改写打印不
+      落 git。
+    - `pnpm dev autoresearch evaluate --cohort C` —— 单独评估已 pending 的
+      version（断点续跑用）。
+    - `pnpm dev autoresearch log --cohort C [--days N]` —— 打印 autoresearch_log。
+    - `pnpm dev autoresearch branches` —— 列 active feature branch + pending
+      version（agent / branch / base / 状态）。
+    - `pnpm dev autoresearch revert <version_id>` —— 手动 revert（过 lockout）。
+    - 风格沿用 `scorecard.ts` / `darwinian.ts`（picocolors 表格）。
+- [ ] tests：`mosaic-ts/test/autoresearch_orchestrator.test.ts`（mock LLM + mock
+      BridgeApi，验一轮 trigger→mutate→commit→eval→decide 的调用序列 + dryRun
+      不写 git）。
+
+**4E 设计决策**：
+- orchestrator 默认 **`--fake-llm` 可跑通**（CI / 零成本 smoke）：mutator 用
+  canned 改写、backtest-fill 用 mock LLM。真实改写用 lemonade 本地（开发期）/
+  anthropic（生产期）。
+- `--max N`（默认 1）：单 cohort 单日默认只改 1 个 agent（plan §14 #3 触发频率
+  「单 cohort 每天 1 次」），避免一次 trigger 风暴。
+
+### Sub-step 4F：端到端 dry-run + 文档 + PR
+
+- [ ] 端到端 smoke（`--fake-llm` + 极小 eval 窗口，如 `--eval-days 5`）：
+    ```
+    pnpm dev autoresearch trigger --cohort cohort_default --agent volatility --eval-days 5 --fake-llm
+    ```
+    观察：① 建出 `cohort/cohort_default/auto/volatility/<date>` branch +
+    1 commit；② prompt_versions 多 1 行（pending→keep/revert）；③
+    autoresearch_log 有 triggered/mutated/evaluated/kept|reverted 事件链；④
+    keep 时 prompt 改动 merge 回 main，revert 时 branch 被删、main 不变。
+- [ ] 验证约束：连跑 2 次同 agent → 第 2 次被 cooldown 拦（返回换别的 agent
+      或 no-op）；造一个 keep 后立刻 revert → 被 3 天 lockout 拦。
+- [ ] 文档：更新 plan §3 表（Phase 4 → ✅）、§14 相关条目收敛、§11.5 各 sub-step
+      状态 + 完成时戳；`mosaic-ts/README.md` / `README.md` 加 autoresearch CLI 用法。
+- [ ] 验证矩阵（沿用 §15）：`pnpm typecheck` / `pnpm lint` / `pnpm test` /
+      `python -m unittest discover -s tests -q` 全绿。
+- [ ] PR `phase-4-autoresearch → main`（类似 PR #2/#3/#4 流程）。
+
+**4F 设计决策**：
+- 端到端用 `cohort_default`（已有 prompt + 已被 Phase 3.5 回测过）做 smoke 对象，
+  避免依赖未训练的 cohort prompt。
+- `--fake-llm` 模式下 mutator 产出一个**确定性的小改动**（如在 prompt 末尾追加
+  一行 marker 段），保证 smoke 可重复断言，不依赖真实 LLM 输出。
+
+### Phase 4 出口标准
+
+- `autoresearch.{trigger,record_mutation,evaluate_pending,get_log,
+  list_active_branches,revert_modification}` + `prompts.{read,write}` RPC 全部
+  注册并被 TS typed wrapper 覆盖
+- `prompt_versions` + `autoresearch_log` 两表落库，version 状态机
+  pending→keep/revert 跑通
+- `pnpm dev autoresearch trigger --cohort cohort_default --fake-llm` 端到端跑通：
+  建 branch + commit、算 ΔSharpe、按阈值 keep（merge 回 main）或 revert（删 branch）
+- 约束生效：24h cooldown / 3 天 keep-lockout / 月度 100 上限 都有测试覆盖且
+  端到端可触发
+- §14 R-T4（store 单例）/ R-T5（update_scoring 警告）/ R-A2（CIO 用组合 Sharpe
+  评估）顺带收敛
+- PR `phase-4-autoresearch → main`
+
+### Phase 4 启动前的 pre-flight（4.0，可选 / 待用户拍板）
+
+- **(P1) Layer-1 macro tools 缺口（plan §14 #8）**：autoresearch 优化的是 agent
+  prompt，若 agent 工具集仍有大缺口（property / usdcny / commodity / ivx 等
+  用 proxy 替代），mutation 能优化的空间受限。**建议**（非硬阻塞）在 4A 前补
+  `get_property_data` / `get_usdcny` / `get_commodity_prices` / `get_ivx` 至少
+  其中 2–4 个到 `mosaic/dataflows/macro_data.py` + macro_tools 包装，并放宽对应
+  agent 的置信度门槛。**若用户希望先跑通 autoresearch 机制本身，可跳过 P1，
+  Phase 4 后补**。
+- **(P2) 评估 LLM 成本确认**：60 天 eval 窗口 × 25 agents × 每次 mutation 评估
+  ≈ 1500 次 daily-cycle agent 调用。用 **lemonade 本地零成本**跑可接受；若用户
+  想用 anthropic 评估需先估预算（plan §13.3：约 $0.125/cycle × 60 ≈ $7.5/次
+  mutation 评估，偏贵）。**默认 lemonade**。
+
+---
+
 ## 12. 风险登记
 
 | 风险 | 影响 | 缓解 |
@@ -1798,6 +2197,28 @@ pnpm dev daily-cycle --cohort cohort_default --dry-run   2F 后必跑通
    **当前状态**：所有 R-T* / R-P* / R-A* 不阻塞 Phase 4 启动；每条都
    配 fix path 描述。**进 Phase 5 PRISM 前最好集中清掉 R-T2/T4/T5 + R-A2**
    （Phase 5 多 cohort 高吞吐会放大这些问题）。
+
+10. **Phase 4 目标 cohort（启动前必须拍板）**：plan §1 写启动 cohort =
+    `euphoria_2021`，但 Phase 2 / 3 / 3.5 实际全程跑 `cohort_default`（baseline
+    prompt + 已被 3.5 回测过）。Phase 4 autoresearch MVP 用哪个？
+    - **建议 = `cohort_default`**：已有 prompt + 已被回测，端到端 smoke 最省事；
+      autoresearch 逻辑 cohort-参数化，后续 Phase 5 再对 `euphoria_2021` 等
+      7 cohort 展开。
+    - 若用户坚持先训 `euphoria_2021`：需先为该 cohort 准备 prompt（目前靠
+      fallback 到 cohort_default）+ 用 euphoria_2021 时段做 eval 窗口。
+
+11. **Phase 4 git 模型简化（决策 §11.5 #3，待确认）**：MVP 用「单 trunk on
+    `main` + 短寿 feature branch」，把 plan §8 的「per-cohort 演化 trunk」两层
+    模型推迟到 Phase 5 PRISM。请确认这个简化可接受。
+
+12. **Phase 4 评估方法（决策 §11.5 #2，待确认）**：用 backtest-based ΔSharpe
+    （秒级回放、复用 Phase 3.5 两段式 + prompt_commit_hash 缓存），不等 5 个真实
+    交易日。forward-time 真实 5d alpha 确认推迟到 Phase 8 实盘。请确认。
+
+13. **Phase 4 macro tools pre-flight（plan §14 #8 / §11.5 P1，待拍板）**：是否在
+    4A 前先补 2–4 个 Layer-1 macro 工具（property / usdcny / commodity / ivx），
+    还是先跑通 autoresearch 机制本身、工具缺口 Phase 4 后补？**建议先跑通机制**
+    （非硬阻塞），但用户可要求先补工具以提升 mutation 优化空间。
 
 ---
 
