@@ -6,8 +6,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AIMessage, type BaseMessage } from "@langchain/core/messages";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import * as cohortsModule from "../src/agents/prompts/cohorts.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AGENTS_BY_LAYER } from "../src/agents/prompts/cohorts.js";
 import { clearPromptCache } from "../src/agents/prompts/loader.js";
 import type { DailyCycleStateType, DailyCycleStateUpdate } from "../src/agents/state.js";
@@ -264,7 +263,6 @@ describe("buildLayerThreeUserContext", () => {
 
 describe("buildDruckenmillerNode (Layer-3 factory smoke)", () => {
   let promptDir: string;
-  let promptsRootSpy: ReturnType<typeof vi.spyOn>;
 
   class ScriptedLlm {
     invokeCalls = 0;
@@ -300,11 +298,9 @@ describe("buildDruckenmillerNode (Layer-3 factory smoke)", () => {
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "druckenmiller.zh.md"), "FAKE", "utf-8");
     writeFileSync(join(dir, "druckenmiller.en.md"), "FAKE", "utf-8");
-    promptsRootSpy = vi.spyOn(cohortsModule, "findPromptsRoot").mockReturnValue(promptDir);
     clearPromptCache();
   });
   afterEach(() => {
-    promptsRootSpy.mockRestore();
     rmSync(promptDir, { recursive: true, force: true });
     clearPromptCache();
   });
@@ -417,7 +413,7 @@ describe("buildDruckenmillerNode (Layer-3 factory smoke)", () => {
       llm_calls: [],
     };
 
-    const node = buildDruckenmillerNode({ llmHandle: handle, api, config });
+    const node = buildDruckenmillerNode({ llmHandle: handle, api, config, promptsRoot: promptDir });
     const update = await node(sample);
     const unwrapped = update as DailyCycleStateUpdate as unknown as {
       layer3_outputs?: Record<string, SuperinvestorOutput>;

@@ -24,7 +24,6 @@ import {
   pickPromptLanguage,
   renderCentralBank,
 } from "../src/agents/macro/central_bank.js";
-import * as cohortsModule from "../src/agents/prompts/cohorts.js";
 import { clearPromptCache } from "../src/agents/prompts/loader.js";
 import type { DailyCycleStateType, DailyCycleStateUpdate } from "../src/agents/state.js";
 import type { CentralBankOutput, LlmCallRecord, MacroAgentOutput } from "../src/agents/types.js";
@@ -276,16 +275,13 @@ describe("fallbackOutputFromText", () => {
 
 describe("buildCentralBankNode (vertical slice)", () => {
   let fakePrompts: FakePromptsRoot;
-  let promptsRootSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     fakePrompts = makeFakePromptsRootWithCentralBank();
-    promptsRootSpy = vi.spyOn(cohortsModule, "findPromptsRoot").mockReturnValue(fakePrompts.root);
     clearPromptCache();
   });
 
   afterEach(() => {
-    promptsRootSpy.mockRestore();
     fakePrompts.cleanup();
     clearPromptCache();
   });
@@ -348,6 +344,7 @@ describe("buildCentralBankNode (vertical slice)", () => {
       llmHandle: makeScriptedHandle(llm),
       api,
       config: BASE_CONFIG,
+      promptsRoot: fakePrompts.root,
     });
 
     const update = await node(SAMPLE_STATE);
@@ -401,6 +398,7 @@ describe("buildCentralBankNode (vertical slice)", () => {
       llmHandle: makeScriptedHandle(llm),
       api,
       config: BASE_CONFIG,
+      promptsRoot: fakePrompts.root,
     });
 
     await node({ ...SAMPLE_STATE, mode: "backtest", as_of_date: "2024-06-24" });
@@ -428,6 +426,7 @@ describe("buildCentralBankNode (vertical slice)", () => {
       llmHandle: makeScriptedHandle(llm),
       api,
       config: BASE_CONFIG,
+      promptsRoot: fakePrompts.root,
     });
 
     const update = await node(SAMPLE_STATE);

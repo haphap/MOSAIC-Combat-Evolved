@@ -24,6 +24,8 @@ export interface BuildLayer3GraphDeps {
   config: MosaicConfig;
   llmHandleStructured?: LlmHandle;
   onLog?: (msg: string) => void;
+  /** Override prompt-root directory (tests inject a tmpdir). */
+  promptsRoot?: string;
 }
 
 export const LAYER3_AGENT_NODES = ["druckenmiller", "aschenbrenner", "baker", "ackman"] as const;

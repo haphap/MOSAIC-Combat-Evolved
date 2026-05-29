@@ -10,7 +10,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AIMessage, type BaseMessage } from "@langchain/core/messages";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   buildChinaNode,
   ChinaSchema,
@@ -19,7 +19,6 @@ import {
   REQUIRED_TOOLS,
   renderChina,
 } from "../src/agents/macro/china.js";
-import * as cohortsModule from "../src/agents/prompts/cohorts.js";
 import { clearPromptCache } from "../src/agents/prompts/loader.js";
 import type { DailyCycleStateType, DailyCycleStateUpdate } from "../src/agents/state.js";
 import type { ChinaOutput, LlmCallRecord, MacroAgentOutput } from "../src/agents/types.js";
@@ -239,7 +238,6 @@ describe("renderChina + fallbackChinaOutput", () => {
 
 describe("buildChinaNode (vertical slice via factory)", () => {
   let promptDir: string;
-  let promptsRootSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     promptDir = mkdtempSync(join(tmpdir(), "mosaic-china-"));
@@ -247,11 +245,9 @@ describe("buildChinaNode (vertical slice via factory)", () => {
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "china.zh.md"), "FAKE PROMPT ZH", "utf-8");
     writeFileSync(join(dir, "china.en.md"), "FAKE PROMPT EN", "utf-8");
-    promptsRootSpy = vi.spyOn(cohortsModule, "findPromptsRoot").mockReturnValue(promptDir);
     clearPromptCache();
   });
   afterEach(() => {
-    promptsRootSpy.mockRestore();
     rmSync(promptDir, { recursive: true, force: true });
     clearPromptCache();
   });
@@ -308,7 +304,12 @@ describe("buildChinaNode (vertical slice via factory)", () => {
       get_north_capital_flow: "trade_date,north_money\n20240620,42.5\n20240624,30.1",
     });
 
-    const node = buildChinaNode({ llmHandle: handle(llm), api, config: BASE_CONFIG });
+    const node = buildChinaNode({
+      llmHandle: handle(llm),
+      api,
+      config: BASE_CONFIG,
+      promptsRoot: promptDir,
+    });
     const update = await node(SAMPLE_STATE);
 
     const out = unwrap(update).layer1_outputs?.china as ChinaOutput;

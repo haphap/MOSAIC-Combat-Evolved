@@ -6,7 +6,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AIMessage, type BaseMessage } from "@langchain/core/messages";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   renderDarwinianWeightsStub,
   renderJanusRegimeStub,
@@ -29,7 +29,6 @@ import {
 } from "../src/agents/decision/autonomous_execution.js";
 import { buildCioNode, cioSpec, fallbackCio, renderCio } from "../src/agents/decision/cio.js";
 import { buildCroNode, croSpec, fallbackCro, renderCro } from "../src/agents/decision/cro.js";
-import * as cohortsModule from "../src/agents/prompts/cohorts.js";
 import { AGENTS_BY_LAYER } from "../src/agents/prompts/cohorts.js";
 import { clearPromptCache } from "../src/agents/prompts/loader.js";
 import type { DailyCycleStateType, DailyCycleStateUpdate } from "../src/agents/state.js";
@@ -342,7 +341,6 @@ describe("Layer 1/2/3/4 context renderers", () => {
 
 describe("buildCioNode (Layer-4 factory smoke)", () => {
   let promptDir: string;
-  let promptsRootSpy: ReturnType<typeof vi.spyOn>;
 
   class ScriptedLlm {
     invokeCalls = 0;
@@ -378,11 +376,9 @@ describe("buildCioNode (Layer-4 factory smoke)", () => {
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "cio.zh.md"), "FAKE-CIO", "utf-8");
     writeFileSync(join(dir, "cio.en.md"), "FAKE-CIO", "utf-8");
-    promptsRootSpy = vi.spyOn(cohortsModule, "findPromptsRoot").mockReturnValue(promptDir);
     clearPromptCache();
   });
   afterEach(() => {
-    promptsRootSpy.mockRestore();
     rmSync(promptDir, { recursive: true, force: true });
     clearPromptCache();
   });
@@ -468,7 +464,7 @@ describe("buildCioNode (Layer-4 factory smoke)", () => {
       cio: null,
     };
 
-    const node = buildCioNode({ llmHandle: handle, config });
+    const node = buildCioNode({ llmHandle: handle, config, promptsRoot: promptDir });
     const update = await node(sample);
     const u = update as DailyCycleStateUpdate as unknown as {
       layer4_outputs?: Partial<Layer4Outputs>;
@@ -487,7 +483,6 @@ describe("buildCioNode (Layer-4 factory smoke)", () => {
 
 describe("buildCroNode (no-tool synthesis, no portfolio_actions mirror)", () => {
   let promptDir: string;
-  let promptsRootSpy: ReturnType<typeof vi.spyOn>;
 
   class ScriptedLlm {
     bindToolsCalled = 0;
@@ -518,11 +513,9 @@ describe("buildCroNode (no-tool synthesis, no portfolio_actions mirror)", () => 
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "cro.zh.md"), "FAKE-CRO", "utf-8");
     writeFileSync(join(dir, "cro.en.md"), "FAKE-CRO", "utf-8");
-    promptsRootSpy = vi.spyOn(cohortsModule, "findPromptsRoot").mockReturnValue(promptDir);
     clearPromptCache();
   });
   afterEach(() => {
-    promptsRootSpy.mockRestore();
     rmSync(promptDir, { recursive: true, force: true });
     clearPromptCache();
   });
@@ -563,7 +556,7 @@ describe("buildCroNode (no-tool synthesis, no portfolio_actions mirror)", () => 
       data_vendors: {},
       tool_vendors: {},
     };
-    const node = buildCroNode({ llmHandle: handle, config });
+    const node = buildCroNode({ llmHandle: handle, config, promptsRoot: promptDir });
     const update = await node(baseState());
     const u = update as DailyCycleStateUpdate as unknown as {
       layer4_outputs?: Partial<Layer4Outputs>;

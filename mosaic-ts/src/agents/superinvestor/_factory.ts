@@ -42,6 +42,8 @@ export interface LayerThreeAgentDeps {
   config: MosaicConfig;
   llmHandleStructured?: LlmHandle;
   onLog?: (msg: string) => void;
+  /** Override prompt-root directory (tests inject a tmpdir). */
+  promptsRoot?: string;
 }
 
 export type LayerThreeAgentNode = (state: DailyCycleStateType) => Promise<DailyCycleStateUpdate>;
@@ -58,6 +60,7 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
       agent: spec.agentId,
       cohort,
       language,
+      ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
     });
 
     const tools = await pickBridgeTools(deps.api, spec.requiredTools, {

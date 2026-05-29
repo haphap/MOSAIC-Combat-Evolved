@@ -16,8 +16,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AIMessage, type BaseMessage } from "@langchain/core/messages";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import * as cohortsModule from "../src/agents/prompts/cohorts.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { clearPromptCache } from "../src/agents/prompts/loader.js";
 import type { DailyCycleStateType } from "../src/agents/state.js";
 import type {
@@ -260,7 +259,6 @@ const BASE_CONFIG: MosaicConfig = {
 
 describe("buildLayer1Graph (end-to-end fan-out / aggregate)", () => {
   let promptDir: string;
-  let promptsRootSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     promptDir = mkdtempSync(join(tmpdir(), "mosaic-l1-graph-"));
@@ -270,12 +268,10 @@ describe("buildLayer1Graph (end-to-end fan-out / aggregate)", () => {
       writeFileSync(join(dir, `${name}.zh.md`), "FAKE", "utf-8");
       writeFileSync(join(dir, `${name}.en.md`), "FAKE", "utf-8");
     }
-    promptsRootSpy = vi.spyOn(cohortsModule, "findPromptsRoot").mockReturnValue(promptDir);
     clearPromptCache();
   });
 
   afterEach(() => {
-    promptsRootSpy.mockRestore();
     rmSync(promptDir, { recursive: true, force: true });
     clearPromptCache();
   });
@@ -289,7 +285,12 @@ describe("buildLayer1Graph (end-to-end fan-out / aggregate)", () => {
       baseUrl: undefined,
     };
 
-    const graph = buildLayer1Graph({ llmHandle: handle, api: fakeApi, config: BASE_CONFIG });
+    const graph = buildLayer1Graph({
+      llmHandle: handle,
+      api: fakeApi,
+      config: BASE_CONFIG,
+      promptsRoot: promptDir,
+    });
 
     const initialState: DailyCycleStateType = {
       messages: [],

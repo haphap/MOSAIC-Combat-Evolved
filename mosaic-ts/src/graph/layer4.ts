@@ -34,6 +34,8 @@ export interface BuildLayer4GraphDeps {
   config: MosaicConfig;
   llmHandleStructured?: LlmHandle;
   onLog?: (msg: string) => void;
+  /** Override prompt-root directory (tests inject a tmpdir). */
+  promptsRoot?: string;
 }
 
 export const LAYER4_AGENT_NODES = [

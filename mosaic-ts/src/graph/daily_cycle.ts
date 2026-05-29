@@ -56,6 +56,8 @@ export interface BuildDailyCycleGraphDeps {
   onLog?: (msg: string) => void;
   /** Veto threshold (rejected / candidate ratio). Default 0.5 per plan §11.2 #5. */
   vetoThreshold?: number;
+  /** Override prompt-root directory (tests inject a tmpdir). */
+  promptsRoot?: string;
 }
 
 export const DAILY_CYCLE_LAYER_NODES = [

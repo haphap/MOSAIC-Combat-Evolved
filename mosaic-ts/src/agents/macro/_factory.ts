@@ -81,6 +81,9 @@ export interface LayerOneAgentDeps {
   /** Optional structured-output LLM (defaults to ``llmHandle``). */
   llmHandleStructured?: LlmHandle;
   onLog?: (msg: string) => void;
+  /** Override the prompt-root directory (tests inject a tmpdir). Defaults to
+   *  ``findPromptsRoot()`` resolution. */
+  promptsRoot?: string;
 }
 
 export type LayerOneAgentNode = (state: DailyCycleStateType) => Promise<DailyCycleStateUpdate>;
@@ -102,6 +105,7 @@ export function buildLayerOneAgentNode<TOutput extends MacroAgentOutput>(
       agent: spec.agentId,
       cohort,
       language,
+      ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
     });
 
     // Phase 0b: pull the agent's tools from the bridge (with backtest context

@@ -19,7 +19,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AIMessage, type BaseMessage } from "@langchain/core/messages";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   buildCommoditiesNode,
   commoditiesSpec,
@@ -68,7 +68,6 @@ import {
   renderYieldCurve,
   yieldCurveSpec,
 } from "../src/agents/macro/yield_curve.js";
-import * as cohortsModule from "../src/agents/prompts/cohorts.js";
 import { AGENTS_BY_LAYER } from "../src/agents/prompts/cohorts.js";
 import { clearPromptCache } from "../src/agents/prompts/loader.js";
 import type { DailyCycleStateType } from "../src/agents/state.js";
@@ -228,7 +227,6 @@ describe("schemas reject canonical malformations", () => {
 
 describe("buildGeopoliticalNode (factory smoke)", () => {
   let promptDir: string;
-  let promptsRootSpy: ReturnType<typeof vi.spyOn>;
 
   class ScriptedLlm {
     invokeCalls: BaseMessage[][] = [];
@@ -267,11 +265,9 @@ describe("buildGeopoliticalNode (factory smoke)", () => {
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "geopolitical.zh.md"), "FAKE", "utf-8");
     writeFileSync(join(dir, "geopolitical.en.md"), "FAKE", "utf-8");
-    promptsRootSpy = vi.spyOn(cohortsModule, "findPromptsRoot").mockReturnValue(promptDir);
     clearPromptCache();
   });
   afterEach(() => {
-    promptsRootSpy.mockRestore();
     rmSync(promptDir, { recursive: true, force: true });
     clearPromptCache();
   });
@@ -371,7 +367,7 @@ describe("buildGeopoliticalNode (factory smoke)", () => {
       llm_calls: [],
     };
 
-    const node = buildGeopoliticalNode({ llmHandle: handle, api, config });
+    const node = buildGeopoliticalNode({ llmHandle: handle, api, config, promptsRoot: promptDir });
     const update = await node(sample);
     const unwrapped = update as unknown as {
       layer1_outputs?: Record<string, MacroAgentOutput>;

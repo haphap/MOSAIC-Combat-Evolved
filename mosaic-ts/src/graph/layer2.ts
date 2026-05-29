@@ -37,6 +37,8 @@ export interface BuildLayer2GraphDeps {
   config: MosaicConfig;
   llmHandleStructured?: LlmHandle;
   onLog?: (msg: string) => void;
+  /** Override prompt-root directory (tests inject a tmpdir). */
+  promptsRoot?: string;
 }
 
 export const LAYER2_AGENT_NODES = [

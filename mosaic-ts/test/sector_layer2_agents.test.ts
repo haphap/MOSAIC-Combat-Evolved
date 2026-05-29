@@ -7,8 +7,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AIMessage, type BaseMessage } from "@langchain/core/messages";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import * as cohortsModule from "../src/agents/prompts/cohorts.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AGENTS_BY_LAYER } from "../src/agents/prompts/cohorts.js";
 import { clearPromptCache } from "../src/agents/prompts/loader.js";
 import {
@@ -179,7 +178,6 @@ describe("schemas reject malformations", () => {
 
 describe("buildSemiconductorNode (Layer-2 factory smoke)", () => {
   let promptDir: string;
-  let promptsRootSpy: ReturnType<typeof vi.spyOn>;
 
   class ScriptedLlm {
     invokeCalls = 0;
@@ -215,11 +213,9 @@ describe("buildSemiconductorNode (Layer-2 factory smoke)", () => {
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "semiconductor.zh.md"), "FAKE", "utf-8");
     writeFileSync(join(dir, "semiconductor.en.md"), "FAKE", "utf-8");
-    promptsRootSpy = vi.spyOn(cohortsModule, "findPromptsRoot").mockReturnValue(promptDir);
     clearPromptCache();
   });
   afterEach(() => {
-    promptsRootSpy.mockRestore();
     rmSync(promptDir, { recursive: true, force: true });
     clearPromptCache();
   });
@@ -345,7 +341,7 @@ describe("buildSemiconductorNode (Layer-2 factory smoke)", () => {
       llm_calls: [],
     };
 
-    const node = buildSemiconductorNode({ llmHandle: handle, api, config });
+    const node = buildSemiconductorNode({ llmHandle: handle, api, config, promptsRoot: promptDir });
     const update = await node(sample);
     const unwrapped = update as DailyCycleStateUpdate as unknown as {
       layer2_outputs?: Record<string, SectorAgentOutput>;

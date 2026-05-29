@@ -48,6 +48,8 @@ export interface LayerTwoAgentDeps {
   config: MosaicConfig;
   llmHandleStructured?: LlmHandle;
   onLog?: (msg: string) => void;
+  /** Override prompt-root directory (tests inject a tmpdir). */
+  promptsRoot?: string;
 }
 
 export type LayerTwoAgentNode = (state: DailyCycleStateType) => Promise<DailyCycleStateUpdate>;
@@ -64,6 +66,7 @@ export function buildLayerTwoAgentNode<TOutput extends SectorAgentOutput>(
       agent: spec.agentId,
       cohort,
       language,
+      ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
     });
 
     const tools = await pickBridgeTools(deps.api, spec.requiredTools, {

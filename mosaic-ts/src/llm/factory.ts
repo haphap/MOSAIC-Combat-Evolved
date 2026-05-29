@@ -62,7 +62,10 @@ const API_KEY_ENV: Record<string, string[]> = {
   openrouter: ["OPENROUTER_API_KEY", "OPENAI_API_KEY"],
   ollama: [], // local, no key
   vllm: [], // local, no key
-  lemonade: [], // local, no key (set LEMONADE_API_KEY only for hosted instances)
+  // Local lemonade-server-dev binaries don't use auth (same as ollama / vllm).
+  // Hosted Lemonade with auth is not currently supported by this factory; if
+  // needed, point a custom base URL through a proxy that injects the key.
+  lemonade: [],
   minimax: ["MINIMAX_API_KEY", "OPENAI_API_KEY"],
   deepseek: ["DEEPSEEK_API_KEY", "OPENAI_API_KEY"],
   anthropic: ["ANTHROPIC_API_KEY"],

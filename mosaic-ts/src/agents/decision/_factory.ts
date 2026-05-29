@@ -61,6 +61,8 @@ export interface LayerFourAgentDeps {
   config: MosaicConfig;
   llmHandleStructured?: LlmHandle;
   onLog?: (msg: string) => void;
+  /** Override prompt-root directory (tests inject a tmpdir). */
+  promptsRoot?: string;
 }
 
 export type LayerFourAgentNode = (state: DailyCycleStateType) => Promise<DailyCycleStateUpdate>;
@@ -78,6 +80,7 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
       agent: spec.agentId,
       cohort,
       language,
+      ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
     });
 
     // Phase 1: synthesis (no tools, single invoke).

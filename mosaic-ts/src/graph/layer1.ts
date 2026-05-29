@@ -53,6 +53,8 @@ export interface BuildLayer1GraphDeps {
   llmHandleStructured?: LlmHandle;
   /** Per-agent log channel forwarded into runAgentToolLoop. */
   onLog?: (msg: string) => void;
+  /** Override prompt-root directory (tests inject a tmpdir). */
+  promptsRoot?: string;
 }
 
 /** Names of the 10 macro nodes in graph order. Exported for tests + 2D. */

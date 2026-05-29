@@ -120,7 +120,18 @@ export function registerDailyCycle(program: Command): void {
         const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
 
         if (opts.out) {
-          writeFileSync(opts.out, JSON.stringify(final, null, 2), "utf-8");
+          // ``state.messages`` are LangChain BaseMessage class instances whose
+          // default JSON serialisation surfaces internal fields (lc_kwargs,
+          // lc_namespace, ...) that aren't useful downstream. Drop them and
+          // surface only the prose content for any consumer that wants it.
+          const dump = {
+            ...final,
+            messages: final.messages.map((m) => ({
+              role: m.getType?.() ?? "unknown",
+              content: typeof m.content === "string" ? m.content : JSON.stringify(m.content),
+            })),
+          };
+          writeFileSync(opts.out, JSON.stringify(dump, null, 2), "utf-8");
           console.log(pc.dim(`\nstate written to ${opts.out} (${elapsed}s)`));
         } else {
           printCycleSummary(final, elapsed);
