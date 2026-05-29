@@ -18,9 +18,10 @@ from ..registry import method
 
 
 def _store():
-    from mosaic.scorecard import ScorecardStore
+    # §14 R-T4: use the cached singleton.
+    from mosaic.scorecard import get_store
 
-    return ScorecardStore()
+    return get_store()
 
 
 def _require_str(params: dict, key: str) -> str:
