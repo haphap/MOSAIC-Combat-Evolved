@@ -34,6 +34,7 @@ import {
   enumerateTradingDays,
   makeInitialState,
 } from "../_backtest_helpers.js";
+import { pad } from "../_format.js";
 
 interface BacktestOptions {
   cohort?: string;
@@ -269,9 +270,7 @@ function printMetrics(m: BacktestMetricsResult, totalElapsed: string): void {
   console.log(pc.dim(`\n(total elapsed: ${totalElapsed}s)`));
 }
 
-function pad(s: string, width: number): string {
-  return s.length >= width ? s : s + " ".repeat(width - s.length);
-}
+// pad() imported from ../_format.js (§14 R-T2: shared CJK + ANSI-aware).
 
 // Suppress unused for the BacktestRunInfo import (kept for future enrichment)
 void ({} as BacktestRunInfo);

@@ -2370,6 +2370,33 @@ autoresearch）。`max_agents_concurrent` 形参定义了但没用；`complete_c
    配 fix path 描述。**进 Phase 5 PRISM 前最好集中清掉 R-T2/T4/T5 + R-A2**
    （Phase 5 多 cohort 高吞吐会放大这些问题）。
 
+   **✅ 收口状态（2026-05-30，Phase 5 前清理）**：
+   - **R-T2 ✅ 修复**：新增 `mosaic-ts/src/cli/_format.ts`（CJK + ANSI 双感知
+     `displayWidth()` / `pad()`），替换 6 个 CLI（scorecard / darwinian /
+     backtest / daily-cycle / autoresearch / prism）各自的 `pad()`；+7 个
+     `format.test.ts` 单测。中文表格不再错列。
+   - **R-T3 ✅ 修复**：`daily_cycle.ts` `invokeSubgraph` 改用
+     `(result.messages ?? []).slice` / `(result.llm_calls ?? []).slice`，防御
+     subgraph 异常返回缺通道时的 NPE。
+   - **R-T4 ✅ 已修（PR #6）**：`mosaic/scorecard/__init__.py` `get_store()`
+     module-level 单例；bridge handler 统一走它。
+   - **R-T5 ✅ 已修（PR #6）**：`update_scoring` 在 `cur.rowcount == 0` 时
+     `log.warning`。
+   - **R-T6 ✅ 已满足**：`bridge/errors.ts` 三个 error class 均传 ES2022
+     `{ cause }`；daily-cycle / backtest CLI 的 catch 块是终端处理器（打印 +
+     `process.exitCode`），不 re-wrap、不丢链，无需改动。
+   - **R-A2 ✅ 定稿**：`expand_state_to_recommendations` 的 CIO 行 `conviction`
+     改写 `NULL`（不再用 target_weight 代理），明确「不可比」；`target_weight_pct`
+     仍是真实仓位权重。autoresearch 评估 CIO 用组合 Sharpe（§11.5 决策 #10），
+     `scorecard.list_skill` 聚合 `alpha_5d` 不读 conviction，故安全。
+   - **仍延后（非阻塞）**：**R-T1**（4 个 layer builder 的 `let graph: any` —
+     纯类型推断，待 LangGraph 升级或写 typed `chainEdges` helper）；**R-P1**
+     （`qlib_ingest` 直接 `struct.unpack` 读 qlib binary，耦合内部格式，待 qlib
+     升级再换 DataApi）；**R-A1**（`replay_triggered` state channel，等真正需要
+     时加）；**R-A3**（backtest-fill 失败 `failed_days` 持久化查询接口，等
+     autoresearch 自动重跑时加）；**R-A4**（`ingest_full` per-ticker 120s
+     timeout 文档标注 — 纯文档，已在此说明：120s 是单 ticker 不是全 ingest）。
+
 10. **Phase 4 目标 cohort — ✅ 已定（2026-05-29）= `crisis_2008`**。用户选高波动
     regime（§9：2007-10-17 → 2008-10-28，A 股暴跌 70% / 1664 见底）作 autoresearch
     压力测试；eval 窗口默认 cohort 最后 60 交易日。crisis_2008 无专属 prompt，

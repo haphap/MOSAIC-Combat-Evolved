@@ -180,7 +180,9 @@ class TestExpandState:
         first = next(r for r in cio_rows if r["ticker"] == "688981.SH")
         assert first["action"] == "BUY"
         assert first["target_weight_pct"] == pytest.approx(40.0)
-        assert first["conviction"] == pytest.approx(0.4)
+        # §14 R-A2: CIO has no per-pick conviction → stored as None (not the
+        # target_weight proxy), so it isn't falsely comparable to L2/L3.
+        assert first["conviction"] is None
         # dissent_notes empty → rationale_snapshot is None
         assert first["rationale_snapshot"] is None
         second = next(r for r in cio_rows if r["ticker"] == "600519.SH")

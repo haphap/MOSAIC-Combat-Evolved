@@ -10,7 +10,9 @@ State → row expansion convention (Plan §11.3 3A design decisions):
     Layer 3 (4 superinvestors) → 1 row per picks[] entry.
                                   target_weight_pct = conviction × 100.
     Layer 4 (cio only)         → 1 row per portfolio_actions[] entry.
-                                  target_weight_pct = target_weight × 100.
+                                  target_weight_pct = target_weight × 100;
+                                  conviction = NULL (§14 R-A2: CIO has no
+                                  per-pick conviction, only a portfolio weight).
 
 UNIQUE(cohort, agent, ticker, date) — duplicate ingest is idempotent
 (ON CONFLICT DO UPDATE keeps the latest fields; doesn't overwrite scoring
@@ -264,9 +266,15 @@ def expand_state_to_recommendations(state: dict[str, Any]) -> list[dict[str, Any
                     "ticker": ticker,
                     "date": date,
                     "action": action_obj.get("action") or "HOLD",
-                    # CIO doesn't expose conviction per pick — use target_weight
-                    # as a proxy (1.0 weight = full conviction).
-                    "conviction": target_weight,
+                    # §14 R-A2: CIO has no per-pick conviction — it emits a
+                    # portfolio target_weight. Storing target_weight as a
+                    # "conviction" proxy makes it falsely comparable to the
+                    # real per-pick conviction of L2/L3 agents. Write NULL to
+                    # mark it explicitly not-comparable; target_weight_pct still
+                    # carries the real position weight. (autoresearch evaluates
+                    # CIO mutations via portfolio Sharpe, not conviction — Plan
+                    # §11.5 decision #10.)
+                    "conviction": None,
                     "target_weight_pct": target_weight * 100.0,
                     "rationale_snapshot": _truncate(
                         action_obj.get("dissent_notes") or action_obj.get("thesis"),

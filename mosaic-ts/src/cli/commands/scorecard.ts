@@ -15,6 +15,7 @@ import type { Command } from "commander";
 import pc from "picocolors";
 import type { DarwinianWeightTable, SkillRow } from "../../bridge/index.js";
 import { BridgeApi, BridgeClient, RpcError } from "../../bridge/index.js";
+import { pad } from "../_format.js";
 
 interface ScorecardOptions {
   cohort?: string;
@@ -134,10 +135,4 @@ function printScorecardTable(
   );
 }
 
-function pad(s: string, width: number): string {
-  // Strip ANSI for length calc so colourised cells still align.
-  // biome-ignore lint/suspicious/noControlCharactersInRegex: stripping ANSI escapes
-  const visible = s.replace(/\u001B\[[0-9;]*m/g, "");
-  if (visible.length >= width) return s;
-  return s + " ".repeat(width - visible.length);
-}
+// pad() imported from ../_format.js (§14 R-T2: shared CJK + ANSI-aware).

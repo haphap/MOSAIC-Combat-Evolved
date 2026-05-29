@@ -15,6 +15,7 @@ import { runAutoresearchCycle } from "../../autoresearch/orchestrator.js";
 import { BridgeApi, BridgeClient, RpcError } from "../../bridge/index.js";
 import { createLlmFromConfig } from "../../llm/factory.js";
 import { buildFakeLlmHandle } from "../_backtest_helpers.js";
+import { pad } from "../_format.js";
 
 interface TriggerOptions {
   cohort?: string;
@@ -293,6 +294,4 @@ function handleError(err: unknown, client: BridgeClient): void {
   process.exitCode = 1;
 }
 
-function pad(s: string, width: number): string {
-  return s.length >= width ? s : s + " ".repeat(width - s.length);
-}
+// pad() imported from ../_format.js (§14 R-T2: shared CJK + ANSI-aware).

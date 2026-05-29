@@ -152,8 +152,10 @@ function invokeSubgraph(
     const prevMsgLen = state.messages?.length ?? 0;
     return {
       // ── append-reducer channels: must slice to delta (see APPEND_REDUCER_CHANNELS) ──
-      messages: result.messages.slice(prevMsgLen),
-      llm_calls: result.llm_calls.slice(prevLlmLen),
+      // §14 R-T3: nullish-guard the slice — a subgraph that errored and
+      // returned a partial state without these channels would otherwise NPE.
+      messages: (result.messages ?? []).slice(prevMsgLen),
+      llm_calls: (result.llm_calls ?? []).slice(prevLlmLen),
       // ── replace / dict-merge channels: idempotent under same-content updates ──
       layer1_outputs: result.layer1_outputs,
       layer1_consensus: result.layer1_consensus,
