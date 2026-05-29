@@ -1729,6 +1729,76 @@ pnpm dev daily-cycle --cohort cohort_default --dry-run   2F 后必跑通
    置信度门槛同步收紧（plan §11.2 2C 设计决策 #3 提到 Phase 4 会
    autoresearch 迭代 prompt）。
 
+9. **跨 PR 累积的 review 待办（Phase 4 启动前清理 / 或 Phase 5 集中 hotfix）**：
+
+   合并 PR #2 / #3 / #4 review 留下的非阻塞项。每条标注来源 PR + 严重度。
+
+   **代码质量 (TS)**:
+   - **R-T1 (从 PR #2 #2、#5)**：`let graph: any` 出现在 4 个 layer 子图
+     builder（layer1/2/3/4）。LangGraph fluent type chain 在 `.addNode()`
+     / `.addEdge()` 上每步窄化类型，循环里累 edge 时类型推断断裂，所以加
+     了 `any` + biome-ignore。**真正解法**：写一个 typed fluent helper
+     `chainEdges(graph, [...edges])` 屏蔽中间类型；或升级 LangGraph 后
+     重新审视。**不阻塞功能**。
+
+   - **R-T2 (从 PR #2 #4 + PR #3 #6)**：CLI `pad()` 不处理 CJK 宽度。
+     中文字符在终端占 2 列，agent 名 / dissent_notes / rationale 含中文
+     时表格列错位。引入 `string-width` package 或写一个简易 CJK 宽度
+     探测函数。**纯展示问题**。
+
+   - **R-T3 (从 PR #2 #5)**：`invokeSubgraph` wrapper 直接 `result.llm_calls.slice(prevLen)`，
+     若 subgraph 异常返回 undefined 会 NPE。reducer guarantee 当前不允许
+     这个状态，但加一个 `(result.llm_calls ?? []).slice(...)` 防御没成
+     本。
+
+   - **R-T4 (从 PR #3 #7)**：bridge handler 的 `_store()` factory 每个 RPC
+     调用都 new 一个 ScorecardStore（因此 new 一个 SQLite connection）。
+     当前 throughput 低，无影响；Phase 4 autoresearch 会高频调用，建议
+     引入 module-level singleton。
+
+   - **R-T5 (从 PR #3 #8)**：`update_scoring(row_id, ...)` 当 row_id 不
+     存在时静默 no-op。当前没 row 删除路径所以无影响；Phase 4 autoresearch
+     可能加 purge old recommendations 路径，到时候补 `if cur.rowcount == 0:
+     log.warning(...)`。
+
+   - **R-T6 (从 PR #4 #6)**：error cause chaining 不一致。Python 大部分
+     用 `raise X from exc` ✓；TS 没用 `new Error(msg, { cause: err })`。
+     bridge errors.ts 在 phase-2 prep 已加，但 daily-cycle / backtest
+     CLI 的 error wrapper 没加。系统性补一遍。
+
+   **代码质量 (Python)**:
+   - **R-P1 (从 PR #4 #7)**：`mosaic/dataflows/qlib_ingest.py` 的
+     `validate_after_ingest` 直接 `struct.unpack` 读 qlib binary。功能
+     正确，但耦合 qlib 内部格式。如果 qlib 升级改格式，这里悄悄坏。
+     可改用 `qlib.data.cache.H` 或 qlib 的 DataApi。当前接受。
+
+   **架构 / 设计观察（不一定是 fix）**:
+   - **R-A1 (从 PR #2 #6)**：daily_cycle 没有 `replay_triggered` state
+     channel 记录 CRO veto 是否触发过 replay。Phase 3 scorecard 想区分
+     "first-pass cycle" vs "replayed cycle" 时会需要。等 Phase 4
+     autoresearch 真正需要时再加。
+
+   - **R-A2 (从 PR #3 #4 + 跨多 PR)**：CIO 的 conviction proxy = target_weight
+     在 backtest_actions 表里。这意味着 Phase 4 比较 per-agent Sharpe 时，
+     CIO 的"conviction"不是真 conviction（是仓位权重）。要不要：
+     (a) 把 CIO 的 conviction 列写 NULL（明确"不可比"）；
+     (b) 关联回 L3 superinvestor 的真 conviction。
+     Phase 4 启动前定。
+
+   - **R-A3 (从 PR #4 #10)**：backtest-fill 失败时只在 stderr 报错、
+     run NOT marked completed。没有 SQLite-持久化的 failed_days 记录，
+     操作员重跑要看终端 log。如果 Phase 4 autoresearch 自动化重跑则
+     需要查询接口。Phase 4 启动前再决定。
+
+   - **R-A4 (从 PR #4 #6)**：`ingest_full` timeout 默认 120 秒（每个 ticker
+     查询）。全 A 股 ~5500 ticker × 35 年理论上单次 ingest 30-90 分钟，
+     单 ticker 120s 应该足够；但如果 Tushare 突然慢，120s 可能截断。
+     文档需要标"per-ticker 不是全 ingest"。
+
+   **当前状态**：所有 R-T* / R-P* / R-A* 不阻塞 Phase 4 启动；每条都
+   配 fix path 描述。**进 Phase 5 PRISM 前最好集中清掉 R-T2/T4/T5 + R-A2**
+   （Phase 5 多 cohort 高吞吐会放大这些问题）。
+
 ---
 
 ## 15. 工作流约定（沿用 ETFAgents）
