@@ -8,6 +8,13 @@ has the Tushare / akshare / FRED data plumbing. The TypeScript front-end
 calls into this package via JSON-RPC handlers (Plan §11.3 sub-step 3D).
 """
 
+from mosaic.scorecard.scorer import (
+    DEFAULT_BENCHMARK,
+    HORIZON_5D,
+    HORIZON_21D,
+    ScoreOutcome,
+    Scorer,
+)
 from mosaic.scorecard.store import (
     DEFAULT_DB_PATH,
     PendingRow,
@@ -16,8 +23,13 @@ from mosaic.scorecard.store import (
 )
 
 __all__ = [
+    "DEFAULT_BENCHMARK",
     "DEFAULT_DB_PATH",
+    "HORIZON_5D",
+    "HORIZON_21D",
     "PendingRow",
+    "ScoreOutcome",
+    "Scorer",
     "ScorecardStore",
     "expand_state_to_recommendations",
 ]
