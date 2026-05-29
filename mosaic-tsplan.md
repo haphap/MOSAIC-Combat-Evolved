@@ -2236,29 +2236,25 @@ autoresearch）。`max_agents_concurrent` 形参定义了但没用；`complete_c
    口 / 财报集中披露 / 春节假期）。Phase 7 启动前定。
 
 7. **Phase 1 review follow-ups**（PR #1 review 留下的 6 个非阻塞项，集中在
-   Phase 2 落 agent 之前清掉）：
-   - **R1**：`mosaic-ts/src/cli/commands/tool-call.ts` 的 `JSON.parse(argsJson)`
-     无 try/catch，畸形 JSON 直接抛 SyntaxError 把 stack 打到 terminal。包成
-     友好 CLI 错误。
-   - **R2**：`mosaic-ts/src/bridge/types.ts` 的 `BridgeApi` docstring 说 "21 RPC
-     methods" 但只 typed 包了 12 个；缺 `paper.{register,login,logout,
-     reset_account,buy,sell,suggest_order_from_signal}` + `cache.details`。
-     要么 Phase 8 补全，要么改文案为 "selected wrappers"。
-   - **R3**：`mosaic-ts/src/llm/factory.ts` 的 Lemonade base URL
-     `http://localhost:8000/api/v0` 是从内存写的、未实弹验证。加注释引导用户
-     看 `lemonade-server-dev` 启动日志，或暴露 `MOSAIC_LLM_BASE_URL` env override。
-   - **代码细项 (1)**：`mosaic-ts/src/bridge/tools.ts` 的 `prop.default as never`
-     太宽。放宽 `JsonSchemaProperty.default` 的 type 注解或用 `as
-     Parameters<typeof field.default>[0]` 收敛 cast。
-   - **代码细项 (3)**：3 个 error class（RpcError、BridgeStartupError、
-     BridgeTransportError）不传 `{ cause: err }`，丢失原始 stack chain。补上
-     ES2022 cause 链。
-   - **代码细项 (5)**：`MosaicConfig = Record<string, unknown>` 太松。Phase 2
-     落 agent state / cohort / autoresearch 字段时拉成 Zod-validated schema
-     或 discriminated union。
+   Phase 2 落 agent 之前清掉）：**✅ 全部收敛（2026-05-30）**。
+   - **R1 ✅**：`tool-call.ts` 的 `JSON.parse(argsJson)` 已包 try/catch + 非对象
+     校验，畸形 JSON 返回友好 CLI 错误（不再打 stack）。
+   - **R2 ✅**：`types.ts` docstring 已改正 —— bridge 现注册 ~50 个 RPC（11 个
+     namespace），`BridgeApi` 已 typed 包除 Phase 8 paper *写* 接口 + `cache.details`
+     外的全部；docstring 据实描述覆盖范围。
+   - **R3 ✅**：`factory.ts` Lemonade base URL 已修正为 `8020/api/v0`（实弹 NPU
+     端口），并暴露 `LEMONADE_BASE_URL` env override + 注释引导看
+     `lemonade-server-dev` 启动日志。
+   - **代码细项 (1) ✅**：`tools.ts` 改用 `as Parameters<typeof field.default>[0]`
+     收敛 cast（不再 `as never`）。
+   - **代码细项 (3) ✅**：RpcError / BridgeStartupError / BridgeTransportError
+     均已传 ES2022 `{ cause }` 链。
+   - **代码细项 (5) ✅**：`MosaicConfig` 已从 `Record<string, unknown>` 拉成 typed
+     interface（含 llm / cohort / autoresearch 字段 + 开放索引签名兜底未稳定字段）。
 
    不阻塞 PR #1 merge。Phase 1 PR #1 提交时已修了真 correctness bug
-   （tool-loop forced-final 用 unbound LLM），其余记此追踪。
+   （tool-loop forced-final 用 unbound LLM），R1/R3/细项 1/3/5 在 Phase 2–4 落
+   agent 时陆续修掉，R2 docstring 在 2026-05-30 收口。
 
 8. **Layer-1 macro tools 缺口**（plan §5.1 列出的工具 vs Phase 0 macro_data 实际
    实现的工具差距，影响 2C 的 agent prompt）：

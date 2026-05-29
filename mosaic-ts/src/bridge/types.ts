@@ -1,16 +1,16 @@
 /**
  * Wire-level type definitions for the JSON-RPC methods exposed by
- * `mosaic.bridge` (Phase 0 surface = 21 RPC methods registered).
+ * `mosaic.bridge` (~50 RPC methods across tools / config / cache / calendar /
+ * paper / backtest / scorecard / darwinian / prompts / autoresearch / prism).
  *
  * Keep this file as the single source of truth for the wire-level shapes.
  * If a method's params/result change on the Python side, update the type
  * here in the same commit.
  *
- * The :class:`BridgeApi` helper at the bottom only provides typed wrappers
- * for the subset of methods currently exercised by the TS front-end. The
- * remaining methods are reachable via ``client.call(method, params)`` and
- * will get typed wrappers as later phases need them (Phase 8 paper-trading
- * workflow, Phase 4+ scorecard / autoresearch / prism / janus / mirofish).
+ * The :class:`BridgeApi` helper at the bottom provides typed wrappers for the
+ * methods the TS front-end currently uses (everything except the Phase 8
+ * paper-trading *write* surface). Any remaining method is still reachable via
+ * ``client.call(method, params)`` and gets a typed wrapper when a phase needs it.
  */
 
 import type { BridgeClient } from "./client.js";
@@ -374,13 +374,14 @@ export interface CohortComparison {
 // --------------------------------------------------------- helpers
 
 /**
- * Ergonomic helper around a BridgeClient. Provides typed wrappers for the
- * subset of RPC methods the TS front-end currently uses (Phase 0/1: tools.* +
- * config.* + cache.* + read-only paper.* + backtest.*). The Python sidecar
- * registers more (`paper.{register,login,logout,reset_account,buy,sell,
- * suggest_order_from_signal}`, `cache.{clear,details}`); those are reachable
- * via ``client.call(method, params)`` and will get typed wrappers when Phase 8
- * lands the paper-trading workflow.
+ * Ergonomic helper around a BridgeClient. Provides typed wrappers for the RPC
+ * methods the TS front-end uses today: tools.* / config.* / cache.* /
+ * calendar.* / read-only paper.* / backtest.* / scorecard.* / darwinian.* /
+ * prompts.* / autoresearch.* / prism.*. The Python sidecar also registers the
+ * paper-trading *write* surface (`paper.{register,login,logout,reset_account,
+ * buy,sell,suggest_order_from_signal}`) and `cache.details`; those are reachable
+ * via ``client.call(method, params)`` and get typed wrappers when Phase 8 lands
+ * the paper-trading workflow.
  */
 export class BridgeApi {
   constructor(private readonly client: BridgeClient) {}
