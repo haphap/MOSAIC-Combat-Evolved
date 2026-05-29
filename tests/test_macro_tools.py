@@ -101,6 +101,11 @@ _EXPECTED_TOOLS = {
         "optional": {"look_back_days"},
         "vendor_method": "get_fund_flow",
     },
+    "get_etf_price_data": {
+        "required": {"symbol", "start_date", "end_date"},
+        "optional": set(),
+        "vendor_method": "get_etf_price_data",
+    },
 }
 
 
@@ -259,6 +264,13 @@ class TestDispatch:
             {"symbol": "510300.SH", "curr_date": "2024-06-30", "look_back_days": 5}
         )
         assert patched_route["args"] == ("510300.SH", "2024-06-30", 5)
+
+    def test_get_etf_price_data_invocation(self, patched_route):
+        macro_tools.get_etf_price_data.invoke(
+            {"symbol": "510300.SH", "start_date": "2024-06-01", "end_date": "2024-06-30"}
+        )
+        assert patched_route["method"] == "get_etf_price_data"
+        assert patched_route["args"] == ("510300.SH", "2024-06-01", "2024-06-30")
 
 
 # --------------------------------------------------------------------- bridge handler

@@ -479,6 +479,41 @@ def get_fund_flow(
     return route_to_vendor("get_fund_flow", symbol, curr_date, look_back_days)
 
 
+# ============================================================ ETF price data
+
+
+@tool
+def get_etf_price_data(
+    symbol: Annotated[
+        str,
+        "ETF ticker (e.g. '510300.SH', '159915.SZ').",
+    ],
+    start_date: Annotated[
+        str,
+        "Start date in yyyy-mm-dd format (inclusive).",
+    ],
+    end_date: Annotated[
+        str,
+        "End date in yyyy-mm-dd format (inclusive).",
+    ],
+) -> str:
+    """
+    Retrieve ETF daily OHLCV price data over a date range (Tushare ``fund_daily``).
+
+    Returns the ETF's daily open/high/low/close + volume/amount. Used by
+    ``emerging_markets`` to read HK / A-share / EM-proxy ETF price action.
+
+    Args:
+        symbol: ETF ticker.
+        start_date: yyyy-mm-dd inclusive lower bound.
+        end_date: yyyy-mm-dd inclusive upper bound.
+
+    Returns:
+        Header + CSV of daily ETF OHLCV.
+    """
+    return route_to_vendor("get_etf_price_data", symbol, start_date, end_date)
+
+
 # ============================================================ public exports
 
 __all__ = [
@@ -495,4 +530,5 @@ __all__ = [
     "get_ivx",
     "get_etf_indicator",
     "get_fund_flow",
+    "get_etf_price_data",
 ]

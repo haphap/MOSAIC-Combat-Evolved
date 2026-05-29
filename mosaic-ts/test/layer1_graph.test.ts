@@ -88,6 +88,7 @@ const FAKE_TOOLS: ToolMetadata[] = [
   "get_etf_indicator",
   "get_fund_flow",
   "get_news",
+  "get_etf_price_data",
 ].map((name) => ({ name, description: name, args_schema: TOOL_SCHEMA }));
 
 /**

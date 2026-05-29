@@ -1,9 +1,9 @@
 /**
  * emerging_markets Layer-1 macro agent (Plan §5.1).
  *
- * Plan §5.1 wants `get_etf_price_data(EEM)` + `get_etf_price_data(2800.HK)`;
- * Phase 0 has no ETF price tools. Substitution: `get_north_capital_flow` +
- * `get_us_china_spread` + `get_fred_series(DTWEXBGS)`. Tracked plan §14 #8.
+ * Plan §5.1 tools: `get_etf_price_data` (now available — fund_daily, macro-tools
+ * gap closed, plan §14 #8) + `get_north_capital_flow` + `get_us_china_spread`.
+ * Use `get_etf_price_data` on HK/A-share/EM-proxy ETFs (e.g. 510300.SH).
  */
 
 import type { EmergingMarketsOutput } from "../types.js";
@@ -16,9 +16,9 @@ import {
 import { EMERGING_MARKETS_FIELD_NAMES, EmergingMarketsSchema } from "./_schemas.js";
 
 export const REQUIRED_TOOLS = [
+  "get_etf_price_data",
   "get_north_capital_flow",
   "get_us_china_spread",
-  "get_fred_series",
 ] as const;
 
 export const emergingMarketsSpec: LayerOneAgentSpec<EmergingMarketsOutput> = {
