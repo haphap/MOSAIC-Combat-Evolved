@@ -781,6 +781,36 @@ Phase 0 §14 议题中 Tushare endpoint 名 `cb_op` / `yc_cb` / `news` 的 live 
       `layer1_outputs.central_bank`
 - [ ] vitest 用 mock LLM + mock BridgeApi 验证完整流转
 
+**2B 设计决策**（在写 central_bank 之前定，避免后续 24 agents 反工）：
+
+1. **Two-phase agent execution**：每个 agent 节点先跑工具循环拿到自由分析文本
+   （phase 1：tool-bound LLM + iterative tool calls），再跑结构化抽取
+   （phase 2：用 phase-1 的分析当 user input 喂给 `invokeStructuredOrFreetext`）。
+   不在同一次 LLM call 里同时 bind tools + structured output —— 多数 provider
+   不支持这种组合，强行做会让 schema 解析失败率飙升。
+
+2. **2B 不做 factory 抽象**：先把 `central_bank` 写成具体函数（不复用 generic
+   `buildAgentNode<T>`）。等 2C 拿一个跑通的实现做参照，再抽 factory，避免
+   factory 设计错了 2C 重写 9 次。
+
+3. **`runAgentToolLoop` 小 helper**：放 `helpers/agent_loop.ts`，~100 LOC。
+   `runToolReportChain` 假定 LangGraph-level loop；2B 还没装图，需要一个
+   inline 循环 helper。2E 装图时这个 helper 可能让位给 LangGraph subgraph，
+   不阻塞。
+
+4. **目录布局**：`src/agents/macro/central_bank.ts` 对齐 prompt 目录
+   `prompts/mosaic/cohort_default/macro/`，agent ID = 文件名。共享 schema 进
+   `src/agents/macro/_schemas.ts`（前缀 `_` 避免被误认为 agent 文件）。
+
+5. **结构化抽取的 system prompt**：phase-2（structured extractor）单独写一段
+   "你只负责把下面的分析文字抽成 JSON 字段"，不复用 phase-1 system message。
+   原因：phase-1 system 包含工具使用规则、写作风格约束等，对 schema 抽取无关
+   且容易让 model 多写解释性 prose 干扰 JSON。
+
+6. **Layer-1 输出契约**：`MacroAgentOutputBase` 的 `confidence` + `key_drivers`
+   是聚合器（aggregateLayer1）必读字段。Schema 必须把这两项标 `.describe()` 让
+   LLM 看到约束。否则 RegimeSignal 的 `layer_1_consensus_score` 计算会带噪。
+
 ### Sub-step 2C：Layer 1 剩余 9 macro agents + aggregator
 
 按 2B pattern 批量做：
