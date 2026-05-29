@@ -2154,6 +2154,24 @@ autoresearch）。`max_agents_concurrent` 形参定义了但没用；`complete_c
 - `prism compare` 能横评 7 cohort。
 - §3 表 Phase 5 标注「训练编排落地」（区别于 PR #9 的 infra-only stub）。
 
+### Review 收口（f3af696 → 后续 commit，2026-05-30）
+
+- **账本归编排器**：`cohort_runs` 的开（`prism.train_cohort` 壳）+ 关
+  （`prism.complete_cohort_run`，放 `finally`）移进 `runCohortTraining`，使
+  `runPrismTraining` / 外部 caller / CLI 走同一路径，账本不再只在 CLI、不漏关。
+- **per-agent 隔离**：每个 agent 的 cycle 用 try/catch 包裹，单 agent 抛错只产
+  `status='error'` 条目，不再 reject `pool()` worker / 中止整 cohort。
+- **全量 mutation**：layer 结果保留每个 agent 的全部 mutations（修
+  `maxMutations>1` 漏报）。
+- **llm_calls 不误标**：不再把 agent 计数写进 `cohort_runs.llm_calls`（那列含义
+  是 LLM 调用次数，留给 bridge 成本层）。
+- **deps-light 双注册崩溃修复**：`test_prism.py` / `test_bridge_autoresearch.py`
+  的 except 分支先查 `sys.modules`（包 __init__ 在 tools 失败前已注册过
+  prism/autoresearch），命中则复用，不再 re-exec 致 `@method` 重复注册。
+- **遗留（同 4C–4F 限制）**：fake-llm 下终态仍是 `needs_fill`（keep/revert/merge
+  需 qlib stage-2）；O(N²) evaluate_pending 每 agent 全扫 cohort（serial bridge
+  下正确但偏费，后续可改成只评估被触发的 version）。
+
 ### 不在 Phase 5 范围（避免 scope creep）
 
 - 真实（非 fake-llm）大规模训练跑通 = 运行期任务，依赖 qlib `.[backtest]` +

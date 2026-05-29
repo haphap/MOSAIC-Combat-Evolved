@@ -21,10 +21,22 @@ class FakeLlm {
   }
 }
 
-const deps = { llm: new FakeLlm() as never, api: {} as unknown as BridgeApi };
+function fakeApi() {
+  return {
+    prismTrainCohort: vi
+      .fn()
+      .mockResolvedValue({ started: true, cohort: "c", message: "", run_id: 7 }),
+    prismCompleteCohortRun: vi.fn().mockResolvedValue({ ok: true }),
+  } as unknown as BridgeApi;
+}
+
+let api: BridgeApi;
+let deps: { llm: never; api: BridgeApi };
 
 beforeEach(() => {
   vi.clearAllMocks();
+  api = fakeApi();
+  deps = { llm: new FakeLlm() as never, api };
   mockedCycle.mockImplementation(async (opts) => ({
     mutations: [
       { agent: opts.forceAgent ?? "?", version_id: 1, status: "kept" as const, delta_sharpe: 0.2 },
@@ -101,6 +113,70 @@ describe("runCohortTraining", () => {
       deps,
     });
     expect(result.layers[0]?.agents.every((a) => a.status === "needs_fill")).toBe(true);
+  });
+
+  it("opens and closes the cohort_runs ledger", async () => {
+    const result = await runCohortTraining({
+      cohort: "crisis_2008",
+      layers: ["decision"],
+      fakeLlm: true,
+      deps,
+    });
+    expect(api.prismTrainCohort).toHaveBeenCalledWith({ cohort_name: "crisis_2008" });
+    expect(api.prismCompleteCohortRun).toHaveBeenCalledWith({ run_id: 7 });
+    expect(result.runId).toBe(7);
+  });
+
+  it("dry-run opens no ledger row", async () => {
+    const result = await runCohortTraining({
+      cohort: "crisis_2008",
+      layers: ["decision"],
+      dryRun: true,
+      fakeLlm: true,
+      deps,
+    });
+    expect(api.prismTrainCohort).not.toHaveBeenCalled();
+    expect(api.prismCompleteCohortRun).not.toHaveBeenCalled();
+    expect(result.runId).toBeNull();
+  });
+
+  it("isolates a single agent failure and still closes the ledger", async () => {
+    mockedCycle.mockImplementation(async (opts) => {
+      if (opts.forceAgent === "cro") throw new Error("boom");
+      return {
+        mutations: [{ agent: opts.forceAgent ?? "?", version_id: 1, status: "kept" as const }],
+      };
+    });
+    const result = await runCohortTraining({
+      cohort: "crisis_2008",
+      layers: ["decision"],
+      fakeLlm: true,
+      deps,
+    });
+    const cro = result.layers[0]?.agents.find((a) => a.agent === "cro");
+    expect(cro?.status).toBe("error");
+    expect(cro?.error).toContain("boom");
+    // The other 3 decision agents still trained, and the ledger still closed.
+    expect(result.layers[0]?.agents).toHaveLength(AGENTS_BY_LAYER.decision.length);
+    expect(api.prismCompleteCohortRun).toHaveBeenCalledWith({ run_id: 7 });
+  });
+
+  it("keeps every mutation when maxMutationsPerAgent > 1", async () => {
+    mockedCycle.mockImplementation(async (opts) => ({
+      mutations: [
+        { agent: opts.forceAgent ?? "?", version_id: 1, status: "kept" as const },
+        { agent: opts.forceAgent ?? "?", version_id: 2, status: "reverted" as const },
+      ],
+    }));
+    const result = await runCohortTraining({
+      cohort: "crisis_2008",
+      layers: ["decision"],
+      maxMutationsPerAgent: 2,
+      fakeLlm: true,
+      deps,
+    });
+    // 4 decision agents × 2 mutations each = 8 entries.
+    expect(result.layers[0]?.agents).toHaveLength(AGENTS_BY_LAYER.decision.length * 2);
   });
 });
 

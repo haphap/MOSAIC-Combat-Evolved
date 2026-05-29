@@ -27,16 +27,22 @@ from mosaic.scorecard.store import ScorecardStore
 try:
     from mosaic.bridge.handlers import prism as _prism
 except Exception:
-    _HANDLER_PATH = (
-        Path(__file__).resolve().parent.parent
-        / "mosaic" / "bridge" / "handlers" / "prism.py"
-    )
-    _spec = importlib.util.spec_from_file_location(
-        "mosaic.bridge.handlers.prism", str(_HANDLER_PATH)
-    )
-    _prism = importlib.util.module_from_spec(_spec)
-    sys.modules[_spec.name] = _prism
-    _spec.loader.exec_module(_prism)
+    # The package __init__ imports prism before tools (which needs
+    # langchain_core); when tools fails, prism is already in sys.modules AND
+    # its @method decorators already ran. Re-exec'ing would double-register,
+    # so prefer the partially-imported-but-registered module.
+    _key = "mosaic.bridge.handlers.prism"
+    if _key in sys.modules:
+        _prism = sys.modules[_key]
+    else:
+        _HANDLER_PATH = (
+            Path(__file__).resolve().parent.parent
+            / "mosaic" / "bridge" / "handlers" / "prism.py"
+        )
+        _spec = importlib.util.spec_from_file_location(_key, str(_HANDLER_PATH))
+        _prism = importlib.util.module_from_spec(_spec)
+        sys.modules[_key] = _prism
+        _spec.loader.exec_module(_prism)
 
 _MOD = "mosaic.bridge.handlers.prism"
 

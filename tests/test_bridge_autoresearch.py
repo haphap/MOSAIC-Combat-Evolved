@@ -24,16 +24,22 @@ from mosaic.scorecard.store import ScorecardStore
 try:
     from mosaic.bridge.handlers import autoresearch as _ar
 except Exception:
-    _HANDLER_PATH = (
-        Path(__file__).resolve().parent.parent
-        / "mosaic" / "bridge" / "handlers" / "autoresearch.py"
-    )
-    _spec = importlib.util.spec_from_file_location(
-        "mosaic.bridge.handlers.autoresearch", str(_HANDLER_PATH)
-    )
-    _ar = importlib.util.module_from_spec(_spec)
-    sys.modules[_spec.name] = _ar
-    _spec.loader.exec_module(_ar)
+    # The package __init__ imports autoresearch before tools (which needs
+    # langchain_core); when tools fails, autoresearch is already in sys.modules
+    # AND its @method decorators already ran. Re-exec'ing would double-register,
+    # so prefer the partially-imported-but-registered module.
+    _key = "mosaic.bridge.handlers.autoresearch"
+    if _key in sys.modules:
+        _ar = sys.modules[_key]
+    else:
+        _HANDLER_PATH = (
+            Path(__file__).resolve().parent.parent
+            / "mosaic" / "bridge" / "handlers" / "autoresearch.py"
+        )
+        _spec = importlib.util.spec_from_file_location(_key, str(_HANDLER_PATH))
+        _ar = importlib.util.module_from_spec(_spec)
+        sys.modules[_key] = _ar
+        _spec.loader.exec_module(_ar)
 
 # Module-level references to handler functions.
 autoresearch_trigger = _ar.autoresearch_trigger

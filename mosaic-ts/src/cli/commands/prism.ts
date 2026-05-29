@@ -12,7 +12,11 @@ import type { Command } from "commander";
 import pc from "picocolors";
 import { BridgeApi, BridgeClient, RpcError } from "../../bridge/index.js";
 import { createLlmFromConfig } from "../../llm/factory.js";
-import { type CohortTrainingResult, runCohortTraining } from "../../prism/trainer.js";
+import {
+  type CohortTrainingResult,
+  runCohortTraining,
+  runPrismTraining,
+} from "../../prism/trainer.js";
 import { buildFakeLlmHandle } from "../_backtest_helpers.js";
 
 interface TrainOptions {
@@ -151,27 +155,12 @@ export function registerPrism(program: Command): void {
           onLog: (msg: string) => console.log(pc.dim(`  ${msg}`)),
         };
 
-        // Per-cohort: create branch + run shell, train, then close the ledger.
-        const train = async (cohort: string): Promise<CohortTrainingResult> => {
-          let runId: number | undefined;
-          if (!dryRun) {
-            const shell = await api.prismTrainCohort({ cohort_name: cohort });
-            runId = shell.run_id;
-            if (runId != null) console.log(pc.dim(`  ${cohort}: run_id=${runId}`));
-          }
-          const result = await runCohortTraining({ cohort, ...common });
-          if (!dryRun && runId != null) {
-            const llmCalls = countAgents(result);
-            await api.prismCompleteCohortRun({ run_id: runId, llm_calls: llmCalls });
-          }
-          return result;
-        };
-
-        const results = opts.all
-          ? // runPrismTraining keeps cohorts sequential; but we need the
-            // shell+complete ledger per cohort, so train() wraps each.
-            await sequential(cohorts, train)
-          : [await train(cohorts[0] as string)];
+        // The trainer owns the cohort_runs ledger (open shell + close in a
+        // finally), so the CLI just picks the single- vs multi-cohort entry.
+        const results =
+          cohorts.length === 1
+            ? [await runCohortTraining({ cohort: cohorts[0] as string, ...common })]
+            : await runPrismTraining({ cohorts, ...common });
 
         printTrainingResults(results);
       } catch (err) {
@@ -279,21 +268,6 @@ function handleError(err: unknown, client: BridgeClient): void {
 
 function pad(s: string, width: number): string {
   return s.length >= width ? s : s + " ".repeat(width - s.length);
-}
-
-/** Run an async fn over items strictly in sequence (cohorts never overlap). */
-async function sequential<T, R>(
-  items: ReadonlyArray<T>,
-  fn: (item: T) => Promise<R>,
-): Promise<R[]> {
-  const out: R[] = [];
-  for (const item of items) out.push(await fn(item));
-  return out;
-}
-
-/** Total agent training steps across all layers of a cohort result. */
-function countAgents(result: CohortTrainingResult): number {
-  return result.layers.reduce((n, l) => n + l.agents.length, 0);
 }
 
 const STATUS_COLOR: Record<string, (s: string) => string> = {
