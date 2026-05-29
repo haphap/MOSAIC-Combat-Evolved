@@ -739,6 +739,34 @@ Phase 0 §14 议题中 Tushare endpoint 名 `cb_op` / `yc_cb` / `news` 的 live 
 - [ ] `ts/src/agents/helpers/structured_output.ts` (214) → 对应路径
 - [ ] 测试：`test/process_narration.test.ts` 等沿用 ETFAgents 测试模板
 
+**2A.2 设计决策**（移植中遇到的取舍，记录在前以免后续走偏）：
+
+1. **`prompts/shared.ts`、`schemas/rating.ts` 不整体 port**：tool_report_chain 只
+   依赖 `getNoProcessNarrationInstruction`，structured_output 只依赖 `isChinese`。
+   抽出 2 个小工具到 `helpers/`：
+   - `helpers/i18n.ts`：包 `isChinese()`（从 schemas/rating.ts 取出）
+   - `helpers/prompt_snippets.ts`：包 `getNoProcessNarrationInstruction()`
+   避免把 ETFAgents 的 ETF 专用 prompt（buildInstrumentContext 等）拉进来。
+
+2. **structured_output.ts: structured-only sentences 改为参数注入**：ETFAgents
+   把 3 个 trader 专用 sentence（`STRUCTURED_FIELD_POPULATION_INSTRUCTION` 等）
+   硬编码进 `STRUCTURED_ONLY_SENTENCES`，提到 `target_weight_pct` / `add_triggers`
+   这些 ETF 字段。MOSAIC 25 agents 各有不同 schema 字段，必须改成 caller 注入。
+   API 变化：
+   ```ts
+   // ETFAgents (硬编码)
+   stripStructuredOnlyText(text)  // 内部 STRUCTURED_ONLY_SENTENCES
+   // MOSAIC (参数化)
+   stripStructuredOnlyText(text, sentencesToStrip: ReadonlyArray<string>)
+   ```
+   `bindStructured` / `buildProseOnlyFallbackPrompt` / `invokeStructuredOrFreetext`
+   都加一个可选 `structuredOnlySentences` 参数，默认空数组。每个 agent 自己定义
+   并传入 schema-only sentences。
+
+3. **保留 ETFAgents 的 regex 字面量**：`process_narration.ts` 的中英文 process-
+   narration 正则是经过 ETFAgents 真实样本调过的，verbatim 复制（不改一字）。
+   后续 MOSAIC 25 agent 跑下来如果发现新 false-positive 模式，回到这里加分支。
+
 ### Sub-step 2B：Vertical slice（central_bank 端到端）
 
 证明 1 个 agent 走完 prompt → tool → schema → node → state.write 完整链路。
