@@ -22,6 +22,14 @@ AGENTS.md
 # MOSAIC runtime artefacts (data + caches + autoresearch backups)
 data/
 !data/.gitkeep
+
+# Phase 3.5 qlib data (gitignored; ~1.5 GB binary OHLCV for ~5500 A-shares
+# 1990-now). Stored at the qlib-standard path — overrideable via
+# QLIB_CN_DATA_PATH env var for users who keep data on a separate volume.
+.qlib/
+qlib_data/
+# Skipped-ticker manifest from ingest — informational, not under source control.
+qlib_skipped.txt
 results/
 logs/
 
