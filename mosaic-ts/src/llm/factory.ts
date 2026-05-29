@@ -32,14 +32,25 @@ const OPENAI_COMPATIBLE = new Set([
 
 const NATIVE_PROVIDERS = new Set(["anthropic"]);
 
-/** Default base URLs per provider when the bridge config doesn't specify one. */
+/** Default base URLs per provider when the bridge config doesn't specify one.
+ *
+ * The Lemonade default below targets the standard `lemonade-server-dev`
+ * binary on AMD Ryzen AI / NPU builds (8020/api/v0). If `--provider lemonade`
+ * connects to a different port, override at one of these tiers (highest
+ * precedence first):
+ *   - CLI: pass `--baseUrl http://<host>:<port>/api/v0` (LlmOptions.baseUrl).
+ *   - Env: export `LEMONADE_BASE_URL=...` (also `OLLAMA_BASE_URL`,
+ *     `VLLM_BASE_URL`).
+ *   - Config: set `backend_url` in the bridge config (config.set / .env).
+ * Verify the actual URL from the `lemonade-server-dev` startup log.
+ */
 const DEFAULT_BASE_URL: Record<string, string | undefined> = {
   openai: undefined, // SDK default
   xai: "https://api.x.ai/v1",
   openrouter: "https://openrouter.ai/api/v1",
   ollama: "http://localhost:11434/v1",
   vllm: "http://localhost:8000/v1",
-  lemonade: "http://localhost:8000/api/v0", // AMD Lemonade default
+  lemonade: "http://localhost:8020/api/v0",
   minimax: "https://api.minimax.chat/v1",
   deepseek: "https://api.deepseek.com/v1",
 };
@@ -51,7 +62,10 @@ const API_KEY_ENV: Record<string, string[]> = {
   openrouter: ["OPENROUTER_API_KEY", "OPENAI_API_KEY"],
   ollama: [], // local, no key
   vllm: [], // local, no key
-  lemonade: ["LEMONADE_API_KEY"], // optional; local server may not need it
+  // Local lemonade-server-dev binaries don't use auth (same as ollama / vllm).
+  // Hosted Lemonade with auth is not currently supported by this factory; if
+  // needed, point a custom base URL through a proxy that injects the key.
+  lemonade: [],
   minimax: ["MINIMAX_API_KEY", "OPENAI_API_KEY"],
   deepseek: ["DEEPSEEK_API_KEY", "OPENAI_API_KEY"],
   anthropic: ["ANTHROPIC_API_KEY"],
@@ -112,8 +126,7 @@ function createAnthropic(
       "Missing API key for provider 'anthropic'. Set ANTHROPIC_API_KEY in the environment.",
     );
   }
-  const baseUrl =
-    options.baseUrl ?? (config.anthropic_base_url as string | null | undefined) ?? undefined;
+  const baseUrl = options.baseUrl ?? config.anthropic_base_url ?? undefined;
 
   // Plan §1: anthropic_effort drives the per-request thinking effort.
   // Anthropic's "extended thinking" surface keeps shifting; we forward the
@@ -153,10 +166,13 @@ function createOpenAiCompatible(
   provider: string,
   model: string,
 ): { llm: BaseChatModel; baseUrl: string | undefined } {
-  const baseUrl =
-    options.baseUrl ??
-    (config.backend_url as string | null | undefined) ??
-    DEFAULT_BASE_URL[provider];
+  // Resolution order for base URL:
+  //   1. options.baseUrl (CLI / direct override)
+  //   2. provider-specific env (e.g. LEMONADE_BASE_URL)
+  //   3. config.backend_url from the bridge config
+  //   4. DEFAULT_BASE_URL[provider]
+  const envBaseUrl = pickProviderEnvBaseUrl(provider);
+  const baseUrl = options.baseUrl ?? envBaseUrl ?? config.backend_url ?? DEFAULT_BASE_URL[provider];
 
   const apiKey = pickApiKey(provider);
   const requiresKey = (API_KEY_ENV[provider] ?? []).length > 0;
@@ -177,6 +193,20 @@ function createOpenAiCompatible(
 
   return { llm, baseUrl };
 }
+
+/** Per-provider base-URL env hooks. Empty string treated as unset. */
+function pickProviderEnvBaseUrl(provider: string): string | undefined {
+  const envName = BASE_URL_ENV[provider];
+  if (!envName) return undefined;
+  const value = process.env[envName];
+  return value && value.trim() !== "" ? value : undefined;
+}
+
+const BASE_URL_ENV: Record<string, string | undefined> = {
+  lemonade: "LEMONADE_BASE_URL",
+  ollama: "OLLAMA_BASE_URL",
+  vllm: "VLLM_BASE_URL",
+};
 
 export function createLlmFromConfig(config: MosaicConfig, options: LlmOptions = {}): LlmHandle {
   const provider = (options.provider ?? String(config.llm_provider ?? "anthropic")).toLowerCase();

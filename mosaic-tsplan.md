@@ -661,6 +661,526 @@ Phase 0 §14 议题中 Tushare endpoint 名 `cb_op` / `yc_cb` / `news` 的 live 
 
 ---
 
+## 11.2 Phase 2 详细任务（Sub-step 2A–2F）
+
+> 估算 11–12 turns，~8,600 LOC TS。
+> 分支：`phase-2-daily-cycle-mvp`（已建，内含 Phase 1 review follow-ups 收口
+> commit `e74b766` + Lemonade port fixup `e0c3142`）。
+> 目标：跑通单 cohort（`cohort_default`）的 daily cycle MVP，4 层 25 agents
+> 在 LangGraph.js 上完整调度一次，输出可读报告。
+
+### 关键设计决策（写在前面以免后续走偏）
+
+1. **State 形状**：MOSAIC 不沿用 ETFAgents 的 flat-30-key state（25 agents flat
+   会爆到 40+ field 太吵）。改用 **per-layer output maps keyed by agent ID**，
+   reducer 用 dict-merge（`{...prev, ...next}`）。这样：
+   - 多个 L1 agents 可以并发往 `layer1_outputs` 写入而不冲突
+   - 状态 key 数从 40+ 降到 ~12
+   - 每层有一个 aggregated consensus（`layer1_consensus: RegimeSignal | null`
+     等）由 layer-end aggregator 节点写入
+   ```ts
+   // mosaic-ts/src/agents/state.ts 概念
+   {
+     active_cohort: string;           // "cohort_default" / "cohort_euphoria_2021"
+     as_of_date: string;              // YYYY-MM-DD; "" 表示 live
+     mode: "live" | "backtest";
+     // memory（沿用 ETFAgents pattern）
+     continuity_context: Record<string, string>;
+     lesson_context: Record<string, string>;
+     method_context: Record<string, string>;
+     // layer outputs（dict-merge reducer）
+     layer1_outputs: Record<string, MacroAgentOutput>;
+     layer1_consensus: RegimeSignal | null;
+     layer2_outputs: Record<string, SectorAgentOutput>;
+     layer2_consensus: SectorConsensus | null;
+     layer3_outputs: Record<string, SuperinvestorOutput>;
+     layer4_outputs: { cro, alpha_discovery, autonomous_execution, cio };
+     // observability
+     llm_calls: LlmCallRecord[];      // append reducer
+     trace_id: string;
+   }
+   ```
+
+2. **Output 类型**：state.ts 只用 TS interface（编译期）；运行期 Zod schema 跟
+   每个 agent 定义在 `agents/<layer>/<agent>.ts` 旁边。`z.infer` 桥接两端。
+
+3. **Cohort path resolver**：fallback 链 `cohort_xxx/<layer>/<agent>.<lang>.md`
+   缺失则回 `cohort_default/<layer>/<agent>.<lang>.md`。让 PRISM (Phase 5) 训练
+   后的 cohort prompt 与未训练的 cohort 共享 baseline。
+
+4. **2A 范围控制**：只创建 1 对 prompt 占位（`central_bank.{zh,en}.md`）作为
+   loader 测试 fixture；剩余 24 对（48 个 .md）随 2C/2D 各 agent wire-up 时创建。
+   避免 2A 一上来就有 50 个空模板文件污染 diff。
+
+5. **Phase 2 不做 cohort 切换 UI**：plan §1 启动 cohort 是 `euphoria_2021`，但
+   Phase 2 全程跑 `cohort_default` 基线 prompt（plan §10.1）。Cohort 切换机制
+   留 Phase 5 PRISM 落地。
+
+### Sub-step 2A：Foundation（拆 2A.1 + 2A.2 两个 commit）
+
+**2A.1 — State + 路径 + scaffold**
+- [ ] 创建 `prompts/mosaic/cohort_default/{macro,sector,superinvestor,decision}/`
+      目录骨架（含 `.gitkeep`）
+- [ ] 创建 fixture：`prompts/mosaic/cohort_default/macro/central_bank.{zh,en}.md`
+- [ ] 写 `mosaic-ts/src/agents/types.ts` —— layer-1/2/3/4 output 接口（per Plan §5）
+- [ ] 写 `mosaic-ts/src/agents/state.ts` —— LangGraph.js Annotation root + 12 fields
+      with reducers
+- [ ] 写 `mosaic-ts/src/agents/prompts/cohorts.ts` —— path resolver +
+      `findPromptsRoot()` (under repoRoot/prompts/mosaic/)
+- [ ] 写 `mosaic-ts/src/agents/prompts/loader.ts` —— `loadPrompt({agent, layer,
+      cohort, language})` 读 .md，cache，fallback 链
+- [ ] tests：`test/state.test.ts`（reducer 行为、defaults）+
+      `test/prompt_loader.test.ts`（fallback 链、缺失文件错误）
+
+**2A.2 — 移植 4 个 ETFAgents helpers**（直接复用类，~800 LOC）
+- [ ] `ts/src/agents/helpers/content.ts` (60) → `mosaic-ts/src/agents/helpers/content.ts`
+- [ ] `ts/src/agents/helpers/process_narration.ts` (201) → 对应路径
+- [ ] `ts/src/agents/helpers/tool_report_chain.ts` (328) → 对应路径
+- [ ] `ts/src/agents/helpers/structured_output.ts` (214) → 对应路径
+- [ ] 测试：`test/process_narration.test.ts` 等沿用 ETFAgents 测试模板
+
+**2A.2 设计决策**（移植中遇到的取舍，记录在前以免后续走偏）：
+
+1. **`prompts/shared.ts`、`schemas/rating.ts` 不整体 port**：tool_report_chain 只
+   依赖 `getNoProcessNarrationInstruction`，structured_output 只依赖 `isChinese`。
+   抽出 2 个小工具到 `helpers/`：
+   - `helpers/i18n.ts`：包 `isChinese()`（从 schemas/rating.ts 取出）
+   - `helpers/prompt_snippets.ts`：包 `getNoProcessNarrationInstruction()`
+   避免把 ETFAgents 的 ETF 专用 prompt（buildInstrumentContext 等）拉进来。
+
+2. **structured_output.ts: structured-only sentences 改为参数注入**：ETFAgents
+   把 3 个 trader 专用 sentence（`STRUCTURED_FIELD_POPULATION_INSTRUCTION` 等）
+   硬编码进 `STRUCTURED_ONLY_SENTENCES`，提到 `target_weight_pct` / `add_triggers`
+   这些 ETF 字段。MOSAIC 25 agents 各有不同 schema 字段，必须改成 caller 注入。
+   API 变化：
+   ```ts
+   // ETFAgents (硬编码)
+   stripStructuredOnlyText(text)  // 内部 STRUCTURED_ONLY_SENTENCES
+   // MOSAIC (参数化)
+   stripStructuredOnlyText(text, sentencesToStrip: ReadonlyArray<string>)
+   ```
+   `bindStructured` / `buildProseOnlyFallbackPrompt` / `invokeStructuredOrFreetext`
+   都加一个可选 `structuredOnlySentences` 参数，默认空数组。每个 agent 自己定义
+   并传入 schema-only sentences。
+
+3. **保留 ETFAgents 的 regex 字面量**：`process_narration.ts` 的中英文 process-
+   narration 正则是经过 ETFAgents 真实样本调过的，verbatim 复制（不改一字）。
+   后续 MOSAIC 25 agent 跑下来如果发现新 false-positive 模式，回到这里加分支。
+
+### Sub-step 2B：Vertical slice（central_bank 端到端）
+
+证明 1 个 agent 走完 prompt → tool → schema → node → state.write 完整链路。
+其他 24 agents 按这个模板批量做。
+
+- [ ] 写完 `central_bank` 真 prompt（zh + en，不再 placeholder）
+- [ ] `mosaic-ts/src/agents/layer1/central_bank.ts` —— Zod output schema +
+      build node function（接 BridgeClient + LLM + 3 个工具：`get_pboc_ops` /
+      `get_fred_series(FEDFUNDS)` / `get_yield_curve_cn`）
+- [ ] node 内：load_prompt → bind_tools → tool_loop（复用 Phase 1 的 runToolLoop
+      逻辑，可能要 extract 出 helper）→ structured_output 解析 → 写入
+      `layer1_outputs.central_bank`
+- [ ] vitest 用 mock LLM + mock BridgeApi 验证完整流转
+
+**2B 设计决策**（在写 central_bank 之前定，避免后续 24 agents 反工）：
+
+1. **Two-phase agent execution**：每个 agent 节点先跑工具循环拿到自由分析文本
+   （phase 1：tool-bound LLM + iterative tool calls），再跑结构化抽取
+   （phase 2：用 phase-1 的分析当 user input 喂给 `invokeStructuredOrFreetext`）。
+   不在同一次 LLM call 里同时 bind tools + structured output —— 多数 provider
+   不支持这种组合，强行做会让 schema 解析失败率飙升。
+
+2. **2B 不做 factory 抽象**：先把 `central_bank` 写成具体函数（不复用 generic
+   `buildAgentNode<T>`）。等 2C 拿一个跑通的实现做参照，再抽 factory，避免
+   factory 设计错了 2C 重写 9 次。
+
+3. **`runAgentToolLoop` 小 helper**：放 `helpers/agent_loop.ts`，~100 LOC。
+   `runToolReportChain` 假定 LangGraph-level loop；2B 还没装图，需要一个
+   inline 循环 helper。2E 装图时这个 helper 可能让位给 LangGraph subgraph，
+   不阻塞。
+
+4. **目录布局**：`src/agents/macro/central_bank.ts` 对齐 prompt 目录
+   `prompts/mosaic/cohort_default/macro/`，agent ID = 文件名。共享 schema 进
+   `src/agents/macro/_schemas.ts`（前缀 `_` 避免被误认为 agent 文件）。
+
+5. **结构化抽取的 system prompt**：phase-2（structured extractor）单独写一段
+   "你只负责把下面的分析文字抽成 JSON 字段"，不复用 phase-1 system message。
+   原因：phase-1 system 包含工具使用规则、写作风格约束等，对 schema 抽取无关
+   且容易让 model 多写解释性 prose 干扰 JSON。
+
+6. **Layer-1 输出契约**：`MacroAgentOutputBase` 的 `confidence` + `key_drivers`
+   是聚合器（aggregateLayer1）必读字段。Schema 必须把这两项标 `.describe()` 让
+   LLM 看到约束。否则 RegimeSignal 的 `layer_1_consensus_score` 计算会带噪。
+
+### Sub-step 2C：Layer 1 剩余 9 macro agents + aggregator
+
+按 2B pattern 批量做：
+- [ ] 9 × {prompt zh+en, schema, node, test} = 27 deliverables
+- [ ] `aggregateLayer1` 节点：把 10 个 `MacroAgentOutput` 合成 `RegimeSignal`
+- [ ] LangGraph 局部装配：10 macro nodes 并发 → aggregator → 写
+      `layer1_consensus`
+
+**2C 拆 3 个子提交**（一气干完容易失控）：
+
+* **2C.1** — factory 抽象 + china（第 2 个 agent，证明 factory 可复用）
+* **2C.2** — 剩余 8 个 macro agents 批量加（geopolitical / dollar /
+  yield_curve / commodities / volatility / emerging_markets /
+  news_sentiment / institutional_flow）
+* **2C.3** — `aggregateLayer1` → `RegimeSignal` + LangGraph L1 fan-out
+  装配（10 macro 并发 → aggregator）
+
+**2C 设计决策**（在抽 factory 前定，避免后续 8 个 agent 反工）：
+
+1. **`buildLayerOneAgentNode<TOutput>(spec, deps)` factory**：把 central_bank
+   两阶段执行抽出来。`spec` 携带 agent-specific 配置（agentId / schema /
+   fieldNames / requiredTools / render / fallback / 可选 extractor system），
+   `deps` 携带 `{llmHandle, api, config, onLog?}`。Factory 内部走完
+   `loadPrompt → pickBridgeTools → runAgentToolLoop → invokeStructuredOrFreetext
+   → state update`。每个 macro agent 文件 ~50-80 LOC（vs 2B 的 213 LOC）。
+
+2. **agent 文件结构**：每个 macro agent 一个 `.ts`，导出 `<agent>Spec` +
+   `build<Agent>Node = (deps) => buildLayerOneAgentNode(spec, deps)`。这样：
+   - 测试可以 import `<agent>Spec` 在 unit 层独立验证 spec 合法性
+   - 2D 的 sector / superinvestor / decision agent 可以参考这个 pattern
+     建自己的 layer-specific factory（Layer-2 工具不同，Layer-3 哲学过滤器
+     系统提示不同，Layer-4 输入是上层输出而不是 BridgeApi 工具）
+
+3. **prompts 真值密度策略**：剩余 9 个 macro agent 的 prompt 都按
+   `central_bank` 同款风格写（**双工具最低要求 + 量化约束 + 输出 schema 描述
+   + 写作约束**），但 prompt 长度控制在 30-60 行/语言。Phase 4 autoresearch
+   会迭代这些 prompt，初版"可工作 + 输出契约清晰"即可，不追求完美措辞。
+
+4. **`get_property_data` 不存在的临时处理**：plan §5.1 china agent 列了
+   `get_property_data`，但 Phase 0 macro_data 没实现。china agent 暂用
+   `get_north_capital_flow` 替代（北向资金侧面反映外资对地产/消费的态度），
+   并在 plan §14 加一条 follow-up：Phase 4 autoresearch 之前补
+   `get_property_data` 工具到 mosaic/dataflows/macro_data.py。
+
+5. **Aggregator 算法（2C.3）**：`aggregateLayer1` 简单加权：
+   - stance 投票：每个 agent 的 stance 字段（央行/中国/美元/曲线 → 偏多/偏空
+     映射，volatility/news_sentiment 反向）按 confidence 加权得到 BULLISH /
+     BEARISH / NEUTRAL
+   - `layer_1_consensus_score` = mean(confidence) × stance_alignment_ratio
+   - `key_drivers` 取每个 agent confidence>0.5 的最强 1 条 driver concat
+   不在 2C.3 引入 LLM 二次判断（保持 deterministic，便于回测复现）。
+
+**2C.3 设计决策**（aggregator + graph 装配前定）：
+
+   **Stance 映射表**（每个 agent 字段 → vote {-1, 0, +1}）：
+   | Agent | 字段 | +1 (BULLISH) | -1 (BEARISH) | 0 (NEUTRAL) |
+   |---|---|---|---|---|
+   | central_bank | stance | ACCOMMODATIVE | TIGHTENING | NEUTRAL |
+   | china | policy_direction | PRO_GROWTH | RESTRAINING | BALANCED |
+   | geopolitical | escalation_level | 1 / 2 | 4 / 5 | 3 |
+   | dollar | dxy_trend | WEAKENING | STRENGTHENING | STABLE |
+   | yield_curve | recession_signal | GREEN | RED | YELLOW |
+   | commodities | china_demand_signal | ACCELERATING | DECELERATING | STEADY |
+   | volatility | regime_filter | RISK_ON | RISK_OFF | NEUTRAL |
+   | emerging_markets | em_relative | OUTPERFORMING | UNDERPERFORMING | INLINE |
+   | news_sentiment | retail_sentiment_score + contrarian_flag | score > 0.3 且 contrarian=false | score < -0.3 OR contrarian=true 且 score>0 | 其他 |
+   | institutional_flow | sum(sectors_in_out.net_amount_cny) | > +1B CNY | < -1B CNY | 中间 |
+
+   **加权阈值**：weighted_sum / total_weight > +0.3 → BULLISH，< -0.3 → BEARISH，
+   ±0.3 之间 → NEUTRAL。这个阈值偏保守，避免 10 个 agent 出现"轻度偏多"
+   （比如 6 个 weak +1，4 个 weak -1）就直接喊 BULLISH。
+
+   **`layer_1_consensus_score`**：mean_confidence × alignment_ratio。其中
+   `alignment_ratio` = (与 final stance 同方向 vote 的 agent 数) / 10。
+   这个数 ≤ mean_confidence，反映"agents 之间共识强度"。下游 Layer 2/3 拿
+   它做 sector / superinvestor 启用门槛。
+
+   **LangGraph fan-out 拓扑**：
+   ```
+   START ─┬→ central_bank ──┬→ aggregate_l1 → END
+          ├→ china ─────────┤
+          ├→ geopolitical ──┤
+          ├→ dollar ────────┤
+          ├→ yield_curve ───┤
+          ├→ commodities ───┤
+          ├→ volatility ────┤
+          ├→ em ────────────┤
+          ├→ news_sentiment ┤
+          └→ institutional ─┘
+   ```
+   10 个 macro 节点从 START 并行扇出（LangGraph 看到多 edge from same source
+   会自动并发），所有节点跑完后 fan-in 到 aggregator。`layer1_outputs` 的
+   dict-merge reducer 自动收 10 个 agent 的写入。
+
+   **2C.3 范围控制**：subgraph 终点是 END（不是 Layer 2 入口）。2D 落 sector
+   agent 时把 END 换成 `layer2_subgraph_entry` 即可；Phase 2C.3 完结时
+   `aggregate_l1 → END` 是合法终态，可以直接 invoke 跑出 `layer1_consensus`。
+
+### Sub-step 2D：Layer 2/3/4（15 agents + cohort fanout 工具）
+
+**2D 拆 3 个子提交**：
+* **2D.1** — Layer 2 / 7 sector agents（含 relationship_mapper） + Layer-2 factory + L2 subgraph
+* **2D.2** — Layer 3 / 4 superinvestor agents（哲学过滤器，prompts 重头戏）+ L3 subgraph
+* **2D.3** — Layer 4 / 4 decision agents（cro/alpha/autonomous/cio）+ L4 subgraph
+
+按 Plan §5.2/5.3/5.4 配置：
+
+- [ ] Layer 2: 7 sector agents（同模板，工具用 sector-specific holdings/research）
+- [ ] Layer 3: 4 superinvestor agents（哲学过滤器；prompts 重头戏）
+- [ ] Layer 4: cro / alpha_discovery / autonomous_execution / cio
+      （Plan §5.4，cio 是 final aggregator）
+- [ ] cohort fanout helper：从 `layer1_consensus` 派生不同 cohort 的 view
+      （Phase 5 PRISM 用）
+
+**2D.1 设计决策**（Layer 2 sector agents）：
+
+1. **Layer-2 factory 独立**（不复用 Layer-1 factory）。两点关键差异：
+   - Layer 2 节点 **读上游 state**：`state.layer1_consensus` (`RegimeSignal`) +
+     `state.layer1_outputs.{china, institutional_flow, ...}` 的 sector_focus
+     等字段。把这些塞进 phase-1 system message context（"当前宏观 regime: ...
+     sector_focus 列表：..."），让 sector agent 在选 longs/shorts 时知道
+     宏观背景。
+   - 写入位置不同（`layer2_outputs` vs `layer1_outputs`）；factory 的 state
+     update 路径必须独立。
+
+2. **6 个标准 sector agents 共享 schema 形态**（半导体/能源/医药/消费/工业/
+   金融），都是 `{longs: SectorPick[], shorts: SectorPick[], sector_score,
+   key_drivers, confidence}`。每个 agent 用 z.literal(<id>) 区分。
+   `relationship_mapper` 输出形态完全不同（supply_chains / ownership_clusters
+   / contagion_risks），但走同一 factory（factory 是 schema-agnostic）。
+
+3. **types.ts 补 `confidence` 到 sector base**：原始定义没有；Phase 3 scorecard
+   + Phase 5 PRISM 都需要 sector-level 置信度，现在补上避免日后改契约。
+
+4. **工具缺口处理**（Plan §5.2 列出的 ETF 工具 Phase 0/1 都没有）：
+   `get_etf_holdings(*)` / `get_industry_research` / `get_top_holdings_overlap`
+   等都缺。2D.1 sector agents 退而求其次用：
+   - `get_industry_policy`（按 sector 关键词 filter）
+   - `get_xueqiu_heat`（板块龙头股的散户关注度 → 散户对 sector 的认知）
+   - `get_lhb_ranking`（当日 LHB 上榜个股按 sector 聚合）
+   - `get_north_capital_flow`（北向资金的 sector preference proxy；真实的
+     by-sector flow 在 Phase 4+ 接 `moneyflow_hsgt_top10` 后再替换）
+
+   每个 sector agent 的 prompt 明确说"由于 ETF 工具不可用，picks 必须基于
+   板块龙头 + 政策 + 资金流向 三角推断，不要编造未在工具返回中出现的 ticker"。
+   `confidence ≤ 0.5` cap on 所有 sector agents until Phase 4 ETF tools land。
+
+5. **`relationship_mapper` 单独处理**：
+   - Plan §5.2 的 `get_top_holdings_overlap` / `get_related_party_transactions`
+     都不存在（ETF 持仓 + 股东网络数据均缺）。
+   - 2D.1 的 relationship_mapper 仅做 **跨 sector 资金流向相关性** 推断，
+     基于 `state.layer2_outputs.*.sector_score` + 北向资金的 sector breakdown。
+     输出 contagion_risks 仍有意义，supply_chains / ownership_clusters
+     直接列已知大产业链（半导体设备链 / 新能源车链 / 白酒消费链）的硬编码
+     映射作为占位。Phase 4 接真实工具后改。
+
+6. **L2 subgraph 入口契约**：buildLayer2Graph 假定 `layer1_consensus` 已写入
+   （即从 L1 subgraph 聚合器输出过来）。空状态下退化到 NEUTRAL regime。
+
+**2D.2 设计决策**（Layer 3 superinvestor philosophy filters）：
+
+1. **Layer-3 factory 独立**（不复用 Layer-1 / Layer-2 factory）。读上游：
+   `state.layer1_consensus` (regime) + **`state.layer2_outputs.*`**（7 个
+   sector agent 的 longs/shorts，作为 superinvestor 选股 universe 的输入）。
+   写到 `state.layer3_outputs`。Layer-3 不依赖 LangGraph state 之外的"全局
+   weights / cohort weights" —— 那些 (Plan §5.3 提的 Darwinian weights)
+   留 Phase 3 +。
+
+2. **4 个 superinvestor 都 share 同一 schema 形态**（`{picks: [{ticker,
+   thesis, conviction, holding_period}], philosophy_note, key_drivers,
+   confidence}`），各自用 `z.literal(<id>)` 区分。比 L2 还简单 — 没有
+   `relationship_mapper` 这种异类。
+
+3. **types.ts 补 `confidence` 到 SuperinvestorOutput**：与 L1 / L2 保持
+   一致，让 Phase 3 scorecard / Phase 5 PRISM 都能读 superinvestor 置信度。
+
+4. **工具配置**（每个 superinvestor 1-2 个 supplementary tools，主输入是
+   上游 layers）：
+   - `druckenmiller`（宏观动量）：`get_yield_curve_cn` + `get_industry_policy`
+     —— 找 regime catalyst pair
+   - `aschenbrenner`（AI 算力）：`get_industry_policy` + `get_xueqiu_heat`
+     —— AI 政策 + 算力链 retail attention
+   - `baker`（IP/生物）：`get_industry_policy` —— 药审 / 专利政策窗口
+   - `ackman`（quality compounder）：`get_xueqiu_heat` + `get_lhb_ranking`
+     —— 龙头股关注度 + 大资金动向（quality 公司流动性深）
+   每个 superinvestor 的 prompt 强调"主输入是 layer2_outputs 里的 sector
+   picks，工具只用于补充验证"。
+
+5. **prompt 是 plan §3 标记的"重头戏"**：写得比 sector agent 更详细，体现
+   每个 philosopher 独有的判断框架（asymmetric trade / AI capex / IP moat /
+   pricing power）。每个 prompt 30-50 行，明确：
+   - 你的哲学是什么、为什么这个哲学适用 A 股
+   - 选股 universe = layer2_outputs.*.longs（**先在那里找 candidate**）
+   - 评分维度（不同 superinvestor 不同）
+   - holding_period 分桶（短/中/长）映射
+
+6. **Cohort awareness**：Phase 5 PRISM 会按 cohort 训练 superinvestor
+   prompts（plan §10）。2D.2 写 baseline 版本，后续 cohort_xxx 覆盖。
+
+7. **L3 subgraph**：buildLayer3Graph(deps) 拓扑 START → 4 nodes（并发） →
+   END。无 aggregator —— Layer-4 cio 才做最终聚合。
+
+**2D.3 设计决策**（Layer 4 decision agents）：
+
+1. **Layer-4 factory 与 L1/L2/L3 显著不同**：**不调 BridgeApi 工具**，纯
+   synthesis。每个 L4 节点：load prompt → buildUserContext（读特定上游 layers）
+   → 单次 LLM invoke（无 tool loop） → 结构化抽取 → 写 state.layer4_outputs。
+   这让 L4 节点更便宜（每节点 1-2 次 LLM call vs L1-3 的 3-4 次）。
+
+2. **L4 是小 DAG，不是并行 fan-out**：plan §5.4 输入依赖关系如下，
+   buildLayer4Graph 必须显式建出来：
+   ```
+   START ─┬→ cro ────────────┐
+          └→ alpha_discovery ─┴→ autonomous_execution → cio → END
+   ```
+   - cro + alpha_discovery 并行（都读 L1+L2+L3）
+   - autonomous_execution 等 cro+alpha 完成后跑（读其结果 + L3 picks）
+   - cio 最后跑（读所有上层 + L4 cro/alpha/auto_exec）
+   LangGraph 的多 incoming-edge 自动 superstep barrier 处理这个依赖。
+
+3. **types.ts 给 L4 outputs 都加 confidence**：CRO / AlphaDiscovery /
+   AutoExec / CIO 都加 agent-level `confidence: number`，与 L1-3 对齐。
+   `AutoExecOutput.trades[].conviction` 是 per-trade，与 agent confidence
+   并存。
+
+4. **CIO 双写状态**：`state.layer4_outputs.cio` + `state.portfolio_actions`。
+   后者是顶层便利字段（Phase 3 scorecard / TUI 直接读），由 cio 单一写入，
+   replace reducer 一致。
+
+5. **Darwinian weights / JANUS regime 的占位策略**：
+   - autonomous_execution prompt 提到"Darwinian weights" 的概念，但 2D.3
+     用 stub（uniform weights = 1/N）；Phase 3 scorecard 落地后真实 weights
+     从 `state.continuity_context` 流入。
+   - cio prompt 提到"JANUS regime" 概念，但 2D.3 阶段 JANUS 不存在
+     （Phase 6 落地）。cio 直接看 `state.layer1_consensus` 当 regime 信号。
+   - 两个 stub 都在 prompt 里**明确说出来**："本 cycle 没有 Darwinian /
+     JANUS 上下文，按 uniform / 单 cohort 处理"。Phase 3/6 接入时改 prompt。
+
+6. **Schema 严格度递增**：
+   - cro: 简单（rejected_picks 列表 + 风险描述）
+   - alpha_discovery: 简单（novel_picks 列表 + 为什么别人没看到）
+   - autonomous_execution: 中等（trades 含 size_pct + conviction）
+   - **cio**: 严格（portfolio_actions 含 ticker / action / target_weight /
+     holding_period / dissent_notes）。target_weight 必须 sum to 1.0
+     ±0.05 容差（schema 用 superRefine 校验）。dissent_notes 在 cio 与
+     auto_exec 不一致时必须非空。
+
+### Sub-step 2E：4 层 LangGraph.js graph 装配
+
+**2E 设计决策**（落地 daily_cycle.ts 之前）：
+
+1. **顺序复合，subgraph 用 delta wrapper 调用**：L1/L2/L3/L4 都是已经
+   compile 的 StateGraph，且共享同一个 `DailyCycleState` 注解。**实测发现**
+   把 compiled subgraph 直接传给 `addNode("layer1", l1)` 时，subgraph 返回
+   的是完整 output state（含累积的 `llm_calls`），parent 的 appendReducer
+   会把它再追加到自己已有的 `llm_calls` 上 —— 4 层串完后 llm_calls 数从
+   25 膨胀到 120+，加 replay 后到 243。所以我们用 `invokeSubgraph` wrapper
+   显式计算 append-reducer 字段（llm_calls / messages）的 delta，
+   replace / dict-merge channel 直接转发（这两类 reducer 对相同内容的
+   重复更新是幂等的）。
+
+2. **拓扑**：
+   ```
+   START → layer1 → layer2 → layer3 → layer4 → [veto_check]
+                                                  ↓ replay
+                                                  layer4_replay → END
+                                                  ↓ end
+                                                  END
+   ```
+   每个 layer 节点是 compiled subgraph。`veto_check` 是 conditional edge
+   函数，读 `state.layer4_outputs.cro` 决定走 replay 还是 end。
+
+3. **CRO veto loop 用拓扑保证 max 1 replay**：不引入 `daily_cycle_retries`
+   状态字段。`layer4_replay → END` 是无条件边，所以图最多走一次 replay 路
+   径。如果 replay 后 cro 仍然不满意，下一次 daily cycle 再处理（或 phase
+   3 把 retries 接入）。这避免在 state 上加新 channel 影响所有现有
+   fixtures。
+
+4. **layer4_replay subgraph**：`START → alpha_discovery → auto_exec → cio
+   → END`（不重跑 cro，复用 state 里现有 cro 输出）。alpha_discovery 在
+   replay 时读到的 `layer4_outputs.cro` 是第一轮的 rejected_picks，可以
+   据此找替代候选。auto_exec 同样看到 cro 的反对，不会再选被拒的 ticker。
+
+5. **veto 触发条件**：cro.rejected_picks 数 > L3 picks 总数 × 0.5。空集
+   或低拒绝率直接 END。`getCandidatePoolSize(state)` 计算 L3 superinvestor
+   各 agent picks 的并集大小。这是简单启发式，phase 3 scorecard 后可换
+   为基于历史命中率的自适应阈值。
+
+6. **CLI 入口推迟到 2F**：2E 只产出 `buildDailyCycleGraph(deps)` 工厂，
+   返回 compiled graph，不写 CLI command；CLI/smoke 是 2F 的事，方便
+   2E 单独跑 vitest 单测。
+
+7. **llm_calls / messages append-reducer 安全性**：通过 `invokeSubgraph`
+   wrapper 主动 slice 出 delta（`result.llm_calls.slice(state.llm_calls.length)`），
+   parent 的 appendReducer 只接收新增条目。我们在测试里 assert：跑完
+   一次 daily cycle 后 llm_calls.length = sum(per-layer agent count) =
+   25（无 veto 路径）或 28（含 replay 的 alpha+auto+cio 各 +1）。
+
+- [ ] `mosaic-ts/src/graph/daily_cycle.ts` —— `buildDailyCycleGraph()`
+- [ ] State propagation：L1 → L2（按 RegimeSignal 决定 sector 启用集）→
+      L3 → L4
+- [ ] Conditional edge：CRO 否决 → 回 L4 重做 alpha_discovery（max 1 轮，
+      避免死循环）
+- [ ] 大约 ~500 LOC，参考 ETFAgents `graph/etf_graph.py` 架构
+
+### Sub-step 2F：Daily cycle MVP CLI smoke
+
+**2F 设计决策**：
+
+1. **CLI flag 集合**（参考 cli/commands/tool-loop.ts 模式）：
+   - `--cohort <name>`（默认 cohort_default）
+   - `--date <YYYY-MM-DD>`（默认今日，A 股 trading 日历不在 Phase 2 范围）
+   - `--fake-llm`：用 mock LLM 跑端到端，sidecar / tool / graph 都是真的，
+     仅 LLM 调用是 canned。零 API cost。**主验证渠道**。
+   - `--llm-provider <lemonade|anthropic>`：默认从 .env 读
+     LEMONADE_BASE_URL 推断。Phase 2F 实测用 lemonade。
+   - `--out <path>`：JSON dump 最终 state（含 4 layer outputs +
+     portfolio_actions）。默认 stdout。
+
+2. **打印格式**：4 块（L1 regime / L2 sector picks / L3 superinvestor picks
+   / L4 + portfolio_actions），每块 ≤ 20 行。彩色分层（chalk），对终端
+   可读。`--out` 模式输出原始 JSON 不做 ANSI 染色。
+
+3. **错误处理优先级**：bridge 启动失败 / sidecar tool 调用失败 → log + 继续
+   （当前 layer 用 fallback output 占位）。LLM 调用失败 → bubble up 让 CLI
+   exit 1。这避免一个 tool 故障让整个 25-agent cycle 挂。
+
+4. **smoke 测试矩阵**：
+   - **`pnpm dev daily-cycle --fake-llm`**: 必跑通；sidecar + 8 个 macro
+     tool 都真调用（FRED / Tushare token 从 .env），LLM 用 mock。这验证
+     bridge 链 + dataflows + LangGraph 全栈。
+   - **`pnpm dev daily-cycle`** (lemonade)：跑过即可，不强制断言成本。
+     验证 lemonade 本地工具调用 + 中文输出。
+   - 不做 anthropic 跑，留给用户本地 + 生产期。
+
+5. **不写 unit 测试**：CLI 命令本身是 thin wrapper，逻辑都已 covered 在
+   2A-2E 的 228 个测试里。2F 的"测试" = `--fake-llm` smoke 跑出非空
+   portfolio_actions 即合格。
+
+6. **Phase 2 出口标准**（plan §11.2 末已定）：
+   - 25 agents 全部写完 ✓
+   - LangGraph.js 4 层装配跑通 1 次完整 daily cycle ✓ via 2E e2e test
+   - `pnpm dev daily-cycle --fake-llm` 跑通 → smoke 输出 portfolio_actions
+   - PR `phase-2-daily-cycle-mvp → main`
+
+- [ ] `mosaic-ts/src/cli/commands/daily-cycle.ts` —— 新 CLI 命令
+      `pnpm dev daily-cycle [--cohort cohort_default] [--date YYYY-MM-DD] [--dry-run]`
+- [ ] 真 sidecar + lemonade 跑通一次完整 cycle（25 agents 串完）
+- [ ] 输出：4 层报告 + final portfolio_actions 表
+- [ ] 验证 LLM 成本（plan §13 估算 $0.125/cycle，实测 / 校准）
+
+### 2A → 2F 验证矩阵（每个 sub-step 完成后）
+
+```
+pnpm typecheck     必绿
+pnpm lint          必绿
+pnpm test          必绿（增量加测试）
+pnpm dev daily-cycle --cohort cohort_default --dry-run   2F 后必跑通
+```
+
+### Phase 2 出口标准
+
+- 25 agents 全部写完（prompt zh+en、schema、node、单测）
+- LangGraph.js 4 层装配跑通 1 次完整 daily cycle
+- 输出形态稳定（`layer4_outputs.cio.portfolio_actions[]` 是 Phase 3 scorecard 的
+  输入契约）
+- PR `phase-2-daily-cycle-mvp → main`，类似 PR #1 流程
+
+---
+
 ## 12. 风险登记
 
 | 风险 | 影响 | 缓解 |
@@ -757,6 +1277,30 @@ Phase 0 §14 议题中 Tushare endpoint 名 `cb_op` / `yc_cb` / `news` 的 live 
 
    不阻塞 PR #1 merge。Phase 1 PR #1 提交时已修了真 correctness bug
    （tool-loop forced-final 用 unbound LLM），其余记此追踪。
+
+8. **Layer-1 macro tools 缺口**（plan §5.1 列出的工具 vs Phase 0 macro_data 实际
+   实现的工具差距，影响 2C 的 agent prompt）：
+
+   | Plan §5.1 期望 | Phase 0 实际有 | 2C.2 替代 / 处理 |
+   |---|---|---|
+   | `get_property_data` (china) | ❌ | 用 `get_north_capital_flow` 替代 |
+   | `get_us_china_relations` (geopolitical) | ❌ | 用 `get_xueqiu_heat` + `get_industry_policy`（地缘相关关键词）|
+   | `get_usdcny` (dollar) | ❌ | 用 `get_fred_series(DTWEXBGS)` + `get_north_capital_flow` |
+   | `get_commodity_prices` (commodities) | ❌ | 用 `get_fred_series(DCOILWTICO)` + `get_fred_series(GOLDPMGBD228NLBM)` |
+   | `get_ivx` (volatility) | ❌ | 仅用 `get_fred_series(VIXCLS)` + `get_yield_curve_cn` 推断 |
+   | `get_etf_indicator(510050.SH)` (volatility) | ❌（ETF 工具 Phase 1+） | 同上 |
+   | `get_etf_price_data(EEM)` (emerging_markets) | ❌ | 用 `get_north_capital_flow` + `get_us_china_spread` |
+   | `get_etf_price_data(2800.HK)` (emerging_markets) | ❌ | 同上 |
+   | `get_news` (news_sentiment) | ✅ dataflows 有，未 macro_tools 包装 | Phase 0 Day 4 已包 `get_industry_policy`（含 news），用它 |
+   | `get_caixin_sentiment` (news_sentiment) | ❌ | 用 `get_xueqiu_heat` |
+   | `get_fund_flow` (institutional_flow) | ❌ | 用 `get_lhb_ranking` |
+
+   **TODO Phase 4 autoresearch 启动前**补齐 `get_property_data` /
+   `get_usdcny` / `get_commodity_prices` / `get_ivx` / `get_etf_*` /
+   `get_caixin_sentiment` / `get_fund_flow` 至少其中 4 个核心的（property /
+   usdcny / commodity / ivx）。每补一个，对应 agent prompt 的"工具列表"和
+   置信度门槛同步收紧（plan §11.2 2C 设计决策 #3 提到 Phase 4 会
+   autoresearch 迭代 prompt）。
 
 ---
 

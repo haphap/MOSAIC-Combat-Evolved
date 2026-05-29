@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -33,7 +34,43 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-PYTHON = str(PROJECT_ROOT / ".venv" / "bin" / "python")
+
+
+def _resolve_python() -> str:
+    """Pick a Python interpreter for the bridge subprocess.
+
+    Resolution order mirrors ``mosaic-ts/src/bridge/python.ts`` plus a CI-
+    friendly fallback:
+
+      1. ``$MOSAIC_PYTHON`` env var (explicit override; matches the TS client).
+      2. ``<repo>/.venv/bin/python`` on POSIX, ``Scripts\\python.exe`` on Win.
+      3. ``shutil.which("python3")`` — works on CI runners that don't have a
+         project-local venv but do have ``python3`` on PATH.
+      4. Fall back to ``sys.executable`` so the test always has *something*
+         to run; logs the resolution to stderr for debuggability.
+
+    The mosaic package itself must be importable from the chosen interpreter
+    — CI configs should ``pip install -e ".[data,test]"`` ahead of running
+    these tests when a project venv is unavailable.
+    """
+    env_path = os.environ.get("MOSAIC_PYTHON")
+    if env_path:
+        return env_path
+
+    venv_posix = PROJECT_ROOT / ".venv" / "bin" / "python"
+    venv_windows = PROJECT_ROOT / ".venv" / "Scripts" / "python.exe"
+    for candidate in (venv_posix, venv_windows):
+        if candidate.is_file():
+            return str(candidate)
+
+    which = shutil.which("python3") or shutil.which("python")
+    if which:
+        return which
+
+    return sys.executable
+
+
+PYTHON = _resolve_python()
 
 # Expected count of tools.list entries on the Phase-0 Day-4 surface.
 EXPECTED_MACRO_TOOLS = {

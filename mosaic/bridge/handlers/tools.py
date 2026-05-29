@@ -57,12 +57,13 @@ _TOOL_MODULES: tuple[str, ...] = (
 def _iter_module_tools(module_path: str) -> Iterable[BaseTool]:
     try:
         module = importlib.import_module(module_path)
-    except Exception as exc:  # pragma: no cover - import failure logged elsewhere
+    except Exception as exc:  # pragma: no cover - import failure logged below
         import logging
 
-        logging.getLogger("mosaic.bridge").warning(
+        logging.getLogger("mosaic.bridge").error(
             "Failed to import tool module %s: %s", module_path, exc
         )
+        _SKIPPED_TOOL_MODULES.append((module_path, repr(exc)))
         return ()
 
     seen_ids: set[int] = set()
@@ -72,6 +73,12 @@ def _iter_module_tools(module_path: str) -> Iterable[BaseTool]:
             seen_ids.add(id(value))
             found.append(value)
     return found
+
+
+# Records (module_path, error_repr) for any tool module that failed to import
+# during ``_build_registry()``. ``server.run_stdio_server`` reads this in its
+# startup banner so the operator sees missing tools at a glance.
+_SKIPPED_TOOL_MODULES: list[tuple[str, str]] = []
 
 
 def _build_registry() -> Dict[str, BaseTool]:

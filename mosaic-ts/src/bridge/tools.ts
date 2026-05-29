@@ -75,7 +75,13 @@ export function jsonSchemaToZod(schema: JsonSchemaObject): ZodObject {
     // Pydantic emits `default` even for fields that are also in `required`?
     // Treat presence of `default` as making the field optional with a default.
     if (prop.default !== undefined) {
-      field = field.default(prop.default as never);
+      // Zod's `.default()` is generic over the inferred output type of each
+      // field, which we cannot statically resolve here (each property may
+      // be a different primitive). Trust the JSON Schema source emitted by
+      // Pydantic for value-type compatibility, and bound the cast to the
+      // documented input parameter so we don't accidentally bypass other
+      // type checks.
+      field = field.default(prop.default as Parameters<typeof field.default>[0]);
     } else if (!required.has(name)) {
       field = field.optional();
     }

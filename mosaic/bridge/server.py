@@ -156,7 +156,23 @@ def run_stdio_server() -> None:
     """Main entry. Blocks until stdin closes."""
     _configure_logging()
     _load_handlers()
-    logger.info("MOSAIC bridge ready (methods: %d)", len(_handler_count()))
+    handler_names = _handler_names()
+    logger.info("MOSAIC bridge ready (methods: %d)", len(handler_names))
+
+    # Surface any tool modules that failed to import during _build_registry()
+    # so the operator sees missing tools at startup instead of discovering
+    # them via empty tools.list responses later.
+    try:
+        from .handlers.tools import _SKIPPED_TOOL_MODULES
+    except ImportError:
+        _SKIPPED_TOOL_MODULES = []
+    if _SKIPPED_TOOL_MODULES:
+        logger.warning(
+            "Tool registry built with %d skipped module(s): %s",
+            len(_SKIPPED_TOOL_MODULES),
+            ", ".join(f"{m}({err})" for m, err in _SKIPPED_TOOL_MODULES),
+        )
+
     _serve_streams(sys.stdin, sys.stdout)
     # Proactively drain stdout one more time. If the consumer is already gone
     # the interpreter's own at-exit flush would otherwise raise BrokenPipeError
@@ -167,7 +183,7 @@ def run_stdio_server() -> None:
         _silence_stdout(sys.stdout)
 
 
-def _handler_count() -> list[str]:
+def _handler_names() -> list[str]:
     from .registry import all_methods
 
     return all_methods()
