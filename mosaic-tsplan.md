@@ -970,6 +970,49 @@ Phase 0 §14 议题中 Tushare endpoint 名 `cb_op` / `yc_cb` / `news` 的 live 
 6. **L2 subgraph 入口契约**：buildLayer2Graph 假定 `layer1_consensus` 已写入
    （即从 L1 subgraph 聚合器输出过来）。空状态下退化到 NEUTRAL regime。
 
+**2D.2 设计决策**（Layer 3 superinvestor philosophy filters）：
+
+1. **Layer-3 factory 独立**（不复用 Layer-1 / Layer-2 factory）。读上游：
+   `state.layer1_consensus` (regime) + **`state.layer2_outputs.*`**（7 个
+   sector agent 的 longs/shorts，作为 superinvestor 选股 universe 的输入）。
+   写到 `state.layer3_outputs`。Layer-3 不依赖 LangGraph state 之外的"全局
+   weights / cohort weights" —— 那些 (Plan §5.3 提的 Darwinian weights)
+   留 Phase 3 +。
+
+2. **4 个 superinvestor 都 share 同一 schema 形态**（`{picks: [{ticker,
+   thesis, conviction, holding_period}], philosophy_note, key_drivers,
+   confidence}`），各自用 `z.literal(<id>)` 区分。比 L2 还简单 — 没有
+   `relationship_mapper` 这种异类。
+
+3. **types.ts 补 `confidence` 到 SuperinvestorOutput**：与 L1 / L2 保持
+   一致，让 Phase 3 scorecard / Phase 5 PRISM 都能读 superinvestor 置信度。
+
+4. **工具配置**（每个 superinvestor 1-2 个 supplementary tools，主输入是
+   上游 layers）：
+   - `druckenmiller`（宏观动量）：`get_yield_curve_cn` + `get_industry_policy`
+     —— 找 regime catalyst pair
+   - `aschenbrenner`（AI 算力）：`get_industry_policy` + `get_xueqiu_heat`
+     —— AI 政策 + 算力链 retail attention
+   - `baker`（IP/生物）：`get_industry_policy` —— 药审 / 专利政策窗口
+   - `ackman`（quality compounder）：`get_xueqiu_heat` + `get_lhb_ranking`
+     —— 龙头股关注度 + 大资金动向（quality 公司流动性深）
+   每个 superinvestor 的 prompt 强调"主输入是 layer2_outputs 里的 sector
+   picks，工具只用于补充验证"。
+
+5. **prompt 是 plan §3 标记的"重头戏"**：写得比 sector agent 更详细，体现
+   每个 philosopher 独有的判断框架（asymmetric trade / AI capex / IP moat /
+   pricing power）。每个 prompt 30-50 行，明确：
+   - 你的哲学是什么、为什么这个哲学适用 A 股
+   - 选股 universe = layer2_outputs.*.longs（**先在那里找 candidate**）
+   - 评分维度（不同 superinvestor 不同）
+   - holding_period 分桶（短/中/长）映射
+
+6. **Cohort awareness**：Phase 5 PRISM 会按 cohort 训练 superinvestor
+   prompts（plan §10）。2D.2 写 baseline 版本，后续 cohort_xxx 覆盖。
+
+7. **L3 subgraph**：buildLayer3Graph(deps) 拓扑 START → 4 nodes（并发） →
+   END。无 aggregator —— Layer-4 cio 才做最终聚合。
+
 ### Sub-step 2E：4 层 LangGraph.js graph 装配
 
 - [ ] `mosaic-ts/src/graph/daily_cycle.ts` —— `buildDailyCycleGraph()`

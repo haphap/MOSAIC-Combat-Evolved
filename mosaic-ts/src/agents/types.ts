@@ -239,6 +239,21 @@ export interface SuperinvestorOutput {
   /** Why these 3-5 names + macro/sector regime fit. */
   philosophy_note: string;
   key_drivers: string[];
+  /** Self-rated confidence in [0, 1]. Same semantics as L1/L2. */
+  confidence: number;
+}
+
+export interface DruckenmillerOutput extends Omit<SuperinvestorOutput, "agent"> {
+  agent: "druckenmiller";
+}
+export interface AschenbrennerOutput extends Omit<SuperinvestorOutput, "agent"> {
+  agent: "aschenbrenner";
+}
+export interface BakerOutput extends Omit<SuperinvestorOutput, "agent"> {
+  agent: "baker";
+}
+export interface AckmanOutput extends Omit<SuperinvestorOutput, "agent"> {
+  agent: "ackman";
 }
 
 // ============================================================ Layer 4: Decision
