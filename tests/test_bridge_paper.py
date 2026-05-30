@@ -96,11 +96,17 @@ class TestPaperHandlerRouting(unittest.TestCase):
         self.assertEqual(res["amount"], 10_000.0)
         self.assertEqual(len(ph.paper_get_positions({"db_path": self.db, "user_id": "bob"})), 1)
 
-    def test_suggest_order_maps_notimplemented_to_paper_error(self):
-        with self.assertRaises(RpcError) as ctx:
-            ph.paper_suggest_order_from_signal(
-                {"db_path": self.db, "ticker": "159915.SZ", "state": {}})
-        self.assertIn("NotImplementedError", ctx.exception.message)
+    def test_suggest_order_returns_buy_suggestion(self):
+        ph.paper_register({"username": "bob", "password": "pw", "db_path": self.db})
+        ph.paper_login({"username": "bob", "password": "pw", "db_path": self.db})
+        ph.paper_reset_account({"db_path": self.db, "user_id": "bob", "initial_cash": 1_000_000.0})
+        # price mocked at 5.0; 20% of 1M = 200k / 5 = 40000 shares.
+        state = {"backtest_signal": {"ticker": "159915.SZ", "decision_date": "d",
+                                     "source": "s", "source_section": "x",
+                                     "rating": "BUY", "target_weight_pct": 20.0}}
+        out = ph.paper_suggest_order_from_signal(
+            {"db_path": self.db, "ticker": "159915.SZ", "state": state, "user_id": "bob"})
+        self.assertEqual((out["side"], out["quantity"]), ("buy", 40000))
 
 
 if __name__ == "__main__":  # pragma: no cover

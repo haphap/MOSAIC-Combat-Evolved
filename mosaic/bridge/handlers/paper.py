@@ -4,9 +4,9 @@ Stateless: a fresh engine is constructed per call (matching the existing CLI
 pattern in ``cli/commands/paper.py``). The engine's SQLite connection is
 opened/closed inside its own methods so each RPC is self-contained.
 
-Engine ported in Phase 8 刀1. ``suggest_order_from_signal`` is stubbed until
-刀2 (needs ``mosaic.backtest.signals``); all other methods are live. The lazy
-import still maps a missing ``.[trading]`` extra (bcrypt) to ``PAPER_ERROR``.
+Engine ported in Phase 8. All ``paper.*`` methods are live, including
+``suggest_order_from_signal`` (the signal→order linkage, 刀2). The lazy import
+maps a missing ``.[trading]`` extra (bcrypt) to ``PAPER_ERROR``.
 """
 
 from __future__ import annotations

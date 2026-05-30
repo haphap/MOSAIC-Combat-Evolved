@@ -17,6 +17,7 @@ import { registerDailyCycle } from "./commands/daily-cycle.js";
 import { registerDarwinian } from "./commands/darwinian.js";
 import { registerJanus } from "./commands/janus.js";
 import { registerMirofish } from "./commands/mirofish.js";
+import { registerPaper } from "./commands/paper.js";
 import { registerPrism } from "./commands/prism.js";
 import { registerScorecard } from "./commands/scorecard.js";
 import { registerToolCall } from "./commands/tool-call.js";
@@ -41,5 +42,6 @@ registerAutoresearch(program);
 registerPrism(program);
 registerJanus(program);
 registerMirofish(program);
+registerPaper(program);
 
 await program.parseAsync(process.argv);

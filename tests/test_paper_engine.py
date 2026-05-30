@@ -87,9 +87,92 @@ class TestPaperEngine(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.e.buy("510300.SH", 150, user_id="alice")  # not a multiple of 100
 
-    def test_suggest_order_is_stubbed_until_dao2(self):
-        with self.assertRaises(NotImplementedError):
-            self.e.suggest_order_from_signal("510300.SH", {}, user_id="default")
+    def test_suggest_order_buy_from_target_weight(self):
+        self.e.register("alice", "pw")
+        self.e.login("alice", "pw")
+        self.e.reset_account(initial_cash=1_000_000.0)
+        # price is mocked at 10.0; 30% of 1M = 300k / 10 = 30000 shares.
+        state = {"backtest_signal": {"ticker": "510300.SH", "decision_date": "d",
+                                     "source": "s", "source_section": "x",
+                                     "rating": "BUY", "target_weight_pct": 30.0}}
+        sug = self.e.suggest_order_from_signal("510300.SH", state, user_id="alice")
+        self.assertEqual((sug["side"], sug["quantity"]), ("buy", 30000))
+
+    def test_suggest_order_ticker_mismatch_raises(self):
+        self.e.register("alice", "pw")
+        self.e.login("alice", "pw")
+        state = {"backtest_signal": {"ticker": "510300.SH", "decision_date": "d",
+                                     "source": "s", "source_section": "x",
+                                     "rating": "BUY", "target_weight_pct": 30.0}}
+        with self.assertRaises(ValueError):
+            self.e.suggest_order_from_signal("159915.SZ", state, user_id="alice")
+
+    def test_suggest_order_none_when_no_actionable_delta(self):
+        self.e.register("alice", "pw")
+        self.e.login("alice", "pw")
+        self.e.reset_account(initial_cash=1_000_000.0)
+        state = {"backtest_signal": {"ticker": "510300.SH", "decision_date": "d",
+                                     "source": "s", "source_section": "x",
+                                     "rating": "SELL", "target_weight_pct": 0.0}}
+        self.assertIsNone(self.e.suggest_order_from_signal("510300.SH", state, user_id="alice"))
+
+    def test_suggest_buy_capped_to_affordable_cash(self):
+        """A 100% target with tiny cash must not suggest more than cash (+comm)
+        can fund — otherwise buy() would reject the suggestion."""
+        self.e.register("alice", "pw")
+        self.e.login("alice", "pw")
+        self.e.reset_account(initial_cash=1_500.0)  # price 10 → 100 shares = 1000+5 ≤ 1500
+        sig = {"backtest_signal": {"ticker": "510300.SH", "decision_date": "d",
+                                   "source": "s", "source_section": "x",
+                                   "rating": "BUY", "target_weight_pct": 100.0}}
+        sug = self.e.suggest_order_from_signal("510300.SH", sig, user_id="alice")
+        self.assertEqual(sug["quantity"], 100)  # capped, not 15 (=1500/10/... target)
+        # And the suggestion is actually executable.
+        self.e.buy(sug["ticker"], sug["quantity"], user_id="alice")
+        # Below one lot+commission → no suggestion.
+        self.e.reset_account(initial_cash=1_004.0)
+        self.assertIsNone(self.e.suggest_order_from_signal("510300.SH", sig, user_id="alice"))
+
+    def test_suggest_rating_only_fallback_uses_requested_ticker(self):
+        """No attached signal + no asset_of_interest: the fallback must target
+        the requested ticker (default_ticker), not 'unknown'."""
+        self.e.register("alice", "pw")
+        self.e.login("alice", "pw")
+        self.e.reset_account(initial_cash=1_000_000.0)
+        sug = self.e.suggest_order_from_signal(
+            "510300.SH", {"final_allocation_decision": "买入 BUY"}, user_id="alice")
+        self.assertEqual(sug["ticker"], "510300.SH")
+        self.assertEqual(sug["side"], "buy")
+
+    def test_insufficient_cash_rejected(self):
+        self.e.register("alice", "pw")
+        self.e.login("alice", "pw")
+        self.e.reset_account(initial_cash=1_000.0)  # price 10 × 1000 = 10k > 1k
+        with self.assertRaises(ValueError):
+            self.e.buy("510300.SH", 1000, user_id="alice")
+
+    def test_add_to_position_recomputes_avg_cost(self):
+        self.e.register("alice", "pw")
+        self.e.login("alice", "pw")
+        self.e.reset_account(initial_cash=1_000_000.0)
+        with patch.object(PaperTradingEngine, "_get_current_price", return_value=10.0):
+            self.e.buy("510300.SH", 1000, user_id="alice")
+        with patch.object(PaperTradingEngine, "_get_current_price", return_value=20.0):
+            self.e.buy("510300.SH", 1000, user_id="alice")
+        pos = next(p for p in self.e.get_positions("alice") if p["ticker"] == "510300.SH")
+        self.assertEqual(pos["quantity"], 2000)
+        self.assertAlmostEqual(pos["avg_cost"], 15.0)  # (1000·10 + 1000·20)/2000
+
+    def test_get_positions_unlocks_t1_on_new_day(self):
+        self.e.register("alice", "pw")
+        self.e.login("alice", "pw")
+        self.e.reset_account(initial_cash=1_000_000.0)
+        self.e.buy("510300.SH", 1000, user_id="alice")
+        # Simulate a new trading day, then a *read* should unlock available_qty.
+        with self.e._connect() as conn:
+            conn.execute("UPDATE account SET last_unlock_date='2000-01-01' WHERE user_id='alice'")
+        pos = next(p for p in self.e.get_positions("alice") if p["ticker"] == "510300.SH")
+        self.assertEqual(pos["available_qty"], 1000)
 
     def test_cross_user_access_is_blocked_for_reads_and_writes(self):
         """Both writes (buy) and reads (get_account/positions/trades) enforce

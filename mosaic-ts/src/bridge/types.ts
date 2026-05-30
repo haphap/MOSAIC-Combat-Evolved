@@ -148,6 +148,26 @@ export interface PaperTrade {
   created_at: string;
 }
 
+export interface PaperOrderResult {
+  ticker: string;
+  side: "buy" | "sell";
+  quantity: number;
+  price: number;
+  amount: number;
+  commission: number;
+  total_cost?: number;
+  pnl?: number;
+}
+
+export interface PaperSuggestion {
+  ticker: string;
+  side: "buy" | "sell";
+  quantity: number;
+  price: number;
+  target_weight_pct: number;
+  rating: string;
+}
+
 /** Backtest signal payload — same shape Python's analyze_candidate_pool returns. */
 export type BacktestSignalsByDate = Record<string, ReadonlyArray<Record<string, unknown>>>;
 
@@ -541,6 +561,59 @@ export class BridgeApi {
     opts: { user_id?: string; limit?: number; db_path?: string } = {},
   ): Promise<PaperTrade[]> {
     return this.client.call<PaperTrade[]>("paper.get_trades", opts);
+  }
+
+  // paper.* write surface (Phase 8)
+  paperRegister(params: { username: string; password: string; db_path?: string }): Promise<{
+    username: string;
+  }> {
+    return this.client.call<{ username: string }>("paper.register", params);
+  }
+
+  paperLogin(params: { username: string; password: string; db_path?: string }): Promise<{
+    ok: boolean;
+    username: string | null;
+  }> {
+    return this.client.call<{ ok: boolean; username: string | null }>("paper.login", params);
+  }
+
+  paperLogout(opts: { db_path?: string } = {}): Promise<{ logged_out: string | null }> {
+    return this.client.call<{ logged_out: string | null }>("paper.logout", opts);
+  }
+
+  paperResetAccount(
+    opts: { user_id?: string; initial_cash?: number; db_path?: string } = {},
+  ): Promise<{ ok: boolean }> {
+    return this.client.call<{ ok: boolean }>("paper.reset_account", opts);
+  }
+
+  paperBuy(params: {
+    ticker: string;
+    quantity: number;
+    user_id?: string;
+    analysis_id?: string;
+    db_path?: string;
+  }): Promise<PaperOrderResult> {
+    return this.client.call<PaperOrderResult>("paper.buy", params);
+  }
+
+  paperSell(params: {
+    ticker: string;
+    quantity: number;
+    user_id?: string;
+    analysis_id?: string;
+    db_path?: string;
+  }): Promise<PaperOrderResult> {
+    return this.client.call<PaperOrderResult>("paper.sell", params);
+  }
+
+  paperSuggestOrderFromSignal(params: {
+    ticker: string;
+    state: Record<string, unknown>;
+    user_id?: string;
+    db_path?: string;
+  }): Promise<PaperSuggestion | null> {
+    return this.client.call<PaperSuggestion | null>("paper.suggest_order_from_signal", params);
   }
 
   // backtest.*
