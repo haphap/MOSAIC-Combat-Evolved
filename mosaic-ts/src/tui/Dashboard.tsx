@@ -1,12 +1,12 @@
 /**
  * Phase 9B: read-only Ink dashboard. Aggregates three existing read RPCs into
- * one live screen — no new bridge methods. Tabs: 1 Skill / 2 Paper / 3 Cohorts;
- * keys r=refresh, q=quit. The BridgeApi is injected so the component is testable
- * with a fake.
+ * one screen — no new bridge methods. Tabs: 1 Skill / 2 Paper / 3 Cohorts;
+ * keys r=refresh (manual; no auto-poll), q=quit. The BridgeApi is injected so
+ * the component is testable with a fake.
  */
 
 import { Box, Text, useApp, useInput } from "ink";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   BridgeApi,
   CohortInfo,
@@ -39,6 +39,7 @@ export function Dashboard({ api, cohort, user }: Props) {
   const [tab, setTab] = useState<Tab>("skill");
   const [data, setData] = useState<Data | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const mounted = useRef(true);
 
   const load = useCallback(async () => {
     setError(null);
@@ -49,14 +50,17 @@ export function Dashboard({ api, cohort, user }: Props) {
         api.paperGetPositions(user ? { user_id: user } : {}).catch(() => []),
         api.prismListCohorts().then((r) => r.cohorts),
       ]);
-      setData({ skill, account, positions, cohorts });
+      if (mounted.current) setData({ skill, account, positions, cohorts });
     } catch (err) {
-      setError((err as Error).message);
+      if (mounted.current) setError((err as Error).message);
     }
   }, [api, cohort, user]);
 
   useEffect(() => {
     void load();
+    return () => {
+      mounted.current = false;
+    };
   }, [load]);
 
   useInput((input) => {

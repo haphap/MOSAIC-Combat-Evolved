@@ -1,11 +1,13 @@
 /**
- * Phase 9B CLI: ``pnpm dev dashboard`` — render the read-only Ink dashboard.
+ * Phase 9B CLI: ``pnpm dev dashboard`` — render the read-only Ink dashboard
+ * (manual-refresh view aggregating existing read RPCs).
  */
 
 import type { Command } from "commander";
 import { render } from "ink";
+import pc from "picocolors";
 import { createElement } from "react";
-import { BridgeApi, BridgeClient } from "../../bridge/index.js";
+import { BridgeApi, BridgeClient, RpcError } from "../../bridge/index.js";
 import { Dashboard } from "../../tui/Dashboard.js";
 
 interface DashboardOpts {
@@ -32,6 +34,13 @@ export function registerDashboard(program: Command): void {
           }),
         );
         await app.waitUntilExit();
+      } catch (err) {
+        if (err instanceof RpcError) {
+          console.error(pc.red(`bridge error [${err.code}]: ${err.message}`));
+        } else {
+          console.error(pc.red(`error: ${(err as Error).message}`));
+        }
+        process.exitCode = 1;
       } finally {
         await client.close();
       }

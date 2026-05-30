@@ -97,4 +97,27 @@ describe("Dashboard", () => {
     await flush();
     expect(api.prismListCohorts).toHaveBeenCalledTimes(2);
   });
+
+  it("shows a friendly message on the paper tab when not logged in", async () => {
+    const api = fakeApi();
+    api.paperGetAccount = vi.fn().mockRejectedValue(new Error("not logged in"));
+    const { stdin, lastFrame } = render(
+      createElement(Dashboard, { api: api as never, cohort: "cohort_default" }),
+    );
+    await flush();
+    stdin.write("2");
+    await flush();
+    expect(lastFrame()).toContain("no paper account");
+  });
+
+  it("unmounts on 'q' without throwing", async () => {
+    const api = fakeApi();
+    const { stdin, unmount } = render(
+      createElement(Dashboard, { api: api as never, cohort: "cohort_default" }),
+    );
+    await flush();
+    stdin.write("q");
+    await flush();
+    unmount(); // no setState-after-unmount warning
+  });
 });
