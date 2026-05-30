@@ -2562,8 +2562,42 @@ impact=0.10→autocorr +0.07；impact=0.20→**autocorr +0.20、vol_clustering +
   实测「记忆是否带来可测增益」——即一次真正的 A/B-lift（swarm+memory 训练 vs swarm
   训练）。在看到该增益之前仍不投入完整 7M.2/7M.3。
 
-**建议顺序**：7M.1b 调参 ✅ → path-aware 评分器 ✅ → **下一步：A/B-lift 验证**（用
-path-aware 目标，比较 swarm vs montecarlo 训练，及 swarm±memory 雏形），再决定 7M.2。
+**建议顺序**：7M.1b 调参 ✅ → path-aware 评分器 ✅ → A/B-lift 验证 ✅（见下）。
+
+### 7M.2 A/B-lift 验证（最终 gate，2026-05-30）
+
+> 问题：swarm 的反身结构（lag-1 autocorr ≈ +0.16）+ path-aware 评分，是否变成
+> 一个**可被利用、且排序不同**的训练信号？——这是 memory（7M.2）能加任何东西的前提。
+> 工具：`mosaic/mirofish/ab_lift.py`（纯 numpy，确定性）。4 个确定性规则策略
+> （trend_follower / mean_reverter / always_buy / always_hold，**只看路径前 25%** 决策，
+> 无 look-ahead），跨 engine×scorer 4 个 regime 打分；外加一个干净的前瞻探针。
+
+**实测数（n=150 seeds × 5 情景）：**
+
+| 指标 | 结果 | 解读 |
+|---|---|---|
+| **前瞻信号**（早窗收益 vs 后窗收益相关，按情景去漂移） | MC **+0.02** / swarm **+0.10**（各样本量 swarm 恒 > MC，gap +0.14~+0.28） | ✅ swarm 有**可被利用的前瞻信号**，MC（i.i.d.）≈0 |
+| **区分度**（最优-最差策略均分差） | MC+term **0.59** / swarm+term **0.15** | ⚠️ swarm **压缩**了训练梯度 |
+| **排序变化**（vs MC+terminal 的 Spearman ρ） | 仅 swarm+path_aware **ρ=0.8**（其余 1.0） | ✅ 只有 swarm+path_aware 重排了 agent 排序 |
+
+**裁决：CONDITIONAL-GO，但要先解决「梯度压缩」——不是直接全量 7M.2。**
+- ✅ **正面**：去漂移前瞻相关 swarm 恒为正、MC 恒≈0 —— 这正是 memory 能学的东西
+  （「早期趋势 → 后续延续」在 swarm 里真实存在、在 MC 里不存在）。且 swarm+path_aware
+  是唯一改变 agent 排序的 regime（ρ=0.8）。**所以反身信号确实存在且可被利用、可改变训练
+  排序** —— 7M.2 的存在性前提成立。
+- ⚠️ **负面（必须正视）**：swarm 把好坏策略的**区分度从 0.59 压到 0.15**。当前
+  `_PRICE_IMPACT=0.16` 在产生 autocorr 的同时也压低了终值离散度，使得「信号存在」却
+  「梯度很平」——直接训练，agent 间分差太小，学习信号弱。**前瞻相关的幅度也只有中等
+  (~0.1) 且随样本波动**，不是强信号。
+- **结论**：full 7M.2 memory **值得做，但 ROI 中等且有前置**。投入顺序应是：
+  1. **先做一个最小 memory 雏形 + 在这个 ab_lift harness 上量增益**（trend_follower 类
+     策略带「跨轮记忆」是否把前瞻相关转成可测的分差提升），而不是先建完整 7M.2 基建；
+  2. 若雏形能把区分度/前瞻利用拉起来，再做完整 `AgentMemory`（7M.2）与 LLM personas
+     （7M.3）；
+  3. 顺带评估把 `_PRICE_IMPACT` / `_DRAWDOWN_PENALTY` 作为可调旋钮，找「autocorr 高 +
+     区分度不塌」的联合工作点（当前二者此消彼长）。
+- **诚实结论**：信号是真的，但不强；7M.2 不是「显然高回报」，建议**雏形先行、增益驱动**，
+  而非一次性投入完整 memory+persona 栈。
 
 ### buy-vs-build 决策
 
