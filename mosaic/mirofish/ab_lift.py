@@ -98,10 +98,12 @@ def _ranking(scores: dict[str, float]) -> list[str]:
 def _forward_signal(engine: str, seeds: list[int], num_days: int) -> dict[str, float]:
     """Clean canary, free of the policy harness's drift/conditioning contamination:
     correlation between the EARLY-window return and the POST-window return on the
-    probe, across scenarios. > 0 ⇒ early trend predicts the future ⇒ exploitable
-    reflexive signal a memory model (7M.2) could learn; ≈ 0 ⇒ nothing to learn.
-    Demeaned per scenario-type so it measures within-regime continuation, not the
-    bull/bear drift both engines share."""
+    probe. > 0 ⇒ early trend predicts the future ⇒ exploitable reflexive signal a
+    memory model (7M.2) could learn; ≈ 0 ⇒ nothing to learn.
+
+    Computed PER scenario_type then EQUAL-weight averaged — this both removes the
+    bull/bear drift both engines share (within-type variation only) and avoids
+    letting high-vol types (tail/bear) dominate a pooled estimate."""
     early: dict[str, list[float]] = {}
     fwd: dict[str, list[float]] = {}
     for seed in seeds:
@@ -113,15 +115,15 @@ def _forward_signal(engine: str, seeds: list[int], num_days: int) -> dict[str, f
             st = s["scenario_type"]
             early.setdefault(st, []).append(prices[k] / prices[0] - 1.0)
             fwd.setdefault(st, []).append(prices[-1] / prices[k] - 1.0)
-    a, b = [], []
+    corrs, n = [], 0
     for st in early:
         ea, fa = np.array(early[st]), np.array(fwd[st])
-        a.extend((ea - ea.mean()).tolist())
-        b.extend((fa - fa.mean()).tolist())
-    a, b = np.array(a), np.array(b)
-    if a.size < 3 or np.std(a) == 0 or np.std(b) == 0:
-        return {"early_vs_forward_corr": 0.0, "n": int(a.size)}
-    return {"early_vs_forward_corr": float(round(np.corrcoef(a, b)[0, 1], 4)), "n": int(a.size)}
+        n += ea.size
+        if ea.size >= 3 and np.std(ea) > 0 and np.std(fa) > 0:
+            corrs.append(float(np.corrcoef(ea, fa)[0, 1]))
+    if not corrs:
+        return {"early_vs_forward_corr": 0.0, "n": n}
+    return {"early_vs_forward_corr": round(float(np.mean(corrs)), 4), "n": n}
 
 
 def measure_lift(n_seeds: int = 100, num_days: int = 30) -> dict[str, Any]:

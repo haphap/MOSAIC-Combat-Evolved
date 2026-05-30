@@ -29,6 +29,9 @@ class TestAbLift(unittest.TestCase):
         memory model) and ≈ 0 under i.i.d. Monte-Carlo."""
         mc = self.d["forward_signal"]["montecarlo"]["early_vs_forward_corr"]
         sw = self.d["forward_signal"]["swarm"]["early_vs_forward_corr"]
+        # NOTE: the sw threshold is coupled to the swarm constants (_PRICE_IMPACT
+        # ≈0.16 → measured ~0.10, ~2× margin). If the engine is retuned (which
+        # §11.8.1 suggests exploring) this bound may need revisiting.
         self.assertLess(abs(mc), 0.08)      # MC: no continuation once drift removed
         self.assertGreater(sw, 0.05)        # swarm: positive forward signal
         self.assertGreater(sw - mc, 0.04)   # and a clear gap

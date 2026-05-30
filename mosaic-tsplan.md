@@ -2576,12 +2576,12 @@ impact=0.10→autocorr +0.07；impact=0.20→**autocorr +0.20、vol_clustering +
 
 | 指标 | 结果 | 解读 |
 |---|---|---|
-| **前瞻信号**（早窗收益 vs 后窗收益相关，按情景去漂移） | MC **+0.02** / swarm **+0.10**（各样本量 swarm 恒 > MC，gap +0.14~+0.28） | ✅ swarm 有**可被利用的前瞻信号**，MC（i.i.d.）≈0 |
+| **前瞻信号**（早窗收益 vs 后窗收益相关，按情景**逐型**算再等权平均） | MC **+0.02** / swarm **+0.10**（n=150 点差 ≈0.075；各样本量 swarm 恒 > MC） | ✅ swarm 有**可被利用的前瞻信号**，MC（i.i.d.）≈0 |
 | **区分度**（最优-最差策略均分差） | MC+term **0.59** / swarm+term **0.15** | ⚠️ swarm **压缩**了训练梯度 |
 | **排序变化**（vs MC+terminal 的 Spearman ρ） | 仅 swarm+path_aware **ρ=0.8**（其余 1.0） | ✅ 只有 swarm+path_aware 重排了 agent 排序 |
 
 **裁决：CONDITIONAL-GO，但要先解决「梯度压缩」——不是直接全量 7M.2。**
-- ✅ **正面**：去漂移前瞻相关 swarm 恒为正、MC 恒≈0 —— 这正是 memory 能学的东西
+- ✅ **正面**：逐型前瞻相关 swarm 恒为正、MC 恒≈0 —— 这正是 memory 能学的东西
   （「早期趋势 → 后续延续」在 swarm 里真实存在、在 MC 里不存在）。且 swarm+path_aware
   是唯一改变 agent 排序的 regime（ρ=0.8）。**所以反身信号确实存在且可被利用、可改变训练
   排序** —— 7M.2 的存在性前提成立。
