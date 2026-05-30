@@ -67,6 +67,14 @@ pnpm dev paper account               # 模拟账户（Phase 8）
 
 CI 的 Python lane 安装 `.[data,trading,test]`（不含重型 qlib），qlib-only 测试在缺 qlib 时自动 skip。
 
+### ETF 行情数据（宽基 ETF 建议可用）
+
+CIO 建议含宽基 ETF（510300/510050/...）。ETF 行情走独立的 qlib 数据集
+`~/.qlib/qlib_data/cn_etf`（与个股 `cn_data` 同日历、独立 features 树）：
+
+- **读**：`qlib_local` 按 instrument 前缀路由（ETF=`sh5x/sz1x` → `cn_etf`，个股=`sh6/sz0/sz3` → `cn_data`）；`QLIB_CN_ETF_PATH` 可覆盖路径。
+- **刷新**：`qlib_ingest` 的 `kind="etf"` 驱动 ETF collector（`~/.qlib/scripts/data_collector/tushare_etf/collector.py`，或 `MOSAIC_QLIB_ETF_COLLECTOR` 指定），默认 dump 到 `cn_etf`。
+
 ## 关键决策
 
 - **Q1=a**：完整复刻 ATLAS 4 层 25+ agents
