@@ -95,7 +95,12 @@ def mirofish_generate_scenarios(params: dict[str, Any]) -> dict[str, Any]:
 
 @method("mirofish.score_recommendation")
 def mirofish_score_recommendation(params: dict[str, Any]) -> dict[str, Any]:
-    """Score an agent recommendation against a scenario's realised paths."""
+    """Score an agent recommendation against a scenario's realised paths.
+
+    ``scorer``: 'terminal' (default) or 'path_aware' (direction-adjusted equity
+    curve with a max-drawdown penalty). When omitted, falls back to
+    ``config.mirofish.scorer`` (default terminal). Validated before lazy import.
+    """
     rec = params.get("recommendation")
     scenario = params.get("scenario")
     if not isinstance(rec, dict):
@@ -103,9 +108,17 @@ def mirofish_score_recommendation(params: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(scenario, dict):
         raise RpcError(INVALID_PARAMS, "'scenario' must be an object")
 
+    scorer = params.get("scorer")
+    if scorer is None:
+        from mosaic.default_config import DEFAULT_CONFIG
+
+        scorer = DEFAULT_CONFIG.get("mirofish", {}).get("scorer", "terminal")
+    if scorer not in ("terminal", "path_aware"):
+        raise RpcError(INVALID_PARAMS, "'scorer' must be 'terminal' or 'path_aware'")
+
     from mosaic.mirofish import score_recommendation  # lazy: validate first
 
-    return {"score": score_recommendation(rec, scenario)}
+    return {"score": score_recommendation(rec, scenario, path_aware=scorer == "path_aware")}
 
 
 @method("mirofish.record_run")

@@ -133,6 +133,30 @@ class TestMirofishHandlers(unittest.TestCase):
 
         self.assertEqual(DEFAULT_CONFIG["mirofish"]["engine"], "montecarlo")
 
+    @unittest.skipUnless(_HAS_NUMPY, "numpy not installed (.[data] extra)")
+    def test_scorer_defaults_to_terminal_off(self):
+        # A +10% rec that round-trips through -25%: terminal can't see the
+        # drawdown, path_aware penalises it. Default (no scorer) → terminal.
+        scn = {"price_paths": {"X": {"ticker": "X", "prices": [100, 75, 90, 110],
+                                     "cumulative_return": 0.10}}}
+        rec = {"recommendation": "BUY", "tickers": ["X"], "conviction": 0.5}
+        term = _mf.mirofish_score_recommendation({"recommendation": rec, "scenario": scn})["score"]
+        pa = _mf.mirofish_score_recommendation(
+            {"recommendation": rec, "scenario": scn, "scorer": "path_aware"})["score"]
+        self.assertGreater(term, pa)  # path-aware penalises the round-trip
+        self.assertGreater(term, 0.7)
+
+    def test_bad_scorer_rejected(self):
+        # Validates before the numpy-backed import → runs deps-light.
+        with self.assertRaises(RpcError):
+            _mf.mirofish_score_recommendation(
+                {"recommendation": {}, "scenario": {}, "scorer": "sharpe"})
+
+    def test_config_default_scorer_is_off(self):
+        from mosaic.default_config import DEFAULT_CONFIG
+
+        self.assertEqual(DEFAULT_CONFIG["mirofish"]["scorer"], "terminal")
+
     def test_methods_registered(self):
         from mosaic.bridge.registry import all_methods
 

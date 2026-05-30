@@ -105,4 +105,22 @@ describe("runMirofishTraining", () => {
       scenarios: ["base"],
     });
   });
+
+  it("threads scorer through to score_recommendation (default omits it)", async () => {
+    const api = fakeApi();
+    await runMirofishTraining({
+      agents: ["x"],
+      fakeLlm: true,
+      scorer: "path_aware",
+      deps: deps(api),
+    });
+    expect(api.mirofishScoreRecommendation).toHaveBeenCalledWith(
+      expect.objectContaining({ scorer: "path_aware" }),
+    );
+
+    const api2 = fakeApi();
+    await runMirofishTraining({ agents: ["x"], fakeLlm: true, deps: deps(api2) });
+    const call = (api2.mirofishScoreRecommendation as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
+    expect(call).not.toHaveProperty("scorer"); // default → server decides
+  });
 });

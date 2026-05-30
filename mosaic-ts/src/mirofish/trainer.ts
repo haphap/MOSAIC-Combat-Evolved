@@ -38,6 +38,7 @@ export interface MirofishTrainingOptions {
   fakeLlm?: boolean;
   reflexive?: boolean;
   engine?: "montecarlo" | "swarm";
+  scorer?: "terminal" | "path_aware";
   date?: string;
   deps: { llm: BaseChatModel; api: BridgeApi };
   onLog?: (msg: string) => void;
@@ -127,6 +128,7 @@ export async function runMirofishTraining(
     fakeLlm = false,
     reflexive = false,
     engine,
+    scorer,
     date,
     deps,
     onLog,
@@ -158,6 +160,7 @@ export async function runMirofishTraining(
       const { score } = await deps.api.mirofishScoreRecommendation({
         recommendation: rec,
         scenario,
+        ...(scorer ? { scorer } : {}),
       });
       scenarioScores.push({ scenario_type: scenario.scenario_type, score, recommendation: rec });
     }

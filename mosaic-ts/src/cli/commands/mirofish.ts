@@ -35,6 +35,8 @@ interface TrainOpts {
   reflexive?: boolean;
   engine?: string;
   swarm?: boolean;
+  scorer?: string;
+  pathAware?: boolean;
   llmProvider?: string;
   model?: string;
   baseUrl?: string;
@@ -98,6 +100,8 @@ export function registerMirofish(program: Command): void {
     .option("--reflexive", "Apply the reflexive actor overlay (price↔behavior feedback)")
     .option("--engine <name>", "Scenario engine: montecarlo (default) | swarm")
     .option("--swarm", "Shorthand for --engine swarm (Phase 7M.1 interaction engine)")
+    .option("--scorer <name>", "Scoring: terminal (default) | path_aware (drawdown-penalised)")
+    .option("--path-aware", "Shorthand for --scorer path_aware (score the equity curve)")
     .option("--llm-provider <name>", "Override LLM provider")
     .option("--model <name>", "Override LLM model")
     .option("--base-url <url>", "Override LLM base URL")
@@ -120,6 +124,7 @@ export function registerMirofish(program: Command): void {
           ),
         );
         const engine = resolveEngine(opts);
+        const scorer = resolveScorer(opts);
         const result = await runMirofishTraining({
           ...(opts.days ? { numDays: Number.parseInt(opts.days, 10) } : {}),
           ...(opts.seed ? { seed: Number.parseInt(opts.seed, 10) } : {}),
@@ -128,6 +133,7 @@ export function registerMirofish(program: Command): void {
           ...(opts.fakeLlm ? { fakeLlm: true } : {}),
           ...(opts.reflexive ? { reflexive: true } : {}),
           ...(engine ? { engine } : {}),
+          ...(scorer ? { scorer } : {}),
           deps: { llm: llmHandle.llm, api },
           onLog: (m) => console.log(pc.dim(`  ${m}`)),
         });
@@ -176,6 +182,16 @@ function resolveEngine(opts: {
 }): "montecarlo" | "swarm" | undefined {
   if (opts.swarm) return "swarm";
   if (opts.engine === "montecarlo" || opts.engine === "swarm") return opts.engine;
+  return undefined;
+}
+
+/** Resolve scorer from --path-aware shorthand or --scorer; undefined → server default. */
+function resolveScorer(opts: {
+  scorer?: string;
+  pathAware?: boolean;
+}): "terminal" | "path_aware" | undefined {
+  if (opts.pathAware) return "path_aware";
+  if (opts.scorer === "terminal" || opts.scorer === "path_aware") return opts.scorer;
   return undefined;
 }
 

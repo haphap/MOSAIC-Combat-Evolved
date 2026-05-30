@@ -71,7 +71,8 @@ pnpm dev janus history [--days 30]
 
 # Phase 7 MiroFish (synthetic-futures forward training; isolated from real P&L)
 pnpm dev mirofish generate [--days 30] [--seed 42] [--print] [--swarm]   # scenario set (--swarm = Phase 7M.1 agent-to-agent engine; default Monte-Carlo)
-pnpm dev mirofish train --fake-llm [--seed 42] [--agents a,b] [--dry-run] [--swarm]
+pnpm dev mirofish train --fake-llm [--seed 42] [--agents a,b] [--dry-run] [--swarm] [--path-aware]
+  # --path-aware = score the direction-adjusted equity curve with a max-drawdown penalty (default: terminal cumulative return)
 pnpm dev mirofish history [--days 30]
 ```
 
