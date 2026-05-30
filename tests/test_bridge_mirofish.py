@@ -109,6 +109,30 @@ class TestMirofishHandlers(unittest.TestCase):
         with self.assertRaises(RpcError):
             _mf.mirofish_record_run({"scenario_type": "all"})
 
+    @unittest.skipUnless(_HAS_NUMPY, "numpy not installed (.[data] extra)")
+    def test_engine_defaults_to_montecarlo_off(self):
+        # No engine param → config default (montecarlo); swarm is OFF.
+        out = _mf.mirofish_generate_scenarios({"seed": 42, "scenarios": ["bull"]})
+        self.assertEqual(out["engine"], "montecarlo")
+        self.assertNotIn("emergence", out["scenarios"][0])
+
+    @unittest.skipUnless(_HAS_NUMPY, "numpy not installed (.[data] extra)")
+    def test_engine_swarm_opt_in(self):
+        out = _mf.mirofish_generate_scenarios({"seed": 42, "scenarios": ["bull"], "engine": "swarm"})
+        self.assertEqual(out["engine"], "swarm")
+        self.assertEqual(out["scenarios"][0]["engine"], "swarm")
+        self.assertIn("emergence", out["scenarios"][0])
+
+    def test_bad_engine_rejected(self):
+        # Validates before the numpy-backed import → runs deps-light.
+        with self.assertRaises(RpcError):
+            _mf.mirofish_generate_scenarios({"engine": "oasis"})
+
+    def test_config_default_engine_is_off(self):
+        from mosaic.default_config import DEFAULT_CONFIG
+
+        self.assertEqual(DEFAULT_CONFIG["mirofish"]["engine"], "montecarlo")
+
     def test_methods_registered(self):
         from mosaic.bridge.registry import all_methods
 

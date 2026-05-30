@@ -441,6 +441,8 @@ export interface MirofishScenario {
   probability: number;
   num_days: number;
   reflexive?: boolean;
+  engine?: string;
+  emergence?: { n_actor_classes: number; herding_index: number };
   price_paths: Record<string, MirofishPricePath>;
   events: Array<{ day: number; date: string; event: string; impact: string }>;
   final_state: { regime: string; narrative: string; csi300_return: number };
@@ -794,8 +796,9 @@ export class BridgeApi {
     scenarios?: string[];
     start_prices?: Record<string, number>;
     reflexivity?: boolean;
-  }): Promise<{ scenarios: MirofishScenario[] }> {
-    return this.client.call<{ scenarios: MirofishScenario[] }>(
+    engine?: "montecarlo" | "swarm";
+  }): Promise<{ scenarios: MirofishScenario[]; engine?: string }> {
+    return this.client.call<{ scenarios: MirofishScenario[]; engine?: string }>(
       "mirofish.generate_scenarios",
       params ?? {},
     );

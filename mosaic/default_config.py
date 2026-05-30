@@ -151,4 +151,12 @@ DEFAULT_CONFIG = {
         "monthly_modification_cap_per_cohort": 100,
         "evaluation_horizon_trading_days": 5,
     },
+    # MiroFish forward-simulation (Plan §11.8 / §11.8.1). 'engine' selects the
+    # scenario generator: 'montecarlo' (default — i.i.d. correlated paths +
+    # optional per-asset reflexivity kernel) or 'swarm' (Phase 7M.1 agent-to-
+    # agent interaction engine). Swarm is OPT-IN; default keeps the cheap,
+    # well-validated Monte-Carlo path.
+    "mirofish": {
+        "engine": "montecarlo",
+    },
 }
