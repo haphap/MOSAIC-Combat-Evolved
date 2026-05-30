@@ -60,6 +60,23 @@ class TestPathAwareScorer(unittest.TestCase):
         self.assertAlmostEqual(s_pa, score_recommendation(_BUY, smooth), places=6)
         self.assertLess(r_pa, s_pa)
 
+    def test_path_aware_penalises_short_adverse_excursion(self):
+        """SHORT inverts the equity curve (p[0]/p): two paths both end -20%
+        (terminal 1.0 for a short), but the one that spikes +30% first makes the
+        short draw down → path-aware penalises it. Locks the short branch."""
+        short = {"recommendation": "SELL", "tickers": ["X"], "conviction": 0.5}
+        smooth_drop = _scn([100, 93, 86, 80], -0.20)
+        spike_then_drop = _scn([100, 130, 110, 80], -0.20)
+        self.assertEqual(
+            score_recommendation(short, smooth_drop),
+            score_recommendation(short, spike_then_drop),
+        )  # terminal blind to the adverse excursion
+        self.assertEqual(score_recommendation(short, smooth_drop, path_aware=True), 1.0)
+        self.assertLess(
+            score_recommendation(short, spike_then_drop, path_aware=True),
+            score_recommendation(short, smooth_drop, path_aware=True),
+        )
+
     def test_hold_no_conviction_change_under_path_aware(self):
         """HOLD (sign 0) → path-aware is a no-op, equals terminal scoring."""
         hold = {"recommendation": "HOLD", "tickers": ["X"], "conviction": 0.5}
