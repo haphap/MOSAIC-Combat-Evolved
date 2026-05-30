@@ -4,14 +4,26 @@ The §11.8 reflexivity overlay is a *per-asset feedback kernel*: each asset's
 return reacts only to its own trailing returns. It is NOT interacting agents.
 
 This module adds the first genuinely interactive engine — an OASIS-lite swarm:
-a population of representative actor *classes* share a **blackboard** (the
-market environment). Each round, every actor reads the blackboard reflecting
-the **prior round's aggregate behaviour** (last return, running sentiment, net
-positioning), decides a demand, and writes it back; the aggregated net demand
-moves the price and updates the blackboard for the next round. So actor B's
-move at round t depends on what actors A…Z collectively did at t-1 — real
-agent-to-agent interaction mediated by a shared environment, with emergent
-herding / capitulation arising rather than being hand-coded.
+a population of representative actor *classes* share a **blackboard**. Each
+round, every actor reads the blackboard reflecting the **prior round's
+aggregate behaviour** (last return, running sentiment, net positioning),
+decides a demand, and writes it back; the aggregated net demand moves the
+price and updates the blackboard for the next round. So actor B's move at round
+t depends on what actors A…Z collectively did at t-1 — real agent-to-agent
+interaction mediated by a shared environment, with emergent herding /
+capitulation arising rather than being hand-coded.
+
+**Scope / Tier-1 trade-off (vs the Monte-Carlo engine):**
+  * The blackboard is **per-ticker, not market-wide** — actors interact within
+    an asset, and each asset is simulated on its own board.
+  * Consequently the swarm engine has **NO cross-asset correlation**: unlike the
+    Monte-Carlo engine (Cholesky-correlated returns over ``CORRELATIONS``), the
+    7 assets here move cross-sectionally independent. The swarm trades inter-
+    asset correlation for within-asset reflexivity. A multi-ticker rec scored
+    against a swarm scenario therefore sees an unrealistic *joint* distribution
+    (e.g. CSI300 + brokers are ~0.80-correlated under MC but independent here).
+    Restoring cross-asset coupling (a shared market board, or correlated
+    actor shocks) is the natural job of the cross-asset / persona tiers (7M.3+).
 
 Still pure numpy, deterministic (seed), no LLM — that's Tier-1; LLM personas +
 memory are 7M.3 / 7M.2. **Opt-in**: the Monte-Carlo engine (§11.8) stays the
@@ -85,6 +97,9 @@ class LocalSwarmEngine(SwarmEngine):
         num_days: int,
         rng: np.random.Generator,
     ) -> tuple[list[float], list[float], dict[str, float]]:
+        """Run the swarm on ONE ticker's own blackboard (actors interact within
+        this asset). Each ticker is independent — see the module docstring's
+        cross-asset-correlation trade-off."""
         params = ASSET_PARAMS.get(ticker, {"vol": 0.20, "drift": 0.05})
         daily_vol = params["vol"] / np.sqrt(252)
         # Scenario bias nudges the actor population's baseline lean.
@@ -152,6 +167,8 @@ class LocalSwarmEngine(SwarmEngine):
 
         paths: dict[str, dict] = {}
         herd: list[float] = []
+        # Per-ticker boards → assets are cross-sectionally independent here (no
+        # Cholesky correlation, unlike the MC engine). See module docstring.
         for t in prices:
             series, eff, m = self._simulate_ticker(t, prices[t], scenario_type, num_days, rng)
             herd.append(m["herding_index"])
