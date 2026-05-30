@@ -7,6 +7,7 @@ Param-validation runs dep-free (validate-first). Engine-routing tests need
 from __future__ import annotations
 
 import importlib.util
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -14,7 +15,24 @@ from unittest.mock import patch
 
 from mosaic.bridge.protocol import RpcError
 
-import mosaic.bridge.handlers.paper as ph
+# Prefer package import (registers @method once); fall back to isolated exec
+# only when langchain is absent so param-validation tests still run dep-free.
+# See test_bridge_mirofish.py / test_prism.py.
+try:
+    from mosaic.bridge.handlers import paper as ph
+except Exception:
+    _key = "mosaic.bridge.handlers.paper"
+    if _key in sys.modules:
+        ph = sys.modules[_key]
+    else:
+        _HANDLER_PATH = (
+            Path(__file__).resolve().parent.parent
+            / "mosaic" / "bridge" / "handlers" / "paper.py"
+        )
+        _spec = importlib.util.spec_from_file_location(_key, str(_HANDLER_PATH))
+        ph = importlib.util.module_from_spec(_spec)
+        sys.modules[_key] = ph
+        _spec.loader.exec_module(ph)
 
 _HAS_BCRYPT = importlib.util.find_spec("bcrypt") is not None
 

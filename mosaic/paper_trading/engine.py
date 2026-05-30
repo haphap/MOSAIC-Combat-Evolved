@@ -144,7 +144,7 @@ class PaperTradingEngine:
     # ---------------------------------------------------------------- account
 
     def get_account(self, user_id: str | None = None) -> dict:
-        uid = user_id or self._get_current_user()
+        uid = self._require_user(user_id)
         with self._connect() as conn:
             row = conn.execute(
                 "SELECT cash, realized_pnl, total_commission, updated_at "
@@ -347,7 +347,7 @@ class PaperTradingEngine:
     # ---------------------------------------------------------------- queries
 
     def get_positions(self, user_id: str | None = None) -> list[dict]:
-        uid = user_id or self._get_current_user()
+        uid = self._require_user(user_id)
         with self._connect() as conn:
             rows = conn.execute(
                 "SELECT ticker, name, quantity, available_qty, avg_cost, updated_at "
@@ -381,7 +381,7 @@ class PaperTradingEngine:
         return results
 
     def get_trades(self, user_id: str | None = None, limit: int = 50) -> list[dict]:
-        uid = user_id or self._get_current_user()
+        uid = self._require_user(user_id)
         with self._connect() as conn:
             rows = conn.execute(
                 "SELECT id, user_id, ticker, name, side, quantity, price, amount, "

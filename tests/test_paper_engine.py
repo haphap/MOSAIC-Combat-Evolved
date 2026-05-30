@@ -91,6 +91,21 @@ class TestPaperEngine(unittest.TestCase):
         with self.assertRaises(NotImplementedError):
             self.e.suggest_order_from_signal("510300.SH", {}, user_id="default")
 
+    def test_cross_user_access_is_blocked_for_reads_and_writes(self):
+        """Both writes (buy) and reads (get_account/positions/trades) enforce
+        the logged-in user: requesting another user's id raises PermissionError."""
+        self.e.register("alice", "pw")
+        self.e.register("mallory", "pw")
+        self.e.login("alice", "pw")  # session = alice
+        for op in (
+            lambda: self.e.buy("510300.SH", 100, user_id="mallory"),
+            lambda: self.e.get_account(user_id="mallory"),
+            lambda: self.e.get_positions(user_id="mallory"),
+            lambda: self.e.get_trades(user_id="mallory"),
+        ):
+            with self.assertRaises(PermissionError):
+                op()
+
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
