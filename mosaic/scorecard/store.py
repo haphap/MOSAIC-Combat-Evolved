@@ -1260,12 +1260,23 @@ class ScorecardStore:
             )
 
     def get_latest_mirofish_context(self) -> Optional[dict[str, Any]]:
-        """Return the most recent MiroFish scenario context row, or None."""
+        """Return the most recent MiroFish context, or None. Shape matches what
+        ``save`` derived (full context from ``detail_json``) plus ``date`` —
+        so callers see one consistent dict, not a raw DB row."""
+        import json as _json
+
         with self._connect() as conn:
             row = conn.execute(
                 "SELECT * FROM mirofish_context ORDER BY date DESC LIMIT 1"
             ).fetchone()
-            return dict(row) if row else None
+        if row is None:
+            return None
+        try:
+            context = _json.loads(row["detail_json"]) if row["detail_json"] else {}
+        except (ValueError, TypeError):
+            context = {}
+        context["date"] = row["date"]
+        return context
 
 
 

@@ -69,11 +69,16 @@ class TestContextStore(unittest.TestCase):
 
     def test_save_then_get_latest(self):
         self.assertIsNone(self.store.get_latest_mirofish_context())
-        self.store.save_mirofish_context(date="2026-05-30", context=derive_context(_SET))
+        ctx = derive_context(_SET)
+        self.store.save_mirofish_context(date="2026-05-30", context=ctx)
         got = self.store.get_latest_mirofish_context()
         self.assertEqual(got["date"], "2026-05-30")
         self.assertEqual(got["regime"], "NEUTRAL")
         self.assertEqual(got["hct_direction"], "SHORT")
+        # get returns the same shape save derived (+ date), not a raw DB row.
+        self.assertEqual(set(got), set(ctx) | {"date"})
+        self.assertNotIn("detail_json", got)
+        self.assertEqual(got["hct_csi300_return"], ctx["hct_csi300_return"])
 
     def test_upsert_idempotent_and_latest_wins(self):
         self.store.save_mirofish_context(date="2026-05-29", context=derive_context(_SET))
