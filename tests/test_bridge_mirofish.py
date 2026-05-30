@@ -109,6 +109,32 @@ class TestMirofishHandlers(unittest.TestCase):
         with self.assertRaises(RpcError):
             _mf.mirofish_record_run({"scenario_type": "all"})
 
+    def test_save_and_get_context(self):
+        # derive_context is pure stdlib → runs deps-light (no numpy).
+        scenarios = [
+            {"scenario_type": "base", "scenario_name": "Base", "probability": 0.5,
+             "final_state": {"regime": "NEUTRAL", "narrative": "n", "csi300_return": 0.02},
+             "price_paths": {"000300.SH": {"cumulative_return": 0.02}}},
+            {"scenario_type": "tail_down", "scenario_name": "Crash", "probability": 0.05,
+             "final_state": {"regime": "RISK_OFF", "narrative": "n", "csi300_return": -0.30},
+             "price_paths": {"000300.SH": {"cumulative_return": -0.30}}},
+        ]
+        out = _mf.mirofish_save_context({"scenarios": scenarios, "date": "2026-05-30"})
+        self.assertEqual(out["date"], "2026-05-30")
+        self.assertEqual(out["context"]["hct_direction"], "SHORT")
+        got = _mf.mirofish_get_context({})["context"]
+        self.assertEqual(got["date"], "2026-05-30")
+        self.assertEqual(got["regime"], "NEUTRAL")
+
+    def test_get_context_null_when_empty(self):
+        self.assertIsNone(_mf.mirofish_get_context({})["context"])
+
+    def test_save_context_rejects_empty_or_bad(self):
+        with self.assertRaises(RpcError):
+            _mf.mirofish_save_context({"scenarios": []})
+        with self.assertRaises(RpcError):
+            _mf.mirofish_save_context({"scenarios": "nope"})
+
     @unittest.skipUnless(_HAS_NUMPY, "numpy not installed (.[data] extra)")
     def test_engine_defaults_to_montecarlo_off(self):
         # No engine param → config default (montecarlo); swarm is OFF.
@@ -165,6 +191,8 @@ class TestMirofishHandlers(unittest.TestCase):
             "mirofish.score_recommendation",
             "mirofish.record_run",
             "mirofish.get_history",
+            "mirofish.save_context",
+            "mirofish.get_context",
         }
         self.assertTrue(expected.issubset(set(all_methods())))
 
