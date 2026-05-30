@@ -532,7 +532,7 @@ class BrokenPipeRegressionTests(unittest.TestCase):
             f"{PYTHON} -m mosaic.bridge 2>/tmp/_mosaic_bridge_stderr.log | "
             f"{PYTHON} -c 'raise SystemExit(0)'"
         )
-        result = subprocess.run(
+        subprocess.run(
             cmd, shell=True, capture_output=True, timeout=15, executable="/bin/bash"
         )
         # The pipeline exit status is the consumer's (raise SystemExit(0) → 0).

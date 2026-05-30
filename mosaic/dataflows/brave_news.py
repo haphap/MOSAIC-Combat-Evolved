@@ -101,7 +101,6 @@ def _date_cutoff_warning(end_date: str) -> str:
 
 def get_news(ticker: str, start_date: str, end_date: str) -> str:
     start_dt = _parse_date(start_date)
-    end_dt = _parse_date(end_date)
     # freshness must cover from start_date back to today; use days since start_date
     # so Brave returns results that could include the requested window
     days_since_start = _days_since(start_dt)

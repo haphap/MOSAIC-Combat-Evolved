@@ -9,7 +9,6 @@ from pathlib import Path
 import pytest
 
 from mosaic.scorecard import (
-    MIN_OBS_FOR_SHARPE,
     ScorecardStore,
     WEIGHT_MAX,
     WEIGHT_MIN,
