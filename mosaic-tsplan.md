@@ -85,7 +85,7 @@ Cohort 切换 UI（PRISM）                                       paper_trading/
 | 4 | Autoresearch（git + SQLite，prompt mutation + keep/revert） | 5–6 | ✅ 完成 |
 | 5 | PRISM 7 cohort 训练编排 | 5–6 | ✅ 完成（训练编排落地：§1 并发模型 cohort 顺序/layer 顺序/layer 内≤5 并发；§11.6 5A–5E） |
 | 6 | JANUS 元层（port ATLAS 571 LOC） | 3 | ✅ 完成（元加权落地：7 cohort rolling 准确度 → feasibility-aware softmax → regime 信号 → 跨 cohort blend；§11.7 6A–6D） |
-| 7 | MiroFish 反身性模拟（port ATLAS ~2,800 LOC + Tushare 适配） | 4–5 | ✅ 完成（numpy 情景引擎：相关蒙特卡洛 base/bull/bear/tail + 事件注入 + 打分；前向训练环 + mirofish_runs 隔离账本；§11.8 7A–7E） |
+| 7 | MiroFish 反身性模拟（port ATLAS ~2,800 LOC + Tushare 适配） | 4–5 | ✅ 完成（numpy 情景引擎：相关蒙特卡洛 base/bull/bear/tail + 事件注入 + 打分；前向训练环 + mirofish_runs 隔离账本；§11.8 7A–7E）。**扩展 7M.1–7M.5（交互 swarm/记忆/persona）：7M.1 swarm 引擎 + path-aware scorer 已并入主干；7M.2/7M.3 经增益验证 deferred，详见 §11.8.1** |
 | 8 | 执行层（paper + backtrader，复用 ETFAgents） | 4 | ⏭ |
 | 9 | Ink TUI + CLI + 文档 + CI 部署 | 6–8 | ⏭ |
 | **总计** | | **50–58 turns / 6.5–9.5 个月业余工时** | |
@@ -2598,6 +2598,86 @@ impact=0.10→autocorr +0.07；impact=0.20→**autocorr +0.20、vol_clustering +
      区分度不塌」的联合工作点（当前二者此消彼长）。
 - **诚实结论**：信号是真的，但不强；7M.2 不是「显然高回报」，建议**雏形先行、增益驱动**，
   而非一次性投入完整 memory+persona 栈。
+
+### 7M.2 memory 雏形验证（雏形先行的结果，2026-05-30）
+
+> 按上面的「雏形先行」，做了最小 memory 原型并在同一 `ab_lift` harness 上量增益。
+> 工具：`mosaic/mirofish/memory.py`（纯 numpy，确定性）。`AgentMemory` 抽象接口
+> （`remember`/`recall`，即最终 §11.8.1 接口的第一版草图）+ `LocalAgentMemory`：按
+> context（scenario_type）在线维护「早窗趋势 ↔ 后窗收益」的 **Pearson 相关**（用相关而非
+> 协方差/收益，正好归一化掉 swarm 的压缩离散度，且直接对应 A/B-lift 那个区分引擎的量）。
+> memory 策略：只在「样本够热 + |学到的相关| > 阈值」处下注（方向取相关符号），否则**弃权**；
+> 对照 stateless（永远顺势满仓下注）。
+
+**实测数（n=150 seeds × 5 情景，阈值 0.05）：**
+
+| 指标 | montecarlo | swarm | 解读 |
+|---|---|---|---|
+| memory 在线学到的相关（均值） | **0.023** | **0.098** | ✅ memory **在线复现了 A/B-lift 的引擎区分**（自经验学到 swarm≫MC） |
+| memory 活跃度（下注比例） | **0.47** | **0.95** | ✅ memory **有选择性**：swarm 几乎全下、MC 弃权过半；stateless 恒 1.0 |
+| memory captured（去漂移后均值收益） | −0.0016 | +0.0029 | ⚠️ |
+| stateless captured | +0.0014 | +0.0035 | ⚠️ swarm 下 memory **不如** stateless |
+
+**裁决：NO-GO（暂缓完整 7M.2/7M.3）—— 雏形先行恰好挡住了一次低回报投入。**
+- ✅ **机制全部成立**：memory 接口可用、在线学习正确、确实**自经验学到了 swarm 有信号 /
+  MC 没有**（相关 0.098 vs 0.023），且据此**有选择性地行动**（活跃度 0.95 vs 0.47）。
+  作为「memory 接口 + 在线学习」的工程草图，这一步是真的、可复用的。
+- ❌ **但选择性换不来可测增益**：三个独立度量一致 —— 均值 captured（swarm 0.0029 vs
+  stateless 0.0035，memory 略**差**，因为弃权 warmup 期反而少赚）、风险调整 info ratio
+  （memory −0.035 / +0.076 vs stateless +0.020 / +0.089）、以及**真实 `score_recommendation`
+  下的 conviction sizing**（memory 反而更低，MC 0.24 vs 0.77 / swarm 0.536 vs 0.540）。
+  三个度量均由 `measure_memory_lift` 直接产出（可复现）。
+- **根因（已诊断，非调参问题）**：(1) 早窗趋势主要捕捉的是**情景漂移**（bull/bear），这一块
+  stateless 启发式在两个引擎里都已吃到，而它与 memory 真正隔离出的那点反身信号**大体正交**；
+  (2) swarm 的反身信号**绝对值太小**（相关 ~0.10），相对漂移是二阶量；(3) 在这些合成 scorer 下，
+  **「在无信号区过度下注」几乎不被惩罚**（MC 下注均值≈0 而非亏），所以 stateless 已接近最优，
+  选择性省下的只是 warmup 收益。memory 的价值要显现，需要一个**强惩罚错误高信念**的目标，
+  而当前 scorer 不是。
+- **结论**：在当前引擎调参 + 合成评分目标下，**完整 `AgentMemory`（7M.2）与 LLM personas
+  （7M.3）不值得现在投入** —— 雏形已经证明「即便机制全对，增量也接近零」。**重启 7M.2 的
+  前置条件**应是先满足以下之一，再重测本 harness：
+  1. 提高 swarm 反身信号强度（`_PRICE_IMPACT` 上探，但需解决「区分度塌缩」，见上）；
+  2. 引入**强惩罚错误高信念 / 路径风险**的训练目标（让选择性真正值钱）；
+  3. 接入真实/历史数据校验，确认反身信号在真市场也存在且可被记忆利用。
+- **诚实总账**：7M（MiroFish 交互栈）到此是一条**设计正确、但经增益验证证伪了「现在就全量
+  投入」假设**的线。已交付且有价值的是：可插拔 `SwarmEngine`/`AgentMemory` 接口、`LocalSwarmEngine`、
+  path-aware scorer、两套可复用的 A/B harness。建议把 7M.2/7M.3 标为 **deferred（增益驱动重启）**，
+  把精力转回主干（实盘/回测/autoresearch 等已落地、对 alpha 有直接贡献的环节）。
+
+#### 细粒度复查：fade 信号是否存在（2026-05-30 追加）
+
+> NO-GO 的全部重量压在「swarm 下 edge 一律为正 ⇒ memory 退化成 stateless 顺势的子集」。
+> 能最低成本翻盘的是重启条件 #1（context 异质性 / fade 信号）。直接在更细粒度上实测
+> （scenario_type × 早窗趋势幅度 × 波动率桶，300 seeds）：
+
+| 引擎 | 细分 context 数 | edge<−0.03（fade）的数量 | 相关范围 |
+|---|---|---|---|
+| swarm | 8 | **0** | +0.185 ~ +0.430（全正） |
+| montecarlo | 20 | 9 | −0.169 ~ +0.293（i.i.d. 采样噪声，样本外不复现） |
+
+**结论：swarm 下没有任何 fade context，design ceiling 巩固，NO-GO 不变。** 细分反而把
+swarm 信号*集中*了（相关从粗粒度 ~0.10 升到 +0.43）——但因一律为正，只是**加强了顺势 edge**，
+并未制造 memory 需要的异质性。重启条件 #1 经实测仍不满足。
+
+#### 7M 已交付资产 → 未来扩展映射（deferred，可重启）
+
+把整条 7M 定位为「**机制已建成、增益验证暂未通过、可随条件成熟重启**」的资产。复用清单：
+
+| 已交付资产 | 文件 | 复用 / 未来扩展点 |
+|---|---|---|
+| `SwarmEngine` 抽象 + `LocalSwarmEngine` | `mosaic/mirofish/swarm.py` | 接口稳定；7M.3 接 OASIS/CAMEL-AI 适配器实现同接口；`_PRICE_IMPACT` 可调旋钮（重启条件 #1） |
+| `AgentMemory` 抽象 + `LocalAgentMemory` | `mosaic/mirofish/memory.py` | `remember`/`recall` 接口即 7M.2 接口首版；Zep/GraphRAG 适配器实现同接口；当前为「context→在线相关」雏形 |
+| path-aware scorer | `mosaic/mirofish/scenarios.py` | 已并入主干（opt-in）；`_DRAWDOWN_PENALTY` 可调；重启条件 #2（强惩罚错误高信念）可在此扩展 |
+| A/B 结构 harness | `mosaic/mirofish/ab_compare.py` | 量「swarm 是否非 MC」的回归护栏 + 引擎重调参后复测工具 |
+| A/B-lift harness | `mosaic/mirofish/ab_lift.py` | 量「信号是否可被利用 / 排序是否改变」；任何引擎/目标变更后的增益闸门 |
+| memory-lift harness | `mosaic/mirofish/memory.py::measure_memory_lift` | 量「memory 是否跑赢 stateless」（capture/info-ratio/真 scorer 三度量）；重启 7M.2 的验收工具 |
+
+**三个重启触发条件**（满足任一 → 在对应 harness 上重测，通过才投入完整 7M.2/7M.3）：
+1. **更强反身性**：上探 `_PRICE_IMPACT` 且解决「区分度塌缩」（`ab_lift` 验收）；
+2. **强惩罚错误高信念的训练目标**：在 path-aware scorer 上加路径风险/错误高信念惩罚（`measure_memory_lift` 验收）；
+3. **真实/历史数据校验**：确认反身信号在真市场存在且可被记忆利用（接 Phase 3.5 qlib 数据底座）。
+
+> 当前判断：**条件 #1 经细粒度复查仍不满足；#2/#3 未做。** 在任一条件满足前，7M.2/7M.3 保持 deferred。
 
 ### buy-vs-build 决策
 
