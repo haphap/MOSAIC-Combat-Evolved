@@ -425,6 +425,45 @@ export interface JanusHistoryEntry {
   created_at: string;
 }
 
+// --------------------------------------------------------- MiroFish (Phase 7)
+
+export interface MirofishPricePath {
+  ticker: string;
+  start_price: number;
+  prices: number[];
+  cumulative_return: number;
+  volatility: number;
+}
+
+export interface MirofishScenario {
+  scenario_type: string;
+  scenario_name: string;
+  probability: number;
+  num_days: number;
+  reflexive?: boolean;
+  price_paths: Record<string, MirofishPricePath>;
+  events: Array<{ day: number; date: string; event: string; impact: string }>;
+  final_state: { regime: string; narrative: string; csi300_return: number };
+}
+
+export interface MirofishRecommendation {
+  recommendation: "BUY" | "SELL" | "HOLD";
+  tickers: string[];
+  conviction: number;
+  reasoning?: string;
+}
+
+export interface MirofishHistoryEntry {
+  id: number;
+  date: string;
+  agent: string;
+  scenario_type: string;
+  n_scenarios: number | null;
+  avg_score: number | null;
+  detail_json: string | null;
+  created_at: string;
+}
+
 // --------------------------------------------------------- helpers
 
 /**
@@ -746,5 +785,44 @@ export class BridgeApi {
 
   janusGetHistory(params?: { days?: number }): Promise<{ history: JanusHistoryEntry[] }> {
     return this.client.call<{ history: JanusHistoryEntry[] }>("janus.get_history", params ?? {});
+  }
+
+  // mirofish.* (Phase 7)
+  mirofishGenerateScenarios(params?: {
+    num_days?: number;
+    seed?: number;
+    scenarios?: string[];
+    start_prices?: Record<string, number>;
+    reflexivity?: boolean;
+  }): Promise<{ scenarios: MirofishScenario[] }> {
+    return this.client.call<{ scenarios: MirofishScenario[] }>(
+      "mirofish.generate_scenarios",
+      params ?? {},
+    );
+  }
+
+  mirofishScoreRecommendation(params: {
+    recommendation: MirofishRecommendation;
+    scenario: MirofishScenario;
+  }): Promise<{ score: number }> {
+    return this.client.call<{ score: number }>("mirofish.score_recommendation", params);
+  }
+
+  mirofishRecordRun(params: {
+    agent: string;
+    scenario_type: string;
+    n_scenarios?: number;
+    avg_score?: number;
+    date?: string;
+    detail?: unknown;
+  }): Promise<{ id: number }> {
+    return this.client.call<{ id: number }>("mirofish.record_run", params);
+  }
+
+  mirofishGetHistory(params?: { days?: number }): Promise<{ history: MirofishHistoryEntry[] }> {
+    return this.client.call<{ history: MirofishHistoryEntry[] }>(
+      "mirofish.get_history",
+      params ?? {},
+    );
   }
 }

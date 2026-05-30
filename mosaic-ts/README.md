@@ -68,6 +68,11 @@ pnpm dev janus run [--date YYYY-MM-DD] [--window 30]    # weights + regime + ble
 pnpm dev janus weights [--date YYYY-MM-DD] [--window 30]
 pnpm dev janus regime [--date YYYY-MM-DD]
 pnpm dev janus history [--days 30]
+
+# Phase 7 MiroFish (synthetic-futures forward training; isolated from real P&L)
+pnpm dev mirofish generate [--days 30] [--seed 42] [--print]      # Monte-Carlo scenario set
+pnpm dev mirofish train --fake-llm [--seed 42] [--agents a,b] [--dry-run]
+pnpm dev mirofish history [--days 30]
 ```
 
 ## Python interpreter resolution
