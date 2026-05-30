@@ -12,6 +12,11 @@ from mosaic.bridge.protocol import RpcError
 from mosaic.bridge.registry import get_handler
 from mosaic.scorecard import ScorecardStore
 
+# run_historical reaches qlib init before the no-actions check, so without the
+# heavy .[backtest] extra it raises QlibInitError first. CI's Python lane omits
+# qlib; skip the test whose assertion depends on getting past qlib init.
+_HAS_QLIB = importlib.util.find_spec("qlib") is not None
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -339,6 +344,7 @@ class TestRunHistoricalHandler:
         with pytest.raises(RpcError, match="not found"):
             dispatch("backtest.run_historical", {"run_id": 99999})
 
+    @pytest.mark.skipif(not _HAS_QLIB, reason="qlib not installed (.[backtest] extra)")
     def test_run_with_no_actions_raises(self, patched_store: ScorecardStore):
         run_id = patched_store.create_backtest_run(
             cohort="cohort_default",

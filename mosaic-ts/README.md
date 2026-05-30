@@ -74,6 +74,16 @@ pnpm dev mirofish generate [--days 30] [--seed 42] [--print] [--swarm]   # scena
 pnpm dev mirofish train --fake-llm [--seed 42] [--agents a,b] [--dry-run] [--swarm] [--path-aware]
   # --path-aware = score the direction-adjusted equity curve with a max-drawdown penalty (default: terminal cumulative return)
 pnpm dev mirofish history [--days 30]
+
+# Phase 8 — paper trading (simulated A-share ETF account; fake money, local SQLite)
+pnpm dev paper register <user> <pw>                  # create account
+pnpm dev paper login <user> <pw>                     # start a session (host-global)
+pnpm dev paper account [--user u]                    # cash / market value / PnL
+pnpm dev paper buy <ticker> <qty> [--user u]         # qty = multiple of 100; T+1 lock
+pnpm dev paper sell <ticker> <qty> [--user u]
+pnpm dev paper positions [--user u]
+pnpm dev paper trades [--user u] [--limit 50]
+pnpm dev paper suggest <ticker> '<state-json>' [--user u]   # signal→order from a decision state
 ```
 
 ## Python interpreter resolution

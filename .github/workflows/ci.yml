@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  python:
+    name: Python (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+      - name: Set up Python
+        run: uv python install 3.12
+      - name: Install deps (data + trading + test; not the heavy qlib backtest extra)
+        run: uv pip install --system -e '.[data,trading,test]'
+      - name: Lint (ruff)
+        run: uvx ruff check mosaic tests
+      - name: Test (pytest; qlib-only tests skip without the backtest extra)
+        run: python -m pytest tests/ -q
+
+  typescript:
+    name: TypeScript (typecheck / lint / test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+      # The TS test suite spawns the real Python bridge (`python -m mosaic.bridge`)
+      # via <repoRoot>/.venv; create it with the deps those live tests exercise
+      # (macro tools → data; paper.* → trading).
+      - name: Set up Python bridge venv
+        run: |
+          uv venv
+          uv pip install -e '.[data,trading]'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: mosaic-ts/pnpm-lock.yaml
+      - name: Install (pnpm)
+        working-directory: mosaic-ts
+        run: pnpm install --frozen-lockfile
+      - name: Typecheck
+        working-directory: mosaic-ts
+        run: pnpm typecheck
+      - name: Lint (biome)
+        working-directory: mosaic-ts
+        run: pnpm lint
+      - name: Test (vitest)
+        working-directory: mosaic-ts
+        run: pnpm test

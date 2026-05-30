@@ -11,12 +11,17 @@ ingest output.
 
 from __future__ import annotations
 
+import importlib.util
 import struct
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pytest
+
+# qlib (pyqlib, the .[backtest] extra) is a heavy/optional dep; CI's Python lane
+# doesn't install it, so qlib-requiring tests skip there rather than ERROR.
+_HAS_QLIB = importlib.util.find_spec("qlib") is not None
 
 
 def _write_mini_qlib_dataset(root: Path) -> None:
@@ -105,6 +110,7 @@ def mini_qlib_dataset(tmp_path: Path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.skipif(not _HAS_QLIB, reason="qlib not installed (.[backtest] extra)")
 def test_pyqlib_imports():
     """Phase 3.5A entry test: pyqlib must be importable."""
     import qlib  # noqa: F401
