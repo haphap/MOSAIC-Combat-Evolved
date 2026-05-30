@@ -5,7 +5,7 @@
 > A 股版 ATLAS：自我改进多智能体交易框架。
 > 混合架构（Python sidecar + TypeScript 前端），复用 [ETFAgents](https://github.com/haphap/ETFAgents) 的 bridge / dataflows / paper_trading / backtest 经验。
 
-**当前状态**：Phase 0–8 完成（25 agents 日循环、scorecard + Darwinian、qlib 回测、autoresearch、PRISM、JANUS、MiroFish、paper trading）。Phase 9（Ink TUI + 文档 + CI）进行中——CI 已落地。
+**当前状态**：Phase 0–9 完成（25 agents 日循环、scorecard + Darwinian、qlib 回测、autoresearch、PRISM、JANUS、MiroFish、paper trading、CI、只读 Ink TUI dashboard）。MiroFish 记忆/persona（7M.2/7M.3）经增益验证 **deferred**。
 
 完整实施计划与各 Phase 进度见 [`mosaic-tsplan.md`](./mosaic-tsplan.md)（工作主文档，§3 阶段总览）。
 

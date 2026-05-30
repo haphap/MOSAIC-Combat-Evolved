@@ -87,7 +87,7 @@ Cohort 切换 UI（PRISM）                                       paper_trading/
 | 6 | JANUS 元层（port ATLAS 571 LOC） | 3 | ✅ 完成（元加权落地：7 cohort rolling 准确度 → feasibility-aware softmax → regime 信号 → 跨 cohort blend；§11.7 6A–6D） |
 | 7 | MiroFish 反身性模拟（port ATLAS ~2,800 LOC + Tushare 适配） | 4–5 | ✅ 完成（numpy 情景引擎：相关蒙特卡洛 base/bull/bear/tail + 事件注入 + 打分；前向训练环 + mirofish_runs 隔离账本；§11.8 7A–7E）。**扩展 7M.1–7M.5（交互 swarm/记忆/persona）：7M.1 swarm 引擎 + path-aware scorer 已并入主干；7M.2/7M.3 经增益验证 deferred，详见 §11.8.1** |
 | 8 | 执行层（**paper trading** 复用 ETFAgents；回测复用 Phase 3.5 qlib 引擎，**不引 backtrader**） | 4 | ✅ 完成（刀1 `PaperTradingEngine` 移植 + `paper.*` RPC：auth/account/buy/sell/T+1/佣金/持仓/成交；刀2 `backtest.signals` 精简移植 + 接通 `suggest_order_from_signal`（agent 决策→下单）+ paper TS CLI（register/login/account/buy/sell/positions/trades/suggest）。signals 的 LLM 文本解析路径待决策层接入时再移植） |
-| 9 | Ink TUI + CLI + 文档 + CI 部署 | 6–8 | 🔄 进行中（**9A**：GitHub Actions CI 两 lane〔Python pytest + TS typecheck/lint/test〕+ README 刷新到 Phase 0-8 状态 + CI badge〔本刀〕；qlib-only 测试加 `_HAS_QLIB` skip 守卫使 CI 无需重型 backtest extra。**9B 待做**：Ink TUI） |
+| 9 | Ink TUI + CLI + 文档 + CI 部署 | 6–8 | ✅ 完成（9A：GitHub Actions CI 两 lane + README 刷新 + CI badge；9B：只读 Ink TUI dashboard〔`pnpm dev dashboard`〕——3 tab〔skill/paper/cohorts〕聚合既有只读 RPC + 键盘导航〔1/2/3/r/q〕，引入 ink+react，ink-testing-library 组件测试。13 CLI 命令 + 1 TUI 屏覆盖全部操作） |
 | **总计** | | **50–58 turns / 6.5–9.5 个月业余工时** | |
 
 ---

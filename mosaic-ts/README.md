@@ -84,6 +84,10 @@ pnpm dev paper sell <ticker> <qty> [--user u]
 pnpm dev paper positions [--user u]
 pnpm dev paper trades [--user u] [--limit 50]
 pnpm dev paper suggest <ticker> '<state-json>' [--user u]   # signal→order from a decision state
+
+# Phase 9B — read-only Ink TUI dashboard (live view; aggregates existing read RPCs)
+pnpm dev dashboard [--cohort cohort_default] [--user u]
+  # tabs: [1] skill (scorecard) · [2] paper (account+positions) · [3] cohorts (PRISM) · r refresh · q quit
 ```
 
 ## Python interpreter resolution
