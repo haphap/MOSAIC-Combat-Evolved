@@ -69,6 +69,15 @@ class TestMemoryLift(unittest.TestCase):
         self.assertEqual(self.d["engines"]["swarm"]["stateless_activity"], 1.0)
         self.assertGreater(sw_act, mc_act)
 
+    def test_memory_does_not_beat_stateless_on_any_metric(self):
+        """The NO-GO core: even under the swarm (where memory IS active and the
+        signal exists), selectivity beats stateless on none of the three
+        reproducible metrics. Locks the verdict's direction."""
+        sw = self.d["engines"]["swarm"]
+        self.assertLessEqual(sw["memory_captured"], sw["stateless_captured"])
+        self.assertLessEqual(sw["memory_info_ratio"], sw["stateless_info_ratio"])
+        self.assertLessEqual(sw["memory_scorer_mean"], sw["stateless_scorer_mean"])
+
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

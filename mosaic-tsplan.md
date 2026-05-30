@@ -2625,7 +2625,8 @@ impact=0.10→autocorr +0.07；impact=0.20→**autocorr +0.20、vol_clustering +
 - ❌ **但选择性换不来可测增益**：三个独立度量一致 —— 均值 captured（swarm 0.0029 vs
   stateless 0.0035，memory 略**差**，因为弃权 warmup 期反而少赚）、风险调整 info ratio
   （memory −0.035 / +0.076 vs stateless +0.020 / +0.089）、以及**真实 `score_recommendation`
-  下的 conviction sizing**（memory 反而更低）。
+  下的 conviction sizing**（memory 反而更低，MC 0.24 vs 0.77 / swarm 0.536 vs 0.540）。
+  三个度量均由 `measure_memory_lift` 直接产出（可复现）。
 - **根因（已诊断，非调参问题）**：(1) 早窗趋势主要捕捉的是**情景漂移**（bull/bear），这一块
   stateless 启发式在两个引擎里都已吃到，而它与 memory 真正隔离出的那点反身信号**大体正交**；
   (2) swarm 的反身信号**绝对值太小**（相关 ~0.10），相对漂移是二阶量；(3) 在这些合成 scorer 下，
