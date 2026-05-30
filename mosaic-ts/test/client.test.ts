@@ -5,7 +5,6 @@ import {
   BridgeTransportError,
   INVALID_PARAMS,
   METHOD_NOT_FOUND,
-  PAPER_ERROR,
   RpcError,
 } from "../src/bridge/index.js";
 
@@ -14,8 +13,8 @@ import {
  * proving that the TS client's framing, correlation, error mapping, and
  * shutdown semantics line up with the Python server.
  *
- * Phase 0 surface: ≥8 macro tools registered; paper.* / backtest.* handlers
- * registered but degrade to PAPER_ERROR / BACKTEST_ERROR until Phase 8.
+ * Phase 0 surface: ≥8 macro tools registered; paper.* is live (Phase 8);
+ * backtest.* handlers registered but degrade to BACKTEST_ERROR until wired.
  */
 
 describe("BridgeClient against real sidecar", () => {
@@ -84,14 +83,12 @@ describe("BridgeClient against real sidecar", () => {
     }
   });
 
-  it("paper.* is registered but degrades to PAPER_ERROR until Phase 8", async () => {
+  it("paper.* is live: current_user returns the default session user", async () => {
     const client = new BridgeClient();
     try {
       await client.start();
-      const err = await client.call("paper.current_user", {}).catch((e) => e);
-      expect(err).toBeInstanceOf(RpcError);
-      expect((err as RpcError).code).toBe(PAPER_ERROR);
-      expect((err as RpcError).message).toMatch(/Phase 8/);
+      const res = (await client.call("paper.current_user", {})) as { user: string };
+      expect(res.user).toBe("default");
     } finally {
       await client.close();
     }

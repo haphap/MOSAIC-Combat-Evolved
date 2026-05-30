@@ -348,6 +348,7 @@ class PaperTradingEngine:
 
     def get_positions(self, user_id: str | None = None) -> list[dict]:
         uid = self._require_user(user_id)
+        self._update_day_barrier(uid)  # unlock T+1 shares on a new day before reading
         with self._connect() as conn:
             rows = conn.execute(
                 "SELECT ticker, name, quantity, available_qty, avg_cost, updated_at "
@@ -395,11 +396,54 @@ class PaperTradingEngine:
 
     def suggest_order_from_signal(self, ticker: str, state: dict,
                                   user_id: str | None = None) -> dict | None:
-        """Signal→order linkage. Lands in Phase 8 刀2 with the
-        ``mosaic.backtest.signals`` port; not yet implemented."""
-        raise NotImplementedError(
-            "suggest_order_from_signal lands in Phase 8 刀2 (needs mosaic.backtest.signals)"
-        )
+        from mosaic.backtest.signals import BacktestSignal, build_state_backtest_signal
+        from mosaic.dataflows.exceptions import DataVendorUnavailable
+        signal_dict = build_state_backtest_signal(state)
+        signal = BacktestSignal(**signal_dict) if signal_dict else None
+        if not signal or signal.target_weight_pct is None:
+            return None
+        signal_ticker = signal.ticker or ticker
+        if signal_ticker != ticker:
+            raise ValueError(
+                f"Signal ticker '{signal_ticker}' does not match requested ticker '{ticker}'"
+            )
+
+        uid = user_id or self._get_current_user()
+        account = self.get_account(uid)
+        try:
+            price = self._get_current_price(signal_ticker)
+        except (DataVendorUnavailable, RuntimeError):
+            logger.warning("Cannot fetch price for %s, skipping suggestion", signal_ticker)
+            return None
+        target_value = account["total_assets"] * signal.target_weight_pct / 100
+        current_value = self._position_market_value(signal_ticker, uid)
+        delta_value = target_value - current_value
+
+        if delta_value > 0:
+            qty = int(delta_value / price / 100) * 100
+            if qty >= 100:
+                return {
+                    "ticker": signal_ticker,
+                    "side": "buy",
+                    "quantity": qty,
+                    "price": price,
+                    "target_weight_pct": signal.target_weight_pct,
+                    "rating": signal.rating,
+                }
+        elif delta_value < 0:
+            qty = int(abs(delta_value) / price / 100) * 100
+            avail = self._available_qty(signal_ticker, uid)
+            qty = min(qty, avail)
+            if qty >= 100:
+                return {
+                    "ticker": signal_ticker,
+                    "side": "sell",
+                    "quantity": qty,
+                    "price": price,
+                    "target_weight_pct": signal.target_weight_pct,
+                    "rating": signal.rating,
+                }
+        return None
 
     # --------------------------------------------------------------- internal
 
