@@ -1260,9 +1260,10 @@ class ScorecardStore:
             )
 
     def get_latest_mirofish_context(self) -> Optional[dict[str, Any]]:
-        """Return the most recent MiroFish context, or None. Shape matches what
-        ``save`` derived (full context from ``detail_json``) plus ``date`` —
-        so callers see one consistent dict, not a raw DB row."""
+        """Return the most recent MiroFish context, or None. Shape = the full
+        context ``save`` derived (merged from ``detail_json``) plus ``date`` and
+        ``created_at`` provenance — so callers get one consistent dict, not a
+        raw DB row, and never need to re-parse ``detail_json``."""
         import json as _json
 
         with self._connect() as conn:
@@ -1276,6 +1277,7 @@ class ScorecardStore:
         except (ValueError, TypeError):
             context = {}
         context["date"] = row["date"]
+        context["created_at"] = row["created_at"]
         return context
 
 

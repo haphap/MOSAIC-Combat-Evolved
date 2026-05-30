@@ -58,6 +58,13 @@ class TestDeriveContext(unittest.TestCase):
         ctx = derive_context([_scn("base", 0.01), _scn("tail_up", 0.40)])
         self.assertEqual(ctx["hct_direction"], "LONG")
 
+    def test_degrades_to_none_cleanly(self):
+        # All-zero moves → no direction; no tail_down → no tail summary.
+        # Locks the contract Step 2's formatter must handle.
+        ctx = derive_context([_scn("base", 0.0), _scn("bull", 0.0)])
+        self.assertIsNone(ctx["hct_direction"])
+        self.assertIsNone(ctx["tail_summary"])
+
 
 class TestContextStore(unittest.TestCase):
     def setUp(self):
@@ -75,8 +82,8 @@ class TestContextStore(unittest.TestCase):
         self.assertEqual(got["date"], "2026-05-30")
         self.assertEqual(got["regime"], "NEUTRAL")
         self.assertEqual(got["hct_direction"], "SHORT")
-        # get returns the same shape save derived (+ date), not a raw DB row.
-        self.assertEqual(set(got), set(ctx) | {"date"})
+        # get returns the same shape save derived (+ date/created_at provenance).
+        self.assertEqual(set(got), set(ctx) | {"date", "created_at"})
         self.assertNotIn("detail_json", got)
         self.assertEqual(got["hct_csi300_return"], ctx["hct_csi300_return"])
 

@@ -26,7 +26,13 @@ def _csi(scenario: Mapping[str, Any]) -> float:
 
 
 def derive_context(scenarios: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
-    """Reduce a scenario set to a compact context summary (pure derivation)."""
+    """Reduce a scenario set to a compact context summary (pure derivation).
+
+    Step-2 note: ``hct_direction`` is None when all moves are ~0, and
+    ``tail_summary`` is None when the set has no ``tail_down`` — the prompt
+    formatter must degrade cleanly on both. Duplicate ``scenario_type`` entries
+    keep the last (the canonical generator emits unique types).
+    """
     by_type = {s.get("scenario_type"): s for s in scenarios}
     base = by_type.get("base") or (scenarios[0] if scenarios else {})
     base_fs = base.get("final_state") or {}
