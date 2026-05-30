@@ -185,34 +185,41 @@ def _final_state(paths: dict[str, dict]) -> dict[str, Any]:
 # Canonical MiroFish (666ghj/MiroFish) is a *swarm* reflexivity engine: many
 # persona agents interact + socially evolve (OASIS/CAMEL-AI), and the
 # *collective* shapes the trajectory. A full GraphRAG+memory swarm is out of
-# scope for this port (Plan §11.8 "不在范围"). This is a lightweight,
-# deterministic numpy stand-in that captures the *defining* mechanic the ATLAS
-# port lacked: a population of behavioural actors whose aggregate demand
-# **feeds back into** each day's return (price → behaviour → price), i.e. a
-# real reflexive loop rather than an i.i.d. random walk.
+# scope for this port (Plan §11.8 "不在范围"; roadmap in §11.8.1).
 #
-# Each archetype maps the trailing window return to a same-day demand:
+# This is a much narrower, deterministic stand-in. Mathematically it is a
+# **per-asset reflexive feedback kernel**: a fixed weighted blend of four
+# heterogeneous demand-response functions (momentum / contrarian / herding /
+# value) maps an asset's *own* trailing returns to a same-day demand that
+# **feeds back into** its next return (price → demand → price). It captures the
+# *defining* mechanic the ATLAS i.i.d. Monte-Carlo lacked — a reflexive loop
+# rather than a random walk — but it is NOT interacting agents, has no memory,
+# and no cross-asset/collective coupling (each asset's kernel sees only itself).
+# True agent-to-agent interaction + memory is Phase 7M (Plan §11.8.1).
+#
+# Each response function maps the trailing window return to a same-day demand:
 #   momentum   chases recent moves (amplifies trends → bubbles/crashes)
 #   contrarian fades recent moves (dampens / mean-reverts)
 #   herding    piles into whichever side is winning (nonlinear, threshold)
 #   value      leans against large cumulative deviations from start
-REFLEX_ARCHETYPES = {"momentum": 0.35, "contrarian": 0.25, "herding": 0.20, "value": 0.20}
+# Weights = relative population share of each response type (not literal agents).
+REFLEX_RESPONSE_WEIGHTS = {"momentum": 0.35, "contrarian": 0.25, "herding": 0.20, "value": 0.20}
 _REFLEX_GAIN = 0.6  # overall feedback strength (kept modest to stay stable)
-_REFLEX_WINDOW = 3  # trailing days the actors react to
+_REFLEX_WINDOW = 3  # trailing days the kernel reacts to
 
 
 def _reflex_demand(trailing: list[float], cum_dev: float) -> float:
-    """Net actor demand (return perturbation) from recent price action."""
+    """Net demand (return perturbation) from recent price action."""
     recent = sum(trailing) if trailing else 0.0
     momentum = recent
     contrarian = -recent
     herding = (1.0 if recent > 0 else -1.0) * min(abs(recent) * 2.0, 0.05) if trailing else 0.0
     value = -cum_dev * 0.10
     return (
-        REFLEX_ARCHETYPES["momentum"] * momentum
-        + REFLEX_ARCHETYPES["contrarian"] * contrarian
-        + REFLEX_ARCHETYPES["herding"] * herding
-        + REFLEX_ARCHETYPES["value"] * value
+        REFLEX_RESPONSE_WEIGHTS["momentum"] * momentum
+        + REFLEX_RESPONSE_WEIGHTS["contrarian"] * contrarian
+        + REFLEX_RESPONSE_WEIGHTS["herding"] * herding
+        + REFLEX_RESPONSE_WEIGHTS["value"] * value
     )
 
 
