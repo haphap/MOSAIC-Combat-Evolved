@@ -46,7 +46,12 @@ def _opt_seed(params: dict) -> Any:
 
 @method("mirofish.generate_scenarios")
 def mirofish_generate_scenarios(params: dict[str, Any]) -> dict[str, Any]:
-    """Generate the Monte-Carlo scenario set (base/bull/bear/tail_up/tail_down)."""
+    """Generate the scenario set (base/bull/bear/tail_up/tail_down).
+
+    ``engine``: 'montecarlo' (default) or 'swarm' (Phase 7M.1 agent-to-agent).
+    When omitted, falls back to ``config.mirofish.engine`` (default montecarlo,
+    i.e. swarm OFF). Swarm ignores ``reflexivity`` (it is reflexive by design).
+    """
     num_days = _opt_int(params, "num_days", 30)
     seed = _opt_seed(params)
     scenarios = params.get("scenarios")
@@ -59,18 +64,33 @@ def mirofish_generate_scenarios(params: dict[str, Any]) -> dict[str, Any]:
         raise RpcError(INVALID_PARAMS, "'start_prices' must be an object")
     reflexivity = bool(params.get("reflexivity", False))
 
+    engine = params.get("engine")
+    if engine is None:
+        from mosaic.default_config import DEFAULT_CONFIG
+
+        engine = DEFAULT_CONFIG.get("mirofish", {}).get("engine", "montecarlo")
+    if engine not in ("montecarlo", "swarm"):
+        raise RpcError(INVALID_PARAMS, "'engine' must be 'montecarlo' or 'swarm'")
+
     # Lazy import after validation so deps-light callers (and bad-param tests)
     # don't pay the numpy import / hit ModuleNotFoundError before rejection.
-    from mosaic.mirofish import generate_all_scenarios
-
     try:
-        out = generate_all_scenarios(
-            start_prices=start_prices, num_days=num_days, seed=seed,
-            scenarios=scenarios, reflexivity=reflexivity,
-        )
+        if engine == "swarm":
+            from mosaic.mirofish.swarm import LocalSwarmEngine
+
+            out = LocalSwarmEngine().generate_all_scenarios(
+                start_prices=start_prices, num_days=num_days, seed=seed, scenarios=scenarios
+            )
+        else:
+            from mosaic.mirofish import generate_all_scenarios
+
+            out = generate_all_scenarios(
+                start_prices=start_prices, num_days=num_days, seed=seed,
+                scenarios=scenarios, reflexivity=reflexivity,
+            )
     except ValueError as exc:
         raise RpcError(INVALID_PARAMS, str(exc)) from exc
-    return {"scenarios": out}
+    return {"scenarios": out, "engine": engine}
 
 
 @method("mirofish.score_recommendation")

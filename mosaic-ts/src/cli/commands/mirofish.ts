@@ -22,6 +22,8 @@ interface GenerateOpts {
   seed?: string;
   print?: boolean;
   reflexive?: boolean;
+  engine?: string;
+  swarm?: boolean;
 }
 
 interface TrainOpts {
@@ -31,6 +33,8 @@ interface TrainOpts {
   dryRun?: boolean;
   fakeLlm?: boolean;
   reflexive?: boolean;
+  engine?: string;
+  swarm?: boolean;
   llmProvider?: string;
   model?: string;
   baseUrl?: string;
@@ -52,14 +56,22 @@ export function registerMirofish(program: Command): void {
     .option("--seed <n>", "RNG seed for reproducibility")
     .option("--print", "Print scenario detail")
     .option("--reflexive", "Apply the reflexive actor overlay (price↔behavior feedback)")
+    .option("--engine <name>", "Scenario engine: montecarlo (default) | swarm (agent-to-agent)")
+    .option("--swarm", "Shorthand for --engine swarm (Phase 7M.1 interaction engine)")
     .action(async (opts: GenerateOpts) => {
       await withApi(async (api) => {
+        const engine = resolveEngine(opts);
         const { scenarios } = await api.mirofishGenerateScenarios({
           ...(opts.days ? { num_days: Number.parseInt(opts.days, 10) } : {}),
           ...(opts.seed ? { seed: Number.parseInt(opts.seed, 10) } : {}),
           ...(opts.reflexive ? { reflexivity: true } : {}),
+          ...(engine ? { engine } : {}),
         });
-        console.log(pc.bold(`\nmirofish scenarios (${scenarios.length})`));
+        console.log(
+          pc.bold(
+            `\nmirofish scenarios (${scenarios.length})${engine ? ` [engine=${engine}]` : ""}`,
+          ),
+        );
         for (const s of scenarios) {
           const csi = s.final_state.csi300_return;
           console.log(
@@ -84,6 +96,8 @@ export function registerMirofish(program: Command): void {
     .option("--dry-run", "Score but do not persist")
     .option("--fake-llm", "Deterministic canned recommendations (zero cost)")
     .option("--reflexive", "Apply the reflexive actor overlay (price↔behavior feedback)")
+    .option("--engine <name>", "Scenario engine: montecarlo (default) | swarm")
+    .option("--swarm", "Shorthand for --engine swarm (Phase 7M.1 interaction engine)")
     .option("--llm-provider <name>", "Override LLM provider")
     .option("--model <name>", "Override LLM model")
     .option("--base-url <url>", "Override LLM base URL")
@@ -105,6 +119,7 @@ export function registerMirofish(program: Command): void {
               `${opts.dryRun ? " [DRY RUN]" : ""}${opts.fakeLlm ? " [FAKE LLM]" : ""}`,
           ),
         );
+        const engine = resolveEngine(opts);
         const result = await runMirofishTraining({
           ...(opts.days ? { numDays: Number.parseInt(opts.days, 10) } : {}),
           ...(opts.seed ? { seed: Number.parseInt(opts.seed, 10) } : {}),
@@ -112,6 +127,7 @@ export function registerMirofish(program: Command): void {
           dryRun: opts.dryRun ?? false,
           ...(opts.fakeLlm ? { fakeLlm: true } : {}),
           ...(opts.reflexive ? { reflexive: true } : {}),
+          ...(engine ? { engine } : {}),
           deps: { llm: llmHandle.llm, api },
           onLog: (m) => console.log(pc.dim(`  ${m}`)),
         });
@@ -151,6 +167,16 @@ export function registerMirofish(program: Command): void {
         }
       });
     });
+}
+
+/** Resolve engine from --swarm shorthand or --engine; undefined → server default. */
+function resolveEngine(opts: {
+  engine?: string;
+  swarm?: boolean;
+}): "montecarlo" | "swarm" | undefined {
+  if (opts.swarm) return "swarm";
+  if (opts.engine === "montecarlo" || opts.engine === "swarm") return opts.engine;
+  return undefined;
 }
 
 async function withApi(fn: (api: BridgeApi) => Promise<void>): Promise<void> {
