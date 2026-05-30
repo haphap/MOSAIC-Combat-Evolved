@@ -396,11 +396,17 @@ class PaperTradingEngine:
 
     def suggest_order_from_signal(self, ticker: str, state: dict,
                                   user_id: str | None = None) -> dict | None:
+        import dataclasses
+
         from mosaic.backtest.signals import BacktestSignal, build_state_backtest_signal
         from mosaic.dataflows.exceptions import DataVendorUnavailable
-        signal_dict = build_state_backtest_signal(state)
-        signal = BacktestSignal(**signal_dict) if signal_dict else None
-        if not signal or signal.target_weight_pct is None:
+        signal_dict = build_state_backtest_signal(state, default_ticker=ticker)
+        if not signal_dict:
+            return None
+        # Tolerate dicts carrying keys beyond the dataclass (future pipelines).
+        known = {f.name for f in dataclasses.fields(BacktestSignal)}
+        signal = BacktestSignal(**{k: v for k, v in signal_dict.items() if k in known})
+        if signal.target_weight_pct is None:
             return None
         signal_ticker = signal.ticker or ticker
         if signal_ticker != ticker:
@@ -409,6 +415,7 @@ class PaperTradingEngine:
             )
 
         uid = user_id or self._get_current_user()
+        self._update_day_barrier(uid)  # unlock T+1 shares before reading availability
         account = self.get_account(uid)
         try:
             price = self._get_current_price(signal_ticker)
@@ -421,6 +428,11 @@ class PaperTradingEngine:
 
         if delta_value > 0:
             qty = int(delta_value / price / 100) * 100
+            # Cap to what cash can actually fund (incl. commission), so the
+            # suggestion is executable rather than rejected by buy().
+            qty = min(qty, int(account["cash"] / price / 100) * 100)
+            while qty >= 100 and qty * price + calc_commission(qty * price) > account["cash"]:
+                qty -= 100
             if qty >= 100:
                 return {
                     "ticker": signal_ticker,

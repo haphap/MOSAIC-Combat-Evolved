@@ -116,6 +116,34 @@ class TestPaperEngine(unittest.TestCase):
                                      "rating": "SELL", "target_weight_pct": 0.0}}
         self.assertIsNone(self.e.suggest_order_from_signal("510300.SH", state, user_id="alice"))
 
+    def test_suggest_buy_capped_to_affordable_cash(self):
+        """A 100% target with tiny cash must not suggest more than cash (+comm)
+        can fund — otherwise buy() would reject the suggestion."""
+        self.e.register("alice", "pw")
+        self.e.login("alice", "pw")
+        self.e.reset_account(initial_cash=1_500.0)  # price 10 → 100 shares = 1000+5 ≤ 1500
+        sig = {"backtest_signal": {"ticker": "510300.SH", "decision_date": "d",
+                                   "source": "s", "source_section": "x",
+                                   "rating": "BUY", "target_weight_pct": 100.0}}
+        sug = self.e.suggest_order_from_signal("510300.SH", sig, user_id="alice")
+        self.assertEqual(sug["quantity"], 100)  # capped, not 15 (=1500/10/... target)
+        # And the suggestion is actually executable.
+        self.e.buy(sug["ticker"], sug["quantity"], user_id="alice")
+        # Below one lot+commission → no suggestion.
+        self.e.reset_account(initial_cash=1_004.0)
+        self.assertIsNone(self.e.suggest_order_from_signal("510300.SH", sig, user_id="alice"))
+
+    def test_suggest_rating_only_fallback_uses_requested_ticker(self):
+        """No attached signal + no asset_of_interest: the fallback must target
+        the requested ticker (default_ticker), not 'unknown'."""
+        self.e.register("alice", "pw")
+        self.e.login("alice", "pw")
+        self.e.reset_account(initial_cash=1_000_000.0)
+        sug = self.e.suggest_order_from_signal(
+            "510300.SH", {"final_allocation_decision": "买入 BUY"}, user_id="alice")
+        self.assertEqual(sug["ticker"], "510300.SH")
+        self.assertEqual(sug["side"], "buy")
+
     def test_insufficient_cash_rejected(self):
         self.e.register("alice", "pw")
         self.e.login("alice", "pw")
