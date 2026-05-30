@@ -313,13 +313,46 @@ def generate_all_scenarios(
 _LONG = {"BUY", "LONG"}
 _SHORT = {"SELL", "SHORT", "REDUCE"}
 
+# Path-aware scoring (opt-in): how hard to penalise the worst peak-to-trough
+# drawdown of the *position's* equity curve. A rec that ends +10% after a -25%
+# round-trip is materially worse than one that climbs smoothly to +10% — terminal
+# scoring can't see that, path-aware can. This is the signal the swarm's reflexive
+# path structure (lag-1 autocorr, deeper drawdowns/reversals) finally reaches.
+_DRAWDOWN_PENALTY = 0.5
 
-def score_recommendation(recommendation: Mapping[str, Any], scenario: Mapping[str, Any]) -> float:
+
+def _path_metric(prices: list[float], sign: float) -> float:
+    """Direction-adjusted return of the realised *path*, minus a max-drawdown
+    penalty on the position's equity curve. ``sign`` is +1 long / -1 short.
+
+    Falls back to the terminal return when the path is too short to have shape.
+    """
+    if not prices or len(prices) < 2:
+        return 0.0
+    p = np.asarray(prices, dtype=float)
+    # Position equity multiple along the path (short = inverse price moves).
+    equity = (p / p[0]) if sign > 0 else (p[0] / p)
+    terminal = float(equity[-1] - 1.0)
+    running_peak = np.maximum.accumulate(equity)
+    max_dd = float(np.max(1.0 - equity / running_peak))  # ∈ [0,1], worst drawdown
+    return terminal - _DRAWDOWN_PENALTY * max_dd
+
+
+def score_recommendation(
+    recommendation: Mapping[str, Any],
+    scenario: Mapping[str, Any],
+    path_aware: bool = False,
+) -> float:
     """Score a rec against a scenario's realised paths → [0, 1].
 
     Port of ATLAS scoring: direction × cumulative return averaged over the
     rec's tickers, mapped so +20% ≈ 1.0 / -20% ≈ 0.0 / flat = 0.5, then a
     conviction reward/penalty (wrong high-conviction hurts more).
+
+    ``path_aware`` (opt-in): score the direction-adjusted equity *curve* with a
+    max-drawdown penalty (``_path_metric``) instead of the terminal return, so
+    the realised path shape (which the swarm engine actually varies) reaches the
+    signal. Default ``False`` is byte-identical to the terminal scorer.
     """
     if not isinstance(recommendation, Mapping) or recommendation.get("error"):
         return 0.0
@@ -327,17 +360,17 @@ def score_recommendation(recommendation: Mapping[str, Any], scenario: Mapping[st
     tickers = recommendation.get("tickers") or []
     conviction = float(recommendation.get("conviction", 0.5))
     paths = scenario.get("price_paths", {})
+    sign = 1.0 if direction in _LONG else (-1.0 if direction in _SHORT else 0.0)
 
     total, count = 0.0, 0
     for t in tickers:
         p = paths.get(t)
         if not p:
             continue
-        ret = float(p.get("cumulative_return", 0.0))
-        if direction in _LONG:
-            total += ret
-        elif direction in _SHORT:
-            total -= ret
+        if path_aware and sign != 0.0:
+            total += _path_metric(p.get("prices") or [], sign)
+        else:
+            total += sign * float(p.get("cumulative_return", 0.0))
         count += 1
     if count == 0:
         return 0.5  # neutral when no actionable picks (HOLD or unknown tickers)

@@ -2548,15 +2548,22 @@ impact=0.10→autocorr +0.07；impact=0.20→**autocorr +0.20、vol_clustering +
   同时有界（max 日内 ≈1.6%、cum_std≈0.05、无 0.4/0.88 退化）。`test_mirofish_ab.py`
   断言收紧：MC autocorr<0.05、swarm autocorr>0.10、gap>0.10、swarm vol_clustering>MC。
   默认-off（montecarlo）行为不受影响。
-- **⛔ 7M.2 仍 blocked —— 真正前置条件是「可被利用性」而非「存在性」**：当前
-  `score_recommendation` 只看 **cumulative_return**，对 lag-1 自相关/路径形状**完全
-  不敏感**——即使 swarm 产生了路径结构，下游评分也看不到。**所以扩 7M.2 前必须先有
-  一个 path-aware 评分/训练目标**（如时点择时、回撤、轨迹依赖收益），否则记忆与交互
-  的增量永远无法转化为
-  训练信号。这条比记忆本身优先级更高。
+- **✅ path-aware 评分器已交付（2026-05-30，7M.2 前置）**：`score_recommendation`
+  加 `path_aware`（默认 `False` = terminal，与旧行为**字节级一致**）；开启时对**方向
+  调整后的净值曲线**用 `_path_metric` 评分（terminal 收益 − `_DRAWDOWN_PENALTY=0.5` ×
+  最大回撤），swarm 产生的路径形状（lag-1 自相关、更深回撤/往返）**终于进入训练信号**。
+  镜像 engine 开关：`config.mirofish.scorer`（默认 `terminal`）→ RPC `scorer` 参数 →
+  TS wrapper + trainer 选项 + CLI `--scorer/--path-aware`。证据：同一 +10% 终值，平滑
+  爬升 vs 先 −25% 往返，terminal 同分 0.825，path-aware 给往返 **0.372**；CLI 端到端
+  同 seed/agent，default avg 0.959 vs `--swarm --path-aware` **0.727**。测试
+  `test_mirofish_path_aware.py`（terminal 不变、回撤区分、swarm 上 path-aware≠terminal）
+  + bridge scorer-routing（default-off / opt-in / bad-scorer 拒绝 / config 默认）。
+- **⛔→🟡 7M.2 解锁条件已满足**：可被利用性前置（path-aware 目标）现已就位；剩下的是
+  实测「记忆是否带来可测增益」——即一次真正的 A/B-lift（swarm+memory 训练 vs swarm
+  训练）。在看到该增益之前仍不投入完整 7M.2/7M.3。
 
-**建议顺序**：7M.1b 调参（让 swarm 真的非 MC）→ path-aware 评分器 → 再评估 7M.2
-记忆是否带来可测增益。**在 path-aware 目标就位前，不建议投入 7M.2/7M.3。**
+**建议顺序**：7M.1b 调参 ✅ → path-aware 评分器 ✅ → **下一步：A/B-lift 验证**（用
+path-aware 目标，比较 swarm vs montecarlo 训练，及 swarm±memory 雏形），再决定 7M.2。
 
 ### buy-vs-build 决策
 

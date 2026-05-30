@@ -807,6 +807,7 @@ export class BridgeApi {
   mirofishScoreRecommendation(params: {
     recommendation: MirofishRecommendation;
     scenario: MirofishScenario;
+    scorer?: "terminal" | "path_aware";
   }): Promise<{ score: number }> {
     return this.client.call<{ score: number }>("mirofish.score_recommendation", params);
   }

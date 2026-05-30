@@ -158,5 +158,11 @@ DEFAULT_CONFIG = {
     # well-validated Monte-Carlo path.
     "mirofish": {
         "engine": "montecarlo",
+        # 'scorer' selects how a rec is graded against a scenario's paths:
+        # 'terminal' (default — direction × cumulative return) or 'path_aware'
+        # (direction-adjusted equity curve with a max-drawdown penalty, so the
+        # realised path shape the swarm engine varies reaches the signal).
+        # OPT-IN; default keeps the terminal scorer byte-identical.
+        "scorer": "terminal",
     },
 }
