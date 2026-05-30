@@ -183,6 +183,11 @@ class TestMirofishHandlers(unittest.TestCase):
 
         self.assertEqual(DEFAULT_CONFIG["mirofish"]["scorer"], "terminal")
 
+    def test_config_default_inject_context_is_off(self):
+        from mosaic.default_config import DEFAULT_CONFIG
+
+        self.assertIs(DEFAULT_CONFIG["mirofish"]["inject_context"], False)
+
     def test_methods_registered(self):
         from mosaic.bridge.registry import all_methods
 

@@ -9,10 +9,10 @@
  * here in the same commit.
  *
  * The :class:`BridgeApi` helper at the bottom provides typed wrappers for all
- * 13 namespaces (incl. the Phase 8 paper-trading write surface). The only
- * registered methods without a typed wrapper today are `cache.details` and the
- * `mirofish.{save,get}_context` pair (added in 7M Step 1; wrappers land with
- * Step 2) — all reachable via ``client.call(method, params)`` meanwhile.
+ * 13 namespaces (incl. the Phase 8 paper-trading write surface and the
+ * `mirofish.{save,get}_context` pair wrapped in 7M Step 2). The only registered
+ * method without a typed wrapper today is `cache.details` — reachable via
+ * ``client.call(method, params)``.
  */
 
 import type { BridgeClient } from "./client.js";
@@ -106,6 +106,15 @@ export interface MosaicConfig {
   // ----- Data vendors (Phase 0) -----
   data_vendors: Record<string, string>;
   tool_vendors: Record<string, string>;
+
+  // ----- MiroFish (Plan §11.8 / 7M) -----
+  /** Forward-simulation toggles. ``inject_context`` (default false) appends the
+   *  latest MiroFish scenario context to the CIO prompt (7M Step 2). */
+  mirofish?: {
+    engine?: string;
+    scorer?: string;
+    inject_context?: boolean;
+  };
 
   // ----- Open extension for fields not yet stabilised. -----
   [key: string]: unknown;
@@ -510,6 +519,22 @@ export interface MirofishHistoryEntry {
   created_at: string;
 }
 
+/** Compact forward-looking context derived from a scenario set (7M Step 1/2).
+ *  ``hct_direction`` / ``tail_summary`` may be null (see derive_context). */
+export interface MirofishContext {
+  n_scenarios: number;
+  regime: string | null;
+  narrative: string | null;
+  csi300_return: number;
+  hct_ticker: string;
+  hct_direction: "LONG" | "SHORT" | null;
+  hct_csi300_return: number;
+  tail_summary: string | null;
+  engine: string;
+  date?: string;
+  created_at?: string;
+}
+
 // --------------------------------------------------------- helpers
 
 /**
@@ -517,10 +542,9 @@ export interface MirofishHistoryEntry {
  * namespaces: tools.* / config.* / cache.* / calendar.* / paper.* (incl. the
  * Phase 8 write surface: register/login/logout/reset_account/buy/sell/
  * suggest_order_from_signal) / backtest.* / scorecard.* / darwinian.* /
- * prompts.* / autoresearch.* / prism.* / janus.* / mirofish.*. The only
- * registered methods still unwrapped are `cache.details` and
- * `mirofish.{save,get}_context` (7M Step 1; wrappers land with Step 2) —
- * reachable meanwhile via ``client.call(method, params)``.
+ * prompts.* / autoresearch.* / prism.* / janus.* / mirofish.* (incl.
+ * save/get_context). The only registered method still unwrapped is
+ * `cache.details` — reachable via ``client.call(method, params)``.
  */
 export class BridgeApi {
   constructor(private readonly client: BridgeClient) {}
@@ -936,5 +960,19 @@ export class BridgeApi {
       "mirofish.get_history",
       params ?? {},
     );
+  }
+
+  mirofishSaveContext(params: {
+    scenarios: MirofishScenario[];
+    date?: string;
+  }): Promise<{ date: string; context: MirofishContext }> {
+    return this.client.call<{ date: string; context: MirofishContext }>(
+      "mirofish.save_context",
+      params,
+    );
+  }
+
+  mirofishGetContext(): Promise<{ context: MirofishContext | null }> {
+    return this.client.call<{ context: MirofishContext | null }>("mirofish.get_context", {});
   }
 }

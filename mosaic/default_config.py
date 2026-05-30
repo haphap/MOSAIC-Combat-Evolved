@@ -164,5 +164,11 @@ DEFAULT_CONFIG = {
         # realised path shape the swarm engine varies reaches the signal).
         # OPT-IN; default keeps the terminal scorer byte-identical.
         "scorer": "terminal",
+        # 'inject_context': when True, the CIO (Layer 4) prompt gets an appended
+        # MiroFish forward-looking section (latest persisted scenario context:
+        # regime / highest-conviction direction / tail risk) with a "simulation
+        # only" disclaimer (7M Step 2). OPT-IN; default OFF — daily-cycle prompts
+        # are byte-identical unless turned on.
+        "inject_context": False,
     },
 }
