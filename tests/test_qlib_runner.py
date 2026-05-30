@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import importlib.util
+
 import pandas as pd
 import pytest
 
@@ -24,6 +26,10 @@ from mosaic.backtest import (
 from mosaic.backtest.qlib_runner import _resolve_qlib_data_path, _summarise_portfolio
 from mosaic.backtest.qlib_strategy import load_weights_from_store
 from mosaic.scorecard import ScorecardStore
+
+# Instantiating MosaicCachedStrategy needs qlib (it subclasses a qlib base);
+# CI's Python lane omits the heavy .[backtest] extra, so skip there.
+_HAS_QLIB = importlib.util.find_spec("qlib") is not None
 
 
 # ---------------------------------------------------------------------------
@@ -328,6 +334,7 @@ class TestQlibDataPath:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.skipif(not _HAS_QLIB, reason="qlib not installed (.[backtest] extra)")
 class TestStrategyInstantiation:
     def test_from_actions_dict_with_empty_weights(self):
         from mosaic.backtest.qlib_strategy import MosaicCachedStrategy
