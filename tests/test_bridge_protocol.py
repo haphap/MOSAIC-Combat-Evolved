@@ -266,25 +266,24 @@ class BridgeProtocolTests(_BridgeTestCase):
 
     # ----------------------------------------------------- paper.* tests
     #
-    # The paper engine ports in Phase 8. Until then handlers live but lazy-
-    # import; valid args therefore degrade to PAPER_ERROR (-32020) with a
-    # Phase-8 message; bad args still trip INVALID_PARAMS (-32602) before
-    # the import is attempted.
+    # The paper engine is ported (Phase 8 刀1): handlers reach a real
+    # PaperTradingEngine. current_user works without a session ("default");
+    # bad args still trip INVALID_PARAMS (-32602) before the engine is touched.
 
     def _paper_params(self, **extra) -> dict:
         return {"db_path": str(self._paper_db), **extra}
 
-    def test_paper_current_user_returns_paper_error_until_phase_8(self) -> None:
-        err = self.call_err("paper.current_user", self._paper_params())
-        self.assertEqual(err["code"], -32020)
-        self.assertIn("Phase 8", err["message"])
+    def test_paper_current_user_defaults_without_session(self) -> None:
+        result = self.call_ok("paper.current_user", self._paper_params())
+        self.assertEqual(result["user"], "default")
 
-    def test_paper_buy_with_valid_args_returns_paper_error_until_phase_8(self) -> None:
+    def test_paper_buy_invalid_quantity_rejected_before_engine(self) -> None:
+        # Non-int quantity is rejected by param validation (no engine/network).
         err = self.call_err(
             "paper.buy",
-            self._paper_params(ticker="510300.SH", quantity=100),
+            self._paper_params(ticker="510300.SH", quantity="100"),
         )
-        self.assertEqual(err["code"], -32020)
+        self.assertEqual(err["code"], -32602)
 
     def test_paper_suggest_order_rejects_non_object_state(self) -> None:
         """Validation runs before the lazy paper-engine import."""

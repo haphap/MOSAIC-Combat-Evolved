@@ -86,7 +86,7 @@ Cohort 切换 UI（PRISM）                                       paper_trading/
 | 5 | PRISM 7 cohort 训练编排 | 5–6 | ✅ 完成（训练编排落地：§1 并发模型 cohort 顺序/layer 顺序/layer 内≤5 并发；§11.6 5A–5E） |
 | 6 | JANUS 元层（port ATLAS 571 LOC） | 3 | ✅ 完成（元加权落地：7 cohort rolling 准确度 → feasibility-aware softmax → regime 信号 → 跨 cohort blend；§11.7 6A–6D） |
 | 7 | MiroFish 反身性模拟（port ATLAS ~2,800 LOC + Tushare 适配） | 4–5 | ✅ 完成（numpy 情景引擎：相关蒙特卡洛 base/bull/bear/tail + 事件注入 + 打分；前向训练环 + mirofish_runs 隔离账本；§11.8 7A–7E）。**扩展 7M.1–7M.5（交互 swarm/记忆/persona）：7M.1 swarm 引擎 + path-aware scorer 已并入主干；7M.2/7M.3 经增益验证 deferred，详见 §11.8.1** |
-| 8 | 执行层（paper + backtrader，复用 ETFAgents） | 4 | ⏭ |
+| 8 | 执行层（**paper trading** 复用 ETFAgents；回测复用 Phase 3.5 qlib 引擎，**不引 backtrader**） | 4 | 🔄 进行中（刀1 ✅ `PaperTradingEngine` 移植 + `paper.*` RPC 接通：auth/account/buy/sell/T+1/佣金/持仓/成交；`suggest_order_from_signal` 留 刀2 stub。刀2 待做：port `backtest.signals` 接通 signal→order + paper CLI） |
 | 9 | Ink TUI + CLI + 文档 + CI 部署 | 6–8 | ⏭ |
 | **总计** | | **50–58 turns / 6.5–9.5 个月业余工时** | |
 

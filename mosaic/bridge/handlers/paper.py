@@ -4,8 +4,9 @@ Stateless: a fresh engine is constructed per call (matching the existing CLI
 pattern in ``cli/commands/paper.py``). The engine's SQLite connection is
 opened/closed inside its own methods so each RPC is self-contained.
 
-Phase 0 Day 1 status: stubs registered; calls fail with ``PAPER_ERROR`` until
-``mosaic.paper_trading.engine`` is ported in Phase 8.
+Engine ported in Phase 8 刀1. ``suggest_order_from_signal`` is stubbed until
+刀2 (needs ``mosaic.backtest.signals``); all other methods are live. The lazy
+import still maps a missing ``.[trading]`` extra (bcrypt) to ``PAPER_ERROR``.
 """
 
 from __future__ import annotations
@@ -24,7 +25,7 @@ def _engine(params: dict[str, Any]):
     except ImportError as exc:
         raise RpcError(
             PAPER_ERROR,
-            "mosaic.paper_trading.engine not yet available (Phase 8).",
+            "paper trading needs the '.[trading]' extra (bcrypt): " + str(exc),
         ) from exc
 
     db_path = params.get("db_path")
