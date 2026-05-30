@@ -2394,11 +2394,36 @@ ATLAS `Janus` 类（2 个时间窗 cohort：18month / 10year）：
   TS wrapper + CLI + `mirofish_runs` 账本。
 - `pnpm dev mirofish train --fake-llm --seed 42` 端到端跑通（合成训练，不碰实盘）。
 
+### 反身性叠加层（reflexivity overlay，2026-05-30 增补）
+
+> 用户指出 MiroFish 的「正主」是 [666ghj/MiroFish](https://github.com/666ghj/MiroFish)
+> —— 一个 **swarm 反身性引擎**：seed → GraphRAG → 上千个有人格/记忆的 agent
+> 互相交互 + 社会演化（基于 OASIS/CAMEL-AI），由**集体涌现**塑造轨迹。ATLAS 的
+> ~2,800 LOC 移植版（本 PR 起点）只有 numpy 蒙特卡洛 + 单 agent 打分，**没有任何
+> 反身性反馈**，「反身性模拟」名不副实。
+
+为闭合这个保真度差距（但不引入 OASIS/GraphRAG/记忆这套重依赖），加了一个**轻量、
+确定性、纯 numpy 的反身性叠加层**（`generate_scenario(reflexivity=True)`，默认关，
+关时与原行为字节一致）：一群行为型 actor（momentum / contrarian / herding / value
+四原型）每天根据**近期价格行为**产生净需求，需求**反馈进次日收益**（price →
+behaviour → price 闭环）。这抓住了 canonical MiroFish 的*定义性*机制——actor 对
+集体行为做反应、反过来改变轨迹——而非 i.i.d. 随机游走。验证：bull 趋势被放大
+（0.17→0.33），tail 离散度变宽（stdev 0.088→0.132），全程有限稳定、固定 seed 可
+重复。RPC / TS trainer / CLI 加 `--reflexive` / `reflexivity` 透传。
+
+**仍与 canonical MiroFish 的差距（诚实记录）**：本叠加层是**行为原型的解析近似**，
+不是真正的 LLM swarm —— 没有 per-agent 人格、长期记忆（Zep）、GraphRAG 知识图、
+agent 间显式消息传递、社会网络拓扑、God's-eye 变量注入。要做到那种保真度需要接
+OASIS/CAMEL-AI，是独立的大工程（远超 plan §3 给 Phase 7 的 4–5 turns 预算）。本
+overlay 是「在 numpy 约束内最大化反身性保真度」的务实选择；真 swarm 留作 Phase 7+
+的可选增强。
+
 ### 不在 Phase 7 范围
 
 - MiroFish 反哺 Darwinian 真实权重（隔离原则；是否接入记 §14 待决）。
-- LLM swarm 多 actor 角色扮演模拟（ATLAS seed_generator 的 30+ actor）—— MOSAIC
-  先做「情景→agent rec→打分」训练环，多 actor swarm 推迟。
+- **真 LLM swarm**（canonical 666ghj/MiroFish 的 GraphRAG + Zep 记忆 + 上千 persona
+  agent + OASIS 社会模拟）—— 重依赖、超 Phase 7 预算；本 PR 用解析反身性叠加层近似，
+  真 swarm 留作 Phase 7+ 可选增强。
 - prompt 注入 MiroFish 预测（`mirofish_context` 等价物）—— 等真实跑再做。
 
 ---

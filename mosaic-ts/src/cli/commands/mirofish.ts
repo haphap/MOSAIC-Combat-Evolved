@@ -21,6 +21,7 @@ interface GenerateOpts {
   days?: string;
   seed?: string;
   print?: boolean;
+  reflexive?: boolean;
 }
 
 interface TrainOpts {
@@ -29,6 +30,7 @@ interface TrainOpts {
   agents?: string;
   dryRun?: boolean;
   fakeLlm?: boolean;
+  reflexive?: boolean;
   llmProvider?: string;
   model?: string;
   baseUrl?: string;
@@ -49,11 +51,13 @@ export function registerMirofish(program: Command): void {
     .option("--days <n>", "Days to simulate (default 30)")
     .option("--seed <n>", "RNG seed for reproducibility")
     .option("--print", "Print scenario detail")
+    .option("--reflexive", "Apply the reflexive actor overlay (price↔behavior feedback)")
     .action(async (opts: GenerateOpts) => {
       await withApi(async (api) => {
         const { scenarios } = await api.mirofishGenerateScenarios({
           ...(opts.days ? { num_days: Number.parseInt(opts.days, 10) } : {}),
           ...(opts.seed ? { seed: Number.parseInt(opts.seed, 10) } : {}),
+          ...(opts.reflexive ? { reflexivity: true } : {}),
         });
         console.log(pc.bold(`\nmirofish scenarios (${scenarios.length})`));
         for (const s of scenarios) {
@@ -79,6 +83,7 @@ export function registerMirofish(program: Command): void {
     .option("--agents <list>", "Comma-separated agents (default 4 superinvestors)")
     .option("--dry-run", "Score but do not persist")
     .option("--fake-llm", "Deterministic canned recommendations (zero cost)")
+    .option("--reflexive", "Apply the reflexive actor overlay (price↔behavior feedback)")
     .option("--llm-provider <name>", "Override LLM provider")
     .option("--model <name>", "Override LLM model")
     .option("--base-url <url>", "Override LLM base URL")
@@ -106,6 +111,7 @@ export function registerMirofish(program: Command): void {
           agents,
           dryRun: opts.dryRun ?? false,
           ...(opts.fakeLlm ? { fakeLlm: true } : {}),
+          ...(opts.reflexive ? { reflexive: true } : {}),
           deps: { llm: llmHandle.llm, api },
           onLog: (m) => console.log(pc.dim(`  ${m}`)),
         });

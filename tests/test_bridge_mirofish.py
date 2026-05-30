@@ -51,6 +51,17 @@ class TestMirofishHandlers(unittest.TestCase):
         with self.assertRaises(RpcError):
             _mf.mirofish_generate_scenarios({"scenarios": "bull"})
 
+    def test_generate_reflexivity_flag(self):
+        plain = _mf.mirofish_generate_scenarios({"seed": 42, "scenarios": ["bull"]})["scenarios"][0]
+        refl = _mf.mirofish_generate_scenarios({"seed": 42, "scenarios": ["bull"], "reflexivity": True})["scenarios"][0]
+        self.assertFalse(plain["reflexive"])
+        self.assertTrue(refl["reflexive"])
+        # Reflexive feedback changes the path.
+        self.assertNotEqual(
+            plain["price_paths"]["000300.SH"]["prices"],
+            refl["price_paths"]["000300.SH"]["prices"],
+        )
+
     def test_score_recommendation(self):
         # Construct a known-positive path so the assertion doesn't depend on a
         # noisy single random scenario path.

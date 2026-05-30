@@ -36,6 +36,7 @@ export interface MirofishTrainingOptions {
   agents: string[];
   dryRun?: boolean;
   fakeLlm?: boolean;
+  reflexive?: boolean;
   date?: string;
   deps: { llm: BaseChatModel; api: BridgeApi };
   onLog?: (msg: string) => void;
@@ -123,6 +124,7 @@ export async function runMirofishTraining(
     agents,
     dryRun = false,
     fakeLlm = false,
+    reflexive = false,
     date,
     deps,
     onLog,
@@ -133,8 +135,9 @@ export async function runMirofishTraining(
     num_days: numDays,
     ...(seed != null ? { seed } : {}),
     ...(scenarios ? { scenarios } : {}),
+    ...(reflexive ? { reflexivity: true } : {}),
   });
-  log(`generated ${scenes.length} scenarios (${numDays}d)`);
+  log(`generated ${scenes.length} scenarios (${numDays}d${reflexive ? ", reflexive" : ""})`);
 
   const results: AgentTrainingResult[] = [];
   for (const agent of agents) {

@@ -180,12 +180,67 @@ def _final_state(paths: dict[str, dict]) -> dict[str, Any]:
     return {"regime": regime, "narrative": narrative, "csi300_return": round(csi, 4)}
 
 
+# ── reflexivity overlay (Plan §11.8) ────────────────────────────────────────
+#
+# Canonical MiroFish (666ghj/MiroFish) is a *swarm* reflexivity engine: many
+# persona agents interact + socially evolve (OASIS/CAMEL-AI), and the
+# *collective* shapes the trajectory. A full GraphRAG+memory swarm is out of
+# scope for this port (Plan §11.8 "不在范围"). This is a lightweight,
+# deterministic numpy stand-in that captures the *defining* mechanic the ATLAS
+# port lacked: a population of behavioural actors whose aggregate demand
+# **feeds back into** each day's return (price → behaviour → price), i.e. a
+# real reflexive loop rather than an i.i.d. random walk.
+#
+# Each archetype maps the trailing window return to a same-day demand:
+#   momentum   chases recent moves (amplifies trends → bubbles/crashes)
+#   contrarian fades recent moves (dampens / mean-reverts)
+#   herding    piles into whichever side is winning (nonlinear, threshold)
+#   value      leans against large cumulative deviations from start
+REFLEX_ARCHETYPES = {"momentum": 0.35, "contrarian": 0.25, "herding": 0.20, "value": 0.20}
+_REFLEX_GAIN = 0.6  # overall feedback strength (kept modest to stay stable)
+_REFLEX_WINDOW = 3  # trailing days the actors react to
+
+
+def _reflex_demand(trailing: list[float], cum_dev: float) -> float:
+    """Net actor demand (return perturbation) from recent price action."""
+    recent = sum(trailing) if trailing else 0.0
+    momentum = recent
+    contrarian = -recent
+    herding = (1.0 if recent > 0 else -1.0) * min(abs(recent) * 2.0, 0.05) if trailing else 0.0
+    value = -cum_dev * 0.10
+    return (
+        REFLEX_ARCHETYPES["momentum"] * momentum
+        + REFLEX_ARCHETYPES["contrarian"] * contrarian
+        + REFLEX_ARCHETYPES["herding"] * herding
+        + REFLEX_ARCHETYPES["value"] * value
+    )
+
+
+def _build_path_reflexive(start_price: float, base_returns: np.ndarray) -> tuple[list[float], list[float]]:
+    """Build a price path where actor demand feeds back into each day's return.
+
+    Returns (prices, effective_returns). Deterministic given base_returns.
+    """
+    prices = [float(start_price)]
+    eff_returns: list[float] = []
+    cur = start_price
+    for i, base in enumerate(base_returns):
+        trailing = eff_returns[max(0, i - _REFLEX_WINDOW):i]
+        cum_dev = cur / start_price - 1.0
+        r = float(base) + _REFLEX_GAIN * _reflex_demand(trailing, cum_dev)
+        cur *= (1 + r)
+        prices.append(float(cur))
+        eff_returns.append(r)
+    return prices, eff_returns
+
+
 def generate_scenario(
     scenario_type: str,
     start_prices: Optional[Mapping[str, float]] = None,
     num_days: int = 30,
     seed: Optional[int] = None,
     start_date: Optional[str] = None,
+    reflexivity: bool = False,
 ) -> dict[str, Any]:
     """Generate one scenario dict (JSON-serialisable; crosses the bridge)."""
     if scenario_type not in SCENARIO_TYPES:
@@ -200,17 +255,22 @@ def generate_scenario(
 
     paths: dict[str, dict] = {}
     for t in tickers:
-        series = [float(prices[t])]
-        cur = prices[t]
-        for r in returns[t]:
-            cur *= (1 + r)
-            series.append(float(cur))
+        if reflexivity:
+            series, eff = _build_path_reflexive(prices[t], returns[t])
+            vol = float(np.std(eff) * np.sqrt(252)) if eff else 0.0
+        else:
+            series = [float(prices[t])]
+            cur = prices[t]
+            for r in returns[t]:
+                cur *= (1 + r)
+                series.append(float(cur))
+            vol = float(np.std(returns[t]) * np.sqrt(252))
         paths[t] = {
             "ticker": t,
             "start_price": float(prices[t]),
             "prices": series,
             "cumulative_return": series[-1] / series[0] - 1,
-            "volatility": float(np.std(returns[t]) * np.sqrt(252)),
+            "volatility": vol,
         }
 
     rng = np.random.default_rng(seed)
@@ -219,6 +279,7 @@ def generate_scenario(
         "scenario_name": _SCENARIO_NAME[scenario_type],
         "probability": _SCENARIO_PROB[scenario_type],
         "num_days": num_days,
+        "reflexive": reflexivity,
         "price_paths": paths,
         "events": _generate_events(scenario_type, num_days, start, rng),
         "final_state": _final_state(paths),
@@ -230,6 +291,7 @@ def generate_all_scenarios(
     num_days: int = 30,
     seed: Optional[int] = None,
     scenarios: Optional[list[str]] = None,
+    reflexivity: bool = False,
 ) -> list[dict[str, Any]]:
     """All five scenario types; per-scenario seed offset keeps each distinct
     yet reproducible from the base ``seed``."""
@@ -237,7 +299,7 @@ def generate_all_scenarios(
     out = []
     for i, st in enumerate(types):
         s = None if seed is None else seed + i
-        out.append(generate_scenario(st, start_prices, num_days, s))
+        out.append(generate_scenario(st, start_prices, num_days, s, reflexivity=reflexivity))
     return out
 
 

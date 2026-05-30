@@ -119,3 +119,43 @@ def test_score_clamped_and_error_zero():
         {"recommendation": "BUY", "tickers": list(s["price_paths"])[:1], "conviction": 1.0}, s
     )
     assert 0.0 <= v <= 1.0
+
+
+# ── reflexivity overlay ──────────────────────────────────────────────────────
+
+
+def test_reflexivity_off_by_default_and_unchanged():
+    off = mf.generate_scenario("bull", seed=42)
+    explicit_off = mf.generate_scenario("bull", seed=42, reflexivity=False)
+    assert off["reflexive"] is False
+    assert off["price_paths"]["000300.SH"]["prices"] == explicit_off["price_paths"]["000300.SH"]["prices"]
+
+
+def test_reflexive_is_deterministic():
+    a = mf.generate_scenario("bull", seed=42, reflexivity=True)
+    b = mf.generate_scenario("bull", seed=42, reflexivity=True)
+    assert a["reflexive"] is True
+    assert a["price_paths"]["000300.SH"]["prices"] == b["price_paths"]["000300.SH"]["prices"]
+
+
+def test_reflexive_paths_stay_finite():
+    import math
+
+    for st in mf.SCENARIO_TYPES:
+        s = mf.generate_scenario(st, seed=3, reflexivity=True)
+        for path in s["price_paths"].values():
+            assert all(math.isfinite(p) and p > 0 for p in path["prices"])
+
+
+def test_reflexive_amplifies_trend_dispersion():
+    import statistics
+
+    base = [mf.generate_scenario("tail_up", seed=s)["price_paths"]["000300.SH"]["cumulative_return"] for s in range(30)]
+    refl = [mf.generate_scenario("tail_up", seed=s, reflexivity=True)["price_paths"]["000300.SH"]["cumulative_return"] for s in range(30)]
+    # The price↔behavior feedback loop widens the trend (vs an i.i.d. walk).
+    assert statistics.pstdev(refl) > statistics.pstdev(base)
+
+
+def test_generate_all_threads_reflexivity():
+    out = mf.generate_all_scenarios(seed=7, reflexivity=True)
+    assert all(s["reflexive"] is True for s in out)

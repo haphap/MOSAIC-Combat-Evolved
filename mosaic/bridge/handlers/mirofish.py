@@ -59,10 +59,12 @@ def mirofish_generate_scenarios(params: dict[str, Any]) -> dict[str, Any]:
     start_prices = params.get("start_prices")
     if start_prices is not None and not isinstance(start_prices, dict):
         raise RpcError(INVALID_PARAMS, "'start_prices' must be an object")
+    reflexivity = bool(params.get("reflexivity", False))
 
     try:
         out = generate_all_scenarios(
-            start_prices=start_prices, num_days=num_days, seed=seed, scenarios=scenarios
+            start_prices=start_prices, num_days=num_days, seed=seed,
+            scenarios=scenarios, reflexivity=reflexivity,
         )
     except ValueError as exc:
         raise RpcError(INVALID_PARAMS, str(exc)) from exc
