@@ -55,6 +55,29 @@ pnpm dev daily-cycle --help          # 日循环
 pnpm dev paper account               # 模拟账户（Phase 8）
 ```
 
+## 日常使用（每天看什么）
+
+系统是**半自动**的：用 cron 在收盘后按顺序跑这条流水线，结果落 SQLite，再用 TUI 看。
+
+```bash
+# crontab 示例（交易日收盘后）：日循环 → 评分 → Darwinian → JANUS
+cd mosaic-ts
+pnpm dev daily-cycle --cohort cohort_default      # 25 agent → CIO 出当日组合建议（落库 recommendations 表）
+pnpm dev scorecard score-pending --cohort cohort_default   # 回填 forward_return（需 T+5 后才有命中数据）
+pnpm dev darwinian --cohort cohort_default
+pnpm dev janus run
+
+# 每天看一屏：
+pnpm dev dashboard
+```
+
+`dashboard` 的 **[1] today** = 今天 CIO 建议买/卖什么（ticker / 方向 / 目标权重 / 逻辑）；
+**[2] winrate** = 逐标的方向命中率（`sign(action)·未来5日收益>0` 的占比，带样本数 n）。
+
+> **关于"胜率"的诚实说明**：winrate 是**本系统 CIO 历史建议**的方向命中率（已评分行上的统计），
+> 需要积累若干天的 daily-cycle + 评分回填后才有意义（n 太小不可信）；它**不是**对某只股票的
+> 普适"交易胜率预测"。系统给的是"我过去这样建议，事后对了多少"，而非"这只股票未来必涨"。
+
 ## 依赖分层（extras）
 
 | extra | 内容 | 何时需要 |

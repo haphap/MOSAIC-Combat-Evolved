@@ -508,7 +508,67 @@ class ScorecardStore:
         with self._connect() as conn:
             return [dict(r) for r in conn.execute(sql, params).fetchall()]
 
-    # ── darwinian_weights (placeholder; populated by Phase 3C) ────────────
+    def get_latest_cio_actions(self, cohort: str) -> dict[str, Any]:
+        """The most recent CIO portfolio actions for a cohort — "what to trade
+        today": ticker / action / target_weight_pct / rationale, for the latest
+        date the CIO produced any. Read-only."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT MAX(date) AS d FROM recommendations WHERE cohort = ? AND agent = 'cio'",
+                (cohort,),
+            ).fetchone()
+            latest = row["d"] if row else None
+            if not latest:
+                return {"cohort": cohort, "date": None, "actions": []}
+            cur = conn.execute(
+                "SELECT ticker, action, target_weight_pct, rationale_snapshot, "
+                "       forward_return_5d, scored_at "
+                "FROM recommendations WHERE cohort = ? AND agent = 'cio' AND date = ? "
+                "ORDER BY target_weight_pct DESC, ticker",
+                (cohort, latest),
+            )
+            return {"cohort": cohort, "date": latest, "actions": [dict(r) for r in cur.fetchall()]}
+
+    def compute_win_rate(
+        self, cohort: str, since_date: Optional[str] = None, agent: str = "cio"
+    ) -> list[dict[str, Any]]:
+        """Per-ticker directional hit rate over SCORED rows: a pick "wins" when
+        sign(action) · forward_return_5d > 0. HOLD rows carry no directional bet
+        and are excluded. Returns rows sorted by win_rate desc, with n + avg
+        forward return so a high rate on n=1 is visible as low-confidence."""
+        sql = (
+            "SELECT ticker, action, forward_return_5d FROM recommendations "
+            "WHERE cohort = ? AND agent = ? AND forward_return_5d IS NOT NULL"
+        )
+        params: list[Any] = [cohort, agent]
+        if since_date:
+            sql += " AND date >= ?"
+            params.append(since_date)
+        with self._connect() as conn:
+            rows = conn.execute(sql, params).fetchall()
+
+        agg: dict[str, dict[str, float]] = {}
+        for r in rows:
+            sign = _action_sign(r["action"])
+            if sign == 0:
+                continue  # HOLD: no directional bet
+            a = agg.setdefault(r["ticker"], {"wins": 0.0, "n": 0.0, "sum_ret": 0.0})
+            ret = float(r["forward_return_5d"])
+            a["wins"] += 1.0 if sign * ret > 0 else 0.0
+            a["n"] += 1.0
+            a["sum_ret"] += sign * ret
+        out = [
+            {
+                "ticker": t,
+                "win_rate": round(v["wins"] / v["n"], 4),
+                "n": int(v["n"]),
+                "avg_dir_return_5d": round(v["sum_ret"] / v["n"], 4),
+            }
+            for t, v in agg.items()
+        ]
+        out.sort(key=lambda x: (x["win_rate"], x["n"]), reverse=True)
+        return out
+
 
     def upsert_darwinian_weights(self, rows: Iterable[dict[str, Any]]) -> int:
         """Upsert (cohort, agent, date) → weight. Returns count written."""
@@ -1168,3 +1228,17 @@ def _truncate(text: Optional[str], max_len: int) -> Optional[str]:
     if len(s) <= max_len:
         return s
     return s[: max_len - 1] + "…"
+
+
+_LONG_ACTIONS = {"BUY", "LONG"}
+_SHORT_ACTIONS = {"SELL", "SHORT", "REDUCE"}
+
+
+def _action_sign(action: Optional[str]) -> int:
+    """+1 long / -1 short / 0 neutral (HOLD/unknown) for win-rate direction."""
+    a = (action or "").upper()
+    if a in _LONG_ACTIONS:
+        return 1
+    if a in _SHORT_ACTIONS:
+        return -1
+    return 0

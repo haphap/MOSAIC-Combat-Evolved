@@ -271,6 +271,28 @@ export interface SkillRow {
   n_obs: number;
 }
 
+export interface CioAction {
+  ticker: string;
+  action: string;
+  target_weight_pct: number | null;
+  rationale_snapshot: string | null;
+  forward_return_5d: number | null;
+  scored_at: string | null;
+}
+
+export interface CioActions {
+  cohort: string;
+  date: string | null;
+  actions: CioAction[];
+}
+
+export interface WinRateRow {
+  ticker: string;
+  win_rate: number;
+  n: number;
+  avg_dir_return_5d: number;
+}
+
 /** Outcome of a ``darwinian.compute`` call. */
 export interface DarwinianComputeOutcome {
   /** Rows upserted into ``darwinian_weights``. */
@@ -704,6 +726,17 @@ export class BridgeApi {
 
   scorecardListSkill(cohort: string, since?: string): Promise<{ rows: SkillRow[] }> {
     return this.client.call<{ rows: SkillRow[] }>("scorecard.list_skill", {
+      cohort,
+      ...(since ? { since } : {}),
+    });
+  }
+
+  scorecardLatestCioActions(cohort: string): Promise<CioActions> {
+    return this.client.call<CioActions>("scorecard.latest_cio_actions", { cohort });
+  }
+
+  scorecardWinRate(cohort: string, since?: string): Promise<{ rows: WinRateRow[] }> {
+    return this.client.call<{ rows: WinRateRow[] }>("scorecard.win_rate", {
       cohort,
       ...(since ? { since } : {}),
     });

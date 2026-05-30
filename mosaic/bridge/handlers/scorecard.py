@@ -182,3 +182,32 @@ def scorecard_list_skill(params: dict[str, Any]) -> dict[str, Any]:
         )
 
     return {"rows": out}
+
+
+@method("scorecard.latest_cio_actions")
+def scorecard_latest_cio_actions(params: dict[str, Any]) -> dict[str, Any]:
+    """The most recent CIO portfolio actions for a cohort — "what to trade
+    today" (ticker / action / target_weight_pct / rationale / date)."""
+    cohort = _require_str(params, "cohort")
+    try:
+        return _store().get_latest_cio_actions(cohort)
+    except Exception as exc:
+        raise RpcError(INTERNAL_ERROR, f"{type(exc).__name__}: {exc}") from exc
+
+
+@method("scorecard.win_rate")
+def scorecard_win_rate(params: dict[str, Any]) -> dict[str, Any]:
+    """Per-ticker directional hit rate over scored CIO picks
+    (sign(action)·forward_return_5d > 0). Optional ``since`` (YYYY-MM-DD) and
+    ``agent`` (default 'cio')."""
+    cohort = _require_str(params, "cohort")
+    since: Optional[str] = params.get("since") or None
+    if since is not None and not isinstance(since, str):
+        raise RpcError(INVALID_PARAMS, "'since' must be a string when provided")
+    agent = params.get("agent") or "cio"
+    if not isinstance(agent, str):
+        raise RpcError(INVALID_PARAMS, "'agent' must be a string when provided")
+    try:
+        return {"rows": _store().compute_win_rate(cohort, since_date=since, agent=agent)}
+    except Exception as exc:
+        raise RpcError(INTERNAL_ERROR, f"{type(exc).__name__}: {exc}") from exc
