@@ -186,6 +186,17 @@ CREATE TABLE IF NOT EXISTS mirofish_runs (
     created_at TEXT NOT NULL,                   -- ISO-8601
     UNIQUE(date, agent, scenario_type)
 );
+
+CREATE TABLE IF NOT EXISTS mirofish_context (
+    date TEXT PRIMARY KEY,                       -- YYYY-MM-DD (one latest context per day)
+    regime TEXT,                                 -- base scenario regime
+    csi300_return REAL,                          -- base scenario CSI300 cumulative return
+    hct_ticker TEXT,                             -- highest-conviction (largest |return|) ticker
+    hct_direction TEXT,                          -- LONG / SHORT
+    tail_summary TEXT,                            -- worst-case (tail_down) one-liner
+    detail_json TEXT,                            -- full derived summary (JSON)
+    created_at TEXT NOT NULL                     -- ISO-8601
+);
 """
 
 
@@ -1211,6 +1222,63 @@ class ScorecardStore:
                 "SELECT * FROM mirofish_runs ORDER BY date DESC, id DESC LIMIT ?", (days,)
             )
             return [dict(r) for r in cur.fetchall()]
+
+    # ── mirofish_context (Phase 7M Step 1: scenario context for prompt feedback) ──
+
+    def save_mirofish_context(self, *, date: str, context: dict[str, Any]) -> None:
+        """Upsert the latest derived MiroFish scenario context for ``date``
+        (one row per day; idempotent). ``context`` is the dict from
+        ``derive_context`` — regime / csi300 / HCT / tail summary + detail."""
+        import json as _json
+
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO mirofish_context (
+                    date, regime, csi300_return, hct_ticker, hct_direction,
+                    tail_summary, detail_json, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(date) DO UPDATE SET
+                    regime = excluded.regime,
+                    csi300_return = excluded.csi300_return,
+                    hct_ticker = excluded.hct_ticker,
+                    hct_direction = excluded.hct_direction,
+                    tail_summary = excluded.tail_summary,
+                    detail_json = excluded.detail_json,
+                    created_at = excluded.created_at
+                """,
+                (
+                    date,
+                    context.get("regime"),
+                    context.get("csi300_return"),
+                    context.get("hct_ticker"),
+                    context.get("hct_direction"),
+                    context.get("tail_summary"),
+                    _json.dumps(context, ensure_ascii=False),
+                    _utcnow_iso(),
+                ),
+            )
+
+    def get_latest_mirofish_context(self) -> Optional[dict[str, Any]]:
+        """Return the most recent MiroFish context, or None. Shape = the full
+        context ``save`` derived (merged from ``detail_json``) plus ``date`` and
+        ``created_at`` provenance — so callers get one consistent dict, not a
+        raw DB row, and never need to re-parse ``detail_json``."""
+        import json as _json
+
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM mirofish_context ORDER BY date DESC LIMIT 1"
+            ).fetchone()
+        if row is None:
+            return None
+        try:
+            context = _json.loads(row["detail_json"]) if row["detail_json"] else {}
+        except (ValueError, TypeError):
+            context = {}
+        context["date"] = row["date"]
+        context["created_at"] = row["created_at"]
+        return context
 
 
 

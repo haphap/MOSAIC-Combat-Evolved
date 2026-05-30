@@ -158,3 +158,29 @@ def mirofish_get_history(params: dict[str, Any]) -> dict[str, Any]:
     """Recent mirofish_runs rows (newest first)."""
     days = _opt_int(params, "days", 30)
     return {"history": _store().get_mirofish_history(days)}
+
+
+@method("mirofish.save_context")
+def mirofish_save_context(params: dict[str, Any]) -> dict[str, Any]:
+    """Derive a compact prompt-ready context from a scenario set and persist it
+    as the latest MiroFish context for ``date`` (Phase 7M Step 1)."""
+    scenarios = params.get("scenarios")
+    if not isinstance(scenarios, list) or not all(isinstance(s, dict) for s in scenarios):
+        raise RpcError(INVALID_PARAMS, "'scenarios' must be a list of scenario objects")
+    if not scenarios:
+        raise RpcError(INVALID_PARAMS, "'scenarios' must be non-empty")
+    date = params.get("date") or _today()
+    if not isinstance(date, str):
+        raise RpcError(INVALID_PARAMS, "'date' must be a string")
+
+    from mosaic.mirofish.context import derive_context  # deps-light: no numpy
+
+    context = derive_context(scenarios)
+    _store().save_mirofish_context(date=date, context=context)
+    return {"date": date, "context": context}
+
+
+@method("mirofish.get_context")
+def mirofish_get_context(params: dict[str, Any]) -> dict[str, Any]:
+    """Return the most recent persisted MiroFish context (or null)."""
+    return {"context": _store().get_latest_mirofish_context()}
