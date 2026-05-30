@@ -110,6 +110,50 @@ def mini_qlib_dataset(tmp_path: Path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
+def test_etf_instrument_detection():
+    """ETFs are sh5x / sz1x; stocks are sh6/sz0/sz3 — disjoint."""
+    import mosaic.dataflows.qlib_local as q
+
+    assert q._is_etf_instrument("sh510300")
+    assert q._is_etf_instrument("sz159915")
+    assert not q._is_etf_instrument("sh600519")
+    assert not q._is_etf_instrument("sz000001")
+
+
+def test_etf_routes_to_cn_etf_dataset(tmp_path: Path, monkeypatch):
+    """An ETF ticker reads OHLCV from the sibling cn_etf dataset, not cn_data."""
+    cn_data_root = tmp_path / "cn_data"
+    cn_etf_root = tmp_path / "cn_etf"
+    _write_mini_qlib_dataset(cn_data_root)
+    _write_mini_qlib_dataset(cn_etf_root)  # same calendar shape; we add an ETF below
+
+    # Add an sh510300 ETF instrument to the cn_etf features tree.
+    rng = np.random.default_rng(7)
+    etf_dir = cn_etf_root / "features" / "sh510300"
+    etf_dir.mkdir(parents=True, exist_ok=True)
+    closes = 3.5 * np.cumprod(1 + rng.normal(0, 0.01, size=30))
+    for name, vals in [
+        ("open", closes), ("high", closes * 1.01), ("low", closes * 0.99),
+        ("close", closes), ("volume", np.full(30, 1e7)), ("factor", np.ones(30)),
+    ]:
+        with open(etf_dir / f"{name}.day.bin", "wb") as f:
+            f.write(struct.pack("<f", 0.0))
+            f.write(vals.astype(np.float32).tobytes())
+
+    monkeypatch.setenv("QLIB_CN_DATA_PATH", str(cn_data_root))
+    monkeypatch.setenv("QLIB_CN_ETF_PATH", str(cn_etf_root))
+    import importlib
+
+    import mosaic.dataflows.qlib_local as q
+
+    importlib.reload(q)
+    assert q._feature_root_for("sh510300").name == "cn_etf"
+    assert q._feature_root_for("sh600519").name == "cn_data"
+    out = q.get_stock("510300.SH", "2024-06-03", "2024-06-14")
+    assert "510300.SH" in out
+    assert "Close" in out  # real OHLCV header, not an error string
+
+
 @pytest.mark.skipif(not _HAS_QLIB, reason="qlib not installed (.[backtest] extra)")
 def test_pyqlib_imports():
     """Phase 3.5A entry test: pyqlib must be importable."""

@@ -54,8 +54,16 @@ _QLIB_REPO_CANDIDATES = (
 )
 
 DEFAULT_QLIB_DATA_DIR = Path.home() / ".qlib" / "qlib_data" / "cn_data"
+DEFAULT_QLIB_ETF_DATA_DIR = Path.home() / ".qlib" / "qlib_data" / "cn_etf"
 DEFAULT_RAW_DIR = Path.home() / ".cache" / "mosaic_tushare_raw"
 DEFAULT_NORMALIZE_DIR = Path.home() / ".cache" / "mosaic_tushare_norm"
+
+# The ETF collector ships separately (user-authored). Its standalone location
+# is searched first; ``MOSAIC_QLIB_ETF_COLLECTOR`` (full path to collector.py)
+# overrides. It exposes the same verbs and defaults its output to cn_etf.
+_QLIB_ETF_COLLECTOR_CANDIDATES = (
+    "~/.qlib/scripts/data_collector/tushare_etf/collector.py",
+)
 
 
 @dataclass(frozen=True)
@@ -68,16 +76,42 @@ class CollectorNotFound(Exception):
     """Raised when the qlib tushare collector script can't be located."""
 
 
-def find_qlib_collector() -> CollectorPaths:
-    """Return the path to qlib's tushare collector + its repo root.
+def find_qlib_collector(kind: str = "stock") -> CollectorPaths:
+    """Return the path to a qlib Tushare collector + its repo root.
 
-    Resolution order:
-      1. ``MOSAIC_QLIB_REPO`` env (must point at qlib repo root).
-      2. ``~/Projects/qlib``
-      3. ``<MOSAIC repo>/../qlib``
-      4. ``~/qlib``
-    Raises ``CollectorNotFound`` when none works.
+    ``kind='stock'`` (default): the A-share equity collector at
+    ``<repo>/scripts/data_collector/tushare/collector.py``.
+    ``kind='etf'``: the user-authored ETF collector — searched at
+    ``MOSAIC_QLIB_ETF_COLLECTOR`` then ``~/.qlib/scripts/data_collector/
+    tushare_etf/collector.py`` then ``<repo>/scripts/data_collector/tushare_etf``.
+
+    Resolution order (stock): ``MOSAIC_QLIB_REPO`` env, ``~/Projects/qlib``,
+    ``<MOSAIC repo>/../qlib``, ``~/qlib``. Raises ``CollectorNotFound``.
     """
+    if kind == "etf":
+        env_collector = os.environ.get("MOSAIC_QLIB_ETF_COLLECTOR")
+        etf_candidates: list[Path] = []
+        if env_collector:
+            etf_candidates.append(Path(env_collector).expanduser())
+        for c in _QLIB_ETF_COLLECTOR_CANDIDATES:
+            etf_candidates.append(Path(c).expanduser())
+        # Also allow it living under a qlib repo like the stock collector.
+        for repo in (os.environ.get("MOSAIC_QLIB_REPO"), *_QLIB_REPO_CANDIDATES):
+            if repo:
+                etf_candidates.append(
+                    Path(repo).expanduser() / "scripts" / "data_collector"
+                    / "tushare_etf" / "collector.py"
+                )
+        for collector in etf_candidates:
+            collector = collector.expanduser()
+            if collector.is_file():
+                return CollectorPaths(repo_root=collector.parent, collector_script=collector)
+        tried = "\n  ".join(str(c) for c in etf_candidates)
+        raise CollectorNotFound(
+            "qlib ETF collector not found. Tried:\n  " + tried + "\n"
+            "Set MOSAIC_QLIB_ETF_COLLECTOR to the collector.py path."
+        )
+
     env_root = os.environ.get("MOSAIC_QLIB_REPO")
     candidates: list[Path] = []
     if env_root:
@@ -124,6 +158,7 @@ def _run_collector(
     verb: str,
     args: list[str],
     *,
+    kind: str = "stock",
     cwd: Optional[Path] = None,
     timeout: Optional[int] = None,
     stream_stdout: bool = True,
@@ -134,7 +169,7 @@ def _run_collector(
     is True (default — gives operators live progress feedback during long
     full ingests). When False, captures both streams for testing.
     """
-    paths = find_qlib_collector()
+    paths = find_qlib_collector(kind)
     cmd = [_python_executable(), str(paths.collector_script), verb, *args]
     logger.info("running qlib collector: %s", " ".join(cmd))
 
@@ -184,7 +219,8 @@ def ingest_full(
     *,
     start: str = "1990-01-01",
     end: str,
-    qlib_dir: Path = DEFAULT_QLIB_DATA_DIR,
+    kind: str = "stock",
+    qlib_dir: Optional[Path] = None,
     raw_dir: Path = DEFAULT_RAW_DIR,
     normalize_dir: Path = DEFAULT_NORMALIZE_DIR,
     max_workers: int = 4,
@@ -193,10 +229,13 @@ def ingest_full(
 ) -> IngestOutcome:
     """Run the full pipeline: download_data → normalize_data → dump_to_bin.
 
+    ``kind='etf'`` drives the ETF collector and defaults output to cn_etf.
     Roughly 30-90 minutes for the full A-share universe (~5500 tickers ×
     ~35 trading years). Free-tier Tushare may take longer; use ``max_workers``
     cautiously to respect rate limits.
     """
+    if qlib_dir is None:
+        qlib_dir = DEFAULT_QLIB_ETF_DATA_DIR if kind == "etf" else DEFAULT_QLIB_DATA_DIR
     qlib_dir = Path(qlib_dir).expanduser()
     raw_dir = Path(raw_dir).expanduser()
     normalize_dir = Path(normalize_dir).expanduser()
@@ -213,7 +252,7 @@ def ingest_full(
         "--max_workers", str(max_workers),
         "--timeout", str(timeout),
     ]
-    outcome = _run_collector("pipeline", args, stream_stdout=stream_stdout)
+    outcome = _run_collector("pipeline", args, kind=kind, stream_stdout=stream_stdout)
     return IngestOutcome(
         verb=outcome.verb,
         returncode=outcome.returncode,
@@ -228,16 +267,19 @@ def ingest_full(
 def ingest_incremental(
     *,
     end: str,
-    qlib_dir: Path = DEFAULT_QLIB_DATA_DIR,
+    kind: str = "stock",
+    qlib_dir: Optional[Path] = None,
     timeout: int = 120,
     stream_stdout: bool = True,
 ) -> IngestOutcome:
     """Append the latest trading days to an existing qlib data dir.
 
-    Internally the collector's ``update_data_to_bin`` verb reads
-    ``calendars/day.txt`` to find the last covered date and only fetches
-    rows after that.
+    ``kind='etf'`` updates the cn_etf dataset via the ETF collector. Internally
+    the collector's ``update_data_to_bin`` verb reads ``calendars/day.txt`` to
+    find the last covered date and only fetches rows after that.
     """
+    if qlib_dir is None:
+        qlib_dir = DEFAULT_QLIB_ETF_DATA_DIR if kind == "etf" else DEFAULT_QLIB_DATA_DIR
     qlib_dir = Path(qlib_dir).expanduser()
     if not (qlib_dir / "calendars" / "day.txt").exists():
         raise FileNotFoundError(
@@ -249,7 +291,7 @@ def ingest_incremental(
         "--end_date", end,
         "--timeout", str(timeout),
     ]
-    outcome = _run_collector("update_data_to_bin", args, stream_stdout=stream_stdout)
+    outcome = _run_collector("update_data_to_bin", args, kind=kind, stream_stdout=stream_stdout)
     return IngestOutcome(
         verb=outcome.verb,
         returncode=outcome.returncode,
