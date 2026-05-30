@@ -111,7 +111,7 @@ def generate_correlated_returns(
     adjustments: Optional[Mapping[str, float]] = None,
     seed: Optional[int] = None,
 ) -> dict[str, np.ndarray]:
-    """Correlated daily returns via Cholesky (SVD fallback if not PD)."""
+    """Correlated daily returns via Cholesky on the nearest-PD correlation matrix."""
     adjustments = adjustments or {}
     rng = np.random.default_rng(seed)
     corr = _nearest_pd(_correlation_matrix(tickers))

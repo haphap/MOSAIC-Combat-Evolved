@@ -12,6 +12,11 @@ from unittest.mock import patch
 from mosaic.bridge.protocol import RpcError  # noqa: F401
 from mosaic.scorecard.store import ScorecardStore
 
+# Scenario generation/scoring need numpy (declared in the .[data] extra). In a
+# deps-light env, skip those bodies rather than ERROR — mirrors the live-Tushare
+# skipUnless pattern. Param-validation tests run regardless (validate-first).
+_HAS_NUMPY = importlib.util.find_spec("numpy") is not None
+
 # Prefer package import (registers @method once); fall back to isolated exec
 # only when langchain is absent. See test_prism.py / test_bridge_janus.py.
 try:
@@ -42,6 +47,7 @@ class TestMirofishHandlers(unittest.TestCase):
         self._patch.stop()
         self._tmpdir.cleanup()
 
+    @unittest.skipUnless(_HAS_NUMPY, "numpy not installed (.[data] extra)")
     def test_generate_scenarios(self):
         out = _mf.mirofish_generate_scenarios({"seed": 42, "num_days": 30})
         self.assertEqual(len(out["scenarios"]), 5)
@@ -51,6 +57,7 @@ class TestMirofishHandlers(unittest.TestCase):
         with self.assertRaises(RpcError):
             _mf.mirofish_generate_scenarios({"scenarios": "bull"})
 
+    @unittest.skipUnless(_HAS_NUMPY, "numpy not installed (.[data] extra)")
     def test_generate_reflexivity_flag(self):
         plain = _mf.mirofish_generate_scenarios({"seed": 42, "scenarios": ["bull"]})["scenarios"][0]
         refl = _mf.mirofish_generate_scenarios({"seed": 42, "scenarios": ["bull"], "reflexivity": True})["scenarios"][0]
@@ -62,6 +69,7 @@ class TestMirofishHandlers(unittest.TestCase):
             refl["price_paths"]["000300.SH"]["prices"],
         )
 
+    @unittest.skipUnless(_HAS_NUMPY, "numpy not installed (.[data] extra)")
     def test_score_recommendation(self):
         # Construct a known-positive path so the assertion doesn't depend on a
         # noisy single random scenario path.

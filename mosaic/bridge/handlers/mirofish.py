@@ -47,8 +47,6 @@ def _opt_seed(params: dict) -> Any:
 @method("mirofish.generate_scenarios")
 def mirofish_generate_scenarios(params: dict[str, Any]) -> dict[str, Any]:
     """Generate the Monte-Carlo scenario set (base/bull/bear/tail_up/tail_down)."""
-    from mosaic.mirofish import generate_all_scenarios
-
     num_days = _opt_int(params, "num_days", 30)
     seed = _opt_seed(params)
     scenarios = params.get("scenarios")
@@ -60,6 +58,10 @@ def mirofish_generate_scenarios(params: dict[str, Any]) -> dict[str, Any]:
     if start_prices is not None and not isinstance(start_prices, dict):
         raise RpcError(INVALID_PARAMS, "'start_prices' must be an object")
     reflexivity = bool(params.get("reflexivity", False))
+
+    # Lazy import after validation so deps-light callers (and bad-param tests)
+    # don't pay the numpy import / hit ModuleNotFoundError before rejection.
+    from mosaic.mirofish import generate_all_scenarios
 
     try:
         out = generate_all_scenarios(
@@ -74,14 +76,15 @@ def mirofish_generate_scenarios(params: dict[str, Any]) -> dict[str, Any]:
 @method("mirofish.score_recommendation")
 def mirofish_score_recommendation(params: dict[str, Any]) -> dict[str, Any]:
     """Score an agent recommendation against a scenario's realised paths."""
-    from mosaic.mirofish import score_recommendation
-
     rec = params.get("recommendation")
     scenario = params.get("scenario")
     if not isinstance(rec, dict):
         raise RpcError(INVALID_PARAMS, "'recommendation' must be an object")
     if not isinstance(scenario, dict):
         raise RpcError(INVALID_PARAMS, "'scenario' must be an object")
+
+    from mosaic.mirofish import score_recommendation  # lazy: validate first
+
     return {"score": score_recommendation(rec, scenario)}
 
 
