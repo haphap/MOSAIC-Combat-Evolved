@@ -2599,6 +2599,50 @@ impact=0.10→autocorr +0.07；impact=0.20→**autocorr +0.20、vol_clustering +
 - **诚实结论**：信号是真的，但不强；7M.2 不是「显然高回报」，建议**雏形先行、增益驱动**，
   而非一次性投入完整 memory+persona 栈。
 
+### 7M.2 memory 雏形验证（雏形先行的结果，2026-05-30）
+
+> 按上面的「雏形先行」，做了最小 memory 原型并在同一 `ab_lift` harness 上量增益。
+> 工具：`mosaic/mirofish/memory.py`（纯 numpy，确定性）。`AgentMemory` 抽象接口
+> （`remember`/`recall`，即最终 §11.8.1 接口的第一版草图）+ `LocalAgentMemory`：按
+> context（scenario_type）在线维护「早窗趋势 ↔ 后窗收益」的 **Pearson 相关**（用相关而非
+> 协方差/收益，正好归一化掉 swarm 的压缩离散度，且直接对应 A/B-lift 那个区分引擎的量）。
+> memory 策略：只在「样本够热 + |学到的相关| > 阈值」处下注（方向取相关符号），否则**弃权**；
+> 对照 stateless（永远顺势满仓下注）。
+
+**实测数（n=150 seeds × 5 情景，阈值 0.05）：**
+
+| 指标 | montecarlo | swarm | 解读 |
+|---|---|---|---|
+| memory 在线学到的相关（均值） | **0.023** | **0.098** | ✅ memory **在线复现了 A/B-lift 的引擎区分**（自经验学到 swarm≫MC） |
+| memory 活跃度（下注比例） | **0.47** | **0.95** | ✅ memory **有选择性**：swarm 几乎全下、MC 弃权过半；stateless 恒 1.0 |
+| memory captured（去漂移后均值收益） | −0.0016 | +0.0029 | ⚠️ |
+| stateless captured | +0.0014 | +0.0035 | ⚠️ swarm 下 memory **不如** stateless |
+
+**裁决：NO-GO（暂缓完整 7M.2/7M.3）—— 雏形先行恰好挡住了一次低回报投入。**
+- ✅ **机制全部成立**：memory 接口可用、在线学习正确、确实**自经验学到了 swarm 有信号 /
+  MC 没有**（相关 0.098 vs 0.023），且据此**有选择性地行动**（活跃度 0.95 vs 0.47）。
+  作为「memory 接口 + 在线学习」的工程草图，这一步是真的、可复用的。
+- ❌ **但选择性换不来可测增益**：三个独立度量一致 —— 均值 captured（swarm 0.0029 vs
+  stateless 0.0035，memory 略**差**，因为弃权 warmup 期反而少赚）、风险调整 info ratio
+  （memory −0.035 / +0.076 vs stateless +0.020 / +0.089）、以及**真实 `score_recommendation`
+  下的 conviction sizing**（memory 反而更低）。
+- **根因（已诊断，非调参问题）**：(1) 早窗趋势主要捕捉的是**情景漂移**（bull/bear），这一块
+  stateless 启发式在两个引擎里都已吃到，而它与 memory 真正隔离出的那点反身信号**大体正交**；
+  (2) swarm 的反身信号**绝对值太小**（相关 ~0.10），相对漂移是二阶量；(3) 在这些合成 scorer 下，
+  **「在无信号区过度下注」几乎不被惩罚**（MC 下注均值≈0 而非亏），所以 stateless 已接近最优，
+  选择性省下的只是 warmup 收益。memory 的价值要显现，需要一个**强惩罚错误高信念**的目标，
+  而当前 scorer 不是。
+- **结论**：在当前引擎调参 + 合成评分目标下，**完整 `AgentMemory`（7M.2）与 LLM personas
+  （7M.3）不值得现在投入** —— 雏形已经证明「即便机制全对，增量也接近零」。**重启 7M.2 的
+  前置条件**应是先满足以下之一，再重测本 harness：
+  1. 提高 swarm 反身信号强度（`_PRICE_IMPACT` 上探，但需解决「区分度塌缩」，见上）；
+  2. 引入**强惩罚错误高信念 / 路径风险**的训练目标（让选择性真正值钱）；
+  3. 接入真实/历史数据校验，确认反身信号在真市场也存在且可被记忆利用。
+- **诚实总账**：7M（MiroFish 交互栈）到此是一条**设计正确、但经增益验证证伪了「现在就全量
+  投入」假设**的线。已交付且有价值的是：可插拔 `SwarmEngine`/`AgentMemory` 接口、`LocalSwarmEngine`、
+  path-aware scorer、两套可复用的 A/B harness。建议把 7M.2/7M.3 标为 **deferred（增益驱动重启）**，
+  把精力转回主干（实盘/回测/autoresearch 等已落地、对 alpha 有直接贡献的环节）。
+
 ### buy-vs-build 决策
 
 | 能力 | 自建（先做） | 接外部（后选） | 理由 |
