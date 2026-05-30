@@ -4,10 +4,10 @@ from dateutil.relativedelta import relativedelta
 import logging
 import yfinance as yf
 import pandas as pd
-import os
+
+from .stockstats_utils import StockstatsUtils, yf_retry, load_ohlcv, filter_financials_by_date
 
 logger = logging.getLogger(__name__)
-from .stockstats_utils import StockstatsUtils, _clean_dataframe, yf_retry, load_ohlcv, filter_financials_by_date
 
 # yfinance uses .SS for Shanghai and .SZ for Shenzhen, but users commonly
 # input .SH for Shanghai. Normalize before every Ticker() call.

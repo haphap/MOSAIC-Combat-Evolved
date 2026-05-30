@@ -18,7 +18,6 @@ from __future__ import annotations
 import json
 import os
 import time
-from pathlib import Path
 from unittest import mock
 
 import pandas as pd
