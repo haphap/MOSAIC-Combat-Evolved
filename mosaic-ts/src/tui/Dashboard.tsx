@@ -1,33 +1,42 @@
 /**
- * Phase 9B: read-only Ink dashboard. Aggregates three existing read RPCs into
- * one screen — no new bridge methods. Tabs: 1 Skill / 2 Paper / 3 Cohorts;
- * keys r=refresh (manual; no auto-poll), q=quit. The BridgeApi is injected so
- * the component is testable with a fake.
+ * Phase 10: read-only Ink dashboard. Aggregates existing read RPCs into one
+ * screen — no new bridge methods. Tabs: 1 Today (latest CIO picks) / 2 WinRate
+ * (per-ticker hit rate) / 3 Skill / 4 Paper / 5 Cohorts; r=refresh (manual;
+ * no auto-poll), q=quit. The BridgeApi is injected so the component is testable.
  */
 
 import { Box, Text, useApp, useInput } from "ink";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   BridgeApi,
+  CioActions,
   CohortInfo,
   PaperAccount,
   PaperPosition,
   SkillRow,
+  WinRateRow,
 } from "../bridge/types.js";
 
-type Tab = "skill" | "paper" | "cohorts";
-const TABS: Tab[] = ["skill", "paper", "cohorts"];
+type Tab = "today" | "winrate" | "skill" | "paper" | "cohorts";
+const TABS: Tab[] = ["today", "winrate", "skill", "paper", "cohorts"];
 
 interface Props {
   api: Pick<
     BridgeApi,
-    "scorecardListSkill" | "paperGetAccount" | "paperGetPositions" | "prismListCohorts"
+    | "scorecardLatestCioActions"
+    | "scorecardWinRate"
+    | "scorecardListSkill"
+    | "paperGetAccount"
+    | "paperGetPositions"
+    | "prismListCohorts"
   >;
   cohort: string;
   user?: string;
 }
 
 interface Data {
+  today: CioActions;
+  winrate: WinRateRow[];
   skill: SkillRow[];
   account: PaperAccount | null;
   positions: PaperPosition[];
@@ -36,7 +45,7 @@ interface Data {
 
 export function Dashboard({ api, cohort, user }: Props) {
   const { exit } = useApp();
-  const [tab, setTab] = useState<Tab>("skill");
+  const [tab, setTab] = useState<Tab>("today");
   const [data, setData] = useState<Data | null>(null);
   const [error, setError] = useState<string | null>(null);
   const mounted = useRef(true);
@@ -44,13 +53,15 @@ export function Dashboard({ api, cohort, user }: Props) {
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [skill, account, positions, cohorts] = await Promise.all([
+      const [today, winrate, skill, account, positions, cohorts] = await Promise.all([
+        api.scorecardLatestCioActions(cohort),
+        api.scorecardWinRate(cohort).then((r) => r.rows),
         api.scorecardListSkill(cohort).then((r) => r.rows),
         api.paperGetAccount(user ? { user_id: user } : {}).catch(() => null),
         api.paperGetPositions(user ? { user_id: user } : {}).catch(() => []),
         api.prismListCohorts().then((r) => r.cohorts),
       ]);
-      if (mounted.current) setData({ skill, account, positions, cohorts });
+      if (mounted.current) setData({ today, winrate, skill, account, positions, cohorts });
     } catch (err) {
       if (mounted.current) setError((err as Error).message);
     }
@@ -66,9 +77,11 @@ export function Dashboard({ api, cohort, user }: Props) {
   useInput((input) => {
     if (input === "q") exit();
     else if (input === "r") void load();
-    else if (input === "1") setTab("skill");
-    else if (input === "2") setTab("paper");
-    else if (input === "3") setTab("cohorts");
+    else if (input === "1") setTab("today");
+    else if (input === "2") setTab("winrate");
+    else if (input === "3") setTab("skill");
+    else if (input === "4") setTab("paper");
+    else if (input === "5") setTab("cohorts");
   });
 
   return (
@@ -85,6 +98,10 @@ export function Dashboard({ api, cohort, user }: Props) {
           <Text color="red">error: {error}</Text>
         ) : !data ? (
           <Text color="yellow">loading…</Text>
+        ) : tab === "today" ? (
+          <TodayTab today={data.today} />
+        ) : tab === "winrate" ? (
+          <WinRateTab rows={data.winrate} cohort={cohort} />
         ) : tab === "skill" ? (
           <SkillTab rows={data.skill} cohort={cohort} />
         ) : tab === "paper" ? (
@@ -94,8 +111,40 @@ export function Dashboard({ api, cohort, user }: Props) {
         )}
       </Box>
       <Box marginTop={1}>
-        <Text dimColor>[1/2/3] switch · [r] refresh · [q] quit</Text>
+        <Text dimColor>[1-5] switch · [r] refresh · [q] quit · cohort={cohort}</Text>
       </Box>
+    </Box>
+  );
+}
+
+function TodayTab({ today }: { today: CioActions }) {
+  if (!today.date || today.actions.length === 0)
+    return <Text dimColor>no CIO recommendations yet — run a daily cycle first</Text>;
+  return (
+    <Box flexDirection="column">
+      <Text color="cyan">{`today's CIO plan (${today.date})   ticker      action  weight%  why`}</Text>
+      {today.actions.map((a) => (
+        <Text key={a.ticker}>
+          {a.ticker.padEnd(11)} {a.action.padEnd(6)}{" "}
+          {String((a.target_weight_pct ?? 0).toFixed(1)).padStart(6)} {a.rationale_snapshot ?? ""}
+        </Text>
+      ))}
+    </Box>
+  );
+}
+
+function WinRateTab({ rows, cohort }: { rows: WinRateRow[]; cohort: string }) {
+  if (rows.length === 0)
+    return <Text dimColor>no scored picks yet for {cohort} (need forward returns)</Text>;
+  return (
+    <Box flexDirection="column">
+      <Text color="cyan">{`ticker      win_rate   n   avg_dir_ret_5d`}</Text>
+      {rows.slice(0, 15).map((r) => (
+        <Text key={r.ticker} color={r.win_rate >= 0.5 ? "green" : "red"}>
+          {r.ticker.padEnd(11)} {(r.win_rate * 100).toFixed(1).padStart(6)}%{" "}
+          {String(r.n).padStart(4)} {(r.avg_dir_return_5d * 100).toFixed(2)}%
+        </Text>
+      ))}
     </Box>
   );
 }
