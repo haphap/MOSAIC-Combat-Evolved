@@ -51,7 +51,12 @@ ACTOR_CLASSES: dict[str, dict[str, float]] = {
     "noise": {"share": 0.10, "trend": 0.0, "sentiment": 0.0, "contrarian": 0.0},
 }
 
-_PRICE_IMPACT = 0.04   # net-demand → daily-return conversion (kept contractive)
+# 7M.1b working point (A/B-tuned, Plan §11.8.1): 0.16 gives clear reflexive
+# structure — lag-1 return autocorr ≈ +0.16 and *positive* volatility clustering
+# (both signatures i.i.d. Monte-Carlo cannot produce) — while staying bounded
+# (max daily move ≈ 1.6%, no near-deterministic trending). 0.04 was MC-like;
+# 0.40 was degenerate (autocorr 0.88). See mosaic/mirofish/ab_compare.py.
+_PRICE_IMPACT = 0.16    # net-demand → daily-return conversion
 _SENTIMENT_DECAY = 0.7  # running sentiment is an EWMA of recent returns
 _MAX_DAILY = 0.10       # clamp a single day's swarm-driven return for stability
 

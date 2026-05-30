@@ -2542,13 +2542,17 @@ impact=0.10→autocorr +0.07；impact=0.20→**autocorr +0.20、vol_clustering +
 **Go/No-Go 裁决（7M.2 记忆）：CONDITIONAL —— 先调参，后扩展。**
 - **不应**在当前默认调参上直接做 7M.2：此时 swarm 与 MC 结构差异微弱，记忆层加在
   一个行为上接近 i.i.d. 的引擎上，多半是「精致但无增益」。
-- **应先做 7M.1b（轻量调参，~1 turn）**：把默认 feedback 提到能产生*稳健*反身结构
-  又不发散的区间（impact≈0.10–0.15 量级），并加一个「稳定性 + 结构强度」联合断言，
-  把 swarm 调到「明显非 MC」的工作点。
-- **7M.2 的真正前置条件是「可被利用性」而非「存在性」**：当前 `score_recommendation`
-  只看 **cumulative_return**，对 lag-1 自相关/路径形状**完全不敏感**——即使 swarm
-  产生了路径结构，下游评分也看不到。**所以扩 7M.2 前必须先有一个 path-aware 评分/
-  训练目标**（如时点择时、回撤、轨迹依赖收益），否则记忆与交互的增量永远无法转化为
+- **✅ 7M.1b 已完成（2026-05-30）**：扫描 impact 0.08–0.20，选定**默认
+  `_PRICE_IMPACT=0.16`** 为稳健非-MC 工作点 —— swarm lag-1 autocorr **+0.158**
+  (MC −0.012，gap **+0.17**)、vol_clustering **转正 (+0.01)**（ARCH 信号，MC 到不了），
+  同时有界（max 日内 ≈1.6%、cum_std≈0.05、无 0.4/0.88 退化）。`test_mirofish_ab.py`
+  断言收紧：MC autocorr<0.05、swarm autocorr>0.10、gap>0.10、swarm vol_clustering>MC。
+  默认-off（montecarlo）行为不受影响。
+- **⛔ 7M.2 仍 blocked —— 真正前置条件是「可被利用性」而非「存在性」**：当前
+  `score_recommendation` 只看 **cumulative_return**，对 lag-1 自相关/路径形状**完全
+  不敏感**——即使 swarm 产生了路径结构，下游评分也看不到。**所以扩 7M.2 前必须先有
+  一个 path-aware 评分/训练目标**（如时点择时、回撤、轨迹依赖收益），否则记忆与交互
+  的增量永远无法转化为
   训练信号。这条比记忆本身优先级更高。
 
 **建议顺序**：7M.1b 调参（让 swarm 真的非 MC）→ path-aware 评分器 → 再评估 7M.2

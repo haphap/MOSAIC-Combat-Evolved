@@ -18,12 +18,15 @@ def test_montecarlo_returns_are_uncorrelated():
     assert abs(mc["ret_autocorr_lag1"]) < 0.05
 
 
-def test_swarm_autocorr_exceeds_montecarlo():
-    """The swarm's reflexive loop yields strictly more lag-1 autocorrelation
-    than i.i.d. MC (the direction is the falsifiable claim; magnitude depends
-    on feedback tuning — see capability test)."""
+def test_swarm_autocorr_materially_exceeds_montecarlo():
+    """At the 7M.1b working point (impact=0.16) the swarm's reflexive loop
+    yields a MATERIAL lag-1 autocorrelation gap over i.i.d. MC — and positive
+    volatility clustering, the ARCH signature MC cannot produce."""
     res = compare_engines(n_seeds=60, num_days=30)
-    assert res["swarm"]["ret_autocorr_lag1"] > res["montecarlo"]["ret_autocorr_lag1"]
+    assert res["montecarlo"]["ret_autocorr_lag1"] < 0.05  # MC ~ 0
+    assert res["swarm"]["ret_autocorr_lag1"] > 0.10       # swarm clearly non-MC
+    assert res["autocorr_gap"] > 0.10
+    assert res["swarm"]["vol_clustering"] > res["montecarlo"]["vol_clustering"]
 
 
 def test_feedback_strength_drives_reflexive_structure():
