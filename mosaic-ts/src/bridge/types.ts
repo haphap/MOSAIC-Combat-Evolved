@@ -1,16 +1,18 @@
 /**
  * Wire-level type definitions for the JSON-RPC methods exposed by
- * `mosaic.bridge` (~50 RPC methods across tools / config / cache / calendar /
- * paper / backtest / scorecard / darwinian / prompts / autoresearch / prism).
+ * `mosaic.bridge` (62 RPC methods across 13 namespaces: tools / config / cache /
+ * calendar / paper / backtest / scorecard / darwinian / prompts / autoresearch /
+ * prism / janus / mirofish).
  *
  * Keep this file as the single source of truth for the wire-level shapes.
  * If a method's params/result change on the Python side, update the type
  * here in the same commit.
  *
- * The :class:`BridgeApi` helper at the bottom provides typed wrappers for the
- * methods the TS front-end currently uses (everything except the Phase 8
- * paper-trading *write* surface). Any remaining method is still reachable via
- * ``client.call(method, params)`` and gets a typed wrapper when a phase needs it.
+ * The :class:`BridgeApi` helper at the bottom provides typed wrappers for all
+ * 13 namespaces (incl. the Phase 8 paper-trading write surface). The only
+ * registered methods without a typed wrapper today are `cache.details` and the
+ * `mirofish.{save,get}_context` pair (added in 7M Step 1; wrappers land with
+ * Step 2) — all reachable via ``client.call(method, params)`` meanwhile.
  */
 
 import type { BridgeClient } from "./client.js";
@@ -511,14 +513,14 @@ export interface MirofishHistoryEntry {
 // --------------------------------------------------------- helpers
 
 /**
- * Ergonomic helper around a BridgeClient. Provides typed wrappers for the RPC
- * methods the TS front-end uses today: tools.* / config.* / cache.* /
- * calendar.* / read-only paper.* / backtest.* / scorecard.* / darwinian.* /
- * prompts.* / autoresearch.* / prism.*. The Python sidecar also registers the
- * paper-trading *write* surface (`paper.{register,login,logout,reset_account,
- * buy,sell,suggest_order_from_signal}`) and `cache.details`; those are reachable
- * via ``client.call(method, params)`` and get typed wrappers when Phase 8 lands
- * the paper-trading workflow.
+ * Ergonomic helper around a BridgeClient. Provides typed wrappers across all 13
+ * namespaces: tools.* / config.* / cache.* / calendar.* / paper.* (incl. the
+ * Phase 8 write surface: register/login/logout/reset_account/buy/sell/
+ * suggest_order_from_signal) / backtest.* / scorecard.* / darwinian.* /
+ * prompts.* / autoresearch.* / prism.* / janus.* / mirofish.*. The only
+ * registered methods still unwrapped are `cache.details` and
+ * `mirofish.{save,get}_context` (7M Step 1; wrappers land with Step 2) —
+ * reachable meanwhile via ``client.call(method, params)``.
  */
 export class BridgeApi {
   constructor(private readonly client: BridgeClient) {}

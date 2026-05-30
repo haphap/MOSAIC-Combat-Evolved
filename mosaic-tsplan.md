@@ -242,6 +242,12 @@ confidence: 0-1, key_drivers, layer_1_consensus_score }`**（10 个 agent 共识
 
 ### 6.2 新增（约 27 个）
 
+> ⚠️ **此清单是 Phase 0 的早期草案,方法名已与实现漂移**(如实际是
+> `scorecard.{append,score_pending,list_skill}`+`darwinian.{compute,get_weights}`、
+> `mirofish.{generate_scenarios,score_recommendation,record_run,get_history,save_context,get_context}`、
+> `janus.{run_daily,regime,...}`)。**权威的现行 RPC 契约见各 §11.x 子节 + `mosaic-ts/src/bridge/types.ts`
+> 头部(13 namespaces / 62 methods)。** 下表仅留作历史草案。
+
 ```
 # Scorecard
 scorecard.record_recommendation(agent, ticker, action, conviction, date, cohort)
