@@ -1,5 +1,7 @@
 # MOSAIC Wiki
 
+> 🌐 **语言 / Language:** **English** · [中文](zh/Home.md)
+
 **MOSAIC** — an A-share self-improving multi-agent quantitative trading framework, inspired by ATLAS. It runs a hybrid architecture: heavy logic (numpy/pandas/git/SQLite/market data) lives in a **Python sidecar**; orchestration, LLM, CLI and TUI live in a **TypeScript front-end**. The two halves talk over **line-delimited JSON-RPC over stdio**.
 
 > This wiki is generated from and cross-checked against the actual code. Where a fact comes from a specific file, the path is cited so you can verify it.
