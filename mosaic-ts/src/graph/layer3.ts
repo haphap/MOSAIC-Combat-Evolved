@@ -17,6 +17,7 @@ import { buildBakerNode } from "../agents/superinvestor/baker.js";
 import { buildDruckenmillerNode } from "../agents/superinvestor/druckenmiller.js";
 import type { BridgeApi, MosaicConfig } from "../bridge/index.js";
 import type { LlmHandle } from "../llm/factory.js";
+import { chainEdges } from "./_edges.js";
 
 export interface BuildLayer3GraphDeps {
   llmHandle: LlmHandle;
@@ -31,19 +32,15 @@ export interface BuildLayer3GraphDeps {
 export const LAYER3_AGENT_NODES = ["druckenmiller", "aschenbrenner", "baker", "ackman"] as const;
 
 export function buildLayer3Graph(deps: BuildLayer3GraphDeps) {
-  // biome-ignore lint/suspicious/noExplicitAny: see graph/layer1.ts comment
-  let graph: any = new StateGraph(DailyCycleState);
-  graph = graph
+  const graph = new StateGraph(DailyCycleState)
     .addNode("druckenmiller", buildDruckenmillerNode(deps))
     .addNode("aschenbrenner", buildAschenbrennerNode(deps))
     .addNode("baker", buildBakerNode(deps))
     .addNode("ackman", buildAckmanNode(deps));
 
-  for (const name of LAYER3_AGENT_NODES) {
-    graph = graph.addEdge(START, name);
-  }
-  for (const name of LAYER3_AGENT_NODES) {
-    graph = graph.addEdge(name, END);
-  }
+  chainEdges(graph, [
+    ...LAYER3_AGENT_NODES.map((name) => [START, name] as const),
+    ...LAYER3_AGENT_NODES.map((name) => [name, END] as const),
+  ]);
   return graph.compile();
 }

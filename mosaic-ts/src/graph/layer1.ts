@@ -39,6 +39,7 @@ import { buildYieldCurveNode } from "../agents/macro/yield_curve.js";
 import { DailyCycleState } from "../agents/state.js";
 import type { BridgeApi, MosaicConfig } from "../bridge/index.js";
 import type { LlmHandle } from "../llm/factory.js";
+import { chainEdges } from "./_edges.js";
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -75,15 +76,7 @@ export const LAYER1_AGGREGATOR_NODE = "aggregate_l1" as const;
 
 /** Build (and compile) the Layer-1 subgraph. */
 export function buildLayer1Graph(deps: BuildLayer1GraphDeps) {
-  // LangGraph's StateGraph fluent type narrows on every .addNode() / .addEdge()
-  // call; we accumulate edges in a loop where each .addEdge() returns a
-  // differently-typed builder. Erasing to `any` for the chain — the compiled
-  // graph at the end is what the tests exercise; intermediate fluent shape is
-  // incidental.
-  // biome-ignore lint/suspicious/noExplicitAny: see comment above
-  let graph: any = new StateGraph(DailyCycleState);
-
-  graph = graph
+  const graph = new StateGraph(DailyCycleState)
     .addNode("central_bank", buildCentralBankNode(deps))
     .addNode("china", buildChinaNode(deps))
     .addNode("geopolitical", buildGeopoliticalNode(deps))
@@ -96,18 +89,14 @@ export function buildLayer1Graph(deps: BuildLayer1GraphDeps) {
     .addNode("institutional_flow", buildInstitutionalFlowNode(deps))
     .addNode(LAYER1_AGGREGATOR_NODE, aggregateLayer1Node);
 
-  // Fan-out: START → all 10 macro nodes (concurrent).
-  for (const name of LAYER1_AGENT_NODES) {
-    graph = graph.addEdge(START, name);
-  }
-
-  // Fan-in: each macro node → aggregator.
-  for (const name of LAYER1_AGENT_NODES) {
-    graph = graph.addEdge(name, LAYER1_AGGREGATOR_NODE);
-  }
-
-  // Aggregator → END (replaced in 2D when Layer 2 lands).
-  graph = graph.addEdge(LAYER1_AGGREGATOR_NODE, END);
+  // Fan-out START → each macro node; fan-in each → aggregator; aggregator → END
+  // (replaced in 2D when Layer 2 lands). Edges added by side effect via
+  // chainEdges so the builder keeps its typed node-name union (no `any`).
+  chainEdges(graph, [
+    ...LAYER1_AGENT_NODES.map((name) => [START, name] as const),
+    ...LAYER1_AGENT_NODES.map((name) => [name, LAYER1_AGGREGATOR_NODE] as const),
+    [LAYER1_AGGREGATOR_NODE, END] as const,
+  ]);
 
   return graph.compile();
 }

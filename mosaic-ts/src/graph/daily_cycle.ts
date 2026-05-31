@@ -178,34 +178,27 @@ export function buildDailyCycleGraph(deps: BuildDailyCycleGraphDeps) {
   const l4 = buildLayer4Graph(subgraphDeps);
   const l4Replay = buildLayer4ReplayGraph(subgraphDeps);
 
-  // biome-ignore lint/suspicious/noExplicitAny: see graph/layer1.ts comment
-  let graph: any = new StateGraph(DailyCycleState);
-
-  graph = graph
+  const graph = new StateGraph(DailyCycleState)
     .addNode("layer1", invokeSubgraph(l1 as InvokeOnly))
     .addNode("layer2", invokeSubgraph(l2 as InvokeOnly))
     .addNode("layer3", invokeSubgraph(l3 as InvokeOnly))
     .addNode("layer4", invokeSubgraph(l4 as InvokeOnly))
-    .addNode("layer4_replay", invokeSubgraph(l4Replay as InvokeOnly));
-
-  graph = graph
+    .addNode("layer4_replay", invokeSubgraph(l4Replay as InvokeOnly))
     .addEdge(START, "layer1")
     .addEdge("layer1", "layer2")
     .addEdge("layer2", "layer3")
-    .addEdge("layer3", "layer4");
-
-  // Conditional edge after layer4: veto loop or done.
-  graph = graph.addConditionalEdges(
-    "layer4",
-    (state: DailyCycleStateType) => checkCroVeto(state, vetoThreshold),
-    {
-      replay: "layer4_replay",
-      end: END,
-    },
-  );
-
-  // layer4_replay → END (unconditional; ensures max 1 replay).
-  graph = graph.addEdge("layer4_replay", END);
+    .addEdge("layer3", "layer4")
+    // Conditional edge after layer4: veto loop or done.
+    .addConditionalEdges(
+      "layer4",
+      (state: DailyCycleStateType) => checkCroVeto(state, vetoThreshold),
+      {
+        replay: "layer4_replay",
+        end: END,
+      },
+    )
+    // layer4_replay → END (unconditional; ensures max 1 replay).
+    .addEdge("layer4_replay", END);
 
   return graph.compile();
 }
