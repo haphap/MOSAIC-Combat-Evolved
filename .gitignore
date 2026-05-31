@@ -30,6 +30,12 @@ data/
 qlib_data/
 # Skipped-ticker manifest from ingest — informational, not under source control.
 qlib_skipped.txt
+# Safety net: vendored collectors default their working dirs to CUR_DIR when
+# invoked directly. Our qlib_ingest wrappers redirect these to ~/.cache, but
+# ignore any that still land under the vendored tree so they never get committed.
+mosaic/dataflows/collectors/**/source/
+mosaic/dataflows/collectors/**/normalize/
+mosaic/dataflows/collectors/**/tmp/
 results/
 logs/
 

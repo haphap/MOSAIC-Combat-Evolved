@@ -291,6 +291,8 @@ def ingest_incremental(
     end: str,
     kind: str = "stock",
     qlib_dir: Optional[Path] = None,
+    raw_dir: Path = DEFAULT_RAW_DIR,
+    normalize_dir: Path = DEFAULT_NORMALIZE_DIR,
     timeout: int = 120,
     stream_stdout: bool = True,
 ) -> IngestOutcome:
@@ -299,16 +301,31 @@ def ingest_incremental(
     ``kind='etf'`` updates the cn_etf dataset via the ETF collector. Internally
     the collector's ``update_data_to_bin`` verb reads ``calendars/day.txt`` to
     find the last covered date and only fetches rows after that.
+
+    ``raw_dir`` / ``normalize_dir`` are the collector's working dirs; they default
+    OUT of the repo (``~/.cache/mosaic_tushare_{raw,norm}``) so vendored-collector
+    temp data never pollutes the project tree.
     """
     if qlib_dir is None:
         qlib_dir = DEFAULT_QLIB_ETF_DATA_DIR if kind == "etf" else DEFAULT_QLIB_DATA_DIR
     qlib_dir = Path(qlib_dir).expanduser()
+    raw_dir = Path(raw_dir).expanduser()
+    normalize_dir = Path(normalize_dir).expanduser()
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    normalize_dir.mkdir(parents=True, exist_ok=True)
     if not (qlib_dir / "calendars" / "day.txt").exists():
         raise FileNotFoundError(
             f"qlib data dir not initialised yet: {qlib_dir}. "
             "Run --full first."
         )
     args = [
+        # Constructor args (consumed by Run.__init__ before the verb): pin the
+        # collector's working dirs OUT of the repo. Without these they default
+        # to CUR_DIR/{source,normalize} — i.e. inside the vendored package — and
+        # update_data_to_bin writes __inc_tmp__ there. Keep ingest temp data in
+        # ~/.cache so it never pollutes the project tree.
+        "--source_dir", str(Path(raw_dir).expanduser()),
+        "--normalize_dir", str(Path(normalize_dir).expanduser()),
         "--qlib_data_1d_dir", str(qlib_dir),
         "--end_date", end,
         "--timeout", str(timeout),
@@ -327,11 +344,23 @@ def sync_calendar(
     *,
     end: Optional[str] = None,
     qlib_dir: Path = DEFAULT_QLIB_DATA_DIR,
+    raw_dir: Path = DEFAULT_RAW_DIR,
+    normalize_dir: Path = DEFAULT_NORMALIZE_DIR,
     stream_stdout: bool = True,
 ) -> IngestOutcome:
     """Refresh ``calendars/day.txt`` from Tushare without touching features."""
     qlib_dir = Path(qlib_dir).expanduser()
-    args = ["--qlib_data_1d_dir", str(qlib_dir)]
+    raw_dir = Path(raw_dir).expanduser()
+    normalize_dir = Path(normalize_dir).expanduser()
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    normalize_dir.mkdir(parents=True, exist_ok=True)
+    # Pin the collector's working dirs out of the repo (Run.__init__ mkdirs
+    # source/normalize even for sync_calendar; default would be CUR_DIR-relative).
+    args = [
+        "--source_dir", str(raw_dir),
+        "--normalize_dir", str(normalize_dir),
+        "--qlib_data_1d_dir", str(qlib_dir),
+    ]
     if end:
         args += ["--end_date", end]
     outcome = _run_collector("sync_calendar", args, stream_stdout=stream_stdout)

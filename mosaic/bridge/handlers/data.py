@@ -50,6 +50,10 @@ def data_incremental(params: dict[str, Any]) -> dict[str, Any]:
 
     Returns ``{kind, returncode, qlib_dir, ok}``.
 
+    Temp/working data (raw + normalized CSVs) is written to
+    ``~/.cache/mosaic_tushare_{raw,norm}`` — out of the repo, so the vendored
+    collectors never pollute the project tree.
+
     Blocking note: this runs the vendored collector subprocess **synchronously**
     and a real incremental update can take minutes; the bridge processes it on
     its request loop, so concurrent RPCs wait until it returns. Run ingest as a

@@ -177,12 +177,43 @@ class TestPublicAPI:
 
         monkeypatch.setattr(subprocess, "run", fake_run)
 
-        qlib_ingest.ingest_incremental(end="2024-12-31", qlib_dir=qlib_dir)
+        qlib_ingest.ingest_incremental(
+            end="2024-12-31",
+            qlib_dir=qlib_dir,
+            raw_dir=tmp_path / "raw",
+            normalize_dir=tmp_path / "norm",
+        )
         assert len(captured) == 1
         cmd = captured[0]
         assert "update_data_to_bin" in cmd
         assert "--end_date" in cmd
         assert "2024-12-31" in cmd
+        # Anti-pollution: collector working dirs are pinned out of the repo so
+        # update_data_to_bin's __inc_tmp__ never lands under the vendored tree.
+        assert "--source_dir" in cmd and "--normalize_dir" in cmd
+        repo_collectors = str(Path(qlib_ingest.__file__).resolve().parent / "collectors")
+        assert not any(repo_collectors in str(a) for a in cmd)
+        assert str((tmp_path / "raw")) in cmd
+
+    def test_incremental_default_dirs_are_out_of_repo(self, tmp_path, fake_repo, monkeypatch):
+        """With no raw_dir/normalize_dir, collector working dirs default to
+        ~/.cache (out of the repo) — never under mosaic/dataflows/collectors."""
+        qlib_dir = tmp_path / "qlib_out"
+        (qlib_dir / "calendars").mkdir(parents=True)
+        (qlib_dir / "calendars" / "day.txt").write_text("2024-12-30\n")
+        captured = []
+        monkeypatch.setattr(
+            subprocess,
+            "run",
+            lambda cmd, **kw: (captured.append(cmd), subprocess.CompletedProcess(cmd, 0))[1],
+        )
+        qlib_ingest.ingest_incremental(end="2024-12-31", qlib_dir=qlib_dir)
+        cmd = captured[0]
+        src = cmd[cmd.index("--source_dir") + 1]
+        norm = cmd[cmd.index("--normalize_dir") + 1]
+        repo_collectors = str(Path(qlib_ingest.__file__).resolve().parent / "collectors")
+        assert repo_collectors not in src and repo_collectors not in norm
+        assert ".cache" in src and ".cache" in norm
 
     def test_sync_calendar_command(self, tmp_path, fake_repo, monkeypatch):
         captured = []
