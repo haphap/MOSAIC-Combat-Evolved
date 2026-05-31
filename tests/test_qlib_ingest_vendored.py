@@ -53,3 +53,13 @@ def test_vendored_layout_self_contained():
     # Provenance/licensing present.
     assert (root.parent / "NOTICE.md").is_file()
     assert (root.parent / "LICENSE.qlib").is_file()
+
+
+def test_vendored_dirs_are_packages():
+    """collectors/ and data_collector/ carry __init__.py so the tree ships in a
+    built wheel/sdist (setuptools.packages.find only discovers real packages)."""
+    root = _vendored_root()
+    assert (root.parent / "__init__.py").is_file()
+    assert (root / "__init__.py").is_file()
+    assert (root / "tushare" / "__init__.py").is_file()
+    assert (root / "tushare_etf" / "__init__.py").is_file()

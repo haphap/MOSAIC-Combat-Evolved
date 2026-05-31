@@ -34,7 +34,9 @@ export function registerData(program: Command): void {
 
   data
     .command("incremental")
-    .description("Append the latest trading days to cn_data (stock) or cn_etf (etf).")
+    .description(
+      "Append latest trading days to cn_data (stock) / cn_etf (etf). Long-running (minutes) — run as a cron, not alongside live RPCs.",
+    )
     .option("--kind <kind>", "stock | etf", "stock")
     .option("--end <date>", "Fetch through YYYY-MM-DD (default: today)")
     .action(async (opts: DataOpts) => {

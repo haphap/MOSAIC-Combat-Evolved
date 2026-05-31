@@ -1,10 +1,13 @@
 """Thin orchestrator over the qlib Tushare collector (Plan §11.3 sub-step 3.5B).
 
-The actual ingest logic lives in qlib's ``scripts/data_collector/tushare/collector.py``.
-This module:
+The ingest logic lives in the vendored Tushare collectors at
+``mosaic/dataflows/collectors/data_collector/{tushare,tushare_etf}/collector.py``
+(see "Why vendored collectors" below). This module:
 
-  * **Discovers** the qlib repo + collector script at well-known paths
-    (env override > ``~/Projects/qlib`` > ``../qlib`` relative to MOSAIC).
+  * **Discovers** the collector script, preferring the vendored copy; a valid
+    env override (``MOSAIC_QLIB_REPO`` / ``MOSAIC_QLIB_ETF_COLLECTOR``) wins,
+    else it falls back to ``~/Projects/qlib`` / ``../qlib`` then the vendored
+    copy. See ``find_qlib_collector``.
   * **Wraps** the collector verbs (pipeline / download_data / normalize_data /
     dump_to_bin / update_data_to_bin / sync_calendar / pipeline_with_break)
     as Python functions that return dataclass results.
@@ -88,11 +91,13 @@ def find_qlib_collector(kind: str = "stock") -> CollectorPaths:
     """Return the path to a qlib Tushare collector + its repo root.
 
     Prefers the **vendored** collector in ``mosaic/dataflows/collectors/
-    data_collector/{tushare,tushare_etf}/collector.py``. An explicit env
-    override always wins: ``MOSAIC_QLIB_REPO`` (stock) /
-    ``MOSAIC_QLIB_ETF_COLLECTOR`` (etf). Falls back to ``~/Projects/qlib``,
-    ``<MOSAIC repo>/../qlib``, ``~/qlib`` (stock) and
-    ``~/.qlib/scripts/.../tushare_etf`` (etf). Raises ``CollectorNotFound``.
+    data_collector/{tushare,tushare_etf}/collector.py``. A *valid* env override
+    wins: ``MOSAIC_QLIB_REPO`` (stock) / ``MOSAIC_QLIB_ETF_COLLECTOR`` (etf)
+    pointing at an existing collector. If the env override is set but invalid,
+    discovery falls back to ``~/Projects/qlib`` / ``<MOSAIC>/../qlib`` / ``~/qlib``
+    (stock) or ``~/.qlib/scripts/.../tushare_etf`` (etf), and finally the
+    vendored copy — so a stale env var degrades gracefully rather than failing.
+    Raises ``CollectorNotFound`` only when even the vendored copy is missing.
     """
     if kind == "etf":
         env_collector = os.environ.get("MOSAIC_QLIB_ETF_COLLECTOR")

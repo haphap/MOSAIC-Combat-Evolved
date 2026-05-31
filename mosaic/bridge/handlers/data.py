@@ -44,9 +44,16 @@ def data_incremental(params: dict[str, Any]) -> dict[str, Any]:
     Params:
         kind: "stock" (cn_data) | "etf" (cn_etf), default "stock"
         end:  str (YYYY-MM-DD) — fetch through this date
-        timeout: int seconds per request (optional, default 120)
+        timeout: int seconds — **per-Tushare-request** cap passed to the
+                 collector's ``--timeout`` (NOT a wall-clock cap on the whole
+                 ingest), default 120.
 
     Returns ``{kind, returncode, qlib_dir, ok}``.
+
+    Blocking note: this runs the vendored collector subprocess **synchronously**
+    and a real incremental update can take minutes; the bridge processes it on
+    its request loop, so concurrent RPCs wait until it returns. Run ingest as a
+    cron / one-off rather than alongside latency-sensitive calls.
     """
     kind = _require_kind(params)
     end = _require_str(params, "end")
