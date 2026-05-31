@@ -150,6 +150,15 @@ DEFAULT_CONFIG = {
         "keep_threshold_delta_sharpe": 0.1,
         "monthly_modification_cap_per_cohort": 100,
         "evaluation_horizon_trading_days": 5,
+        # Mirror kept (merged-to-main) prompt mutations to a self-hosted git
+        # server. OPT-IN; default OFF keeps autoresearch 100% local. When push
+        # is True, the keep-path runs `git push <remote> main` after the merge
+        # (operator must pre-configure the remote + credentials). A push failure
+        # never aborts the keep decision — it is logged and swallowed.
+        "git": {
+            "push": False,
+            "remote": "origin",
+        },
     },
     # MiroFish forward-simulation (Plan §11.8 / §11.8.1). 'engine' selects the
     # scenario generator: 'montecarlo' (default — i.i.d. correlated paths +

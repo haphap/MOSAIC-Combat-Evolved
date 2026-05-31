@@ -69,6 +69,19 @@ def decide(
                 branch,
                 exc,
             )
+        else:
+            # Opt-in: mirror the merged main to a self-hosted git server.
+            git_cfg = _ar_cfg(config).get("git", {}) or {}
+            if git_cfg.get("push"):
+                remote = str(git_cfg.get("remote", "origin"))
+                try:
+                    git_ops.push("main", remote)
+                except Exception as exc:
+                    logger.warning(
+                        "decide: push(main → %s) failed: %s; keep stands locally",
+                        remote,
+                        exc,
+                    )
         store.decide_version(version_id, "keep")
         store.append_log(
             version_id,

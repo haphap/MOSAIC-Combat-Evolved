@@ -147,6 +147,64 @@ class TestDecideRevert(unittest.TestCase):
         self.assertIn("0.0500", reverted_entries[0]["detail"])
 
 
+class TestDecideKeepPush(unittest.TestCase):
+    """Test the opt-in git push on the keep path (Option B)."""
+
+    def setUp(self):
+        self._tmpdir = TemporaryDirectory()
+        self.db_path = Path(self._tmpdir.name) / "scorecard.db"
+        self.store = ScorecardStore(db_path=self.db_path)
+        self.git_ops = MagicMock()
+
+    def tearDown(self):
+        self._tmpdir.cleanup()
+
+    def _keep_version(self, branch: str) -> dict:
+        vid = self.store.create_prompt_version(
+            cohort="euphoria_2021", agent="volatility",
+            branch_name=branch, base_commit_hash="a" * 40,
+        )
+        self.store.set_version_eval(vid, 0.5, 0.7, 0.2)
+        return self.store.get_prompt_version(vid)
+
+    def test_push_when_enabled(self):
+        version = self._keep_version("cohort/euphoria_2021/auto/volatility/2021-02-01")
+        config = {"autoresearch": {"git": {"push": True, "remote": "backup"}}}
+
+        decide(self.store, self.git_ops, version, config)
+
+        self.git_ops.push.assert_called_once_with("main", "backup")
+
+    def test_no_push_when_disabled(self):
+        version = self._keep_version("cohort/euphoria_2021/auto/volatility/2021-02-02")
+        config = {"autoresearch": {"git": {"push": False}}}
+
+        decide(self.store, self.git_ops, version, config)
+
+        self.git_ops.push.assert_not_called()
+
+    def test_no_push_when_merge_failed(self):
+        """A failed merge skips push (the else-branch) but keep still stands."""
+        self.git_ops.merge_to_main.side_effect = RuntimeError("merge conflict")
+        version = self._keep_version("cohort/euphoria_2021/auto/volatility/2021-02-03")
+        config = {"autoresearch": {"git": {"push": True}}}
+
+        result = decide(self.store, self.git_ops, version, config)
+
+        self.assertEqual(result, "keep")
+        self.git_ops.push.assert_not_called()
+
+    def test_push_failure_does_not_prevent_keep_status(self):
+        self.git_ops.push.side_effect = RuntimeError("auth failed")
+        version = self._keep_version("cohort/euphoria_2021/auto/volatility/2021-02-04")
+        config = {"autoresearch": {"git": {"push": True}}}
+
+        result = decide(self.store, self.git_ops, version, config)
+
+        self.assertEqual(result, "keep")
+        self.assertEqual(self.store.get_prompt_version(version["id"])["status"], "keep")
+
+
 class TestDecideErrors(unittest.TestCase):
     """Test error paths."""
 
