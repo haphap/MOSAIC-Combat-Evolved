@@ -302,8 +302,11 @@ class TestBridgeHandler:
     def test_tools_list_returns_eight(self):
         result = tools_handler.tools_list({})
         assert isinstance(result, list)
-        names = sorted(t["name"] for t in result)
-        assert names == sorted(_EXPECTED_TOOLS)
+        names = {t["name"] for t in result}
+        # The macro tools are all present...
+        assert set(_EXPECTED_TOOLS).issubset(names)
+        # ...alongside the research-report tools (行业研报 / 个股研报).
+        assert {"get_broker_research", "get_stock_research"}.issubset(names)
         for entry in result:
             assert entry["description"]
             assert entry["args_schema"]["type"] == "object"
