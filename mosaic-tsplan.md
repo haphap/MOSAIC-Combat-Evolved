@@ -98,6 +98,7 @@ Cohort 切换 UI（PRISM）                                       paper_trading/
 - **1** TS skeleton + 类型化 bridge client。
 - **2** 25 agent × 4 层 LangGraph.js 日循环 → CIO 出组合建议。
 - **3** Scorecard(forward_return/alpha)+ Darwinian 权重。
+  - **ETF 评分**:CIO 宽基 ETF 建议(5xxxxx.SH / 1xxxxx.SZ)的前向收益经 `scorer._fetch_close` 路由到 `pro.fund_daily`(个股=`daily`、指数=`index_daily`、ETF=`fund_daily`),从而 winrate/skill 同样覆盖 ETF 建议(此前 ETF 行 forward_return 恒为 NULL)。
 - **3.5** qlib 历史数据底座 + 两段式向量化回测。
 - **4** Autoresearch(git feature 分支 + SQLite,prompt mutation keep/revert)。
 - **5** PRISM 7-cohort 训练编排(layer 顺序 / layer 内并发)。
