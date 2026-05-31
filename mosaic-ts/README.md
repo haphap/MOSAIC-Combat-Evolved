@@ -71,7 +71,9 @@ pnpm dev janus history [--days 30]
 
 # Phase 7 MiroFish (synthetic-futures forward training; isolated from real P&L)
 pnpm dev mirofish generate [--days 30] [--seed 42] [--print] [--swarm]   # scenario set (--swarm = Phase 7M.1 agent-to-agent engine; default Monte-Carlo)
-  # --engine oasis = drive a deployed 666ghj/MiroFish service (set MOSAIC_MIROFISH_URL, e.g. http://localhost:5001); 7M Step 3, default off
+  # --engine oasis = drive a deployed 666ghj/MiroFish service (set MOSAIC_MIROFISH_URL, e.g. http://localhost:5001);
+  #   walks the real multi-step API (graph/build → simulation → report) and maps the prediction report's
+  #   direction onto scenario regimes (lossy: MiroFish predicts narratives, not prices). Needs LLM+Zep keys; default off.
 pnpm dev mirofish train --fake-llm [--seed 42] [--agents a,b] [--dry-run] [--swarm] [--path-aware]
   # --path-aware = score the direction-adjusted equity curve with a max-drawdown penalty (default: terminal cumulative return)
 pnpm dev mirofish history [--days 30]
