@@ -37,6 +37,8 @@ class TestFindCollector:
         monkeypatch.setenv("HOME", str(tmp_path / "fake_home"))
         # Also make the relative ../qlib not exist by pointing cwd somewhere clean
         monkeypatch.chdir(tmp_path)
+        # Patch away the vendored copy so the not-found path is reachable.
+        monkeypatch.setattr(qlib_ingest, "_VENDORED_DC_DIR", tmp_path / "no_vendored")
 
         with pytest.raises(qlib_ingest.CollectorNotFound, match="not found"):
             qlib_ingest.find_qlib_collector()
@@ -65,6 +67,8 @@ class TestFindEtfCollector:
         monkeypatch.setenv("MOSAIC_QLIB_ETF_COLLECTOR", str(tmp_path / "nope.py"))
         monkeypatch.setenv("HOME", str(tmp_path / "fake_home"))
         monkeypatch.delenv("MOSAIC_QLIB_REPO", raising=False)
+        # Patch away the vendored copy so the not-found path is reachable.
+        monkeypatch.setattr(qlib_ingest, "_VENDORED_DC_DIR", tmp_path / "no_vendored")
         with pytest.raises(qlib_ingest.CollectorNotFound, match="ETF collector not found"):
             qlib_ingest.find_qlib_collector("etf")
 

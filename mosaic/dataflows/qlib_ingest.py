@@ -20,12 +20,15 @@ User decisions (2026-05-29) honoured here:
   * Skip-on-gap > 1% — enforced by ``validate_after_ingest()`` post-pass
     rather than rejecting at fetch time.
 
-Why a thin wrapper instead of a port:
+Why vendored collectors:
 
-  Vendoring the user's 2179-LOC collector into MOSAIC would (a) duplicate
-  battle-tested code, (b) make MOSAIC's repo larger, (c) drift over time.
-  The collector lives at ``<qlib>/scripts/data_collector/tushare/collector.py``
-  per qlib convention; we just wire MOSAIC's bridge / CLI to it.
+  The Tushare stock + ETF collectors (and the qlib ``dump_bin`` /
+  ``data_collector.{base,utils}`` they build on) are vendored into
+  ``mosaic/dataflows/collectors/`` so MOSAIC's ingest is **self-contained** —
+  no external qlib source checkout is required at run time (only the installed
+  ``pyqlib`` package, for ``qlib.utils``). ``find_qlib_collector`` prefers the
+  vendored copy; ``MOSAIC_QLIB_REPO`` / ``MOSAIC_QLIB_ETF_COLLECTOR`` still
+  override it. See ``collectors/NOTICE.md`` for provenance + licensing.
 """
 
 from __future__ import annotations
@@ -65,6 +68,11 @@ _QLIB_ETF_COLLECTOR_CANDIDATES = (
     "~/.qlib/scripts/data_collector/tushare_etf/collector.py",
 )
 
+# Self-contained vendored collectors live inside the package (see
+# ``collectors/NOTICE.md``). Preferred over any on-disk qlib checkout, but an
+# explicit env override (MOSAIC_QLIB_REPO / MOSAIC_QLIB_ETF_COLLECTOR) still wins.
+_VENDORED_DC_DIR = Path(__file__).resolve().parent / "collectors" / "data_collector"
+
 
 @dataclass(frozen=True)
 class CollectorPaths:
@@ -79,20 +87,20 @@ class CollectorNotFound(Exception):
 def find_qlib_collector(kind: str = "stock") -> CollectorPaths:
     """Return the path to a qlib Tushare collector + its repo root.
 
-    ``kind='stock'`` (default): the A-share equity collector at
-    ``<repo>/scripts/data_collector/tushare/collector.py``.
-    ``kind='etf'``: the user-authored ETF collector — searched at
-    ``MOSAIC_QLIB_ETF_COLLECTOR`` then ``~/.qlib/scripts/data_collector/
-    tushare_etf/collector.py`` then ``<repo>/scripts/data_collector/tushare_etf``.
-
-    Resolution order (stock): ``MOSAIC_QLIB_REPO`` env, ``~/Projects/qlib``,
-    ``<MOSAIC repo>/../qlib``, ``~/qlib``. Raises ``CollectorNotFound``.
+    Prefers the **vendored** collector in ``mosaic/dataflows/collectors/
+    data_collector/{tushare,tushare_etf}/collector.py``. An explicit env
+    override always wins: ``MOSAIC_QLIB_REPO`` (stock) /
+    ``MOSAIC_QLIB_ETF_COLLECTOR`` (etf). Falls back to ``~/Projects/qlib``,
+    ``<MOSAIC repo>/../qlib``, ``~/qlib`` (stock) and
+    ``~/.qlib/scripts/.../tushare_etf`` (etf). Raises ``CollectorNotFound``.
     """
     if kind == "etf":
         env_collector = os.environ.get("MOSAIC_QLIB_ETF_COLLECTOR")
         etf_candidates: list[Path] = []
         if env_collector:
             etf_candidates.append(Path(env_collector).expanduser())
+        # Self-contained vendored copy (preferred when no env override).
+        etf_candidates.append(_VENDORED_DC_DIR / "tushare_etf" / "collector.py")
         for c in _QLIB_ETF_COLLECTOR_CANDIDATES:
             etf_candidates.append(Path(c).expanduser())
         # Also allow it living under a qlib repo like the stock collector.
@@ -113,6 +121,11 @@ def find_qlib_collector(kind: str = "stock") -> CollectorPaths:
         )
 
     env_root = os.environ.get("MOSAIC_QLIB_REPO")
+    # Self-contained vendored copy first (unless an env override points elsewhere).
+    vendored = _VENDORED_DC_DIR / "tushare" / "collector.py"
+    if not env_root and vendored.is_file():
+        return CollectorPaths(repo_root=vendored.parent, collector_script=vendored)
+
     candidates: list[Path] = []
     if env_root:
         candidates.append(Path(env_root).expanduser())
@@ -124,6 +137,10 @@ def find_qlib_collector(kind: str = "stock") -> CollectorPaths:
         collector = repo_root / "scripts" / "data_collector" / "tushare" / "collector.py"
         if collector.is_file():
             return CollectorPaths(repo_root=repo_root, collector_script=collector)
+
+    # Fall back to the vendored copy even if an env root was set but invalid.
+    if vendored.is_file():
+        return CollectorPaths(repo_root=vendored.parent, collector_script=vendored)
 
     tried = "\n  ".join(str(c) for c in candidates)
     raise CollectorNotFound(

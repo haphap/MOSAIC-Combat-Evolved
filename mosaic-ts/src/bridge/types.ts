@@ -122,6 +122,14 @@ export interface MosaicConfig {
   [key: string]: unknown;
 }
 
+/** Result of data.incremental (qlib dataset append). */
+export interface DataIncrementalResult {
+  kind: "stock" | "etf";
+  returncode: number;
+  qlib_dir: string | null;
+  ok: boolean;
+}
+
 export interface PaperAccount {
   user_id: string;
   cash: number;
@@ -564,6 +572,22 @@ export class BridgeApi {
   /** Persist config to ~/.mosaic/config.json + apply (survives restarts). */
   configSave(config: MosaicConfig): Promise<MosaicConfig> {
     return this.client.call<MosaicConfig>("config.save", { config });
+  }
+
+  // data.* (qlib incremental ingest — vendored collectors)
+  dataIncremental(params: {
+    kind?: "stock" | "etf";
+    end: string;
+    timeout?: number;
+  }): Promise<DataIncrementalResult> {
+    return this.client.call<DataIncrementalResult>("data.incremental", params);
+  }
+
+  dataValidate(params: {
+    kind?: "stock" | "etf";
+    gap_threshold?: number;
+  }): Promise<Record<string, unknown>> {
+    return this.client.call<Record<string, unknown>>("data.validate", params);
   }
 
   // cache.*

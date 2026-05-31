@@ -54,15 +54,33 @@ test = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
 ]
-all = [
-    "mosaic[data,trading,llm,test,backtest]",
+# Data-ingest collector subprocess deps (vendored qlib + tushare collectors).
+# These run in a child process spawned by mosaic.dataflows.qlib_ingest; the
+# parent doesn't import them. tushare is in `data`; pyqlib (for qlib.utils,
+# dump_bin) is in `backtest`. Install both alongside `ingest` for live ingest.
+ingest = [
+    "fire>=0.5",
+    "loguru>=0.7",
+    "joblib>=1.3",
+    "yahooquery>=2.3",
+    "beautifulsoup4>=4.12",
+    "tqdm>=4.66",
 ]
+all = [
+    "mosaic[data,trading,llm,test,backtest,ingest]",
+]
+
+[tool.ruff]
+# Vendored 3rd-party collectors (qlib + user-authored) are kept verbatim for
+# provenance — don't lint/reformat them. See collectors/NOTICE.md.
+extend-exclude = ["mosaic/dataflows/collectors"]
 
 [tool.setuptools.packages.find]
 include = ["mosaic*"]
 
 [tool.setuptools.package-data]
 "mosaic.dataflows" = ["reference/*.csv"]
+"mosaic.dataflows.collectors" = ["NOTICE.md", "LICENSE.qlib"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

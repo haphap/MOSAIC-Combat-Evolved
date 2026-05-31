@@ -19,6 +19,7 @@ from . import cache  # noqa: F401
 from . import calendar  # noqa: F401
 from . import config  # noqa: F401
 from . import darwinian  # noqa: F401
+from . import data  # noqa: F401
 from . import janus  # noqa: F401
 from . import mirofish  # noqa: F401
 from . import paper  # noqa: F401
