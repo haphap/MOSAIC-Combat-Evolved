@@ -385,7 +385,7 @@ def test_get_property_data_returns_top_n(fake_real_estate_module):
         }
     )
     fake_real_estate_module(df=df)
-    out = macro_data.get_property_data(top_n=3)
+    out = macro_data.get_property_data("2025-12-31", top_n=3)
     assert "国房景气指数" in out
     csv_rows = [ln for ln in out.splitlines() if ln.startswith("2025-")]
     assert len(csv_rows) == 3
@@ -394,15 +394,32 @@ def test_get_property_data_returns_top_n(fake_real_estate_module):
     assert "2025-01-01" not in out
 
 
+def test_get_property_data_clamps_to_curr_date(fake_real_estate_module):
+    """Point-in-time: months after curr_date must be excluded (anti-lookahead)."""
+    df = pd.DataFrame(
+        {
+            "日期": [f"2025-{m:02d}-01" for m in range(1, 13)],
+            "最新值": [90 + m for m in range(1, 13)],
+        }
+    )
+    fake_real_estate_module(df=df)
+    out = macro_data.get_property_data("2025-06-15", top_n=24)
+    # June and earlier present; July+ (future relative to curr_date) excluded.
+    assert "2025-06-01" in out
+    assert "2025-05-01" in out
+    assert "2025-07-01" not in out
+    assert "2025-12-01" not in out
+
+
 def test_get_property_data_failure_wraps(fake_real_estate_module):
     fake_real_estate_module(raises=RuntimeError("akshare down"))
     with pytest.raises(DataVendorUnavailable, match="macro_china_real_estate failed"):
-        macro_data.get_property_data()
+        macro_data.get_property_data("2025-06-30")
 
 
 def test_get_property_data_rejects_zero_top_n():
     with pytest.raises(DataVendorUnavailable, match=">= 1"):
-        macro_data.get_property_data(top_n=0)
+        macro_data.get_property_data("2025-06-30", top_n=0)
 
 
 # --------------------------------------------------------------------- 7. Industry policy

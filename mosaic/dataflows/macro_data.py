@@ -726,25 +726,34 @@ def get_fund_flow(symbol: str, curr_date: str, look_back_days: int = 30) -> str:
 # ============================================================ 13. Property (real-estate)
 
 
-def get_property_data(top_n: int = 24) -> str:
-    """Fetch the China national real-estate climate index (国房景气指数).
+def get_property_data(curr_date: str, top_n: int = 24) -> str:
+    """Fetch the China national real-estate climate index (国房景气指数) as of a date.
 
     Tushare's macro section has no dedicated real-estate endpoint (plan §14 #8),
     so this routes to AkShare ``macro_china_real_estate`` — the monthly 国房景气
-    指数 (a >100 = expansion / <100 = contraction composite of property
-    investment, sales, new starts, land, and financing). Returns the most recent
-    ``top_n`` months with level + 1/3/6/12-month changes.
+    指数 (>100 = expansion / <100 = contraction composite of property investment,
+    sales, new starts, land, and financing).
 
-    Used by ``china`` (property is a primary A-share macro driver — real estate
-    + its supply chain is a large share of GDP and a key policy lever).
+    Point-in-time: only months **on or before** ``curr_date`` are returned, then
+    the most recent ``top_n`` of those. This keeps backtests honest — under a
+    backtest as-of context, ``route_to_vendor`` clamps ``curr_date`` to the
+    replayed date (``get_property_data`` is registered in
+    ``interface._CURRENT_DATE_METHODS``), so the china agent never sees
+    future real-estate prints. Dates are coerced via ``pd.to_datetime`` before
+    sorting so ordering doesn't depend on the raw label format.
+
+    Used by ``china`` (property + its supply chain is a large share of GDP and a
+    key policy lever — a primary A-share macro driver).
     """
+    _validate_iso_date(curr_date, "curr_date")
     if top_n < 1:
         raise DataVendorUnavailable("top_n must be >= 1.")
     try:
         import akshare as ak  # noqa: PLC0415
+        import pandas as pd  # noqa: PLC0415
     except ImportError as exc:
         raise DataVendorUnavailable(
-            "akshare package is not installed. Install via `uv pip install -e .[data]`."
+            "akshare + pandas are required. Install via `uv pip install -e .[data]`."
         ) from exc
 
     try:
@@ -755,18 +764,26 @@ def get_property_data(top_n: int = 24) -> str:
         ) from exc
 
     if df is not None and not df.empty:
-        # Most-recent-first, keep top_n months.
         date_col = "日期" if "日期" in df.columns else df.columns[0]
-        df = df.sort_values(date_col, ascending=False).head(int(top_n))
+        parsed = pd.to_datetime(df[date_col], errors="coerce")
+        cutoff = pd.Timestamp(curr_date)
+        df = (
+            df.assign(_dt=parsed)
+            .dropna(subset=["_dt"])
+            .loc[lambda d: d["_dt"] <= cutoff]
+            .sort_values("_dt", ascending=False)
+            .head(int(top_n))
+            .drop(columns=["_dt"])
+        )
 
     return _df_to_markdown_csv(
         df,
-        title="国房景气指数 / China Real-Estate Climate Index",
+        title=f"国房景气指数 / China Real-Estate Climate Index (as of {curr_date})",
         subtitle=(
             "Source: AkShare macro_china_real_estate (monthly). 最新值 = index level "
             "(>100 expansion, <100 contraction); 涨跌幅 / 近N月涨跌幅 in percent."
         ),
-        empty_note="No real-estate climate index rows returned.",
+        empty_note=f"No real-estate climate index rows on or before {curr_date}.",
     )
 
 

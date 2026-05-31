@@ -584,29 +584,37 @@ def get_us_china_relations(
 
 @tool
 def get_property_data(
+    curr_date: Annotated[
+        str,
+        "Current date (yyyy-mm-dd). Only real-estate climate months on or before "
+        "this date are returned (point-in-time / backtest-safe).",
+    ],
     top_n: Annotated[
         int,
-        "How many most-recent months of the real-estate climate index to return "
+        "How many most-recent months (on or before curr_date) to return "
         "(monthly series; default 24 = two years).",
     ] = 24,
 ) -> str:
     """
-    Retrieve the China national real-estate climate index (国房景气指数).
+    Retrieve the China national real-estate climate index (国房景气指数) as of a date.
 
     Monthly composite (>100 = expansion, <100 = contraction) spanning property
     investment / sales / new starts / land / financing, via AkShare
-    ``macro_china_real_estate``. Returns the latest ``top_n`` months with level +
-    1/3/6/12-month changes. Used by ``china`` — real estate + its supply chain is
-    a large share of GDP and a key policy lever, so it is a primary A-share macro
-    driver (closes the plan §14 #8 get_property_data gap).
+    ``macro_china_real_estate``. Returns the latest ``top_n`` months on or before
+    ``curr_date`` with level + 1/3/6/12-month changes. Used by ``china`` — real
+    estate + its supply chain is a large share of GDP and a key policy lever, so
+    it is a primary A-share macro driver (closes the plan §14 #8 get_property_data
+    gap). Backtest mode clamps ``curr_date`` so historical cycles never see future
+    prints.
 
     Args:
+        curr_date: yyyy-mm-dd point-in-time cutoff.
         top_n: number of most-recent months, default 24.
 
     Returns:
         Markdown header + CSV (日期 / 最新值 / 涨跌幅 / 近N月涨跌幅).
     """
-    return route_to_vendor("get_property_data", top_n)
+    return route_to_vendor("get_property_data", curr_date, top_n)
 
 
 # ============================================================ public exports

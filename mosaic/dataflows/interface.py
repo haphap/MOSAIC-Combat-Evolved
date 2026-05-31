@@ -317,6 +317,7 @@ _CURRENT_DATE_METHODS = {
     "get_fund_flow": 1,
     "get_caixin_sentiment": 0,
     "get_us_china_relations": 0,
+    "get_property_data": 0,
 }
 
 _UNBOUNDED_BACKTEST_METHODS = {
