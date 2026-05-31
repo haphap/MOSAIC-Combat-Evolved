@@ -42,6 +42,7 @@ from ..registry import method
 # Phase 2 Layer 2/3/4 will add sector / superinvestor / decision tool modules.
 _TOOL_MODULES: tuple[str, ...] = (
     "mosaic.agents.utils.macro_tools",                  # Phase 0 Day 4 ✓
+    "mosaic.agents.utils.research_report_tools",        # 行业研报 + 个股研报 (ported from ETFAgents) ✓
     # "mosaic.agents.utils.sector_tools",                 # Phase 2
     # "mosaic.agents.utils.superinvestor_tools",          # Phase 2
     # "mosaic.agents.utils.decision_tools",               # Phase 2
@@ -49,7 +50,6 @@ _TOOL_MODULES: tuple[str, ...] = (
     # "mosaic.agents.utils.technical_indicators_tools",   # ported from ETFAgents
     # "mosaic.agents.utils.fundamental_data_tools",       # ported from ETFAgents
     # "mosaic.agents.utils.news_data_tools",              # ported from ETFAgents
-    # "mosaic.agents.utils.research_report_tools",        # ported from ETFAgents
     # "mosaic.agents.utils.etf_data_tools",               # ported from ETFAgents
 )
 

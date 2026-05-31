@@ -131,6 +131,9 @@ describe("listBridgeTools / pickBridgeTools against real sidecar", () => {
       expect(names).toContain("get_pboc_ops");
       expect(names).toContain("get_north_capital_flow");
       expect(names).toContain("get_yield_curve_cn");
+      // Research-report tools (行业研报 + 个股研报)
+      expect(names).toContain("get_broker_research");
+      expect(names).toContain("get_stock_research");
       // Every tool must have a non-empty schema (input validation works)
       for (const tool of tools) {
         expect(tool.name).toBeTypeOf("string");

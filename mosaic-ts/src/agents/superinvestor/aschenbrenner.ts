@@ -9,7 +9,11 @@ import {
 } from "./_factory.js";
 import { AschenbrennerSchema, SUPERINVESTOR_FIELD_NAMES } from "./_schemas.js";
 
-export const REQUIRED_TOOLS = ["get_industry_policy", "get_xueqiu_heat"] as const;
+export const REQUIRED_TOOLS = [
+  "get_industry_policy",
+  "get_xueqiu_heat",
+  "get_stock_research",
+] as const;
 
 export const aschenbrennerSpec: LayerThreeAgentSpec<AschenbrennerOutput> = {
   agentId: "aschenbrenner",

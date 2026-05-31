@@ -81,6 +81,8 @@ const FAKE_TOOLS: ToolMetadata[] = [
   "get_etf_price_data",
   "get_caixin_sentiment",
   "get_us_china_relations",
+  "get_broker_research",
+  "get_stock_research",
 ].map((name) => ({ name, description: name, args_schema: TOOL_SCHEMA }));
 
 const fakeApi: BridgeApi = {
