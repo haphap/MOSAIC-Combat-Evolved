@@ -116,6 +116,11 @@ _EXPECTED_TOOLS = {
         "optional": {"look_back_days"},
         "vendor_method": "get_us_china_relations",
     },
+    "get_property_data": {
+        "required": {"curr_date"},
+        "optional": {"top_n"},
+        "vendor_method": "get_property_data",
+    },
 }
 
 
@@ -291,6 +296,15 @@ class TestDispatch:
         macro_tools.get_us_china_relations.invoke({"curr_date": "2024-06-30", "look_back_days": 180})
         assert patched_route["method"] == "get_us_china_relations"
         assert patched_route["args"] == ("2024-06-30", 180)
+
+    def test_get_property_data_default(self, patched_route):
+        macro_tools.get_property_data.invoke({"curr_date": "2024-06-30"})
+        assert patched_route["method"] == "get_property_data"
+        assert patched_route["args"] == ("2024-06-30", 24)
+
+    def test_get_property_data_overrides_top_n(self, patched_route):
+        macro_tools.get_property_data.invoke({"curr_date": "2024-06-30", "top_n": 6})
+        assert patched_route["args"] == ("2024-06-30", 6)
 
 
 # --------------------------------------------------------------------- bridge handler

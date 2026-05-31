@@ -28,6 +28,7 @@ from .macro_data import (
     get_ivx as get_ivx_impl,
     get_etf_indicator as get_etf_indicator_macro_impl,
     get_fund_flow as get_fund_flow_impl,
+    get_property_data as get_property_data_impl,
 )
 from .tushare import (
     get_etf_daily as get_tushare_etf_daily,
@@ -136,6 +137,7 @@ TOOLS_CATEGORIES = {
             "get_fund_flow",
             "get_caixin_sentiment",
             "get_us_china_relations",
+            "get_property_data",
         ]
     }
 }
@@ -275,6 +277,9 @@ VENDOR_METHODS = {
     "get_us_china_relations": {
         "tsinghua": get_us_china_relations_impl,
     },
+    "get_property_data": {
+        "akshare": get_property_data_impl,
+    },
 }
 
 _RANGE_DATE_METHODS = {
@@ -312,6 +317,7 @@ _CURRENT_DATE_METHODS = {
     "get_fund_flow": 1,
     "get_caixin_sentiment": 0,
     "get_us_china_relations": 0,
+    "get_property_data": 0,
 }
 
 _UNBOUNDED_BACKTEST_METHODS = {

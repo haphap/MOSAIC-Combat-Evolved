@@ -8,8 +8,9 @@
  * Tools (Plan §5.1 / §11.2 design note 2C-4):
  *   * get_industry_policy   — policy news flow (primary evidence)
  *   * get_pboc_ops          — OMO corroborator
- *   * get_north_capital_flow — substitutes for the missing get_property_data;
- *                              tracked in plan §14 #8 follow-up
+ *   * get_property_data     — 国房景气指数 (real-estate climate; primary A-share
+ *                             macro driver — closes the plan §14 #8 gap)
+ *   * get_north_capital_flow — foreign positioning corroborator
  */
 
 import type { ChinaOutput } from "../types.js";
@@ -28,6 +29,7 @@ import { CHINA_FIELD_NAMES, ChinaSchema } from "./_schemas.js";
 export const REQUIRED_TOOLS = [
   "get_industry_policy",
   "get_pboc_ops",
+  "get_property_data",
   "get_north_capital_flow",
 ] as const;
 
