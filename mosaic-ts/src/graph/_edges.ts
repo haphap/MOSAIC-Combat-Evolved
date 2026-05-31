@@ -11,6 +11,14 @@
  * the accepted edge endpoint type from the graph's *own* ``addEdge`` signature
  * (via ``Parameters<G["addEdge"]>``) so there is no ``any`` and no hand-rebuilt
  * node-name union to drift from LangGraph's real types.
+ *
+ * ASSUMPTION (pinned to ``@langchain/langgraph`` 1.3.x): ``addEdge`` mutates the
+ * builder in place — its return value is intentionally ignored here. If a future
+ * LangGraph made the builder immutable (returning a new instance), edges added
+ * via ``chainEdges`` would be silently dropped; the unit test's fake mirrors the
+ * current behavior and would NOT catch that. The real safety net is the
+ * layer/daily-cycle integration tests, which compile + invoke the graphs (a
+ * missing edge breaks execution) — re-verify those on any LangGraph upgrade.
  */
 
 /** Anything with an ``addEdge(start, end)`` method (StateGraph after addNode). */
