@@ -13,6 +13,7 @@ export const REQUIRED_TOOLS = [
   "get_industry_policy",
   "get_xueqiu_heat",
   "get_lhb_ranking",
+  "get_broker_research",
 ] as const;
 
 export const industrialsSpec: LayerTwoAgentSpec<IndustrialsOutput> = {

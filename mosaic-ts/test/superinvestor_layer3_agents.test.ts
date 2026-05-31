@@ -75,6 +75,12 @@ describe("each superinvestor spec wires the right factory inputs", () => {
       expect(spec.fieldNames).toEqual(["picks", "philosophy_note", "key_drivers", "confidence"]);
     });
   }
+
+  it("every superinvestor requires get_stock_research (个股研报)", () => {
+    for (const { spec } of cases) {
+      expect(spec.requiredTools).toContain("get_stock_research");
+    }
+  });
 });
 
 // ============================================================ render + fallback
@@ -314,6 +320,7 @@ describe("buildDruckenmillerNode (Layer-3 factory smoke)", () => {
     const FAKE_TOOLS: ToolMetadata[] = [
       { name: "get_yield_curve_cn", description: "x", args_schema: TOOL_SCHEMA },
       { name: "get_industry_policy", description: "x", args_schema: TOOL_SCHEMA },
+      { name: "get_stock_research", description: "x", args_schema: TOOL_SCHEMA },
     ];
 
     const canned: DruckenmillerOutput = {

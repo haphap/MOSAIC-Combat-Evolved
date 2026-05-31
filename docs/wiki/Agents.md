@@ -14,9 +14,11 @@ Layer-1 agents call sidecar tools (Tushare/akshare/FRED/Xueqiu/etc.) — e.g. `v
 
 `biotech`, `consumer`, `energy`, `financials`, `industrials`, `semiconductor`, `relationship_mapper`. They turn macro context into sector picks → the candidate universe.
 
+The six industry agents call **`get_broker_research`** (行业研报 — Tushare industry research reports, resolved from a representative stock's industry) to ground sector calls in sell-side research. `relationship_mapper` works at the stock level and uses **`get_stock_research`** (个股研报).
+
 ## Layer 3 — Superinvestor (4)
 
-`ackman`, `aschenbrenner`, `baker`, `druckenmiller`. Each applies an investing-philosophy lens to the Layer-2 candidate universe (they cite only tickers present in the upstream analysis — never invent codes).
+`ackman`, `aschenbrenner`, `baker`, `druckenmiller`. Each applies an investing-philosophy lens to the Layer-2 candidate universe (they cite only tickers present in the upstream analysis — never invent codes). All four call **`get_stock_research`** (个股研报 — Tushare individual-stock research: thesis / target price / rating / risks) to ground their stock theses.
 
 ## Layer 4 — Decision (4)
 

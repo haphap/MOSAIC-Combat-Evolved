@@ -102,6 +102,17 @@ describe("each sector spec wires the right factory inputs", () => {
       expect(spec.fieldNames).toContain("confidence");
     });
   }
+
+  it("industry sector agents require get_broker_research (行业研报)", () => {
+    for (const { name, spec } of cases) {
+      if (name === "relationship_mapper") continue; // stock-level, not industry
+      expect(spec.requiredTools).toContain("get_broker_research");
+    }
+  });
+
+  it("relationship_mapper requires get_stock_research (个股研报)", () => {
+    expect(relationshipMapperSpec.requiredTools).toContain("get_stock_research");
+  });
 });
 
 // ============================================================ render + fallback
@@ -231,6 +242,8 @@ describe("buildSemiconductorNode (Layer-2 factory smoke)", () => {
       "get_xueqiu_heat",
       "get_lhb_ranking",
       "get_north_capital_flow",
+      "get_broker_research",
+      "get_stock_research",
     ].map((name) => ({ name, description: name, args_schema: TOOL_SCHEMA }));
 
     const cannedOutput: SemiconductorOutput = {

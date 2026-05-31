@@ -14,6 +14,7 @@ export const REQUIRED_TOOLS = [
   "get_xueqiu_heat",
   "get_lhb_ranking",
   "get_yield_curve_cn",
+  "get_broker_research",
 ] as const;
 
 export const financialsSpec: LayerTwoAgentSpec<FinancialsOutput> = {

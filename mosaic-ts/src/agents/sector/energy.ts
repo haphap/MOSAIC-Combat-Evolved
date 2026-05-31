@@ -18,6 +18,7 @@ export const REQUIRED_TOOLS = [
   "get_xueqiu_heat",
   "get_lhb_ranking",
   "get_fred_series",
+  "get_broker_research",
 ] as const;
 
 export const energySpec: LayerTwoAgentSpec<EnergyOutput> = {

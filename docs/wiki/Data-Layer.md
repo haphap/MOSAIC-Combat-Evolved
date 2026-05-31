@@ -4,7 +4,7 @@
 
 ## Vendors
 
-- **Tushare** (`tushare.py`) — primary A-share equity + ETF data (`pro.daily`, `pro.fund_daily`, `pro.index_daily`, financials).
+- **Tushare** (`tushare.py`) — primary A-share equity + ETF data (`pro.daily`, `pro.fund_daily`, `pro.index_daily`, financials) plus **research reports** (`pro.research_report`): `get_broker_reports` (行业研报, industry-level) and `get_stock_reports` (个股研报, stock-level). The LangChain `@tool` wrappers `get_broker_research` / `get_stock_research` live in `mosaic/agents/utils/research_report_tools.py` and are attached to the sector + superinvestor agents (see [Agents](Agents.md)).
 - **akshare**, **yfinance**, **FRED** (`macro_data.py`, `fred.py`), Xueqiu heat, etc. — macro/global/sentiment tools.
 - Tool selection is config-driven (`data_vendors` / `tool_vendors` in `MosaicConfig`).
 

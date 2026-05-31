@@ -21,6 +21,7 @@ export const REQUIRED_TOOLS = [
   "get_xueqiu_heat",
   "get_lhb_ranking",
   "get_north_capital_flow",
+  "get_broker_research",
 ] as const;
 
 export const semiconductorSpec: LayerTwoAgentSpec<SemiconductorOutput> = {
