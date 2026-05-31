@@ -10,7 +10,7 @@ _An A-share self-improving multi-agent trading framework — inspired by ATLAS._
 [![CI](https://github.com/haphap/MOSAIC-Agents/actions/workflows/ci.yml/badge.svg)](https://github.com/haphap/MOSAIC-Agents/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/Python-%E2%89%A53.10-3776AB?logo=python&logoColor=white)
 ![Node](https://img.shields.io/badge/Node-%E2%89%A522-339933?logo=node.js&logoColor=white)
-![Status](https://img.shields.io/badge/phases-0--9%20complete-success)
+![Status](https://img.shields.io/badge/phases-0--10%20complete-success)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 > 25 个智能体 · 4 层决策图 · 提示词自进化 · 多周期训练 · 反身性模拟 —— 全部跑在一个混合 **Python sidecar + TypeScript 前端** 架构上。
@@ -48,7 +48,7 @@ _An A-share self-improving multi-agent trading framework — inspired by ATLAS._
 - 🔁 **Autoresearch 自进化**：自动选 agent → LLM 改写提示词 → git feature 分支 → 两段式回测算 **ΔSharpe** → 按阈值 `keep`（合并）/ `revert`（删分支），受 24h 冷却 / 3 天锁定 / 月度上限约束。
 - 🌈 **PRISM 多周期训练**：7 个市场 regime cohort（2007 牛市 / 2008 危机 / …）顺序训练，层内最多 5 agent 并发。
 - ⚖️ **JANUS 元加权 + 🐟 MiroFish 反身性模拟**：跨 cohort softmax 元权重；基于行为主体群的反身性合成行情（可选 swarm 引擎 + path-aware 评分）。
-- 📊 **qlib 两段式向量化回测 + 纸上交易**：Scorecard / Darwinian 权重、qlib 历史回放、backtrader 纸交易，以及只读 **Ink TUI** 仪表盘。
+- 📊 **qlib 两段式向量化回测 + 纸上交易**：Scorecard / Darwinian 权重、qlib 历史回放、自建 paper-trading 引擎（T+1 / 佣金 / 持仓），以及只读 **Ink TUI** 仪表盘。
 
 ---
 
@@ -56,7 +56,7 @@ _An A-share self-improving multi-agent trading framework — inspired by ATLAS._
 
 | 层 (Layer)            | 技术 (Stack)                                                                                                          |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| **Python sidecar**    | Python `≥3.10` · langchain-core · pandas / numpy · Tushare / akshare / yfinance / FRED · pyqlib · backtrader · SQLite · git |
+| **Python sidecar**    | Python `≥3.10` · langchain-core · pandas / numpy · Tushare / akshare / yfinance / FRED · pyqlib · SQLite · git |
 | **TypeScript 前端**   | Node `≥22` · LangGraph.js `^1.3` · `@langchain/{core,anthropic,openai}` · commander · zod · Ink `^7` + React `19`     |
 | **工具链 (Tooling)**  | uv (Python) · pnpm `11` · ruff · biome · pytest · vitest · GitHub Actions CI                                          |
 
@@ -107,7 +107,7 @@ cd mosaic-ts
 pnpm dev daily-cycle --cohort cohort_default --fake-llm
 
 # 📈 查看 agent 技能分 / Darwinian 权重
-pnpm dev scorecard --cohort cohort_default --since 30d
+pnpm dev scorecard --cohort cohort_default --since 2024-01-01
 pnpm dev darwinian --cohort cohort_default
 
 # 🔁 触发一次提示词自进化（生成 → 提交 → ΔSharpe 评估 → keep/revert）
@@ -117,10 +117,10 @@ pnpm dev autoresearch log --cohort crisis_2008
 # 🌈 PRISM 多周期 · ⚖️ JANUS 元权重 · 🐟 MiroFish 反身性模拟
 pnpm dev prism list
 pnpm dev janus weights
-pnpm dev mirofish generate --swarm --path-aware --seed 7
+pnpm dev mirofish generate --swarm --seed 7            # swarm 情景集；train 时 --path-aware 用回撤惩罚打分
 
 # 🧾 纸上交易 · 📊 只读 TUI 仪表盘
-pnpm dev paper get-account
+pnpm dev paper account
 pnpm dev dashboard
 ```
 
@@ -201,7 +201,7 @@ Released under the **[MIT License](LICENSE)**.
 
 - 🧬 **[ATLAS](https://github.com/general-intelligence-capital/atlas)** —— 四层多智能体自我改进交易范式的设计源头（JANUS / MiroFish 的公开实现）。
 - 🧰 **ETFAgents** —— 混合架构（Python sidecar + TS 前端 + JSON-RPC bridge）的工程经验来源。
-- 📊 **[Qlib](https://github.com/microsoft/qlib)** · **[backtrader](https://www.backtrader.com/)** —— 历史数据底座与回测引擎。
+- 📊 **[Qlib](https://github.com/microsoft/qlib)** —— 历史数据底座与向量化回测引擎。
 - 🔗 **[LangChain](https://github.com/langchain-ai/langchain) / [LangGraph](https://github.com/langchain-ai/langgraph)** —— Agent 编排框架。
 - 🇨🇳 **[Tushare](https://tushare.pro/) · [akshare](https://akshare.akfamily.xyz/) · [FRED](https://fred.stlouisfed.org/)** —— A 股与全球宏观数据。
 
