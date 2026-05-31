@@ -90,6 +90,24 @@ function fakeApi() {
         },
       ],
     }),
+    configGet: vi.fn().mockResolvedValue({
+      llm_provider: "anthropic",
+      deep_think_llm: "claude-opus",
+      quick_think_llm: "claude-haiku",
+      output_language: "Chinese",
+      active_cohort: "euphoria_2021",
+      autoresearch: {
+        agent_mutation_cooldown_hours: 24,
+        keep_revert_lockout_days: 3,
+        keep_threshold_delta_sharpe: 0.1,
+        monthly_modification_cap_per_cohort: 100,
+        evaluation_horizon_trading_days: 5,
+        git: { push: false, remote: "origin" },
+      },
+      mirofish: { engine: "montecarlo", scorer: "terminal", inject_context: false },
+    }),
+    configDefault: vi.fn().mockResolvedValue({}),
+    configSave: vi.fn().mockImplementation((c) => Promise.resolve(c)),
   };
 }
 
@@ -185,6 +203,78 @@ describe("Dashboard", () => {
     stdin.write("4");
     await flush();
     expect(lastFrame()).toContain("no paper account");
+  });
+
+  it("switches to the settings tab on key '7' and loads config", async () => {
+    const api = fakeApi();
+    const { stdin, lastFrame } = mount(api);
+    await flush();
+    stdin.write("7");
+    await flush();
+    expect(api.configGet).toHaveBeenCalled();
+    expect(lastFrame()).toContain("settings (persisted to ~/.mosaic/config.json)");
+    expect(lastFrame()).toContain("LLM provider");
+    expect(lastFrame()).toContain("anthropic");
+  });
+
+  it("toggles a bool field with space and persists on 's'", async () => {
+    const api = fakeApi();
+    const { stdin, lastFrame } = mount(api);
+    await flush();
+    stdin.write("7");
+    await flush();
+    // Move to "AR git push" (a bool) and toggle it on, then save.
+    for (let i = 0; i < 10; i++) stdin.write("\u001B[B"); // down arrow ×10 → AR git push
+    await flush();
+    stdin.write(" ");
+    await flush();
+    stdin.write("s");
+    await flush();
+    expect(api.configSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        autoresearch: expect.objectContaining({ git: { push: true, remote: "origin" } }),
+      }),
+    );
+    expect(lastFrame()).toContain("saved");
+  });
+
+  it("edits a string field via enter + typing + enter", async () => {
+    const api = fakeApi();
+    const { stdin } = mount(api);
+    await flush();
+    stdin.write("7");
+    await flush();
+    stdin.write("\u001B[B"); // down → Deep-think model (string)
+    await flush();
+    stdin.write("\r"); // enter → edit mode
+    await flush();
+    // Clear then type a new value (buffer starts as current value).
+    for (let i = 0; i < 20; i++) stdin.write("\u007F"); // backspace
+    stdin.write("gpt-4o");
+    await flush();
+    stdin.write("\r"); // commit
+    await flush();
+    stdin.write("s");
+    await flush();
+    expect(api.configSave).toHaveBeenCalledWith(
+      expect.objectContaining({ deep_think_llm: "gpt-4o" }),
+    );
+  });
+
+  it("does not quit on 'q' while editing a settings field", async () => {
+    const api = fakeApi();
+    const { stdin, lastFrame } = mount(api);
+    await flush();
+    stdin.write("7");
+    await flush();
+    stdin.write("\u001B[B"); // → string field
+    await flush();
+    stdin.write("\r"); // enter edit mode
+    await flush();
+    stdin.write("q"); // should be captured as text, NOT a quit
+    await flush();
+    // Still on settings, in edit mode (buffer shows the cursor).
+    expect(lastFrame()).toContain("[esc] cancel");
   });
 
   it("unmounts on 'q' without throwing", async () => {

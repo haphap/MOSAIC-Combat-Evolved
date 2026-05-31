@@ -1,12 +1,18 @@
 import copy
+import json
+import os
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict, Mapping
 
 import mosaic.default_config as default_config
 
 _DEFAULT_CONFIG = copy.deepcopy(default_config.DEFAULT_CONFIG)
+
+# Persisted user overrides. Absent file ⇒ pure DEFAULT_CONFIG (today's behavior).
+_CONFIG_FILE = Path(os.path.expanduser(os.environ.get("MOSAIC_CONFIG", "~/.mosaic/config.json")))
 _config_var: ContextVar[Dict[str, Any]] = ContextVar(
     "mosaic_config",
     default=copy.deepcopy(_DEFAULT_CONFIG),
@@ -43,14 +49,39 @@ def _merged_config(config: Mapping[str, Any] | None = None) -> Dict[str, Any]:
     return merged
 
 
+def _load_persisted() -> Dict[str, Any] | None:
+    """Read ~/.mosaic/config.json if present; None on absent/invalid (fail-soft)."""
+    if not _CONFIG_FILE.is_file():
+        return None
+    try:
+        data = json.loads(_CONFIG_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
 def initialize_config() -> None:
-    """Initialize the current execution context with default values."""
-    _config_var.set(_merged_config())
+    """Initialize the current execution context, merging any persisted overrides
+    from ~/.mosaic/config.json over DEFAULT_CONFIG (absent file ⇒ defaults only)."""
+    _config_var.set(_merged_config(_load_persisted()))
 
 
 def set_config(config: Mapping[str, Any] | None) -> None:
     """Set the configuration for the current execution context."""
     _config_var.set(_merged_config(config))
+
+
+def save_config(config: Mapping[str, Any] | None) -> Dict[str, Any]:
+    """Persist ``config`` to ~/.mosaic/config.json and apply it to this context.
+
+    Returns the new active (merged) config. Writes the raw overrides given
+    (merged-with-defaults shape is fine — load re-merges over defaults anyway).
+    """
+    merged = _merged_config(config)
+    _CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    _CONFIG_FILE.write_text(json.dumps(merged, ensure_ascii=False, indent=2), encoding="utf-8")
+    _config_var.set(merged)
+    return copy.deepcopy(merged)
 
 
 def get_config() -> Dict[str, Any]:

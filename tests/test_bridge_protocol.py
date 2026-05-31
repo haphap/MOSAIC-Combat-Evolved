@@ -96,11 +96,13 @@ class _BridgeTestCase(unittest.TestCase):
         self._cache_dir.mkdir()
         self._results_dir.mkdir()
         self._paper_db = Path(self._tmp.name) / "paper_trading.db"
+        self._config_file = Path(self._tmp.name) / "config.json"
 
         env = {
             **os.environ,
             "MOSAIC_CACHE_DIR": str(self._cache_dir),
             "MOSAIC_RESULTS_DIR": str(self._results_dir),
+            "MOSAIC_CONFIG": str(self._config_file),
             "PYTHONUNBUFFERED": "1",
         }
         self._proc = subprocess.Popen(
@@ -247,6 +249,21 @@ class BridgeProtocolTests(_BridgeTestCase):
 
     def test_config_set_rejects_non_object(self) -> None:
         err = self.call_err("config.set", {"config": "not an object"})
+        self.assertEqual(err["code"], -32602)
+
+    def test_config_save_persists_to_file(self) -> None:
+        default = self.call_ok("config.default", {})
+        modified = dict(default)
+        modified["output_language"] = "English"
+        applied = self.call_ok("config.save", {"config": modified})
+        self.assertEqual(applied["output_language"], "English")
+        # The isolated config file (MOSAIC_CONFIG) now exists with the override.
+        self.assertTrue(self._config_file.is_file())
+        on_disk = json.loads(self._config_file.read_text(encoding="utf-8"))
+        self.assertEqual(on_disk["output_language"], "English")
+
+    def test_config_save_rejects_non_object(self) -> None:
+        err = self.call_err("config.save", {"config": 123})
         self.assertEqual(err["code"], -32602)
 
     # -------------------------------------------------------- cache.* tests
