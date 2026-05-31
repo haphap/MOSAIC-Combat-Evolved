@@ -27,7 +27,8 @@ autoresearch loop、market_data.py、scorecard.py、API 集成）全部不在仓
 - **Q2**：数据源 = **Tushare + akshare + FRED + opencli/brave**（A 股 + 全球宏观 + 新闻）
 - **Q3=b**：autoresearch 推到 Phase 4（agents + 每日循环 + scorecard 跑通后）
 - **Q4=a**：保留 ATLAS 原 4 位 US superinvestor（Druckenmiller / Aschenbrenner / Baker / Ackman），把哲学过滤器应用到 A 股
-- **Q5=a**：执行层 = **仅 paper trading + backtrader**（复用 ETFAgents）
+- **Q5=a**：执行层 = **paper trading**（复用 ETFAgents）；回测 **改用 qlib 向量化引擎**
+  （原计划的 backtrader 在 Phase 8 已弃，死依赖 + `run_candidate_pool` 存根已于收尾清理）
 - **Q6=c**：autoresearch 用 **Git + SQLite 混合**（git 存 prompt 内容，SQLite 存元数据/Sharpe/branch 状态）
 - **代号**：MOSAIC（中英语义中性，多 agent → 拼图比喻贴切）
 - **Cohort 配置**：7 个（含新增 2006-2007 牛市 + 2008 危机 A 股本地段）
@@ -238,7 +239,8 @@ confidence: 0-1, key_drivers, layer_1_consensus_score }`**（10 个 agent 共识
 - `config.{default, get, set}`
 - `cache.{stats, cleanup, clear, details}`
 - `paper.{register, login, logout, current_user, get_account, reset_account, buy, sell, get_positions, get_trades, suggest_order_from_signal}`
-- `backtest.run_candidate_pool`
+- ~~`backtest.run_candidate_pool`~~（backtrader 候选池路径,Phase 8 已弃并清理;回测走
+  `backtest.{create_run,append_actions,complete_run,run_historical}` 的 qlib 两段式)
 
 ### 6.2 新增（约 27 个）
 

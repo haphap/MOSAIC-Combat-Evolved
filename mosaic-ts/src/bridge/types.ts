@@ -179,28 +179,8 @@ export interface PaperSuggestion {
   rating: string;
 }
 
-/** Backtest signal payload — same shape Python's analyze_candidate_pool returns. */
-export type BacktestSignalsByDate = Record<string, ReadonlyArray<Record<string, unknown>>>;
-
-export interface BacktestRunParams {
-  tickers: string[];
-  start_date: string;
-  end_date: string;
-  signals: BacktestSignalsByDate;
-  rebalance_interval_days?: number;
-  top_k?: number;
-  execution_timing?: "same_close" | "next_open" | "next_close";
-  initial_cash?: number;
-  commission?: number;
-  slippage_perc?: number;
-  cash_buffer_pct?: number;
-  benchmark_tickers?: string[] | null;
-  force_refresh?: boolean;
-  default_benchmark_ticker?: string | null;
-}
-
-/** BacktraderBacktestResult.to_dict() — open shape; consumers should pick fields. */
-export type BacktestResult = Record<string, unknown>;
+/** Backtest = qlib two-stage cache (Phase 3.5C); the backtrader candidate-pool
+ *  path was dropped in Phase 8. */
 
 // --------------------------------------------------------- backtest cache (Phase 3.5C)
 
@@ -664,12 +644,7 @@ export class BridgeApi {
     return this.client.call<PaperSuggestion | null>("paper.suggest_order_from_signal", params);
   }
 
-  // backtest.*
-  backtestRunCandidatePool(params: BacktestRunParams): Promise<BacktestResult> {
-    return this.client.call<BacktestResult>("backtest.run_candidate_pool", params);
-  }
-
-  // backtest.* (Phase 3.5C two-stage cache)
+  // backtest.* (Phase 3.5C two-stage cache; backtrader candidate-pool dropped in Phase 8)
   backtestCreateRun(params: {
     cohort: string;
     start_date: string;
