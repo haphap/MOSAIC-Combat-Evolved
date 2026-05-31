@@ -62,6 +62,34 @@ function fakeApi() {
         },
       ],
     }),
+    mirofishGetContext: vi.fn().mockResolvedValue({
+      context: {
+        n_scenarios: 5,
+        regime: "RISK_OFF",
+        narrative: "急跌回调",
+        csi300_return: -0.12,
+        hct_ticker: "000300.SH",
+        hct_direction: "SHORT",
+        hct_csi300_return: -0.35,
+        tail_summary: "Crash: CSI300 -35.0% (p=5%)",
+        engine: "swarm",
+        date: "2026-05-30",
+      },
+    }),
+    mirofishGetHistory: vi.fn().mockResolvedValue({
+      history: [
+        {
+          id: 1,
+          date: "2026-05-29",
+          agent: "druckenmiller",
+          scenario_type: "all",
+          n_scenarios: 5,
+          avg_score: 0.62,
+          detail_json: null,
+          created_at: "",
+        },
+      ],
+    }),
   };
 }
 
@@ -114,6 +142,29 @@ describe("Dashboard", () => {
     stdin.write("5");
     await flush();
     expect(lastFrame()).toContain("2026-05-30");
+  });
+
+  it("switches to the mirofish tab on key '6' (context + runs)", async () => {
+    const api = fakeApi();
+    const { stdin, lastFrame } = mount(api);
+    await flush();
+    stdin.write("6");
+    await flush();
+    expect(api.mirofishGetContext).toHaveBeenCalled();
+    expect(lastFrame()).toContain("RISK_OFF"); // scenario context
+    expect(lastFrame()).toContain("SHORT 000300.SH"); // highest-conviction
+    expect(lastFrame()).toContain("druckenmiller"); // recent training run
+  });
+
+  it("mirofish tab degrades when no context", async () => {
+    const api = fakeApi();
+    api.mirofishGetContext = vi.fn().mockResolvedValue({ context: null });
+    api.mirofishGetHistory = vi.fn().mockResolvedValue({ history: [] });
+    const { stdin, lastFrame } = mount(api);
+    await flush();
+    stdin.write("6");
+    await flush();
+    expect(lastFrame()).toContain("no scenario context");
   });
 
   it("refetches on key 'r'", async () => {

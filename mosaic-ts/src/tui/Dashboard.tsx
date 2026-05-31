@@ -1,8 +1,9 @@
 /**
  * Phase 10: read-only Ink dashboard. Aggregates existing read RPCs into one
  * screen — no new bridge methods. Tabs: 1 Today (latest CIO picks) / 2 WinRate
- * (per-ticker hit rate) / 3 Skill / 4 Paper / 5 Cohorts; r=refresh (manual;
- * no auto-poll), q=quit. The BridgeApi is injected so the component is testable.
+ * (per-ticker hit rate) / 3 Skill / 4 Paper / 5 Cohorts / 6 MiroFish (latest
+ * scenario context + recent forward-training runs); r=refresh (manual; no
+ * auto-poll), q=quit. The BridgeApi is injected so the component is testable.
  */
 
 import { Box, Text, useApp, useInput } from "ink";
@@ -11,14 +12,16 @@ import type {
   BridgeApi,
   CioActions,
   CohortInfo,
+  MirofishContext,
+  MirofishHistoryEntry,
   PaperAccount,
   PaperPosition,
   SkillRow,
   WinRateRow,
 } from "../bridge/types.js";
 
-type Tab = "today" | "winrate" | "skill" | "paper" | "cohorts";
-const TABS: Tab[] = ["today", "winrate", "skill", "paper", "cohorts"];
+type Tab = "today" | "winrate" | "skill" | "paper" | "cohorts" | "mirofish";
+const TABS: Tab[] = ["today", "winrate", "skill", "paper", "cohorts", "mirofish"];
 
 interface Props {
   api: Pick<
@@ -29,6 +32,8 @@ interface Props {
     | "paperGetAccount"
     | "paperGetPositions"
     | "prismListCohorts"
+    | "mirofishGetContext"
+    | "mirofishGetHistory"
   >;
   cohort: string;
   user?: string;
@@ -41,6 +46,8 @@ interface Data {
   account: PaperAccount | null;
   positions: PaperPosition[];
   cohorts: CohortInfo[];
+  mirofishContext: MirofishContext | null;
+  mirofishRuns: MirofishHistoryEntry[];
 }
 
 export function Dashboard({ api, cohort, user }: Props) {
@@ -61,7 +68,25 @@ export function Dashboard({ api, cohort, user }: Props) {
         api.paperGetPositions(user ? { user_id: user } : {}).catch(() => []),
         api.prismListCohorts().then((r) => r.cohorts),
       ]);
-      if (mounted.current) setData({ today, winrate, skill, account, positions, cohorts });
+      const mirofishContext = await api
+        .mirofishGetContext()
+        .then((r) => r.context)
+        .catch(() => null);
+      const mirofishRuns = await api
+        .mirofishGetHistory({ days: 10 })
+        .then((r) => r.history)
+        .catch(() => []);
+      if (mounted.current)
+        setData({
+          today,
+          winrate,
+          skill,
+          account,
+          positions,
+          cohorts,
+          mirofishContext,
+          mirofishRuns,
+        });
     } catch (err) {
       if (mounted.current) setError((err as Error).message);
     }
@@ -82,6 +107,7 @@ export function Dashboard({ api, cohort, user }: Props) {
     else if (input === "3") setTab("skill");
     else if (input === "4") setTab("paper");
     else if (input === "5") setTab("cohorts");
+    else if (input === "6") setTab("mirofish");
   });
 
   return (
@@ -106,12 +132,14 @@ export function Dashboard({ api, cohort, user }: Props) {
           <SkillTab rows={data.skill} cohort={cohort} />
         ) : tab === "paper" ? (
           <PaperTab account={data.account} positions={data.positions} />
-        ) : (
+        ) : tab === "cohorts" ? (
           <CohortsTab cohorts={data.cohorts} />
+        ) : (
+          <MirofishTab context={data.mirofishContext} runs={data.mirofishRuns} />
         )}
       </Box>
       <Box marginTop={1}>
-        <Text dimColor>[1-5] switch · [r] refresh · [q] quit · cohort={cohort}</Text>
+        <Text dimColor>[1-6] switch · [r] refresh · [q] quit · cohort={cohort}</Text>
       </Box>
     </Box>
   );
@@ -210,4 +238,48 @@ function CohortsTab({ cohorts }: { cohorts: CohortInfo[] }) {
 
 function fmt(v: number | null): string {
   return v == null ? "n/a" : v.toFixed(4);
+}
+
+function MirofishTab({
+  context,
+  runs,
+}: {
+  context: MirofishContext | null;
+  runs: MirofishHistoryEntry[];
+}) {
+  return (
+    <Box flexDirection="column">
+      <Text color="cyan">latest scenario context</Text>
+      {!context ? (
+        <Text dimColor>no scenario context — run `mirofish generate` + save_context</Text>
+      ) : (
+        <Box flexDirection="column">
+          <Text>
+            {`${context.date ?? "—"}  engine=${context.engine}  regime=${context.regime ?? "—"}` +
+              `  CSI300 ${((context.csi300_return ?? 0) * 100).toFixed(1)}%`}
+          </Text>
+          <Text>
+            {`最高信念: ${context.hct_direction ?? "—"} ${context.hct_ticker}` +
+              `（${((context.hct_csi300_return ?? 0) * 100).toFixed(1)}%）`}
+          </Text>
+          {context.tail_summary ? (
+            <Text color="red">{`尾部风险: ${context.tail_summary}`}</Text>
+          ) : null}
+        </Box>
+      )}
+      <Box marginTop={1} flexDirection="column">
+        <Text color="cyan">recent forward-training runs</Text>
+        {runs.length === 0 ? (
+          <Text dimColor>no runs — run `mirofish train`</Text>
+        ) : (
+          runs.slice(0, 8).map((r) => (
+            <Text key={r.id}>
+              {(r.date ?? "—").padEnd(12)} {r.agent.padEnd(16)} {(r.scenario_type ?? "").padEnd(10)}{" "}
+              {r.avg_score != null ? r.avg_score.toFixed(3) : "n/a"}
+            </Text>
+          ))
+        )}
+      </Box>
+    </Box>
+  );
 }
