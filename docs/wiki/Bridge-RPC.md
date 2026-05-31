@@ -10,6 +10,8 @@ Error envelopes map to `RpcError` with a numeric code (`mosaic/bridge/protocol.p
 - `tools.list` — list registered sidecar tools.
 - `tools.call` — invoke a tool by name + args.
 
+Registered tool modules (`mosaic/bridge/handlers/tools.py` `_TOOL_MODULES`): `macro_tools` (8 Layer-1 macro tools) and `research_report_tools` (`get_broker_research` = 行业研报, `get_stock_research` = 个股研报). See [Agents](Agents.md) for which agents use which tools.
+
 ### config
 - `config.default` — deep-copied `DEFAULT_CONFIG`.
 - `config.get` — active runtime config for this process.
