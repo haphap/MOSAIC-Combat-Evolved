@@ -299,7 +299,7 @@ class TestDispatch:
 class TestBridgeHandler:
     """Exercise ``tools.list`` / ``tools.call`` JSON-RPC handlers in-process."""
 
-    def test_tools_list_returns_eight(self):
+    def test_tools_list_includes_macro_and_research_tools(self):
         result = tools_handler.tools_list({})
         assert isinstance(result, list)
         names = {t["name"] for t in result}
