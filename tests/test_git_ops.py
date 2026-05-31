@@ -170,3 +170,26 @@ def test_add_and_remove_worktree(git: GitOps, repo: Path):
     finally:
         git.remove_worktree(wt)
     assert not wt.exists()
+
+
+# ---------------------------------------------------------------------------
+# push (Option B: mirror kept mutations to a self-hosted server)
+# ---------------------------------------------------------------------------
+
+
+def test_push_to_local_bare_remote(git: GitOps, repo: Path, tmp_path: Path):
+    """push(main) lands on a local bare repo used as the 'self-hosted server'."""
+    bare = tmp_path / "remote.git"
+    _git(bare.parent, "init", "--bare", "-b", "main", str(bare))
+    _git(repo, "remote", "add", "origin", str(bare))
+
+    git.push("main", "origin")
+
+    # The bare remote now has main pointing at the same commit as local main.
+    remote_main = _git(bare, "rev-parse", "main").strip()
+    assert remote_main == git.rev_parse("main")
+
+
+def test_push_unknown_remote_raises(git: GitOps):
+    with pytest.raises(GitError, match="git push"):
+        git.push("main", "no-such-remote")

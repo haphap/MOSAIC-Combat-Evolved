@@ -175,6 +175,15 @@ class GitOps:
         self._run(*args)
         return self.current_commit()
 
+    def push(self, ref: str, remote: str = "origin") -> None:
+        """Push ``ref`` (a branch name) to ``remote``.
+
+        Used by the autoresearch keep-path to mirror merged prompt mutations to
+        a self-hosted git server. Opt-in (default OFF); requires the operator to
+        have configured the remote + credentials (SSH key / credential helper).
+        """
+        self._run("push", remote, ref)
+
     # ── worktrees (used by write_and_commit + 4C evaluation) ─────────────
 
     def add_worktree(self, ref: str, path: Optional[Path] = None) -> Path:
