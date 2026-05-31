@@ -53,6 +53,20 @@ describe("formatMirofishContext", () => {
     expect(out).not.toContain("尾部风险");
     expect(out).toContain("仅供参考");
   });
+
+  it("localizes labels + disclaimer to English when language is en", () => {
+    const out = formatMirofishContext(FULL, "en");
+    expect(out).toContain("Forward-Looking Context");
+    expect(out).toContain("Highest-conviction direction");
+    expect(out).toContain("Simulations, not certainties");
+    expect(out).not.toContain("前瞻情景参考");
+  });
+
+  it("renders 0.0% (not NaN) when a csi field is null", () => {
+    const out = formatMirofishContext({ ...FULL, csi300_return: null as unknown as number });
+    expect(out).toContain("CSI300 0.0%");
+    expect(out).not.toContain("NaN");
+  });
 });
 
 describe("CIO MiroFish context injection (opt-in)", () => {
@@ -93,6 +107,7 @@ describe("CIO MiroFish context injection (opt-in)", () => {
   const state = (): DailyCycleStateType =>
     ({
       active_cohort: "cohort_default",
+      as_of_date: "2024-06-30",
       layer1_outputs: {},
       layer2_outputs: {},
       layer3_outputs: {},
@@ -153,6 +168,7 @@ describe("CIO MiroFish context injection (opt-in)", () => {
     const node = buildCioNode({ llmHandle: handle, api, config, promptsRoot: promptDir });
     await node(state());
     expect(api.mirofishGetContext).toHaveBeenCalledOnce();
+    expect(api.mirofishGetContext).toHaveBeenCalledWith({ as_of_date: "2024-06-30" });
     expect(humanText(llm)).toContain("前瞻情景参考");
     expect(humanText(llm)).toContain("仅供参考");
   });

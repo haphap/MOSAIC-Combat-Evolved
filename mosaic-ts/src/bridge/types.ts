@@ -972,7 +972,9 @@ export class BridgeApi {
     );
   }
 
-  mirofishGetContext(): Promise<{ context: MirofishContext | null }> {
-    return this.client.call<{ context: MirofishContext | null }>("mirofish.get_context", {});
+  mirofishGetContext(params: { as_of_date?: string } = {}): Promise<{
+    context: MirofishContext | null;
+  }> {
+    return this.client.call<{ context: MirofishContext | null }>("mirofish.get_context", params);
   }
 }

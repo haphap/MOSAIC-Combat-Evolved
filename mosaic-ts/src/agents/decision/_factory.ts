@@ -88,7 +88,13 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
 
     // Phase 1: synthesis (no tools, single invoke).
     const userContext = await spec.buildUserContext(state);
-    const augmentedContext = await maybeAppendMirofishContext(spec, userContext, deps);
+    const augmentedContext = await maybeAppendMirofishContext(
+      spec,
+      userContext,
+      deps,
+      state,
+      language,
+    );
     const analysisResponse = await deps.llmHandle.llm.invoke([
       new SystemMessage(systemPrompt),
       new HumanMessage(augmentedContext),
@@ -154,13 +160,17 @@ async function maybeAppendMirofishContext<TOutput extends Layer4AgentOutput>(
   spec: LayerFourAgentSpec<TOutput>,
   userContext: string,
   deps: LayerFourAgentDeps,
+  state: DailyCycleStateType,
+  language: LoaderLanguage,
 ): Promise<string> {
   if (spec.agentId !== "cio" || !deps.api || !deps.config.mirofish?.inject_context) {
     return userContext;
   }
   try {
-    const { context } = await deps.api.mirofishGetContext();
-    const section = formatMirofishContext(context);
+    const { context } = await deps.api.mirofishGetContext(
+      state.as_of_date ? { as_of_date: state.as_of_date } : {},
+    );
+    const section = formatMirofishContext(context, language);
     return section ? `${userContext}\n${section}` : userContext;
   } catch (err) {
     deps.onLog?.(`mirofish context injection skipped: ${(err as Error).message}`);
