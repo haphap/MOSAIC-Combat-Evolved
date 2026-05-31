@@ -102,6 +102,17 @@ class TestContextStore(unittest.TestCase):
             ).fetchone()[0]
         self.assertEqual(n, 1)
 
+    def test_as_of_date_bounds_lookup_no_lookahead(self):
+        self.store.save_mirofish_context(date="2026-05-20", context=derive_context([_scn("base", -0.05)]))
+        self.store.save_mirofish_context(date="2026-05-30", context=derive_context([_scn("base", 0.40)]))
+        # A backtest replaying 2026-05-25 must NOT see the 2026-05-30 context.
+        got = self.store.get_latest_mirofish_context(as_of_date="2026-05-25")
+        self.assertEqual(got["date"], "2026-05-20")
+        # No bound → newest wins.
+        self.assertEqual(self.store.get_latest_mirofish_context()["date"], "2026-05-30")
+        # as_of before any row → None.
+        self.assertIsNone(self.store.get_latest_mirofish_context(as_of_date="2026-01-01"))
+
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

@@ -182,5 +182,10 @@ def mirofish_save_context(params: dict[str, Any]) -> dict[str, Any]:
 
 @method("mirofish.get_context")
 def mirofish_get_context(params: dict[str, Any]) -> dict[str, Any]:
-    """Return the most recent persisted MiroFish context (or null)."""
-    return {"context": _store().get_latest_mirofish_context()}
+    """Return the latest persisted MiroFish context (or null). Optional
+    ``as_of_date`` (YYYY-MM-DD) bounds to ``date <= as_of_date`` (anti-lookahead
+    for backtests)."""
+    as_of_date = params.get("as_of_date")
+    if as_of_date is not None and not isinstance(as_of_date, str):
+        raise RpcError(INVALID_PARAMS, "'as_of_date' must be a string when provided")
+    return {"context": _store().get_latest_mirofish_context(as_of_date)}

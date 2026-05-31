@@ -23,6 +23,7 @@ import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import type { z } from "zod";
 import type { BridgeApi, MosaicConfig } from "../../bridge/index.js";
 import type { LlmHandle } from "../../llm/factory.js";
+import { formatMirofishContext } from "../../mirofish/context.js";
 import { extractTextContent } from "../helpers/content.js";
 import { invokeStructuredOrFreetext } from "../helpers/structured_output.js";
 import { type LoaderLanguage, loadPrompt } from "../prompts/loader.js";
@@ -87,9 +88,16 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
 
     // Phase 1: synthesis (no tools, single invoke).
     const userContext = await spec.buildUserContext(state);
+    const augmentedContext = await maybeAppendMirofishContext(
+      spec,
+      userContext,
+      deps,
+      state,
+      language,
+    );
     const analysisResponse = await deps.llmHandle.llm.invoke([
       new SystemMessage(systemPrompt),
-      new HumanMessage(userContext),
+      new HumanMessage(augmentedContext),
     ]);
     const analysisText =
       typeof analysisResponse.content === "string"
@@ -144,6 +152,31 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/** 7M Step 2: opt-in injection of the latest MiroFish scenario context into the
+ *  CIO prompt. Off unless ``config.mirofish.inject_context`` is true; only the
+ *  cio agent (final synthesis) gets it; no-op when no context or no api. */
+async function maybeAppendMirofishContext<TOutput extends Layer4AgentOutput>(
+  spec: LayerFourAgentSpec<TOutput>,
+  userContext: string,
+  deps: LayerFourAgentDeps,
+  state: DailyCycleStateType,
+  language: LoaderLanguage,
+): Promise<string> {
+  if (spec.agentId !== "cio" || !deps.api || !deps.config.mirofish?.inject_context) {
+    return userContext;
+  }
+  try {
+    const { context } = await deps.api.mirofishGetContext(
+      state.as_of_date ? { as_of_date: state.as_of_date } : {},
+    );
+    const section = formatMirofishContext(context, language);
+    return section ? `${userContext}\n${section}` : userContext;
+  } catch (err) {
+    deps.onLog?.(`mirofish context injection skipped: ${(err as Error).message}`);
+    return userContext;
+  }
+}
 
 export function pickPromptLanguage(config: MosaicConfig): LoaderLanguage {
   const raw = (config.output_language ?? "Chinese").toString().toLowerCase().trim();

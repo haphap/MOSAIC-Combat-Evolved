@@ -74,6 +74,8 @@ pnpm dev mirofish generate [--days 30] [--seed 42] [--print] [--swarm]   # scena
 pnpm dev mirofish train --fake-llm [--seed 42] [--agents a,b] [--dry-run] [--swarm] [--path-aware]
   # --path-aware = score the direction-adjusted equity curve with a max-drawdown penalty (default: terminal cumulative return)
 pnpm dev mirofish history [--days 30]
+  # config mirofish.inject_context=true (default false) appends the latest MiroFish scenario
+  # context (regime/最高信念方向/尾部风险 + "仅供参考" disclaimer) to the CIO prompt — 7M Step 2
 
 # Phase 8 — paper trading (simulated A-share ETF account; fake money, local SQLite)
 pnpm dev paper register <user> <pw>                  # create account

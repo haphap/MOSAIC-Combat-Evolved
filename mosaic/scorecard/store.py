@@ -1259,17 +1259,28 @@ class ScorecardStore:
                 ),
             )
 
-    def get_latest_mirofish_context(self) -> Optional[dict[str, Any]]:
+    def get_latest_mirofish_context(
+        self, as_of_date: Optional[str] = None
+    ) -> Optional[dict[str, Any]]:
         """Return the most recent MiroFish context, or None. Shape = the full
         context ``save`` derived (merged from ``detail_json``) plus ``date`` and
         ``created_at`` provenance — so callers get one consistent dict, not a
-        raw DB row, and never need to re-parse ``detail_json``."""
+        raw DB row, and never need to re-parse ``detail_json``.
+
+        ``as_of_date`` (YYYY-MM-DD) bounds the lookup to ``date <= as_of_date``
+        so a backtest replaying a historical cycle can't be handed a context
+        generated for a later date (anti-lookahead, mirroring the project's
+        date-bound discipline). When omitted, returns the newest row."""
         import json as _json
 
+        sql = "SELECT * FROM mirofish_context"
+        params: list[Any] = []
+        if as_of_date:
+            sql += " WHERE date <= ?"
+            params.append(as_of_date)
+        sql += " ORDER BY date DESC LIMIT 1"
         with self._connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM mirofish_context ORDER BY date DESC LIMIT 1"
-            ).fetchone()
+            row = conn.execute(sql, params).fetchone()
         if row is None:
             return None
         try:
