@@ -92,6 +92,7 @@ pnpm dev paper suggest <ticker> '<state-json>' [--user u]   # signal→order fro
 pnpm dev dashboard [--cohort cohort_default] [--user u]
   # tabs: [1] today (latest CIO plan: what to trade) · [2] winrate (per-ticker hit rate) ·
   #       [3] skill (agent alpha/sharpe) · [4] paper (account+positions) · [5] cohorts (PRISM)
+  #       · [6] mirofish (latest scenario context + recent forward-training runs)
   #       · r refresh · q quit
 ```
 
