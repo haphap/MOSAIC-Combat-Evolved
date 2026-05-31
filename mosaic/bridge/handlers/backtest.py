@@ -229,7 +229,7 @@ def backtest_run_historical(params: dict[str, Any]) -> dict[str, Any]:
             open_cost=open_cost,
             close_cost=close_cost,
             deal_price=deal_price,
-            **({"results_dir": Path(results_dir).expanduser()} if results_dir else {}),
+            results_dir=Path(results_dir).expanduser() if results_dir else None,
         )
     except QlibInitError as exc:
         raise RpcError(BACKTEST_ERROR, f"qlib init failed: {exc}") from exc

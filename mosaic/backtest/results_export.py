@@ -31,7 +31,14 @@ logger = logging.getLogger(__name__)
 def _trajectory_frame(report_df: "pd.DataFrame") -> "pd.DataFrame":
     """Derive the per-day trajectory (date, return, equity, drawdown, ...) from
     qlib's report DataFrame. Column names are matched case-insensitively; missing
-    optional columns are simply omitted."""
+    optional columns are simply omitted.
+
+    Note: equity/drawdown here are **re-derived** from the report's per-day
+    ``return`` column for plotting/inspection — they are NOT the source of
+    ``summary.json``'s ``max_drawdown`` (that comes from ``_summarise_portfolio``).
+    Both trace back to the same qlib returns so they agree today; if qlib's
+    internal metric ever weighted costs/alignment differently, the trajectory
+    min-drawdown and summary's value could diverge."""
     import pandas as pd
 
     cols = {c.lower(): c for c in report_df.columns}

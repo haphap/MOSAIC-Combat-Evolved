@@ -229,7 +229,13 @@ def run_backtest(
 
 
 def _extract_report_df(portfolio_dict: dict):
-    """Return qlib's per-day report DataFrame (the tuple[0]) or None."""
+    """Return qlib's per-day report DataFrame (the tuple[0]) or None.
+
+    Mirrors ``_summarise_portfolio``'s freq-key handling: the executor runs with
+    ``time_per_step="day"`` so qlib keys the report under ``"1day"``; we fall
+    back to the first value if that key ever changes. The isinstance guard means
+    a shape change yields None (export skipped) rather than a crash.
+    """
     import pandas as pd
 
     port = portfolio_dict.get("1day") if "1day" in portfolio_dict else next(
