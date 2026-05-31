@@ -63,6 +63,20 @@ def _is_a_share_index(norm: str) -> bool:
     return False
 
 
+def _is_a_share_etf(norm: str) -> bool:
+    """Return True for A-share ETF ts_codes that need pro.fund_daily.
+
+    ETF code-space is disjoint from stocks: SH ETFs are 5xxxxx (51/50/56/58…),
+    SZ ETFs are 1xxxxx (15/16/18…). Stocks are sh6/sz0/sz3, so the leading
+    digit + market unambiguously identify a fund. Mirrors the ETF routing in
+    ``mosaic.dataflows.qlib_local``.
+    """
+    code, _, market = norm.partition(".")
+    if len(code) != 6:
+        return False
+    return (market == "SH" and code.startswith("5")) or (market == "SZ" and code.startswith("1"))
+
+
 def _fetch_close(ts_code: str, target_date_iso: str) -> Optional[float]:
     """Return the close price of ``ts_code`` on ``target_date_iso``, or None
     if the row is missing (suspension, holiday after wrong alignment, etc).
@@ -100,6 +114,10 @@ def _fetch_close(ts_code: str, target_date_iso: str) -> Optional[float]:
         #   * 932xxx.SH — CSI national indices (newer, post-2023)
         if _is_a_share_index(norm):
             df = pro.index_daily(ts_code=norm, start_date=api_date, end_date=api_date)
+        elif _is_a_share_etf(norm):
+            # ETFs (5xxxxx.SH / 1xxxxx.SZ) price via pro.fund_daily, so ETF
+            # recommendations get forward returns scored just like stocks.
+            df = pro.fund_daily(ts_code=norm, start_date=api_date, end_date=api_date)
         else:
             df = _fetch_price_data(pro, norm, api_date, api_date)
     except Exception as exc:

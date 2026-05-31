@@ -101,6 +101,61 @@ def _make_fetcher(prices: dict[tuple[str, str], float | None]):
 
 
 # ---------------------------------------------------------------------------
+# _fetch_close routing (stock / index / ETF)
+# ---------------------------------------------------------------------------
+
+
+class _FakePro:
+    """Records which Tushare endpoint was hit and returns a 1-row close frame."""
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def _frame(self, close: float):
+        import pandas as pd
+
+        return pd.DataFrame({"close": [close]})
+
+    def daily(self, **kw):
+        self.calls.append("daily")
+        return self._frame(10.0)
+
+    def index_daily(self, **kw):
+        self.calls.append("index_daily")
+        return self._frame(3500.0)
+
+    def fund_daily(self, **kw):
+        self.calls.append("fund_daily")
+        return self._frame(4.2)
+
+
+class TestFetchCloseRouting:
+    @pytest.fixture
+    def fake_pro(self, monkeypatch):
+        pro = _FakePro()
+        import mosaic.dataflows.tushare as tushare_mod
+
+        monkeypatch.setattr(tushare_mod, "_get_pro_client", lambda: pro)
+        return pro
+
+    def test_etf_routes_to_fund_daily(self, fake_pro):
+        # 510300.SH (沪深300 ETF) and 159915.SZ (创业板 ETF) are funds.
+        assert scorer_module._fetch_close("510300.SH", "2024-06-24") == 4.2
+        assert scorer_module._fetch_close("159915.SZ", "2024-06-24") == 4.2
+        assert fake_pro.calls == ["fund_daily", "fund_daily"]
+
+    def test_index_routes_to_index_daily(self, fake_pro):
+        assert scorer_module._fetch_close("000300.SH", "2024-06-24") == 3500.0
+        assert fake_pro.calls == ["index_daily"]
+
+    def test_stock_routes_to_daily(self, fake_pro):
+        # 600519.SH (Moutai) and 000001.SZ (Ping An Bank) are stocks, not ETFs.
+        assert scorer_module._fetch_close("600519.SH", "2024-06-24") == 10.0
+        assert scorer_module._fetch_close("000001.SZ", "2024-06-24") == 10.0
+        assert fake_pro.calls == ["daily", "daily"]
+
+
+# ---------------------------------------------------------------------------
 # Scorer
 # ---------------------------------------------------------------------------
 
