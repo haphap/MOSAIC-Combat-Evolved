@@ -8,6 +8,7 @@ candidate-pool path; backtest is qlib-only.)
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from ..protocol import BACKTEST_ERROR, INVALID_PARAMS, RpcError
@@ -206,6 +207,9 @@ def backtest_run_historical(params: dict[str, Any]) -> dict[str, Any]:
     deal_price = params.get("deal_price", "close")
     if not isinstance(deal_price, str):
         raise RpcError(INVALID_PARAMS, "'deal_price' must be a string")
+    results_dir = params.get("results_dir")
+    if results_dir is not None and not isinstance(results_dir, str):
+        raise RpcError(INVALID_PARAMS, "'results_dir' must be a string path")
 
     try:
         from mosaic.backtest import QlibInitError, run_backtest
@@ -225,6 +229,7 @@ def backtest_run_historical(params: dict[str, Any]) -> dict[str, Any]:
             open_cost=open_cost,
             close_cost=close_cost,
             deal_price=deal_price,
+            results_dir=Path(results_dir).expanduser() if results_dir else None,
         )
     except QlibInitError as exc:
         raise RpcError(BACKTEST_ERROR, f"qlib init failed: {exc}") from exc

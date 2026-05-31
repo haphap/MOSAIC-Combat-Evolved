@@ -120,6 +120,7 @@ def run_backtest(
     close_cost: float = DEFAULT_CLOSE_COST,
     deal_price: str = DEFAULT_DEAL_PRICE,
     qlib_data_path: Optional[Path] = None,
+    results_dir: Optional[Path] = None,
 ) -> BacktestMetrics:
     """Replay a cached backtest run through qlib's executor and report metrics.
 
@@ -210,7 +211,39 @@ def run_backtest(
         benchmark=benchmark,
         initial_cash=initial_cash,
     )
+
+    if results_dir is not None:
+        # Export ATLAS-isomorphic artifacts (summary.json / trajectory.csv /
+        # equity_curve.png) from the same portfolio report.
+        try:
+            from mosaic.backtest.results_export import export_results
+
+            report_df = _extract_report_df(portfolio_dict)
+            if report_df is not None:
+                manifest = export_results(metrics, report_df, results_dir)
+                logger.info("backtest results exported: %s", manifest)
+        except Exception as exc:  # export must never fail the backtest
+            logger.warning("results export skipped: %s: %s", type(exc).__name__, exc)
+
     return metrics
+
+
+def _extract_report_df(portfolio_dict: dict):
+    """Return qlib's per-day report DataFrame (the tuple[0]) or None.
+
+    Mirrors ``_summarise_portfolio``'s freq-key handling: the executor runs with
+    ``time_per_step="day"`` so qlib keys the report under ``"1day"``; we fall
+    back to the first value if that key ever changes. The isinstance guard means
+    a shape change yields None (export skipped) rather than a crash.
+    """
+    import pandas as pd
+
+    port = portfolio_dict.get("1day") if "1day" in portfolio_dict else next(
+        iter(portfolio_dict.values()), None
+    )
+    if isinstance(port, tuple) and port and isinstance(port[0], pd.DataFrame):
+        return port[0]
+    return None
 
 
 def _summarise_portfolio(
