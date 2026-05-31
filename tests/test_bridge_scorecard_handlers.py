@@ -360,7 +360,44 @@ def test_all_5_methods_registered():
         "scorecard.append",
         "scorecard.score_pending",
         "scorecard.list_skill",
+        "scorecard.latest_cio_actions",
+        "scorecard.win_rate",
         "darwinian.compute",
         "darwinian.get_weights",
     }
     assert expected.issubset(methods)
+
+
+class TestSignalsRpc:
+    def _seed(self, store):
+        with store._connect() as conn:
+            conn.executemany(
+                "INSERT INTO recommendations(cohort,agent,ticker,date,action,"
+                "target_weight_pct,forward_return_5d,scored_at) VALUES (?,?,?,?,?,?,?,?)",
+                [
+                    ("cohort_default", "cio", "510300.SH", "2024-06-25", "BUY", 30.0, None, None),
+                    ("cohort_default", "cio", "510300.SH", "2024-06-10", "BUY", 30.0, 0.03, "x"),
+                    ("cohort_default", "cio", "512880.SH", "2024-06-10", "SELL", 0.0, -0.04, "x"),
+                ],
+            )
+
+    def test_latest_cio_actions_rpc(self, tmp_store):
+        self._seed(tmp_store)
+        out = dispatch("scorecard.latest_cio_actions", {"cohort": "cohort_default"})
+        assert out["date"] == "2024-06-25"
+        assert out["actions"][0]["ticker"] == "510300.SH"
+
+    def test_win_rate_rpc(self, tmp_store):
+        self._seed(tmp_store)
+        rows = dispatch("scorecard.win_rate", {"cohort": "cohort_default"})["rows"]
+        by = {r["ticker"]: r for r in rows}
+        assert by["510300.SH"]["win_rate"] == 1.0
+        assert by["512880.SH"]["win_rate"] == 1.0
+
+    def test_latest_cio_actions_requires_cohort(self):
+        with pytest.raises(RpcError):
+            dispatch("scorecard.latest_cio_actions", {})
+
+    def test_win_rate_rejects_bad_since(self, tmp_store):
+        with pytest.raises(RpcError):
+            dispatch("scorecard.win_rate", {"cohort": "cohort_default", "since": 123})

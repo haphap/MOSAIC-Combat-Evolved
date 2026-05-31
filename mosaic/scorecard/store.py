@@ -186,6 +186,17 @@ CREATE TABLE IF NOT EXISTS mirofish_runs (
     created_at TEXT NOT NULL,                   -- ISO-8601
     UNIQUE(date, agent, scenario_type)
 );
+
+CREATE TABLE IF NOT EXISTS mirofish_context (
+    date TEXT PRIMARY KEY,                       -- YYYY-MM-DD (one latest context per day)
+    regime TEXT,                                 -- base scenario regime
+    csi300_return REAL,                          -- base scenario CSI300 cumulative return
+    hct_ticker TEXT,                             -- highest-conviction (largest |return|) ticker
+    hct_direction TEXT,                          -- LONG / SHORT
+    tail_summary TEXT,                            -- worst-case (tail_down) one-liner
+    detail_json TEXT,                            -- full derived summary (JSON)
+    created_at TEXT NOT NULL                     -- ISO-8601
+);
 """
 
 
@@ -508,7 +519,67 @@ class ScorecardStore:
         with self._connect() as conn:
             return [dict(r) for r in conn.execute(sql, params).fetchall()]
 
-    # ── darwinian_weights (placeholder; populated by Phase 3C) ────────────
+    def get_latest_cio_actions(self, cohort: str) -> dict[str, Any]:
+        """The most recent CIO portfolio actions for a cohort — "what to trade
+        today": ticker / action / target_weight_pct / rationale, for the latest
+        date the CIO produced any. Read-only."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT MAX(date) AS d FROM recommendations WHERE cohort = ? AND agent = 'cio'",
+                (cohort,),
+            ).fetchone()
+            latest = row["d"] if row else None
+            if not latest:
+                return {"cohort": cohort, "date": None, "actions": []}
+            cur = conn.execute(
+                "SELECT ticker, action, target_weight_pct, rationale_snapshot, "
+                "       forward_return_5d, scored_at "
+                "FROM recommendations WHERE cohort = ? AND agent = 'cio' AND date = ? "
+                "ORDER BY target_weight_pct DESC, ticker",
+                (cohort, latest),
+            )
+            return {"cohort": cohort, "date": latest, "actions": [dict(r) for r in cur.fetchall()]}
+
+    def compute_win_rate(
+        self, cohort: str, since_date: Optional[str] = None, agent: str = "cio"
+    ) -> list[dict[str, Any]]:
+        """Per-ticker directional hit rate over SCORED rows: a pick "wins" when
+        sign(action) · forward_return_5d > 0. HOLD rows carry no directional bet
+        and are excluded. Returns rows sorted by win_rate desc, with n + avg
+        forward return so a high rate on n=1 is visible as low-confidence."""
+        sql = (
+            "SELECT ticker, action, forward_return_5d FROM recommendations "
+            "WHERE cohort = ? AND agent = ? AND forward_return_5d IS NOT NULL"
+        )
+        params: list[Any] = [cohort, agent]
+        if since_date:
+            sql += " AND date >= ?"
+            params.append(since_date)
+        with self._connect() as conn:
+            rows = conn.execute(sql, params).fetchall()
+
+        agg: dict[str, dict[str, float]] = {}
+        for r in rows:
+            sign = _action_sign(r["action"])
+            if sign == 0:
+                continue  # HOLD: no directional bet
+            a = agg.setdefault(r["ticker"], {"wins": 0.0, "n": 0.0, "sum_ret": 0.0})
+            ret = float(r["forward_return_5d"])
+            a["wins"] += 1.0 if sign * ret > 0 else 0.0
+            a["n"] += 1.0
+            a["sum_ret"] += sign * ret
+        out = [
+            {
+                "ticker": t,
+                "win_rate": round(v["wins"] / v["n"], 4),
+                "n": int(v["n"]),
+                "avg_dir_return_5d": round(v["sum_ret"] / v["n"], 4),
+            }
+            for t, v in agg.items()
+        ]
+        out.sort(key=lambda x: (x["win_rate"], x["n"]), reverse=True)
+        return out
+
 
     def upsert_darwinian_weights(self, rows: Iterable[dict[str, Any]]) -> int:
         """Upsert (cohort, agent, date) → weight. Returns count written."""
@@ -1152,6 +1223,74 @@ class ScorecardStore:
             )
             return [dict(r) for r in cur.fetchall()]
 
+    # ── mirofish_context (Phase 7M Step 1: scenario context for prompt feedback) ──
+
+    def save_mirofish_context(self, *, date: str, context: dict[str, Any]) -> None:
+        """Upsert the latest derived MiroFish scenario context for ``date``
+        (one row per day; idempotent). ``context`` is the dict from
+        ``derive_context`` — regime / csi300 / HCT / tail summary + detail."""
+        import json as _json
+
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO mirofish_context (
+                    date, regime, csi300_return, hct_ticker, hct_direction,
+                    tail_summary, detail_json, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(date) DO UPDATE SET
+                    regime = excluded.regime,
+                    csi300_return = excluded.csi300_return,
+                    hct_ticker = excluded.hct_ticker,
+                    hct_direction = excluded.hct_direction,
+                    tail_summary = excluded.tail_summary,
+                    detail_json = excluded.detail_json,
+                    created_at = excluded.created_at
+                """,
+                (
+                    date,
+                    context.get("regime"),
+                    context.get("csi300_return"),
+                    context.get("hct_ticker"),
+                    context.get("hct_direction"),
+                    context.get("tail_summary"),
+                    _json.dumps(context, ensure_ascii=False),
+                    _utcnow_iso(),
+                ),
+            )
+
+    def get_latest_mirofish_context(
+        self, as_of_date: Optional[str] = None
+    ) -> Optional[dict[str, Any]]:
+        """Return the most recent MiroFish context, or None. Shape = the full
+        context ``save`` derived (merged from ``detail_json``) plus ``date`` and
+        ``created_at`` provenance — so callers get one consistent dict, not a
+        raw DB row, and never need to re-parse ``detail_json``.
+
+        ``as_of_date`` (YYYY-MM-DD) bounds the lookup to ``date <= as_of_date``
+        so a backtest replaying a historical cycle can't be handed a context
+        generated for a later date (anti-lookahead, mirroring the project's
+        date-bound discipline). When omitted, returns the newest row."""
+        import json as _json
+
+        sql = "SELECT * FROM mirofish_context"
+        params: list[Any] = []
+        if as_of_date:
+            sql += " WHERE date <= ?"
+            params.append(as_of_date)
+        sql += " ORDER BY date DESC LIMIT 1"
+        with self._connect() as conn:
+            row = conn.execute(sql, params).fetchone()
+        if row is None:
+            return None
+        try:
+            context = _json.loads(row["detail_json"]) if row["detail_json"] else {}
+        except (ValueError, TypeError):
+            context = {}
+        context["date"] = row["date"]
+        context["created_at"] = row["created_at"]
+        return context
+
 
 
 
@@ -1168,3 +1307,17 @@ def _truncate(text: Optional[str], max_len: int) -> Optional[str]:
     if len(s) <= max_len:
         return s
     return s[: max_len - 1] + "…"
+
+
+_LONG_ACTIONS = {"BUY", "LONG"}
+_SHORT_ACTIONS = {"SELL", "SHORT", "REDUCE"}
+
+
+def _action_sign(action: Optional[str]) -> int:
+    """+1 long / -1 short / 0 neutral (HOLD/unknown) for win-rate direction."""
+    a = (action or "").upper()
+    if a in _LONG_ACTIONS:
+        return 1
+    if a in _SHORT_ACTIONS:
+        return -1
+    return 0

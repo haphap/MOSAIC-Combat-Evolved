@@ -1,16 +1,18 @@
 /**
  * Wire-level type definitions for the JSON-RPC methods exposed by
- * `mosaic.bridge` (~50 RPC methods across tools / config / cache / calendar /
- * paper / backtest / scorecard / darwinian / prompts / autoresearch / prism).
+ * `mosaic.bridge` (62 RPC methods across 13 namespaces: tools / config / cache /
+ * calendar / paper / backtest / scorecard / darwinian / prompts / autoresearch /
+ * prism / janus / mirofish).
  *
  * Keep this file as the single source of truth for the wire-level shapes.
  * If a method's params/result change on the Python side, update the type
  * here in the same commit.
  *
- * The :class:`BridgeApi` helper at the bottom provides typed wrappers for the
- * methods the TS front-end currently uses (everything except the Phase 8
- * paper-trading *write* surface). Any remaining method is still reachable via
- * ``client.call(method, params)`` and gets a typed wrapper when a phase needs it.
+ * The :class:`BridgeApi` helper at the bottom provides typed wrappers for all
+ * 13 namespaces (incl. the Phase 8 paper-trading write surface and the
+ * `mirofish.{save,get}_context` pair wrapped in 7M Step 2). The only registered
+ * method without a typed wrapper today is `cache.details` — reachable via
+ * ``client.call(method, params)``.
  */
 
 import type { BridgeClient } from "./client.js";
@@ -105,6 +107,15 @@ export interface MosaicConfig {
   data_vendors: Record<string, string>;
   tool_vendors: Record<string, string>;
 
+  // ----- MiroFish (Plan §11.8 / 7M) -----
+  /** Forward-simulation toggles. ``inject_context`` (default false) appends the
+   *  latest MiroFish scenario context to the CIO prompt (7M Step 2). */
+  mirofish?: {
+    engine?: string;
+    scorer?: string;
+    inject_context?: boolean;
+  };
+
   // ----- Open extension for fields not yet stabilised. -----
   [key: string]: unknown;
 }
@@ -168,28 +179,8 @@ export interface PaperSuggestion {
   rating: string;
 }
 
-/** Backtest signal payload — same shape Python's analyze_candidate_pool returns. */
-export type BacktestSignalsByDate = Record<string, ReadonlyArray<Record<string, unknown>>>;
-
-export interface BacktestRunParams {
-  tickers: string[];
-  start_date: string;
-  end_date: string;
-  signals: BacktestSignalsByDate;
-  rebalance_interval_days?: number;
-  top_k?: number;
-  execution_timing?: "same_close" | "next_open" | "next_close";
-  initial_cash?: number;
-  commission?: number;
-  slippage_perc?: number;
-  cash_buffer_pct?: number;
-  benchmark_tickers?: string[] | null;
-  force_refresh?: boolean;
-  default_benchmark_ticker?: string | null;
-}
-
-/** BacktraderBacktestResult.to_dict() — open shape; consumers should pick fields. */
-export type BacktestResult = Record<string, unknown>;
+/** Backtest = qlib two-stage cache (Phase 3.5C); the backtrader candidate-pool
+ *  path was dropped in Phase 8. */
 
 // --------------------------------------------------------- backtest cache (Phase 3.5C)
 
@@ -269,6 +260,28 @@ export interface SkillRow {
    */
   sharpe_window: number | null;
   n_obs: number;
+}
+
+export interface CioAction {
+  ticker: string;
+  action: string;
+  target_weight_pct: number | null;
+  rationale_snapshot: string | null;
+  forward_return_5d: number | null;
+  scored_at: string | null;
+}
+
+export interface CioActions {
+  cohort: string;
+  date: string | null;
+  actions: CioAction[];
+}
+
+export interface WinRateRow {
+  ticker: string;
+  win_rate: number;
+  n: number;
+  avg_dir_return_5d: number;
 }
 
 /** Outcome of a ``darwinian.compute`` call. */
@@ -486,17 +499,32 @@ export interface MirofishHistoryEntry {
   created_at: string;
 }
 
+/** Compact forward-looking context derived from a scenario set (7M Step 1/2).
+ *  ``hct_direction`` / ``tail_summary`` may be null (see derive_context). */
+export interface MirofishContext {
+  n_scenarios: number;
+  regime: string | null;
+  narrative: string | null;
+  csi300_return: number;
+  hct_ticker: string;
+  hct_direction: "LONG" | "SHORT" | null;
+  hct_csi300_return: number;
+  tail_summary: string | null;
+  engine: string;
+  date?: string;
+  created_at?: string;
+}
+
 // --------------------------------------------------------- helpers
 
 /**
- * Ergonomic helper around a BridgeClient. Provides typed wrappers for the RPC
- * methods the TS front-end uses today: tools.* / config.* / cache.* /
- * calendar.* / read-only paper.* / backtest.* / scorecard.* / darwinian.* /
- * prompts.* / autoresearch.* / prism.*. The Python sidecar also registers the
- * paper-trading *write* surface (`paper.{register,login,logout,reset_account,
- * buy,sell,suggest_order_from_signal}`) and `cache.details`; those are reachable
- * via ``client.call(method, params)`` and get typed wrappers when Phase 8 lands
- * the paper-trading workflow.
+ * Ergonomic helper around a BridgeClient. Provides typed wrappers across all 13
+ * namespaces: tools.* / config.* / cache.* / calendar.* / paper.* (incl. the
+ * Phase 8 write surface: register/login/logout/reset_account/buy/sell/
+ * suggest_order_from_signal) / backtest.* / scorecard.* / darwinian.* /
+ * prompts.* / autoresearch.* / prism.* / janus.* / mirofish.* (incl.
+ * save/get_context). The only registered method still unwrapped is
+ * `cache.details` — reachable via ``client.call(method, params)``.
  */
 export class BridgeApi {
   constructor(private readonly client: BridgeClient) {}
@@ -616,12 +644,7 @@ export class BridgeApi {
     return this.client.call<PaperSuggestion | null>("paper.suggest_order_from_signal", params);
   }
 
-  // backtest.*
-  backtestRunCandidatePool(params: BacktestRunParams): Promise<BacktestResult> {
-    return this.client.call<BacktestResult>("backtest.run_candidate_pool", params);
-  }
-
-  // backtest.* (Phase 3.5C two-stage cache)
+  // backtest.* (Phase 3.5C two-stage cache; backtrader candidate-pool dropped in Phase 8)
   backtestCreateRun(params: {
     cohort: string;
     start_date: string;
@@ -704,6 +727,17 @@ export class BridgeApi {
 
   scorecardListSkill(cohort: string, since?: string): Promise<{ rows: SkillRow[] }> {
     return this.client.call<{ rows: SkillRow[] }>("scorecard.list_skill", {
+      cohort,
+      ...(since ? { since } : {}),
+    });
+  }
+
+  scorecardLatestCioActions(cohort: string): Promise<CioActions> {
+    return this.client.call<CioActions>("scorecard.latest_cio_actions", { cohort });
+  }
+
+  scorecardWinRate(cohort: string, since?: string): Promise<{ rows: WinRateRow[] }> {
+    return this.client.call<{ rows: WinRateRow[] }>("scorecard.win_rate", {
       cohort,
       ...(since ? { since } : {}),
     });
@@ -869,7 +903,7 @@ export class BridgeApi {
     scenarios?: string[];
     start_prices?: Record<string, number>;
     reflexivity?: boolean;
-    engine?: "montecarlo" | "swarm";
+    engine?: "montecarlo" | "swarm" | "oasis";
   }): Promise<{ scenarios: MirofishScenario[]; engine?: string }> {
     return this.client.call<{ scenarios: MirofishScenario[]; engine?: string }>(
       "mirofish.generate_scenarios",
@@ -901,5 +935,21 @@ export class BridgeApi {
       "mirofish.get_history",
       params ?? {},
     );
+  }
+
+  mirofishSaveContext(params: {
+    scenarios: MirofishScenario[];
+    date?: string;
+  }): Promise<{ date: string; context: MirofishContext }> {
+    return this.client.call<{ date: string; context: MirofishContext }>(
+      "mirofish.save_context",
+      params,
+    );
+  }
+
+  mirofishGetContext(params: { as_of_date?: string } = {}): Promise<{
+    context: MirofishContext | null;
+  }> {
+    return this.client.call<{ context: MirofishContext | null }>("mirofish.get_context", params);
   }
 }

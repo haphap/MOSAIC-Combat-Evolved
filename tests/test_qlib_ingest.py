@@ -51,6 +51,28 @@ class TestFindCollector:
         assert result.collector_script.is_file()
 
 
+class TestFindEtfCollector:
+    def test_env_override_locates_etf_collector(self, tmp_path: Path, monkeypatch):
+        coll = tmp_path / "tushare_etf" / "collector.py"
+        coll.parent.mkdir(parents=True)
+        coll.write_text("# fake etf collector")
+        monkeypatch.setenv("MOSAIC_QLIB_ETF_COLLECTOR", str(coll))
+        result = qlib_ingest.find_qlib_collector("etf")
+        assert result.collector_script == coll
+        assert result.repo_root == coll.parent
+
+    def test_missing_etf_collector_raises(self, tmp_path: Path, monkeypatch):
+        monkeypatch.setenv("MOSAIC_QLIB_ETF_COLLECTOR", str(tmp_path / "nope.py"))
+        monkeypatch.setenv("HOME", str(tmp_path / "fake_home"))
+        monkeypatch.delenv("MOSAIC_QLIB_REPO", raising=False)
+        with pytest.raises(qlib_ingest.CollectorNotFound, match="ETF collector not found"):
+            qlib_ingest.find_qlib_collector("etf")
+
+    def test_etf_default_data_dir_is_cn_etf(self):
+        assert qlib_ingest.DEFAULT_QLIB_ETF_DATA_DIR.name == "cn_etf"
+        assert qlib_ingest.DEFAULT_QLIB_DATA_DIR.name == "cn_data"
+
+
 # ---------------------------------------------------------------------------
 # Subprocess wrapper (mocked)
 # ---------------------------------------------------------------------------

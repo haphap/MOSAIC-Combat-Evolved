@@ -71,9 +71,14 @@ pnpm dev janus history [--days 30]
 
 # Phase 7 MiroFish (synthetic-futures forward training; isolated from real P&L)
 pnpm dev mirofish generate [--days 30] [--seed 42] [--print] [--swarm]   # scenario set (--swarm = Phase 7M.1 agent-to-agent engine; default Monte-Carlo)
+  # --engine oasis = drive a deployed 666ghj/MiroFish service (set MOSAIC_MIROFISH_URL, e.g. http://localhost:5001);
+  #   walks the real multi-step API (graph/build → simulation → report) and maps the prediction report's
+  #   direction onto scenario regimes (lossy: MiroFish predicts narratives, not prices). Needs LLM+Zep keys; default off.
 pnpm dev mirofish train --fake-llm [--seed 42] [--agents a,b] [--dry-run] [--swarm] [--path-aware]
   # --path-aware = score the direction-adjusted equity curve with a max-drawdown penalty (default: terminal cumulative return)
 pnpm dev mirofish history [--days 30]
+  # config mirofish.inject_context=true (default false) appends the latest MiroFish scenario
+  # context (regime/最高信念方向/尾部风险 + "仅供参考" disclaimer) to the CIO prompt — 7M Step 2
 
 # Phase 8 — paper trading (simulated A-share ETF account; fake money, local SQLite)
 pnpm dev paper register <user> <pw>                  # create account
@@ -84,6 +89,13 @@ pnpm dev paper sell <ticker> <qty> [--user u]
 pnpm dev paper positions [--user u]
 pnpm dev paper trades [--user u] [--limit 50]
 pnpm dev paper suggest <ticker> '<state-json>' [--user u]   # signal→order from a decision state
+
+# Phase 9B/10 — read-only Ink TUI dashboard (aggregates existing read RPCs; manual refresh)
+pnpm dev dashboard [--cohort cohort_default] [--user u]
+  # tabs: [1] today (latest CIO plan: what to trade) · [2] winrate (per-ticker hit rate) ·
+  #       [3] skill (agent alpha/sharpe) · [4] paper (account+positions) · [5] cohorts (PRISM)
+  #       · [6] mirofish (latest scenario context + recent forward-training runs)
+  #       · r refresh · q quit
 ```
 
 ## Python interpreter resolution

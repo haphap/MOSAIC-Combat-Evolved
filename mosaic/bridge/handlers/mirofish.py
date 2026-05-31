@@ -16,7 +16,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from ..protocol import INVALID_PARAMS, RpcError
+from ..protocol import INTERNAL_ERROR, INVALID_PARAMS, RpcError
 from ..registry import method
 
 
@@ -48,9 +48,10 @@ def _opt_seed(params: dict) -> Any:
 def mirofish_generate_scenarios(params: dict[str, Any]) -> dict[str, Any]:
     """Generate the scenario set (base/bull/bear/tail_up/tail_down).
 
-    ``engine``: 'montecarlo' (default) or 'swarm' (Phase 7M.1 agent-to-agent).
-    When omitted, falls back to ``config.mirofish.engine`` (default montecarlo,
-    i.e. swarm OFF). Swarm ignores ``reflexivity`` (it is reflexive by design).
+    ``engine``: 'montecarlo' (default), 'swarm' (Phase 7M.1 agent-to-agent), or
+    'oasis' (7M Step 3 — a deployed 666ghj/MiroFish service via HTTP; needs
+    MOSAIC_MIROFISH_URL). When omitted, falls back to ``config.mirofish.engine``
+    (default montecarlo). Swarm ignores ``reflexivity`` (it is reflexive by design).
     """
     num_days = _opt_int(params, "num_days", 30)
     seed = _opt_seed(params)
@@ -69,13 +70,22 @@ def mirofish_generate_scenarios(params: dict[str, Any]) -> dict[str, Any]:
         from mosaic.default_config import DEFAULT_CONFIG
 
         engine = DEFAULT_CONFIG.get("mirofish", {}).get("engine", "montecarlo")
-    if engine not in ("montecarlo", "swarm"):
-        raise RpcError(INVALID_PARAMS, "'engine' must be 'montecarlo' or 'swarm'")
+    if engine not in ("montecarlo", "swarm", "oasis"):
+        raise RpcError(INVALID_PARAMS, "'engine' must be 'montecarlo', 'swarm' or 'oasis'")
 
     # Lazy import after validation so deps-light callers (and bad-param tests)
     # don't pay the numpy import / hit ModuleNotFoundError before rejection.
     try:
-        if engine == "swarm":
+        if engine == "oasis":
+            from mosaic.mirofish.oasis import MiroFishUnavailable, OasisMiroFishEngine
+
+            try:
+                out = OasisMiroFishEngine().generate_all_scenarios(
+                    start_prices=start_prices, num_days=num_days, seed=seed, scenarios=scenarios
+                )
+            except MiroFishUnavailable as exc:
+                raise RpcError(INTERNAL_ERROR, f"oasis engine: {exc}") from exc
+        elif engine == "swarm":
             from mosaic.mirofish.swarm import LocalSwarmEngine
 
             out = LocalSwarmEngine().generate_all_scenarios(
@@ -158,3 +168,34 @@ def mirofish_get_history(params: dict[str, Any]) -> dict[str, Any]:
     """Recent mirofish_runs rows (newest first)."""
     days = _opt_int(params, "days", 30)
     return {"history": _store().get_mirofish_history(days)}
+
+
+@method("mirofish.save_context")
+def mirofish_save_context(params: dict[str, Any]) -> dict[str, Any]:
+    """Derive a compact prompt-ready context from a scenario set and persist it
+    as the latest MiroFish context for ``date`` (Phase 7M Step 1)."""
+    scenarios = params.get("scenarios")
+    if not isinstance(scenarios, list) or not all(isinstance(s, dict) for s in scenarios):
+        raise RpcError(INVALID_PARAMS, "'scenarios' must be a list of scenario objects")
+    if not scenarios:
+        raise RpcError(INVALID_PARAMS, "'scenarios' must be non-empty")
+    date = params.get("date") or _today()
+    if not isinstance(date, str):
+        raise RpcError(INVALID_PARAMS, "'date' must be a string")
+
+    from mosaic.mirofish.context import derive_context  # deps-light: no numpy
+
+    context = derive_context(scenarios)
+    _store().save_mirofish_context(date=date, context=context)
+    return {"date": date, "context": context}
+
+
+@method("mirofish.get_context")
+def mirofish_get_context(params: dict[str, Any]) -> dict[str, Any]:
+    """Return the latest persisted MiroFish context (or null). Optional
+    ``as_of_date`` (YYYY-MM-DD) bounds to ``date <= as_of_date`` (anti-lookahead
+    for backtests)."""
+    as_of_date = params.get("as_of_date")
+    if as_of_date is not None and not isinstance(as_of_date, str):
+        raise RpcError(INVALID_PARAMS, "'as_of_date' must be a string when provided")
+    return {"context": _store().get_latest_mirofish_context(as_of_date)}

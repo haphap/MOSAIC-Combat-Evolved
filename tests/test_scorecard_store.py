@@ -415,3 +415,55 @@ class TestDarwinianWeights:
             )
         latest = store.get_darwinian_weights("cohort_default")
         assert latest["ackman"]["weight"] == pytest.approx(1.5)
+
+
+class TestSignalsAndWinRate:
+    """Phase 10: get_latest_cio_actions + compute_win_rate (read-only)."""
+
+    def _insert(self, store: ScorecardStore, rows: list[tuple]) -> None:
+        with store._connect() as conn:
+            conn.executemany(
+                "INSERT INTO recommendations(cohort,agent,ticker,date,action,"
+                "target_weight_pct,forward_return_5d,scored_at) VALUES (?,?,?,?,?,?,?,?)",
+                rows,
+            )
+
+    def test_latest_cio_actions_picks_most_recent_date(self, store: ScorecardStore):
+        self._insert(
+            store,
+            [
+                ("cohort_default", "cio", "510300.SH", "2024-06-24", "BUY", 30.0, None, None),
+                ("cohort_default", "cio", "512880.SH", "2024-06-25", "BUY", 15.0, None, None),
+                ("cohort_default", "cio", "159915.SZ", "2024-06-25", "SELL", 0.0, None, None),
+            ],
+        )
+        out = store.get_latest_cio_actions("cohort_default")
+        assert out["date"] == "2024-06-25"
+        assert {a["ticker"] for a in out["actions"]} == {"512880.SH", "159915.SZ"}
+
+    def test_latest_cio_actions_empty_when_none(self, store: ScorecardStore):
+        out = store.get_latest_cio_actions("cohort_default")
+        assert out == {"cohort": "cohort_default", "date": None, "actions": []}
+
+    def test_win_rate_direction_and_hold_exclusion(self, store: ScorecardStore):
+        self._insert(
+            store,
+            [
+                # 510300 BUY: one up (win), one down (loss) → 0.5 over n=2
+                ("cohort_default", "cio", "510300.SH", "2024-06-01", "BUY", 30.0, 0.03, "x"),
+                ("cohort_default", "cio", "510300.SH", "2024-06-02", "BUY", 30.0, -0.02, "x"),
+                # 512880 SELL with price down → directional win
+                ("cohort_default", "cio", "512880.SH", "2024-06-01", "SELL", 0.0, -0.04, "x"),
+                # HOLD excluded (no directional bet)
+                ("cohort_default", "cio", "999.SH", "2024-06-01", "HOLD", 0.0, 0.05, "x"),
+                # unscored row ignored
+                ("cohort_default", "cio", "510300.SH", "2024-06-03", "BUY", 30.0, None, None),
+            ],
+        )
+        rows = store.compute_win_rate("cohort_default")
+        by = {r["ticker"]: r for r in rows}
+        assert "999.SH" not in by  # HOLD excluded
+        assert by["512880.SH"]["win_rate"] == 1.0 and by["512880.SH"]["n"] == 1
+        assert by["510300.SH"]["win_rate"] == 0.5 and by["510300.SH"]["n"] == 2
+        # sorted by win_rate desc
+        assert rows[0]["ticker"] == "512880.SH"

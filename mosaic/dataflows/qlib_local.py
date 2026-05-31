@@ -70,6 +70,58 @@ def _get_data_path() -> Path:
     return path
 
 
+# ETF data lives in a sibling ``cn_etf`` dataset (same calendar as cn_data, but
+# separate features/ tree). We route ETF instruments there. ETF SH/SZ codes do
+# not overlap stock prefixes: ETFs are sh5x/sz1x, stocks are sh6x/sz0x/sz3x.
+_CANDIDATE_ETF_PATHS = [
+    "~/.qlib/qlib_data/cn_etf",
+    "~/SynologyDrive/Project/qlib/qlib_data/cn_etf",
+    "~/qlib_data/cn_etf",
+]
+_cached_etf_path: Optional[Path] = None
+_ETF_SH_PREFIXES = ("5",)   # sh51xxxx / sh50xxxx / sh56xxxx / sh58xxxx ...
+_ETF_SZ_PREFIXES = ("1",)   # sz15xxxx / sz16xxxx / sz18xxxx ...
+
+
+def _find_qlib_etf_path() -> Optional[Path]:
+    env_path = os.environ.get("QLIB_CN_ETF_PATH")
+    if env_path:
+        p = Path(env_path).expanduser()
+        if (p / "features").is_dir():
+            return p
+    for candidate in _CANDIDATE_ETF_PATHS:
+        p = Path(candidate).expanduser()
+        if (p / "features").is_dir():
+            return p
+    return None
+
+
+def _get_etf_path() -> Optional[Path]:
+    global _cached_etf_path
+    if _cached_etf_path is None:
+        _cached_etf_path = _find_qlib_etf_path()
+    return _cached_etf_path
+
+
+def _is_etf_instrument(instrument: str) -> bool:
+    """ETF iff sh5xxxxx or sz1xxxxx (disjoint from stock prefixes sh6/sz0/sz3)."""
+    inst = instrument.lower()
+    if inst.startswith("sh") and inst[2:3] in _ETF_SH_PREFIXES:
+        return True
+    if inst.startswith("sz") and inst[2:3] in _ETF_SZ_PREFIXES:
+        return True
+    return False
+
+
+def _feature_root_for(instrument: str) -> Path:
+    """Pick cn_etf for ETF instruments (when available), else cn_data."""
+    if _is_etf_instrument(instrument):
+        etf = _get_etf_path()
+        if etf is not None:
+            return etf
+    return _get_data_path()
+
+
 # ---------------------------------------------------------------------------
 # Calendar
 # ---------------------------------------------------------------------------
@@ -213,7 +265,7 @@ def _read_feature(
 
     Returns a pd.Series with DatetimeIndex. Empty Series if no data.
     """
-    data_path = _get_data_path()
+    data_path = _feature_root_for(instrument)
     bin_path = data_path / "features" / instrument / f"{field}.day.bin"
 
     if not bin_path.exists():

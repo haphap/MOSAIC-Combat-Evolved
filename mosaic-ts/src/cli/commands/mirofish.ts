@@ -58,7 +58,10 @@ export function registerMirofish(program: Command): void {
     .option("--seed <n>", "RNG seed for reproducibility")
     .option("--print", "Print scenario detail")
     .option("--reflexive", "Apply the reflexive actor overlay (price↔behavior feedback)")
-    .option("--engine <name>", "Scenario engine: montecarlo (default) | swarm (agent-to-agent)")
+    .option(
+      "--engine <name>",
+      "Scenario engine: montecarlo (default) | swarm (agent-to-agent) | oasis (real engine)",
+    )
     .option("--swarm", "Shorthand for --engine swarm (Phase 7M.1 interaction engine)")
     .action(async (opts: GenerateOpts) => {
       await withApi(async (api) => {
@@ -98,7 +101,7 @@ export function registerMirofish(program: Command): void {
     .option("--dry-run", "Score but do not persist")
     .option("--fake-llm", "Deterministic canned recommendations (zero cost)")
     .option("--reflexive", "Apply the reflexive actor overlay (price↔behavior feedback)")
-    .option("--engine <name>", "Scenario engine: montecarlo (default) | swarm")
+    .option("--engine <name>", "Scenario engine: montecarlo (default) | swarm | oasis")
     .option("--swarm", "Shorthand for --engine swarm (Phase 7M.1 interaction engine)")
     .option("--scorer <name>", "Scoring: terminal (default) | path_aware (drawdown-penalised)")
     .option("--path-aware", "Shorthand for --scorer path_aware (score the equity curve)")
@@ -179,9 +182,11 @@ export function registerMirofish(program: Command): void {
 function resolveEngine(opts: {
   engine?: string;
   swarm?: boolean;
-}): "montecarlo" | "swarm" | undefined {
+}): "montecarlo" | "swarm" | "oasis" | undefined {
   if (opts.swarm) return "swarm";
-  if (opts.engine === "montecarlo" || opts.engine === "swarm") return opts.engine;
+  if (opts.engine === "montecarlo" || opts.engine === "swarm" || opts.engine === "oasis") {
+    return opts.engine;
+  }
   return undefined;
 }
 
