@@ -37,7 +37,7 @@ export interface MirofishTrainingOptions {
   dryRun?: boolean;
   fakeLlm?: boolean;
   reflexive?: boolean;
-  engine?: "montecarlo" | "swarm";
+  engine?: "montecarlo" | "swarm" | "oasis";
   scorer?: "terminal" | "path_aware";
   date?: string;
   deps: { llm: BaseChatModel; api: BridgeApi };
