@@ -78,6 +78,7 @@ const FAKE_TOOLS: ToolMetadata[] = [
   "get_fred_series",
   "get_yield_curve_cn",
   "get_industry_policy",
+  "get_property_data",
   "get_north_capital_flow",
   "get_us_china_spread",
   "get_xueqiu_heat",

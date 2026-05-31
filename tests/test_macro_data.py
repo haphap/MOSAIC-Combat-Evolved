@@ -353,6 +353,58 @@ def test_get_xueqiu_heat_rejects_zero_top_n():
         macro_data.get_xueqiu_heat(top_n=0)
 
 
+# --------------------------------------------------------------------- 13. Property data
+
+
+@pytest.fixture
+def fake_real_estate_module(monkeypatch):
+    """Stand-in for ``akshare.macro_china_real_estate``."""
+
+    class _StubAk:
+        def __init__(self, df=None, raises=None):
+            self._df = df
+            self._raises = raises
+
+        def macro_china_real_estate(self):
+            if self._raises is not None:
+                raise self._raises
+            return self._df
+
+    def _make(df=None, raises=None):
+        monkeypatch.setitem(__import__("sys").modules, "akshare", _StubAk(df=df, raises=raises))
+
+    return _make
+
+
+def test_get_property_data_returns_top_n(fake_real_estate_module):
+    df = pd.DataFrame(
+        {
+            "日期": [f"2025-{m:02d}-01" for m in range(1, 13)],
+            "最新值": [90 + m for m in range(1, 13)],
+            "涨跌幅": [0.1 * m for m in range(1, 13)],
+        }
+    )
+    fake_real_estate_module(df=df)
+    out = macro_data.get_property_data(top_n=3)
+    assert "国房景气指数" in out
+    csv_rows = [ln for ln in out.splitlines() if ln.startswith("2025-")]
+    assert len(csv_rows) == 3
+    # Most-recent-first: December should be present, January should not.
+    assert "2025-12-01" in out
+    assert "2025-01-01" not in out
+
+
+def test_get_property_data_failure_wraps(fake_real_estate_module):
+    fake_real_estate_module(raises=RuntimeError("akshare down"))
+    with pytest.raises(DataVendorUnavailable, match="macro_china_real_estate failed"):
+        macro_data.get_property_data()
+
+
+def test_get_property_data_rejects_zero_top_n():
+    with pytest.raises(DataVendorUnavailable, match=">= 1"):
+        macro_data.get_property_data(top_n=0)
+
+
 # --------------------------------------------------------------------- 7. Industry policy
 
 

@@ -579,6 +579,36 @@ def get_us_china_relations(
     return route_to_vendor("get_us_china_relations", curr_date, look_back_days)
 
 
+# ============================================================ Property (real-estate)
+
+
+@tool
+def get_property_data(
+    top_n: Annotated[
+        int,
+        "How many most-recent months of the real-estate climate index to return "
+        "(monthly series; default 24 = two years).",
+    ] = 24,
+) -> str:
+    """
+    Retrieve the China national real-estate climate index (国房景气指数).
+
+    Monthly composite (>100 = expansion, <100 = contraction) spanning property
+    investment / sales / new starts / land / financing, via AkShare
+    ``macro_china_real_estate``. Returns the latest ``top_n`` months with level +
+    1/3/6/12-month changes. Used by ``china`` — real estate + its supply chain is
+    a large share of GDP and a key policy lever, so it is a primary A-share macro
+    driver (closes the plan §14 #8 get_property_data gap).
+
+    Args:
+        top_n: number of most-recent months, default 24.
+
+    Returns:
+        Markdown header + CSV (日期 / 最新值 / 涨跌幅 / 近N月涨跌幅).
+    """
+    return route_to_vendor("get_property_data", top_n)
+
+
 # ============================================================ public exports
 
 __all__ = [
@@ -598,4 +628,5 @@ __all__ = [
     "get_etf_price_data",
     "get_caixin_sentiment",
     "get_us_china_relations",
+    "get_property_data",
 ]

@@ -723,6 +723,53 @@ def get_fund_flow(symbol: str, curr_date: str, look_back_days: int = 30) -> str:
     )
 
 
+# ============================================================ 13. Property (real-estate)
+
+
+def get_property_data(top_n: int = 24) -> str:
+    """Fetch the China national real-estate climate index (国房景气指数).
+
+    Tushare's macro section has no dedicated real-estate endpoint (plan §14 #8),
+    so this routes to AkShare ``macro_china_real_estate`` — the monthly 国房景气
+    指数 (a >100 = expansion / <100 = contraction composite of property
+    investment, sales, new starts, land, and financing). Returns the most recent
+    ``top_n`` months with level + 1/3/6/12-month changes.
+
+    Used by ``china`` (property is a primary A-share macro driver — real estate
+    + its supply chain is a large share of GDP and a key policy lever).
+    """
+    if top_n < 1:
+        raise DataVendorUnavailable("top_n must be >= 1.")
+    try:
+        import akshare as ak  # noqa: PLC0415
+    except ImportError as exc:
+        raise DataVendorUnavailable(
+            "akshare package is not installed. Install via `uv pip install -e .[data]`."
+        ) from exc
+
+    try:
+        df = ak.macro_china_real_estate()
+    except Exception as exc:
+        raise DataVendorUnavailable(
+            f"AkShare macro_china_real_estate failed: {exc}"
+        ) from exc
+
+    if df is not None and not df.empty:
+        # Most-recent-first, keep top_n months.
+        date_col = "日期" if "日期" in df.columns else df.columns[0]
+        df = df.sort_values(date_col, ascending=False).head(int(top_n))
+
+    return _df_to_markdown_csv(
+        df,
+        title="国房景气指数 / China Real-Estate Climate Index",
+        subtitle=(
+            "Source: AkShare macro_china_real_estate (monthly). 最新值 = index level "
+            "(>100 expansion, <100 contraction); 涨跌幅 / 近N月涨跌幅 in percent."
+        ),
+        empty_note="No real-estate climate index rows returned.",
+    )
+
+
 # ============================================================ public exports
 
 __all__ = [
@@ -738,4 +785,5 @@ __all__ = [
     "get_ivx",
     "get_etf_indicator",
     "get_fund_flow",
+    "get_property_data",
 ]
