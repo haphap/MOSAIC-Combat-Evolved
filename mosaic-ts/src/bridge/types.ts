@@ -928,7 +928,7 @@ export class BridgeApi {
     scenarios?: string[];
     start_prices?: Record<string, number>;
     reflexivity?: boolean;
-    engine?: "montecarlo" | "swarm";
+    engine?: "montecarlo" | "swarm" | "oasis";
   }): Promise<{ scenarios: MirofishScenario[]; engine?: string }> {
     return this.client.call<{ scenarios: MirofishScenario[]; engine?: string }>(
       "mirofish.generate_scenarios",

@@ -16,7 +16,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from ..protocol import INVALID_PARAMS, RpcError
+from ..protocol import INTERNAL_ERROR, INVALID_PARAMS, RpcError
 from ..registry import method
 
 
@@ -48,9 +48,10 @@ def _opt_seed(params: dict) -> Any:
 def mirofish_generate_scenarios(params: dict[str, Any]) -> dict[str, Any]:
     """Generate the scenario set (base/bull/bear/tail_up/tail_down).
 
-    ``engine``: 'montecarlo' (default) or 'swarm' (Phase 7M.1 agent-to-agent).
-    When omitted, falls back to ``config.mirofish.engine`` (default montecarlo,
-    i.e. swarm OFF). Swarm ignores ``reflexivity`` (it is reflexive by design).
+    ``engine``: 'montecarlo' (default), 'swarm' (Phase 7M.1 agent-to-agent), or
+    'oasis' (7M Step 3 — a deployed 666ghj/MiroFish service via HTTP; needs
+    MOSAIC_MIROFISH_URL). When omitted, falls back to ``config.mirofish.engine``
+    (default montecarlo). Swarm ignores ``reflexivity`` (it is reflexive by design).
     """
     num_days = _opt_int(params, "num_days", 30)
     seed = _opt_seed(params)
@@ -69,13 +70,22 @@ def mirofish_generate_scenarios(params: dict[str, Any]) -> dict[str, Any]:
         from mosaic.default_config import DEFAULT_CONFIG
 
         engine = DEFAULT_CONFIG.get("mirofish", {}).get("engine", "montecarlo")
-    if engine not in ("montecarlo", "swarm"):
-        raise RpcError(INVALID_PARAMS, "'engine' must be 'montecarlo' or 'swarm'")
+    if engine not in ("montecarlo", "swarm", "oasis"):
+        raise RpcError(INVALID_PARAMS, "'engine' must be 'montecarlo', 'swarm' or 'oasis'")
 
     # Lazy import after validation so deps-light callers (and bad-param tests)
     # don't pay the numpy import / hit ModuleNotFoundError before rejection.
     try:
-        if engine == "swarm":
+        if engine == "oasis":
+            from mosaic.mirofish.oasis import MiroFishUnavailable, OasisMiroFishEngine
+
+            try:
+                out = OasisMiroFishEngine().generate_all_scenarios(
+                    start_prices=start_prices, num_days=num_days, seed=seed, scenarios=scenarios
+                )
+            except MiroFishUnavailable as exc:
+                raise RpcError(INTERNAL_ERROR, f"oasis engine: {exc}") from exc
+        elif engine == "swarm":
             from mosaic.mirofish.swarm import LocalSwarmEngine
 
             out = LocalSwarmEngine().generate_all_scenarios(

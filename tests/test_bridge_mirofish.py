@@ -152,7 +152,19 @@ class TestMirofishHandlers(unittest.TestCase):
     def test_bad_engine_rejected(self):
         # Validates before the numpy-backed import → runs deps-light.
         with self.assertRaises(RpcError):
-            _mf.mirofish_generate_scenarios({"engine": "oasis"})
+            _mf.mirofish_generate_scenarios({"engine": "bogus"})
+
+    def test_oasis_engine_without_url_raises_clear_error(self):
+        # 'oasis' is a valid engine but needs MOSAIC_MIROFISH_URL; without it the
+        # adapter raises MiroFishUnavailable → handler maps to a clear RpcError.
+        # Deps-light: the oasis adapter is pure stdlib (no numpy).
+        with patch.dict("os.environ", {}, clear=False):
+            import os as _os
+
+            _os.environ.pop("MOSAIC_MIROFISH_URL", None)
+            with self.assertRaises(RpcError) as ctx:
+                _mf.mirofish_generate_scenarios({"engine": "oasis", "scenarios": ["base"]})
+            self.assertIn("MOSAIC_MIROFISH_URL", ctx.exception.message)
 
     def test_config_default_engine_is_off(self):
         from mosaic.default_config import DEFAULT_CONFIG
