@@ -16,6 +16,7 @@ import { registerBridgePing } from "./commands/bridge-ping.js";
 import { registerDailyCycle } from "./commands/daily-cycle.js";
 import { registerDarwinian } from "./commands/darwinian.js";
 import { registerDashboard } from "./commands/dashboard.js";
+import { registerData } from "./commands/data.js";
 import { registerJanus } from "./commands/janus.js";
 import { registerMirofish } from "./commands/mirofish.js";
 import { registerPaper } from "./commands/paper.js";
@@ -45,5 +46,6 @@ registerJanus(program);
 registerMirofish(program);
 registerPaper(program);
 registerDashboard(program);
+registerData(program);
 
 await program.parseAsync(process.argv);

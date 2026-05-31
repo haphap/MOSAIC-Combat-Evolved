@@ -1,10 +1,13 @@
 """Thin orchestrator over the qlib Tushare collector (Plan §11.3 sub-step 3.5B).
 
-The actual ingest logic lives in qlib's ``scripts/data_collector/tushare/collector.py``.
-This module:
+The ingest logic lives in the vendored Tushare collectors at
+``mosaic/dataflows/collectors/data_collector/{tushare,tushare_etf}/collector.py``
+(see "Why vendored collectors" below). This module:
 
-  * **Discovers** the qlib repo + collector script at well-known paths
-    (env override > ``~/Projects/qlib`` > ``../qlib`` relative to MOSAIC).
+  * **Discovers** the collector script, preferring the vendored copy; a valid
+    env override (``MOSAIC_QLIB_REPO`` / ``MOSAIC_QLIB_ETF_COLLECTOR``) wins,
+    else it falls back to ``~/Projects/qlib`` / ``../qlib`` then the vendored
+    copy. See ``find_qlib_collector``.
   * **Wraps** the collector verbs (pipeline / download_data / normalize_data /
     dump_to_bin / update_data_to_bin / sync_calendar / pipeline_with_break)
     as Python functions that return dataclass results.
@@ -20,12 +23,15 @@ User decisions (2026-05-29) honoured here:
   * Skip-on-gap > 1% — enforced by ``validate_after_ingest()`` post-pass
     rather than rejecting at fetch time.
 
-Why a thin wrapper instead of a port:
+Why vendored collectors:
 
-  Vendoring the user's 2179-LOC collector into MOSAIC would (a) duplicate
-  battle-tested code, (b) make MOSAIC's repo larger, (c) drift over time.
-  The collector lives at ``<qlib>/scripts/data_collector/tushare/collector.py``
-  per qlib convention; we just wire MOSAIC's bridge / CLI to it.
+  The Tushare stock + ETF collectors (and the qlib ``dump_bin`` /
+  ``data_collector.{base,utils}`` they build on) are vendored into
+  ``mosaic/dataflows/collectors/`` so MOSAIC's ingest is **self-contained** —
+  no external qlib source checkout is required at run time (only the installed
+  ``pyqlib`` package, for ``qlib.utils``). ``find_qlib_collector`` prefers the
+  vendored copy; ``MOSAIC_QLIB_REPO`` / ``MOSAIC_QLIB_ETF_COLLECTOR`` still
+  override it. See ``collectors/NOTICE.md`` for provenance + licensing.
 """
 
 from __future__ import annotations
@@ -65,6 +71,11 @@ _QLIB_ETF_COLLECTOR_CANDIDATES = (
     "~/.qlib/scripts/data_collector/tushare_etf/collector.py",
 )
 
+# Self-contained vendored collectors live inside the package (see
+# ``collectors/NOTICE.md``). Preferred over any on-disk qlib checkout, but an
+# explicit env override (MOSAIC_QLIB_REPO / MOSAIC_QLIB_ETF_COLLECTOR) still wins.
+_VENDORED_DC_DIR = Path(__file__).resolve().parent / "collectors" / "data_collector"
+
 
 @dataclass(frozen=True)
 class CollectorPaths:
@@ -79,20 +90,22 @@ class CollectorNotFound(Exception):
 def find_qlib_collector(kind: str = "stock") -> CollectorPaths:
     """Return the path to a qlib Tushare collector + its repo root.
 
-    ``kind='stock'`` (default): the A-share equity collector at
-    ``<repo>/scripts/data_collector/tushare/collector.py``.
-    ``kind='etf'``: the user-authored ETF collector — searched at
-    ``MOSAIC_QLIB_ETF_COLLECTOR`` then ``~/.qlib/scripts/data_collector/
-    tushare_etf/collector.py`` then ``<repo>/scripts/data_collector/tushare_etf``.
-
-    Resolution order (stock): ``MOSAIC_QLIB_REPO`` env, ``~/Projects/qlib``,
-    ``<MOSAIC repo>/../qlib``, ``~/qlib``. Raises ``CollectorNotFound``.
+    Prefers the **vendored** collector in ``mosaic/dataflows/collectors/
+    data_collector/{tushare,tushare_etf}/collector.py``. A *valid* env override
+    wins: ``MOSAIC_QLIB_REPO`` (stock) / ``MOSAIC_QLIB_ETF_COLLECTOR`` (etf)
+    pointing at an existing collector. If the env override is set but invalid,
+    discovery falls back to ``~/Projects/qlib`` / ``<MOSAIC>/../qlib`` / ``~/qlib``
+    (stock) or ``~/.qlib/scripts/.../tushare_etf`` (etf), and finally the
+    vendored copy — so a stale env var degrades gracefully rather than failing.
+    Raises ``CollectorNotFound`` only when even the vendored copy is missing.
     """
     if kind == "etf":
         env_collector = os.environ.get("MOSAIC_QLIB_ETF_COLLECTOR")
         etf_candidates: list[Path] = []
         if env_collector:
             etf_candidates.append(Path(env_collector).expanduser())
+        # Self-contained vendored copy (preferred when no env override).
+        etf_candidates.append(_VENDORED_DC_DIR / "tushare_etf" / "collector.py")
         for c in _QLIB_ETF_COLLECTOR_CANDIDATES:
             etf_candidates.append(Path(c).expanduser())
         # Also allow it living under a qlib repo like the stock collector.
@@ -113,6 +126,11 @@ def find_qlib_collector(kind: str = "stock") -> CollectorPaths:
         )
 
     env_root = os.environ.get("MOSAIC_QLIB_REPO")
+    # Self-contained vendored copy first (unless an env override points elsewhere).
+    vendored = _VENDORED_DC_DIR / "tushare" / "collector.py"
+    if not env_root and vendored.is_file():
+        return CollectorPaths(repo_root=vendored.parent, collector_script=vendored)
+
     candidates: list[Path] = []
     if env_root:
         candidates.append(Path(env_root).expanduser())
@@ -124,6 +142,10 @@ def find_qlib_collector(kind: str = "stock") -> CollectorPaths:
         collector = repo_root / "scripts" / "data_collector" / "tushare" / "collector.py"
         if collector.is_file():
             return CollectorPaths(repo_root=repo_root, collector_script=collector)
+
+    # Fall back to the vendored copy even if an env root was set but invalid.
+    if vendored.is_file():
+        return CollectorPaths(repo_root=vendored.parent, collector_script=vendored)
 
     tried = "\n  ".join(str(c) for c in candidates)
     raise CollectorNotFound(
@@ -269,6 +291,8 @@ def ingest_incremental(
     end: str,
     kind: str = "stock",
     qlib_dir: Optional[Path] = None,
+    raw_dir: Path = DEFAULT_RAW_DIR,
+    normalize_dir: Path = DEFAULT_NORMALIZE_DIR,
     timeout: int = 120,
     stream_stdout: bool = True,
 ) -> IngestOutcome:
@@ -277,16 +301,31 @@ def ingest_incremental(
     ``kind='etf'`` updates the cn_etf dataset via the ETF collector. Internally
     the collector's ``update_data_to_bin`` verb reads ``calendars/day.txt`` to
     find the last covered date and only fetches rows after that.
+
+    ``raw_dir`` / ``normalize_dir`` are the collector's working dirs; they default
+    OUT of the repo (``~/.cache/mosaic_tushare_{raw,norm}``) so vendored-collector
+    temp data never pollutes the project tree.
     """
     if qlib_dir is None:
         qlib_dir = DEFAULT_QLIB_ETF_DATA_DIR if kind == "etf" else DEFAULT_QLIB_DATA_DIR
     qlib_dir = Path(qlib_dir).expanduser()
+    raw_dir = Path(raw_dir).expanduser()
+    normalize_dir = Path(normalize_dir).expanduser()
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    normalize_dir.mkdir(parents=True, exist_ok=True)
     if not (qlib_dir / "calendars" / "day.txt").exists():
         raise FileNotFoundError(
             f"qlib data dir not initialised yet: {qlib_dir}. "
             "Run --full first."
         )
     args = [
+        # Constructor args (consumed by Run.__init__ before the verb): pin the
+        # collector's working dirs OUT of the repo. Without these they default
+        # to CUR_DIR/{source,normalize} — i.e. inside the vendored package — and
+        # update_data_to_bin writes __inc_tmp__ there. Keep ingest temp data in
+        # ~/.cache so it never pollutes the project tree.
+        "--source_dir", str(Path(raw_dir).expanduser()),
+        "--normalize_dir", str(Path(normalize_dir).expanduser()),
         "--qlib_data_1d_dir", str(qlib_dir),
         "--end_date", end,
         "--timeout", str(timeout),
@@ -305,11 +344,23 @@ def sync_calendar(
     *,
     end: Optional[str] = None,
     qlib_dir: Path = DEFAULT_QLIB_DATA_DIR,
+    raw_dir: Path = DEFAULT_RAW_DIR,
+    normalize_dir: Path = DEFAULT_NORMALIZE_DIR,
     stream_stdout: bool = True,
 ) -> IngestOutcome:
     """Refresh ``calendars/day.txt`` from Tushare without touching features."""
     qlib_dir = Path(qlib_dir).expanduser()
-    args = ["--qlib_data_1d_dir", str(qlib_dir)]
+    raw_dir = Path(raw_dir).expanduser()
+    normalize_dir = Path(normalize_dir).expanduser()
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    normalize_dir.mkdir(parents=True, exist_ok=True)
+    # Pin the collector's working dirs out of the repo (Run.__init__ mkdirs
+    # source/normalize even for sync_calendar; default would be CUR_DIR-relative).
+    args = [
+        "--source_dir", str(raw_dir),
+        "--normalize_dir", str(normalize_dir),
+        "--qlib_data_1d_dir", str(qlib_dir),
+    ]
     if end:
         args += ["--end_date", end]
     outcome = _run_collector("sync_calendar", args, stream_stdout=stream_stdout)

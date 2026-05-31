@@ -100,6 +100,8 @@ Cohort 切换 UI（PRISM）                                       paper_trading/
 - **3** Scorecard(forward_return/alpha)+ Darwinian 权重。
   - **ETF 评分**:CIO 宽基 ETF 建议(5xxxxx.SH / 1xxxxx.SZ)的前向收益经 `scorer._fetch_close` 路由到 `pro.fund_daily`(个股=`daily`、指数=`index_daily`、ETF=`fund_daily`),从而 winrate/skill 同样覆盖 ETF 建议(此前 ETF 行 forward_return 恒为 NULL)。
 - **3.5** qlib 历史数据底座 + 两段式向量化回测。
+  - **自包含采集器(vendored)**:tushare 股票/ETF 采集器 + qlib `dump_bin.py` + `data_collector/{base,utils}.py`(MIT,microsoft/qlib)vendor 进 `mosaic/dataflows/collectors/`(`NOTICE.md`/`LICENSE.qlib` 记归属;ruff extend-exclude)。`find_qlib_collector` 优先用 vendored 副本(`MOSAIC_QLIB_REPO`/`MOSAIC_QLIB_ETF_COLLECTOR` env 仍覆盖)。运行期只需 `pyqlib` 的 `qlib.utils`;采集器子进程依赖归入 `ingest` extra(fire/loguru/joblib/yahooquery/beautifulsoup4)。
+  - **增量更新**:`data.{incremental,validate}` bridge handler + `pnpm dev data incremental --kind stock|etf [--end YYYY-MM-DD]` / `data validate` CLI,封装 `qlib_ingest.ingest_incremental`(append cn_data/cn_etf)。
 - **4** Autoresearch(git feature 分支 + SQLite,prompt mutation keep/revert)。
 - **5** PRISM 7-cohort 训练编排(layer 顺序 / layer 内并发)。
 - **6** JANUS 元层(rolling 准确度 → feasibility-aware softmax → regime → 跨 cohort blend)。

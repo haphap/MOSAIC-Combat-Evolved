@@ -137,4 +137,20 @@ describe("BridgeClient against real sidecar", () => {
       await client.close();
     }
   });
+
+  it("data.* is registered: bad kind maps to INVALID_PARAMS", async () => {
+    const client = new BridgeClient();
+    try {
+      await client.start();
+      // Method exists (registered) and rejects a bad kind before any ingest —
+      // proves the handler is wired without needing tushare/pyqlib or a token.
+      const err = await client
+        .call("data.incremental", { kind: "bonds", end: "2026-05-30" })
+        .catch((e) => e);
+      expect(err).toBeInstanceOf(RpcError);
+      expect((err as RpcError).code).toBe(INVALID_PARAMS);
+    } finally {
+      await client.close();
+    }
+  });
 });
