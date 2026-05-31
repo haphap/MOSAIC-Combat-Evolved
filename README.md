@@ -11,7 +11,7 @@ _An A-share self-improving multi-agent trading framework — inspired by ATLAS._
 ![Python](https://img.shields.io/badge/Python-%E2%89%A53.10-3776AB?logo=python&logoColor=white)
 ![Node](https://img.shields.io/badge/Node-%E2%89%A522-339933?logo=node.js&logoColor=white)
 ![Status](https://img.shields.io/badge/phases-0--10%20complete-success)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
 > 25 个智能体 · 4 层决策图 · 提示词自进化 · 多周期训练 · 反身性模拟 —— 全部跑在一个混合 **Python sidecar + TypeScript 前端** 架构上。
 
@@ -219,8 +219,8 @@ MOSAIC-Agents/
 
 ### License
 
-本项目基于 **[MIT License](LICENSE)** 开源 —— 可自由使用、修改、分发，须保留版权与许可声明。
-Released under the **[MIT License](LICENSE)**.
+本项目基于 **[Apache License 2.0](LICENSE)** 开源 —— 可自由使用、修改、分发，须保留版权与许可声明并附带变更说明。
+Released under the **[Apache License 2.0](LICENSE)**.
 
 ### 致谢 (Acknowledgments)
 
