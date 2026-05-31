@@ -66,10 +66,20 @@ def _is_a_share_index(norm: str) -> bool:
 def _is_a_share_etf(norm: str) -> bool:
     """Return True for A-share ETF ts_codes that need pro.fund_daily.
 
-    ETF code-space is disjoint from stocks: SH ETFs are 5xxxxx (51/50/56/58…),
-    SZ ETFs are 1xxxxx (15/16/18…). Stocks are sh6/sz0/sz3, so the leading
-    digit + market unambiguously identify a fund. Mirrors the ETF routing in
-    ``mosaic.dataflows.qlib_local``.
+    ETF/LOF code-space largely disjoint from stocks: SH funds are 5xxxxx
+    (51/50/56/58…), SZ funds are 1xxxxx (15/16/18…); stocks are sh6/sz0/sz3.
+
+    Caveat: SZ exchange-traded convertible bonds also live in 1xxxxx
+    (12xxxx.SZ — 123/127/128…), so a bond ts_code would route here and
+    ``fund_daily`` would return nothing ⇒ None (unscored). This matches the
+    existing ``qlib_local`` routing and is harmless for today's input set (the
+    CIO only recommends broad-based ETFs). Tightening to 15/16/18 would be more
+    precise but is over-engineering until a bond ts_code is actually fed in.
+
+    NOTE: this duplicates the ETF code-space encoded in
+    ``mosaic.dataflows.qlib_local._is_etf_instrument`` (different format:
+    5xxxxx.SH vs sh5xxxxx). If the prefix set changes, keep both in sync; a
+    shared helper is the eventual cleanup.
     """
     code, _, market = norm.partition(".")
     if len(code) != 6:
@@ -81,7 +91,9 @@ def _fetch_close(ts_code: str, target_date_iso: str) -> Optional[float]:
     """Return the close price of ``ts_code`` on ``target_date_iso``, or None
     if the row is missing (suspension, holiday after wrong alignment, etc).
 
-    Uses ``tushare.pro.daily()`` for A-share / ``index_daily()`` for indices.
+    Routes by ts_code: ``pro.index_daily()`` for A-share indices,
+    ``pro.fund_daily()`` for ETFs, else ``pro.daily()`` (A-share / HK / US
+    stocks via ``_fetch_price_data``).
     """
     try:
         from mosaic.dataflows.tushare import (
