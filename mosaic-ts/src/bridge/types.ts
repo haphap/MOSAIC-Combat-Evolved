@@ -101,6 +101,8 @@ export interface MosaicConfig {
     keep_threshold_delta_sharpe: number;
     monthly_modification_cap_per_cohort: number;
     evaluation_horizon_trading_days: number;
+    /** Opt-in mirror of kept mutations to a self-hosted git server (default off). */
+    git?: { push?: boolean; remote?: string };
   };
 
   // ----- Data vendors (Phase 0) -----
@@ -557,6 +559,11 @@ export class BridgeApi {
 
   configSet(config: MosaicConfig): Promise<MosaicConfig> {
     return this.client.call<MosaicConfig>("config.set", { config });
+  }
+
+  /** Persist config to ~/.mosaic/config.json + apply (survives restarts). */
+  configSave(config: MosaicConfig): Promise<MosaicConfig> {
+    return this.client.call<MosaicConfig>("config.save", { config });
   }
 
   // cache.*

@@ -108,6 +108,7 @@ Cohort 切换 UI（PRISM）                                       paper_trading/
 - **9A** GitHub Actions CI(Python + TS 两 lane)+ 文档刷新。
 - **9B** 只读 Ink TUI dashboard。
 - **10** TUI 加 today(当日 CIO 建议)+ winrate(逐标的方向命中率)两屏 + ETF 数据(读 cn_etf + 驱动 ETF collector)。
+- **TUI 设置页(key 7)**:curated 可编辑配置(LLM provider/模型/输出语言/active cohort/autoresearch 5 数值 + git push·remote/mirofish engine·scorer·inject_context),↑↓选 / enter 编辑 / space 切 bool·枚举 / s 保存。配置经 `config.save` 持久化到 `~/.mosaic/config.json`(`MOSAIC_CONFIG` 可覆盖路径),每个 sidecar 启动 `initialize_config` 时 merge over `DEFAULT_CONFIG`(文件不存在=纯默认,行为不变;非法 JSON fail-soft 回默认)。
 
 **关键决策**:完整复刻 ATLAS 4 层 25+ agents;执行=paper trading,回测=qlib 向量化(**不引 backtrader**);
 autoresearch=git+SQLite;默认中文 + Anthropic(可切本地 Qwen 零成本);MiroFish 用三接口

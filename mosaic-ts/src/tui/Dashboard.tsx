@@ -1,9 +1,9 @@
 /**
- * Phase 10: read-only Ink dashboard. Aggregates existing read RPCs into one
- * screen — no new bridge methods. Tabs: 1 Today (latest CIO picks) / 2 WinRate
- * (per-ticker hit rate) / 3 Skill / 4 Paper / 5 Cohorts / 6 MiroFish (latest
- * scenario context + recent forward-training runs); r=refresh (manual; no
- * auto-poll), q=quit. The BridgeApi is injected so the component is testable.
+ * Phase 10: Ink dashboard. Aggregates existing read RPCs into one screen.
+ * Tabs: 1 Today (latest CIO picks) / 2 WinRate (per-ticker hit rate) / 3 Skill /
+ * 4 Paper / 5 Cohorts / 6 MiroFish (scenario context + recent runs) /
+ * 7 Settings (curated, editable, persisted config via config.save); r=refresh
+ * (manual; no auto-poll), q=quit. The BridgeApi is injected so it is testable.
  */
 
 import { Box, Text, useApp, useInput } from "ink";
@@ -14,14 +14,15 @@ import type {
   CohortInfo,
   MirofishContext,
   MirofishHistoryEntry,
+  MosaicConfig,
   PaperAccount,
   PaperPosition,
   SkillRow,
   WinRateRow,
 } from "../bridge/types.js";
 
-type Tab = "today" | "winrate" | "skill" | "paper" | "cohorts" | "mirofish";
-const TABS: Tab[] = ["today", "winrate", "skill", "paper", "cohorts", "mirofish"];
+type Tab = "today" | "winrate" | "skill" | "paper" | "cohorts" | "mirofish" | "settings";
+const TABS: Tab[] = ["today", "winrate", "skill", "paper", "cohorts", "mirofish", "settings"];
 
 interface Props {
   api: Pick<
@@ -34,6 +35,9 @@ interface Props {
     | "prismListCohorts"
     | "mirofishGetContext"
     | "mirofishGetHistory"
+    | "configGet"
+    | "configDefault"
+    | "configSave"
   >;
   cohort: string;
   user?: string;
@@ -55,6 +59,7 @@ export function Dashboard({ api, cohort, user }: Props) {
   const [tab, setTab] = useState<Tab>("today");
   const [data, setData] = useState<Data | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [settingsEditing, setSettingsEditing] = useState(false);
   const mounted = useRef(true);
 
   const load = useCallback(async () => {
@@ -100,6 +105,8 @@ export function Dashboard({ api, cohort, user }: Props) {
   }, [load]);
 
   useInput((input) => {
+    // When the settings tab is in edit mode, it owns all keystrokes.
+    if (settingsEditing) return;
     if (input === "q") exit();
     else if (input === "r") void load();
     else if (input === "1") setTab("today");
@@ -108,6 +115,7 @@ export function Dashboard({ api, cohort, user }: Props) {
     else if (input === "4") setTab("paper");
     else if (input === "5") setTab("cohorts");
     else if (input === "6") setTab("mirofish");
+    else if (input === "7") setTab("settings");
   });
 
   return (
@@ -122,6 +130,8 @@ export function Dashboard({ api, cohort, user }: Props) {
       <Box marginTop={1} flexDirection="column">
         {error ? (
           <Text color="red">error: {error}</Text>
+        ) : tab === "settings" ? (
+          <SettingsTab api={api} onEditingChange={setSettingsEditing} />
         ) : !data ? (
           <Text color="yellow">loading…</Text>
         ) : tab === "today" ? (
@@ -139,7 +149,7 @@ export function Dashboard({ api, cohort, user }: Props) {
         )}
       </Box>
       <Box marginTop={1}>
-        <Text dimColor>[1-6] switch · [r] refresh · [q] quit · cohort={cohort}</Text>
+        <Text dimColor>[1-7] switch · [r] refresh · [q] quit · cohort={cohort}</Text>
       </Box>
     </Box>
   );
@@ -279,6 +289,207 @@ function MirofishTab({
             </Text>
           ))
         )}
+      </Box>
+    </Box>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Settings tab (key 7): curated, editable, persisted config (config.save)
+// ---------------------------------------------------------------------------
+
+type FieldKind = "string" | "number" | "bool" | "enum";
+
+interface FieldSpec {
+  /** Dotted path into the config object, e.g. "autoresearch.git.push". */
+  path: string;
+  label: string;
+  kind: FieldKind;
+  options?: string[]; // for enum
+}
+
+/** Curated fields — the commonly-tuned knobs, not arbitrary nested maps. */
+const FIELDS: FieldSpec[] = [
+  {
+    path: "llm_provider",
+    label: "LLM provider",
+    kind: "enum",
+    options: ["anthropic", "openai", "deepseek", "lemonade"],
+  },
+  { path: "deep_think_llm", label: "Deep-think model", kind: "string" },
+  { path: "quick_think_llm", label: "Quick-think model", kind: "string" },
+  {
+    path: "output_language",
+    label: "Output language",
+    kind: "enum",
+    options: ["Chinese", "English", "Bilingual"],
+  },
+  { path: "active_cohort", label: "Active cohort", kind: "string" },
+  { path: "autoresearch.keep_threshold_delta_sharpe", label: "AR keep ΔSharpe", kind: "number" },
+  { path: "autoresearch.agent_mutation_cooldown_hours", label: "AR cooldown (h)", kind: "number" },
+  { path: "autoresearch.keep_revert_lockout_days", label: "AR lockout (d)", kind: "number" },
+  {
+    path: "autoresearch.monthly_modification_cap_per_cohort",
+    label: "AR monthly cap",
+    kind: "number",
+  },
+  {
+    path: "autoresearch.evaluation_horizon_trading_days",
+    label: "AR eval horizon (d)",
+    kind: "number",
+  },
+  { path: "autoresearch.git.push", label: "AR git push", kind: "bool" },
+  { path: "autoresearch.git.remote", label: "AR git remote", kind: "string" },
+  {
+    path: "mirofish.engine",
+    label: "MiroFish engine",
+    kind: "enum",
+    options: ["montecarlo", "swarm"],
+  },
+  {
+    path: "mirofish.scorer",
+    label: "MiroFish scorer",
+    kind: "enum",
+    options: ["terminal", "path_aware"],
+  },
+  { path: "mirofish.inject_context", label: "MiroFish inject ctx", kind: "bool" },
+];
+
+function getPath(obj: Record<string, unknown>, path: string): unknown {
+  return path.split(".").reduce<unknown>((acc, k) => {
+    return acc && typeof acc === "object" ? (acc as Record<string, unknown>)[k] : undefined;
+  }, obj);
+}
+
+function setPath(obj: Record<string, unknown>, path: string, value: unknown): void {
+  const keys = path.split(".");
+  let node = obj;
+  for (const k of keys.slice(0, -1)) {
+    if (typeof node[k] !== "object" || node[k] === null) node[k] = {};
+    node = node[k] as Record<string, unknown>;
+  }
+  node[keys[keys.length - 1] as string] = value;
+}
+
+function display(value: unknown, kind: FieldKind): string {
+  if (value === undefined || value === null) return kind === "bool" ? "false" : "—";
+  if (kind === "bool") return value ? "true" : "false";
+  return String(value);
+}
+
+function SettingsTab({
+  api,
+  onEditingChange,
+}: {
+  api: Pick<BridgeApi, "configGet" | "configDefault" | "configSave">;
+  onEditingChange: (editing: boolean) => void;
+}) {
+  const [cfg, setCfg] = useState<MosaicConfig | null>(null);
+  const [sel, setSel] = useState(0);
+  const [editing, setEditing] = useState(false);
+  const [buffer, setBuffer] = useState("");
+  const [status, setStatus] = useState<string | null>(null);
+  const mounted = useRef(true);
+
+  useEffect(() => {
+    mounted.current = true;
+    api
+      .configGet()
+      .catch(() => api.configDefault())
+      .then((c) => {
+        if (mounted.current) setCfg(c);
+      })
+      .catch((e) => {
+        if (mounted.current) setStatus(`load error: ${(e as Error).message}`);
+      });
+    return () => {
+      mounted.current = false;
+    };
+  }, [api]);
+
+  // Keep the parent informed so it can gate its own input handler.
+  useEffect(() => onEditingChange(editing), [editing, onEditingChange]);
+
+  const save = useCallback(async () => {
+    if (!cfg) return;
+    try {
+      const applied = await api.configSave(cfg);
+      if (mounted.current) {
+        setCfg(applied);
+        setStatus("saved → ~/.mosaic/config.json");
+      }
+    } catch (e) {
+      if (mounted.current) setStatus(`save error: ${(e as Error).message}`);
+    }
+  }, [api, cfg]);
+
+  useInput((input, key) => {
+    if (!cfg) return;
+    const field = FIELDS[sel] as FieldSpec;
+    if (editing) {
+      // Edit mode (string/number): type chars, enter commits, esc cancels.
+      if (key.escape) {
+        setEditing(false);
+        setBuffer("");
+      } else if (key.return) {
+        const next = structuredClone(cfg) as Record<string, unknown>;
+        setPath(next, field.path, field.kind === "number" ? Number(buffer) : buffer);
+        setCfg(next as MosaicConfig);
+        setEditing(false);
+        setBuffer("");
+        setStatus("edited (unsaved) — press s to persist");
+      } else if (key.backspace || key.delete) {
+        setBuffer((b) => b.slice(0, -1));
+      } else if (input && !key.ctrl && !key.meta) {
+        setBuffer((b) => b + input);
+      }
+      return;
+    }
+    // Browse mode.
+    if (key.upArrow) setSel((s) => (s - 1 + FIELDS.length) % FIELDS.length);
+    else if (key.downArrow) setSel((s) => (s + 1) % FIELDS.length);
+    else if (input === "s") void save();
+    else if (input === " " && (field.kind === "bool" || field.kind === "enum")) {
+      const next = structuredClone(cfg) as Record<string, unknown>;
+      if (field.kind === "bool") {
+        setPath(next, field.path, !getPath(next, field.path));
+      } else {
+        const opts = field.options ?? [];
+        const cur = String(getPath(next, field.path) ?? opts[0]);
+        const idx = opts.indexOf(cur);
+        setPath(next, field.path, opts[(idx + 1) % opts.length]);
+      }
+      setCfg(next as MosaicConfig);
+      setStatus("edited (unsaved) — press s to persist");
+    } else if (key.return && (field.kind === "string" || field.kind === "number")) {
+      setBuffer(display(getPath(cfg as Record<string, unknown>, field.path), field.kind));
+      setEditing(true);
+    }
+  });
+
+  if (status?.startsWith("load error")) return <Text color="red">{status}</Text>;
+  if (!cfg) return <Text color="yellow">loading config…</Text>;
+
+  return (
+    <Box flexDirection="column">
+      <Text color="cyan">settings (persisted to ~/.mosaic/config.json)</Text>
+      {FIELDS.map((f, i) => {
+        const active = i === sel;
+        const val = display(getPath(cfg as Record<string, unknown>, f.path), f.kind);
+        const shown = active && editing ? `${buffer}▌` : val;
+        return (
+          <Text key={f.path} color={active ? "cyan" : "gray"} bold={active}>
+            {active ? "›" : " "} {f.label.padEnd(22)} {shown}
+          </Text>
+        );
+      })}
+      <Box marginTop={1}>
+        <Text dimColor>
+          {editing
+            ? "[type] edit · [enter] commit · [esc] cancel"
+            : "[↑↓] select · [enter] edit · [space] toggle/cycle · [s] save"}
+          {status ? `  ·  ${status}` : ""}
+        </Text>
       </Box>
     </Box>
   );
