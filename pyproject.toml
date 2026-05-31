@@ -30,7 +30,6 @@ data = [
 ]
 # Phase 8 paper / backtest
 trading = [
-    "backtrader>=1.9.78.123",
     "bcrypt>=4.0",
 ]
 # Phase 3.5 qlib integration — heavy data + vectorized backtest engine.

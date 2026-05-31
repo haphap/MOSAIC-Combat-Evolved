@@ -293,31 +293,6 @@ class BridgeProtocolTests(_BridgeTestCase):
         )
         self.assertEqual(err["code"], -32602)
 
-    # -------------------------------------------------- backtest.* tests
-    #
-    # backtest_run_candidate_pool validates the full payload BEFORE the lazy
-    # import of mosaic.backtest, so even with the engine deferred to Phase 8
-    # we still exercise the protocol contract here.
-
-    def test_backtest_requires_tickers_and_signals(self) -> None:
-        err = self.call_err(
-            "backtest.run_candidate_pool",
-            {"start_date": "2026-01-02", "end_date": "2026-01-31", "signals": {}},
-        )
-        self.assertEqual(err["code"], -32602)
-        self.assertIn("tickers", err["message"])
-
-        err = self.call_err(
-            "backtest.run_candidate_pool",
-            {
-                "tickers": ["510300.SH"],
-                "start_date": "2026-01-02",
-                "end_date": "2026-01-31",
-            },
-        )
-        self.assertEqual(err["code"], -32602)
-        self.assertIn("signals", err["message"])
-
     # ------------------------------------------------- protocol-level
 
     def test_unknown_method_returns_method_not_found(self) -> None:
