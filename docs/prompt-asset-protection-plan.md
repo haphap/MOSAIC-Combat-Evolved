@@ -559,6 +559,7 @@ private prompt pinned worktree
 5. 接入 operator-run / scheduled drift check。
    - 在有 private prompt repo 和 prompt_versions DB 的环境运行。
    - baseline 修改影响已有 private override 时，提示需要 private repo sync branch 或 waiver。
+   - scheduled mode 使用 state file 记录上一次确认过的 baseline；drift 存在时不自动推进，完成 sync review 或 waiver 后必须显式 `--accept` 推进 state，避免 livelock 只能靠手改 JSON。
 
 涉及文件：
 
@@ -721,7 +722,8 @@ pnpm dev prompts write-baseline --allow-public-prompt-write ...
 - [x] TS resolver 支持 private prompt repo first。
 - [x] loader cache key 区分 private repo commit/content。
 - [ ] loader 支持 pinned prompt worktree。
-- [ ] operator-run / scheduled baseline drift alert。
+- [x] operator-run baseline drift alert。
+- [x] scheduled baseline drift alert。
 - [ ] registry-scan compatibility validation。
 - [ ] private path redaction。
 - [x] loader tests。
@@ -755,8 +757,9 @@ pnpm dev prompts write-baseline --allow-public-prompt-write ...
 - [x] 新增 prompt leak check script。
 - [x] CI 接入检查。
 - [x] CI 只做 leak/provenance guard，不依赖 private repo。
-- [ ] baseline drift check 接入 operator-run / scheduled tool。
-- [ ] 文档化 baseline 更新流程。
+- [x] baseline drift check 接入 operator-run tool。
+- [x] baseline drift check 接入 scheduled tool。
+- [x] 文档化 baseline 更新流程。
 
 ### P7 日志脱敏
 

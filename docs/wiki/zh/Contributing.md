@@ -21,6 +21,9 @@ CI 在 `.github/workflows/ci.yml` 跑同样内容(一个 Python lane + 一个 TS
 注意:
 - `ruff` 排除 vendored 采集器(`mosaic/dataflows/collectors`)—— 第三方,逐字保留。
 - 部分测试由 `_HAS_QLIB` / 依赖存在性 guard,当某可选 extra(如 `pyqlib`、`bcrypt`、`numpy`)缺失时干净跳过,使套件可 hermetic 运行。
+- CI 也会运行 prompt leak guard。它会阻止 autoresearch/private prompt 产物进入项目 repo,但它是 provenance-based 检查,不对普通 prompt 正文做内容分类。
+- 当 PR 修改 `prompts/mosaic/**` 且你运行 private prompt repo 时,在 `mosaic-ts/` 下设置 `MOSAIC_PRIVATE_PROMPT_REPO` 后运行 `pnpm prompt:drift -- --base-ref origin/main`。任何报告出的 override 都需要 private baseline-sync 分支或明确 waiver 后才能 release。
+- scheduled operator check 先用已知安全的 `baseline_ref` 初始化 `data/prompt-drift-state.json`,再在 `mosaic-ts/` 下设置 `MOSAIC_PRIVATE_PROMPT_REPO` 并运行 `pnpm prompt:drift:scheduled`。检查通过时 state 会前进;完成 private baseline-sync review 或明确 waiver 后,用 `-- --accept` 重新运行同一命令来确认 findings 并推进 state。
 
 ## 约定
 
