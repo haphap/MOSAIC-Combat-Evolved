@@ -72,6 +72,8 @@ pnpm dev backtest --cohort cohort_default
 ```
 选项:`--cohort`、`--prompt-commit-hash <hash>`、`--fake-llm`、LLM 选项、`--veto-threshold <num>`、`--initial-cash <amount>`、`--benchmark <ticker>`、`--force-refill`、`--log-every <n>`、`--out <path>`。另有 `backtest-fill` 做缓存填充阶段。
 
+> `--out` 写指标 JSON。完整 ATLAS 同构产物(`summary.json` / `portfolio_trajectory.csv` / `equity_curve.png`)由 `backtest.run_historical` **RPC** 在传入 `results_dir` 时产出(见[桥 RPC](Bridge-RPC.md));尚未做成 `backtest` CLI 标志。
+
 ## 纸上交易
 
 ```bash

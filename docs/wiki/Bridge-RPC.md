@@ -56,6 +56,7 @@ Registered tool modules (`mosaic/bridge/handlers/tools.py` `_TOOL_MODULES`): `ma
 - `backtest.create_run`, `backtest.append_actions`, `backtest.complete_run`,
   `backtest.get_run`, `backtest.list_runs`, `backtest.run_historical`.
 - (The legacy backtrader `run_candidate_pool` path was removed; backtest is qlib-only.)
+- `backtest.run_historical` accepts an optional `results_dir`: when set, the run also exports ATLAS-isomorphic artifacts (`summary.json` / `portfolio_trajectory.csv` / `equity_curve.png`) via `mosaic/backtest/results_export.py`. matplotlib is optional — the PNG is skipped if it's absent.
 
 ### paper
 - `paper.register`, `paper.login`, `paper.logout`, `paper.current_user`,
