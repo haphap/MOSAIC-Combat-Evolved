@@ -8,7 +8,7 @@ Exposes the prompt-mutation lifecycle to the TS orchestrator:
     * autoresearch.get_log       -- audit trail
     * autoresearch.list_active_branches -- pending feature branches
     * autoresearch.revert_modification  -- manual revert with lockout check
-    * autoresearch.prepare_worktree     -- isolated checkout for evaluation
+    * autoresearch.prepare_worktree     -- isolated project/private checkout for evaluation
     * autoresearch.cleanup_worktree     -- remove an evaluation worktree
 """
 
@@ -48,6 +48,49 @@ def _git_ops():
     return GitOps(_repo_root())
 
 
+def _private_git_ops():
+    from mosaic.autoresearch.git_ops import GitOps
+    from mosaic.autoresearch.prompt_repo import (
+        PromptRepoError,
+        private_prompt_repo_from_env,
+        validate_private_prompt_repo,
+    )
+
+    repo = private_prompt_repo_from_env()
+    if repo is None:
+        raise RpcError(
+            INVALID_PARAMS,
+            "MOSAIC_PRIVATE_PROMPT_REPO is required for private autoresearch branches",
+        )
+    try:
+        return GitOps(validate_private_prompt_repo(repo, project_root=_repo_root()))
+    except PromptRepoError as exc:
+        raise RpcError(INVALID_PARAMS, str(exc)) from exc
+
+
+def _git_ops_for_branch(branch: str, version: dict[str, Any] | None = None):
+    prompt_repo_id = (version or {}).get("prompt_repo_id")
+    if prompt_repo_id == "private":
+        private_git = _private_git_ops()
+        if not private_git.branch_exists(branch):
+            raise RpcError(
+                AUTORESEARCH_ERROR,
+                f"private prompt branch not found in MOSAIC_PRIVATE_PROMPT_REPO: {branch}",
+            )
+        return private_git
+
+    project_git = _git_ops()
+    if project_git.branch_exists(branch):
+        return project_git
+    try:
+        private_git = _private_git_ops()
+        if private_git.branch_exists(branch):
+            return private_git
+    except RpcError:
+        pass
+    return project_git
+
+
 def _config():
     from mosaic.default_config import DEFAULT_CONFIG
 
@@ -72,6 +115,35 @@ def _require_int(params: dict, key: str) -> int:
     return val
 
 
+def _run_fill_spec(
+    *,
+    kind: str,
+    cohort: str,
+    start_date: str,
+    end_date: str,
+    prompt_commit_hash: str,
+    prompt_repo_id: str | None = None,
+    prompt_sha256: str | None = None,
+    code_commit_hash: str | None = None,
+) -> dict[str, Any]:
+    spec: dict[str, Any] = {
+        "kind": kind,
+        "cohort": cohort,
+        "start_date": start_date,
+        "end_date": end_date,
+        "prompt_commit_hash": prompt_commit_hash,
+    }
+    if prompt_repo_id:
+        spec["prompt_repo_id"] = prompt_repo_id
+    if prompt_sha256:
+        spec["prompt_sha256"] = prompt_sha256
+    if code_commit_hash:
+        spec["code_commit_hash"] = code_commit_hash
+    if prompt_repo_id == "private":
+        spec["private_prompt_commit"] = prompt_commit_hash
+    return spec
+
+
 # ---------------------------------------------------------------------------
 # autoresearch.trigger
 # ---------------------------------------------------------------------------
@@ -79,13 +151,13 @@ def _require_int(params: dict, key: str) -> int:
 
 @method("autoresearch.trigger")
 def autoresearch_trigger(params: dict[str, Any]) -> dict[str, Any]:
-    """Select an agent and create a pending prompt_version + git branch.
+    """Select an agent and create a pending prompt_version.
 
     Params:
         cohort:       str
         force_agent:  str | None -- bypass selection, use this agent
         dry_run:      bool -- select + check constraints only; do NOT create
-                      the git branch or prompt_versions row (version_id=None)
+                      the prompt_versions row (version_id=None)
 
     Returns:
         {version_id, agent, branch_name, base_commit}
@@ -157,23 +229,19 @@ def autoresearch_trigger(params: dict[str, Any]) -> dict[str, Any]:
             "dry_run": True,
         }
 
-    # Create branch in git.
-    try:
-        if not git.branch_exists(branch_name):
-            git.create_branch(branch_name, "main")
-    except Exception as exc:
-        raise RpcError(
-            AUTORESEARCH_ERROR, f"failed to create branch: {exc}"
-        ) from exc
-
     # Create version shell in DB.
     version_id = store.create_prompt_version(
         cohort=cohort,
         agent=agent,
         branch_name=branch_name,
         base_commit_hash=base_commit,
+        code_commit_hash=base_commit,
     )
-    store.append_log(version_id, "triggered", f"agent={agent}, branch={branch_name}")
+    store.append_log(
+        version_id,
+        "triggered",
+        f"agent={agent}, prompt_branch={branch_name}, code_base={base_commit[:12]}",
+    )
 
     return {
         "version_id": version_id,
@@ -244,6 +312,10 @@ def autoresearch_record_mutation(params: dict[str, Any]) -> dict[str, Any]:
         version_id:   int
         commit_hash:  str
         summary:      str | None
+        prompt_repo_id: str | None
+        prompt_base_commit_hash: str | None
+        prompt_sha256: str | None
+        code_commit_hash: str | None
 
     Returns:
         {"ok": true}
@@ -253,9 +325,29 @@ def autoresearch_record_mutation(params: dict[str, Any]) -> dict[str, Any]:
     summary = params.get("summary")
     if summary is not None and not isinstance(summary, str):
         raise RpcError(INVALID_PARAMS, "'summary' must be a string")
+    prompt_repo_id = params.get("prompt_repo_id")
+    if prompt_repo_id is not None and not isinstance(prompt_repo_id, str):
+        raise RpcError(INVALID_PARAMS, "'prompt_repo_id' must be a string")
+    prompt_base_commit_hash = params.get("prompt_base_commit_hash")
+    if prompt_base_commit_hash is not None and not isinstance(prompt_base_commit_hash, str):
+        raise RpcError(INVALID_PARAMS, "'prompt_base_commit_hash' must be a string")
+    prompt_sha256 = params.get("prompt_sha256")
+    if prompt_sha256 is not None and not isinstance(prompt_sha256, str):
+        raise RpcError(INVALID_PARAMS, "'prompt_sha256' must be a string")
+    code_commit_hash = params.get("code_commit_hash")
+    if code_commit_hash is not None and not isinstance(code_commit_hash, str):
+        raise RpcError(INVALID_PARAMS, "'code_commit_hash' must be a string")
 
     store = _store()
-    store.set_version_mutation(version_id, commit_hash, summary)
+    store.set_version_mutation(
+        version_id,
+        commit_hash,
+        summary,
+        prompt_repo_id=prompt_repo_id,
+        prompt_base_commit_hash=prompt_base_commit_hash,
+        prompt_sha256=prompt_sha256,
+        code_commit_hash=code_commit_hash,
+    )
     store.append_log(version_id, "mutated", f"commit={commit_hash[:12]}")
 
     return {"ok": True}
@@ -285,7 +377,11 @@ def autoresearch_evaluate_pending(params: dict[str, Any]) -> dict[str, Any]:
         {"results": [{version_id, status, delta_sharpe?}, ...]}
     """
     from mosaic.autoresearch.decider import decide
-    from mosaic.autoresearch.evaluator import compute_delta, ensure_baseline_run
+    from mosaic.autoresearch.evaluator import (
+        compute_delta,
+        ensure_baseline_run,
+        validate_prompt_tool_compatibility,
+    )
 
     cohort = params.get("cohort")
     if cohort is not None and not isinstance(cohort, str):
@@ -326,16 +422,68 @@ def autoresearch_evaluate_pending(params: dict[str, Any]) -> dict[str, Any]:
                             "detail": f"cohort '{v_cohort}' missing date range"})
             continue
 
+        git = _git_ops_for_branch(v["branch_name"], v)
+        compatibility = validate_prompt_tool_compatibility(v, git)
+        if not compatibility["compatible"]:
+            detail = (
+                "unknown_tools="
+                f"{compatibility['unknown_tools']}; "
+                f"missing_files={compatibility['missing_files']}"
+            )
+            store.mark_version_incompatible(version_id, detail)
+            store.append_log(version_id, "incompatible", detail)
+            results.append({
+                "version_id": version_id,
+                "status": "incompatible",
+                "detail": detail,
+            })
+            continue
+
         # Check if both runs exist.
         base_check = ensure_baseline_run(
             store, v_cohort, start_date, end_date, v["base_commit_hash"]
         )
         mod_check = ensure_baseline_run(
-            store, v_cohort, start_date, end_date, mod_commit
+            store,
+            v_cohort,
+            start_date,
+            end_date,
+            mod_commit,
+            prompt_repo_id=v.get("prompt_repo_id"),
+            prompt_sha256=v.get("prompt_sha256"),
+            code_commit_hash=v.get("code_commit_hash"),
         )
 
         if base_check["needs_fill"] or mod_check["needs_fill"]:
-            results.append({"version_id": version_id, "status": "needs_fill"})
+            missing_runs = []
+            if base_check["needs_fill"]:
+                missing_runs.append(
+                    _run_fill_spec(
+                        kind="base",
+                        cohort=v_cohort,
+                        start_date=start_date,
+                        end_date=end_date,
+                        prompt_commit_hash=v["base_commit_hash"],
+                    )
+                )
+            if mod_check["needs_fill"]:
+                missing_runs.append(
+                    _run_fill_spec(
+                        kind="mod",
+                        cohort=v_cohort,
+                        start_date=start_date,
+                        end_date=end_date,
+                        prompt_commit_hash=mod_commit,
+                        prompt_repo_id=v.get("prompt_repo_id"),
+                        prompt_sha256=v.get("prompt_sha256"),
+                        code_commit_hash=v.get("code_commit_hash"),
+                    )
+                )
+            results.append({
+                "version_id": version_id,
+                "status": "needs_fill",
+                "missing_runs": missing_runs,
+            })
             continue
 
         # Both runs complete: evaluate + decide.
@@ -343,7 +491,7 @@ def autoresearch_evaluate_pending(params: dict[str, Any]) -> dict[str, Any]:
             delta_result = compute_delta(store, version_id, config)
             # Re-read version after eval writes.
             updated_version = store.get_prompt_version(version_id)
-            git = _git_ops()
+            git = _git_ops_for_branch(updated_version["branch_name"], updated_version)
             status = decide(store, git, updated_version, config)
             # decide() returns the stored state-machine value (keep/revert);
             # expose the past-tense form (kept/reverted) on the RPC boundary so
@@ -475,22 +623,36 @@ def autoresearch_prepare_worktree(params: dict[str, Any]) -> dict[str, Any]:
     """Check out a branch/ref into an isolated worktree for evaluation.
 
     Params:
-        branch: str -- branch name or ref to checkout
+        branch: str -- branch name or ref to checkout (legacy project path)
+        ref: str | None -- explicit ref; preferred for pinned prompt commits
+        repo_target: str | None -- project_git (default) | private_git
 
     Returns:
-        {"path": str}
+        {"path": str, "repo_target": str, "prompts_root": str | None}
     """
-    branch = _require_str(params, "branch")
-    git = _git_ops()
+    target = params.get("repo_target") or "project_git"
+    if target not in ("project_git", "private_git"):
+        raise RpcError(
+            INVALID_PARAMS,
+            "'repo_target' must be one of ('project_git', 'private_git')",
+        )
+    ref = params.get("ref") or params.get("branch")
+    if not isinstance(ref, str) or not ref.strip():
+        raise RpcError(INVALID_PARAMS, "'ref' or 'branch' must be a non-empty string")
+    ref = ref.strip()
+    git = _private_git_ops() if target == "private_git" else _git_ops()
 
     try:
-        wt_path = git.add_worktree(branch)
+        wt_path = git.add_worktree(ref)
     except Exception as exc:
         raise RpcError(
             AUTORESEARCH_ERROR, f"add_worktree failed: {exc}"
         ) from exc
 
-    return {"path": str(wt_path)}
+    result = {"path": str(wt_path), "repo_target": target}
+    if target == "private_git":
+        result["prompts_root"] = str(wt_path / "prompts" / "mosaic")
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -504,12 +666,19 @@ def autoresearch_cleanup_worktree(params: dict[str, Any]) -> dict[str, Any]:
 
     Params:
         path: str -- path returned by prepare_worktree
+        repo_target: str | None -- project_git (default) | private_git
 
     Returns:
         {"ok": true}
     """
     path = _require_str(params, "path")
-    git = _git_ops()
+    target = params.get("repo_target") or "project_git"
+    if target not in ("project_git", "private_git"):
+        raise RpcError(
+            INVALID_PARAMS,
+            "'repo_target' must be one of ('project_git', 'private_git')",
+        )
+    git = _private_git_ops() if target == "private_git" else _git_ops()
 
     try:
         git.remove_worktree(Path(path))

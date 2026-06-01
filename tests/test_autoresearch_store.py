@@ -48,12 +48,57 @@ class TestSchema:
                     "SELECT name FROM sqlite_master WHERE type='table'"
                 )
             }
+            prompt_version_cols = {
+                r[1] for r in conn.execute("PRAGMA table_info(prompt_versions)")
+            }
         assert "prompt_versions" in tables
         assert "autoresearch_log" in tables
+        assert {
+            "prompt_repo_id",
+            "prompt_base_commit_hash",
+            "prompt_sha256",
+            "code_commit_hash",
+        }.issubset(prompt_version_cols)
 
     def test_reinstantiate_is_idempotent(self, store: ScorecardStore):
         # CREATE TABLE IF NOT EXISTS — second instance must not raise.
         ScorecardStore(db_path=store.db_path)
+
+    def test_old_prompt_versions_table_gets_repo_metadata_columns(self, tmp_path: Path):
+        db_path = tmp_path / "old.db"
+        import sqlite3
+
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                """
+                CREATE TABLE prompt_versions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    cohort TEXT NOT NULL,
+                    agent TEXT NOT NULL,
+                    branch_name TEXT NOT NULL,
+                    base_commit_hash TEXT NOT NULL,
+                    modification_commit_hash TEXT,
+                    modification_summary TEXT,
+                    created_at TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    decided_at TEXT,
+                    pre_sharpe REAL,
+                    post_sharpe REAL,
+                    delta_sharpe REAL,
+                    UNIQUE(branch_name)
+                )
+                """
+            )
+
+        migrated = ScorecardStore(db_path=db_path)
+        with migrated._connect() as conn:
+            cols = {r[1] for r in conn.execute("PRAGMA table_info(prompt_versions)")}
+        assert {
+            "prompt_repo_id",
+            "prompt_base_commit_hash",
+            "prompt_sha256",
+            "code_commit_hash",
+        }.issubset(cols)
 
 
 # ---------------------------------------------------------------------------
@@ -69,6 +114,7 @@ class TestPromptVersionLifecycle:
         assert v["modification_commit_hash"] is None
         assert v["delta_sharpe"] is None
         assert v["agent"] == "volatility"
+        assert v["code_commit_hash"] == "a" * 40
 
     def test_create_is_idempotent_on_branch(self, store: ScorecardStore):
         vid1 = _new_version(store)
@@ -78,10 +124,22 @@ class TestPromptVersionLifecycle:
 
     def test_record_mutation_fills_commit(self, store: ScorecardStore):
         vid = _new_version(store)
-        store.set_version_mutation(vid, "b" * 40, "tighten VIX/iVX ratio rule")
+        store.set_version_mutation(
+            vid,
+            "b" * 40,
+            "tighten VIX/iVX ratio rule",
+            prompt_repo_id="private",
+            prompt_base_commit_hash="d" * 40,
+            prompt_sha256="f" * 64,
+            code_commit_hash="c" * 40,
+        )
         v = store.get_prompt_version(vid)
         assert v["modification_commit_hash"] == "b" * 40
         assert v["modification_summary"] == "tighten VIX/iVX ratio rule"
+        assert v["prompt_repo_id"] == "private"
+        assert v["prompt_base_commit_hash"] == "d" * 40
+        assert v["prompt_sha256"] == "f" * 64
+        assert v["code_commit_hash"] == "c" * 40
         assert v["status"] == "pending"  # still pending until decided
 
     def test_set_eval_fills_sharpe(self, store: ScorecardStore):
@@ -108,6 +166,18 @@ class TestPromptVersionLifecycle:
         vid = _new_version(store)
         with pytest.raises(ValueError, match="keep.*revert"):
             store.decide_version(vid, "maybe")
+
+    def test_mark_incompatible_is_terminal(self, store: ScorecardStore):
+        vid = _new_version(store)
+        store.mark_version_incompatible(
+            vid,
+            "unknown_tools=['get_removed_tool']",
+            decided_at="2008-09-16T09:00:00+00:00",
+        )
+        v = store.get_prompt_version(vid)
+        assert v["status"] == "incompatible"
+        assert v["decided_at"] == "2008-09-16T09:00:00+00:00"
+        assert "get_removed_tool" in v["modification_summary"]
 
     def test_get_version_by_branch(self, store: ScorecardStore):
         vid = _new_version(store)

@@ -46,6 +46,11 @@ interface BacktestFillOptions {
   logEvery?: string;
   /** Override prompts root directory (for worktree evaluation). */
   promptsRoot?: string;
+  /** Private prompt repo commit/ref to checkout and use as the prompt root. */
+  privatePromptCommit?: string;
+  promptRepoId?: string;
+  promptSha256?: string;
+  codeCommitHash?: string;
   /** Only re-run the days recorded as failed for this run (R-A3). */
   retryFailed?: boolean;
 }
@@ -75,6 +80,13 @@ export function registerBacktestFill(program: Command): void {
     .option("--log-every <n>", "Print progress every N trade days (default 5)")
     .option("--prompts-root <path>", "Override prompts root directory (for worktree evaluation)")
     .option(
+      "--private-prompt-commit <hash>",
+      "Checkout this private prompt repo commit/ref and use its prompts as the pinned root",
+    )
+    .option("--prompt-repo-id <id>", "Prompt repo id for repo-aware backtest cache keys")
+    .option("--prompt-sha256 <sha>", "Prompt content SHA for repo-aware backtest cache keys")
+    .option("--code-commit-hash <hash>", "Project code commit for repo-aware backtest cache keys")
+    .option(
       "--retry-failed",
       "Only re-run the trade days previously recorded as failed for this run (R-A3). " +
         "Must use the SAME --cohort/--start/--end/--prompt-commit-hash as the original " +
@@ -87,8 +99,17 @@ export function registerBacktestFill(program: Command): void {
       const promptCommitHash = opts.promptCommitHash ?? "unversioned";
       const logEvery = Number.parseInt(opts.logEvery ?? "5", 10);
       const vetoThreshold = opts.vetoThreshold ? Number(opts.vetoThreshold) : 0.5;
+      let privatePromptWorktreePath: string | undefined;
 
       try {
+        if (opts.promptsRoot && opts.privatePromptCommit) {
+          console.error(
+            pc.red("error: use either --prompts-root or --private-prompt-commit, not both"),
+          );
+          process.exitCode = 1;
+          return;
+        }
+
         await client.start();
         const config = await api.configGet();
 
@@ -114,8 +135,24 @@ export function registerBacktestFill(program: Command): void {
           start_date: opts.start,
           end_date: opts.end,
           prompt_commit_hash: promptCommitHash,
+          ...(opts.promptRepoId ? { prompt_repo_id: opts.promptRepoId } : {}),
+          ...(opts.promptSha256 ? { prompt_sha256: opts.promptSha256 } : {}),
+          ...(opts.codeCommitHash ? { code_commit_hash: opts.codeCommitHash } : {}),
         });
         const runId = runResult.run_id;
+        let effectivePromptsRoot = opts.promptsRoot;
+
+        if (opts.privatePromptCommit) {
+          const promptWorktree = await api.autoresearchPrepareWorktree({
+            repo_target: "private_git",
+            ref: opts.privatePromptCommit,
+          });
+          if (!promptWorktree.prompts_root) {
+            throw new Error("private prompt worktree did not return prompts_root");
+          }
+          privatePromptWorktreePath = promptWorktree.path;
+          effectivePromptsRoot = promptWorktree.prompts_root;
+        }
 
         // R-A3: --retry-failed restricts this pass to the days previously
         // recorded as failed for this run (queried from the bridge), instead
@@ -139,13 +176,16 @@ export function registerBacktestFill(program: Command): void {
               `prompt=${promptCommitHash}`,
           ),
         );
+        if (opts.privatePromptCommit) {
+          console.log(pc.dim(`private prompt ref: ${opts.privatePromptCommit}`));
+        }
 
         const graph = buildDailyCycleGraph({
           llmHandle,
           api,
           config,
           vetoThreshold,
-          ...(opts.promptsRoot ? { promptsRoot: opts.promptsRoot } : {}),
+          ...(effectivePromptsRoot ? { promptsRoot: effectivePromptsRoot } : {}),
         });
 
         let completed = 0;
@@ -239,6 +279,20 @@ export function registerBacktestFill(program: Command): void {
         }
         process.exitCode = 1;
       } finally {
+        if (privatePromptWorktreePath) {
+          try {
+            await api.autoresearchCleanupWorktree({
+              path: privatePromptWorktreePath,
+              repo_target: "private_git",
+            });
+          } catch (cleanupErr) {
+            console.error(
+              pc.yellow(
+                `warning: private prompt worktree cleanup failed: ${(cleanupErr as Error).message}`,
+              ),
+            );
+          }
+        }
         await client.close();
       }
     });

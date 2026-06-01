@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import subprocess
 import sys
 import unittest
@@ -14,6 +15,7 @@ from unittest.mock import patch
 # handlers __init__) still resolves these without tripping E402.
 import mosaic.bridge.protocol  # noqa: F401
 from mosaic.bridge.protocol import RpcError
+from mosaic.autoresearch.prompt_repo import init_private_prompt_repo
 from mosaic.scorecard.store import ScorecardStore
 
 # Import the autoresearch handler. Prefer the normal package import (which
@@ -93,7 +95,7 @@ class TestAutoresearchTrigger(unittest.TestCase):
         self._repo_patch.stop()
         self._tmpdir.cleanup()
 
-    def test_trigger_creates_version_and_branch(self):
+    def test_trigger_creates_version_without_project_branch(self):
         result = autoresearch_trigger({
             "cohort": "euphoria_2021",
             "force_agent": "volatility",
@@ -103,6 +105,12 @@ class TestAutoresearchTrigger(unittest.TestCase):
         self.assertIn("cohort/euphoria_2021/auto/volatility/", result["branch_name"])
         self.assertIsInstance(result["base_commit"], str)
         self.assertTrue(len(result["base_commit"]) >= 7)
+        git_branch = subprocess.run(
+            ["git", "-C", str(self.repo_path), "branch", "--list",
+             result["branch_name"]],
+            capture_output=True, text=True, check=True,
+        ).stdout.strip()
+        self.assertEqual(git_branch, "")
 
     def test_trigger_idempotent(self):
         """Calling trigger twice for the same date/agent returns the same version."""
@@ -167,12 +175,20 @@ class TestAutoresearchRecordMutation(unittest.TestCase):
             "version_id": vid,
             "commit_hash": "b" * 40,
             "summary": "improved risk handling",
+            "prompt_repo_id": "private",
+            "prompt_base_commit_hash": "d" * 40,
+            "prompt_sha256": "f" * 64,
+            "code_commit_hash": "a" * 40,
         })
         self.assertTrue(result["ok"])
 
         v = self.store.get_prompt_version(vid)
         self.assertEqual(v["modification_commit_hash"], "b" * 40)
         self.assertEqual(v["modification_summary"], "improved risk handling")
+        self.assertEqual(v["prompt_repo_id"], "private")
+        self.assertEqual(v["prompt_base_commit_hash"], "d" * 40)
+        self.assertEqual(v["prompt_sha256"], "f" * 64)
+        self.assertEqual(v["code_commit_hash"], "a" * 40)
 
     def test_record_mutation_appends_log(self):
         vid = self.store.create_prompt_version(
@@ -199,8 +215,19 @@ class TestAutoresearchEvaluatePending(unittest.TestCase):
         self.store = ScorecardStore(db_path=self.db_path)
         self._store_patch = patch.object(_ar, "_store", return_value=self.store)
         self._store_patch.start()
+        self._compat_patch = patch(
+            "mosaic.autoresearch.evaluator.validate_prompt_tool_compatibility",
+            return_value={
+                "compatible": True,
+                "referenced_tools": [],
+                "unknown_tools": [],
+                "missing_files": [],
+            },
+        )
+        self._compat = self._compat_patch.start()
 
     def tearDown(self):
+        self._compat_patch.stop()
         self._store_patch.stop()
         self._tmpdir.cleanup()
 
@@ -212,6 +239,22 @@ class TestAutoresearchEvaluatePending(unittest.TestCase):
         self.store.set_version_mutation(vid, "b" * 40, "x")
         return vid
 
+    def _private_mutated_version(self, branch: str) -> int:
+        vid = self.store.create_prompt_version(
+            cohort="euphoria_2021", agent="volatility",
+            branch_name=branch, base_commit_hash="a" * 40,
+        )
+        self.store.set_version_mutation(
+            vid,
+            "b" * 40,
+            "x",
+            prompt_repo_id="private",
+            prompt_base_commit_hash="d" * 40,
+            prompt_sha256="f" * 64,
+            code_commit_hash="c" * 40,
+        )
+        return vid
+
     def test_version_id_scopes_to_one_version(self):
         # Two mutated pending versions; ask for just the second.
         self._mutated_version("cohort/euphoria_2021/auto/volatility/2021-01-01")
@@ -221,6 +264,43 @@ class TestAutoresearchEvaluatePending(unittest.TestCase):
         self.assertEqual(ids, [vid2])
         # No backtest runs exist → needs_fill (proves it reached evaluation).
         self.assertEqual(result["results"][0]["status"], "needs_fill")
+        self.assertEqual(
+            [run["kind"] for run in result["results"][0]["missing_runs"]],
+            ["base", "mod"],
+        )
+
+    def test_needs_fill_reports_private_prompt_metadata(self):
+        class FakePrivateGit:
+            def branch_exists(self, _branch: str) -> bool:
+                return True
+
+        vid = self._private_mutated_version(
+            "cohort/euphoria_2021/auto/volatility/2021-01-04"
+        )
+
+        with patch.object(_ar, "_private_git_ops", return_value=FakePrivateGit()):
+            result = autoresearch_evaluate_pending({"version_id": vid})
+
+        self.assertEqual(result["results"][0]["status"], "needs_fill")
+        mod_spec = [
+            run for run in result["results"][0]["missing_runs"]
+            if run["kind"] == "mod"
+        ][0]
+        self.assertEqual(mod_spec["prompt_commit_hash"], "b" * 40)
+        self.assertEqual(mod_spec["prompt_repo_id"], "private")
+        self.assertEqual(mod_spec["prompt_sha256"], "f" * 64)
+        self.assertEqual(mod_spec["code_commit_hash"], "c" * 40)
+        self.assertEqual(mod_spec["private_prompt_commit"], "b" * 40)
+
+    def test_private_version_requires_private_repo_git(self):
+        vid = self._private_mutated_version(
+            "cohort/euphoria_2021/auto/volatility/2021-01-05"
+        )
+
+        with self.assertRaises(RpcError) as ctx:
+            autoresearch_evaluate_pending({"version_id": vid})
+
+        self.assertIn("MOSAIC_PRIVATE_PROMPT_REPO", ctx.exception.message)
 
     def test_scan_all_without_version_id(self):
         self._mutated_version("cohort/euphoria_2021/auto/volatility/2021-01-01")
@@ -235,6 +315,24 @@ class TestAutoresearchEvaluatePending(unittest.TestCase):
     def test_version_id_must_be_int(self):
         with self.assertRaises(RpcError):
             autoresearch_evaluate_pending({"version_id": "nope"})
+
+    def test_incompatible_prompt_is_recorded_and_skips_fill(self):
+        self._compat.return_value = {
+            "compatible": False,
+            "referenced_tools": ["get_removed_tool"],
+            "unknown_tools": ["get_removed_tool"],
+            "missing_files": [],
+        }
+        vid = self._mutated_version("cohort/euphoria_2021/auto/volatility/2021-01-03")
+
+        result = autoresearch_evaluate_pending({"version_id": vid})
+
+        self.assertEqual(result["results"][0]["status"], "incompatible")
+        self.assertIn("get_removed_tool", result["results"][0]["detail"])
+        version = self.store.get_prompt_version(vid)
+        self.assertEqual(version["status"], "incompatible")
+        log = self.store.get_log()
+        self.assertEqual(log[0]["event"], "incompatible")
 
 
 class TestAutoresearchGetLog(unittest.TestCase):
@@ -329,6 +427,7 @@ class TestAutoresearchWorktree(unittest.TestCase):
     def test_prepare_and_cleanup_worktree(self):
         result = autoresearch_prepare_worktree({"branch": "main"})
         self.assertIn("path", result)
+        self.assertEqual(result["repo_target"], "project_git")
         wt_path = Path(result["path"])
         self.assertTrue(wt_path.exists())
 
@@ -338,6 +437,28 @@ class TestAutoresearchWorktree(unittest.TestCase):
     def test_prepare_worktree_invalid_branch(self):
         with self.assertRaises(RpcError):
             autoresearch_prepare_worktree({"branch": ""})
+
+    def test_prepare_private_prompt_worktree_returns_prompts_root(self):
+        private_repo = self.tmp / "private-prompts"
+        init_private_prompt_repo(private_repo, project_root=self.repo_path)
+        with patch.dict(os.environ, {"MOSAIC_PRIVATE_PROMPT_REPO": str(private_repo)}):
+            result = autoresearch_prepare_worktree({
+                "repo_target": "private_git",
+                "ref": "main",
+            })
+
+            self.assertEqual(result["repo_target"], "private_git")
+            wt_path = Path(result["path"])
+            prompts_root = Path(result["prompts_root"])
+            self.assertTrue(wt_path.exists())
+            self.assertEqual(prompts_root, wt_path / "prompts" / "mosaic")
+            self.assertTrue(prompts_root.exists())
+
+            cleanup_result = autoresearch_cleanup_worktree({
+                "path": result["path"],
+                "repo_target": "private_git",
+            })
+            self.assertTrue(cleanup_result["ok"])
 
 
 class TestAutoresearchRevertModification(unittest.TestCase):

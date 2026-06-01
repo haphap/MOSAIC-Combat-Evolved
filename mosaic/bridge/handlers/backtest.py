@@ -25,6 +25,15 @@ def _require_str(params: dict[str, Any], key: str) -> str:
     return value
 
 
+def _optional_str(params: dict[str, Any], key: str) -> str | None:
+    value = params.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise RpcError(INVALID_PARAMS, f"'{key}' must be a non-empty string when provided")
+    return value.strip()
+
+
 def _opt_float(params: dict[str, Any], key: str, default: float) -> float:
     value = params.get(key, default)
     if not isinstance(value, (int, float)) or isinstance(value, bool):
@@ -56,23 +65,32 @@ def backtest_create_run(params: dict[str, Any]) -> dict[str, Any]:
         prompt_commit_hash:  str — opaque tag tying this run to a prompt
                                    version (Phase 4 git mutation hash;
                                    for now any deterministic id works).
+        prompt_repo_id:      str | None
+        prompt_sha256:       str | None
+        code_commit_hash:    str | None
 
     Returns:
         {"run_id": <int>}
 
-    Idempotent: same (cohort, start_date, end_date, prompt_commit_hash) →
-    same run_id (UPSERT).
+    Idempotent: legacy callers key by prompt_commit_hash. Repo-aware callers
+    key by prompt repo + prompt commit/SHA + code commit.
     """
     cohort = _require_str(params, "cohort")
     start_date = _require_str(params, "start_date")
     end_date = _require_str(params, "end_date")
     prompt_commit_hash = _require_str(params, "prompt_commit_hash")
+    prompt_repo_id = _optional_str(params, "prompt_repo_id")
+    prompt_sha256 = _optional_str(params, "prompt_sha256")
+    code_commit_hash = _optional_str(params, "code_commit_hash")
     try:
         run_id = _store().create_backtest_run(
             cohort=cohort,
             start_date=start_date,
             end_date=end_date,
             prompt_commit_hash=prompt_commit_hash,
+            prompt_repo_id=prompt_repo_id,
+            prompt_sha256=prompt_sha256,
+            code_commit_hash=code_commit_hash,
         )
     except Exception as exc:
         raise RpcError(BACKTEST_ERROR, f"{type(exc).__name__}: {exc}") from exc

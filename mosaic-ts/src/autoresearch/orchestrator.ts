@@ -16,7 +16,7 @@
  */
 
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
-import type { BridgeApi } from "../bridge/types.js";
+import type { AutoresearchMissingRun, BridgeApi } from "../bridge/types.js";
 import { mutate } from "./mutator.js";
 
 export interface AutoresearchCycleOptions {
@@ -37,14 +37,49 @@ export interface AutoresearchCycleOptions {
 export interface MutationResult {
   agent: string;
   version_id: number | null;
-  status: "kept" | "reverted" | "dry_run" | "needs_fill" | "error";
+  status: "kept" | "reverted" | "dry_run" | "needs_fill" | "incompatible" | "error";
   delta_sharpe?: number;
   summary?: string;
   error?: string;
+  fill_commands?: string[];
 }
 
 export interface CycleResult {
   mutations: MutationResult[];
+}
+
+function shellQuote(value: string): string {
+  if (/^[A-Za-z0-9_./:@+=,-]+$/.test(value)) return value;
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+export function backtestFillCommand(run: AutoresearchMissingRun): string {
+  const args = [
+    "pnpm",
+    "dev",
+    "backtest-fill",
+    "--cohort",
+    run.cohort,
+    "--start",
+    run.start_date,
+    "--end",
+    run.end_date,
+    "--prompt-commit-hash",
+    run.prompt_commit_hash,
+  ];
+  if (run.private_prompt_commit) {
+    args.push("--private-prompt-commit", run.private_prompt_commit);
+  }
+  if (run.prompt_repo_id) {
+    args.push("--prompt-repo-id", run.prompt_repo_id);
+  }
+  if (run.prompt_sha256) {
+    args.push("--prompt-sha256", run.prompt_sha256);
+  }
+  if (run.code_commit_hash) {
+    args.push("--code-commit-hash", run.code_commit_hash);
+  }
+  return args.map(shellQuote).join(" ");
 }
 
 export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Promise<CycleResult> {
@@ -132,6 +167,7 @@ export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Prom
         agent: triggerResult.agent,
         cohort,
         contents: { zh: mutation.zh_prompt, en: mutation.en_prompt },
+        target: "private_git",
         branch: triggerResult.branch_name,
         message: `autoresearch: ${mutation.modification_summary}`,
       });
@@ -148,20 +184,28 @@ export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Prom
     // 5. Record mutation in store
     await deps.api.autoresearchRecordMutation({
       version_id: versionId,
-      commit_hash: writeResult.commit_hash ?? "unknown",
+      commit_hash: writeResult.prompt_commit_hash ?? writeResult.commit_hash ?? "unknown",
       summary: mutation.modification_summary,
+      ...(writeResult.prompt_repo_id ? { prompt_repo_id: writeResult.prompt_repo_id } : {}),
+      ...(writeResult.prompt_base_commit_hash
+        ? { prompt_base_commit_hash: writeResult.prompt_base_commit_hash }
+        : {}),
+      ...(writeResult.prompt_sha256 ? { prompt_sha256: writeResult.prompt_sha256 } : {}),
+      code_commit_hash: triggerResult.base_commit,
     });
 
     // 6. Prepare worktree for evaluation
     let worktreePath: string | undefined;
-    try {
-      const worktree = await deps.api.autoresearchPrepareWorktree({
-        branch: triggerResult.branch_name,
-      });
-      worktreePath = worktree.path;
-      log(`worktree ready: ${worktreePath}`);
-    } catch (err) {
-      log(`worktree prep failed: ${(err as Error).message} (eval needs to run separately)`);
+    if (writeResult.target !== "private_git") {
+      try {
+        const worktree = await deps.api.autoresearchPrepareWorktree({
+          branch: triggerResult.branch_name,
+        });
+        worktreePath = worktree.path;
+        log(`worktree ready: ${worktreePath}`);
+      } catch (err) {
+        log(`worktree prep failed: ${(err as Error).message} (eval needs to run separately)`);
+      }
     }
 
     // 7. Attempt evaluation (backtest-fill needs to run separately for full eval)
@@ -169,6 +213,8 @@ export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Prom
 
     let evalStatus: MutationResult["status"] = "needs_fill";
     let deltaSharpe: number | undefined;
+    let fillCommands: string[] | undefined;
+    let evalError: string | undefined;
 
     try {
       // Scope evaluation to the version we just triggered, so an N-agent layer
@@ -183,13 +229,29 @@ export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Prom
         if (thisEval.status === "kept" || thisEval.status === "reverted") {
           evalStatus = thisEval.status;
           deltaSharpe = thisEval.delta_sharpe;
+        } else if (thisEval.status === "incompatible") {
+          evalStatus = "incompatible";
+          evalError = thisEval.detail ?? "prompt is incompatible with current code";
+          log(`evaluation incompatible: ${evalError}`);
+        } else if (thisEval.status === "needs_fill") {
+          evalStatus = "needs_fill";
+          fillCommands = (thisEval.missing_runs ?? []).map(backtestFillCommand);
+          for (const command of fillCommands) {
+            log(`backtest-fill required: ${command}`);
+          }
+        } else if (thisEval.status === "error") {
+          evalStatus = "error";
+          evalError = thisEval.detail ?? "evaluation failed";
+          log(`evaluation error: ${evalError}`);
         } else {
           evalStatus = "needs_fill";
         }
       }
     } catch (err) {
       // Evaluation not ready yet or crashed; log for visibility
-      log(`evaluation error: ${(err as Error).message ?? "unknown"}`);
+      evalStatus = "error";
+      evalError = (err as Error).message ?? "unknown";
+      log(`evaluation error: ${evalError}`);
     }
 
     // 8. Cleanup worktree
@@ -207,6 +269,8 @@ export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Prom
       version_id: versionId,
       status: evalStatus,
       ...(deltaSharpe != null ? { delta_sharpe: deltaSharpe } : {}),
+      ...(evalError ? { error: evalError } : {}),
+      ...(fillCommands && fillCommands.length > 0 ? { fill_commands: fillCommands } : {}),
       summary: mutation.modification_summary,
     });
   }

@@ -128,6 +128,7 @@ class TestWrite:
         assert r["prompt_repo_id"] == "private"
         assert len(r["prompt_base_commit_hash"]) == 40
         assert len(r["prompt_commit_hash"]) == 40
+        assert len(r["prompt_sha256"]) == 64
         assert r["branch"] == BRANCH
         assert len(r["paths"]) == 2
         assert not (repo / "prompts/mosaic/crisis_2008").exists()
@@ -149,6 +150,7 @@ class TestWrite:
         assert r["target"] == "project_git"
         assert r["prompt_repo_id"] == "project"
         assert len(r["commit_hash"]) == 40
+        assert len(r["prompt_sha256"]) == 64
         assert r["branch"] == BRANCH
         assert len(r["paths"]) == 2
         # primary tree untouched (commit built in a worktree)
@@ -167,6 +169,7 @@ class TestWrite:
         })
         assert "commit_hash" not in r
         assert r["target"] == "working_tree"
+        assert len(r["prompt_sha256"]) == 64
         assert (repo / "prompts/mosaic/crisis_2008/macro/volatility.zh.md").exists()
 
     def test_working_tree_requires_allow(self, repo: Path):

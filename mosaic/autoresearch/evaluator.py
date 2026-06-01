@@ -14,9 +14,12 @@ Two functions:
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
+
+_TOOL_TOKEN_RE = re.compile(r"\bget_[A-Za-z0-9_]+\b")
 
 
 def ensure_baseline_run(
@@ -25,6 +28,10 @@ def ensure_baseline_run(
     start_date: str,
     end_date: str,
     base_commit: str,
+    *,
+    prompt_repo_id: Optional[str] = None,
+    prompt_sha256: Optional[str] = None,
+    code_commit_hash: Optional[str] = None,
 ) -> dict[str, Any]:
     """Check if a completed backtest_run exists for the given parameters.
 
@@ -32,14 +39,28 @@ def ensure_baseline_run(
         {"run_id": int | None, "needs_fill": bool}
 
     A run is considered valid when it matches (cohort, start_date, end_date,
-    prompt_commit_hash == base_commit) and has a non-null ``completed_at``.
+    prompt_commit_hash/prompt_commit_ref matches ``base_commit`` and has a
+    non-null ``completed_at``. When repo-aware metadata is supplied, it must
+    match too.
     """
     runs = store.list_backtest_runs(cohort=cohort)
     for run in runs:
+        commit_matches = (
+            run["prompt_commit_hash"] == base_commit
+            or run.get("prompt_commit_ref") == base_commit
+        )
+        metadata_matches = True
+        if prompt_repo_id is not None:
+            metadata_matches = metadata_matches and run.get("prompt_repo_id") == prompt_repo_id
+        if prompt_sha256 is not None:
+            metadata_matches = metadata_matches and run.get("prompt_sha256") == prompt_sha256
+        if code_commit_hash is not None:
+            metadata_matches = metadata_matches and run.get("code_commit_hash") == code_commit_hash
         if (
             run["start_date"] == start_date
             and run["end_date"] == end_date
-            and run["prompt_commit_hash"] == base_commit
+            and commit_matches
+            and metadata_matches
             and run["completed_at"] is not None
         ):
             return {"run_id": run["id"], "needs_fill": False}
@@ -57,6 +78,57 @@ def _find_run_sharpe(store, run_id: int) -> Optional[float]:
         return None
     except Exception:
         return None
+
+
+def scan_prompt_tool_tokens(text: str) -> set[str]:
+    """Return get_* tool tokens mentioned in prompt text.
+
+    This is intentionally a narrow v1 compatibility gate: it catches prompt
+    references to removed/renamed tools, but not schema or role-contract drift.
+    """
+    return set(_TOOL_TOKEN_RE.findall(text))
+
+
+def validate_prompt_tool_compatibility(
+    version: dict[str, Any],
+    git,
+    available_tools: Optional[set[str]] = None,
+) -> dict[str, Any]:
+    """Check a prompt commit against the current tools.list registry.
+
+    Returns ``{"compatible": bool, "unknown_tools": [...], "referenced_tools": [...]}``.
+    The gate reads the committed prompt files at ``modification_commit_hash`` so
+    evaluation does not accidentally validate the floating working tree.
+    """
+    from mosaic.bridge.handlers.prompts import _LANGS, _rel_path
+    from mosaic.bridge.handlers.tools import tools_list
+    from mosaic.autoresearch.git_ops import GitError
+
+    ref = version.get("modification_commit_hash")
+    if not isinstance(ref, str) or not ref:
+        raise ValueError("prompt version has no modification_commit_hash")
+    agent = version["agent"]
+    cohort = version["cohort"]
+
+    if available_tools is None:
+        available_tools = {tool["name"] for tool in tools_list({})}
+
+    referenced: set[str] = set()
+    missing_files: list[str] = []
+    for lang in _LANGS:
+        rel = _rel_path(agent, cohort, lang)
+        try:
+            referenced.update(scan_prompt_tool_tokens(git.show_file(ref, rel)))
+        except GitError:
+            missing_files.append(rel)
+
+    unknown = sorted(referenced - available_tools)
+    return {
+        "compatible": not unknown and not missing_files,
+        "referenced_tools": sorted(referenced),
+        "unknown_tools": unknown,
+        "missing_files": missing_files,
+    }
 
 
 def compute_delta(
@@ -111,7 +183,16 @@ def compute_delta(
         )
 
     # Find completed mod run.
-    mod_result = ensure_baseline_run(store, cohort, start_date, end_date, mod_commit)
+    mod_result = ensure_baseline_run(
+        store,
+        cohort,
+        start_date,
+        end_date,
+        mod_commit,
+        prompt_repo_id=version.get("prompt_repo_id"),
+        prompt_sha256=version.get("prompt_sha256"),
+        code_commit_hash=version.get("code_commit_hash"),
+    )
     if mod_result["needs_fill"]:
         raise ValueError(
             f"no completed mod backtest run for cohort={cohort}, "

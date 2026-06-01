@@ -6,7 +6,12 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from mosaic.autoresearch.evaluator import compute_delta, ensure_baseline_run
+from mosaic.autoresearch.evaluator import (
+    compute_delta,
+    ensure_baseline_run,
+    scan_prompt_tool_tokens,
+    validate_prompt_tool_compatibility,
+)
 from mosaic.scorecard.store import ScorecardStore
 
 
@@ -70,6 +75,103 @@ class TestEnsureBaselineRun(unittest.TestCase):
         )
         self.assertIsNone(result["run_id"])
         self.assertTrue(result["needs_fill"])
+
+    def test_repo_aware_run_matches_commit_ref_and_metadata(self):
+        run_id = self.store.create_backtest_run(
+            cohort="euphoria_2021",
+            start_date="2020-07-01",
+            end_date="2021-02-18",
+            prompt_commit_hash="abc123",
+            prompt_repo_id="private",
+            prompt_sha256="f" * 64,
+            code_commit_hash="c" * 40,
+        )
+        self.store.complete_backtest_run(run_id)
+
+        result = ensure_baseline_run(
+            self.store,
+            "euphoria_2021",
+            "2020-07-01",
+            "2021-02-18",
+            "abc123",
+            prompt_repo_id="private",
+            prompt_sha256="f" * 64,
+            code_commit_hash="c" * 40,
+        )
+        self.assertEqual(result["run_id"], run_id)
+        self.assertFalse(result["needs_fill"])
+
+    def test_repo_aware_run_rejects_metadata_mismatch(self):
+        run_id = self.store.create_backtest_run(
+            cohort="euphoria_2021",
+            start_date="2020-07-01",
+            end_date="2021-02-18",
+            prompt_commit_hash="abc123",
+            prompt_repo_id="private",
+            prompt_sha256="f" * 64,
+            code_commit_hash="c" * 40,
+        )
+        self.store.complete_backtest_run(run_id)
+
+        result = ensure_baseline_run(
+            self.store,
+            "euphoria_2021",
+            "2020-07-01",
+            "2021-02-18",
+            "abc123",
+            prompt_repo_id="private",
+            prompt_sha256="0" * 64,
+            code_commit_hash="c" * 40,
+        )
+        self.assertIsNone(result["run_id"])
+        self.assertTrue(result["needs_fill"])
+
+
+class TestPromptToolCompatibility(unittest.TestCase):
+    """Tests for the registry-scan compatibility gate."""
+
+    def test_scan_prompt_tool_tokens(self):
+        tokens = scan_prompt_tool_tokens(
+            "Use get_macro_data, get_industry_moneyflow and get_macro_data again. "
+            "Ignore get-typo and forget_tool."
+        )
+        self.assertEqual(tokens, {"get_macro_data", "get_industry_moneyflow"})
+
+    def test_validate_unknown_tools(self):
+        class FakeGit:
+            def show_file(self, _ref: str, path: str) -> str:
+                if path.endswith(".zh.md"):
+                    return "Use get_macro_data and get_removed_tool."
+                return "Use get_macro_data."
+
+        result = validate_prompt_tool_compatibility(
+            {
+                "cohort": "euphoria_2021",
+                "agent": "volatility",
+                "modification_commit_hash": "b" * 40,
+            },
+            FakeGit(),
+            available_tools={"get_macro_data"},
+        )
+        self.assertFalse(result["compatible"])
+        self.assertEqual(result["unknown_tools"], ["get_removed_tool"])
+        self.assertEqual(result["missing_files"], [])
+
+    def test_validate_known_tools(self):
+        class FakeGit:
+            def show_file(self, _ref: str, _path: str) -> str:
+                return "Use get_macro_data."
+
+        result = validate_prompt_tool_compatibility(
+            {
+                "cohort": "euphoria_2021",
+                "agent": "volatility",
+                "modification_commit_hash": "b" * 40,
+            },
+            FakeGit(),
+            available_tools={"get_macro_data"},
+        )
+        self.assertTrue(result["compatible"])
 
 
 class TestComputeDelta(unittest.TestCase):

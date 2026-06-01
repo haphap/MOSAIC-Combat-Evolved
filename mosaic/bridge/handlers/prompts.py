@@ -28,6 +28,7 @@ Agent→layer resolution mirrors ``mosaic-ts/src/agents/prompts/cohorts.ts``
 
 from __future__ import annotations
 
+import hashlib
 import os
 from pathlib import Path
 from typing import Any, Optional
@@ -123,6 +124,16 @@ def _public_write_allowed(params: dict[str, Any]) -> bool:
     return bool(params.get("allow_public_prompt_write"))
 
 
+def _prompt_sha256(files: dict[str, str]) -> str:
+    digest = hashlib.sha256()
+    for rel in sorted(files):
+        digest.update(rel.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(files[rel].encode("utf-8"))
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
 @method("prompts.read")
 def prompts_read(params: dict[str, Any]) -> dict[str, Any]:
     agent = _require_str(params, "agent")
@@ -167,6 +178,7 @@ def prompts_write(params: dict[str, Any]) -> dict[str, Any]:
     # Always write to the cohort-specific path (no fallback — a mutation
     # creates/overwrites the cohort's own file).
     files = {_rel_path(agent, cohort, lang): text for lang, text in contents.items()}
+    prompt_sha256 = _prompt_sha256(files)
     branch: Optional[str] = params.get("branch") or None
     # Default keeps the existing autoresearch mutation path (a project-repo
     # feature branch); ``private_git`` is opt-in via an explicit ``target`` until
@@ -195,6 +207,7 @@ def prompts_write(params: dict[str, Any]) -> dict[str, Any]:
             "target": target,
             "prompt_repo_id": _prompt_repo_id(),
             "prompt_base_commit_hash": base_commit,
+            "prompt_sha256": prompt_sha256,
             "commit_hash": commit,
             "prompt_commit_hash": commit,
             "branch": branch,
@@ -219,6 +232,7 @@ def prompts_write(params: dict[str, Any]) -> dict[str, Any]:
             "target": target,
             "prompt_repo_id": "project",
             "prompt_base_commit_hash": base_commit,
+            "prompt_sha256": prompt_sha256,
             "commit_hash": commit,
             "prompt_commit_hash": commit,
             "branch": branch,
@@ -237,7 +251,12 @@ def prompts_write(params: dict[str, Any]) -> dict[str, Any]:
         fp = root / rel
         fp.parent.mkdir(parents=True, exist_ok=True)
         fp.write_text(text, encoding="utf-8")
-    return {"target": target, "prompt_repo_id": "project", "paths": sorted(files)}
+    return {
+        "target": target,
+        "prompt_repo_id": "project",
+        "prompt_sha256": prompt_sha256,
+        "paths": sorted(files),
+    }
 
 
 @method("prompts.init_private_repo")

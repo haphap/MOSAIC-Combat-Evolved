@@ -496,6 +496,7 @@ private prompt pinned worktree
      `prompt_commit_hash`、`prompt_sha256`、`baseline_code_commit_hash`、`code_commit_hash`。
    - 保留旧字段迁移路径，但明确旧 `base_commit_hash` / `modification_commit_hash` 的项目 repo 语义已废弃。
    - 新 `prompt_base_commit_hash` 指 private prompt repo base commit，不再指项目 repo main HEAD。
+   - v1 评估仍以项目 baseline 作为 base run；`prompt_base_commit_hash` 先用于审计和后续“相对 live private prompt 再优化”的 A/B 切换。
 4. 修改 evaluator / scorecard。
    - evaluation 使用 `prompt_repo_id + prompt_commit_hash + prompt_sha256 + code_commit_hash` 作为版本 key。
    - `mosaic/autoresearch/evaluator.py` 不再假设 prompt commit 属于项目 repo。
@@ -734,14 +735,17 @@ pnpm dev prompts write-baseline --allow-public-prompt-write ...
 
 ### P5 Autoresearch 双 Repo
 
-- [ ] orchestrator 默认写 private prompt repo。
-- [ ] mutation record 存 prompt repo id / commit / sha256 / code commit。
+- [x] orchestrator 默认写 private prompt repo。
+- [x] mutation record 存 private prompt commit。
+- [x] trigger 不再创建项目 repo prompt 分支。
+- [x] keep/revert git 操作按 branch 所在 repo 选择 project/private GitOps。
+- [ ] mutation record 存完整 prompt repo id / sha256 / code commit。
 - [ ] evaluator 不再假设 prompt commit 属于项目 repo。
 - [ ] evaluator 为 prompt commit 创建 pinned worktree。
 - [ ] evaluator 清理临时 pinned worktree。
 - [ ] scorecard cache key 升级为 prompt repo + prompt commit + prompt sha + code commit。
 - [ ] registry-scan code/prompt compatibility gate。
-- [ ] autoresearch tests。
+- [x] autoresearch tests。
 
 ### P6 Git / CI Guard
 
