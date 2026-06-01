@@ -68,7 +68,17 @@ def _private_git_ops():
         raise RpcError(INVALID_PARAMS, str(exc)) from exc
 
 
-def _git_ops_for_branch(branch: str):
+def _git_ops_for_branch(branch: str, version: dict[str, Any] | None = None):
+    prompt_repo_id = (version or {}).get("prompt_repo_id")
+    if prompt_repo_id == "private":
+        private_git = _private_git_ops()
+        if not private_git.branch_exists(branch):
+            raise RpcError(
+                AUTORESEARCH_ERROR,
+                f"private prompt branch not found in MOSAIC_PRIVATE_PROMPT_REPO: {branch}",
+            )
+        return private_git
+
     project_git = _git_ops()
     if project_git.branch_exists(branch):
         return project_git
@@ -303,6 +313,7 @@ def autoresearch_record_mutation(params: dict[str, Any]) -> dict[str, Any]:
         commit_hash:  str
         summary:      str | None
         prompt_repo_id: str | None
+        prompt_base_commit_hash: str | None
         prompt_sha256: str | None
         code_commit_hash: str | None
 
@@ -317,6 +328,9 @@ def autoresearch_record_mutation(params: dict[str, Any]) -> dict[str, Any]:
     prompt_repo_id = params.get("prompt_repo_id")
     if prompt_repo_id is not None and not isinstance(prompt_repo_id, str):
         raise RpcError(INVALID_PARAMS, "'prompt_repo_id' must be a string")
+    prompt_base_commit_hash = params.get("prompt_base_commit_hash")
+    if prompt_base_commit_hash is not None and not isinstance(prompt_base_commit_hash, str):
+        raise RpcError(INVALID_PARAMS, "'prompt_base_commit_hash' must be a string")
     prompt_sha256 = params.get("prompt_sha256")
     if prompt_sha256 is not None and not isinstance(prompt_sha256, str):
         raise RpcError(INVALID_PARAMS, "'prompt_sha256' must be a string")
@@ -330,6 +344,7 @@ def autoresearch_record_mutation(params: dict[str, Any]) -> dict[str, Any]:
         commit_hash,
         summary,
         prompt_repo_id=prompt_repo_id,
+        prompt_base_commit_hash=prompt_base_commit_hash,
         prompt_sha256=prompt_sha256,
         code_commit_hash=code_commit_hash,
     )
@@ -407,7 +422,7 @@ def autoresearch_evaluate_pending(params: dict[str, Any]) -> dict[str, Any]:
                             "detail": f"cohort '{v_cohort}' missing date range"})
             continue
 
-        git = _git_ops_for_branch(v["branch_name"])
+        git = _git_ops_for_branch(v["branch_name"], v)
         compatibility = validate_prompt_tool_compatibility(v, git)
         if not compatibility["compatible"]:
             detail = (
@@ -476,7 +491,7 @@ def autoresearch_evaluate_pending(params: dict[str, Any]) -> dict[str, Any]:
             delta_result = compute_delta(store, version_id, config)
             # Re-read version after eval writes.
             updated_version = store.get_prompt_version(version_id)
-            git = _git_ops_for_branch(updated_version["branch_name"])
+            git = _git_ops_for_branch(updated_version["branch_name"], updated_version)
             status = decide(store, git, updated_version, config)
             # decide() returns the stored state-machine value (keep/revert);
             # expose the past-tense form (kept/reverted) on the RPC boundary so

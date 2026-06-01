@@ -496,6 +496,7 @@ private prompt pinned worktree
      `prompt_commit_hash`、`prompt_sha256`、`baseline_code_commit_hash`、`code_commit_hash`。
    - 保留旧字段迁移路径，但明确旧 `base_commit_hash` / `modification_commit_hash` 的项目 repo 语义已废弃。
    - 新 `prompt_base_commit_hash` 指 private prompt repo base commit，不再指项目 repo main HEAD。
+   - v1 评估仍以项目 baseline 作为 base run；`prompt_base_commit_hash` 先用于审计和后续“相对 live private prompt 再优化”的 A/B 切换。
 4. 修改 evaluator / scorecard。
    - evaluation 使用 `prompt_repo_id + prompt_commit_hash + prompt_sha256 + code_commit_hash` 作为版本 key。
    - `mosaic/autoresearch/evaluator.py` 不再假设 prompt commit 属于项目 repo。

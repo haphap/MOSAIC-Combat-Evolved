@@ -53,9 +53,12 @@ class TestSchema:
             }
         assert "prompt_versions" in tables
         assert "autoresearch_log" in tables
-        assert {"prompt_repo_id", "prompt_sha256", "code_commit_hash"}.issubset(
-            prompt_version_cols
-        )
+        assert {
+            "prompt_repo_id",
+            "prompt_base_commit_hash",
+            "prompt_sha256",
+            "code_commit_hash",
+        }.issubset(prompt_version_cols)
 
     def test_reinstantiate_is_idempotent(self, store: ScorecardStore):
         # CREATE TABLE IF NOT EXISTS — second instance must not raise.
@@ -90,7 +93,12 @@ class TestSchema:
         migrated = ScorecardStore(db_path=db_path)
         with migrated._connect() as conn:
             cols = {r[1] for r in conn.execute("PRAGMA table_info(prompt_versions)")}
-        assert {"prompt_repo_id", "prompt_sha256", "code_commit_hash"}.issubset(cols)
+        assert {
+            "prompt_repo_id",
+            "prompt_base_commit_hash",
+            "prompt_sha256",
+            "code_commit_hash",
+        }.issubset(cols)
 
 
 # ---------------------------------------------------------------------------
@@ -121,6 +129,7 @@ class TestPromptVersionLifecycle:
             "b" * 40,
             "tighten VIX/iVX ratio rule",
             prompt_repo_id="private",
+            prompt_base_commit_hash="d" * 40,
             prompt_sha256="f" * 64,
             code_commit_hash="c" * 40,
         )
@@ -128,6 +137,7 @@ class TestPromptVersionLifecycle:
         assert v["modification_commit_hash"] == "b" * 40
         assert v["modification_summary"] == "tighten VIX/iVX ratio rule"
         assert v["prompt_repo_id"] == "private"
+        assert v["prompt_base_commit_hash"] == "d" * 40
         assert v["prompt_sha256"] == "f" * 64
         assert v["code_commit_hash"] == "c" * 40
         assert v["status"] == "pending"  # still pending until decided

@@ -187,6 +187,9 @@ export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Prom
       commit_hash: writeResult.prompt_commit_hash ?? writeResult.commit_hash ?? "unknown",
       summary: mutation.modification_summary,
       ...(writeResult.prompt_repo_id ? { prompt_repo_id: writeResult.prompt_repo_id } : {}),
+      ...(writeResult.prompt_base_commit_hash
+        ? { prompt_base_commit_hash: writeResult.prompt_base_commit_hash }
+        : {}),
       ...(writeResult.prompt_sha256 ? { prompt_sha256: writeResult.prompt_sha256 } : {}),
       code_commit_hash: triggerResult.base_commit,
     });

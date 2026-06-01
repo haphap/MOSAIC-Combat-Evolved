@@ -84,7 +84,7 @@ CREATE TABLE IF NOT EXISTS backtest_runs (
     cohort TEXT NOT NULL,
     start_date TEXT NOT NULL,                   -- YYYY-MM-DD
     end_date TEXT NOT NULL,                     -- YYYY-MM-DD
-    prompt_commit_hash TEXT NOT NULL,           -- tracks which prompt version this run used
+    prompt_commit_hash TEXT NOT NULL,           -- legacy cache tag; repo-aware runs store an expanded prompt-v2 key here
     prompt_commit_ref TEXT,                     -- raw prompt commit/ref when prompt_commit_hash is an expanded cache key
     prompt_repo_id TEXT,                        -- project | private prompt repo identifier
     prompt_sha256 TEXT,                         -- deterministic digest of prompt file contents
@@ -124,15 +124,16 @@ CREATE TABLE IF NOT EXISTS backtest_failed_days (
 -- A "version" is one feature-branch attempt at improving one agent's prompt.
 -- Lifecycle: created (pending, no mod_commit yet) → mutation recorded
 -- (mod_commit filled) → evaluated (pre/post/delta filled) → decided
--- (status = keep | revert). branch_name is globally unique (one branch per
+-- (status = keep | revert | incompatible). branch_name is globally unique (one branch per
 -- attempt). modification_commit_hash links to backtest_runs.prompt_commit_hash.
 CREATE TABLE IF NOT EXISTS prompt_versions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     cohort TEXT NOT NULL,
     agent TEXT NOT NULL,
     branch_name TEXT NOT NULL,                  -- cohort/<cohort>/auto/<agent>/<YYYY-MM-DD>
-    base_commit_hash TEXT NOT NULL,             -- main HEAD the branch forked from
+    base_commit_hash TEXT NOT NULL,             -- project code HEAD when this version was triggered
     modification_commit_hash TEXT,              -- NULL until TS mutator commits the rewrite
+    prompt_base_commit_hash TEXT,               -- private prompt repo base commit used for the mutation branch
     prompt_repo_id TEXT,                        -- project | private prompt repo identifier
     prompt_sha256 TEXT,                         -- deterministic digest of the committed prompt files
     code_commit_hash TEXT,                      -- project code commit paired with this prompt mutation
@@ -392,6 +393,7 @@ class ScorecardStore:
                     "ADD COLUMN replay_triggered INTEGER NOT NULL DEFAULT 0"
                 )
             self._ensure_column(conn, "prompt_versions", "prompt_repo_id", "TEXT")
+            self._ensure_column(conn, "prompt_versions", "prompt_base_commit_hash", "TEXT")
             self._ensure_column(conn, "prompt_versions", "prompt_sha256", "TEXT")
             self._ensure_column(conn, "prompt_versions", "code_commit_hash", "TEXT")
             self._ensure_column(conn, "backtest_runs", "prompt_commit_ref", "TEXT")
@@ -972,6 +974,7 @@ class ScorecardStore:
         modification_summary: Optional[str] = None,
         *,
         prompt_repo_id: Optional[str] = None,
+        prompt_base_commit_hash: Optional[str] = None,
         prompt_sha256: Optional[str] = None,
         code_commit_hash: Optional[str] = None,
     ) -> None:
@@ -984,6 +987,7 @@ class ScorecardStore:
                 SET modification_commit_hash = :mod,
                     modification_summary = :summary,
                     prompt_repo_id = COALESCE(:prompt_repo_id, prompt_repo_id),
+                    prompt_base_commit_hash = COALESCE(:prompt_base_commit_hash, prompt_base_commit_hash),
                     prompt_sha256 = COALESCE(:prompt_sha256, prompt_sha256),
                     code_commit_hash = COALESCE(:code_commit_hash, code_commit_hash)
                 WHERE id = :id
@@ -993,6 +997,7 @@ class ScorecardStore:
                     "mod": modification_commit_hash,
                     "summary": _truncate(modification_summary, 1000),
                     "prompt_repo_id": prompt_repo_id,
+                    "prompt_base_commit_hash": prompt_base_commit_hash,
                     "prompt_sha256": prompt_sha256,
                     "code_commit_hash": code_commit_hash,
                 },

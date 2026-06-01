@@ -26,6 +26,7 @@ function fakeBridgeApi(overrides: Partial<Record<string, unknown>> = {}): Bridge
     promptsWrite: vi.fn().mockResolvedValue({
       target: "private_git",
       prompt_repo_id: "private",
+      prompt_base_commit_hash: "baseprompt123",
       prompt_commit_hash: "def456",
       prompt_sha256: "f".repeat(64),
       commit_hash: "def456",
@@ -144,6 +145,7 @@ describe("runAutoresearchCycle", () => {
       commit_hash: "def456",
       summary: "tighten thresholds",
       prompt_repo_id: "private",
+      prompt_base_commit_hash: "baseprompt123",
       prompt_sha256: "f".repeat(64),
       code_commit_hash: "abc123",
     });

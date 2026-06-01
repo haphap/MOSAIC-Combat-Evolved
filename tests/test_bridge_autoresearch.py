@@ -176,6 +176,7 @@ class TestAutoresearchRecordMutation(unittest.TestCase):
             "commit_hash": "b" * 40,
             "summary": "improved risk handling",
             "prompt_repo_id": "private",
+            "prompt_base_commit_hash": "d" * 40,
             "prompt_sha256": "f" * 64,
             "code_commit_hash": "a" * 40,
         })
@@ -185,6 +186,7 @@ class TestAutoresearchRecordMutation(unittest.TestCase):
         self.assertEqual(v["modification_commit_hash"], "b" * 40)
         self.assertEqual(v["modification_summary"], "improved risk handling")
         self.assertEqual(v["prompt_repo_id"], "private")
+        self.assertEqual(v["prompt_base_commit_hash"], "d" * 40)
         self.assertEqual(v["prompt_sha256"], "f" * 64)
         self.assertEqual(v["code_commit_hash"], "a" * 40)
 
@@ -247,6 +249,7 @@ class TestAutoresearchEvaluatePending(unittest.TestCase):
             "b" * 40,
             "x",
             prompt_repo_id="private",
+            prompt_base_commit_hash="d" * 40,
             prompt_sha256="f" * 64,
             code_commit_hash="c" * 40,
         )
@@ -267,11 +270,16 @@ class TestAutoresearchEvaluatePending(unittest.TestCase):
         )
 
     def test_needs_fill_reports_private_prompt_metadata(self):
+        class FakePrivateGit:
+            def branch_exists(self, _branch: str) -> bool:
+                return True
+
         vid = self._private_mutated_version(
             "cohort/euphoria_2021/auto/volatility/2021-01-04"
         )
 
-        result = autoresearch_evaluate_pending({"version_id": vid})
+        with patch.object(_ar, "_private_git_ops", return_value=FakePrivateGit()):
+            result = autoresearch_evaluate_pending({"version_id": vid})
 
         self.assertEqual(result["results"][0]["status"], "needs_fill")
         mod_spec = [
@@ -283,6 +291,16 @@ class TestAutoresearchEvaluatePending(unittest.TestCase):
         self.assertEqual(mod_spec["prompt_sha256"], "f" * 64)
         self.assertEqual(mod_spec["code_commit_hash"], "c" * 40)
         self.assertEqual(mod_spec["private_prompt_commit"], "b" * 40)
+
+    def test_private_version_requires_private_repo_git(self):
+        vid = self._private_mutated_version(
+            "cohort/euphoria_2021/auto/volatility/2021-01-05"
+        )
+
+        with self.assertRaises(RpcError) as ctx:
+            autoresearch_evaluate_pending({"version_id": vid})
+
+        self.assertIn("MOSAIC_PRIVATE_PROMPT_REPO", ctx.exception.message)
 
     def test_scan_all_without_version_id(self):
         self._mutated_version("cohort/euphoria_2021/auto/volatility/2021-01-01")

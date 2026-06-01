@@ -887,6 +887,7 @@ export class BridgeApi {
     commit_hash: string;
     summary?: string;
     prompt_repo_id?: string;
+    prompt_base_commit_hash?: string;
     prompt_sha256?: string;
     code_commit_hash?: string;
   }): Promise<{ ok: boolean }> {
