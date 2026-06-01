@@ -8,7 +8,7 @@ State flows layer by layer via per-layer maps in `mosaic-ts/src/agents/state.ts`
 
 `central_bank`, `china`, `commodities`, `dollar`, `emerging_markets`, `geopolitical`, `institutional_flow`, `news_sentiment`, `volatility`, `yield_curve`. (`_aggregator.ts` consolidates Layer-1 output.)
 
-Layer-1 agents call sidecar tools (Tushare/akshare/FRED/Xueqiu/etc.) — e.g. `volatility` uses `get_ivx` + `get_etf_indicator(510050.SH)`; `emerging_markets` uses `get_etf_price_data`.
+Layer-1 agents call sidecar tools (Tushare/akshare/FRED/Xueqiu/etc.) — e.g. `volatility` uses `get_ivx` + `get_etf_indicator(510050.SH)`; `emerging_markets` uses `get_etf_price_data`; `china` uses `get_property_data` (国房景气指数). The macro layer is 17 tools.
 
 ## Layer 2 — Sector (7)
 
