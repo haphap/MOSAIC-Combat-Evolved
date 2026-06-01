@@ -14,11 +14,13 @@ Layer-1 agent 调用 sidecar 工具(Tushare/akshare/FRED/雪球 等)—— 如 `
 
 `biotech`、`consumer`、`energy`、`financials`、`industrials`、`semiconductor`、`relationship_mapper`。把宏观语境转成行业选择 → 候选标的池。
 
-六个行业 agent 调用 **`get_broker_research`**(行业研报 —— Tushare 行业研究报告,由代表性个股的行业解析得到),把行业判断锚定在卖方研究上。`relationship_mapper` 在个股层面工作,用 **`get_stock_research`**(个股研报)。
+六个行业 agent 共享 8 个核心工具 —— `get_industry_policy`、`get_xueqiu_heat`、`get_lhb_ranking`、`get_broker_research`(行业研报)、`get_etf_holdings`、`get_stock_data`、`get_indicators`、`get_industry_moneyflow`。行业特定补充:`energy` 额外调 `get_fred_series`;`financials` 额外调 `get_yield_curve_cn`。
+
+`relationship_mapper` 在个股层面工作,用 `get_lhb_ranking` + `get_stock_research`(个股研报)。
 
 ## 第 3 层 —— 投资哲学 (4)
 
-`ackman`、`aschenbrenner`、`baker`、`druckenmiller`。各以一种投资哲学视角审视 Layer-2 候选池(只引用上游分析中出现的 ticker —— 绝不杜撰代码)。四者都调用 **`get_stock_research`**(个股研报 —— Tushare 个股研究:论点 / 目标价 / 评级 / 风险),为个股论点提供依据。
+`ackman`、`aschenbrenner`、`baker`、`druckenmiller`。各以一种投资哲学视角审视 Layer-2 候选池(只引用上游分析中出现的 ticker —— 绝不杜撰代码)。四者都调用 `get_stock_research`(个股研报)、`get_fundamentals`、`get_stock_data`、`get_indicators`。`ackman` 额外调 `get_income_statement` / `get_cashflow` / `get_balance_sheet`(三张财报);`baker` 调 `get_income_statement` / `get_cashflow`;`druckenmiller` 调 `get_yield_curve_cn`。
 
 ## 第 4 层 —— 决策 (4)
 

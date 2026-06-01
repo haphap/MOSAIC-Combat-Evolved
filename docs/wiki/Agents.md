@@ -8,17 +8,19 @@ State flows layer by layer via per-layer maps in `mosaic-ts/src/agents/state.ts`
 
 `central_bank`, `china`, `commodities`, `dollar`, `emerging_markets`, `geopolitical`, `institutional_flow`, `news_sentiment`, `volatility`, `yield_curve`. (`_aggregator.ts` consolidates Layer-1 output.)
 
-Layer-1 agents call sidecar tools (Tushare/akshare/FRED/Xueqiu/etc.) — e.g. `volatility` uses `get_ivx` + `get_etf_indicator(510050.SH)`; `emerging_markets` uses `get_etf_price_data`; `china` uses `get_property_data` (国房景气指数). The macro layer is 17 tools.
+Layer-1 agents call sidecar tools (Tushare/akshare/FRED/Xueqiu/etc.) — e.g. `volatility` uses `get_ivx` + `get_etf_indicator(510050.SH)`; `emerging_markets` uses `get_etf_price_data`; `china` uses `get_property_data` (国房景气指数). The macro layer is 18 tools (see [Data Layer](Data-Layer.md) for the full list).
 
 ## Layer 2 — Sector (7)
 
 `biotech`, `consumer`, `energy`, `financials`, `industrials`, `semiconductor`, `relationship_mapper`. They turn macro context into sector picks → the candidate universe.
 
-The six industry agents call **`get_broker_research`** (行业研报 — Tushare industry research reports, resolved from a representative stock's industry) to ground sector calls in sell-side research. `relationship_mapper` works at the stock level and uses **`get_stock_research`** (个股研报).
+The six industry agents share a common core of 8 tools — `get_industry_policy`, `get_xueqiu_heat`, `get_lhb_ranking`, `get_broker_research` (行业研报), `get_etf_holdings`, `get_stock_data`, `get_indicators`, `get_industry_moneyflow`. Sector-specific additions: `energy` also calls `get_fred_series`; `financials` also calls `get_yield_curve_cn`.
+
+`relationship_mapper` works at the stock level and uses `get_lhb_ranking` + `get_stock_research` (个股研报).
 
 ## Layer 3 — Superinvestor (4)
 
-`ackman`, `aschenbrenner`, `baker`, `druckenmiller`. Each applies an investing-philosophy lens to the Layer-2 candidate universe (they cite only tickers present in the upstream analysis — never invent codes). All four call **`get_stock_research`** (个股研报 — Tushare individual-stock research: thesis / target price / rating / risks) to ground their stock theses.
+`ackman`, `aschenbrenner`, `baker`, `druckenmiller`. Each applies an investing-philosophy lens to the Layer-2 candidate universe (they cite only tickers present in the upstream analysis — never invent codes). All four call `get_stock_research` (个股研报), `get_fundamentals`, `get_stock_data`, and `get_indicators`. `ackman` additionally calls `get_income_statement` / `get_cashflow` / `get_balance_sheet` (三张财报); `baker` calls `get_income_statement` / `get_cashflow`; `druckenmiller` calls `get_yield_curve_cn`.
 
 ## Layer 4 — Decision (4)
 
