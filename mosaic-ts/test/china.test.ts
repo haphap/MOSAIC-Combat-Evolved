@@ -36,20 +36,11 @@ const TOOL_SCHEMA: JsonSchemaObject = {
   },
   required: ["curr_date"],
 };
-const FLOW_SCHEMA: JsonSchemaObject = {
-  type: "object",
-  properties: {
-    start_date: { type: "string", description: "start" },
-    end_date: { type: "string", description: "end" },
-  },
-  required: ["start_date", "end_date"],
-};
 
 const FAKE_TOOL_METADATAS: ToolMetadata[] = [
   { name: "get_industry_policy", description: "policy news", args_schema: TOOL_SCHEMA },
   { name: "get_pboc_ops", description: "PBOC ops", args_schema: TOOL_SCHEMA },
   { name: "get_property_data", description: "real-estate climate", args_schema: TOOL_SCHEMA },
-  { name: "get_north_capital_flow", description: "north flow", args_schema: FLOW_SCHEMA },
 ];
 
 class ScriptedLlm {
@@ -162,7 +153,6 @@ describe("chinaSpec", () => {
       "get_industry_policy",
       "get_pboc_ops",
       "get_property_data",
-      "get_north_capital_flow",
     ]);
     expect(chinaSpec.fieldNames).toContain("policy_direction");
     expect(chinaSpec.fieldNames).toContain("sector_focus");
@@ -285,12 +275,6 @@ describe("buildChinaNode (vertical slice via factory)", () => {
               args: { curr_date: "2024-06-24" },
               type: "tool_call",
             },
-            {
-              id: "c3",
-              name: "get_north_capital_flow",
-              args: { start_date: "2024-06-17", end_date: "2024-06-24" },
-              type: "tool_call",
-            },
           ],
         }),
         new AIMessage(
@@ -305,7 +289,6 @@ describe("buildChinaNode (vertical slice via factory)", () => {
       get_industry_policy: "datetime,title\n20240624,国务院发布科技产业扶持意见",
       get_pboc_ops: "trade_date,op_type,volume\n20240624,Reverse Repo,200",
       get_property_data: "日期,最新值\n2024-06-01,92.1",
-      get_north_capital_flow: "trade_date,north_money\n20240620,42.5\n20240624,30.1",
     });
 
     const node = buildChinaNode({

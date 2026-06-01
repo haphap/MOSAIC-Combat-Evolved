@@ -72,7 +72,7 @@ const DLR_BULL: DollarOutput = {
   agent: "dollar",
   dxy_trend: "WEAKENING",
   cny_pressure: "LOW",
-  north_flow_correlation: -73,
+  dxy_cny_correlation: -73,
   key_drivers: ["DXY -1.2% WoW"],
   confidence: 0.7,
 };
@@ -123,7 +123,7 @@ const EM_BULL: EmergingMarketsOutput = {
   em_relative: "OUTPERFORMING",
   hk_a_share_ratio: 1.4,
   capital_flow: "NET_INFLOW",
-  key_drivers: ["north flow +120B CNY week"],
+  key_drivers: ["main funds +120B CNY week"],
   confidence: 0.5,
 };
 const EM_BEAR: EmergingMarketsOutput = {
@@ -151,7 +151,7 @@ const NS_BEAR: NewsSentimentOutput = {
 
 const IF_BULL: InstitutionalFlowOutput = {
   agent: "institutional_flow",
-  north_net_flow_cny: 12345,
+  main_net_flow_cny: 12345,
   top_buyers: ["中信证券上海溧阳路营业部"],
   sectors_in_out: [
     { sector: "semiconductor", net_amount_cny: 5000 },
@@ -401,7 +401,7 @@ function CN_NEUT_AS_NEWS(): NewsSentimentOutput {
 function IF_NEUT_AS_FLOW(): InstitutionalFlowOutput {
   return {
     agent: "institutional_flow",
-    north_net_flow_cny: 0,
+    main_net_flow_cny: 0,
     top_buyers: ["mixed"],
     sectors_in_out: [{ sector: "mixed", net_amount_cny: 0 }],
     key_drivers: ["mixed"],

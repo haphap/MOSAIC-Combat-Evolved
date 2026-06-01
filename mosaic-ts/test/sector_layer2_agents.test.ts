@@ -248,7 +248,6 @@ describe("buildSemiconductorNode (Layer-2 factory smoke)", () => {
       "get_industry_policy",
       "get_xueqiu_heat",
       "get_lhb_ranking",
-      "get_north_capital_flow",
       "get_broker_research",
       "get_stock_research",
       "get_etf_holdings",
@@ -334,7 +333,7 @@ describe("buildSemiconductorNode (Layer-2 factory smoke)", () => {
     };
     const inf: InstitutionalFlowOutput = {
       agent: "institutional_flow",
-      north_net_flow_cny: 12345,
+      main_net_flow_cny: 12345,
       top_buyers: ["中信"],
       sectors_in_out: [{ sector: "semiconductor", net_amount_cny: 5000 }],
       key_drivers: ["d-inf"],
@@ -399,7 +398,7 @@ describe("buildLayerTwoUserContext", () => {
     };
     const inf: InstitutionalFlowOutput = {
       agent: "institutional_flow",
-      north_net_flow_cny: 5000,
+      main_net_flow_cny: 5000,
       top_buyers: ["a"],
       sectors_in_out: [{ sector: "semi", net_amount_cny: 3000 }],
       key_drivers: ["d-inf"],
@@ -428,7 +427,7 @@ describe("buildLayerTwoUserContext", () => {
     expect(ctx).toContain("BULLISH");
     expect(ctx).toContain("PRO_GROWTH");
     expect(ctx).toContain("半导体");
-    expect(ctx).toContain("5000"); // north_net_flow_cny
+    expect(ctx).toContain("5000"); // main_net_flow_cny
     expect(ctx).toContain("semiconductor"); // agentId in header
   });
 

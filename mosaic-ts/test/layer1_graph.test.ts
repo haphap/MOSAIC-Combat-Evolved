@@ -79,7 +79,6 @@ const FAKE_TOOLS: ToolMetadata[] = [
   "get_yield_curve_cn",
   "get_industry_policy",
   "get_property_data",
-  "get_north_capital_flow",
   "get_us_china_spread",
   "get_xueqiu_heat",
   "get_lhb_ranking",
@@ -133,7 +132,7 @@ function cannedOutputs(): Record<string, MacroAgentOutput> {
     agent: "dollar",
     dxy_trend: "WEAKENING",
     cny_pressure: "LOW",
-    north_flow_correlation: -70,
+    dxy_cny_correlation: -70,
     key_drivers: ["d-dlr"],
     confidence: 0.7,
   };
@@ -180,7 +179,7 @@ function cannedOutputs(): Record<string, MacroAgentOutput> {
   };
   const inf: InstitutionalFlowOutput = {
     agent: "institutional_flow",
-    north_net_flow_cny: 5000,
+    main_net_flow_cny: 5000,
     top_buyers: ["x"],
     sectors_in_out: [{ sector: "semi", net_amount_cny: 5000 }],
     key_drivers: ["d-if"],

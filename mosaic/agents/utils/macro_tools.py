@@ -22,7 +22,6 @@ Tool                            Used by                                         
                                 volatility (FEDFUNDS, DGS10, DGS2, DTWEXBGS,
                                 DCOILWTICO, GOLDPMGBD228NLBM, VIXCLS, etc.)
 ``get_pboc_ops``                central_bank, china                               Tushare cb_op
-``get_north_capital_flow``      dollar, institutional_flow                        Tushare moneyflow_hsgt
 ``get_lhb_ranking``             institutional_flow                                Tushare top_list
 ``get_yield_curve_cn``          central_bank, yield_curve                         Tushare yc_cb
 ``get_us_china_spread``         yield_curve                                       Tushare yc_cb + FRED DGS10
@@ -111,37 +110,6 @@ def get_pboc_ops(
 
 
 # ============================================================ North capital flow
-
-
-@tool
-def get_north_capital_flow(
-    start_date: Annotated[
-        str,
-        "Start date in yyyy-mm-dd format (inclusive).",
-    ],
-    end_date: Annotated[
-        str,
-        "End date in yyyy-mm-dd format (inclusive).",
-    ],
-) -> str:
-    """
-    Retrieve daily north-bound (HK→A) and south-bound (A→HK) net capital flows
-    over a date range, including 沪股通 / 深股通 / 港股通(沪) / 港股通(深) splits.
-
-    Used by ``dollar`` (DXY/CNY/north-flow triangulation) and
-    ``institutional_flow`` (foreign institutional positioning).
-
-    Args:
-        start_date: yyyy-mm-dd inclusive lower bound.
-        end_date: yyyy-mm-dd inclusive upper bound.
-
-    Returns:
-        Markdown header + CSV. Net flow columns in CNY million.
-    """
-    return route_to_vendor("get_north_capital_flow", start_date, end_date)
-
-
-# ============================================================ LHB
 
 
 @tool
@@ -663,7 +631,6 @@ def get_industry_moneyflow(
 __all__ = [
     "get_fred_series",
     "get_pboc_ops",
-    "get_north_capital_flow",
     "get_lhb_ranking",
     "get_yield_curve_cn",
     "get_us_china_spread",

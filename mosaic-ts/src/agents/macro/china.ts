@@ -10,7 +10,6 @@
  *   * get_pboc_ops          — OMO corroborator
  *   * get_property_data     — 国房景气指数 (real-estate climate; primary A-share
  *                             macro driver — closes the plan §14 #8 gap)
- *   * get_north_capital_flow — foreign positioning corroborator
  */
 
 import type { ChinaOutput } from "../types.js";
@@ -26,12 +25,7 @@ import { CHINA_FIELD_NAMES, ChinaSchema } from "./_schemas.js";
 // Spec
 // ---------------------------------------------------------------------------
 
-export const REQUIRED_TOOLS = [
-  "get_industry_policy",
-  "get_pboc_ops",
-  "get_property_data",
-  "get_north_capital_flow",
-] as const;
+export const REQUIRED_TOOLS = ["get_industry_policy", "get_pboc_ops", "get_property_data"] as const;
 
 export const chinaSpec: LayerOneAgentSpec<ChinaOutput> = {
   agentId: "china",

@@ -76,7 +76,6 @@ PYTHON = _resolve_python()
 EXPECTED_MACRO_TOOLS = {
     "get_fred_series",
     "get_pboc_ops",
-    "get_north_capital_flow",
     "get_lhb_ranking",
     "get_yield_curve_cn",
     "get_us_china_spread",
@@ -441,52 +440,6 @@ class MacroToolBridgeTests(_BridgeTestCase):
         )
         self.assertIn(err["code"], (-32001, -32003))
         self.assertIn("Backtest mode", err["message"])
-
-    def test_get_north_capital_flow_validates_date_format(self) -> None:
-        """Bad ISO date in args is caught in the route_to_vendor layer."""
-        err = self.call_err(
-            "tools.call",
-            {
-                "name": "get_north_capital_flow",
-                "args": {"start_date": "2024/06/01", "end_date": "2024-06-28"},
-            },
-        )
-        # macro_data raises DataVendorUnavailable("YYYY-MM-DD") — bridge maps
-        # to TOOL_EXECUTION_ERROR or DATA_VENDOR_UNAVAILABLE.
-        self.assertIn(err["code"], (-32001, -32003))
-        self.assertIn("YYYY-MM-DD", err["message"])
-
-    # -------------------- live smoke (Plan §11 0.5.2) -------------------
-
-    @unittest.skipUnless(
-        os.getenv("TUSHARE_TOKEN")
-        or os.getenv("TUSHARE_API_TOKEN")
-        or os.getenv("TS_TOKEN"),
-        "set TUSHARE_TOKEN to run the live get_north_capital_flow smoke test",
-    )
-    def test_get_north_capital_flow_live(self) -> None:
-        """End-to-end: spawn bridge subprocess, fetch real Tushare HSGT flow data.
-
-        Plan §11 0.5.2. Skipped on systems without a Tushare token; flip on by
-        exporting ``TUSHARE_TOKEN``.
-        """
-        result = self.call_ok(
-            "tools.call",
-            {
-                "name": "get_north_capital_flow",
-                "args": {"start_date": "2024-06-03", "end_date": "2024-06-07"},
-            },
-        )
-        self.assertIn("text", result)
-        body = result["text"]
-        # Header line is present regardless of whether rows came back.
-        self.assertIn("沪深股通", body)
-        self.assertIn("moneyflow_hsgt", body)
-        # Either real rows or the empty-window note. Both prove the round trip.
-        self.assertTrue(
-            "north_money" in body or "No HSGT flow rows" in body,
-            f"unexpected body:\n{body}",
-        )
 
 
 # ====================================================================

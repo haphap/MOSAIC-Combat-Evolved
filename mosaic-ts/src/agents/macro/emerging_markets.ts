@@ -1,9 +1,10 @@
 /**
  * emerging_markets Layer-1 macro agent (Plan §5.1).
  *
- * Plan §5.1 tools: `get_etf_price_data` (now available — fund_daily, macro-tools
- * gap closed, plan §14 #8) + `get_north_capital_flow` + `get_us_china_spread`.
- * Use `get_etf_price_data` on HK/A-share/EM-proxy ETFs (e.g. 510300.SH).
+ * Tools: `get_etf_price_data` / `get_etf_info` / `get_etf_nav` /
+ * `get_etf_universe` + `get_us_china_spread` + `get_fred_series(DTWEXBGS)`.
+ * Use ETF prices on HK/A-share/EM-proxy funds (e.g. 510300.SH, 513050.SH) for
+ * the HK-A ratio. (Northbound flow dropped — live quota disclosure discontinued.)
  */
 
 import type { EmergingMarketsOutput } from "../types.js";
@@ -17,7 +18,6 @@ import { EMERGING_MARKETS_FIELD_NAMES, EmergingMarketsSchema } from "./_schemas.
 
 export const REQUIRED_TOOLS = [
   "get_etf_price_data",
-  "get_north_capital_flow",
   "get_us_china_spread",
   "get_etf_info",
   "get_etf_nav",

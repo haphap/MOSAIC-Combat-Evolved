@@ -46,11 +46,6 @@ _EXPECTED_TOOLS = {
         "optional": {"look_back_days"},
         "vendor_method": "get_pboc_ops",
     },
-    "get_north_capital_flow": {
-        "required": {"start_date", "end_date"},
-        "optional": set(),
-        "vendor_method": "get_north_capital_flow",
-    },
     "get_lhb_ranking": {
         "required": {"curr_date"},
         "optional": set(),
@@ -232,12 +227,6 @@ class TestDispatch:
             {"curr_date": "2024-06-30", "look_back_days": 14}
         )
         assert patched_route["args"] == ("2024-06-30", 14)
-
-    def test_get_north_capital_flow_invocation(self, patched_route):
-        macro_tools.get_north_capital_flow.invoke(
-            {"start_date": "2024-06-24", "end_date": "2024-06-28"}
-        )
-        assert patched_route["args"] == ("2024-06-24", "2024-06-28")
 
     def test_get_lhb_ranking_invocation(self, patched_route):
         macro_tools.get_lhb_ranking.invoke({"curr_date": "2024-06-28"})
