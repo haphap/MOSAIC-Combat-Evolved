@@ -129,7 +129,7 @@ describe("listBridgeTools / pickBridgeTools against real sidecar", () => {
       // Spot-check Phase 0 macro tools
       expect(names).toContain("get_fred_series");
       expect(names).toContain("get_pboc_ops");
-      expect(names).toContain("get_north_capital_flow");
+      expect(names).toContain("get_lhb_ranking");
       expect(names).toContain("get_yield_curve_cn");
       // Research-report tools (行业研报 + 个股研报)
       expect(names).toContain("get_broker_research");

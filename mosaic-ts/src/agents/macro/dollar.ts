@@ -1,9 +1,8 @@
 /**
  * dollar Layer-1 macro agent (Plan §5.1).
  *
- * Plan §5.1 tools: `get_fred_series(DTWEXBGS)` + `get_usdcny` +
- * `get_north_capital_flow` — all now available (macro-tools gap closed,
- * plan §14 #8). `get_us_china_spread` retained as a corroborating signal.
+ * Tools: `get_fred_series(DTWEXBGS)` + `get_usdcny` + `get_us_china_spread`.
+ * (Northbound 沪深港通 flow was dropped — live quota disclosure discontinued.)
  */
 
 import type { DollarOutput } from "../types.js";
@@ -15,12 +14,7 @@ import {
 } from "./_factory.js";
 import { DOLLAR_FIELD_NAMES, DollarSchema } from "./_schemas.js";
 
-export const REQUIRED_TOOLS = [
-  "get_fred_series",
-  "get_usdcny",
-  "get_north_capital_flow",
-  "get_us_china_spread",
-] as const;
+export const REQUIRED_TOOLS = ["get_fred_series", "get_usdcny", "get_us_china_spread"] as const;
 
 export const dollarSpec: LayerOneAgentSpec<DollarOutput> = {
   agentId: "dollar",
@@ -41,7 +35,7 @@ export function renderDollar(o: DollarOutput): string {
     `dollar analysis (confidence=${o.confidence.toFixed(2)})\n` +
     `  dxy_trend:               ${o.dxy_trend}\n` +
     `  cny_pressure:            ${o.cny_pressure}\n` +
-    `  north_flow_correlation:  ${o.north_flow_correlation}\n` +
+    `  dxy_cny_correlation:    ${o.dxy_cny_correlation}\n` +
     `  key_drivers:\n${drivers}`
   );
 }
@@ -52,7 +46,7 @@ export function fallbackDollar(text: string): DollarOutput {
     agent: "dollar",
     dxy_trend: "STABLE",
     cny_pressure: "MODERATE",
-    north_flow_correlation: 0,
+    dxy_cny_correlation: 0,
     key_drivers: trimmed ? [trimmed.slice(0, 80)] : ["analysis missing"],
     confidence: 0,
   };

@@ -1,9 +1,9 @@
 /**
  * institutional_flow Layer-1 macro agent (Plan §5.1).
  *
- * Plan §5.1 tools: `get_north_capital_flow` + `get_lhb_ranking` +
- * `get_fund_flow` — all now available (macro-tools gap closed, plan §14 #8).
- * `get_fund_flow` reads ETF share creation/redemption (fund_share).
+ * Tools: `get_lhb_ranking` + `get_stock_moneyflow` (主力资金) + `get_fund_flow`.
+ * (Northbound 沪深港通 flow was dropped — live quota disclosure discontinued;
+ * main-funds money flow now carries the "big money" signal.)
  */
 
 import type { InstitutionalFlowOutput } from "../types.js";
@@ -15,12 +15,7 @@ import {
 } from "./_factory.js";
 import { INSTITUTIONAL_FLOW_FIELD_NAMES, InstitutionalFlowSchema } from "./_schemas.js";
 
-export const REQUIRED_TOOLS = [
-  "get_north_capital_flow",
-  "get_lhb_ranking",
-  "get_fund_flow",
-  "get_stock_moneyflow",
-] as const;
+export const REQUIRED_TOOLS = ["get_lhb_ranking", "get_fund_flow", "get_stock_moneyflow"] as const;
 
 export const institutionalFlowSpec: LayerOneAgentSpec<InstitutionalFlowOutput> = {
   agentId: "institutional_flow",
@@ -43,7 +38,7 @@ export function renderInstitutionalFlow(o: InstitutionalFlowOutput): string {
   const drivers = (o.key_drivers ?? []).map((d) => `  - ${d}`).join("\n");
   return (
     `institutional_flow analysis (confidence=${o.confidence.toFixed(2)})\n` +
-    `  north_net_flow_cny:  ${o.north_net_flow_cny.toFixed(1)} CNY mil\n` +
+    `  main_net_flow_cny:   ${o.main_net_flow_cny.toFixed(1)} CNY mil\n` +
     `  top_buyers:          ${buyers}\n` +
     `  sectors_in_out:      ${sectors}\n` +
     `  key_drivers:\n${drivers}`
@@ -54,7 +49,7 @@ export function fallbackInstitutionalFlow(text: string): InstitutionalFlowOutput
   const trimmed = (text ?? "").trim();
   return {
     agent: "institutional_flow",
-    north_net_flow_cny: 0,
+    main_net_flow_cny: 0,
     top_buyers: ["unknown"],
     sectors_in_out: [{ sector: "unknown", net_amount_cny: 0 }],
     key_drivers: trimmed ? [trimmed.slice(0, 80)] : ["analysis missing"],

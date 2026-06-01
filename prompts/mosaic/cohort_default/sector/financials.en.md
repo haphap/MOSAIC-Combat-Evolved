@@ -12,7 +12,7 @@ Read Banks + Non-bank financials (brokers / insurance / trusts) and produce conc
 > **Tool status**: plan §5.2's ideal **ETF holdings tools are still not
 > implemented** (plan §14 #8); **industry research is now wired**
 > (`get_broker_research`). This cycle you have policy / Xueqiu heat / LHB /
-> north-flow / **industry-research** slices. **Cap confidence ≤ 0.5** until the
+> industry-flow / **industry-research** slices. **Cap confidence ≤ 0.5** until the
 > ETF holdings tools land.
 
 ## Tools
@@ -58,8 +58,8 @@ Read Banks + Non-bank financials (brokers / insurance / trusts) and produce conc
 ## Writing constraints
 
 * `sector_score = +1` only when regime BULLISH **and** policy supportive
-  **and** north flow net-into this sector.
+  **and** industry money flow net-into this sector.
 * `sector_score = -1` requires regime BEARISH **or** regulatory tightening
-  **and** north flow net-out.
+  **and** industry money flow net-out.
 * ≤ 5 picks per side; more is noise.
 * `confidence ≤ 0.5` cap on Phase 0/1 due to tool gaps.

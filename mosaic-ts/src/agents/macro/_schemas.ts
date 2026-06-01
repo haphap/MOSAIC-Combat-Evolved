@@ -184,30 +184,30 @@ export const DollarSchema = z
     cny_pressure: z
       .enum(["HIGH", "MODERATE", "LOW"])
       .describe(
-        "Pressure on USD/CNY judged from DXY trend + north-flow direction + CN-US 10Y " +
-          "spread sign. HIGH = depreciation risk; LOW = appreciation tailwind.",
+        "Pressure on USD/CNY judged from DXY trend + CN-US 10Y spread sign. " +
+          "HIGH = depreciation risk; LOW = appreciation tailwind.",
       ),
-    north_flow_correlation: z
+    dxy_cny_correlation: z
       .number()
       .int()
       .min(-100)
       .max(100)
       .describe(
-        "Correlation of north-bound A-share flow with DXY moves over the window, scaled " +
-          "to integer percent. Negative = north flow leans inflow when DXY weakens (typical).",
+        "Correlation of USD/CNY with DXY moves over the window, scaled to integer " +
+          "percent. Positive = CNY weakens as the broad dollar strengthens (typical).",
       ),
     key_drivers: KEY_DRIVERS,
     confidence: CONFIDENCE,
   })
   .describe(
     "Dollar / RMB triangulation read. Required: cite DXY level change in BPS + " +
-      "north-flow magnitude in CNY mil + CN-US 10Y spread shift.",
+      "USD/CNY move + CN-US 10Y spread shift.",
   );
 
 export const DOLLAR_FIELD_NAMES = [
   "dxy_trend",
   "cny_pressure",
-  "north_flow_correlation",
+  "dxy_cny_correlation",
   "key_drivers",
   "confidence",
 ] as const;
@@ -349,25 +349,27 @@ export const EmergingMarketsSchema = z
     em_relative: z
       .enum(["OUTPERFORMING", "INLINE", "UNDERPERFORMING"])
       .describe(
-        "EM (proxy: north-bound flow + USD trend + CN-US spread) performance vs DM. " +
-          "OUTPERFORMING when DXY weakening + north-flow inflow + spread narrowing.",
+        "EM (proxy: cross-market ETF prices + USD trend + CN-US spread) performance vs DM. " +
+          "OUTPERFORMING when DXY weakening + A/HK ETFs rising + spread narrowing.",
       ),
     hk_a_share_ratio: z
       .number()
       .describe(
-        "HK index level / A-share index level proxy. Phase 0 lacks ETF tools; " +
-          "report a north-flow ratio (north_money / abs(south_money)) instead and call out " +
-          "the proxy in qe-style reasoning.",
+        "HK index level / A-share index level, computed from cross-market ETF prices " +
+          "(e.g. 513050.SH HK-tech vs 510300.SH CSI300 via get_etf_price_data / get_etf_nav).",
       ),
     capital_flow: z
       .enum(["NET_INFLOW", "FLAT", "NET_OUTFLOW"])
-      .describe("Composite EM capital-flow direction inferred from north-bound flow + DXY trend."),
+      .describe(
+        "Composite EM capital-flow direction inferred from A/HK ETF price + premium trend " +
+          "+ DXY direction + CN-US spread.",
+      ),
     key_drivers: KEY_DRIVERS,
     confidence: CONFIDENCE,
   })
   .describe(
-    "Emerging-markets / HK-A read. Phase 0 lacks ETF price tools, so we triangulate via " +
-      "north_capital_flow + us_china_spread + DXY proxy.",
+    "Emerging-markets / HK-A read. Triangulate via cross-market ETF prices + " +
+      "us_china_spread + DXY proxy.",
   );
 
 export const EMERGING_MARKETS_FIELD_NAMES = [
@@ -401,7 +403,7 @@ export const NewsSentimentSchema = z
       .boolean()
       .describe(
         "True when retail sentiment diverges sharply from institutional flow (e.g. retail " +
-          "euphoric while north-bound is selling). Sector / superinvestor agents read this.",
+          "euphoric while main funds are selling). Sector / superinvestor agents read this.",
       ),
     key_drivers: KEY_DRIVERS,
     confidence: CONFIDENCE,
@@ -426,11 +428,11 @@ export const NEWS_SENTIMENT_FIELD_NAMES = [
 export const InstitutionalFlowSchema = z
   .object({
     agent: z.literal("institutional_flow"),
-    north_net_flow_cny: z
+    main_net_flow_cny: z
       .number()
       .describe(
-        "Cumulative north-bound (HK→A) net flow over the window in CNY millions. " +
-          "Negative = outflow.",
+        "Cumulative main-funds (主力: large + extra-large orders, from get_stock_moneyflow) " +
+          "net flow over the window in CNY millions. Negative = outflow.",
       ),
     top_buyers: STRING_LIST_1_8(
       "Top 3-5 institutions / 龙虎榜 buyer codes by amount over the window. " +
@@ -450,12 +452,12 @@ export const InstitutionalFlowSchema = z
     confidence: CONFIDENCE,
   })
   .describe(
-    "Institutional flow read from north-bound flow + 龙虎榜. Required: surface concrete " +
+    "Institutional flow read from main-funds money-flow + 龙虎榜. Required: surface concrete " +
       "ts_codes + magnitudes; sector-level aggregation is the primary downstream input.",
   );
 
 export const INSTITUTIONAL_FLOW_FIELD_NAMES = [
-  "north_net_flow_cny",
+  "main_net_flow_cny",
   "top_buyers",
   "sectors_in_out",
   "key_drivers",

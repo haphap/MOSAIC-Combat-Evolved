@@ -7,7 +7,6 @@ analysts (Plan §5.1):
 Function                            Vendor / endpoint                      Used by (Layer-1 agents)
 ==================================  =====================================  ============================================================
 :func:`get_pboc_ops`                Tushare ``cb_op``                      ``central_bank``, ``china``
-:func:`get_north_capital_flow`      Tushare ``moneyflow_hsgt``             ``dollar``, ``institutional_flow``, ``sector`` (by_sector mode)
 :func:`get_lhb_ranking`             Tushare ``top_list``                   ``institutional_flow``
 :func:`get_yield_curve_cn`          Tushare ``yc_cb``                      ``central_bank``, ``yield_curve``
 :func:`get_us_china_spread`         Tushare ``yc_cb`` + FRED ``DGS10``     ``yield_curve``
@@ -150,44 +149,6 @@ def get_pboc_ops(curr_date: str, look_back_days: int = 7) -> str:
         title=f"PBOC Open Market Operations ({start_date} → {end_date})",
         subtitle="Source: Tushare cb_op. Columns include op_type, volume (亿元), rate, term.",
         empty_note=f"No PBOC operations recorded between {start_date} and {end_date}.",
-    )
-
-
-# ============================================================ 2. North capital flow
-
-
-def get_north_capital_flow(start_date: str, end_date: str) -> str:
-    """Fetch HK→A-share / A→HK net flows (沪深股通) for a date range.
-
-    Tushare endpoint ``moneyflow_hsgt`` provides daily totals:
-    * ``hgt`` 沪股通 net buy (CNY million)
-    * ``sgt`` 深股通 net buy (CNY million)
-    * ``ggt_ss`` 港股通(沪) net buy
-    * ``ggt_sz`` 港股通(深) net buy
-    * ``north_money`` aggregate north-bound (HK→A) net flow
-    * ``south_money`` aggregate south-bound (A→HK) net flow
-
-    Used by ``dollar`` (DXY/CNY/north-flow triangulation), ``institutional_flow``
-    (track foreign institutional positioning), and ``sector`` agents (by-sector
-    mode aggregates flows to specific industries via the ``moneyflow_hsgt_top10``
-    sibling endpoint, which we may add in Phase 2).
-    """
-    _validate_iso_date(start_date, "start_date")
-    _validate_iso_date(end_date, "end_date")
-    if start_date > end_date:
-        raise DataVendorUnavailable(
-            f"start_date {start_date!r} is after end_date {end_date!r}."
-        )
-    df = _query_tushare(
-        "moneyflow_hsgt",
-        start_date=_to_tushare_date(start_date),
-        end_date=_to_tushare_date(end_date),
-    )
-    return _df_to_markdown_csv(
-        df,
-        title=f"沪深股通资金流向 / North-South Capital Flow ({start_date} → {end_date})",
-        subtitle="Source: Tushare moneyflow_hsgt. north_money / south_money in CNY million.",
-        empty_note=f"No HSGT flow rows returned between {start_date} and {end_date}.",
     )
 
 
@@ -532,7 +493,7 @@ def get_usdcny(curr_date: str, look_back_days: int = 30) -> str:
     onshore USD/CNY closely and is the de-facto CNY-pressure gauge. Dates are
     GMT (one day behind Beijing) per the Tushare doc.
 
-    Used by ``dollar`` (DXY/CNY/north-flow triangulation).
+    Used by ``dollar`` (DXY/CNY/CN-US-spread triangulation).
     """
     start_date, end_date = _date_range_from_lookback(curr_date, look_back_days)
     df = _query_tushare(
@@ -866,7 +827,6 @@ def get_industry_moneyflow(curr_date: str, look_back_days: int = 5) -> str:
 
 __all__ = [
     "get_pboc_ops",
-    "get_north_capital_flow",
     "get_lhb_ranking",
     "get_yield_curve_cn",
     "get_us_china_spread",

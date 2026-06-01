@@ -10,7 +10,7 @@
 
 > **工具现状**：plan §5.2 期望的 **ETF holdings 工具仍未实现**（plan §14 #8）；
 > **行业研报已接入**（`get_broker_research`）。本 cycle 你有 政策 / 雪球关注 /
-> 龙虎榜 / 北向 / **行业研报** 工具。**confidence ≤ 0.5 上限**直到 ETF 持仓工具上线。
+> 龙虎榜 / 行业资金 / **行业研报** 工具。**confidence ≤ 0.5 上限**直到 ETF 持仓工具上线。
 
 ## 你的工具
 
@@ -55,9 +55,9 @@
 
 ## 写作约束
 
-* `sector_score = +1` 仅在 regime BULLISH **且** policy 正向 **且** 北向资金
-  净流入到本 sector 时使用。
-* `sector_score = -1` 需要 regime BEARISH **或** 监管收紧 **且** 北向资金
+* `sector_score = +1` 仅在 regime BULLISH **且** policy 正向 **且** 行业资金
+  净流入本 sector 时使用。
+* `sector_score = -1` 需要 regime BEARISH **或** 监管收紧 **且** 行业资金
   净流出。
 * longs / shorts 各 ≤ 5 个 picks（再多就是噪声）。
 * `confidence ≤ 0.5` cap on Phase 0/1（工具缺口）。

@@ -66,8 +66,8 @@ export interface DollarOutput extends MacroAgentOutputBase {
   agent: "dollar";
   dxy_trend: "STRENGTHENING" | "STABLE" | "WEAKENING";
   cny_pressure: "HIGH" | "MODERATE" | "LOW";
-  /** Integer correlation × 100 (e.g. 73 means 0.73). */
-  north_flow_correlation: number;
+  /** Integer correlation × 100 (e.g. 73 means 0.73) of USD/CNY vs DXY. */
+  dxy_cny_correlation: number;
 }
 
 export interface YieldCurveOutput extends MacroAgentOutputBase {
@@ -97,7 +97,7 @@ export interface VolatilityOutput extends MacroAgentOutputBase {
 export interface EmergingMarketsOutput extends MacroAgentOutputBase {
   agent: "emerging_markets";
   em_relative: "OUTPERFORMING" | "INLINE" | "UNDERPERFORMING";
-  /** HK index level / A-share index level. */
+  /** HK index level / A-share index level (via cross-market ETF prices). */
   hk_a_share_ratio: number;
   capital_flow: "NET_INFLOW" | "FLAT" | "NET_OUTFLOW";
 }
@@ -113,8 +113,8 @@ export interface NewsSentimentOutput extends MacroAgentOutputBase {
 
 export interface InstitutionalFlowOutput extends MacroAgentOutputBase {
   agent: "institutional_flow";
-  /** Net north-bound (HK→A) flow in CNY million. Negative = outflow. */
-  north_net_flow_cny: number;
+  /** Net main-funds (主力, large+extra-large orders) flow in CNY million. Negative = outflow. */
+  main_net_flow_cny: number;
   /** Top 5 buyer institutions by amount. */
   top_buyers: string[];
   /** Sectors net bought (positive amount) / sold (negative). */

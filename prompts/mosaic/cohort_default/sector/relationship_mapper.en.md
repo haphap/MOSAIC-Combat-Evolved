@@ -16,18 +16,17 @@ contagion risks.
 > **stock research is now wired** (`get_stock_research`) — research reports
 > often disclose upstream/downstream, related-party and customer/supplier links,
 > useful as supporting evidence for relationship inference. This cycle you have
-> north flow + LHB + **stock research** + a hard-coded industry-chain set.
+> LHB + **stock research** + a hard-coded industry-chain set.
 > **Cap confidence ≤ 0.5** (holdings-overlap tools still missing).
 
 ## Tools
 
-* `get_north_capital_flow(start_date, end_date)` — north + south flow.
-  Watch sector-level co-movement (same-direction flow = high coupling).
+* `get_lhb_ranking(curr_date)` — daily Dragon-Tiger; aggregate by sector
+  to see cross-sector capital linkages (several sectors trending together
+  on the board = high coupling).
 * `get_stock_research(ticker, start_date, end_date)` — individual-stock research
   (个股研报). Pull abstracts for key nodes and mine upstream/downstream,
   related-party and customer/supplier cues to corroborate the relationship map.
-* `get_lhb_ranking(curr_date)` — daily Dragon-Tiger; aggregate by sector
-  to see cross-sector capital linkages.
 
 ## Reference industry chains (hard-coded, extend with tool data when justified)
 
@@ -44,7 +43,7 @@ contagion risks.
 
 1. **Read upstream first**: layer1_consensus + china + institutional_flow +
    the other 6 sector_score values when present.
-2. **Two tools required**: north flow + LHB.
+2. **Two tools required**: LHB + stock research.
 3. **`supply_chains`**: pick ≤ 4 from the reference set that are most
    relevant; you may add new chains anchored in tool data. Every chain
    needs a `risk` field citing concrete evidence.
@@ -75,7 +74,7 @@ contagion risks.
 ## Writing constraints
 
 * `supply_chains` ≥ 1, ≤ 8 entries. Each `risk` cites upstream tool data
-  (e.g. "north flow net-outflow 5B CNY from semis for 5 sessions →
+  (e.g. "semis net-sold on the Dragon-Tiger board for 5 sessions →
   transmits to AI applications").
 * `contagion_risks` uses arrows / "transmits to" / "triggers" so the
   causal chain is readable at a glance.

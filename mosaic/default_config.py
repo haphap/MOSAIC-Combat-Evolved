@@ -113,7 +113,6 @@ DEFAULT_CONFIG = {
         "get_stock_research": "tushare",
         # Macro layer (Phase 0 Day 3+)
         "get_pboc_ops": "tushare",
-        "get_north_capital_flow": "tushare",
         "get_lhb_ranking": "tushare",
         "get_yield_curve_cn": "tushare",
         "get_us_china_spread": "tushare,fred",

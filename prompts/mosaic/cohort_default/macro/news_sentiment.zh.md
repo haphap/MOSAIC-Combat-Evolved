@@ -25,8 +25,8 @@
 3. **`hot_topics` 必须是具体 ticker 或主题**：
    - ✓ "600519.SH 茅台、半导体设备国产替代、新质生产力"
    - ✗ "白酒板块、科技板块"
-4. **`contrarian_flag = true` 严格定义**：散户情绪 ≥ +0.5 但同期北向资金
-   净流出 ≥ 50 亿，或散户情绪 ≤ -0.5 但北向连续净流入。这是后续
+4. **`contrarian_flag = true` 严格定义**：散户情绪 ≥ +0.5 但同期机构/主力
+   资金净流出，或散户情绪 ≤ -0.5 但主力资金净流入。这是后续
    superinvestor 反向交易最有用的信号。
 
 ## 输出 schema
@@ -45,7 +45,8 @@
 ## 写作约束
 
 * 不是雪球前 5 名个股的 ticker 就别挂 `hot_topics`，避免噪声。
-* `contrarian_flag` 判断需要显式引用 north_capital_flow 数据。如果你在本
-  cycle 没拉北向（因为不是你的工具），把 `contrarian_flag = false` 同时
-  在 `key_drivers` 里说明"无法验证背离 → 保守 false"。
+* `contrarian_flag` 判断需要显式引用机构资金信号。本 agent 没有资金流工具，
+  应参考 institutional_flow 的 `main_net_flow_cny` 输出；若本 cycle 无法获得
+  该信号，把 `contrarian_flag = false` 同时在 `key_drivers` 里说明"无法验证
+  背离 → 保守 false"。
 * `confidence ≥ 0.7` 仅当雪球数据 + 政策新闻都明确支持判断时使用。

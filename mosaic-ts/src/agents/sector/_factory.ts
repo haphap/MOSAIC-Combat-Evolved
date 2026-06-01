@@ -186,7 +186,7 @@ function renderInstitutionalFlowSummary(state: DailyCycleStateType): string {
     .join(", ");
   return (
     `## institutional_flow (Layer 1)\n` +
-    `* north_net_flow_cny: ${out.north_net_flow_cny.toFixed(0)} CNY mil\n` +
+    `* main_net_flow_cny: ${out.main_net_flow_cny.toFixed(0)} CNY mil\n` +
     `* sectors_in_out:     ${sectors}\n`
   );
 }

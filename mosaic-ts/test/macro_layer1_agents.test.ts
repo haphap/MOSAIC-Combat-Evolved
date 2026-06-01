@@ -100,13 +100,13 @@ describe("AGENTS_BY_LAYER.macro", () => {
 describe("each macro agent spec wires the right factory inputs", () => {
   const cases = [
     { name: "geopolitical", spec: geopoliticalSpec, expected_tools: 3 },
-    { name: "dollar", spec: dollarSpec, expected_tools: 4 },
+    { name: "dollar", spec: dollarSpec, expected_tools: 3 },
     { name: "yield_curve", spec: yieldCurveSpec, expected_tools: 3 },
     { name: "commodities", spec: commoditiesSpec, expected_tools: 3 },
     { name: "volatility", spec: volatilitySpec, expected_tools: 3 },
-    { name: "emerging_markets", spec: emergingMarketsSpec, expected_tools: 6 },
+    { name: "emerging_markets", spec: emergingMarketsSpec, expected_tools: 5 },
     { name: "news_sentiment", spec: newsSentimentSpec, expected_tools: 4 },
-    { name: "institutional_flow", spec: institutionalFlowSpec, expected_tools: 4 },
+    { name: "institutional_flow", spec: institutionalFlowSpec, expected_tools: 3 },
   ] as const;
 
   for (const { name, spec, expected_tools } of cases) {
@@ -183,13 +183,13 @@ describe("schemas reject canonical malformations", () => {
     ).toThrow();
   });
 
-  it("dollarSpec rejects north_flow_correlation > 100", () => {
+  it("dollarSpec rejects dxy_cny_correlation > 100", () => {
     expect(() =>
       dollarSpec.schema.parse({
         agent: "dollar",
         dxy_trend: "STABLE",
         cny_pressure: "MODERATE",
-        north_flow_correlation: 200, // > 100
+        dxy_cny_correlation: 200, // > 100
         key_drivers: ["d"],
         confidence: 0.5,
       }),
@@ -213,7 +213,7 @@ describe("schemas reject canonical malformations", () => {
     expect(() =>
       institutionalFlowSpec.schema.parse({
         agent: "institutional_flow",
-        north_net_flow_cny: 0,
+        main_net_flow_cny: 0,
         top_buyers: ["x"],
         sectors_in_out: [], // empty
         key_drivers: ["d"],

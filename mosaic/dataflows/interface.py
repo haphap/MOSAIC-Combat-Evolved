@@ -17,7 +17,6 @@ from .sino_us import get_us_china_relations as get_us_china_relations_impl
 from .fred import get_fred_series as get_fred_series_impl
 from .macro_data import (
     get_pboc_ops as get_pboc_ops_impl,
-    get_north_capital_flow as get_north_capital_flow_impl,
     get_lhb_ranking as get_lhb_ranking_impl,
     get_yield_curve_cn as get_yield_curve_cn_impl,
     get_us_china_spread as get_us_china_spread_impl,
@@ -126,7 +125,6 @@ TOOLS_CATEGORIES = {
         "tools": [
             "get_fred_series",
             "get_pboc_ops",
-            "get_north_capital_flow",
             "get_lhb_ranking",
             "get_yield_curve_cn",
             "get_us_china_spread",
@@ -241,9 +239,6 @@ VENDOR_METHODS = {
     "get_pboc_ops": {
         "tushare": get_pboc_ops_impl,
     },
-    "get_north_capital_flow": {
-        "tushare": get_north_capital_flow_impl,
-    },
     "get_lhb_ranking": {
         "tushare": get_lhb_ranking_impl,
     },
@@ -299,7 +294,6 @@ _RANGE_DATE_METHODS = {
     "get_stock_research": (1, 2),
     "get_etf_price_data": (1, 2),
     "get_fred_series": (1, 2),
-    "get_north_capital_flow": (0, 1),
     "get_stock_moneyflow": (1, 2),
 }
 

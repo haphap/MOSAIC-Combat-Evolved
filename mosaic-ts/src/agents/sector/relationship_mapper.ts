@@ -18,11 +18,7 @@ import {
 } from "./_factory.js";
 import { RELATIONSHIP_MAPPER_FIELD_NAMES, RelationshipMapperSchema } from "./_schemas.js";
 
-export const REQUIRED_TOOLS = [
-  "get_north_capital_flow",
-  "get_lhb_ranking",
-  "get_stock_research",
-] as const;
+export const REQUIRED_TOOLS = ["get_lhb_ranking", "get_stock_research"] as const;
 
 export const relationshipMapperSpec: LayerTwoAgentSpec<RelationshipMapperOutput> = {
   agentId: "relationship_mapper",

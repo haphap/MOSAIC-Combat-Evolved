@@ -131,34 +131,6 @@ def test_get_pboc_ops_empty_frame(mock_query_pro):
 # --------------------------------------------------------------------- 2. North-flow
 
 
-def test_get_north_capital_flow_emits_csv(mock_query_pro):
-    canned = _df_with_rows(
-        [
-            {
-                "trade_date": "20240628",
-                "ggt_ss": 12.3,
-                "ggt_sz": 4.5,
-                "hgt": 30.1,
-                "sgt": 12.4,
-                "north_money": 42.5,
-                "south_money": 16.8,
-            }
-        ]
-    )
-    mock_query_pro(canned)
-
-    out = macro_data.get_north_capital_flow("2024-06-24", "2024-06-28")
-
-    assert "沪深股通" in out
-    assert "north_money" in out
-    assert "42.5" in out
-
-
-def test_get_north_capital_flow_rejects_inverted_range():
-    with pytest.raises(DataVendorUnavailable, match="after end_date"):
-        macro_data.get_north_capital_flow("2024-12-31", "2024-01-01")
-
-
 # --------------------------------------------------------------------- 3. LHB
 
 
@@ -571,11 +543,6 @@ def test_get_fund_flow_empty(mock_query_pro):
     reason="set TUSHARE_TOKEN to run live Tushare integration tests",
 )
 class TestLiveTushare:
-    def test_live_north_capital_flow(self):
-        out = macro_data.get_north_capital_flow("2024-06-03", "2024-06-07")
-        # Either real data or "non-trading day" empty note — both acceptable.
-        assert "north_money" in out or "No HSGT flow rows" in out
-
     def test_live_yield_curve_cn(self):
         out = macro_data.get_yield_curve_cn("2024-06-28", look_back_days=5)
         assert "CN Treasury Yield Curve" in out

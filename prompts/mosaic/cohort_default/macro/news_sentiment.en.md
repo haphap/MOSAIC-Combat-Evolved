@@ -28,8 +28,8 @@ sentiment + today's hot topics + the retail-vs-institutional divergence flag**.
    - ✓ "600519.SH 茅台, semi-equipment domestic substitution, 新质生产力"
    - ✗ "liquor sector, tech sector"
 4. **`contrarian_flag = true` strict definition**: retail sentiment ≥ +0.5
-   but north-flow net-outflow ≥ 5B CNY same window, OR retail ≤ -0.5 but
-   north-flow consecutive inflow. This is the most actionable upstream
+   but institutional / main-funds net-outflow same window, OR retail ≤ -0.5
+   but main-funds net inflow. This is the most actionable upstream
    signal for superinvestor agents.
 
 ## Output schema
@@ -48,9 +48,10 @@ sentiment + today's hot topics + the retail-vs-institutional divergence flag**.
 ## Writing constraints
 
 * If not in Xueqiu top 5 stocks, do not list as `hot_topics` — avoid noise.
-* `contrarian_flag` requires explicit north_capital_flow citation. If you
-  don't have north flow in this cycle (not your tool), set `contrarian_flag
-  = false` AND state "could not verify divergence → conservative false"
-  in `key_drivers`.
+* `contrarian_flag` requires an explicit institutional-flow citation. This
+  agent has no flow tool, so reference institutional_flow's
+  `main_net_flow_cny` output; if that signal is unavailable this cycle, set
+  `contrarian_flag = false` AND state "could not verify divergence →
+  conservative false" in `key_drivers`.
 * `confidence ≥ 0.7` only when both Xueqiu data + policy news are
   unambiguous.
