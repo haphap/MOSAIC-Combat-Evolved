@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS recommendations (
     conviction REAL,                            -- [0, 1]
     target_weight_pct REAL,                     -- [0, 100]
     rationale_snapshot TEXT,
+    replay_triggered INTEGER NOT NULL DEFAULT 0,  -- 1 = produced by a CRO-veto replay cycle (R-A1)
     forward_return_5d REAL,                     -- NULL until scored
     forward_return_21d REAL,
     alpha_5d REAL,
@@ -236,6 +237,11 @@ def expand_state_to_recommendations(state: dict[str, Any]) -> list[dict[str, Any
     if not isinstance(date, str) or not date:
         raise ValueError("state.as_of_date is required to expand recommendations")
 
+    # R-A1: provenance — was this cycle's portfolio produced after a CRO-veto
+    # replay? Stamped on every row so the scorecard can segment first-pass vs
+    # replayed recommendations.
+    replay_flag = 1 if state.get("replay_triggered") else 0
+
     rows: list[dict[str, Any]] = []
 
     # ── Layer 2 sector agents ─────────────────────────────────────────────
@@ -322,6 +328,9 @@ def expand_state_to_recommendations(state: dict[str, Any]) -> list[dict[str, Any
                 }
             )
 
+    for row in rows:
+        row["replay_triggered"] = replay_flag
+
     return rows
 
 
@@ -357,6 +366,13 @@ class ScorecardStore:
     def _init_schema(self) -> None:
         with self._connect() as conn:
             conn.executescript(_SCHEMA_SQL)
+            # Lightweight migration for DBs created before replay_triggered (R-A1).
+            cols = {r[1] for r in conn.execute("PRAGMA table_info(recommendations)")}
+            if "replay_triggered" not in cols:
+                conn.execute(
+                    "ALTER TABLE recommendations "
+                    "ADD COLUMN replay_triggered INTEGER NOT NULL DEFAULT 0"
+                )
 
     # ── recommendations ──────────────────────────────────────────────────
 
@@ -380,16 +396,17 @@ class ScorecardStore:
                 """
                 INSERT INTO recommendations (
                     cohort, agent, ticker, date, action, conviction,
-                    target_weight_pct, rationale_snapshot
+                    target_weight_pct, rationale_snapshot, replay_triggered
                 ) VALUES (
                     :cohort, :agent, :ticker, :date, :action, :conviction,
-                    :target_weight_pct, :rationale_snapshot
+                    :target_weight_pct, :rationale_snapshot, :replay_triggered
                 )
                 ON CONFLICT(cohort, agent, ticker, date) DO UPDATE SET
                     action = excluded.action,
                     conviction = excluded.conviction,
                     target_weight_pct = excluded.target_weight_pct,
-                    rationale_snapshot = excluded.rationale_snapshot
+                    rationale_snapshot = excluded.rationale_snapshot,
+                    replay_triggered = excluded.replay_triggered
                 """,
                 rows,
             )

@@ -211,6 +211,17 @@ class TestExpandState:
         assert len(druck["rationale_snapshot"]) == 200
         assert druck["rationale_snapshot"].endswith("…")
 
+    def test_replay_triggered_defaults_to_0(self):
+        # R-A1-followup: no replay flag in state → all rows stamped 0.
+        rows = expand_state_to_recommendations(_sample_state())
+        assert rows and all(r["replay_triggered"] == 0 for r in rows)
+
+    def test_replay_triggered_propagates_to_all_rows(self):
+        state = _sample_state()
+        state["replay_triggered"] = True
+        rows = expand_state_to_recommendations(state)
+        assert rows and all(r["replay_triggered"] == 1 for r in rows)
+
 
 # ---------------------------------------------------------------------------
 # ScorecardStore — schema + ingest
@@ -237,6 +248,20 @@ class TestScorecardStore:
         with store._connect() as conn:
             count = conn.execute("SELECT COUNT(*) FROM recommendations").fetchone()[0]
         assert count == 7
+
+    def test_replay_triggered_persisted_and_updated(self, store: ScorecardStore):
+        # R-A1-followup: first-pass cycle → all rows replay_triggered = 0.
+        store.append_from_state(_sample_state())
+        with store._connect() as conn:
+            vals = {r[0] for r in conn.execute("SELECT DISTINCT replay_triggered FROM recommendations")}
+        assert vals == {0}
+        # Re-ingest the same cycle as a replay → upsert flips the flag to 1.
+        replayed = _sample_state()
+        replayed["replay_triggered"] = True
+        store.append_from_state(replayed)
+        with store._connect() as conn:
+            vals = {r[0] for r in conn.execute("SELECT DISTINCT replay_triggered FROM recommendations")}
+        assert vals == {1}
 
     def test_unique_constraint_via_upsert(self, store: ScorecardStore):
         # First ingest
