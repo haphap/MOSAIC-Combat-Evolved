@@ -19,6 +19,9 @@ export const REQUIRED_TOOLS = [
   "get_etf_price_data",
   "get_north_capital_flow",
   "get_us_china_spread",
+  "get_etf_info",
+  "get_etf_nav",
+  "get_etf_universe",
 ] as const;
 
 export const emergingMarketsSpec: LayerOneAgentSpec<EmergingMarketsOutput> = {

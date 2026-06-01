@@ -15,6 +15,7 @@ export const REQUIRED_TOOLS = [
   "get_lhb_ranking",
   "get_north_capital_flow",
   "get_broker_research",
+  "get_etf_holdings",
 ] as const;
 
 export const consumerSpec: LayerTwoAgentSpec<ConsumerOutput> = {
