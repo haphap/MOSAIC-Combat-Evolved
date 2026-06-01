@@ -22,6 +22,8 @@
   sector 龙头（如 600276.SH）作 ticker，自动解析其 Tushare 行业并拉该行业研报摘要。
 * `get_lhb_ranking(curr_date)` —— 龙虎榜。当日 LHB 上榜个股按申万一级聚合
   到本 sector 的部分。
+* `get_etf_holdings(ticker, curr_date)` —— 行业 ETF 持仓。用本行业代表性 ETF（512010.SH 医药ETF）
+  查十大成分股权重,定位龙头与行业暴露。
 
 ## 工作流程
 

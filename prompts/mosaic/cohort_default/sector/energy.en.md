@@ -26,6 +26,8 @@ Read Oil & gas + Coal + Utilities (power / gas) and produce concrete long / shor
   that stock's Tushare industry and returns that industry's report abstracts.
 * `get_lhb_ranking(curr_date)` — daily Dragon-Tiger; aggregate the
   Shenwan-tier-1 portion belonging to this sector.
+* `get_etf_holdings(ticker, curr_date)` — sector-ETF holdings. Use this sector's
+  representative ETF (159930.SZ energy ETF) to read top-constituent weights / locate leaders.
 
 ## Workflow
 

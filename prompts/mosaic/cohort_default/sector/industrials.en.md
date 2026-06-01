@@ -26,6 +26,8 @@ Read Machinery + Defence + Transportation (advanced equipment / defence / logist
   that stock's Tushare industry and returns that industry's report abstracts.
 * `get_lhb_ranking(curr_date)` — daily Dragon-Tiger; aggregate the
   Shenwan-tier-1 portion belonging to this sector.
+* `get_etf_holdings(ticker, curr_date)` — sector-ETF holdings. Use this sector's
+  representative ETF (find the industry ETF via get_etf_universe) to read top-constituent weights / locate leaders.
 
 ## Workflow
 

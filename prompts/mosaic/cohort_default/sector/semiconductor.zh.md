@@ -23,6 +23,8 @@
   散户对 sector 的实时认知。
 * `get_lhb_ranking(curr_date)` —— 龙虎榜。当日 LHB 上榜个股按申万一级聚合
   到本 sector 的部分。
+* `get_etf_holdings(ticker, curr_date)` —— 行业 ETF 持仓。用本行业代表性 ETF（512760.SH 芯片ETF）
+  查十大成分股权重,定位龙头与行业暴露。
 
 ## 工作流程
 
