@@ -40,6 +40,12 @@ jobs:
 
   deploy:
     needs: build
+    # Gated: skipped until Pages is actually enabled. Without this the job fails
+    # on every push (plan/visibility blocks Pages on a private repo, HTTP 422),
+    # going red on main + docs PRs. After enabling Pages (Settings -> Pages ->
+    # Source: GitHub Actions), set repo variable PAGES_ENABLED=true to deploy.
+    # `build` still runs, so `mkdocs build --strict` keeps validating the docs.
+    if: vars.PAGES_ENABLED == 'true'
     runs-on: ubuntu-latest
     environment:
       name: github-pages

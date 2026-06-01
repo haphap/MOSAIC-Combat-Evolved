@@ -20,7 +20,7 @@ Layer-1 agent 调用 sidecar 工具(Tushare/akshare/FRED/雪球 等)—— 如 `
 
 ## 第 3 层 —— 投资哲学 (4)
 
-`ackman`、`aschenbrenner`、`baker`、`druckenmiller`。各以一种投资哲学视角审视 Layer-2 候选池(只引用上游分析中出现的 ticker —— 绝不杜撰代码)。四者都调用 `get_stock_research`(个股研报)、`get_fundamentals`、`get_stock_data`、`get_indicators`。`ackman` 额外调 `get_income_statement` / `get_cashflow` / `get_balance_sheet`(三张财报);`baker` 调 `get_income_statement` / `get_cashflow`;`druckenmiller` 调 `get_yield_curve_cn`。
+`ackman`、`aschenbrenner`、`baker`、`druckenmiller`。各以一种投资哲学视角审视 Layer-2 候选池(只引用上游分析中出现的 ticker —— 绝不杜撰代码)。四者都调用 `get_stock_research`(个股研报)、`get_fundamentals`、`get_stock_data`、`get_indicators`。`ackman` 额外调 `get_income_statement` / `get_cashflow` / `get_balance_sheet`(三张财报);`baker` 调 `get_income_statement` / `get_cashflow`;`druckenmiller` 调 `get_yield_curve_cn`。各 agent 还从各自基础画像继承少量情绪/政策工具(`get_industry_policy`、`get_xueqiu_heat`、`get_lhb_ranking` 中的若干),故上面每个 agent 列出的是其区分性工具,并非完整集合。
 
 ## 第 4 层 —— 决策 (4)
 

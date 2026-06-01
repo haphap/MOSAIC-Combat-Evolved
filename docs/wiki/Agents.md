@@ -20,7 +20,7 @@ The six industry agents share a common core of 8 tools — `get_industry_policy`
 
 ## Layer 3 — Superinvestor (4)
 
-`ackman`, `aschenbrenner`, `baker`, `druckenmiller`. Each applies an investing-philosophy lens to the Layer-2 candidate universe (they cite only tickers present in the upstream analysis — never invent codes). All four call `get_stock_research` (个股研报), `get_fundamentals`, `get_stock_data`, and `get_indicators`. `ackman` additionally calls `get_income_statement` / `get_cashflow` / `get_balance_sheet` (三张财报); `baker` calls `get_income_statement` / `get_cashflow`; `druckenmiller` calls `get_yield_curve_cn`.
+`ackman`, `aschenbrenner`, `baker`, `druckenmiller`. Each applies an investing-philosophy lens to the Layer-2 candidate universe (they cite only tickers present in the upstream analysis — never invent codes). All four call `get_stock_research` (个股研报), `get_fundamentals`, `get_stock_data`, and `get_indicators`. `ackman` additionally calls `get_income_statement` / `get_cashflow` / `get_balance_sheet` (三张财报); `baker` calls `get_income_statement` / `get_cashflow`; `druckenmiller` calls `get_yield_curve_cn`. Each also inherits a few sentiment/policy tools from its base profile (`get_industry_policy`, `get_xueqiu_heat`, and/or `get_lhb_ranking`), so the per-agent lists above are the distinguishing tools, not the complete set.
 
 ## Layer 4 — Decision (4)
 
