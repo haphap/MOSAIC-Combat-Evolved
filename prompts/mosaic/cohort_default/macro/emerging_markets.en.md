@@ -29,14 +29,14 @@ relative to DM** + **HK / A share preference** + **EM capital flow**.
 2. **ETF usage (self-discovery)**: first `get_etf_universe` to find a broad-base /
    cross-border ETF, then `get_etf_info`/`get_etf_nav`/`get_etf_price_data` on the
    ones of interest to measure EM/HK-A performance as price corroboration.
-2. **`em_relative` strict definitions**:
+3. **`em_relative` strict definitions**:
    - OUTPERFORMING: DXY weakening + north-flow inflow + spread narrowing
    - UNDERPERFORMING: DXY strengthening + north-flow outflow + spread wider
    - INLINE: anything else
-3. **`hk_a_share_ratio` as proxy**: weekly north_money / abs(south_money).
+4. **`hk_a_share_ratio` as proxy**: weekly north_money / abs(south_money).
    > 1 = capital prefers A-share, < 1 = capital prefers HK. The
    `key_drivers` MUST flag that this is a proxy.
-4. **`capital_flow` strict definitions**:
+5. **`capital_flow` strict definitions**:
    - NET_INFLOW: ≥ 5 consecutive sessions of north-flow inflow + DXY
      weakening
    - NET_OUTFLOW: ≥ 3 consecutive sessions of north-flow outflow ≥ 5B CNY

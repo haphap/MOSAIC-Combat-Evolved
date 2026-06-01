@@ -27,7 +27,7 @@ Read Banks + Non-bank financials (brokers / insurance / trusts) and produce conc
 * `get_lhb_ranking(curr_date)` — daily Dragon-Tiger; aggregate the
   Shenwan-tier-1 portion belonging to this sector.
 * `get_etf_holdings(ticker, curr_date)` — sector-ETF holdings. Use this sector's
-  representative ETF (512880.SH securities ETF) to read top-constituent weights / locate leaders.
+  representative ETF (512800.SH bank ETF) to read top-constituent weights / locate leaders.
 
 ## Workflow
 

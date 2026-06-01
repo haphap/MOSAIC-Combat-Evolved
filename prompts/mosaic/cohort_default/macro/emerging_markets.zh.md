@@ -26,13 +26,13 @@
 2. **ETF 用法（自主发现）**：先用 `get_etf_universe` 找宽基/跨境 ETF，再对感兴趣
    的标的用 `get_etf_info`/`get_etf_nav`/`get_etf_price_data` 实测 EM/HK-A 表现，
    作为资金流判断的价格佐证。
-2. **`em_relative` 严格定义**：
+3. **`em_relative` 严格定义**：
    - OUTPERFORMING：DXY 走弱 + 北向净流入 + 利差收窄
    - UNDERPERFORMING：DXY 走强 + 北向净流出 + 利差扩大
    - INLINE：其余
-3. **`hk_a_share_ratio` 用代理**：当周 north_money / abs(south_money)。
+4. **`hk_a_share_ratio` 用代理**：当周 north_money / abs(south_money)。
    > 1 = 资金偏 A 股，< 1 = 资金偏 HK。在 `key_drivers` 必须备注是代理。
-4. **`capital_flow` 严格定义**：
+5. **`capital_flow` 严格定义**：
    - NET_INFLOW：北向连续 ≥ 5 天净流入 + DXY 走弱
    - NET_OUTFLOW：北向连续 ≥ 3 天净流出 ≥ 50 亿
    - FLAT：其他
