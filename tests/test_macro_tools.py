@@ -123,7 +123,7 @@ _EXPECTED_TOOLS = {
     },
     "get_industry_moneyflow": {
         "required": {"curr_date"},
-        "optional": {"look_back_days"},
+        "optional": {"look_back_days", "industries"},
         "vendor_method": "get_industry_moneyflow",
     },
 }
@@ -315,7 +315,14 @@ class TestDispatch:
     def test_get_industry_moneyflow_default_lookback(self, patched_route):
         macro_tools.get_industry_moneyflow.invoke({"curr_date": "2024-06-30"})
         assert patched_route["method"] == "get_industry_moneyflow"
-        assert patched_route["args"] == ("2024-06-30", 5)
+        assert patched_route["args"] == ("2024-06-30", 5, "")
+
+    def test_get_industry_moneyflow_passes_industries_filter(self, patched_route):
+        macro_tools.get_industry_moneyflow.invoke(
+            {"curr_date": "2024-06-30", "industries": "银行,证券"}
+        )
+        assert patched_route["method"] == "get_industry_moneyflow"
+        assert patched_route["args"] == ("2024-06-30", 5, "银行,证券")
 
 
 # --------------------------------------------------------------------- bridge handler

@@ -35,7 +35,7 @@ export function renderDollar(o: DollarOutput): string {
     `dollar analysis (confidence=${o.confidence.toFixed(2)})\n` +
     `  dxy_trend:               ${o.dxy_trend}\n` +
     `  cny_pressure:            ${o.cny_pressure}\n` +
-    `  dxy_cny_correlation:    ${o.dxy_cny_correlation}\n` +
+    `  dxy_cny_correlation:     ${o.dxy_cny_correlation}\n` +
     `  key_drivers:\n${drivers}`
   );
 }

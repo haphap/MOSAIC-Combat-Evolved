@@ -24,8 +24,9 @@
   到本 sector 的部分。
 * `get_etf_holdings(ticker, curr_date)` —— 行业 ETF 持仓。用本行业代表性 ETF（512010.SH 医药ETF）
   查十大成分股权重,定位龙头与行业暴露。
-* `get_industry_moneyflow(curr_date, look_back_days=5)` —— 行业资金流向(同花顺)。
-  看主力资金近 N 日在轮入还是轮出本行业(net_amount 正=轮入)。
+* `get_industry_moneyflow(curr_date, look_back_days=5, industries="医药,化学制药,生物制品,医疗")` —— 行业资金流向(同花顺),
+  已按本行业同花顺行业名过滤。看主力资金近 N 日在轮入还是轮出本行业(net_amount 正=轮入)。
+  若返回全表说明行业名没匹配上——直接扫全表即可。
 
 ## 工作流程
 

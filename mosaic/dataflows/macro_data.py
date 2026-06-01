@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import io
 import logging
+import re
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -797,7 +798,9 @@ def get_stock_moneyflow(ticker: str, start_date: str, end_date: str) -> str:
     )
 
 
-def get_industry_moneyflow(curr_date: str, look_back_days: int = 5) -> str:
+def get_industry_moneyflow(
+    curr_date: str, look_back_days: int = 5, industries: str = ""
+) -> str:
     """Fetch THS industry-level money-flow over a window.
 
     Window = ``[curr_date - look_back_days, curr_date]``. Tushare
@@ -805,6 +808,15 @@ def get_industry_moneyflow(curr_date: str, look_back_days: int = 5) -> str:
     inflow + lead stock. Used by ``sector`` agents to see which industries main
     funds are rotating into / out of. Columns are passed through defensively
     (THS schema: industry / net_amount / pct_change / lead_stock / …).
+
+    ``industries`` optionally narrows the ~90-industry table to just the THS
+    industries a caller cares about — a comma-separated list of 同花顺行业 name
+    substrings (ASCII ``,`` or CJK ``，`` / ``、``; e.g. ``"半导体"`` or
+    ``"银行,证券,保险"``). The match is a **substring** test on the ``industry``
+    column — deliberately broad, so a single token like ``"医疗"`` captures the
+    whole family (医疗器械 / 医疗服务 / …); pass a narrower exact name to tighten
+    it. If nothing matches it **degrades to the full table with a note** (so a
+    mistyped 同花顺行业 name never blanks the output).
     """
     start_date, end_date = _date_range_from_lookback(curr_date, look_back_days)
     df = _query_tushare(
@@ -812,13 +824,28 @@ def get_industry_moneyflow(curr_date: str, look_back_days: int = 5) -> str:
         start_date=_to_tushare_date(start_date),
         end_date=_to_tushare_date(end_date),
     )
+    subtitle = (
+        "Source: Tushare moneyflow_ind_ths (同花顺行业). net_amount = 行业净流入; "
+        "positive = main funds rotating in."
+    )
+
+    tokens = [t.strip() for t in re.split(r"[,，、]", industries) if t.strip()]
+    if tokens and df is not None and not df.empty and "industry" in df.columns:
+        pattern = "|".join(re.escape(t) for t in tokens)
+        matched = df[df["industry"].astype(str).str.contains(pattern, na=False)]
+        if not matched.empty:
+            df = matched
+            subtitle += f" Filtered to industries matching: {', '.join(tokens)}."
+        else:
+            subtitle += (
+                f" (No THS industry matched {', '.join(tokens)} — showing all; "
+                "check the 同花顺行业 name.)"
+            )
+
     return _df_to_markdown_csv(
         df,
         title=f"行业资金流向 / Industry Money Flow ({start_date} → {end_date})",
-        subtitle=(
-            "Source: Tushare moneyflow_ind_ths (同花顺行业). net_amount = 行业净流入; "
-            "positive = main funds rotating in."
-        ),
+        subtitle=subtitle,
         empty_note=f"No industry moneyflow rows between {start_date} and {end_date}.",
     )
 
