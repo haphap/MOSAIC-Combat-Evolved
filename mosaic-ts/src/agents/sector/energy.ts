@@ -20,6 +20,8 @@ export const REQUIRED_TOOLS = [
   "get_fred_series",
   "get_broker_research",
   "get_etf_holdings",
+  "get_stock_data",
+  "get_indicators",
 ] as const;
 
 export const energySpec: LayerTwoAgentSpec<EnergyOutput> = {

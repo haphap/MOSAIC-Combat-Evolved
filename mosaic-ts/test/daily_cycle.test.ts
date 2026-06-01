@@ -92,6 +92,8 @@ const FAKE_TOOLS: ToolMetadata[] = [
   "get_balance_sheet",
   "get_income_statement",
   "get_cashflow",
+  "get_stock_data",
+  "get_indicators",
 ].map((name) => ({ name, description: name, args_schema: TOOL_SCHEMA }));
 
 const fakeApi: BridgeApi = {

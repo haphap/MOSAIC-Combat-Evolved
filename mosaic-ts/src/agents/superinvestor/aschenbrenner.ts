@@ -14,6 +14,8 @@ export const REQUIRED_TOOLS = [
   "get_xueqiu_heat",
   "get_stock_research",
   "get_fundamentals",
+  "get_stock_data",
+  "get_indicators",
 ] as const;
 
 export const aschenbrennerSpec: LayerThreeAgentSpec<AschenbrennerOutput> = {

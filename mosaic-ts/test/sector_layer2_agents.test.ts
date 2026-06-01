@@ -252,6 +252,8 @@ describe("buildSemiconductorNode (Layer-2 factory smoke)", () => {
       "get_broker_research",
       "get_stock_research",
       "get_etf_holdings",
+      "get_stock_data",
+      "get_indicators",
     ].map((name) => ({ name, description: name, args_schema: TOOL_SCHEMA }));
 
     const cannedOutput: SemiconductorOutput = {

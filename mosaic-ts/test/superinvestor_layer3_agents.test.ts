@@ -334,6 +334,8 @@ describe("buildDruckenmillerNode (Layer-3 factory smoke)", () => {
       { name: "get_balance_sheet", description: "x", args_schema: TOOL_SCHEMA },
       { name: "get_income_statement", description: "x", args_schema: TOOL_SCHEMA },
       { name: "get_cashflow", description: "x", args_schema: TOOL_SCHEMA },
+      { name: "get_stock_data", description: "x", args_schema: TOOL_SCHEMA },
+      { name: "get_indicators", description: "x", args_schema: TOOL_SCHEMA },
     ];
 
     const canned: DruckenmillerOutput = {

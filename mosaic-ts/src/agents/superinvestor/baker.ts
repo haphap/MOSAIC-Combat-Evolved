@@ -15,6 +15,8 @@ export const REQUIRED_TOOLS = [
   "get_fundamentals",
   "get_income_statement",
   "get_cashflow",
+  "get_stock_data",
+  "get_indicators",
 ] as const;
 
 export const bakerSpec: LayerThreeAgentSpec<BakerOutput> = {
