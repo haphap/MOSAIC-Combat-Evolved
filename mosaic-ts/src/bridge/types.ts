@@ -334,6 +334,7 @@ export interface PromptWriteResult {
   prompt_repo_id?: string;
   prompt_base_commit_hash?: string;
   prompt_commit_hash?: string;
+  prompt_sha256?: string;
   commit_hash?: string;
   branch?: string;
   paths: string[];
@@ -865,6 +866,9 @@ export class BridgeApi {
     version_id: number;
     commit_hash: string;
     summary?: string;
+    prompt_repo_id?: string;
+    prompt_sha256?: string;
+    code_commit_hash?: string;
   }): Promise<{ ok: boolean }> {
     return this.client.call<{ ok: boolean }>("autoresearch.record_mutation", params);
   }

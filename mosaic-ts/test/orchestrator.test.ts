@@ -25,7 +25,9 @@ function fakeBridgeApi(overrides: Partial<Record<string, unknown>> = {}): Bridge
     }),
     promptsWrite: vi.fn().mockResolvedValue({
       target: "private_git",
+      prompt_repo_id: "private",
       prompt_commit_hash: "def456",
+      prompt_sha256: "f".repeat(64),
       commit_hash: "def456",
       branch: "autoresearch/volatility/20260101",
       paths: ["prompts/mosaic/cohort_default/macro/volatility.zh.md"],
@@ -141,6 +143,9 @@ describe("runAutoresearchCycle", () => {
       version_id: 1,
       commit_hash: "def456",
       summary: "tighten thresholds",
+      prompt_repo_id: "private",
+      prompt_sha256: "f".repeat(64),
+      code_commit_hash: "abc123",
     });
     expect(api.autoresearchPrepareWorktree).not.toHaveBeenCalled();
     expect(api.autoresearchCleanupWorktree).not.toHaveBeenCalled();

@@ -129,6 +129,9 @@ CREATE TABLE IF NOT EXISTS prompt_versions (
     branch_name TEXT NOT NULL,                  -- cohort/<cohort>/auto/<agent>/<YYYY-MM-DD>
     base_commit_hash TEXT NOT NULL,             -- main HEAD the branch forked from
     modification_commit_hash TEXT,              -- NULL until TS mutator commits the rewrite
+    prompt_repo_id TEXT,                        -- project | private prompt repo identifier
+    prompt_sha256 TEXT,                         -- deterministic digest of the committed prompt files
+    code_commit_hash TEXT,                      -- project code commit paired with this prompt mutation
     modification_summary TEXT,                  -- LLM-authored one-line "what changed"
     created_at TEXT NOT NULL,                   -- ISO-8601
     status TEXT NOT NULL,                       -- pending / keep / revert
@@ -384,6 +387,16 @@ class ScorecardStore:
                     "ALTER TABLE recommendations "
                     "ADD COLUMN replay_triggered INTEGER NOT NULL DEFAULT 0"
                 )
+            self._ensure_column(conn, "prompt_versions", "prompt_repo_id", "TEXT")
+            self._ensure_column(conn, "prompt_versions", "prompt_sha256", "TEXT")
+            self._ensure_column(conn, "prompt_versions", "code_commit_hash", "TEXT")
+
+    def _ensure_column(
+        self, conn: sqlite3.Connection, table: str, column: str, ddl: str
+    ) -> None:
+        cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+        if column not in cols:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
 
     # ── recommendations ──────────────────────────────────────────────────
 
@@ -887,6 +900,7 @@ class ScorecardStore:
         agent: str,
         branch_name: str,
         base_commit_hash: str,
+        code_commit_hash: Optional[str] = None,
         created_at: Optional[str] = None,
     ) -> int:
         """Open a pending prompt-version row (the "shell" created by
@@ -902,12 +916,19 @@ class ScorecardStore:
                 """
                 INSERT INTO prompt_versions (
                     cohort, agent, branch_name, base_commit_hash,
-                    created_at, status
-                ) VALUES (?, ?, ?, ?, ?, 'pending')
+                    code_commit_hash, created_at, status
+                ) VALUES (?, ?, ?, ?, ?, ?, 'pending')
                 ON CONFLICT(branch_name) DO UPDATE SET branch_name = branch_name
                 RETURNING id
                 """,
-                (cohort, agent, branch_name, base_commit_hash, created_at),
+                (
+                    cohort,
+                    agent,
+                    branch_name,
+                    base_commit_hash,
+                    code_commit_hash or base_commit_hash,
+                    created_at,
+                ),
             )
             return int(cur.fetchone()["id"])
 
@@ -916,6 +937,10 @@ class ScorecardStore:
         version_id: int,
         modification_commit_hash: str,
         modification_summary: Optional[str] = None,
+        *,
+        prompt_repo_id: Optional[str] = None,
+        prompt_sha256: Optional[str] = None,
+        code_commit_hash: Optional[str] = None,
     ) -> None:
         """Back-fill the mutation commit + summary once the TS mutator has
         written and committed the rewrite (``autoresearch.record_mutation``)."""
@@ -923,13 +948,20 @@ class ScorecardStore:
             cur = conn.execute(
                 """
                 UPDATE prompt_versions
-                SET modification_commit_hash = :mod, modification_summary = :summary
+                SET modification_commit_hash = :mod,
+                    modification_summary = :summary,
+                    prompt_repo_id = COALESCE(:prompt_repo_id, prompt_repo_id),
+                    prompt_sha256 = COALESCE(:prompt_sha256, prompt_sha256),
+                    code_commit_hash = COALESCE(:code_commit_hash, code_commit_hash)
                 WHERE id = :id
                 """,
                 {
                     "id": version_id,
                     "mod": modification_commit_hash,
                     "summary": _truncate(modification_summary, 1000),
+                    "prompt_repo_id": prompt_repo_id,
+                    "prompt_sha256": prompt_sha256,
+                    "code_commit_hash": code_commit_hash,
                 },
             )
             if cur.rowcount == 0:

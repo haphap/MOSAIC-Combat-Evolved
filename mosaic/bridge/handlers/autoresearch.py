@@ -196,6 +196,7 @@ def autoresearch_trigger(params: dict[str, Any]) -> dict[str, Any]:
         agent=agent,
         branch_name=branch_name,
         base_commit_hash=base_commit,
+        code_commit_hash=base_commit,
     )
     store.append_log(
         version_id,
@@ -272,6 +273,9 @@ def autoresearch_record_mutation(params: dict[str, Any]) -> dict[str, Any]:
         version_id:   int
         commit_hash:  str
         summary:      str | None
+        prompt_repo_id: str | None
+        prompt_sha256: str | None
+        code_commit_hash: str | None
 
     Returns:
         {"ok": true}
@@ -281,9 +285,25 @@ def autoresearch_record_mutation(params: dict[str, Any]) -> dict[str, Any]:
     summary = params.get("summary")
     if summary is not None and not isinstance(summary, str):
         raise RpcError(INVALID_PARAMS, "'summary' must be a string")
+    prompt_repo_id = params.get("prompt_repo_id")
+    if prompt_repo_id is not None and not isinstance(prompt_repo_id, str):
+        raise RpcError(INVALID_PARAMS, "'prompt_repo_id' must be a string")
+    prompt_sha256 = params.get("prompt_sha256")
+    if prompt_sha256 is not None and not isinstance(prompt_sha256, str):
+        raise RpcError(INVALID_PARAMS, "'prompt_sha256' must be a string")
+    code_commit_hash = params.get("code_commit_hash")
+    if code_commit_hash is not None and not isinstance(code_commit_hash, str):
+        raise RpcError(INVALID_PARAMS, "'code_commit_hash' must be a string")
 
     store = _store()
-    store.set_version_mutation(version_id, commit_hash, summary)
+    store.set_version_mutation(
+        version_id,
+        commit_hash,
+        summary,
+        prompt_repo_id=prompt_repo_id,
+        prompt_sha256=prompt_sha256,
+        code_commit_hash=code_commit_hash,
+    )
     store.append_log(version_id, "mutated", f"commit={commit_hash[:12]}")
 
     return {"ok": True}

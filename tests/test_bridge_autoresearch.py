@@ -173,12 +173,18 @@ class TestAutoresearchRecordMutation(unittest.TestCase):
             "version_id": vid,
             "commit_hash": "b" * 40,
             "summary": "improved risk handling",
+            "prompt_repo_id": "private",
+            "prompt_sha256": "f" * 64,
+            "code_commit_hash": "a" * 40,
         })
         self.assertTrue(result["ok"])
 
         v = self.store.get_prompt_version(vid)
         self.assertEqual(v["modification_commit_hash"], "b" * 40)
         self.assertEqual(v["modification_summary"], "improved risk handling")
+        self.assertEqual(v["prompt_repo_id"], "private")
+        self.assertEqual(v["prompt_sha256"], "f" * 64)
+        self.assertEqual(v["code_commit_hash"], "a" * 40)
 
     def test_record_mutation_appends_log(self):
         vid = self.store.create_prompt_version(
