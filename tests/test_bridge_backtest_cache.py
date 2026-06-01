@@ -417,3 +417,87 @@ class TestRunHistoricalHandler:
         import json
 
         json.dumps(result)
+
+
+# ===========================================================================
+# R-A3: backtest_failed_days
+# ===========================================================================
+
+
+def _make_run(store: ScorecardStore, suffix: str = "a") -> int:
+    return store.create_backtest_run(
+        cohort="crisis_2008",
+        start_date="2008-01-02",
+        end_date="2008-02-01",
+        prompt_commit_hash=f"hash-{suffix}",
+    )
+
+
+class TestBacktestFailedDaysStore:
+    def test_record_get_roundtrip(self, tmp_store: ScorecardStore):
+        run_id = _make_run(tmp_store)
+        n = tmp_store.record_backtest_failed_days(run_id, [("2008-01-03", "boom"), ("2008-01-07", "bang")])
+        assert n == 2
+        got = tmp_store.get_backtest_failed_days(run_id)
+        assert [(r["date"], r["error"]) for r in got] == [("2008-01-03", "boom"), ("2008-01-07", "bang")]
+
+    def test_upsert_is_idempotent_on_date(self, tmp_store: ScorecardStore):
+        run_id = _make_run(tmp_store)
+        tmp_store.record_backtest_failed_days(run_id, [("2008-01-03", "boom")])
+        tmp_store.record_backtest_failed_days(run_id, [("2008-01-03", "boom2")])
+        got = tmp_store.get_backtest_failed_days(run_id)
+        assert len(got) == 1 and got[0]["error"] == "boom2"
+
+    def test_clear_subset_and_all(self, tmp_store: ScorecardStore):
+        run_id = _make_run(tmp_store)
+        tmp_store.record_backtest_failed_days(
+            run_id, [("2008-01-03", "x"), ("2008-01-07", "y"), ("2008-01-09", "z")]
+        )
+        assert tmp_store.clear_backtest_failed_days(run_id, ["2008-01-03"]) == 1
+        assert {r["date"] for r in tmp_store.get_backtest_failed_days(run_id)} == {
+            "2008-01-07",
+            "2008-01-09",
+        }
+        assert tmp_store.clear_backtest_failed_days(run_id) == 2
+        assert tmp_store.get_backtest_failed_days(run_id) == []
+
+    def test_cascade_on_run_delete(self, tmp_store: ScorecardStore):
+        run_id = _make_run(tmp_store)
+        tmp_store.record_backtest_failed_days(run_id, [("2008-01-03", "x")])
+        with tmp_store._connect() as conn:
+            conn.execute("DELETE FROM backtest_runs WHERE id = ?", (run_id,))
+        assert tmp_store.get_backtest_failed_days(run_id) == []
+
+    def test_empty_record_is_noop(self, tmp_store: ScorecardStore):
+        run_id = _make_run(tmp_store)
+        assert tmp_store.record_backtest_failed_days(run_id, []) == 0
+
+
+class TestBacktestFailedDaysHandlers:
+    def test_record_then_get(self, patched_store: ScorecardStore):
+        run_id = _make_run(patched_store)
+        res = dispatch(
+            "backtest.record_failed_days",
+            {"run_id": run_id, "failures": [{"date": "2008-01-03", "error": "boom"}]},
+        )
+        assert res["recorded"] == 1
+        got = dispatch("backtest.get_failed_days", {"run_id": run_id})
+        assert got["failures"][0]["date"] == "2008-01-03"
+
+    def test_get_with_clear_dates(self, patched_store: ScorecardStore):
+        run_id = _make_run(patched_store)
+        patched_store.record_backtest_failed_days(run_id, [("2008-01-03", "x"), ("2008-01-07", "y")])
+        got = dispatch("backtest.get_failed_days", {"run_id": run_id, "clear_dates": ["2008-01-03"]})
+        assert [f["date"] for f in got["failures"]] == ["2008-01-07"]
+
+    def test_record_rejects_bad_params(self, patched_store: ScorecardStore):
+        with pytest.raises(RpcError):
+            dispatch("backtest.record_failed_days", {"run_id": 0, "failures": []})
+        with pytest.raises(RpcError):
+            dispatch("backtest.record_failed_days", {"run_id": 1, "failures": "nope"})
+        with pytest.raises(RpcError):
+            dispatch("backtest.record_failed_days", {"run_id": 1, "failures": [{"error": "no date"}]})
+
+    def test_get_rejects_bad_run_id(self, patched_store: ScorecardStore):
+        with pytest.raises(RpcError):
+            dispatch("backtest.get_failed_days", {"run_id": -1})

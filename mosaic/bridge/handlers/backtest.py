@@ -169,6 +169,64 @@ def backtest_list_runs(params: dict[str, Any]) -> dict[str, Any]:
     return {"runs": runs}
 
 
+# --------------------------------------------------------- R-A3: failed-day tracking
+
+
+@method("backtest.record_failed_days")
+def backtest_record_failed_days(params: dict[str, Any]) -> dict[str, Any]:
+    """Record the trade days that failed during a stage-1 fill.
+
+    Params:
+      * ``run_id``: int
+      * ``failures``: list of ``{"date": "YYYY-MM-DD", "error": str}``
+
+    Idempotent on (run_id, date). Returns ``{"recorded": int}``.
+    """
+    run_id = params.get("run_id")
+    if not isinstance(run_id, int) or run_id <= 0:
+        raise RpcError(INVALID_PARAMS, "'run_id' must be a positive integer")
+    failures = params.get("failures")
+    if not isinstance(failures, list):
+        raise RpcError(INVALID_PARAMS, "'failures' must be a list of {date, error}")
+    pairs: list[tuple[str, str]] = []
+    for item in failures:
+        if not isinstance(item, dict) or not isinstance(item.get("date"), str):
+            raise RpcError(INVALID_PARAMS, "each failure needs a string 'date'")
+        pairs.append((item["date"], str(item.get("error", ""))))
+    try:
+        n = _store().record_backtest_failed_days(run_id, pairs)
+    except Exception as exc:
+        raise RpcError(BACKTEST_ERROR, f"{type(exc).__name__}: {exc}") from exc
+    return {"recorded": n}
+
+
+@method("backtest.get_failed_days")
+def backtest_get_failed_days(params: dict[str, Any]) -> dict[str, Any]:
+    """Return the recorded failed days for a run as ``{"failures": [...]}``.
+
+    Optionally clears them: pass ``clear_dates`` (list[str]) to delete those
+    dates (e.g. after a successful retry), or ``clear_all`` (bool) to wipe all.
+    """
+    run_id = params.get("run_id")
+    if not isinstance(run_id, int) or run_id <= 0:
+        raise RpcError(INVALID_PARAMS, "'run_id' must be a positive integer")
+    clear_dates = params.get("clear_dates")
+    if clear_dates is not None and not (
+        isinstance(clear_dates, list) and all(isinstance(d, str) for d in clear_dates)
+    ):
+        raise RpcError(INVALID_PARAMS, "'clear_dates' must be a list of strings when provided")
+    try:
+        store = _store()
+        if params.get("clear_all"):
+            store.clear_backtest_failed_days(run_id)
+        elif clear_dates:
+            store.clear_backtest_failed_days(run_id, clear_dates)
+        failures = store.get_backtest_failed_days(run_id)
+    except Exception as exc:
+        raise RpcError(BACKTEST_ERROR, f"{type(exc).__name__}: {exc}") from exc
+    return {"failures": failures}
+
+
 # --------------------------------------------------------- Phase 3.5E: stage-2 qlib trigger
 
 

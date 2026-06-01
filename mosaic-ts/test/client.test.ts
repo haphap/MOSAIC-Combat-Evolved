@@ -153,4 +153,29 @@ describe("BridgeClient against real sidecar", () => {
       await client.close();
     }
   });
+
+  it("backtest failed-days (R-A3): record → get round-trip via the typed wrappers", async () => {
+    const client = new BridgeClient();
+    const api = new BridgeApi(client);
+    try {
+      await client.start();
+      const { run_id } = await api.backtestCreateRun({
+        cohort: "test_cohort_ra3",
+        start_date: "2008-01-02",
+        end_date: "2008-02-01",
+        prompt_commit_hash: "ra3-smoke",
+      });
+      const rec = await api.backtestRecordFailedDays(run_id, [
+        { date: "2008-01-03", error: "boom" },
+      ]);
+      expect(rec.recorded).toBe(1);
+      const got = await api.backtestGetFailedDays(run_id);
+      expect(got.failures.map((f) => f.date)).toContain("2008-01-03");
+      // clear_dates removes it.
+      const cleared = await api.backtestGetFailedDays(run_id, { clear_dates: ["2008-01-03"] });
+      expect(cleared.failures).toHaveLength(0);
+    } finally {
+      await client.close();
+    }
+  });
 });

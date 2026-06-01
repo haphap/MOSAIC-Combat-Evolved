@@ -712,6 +712,24 @@ export class BridgeApi {
     return this.client.call<{ runs: BacktestRunInfo[] }>("backtest.list_runs", opts ?? {});
   }
 
+  // R-A3: stage-1 failed-day tracking.
+  backtestRecordFailedDays(
+    runId: number,
+    failures: Array<{ date: string; error: string }>,
+  ): Promise<{ recorded: number }> {
+    return this.client.call<{ recorded: number }>("backtest.record_failed_days", {
+      run_id: runId,
+      failures,
+    });
+  }
+
+  backtestGetFailedDays(
+    runId: number,
+    opts?: { clear_dates?: string[]; clear_all?: boolean },
+  ): Promise<{ failures: Array<{ date: string; error: string; recorded_at: string }> }> {
+    return this.client.call("backtest.get_failed_days", { run_id: runId, ...(opts ?? {}) });
+  }
+
   backtestRunHistorical(
     runId: number,
     opts?: {
