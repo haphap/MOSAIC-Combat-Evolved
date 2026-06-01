@@ -37,7 +37,9 @@ Why vendored collectors:
 from __future__ import annotations
 
 import logging
+import math
 import os
+import struct
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -382,6 +384,42 @@ def sync_calendar(
 # ---------------------------------------------------------------------------
 
 
+class QlibBinFormatError(ValueError):
+    """Raised when a qlib feature ``.bin`` header doesn't match the assumed
+    format — i.e. qlib's on-disk layout likely changed (R-P1)."""
+
+
+def _qlib_bin_start_index(data: bytes, calendar_days: int) -> int:
+    """Parse a qlib feature ``.bin``'s start-calendar-index from its header.
+
+    R-P1: ``validate_after_ingest`` reads qlib's binary features directly
+    (``mosaic.dataflows.qlib_local`` does the same, by design — we never import
+    qlib here, and pyqlib isn't always installable). The on-disk format is:
+    bytes 0-3 = a float32 holding the integer start calendar index, then float32
+    values, one per trading day from that index.
+
+    This pins that assumption in ONE place and **fails loud** if it no longer
+    holds, so a qlib format change surfaces as a clear ``QlibBinFormatError``
+    (counted + logged) instead of silently producing wrong gap numbers. Checks:
+    the header float must be finite, (near-)integer-valued, and within
+    ``[0, calendar_days]``.
+    """
+    if len(data) < 4:
+        raise QlibBinFormatError(f"bin too short ({len(data)} bytes; need ≥4 for the header)")
+    raw = struct.unpack("<f", data[:4])[0]
+    if not math.isfinite(raw) or abs(raw - round(raw)) > 1e-3:
+        raise QlibBinFormatError(
+            f"header float {raw!r} is not a finite integer — qlib bin format may have changed"
+        )
+    start_idx = int(round(raw))
+    if start_idx < 0 or start_idx > calendar_days:
+        raise QlibBinFormatError(
+            f"start index {start_idx} out of range [0, {calendar_days}] — "
+            "qlib bin format may have changed"
+        )
+    return start_idx
+
+
 def validate_after_ingest(
     qlib_dir: Path = DEFAULT_QLIB_DATA_DIR,
     *,
@@ -403,11 +441,13 @@ def validate_after_ingest(
             "instruments": <int>,
             "checked": <int>,
             "skipped": <int>,
+            "format_errors": <int>,   # bins whose header didn't match (R-P1)
             "skip_manifest": <path>,
         }
-    """
-    import struct
 
+    A non-zero ``format_errors`` (esp. across many tickers) is the signal that
+    qlib's on-disk bin layout changed — see ``_qlib_bin_start_index``.
+    """
     qlib_dir = Path(qlib_dir).expanduser()
     if not qlib_dir.is_dir():
         raise FileNotFoundError(f"qlib dir does not exist: {qlib_dir}")
@@ -438,23 +478,37 @@ def validate_after_ingest(
 
     skipped: list[tuple[str, int, int]] = []  # (ticker, expected, actual)
     checked = 0
+    format_errors = 0
     for ticker in instruments_lines:
         close_bin = features_dir / ticker / "close.day.bin"
         if not close_bin.exists():
             skipped.append((ticker, calendar_days, 0))
             continue
-        # qlib bin: bytes 0-3 = float32 start_idx, then float32 values
         try:
             data = close_bin.read_bytes()
             n_values = max((len(data) - 4) // 4, 0)
-            start_idx = int(round(struct.unpack("<f", data[:4])[0])) if n_values > 0 else 0
+            start_idx = _qlib_bin_start_index(data, calendar_days) if n_values > 0 else 0
             expected = max(calendar_days - start_idx, 0)
             if expected > 0 and (expected - n_values) / expected > gap_threshold:
                 skipped.append((ticker, expected, n_values))
             checked += 1
+        except QlibBinFormatError as exc:
+            # qlib's on-disk format may have changed — surface it loudly rather
+            # than mis-counting this as a data gap (R-P1).
+            format_errors += 1
+            logger.error("validate: %s close.bin format check failed: %s", ticker, exc)
+            skipped.append((ticker, calendar_days, 0))
         except Exception as exc:
             logger.warning("validate: failed to inspect %s close.bin: %s", ticker, exc)
             skipped.append((ticker, calendar_days, 0))
+
+    if format_errors:
+        logger.error(
+            "validate: %d/%d tickers failed the qlib bin-header check — qlib's "
+            "on-disk format may have changed (see _qlib_bin_start_index, R-P1).",
+            format_errors,
+            len(instruments_lines),
+        )
 
     if skipped:
         with open(skip_manifest, "w", encoding="utf-8") as f:
@@ -476,6 +530,7 @@ def validate_after_ingest(
         "instruments": len(instruments_lines),
         "checked": checked,
         "skipped": len(skipped),
+        "format_errors": format_errors,
         "skip_manifest": str(skip_manifest),
     }
 

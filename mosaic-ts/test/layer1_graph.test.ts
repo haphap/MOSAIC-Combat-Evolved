@@ -323,6 +323,7 @@ describe("buildLayer1Graph (end-to-end fan-out / aggregate)", () => {
         cio: null,
       },
       portfolio_actions: [],
+      replay_triggered: false,
       llm_calls: [],
     };
 

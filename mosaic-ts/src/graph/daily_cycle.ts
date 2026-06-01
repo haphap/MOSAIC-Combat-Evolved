@@ -145,6 +145,7 @@ const _APPEND_REDUCER_CHANNELS = ["messages", "llm_calls"] as const satisfies Re
  */
 function invokeSubgraph(
   subgraph: InvokeOnly,
+  extra?: Partial<DailyCycleStateUpdate>,
 ): (state: DailyCycleStateType) => Promise<DailyCycleStateUpdate> {
   return async (state) => {
     const result = await subgraph.invoke(state);
@@ -164,6 +165,8 @@ function invokeSubgraph(
       layer3_outputs: result.layer3_outputs,
       layer4_outputs: result.layer4_outputs,
       portfolio_actions: result.portfolio_actions,
+      // Caller-supplied extra channels (e.g. replay_triggered on the replay node).
+      ...extra,
     } as DailyCycleStateUpdate;
   };
 }
@@ -183,7 +186,7 @@ export function buildDailyCycleGraph(deps: BuildDailyCycleGraphDeps) {
     .addNode("layer2", invokeSubgraph(l2 as InvokeOnly))
     .addNode("layer3", invokeSubgraph(l3 as InvokeOnly))
     .addNode("layer4", invokeSubgraph(l4 as InvokeOnly))
-    .addNode("layer4_replay", invokeSubgraph(l4Replay as InvokeOnly))
+    .addNode("layer4_replay", invokeSubgraph(l4Replay as InvokeOnly, { replay_triggered: true }))
     .addEdge(START, "layer1")
     .addEdge("layer1", "layer2")
     .addEdge("layer2", "layer3")

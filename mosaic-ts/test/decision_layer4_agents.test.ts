@@ -250,6 +250,7 @@ const baseState = (): DailyCycleStateType => ({
   layer3_outputs: {},
   layer4_outputs: { cro: null, alpha_discovery: null, autonomous_execution: null, cio: null },
   portfolio_actions: [],
+  replay_triggered: false,
   llm_calls: [],
 });
 
@@ -417,6 +418,7 @@ describe("buildAutonomousExecutionNode (Phase 3F bridge wiring)", () => {
       layer3_outputs: {},
       layer4_outputs: { cro: null, alpha_discovery: null, autonomous_execution: null, cio: null },
       portfolio_actions: [],
+      replay_triggered: false,
       llm_calls: [],
     };
     // We don't fully build the node — we just verify the spec wrapper

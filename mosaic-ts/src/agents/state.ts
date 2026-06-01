@@ -154,6 +154,16 @@ export const DailyCycleState = Annotation.Root({
     default: () => [],
   }),
 
+  // ----- Replay provenance (Plan §14 R-A1). -----
+  // True once the CRO veto loop has re-run Layer 4 (set by the layer4_replay
+  // node). Lets downstream consumers (scorecard / autoresearch) distinguish a
+  // first-pass cycle from a replayed one. replaceReducer + default false; only
+  // the replay node ever writes it, so single-writer holds.
+  replay_triggered: Annotation<boolean>({
+    reducer: replaceReducer,
+    default: () => false,
+  }),
+
   // ----- Observability: per-LLM-call ledger (Plan §13). -----
   llm_calls: Annotation<LlmCallRecord[]>({
     reducer: appendReducer,

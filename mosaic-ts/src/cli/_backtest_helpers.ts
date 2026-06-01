@@ -86,6 +86,7 @@ export function makeInitialState(cohort: string, asOfDate: string): DailyCycleSt
       cio: null,
     },
     portfolio_actions: [],
+    replay_triggered: false,
     llm_calls: [],
   };
 }

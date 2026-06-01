@@ -373,6 +373,7 @@ describe("aggregateLayer1Node (LangGraph wrapper)", () => {
         cio: null,
       },
       portfolio_actions: [],
+      replay_triggered: false,
       llm_calls: [],
     };
     const update = (await aggregateLayer1Node(sample)) as DailyCycleStateUpdate;
