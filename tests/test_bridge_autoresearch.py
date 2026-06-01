@@ -237,6 +237,21 @@ class TestAutoresearchEvaluatePending(unittest.TestCase):
         self.store.set_version_mutation(vid, "b" * 40, "x")
         return vid
 
+    def _private_mutated_version(self, branch: str) -> int:
+        vid = self.store.create_prompt_version(
+            cohort="euphoria_2021", agent="volatility",
+            branch_name=branch, base_commit_hash="a" * 40,
+        )
+        self.store.set_version_mutation(
+            vid,
+            "b" * 40,
+            "x",
+            prompt_repo_id="private",
+            prompt_sha256="f" * 64,
+            code_commit_hash="c" * 40,
+        )
+        return vid
+
     def test_version_id_scopes_to_one_version(self):
         # Two mutated pending versions; ask for just the second.
         self._mutated_version("cohort/euphoria_2021/auto/volatility/2021-01-01")
@@ -246,6 +261,28 @@ class TestAutoresearchEvaluatePending(unittest.TestCase):
         self.assertEqual(ids, [vid2])
         # No backtest runs exist → needs_fill (proves it reached evaluation).
         self.assertEqual(result["results"][0]["status"], "needs_fill")
+        self.assertEqual(
+            [run["kind"] for run in result["results"][0]["missing_runs"]],
+            ["base", "mod"],
+        )
+
+    def test_needs_fill_reports_private_prompt_metadata(self):
+        vid = self._private_mutated_version(
+            "cohort/euphoria_2021/auto/volatility/2021-01-04"
+        )
+
+        result = autoresearch_evaluate_pending({"version_id": vid})
+
+        self.assertEqual(result["results"][0]["status"], "needs_fill")
+        mod_spec = [
+            run for run in result["results"][0]["missing_runs"]
+            if run["kind"] == "mod"
+        ][0]
+        self.assertEqual(mod_spec["prompt_commit_hash"], "b" * 40)
+        self.assertEqual(mod_spec["prompt_repo_id"], "private")
+        self.assertEqual(mod_spec["prompt_sha256"], "f" * 64)
+        self.assertEqual(mod_spec["code_commit_hash"], "c" * 40)
+        self.assertEqual(mod_spec["private_prompt_commit"], "b" * 40)
 
     def test_scan_all_without_version_id(self):
         self._mutated_version("cohort/euphoria_2021/auto/volatility/2021-01-01")

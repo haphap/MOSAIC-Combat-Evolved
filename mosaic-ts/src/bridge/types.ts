@@ -364,11 +364,24 @@ export interface AutoresearchTriggerResult {
 }
 
 /** One entry in the ``autoresearch.evaluate_pending`` results array. */
+export interface AutoresearchMissingRun {
+  kind: "base" | "mod";
+  cohort: string;
+  start_date: string;
+  end_date: string;
+  prompt_commit_hash: string;
+  prompt_repo_id?: string;
+  prompt_sha256?: string;
+  code_commit_hash?: string;
+  private_prompt_commit?: string;
+}
+
 export interface AutoresearchEvalResult {
   version_id: number;
   status: string;
   delta_sharpe?: number;
   detail?: string;
+  missing_runs?: AutoresearchMissingRun[];
 }
 
 /** A single autoresearch log row from ``autoresearch.get_log``. */

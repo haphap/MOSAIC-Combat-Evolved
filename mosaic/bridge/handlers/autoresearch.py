@@ -105,6 +105,35 @@ def _require_int(params: dict, key: str) -> int:
     return val
 
 
+def _run_fill_spec(
+    *,
+    kind: str,
+    cohort: str,
+    start_date: str,
+    end_date: str,
+    prompt_commit_hash: str,
+    prompt_repo_id: str | None = None,
+    prompt_sha256: str | None = None,
+    code_commit_hash: str | None = None,
+) -> dict[str, Any]:
+    spec: dict[str, Any] = {
+        "kind": kind,
+        "cohort": cohort,
+        "start_date": start_date,
+        "end_date": end_date,
+        "prompt_commit_hash": prompt_commit_hash,
+    }
+    if prompt_repo_id:
+        spec["prompt_repo_id"] = prompt_repo_id
+    if prompt_sha256:
+        spec["prompt_sha256"] = prompt_sha256
+    if code_commit_hash:
+        spec["code_commit_hash"] = code_commit_hash
+    if prompt_repo_id == "private":
+        spec["private_prompt_commit"] = prompt_commit_hash
+    return spec
+
+
 # ---------------------------------------------------------------------------
 # autoresearch.trigger
 # ---------------------------------------------------------------------------
@@ -400,11 +429,46 @@ def autoresearch_evaluate_pending(params: dict[str, Any]) -> dict[str, Any]:
             store, v_cohort, start_date, end_date, v["base_commit_hash"]
         )
         mod_check = ensure_baseline_run(
-            store, v_cohort, start_date, end_date, mod_commit
+            store,
+            v_cohort,
+            start_date,
+            end_date,
+            mod_commit,
+            prompt_repo_id=v.get("prompt_repo_id"),
+            prompt_sha256=v.get("prompt_sha256"),
+            code_commit_hash=v.get("code_commit_hash"),
         )
 
         if base_check["needs_fill"] or mod_check["needs_fill"]:
-            results.append({"version_id": version_id, "status": "needs_fill"})
+            missing_runs = []
+            if base_check["needs_fill"]:
+                missing_runs.append(
+                    _run_fill_spec(
+                        kind="base",
+                        cohort=v_cohort,
+                        start_date=start_date,
+                        end_date=end_date,
+                        prompt_commit_hash=v["base_commit_hash"],
+                    )
+                )
+            if mod_check["needs_fill"]:
+                missing_runs.append(
+                    _run_fill_spec(
+                        kind="mod",
+                        cohort=v_cohort,
+                        start_date=start_date,
+                        end_date=end_date,
+                        prompt_commit_hash=mod_commit,
+                        prompt_repo_id=v.get("prompt_repo_id"),
+                        prompt_sha256=v.get("prompt_sha256"),
+                        code_commit_hash=v.get("code_commit_hash"),
+                    )
+                )
+            results.append({
+                "version_id": version_id,
+                "status": "needs_fill",
+                "missing_runs": missing_runs,
+            })
             continue
 
         # Both runs complete: evaluate + decide.
