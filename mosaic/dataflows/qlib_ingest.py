@@ -255,6 +255,10 @@ def ingest_full(
     Roughly 30-90 minutes for the full A-share universe (~5500 tickers ×
     ~35 trading years). Free-tier Tushare may take longer; use ``max_workers``
     cautiously to respect rate limits.
+
+    ``timeout`` is the **per-Tushare-request** cap (passed to the collector's
+    ``--timeout``), NOT a wall-clock limit on the whole ingest (R-A4). 120s is
+    ample per ticker; raise it only if Tushare itself is slow.
     """
     if qlib_dir is None:
         qlib_dir = DEFAULT_QLIB_ETF_DATA_DIR if kind == "etf" else DEFAULT_QLIB_DATA_DIR

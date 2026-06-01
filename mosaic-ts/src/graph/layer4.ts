@@ -26,6 +26,7 @@ import { buildCroNode } from "../agents/decision/cro.js";
 import { DailyCycleState } from "../agents/state.js";
 import type { BridgeApi, MosaicConfig } from "../bridge/index.js";
 import type { LlmHandle } from "../llm/factory.js";
+import { chainEdges } from "./_edges.js";
 
 export interface BuildLayer4GraphDeps {
   llmHandle: LlmHandle;
@@ -47,24 +48,23 @@ export const LAYER4_AGENT_NODES = [
 
 /** Build (and compile) the Layer-4 decision subgraph. */
 export function buildLayer4Graph(deps: BuildLayer4GraphDeps) {
-  // biome-ignore lint/suspicious/noExplicitAny: see graph/layer1.ts comment
-  let graph: any = new StateGraph(DailyCycleState);
-  graph = graph
+  const graph = new StateGraph(DailyCycleState)
     .addNode("cro", buildCroNode(deps))
     .addNode("alpha_discovery", buildAlphaDiscoveryNode(deps))
     .addNode("autonomous_execution", buildAutonomousExecutionNode(deps))
     .addNode("cio", buildCioNode(deps));
 
-  // START → cro, alpha_discovery (parallel)
-  graph = graph.addEdge(START, "cro").addEdge(START, "alpha_discovery");
-
-  // cro, alpha_discovery → autonomous_execution (synchronisation point)
-  graph = graph
-    .addEdge("cro", "autonomous_execution")
-    .addEdge("alpha_discovery", "autonomous_execution");
-
-  // autonomous_execution → cio → END
-  graph = graph.addEdge("autonomous_execution", "cio").addEdge("cio", END);
+  chainEdges(graph, [
+    // START → cro, alpha_discovery (parallel)
+    [START, "cro"],
+    [START, "alpha_discovery"],
+    // cro, alpha_discovery → autonomous_execution (synchronisation point)
+    ["cro", "autonomous_execution"],
+    ["alpha_discovery", "autonomous_execution"],
+    // autonomous_execution → cio → END
+    ["autonomous_execution", "cio"],
+    ["cio", END],
+  ]);
 
   return graph.compile();
 }
@@ -92,18 +92,17 @@ export function buildLayer4Graph(deps: BuildLayer4GraphDeps) {
  * track replay outcomes and surface this if it becomes a real risk.
  */
 export function buildLayer4ReplayGraph(deps: BuildLayer4GraphDeps) {
-  // biome-ignore lint/suspicious/noExplicitAny: see graph/layer1.ts comment
-  let graph: any = new StateGraph(DailyCycleState);
-  graph = graph
+  const graph = new StateGraph(DailyCycleState)
     .addNode("alpha_discovery", buildAlphaDiscoveryNode(deps))
     .addNode("autonomous_execution", buildAutonomousExecutionNode(deps))
     .addNode("cio", buildCioNode(deps));
 
-  graph = graph
-    .addEdge(START, "alpha_discovery")
-    .addEdge("alpha_discovery", "autonomous_execution")
-    .addEdge("autonomous_execution", "cio")
-    .addEdge("cio", END);
+  chainEdges(graph, [
+    [START, "alpha_discovery"],
+    ["alpha_discovery", "autonomous_execution"],
+    ["autonomous_execution", "cio"],
+    ["cio", END],
+  ]);
 
   return graph.compile();
 }

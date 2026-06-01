@@ -30,6 +30,7 @@ import { buildSemiconductorNode } from "../agents/sector/semiconductor.js";
 import { DailyCycleState } from "../agents/state.js";
 import type { BridgeApi, MosaicConfig } from "../bridge/index.js";
 import type { LlmHandle } from "../llm/factory.js";
+import { chainEdges } from "./_edges.js";
 
 export interface BuildLayer2GraphDeps {
   llmHandle: LlmHandle;
@@ -53,9 +54,7 @@ export const LAYER2_AGENT_NODES = [
 
 /** Build (and compile) the Layer-2 sector subgraph. */
 export function buildLayer2Graph(deps: BuildLayer2GraphDeps) {
-  // biome-ignore lint/suspicious/noExplicitAny: see graph/layer1.ts comment
-  let graph: any = new StateGraph(DailyCycleState);
-  graph = graph
+  const graph = new StateGraph(DailyCycleState)
     .addNode("semiconductor", buildSemiconductorNode(deps))
     .addNode("energy", buildEnergyNode(deps))
     .addNode("biotech", buildBiotechNode(deps))
@@ -64,12 +63,10 @@ export function buildLayer2Graph(deps: BuildLayer2GraphDeps) {
     .addNode("financials", buildFinancialsNode(deps))
     .addNode("relationship_mapper", buildRelationshipMapperNode(deps));
 
-  for (const name of LAYER2_AGENT_NODES) {
-    graph = graph.addEdge(START, name);
-  }
-  for (const name of LAYER2_AGENT_NODES) {
-    graph = graph.addEdge(name, END);
-  }
+  chainEdges(graph, [
+    ...LAYER2_AGENT_NODES.map((name) => [START, name] as const),
+    ...LAYER2_AGENT_NODES.map((name) => [name, END] as const),
+  ]);
 
   return graph.compile();
 }
