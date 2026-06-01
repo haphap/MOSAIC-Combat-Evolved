@@ -21,6 +21,7 @@ import { registerJanus } from "./commands/janus.js";
 import { registerMirofish } from "./commands/mirofish.js";
 import { registerPaper } from "./commands/paper.js";
 import { registerPrism } from "./commands/prism.js";
+import { registerPrompts } from "./commands/prompts.js";
 import { registerScorecard } from "./commands/scorecard.js";
 import { registerToolCall } from "./commands/tool-call.js";
 import { registerToolLoop } from "./commands/tool-loop.js";
@@ -45,6 +46,7 @@ registerPrism(program);
 registerJanus(program);
 registerMirofish(program);
 registerPaper(program);
+registerPrompts(program);
 registerDashboard(program);
 registerData(program);
 

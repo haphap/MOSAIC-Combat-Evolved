@@ -335,6 +335,13 @@ export interface PromptWriteResult {
   paths: string[];
 }
 
+export interface PromptInitPrivateRepoResult {
+  repo_root: string;
+  prompts_root: string;
+  seeded: boolean;
+  commit_hash: string;
+}
+
 // --------------------------------------------------------- autoresearch (Phase 4C/4D)
 
 /** Returned by ``autoresearch.trigger``. */
@@ -830,6 +837,13 @@ export class BridgeApi {
     message?: string;
   }): Promise<PromptWriteResult> {
     return this.client.call<PromptWriteResult>("prompts.write", params);
+  }
+
+  promptsInitPrivateRepo(params: {
+    path: string;
+    seed_baseline?: boolean;
+  }): Promise<PromptInitPrivateRepoResult> {
+    return this.client.call<PromptInitPrivateRepoResult>("prompts.init_private_repo", params);
   }
 
   // autoresearch.* (Phase 4C/4D)
