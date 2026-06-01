@@ -85,6 +85,10 @@ CREATE TABLE IF NOT EXISTS backtest_runs (
     start_date TEXT NOT NULL,                   -- YYYY-MM-DD
     end_date TEXT NOT NULL,                     -- YYYY-MM-DD
     prompt_commit_hash TEXT NOT NULL,           -- tracks which prompt version this run used
+    prompt_commit_ref TEXT,                     -- raw prompt commit/ref when prompt_commit_hash is an expanded cache key
+    prompt_repo_id TEXT,                        -- project | private prompt repo identifier
+    prompt_sha256 TEXT,                         -- deterministic digest of prompt file contents
+    code_commit_hash TEXT,                      -- project code commit paired with this prompt run
     created_at TEXT NOT NULL,
     completed_at TEXT,                          -- NULL = stage 1 in progress / failed
     UNIQUE(cohort, start_date, end_date, prompt_commit_hash)
@@ -390,6 +394,10 @@ class ScorecardStore:
             self._ensure_column(conn, "prompt_versions", "prompt_repo_id", "TEXT")
             self._ensure_column(conn, "prompt_versions", "prompt_sha256", "TEXT")
             self._ensure_column(conn, "prompt_versions", "code_commit_hash", "TEXT")
+            self._ensure_column(conn, "backtest_runs", "prompt_commit_ref", "TEXT")
+            self._ensure_column(conn, "backtest_runs", "prompt_repo_id", "TEXT")
+            self._ensure_column(conn, "backtest_runs", "prompt_sha256", "TEXT")
+            self._ensure_column(conn, "backtest_runs", "code_commit_hash", "TEXT")
 
     def _ensure_column(
         self, conn: sqlite3.Connection, table: str, column: str, ddl: str
@@ -692,27 +700,49 @@ class ScorecardStore:
         start_date: str,
         end_date: str,
         prompt_commit_hash: str,
+        prompt_repo_id: Optional[str] = None,
+        prompt_sha256: Optional[str] = None,
+        code_commit_hash: Optional[str] = None,
     ) -> int:
         """Open a new backtest run row and return its id.
 
-        Idempotent: if a run with the same (cohort, start_date, end_date,
-        prompt_commit_hash) already exists, returns its id instead of
-        creating a duplicate (UPSERT-style).
+        Idempotent: legacy callers key by ``prompt_commit_hash``. Repo-aware
+        callers also pass prompt repo/SHA/code metadata; those fields are folded
+        into the persisted cache tag so independent code↔prompt pairs do not
+        collide on the old unique constraint.
         """
         from datetime import datetime, timezone
 
         now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        cache_key = _backtest_cache_key(
+            prompt_commit_hash,
+            prompt_repo_id=prompt_repo_id,
+            prompt_sha256=prompt_sha256,
+            code_commit_hash=code_commit_hash,
+        )
         with self._connect() as conn:
             cur = conn.execute(
                 """
                 INSERT INTO backtest_runs (
-                    cohort, start_date, end_date, prompt_commit_hash, created_at
-                ) VALUES (?, ?, ?, ?, ?)
+                    cohort, start_date, end_date, prompt_commit_hash,
+                    prompt_commit_ref, prompt_repo_id, prompt_sha256,
+                    code_commit_hash, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(cohort, start_date, end_date, prompt_commit_hash)
                 DO UPDATE SET created_at = created_at  -- no-op; preserves original timestamp
                 RETURNING id
                 """,
-                (cohort, start_date, end_date, prompt_commit_hash, now),
+                (
+                    cohort,
+                    start_date,
+                    end_date,
+                    cache_key,
+                    prompt_commit_hash,
+                    prompt_repo_id,
+                    prompt_sha256,
+                    code_commit_hash,
+                    now,
+                ),
             )
             row = cur.fetchone()
             return int(row["id"])
@@ -788,7 +818,8 @@ class ScorecardStore:
         with self._connect() as conn:
             cur = conn.execute(
                 "SELECT id, cohort, start_date, end_date, prompt_commit_hash, "
-                "       created_at, completed_at "
+                "       prompt_commit_ref, prompt_repo_id, prompt_sha256, "
+                "       code_commit_hash, created_at, completed_at "
                 "FROM backtest_runs WHERE id = ?",
                 (run_id,),
             )
@@ -802,7 +833,9 @@ class ScorecardStore:
     ) -> list[dict[str, Any]]:
         sql = (
             "SELECT id, cohort, start_date, end_date, prompt_commit_hash, "
-            "       created_at, completed_at FROM backtest_runs WHERE 1=1"
+            "       prompt_commit_ref, prompt_repo_id, prompt_sha256, "
+            "       code_commit_hash, created_at, completed_at "
+            "FROM backtest_runs WHERE 1=1"
         )
         params: list[Any] = []
         if cohort:
@@ -1450,6 +1483,24 @@ def _truncate(text: Optional[str], max_len: int) -> Optional[str]:
     if len(s) <= max_len:
         return s
     return s[: max_len - 1] + "…"
+
+
+def _backtest_cache_key(
+    prompt_commit_hash: str,
+    *,
+    prompt_repo_id: Optional[str] = None,
+    prompt_sha256: Optional[str] = None,
+    code_commit_hash: Optional[str] = None,
+) -> str:
+    if not any((prompt_repo_id, prompt_sha256, code_commit_hash)):
+        return prompt_commit_hash
+    parts = [
+        prompt_repo_id or "unknown_repo",
+        prompt_commit_hash,
+        prompt_sha256 or "unknown_sha",
+        code_commit_hash or "unknown_code",
+    ]
+    return "prompt-v2:" + ":".join(parts)
 
 
 _LONG_ACTIONS = {"BUY", "LONG"}

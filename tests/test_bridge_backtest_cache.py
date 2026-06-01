@@ -75,8 +75,17 @@ class TestBacktestStore:
                     "SELECT name FROM sqlite_master WHERE type='table'"
                 )
             }
+            run_cols = {
+                row[1] for row in conn.execute("PRAGMA table_info(backtest_runs)")
+            }
         assert "backtest_runs" in tables
         assert "backtest_actions" in tables
+        assert {
+            "prompt_commit_ref",
+            "prompt_repo_id",
+            "prompt_sha256",
+            "code_commit_hash",
+        }.issubset(run_cols)
 
     def test_create_run_returns_id(self, tmp_store: ScorecardStore):
         run_id = tmp_store.create_backtest_run(
@@ -116,6 +125,36 @@ class TestBacktestStore:
             prompt_commit_hash="def",
         )
         assert first != second
+
+    def test_repo_aware_metadata_creates_separate_cache_entries(
+        self, tmp_store: ScorecardStore
+    ):
+        first = tmp_store.create_backtest_run(
+            cohort="cohort_default",
+            start_date="2024-01-01",
+            end_date="2024-03-31",
+            prompt_commit_hash="same-prompt-commit",
+            prompt_repo_id="private",
+            prompt_sha256="a" * 64,
+            code_commit_hash="1" * 40,
+        )
+        second = tmp_store.create_backtest_run(
+            cohort="cohort_default",
+            start_date="2024-01-01",
+            end_date="2024-03-31",
+            prompt_commit_hash="same-prompt-commit",
+            prompt_repo_id="private",
+            prompt_sha256="a" * 64,
+            code_commit_hash="2" * 40,
+        )
+        assert first != second
+
+        row = tmp_store.get_backtest_run(first)
+        assert row["prompt_commit_ref"] == "same-prompt-commit"
+        assert row["prompt_repo_id"] == "private"
+        assert row["prompt_sha256"] == "a" * 64
+        assert row["code_commit_hash"] == "1" * 40
+        assert row["prompt_commit_hash"].startswith("prompt-v2:private:")
 
     def test_append_actions(self, tmp_store: ScorecardStore):
         run_id = tmp_store.create_backtest_run(
@@ -218,6 +257,25 @@ class TestBacktestHandlers:
         )
         assert "run_id" in result
         assert isinstance(result["run_id"], int)
+
+    def test_create_run_handler_accepts_repo_metadata(self, patched_store: ScorecardStore):
+        result = dispatch(
+            "backtest.create_run",
+            {
+                "cohort": "cohort_default",
+                "start_date": "2024-01-01",
+                "end_date": "2024-03-31",
+                "prompt_commit_hash": "abc123",
+                "prompt_repo_id": "private",
+                "prompt_sha256": "f" * 64,
+                "code_commit_hash": "c" * 40,
+            },
+        )
+        run = patched_store.get_backtest_run(result["run_id"])
+        assert run["prompt_commit_ref"] == "abc123"
+        assert run["prompt_repo_id"] == "private"
+        assert run["prompt_sha256"] == "f" * 64
+        assert run["code_commit_hash"] == "c" * 40
 
     def test_create_run_validates_params(self, patched_store: ScorecardStore):
         with pytest.raises(RpcError):

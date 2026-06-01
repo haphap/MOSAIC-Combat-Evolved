@@ -48,6 +48,9 @@ interface BacktestFillOptions {
   promptsRoot?: string;
   /** Private prompt repo commit/ref to checkout and use as the prompt root. */
   privatePromptCommit?: string;
+  promptRepoId?: string;
+  promptSha256?: string;
+  codeCommitHash?: string;
   /** Only re-run the days recorded as failed for this run (R-A3). */
   retryFailed?: boolean;
 }
@@ -80,6 +83,9 @@ export function registerBacktestFill(program: Command): void {
       "--private-prompt-commit <hash>",
       "Checkout this private prompt repo commit/ref and use its prompts as the pinned root",
     )
+    .option("--prompt-repo-id <id>", "Prompt repo id for repo-aware backtest cache keys")
+    .option("--prompt-sha256 <sha>", "Prompt content SHA for repo-aware backtest cache keys")
+    .option("--code-commit-hash <hash>", "Project code commit for repo-aware backtest cache keys")
     .option(
       "--retry-failed",
       "Only re-run the trade days previously recorded as failed for this run (R-A3). " +
@@ -129,6 +135,9 @@ export function registerBacktestFill(program: Command): void {
           start_date: opts.start,
           end_date: opts.end,
           prompt_commit_hash: promptCommitHash,
+          ...(opts.promptRepoId ? { prompt_repo_id: opts.promptRepoId } : {}),
+          ...(opts.promptSha256 ? { prompt_sha256: opts.promptSha256 } : {}),
+          ...(opts.codeCommitHash ? { code_commit_hash: opts.codeCommitHash } : {}),
         });
         const runId = runResult.run_id;
         let effectivePromptsRoot = opts.promptsRoot;

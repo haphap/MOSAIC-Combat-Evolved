@@ -28,6 +28,10 @@ def ensure_baseline_run(
     start_date: str,
     end_date: str,
     base_commit: str,
+    *,
+    prompt_repo_id: Optional[str] = None,
+    prompt_sha256: Optional[str] = None,
+    code_commit_hash: Optional[str] = None,
 ) -> dict[str, Any]:
     """Check if a completed backtest_run exists for the given parameters.
 
@@ -35,14 +39,28 @@ def ensure_baseline_run(
         {"run_id": int | None, "needs_fill": bool}
 
     A run is considered valid when it matches (cohort, start_date, end_date,
-    prompt_commit_hash == base_commit) and has a non-null ``completed_at``.
+    prompt_commit_hash/prompt_commit_ref matches ``base_commit`` and has a
+    non-null ``completed_at``. When repo-aware metadata is supplied, it must
+    match too.
     """
     runs = store.list_backtest_runs(cohort=cohort)
     for run in runs:
+        commit_matches = (
+            run["prompt_commit_hash"] == base_commit
+            or run.get("prompt_commit_ref") == base_commit
+        )
+        metadata_matches = True
+        if prompt_repo_id is not None:
+            metadata_matches = metadata_matches and run.get("prompt_repo_id") == prompt_repo_id
+        if prompt_sha256 is not None:
+            metadata_matches = metadata_matches and run.get("prompt_sha256") == prompt_sha256
+        if code_commit_hash is not None:
+            metadata_matches = metadata_matches and run.get("code_commit_hash") == code_commit_hash
         if (
             run["start_date"] == start_date
             and run["end_date"] == end_date
-            and run["prompt_commit_hash"] == base_commit
+            and commit_matches
+            and metadata_matches
             and run["completed_at"] is not None
         ):
             return {"run_id": run["id"], "needs_fill": False}
@@ -165,7 +183,16 @@ def compute_delta(
         )
 
     # Find completed mod run.
-    mod_result = ensure_baseline_run(store, cohort, start_date, end_date, mod_commit)
+    mod_result = ensure_baseline_run(
+        store,
+        cohort,
+        start_date,
+        end_date,
+        mod_commit,
+        prompt_repo_id=version.get("prompt_repo_id"),
+        prompt_sha256=version.get("prompt_sha256"),
+        code_commit_hash=version.get("code_commit_hash"),
+    )
     if mod_result["needs_fill"]:
         raise ValueError(
             f"no completed mod backtest run for cohort={cohort}, "

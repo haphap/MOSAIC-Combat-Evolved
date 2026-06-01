@@ -210,6 +210,10 @@ export interface BacktestRunInfo {
   start_date: string;
   end_date: string;
   prompt_commit_hash: string;
+  prompt_commit_ref?: string | null;
+  prompt_repo_id?: string | null;
+  prompt_sha256?: string | null;
+  code_commit_hash?: string | null;
   created_at: string;
   /** ISO-8601 when stage-1 fill finished; null while still in progress. */
   completed_at: string | null;
@@ -693,6 +697,9 @@ export class BridgeApi {
     start_date: string;
     end_date: string;
     prompt_commit_hash: string;
+    prompt_repo_id?: string;
+    prompt_sha256?: string;
+    code_commit_hash?: string;
   }): Promise<{ run_id: number }> {
     return this.client.call<{ run_id: number }>("backtest.create_run", params);
   }
