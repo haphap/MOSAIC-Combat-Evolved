@@ -547,6 +547,14 @@ class TestLiveTushare:
         out = macro_data.get_yield_curve_cn("2024-06-28", look_back_days=5)
         assert "CN Treasury Yield Curve" in out
 
+    def test_live_stock_moneyflow(self):
+        out = macro_data.get_stock_moneyflow("600519.SH", "2024-06-01", "2024-06-28")
+        assert "Stock Money Flow" in out
+
+    def test_live_industry_moneyflow(self):
+        out = macro_data.get_industry_moneyflow("2024-06-28", look_back_days=10)
+        assert "Industry Money Flow" in out
+
 
 # --------------------------------------------------------------------- 14. Money flow
 
@@ -598,3 +606,34 @@ def test_get_industry_moneyflow_empty(mock_query_pro):
     mock_query_pro(_df_with_rows([]))
     out = macro_data.get_industry_moneyflow("2024-06-30")
     assert "No industry moneyflow" in out
+
+
+def test_get_industry_moneyflow_filters_to_named(mock_query_pro):
+    mock_query_pro(
+        _df_with_rows(
+            [
+                {"industry": "半导体", "net_amount": 4200.0},
+                {"industry": "银行", "net_amount": -1500.0},
+                {"industry": "证券", "net_amount": 800.0},
+            ]
+        )
+    )
+    out = macro_data.get_industry_moneyflow("2024-06-30", industries="银行,证券")
+    assert "银行" in out and "证券" in out
+    assert "半导体" not in out
+    assert "Filtered to industries" in out
+
+
+def test_get_industry_moneyflow_filter_fallback_shows_all(mock_query_pro):
+    mock_query_pro(
+        _df_with_rows(
+            [
+                {"industry": "半导体", "net_amount": 4200.0},
+                {"industry": "银行", "net_amount": -1500.0},
+            ]
+        )
+    )
+    out = macro_data.get_industry_moneyflow("2024-06-30", industries="不存在的行业")
+    # No THS industry matches -> degrade to the full table, with a visible note.
+    assert "半导体" in out and "银行" in out
+    assert "showing all" in out

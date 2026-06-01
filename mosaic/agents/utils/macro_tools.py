@@ -612,18 +612,27 @@ def get_stock_moneyflow(
 def get_industry_moneyflow(
     curr_date: Annotated[str, "Current date yyyy-mm-dd; window ends here. Clamped under backtest."],
     look_back_days: Annotated[int, "Calendar days of history to scan."] = 5,
+    industries: Annotated[
+        str,
+        "Optional 同花顺行业 (THS industry) name(s) to filter to, comma-separated "
+        "(e.g. '半导体' or '银行,证券,保险'). Empty = all ~90 industries. Pass your "
+        "sector's THS industry name(s) to get just your rows; if nothing matches "
+        "the full table is returned, so drop it and scan when unsure.",
+    ] = "",
 ) -> str:
     """
-    Retrieve THS industry-level money flow over a window.
+    Retrieve THS industry-level money flow over a window, optionally filtered.
 
     Tushare ``moneyflow_ind_ths`` (同花顺行业资金流向) reports daily per-industry
     net inflow + lead stock. Used by ``sector`` agents to see which industries
-    main funds are rotating into / out of (positive net = rotating in).
+    main funds are rotating into / out of (positive net = rotating in). Pass
+    ``industries`` (THS 同花顺行业 name substrings) to narrow the ~90-industry
+    table to just this sector; unmatched filters degrade to the full table.
 
     Returns:
         Markdown header + CSV (industry / net_amount / ... defensively passed through).
     """
-    return route_to_vendor("get_industry_moneyflow", curr_date, look_back_days)
+    return route_to_vendor("get_industry_moneyflow", curr_date, look_back_days, industries)
 
 
 # ============================================================ public exports

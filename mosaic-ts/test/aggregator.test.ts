@@ -72,7 +72,7 @@ const DLR_BULL: DollarOutput = {
   agent: "dollar",
   dxy_trend: "WEAKENING",
   cny_pressure: "LOW",
-  dxy_cny_correlation: -73,
+  dxy_cny_correlation: 73,
   key_drivers: ["DXY -1.2% WoW"],
   confidence: 0.7,
 };
