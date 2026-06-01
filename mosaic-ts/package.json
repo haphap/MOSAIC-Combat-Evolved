@@ -16,7 +16,8 @@
     "test:watch": "vitest",
     "lint": "biome check src test",
     "format": "biome format --write src test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prompt:check": "cd .. && uv run python scripts/check_prompt_leaks.py"
   },
   "bin": {
     "mosaic": "./dist/cli/index.js"
