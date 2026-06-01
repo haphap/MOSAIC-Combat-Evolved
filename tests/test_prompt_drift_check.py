@@ -223,3 +223,57 @@ def test_state_file_not_updated_when_drift_found(tmp_path: Path):
 
     assert rc == 1
     assert json.loads(state_file.read_text(encoding="utf-8"))["baseline_ref"] == old_head
+
+
+def test_accept_requires_state_file(tmp_path: Path, capsys):
+    project = _init_repo(tmp_path / "project")
+    private = _init_repo(tmp_path / "private")
+
+    rc = check_prompt_drift.main(
+        [
+            "--repo",
+            str(project),
+            "--private-repo",
+            str(private),
+            "--base-ref",
+            "HEAD",
+            "--accept",
+        ]
+    )
+
+    assert rc == 2
+    assert "--accept requires --state-file" in capsys.readouterr().err
+
+
+def test_accept_advances_state_when_drift_found(tmp_path: Path, capsys):
+    project = _init_repo(tmp_path / "project")
+    private = _init_repo(tmp_path / "private")
+    _baseline_prompt(project, "v1\n")
+    _commit(project, "add baseline")
+    old_head = _git(project, "rev-parse", "HEAD").strip()
+    private_prompt = private / "prompts" / "mosaic" / "cohort_default" / "macro" / "volatility.zh.md"
+    private_prompt.parent.mkdir(parents=True)
+    private_prompt.write_text("private override\n", encoding="utf-8")
+    _commit(private, "add private override")
+    _baseline_prompt(project, "v2\n")
+    _commit(project, "change baseline")
+    new_head = _git(project, "rev-parse", "HEAD").strip()
+    state_file = tmp_path / "state" / "prompt-drift.json"
+    state_file.parent.mkdir()
+    state_file.write_text(json.dumps({"baseline_ref": old_head}), encoding="utf-8")
+
+    rc = check_prompt_drift.main(
+        [
+            "--repo",
+            str(project),
+            "--private-repo",
+            str(private),
+            "--state-file",
+            str(state_file),
+            "--accept",
+        ]
+    )
+
+    assert rc == 0
+    assert "accepted" in capsys.readouterr().out
+    assert json.loads(state_file.read_text(encoding="utf-8"))["baseline_ref"] == new_head

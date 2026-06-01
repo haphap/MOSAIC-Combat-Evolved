@@ -559,6 +559,7 @@ private prompt pinned worktree
 5. 接入 operator-run / scheduled drift check。
    - 在有 private prompt repo 和 prompt_versions DB 的环境运行。
    - baseline 修改影响已有 private override 时，提示需要 private repo sync branch 或 waiver。
+   - scheduled mode 使用 state file 记录上一次确认过的 baseline；drift 存在时不自动推进，完成 sync review 或 waiver 后必须显式 `--accept` 推进 state，避免 livelock 只能靠手改 JSON。
 
 涉及文件：
 

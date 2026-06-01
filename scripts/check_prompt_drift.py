@@ -111,6 +111,10 @@ def _write_state(path: Path, state: DriftState) -> None:
     )
 
 
+def _advance_state(state_file: Path, project_repo: Path) -> None:
+    _write_state(state_file, DriftState(baseline_ref=_resolve_commit(_repo_root(project_repo), "HEAD")))
+
+
 def check_drift(
     *,
     project_repo: Path,
@@ -190,7 +194,15 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help=(
             "Scheduled mode state file. When --base-ref is omitted, reads baseline_ref from this file. "
-            "Updates it to the current project HEAD only when the check passes."
+            "Updates it to the current project HEAD when the check passes, or when --accept is set."
+        ),
+    )
+    parser.add_argument(
+        "--accept",
+        action="store_true",
+        help=(
+            "Acknowledge the current drift findings and advance --state-file to project HEAD. "
+            "This is the explicit scheduled-mode waiver path."
         ),
     )
     parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
@@ -216,6 +228,9 @@ def main(argv: list[str] | None = None) -> int:
     if base_ref is None:
         print("prompt drift check requires --base-ref or --state-file", file=sys.stderr)
         return 2
+    if args.accept and state_file is None:
+        print("prompt drift check --accept requires --state-file", file=sys.stderr)
+        return 2
 
     try:
         findings = check_drift(
@@ -232,13 +247,15 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps([asdict(finding) for finding in findings], ensure_ascii=False, indent=2))
     else:
         _print_text(findings)
-    if state_file is not None and not findings:
+    if state_file is not None and (not findings or args.accept):
         try:
-            _write_state(state_file, DriftState(baseline_ref=_resolve_commit(_repo_root(project_repo), "HEAD")))
+            _advance_state(state_file, project_repo)
         except Exception as exc:
             print(f"prompt drift check failed: {type(exc).__name__}: {exc}", file=sys.stderr)
             return 2
-    return 1 if findings else 0
+        if findings and args.accept and not args.json:
+            print("prompt drift check accepted: state advanced despite drift findings")
+    return 1 if findings and not args.accept else 0
 
 
 if __name__ == "__main__":
