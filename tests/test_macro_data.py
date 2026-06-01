@@ -579,3 +579,55 @@ class TestLiveTushare:
     def test_live_yield_curve_cn(self):
         out = macro_data.get_yield_curve_cn("2024-06-28", look_back_days=5)
         assert "CN Treasury Yield Curve" in out
+
+
+# --------------------------------------------------------------------- 14. Money flow
+
+
+def test_get_stock_moneyflow_emits_net_mf(mock_query_pro):
+    mock_query_pro(
+        _df_with_rows(
+            [
+                {
+                    "ts_code": "600519.SH",
+                    "trade_date": "20240628",
+                    "net_mf_amount": 12345.6,
+                    "buy_lg_amount": 9000.0,
+                    "sell_lg_amount": 4000.0,
+                    "buy_elg_amount": 6000.0,
+                    "sell_elg_amount": 2000.0,
+                }
+            ]
+        )
+    )
+    out = macro_data.get_stock_moneyflow("600519.SH", "2024-06-01", "2024-06-28")
+    assert "Stock Money Flow" in out
+    assert "net_mf_amount" in out
+    assert "12345.6" in out
+
+
+def test_get_stock_moneyflow_rejects_inverted_range():
+    with pytest.raises(DataVendorUnavailable, match="after end_date"):
+        macro_data.get_stock_moneyflow("600519.SH", "2024-06-30", "2024-06-01")
+
+
+def test_get_industry_moneyflow_windowed(mock_query_pro):
+    captured = {}
+
+    def _capture(api_name, **params):
+        captured["api"] = api_name
+        captured["params"] = params
+        return _df_with_rows([{"industry": "半导体", "net_amount": 4200.0}])
+
+    mock_query_pro(None, side_effect=_capture)
+    out = macro_data.get_industry_moneyflow("2024-06-30", look_back_days=5)
+    assert "Industry Money Flow" in out
+    assert captured["api"] == "moneyflow_ind_ths"
+    assert captured["params"]["start_date"] == "20240625"
+    assert captured["params"]["end_date"] == "20240630"
+
+
+def test_get_industry_moneyflow_empty(mock_query_pro):
+    mock_query_pro(_df_with_rows([]))
+    out = macro_data.get_industry_moneyflow("2024-06-30")
+    assert "No industry moneyflow" in out

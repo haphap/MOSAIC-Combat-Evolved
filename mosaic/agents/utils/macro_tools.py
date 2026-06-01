@@ -617,6 +617,47 @@ def get_property_data(
     return route_to_vendor("get_property_data", curr_date, top_n)
 
 
+# ============================================================ Money flow (stock / industry)
+
+
+@tool
+def get_stock_moneyflow(
+    ticker: Annotated[str, "A-share ticker (e.g. '600519.SH')."],
+    start_date: Annotated[str, "Start date yyyy-mm-dd (inclusive)."],
+    end_date: Annotated[str, "End date yyyy-mm-dd (inclusive); clamped under backtest."],
+) -> str:
+    """
+    Retrieve a stock's main-funds (主力) money flow over [start_date, end_date].
+
+    Tushare ``moneyflow`` splits trades by order size; ``net_mf_amount`` (净流入额,
+    万元) plus large/extra-large buy-sell is the de-facto main-funds signal —
+    positive + rising = big money accumulating, negative = distributing. Used by
+    ``institutional_flow`` to read whether主力 is buying or selling a name.
+
+    Returns:
+        Markdown header + CSV (trade_date / net_mf_amount / lg / elg amounts).
+    """
+    return route_to_vendor("get_stock_moneyflow", ticker, start_date, end_date)
+
+
+@tool
+def get_industry_moneyflow(
+    curr_date: Annotated[str, "Current date yyyy-mm-dd; window ends here. Clamped under backtest."],
+    look_back_days: Annotated[int, "Calendar days of history to scan."] = 5,
+) -> str:
+    """
+    Retrieve THS industry-level money flow over a window.
+
+    Tushare ``moneyflow_ind_ths`` (同花顺行业资金流向) reports daily per-industry
+    net inflow + lead stock. Used by ``sector`` agents to see which industries
+    main funds are rotating into / out of (positive net = rotating in).
+
+    Returns:
+        Markdown header + CSV (industry / net_amount / ... defensively passed through).
+    """
+    return route_to_vendor("get_industry_moneyflow", curr_date, look_back_days)
+
+
 # ============================================================ public exports
 
 __all__ = [
@@ -637,4 +678,6 @@ __all__ = [
     "get_caixin_sentiment",
     "get_us_china_relations",
     "get_property_data",
+    "get_stock_moneyflow",
+    "get_industry_moneyflow",
 ]

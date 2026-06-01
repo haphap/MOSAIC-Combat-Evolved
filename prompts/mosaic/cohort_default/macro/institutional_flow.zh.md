@@ -12,10 +12,12 @@
   必须拉一周窗口（5 个交易日）。
 * `get_lhb_ranking(curr_date)` —— 龙虎榜当日交易明细。当日触发 LHB 上榜的
   个股 + 买卖席位 + 净买入金额。
+* `get_stock_moneyflow(ticker, start_date, end_date)` —— 个股主力资金流。
+  `net_mf_amount`(净流入,万元)+ 大单/特大单 buy/sell，判断主力是吸筹还是出货。
 
 ## 工作流程
 
-1. **两个工具必须全调**。
+1. **北向 + 龙虎榜必调**；对重点个股尽量加 `get_stock_moneyflow` 看主力动向。
 2. **`north_net_flow_cny`**：当周累计北向净流入金额（CNY 百万元）。直接
    引用工具返回的最新行 north_money 字段。
 3. **`top_buyers`**：龙虎榜买入金额前 3-5 名机构（用 `name` 字段或机构席位

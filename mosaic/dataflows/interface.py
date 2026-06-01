@@ -29,6 +29,8 @@ from .macro_data import (
     get_etf_indicator as get_etf_indicator_macro_impl,
     get_fund_flow as get_fund_flow_impl,
     get_property_data as get_property_data_impl,
+    get_stock_moneyflow as get_stock_moneyflow_impl,
+    get_industry_moneyflow as get_industry_moneyflow_impl,
 )
 from .tushare import (
     get_etf_daily as get_tushare_etf_daily,
@@ -138,6 +140,8 @@ TOOLS_CATEGORIES = {
             "get_caixin_sentiment",
             "get_us_china_relations",
             "get_property_data",
+            "get_stock_moneyflow",
+            "get_industry_moneyflow",
         ]
     }
 }
@@ -280,6 +284,12 @@ VENDOR_METHODS = {
     "get_property_data": {
         "akshare": get_property_data_impl,
     },
+    "get_stock_moneyflow": {
+        "tushare": get_stock_moneyflow_impl,
+    },
+    "get_industry_moneyflow": {
+        "tushare": get_industry_moneyflow_impl,
+    },
 }
 
 _RANGE_DATE_METHODS = {
@@ -290,6 +300,7 @@ _RANGE_DATE_METHODS = {
     "get_etf_price_data": (1, 2),
     "get_fred_series": (1, 2),
     "get_north_capital_flow": (0, 1),
+    "get_stock_moneyflow": (1, 2),
 }
 
 _CURRENT_DATE_METHODS = {
@@ -318,6 +329,7 @@ _CURRENT_DATE_METHODS = {
     "get_caixin_sentiment": 0,
     "get_us_china_relations": 0,
     "get_property_data": 0,
+    "get_industry_moneyflow": 0,
 }
 
 _UNBOUNDED_BACKTEST_METHODS = {

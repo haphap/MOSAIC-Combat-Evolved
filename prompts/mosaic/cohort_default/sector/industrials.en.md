@@ -28,6 +28,8 @@ Read Machinery + Defence + Transportation (advanced equipment / defence / logist
   Shenwan-tier-1 portion belonging to this sector.
 * `get_etf_holdings(ticker, curr_date)` — sector-ETF holdings. Use this sector's
   representative ETF (find the industry ETF via get_etf_universe) to read top-constituent weights / locate leaders.
+* `get_industry_moneyflow(curr_date, look_back_days=5)` — THS industry money flow:
+  is main capital rotating into or out of this sector over the last N days (net_amount > 0 = in).
 
 ## Workflow
 

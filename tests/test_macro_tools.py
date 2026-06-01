@@ -121,6 +121,16 @@ _EXPECTED_TOOLS = {
         "optional": {"top_n"},
         "vendor_method": "get_property_data",
     },
+    "get_stock_moneyflow": {
+        "required": {"ticker", "start_date", "end_date"},
+        "optional": set(),
+        "vendor_method": "get_stock_moneyflow",
+    },
+    "get_industry_moneyflow": {
+        "required": {"curr_date"},
+        "optional": {"look_back_days"},
+        "vendor_method": "get_industry_moneyflow",
+    },
 }
 
 
@@ -305,6 +315,18 @@ class TestDispatch:
     def test_get_property_data_overrides_top_n(self, patched_route):
         macro_tools.get_property_data.invoke({"curr_date": "2024-06-30", "top_n": 6})
         assert patched_route["args"] == ("2024-06-30", 6)
+
+    def test_get_stock_moneyflow_invocation(self, patched_route):
+        macro_tools.get_stock_moneyflow.invoke(
+            {"ticker": "600519.SH", "start_date": "2024-06-01", "end_date": "2024-06-28"}
+        )
+        assert patched_route["method"] == "get_stock_moneyflow"
+        assert patched_route["args"] == ("600519.SH", "2024-06-01", "2024-06-28")
+
+    def test_get_industry_moneyflow_default_lookback(self, patched_route):
+        macro_tools.get_industry_moneyflow.invoke({"curr_date": "2024-06-30"})
+        assert patched_route["method"] == "get_industry_moneyflow"
+        assert patched_route["args"] == ("2024-06-30", 5)
 
 
 # --------------------------------------------------------------------- bridge handler

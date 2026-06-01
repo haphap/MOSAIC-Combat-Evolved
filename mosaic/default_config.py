@@ -129,6 +129,8 @@ DEFAULT_CONFIG = {
         "get_caixin_sentiment": "opencli",
         "get_us_china_relations": "tsinghua",
         "get_property_data": "akshare",
+        "get_stock_moneyflow": "tushare",
+        "get_industry_moneyflow": "tushare",
     },
     "snapshot_max_age_days": 30,
     "backtest_cache_max_age_days": 90,
