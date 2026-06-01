@@ -91,11 +91,25 @@ class TestRead:
 
 
 class TestWrite:
+    def test_default_branch_routes_to_project_git(self, repo: Path):
+        # Orchestrator path: branch + no target → project feature-branch commit;
+        # no escape hatch / private repo required (keeps the autoresearch loop
+        # working until Phase 5 moves eval/read to the private repo).
+        r = dispatch("prompts.write", {
+            "agent": "volatility", "cohort": "crisis_2008",
+            "contents": {"zh": "new zh\n## 输出 schema\n"},
+            "branch": BRANCH,
+        })
+        assert r["target"] == "project_git"
+        assert len(r["commit_hash"]) == 40
+        assert not (repo / "prompts/mosaic/crisis_2008").exists()
+
     def test_private_git_requires_config(self, repo: Path):
         with pytest.raises(RpcError, match="MOSAIC_PRIVATE_PROMPT_REPO"):
             dispatch("prompts.write", {
                 "agent": "volatility", "cohort": "crisis_2008",
                 "contents": {"zh": "new zh\n"},
+                "target": "private_git",
                 "branch": BRANCH,
             })
 
@@ -107,6 +121,7 @@ class TestWrite:
         r = dispatch("prompts.write", {
             "agent": "volatility", "cohort": "crisis_2008",
             "contents": {"zh": "new zh\n## 输出 schema\n", "en": "new en\n## Output schema\n"},
+            "target": "private_git",
             "branch": BRANCH,
         })
         assert r["target"] == "private_git"
@@ -124,13 +139,12 @@ class TestWrite:
         )
         assert prompt_at_branch.startswith("new zh")
 
-    def test_to_project_git_branch_commits_with_explicit_allow(self, repo: Path):
+    def test_to_project_git_branch_commits(self, repo: Path):
         r = dispatch("prompts.write", {
             "agent": "volatility", "cohort": "crisis_2008",
             "contents": {"zh": "new zh\n## 输出 schema\n", "en": "new en\n## Output schema\n"},
             "target": "project_git",
             "branch": BRANCH,
-            "allow_public_prompt_write": True,
         })
         assert r["target"] == "project_git"
         assert r["prompt_repo_id"] == "project"
@@ -154,15 +168,6 @@ class TestWrite:
         assert "commit_hash" not in r
         assert r["target"] == "working_tree"
         assert (repo / "prompts/mosaic/crisis_2008/macro/volatility.zh.md").exists()
-
-    def test_project_git_requires_allow(self, repo: Path):
-        with pytest.raises(RpcError, match="allow_public_prompt_write"):
-            dispatch("prompts.write", {
-                "agent": "volatility", "cohort": "crisis_2008",
-                "contents": {"zh": "new zh\n"},
-                "target": "project_git",
-                "branch": BRANCH,
-            })
 
     def test_working_tree_requires_allow(self, repo: Path):
         with pytest.raises(RpcError, match="allow_public_prompt_write"):

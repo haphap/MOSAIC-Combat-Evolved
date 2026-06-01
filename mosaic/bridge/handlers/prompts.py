@@ -118,9 +118,9 @@ def _prompt_repo_id() -> str:
 
 
 def _public_write_allowed(params: dict[str, Any]) -> bool:
-    return bool(params.get("allow_public_prompt_write")) or os.getenv(
-        "MOSAIC_ALLOW_PUBLIC_PROMPT_COMMIT"
-    ) == "1"
+    # Per-invocation only — deliberately NOT honoring a long-lived env var, so the
+    # escape hatch can't be left globally enabled (plan principle 7).
+    return bool(params.get("allow_public_prompt_write"))
 
 
 @method("prompts.read")
@@ -168,7 +168,14 @@ def prompts_write(params: dict[str, Any]) -> dict[str, Any]:
     # creates/overwrites the cohort's own file).
     files = {_rel_path(agent, cohort, lang): text for lang, text in contents.items()}
     branch: Optional[str] = params.get("branch") or None
-    target = params.get("target") or ("private_git" if branch else "working_tree")
+    # Default keeps the existing autoresearch mutation path (a project-repo
+    # feature branch); ``private_git`` is opt-in via an explicit ``target`` until
+    # Phase 5 moves the evaluation worktree + read-at-ref to the private repo too.
+    # (Flipping the default before then breaks the optimize→evaluate loop, since
+    # ``autoresearch.prepare_worktree`` / ``prompts.read(ref)`` still use the
+    # project repo. Phase 6's CI provenance guard is what blocks optimized
+    # prompts from reaching project PRs in the interim.)
+    target = params.get("target") or ("project_git" if branch else "working_tree")
     if target not in _WRITE_TARGETS:
         raise RpcError(INVALID_PARAMS, f"'target' must be one of {_WRITE_TARGETS}, got {target!r}")
 
@@ -197,11 +204,10 @@ def prompts_write(params: dict[str, Any]) -> dict[str, Any]:
     if target == "project_git":
         if not branch:
             raise RpcError(INVALID_PARAMS, "prompts.write(target=project_git) requires 'branch'")
-        if not _public_write_allowed(params):
-            raise RpcError(
-                INVALID_PARAMS,
-                "project prompt writes require allow_public_prompt_write=true",
-            )
+        # A project-repo feature-branch commit is the existing autoresearch
+        # mutation mechanism (isolated on a branch, not the tracked tree), so it
+        # is not gated by the escape hatch. The working-tree path below — which
+        # dirties tracked ``prompts/mosaic/**`` directly — is.
         message = params.get("message") or f"autoresearch: mutate {agent} prompt ({cohort})"
         try:
             git = _git()

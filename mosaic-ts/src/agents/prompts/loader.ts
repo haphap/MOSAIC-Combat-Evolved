@@ -86,6 +86,12 @@ async function readSingle(opts: {
  * chain. For ``Bilingual`` returns zh + "\n\n---\n\n" + en (Plan §10.2).
  */
 export async function loadPrompt(opts: LoadOptions): Promise<string> {
+  // The cache key includes the private root path but NOT a file content/mtime
+  // fingerprint. That is correct only under the plan's worktree-per-commit model
+  // (evaluation/production point the private root at a per-commit worktree, so a
+  // different prompt commit ⇒ a different root path). If a long-lived process
+  // reuses ONE private root and the checked-out branch/commit changes in place,
+  // pass `noCache: true` to avoid a stale read.
   const privateRoot =
     opts.privatePromptsRoot ?? (opts.promptsRoot ? "" : (findPrivatePromptsRoot() ?? ""));
   const cacheKey = [
