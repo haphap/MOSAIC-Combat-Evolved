@@ -9,7 +9,13 @@ import {
 } from "./_factory.js";
 import { BakerSchema, SUPERINVESTOR_FIELD_NAMES } from "./_schemas.js";
 
-export const REQUIRED_TOOLS = ["get_industry_policy", "get_stock_research"] as const;
+export const REQUIRED_TOOLS = [
+  "get_industry_policy",
+  "get_stock_research",
+  "get_fundamentals",
+  "get_income_statement",
+  "get_cashflow",
+] as const;
 
 export const bakerSpec: LayerThreeAgentSpec<BakerOutput> = {
   agentId: "baker",
