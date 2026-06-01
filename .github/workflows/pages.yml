@@ -1,0 +1,49 @@
+name: Pages
+
+# Builds the MkDocs site from docs/wiki/ and deploys to GitHub Pages.
+# Requires Pages to be enabled (Settings -> Pages -> Source: GitHub Actions).
+# On plans without private-repo Pages this stays red until the repo is public
+# or the plan is upgraded; `mkdocs serve` works locally regardless.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/wiki/**"
+      - "mkdocs.yml"
+      - "scripts/mkdocs_hooks.py"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install mkdocs-material
+      - run: mkdocs build --strict --site-dir _site
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

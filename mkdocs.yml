@@ -1,0 +1,68 @@
+site_name: MOSAIC
+site_description: A-share self-improving multi-agent quantitative trading framework
+repo_url: https://github.com/haphap/MOSAIC-Agents
+repo_name: haphap/MOSAIC-Agents
+docs_dir: docs/wiki
+
+theme:
+  name: material
+  language: en
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.instant
+    - content.code.copy
+    - search.suggest
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+# Rewrite repo-file links that escape docs_dir -> absolute blob URLs.
+hooks:
+  - scripts/mkdocs_hooks.py
+
+markdown_extensions:
+  - admonition
+  - toc:
+      permalink: true
+      slugify: !!python/object/apply:pymdownx.slugs.slugify
+        kwds:
+          case: lower
+  - pymdownx.highlight
+  - pymdownx.superfences
+
+nav:
+  - Home: Home.md
+  - English:
+      - Getting Started: Getting-Started.md
+      - Architecture: Architecture.md
+      - Agents: Agents.md
+      - Data Layer: Data-Layer.md
+      - Bridge RPC: Bridge-RPC.md
+      - CLI Reference: CLI-Reference.md
+      - Configuration: Configuration.md
+      - Scorecard & Paper Trading: Scorecard-and-Paper-Trading.md
+      - Self-Improvement: Self-Improvement.md
+      - TUI: TUI.md
+      - Contributing: Contributing.md
+  - 中文:
+      - zh/Home.md
+      - zh/Getting-Started.md
+      - zh/Architecture.md
+      - zh/Agents.md
+      - zh/Data-Layer.md
+      - zh/Bridge-RPC.md
+      - zh/CLI-Reference.md
+      - zh/Configuration.md
+      - zh/Scorecard-and-Paper-Trading.md
+      - zh/Self-Improvement.md
+      - zh/TUI.md
+      - zh/Contributing.md
