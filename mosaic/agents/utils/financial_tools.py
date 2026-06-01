@@ -15,32 +15,33 @@ clamps ``curr_date`` (the 3rd positional arg) under a backtest context.
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Literal
 
 from langchain_core.tools import tool
 
 from mosaic.dataflows.interface import route_to_vendor
 
 _TICKER = "A-share/HK/US ticker, MOSAIC form (e.g. '600519.SH', '0700.HK')."
-_CURR = "Current date (yyyy-mm-dd); financials at/before it. Backtest mode clamps it."
-_FREQ = "Statement frequency: 'quarterly' (default) or 'annual'."
+_CURR = "Current date (yyyy-mm-dd); financials at/before it. Backtest mode clamps it. Empty = latest."
+_FreqT = Literal["quarterly", "annual"]
+_FREQ = "Statement frequency."
 
 
 @tool
 def get_fundamentals(
     ticker: Annotated[str, _TICKER],
-    curr_date: Annotated[str, _CURR],
+    curr_date: Annotated[str, _CURR] = "",
 ) -> str:
     """Latest fundamentals snapshot (valuation + key financial-indicator ratios:
     PE/PB/ROE/margins/growth) for a stock as of ``curr_date``. Use for the value
     lenses' quick read on whether price is supported by fundamentals."""
-    return route_to_vendor("get_fundamentals", ticker, curr_date)
+    return route_to_vendor("get_fundamentals", ticker, curr_date or None)
 
 
 @tool
 def get_balance_sheet(
     ticker: Annotated[str, _TICKER],
-    freq: Annotated[str, _FREQ] = "quarterly",
+    freq: Annotated[_FreqT, _FREQ] = "quarterly",
     curr_date: Annotated[str, _CURR] = "",
 ) -> str:
     """Balance sheet (assets / liabilities / equity) for a stock — leverage,
@@ -51,7 +52,7 @@ def get_balance_sheet(
 @tool
 def get_income_statement(
     ticker: Annotated[str, _TICKER],
-    freq: Annotated[str, _FREQ] = "quarterly",
+    freq: Annotated[_FreqT, _FREQ] = "quarterly",
     curr_date: Annotated[str, _CURR] = "",
 ) -> str:
     """Income statement (revenue / margins / profit) for a stock — growth and
@@ -62,7 +63,7 @@ def get_income_statement(
 @tool
 def get_cashflow(
     ticker: Annotated[str, _TICKER],
-    freq: Annotated[str, _FREQ] = "quarterly",
+    freq: Annotated[_FreqT, _FREQ] = "quarterly",
     curr_date: Annotated[str, _CURR] = "",
 ) -> str:
     """Cash-flow statement (operating / investing / financing) for a stock —

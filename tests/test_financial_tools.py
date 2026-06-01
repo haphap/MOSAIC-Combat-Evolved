@@ -46,3 +46,20 @@ def test_module_exposed_via_bridge():
 
     names = {t.name for t in th._iter_module_tools("mosaic.agents.utils.financial_tools")}
     assert set(_NAMES).issubset(names)
+
+
+def test_freq_is_enum_constrained():
+    # review #2: freq is Literal["quarterly","annual"], enforced by the schema.
+    for name in ("get_balance_sheet", "get_income_statement", "get_cashflow"):
+        schema = getattr(fin, name).args_schema.model_json_schema()
+        assert schema["properties"]["freq"]["enum"] == ["quarterly", "annual"]
+
+
+def test_curr_date_optional_everywhere(monkeypatch):
+    # review #1: all 4 default curr_date (empty → None = latest), consistently.
+    captured = {}
+    monkeypatch.setattr(fin, "route_to_vendor", lambda m, *a: captured.update(method=m, args=a) or "MD")
+    fin.get_fundamentals.invoke({"ticker": "600519.SH"})
+    assert captured["args"] == ("600519.SH", None)
+    fin.get_cashflow.invoke({"ticker": "600519.SH"})
+    assert captured["args"] == ("600519.SH", "quarterly", None)
