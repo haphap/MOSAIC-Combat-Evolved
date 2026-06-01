@@ -82,7 +82,10 @@ def init_private_prompt_repo(
 
     repo.mkdir(parents=True, exist_ok=True)
     if not (repo / ".git").exists():
-        _git(repo, "init", "-b", "main")
+        # ``git init -b`` needs git >= 2.28; point the unborn HEAD at main via
+        # symbolic-ref instead so this works on older git too.
+        _git(repo, "init")
+        _git(repo, "symbolic-ref", "HEAD", "refs/heads/main")
 
     prompts_root = repo / "prompts" / "mosaic"
     prompts_root.mkdir(parents=True, exist_ok=True)

@@ -160,13 +160,19 @@ def prompts_init_private_repo(params: dict[str, Any]) -> dict[str, Any]:
     path = _require_str(params, "path")
     seed_baseline = bool(params.get("seed_baseline", False))
     try:
-        from mosaic.autoresearch.prompt_repo import init_private_prompt_repo
+        from mosaic.autoresearch.prompt_repo import (
+            PromptRepoError,
+            init_private_prompt_repo,
+        )
 
         result = init_private_prompt_repo(
             path,
             project_root=_repo_root(),
             seed_baseline=seed_baseline,
         )
+    except PromptRepoError as exc:
+        # User-supplied path is invalid (inside project repo, non-git, etc.).
+        raise RpcError(INVALID_PARAMS, str(exc)) from exc
     except Exception as exc:
         raise RpcError(INTERNAL_ERROR, f"{type(exc).__name__}: {exc}") from exc
     return dict(result)
