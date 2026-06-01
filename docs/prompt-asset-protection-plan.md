@@ -721,7 +721,8 @@ pnpm dev prompts write-baseline --allow-public-prompt-write ...
 - [x] TS resolver 支持 private prompt repo first。
 - [x] loader cache key 区分 private repo commit/content。
 - [ ] loader 支持 pinned prompt worktree。
-- [ ] operator-run / scheduled baseline drift alert。
+- [x] operator-run baseline drift alert。
+- [x] scheduled baseline drift alert。
 - [ ] registry-scan compatibility validation。
 - [ ] private path redaction。
 - [x] loader tests。
@@ -755,8 +756,9 @@ pnpm dev prompts write-baseline --allow-public-prompt-write ...
 - [x] 新增 prompt leak check script。
 - [x] CI 接入检查。
 - [x] CI 只做 leak/provenance guard，不依赖 private repo。
-- [ ] baseline drift check 接入 operator-run / scheduled tool。
-- [ ] 文档化 baseline 更新流程。
+- [x] baseline drift check 接入 operator-run tool。
+- [x] baseline drift check 接入 scheduled tool。
+- [x] 文档化 baseline 更新流程。
 
 ### P7 日志脱敏
 

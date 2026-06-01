@@ -17,7 +17,9 @@
     "lint": "biome check src test",
     "format": "biome format --write src test",
     "typecheck": "tsc --noEmit",
-    "prompt:check": "cd .. && uv run python scripts/check_prompt_leaks.py"
+    "prompt:check": "cd .. && uv run python scripts/check_prompt_leaks.py",
+    "prompt:drift": "cd .. && uv run python scripts/check_prompt_drift.py",
+    "prompt:drift:scheduled": "cd .. && uv run python scripts/check_prompt_drift.py --state-file data/prompt-drift-state.json"
   },
   "bin": {
     "mosaic": "./dist/cli/index.js"
