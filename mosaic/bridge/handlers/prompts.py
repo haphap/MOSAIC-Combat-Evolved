@@ -55,6 +55,7 @@ _LAYER_BY_AGENT: dict[str, str] = {
 }
 _DEFAULT_COHORT = "cohort_default"
 _LANGS = ("zh", "en")
+_WRITE_TARGETS = ("private_git", "project_git", "working_tree")
 
 
 def _repo_root() -> Path:
@@ -90,6 +91,36 @@ def _git():
     from mosaic.autoresearch.git_ops import GitOps
 
     return GitOps(_repo_root())
+
+
+def _private_git():
+    from mosaic.autoresearch.git_ops import GitOps
+    from mosaic.autoresearch.prompt_repo import (
+        PromptRepoError,
+        private_prompt_repo_from_env,
+        validate_private_prompt_repo,
+    )
+
+    repo = private_prompt_repo_from_env()
+    if repo is None:
+        raise RpcError(
+            INVALID_PARAMS,
+            "MOSAIC_PRIVATE_PROMPT_REPO is required for prompts.write(target=private_git)",
+        )
+    try:
+        return GitOps(validate_private_prompt_repo(repo, project_root=_repo_root()))
+    except PromptRepoError as exc:
+        raise RpcError(INVALID_PARAMS, str(exc)) from exc
+
+
+def _prompt_repo_id() -> str:
+    return os.getenv("MOSAIC_PRIVATE_PROMPT_REPO_ID", "private")
+
+
+def _public_write_allowed(params: dict[str, Any]) -> bool:
+    # Per-invocation only — deliberately NOT honoring a long-lived env var, so the
+    # escape hatch can't be left globally enabled (plan principle 7).
+    return bool(params.get("allow_public_prompt_write"))
 
 
 @method("prompts.read")
@@ -137,22 +168,76 @@ def prompts_write(params: dict[str, Any]) -> dict[str, Any]:
     # creates/overwrites the cohort's own file).
     files = {_rel_path(agent, cohort, lang): text for lang, text in contents.items()}
     branch: Optional[str] = params.get("branch") or None
+    # Default keeps the existing autoresearch mutation path (a project-repo
+    # feature branch); ``private_git`` is opt-in via an explicit ``target`` until
+    # Phase 5 moves the evaluation worktree + read-at-ref to the private repo too.
+    # (Flipping the default before then breaks the optimize→evaluate loop, since
+    # ``autoresearch.prepare_worktree`` / ``prompts.read(ref)`` still use the
+    # project repo. Phase 6's CI provenance guard is what blocks optimized
+    # prompts from reaching project PRs in the interim.)
+    target = params.get("target") or ("project_git" if branch else "working_tree")
+    if target not in _WRITE_TARGETS:
+        raise RpcError(INVALID_PARAMS, f"'target' must be one of {_WRITE_TARGETS}, got {target!r}")
 
-    if branch:
+    if target == "private_git":
+        if not branch:
+            raise RpcError(INVALID_PARAMS, "prompts.write(target=private_git) requires 'branch'")
         message = params.get("message") or f"autoresearch: mutate {agent} prompt ({cohort})"
         try:
-            commit = _git().write_and_commit(files, message=message, branch=branch)
+            git = _private_git()
+            base_commit = git.rev_parse("main")
+            commit = git.write_and_commit(files, message=message, branch=branch)
+        except Exception as exc:
+            if isinstance(exc, RpcError):
+                raise
+            raise RpcError(INTERNAL_ERROR, f"{type(exc).__name__}: {exc}") from exc
+        return {
+            "target": target,
+            "prompt_repo_id": _prompt_repo_id(),
+            "prompt_base_commit_hash": base_commit,
+            "commit_hash": commit,
+            "prompt_commit_hash": commit,
+            "branch": branch,
+            "paths": sorted(files),
+        }
+
+    if target == "project_git":
+        if not branch:
+            raise RpcError(INVALID_PARAMS, "prompts.write(target=project_git) requires 'branch'")
+        # A project-repo feature-branch commit is the existing autoresearch
+        # mutation mechanism (isolated on a branch, not the tracked tree), so it
+        # is not gated by the escape hatch. The working-tree path below — which
+        # dirties tracked ``prompts/mosaic/**`` directly — is.
+        message = params.get("message") or f"autoresearch: mutate {agent} prompt ({cohort})"
+        try:
+            git = _git()
+            base_commit = git.rev_parse("main")
+            commit = git.write_and_commit(files, message=message, branch=branch)
         except Exception as exc:
             raise RpcError(INTERNAL_ERROR, f"{type(exc).__name__}: {exc}") from exc
-        return {"commit_hash": commit, "branch": branch, "paths": sorted(files)}
+        return {
+            "target": target,
+            "prompt_repo_id": "project",
+            "prompt_base_commit_hash": base_commit,
+            "commit_hash": commit,
+            "prompt_commit_hash": commit,
+            "branch": branch,
+            "paths": sorted(files),
+        }
 
-    # Working-tree write (test-only).
+    if not _public_write_allowed(params):
+        raise RpcError(
+            INVALID_PARAMS,
+            "working-tree prompt writes require allow_public_prompt_write=true",
+        )
+
+    # Working-tree write (test-only / explicit baseline escape hatch).
     root = _repo_root()
     for rel, text in files.items():
         fp = root / rel
         fp.parent.mkdir(parents=True, exist_ok=True)
         fp.write_text(text, encoding="utf-8")
-    return {"paths": sorted(files)}
+    return {"target": target, "prompt_repo_id": "project", "paths": sorted(files)}
 
 
 @method("prompts.init_private_repo")

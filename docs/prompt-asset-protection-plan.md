@@ -708,29 +708,29 @@ pnpm dev prompts write-baseline --allow-public-prompt-write ...
 ### P2 Private GitOps 路由
 
 - [x] 确认 `GitOps(repo_root)` 已显式化。
-- [ ] 提供 project git / prompt git 两个实例。
-- [ ] `prompts.write` caller 按 target 路由到 private prompt repo。
-- [ ] 返回 repo id、branch、base commit、commit hash。
-- [ ] git ops tests。
+- [x] 提供 project git / prompt git 两个实例。
+- [x] `prompts.write` caller 按 target 路由到 private prompt repo。
+- [x] 返回 repo id、branch、base commit、commit hash。
+- [x] git ops tests。
 
 ### P3 Overlay Loader
 
-- [ ] TS resolver 支持 private prompt repo first。
-- [ ] loader cache key 区分 private repo commit/content。
+- [x] TS resolver 支持 private prompt repo first。
+- [x] loader cache key 区分 private repo commit/content。
 - [ ] loader 支持 pinned prompt worktree。
 - [ ] operator-run / scheduled baseline drift alert。
 - [ ] registry-scan compatibility validation。
 - [ ] private path redaction。
-- [ ] loader tests。
+- [x] loader tests。
 - [ ] prompt compatibility tests。
 
 ### P4 Private Git Write
 
-- [ ] `prompts.write` 增加 `target=private_git`。
-- [ ] TS bridge 类型增加 target 和 repo metadata。
-- [ ] private git writer commit prompt markdown。
-- [ ] 默认禁止 project git prompt write。
-- [ ] bridge tests。
+- [x] `prompts.write` 增加 `target=private_git`。
+- [x] TS bridge 类型增加 target 和 repo metadata。
+- [x] private git writer commit prompt markdown。
+- [x] 默认禁止 project git prompt write。
+- [x] bridge tests。
 
 ### P5 Autoresearch 双 Repo
 

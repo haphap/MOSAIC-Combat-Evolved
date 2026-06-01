@@ -78,6 +78,13 @@ export function findPromptsRoot(): string {
   return join(findRepoRoot(), "prompts", "mosaic");
 }
 
+/** Find ``<privatePromptRepo>/prompts/mosaic/`` when configured. */
+export function findPrivatePromptsRoot(): string | undefined {
+  const repo = process.env.MOSAIC_PRIVATE_PROMPT_REPO?.trim();
+  if (!repo) return undefined;
+  return join(repo, "prompts", "mosaic");
+}
+
 /** Path within a cohort to one agent's prompt file. */
 export function promptPath(opts: {
   agent: string;
@@ -108,20 +115,39 @@ export function resolvePromptPath(opts: {
   cohort: string;
   language: Language;
   promptsRoot?: string;
+  privatePromptsRoot?: string;
 }): string | null {
-  const layer = LAYER_BY_AGENT[opts.agent];
-  if (!layer) {
-    throw new Error(`Unknown agent '${opts.agent}'`);
-  }
-  const candidates = [opts.cohort];
-  if (opts.cohort !== DEFAULT_COHORT) {
-    candidates.push(DEFAULT_COHORT);
-  }
-  for (const cohort of candidates) {
-    const p = promptPath({ ...opts, cohort, layer });
+  for (const p of promptPathCandidates(opts)) {
     if (existsSync(p)) {
       return p;
     }
   }
   return null;
+}
+
+export function promptPathCandidates(opts: {
+  agent: string;
+  cohort: string;
+  language: Language;
+  promptsRoot?: string;
+  privatePromptsRoot?: string;
+}): string[] {
+  const layer = LAYER_BY_AGENT[opts.agent];
+  if (!layer) throw new Error(`Unknown agent '${opts.agent}'`);
+
+  const candidates = [opts.cohort];
+  if (opts.cohort !== DEFAULT_COHORT) {
+    candidates.push(DEFAULT_COHORT);
+  }
+  const baselineRoot = opts.promptsRoot ?? findPromptsRoot();
+  const privateRoot =
+    opts.privatePromptsRoot ?? (opts.promptsRoot ? undefined : findPrivatePromptsRoot());
+  const roots = privateRoot ? [privateRoot, baselineRoot] : [baselineRoot];
+  const paths: string[] = [];
+  for (const root of roots) {
+    for (const cohort of candidates) {
+      paths.push(promptPath({ ...opts, cohort, layer, promptsRoot: root }));
+    }
+  }
+  return paths;
 }

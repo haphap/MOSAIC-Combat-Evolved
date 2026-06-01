@@ -12,7 +12,12 @@
  */
 
 import { readFile } from "node:fs/promises";
-import { type Language, resolvePromptPath } from "./cohorts.js";
+import {
+  findPrivatePromptsRoot,
+  type Language,
+  promptPathCandidates,
+  resolvePromptPath,
+} from "./cohorts.js";
 
 export type LoaderLanguage = Language | "Bilingual";
 
@@ -40,6 +45,7 @@ interface LoadOptions {
   cohort: string;
   language: LoaderLanguage;
   promptsRoot?: string;
+  privatePromptsRoot?: string;
   noCache?: boolean;
 }
 
@@ -58,20 +64,11 @@ async function readSingle(opts: {
   cohort: string;
   language: Language;
   promptsRoot?: string;
+  privatePromptsRoot?: string;
 }): Promise<{ text: string; path: string } | { text: null; triedPaths: string[] }> {
   const path = resolvePromptPath(opts);
   if (path === null) {
-    // Reproduce the candidate paths the resolver would have tried so the
-    // error message is actionable.
-    const baseRoot = opts.promptsRoot;
-    const tried = [
-      ...(opts.cohort !== "cohort_default" ? [`<cohort=${opts.cohort}>`] : []),
-      `<cohort=cohort_default>`,
-    ].map(
-      (token) =>
-        `${baseRoot ? baseRoot : "<promptsRoot>"} / ${token} / <layer> / ${opts.agent}.${opts.language}.md`,
-    );
-    return { text: null, triedPaths: tried };
+    return { text: null, triedPaths: promptPathCandidates(opts) };
   }
   try {
     const text = await readFile(path, { encoding: "utf-8" });
@@ -89,7 +86,21 @@ async function readSingle(opts: {
  * chain. For ``Bilingual`` returns zh + "\n\n---\n\n" + en (Plan §10.2).
  */
 export async function loadPrompt(opts: LoadOptions): Promise<string> {
-  const cacheKey = `${opts.cohort}|${opts.agent}|${opts.language}`;
+  // The cache key includes the private root path but NOT a file content/mtime
+  // fingerprint. That is correct only under the plan's worktree-per-commit model
+  // (evaluation/production point the private root at a per-commit worktree, so a
+  // different prompt commit ⇒ a different root path). If a long-lived process
+  // reuses ONE private root and the checked-out branch/commit changes in place,
+  // pass `noCache: true` to avoid a stale read.
+  const privateRoot =
+    opts.privatePromptsRoot ?? (opts.promptsRoot ? "" : (findPrivatePromptsRoot() ?? ""));
+  const cacheKey = [
+    opts.promptsRoot ?? "",
+    privateRoot,
+    opts.cohort,
+    opts.agent,
+    opts.language,
+  ].join("|");
   if (!opts.noCache) {
     const cached = cache.get(cacheKey);
     if (cached !== undefined) {
