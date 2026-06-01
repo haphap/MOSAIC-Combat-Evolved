@@ -127,4 +127,28 @@ class TestWrite:
 def test_prompts_methods_registered():
     from mosaic.bridge.registry import all_methods
 
-    assert {"prompts.read", "prompts.write"}.issubset(set(all_methods()))
+    assert {"prompts.read", "prompts.write", "prompts.init_private_repo"}.issubset(set(all_methods()))
+
+
+def test_init_private_repo_rpc(repo: Path, tmp_path: Path):
+    private_repo = tmp_path / "private-prompts"
+    r = dispatch("prompts.init_private_repo", {"path": str(private_repo)})
+
+    assert r["seeded"] is False
+    assert len(r["commit_hash"]) == 40
+    assert (private_repo / "prompts" / "mosaic" / ".gitkeep").exists()
+
+
+def test_init_private_repo_rpc_can_seed_baseline(repo: Path, tmp_path: Path):
+    private_repo = tmp_path / "private-prompts"
+    r = dispatch("prompts.init_private_repo", {"path": str(private_repo), "seed_baseline": True})
+
+    assert r["seeded"] is True
+    assert (
+        private_repo
+        / "prompts"
+        / "mosaic"
+        / "cohort_default"
+        / "macro"
+        / "volatility.zh.md"
+    ).read_text(encoding="utf-8").startswith("base zh")
