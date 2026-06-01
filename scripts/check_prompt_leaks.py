@@ -3,7 +3,8 @@
 This is the Phase 6 enforcement layer for private prompt protection. It is
 intentionally provenance-based: normal human edits to ``prompts/mosaic/**`` are
 allowed, while autoresearch artifacts and private prompt repo material are
-blocked.
+blocked. It is not a content classifier and cannot prevent a human from pasting
+private optimized prompt text into an otherwise ordinary baseline edit.
 """
 
 from __future__ import annotations
@@ -94,6 +95,22 @@ def _commit_subjects(repo: Path, base_ref: str | None) -> list[str]:
     return [line.strip() for line in out.splitlines() if line.strip()]
 
 
+def _introduced_ref_names(repo: Path, base_ref: str | None) -> list[str]:
+    if not base_ref:
+        return []
+    out = _run_git(
+        repo,
+        [
+            "for-each-ref",
+            "--contains=HEAD",
+            "--format=%(refname:short)",
+            "refs/heads",
+            "refs/remotes",
+        ],
+    )
+    return [line.strip() for line in out.splitlines() if line.strip() and line.strip() != base_ref]
+
+
 def _gitmodules_paths(repo: Path, base_ref: str | None) -> list[str]:
     paths: list[str] = []
     for path, line in _added_lines(repo, base_ref, [".gitmodules"]):
@@ -162,13 +179,12 @@ def check_repo(repo: Path, base_ref: str | None = None) -> list[Finding]:
                 )
                 break
 
-    for ref in _run_git(repo, ["for-each-ref", "--format=%(refname:short)", "refs/heads", "refs/remotes"]).splitlines():
-        name = ref.strip()
-        if name and _is_autoresearch_branch(name):
+    for name in _introduced_ref_names(repo, base_ref):
+        if _is_autoresearch_branch(name):
             findings.append(
                 Finding(
                     "autoresearch-branch",
-                    f"autoresearch runtime branch must live in private prompt repo, not project repo: {name}",
+                    f"PR branch/ref must not be an autoresearch runtime branch in the project repo: {name}",
                 )
             )
 
