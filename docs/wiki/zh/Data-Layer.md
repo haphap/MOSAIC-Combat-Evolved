@@ -5,7 +5,7 @@
 ## 数据源
 
 - **Tushare**(`tushare.py`)—— 主要 A 股个股 + ETF 数据(`pro.daily`、`pro.fund_daily`、`pro.index_daily`、财务),以及**研究报告**(`pro.research_report`):`get_broker_reports`(行业研报,行业级)和 `get_stock_reports`(个股研报,个股级)。LangChain `@tool` 封装 `get_broker_research` / `get_stock_research` 在 `mosaic/agents/utils/research_report_tools.py`,挂载到行业 + 投资哲学 agent(见[智能体](Agents.md))。
-- **akshare**、**yfinance**、**FRED**(`macro_data.py`、`fred.py`)、雪球热度 等 —— 宏观/全球/情绪工具。含 `get_property_data`(akshare `macro_china_real_estate` —— 月度国房景气指数,按 `curr_date` 点对点裁剪),由 `china` agent 使用。macro 层共 **17 个工具**。
+- **akshare**、**yfinance**、**FRED**(`macro_data.py`、`fred.py`)、雪球热度 等 —— 宏观/全球/情绪工具。含 `get_property_data`(akshare `macro_china_real_estate` —— 月度国房景气指数,按 `curr_date` 点对点裁剪),由 `china` agent 使用。macro 层共 **18 个工具**。
 - 工具选择由配置驱动(`MosaicConfig` 的 `data_vendors` / `tool_vendors`)。
 
 ## qlib 本地读取 (`qlib_local.py`)

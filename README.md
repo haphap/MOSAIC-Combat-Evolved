@@ -40,7 +40,7 @@ _An A-share self-improving multi-agent trading framework — inspired by ATLAS._
 
 - 单一 LLM「分析师」缺乏对抗、缺乏记忆、无法随市场演化 —— MOSAIC 用分层 agent 群体 + 风控对抗 + 提示词自进化来应对。
 - 策略研究难以复现、难以量化「改了到底有没有变好」—— MOSAIC 用 **git 版本化提示词 + SQLite 元数据 + ΔSharpe 秒级回测**闭环。
-- A 股本地化数据缺位 —— 内置 Tushare / akshare / FRED / 雪球 等 **17 个宏观工具** + 行业/个股研报(`research_report`)+ 国房景气指数等行情/基本面工具。
+- A 股本地化数据缺位 —— 内置 Tushare / akshare / FRED / 雪球 等 **18 个宏观工具** + 行业/个股研报(`research_report`)+ 国房景气指数等行情/基本面工具。
 
 **核心特性 (Key Features):**
 
