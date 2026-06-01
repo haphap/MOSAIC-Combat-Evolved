@@ -351,6 +351,7 @@ describe("buildSemiconductorNode (Layer-2 factory smoke)", () => {
       layer3_outputs: {},
       layer4_outputs: { cro: null, alpha_discovery: null, autonomous_execution: null, cio: null },
       portfolio_actions: [],
+      replay_triggered: false,
       llm_calls: [],
     };
 
@@ -409,6 +410,7 @@ describe("buildLayerTwoUserContext", () => {
       layer3_outputs: {},
       layer4_outputs: { cro: null, alpha_discovery: null, autonomous_execution: null, cio: null },
       portfolio_actions: [],
+      replay_triggered: false,
       llm_calls: [],
     };
     const ctx = buildLayerTwoUserContext(state, "semiconductor");
@@ -436,6 +438,7 @@ describe("buildLayerTwoUserContext", () => {
       layer3_outputs: {},
       layer4_outputs: { cro: null, alpha_discovery: null, autonomous_execution: null, cio: null },
       portfolio_actions: [],
+      replay_triggered: false,
       llm_calls: [],
     };
     const ctx = buildLayerTwoUserContext(state, "semiconductor");

@@ -321,3 +321,50 @@ class TestValidateAfterIngest:
         bad_dir.mkdir()
         with pytest.raises(FileNotFoundError, match="layout incomplete"):
             qlib_ingest.validate_after_ingest(qlib_dir=bad_dir)
+
+
+# ---------------------------------------------------------------------------
+# R-P1: qlib bin-header parse (fail-loud on format drift)
+# ---------------------------------------------------------------------------
+
+
+class TestQlibBinHeader:
+    def test_valid_header_returns_start_index(self):
+        data = struct.pack("<f", 5.0) + b"\x00" * 40
+        assert qlib_ingest._qlib_bin_start_index(data, calendar_days=100) == 5
+
+    def test_too_short_raises(self):
+        with pytest.raises(qlib_ingest.QlibBinFormatError, match="too short"):
+            qlib_ingest._qlib_bin_start_index(b"\x00\x00", calendar_days=100)
+
+    def test_non_integer_header_raises(self):
+        # 3.7 is finite but not (near-)integer → format drift signal.
+        data = struct.pack("<f", 3.7) + b"\x00" * 8
+        with pytest.raises(qlib_ingest.QlibBinFormatError, match="not a finite integer"):
+            qlib_ingest._qlib_bin_start_index(data, calendar_days=100)
+
+    def test_out_of_range_header_raises(self):
+        data = struct.pack("<f", 999.0) + b"\x00" * 8
+        with pytest.raises(qlib_ingest.QlibBinFormatError, match="out of range"):
+            qlib_ingest._qlib_bin_start_index(data, calendar_days=100)
+
+    def test_validate_counts_format_errors(self, tmp_path: Path):
+        # Build a minimal qlib dir with one ticker whose close.bin header is
+        # garbage → validate should count it as a format_error, not crash.
+        qlib_dir = tmp_path / "cn_data"
+        (qlib_dir / "calendars").mkdir(parents=True)
+        (qlib_dir / "calendars" / "day.txt").write_text(
+            "\n".join(f"2024-01-{d:02d}" for d in range(1, 11)) + "\n", encoding="utf-8"
+        )
+        (qlib_dir / "instruments").mkdir()
+        (qlib_dir / "instruments" / "all.txt").write_text("sh600000\n", encoding="utf-8")
+        feat = qlib_dir / "features" / "sh600000"
+        feat.mkdir(parents=True)
+        # Header = NaN (not finite) + some values → triggers QlibBinFormatError.
+        (feat / "close.day.bin").write_bytes(struct.pack("<f", float("nan")) + b"\x00" * 8)
+
+        report = qlib_ingest.validate_after_ingest(
+            qlib_dir=qlib_dir, skip_manifest=tmp_path / "skipped.txt"
+        )
+        assert report["format_errors"] == 1
+        assert report["skipped"] >= 1

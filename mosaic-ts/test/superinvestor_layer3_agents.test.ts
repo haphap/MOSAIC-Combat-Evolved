@@ -193,6 +193,7 @@ describe("buildLayerThreeUserContext", () => {
       layer3_outputs: {},
       layer4_outputs: { cro: null, alpha_discovery: null, autonomous_execution: null, cio: null },
       portfolio_actions: [],
+      replay_triggered: false,
       llm_calls: [],
     };
     const ctx = buildLayerThreeUserContext(state, "druckenmiller");
@@ -219,6 +220,7 @@ describe("buildLayerThreeUserContext", () => {
       layer3_outputs: {},
       layer4_outputs: { cro: null, alpha_discovery: null, autonomous_execution: null, cio: null },
       portfolio_actions: [],
+      replay_triggered: false,
       llm_calls: [],
     };
     const ctx = buildLayerThreeUserContext(state, "druckenmiller");
@@ -257,6 +259,7 @@ describe("buildLayerThreeUserContext", () => {
       layer3_outputs: {},
       layer4_outputs: { cro: null, alpha_discovery: null, autonomous_execution: null, cio: null },
       portfolio_actions: [],
+      replay_triggered: false,
       llm_calls: [],
     };
     const ctx = buildLayerThreeUserContext(state, "druckenmiller");
@@ -417,6 +420,7 @@ describe("buildDruckenmillerNode (Layer-3 factory smoke)", () => {
       layer3_outputs: {},
       layer4_outputs: { cro: null, alpha_discovery: null, autonomous_execution: null, cio: null },
       portfolio_actions: [],
+      replay_triggered: false,
       llm_calls: [],
     };
 

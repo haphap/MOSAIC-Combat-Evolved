@@ -112,6 +112,7 @@ export function registerDailyCycle(program: Command): void {
             cio: null,
           },
           portfolio_actions: [],
+          replay_triggered: false,
           llm_calls: [],
         };
 

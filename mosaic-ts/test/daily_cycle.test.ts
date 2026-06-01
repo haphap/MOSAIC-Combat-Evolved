@@ -135,6 +135,7 @@ function emptyState(): DailyCycleStateType {
       cio: null,
     },
     portfolio_actions: [],
+    replay_triggered: false,
     llm_calls: [],
   };
 }
@@ -766,6 +767,8 @@ describe("buildDailyCycleGraph (end-to-end smoke, no veto)", () => {
 
     // 25 LlmCallRecord appends (Plan §11.2 design decision #7).
     expect(final.llm_calls).toHaveLength(25);
+    // R-A1: no veto → replay never ran.
+    expect(final.replay_triggered).toBe(false);
   });
 });
 
@@ -824,6 +827,8 @@ describe("buildDailyCycleGraph (veto loop triggers replay)", () => {
 
     // portfolio_actions still populated by the replay's cio.
     expect(final.portfolio_actions.length).toBeGreaterThan(0);
+    // R-A1: the replay node set the provenance flag.
+    expect(final.replay_triggered).toBe(true);
   });
 
   it("end branch (no replay) when cro rejects 0 picks even with full L3 pool", async () => {
