@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import subprocess
 import sys
 import unittest
@@ -14,6 +15,7 @@ from unittest.mock import patch
 # handlers __init__) still resolves these without tripping E402.
 import mosaic.bridge.protocol  # noqa: F401
 from mosaic.bridge.protocol import RpcError
+from mosaic.autoresearch.prompt_repo import init_private_prompt_repo
 from mosaic.scorecard.store import ScorecardStore
 
 # Import the autoresearch handler. Prefer the normal package import (which
@@ -341,6 +343,7 @@ class TestAutoresearchWorktree(unittest.TestCase):
     def test_prepare_and_cleanup_worktree(self):
         result = autoresearch_prepare_worktree({"branch": "main"})
         self.assertIn("path", result)
+        self.assertEqual(result["repo_target"], "project_git")
         wt_path = Path(result["path"])
         self.assertTrue(wt_path.exists())
 
@@ -350,6 +353,28 @@ class TestAutoresearchWorktree(unittest.TestCase):
     def test_prepare_worktree_invalid_branch(self):
         with self.assertRaises(RpcError):
             autoresearch_prepare_worktree({"branch": ""})
+
+    def test_prepare_private_prompt_worktree_returns_prompts_root(self):
+        private_repo = self.tmp / "private-prompts"
+        init_private_prompt_repo(private_repo, project_root=self.repo_path)
+        with patch.dict(os.environ, {"MOSAIC_PRIVATE_PROMPT_REPO": str(private_repo)}):
+            result = autoresearch_prepare_worktree({
+                "repo_target": "private_git",
+                "ref": "main",
+            })
+
+            self.assertEqual(result["repo_target"], "private_git")
+            wt_path = Path(result["path"])
+            prompts_root = Path(result["prompts_root"])
+            self.assertTrue(wt_path.exists())
+            self.assertEqual(prompts_root, wt_path / "prompts" / "mosaic")
+            self.assertTrue(prompts_root.exists())
+
+            cleanup_result = autoresearch_cleanup_worktree({
+                "path": result["path"],
+                "repo_target": "private_git",
+            })
+            self.assertTrue(cleanup_result["ok"])
 
 
 class TestAutoresearchRevertModification(unittest.TestCase):

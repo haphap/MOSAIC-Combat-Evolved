@@ -8,7 +8,7 @@ Exposes the prompt-mutation lifecycle to the TS orchestrator:
     * autoresearch.get_log       -- audit trail
     * autoresearch.list_active_branches -- pending feature branches
     * autoresearch.revert_modification  -- manual revert with lockout check
-    * autoresearch.prepare_worktree     -- isolated checkout for evaluation
+    * autoresearch.prepare_worktree     -- isolated project/private checkout for evaluation
     * autoresearch.cleanup_worktree     -- remove an evaluation worktree
 """
 
@@ -523,22 +523,36 @@ def autoresearch_prepare_worktree(params: dict[str, Any]) -> dict[str, Any]:
     """Check out a branch/ref into an isolated worktree for evaluation.
 
     Params:
-        branch: str -- branch name or ref to checkout
+        branch: str -- branch name or ref to checkout (legacy project path)
+        ref: str | None -- explicit ref; preferred for pinned prompt commits
+        repo_target: str | None -- project_git (default) | private_git
 
     Returns:
-        {"path": str}
+        {"path": str, "repo_target": str, "prompts_root": str | None}
     """
-    branch = _require_str(params, "branch")
-    git = _git_ops()
+    target = params.get("repo_target") or "project_git"
+    if target not in ("project_git", "private_git"):
+        raise RpcError(
+            INVALID_PARAMS,
+            "'repo_target' must be one of ('project_git', 'private_git')",
+        )
+    ref = params.get("ref") or params.get("branch")
+    if not isinstance(ref, str) or not ref.strip():
+        raise RpcError(INVALID_PARAMS, "'ref' or 'branch' must be a non-empty string")
+    ref = ref.strip()
+    git = _private_git_ops() if target == "private_git" else _git_ops()
 
     try:
-        wt_path = git.add_worktree(branch)
+        wt_path = git.add_worktree(ref)
     except Exception as exc:
         raise RpcError(
             AUTORESEARCH_ERROR, f"add_worktree failed: {exc}"
         ) from exc
 
-    return {"path": str(wt_path)}
+    result = {"path": str(wt_path), "repo_target": target}
+    if target == "private_git":
+        result["prompts_root"] = str(wt_path / "prompts" / "mosaic")
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -552,12 +566,19 @@ def autoresearch_cleanup_worktree(params: dict[str, Any]) -> dict[str, Any]:
 
     Params:
         path: str -- path returned by prepare_worktree
+        repo_target: str | None -- project_git (default) | private_git
 
     Returns:
         {"ok": true}
     """
     path = _require_str(params, "path")
-    git = _git_ops()
+    target = params.get("repo_target") or "project_git"
+    if target not in ("project_git", "private_git"):
+        raise RpcError(
+            INVALID_PARAMS,
+            "'repo_target' must be one of ('project_git', 'private_git')",
+        )
+    git = _private_git_ops() if target == "private_git" else _git_ops()
 
     try:
         git.remove_worktree(Path(path))

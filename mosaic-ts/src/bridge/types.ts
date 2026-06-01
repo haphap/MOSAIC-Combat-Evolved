@@ -906,11 +906,21 @@ export class BridgeApi {
     return this.client.call<{ ok: boolean }>("autoresearch.revert_modification", params);
   }
 
-  autoresearchPrepareWorktree(params: { branch: string }): Promise<{ path: string }> {
-    return this.client.call<{ path: string }>("autoresearch.prepare_worktree", params);
+  autoresearchPrepareWorktree(params: {
+    branch?: string;
+    ref?: string;
+    repo_target?: "project_git" | "private_git";
+  }): Promise<{ path: string; repo_target?: string; prompts_root?: string }> {
+    return this.client.call<{ path: string; repo_target?: string; prompts_root?: string }>(
+      "autoresearch.prepare_worktree",
+      params,
+    );
   }
 
-  autoresearchCleanupWorktree(params: { path: string }): Promise<{ ok: boolean }> {
+  autoresearchCleanupWorktree(params: {
+    path: string;
+    repo_target?: "project_git" | "private_git";
+  }): Promise<{ ok: boolean }> {
     return this.client.call<{ ok: boolean }>("autoresearch.cleanup_worktree", params);
   }
 
