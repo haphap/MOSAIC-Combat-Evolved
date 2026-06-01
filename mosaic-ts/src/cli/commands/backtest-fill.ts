@@ -46,6 +46,8 @@ interface BacktestFillOptions {
   logEvery?: string;
   /** Override prompts root directory (for worktree evaluation). */
   promptsRoot?: string;
+  /** Only re-run the days recorded as failed for this run (R-A3). */
+  retryFailed?: boolean;
 }
 
 export function registerBacktestFill(program: Command): void {
@@ -72,6 +74,10 @@ export function registerBacktestFill(program: Command): void {
     )
     .option("--log-every <n>", "Print progress every N trade days (default 5)")
     .option("--prompts-root <path>", "Override prompts root directory (for worktree evaluation)")
+    .option(
+      "--retry-failed",
+      "Only re-run the trade days previously recorded as failed for this run (R-A3)",
+    )
     .action(async (opts: BacktestFillOptions) => {
       const client = new BridgeClient();
       const api = new BridgeApi(client);
@@ -109,10 +115,25 @@ export function registerBacktestFill(program: Command): void {
         });
         const runId = runResult.run_id;
 
+        // R-A3: --retry-failed restricts this pass to the days previously
+        // recorded as failed for this run (queried from the bridge), instead
+        // of the full [start, end] range.
+        let daysToRun = tradeDays;
+        if (opts.retryFailed) {
+          const { failures } = await api.backtestGetFailedDays(runId);
+          const failedSet = new Set(failures.map((f) => f.date));
+          daysToRun = tradeDays.filter((d) => failedSet.has(d));
+          if (daysToRun.length === 0) {
+            console.log(pc.green(`\nrun_id=${runId}: no recorded failed days — nothing to retry.`));
+            return;
+          }
+        }
+
         console.log(pc.bold(`\nbacktest-fill — cohort=${cohort} run_id=${runId}`));
         console.log(
           pc.dim(
-            `range: ${opts.start} → ${opts.end} (${tradeDays.length} trade days) ` +
+            `range: ${opts.start} → ${opts.end} (${daysToRun.length}` +
+              `${opts.retryFailed ? " failed" : ""} of ${tradeDays.length} trade days) ` +
               `prompt=${promptCommitHash}`,
           ),
         );
@@ -129,8 +150,9 @@ export function registerBacktestFill(program: Command): void {
         const totalStart = Date.now();
         let totalActions = 0;
         const errors: Array<{ date: string; err: string }> = [];
+        const succeededDates: string[] = [];
 
-        for (const tradeDate of tradeDays) {
+        for (const tradeDate of daysToRun) {
           const tStart = Date.now();
           try {
             const initialState: DailyCycleStateType = makeInitialState(cohort, tradeDate);
@@ -146,6 +168,7 @@ export function registerBacktestFill(program: Command): void {
 
             await api.backtestAppendActions(runId, tradeDate, actions);
             totalActions += actions.length;
+            succeededDates.push(tradeDate);
           } catch (err) {
             const msg = (err as Error).message;
             errors.push({ date: tradeDate, err: msg });
@@ -153,33 +176,51 @@ export function registerBacktestFill(program: Command): void {
 
           completed += 1;
           const elapsed = ((Date.now() - tStart) / 1000).toFixed(1);
-          if (completed === 1 || completed % logEvery === 0 || completed === tradeDays.length) {
-            const pct = ((completed / tradeDays.length) * 100).toFixed(1);
+          if (completed === 1 || completed % logEvery === 0 || completed === daysToRun.length) {
+            const pct = ((completed / daysToRun.length) * 100).toFixed(1);
             console.log(
-              pc.dim(`  [${completed}/${tradeDays.length} ${pct}%] ${tradeDate} (${elapsed}s)`),
+              pc.dim(`  [${completed}/${daysToRun.length} ${pct}%] ${tradeDate} (${elapsed}s)`),
             );
           }
         }
 
         const totalElapsed = ((Date.now() - totalStart) / 1000).toFixed(1);
-        if (errors.length === 0) {
+
+        // R-A3: record this pass's failures (idempotent upsert) and clear the
+        // days that succeeded (relevant on a --retry-failed pass).
+        if (errors.length > 0) {
+          await api.backtestRecordFailedDays(
+            runId,
+            errors.map((e) => ({ date: e.date, error: e.err })),
+          );
+        }
+        if (succeededDates.length > 0) {
+          await api.backtestGetFailedDays(runId, { clear_dates: succeededDates });
+        }
+        // The run is complete iff no failed days remain across all passes.
+        const { failures: remaining } = await api.backtestGetFailedDays(runId);
+
+        if (remaining.length === 0) {
           await api.backtestCompleteRun(runId);
           console.log(
             pc.green(
-              `\ndone in ${totalElapsed}s — ${tradeDays.length} days, ${totalActions} actions, run completed.`,
+              `\ndone in ${totalElapsed}s — ${daysToRun.length} days, ${totalActions} actions, run completed.`,
             ),
           );
         } else {
           console.log(
             pc.yellow(
-              `\ncompleted ${completed}/${tradeDays.length} (${errors.length} errors) in ${totalElapsed}s — run NOT marked completed`,
+              `\ncompleted ${completed}/${daysToRun.length} (${errors.length} errors this pass, ` +
+                `${remaining.length} day(s) still failing) in ${totalElapsed}s — run NOT marked completed`,
             ),
           );
-          console.log(pc.dim(`run_id=${runId}; rerun to retry failed days`));
-          for (const e of errors.slice(0, 5)) {
-            console.error(pc.red(`  ${e.date}: ${e.err}`));
+          console.log(
+            pc.dim(`run_id=${runId}; rerun with --retry-failed to retry the recorded failed days`),
+          );
+          for (const e of remaining.slice(0, 5)) {
+            console.error(pc.red(`  ${e.date}: ${e.error}`));
           }
-          if (errors.length > 5) console.error(pc.dim(`  ... ${errors.length - 5} more`));
+          if (remaining.length > 5) console.error(pc.dim(`  ... ${remaining.length - 5} more`));
         }
       } catch (err) {
         if (err instanceof RpcError) {

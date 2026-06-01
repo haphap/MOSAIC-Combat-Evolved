@@ -105,6 +105,17 @@ CREATE TABLE IF NOT EXISTS backtest_actions (
 CREATE INDEX IF NOT EXISTS idx_btactions_run_date
     ON backtest_actions(run_id, trade_date);
 
+-- R-A3: per-run record of trade days that failed during stage-1 fill, so an
+-- operator (or a future autoresearch auto-retry) can query what to re-run
+-- instead of scraping the terminal log. Rows are cleared as days succeed.
+CREATE TABLE IF NOT EXISTS backtest_failed_days (
+    run_id INTEGER NOT NULL REFERENCES backtest_runs(id) ON DELETE CASCADE,
+    date TEXT NOT NULL,                         -- YYYY-MM-DD that failed
+    error TEXT NOT NULL,                        -- truncated failure message
+    recorded_at TEXT NOT NULL,                  -- ISO-8601
+    PRIMARY KEY (run_id, date)                  -- idempotent: re-record overwrites
+);
+
 -- Phase 4 autoresearch: prompt mutation provenance + audit log (Plan §7, §11.5).
 -- A "version" is one feature-branch attempt at improving one agent's prompt.
 -- Lifecycle: created (pending, no mod_commit yet) → mutation recorded
@@ -807,6 +818,65 @@ class ScorecardStore:
         sql += " ORDER BY trade_date, ticker"
         with self._connect() as conn:
             return [dict(r) for r in conn.execute(sql, params).fetchall()]
+
+    # ── backtest_failed_days (R-A3) ──────────────────────────────────────
+
+    def record_backtest_failed_days(
+        self, run_id: int, failures: list[tuple[str, str]]
+    ) -> int:
+        """Upsert ``(date, error)`` failures for ``run_id``. Idempotent on
+        (run_id, date). Returns the number of rows written."""
+        if not failures:
+            return 0
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        rows = [(run_id, date, _truncate(error, 500) or "", now) for date, error in failures]
+        with self._connect() as conn:
+            conn.executemany(
+                """
+                INSERT INTO backtest_failed_days (run_id, date, error, recorded_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(run_id, date) DO UPDATE SET
+                    error = excluded.error,
+                    recorded_at = excluded.recorded_at
+                """,
+                rows,
+            )
+        return len(rows)
+
+    def get_backtest_failed_days(self, run_id: int) -> list[dict[str, Any]]:
+        """Return ``[{date, error, recorded_at}]`` for ``run_id`` (date-sorted)."""
+        with self._connect() as conn:
+            return [
+                dict(r)
+                for r in conn.execute(
+                    "SELECT date, error, recorded_at FROM backtest_failed_days "
+                    "WHERE run_id = ? ORDER BY date",
+                    (run_id,),
+                ).fetchall()
+            ]
+
+    def clear_backtest_failed_days(
+        self, run_id: int, dates: Optional[list[str]] = None
+    ) -> int:
+        """Delete failed-day rows for ``run_id``. ``dates=None`` clears all;
+        otherwise only the given dates (e.g. ones that succeeded on retry).
+        Returns the number of rows deleted."""
+        with self._connect() as conn:
+            if dates is None:
+                cur = conn.execute(
+                    "DELETE FROM backtest_failed_days WHERE run_id = ?", (run_id,)
+                )
+            elif not dates:
+                return 0
+            else:
+                placeholders = ",".join("?" for _ in dates)
+                cur = conn.execute(
+                    f"DELETE FROM backtest_failed_days WHERE run_id = ? AND date IN ({placeholders})",
+                    [run_id, *dates],
+                )
+            return cur.rowcount
 
     # ── prompt_versions (Phase 4 autoresearch, Plan §7 / §11.5 4A) ────────
 
