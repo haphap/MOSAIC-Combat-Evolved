@@ -615,9 +615,10 @@ def get_industry_moneyflow(
     industries: Annotated[
         str,
         "Optional 同花顺行业 (THS industry) name(s) to filter to, comma-separated "
-        "(e.g. '半导体' or '银行,证券,保险'). Empty = all ~90 industries. Pass your "
-        "sector's THS industry name(s) to get just your rows; if nothing matches "
-        "the full table is returned, so drop it and scan when unsure.",
+        "(ASCII ',' or CJK '，'/'、'; e.g. '半导体' or '银行,证券,保险'). Matched as a "
+        "substring on the industry name, so a broad token like '医疗' deliberately "
+        "captures the whole family (医疗器械/医疗服务/...). Empty = all ~90 industries; "
+        "if nothing matches, the full table is returned (drop the filter and scan).",
     ] = "",
 ) -> str:
     """

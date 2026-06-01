@@ -810,10 +810,13 @@ def get_industry_moneyflow(
     (THS schema: industry / net_amount / pct_change / lead_stock / …).
 
     ``industries`` optionally narrows the ~90-industry table to just the THS
-    industries a caller cares about — a comma/、-separated list of 同花顺行业 name
-    substrings (e.g. ``"半导体"`` or ``"银行,证券,保险"``). The match is a substring
-    test on the ``industry`` column; if nothing matches it **degrades to the full
-    table with a note** (so a mistyped 同花顺行业 name never blanks the output).
+    industries a caller cares about — a comma-separated list of 同花顺行业 name
+    substrings (ASCII ``,`` or CJK ``，`` / ``、``; e.g. ``"半导体"`` or
+    ``"银行,证券,保险"``). The match is a **substring** test on the ``industry``
+    column — deliberately broad, so a single token like ``"医疗"`` captures the
+    whole family (医疗器械 / 医疗服务 / …); pass a narrower exact name to tighten
+    it. If nothing matches it **degrades to the full table with a note** (so a
+    mistyped 同花顺行业 name never blanks the output).
     """
     start_date, end_date = _date_range_from_lookback(curr_date, look_back_days)
     df = _query_tushare(
