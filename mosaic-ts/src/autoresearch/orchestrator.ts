@@ -132,6 +132,7 @@ export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Prom
         agent: triggerResult.agent,
         cohort,
         contents: { zh: mutation.zh_prompt, en: mutation.en_prompt },
+        target: "private_git",
         branch: triggerResult.branch_name,
         message: `autoresearch: ${mutation.modification_summary}`,
       });
@@ -148,20 +149,22 @@ export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Prom
     // 5. Record mutation in store
     await deps.api.autoresearchRecordMutation({
       version_id: versionId,
-      commit_hash: writeResult.commit_hash ?? "unknown",
+      commit_hash: writeResult.prompt_commit_hash ?? writeResult.commit_hash ?? "unknown",
       summary: mutation.modification_summary,
     });
 
     // 6. Prepare worktree for evaluation
     let worktreePath: string | undefined;
-    try {
-      const worktree = await deps.api.autoresearchPrepareWorktree({
-        branch: triggerResult.branch_name,
-      });
-      worktreePath = worktree.path;
-      log(`worktree ready: ${worktreePath}`);
-    } catch (err) {
-      log(`worktree prep failed: ${(err as Error).message} (eval needs to run separately)`);
+    if (writeResult.target !== "private_git") {
+      try {
+        const worktree = await deps.api.autoresearchPrepareWorktree({
+          branch: triggerResult.branch_name,
+        });
+        worktreePath = worktree.path;
+        log(`worktree ready: ${worktreePath}`);
+      } catch (err) {
+        log(`worktree prep failed: ${(err as Error).message} (eval needs to run separately)`);
+      }
     }
 
     // 7. Attempt evaluation (backtest-fill needs to run separately for full eval)

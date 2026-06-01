@@ -93,7 +93,7 @@ class TestAutoresearchTrigger(unittest.TestCase):
         self._repo_patch.stop()
         self._tmpdir.cleanup()
 
-    def test_trigger_creates_version_and_branch(self):
+    def test_trigger_creates_version_without_project_branch(self):
         result = autoresearch_trigger({
             "cohort": "euphoria_2021",
             "force_agent": "volatility",
@@ -103,6 +103,12 @@ class TestAutoresearchTrigger(unittest.TestCase):
         self.assertIn("cohort/euphoria_2021/auto/volatility/", result["branch_name"])
         self.assertIsInstance(result["base_commit"], str)
         self.assertTrue(len(result["base_commit"]) >= 7)
+        git_branch = subprocess.run(
+            ["git", "-C", str(self.repo_path), "branch", "--list",
+             result["branch_name"]],
+            capture_output=True, text=True, check=True,
+        ).stdout.strip()
+        self.assertEqual(git_branch, "")
 
     def test_trigger_idempotent(self):
         """Calling trigger twice for the same date/agent returns the same version."""

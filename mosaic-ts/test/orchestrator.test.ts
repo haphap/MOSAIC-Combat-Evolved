@@ -24,6 +24,8 @@ function fakeBridgeApi(overrides: Partial<Record<string, unknown>> = {}): Bridge
       base_commit: "abc123",
     }),
     promptsWrite: vi.fn().mockResolvedValue({
+      target: "private_git",
+      prompt_commit_hash: "def456",
       commit_hash: "def456",
       branch: "autoresearch/volatility/20260101",
       paths: ["prompts/mosaic/cohort_default/macro/volatility.zh.md"],
@@ -131,6 +133,7 @@ describe("runAutoresearchCycle", () => {
       agent: "volatility",
       cohort: "cohort_default",
       contents: { zh: "rewritten zh", en: "rewritten en" },
+      target: "private_git",
       branch: "autoresearch/volatility/20260101",
       message: "autoresearch: tighten thresholds",
     });
@@ -139,8 +142,8 @@ describe("runAutoresearchCycle", () => {
       commit_hash: "def456",
       summary: "tighten thresholds",
     });
-    expect(api.autoresearchPrepareWorktree).toHaveBeenCalled();
-    expect(api.autoresearchCleanupWorktree).toHaveBeenCalled();
+    expect(api.autoresearchPrepareWorktree).not.toHaveBeenCalled();
+    expect(api.autoresearchCleanupWorktree).not.toHaveBeenCalled();
   });
 
   it("constraint rejection (trigger throws) stops the loop", async () => {

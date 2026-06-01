@@ -48,6 +48,39 @@ def _git_ops():
     return GitOps(_repo_root())
 
 
+def _private_git_ops():
+    from mosaic.autoresearch.git_ops import GitOps
+    from mosaic.autoresearch.prompt_repo import (
+        PromptRepoError,
+        private_prompt_repo_from_env,
+        validate_private_prompt_repo,
+    )
+
+    repo = private_prompt_repo_from_env()
+    if repo is None:
+        raise RpcError(
+            INVALID_PARAMS,
+            "MOSAIC_PRIVATE_PROMPT_REPO is required for private autoresearch branches",
+        )
+    try:
+        return GitOps(validate_private_prompt_repo(repo, project_root=_repo_root()))
+    except PromptRepoError as exc:
+        raise RpcError(INVALID_PARAMS, str(exc)) from exc
+
+
+def _git_ops_for_branch(branch: str):
+    project_git = _git_ops()
+    if project_git.branch_exists(branch):
+        return project_git
+    try:
+        private_git = _private_git_ops()
+        if private_git.branch_exists(branch):
+            return private_git
+    except RpcError:
+        pass
+    return project_git
+
+
 def _config():
     from mosaic.default_config import DEFAULT_CONFIG
 
@@ -79,13 +112,13 @@ def _require_int(params: dict, key: str) -> int:
 
 @method("autoresearch.trigger")
 def autoresearch_trigger(params: dict[str, Any]) -> dict[str, Any]:
-    """Select an agent and create a pending prompt_version + git branch.
+    """Select an agent and create a pending prompt_version.
 
     Params:
         cohort:       str
         force_agent:  str | None -- bypass selection, use this agent
         dry_run:      bool -- select + check constraints only; do NOT create
-                      the git branch or prompt_versions row (version_id=None)
+                      the prompt_versions row (version_id=None)
 
     Returns:
         {version_id, agent, branch_name, base_commit}
@@ -157,15 +190,6 @@ def autoresearch_trigger(params: dict[str, Any]) -> dict[str, Any]:
             "dry_run": True,
         }
 
-    # Create branch in git.
-    try:
-        if not git.branch_exists(branch_name):
-            git.create_branch(branch_name, "main")
-    except Exception as exc:
-        raise RpcError(
-            AUTORESEARCH_ERROR, f"failed to create branch: {exc}"
-        ) from exc
-
     # Create version shell in DB.
     version_id = store.create_prompt_version(
         cohort=cohort,
@@ -173,7 +197,11 @@ def autoresearch_trigger(params: dict[str, Any]) -> dict[str, Any]:
         branch_name=branch_name,
         base_commit_hash=base_commit,
     )
-    store.append_log(version_id, "triggered", f"agent={agent}, branch={branch_name}")
+    store.append_log(
+        version_id,
+        "triggered",
+        f"agent={agent}, prompt_branch={branch_name}, code_base={base_commit[:12]}",
+    )
 
     return {
         "version_id": version_id,
@@ -343,7 +371,7 @@ def autoresearch_evaluate_pending(params: dict[str, Any]) -> dict[str, Any]:
             delta_result = compute_delta(store, version_id, config)
             # Re-read version after eval writes.
             updated_version = store.get_prompt_version(version_id)
-            git = _git_ops()
+            git = _git_ops_for_branch(updated_version["branch_name"])
             status = decide(store, git, updated_version, config)
             # decide() returns the stored state-machine value (keep/revert);
             # expose the past-tense form (kept/reverted) on the RPC boundary so
