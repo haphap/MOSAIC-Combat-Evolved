@@ -213,8 +213,19 @@ class TestAutoresearchEvaluatePending(unittest.TestCase):
         self.store = ScorecardStore(db_path=self.db_path)
         self._store_patch = patch.object(_ar, "_store", return_value=self.store)
         self._store_patch.start()
+        self._compat_patch = patch(
+            "mosaic.autoresearch.evaluator.validate_prompt_tool_compatibility",
+            return_value={
+                "compatible": True,
+                "referenced_tools": [],
+                "unknown_tools": [],
+                "missing_files": [],
+            },
+        )
+        self._compat = self._compat_patch.start()
 
     def tearDown(self):
+        self._compat_patch.stop()
         self._store_patch.stop()
         self._tmpdir.cleanup()
 
@@ -249,6 +260,24 @@ class TestAutoresearchEvaluatePending(unittest.TestCase):
     def test_version_id_must_be_int(self):
         with self.assertRaises(RpcError):
             autoresearch_evaluate_pending({"version_id": "nope"})
+
+    def test_incompatible_prompt_is_recorded_and_skips_fill(self):
+        self._compat.return_value = {
+            "compatible": False,
+            "referenced_tools": ["get_removed_tool"],
+            "unknown_tools": ["get_removed_tool"],
+            "missing_files": [],
+        }
+        vid = self._mutated_version("cohort/euphoria_2021/auto/volatility/2021-01-03")
+
+        result = autoresearch_evaluate_pending({"version_id": vid})
+
+        self.assertEqual(result["results"][0]["status"], "incompatible")
+        self.assertIn("get_removed_tool", result["results"][0]["detail"])
+        version = self.store.get_prompt_version(vid)
+        self.assertEqual(version["status"], "incompatible")
+        log = self.store.get_log()
+        self.assertEqual(log[0]["event"], "incompatible")
 
 
 class TestAutoresearchGetLog(unittest.TestCase):

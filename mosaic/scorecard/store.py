@@ -1012,6 +1012,30 @@ class ScorecardStore:
             if cur.rowcount == 0:
                 logger.warning("decide_version: no prompt_version id=%s", version_id)
 
+    def mark_version_incompatible(
+        self,
+        version_id: int,
+        detail: str,
+        decided_at: Optional[str] = None,
+    ) -> None:
+        """Terminal transition for a code↔prompt compatibility failure."""
+        decided_at = decided_at or _utcnow_iso()
+        with self._connect() as conn:
+            cur = conn.execute(
+                """
+                UPDATE prompt_versions
+                SET status = 'incompatible',
+                    decided_at = ?,
+                    modification_summary = COALESCE(modification_summary, ?)
+                WHERE id = ?
+                """,
+                (decided_at, _truncate(detail, 1000), version_id),
+            )
+            if cur.rowcount == 0:
+                logger.warning(
+                    "mark_version_incompatible: no prompt_version id=%s", version_id
+                )
+
     def get_prompt_version(self, version_id: int) -> Optional[dict[str, Any]]:
         with self._connect() as conn:
             cur = conn.execute(

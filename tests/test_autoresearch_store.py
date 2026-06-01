@@ -157,6 +157,18 @@ class TestPromptVersionLifecycle:
         with pytest.raises(ValueError, match="keep.*revert"):
             store.decide_version(vid, "maybe")
 
+    def test_mark_incompatible_is_terminal(self, store: ScorecardStore):
+        vid = _new_version(store)
+        store.mark_version_incompatible(
+            vid,
+            "unknown_tools=['get_removed_tool']",
+            decided_at="2008-09-16T09:00:00+00:00",
+        )
+        v = store.get_prompt_version(vid)
+        assert v["status"] == "incompatible"
+        assert v["decided_at"] == "2008-09-16T09:00:00+00:00"
+        assert "get_removed_tool" in v["modification_summary"]
+
     def test_get_version_by_branch(self, store: ScorecardStore):
         vid = _new_version(store)
         v = store.get_version_by_branch(

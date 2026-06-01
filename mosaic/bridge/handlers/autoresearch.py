@@ -333,7 +333,11 @@ def autoresearch_evaluate_pending(params: dict[str, Any]) -> dict[str, Any]:
         {"results": [{version_id, status, delta_sharpe?}, ...]}
     """
     from mosaic.autoresearch.decider import decide
-    from mosaic.autoresearch.evaluator import compute_delta, ensure_baseline_run
+    from mosaic.autoresearch.evaluator import (
+        compute_delta,
+        ensure_baseline_run,
+        validate_prompt_tool_compatibility,
+    )
 
     cohort = params.get("cohort")
     if cohort is not None and not isinstance(cohort, str):
@@ -372,6 +376,23 @@ def autoresearch_evaluate_pending(params: dict[str, Any]) -> dict[str, Any]:
         if not start_date or not end_date:
             results.append({"version_id": version_id, "status": "error",
                             "detail": f"cohort '{v_cohort}' missing date range"})
+            continue
+
+        git = _git_ops_for_branch(v["branch_name"])
+        compatibility = validate_prompt_tool_compatibility(v, git)
+        if not compatibility["compatible"]:
+            detail = (
+                "unknown_tools="
+                f"{compatibility['unknown_tools']}; "
+                f"missing_files={compatibility['missing_files']}"
+            )
+            store.mark_version_incompatible(version_id, detail)
+            store.append_log(version_id, "incompatible", detail)
+            results.append({
+                "version_id": version_id,
+                "status": "incompatible",
+                "detail": detail,
+            })
             continue
 
         # Check if both runs exist.
