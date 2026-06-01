@@ -546,6 +546,8 @@ private prompt pinned worktree
    - 正常放行人工 baseline 编辑：`prompts/mosaic/**` 的常规 PR 改动不应仅因路径有改动就被拦。
    - 按 provenance 拦截 autoresearch 产物：自动分支命名、commit message/trailer 标记、private metadata、
      或优化正文出现在项目 PR diff 的判据，命中即失败。
+   - 该检查是 provenance guard，不是内容分类器；它防止 autoresearch 工具链误泄漏，不承诺阻止人工把私有优化 prompt 复制进普通 baseline PR。
+   - runtime branch 检查只针对 PR/base 范围引入的 ref，不因本地历史遗留 `cohort/*/auto/*` 分支让所有 PR 失败。
    - 检测 private prompt repo 被放进项目 repo、submodule 或 artifact。
 3. 接入 CI。
    - autoresearch 产物进入项目 PR 即失败。
@@ -739,20 +741,20 @@ pnpm dev prompts write-baseline --allow-public-prompt-write ...
 - [x] mutation record 存 private prompt commit。
 - [x] trigger 不再创建项目 repo prompt 分支。
 - [x] keep/revert git 操作按 branch 所在 repo 选择 project/private GitOps。
-- [ ] mutation record 存完整 prompt repo id / sha256 / code commit。
-- [ ] evaluator 不再假设 prompt commit 属于项目 repo。
-- [ ] evaluator 为 prompt commit 创建 pinned worktree。
-- [ ] evaluator 清理临时 pinned worktree。
-- [ ] scorecard cache key 升级为 prompt repo + prompt commit + prompt sha + code commit。
-- [ ] registry-scan code/prompt compatibility gate。
+- [x] mutation record 存完整 prompt repo id / sha256 / code commit。
+- [x] evaluator 不再假设 prompt commit 属于项目 repo。
+- [x] evaluator 为 prompt commit 创建 pinned worktree。
+- [x] evaluator 清理临时 pinned worktree。
+- [x] scorecard cache key 升级为 prompt repo + prompt commit + prompt sha + code commit。
+- [x] registry-scan code/prompt compatibility gate。
 - [x] autoresearch tests。
 
 ### P6 Git / CI Guard
 
-- [ ] `.gitignore` 私有目录。
-- [ ] 新增 prompt leak check script。
-- [ ] CI 接入检查。
-- [ ] CI 只做 leak/provenance guard，不依赖 private repo。
+- [x] `.gitignore` 私有目录。
+- [x] 新增 prompt leak check script。
+- [x] CI 接入检查。
+- [x] CI 只做 leak/provenance guard，不依赖 private repo。
 - [ ] baseline drift check 接入 operator-run / scheduled tool。
 - [ ] 文档化 baseline 更新流程。
 

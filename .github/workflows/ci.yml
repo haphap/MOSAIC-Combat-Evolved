@@ -16,6 +16,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Install uv
         uses: astral-sh/setup-uv@v5
         with:
@@ -26,6 +28,13 @@ jobs:
           uv pip install -e '.[data,trading,test]'
       - name: Lint (ruff, pinned to match local)
         run: uvx ruff@0.15.15 check mosaic tests
+      - name: Prompt leak guard
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            uv run python scripts/check_prompt_leaks.py --base-ref "origin/${{ github.base_ref }}"
+          else
+            uv run python scripts/check_prompt_leaks.py
+          fi
       - name: Test (pytest; qlib-only tests skip without the backtest extra)
         run: uv run python -m pytest tests/ -q
 
