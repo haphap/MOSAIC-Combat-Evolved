@@ -76,7 +76,9 @@ export function registerBacktestFill(program: Command): void {
     .option("--prompts-root <path>", "Override prompts root directory (for worktree evaluation)")
     .option(
       "--retry-failed",
-      "Only re-run the trade days previously recorded as failed for this run (R-A3)",
+      "Only re-run the trade days previously recorded as failed for this run (R-A3). " +
+        "Must use the SAME --cohort/--start/--end/--prompt-commit-hash as the original " +
+        "run — a changed key resolves to a different run with no recorded failures.",
     )
     .action(async (opts: BacktestFillOptions) => {
       const client = new BridgeClient();
@@ -194,11 +196,13 @@ export function registerBacktestFill(program: Command): void {
             errors.map((e) => ({ date: e.date, error: e.err })),
           );
         }
-        if (succeededDates.length > 0) {
-          await api.backtestGetFailedDays(runId, { clear_dates: succeededDates });
-        }
-        // The run is complete iff no failed days remain across all passes.
-        const { failures: remaining } = await api.backtestGetFailedDays(runId);
+        // One bridge call: clearing succeeded days already returns the
+        // post-clear remaining failures; only fall back to a plain get when
+        // there's nothing to clear. The run is complete iff none remain.
+        const { failures: remaining } =
+          succeededDates.length > 0
+            ? await api.backtestGetFailedDays(runId, { clear_dates: succeededDates })
+            : await api.backtestGetFailedDays(runId);
 
         if (remaining.length === 0) {
           await api.backtestCompleteRun(runId);
