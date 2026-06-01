@@ -19,6 +19,7 @@ export const REQUIRED_TOOLS = [
   "get_north_capital_flow",
   "get_lhb_ranking",
   "get_fund_flow",
+  "get_stock_moneyflow",
 ] as const;
 
 export const institutionalFlowSpec: LayerOneAgentSpec<InstitutionalFlowOutput> = {

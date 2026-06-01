@@ -18,6 +18,7 @@ export const REQUIRED_TOOLS = [
   "get_etf_holdings",
   "get_stock_data",
   "get_indicators",
+  "get_industry_moneyflow",
 ] as const;
 
 export const consumerSpec: LayerTwoAgentSpec<ConsumerOutput> = {

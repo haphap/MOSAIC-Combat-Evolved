@@ -3282,3 +3282,44 @@ MOSAIC 项目代码全部落地到独立 GitHub 仓库
 | 业余推进时间 | 6.5–9.5 个月 |
 
 ---
+
+## 18. 工具扩展（2026-06-01,把已实现但未 @tool 包装的能力接入 agent）
+
+发现:很多 dataflow 函数已实现 + interface 已路由,但缺 LangChain `@tool` 包装,
+所以 agent 够不着。逐批补 `@tool` + 挂 `REQUIRED_TOOLS` + 提示词接入。
+**关键约束**:挂进 `REQUIRED_TOOLS` ≠ agent 会用 —— 必须同步改提示词;CIO 是
+Layer-4 synthesis-only 无 tool loop,工具只能挂 tool-capable 上游 agent,经 state
+流到 CIO。
+
+**已交付:**
+- **研报**(`get_broker_research` 行业研报 / `get_stock_research` 个股研报):6 sector
+  + 4 superinvestor + relationship_mapper;提示词接入(PR #38/#48)。
+- **superinvestor 财报**(`get_fundamentals`/`balance_sheet`/`income_statement`/
+  `cashflow`):`financial_tools.py`;ackman 全 4、baker 3、drucken/aschen 取 snapshot
+  (PR #49)。
+- **ETF**(`get_etf_info`/`nav`/`holdings`/`universe`):`etf_tools.py`;emerging_markets
+  自主发现(universe→info/nav)、6 sector 用 holdings 看行业暴露;提示词接入(PR #50/#51)。
+- **技术指标**(`get_stock_data` + `get_indicators`):`technical_tools.py`;4 superinvestor
+  + 6 sector;indicator 为 Literal enum(PR #52)。
+
+**待做 —— 资金流向(doc 170 / 342):**
+- **个股资金流** `pro.moneyflow`(doc 170):impl 不存在,新写 `macro_data.get_stock_moneyflow(ts_code, start_date, end_date)`。
+  关键字段 `net_mf_amount`(净流入额,万元)+ 大/中/小/特大单 buy/sell amount。
+  挂 `institutional_flow`(主力资金动向)。
+- **行业资金流** `moneyflow_ind_ths`(doc 343):impl 不存在,新写
+  `get_industry_moneyflow(trade_date | start/end)`,字段含 `industry/net_amount/...`(防御式透传)。
+  挂 6 个 sector agent。
+- 两者:`macro_data.py` 新 fn(`_query_tushare` + `_df_to_markdown_csv`)→ interface
+  `VENDOR_METHODS` + `TOOLS_CATEGORIES.macro_data` + 日期路由(_RANGE / _CURRENT_DATE)→
+  `default_config.tool_vendors`(tushare)→ `@tool`(macro_tools 或新 moneyflow_tools)→
+  挂 agent + 提示词接入。
+
+**deferred(无单一现成数据源):**
+- **`get_top_holdings_overlap`**(relationship_mapper 想要的持仓重叠)+
+  `get_related_party_transactions`:Tushare 无直接「两标的共同持有人」API
+  (只有 ETF 持仓 `get_etf_holdings`、十大股东 `top10_holders`、十大流通股东)。
+  自算重叠需新数据层 + 计算逻辑;用户已确认**暂不实现**,relationship_mapper 现用
+  `get_stock_research` + `get_etf_holdings` + 北向/LHB 近似推断关系。
+
+---
+

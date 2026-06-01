@@ -787,6 +787,81 @@ def get_property_data(curr_date: str, top_n: int = 24) -> str:
     )
 
 
+# ============================================================ 14. Stock / industry money-flow
+
+
+def get_stock_moneyflow(ticker: str, start_date: str, end_date: str) -> str:
+    """Fetch a single stock's main-funds flow over [start_date, end_date].
+
+    Tushare ``moneyflow`` (个股资金流向) splits trades into small / medium /
+    large / extra-large orders (by amount) and reports daily ``net_mf_amount``
+    (净流入额, CNY 万元) — large + extra-large net is the de-facto "main funds"
+    (主力) signal. Used by ``institutional_flow`` to see whether big money is
+    accumulating or distributing a name.
+    """
+    _validate_iso_date(start_date, "start_date")
+    _validate_iso_date(end_date, "end_date")
+    if start_date > end_date:
+        raise DataVendorUnavailable(
+            f"start_date {start_date!r} is after end_date {end_date!r}."
+        )
+    from .tushare import _normalize_ts_code  # noqa: PLC0415
+
+    df = _query_tushare(
+        "moneyflow",
+        ts_code=_normalize_ts_code(ticker),
+        start_date=_to_tushare_date(start_date),
+        end_date=_to_tushare_date(end_date),
+    )
+    if df is not None and not df.empty:
+        keep = [
+            c
+            for c in (
+                "trade_date", "net_mf_amount",
+                "buy_lg_amount", "sell_lg_amount",
+                "buy_elg_amount", "sell_elg_amount",
+            )
+            if c in df.columns
+        ]
+        if keep:
+            df = df[keep]
+    return _df_to_markdown_csv(
+        df,
+        title=f"个股资金流向 / Stock Money Flow {ticker} ({start_date} → {end_date})",
+        subtitle=(
+            "Source: Tushare moneyflow. net_mf_amount = 净流入额(万元); "
+            "lg/elg = 大单/特大单 (主力) buy/sell amount(万元)."
+        ),
+        empty_note=f"No moneyflow rows for {ticker} between {start_date} and {end_date}.",
+    )
+
+
+def get_industry_moneyflow(curr_date: str, look_back_days: int = 5) -> str:
+    """Fetch THS industry-level money-flow over a window.
+
+    Window = ``[curr_date - look_back_days, curr_date]``. Tushare
+    ``moneyflow_ind_ths`` (同花顺行业资金流向) reports daily per-industry net
+    inflow + lead stock. Used by ``sector`` agents to see which industries main
+    funds are rotating into / out of. Columns are passed through defensively
+    (THS schema: industry / net_amount / pct_change / lead_stock / …).
+    """
+    start_date, end_date = _date_range_from_lookback(curr_date, look_back_days)
+    df = _query_tushare(
+        "moneyflow_ind_ths",
+        start_date=_to_tushare_date(start_date),
+        end_date=_to_tushare_date(end_date),
+    )
+    return _df_to_markdown_csv(
+        df,
+        title=f"行业资金流向 / Industry Money Flow ({start_date} → {end_date})",
+        subtitle=(
+            "Source: Tushare moneyflow_ind_ths (同花顺行业). net_amount = 行业净流入; "
+            "positive = main funds rotating in."
+        ),
+        empty_note=f"No industry moneyflow rows between {start_date} and {end_date}.",
+    )
+
+
 # ============================================================ public exports
 
 __all__ = [
@@ -803,4 +878,6 @@ __all__ = [
     "get_etf_indicator",
     "get_fund_flow",
     "get_property_data",
+    "get_stock_moneyflow",
+    "get_industry_moneyflow",
 ]

@@ -88,6 +88,7 @@ const FAKE_TOOLS: ToolMetadata[] = [
   "get_ivx",
   "get_etf_indicator",
   "get_fund_flow",
+  "get_stock_moneyflow",
   "get_news",
   "get_etf_price_data",
   "get_etf_info",
