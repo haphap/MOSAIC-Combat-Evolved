@@ -57,9 +57,14 @@ def get_etf_universe(
     curr_date: Annotated[str, _CURR] = "",
     market: Annotated[Optional[str], "Filter by market (e.g. 'E' exchange-traded)."] = None,
     asset_scope: Annotated[Optional[str], "Filter by asset scope (e.g. '股票型')."] = None,
-    limit: Annotated[int, "Max ETFs to return."] = 50,
+    limit: Annotated[int, "Max ETFs to return (default 50)."] = 50,
 ) -> str:
-    """List the available ETF universe (for picking broad-base / sector ETFs)."""
+    """List the available ETF universe for picking broad-base / sector ETFs.
+
+    Rows are enriched beyond bare fund_basic — each carries NAV, recent
+    liquidity, and an inferred asset-scope/exposure tag — so this is usable on
+    its own to shortlist candidates before drilling in with get_etf_info /
+    get_etf_holdings. Returns up to ``limit`` rows (default 50)."""
     return route_to_vendor("get_etf_universe", curr_date or None, market, asset_scope, limit)
 
 

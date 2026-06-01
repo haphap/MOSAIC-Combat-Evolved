@@ -22,6 +22,9 @@ def test_routing_arg_order(monkeypatch):
     etf.get_etf_holdings.invoke({"ticker": "510300.SH", "curr_date": "2024-06-30"})
     assert cap["method"] == "get_etf_holdings" and cap["args"] == ("510300.SH", "2024-06-30")
 
+    etf.get_etf_nav.invoke({"ticker": "510300.SH", "curr_date": "2024-06-30"})
+    assert cap["method"] == "get_etf_nav" and cap["args"] == ("510300.SH", "2024-06-30")
+
     etf.get_etf_universe.invoke({"limit": 20})
     assert cap["method"] == "get_etf_universe" and cap["args"] == (None, None, None, 20)
 
