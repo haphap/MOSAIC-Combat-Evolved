@@ -110,6 +110,13 @@ describe("each sector spec wires the right factory inputs", () => {
     }
   });
 
+  it("industry sector agents require get_etf_holdings (行业 ETF 暴露)", () => {
+    for (const { name, spec } of cases) {
+      if (name === "relationship_mapper") continue;
+      expect(spec.requiredTools).toContain("get_etf_holdings");
+    }
+  });
+
   it("relationship_mapper requires get_stock_research (个股研报)", () => {
     expect(relationshipMapperSpec.requiredTools).toContain("get_stock_research");
   });
@@ -244,6 +251,7 @@ describe("buildSemiconductorNode (Layer-2 factory smoke)", () => {
       "get_north_capital_flow",
       "get_broker_research",
       "get_stock_research",
+      "get_etf_holdings",
     ].map((name) => ({ name, description: name, args_schema: TOOL_SCHEMA }));
 
     const cannedOutput: SemiconductorOutput = {

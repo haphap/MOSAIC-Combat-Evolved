@@ -44,6 +44,7 @@ _TOOL_MODULES: tuple[str, ...] = (
     "mosaic.agents.utils.macro_tools",                  # Phase 0 Day 4 ✓
     "mosaic.agents.utils.research_report_tools",        # 行业研报 + 个股研报 (ported from ETFAgents) ✓
     "mosaic.agents.utils.financial_tools",              # 个股基本面 + 三张财报 (superinvestor) ✓
+    "mosaic.agents.utils.etf_tools",                    # ETF info/nav/holdings/universe (emerging_markets + sector) ✓
     # "mosaic.agents.utils.sector_tools",                 # Phase 2
     # "mosaic.agents.utils.superinvestor_tools",          # Phase 2
     # "mosaic.agents.utils.decision_tools",               # Phase 2
