@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { runAutoresearchCycle } from "../src/autoresearch/orchestrator.js";
+import { backtestFillCommand, runAutoresearchCycle } from "../src/autoresearch/orchestrator.js";
 import type { BridgeApi } from "../src/bridge/types.js";
 
 // Mock the mutator module
@@ -151,6 +151,72 @@ describe("runAutoresearchCycle", () => {
     expect(api.autoresearchCleanupWorktree).not.toHaveBeenCalled();
   });
 
+  it("returns and logs backtest-fill commands for missing private prompt runs", async () => {
+    const missingRun = {
+      kind: "mod" as const,
+      cohort: "cohort_default",
+      start_date: "2020-01-01",
+      end_date: "2020-02-01",
+      prompt_commit_hash: "def456",
+      prompt_repo_id: "private",
+      prompt_sha256: "f".repeat(64),
+      code_commit_hash: "abc123",
+      private_prompt_commit: "def456",
+    };
+    const api = fakeBridgeApi({
+      autoresearchEvaluatePending: vi.fn().mockResolvedValue({
+        results: [{ version_id: 1, status: "needs_fill", missing_runs: [missingRun] }],
+      }),
+    });
+    const onLog = vi.fn();
+    const llm = new FakeLlm();
+
+    const result = await runAutoresearchCycle({
+      cohort: "cohort_default",
+      maxMutations: 1,
+      deps: { llm: llm as never, api },
+      onLog,
+    });
+
+    const expectedCommand = [
+      "pnpm dev backtest-fill",
+      "--cohort cohort_default",
+      "--start 2020-01-01",
+      "--end 2020-02-01",
+      "--prompt-commit-hash def456",
+      "--private-prompt-commit def456",
+      "--prompt-repo-id private",
+      `--prompt-sha256 ${"f".repeat(64)}`,
+      "--code-commit-hash abc123",
+    ].join(" ");
+    expect(result.mutations[0]?.status).toBe("needs_fill");
+    expect(result.mutations[0]?.fill_commands).toEqual([expectedCommand]);
+    expect(onLog).toHaveBeenCalledWith(`backtest-fill required: ${expectedCommand}`);
+  });
+
+  it("preserves incompatible evaluation status", async () => {
+    const api = fakeBridgeApi({
+      autoresearchEvaluatePending: vi.fn().mockResolvedValue({
+        results: [
+          { version_id: 1, status: "incompatible", detail: "unknown_tools=['get_removed']" },
+        ],
+      }),
+    });
+    const onLog = vi.fn();
+    const llm = new FakeLlm();
+
+    const result = await runAutoresearchCycle({
+      cohort: "cohort_default",
+      maxMutations: 1,
+      deps: { llm: llm as never, api },
+      onLog,
+    });
+
+    expect(result.mutations[0]?.status).toBe("incompatible");
+    expect(result.mutations[0]?.error).toContain("get_removed");
+    expect(onLog).toHaveBeenCalledWith("evaluation incompatible: unknown_tools=['get_removed']");
+  });
+
   it("constraint rejection (trigger throws) stops the loop", async () => {
     const api = fakeBridgeApi({
       autoresearchTrigger: vi.fn().mockRejectedValue(new Error("cooldown active")),
@@ -253,5 +319,21 @@ describe("runAutoresearchCycle", () => {
       cohort: "cohort_default",
       version_id: 1,
     });
+  });
+});
+
+describe("backtestFillCommand", () => {
+  it("quotes arguments that contain whitespace", () => {
+    expect(
+      backtestFillCommand({
+        kind: "base",
+        cohort: "cohort default",
+        start_date: "2020-01-01",
+        end_date: "2020-02-01",
+        prompt_commit_hash: "abc123",
+      }),
+    ).toBe(
+      "pnpm dev backtest-fill --cohort 'cohort default' --start 2020-01-01 --end 2020-02-01 --prompt-commit-hash abc123",
+    );
   });
 });
