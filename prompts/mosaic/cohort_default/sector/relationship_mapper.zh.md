@@ -8,15 +8,18 @@
 > institutional_flow 摘要 + 其他 6 个 sector agent 的 sector_score。读完
 > 这些上下文后，再判断哪些 sector pair 在当前 regime 下风险耦合。
 
-> **Phase 0 工具缺口**：plan §5.2 期望的 `get_top_holdings_overlap` /
-> `get_related_party_transactions` 都不存在（plan §14 #8）。**当前 cycle
-> 你只能 用北向资金 + 龙虎榜 + 已知大产业链硬编码 推断关系**。
-> `confidence ≤ 0.5` 强制上限。
+> **工具现状**：plan §5.2 期望的 `get_top_holdings_overlap` /
+> `get_related_party_transactions` 仍不存在（plan §14 #8）；但**个股研报已接入**
+> （`get_stock_research`），研报常披露上下游 / 关联方 / 客户供应商关系，可作关系
+> 推断的补充证据。本 cycle 你有 北向资金 + 龙虎榜 + **个股研报** + 已知产业链硬编码。
+> `confidence ≤ 0.5` 强制上限（持仓重叠工具仍缺）。
 
 ## 你的工具
 
 * `get_north_capital_flow(start_date, end_date)` —— 北向资金 + 南向。可观察
   各 sector 的 net flow 是否同向（同向 = 接连风险高）。
+* `get_stock_research(ticker, start_date, end_date)` —— 个股研报。对关键节点个股
+  拉研报摘要，从中提取上下游 / 关联方 / 客户供应商线索佐证关系图。
 * `get_lhb_ranking(curr_date)` —— LHB 上榜个股按 sector 聚合可看跨 sector
   的资金联动。
 

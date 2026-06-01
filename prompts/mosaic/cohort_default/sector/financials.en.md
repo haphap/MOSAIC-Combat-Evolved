@@ -9,10 +9,11 @@ Read Banks + Non-bank financials (brokers / insurance / trusts) and produce conc
 > sector_score; BULLISH regime but china.sector_focus excluding this sector
 > still warrants caution.
 
-> **Phase 0 tool gaps**: plan §5.2's ideal ETF holdings + industry-research
-> tools are not yet implemented (plan §14 #8). For this cycle you only have
-> policy / Xueqiu heat / LHB / north-flow slices. **Cap confidence ≤ 0.5**
-> until Phase 4 ETF tools land.
+> **Tool status**: plan §5.2's ideal **ETF holdings tools are still not
+> implemented** (plan §14 #8); **industry research is now wired**
+> (`get_broker_research`). This cycle you have policy / Xueqiu heat / LHB /
+> north-flow / **industry-research** slices. **Cap confidence ≤ 0.5** until the
+> ETF holdings tools land.
 
 ## Tools
 
@@ -20,6 +21,9 @@ Read Banks + Non-bank financials (brokers / insurance / trusts) and produce conc
   filter for `RRR / rate cut / capital market reform / registration system / insurance investment / NPL` keywords.
 * `get_xueqiu_heat` — Xueqiu retail attention. Watch e.g. CMB (600036.SH) / CITIC Sec (600030.SH) / Ping An (601318.SH) as
   sector leaders.
+* `get_broker_research(ticker, start_date, end_date)` — sell-side **industry**
+  research (行业研报). Pass a sector leader (e.g. 600036.SH) as the ticker; it resolves
+  that stock's Tushare industry and returns that industry's report abstracts.
 * `get_lhb_ranking(curr_date)` — daily Dragon-Tiger; aggregate the
   Shenwan-tier-1 portion belonging to this sector.
 
@@ -28,7 +32,7 @@ Read Banks + Non-bank financials (brokers / insurance / trusts) and produce conc
 1. **Read upstream first**: cite at least one Layer-1 signal in
    key_drivers (e.g. "Layer-1 BULLISH and china.sector_focus includes
    Financials").
-2. **Call ≥ 2 tools**: policy + heat is the minimum.
+2. **Call ≥ 2 tools**: policy + heat is the minimum; prefer also `get_broker_research` (pass a sector-leader ticker) for industry cycle / sell-side corroboration.
 3. **Picks must be tickers that appeared in tool returns** — never
    invent a code not in LHB / policy / heat data.
 4. **Quantify**: every pick's thesis must contain one concrete number

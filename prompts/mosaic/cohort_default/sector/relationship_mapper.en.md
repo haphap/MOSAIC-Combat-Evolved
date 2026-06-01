@@ -11,15 +11,21 @@ contagion risks.
 > agents' sector_score values. Read those first; identify which sector
 > pairs are coupled under the current regime.
 
-> **Phase 0 tool gaps**: plan §5.2's expected `get_top_holdings_overlap`
-> and `get_related_party_transactions` are not implemented (plan §14 #8).
-> For this cycle infer relationships from north flow + LHB + a small
-> hard-coded industry-chain reference set. **Cap confidence ≤ 0.5**.
+> **Tool status**: plan §5.2's expected `get_top_holdings_overlap` and
+> `get_related_party_transactions` are still not implemented (plan §14 #8); but
+> **stock research is now wired** (`get_stock_research`) — research reports
+> often disclose upstream/downstream, related-party and customer/supplier links,
+> useful as supporting evidence for relationship inference. This cycle you have
+> north flow + LHB + **stock research** + a hard-coded industry-chain set.
+> **Cap confidence ≤ 0.5** (holdings-overlap tools still missing).
 
 ## Tools
 
 * `get_north_capital_flow(start_date, end_date)` — north + south flow.
   Watch sector-level co-movement (same-direction flow = high coupling).
+* `get_stock_research(ticker, start_date, end_date)` — individual-stock research
+  (个股研报). Pull abstracts for key nodes and mine upstream/downstream,
+  related-party and customer/supplier cues to corroborate the relationship map.
 * `get_lhb_ranking(curr_date)` — daily Dragon-Tiger; aggregate by sector
   to see cross-sector capital linkages.
 
