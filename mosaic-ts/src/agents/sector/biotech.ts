@@ -15,6 +15,8 @@ export const REQUIRED_TOOLS = [
   "get_lhb_ranking",
   "get_broker_research",
   "get_etf_holdings",
+  "get_stock_data",
+  "get_indicators",
 ] as const;
 
 export const biotechSpec: LayerTwoAgentSpec<BiotechOutput> = {

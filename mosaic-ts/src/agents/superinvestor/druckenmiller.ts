@@ -19,6 +19,8 @@ export const REQUIRED_TOOLS = [
   "get_industry_policy",
   "get_stock_research",
   "get_fundamentals",
+  "get_stock_data",
+  "get_indicators",
 ] as const;
 
 export const druckenmillerSpec: LayerThreeAgentSpec<DruckenmillerOutput> = {

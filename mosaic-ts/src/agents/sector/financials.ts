@@ -16,6 +16,8 @@ export const REQUIRED_TOOLS = [
   "get_yield_curve_cn",
   "get_broker_research",
   "get_etf_holdings",
+  "get_stock_data",
+  "get_indicators",
 ] as const;
 
 export const financialsSpec: LayerTwoAgentSpec<FinancialsOutput> = {

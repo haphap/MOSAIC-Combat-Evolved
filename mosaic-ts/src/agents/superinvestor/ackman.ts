@@ -17,6 +17,8 @@ export const REQUIRED_TOOLS = [
   "get_income_statement",
   "get_cashflow",
   "get_balance_sheet",
+  "get_stock_data",
+  "get_indicators",
 ] as const;
 
 export const ackmanSpec: LayerThreeAgentSpec<AckmanOutput> = {
