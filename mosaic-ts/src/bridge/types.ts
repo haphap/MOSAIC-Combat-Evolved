@@ -330,6 +330,10 @@ export interface PromptReadResult {
 /** Returned by ``prompts.write``: commit fields present only when a branch
  *  was given (the mutation path); working-tree writes return just ``paths``. */
 export interface PromptWriteResult {
+  target?: "private_git" | "project_git" | "working_tree";
+  prompt_repo_id?: string;
+  prompt_base_commit_hash?: string;
+  prompt_commit_hash?: string;
   commit_hash?: string;
   branch?: string;
   paths: string[];
@@ -833,8 +837,10 @@ export class BridgeApi {
     agent: string;
     cohort: string;
     contents: Partial<Record<PromptLang, string>>;
+    target?: "private_git" | "project_git" | "working_tree";
     branch?: string;
     message?: string;
+    allow_public_prompt_write?: boolean;
   }): Promise<PromptWriteResult> {
     return this.client.call<PromptWriteResult>("prompts.write", params);
   }

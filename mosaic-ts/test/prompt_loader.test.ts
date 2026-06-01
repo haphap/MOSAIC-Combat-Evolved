@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   AGENTS_BY_LAYER,
   ALL_AGENTS,
+  findPrivatePromptsRoot,
   LAYER_BY_AGENT,
   promptPath,
   resolvePromptPath,
@@ -83,12 +84,23 @@ describe("promptPath", () => {
 
 describe("resolvePromptPath fallback chain", () => {
   let fake: FakeRoot;
+  let privateFake: FakeRoot;
+  let oldPrivateRepo: string | undefined;
   beforeEach(() => {
+    oldPrivateRepo = process.env.MOSAIC_PRIVATE_PROMPT_REPO;
+    delete process.env.MOSAIC_PRIVATE_PROMPT_REPO;
     fake = makeFakePromptsRoot();
+    privateFake = makeFakePromptsRoot();
     clearPromptCache();
   });
   afterEach(() => {
     fake?.cleanup();
+    privateFake?.cleanup();
+    if (oldPrivateRepo === undefined) {
+      delete process.env.MOSAIC_PRIVATE_PROMPT_REPO;
+    } else {
+      process.env.MOSAIC_PRIVATE_PROMPT_REPO = oldPrivateRepo;
+    }
   });
 
   it("returns the cohort-specific file when present", () => {
@@ -142,16 +154,82 @@ describe("resolvePromptPath fallback chain", () => {
     });
     expect(found).toBeNull();
   });
+
+  it("prefers private cohort prompt over repo prompts", () => {
+    fake.putPrompt({
+      cohort: "cohort_euphoria_2021",
+      layer: "macro",
+      agent: "central_bank",
+      language: "zh",
+      body: "repo cohort",
+    });
+    const expected = privateFake.putPrompt({
+      cohort: "cohort_euphoria_2021",
+      layer: "macro",
+      agent: "central_bank",
+      language: "zh",
+      body: "private cohort",
+    });
+    const found = resolvePromptPath({
+      agent: "central_bank",
+      cohort: "cohort_euphoria_2021",
+      language: "zh",
+      promptsRoot: fake.root,
+      privatePromptsRoot: privateFake.root,
+    });
+    expect(found).toBe(expected);
+  });
+
+  it("prefers private default prompt over repo cohort prompt", () => {
+    fake.putPrompt({
+      cohort: "cohort_euphoria_2021",
+      layer: "macro",
+      agent: "central_bank",
+      language: "zh",
+      body: "repo cohort",
+    });
+    const expected = privateFake.putPrompt({
+      cohort: "cohort_default",
+      layer: "macro",
+      agent: "central_bank",
+      language: "zh",
+      body: "private default",
+    });
+    const found = resolvePromptPath({
+      agent: "central_bank",
+      cohort: "cohort_euphoria_2021",
+      language: "zh",
+      promptsRoot: fake.root,
+      privatePromptsRoot: privateFake.root,
+    });
+    expect(found).toBe(expected);
+  });
+
+  it("derives the private prompt root from MOSAIC_PRIVATE_PROMPT_REPO", () => {
+    process.env.MOSAIC_PRIVATE_PROMPT_REPO = "/tmp/private-prompts";
+    expect(findPrivatePromptsRoot()).toBe("/tmp/private-prompts/prompts/mosaic");
+  });
 });
 
 describe("loadPrompt", () => {
   let fake: FakeRoot;
+  let privateFake: FakeRoot;
+  let oldPrivateRepo: string | undefined;
   beforeEach(() => {
+    oldPrivateRepo = process.env.MOSAIC_PRIVATE_PROMPT_REPO;
+    delete process.env.MOSAIC_PRIVATE_PROMPT_REPO;
     fake = makeFakePromptsRoot();
+    privateFake = makeFakePromptsRoot();
     clearPromptCache();
   });
   afterEach(() => {
     fake?.cleanup();
+    privateFake?.cleanup();
+    if (oldPrivateRepo === undefined) {
+      delete process.env.MOSAIC_PRIVATE_PROMPT_REPO;
+    } else {
+      process.env.MOSAIC_PRIVATE_PROMPT_REPO = oldPrivateRepo;
+    }
   });
 
   it("loads the file body verbatim", async () => {
@@ -277,5 +355,39 @@ describe("loadPrompt", () => {
       noCache: true,
     });
     expect(fresh).toBe("v2");
+  });
+
+  it("loads private overlay without poisoning the baseline cache", async () => {
+    fake.putPrompt({
+      cohort: "cohort_default",
+      layer: "macro",
+      agent: "central_bank",
+      language: "zh",
+      body: "baseline",
+    });
+    privateFake.putPrompt({
+      cohort: "cohort_default",
+      layer: "macro",
+      agent: "central_bank",
+      language: "zh",
+      body: "private",
+    });
+
+    const baseline = await loadPrompt({
+      agent: "central_bank",
+      cohort: "cohort_default",
+      language: "zh",
+      promptsRoot: fake.root,
+    });
+    const overlay = await loadPrompt({
+      agent: "central_bank",
+      cohort: "cohort_default",
+      language: "zh",
+      promptsRoot: fake.root,
+      privatePromptsRoot: privateFake.root,
+    });
+
+    expect(baseline).toBe("baseline");
+    expect(overlay).toBe("private");
   });
 });

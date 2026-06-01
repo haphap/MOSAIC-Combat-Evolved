@@ -15,6 +15,7 @@ import pytest
 from mosaic.bridge import handlers as _handlers_pkg  # noqa: F401
 from mosaic.bridge.protocol import RpcError
 from mosaic.bridge.registry import get_handler
+from mosaic.autoresearch.prompt_repo import init_private_prompt_repo
 
 DEFAULT_REL = "prompts/mosaic/cohort_default/macro/volatility.zh.md"
 BRANCH = "cohort/crisis_2008/auto/volatility/2008-09-15"
@@ -90,12 +91,49 @@ class TestRead:
 
 
 class TestWrite:
-    def test_to_branch_commits(self, repo: Path):
+    def test_private_git_requires_config(self, repo: Path):
+        with pytest.raises(RpcError, match="MOSAIC_PRIVATE_PROMPT_REPO"):
+            dispatch("prompts.write", {
+                "agent": "volatility", "cohort": "crisis_2008",
+                "contents": {"zh": "new zh\n"},
+                "branch": BRANCH,
+            })
+
+    def test_to_private_git_branch_commits(self, repo: Path, tmp_path: Path, monkeypatch):
+        private_repo = tmp_path / "private-prompts"
+        init_private_prompt_repo(private_repo, project_root=repo)
+        monkeypatch.setenv("MOSAIC_PRIVATE_PROMPT_REPO", str(private_repo))
+
         r = dispatch("prompts.write", {
             "agent": "volatility", "cohort": "crisis_2008",
             "contents": {"zh": "new zh\n## 输出 schema\n", "en": "new en\n## Output schema\n"},
             "branch": BRANCH,
         })
+        assert r["target"] == "private_git"
+        assert r["prompt_repo_id"] == "private"
+        assert len(r["prompt_base_commit_hash"]) == 40
+        assert len(r["prompt_commit_hash"]) == 40
+        assert r["branch"] == BRANCH
+        assert len(r["paths"]) == 2
+        assert not (repo / "prompts/mosaic/crisis_2008").exists()
+        assert not (private_repo / "prompts/mosaic/crisis_2008").exists()
+        prompt_at_branch = _git(
+            private_repo,
+            "show",
+            f"{BRANCH}:prompts/mosaic/crisis_2008/macro/volatility.zh.md",
+        )
+        assert prompt_at_branch.startswith("new zh")
+
+    def test_to_project_git_branch_commits_with_explicit_allow(self, repo: Path):
+        r = dispatch("prompts.write", {
+            "agent": "volatility", "cohort": "crisis_2008",
+            "contents": {"zh": "new zh\n## 输出 schema\n", "en": "new en\n## Output schema\n"},
+            "target": "project_git",
+            "branch": BRANCH,
+            "allow_public_prompt_write": True,
+        })
+        assert r["target"] == "project_git"
+        assert r["prompt_repo_id"] == "project"
         assert len(r["commit_hash"]) == 40
         assert r["branch"] == BRANCH
         assert len(r["paths"]) == 2
@@ -111,9 +149,27 @@ class TestWrite:
         r = dispatch("prompts.write", {
             "agent": "volatility", "cohort": "crisis_2008",
             "contents": {"zh": "wt zh\n"},
+            "allow_public_prompt_write": True,
         })
         assert "commit_hash" not in r
+        assert r["target"] == "working_tree"
         assert (repo / "prompts/mosaic/crisis_2008/macro/volatility.zh.md").exists()
+
+    def test_project_git_requires_allow(self, repo: Path):
+        with pytest.raises(RpcError, match="allow_public_prompt_write"):
+            dispatch("prompts.write", {
+                "agent": "volatility", "cohort": "crisis_2008",
+                "contents": {"zh": "new zh\n"},
+                "target": "project_git",
+                "branch": BRANCH,
+            })
+
+    def test_working_tree_requires_allow(self, repo: Path):
+        with pytest.raises(RpcError, match="allow_public_prompt_write"):
+            dispatch("prompts.write", {
+                "agent": "volatility", "cohort": "crisis_2008",
+                "contents": {"zh": "wt zh\n"},
+            })
 
     def test_bad_contents(self, repo: Path):
         with pytest.raises(RpcError, match="contents"):

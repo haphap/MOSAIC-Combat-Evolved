@@ -19,6 +19,9 @@ dist/
 .kiro/
 AGENTS.md
 
+# Local planning notes
+docs/mirofish-offline-replacement-plan.md
+
 # MOSAIC runtime artefacts (data + caches + autoresearch backups)
 data/
 !data/.gitkeep
