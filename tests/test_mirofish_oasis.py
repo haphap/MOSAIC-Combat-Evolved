@@ -198,6 +198,33 @@ class TestOasisMultiStep(unittest.TestCase):
         self.assertEqual(bodies["/api/simulation/start"]["max_rounds"], 3)
         self.assertEqual(bodies["/api/simulation/start"]["simulation_id"], "sim_1")
 
+    def test_bad_env_max_rounds_falls_back_to_positive_cap(self):
+        # 0 / negative / non-int env must NOT drop or corrupt the cap
+        for bad in ("0", "-1", "abc", ""):
+            with patch.dict("os.environ", {"MOSAIC_MIROFISH_MAX_ROUNDS": bad}):
+                self.assertEqual(OasisMiroFishEngine(base_url="http://x")._max_rounds, 5)
+        with patch.dict("os.environ", {"MOSAIC_MIROFISH_MAX_ROUNDS": "12"}):
+            self.assertEqual(OasisMiroFishEngine(base_url="http://x")._max_rounds, 12)
+        # explicit ctor 0 also clamps to the default (never uncapped)
+        self.assertEqual(OasisMiroFishEngine(base_url="http://x", max_rounds=0)._max_rounds, 5)
+
+    def test_start_always_sends_positive_cap(self):
+        fake, _ = _happy_router()
+        bodies = {}
+
+        def capture(req, timeout=None):
+            if req.method == "POST" and req.data:
+                try:
+                    bodies[req.selector] = json.loads(req.data.decode("utf-8"))
+                except (ValueError, UnicodeDecodeError):
+                    pass
+            return fake(req, timeout)
+
+        with patch.dict("os.environ", {"MOSAIC_MIROFISH_MAX_ROUNDS": "0"}):
+            with _patch(capture), _no_sleep():
+                OasisMiroFishEngine(base_url="http://x").generate_all_scenarios(None, 5, 1, ["base"])
+        self.assertEqual(bodies["/api/simulation/start"]["max_rounds"], 5)
+
     def test_run_failed_degrades(self):
         def fake(req, timeout=None):
             p = req.selector

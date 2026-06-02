@@ -49,6 +49,14 @@ def _safe_int(value: Any, default: int) -> int:
     except (TypeError, ValueError):
         return default
 
+
+def _positive_int(value: Any, default: int) -> int:
+    """Coerce to a positive int, falling back to ``default`` for non-int/<=0
+    values — so a bad MOSAIC_MIROFISH_MAX_ROUNDS can never drop or corrupt the
+    run cap (the cap exists precisely to avoid long, costly OASIS runs)."""
+    n = _safe_int(value, default)
+    return n if n > 0 else default
+
 # A-share scenario scaffold reused for the montecarlo-shaped output.
 _PROBE = "000300.SH"
 _SCENARIO_PROB = {"base": 0.5, "bull": 0.2, "bear": 0.2, "tail_up": 0.05, "tail_down": 0.05}
@@ -75,8 +83,10 @@ class OasisMiroFishEngine:
         self._base_url = (base_url or os.environ.get("MOSAIC_MIROFISH_URL") or "").rstrip("/")
         self._timeout = timeout
         self._poll_timeout = poll_timeout
-        self._max_rounds = max_rounds or _safe_int(
-            os.environ.get("MOSAIC_MIROFISH_MAX_ROUNDS"), _DEFAULT_MAX_ROUNDS
+        # Always resolve to a positive cap (ctor arg wins, else env, else default).
+        self._max_rounds = _positive_int(
+            max_rounds if max_rounds is not None else os.environ.get("MOSAIC_MIROFISH_MAX_ROUNDS"),
+            _DEFAULT_MAX_ROUNDS,
         )
         # Escape hatch for debugging report-only behaviour: skip the (slow) sim run.
         self._skip_start = os.environ.get("MOSAIC_MIROFISH_SKIP_START", "").lower() in (
@@ -138,9 +148,13 @@ class OasisMiroFishEngine:
 
     def _start_simulation(self, simulation_id: str) -> None:
         """Kick off the OASIS run (parallel platform), capped at ``max_rounds``."""
-        body: dict[str, Any] = {"simulation_id": simulation_id, "platform": "parallel"}
-        if self._max_rounds:
-            body["max_rounds"] = self._max_rounds
+        # _max_rounds is always a positive int (resolved in __init__), so the cap
+        # is always sent — a bad env value can't silently uncap the run.
+        body: dict[str, Any] = {
+            "simulation_id": simulation_id,
+            "platform": "parallel",
+            "max_rounds": self._max_rounds,
+        }
         data = self._post_json("/api/simulation/start", body)
         if str(_dig(data, "runner_status") or "") == _RUN_FAILED:
             raise MiroFishUnavailable("simulation/start reported failure")
