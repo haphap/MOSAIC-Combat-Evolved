@@ -24,6 +24,7 @@ interface GenerateOpts {
   reflexive?: boolean;
   engine?: string;
   swarm?: boolean;
+  maxRounds?: string;
 }
 
 interface TrainOpts {
@@ -63,6 +64,7 @@ export function registerMirofish(program: Command): void {
       "Scenario engine: montecarlo (default) | swarm (agent-to-agent) | oasis (real engine)",
     )
     .option("--swarm", "Shorthand for --engine swarm (Phase 7M.1 interaction engine)")
+    .option("--max-rounds <n>", "Cap OASIS sim rounds (oasis engine only; server default 5)")
     .action(async (opts: GenerateOpts) => {
       await withApi(async (api) => {
         const engine = resolveEngine(opts);
@@ -71,6 +73,7 @@ export function registerMirofish(program: Command): void {
           ...(opts.seed ? { seed: Number.parseInt(opts.seed, 10) } : {}),
           ...(opts.reflexive ? { reflexivity: true } : {}),
           ...(engine ? { engine } : {}),
+          ...(opts.maxRounds ? { max_rounds: Number.parseInt(opts.maxRounds, 10) } : {}),
         });
         console.log(
           pc.bold(

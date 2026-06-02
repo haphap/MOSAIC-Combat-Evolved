@@ -197,6 +197,8 @@ class TestOasisMultiStep(unittest.TestCase):
             )
         self.assertEqual(bodies["/api/simulation/start"]["max_rounds"], 3)
         self.assertEqual(bodies["/api/simulation/start"]["simulation_id"], "sim_1")
+        # graph-memory update must be on so the report reflects THIS run
+        self.assertTrue(bodies["/api/simulation/start"]["enable_graph_memory_update"])
 
     def test_bad_env_max_rounds_falls_back_to_positive_cap(self):
         # 0 / negative / non-int env must NOT drop or corrupt the cap
@@ -237,6 +239,19 @@ class TestOasisMultiStep(unittest.TestCase):
             with self.assertRaises(MiroFishUnavailable) as ctx:
                 OasisMiroFishEngine(base_url="http://x").generate_all_scenarios(None, 5, 1, None)
         self.assertIn("failed", str(ctx.exception))
+
+    def test_run_stopped_aborts(self):
+        # an externally stopped run is NOT a completed run → don't report on it
+        def fake(req, timeout=None):
+            if req.selector.endswith("/run-status"):
+                return _Resp({"success": True, "data": {"runner_status": "stopped"}})
+            base, _ = _happy_router()
+            return base(req, timeout)
+
+        with _patch(fake), _no_sleep():
+            with self.assertRaises(MiroFishUnavailable) as ctx:
+                OasisMiroFishEngine(base_url="http://x").generate_all_scenarios(None, 5, 1, None)
+        self.assertIn("stopped", str(ctx.exception))
 
     def test_skip_start_env_does_report_only(self):
         fake, calls = _happy_router()

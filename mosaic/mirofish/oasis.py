@@ -39,8 +39,10 @@ DEFAULT_TIMEOUT = 60       # per-request socket timeout
 DEFAULT_POLL_TIMEOUT = 1800  # max seconds to wait for an async step (sim is slow)
 _POLL_INTERVAL = 5
 _DEFAULT_MAX_ROUNDS = 5     # keep sims short by default — full OASIS runs are slow + LLM-costly
-_RUN_DONE = ("completed", "stopped")   # terminal run-status (success)
-_RUN_FAILED = "failed"
+# Normal completion — incl. max_rounds truncation (the runner sets COMPLETED).
+_RUN_DONE = ("completed",)
+# Externally stopped or errored → not a usable run; don't report on it as if done.
+_RUN_ABORTED = ("stopped", "failed")
 
 
 def _safe_int(value: Any, default: int) -> int:
@@ -154,21 +156,25 @@ class OasisMiroFishEngine:
             "simulation_id": simulation_id,
             "platform": "parallel",
             "max_rounds": self._max_rounds,
+            # Stream agent activity into graph memory so the report reflects THIS
+            # run — ReportAgent reads the graph, not actions.jsonl. Without this the
+            # report is built from mostly pre-run graph state.
+            "enable_graph_memory_update": True,
         }
         data = self._post_json("/api/simulation/start", body)
-        if str(_dig(data, "runner_status") or "") == _RUN_FAILED:
+        if str(_dig(data, "runner_status") or "") in _RUN_ABORTED:
             raise MiroFishUnavailable("simulation/start reported failure")
 
     def _poll_run_status(self, simulation_id: str) -> None:
-        """Poll run-status until the run is completed/stopped (success) or failed."""
+        """Poll run-status until the run completes; raise if it's aborted/stopped/failed."""
         deadline = time.monotonic() + self._poll_timeout
         while time.monotonic() < deadline:
             data = self._get_json(f"/api/simulation/{simulation_id}/run-status")
             status = str(_dig(data, "runner_status") or "")
             if status in _RUN_DONE:
                 return
-            if status == _RUN_FAILED:
-                raise MiroFishUnavailable("simulation run failed")
+            if status in _RUN_ABORTED:
+                raise MiroFishUnavailable(f"simulation run {status} before completion")
             time.sleep(_POLL_INTERVAL)
         raise MiroFishUnavailable(f"simulation run timed out after {self._poll_timeout}s")
 
