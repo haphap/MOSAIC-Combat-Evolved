@@ -626,12 +626,13 @@ private prompt pinned worktree
    - evaluator 跑分并记录指标。
    - 人在 private prompt repo review diff。
    - 通过后 merge 到 private prompt repo main。
+   - 项目 repo 通过 `pnpm dev prompts audit-versions` 只审计 metadata；正文 review 在 private repo 完成。
 2. 发布流程。
    - production pin `code_commit_hash + prompt_repo_id + prompt_commit_hash + prompt_sha256`。
    - 不默认使用 floating `private prompt repo main`，除非明确配置为实验环境。
    - 发布时创建 pinned prompt worktree，并让 runtime loader 读取该 worktree，而不是读取 private prompt repo 的浮动 checkout。
-   - 发布前运行 compatibility validation 和 baseline drift check。
-   - 维护 pinned worktree GC：删除未被 active release / recent eval 引用的 worktree。
+   - 发布前运行 `pnpm dev prompts verify-release --version-id ...` 和 baseline drift check。
+   - 维护 pinned worktree GC：`pnpm dev prompts gc-worktrees` 删除未被 active release / recent eval 引用的 worktree。
 3. 备份方案。
    - private prompt repo 配置 private remote。
    - remote 必须私有，权限只给必要用户和机器账号。
@@ -643,7 +644,7 @@ private prompt pinned worktree
 5. 审计方案。
    - 查询版本列表。
    - 查询 hash / metrics。
-   - 默认不展示正文，除非用户在本地显式 `--show-content`。
+   - 默认不展示正文；正文 review 只能在 private prompt repo 的 git diff 中完成。
 
 涉及文件：
 
@@ -770,14 +771,14 @@ pnpm dev prompts write-baseline --allow-public-prompt-write ...
 
 ### P8 Review / Backup / Release
 
-- [ ] private prompt repo review 流程。
-- [ ] production pin code commit + prompt commit。
-- [ ] production 使用 pinned prompt worktree。
-- [ ] release 前运行 drift / compatibility checks。
-- [ ] pinned worktree GC。
-- [ ] private remote 权限说明。
-- [ ] hash 校验恢复流程。
-- [ ] 默认不显示正文的审计 CLI。
+- [x] private prompt repo review 流程。
+- [x] production pin code commit + prompt commit。
+- [x] production 使用 pinned prompt worktree。
+- [x] release 前运行 drift / compatibility checks。
+- [x] pinned worktree GC。
+- [x] private remote 权限说明。
+- [x] hash 校验恢复流程。
+- [x] 默认不显示正文的审计 CLI。
 
 ## 测试计划
 

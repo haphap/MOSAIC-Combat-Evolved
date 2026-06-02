@@ -39,6 +39,22 @@ pnpm dev autoresearch log --cohort crisis_2008
 Subcommands: `trigger`, `evaluate`, `log`, `branches`, `revert`.
 `trigger` options include `--cohort`, `--agent`, `--max <n>`, `--dry-run`, `--fake-llm`, `--eval-days <n>`, `--llm-provider/--model/--base-url`.
 
+## Prompt Operations
+
+```bash
+pnpm dev prompts init-private-repo ~/private-mosaic-prompts
+pnpm dev prompts audit-versions --status keep
+pnpm dev prompts verify-release --version-id 123
+pnpm dev prompts gc-worktrees --repo-target all --max-age-hours 24
+```
+
+- `init-private-repo` creates the sparse private prompt repo. `--seed-baseline` is migration-only and creates broad override shadowing.
+- `audit-versions` prints metadata only: ids, hashes, repo id, status, metrics, and branches. It does not show prompt content.
+- `verify-release` checks the pinned release tuple (`code_commit_hash`, `prompt_repo_id`, `prompt_commit_hash`, `prompt_sha256`), recomputes the prompt SHA at the commit, and runs the tool compatibility gate.
+- Before release, also run `pnpm prompt:drift -- --base-ref origin/main` or the scheduled drift check in the private operator environment.
+- `gc-worktrees` removes stale managed worktrees under `data/worktrees` for the project and/or private prompt repo.
+- Private prompt repos must use a private remote with least-privilege access and encrypted backup or encrypted-at-rest storage.
+
 ## PRISM (multi-regime training)
 
 ```bash

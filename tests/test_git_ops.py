@@ -8,6 +8,8 @@ commit on a feature branch never dirties the primary working tree.
 from __future__ import annotations
 
 import subprocess
+import os
+import time
 from pathlib import Path
 
 import pytest
@@ -170,6 +172,36 @@ def test_add_and_remove_worktree(git: GitOps, repo: Path):
     finally:
         git.remove_worktree(wt)
     assert not wt.exists()
+
+
+def test_gc_worktrees_removes_stale_managed_worktree(git: GitOps):
+    commit = git.write_and_commit({PROMPT_REL: "wt content\n"}, message="m", branch=BRANCH)
+    wt = git.add_worktree(commit)
+    old = time.time() - 48 * 3600
+    (wt / "marker.txt").write_text("old\n", encoding="utf-8")
+    for path in (wt, wt / "marker.txt"):
+        path.touch()
+        os.utime(path, (old, old))
+
+    result = git.gc_worktrees(max_age_hours=24)
+
+    assert str(wt) in result["removed"]
+    assert not wt.exists()
+
+
+def test_gc_worktrees_skips_locked_worktree(git: GitOps):
+    commit = git.write_and_commit({PROMPT_REL: "wt content\n"}, message="m", branch=BRANCH)
+    wt = git.add_worktree(commit)
+    old = time.time() - 48 * 3600
+    os.utime(wt, (old, old))
+    # An active run claimed it via git's lock; GC must not force-remove it.
+    git._run("worktree", "lock", str(wt))
+
+    result = git.gc_worktrees(max_age_hours=24)
+
+    assert str(wt) in result["skipped"]
+    assert str(wt) not in result["removed"]
+    assert wt.exists()
 
 
 # ---------------------------------------------------------------------------

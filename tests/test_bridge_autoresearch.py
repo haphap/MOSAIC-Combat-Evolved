@@ -51,6 +51,7 @@ autoresearch_get_log = _ar.autoresearch_get_log
 autoresearch_list_active_branches = _ar.autoresearch_list_active_branches
 autoresearch_prepare_worktree = _ar.autoresearch_prepare_worktree
 autoresearch_cleanup_worktree = _ar.autoresearch_cleanup_worktree
+autoresearch_gc_worktrees = _ar.autoresearch_gc_worktrees
 autoresearch_revert_modification = _ar.autoresearch_revert_modification
 
 # The module path used by patch() -- must match sys.modules key above.
@@ -459,6 +460,15 @@ class TestAutoresearchWorktree(unittest.TestCase):
                 "repo_target": "private_git",
             })
             self.assertTrue(cleanup_result["ok"])
+
+    def test_gc_worktrees_reports_project_repo(self):
+        result = autoresearch_gc_worktrees({
+            "repo_target": "project_git",
+            "max_age_hours": 0,
+        })
+
+        self.assertEqual(result["results"][0]["repo_target"], "project_git")
+        self.assertIn("removed", result["results"][0])
 
 
 class TestAutoresearchRevertModification(unittest.TestCase):

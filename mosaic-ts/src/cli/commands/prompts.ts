@@ -15,6 +15,23 @@ interface InitPrivateRepoOpts {
   seedBaseline?: boolean;
 }
 
+interface AuditVersionsOpts {
+  cohort?: string;
+  status?: string;
+  agent?: string;
+  limit?: string;
+}
+
+interface VerifyReleaseOpts {
+  versionId: string;
+  allowUnkept?: boolean;
+}
+
+interface GcWorktreesOpts {
+  repoTarget?: "project_git" | "private_git" | "all";
+  maxAgeHours?: string;
+}
+
 export function registerPrompts(program: Command): void {
   const prompts = program.command("prompts").description("Manage prompt assets.");
 
@@ -48,6 +65,114 @@ export function registerPrompts(program: Command): void {
         console.log(`prompts: ${redactSensitiveText(result.prompts_root, [result.repo_root])}`);
         console.log(`commit: ${result.commit_hash}`);
         console.log(`mode: ${result.seeded ? "seeded baseline" : "sparse"}`);
+      } catch (err) {
+        reportError(err, client);
+      } finally {
+        await client.close();
+      }
+    });
+
+  prompts
+    .command("audit-versions")
+    .description("List prompt version metadata without showing prompt content.")
+    .option("--cohort <name>", "Filter by cohort")
+    .option("--status <status>", "Filter by prompt version status")
+    .option("--agent <name>", "Filter by agent")
+    .option("--limit <n>", "Max rows (default 20)")
+    .action(async (opts: AuditVersionsOpts) => {
+      const client = new BridgeClient();
+      const api = new BridgeApi(client);
+      try {
+        await client.start();
+        const result = await api.promptsAuditVersions({
+          ...(opts.cohort ? { cohort: opts.cohort } : {}),
+          ...(opts.status ? { status: opts.status } : {}),
+          ...(opts.agent ? { agent: opts.agent } : {}),
+          ...(opts.limit ? { limit: Number.parseInt(opts.limit, 10) } : {}),
+        });
+        console.log(pc.bold("\nprompt versions"));
+        if (result.versions.length === 0) {
+          console.log(pc.dim("  no versions"));
+        }
+        for (const row of result.versions) {
+          console.log(
+            `  #${row.id} ${row.status} ${row.cohort}/${row.agent} ` +
+              `prompt=${row.modification_commit_hash?.slice(0, 12) ?? "-"} ` +
+              `code=${row.code_commit_hash?.slice(0, 12) ?? "-"}`,
+          );
+          console.log(
+            pc.dim(
+              `     repo=${row.prompt_repo_id ?? "-"} sha=${row.prompt_sha256?.slice(0, 12) ?? "-"} ` +
+                `delta=${row.delta_sharpe ?? "n/a"} branch=${row.branch_name}`,
+            ),
+          );
+        }
+      } catch (err) {
+        reportError(err, client);
+      } finally {
+        await client.close();
+      }
+    });
+
+  prompts
+    .command("verify-release")
+    .requiredOption("--version-id <id>", "Prompt version id to verify")
+    .option("--allow-unkept", "Do not require status=keep")
+    .description("Verify prompt metadata, content hash, and compatibility before release.")
+    .action(async (opts: VerifyReleaseOpts) => {
+      const client = new BridgeClient();
+      const api = new BridgeApi(client);
+      try {
+        await client.start();
+        const result = await api.promptsVerifyRelease({
+          version_id: Number.parseInt(opts.versionId, 10),
+          require_kept: !opts.allowUnkept,
+        });
+        const color = result.ready ? pc.green : pc.red;
+        console.log(color(`release ${result.ready ? "ready" : "blocked"}`));
+        for (const [name, ok] of Object.entries(result.checks)) {
+          console.log(`  ${ok ? pc.green("ok") : pc.red("no")} ${name}`);
+        }
+        console.log(
+          pc.dim(
+            `pin code=${result.pin.code_commit_hash?.slice(0, 12) ?? "-"} ` +
+              `prompt=${result.pin.prompt_commit_hash?.slice(0, 12) ?? "-"} ` +
+              `repo=${result.pin.prompt_repo_id ?? "-"} sha=${result.pin.prompt_sha256?.slice(0, 12) ?? "-"}`,
+          ),
+        );
+        if (!result.ready) process.exitCode = 1;
+      } catch (err) {
+        reportError(err, client);
+      } finally {
+        await client.close();
+      }
+    });
+
+  prompts
+    .command("gc-worktrees")
+    .description("Remove stale managed project/private prompt worktrees.")
+    .option("--repo-target <target>", "project_git | private_git | all (default all)")
+    .option("--max-age-hours <n>", "Remove worktrees older than this many hours (default 24)")
+    .action(async (opts: GcWorktreesOpts) => {
+      const client = new BridgeClient();
+      const api = new BridgeApi(client);
+      try {
+        await client.start();
+        const result = await api.autoresearchGcWorktrees({
+          ...(opts.repoTarget ? { repo_target: opts.repoTarget } : {}),
+          ...(opts.maxAgeHours ? { max_age_hours: Number(opts.maxAgeHours) } : {}),
+        });
+        for (const row of result.results) {
+          console.log(
+            `${row.repo_target}: removed=${row.removed.length} kept=${row.kept.length}` +
+              ` skipped=${row.skipped?.length ?? 0}` +
+              (row.skipped_reason
+                ? ` (${row.skipped_reason})`
+                : row.missing
+                  ? " (no worktree dir)"
+                  : ""),
+          );
+        }
       } catch (err) {
         reportError(err, client);
       } finally {
