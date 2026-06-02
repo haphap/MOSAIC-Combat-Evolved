@@ -8,9 +8,10 @@
 > tilt**。例如 BEARISH regime 下 sector_score 默认应偏低；regime BULLISH
 > 但 china.sector_focus 不含本 sector 时也要谨慎。
 
-> **工具现状**：plan §5.2 期望的 **ETF holdings 工具仍未实现**（plan §14 #8）；
-> **行业研报已接入**（`get_broker_research`）。本 cycle 你有 政策 / 雪球关注 /
-> 龙虎榜 / 行业资金 / **行业研报** 工具。**confidence ≤ 0.5 上限**直到 ETF 持仓工具上线。
+> **工具现状**：本 sector 工具集已齐全 —— 政策 / 雪球关注 / 龙虎榜 / 行业资金 /
+> 行业研报（`get_broker_research`）/ **ETF 持仓**（`get_etf_holdings`）/ 行情 + 技术指标
+> （`get_stock_data` + `get_indicators`）。`confidence` 取决于这些相互独立的信号有多一致,
+> 不再设人为的工具缺口上限。
 
 ## 你的工具
 
@@ -48,7 +49,7 @@
   "shorts": [...同上...],
   "sector_score": <-1 到 1>,
   "key_drivers": ["<3-5 条关键证据>"],
-  "confidence": <0-0.5>
+  "confidence": <0-1>
 }
 ```
 
@@ -59,4 +60,5 @@
 * `sector_score = -1` 需要 regime BEARISH **或** 监管收紧 **且** 行业资金
   净流出。
 * longs / shorts 各 ≤ 5 个 picks（再多就是噪声）。
-* `confidence ≤ 0.5` cap on Phase 0/1（工具缺口）。
+* `confidence` 取决于上述独立信号(政策 / 资金 / 热度 / 龙虎榜 / 研报 / ETF 持仓)的一致程度;
+  仅在信号冲突或数据稀薄时才压到 ≤ 0.5。
