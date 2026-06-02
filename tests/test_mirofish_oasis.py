@@ -175,6 +175,16 @@ class TestOasisMultiStep(unittest.TestCase):
                 eng.generate_all_scenarios(None, 5, 1, None)
         self.assertIn("timed out", str(ctx.exception))
 
+    def test_seed_text_is_substantive(self):
+        from mosaic.mirofish.oasis import _build_seed_text
+
+        txt = _build_seed_text(42, 5, {"000300.SH": 3600.0})
+        # names concrete A-share entities so the graph (and sim) has substance
+        for kw in ("沪深300", "北向资金", "宁德时代", "券商", "510300"):
+            self.assertIn(kw, txt)
+        self.assertIn("3600", txt)  # CSI300 level threaded from start_prices
+        self.assertIn("5", txt)     # num_days
+
     def test_env_var_default_url(self):
         with patch.dict("os.environ", {"MOSAIC_MIROFISH_URL": "http://env-host:5001"}):
             self.assertEqual(OasisMiroFishEngine()._base_url, "http://env-host:5001")
