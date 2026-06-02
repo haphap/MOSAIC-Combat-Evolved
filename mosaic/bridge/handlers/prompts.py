@@ -134,6 +134,28 @@ def _prompt_sha256(files: dict[str, str]) -> str:
     return digest.hexdigest()
 
 
+def _store():
+    from mosaic.scorecard import get_store
+
+    return get_store()
+
+
+def _require_int(params: dict[str, Any], key: str) -> int:
+    val = params.get(key)
+    if not isinstance(val, int) or isinstance(val, bool):
+        raise RpcError(INVALID_PARAMS, f"'{key}' must be an integer")
+    return val
+
+
+def _optional_str(params: dict[str, Any], key: str) -> str | None:
+    val = params.get(key)
+    if val is None:
+        return None
+    if not isinstance(val, str):
+        raise RpcError(INVALID_PARAMS, f"'{key}' must be a string when provided")
+    return val
+
+
 @method("prompts.read")
 def prompts_read(params: dict[str, Any]) -> dict[str, Any]:
     agent = _require_str(params, "agent")
@@ -280,3 +302,104 @@ def prompts_init_private_repo(params: dict[str, Any]) -> dict[str, Any]:
     except Exception as exc:
         raise RpcError(INTERNAL_ERROR, f"{type(exc).__name__}: {exc}") from exc
     return dict(result)
+
+
+@method("prompts.audit_versions")
+def prompts_audit_versions(params: dict[str, Any]) -> dict[str, Any]:
+    """List prompt version metadata only; never returns prompt body."""
+    cohort = _optional_str(params, "cohort")
+    status = _optional_str(params, "status")
+    agent = _optional_str(params, "agent")
+    limit = params.get("limit", 20)
+    if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1:
+        raise RpcError(INVALID_PARAMS, "'limit' must be a positive integer")
+    rows = _store().list_prompt_versions(cohort=cohort, status=status, agent=agent)[:limit]
+    safe_rows = []
+    for row in rows:
+        safe_rows.append({
+            "id": row["id"],
+            "cohort": row["cohort"],
+            "agent": row["agent"],
+            "status": row["status"],
+            "branch_name": row["branch_name"],
+            "base_commit_hash": row["base_commit_hash"],
+            "modification_commit_hash": row.get("modification_commit_hash"),
+            "prompt_repo_id": row.get("prompt_repo_id"),
+            "prompt_base_commit_hash": row.get("prompt_base_commit_hash"),
+            "prompt_sha256": row.get("prompt_sha256"),
+            "code_commit_hash": row.get("code_commit_hash"),
+            "delta_sharpe": row.get("delta_sharpe"),
+            "created_at": row.get("created_at"),
+            "decided_at": row.get("decided_at"),
+            "modification_summary": row.get("modification_summary"),
+        })
+    return {"versions": safe_rows}
+
+
+@method("prompts.verify_release")
+def prompts_verify_release(params: dict[str, Any]) -> dict[str, Any]:
+    """Verify a kept prompt version can be pinned for release.
+
+    Checks:
+      - version exists and has private prompt metadata
+      - committed prompt file digest matches prompt_sha256
+      - registry-scan compatibility gate passes for current code/tools
+    """
+    from mosaic.autoresearch.evaluator import validate_prompt_tool_compatibility
+    from mosaic.autoresearch.git_ops import GitError
+
+    version_id = _require_int(params, "version_id")
+    require_kept = bool(params.get("require_kept", True))
+    version = _store().get_prompt_version(version_id)
+    if version is None:
+        raise RpcError(INVALID_PARAMS, f"prompt version {version_id} not found")
+
+    checks: dict[str, Any] = {
+        "status_ok": (not require_kept) or version.get("status") == "keep",
+        "metadata_ok": bool(
+            version.get("modification_commit_hash")
+            and version.get("prompt_repo_id")
+            and version.get("prompt_sha256")
+            and version.get("code_commit_hash")
+        ),
+        "sha_ok": False,
+        "compatible": False,
+    }
+    details: dict[str, Any] = {}
+    git = _private_git() if version.get("prompt_repo_id") == "private" else _git()
+
+    files: dict[str, str] = {}
+    if version.get("modification_commit_hash"):
+        for lang in _LANGS:
+            rel = _rel_path(version["agent"], version["cohort"], lang)
+            try:
+                files[rel] = git.show_file(version["modification_commit_hash"], rel)
+            except GitError:
+                details.setdefault("missing_files", []).append(rel)
+    if files:
+        computed_sha = _prompt_sha256(files)
+        checks["sha_ok"] = computed_sha == version.get("prompt_sha256")
+        details["computed_prompt_sha256"] = computed_sha
+
+    try:
+        compatibility = validate_prompt_tool_compatibility(version, git)
+        checks["compatible"] = bool(compatibility["compatible"])
+        details["compatibility"] = compatibility
+    except Exception as exc:
+        details["compatibility_error"] = f"{type(exc).__name__}: {exc}"
+
+    ready = all(bool(v) for v in checks.values())
+    return {
+        "ready": ready,
+        "checks": checks,
+        "details": details,
+        "pin": {
+            "version_id": version["id"],
+            "cohort": version["cohort"],
+            "agent": version["agent"],
+            "code_commit_hash": version.get("code_commit_hash"),
+            "prompt_repo_id": version.get("prompt_repo_id"),
+            "prompt_commit_hash": version.get("modification_commit_hash"),
+            "prompt_sha256": version.get("prompt_sha256"),
+        },
+    }

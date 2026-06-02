@@ -38,6 +38,22 @@ pnpm dev autoresearch log --cohort crisis_2008
 ```
 子命令:`trigger`、`evaluate`、`log`、`branches`、`revert`。`trigger` 选项含 `--cohort`、`--agent`、`--max <n>`、`--dry-run`、`--fake-llm`、`--eval-days <n>`、`--llm-provider/--model/--base-url`。
 
+## Prompt 运维
+
+```bash
+pnpm dev prompts init-private-repo ~/private-mosaic-prompts
+pnpm dev prompts audit-versions --status keep
+pnpm dev prompts verify-release --version-id 123
+pnpm dev prompts gc-worktrees --repo-target all --max-age-hours 24
+```
+
+- `init-private-repo` 创建 sparse private prompt repo。`--seed-baseline` 仅用于迁移,会制造大面积 override shadowing。
+- `audit-versions` 只打印 metadata: id、hash、repo id、状态、指标和分支,不展示 prompt 正文。
+- `verify-release` 检查 pinned release tuple(`code_commit_hash`、`prompt_repo_id`、`prompt_commit_hash`、`prompt_sha256`),在 commit 上重算 prompt SHA,并运行工具兼容性 gate。
+- release 前还要在 private operator 环境运行 `pnpm prompt:drift -- --base-ref origin/main` 或 scheduled drift check。
+- `gc-worktrees` 清理项目 repo / private prompt repo 的 `data/worktrees` 下过期托管 worktree。
+- private prompt repo 必须配置 private remote、最小权限访问,并启用加密备份或静态加密存储。
+
 ## PRISM(多周期训练)
 
 ```bash

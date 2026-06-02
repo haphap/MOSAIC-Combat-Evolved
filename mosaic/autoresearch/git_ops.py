@@ -22,9 +22,11 @@ Design notes:
 from __future__ import annotations
 
 import re
+import shutil
 import subprocess
+import time
 from pathlib import Path
-from typing import Mapping, Optional, Sequence
+from typing import Any, Mapping, Optional, Sequence
 
 # Identity stamped on autoresearch commits when none is otherwise configured.
 _COMMIT_NAME = "mosaic-autoresearch"
@@ -194,6 +196,40 @@ class GitOps:
 
     def remove_worktree(self, path: Path | str) -> None:
         self._remove_worktree(Path(path))
+
+    def gc_worktrees(self, *, max_age_hours: float = 24.0) -> dict[str, Any]:
+        """Remove stale worktrees under this repo's managed worktree dir.
+
+        Only paths inside ``data/worktrees`` are considered. This is intended
+        for pinned prompt/eval worktrees that were not cleaned up after an
+        interrupted run.
+        """
+        if max_age_hours < 0:
+            raise GitError("max_age_hours must be non-negative")
+        if not self.worktrees_dir.exists():
+            return {"removed": [], "kept": [], "missing": True}
+
+        cutoff = time.time() - (max_age_hours * 3600)
+        removed: list[str] = []
+        kept: list[str] = []
+        for child in sorted(self.worktrees_dir.iterdir()):
+            if not child.is_dir():
+                continue
+            try:
+                child.resolve().relative_to(self.worktrees_dir.resolve())
+            except ValueError:
+                kept.append(str(child))
+                continue
+            if child.stat().st_mtime > cutoff:
+                kept.append(str(child))
+                continue
+            try:
+                self._remove_worktree(child)
+            except GitError:
+                shutil.rmtree(child, ignore_errors=True)
+                self._run("worktree", "prune")
+            removed.append(str(child))
+        return {"removed": removed, "kept": kept, "missing": False}
 
     def _add_worktree(
         self, ref: str, path: Optional[Path] = None, detach: bool = False

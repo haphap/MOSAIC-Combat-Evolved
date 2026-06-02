@@ -688,3 +688,41 @@ def autoresearch_cleanup_worktree(params: dict[str, Any]) -> dict[str, Any]:
         ) from exc
 
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# autoresearch.gc_worktrees
+# ---------------------------------------------------------------------------
+
+
+@method("autoresearch.gc_worktrees")
+def autoresearch_gc_worktrees(params: dict[str, Any]) -> dict[str, Any]:
+    """Remove stale managed worktrees for project/private prompt repos.
+
+    Params:
+        repo_target: str | None -- project_git (default) | private_git | all
+        max_age_hours: float | int | None -- default 24
+
+    Returns:
+        {"results": [{"repo_target", "removed", "kept", "missing"}]}
+    """
+    target = params.get("repo_target") or "all"
+    if target not in ("project_git", "private_git", "all"):
+        raise RpcError(
+            INVALID_PARAMS,
+            "'repo_target' must be one of ('project_git', 'private_git', 'all')",
+        )
+    max_age = params.get("max_age_hours", 24)
+    if not isinstance(max_age, (int, float)) or isinstance(max_age, bool) or max_age < 0:
+        raise RpcError(INVALID_PARAMS, "'max_age_hours' must be a non-negative number")
+
+    targets = ["project_git", "private_git"] if target == "all" else [target]
+    results: list[dict[str, Any]] = []
+    for item in targets:
+        git = _private_git_ops() if item == "private_git" else _git_ops()
+        try:
+            result = git.gc_worktrees(max_age_hours=float(max_age))
+        except Exception as exc:
+            raise RpcError(AUTORESEARCH_ERROR, f"gc_worktrees failed: {exc}") from exc
+        results.append({"repo_target": item, **result})
+    return {"results": results}

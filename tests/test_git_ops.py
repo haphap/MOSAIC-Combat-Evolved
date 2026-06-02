@@ -8,6 +8,8 @@ commit on a feature branch never dirties the primary working tree.
 from __future__ import annotations
 
 import subprocess
+import os
+import time
 from pathlib import Path
 
 import pytest
@@ -169,6 +171,21 @@ def test_add_and_remove_worktree(git: GitOps, repo: Path):
         assert (wt / PROMPT_REL).read_text(encoding="utf-8") == "wt content\n"
     finally:
         git.remove_worktree(wt)
+    assert not wt.exists()
+
+
+def test_gc_worktrees_removes_stale_managed_worktree(git: GitOps):
+    commit = git.write_and_commit({PROMPT_REL: "wt content\n"}, message="m", branch=BRANCH)
+    wt = git.add_worktree(commit)
+    old = time.time() - 48 * 3600
+    (wt / "marker.txt").write_text("old\n", encoding="utf-8")
+    for path in (wt, wt / "marker.txt"):
+        path.touch()
+        os.utime(path, (old, old))
+
+    result = git.gc_worktrees(max_age_hours=24)
+
+    assert str(wt) in result["removed"]
     assert not wt.exists()
 
 

@@ -351,6 +351,39 @@ export interface PromptInitPrivateRepoResult {
   commit_hash: string;
 }
 
+export interface PromptVersionAuditRow {
+  id: number;
+  cohort: string;
+  agent: string;
+  status: string;
+  branch_name: string;
+  base_commit_hash: string;
+  modification_commit_hash?: string | null;
+  prompt_repo_id?: string | null;
+  prompt_base_commit_hash?: string | null;
+  prompt_sha256?: string | null;
+  code_commit_hash?: string | null;
+  delta_sharpe?: number | null;
+  created_at?: string | null;
+  decided_at?: string | null;
+  modification_summary?: string | null;
+}
+
+export interface PromptReleaseCheckResult {
+  ready: boolean;
+  checks: Record<string, boolean>;
+  details: Record<string, unknown>;
+  pin: {
+    version_id: number;
+    cohort: string;
+    agent: string;
+    code_commit_hash?: string | null;
+    prompt_repo_id?: string | null;
+    prompt_commit_hash?: string | null;
+    prompt_sha256?: string | null;
+  };
+}
+
 // --------------------------------------------------------- autoresearch (Phase 4C/4D)
 
 /** Returned by ``autoresearch.trigger``. */
@@ -873,6 +906,25 @@ export class BridgeApi {
     return this.client.call<PromptInitPrivateRepoResult>("prompts.init_private_repo", params);
   }
 
+  promptsAuditVersions(params?: {
+    cohort?: string;
+    status?: string;
+    agent?: string;
+    limit?: number;
+  }): Promise<{ versions: PromptVersionAuditRow[] }> {
+    return this.client.call<{ versions: PromptVersionAuditRow[] }>(
+      "prompts.audit_versions",
+      params ?? {},
+    );
+  }
+
+  promptsVerifyRelease(params: {
+    version_id: number;
+    require_kept?: boolean;
+  }): Promise<PromptReleaseCheckResult> {
+    return this.client.call<PromptReleaseCheckResult>("prompts.verify_release", params);
+  }
+
   // autoresearch.* (Phase 4C/4D)
   autoresearchTrigger(params: {
     cohort: string;
@@ -943,6 +995,20 @@ export class BridgeApi {
     repo_target?: "project_git" | "private_git";
   }): Promise<{ ok: boolean }> {
     return this.client.call<{ ok: boolean }>("autoresearch.cleanup_worktree", params);
+  }
+
+  autoresearchGcWorktrees(params?: {
+    repo_target?: "project_git" | "private_git" | "all";
+    max_age_hours?: number;
+  }): Promise<{
+    results: Array<{
+      repo_target: string;
+      removed: string[];
+      kept: string[];
+      missing: boolean;
+    }>;
+  }> {
+    return this.client.call("autoresearch.gc_worktrees", params ?? {});
   }
 
   // prism.* (Phase 5)

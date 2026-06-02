@@ -13,9 +13,11 @@ from pathlib import Path
 import pytest
 
 from mosaic.bridge import handlers as _handlers_pkg  # noqa: F401
+from mosaic.bridge.handlers import prompts as _prompts
 from mosaic.bridge.protocol import RpcError
 from mosaic.bridge.registry import get_handler
 from mosaic.autoresearch.prompt_repo import init_private_prompt_repo
+from mosaic.scorecard.store import ScorecardStore
 
 DEFAULT_REL = "prompts/mosaic/cohort_default/macro/volatility.zh.md"
 BRANCH = "cohort/crisis_2008/auto/volatility/2008-09-15"
@@ -191,7 +193,13 @@ class TestWrite:
 def test_prompts_methods_registered():
     from mosaic.bridge.registry import all_methods
 
-    assert {"prompts.read", "prompts.write", "prompts.init_private_repo"}.issubset(set(all_methods()))
+    assert {
+        "prompts.read",
+        "prompts.write",
+        "prompts.init_private_repo",
+        "prompts.audit_versions",
+        "prompts.verify_release",
+    }.issubset(set(all_methods()))
 
 
 def test_init_private_repo_rpc(repo: Path, tmp_path: Path):
@@ -216,3 +224,71 @@ def test_init_private_repo_rpc_can_seed_baseline(repo: Path, tmp_path: Path):
         / "macro"
         / "volatility.zh.md"
     ).read_text(encoding="utf-8").startswith("base zh")
+
+
+def test_audit_versions_returns_metadata_only(repo: Path, tmp_path: Path, monkeypatch):
+    store = ScorecardStore(tmp_path / "scorecard.db")
+    monkeypatch.setattr(_prompts, "_store", lambda: store)
+    vid = store.create_prompt_version(
+        cohort="cohort_default",
+        agent="volatility",
+        branch_name=BRANCH,
+        base_commit_hash="a" * 40,
+    )
+    store.set_version_mutation(
+        vid,
+        "b" * 40,
+        "summary only",
+        prompt_repo_id="private",
+        prompt_sha256="f" * 64,
+        code_commit_hash="c" * 40,
+    )
+
+    result = dispatch("prompts.audit_versions", {"limit": 5})
+
+    assert result["versions"][0]["id"] == vid
+    assert "content" not in result["versions"][0]
+    assert "zh_prompt" not in result["versions"][0]
+
+
+def test_verify_release_checks_pin_metadata(repo: Path, tmp_path: Path, monkeypatch):
+    store = ScorecardStore(tmp_path / "scorecard.db")
+    monkeypatch.setattr(_prompts, "_store", lambda: store)
+    private_repo = tmp_path / "private-prompts"
+    init_private_prompt_repo(private_repo, project_root=repo)
+    monkeypatch.setenv("MOSAIC_PRIVATE_PROMPT_REPO", str(private_repo))
+    write = dispatch("prompts.write", {
+        "agent": "volatility",
+        "cohort": "cohort_default",
+        "contents": {
+            "zh": "release zh\n## 输出 schema\n",
+            "en": "release en\n## Output schema\n",
+        },
+        "target": "private_git",
+        "branch": BRANCH,
+    })
+    vid = store.create_prompt_version(
+        cohort="cohort_default",
+        agent="volatility",
+        branch_name=BRANCH,
+        base_commit_hash="a" * 40,
+        code_commit_hash="c" * 40,
+    )
+    store.set_version_mutation(
+        vid,
+        write["prompt_commit_hash"],
+        "release candidate",
+        prompt_repo_id="private",
+        prompt_base_commit_hash=write["prompt_base_commit_hash"],
+        prompt_sha256=write["prompt_sha256"],
+        code_commit_hash="c" * 40,
+    )
+    store.decide_version(vid, "keep")
+
+    result = dispatch("prompts.verify_release", {"version_id": vid})
+
+    assert result["ready"] is True
+    assert result["checks"]["sha_ok"] is True
+    assert result["checks"]["compatible"] is True
+    assert result["pin"]["prompt_commit_hash"] == write["prompt_commit_hash"]
+    assert "content" not in result
