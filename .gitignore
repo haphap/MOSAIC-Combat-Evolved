@@ -18,9 +18,12 @@ dist/
 .commandcode/
 .kiro/
 AGENTS.md
+CLAUDE.md
 
 # Local planning notes
 docs/mirofish-offline-replacement-plan.md
+docs/prompt-asset-protection-plan.md
+docs/prompt-leak-audit.md
 
 # MOSAIC runtime artefacts (data + caches + autoresearch backups)
 data/
