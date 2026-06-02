@@ -401,7 +401,7 @@ def prompts_verify_release(params: dict[str, Any]) -> dict[str, Any]:
         details["computed_prompt_sha256"] = computed_sha
 
     try:
-        compatibility = validate_prompt_tool_compatibility(version, git)
+        compatibility = validate_prompt_tool_compatibility(version, git, baseline_git=_git())
         checks["compatible"] = bool(compatibility["compatible"])
         details["compatibility"] = compatibility
     except Exception as exc:

@@ -166,6 +166,38 @@ def test_main_requires_base_ref_or_state_file(tmp_path: Path, capsys):
     assert "requires --base-ref or --state-file" in capsys.readouterr().err
 
 
+def test_mark_synced_stops_alerting_until_baseline_changes_again(tmp_path: Path):
+    project = _init_repo(tmp_path / "project")
+    private = _init_repo(tmp_path / "private")
+    _baseline_prompt(project, "v1\n")
+    _commit(project, "add baseline")
+    private_prompt = private / "prompts" / "mosaic" / "cohort_default" / "macro" / "volatility.zh.md"
+    private_prompt.parent.mkdir(parents=True)
+    private_prompt.write_text("private override\n", encoding="utf-8")
+    _commit(private, "add private override")
+    _baseline_prompt(project, "v2\n")
+    _commit(project, "change baseline")
+
+    base_args = ["--repo", str(project), "--base-ref", "HEAD~1", "--private-repo", str(private)]
+
+    # 1) drift detected
+    assert check_prompt_drift.main(base_args) == 1
+    # 2) operator reconciled → mark synced (records baseline blob sha + commits manifest)
+    assert check_prompt_drift.main([*base_args, "--mark-synced"]) == 0
+    # 3) same window now clean: the override is reconciled with this baseline content
+    assert check_prompt_drift.main(base_args) == 0
+
+    # 4) baseline content changes again → drift re-alerts (not a permanent waiver)
+    _baseline_prompt(project, "v3\n")
+    _commit(project, "change baseline again")
+    assert (
+        check_prompt_drift.main(
+            ["--repo", str(project), "--base-ref", "HEAD~1", "--private-repo", str(private)]
+        )
+        == 1
+    )
+
+
 def test_state_file_updates_after_passing_scheduled_check(tmp_path: Path):
     project = _init_repo(tmp_path / "project")
     private = _init_repo(tmp_path / "private")
