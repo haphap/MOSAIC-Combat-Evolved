@@ -1076,6 +1076,8 @@ export class BridgeApi {
     start_prices?: Record<string, number>;
     reflexivity?: boolean;
     engine?: "montecarlo" | "swarm" | "oasis";
+    /** Cap OASIS sim rounds (oasis engine only; positive int, server default 5). */
+    max_rounds?: number;
   }): Promise<{ scenarios: MirofishScenario[]; engine?: string }> {
     return this.client.call<{ scenarios: MirofishScenario[]; engine?: string }>(
       "mirofish.generate_scenarios",

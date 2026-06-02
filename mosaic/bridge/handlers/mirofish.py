@@ -65,6 +65,12 @@ def mirofish_generate_scenarios(params: dict[str, Any]) -> dict[str, Any]:
         raise RpcError(INVALID_PARAMS, "'start_prices' must be an object")
     reflexivity = bool(params.get("reflexivity", False))
 
+    max_rounds = params.get("max_rounds")
+    if max_rounds is not None and (
+        not isinstance(max_rounds, int) or isinstance(max_rounds, bool) or max_rounds <= 0
+    ):
+        raise RpcError(INVALID_PARAMS, "'max_rounds' must be a positive integer")
+
     engine = params.get("engine")
     if engine is None:
         from mosaic.default_config import DEFAULT_CONFIG
@@ -80,7 +86,7 @@ def mirofish_generate_scenarios(params: dict[str, Any]) -> dict[str, Any]:
             from mosaic.mirofish.oasis import MiroFishUnavailable, OasisMiroFishEngine
 
             try:
-                out = OasisMiroFishEngine().generate_all_scenarios(
+                out = OasisMiroFishEngine(max_rounds=max_rounds).generate_all_scenarios(
                     start_prices=start_prices, num_days=num_days, seed=seed, scenarios=scenarios
                 )
             except MiroFishUnavailable as exc:

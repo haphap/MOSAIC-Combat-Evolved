@@ -38,6 +38,26 @@ from typing import Any, Mapping, Optional
 DEFAULT_TIMEOUT = 60       # per-request socket timeout
 DEFAULT_POLL_TIMEOUT = 1800  # max seconds to wait for an async step (sim is slow)
 _POLL_INTERVAL = 5
+_DEFAULT_MAX_ROUNDS = 5     # keep sims short by default — full OASIS runs are slow + LLM-costly
+# Normal completion — incl. max_rounds truncation (the runner sets COMPLETED).
+_RUN_DONE = ("completed",)
+# Externally stopped or errored → not a usable run; don't report on it as if done.
+_RUN_ABORTED = ("stopped", "failed")
+
+
+def _safe_int(value: Any, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _positive_int(value: Any, default: int) -> int:
+    """Coerce to a positive int, falling back to ``default`` for non-int/<=0
+    values — so a bad MOSAIC_MIROFISH_MAX_ROUNDS can never drop or corrupt the
+    run cap (the cap exists precisely to avoid long, costly OASIS runs)."""
+    n = _safe_int(value, default)
+    return n if n > 0 else default
 
 # A-share scenario scaffold reused for the montecarlo-shaped output.
 _PROBE = "000300.SH"
@@ -60,10 +80,20 @@ class OasisMiroFishEngine:
         base_url: Optional[str] = None,
         timeout: int = DEFAULT_TIMEOUT,
         poll_timeout: int = DEFAULT_POLL_TIMEOUT,
+        max_rounds: Optional[int] = None,
     ) -> None:
         self._base_url = (base_url or os.environ.get("MOSAIC_MIROFISH_URL") or "").rstrip("/")
         self._timeout = timeout
         self._poll_timeout = poll_timeout
+        # Always resolve to a positive cap (ctor arg wins, else env, else default).
+        self._max_rounds = _positive_int(
+            max_rounds if max_rounds is not None else os.environ.get("MOSAIC_MIROFISH_MAX_ROUNDS"),
+            _DEFAULT_MAX_ROUNDS,
+        )
+        # Escape hatch for debugging report-only behaviour: skip the (slow) sim run.
+        self._skip_start = os.environ.get("MOSAIC_MIROFISH_SKIP_START", "").lower() in (
+            "1", "true", "yes",
+        )
 
     # ---- SwarmEngine interface -------------------------------------------
 
@@ -104,6 +134,11 @@ class OasisMiroFishEngine:
             raise MiroFishUnavailable("simulation/create returned no simulation_id")
         prep = self._post_json("/api/simulation/prepare", {"simulation_id": simulation_id})
         self._poll_status("/api/simulation/prepare/status", _dig(prep, "task_id"), simulation_id)
+        # Run the actual OASIS multi-agent simulation before generating the report.
+        # (Set MOSAIC_MIROFISH_SKIP_START=1 to fall back to the old report-only path.)
+        if not self._skip_start:
+            self._start_simulation(simulation_id)
+            self._poll_run_status(simulation_id)
         gen = self._post_json("/api/report/generate", {"simulation_id": simulation_id})
         self._poll_status("/api/report/generate/status", _dig(gen, "task_id"), simulation_id)
         report_id = self._report_id(simulation_id)
@@ -112,6 +147,36 @@ class OasisMiroFishEngine:
         if not isinstance(md, str):
             raise MiroFishUnavailable("report has no markdown_content")
         return md
+
+    def _start_simulation(self, simulation_id: str) -> None:
+        """Kick off the OASIS run (parallel platform), capped at ``max_rounds``."""
+        # _max_rounds is always a positive int (resolved in __init__), so the cap
+        # is always sent — a bad env value can't silently uncap the run.
+        body: dict[str, Any] = {
+            "simulation_id": simulation_id,
+            "platform": "parallel",
+            "max_rounds": self._max_rounds,
+            # Stream agent activity into graph memory so the report reflects THIS
+            # run — ReportAgent reads the graph, not actions.jsonl. Without this the
+            # report is built from mostly pre-run graph state.
+            "enable_graph_memory_update": True,
+        }
+        data = self._post_json("/api/simulation/start", body)
+        if str(_dig(data, "runner_status") or "") in _RUN_ABORTED:
+            raise MiroFishUnavailable("simulation/start reported failure")
+
+    def _poll_run_status(self, simulation_id: str) -> None:
+        """Poll run-status until the run completes; raise if it's aborted/stopped/failed."""
+        deadline = time.monotonic() + self._poll_timeout
+        while time.monotonic() < deadline:
+            data = self._get_json(f"/api/simulation/{simulation_id}/run-status")
+            status = str(_dig(data, "runner_status") or "")
+            if status in _RUN_DONE:
+                return
+            if status in _RUN_ABORTED:
+                raise MiroFishUnavailable(f"simulation run {status} before completion")
+            time.sleep(_POLL_INTERVAL)
+        raise MiroFishUnavailable(f"simulation run timed out after {self._poll_timeout}s")
 
     def _ontology(self, seed_text: str, requirement: str) -> str:
         fields = {"simulation_requirement": requirement, "project_name": "mosaic"}
