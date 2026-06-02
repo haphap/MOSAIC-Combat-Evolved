@@ -59,6 +59,39 @@ def _positive_int(value: Any, default: int) -> int:
     n = _safe_int(value, default)
     return n if n > 0 else default
 
+
+# The prediction ask handed to MiroFish (drives ontology + report focus).
+_REQUIREMENT = (
+    "推演未来约 {num_days} 个交易日 A 股（以沪深300为代表）的市场情景："
+    "总体方向、风险偏好（RISK_ON / NEUTRAL / RISK_OFF）、关键利好催化与尾部风险。"
+)
+
+
+def _build_seed_text(
+    seed: Optional[int], num_days: int, start_prices: Optional[Mapping[str, float]] = None
+) -> str:
+    """Compose a substantive A-share market briefing for graph construction.
+
+    MiroFish builds the simulated world from this seed, so a one-line prompt
+    yields an empty graph (no entities → no agents). This synthetic briefing
+    names concrete A-share entities (indices, flows, policy bodies, sectors,
+    bellwether names) so the graph — and the resulting simulation — has substance.
+    """
+    csi = float((start_prices or {}).get(_PROBE, 3500.0))
+    return (
+        f"A股市场情景推演种子材料（seed={seed}，预测周期约 {num_days} 个交易日；"
+        f"沪深300当前约 {csi:.0f} 点）。\n\n"
+        "【宏观与政策】中国人民银行实施稳健偏宽松的货币政策，市场预期可能降准或下调LPR以释放"
+        "流动性；财政部加大基建与消费刺激。中美利差、人民币汇率以及美联储利率路径是主要外部"
+        "风险变量。\n\n"
+        "【资金面】北向资金（沪股通/深股通）的净流入与净流出是重要风向标，主力资金在贵州茅台、"
+        "宁德时代、招商银行等权重股之间轮动；两融余额与成交量反映市场风险偏好。\n\n"
+        "【板块与指数】核心基准为沪深300、上证综指、创业板指；主要轮动板块包括券商、银行、白酒、"
+        "新能源（光伏与锂电）、半导体、医药；宽基ETF（如510300、510050）承接配置资金。\n\n"
+        "【风险与催化】需评估市场处于风险偏好上行、中性还是避险，并识别尾部风险（外部加息、"
+        "地缘冲突、监管收紧）与利好催化（政策宽松、企业盈利超预期）。\n"
+    )
+
 # A-share scenario scaffold reused for the montecarlo-shaped output.
 _PROBE = "000300.SH"
 _SCENARIO_PROB = {"base": 0.5, "bull": 0.2, "bear": 0.2, "tail_up": 0.05, "tail_down": 0.05}
@@ -109,7 +142,7 @@ class OasisMiroFishEngine:
                 "engine='oasis' needs a deployed MiroFish service: set MOSAIC_MIROFISH_URL "
                 "(e.g. http://localhost:5001)."
             )
-        report_md = self._run_pipeline(seed)
+        report_md = self._run_pipeline(seed, num_days, start_prices)
         sentiment = self._sentiment(report_md)  # -1..+1
         start = float((start_prices or {}).get(_PROBE, 3500.0))
         types = scenarios or ["base", "bull", "bear", "tail_up", "tail_down"]
@@ -117,12 +150,14 @@ class OasisMiroFishEngine:
 
     # ---- real multi-step pipeline ----------------------------------------
 
-    def _run_pipeline(self, seed: Optional[int]) -> str:
-        requirement = (
-            "Predict the near-term A-share market regime (CSI300 direction, "
-            "risk appetite, tail risks) from the seed signals."
-        )
-        seed_text = f"MOSAIC A-share scenario seed (seed={seed}).\n{requirement}\n"
+    def _run_pipeline(
+        self,
+        seed: Optional[int],
+        num_days: int = 30,
+        start_prices: Optional[Mapping[str, float]] = None,
+    ) -> str:
+        requirement = _REQUIREMENT.format(num_days=num_days)
+        seed_text = _build_seed_text(seed, num_days, start_prices)
         project_id = self._ontology(seed_text, requirement)
         self._poll(
             "/api/graph/task/", self._post_json("/api/graph/build", {"project_id": project_id}),
