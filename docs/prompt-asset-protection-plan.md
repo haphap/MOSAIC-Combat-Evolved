@@ -763,10 +763,10 @@ pnpm dev prompts write-baseline --allow-public-prompt-write ...
 
 ### P7 日志脱敏
 
-- [ ] PromptNotFoundError redaction。
-- [ ] autoresearch CLI 不输出 prompt body。
-- [ ] mutation rationale 不进公开日志。
-- [ ] 测试 fixture 去真实优化 prompt 化。
+- [x] PromptNotFoundError redaction。
+- [x] autoresearch CLI 不输出 prompt body。
+- [x] mutation rationale 不进公开日志。
+- [x] 测试 fixture 去真实优化 prompt 化。
 
 ### P8 Review / Backup / Release
 

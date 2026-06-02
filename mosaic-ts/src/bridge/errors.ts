@@ -3,6 +3,8 @@
  * Mirrors `mosaic/bridge/protocol.py`.
  */
 
+import { redactSensitiveText, redactSensitiveValue } from "../security/redaction.js";
+
 // Standard JSON-RPC 2.0
 export const PARSE_ERROR = -32700;
 export const INVALID_REQUEST = -32600;
@@ -38,10 +40,13 @@ export class RpcError extends Error {
     data: unknown = undefined,
     cause?: unknown,
   ) {
-    super(`${method} failed [${code}]: ${message}`, cause !== undefined ? { cause } : undefined);
+    super(
+      `${method} failed [${code}]: ${redactSensitiveText(message)}`,
+      cause !== undefined ? { cause } : undefined,
+    );
     this.method = method;
     this.code = code;
-    this.data = data;
+    this.data = redactSensitiveValue(data);
   }
 }
 

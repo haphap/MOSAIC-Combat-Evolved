@@ -319,6 +319,26 @@ describe("loadPrompt", () => {
     ).rejects.toBeInstanceOf(PromptNotFoundError);
   });
 
+  it("redacts private prompt paths from PromptNotFoundError", async () => {
+    const privateRoot = join(tmpdir(), "private-prompts-sensitive", "prompts", "mosaic");
+
+    try {
+      await loadPrompt({
+        agent: "central_bank",
+        cohort: "cohort_euphoria_2021",
+        language: "zh",
+        promptsRoot: fake.root,
+        privatePromptsRoot: privateRoot,
+      });
+      throw new Error("expected loadPrompt to fail");
+    } catch (err) {
+      expect(err).toBeInstanceOf(PromptNotFoundError);
+      expect((err as Error).message).toContain("<private-prompt-repo>");
+      expect((err as Error).message).not.toContain(privateRoot);
+      expect((err as PromptNotFoundError).triedPaths.join("\n")).not.toContain(privateRoot);
+    }
+  });
+
   it("caches by (cohort, agent, language); noCache bypasses", async () => {
     const path = fake.putPrompt({
       cohort: "cohort_default",

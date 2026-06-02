@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   BridgeApi,
@@ -85,12 +88,16 @@ describe("BridgeClient against real sidecar", () => {
 
   it("paper.* is live: current_user returns the default session user", async () => {
     const client = new BridgeClient();
+    const tmp = mkdtempSync(join(tmpdir(), "mosaic-paper-client-"));
     try {
       await client.start();
-      const res = (await client.call("paper.current_user", {})) as { user: string };
+      const res = (await client.call("paper.current_user", {
+        db_path: join(tmp, "paper.db"),
+      })) as { user: string };
       expect(res.user).toBe("default");
     } finally {
       await client.close();
+      rmSync(tmp, { recursive: true, force: true });
     }
   });
 

@@ -17,6 +17,7 @@
 
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import type { AutoresearchMissingRun, BridgeApi } from "../bridge/types.js";
+import { redactSensitiveText } from "../security/redaction.js";
 import { mutate } from "./mutator.js";
 
 export interface AutoresearchCycleOptions {
@@ -96,6 +97,7 @@ export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Prom
   } = opts;
 
   const log = onLog ?? (() => {});
+  const safeLog = (msg: string) => log(redactSensitiveText(msg));
   const results: MutationResult[] = [];
 
   for (let n = 0; n < maxMutations; n++) {
@@ -108,11 +110,11 @@ export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Prom
         ...(dryRun ? { dry_run: true } : {}),
       });
     } catch (err) {
-      log(`trigger blocked: ${(err as Error).message}`);
+      safeLog(`trigger blocked: ${(err as Error).message}`);
       break;
     }
 
-    log(
+    safeLog(
       `triggered: agent=${triggerResult.agent} version_id=${triggerResult.version_id} branch=${triggerResult.branch_name}`,
     );
 
@@ -130,12 +132,12 @@ export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Prom
         agent: triggerResult.agent,
         version_id: triggerResult.version_id,
         status: "error",
-        error: `mutation failed: ${(err as Error).message}`,
+        error: redactSensitiveText(`mutation failed: ${(err as Error).message}`),
       });
       continue;
     }
 
-    log(`mutated: ${mutation.modification_summary}`);
+    safeLog(`mutated: ${mutation.modification_summary}`);
 
     // 3. Dry-run: record result without committing
     if (dryRun) {
@@ -176,7 +178,7 @@ export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Prom
         agent: triggerResult.agent,
         version_id: versionId,
         status: "error",
-        error: `write failed: ${(err as Error).message}`,
+        error: redactSensitiveText(`write failed: ${(err as Error).message}`),
       });
       continue;
     }
@@ -202,14 +204,14 @@ export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Prom
           branch: triggerResult.branch_name,
         });
         worktreePath = worktree.path;
-        log(`worktree ready: ${worktreePath}`);
+        safeLog("worktree ready");
       } catch (err) {
-        log(`worktree prep failed: ${(err as Error).message} (eval needs to run separately)`);
+        safeLog(`worktree prep failed: ${(err as Error).message} (eval needs to run separately)`);
       }
     }
 
     // 7. Attempt evaluation (backtest-fill needs to run separately for full eval)
-    log("evaluation: backtest-fill needs to run separately for this branch");
+    safeLog("evaluation: backtest-fill needs to run separately for this branch");
 
     let evalStatus: MutationResult["status"] = "needs_fill";
     let deltaSharpe: number | undefined;
@@ -231,18 +233,20 @@ export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Prom
           deltaSharpe = thisEval.delta_sharpe;
         } else if (thisEval.status === "incompatible") {
           evalStatus = "incompatible";
-          evalError = thisEval.detail ?? "prompt is incompatible with current code";
-          log(`evaluation incompatible: ${evalError}`);
+          evalError = redactSensitiveText(
+            thisEval.detail ?? "prompt is incompatible with current code",
+          );
+          safeLog(`evaluation incompatible: ${evalError}`);
         } else if (thisEval.status === "needs_fill") {
           evalStatus = "needs_fill";
           fillCommands = (thisEval.missing_runs ?? []).map(backtestFillCommand);
           for (const command of fillCommands) {
-            log(`backtest-fill required: ${command}`);
+            safeLog(`backtest-fill required: ${command}`);
           }
         } else if (thisEval.status === "error") {
           evalStatus = "error";
-          evalError = thisEval.detail ?? "evaluation failed";
-          log(`evaluation error: ${evalError}`);
+          evalError = redactSensitiveText(thisEval.detail ?? "evaluation failed");
+          safeLog(`evaluation error: ${evalError}`);
         } else {
           evalStatus = "needs_fill";
         }
@@ -250,8 +254,8 @@ export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Prom
     } catch (err) {
       // Evaluation not ready yet or crashed; log for visibility
       evalStatus = "error";
-      evalError = (err as Error).message ?? "unknown";
-      log(`evaluation error: ${evalError}`);
+      evalError = redactSensitiveText((err as Error).message ?? "unknown");
+      safeLog(`evaluation error: ${evalError}`);
     }
 
     // 8. Cleanup worktree
@@ -259,7 +263,7 @@ export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Prom
       try {
         await deps.api.autoresearchCleanupWorktree({ path: worktreePath });
       } catch {
-        log(`worktree cleanup failed for ${worktreePath}`);
+        safeLog("worktree cleanup failed");
       }
     }
 
