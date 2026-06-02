@@ -9,11 +9,11 @@ Read Banks + Non-bank financials (brokers / insurance / trusts) and produce conc
 > sector_score; BULLISH regime but china.sector_focus excluding this sector
 > still warrants caution.
 
-> **Tool status**: plan §5.2's ideal **ETF holdings tools are still not
-> implemented** (plan §14 #8); **industry research is now wired**
-> (`get_broker_research`). This cycle you have policy / Xueqiu heat / LHB /
-> industry-flow / **industry-research** slices. **Cap confidence ≤ 0.5** until the
-> ETF holdings tools land.
+> **Tool status**: the sector tool set is fully wired — policy / Xueqiu heat /
+> LHB / industry money flow / industry research (`get_broker_research`) /
+> **ETF holdings** (`get_etf_holdings`) / price + technicals (`get_stock_data`
+> + `get_indicators`). Set `confidence` from how well these independent slices
+> agree — there is no artificial tool-gap cap.
 
 ## Tools
 
@@ -52,7 +52,7 @@ Read Banks + Non-bank financials (brokers / insurance / trusts) and produce conc
   "shorts": [...same...],
   "sector_score": <-1 to 1>,
   "key_drivers": ["<3-5 short evidence bullets>"],
-  "confidence": <0-0.5>
+  "confidence": <0-1>
 }
 ```
 
@@ -63,4 +63,5 @@ Read Banks + Non-bank financials (brokers / insurance / trusts) and produce conc
 * `sector_score = -1` requires regime BEARISH **or** regulatory tightening
   **and** industry money flow net-out.
 * ≤ 5 picks per side; more is noise.
-* `confidence ≤ 0.5` cap on Phase 0/1 due to tool gaps.
+* `confidence` reflects how many independent slices (policy / flow / heat /
+  LHB / research / ETF holdings) agree; cap ≤ 0.5 only when they conflict or data is thin.
