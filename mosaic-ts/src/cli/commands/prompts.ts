@@ -165,7 +165,12 @@ export function registerPrompts(program: Command): void {
         for (const row of result.results) {
           console.log(
             `${row.repo_target}: removed=${row.removed.length} kept=${row.kept.length}` +
-              (row.missing ? " (no worktree dir)" : ""),
+              ` skipped=${row.skipped?.length ?? 0}` +
+              (row.skipped_reason
+                ? ` (${row.skipped_reason})`
+                : row.missing
+                  ? " (no worktree dir)"
+                  : ""),
           );
         }
       } catch (err) {

@@ -197,21 +197,40 @@ class GitOps:
     def remove_worktree(self, path: Path | str) -> None:
         self._remove_worktree(Path(path))
 
+    def _locked_worktrees(self) -> set[Path]:
+        """Resolved paths of worktrees git has explicitly locked (in-use marker)."""
+        try:
+            out = self._run("worktree", "list", "--porcelain")
+        except GitError:
+            return set()
+        locked: set[Path] = set()
+        current: Optional[Path] = None
+        for line in out.splitlines():
+            if line.startswith("worktree "):
+                current = Path(line[len("worktree ") :]).resolve()
+            elif current is not None and (line.strip() == "locked" or line.startswith("locked ")):
+                locked.add(current)
+        return locked
+
     def gc_worktrees(self, *, max_age_hours: float = 24.0) -> dict[str, Any]:
         """Remove stale worktrees under this repo's managed worktree dir.
 
         Only paths inside ``data/worktrees`` are considered. This is intended
         for pinned prompt/eval worktrees that were not cleaned up after an
-        interrupted run.
+        interrupted run. ``git worktree lock`` is respected as an explicit
+        "in use" signal: locked worktrees are skipped, never force-removed. A
+        path is reported under ``removed`` only when it is actually gone.
         """
         if max_age_hours < 0:
             raise GitError("max_age_hours must be non-negative")
         if not self.worktrees_dir.exists():
-            return {"removed": [], "kept": [], "missing": True}
+            return {"removed": [], "kept": [], "skipped": [], "missing": True}
 
         cutoff = time.time() - (max_age_hours * 3600)
+        locked = self._locked_worktrees()
         removed: list[str] = []
         kept: list[str] = []
+        skipped: list[str] = []
         for child in sorted(self.worktrees_dir.iterdir()):
             if not child.is_dir():
                 continue
@@ -223,13 +242,18 @@ class GitOps:
             if child.stat().st_mtime > cutoff:
                 kept.append(str(child))
                 continue
+            if child.resolve() in locked:
+                # Explicitly locked = an active run claimed it; never force-remove.
+                skipped.append(str(child))
+                continue
             try:
                 self._remove_worktree(child)
             except GitError:
                 shutil.rmtree(child, ignore_errors=True)
                 self._run("worktree", "prune")
-            removed.append(str(child))
-        return {"removed": removed, "kept": kept, "missing": False}
+            # Only claim removal when the directory is actually gone.
+            (removed if not child.exists() else skipped).append(str(child))
+        return {"removed": removed, "kept": kept, "skipped": skipped, "missing": False}
 
     def _add_worktree(
         self, ref: str, path: Optional[Path] = None, detach: bool = False

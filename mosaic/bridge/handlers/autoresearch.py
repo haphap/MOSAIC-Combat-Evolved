@@ -719,7 +719,21 @@ def autoresearch_gc_worktrees(params: dict[str, Any]) -> dict[str, Any]:
     targets = ["project_git", "private_git"] if target == "all" else [target]
     results: list[dict[str, Any]] = []
     for item in targets:
-        git = _private_git_ops() if item == "private_git" else _git_ops()
+        if item == "private_git":
+            try:
+                git = _private_git_ops()
+            except RpcError:
+                # ``all`` shouldn't fail just because no private repo is configured;
+                # an explicit ``private_git`` target still surfaces the error.
+                if target == "all":
+                    results.append({
+                        "repo_target": item, "removed": [], "kept": [], "skipped": [],
+                        "missing": True, "skipped_reason": "private prompt repo not configured",
+                    })
+                    continue
+                raise
+        else:
+            git = _git_ops()
         try:
             result = git.gc_worktrees(max_age_hours=float(max_age))
         except Exception as exc:

@@ -189,6 +189,21 @@ def test_gc_worktrees_removes_stale_managed_worktree(git: GitOps):
     assert not wt.exists()
 
 
+def test_gc_worktrees_skips_locked_worktree(git: GitOps):
+    commit = git.write_and_commit({PROMPT_REL: "wt content\n"}, message="m", branch=BRANCH)
+    wt = git.add_worktree(commit)
+    old = time.time() - 48 * 3600
+    os.utime(wt, (old, old))
+    # An active run claimed it via git's lock; GC must not force-remove it.
+    git._run("worktree", "lock", str(wt))
+
+    result = git.gc_worktrees(max_age_hours=24)
+
+    assert str(wt) in result["skipped"]
+    assert str(wt) not in result["removed"]
+    assert wt.exists()
+
+
 # ---------------------------------------------------------------------------
 # push (Option B: mirror kept mutations to a self-hosted server)
 # ---------------------------------------------------------------------------

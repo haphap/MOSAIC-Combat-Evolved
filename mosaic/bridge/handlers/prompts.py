@@ -366,7 +366,26 @@ def prompts_verify_release(params: dict[str, Any]) -> dict[str, Any]:
         "compatible": False,
     }
     details: dict[str, Any] = {}
-    git = _private_git() if version.get("prompt_repo_id") == "private" else _git()
+    try:
+        git = _private_git() if version.get("prompt_repo_id") == "private" else _git()
+    except RpcError as exc:
+        # e.g. a private version when MOSAIC_PRIVATE_PROMPT_REPO is unset — report
+        # not-ready with a reason rather than throwing, to match the structured checks.
+        details["repo_error"] = str(exc)
+        return {
+            "ready": False,
+            "checks": checks,
+            "details": details,
+            "pin": {
+                "version_id": version["id"],
+                "cohort": version["cohort"],
+                "agent": version["agent"],
+                "code_commit_hash": version.get("code_commit_hash"),
+                "prompt_repo_id": version.get("prompt_repo_id"),
+                "prompt_commit_hash": version.get("modification_commit_hash"),
+                "prompt_sha256": version.get("prompt_sha256"),
+            },
+        }
 
     files: dict[str, str] = {}
     if version.get("modification_commit_hash"):

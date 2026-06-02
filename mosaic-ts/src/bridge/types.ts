@@ -1005,7 +1005,9 @@ export class BridgeApi {
       repo_target: string;
       removed: string[];
       kept: string[];
+      skipped?: string[];
       missing: boolean;
+      skipped_reason?: string;
     }>;
   }> {
     return this.client.call("autoresearch.gc_worktrees", params ?? {});
