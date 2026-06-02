@@ -14,6 +14,7 @@ import pc from "picocolors";
 import { runAutoresearchCycle } from "../../autoresearch/orchestrator.js";
 import { BridgeApi, BridgeClient, RpcError } from "../../bridge/index.js";
 import { createLlmFromConfig } from "../../llm/factory.js";
+import { redactSensitiveText } from "../../security/redaction.js";
 import { buildFakeLlmHandle } from "../_backtest_helpers.js";
 import { pad } from "../_format.js";
 
@@ -282,14 +283,14 @@ export function registerAutoresearch(program: Command): void {
 
 function handleError(err: unknown, client: BridgeClient): void {
   if (err instanceof RpcError) {
-    console.error(pc.red(`bridge error [${err.code}]: ${err.message}`));
+    console.error(pc.red(`bridge error [${err.code}]: ${redactSensitiveText(err.message)}`));
   } else {
-    console.error(pc.red(`error: ${(err as Error).message}`));
+    console.error(pc.red(`error: ${redactSensitiveText((err as Error).message)}`));
   }
   const tail = client.stderrTail.trim();
   if (tail) {
     console.error(pc.dim("\n--- bridge stderr (tail) ---"));
-    console.error(pc.dim(tail.slice(-2000)));
+    console.error(pc.dim(redactSensitiveText(tail).slice(-2000)));
   }
   process.exitCode = 1;
 }

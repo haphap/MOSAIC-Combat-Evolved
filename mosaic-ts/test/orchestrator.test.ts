@@ -153,6 +153,32 @@ describe("runAutoresearchCycle", () => {
     expect(api.autoresearchCleanupWorktree).not.toHaveBeenCalled();
   });
 
+  it("does not persist or log mutation rationale", async () => {
+    const api = fakeBridgeApi();
+    const onLog = vi.fn();
+    const llm = new FakeLlm();
+    mockedMutate.mockResolvedValueOnce({
+      zh_prompt: "rewritten zh",
+      en_prompt: "rewritten en",
+      modification_summary: "tighten thresholds",
+      rationale: "private reasoning that should not be public",
+    });
+
+    await runAutoresearchCycle({
+      cohort: "cohort_default",
+      maxMutations: 1,
+      deps: { llm: llm as never, api },
+      onLog,
+    });
+
+    expect(api.autoresearchRecordMutation).toHaveBeenCalledWith(
+      expect.not.objectContaining({
+        rationale: expect.any(String),
+      }),
+    );
+    expect(onLog).not.toHaveBeenCalledWith(expect.stringContaining("private reasoning"));
+  });
+
   it("returns and logs backtest-fill commands for missing private prompt runs", async () => {
     const missingRun = {
       kind: "mod" as const,
@@ -281,6 +307,52 @@ describe("runAutoresearchCycle", () => {
     expect(result.mutations[0]?.status).toBe("error");
     expect(result.mutations[0]?.error).toContain("invariant violated");
     expect(api.promptsWrite).not.toHaveBeenCalled();
+  });
+
+  it("redacts private paths and prompt fields from mutation errors", async () => {
+    const api = fakeBridgeApi();
+    const llm = new FakeLlm();
+    mockedMutate.mockRejectedValueOnce(
+      new Error(`failed at /tmp/private-prompts/prompts/mosaic/x.md with {"zh_prompt":"秘密正文"}`),
+    );
+
+    const result = await runAutoresearchCycle({
+      cohort: "cohort_default",
+      maxMutations: 1,
+      deps: { llm: llm as never, api },
+    });
+
+    expect(result.mutations[0]?.error).toContain("<private-prompt-repo>");
+    expect(result.mutations[0]?.error).toContain("<redacted-prompt-body>");
+    expect(result.mutations[0]?.error).not.toContain("/tmp/private-prompts");
+    expect(result.mutations[0]?.error).not.toContain("秘密正文");
+  });
+
+  it("redacts private paths from evaluation logs and result errors", async () => {
+    const api = fakeBridgeApi({
+      autoresearchEvaluatePending: vi.fn().mockResolvedValue({
+        results: [
+          {
+            version_id: 1,
+            status: "error",
+            detail: "loader failed at /tmp/private-prompts/prompts/mosaic/x.md",
+          },
+        ],
+      }),
+    });
+    const onLog = vi.fn();
+    const llm = new FakeLlm();
+
+    const result = await runAutoresearchCycle({
+      cohort: "cohort_default",
+      maxMutations: 1,
+      deps: { llm: llm as never, api },
+      onLog,
+    });
+
+    expect(result.mutations[0]?.error).toBe("loader failed at <private-prompt-repo>");
+    expect(onLog).toHaveBeenCalledWith("evaluation error: loader failed at <private-prompt-repo>");
+    expect(onLog).not.toHaveBeenCalledWith(expect.stringContaining("/tmp/private-prompts"));
   });
 
   it("passes forceAgent to trigger", async () => {

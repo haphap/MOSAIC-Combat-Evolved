@@ -9,6 +9,7 @@
 import type { Command } from "commander";
 import pc from "picocolors";
 import { BridgeApi, BridgeClient, RpcError } from "../../bridge/index.js";
+import { redactSensitiveText } from "../../security/redaction.js";
 
 interface InitPrivateRepoOpts {
   seedBaseline?: boolean;
@@ -43,8 +44,8 @@ export function registerPrompts(program: Command): void {
           seed_baseline: Boolean(opts.seedBaseline),
         });
         console.log(pc.green("private prompt repo initialized"));
-        console.log(`repo: ${result.repo_root}`);
-        console.log(`prompts: ${result.prompts_root}`);
+        console.log(`repo: ${redactSensitiveText(result.repo_root, [result.repo_root])}`);
+        console.log(`prompts: ${redactSensitiveText(result.prompts_root, [result.repo_root])}`);
         console.log(`commit: ${result.commit_hash}`);
         console.log(`mode: ${result.seeded ? "seeded baseline" : "sparse"}`);
       } catch (err) {
@@ -57,11 +58,11 @@ export function registerPrompts(program: Command): void {
 
 function reportError(err: unknown, client: BridgeClient): void {
   if (err instanceof RpcError) {
-    console.error(pc.red(`bridge error [${err.code}]: ${err.message}`));
+    console.error(pc.red(`bridge error [${err.code}]: ${redactSensitiveText(err.message)}`));
   } else {
-    console.error(pc.red(`error: ${(err as Error).message}`));
+    console.error(pc.red(`error: ${redactSensitiveText((err as Error).message)}`));
   }
   const tail = client.stderrTail?.trim();
-  if (tail) console.error(pc.dim(tail.slice(-1500)));
+  if (tail) console.error(pc.dim(redactSensitiveText(tail).slice(-1500)));
   process.exitCode = 1;
 }

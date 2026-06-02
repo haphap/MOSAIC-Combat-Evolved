@@ -12,6 +12,7 @@
  */
 
 import { readFile } from "node:fs/promises";
+import { redactSensitiveText } from "../../security/redaction.js";
 import {
   findPrivatePromptsRoot,
   type Language,
@@ -32,11 +33,13 @@ export class PromptNotFoundError extends Error {
     public readonly triedPaths: string[],
     cause?: unknown,
   ) {
+    const redactedTriedPaths = triedPaths.map((path) => redactSensitiveText(path));
     super(
       `Prompt not found for agent='${agent}', cohort='${cohort}', language='${language}'. ` +
-        `Tried: ${triedPaths.join(" | ")}`,
+        `Tried: ${redactedTriedPaths.join(" | ")}`,
       cause !== undefined ? { cause } : undefined,
     );
+    this.triedPaths = redactedTriedPaths;
   }
 }
 

@@ -26,6 +26,7 @@ import type { BacktestActionInput } from "../../bridge/index.js";
 import { BridgeApi, BridgeClient, RpcError } from "../../bridge/index.js";
 import { buildDailyCycleGraph } from "../../graph/daily_cycle.js";
 import { createLlmFromConfig, type LlmHandle } from "../../llm/factory.js";
+import { redactSensitiveText } from "../../security/redaction.js";
 import {
   buildFakeLlmHandle,
   enumerateTradingDays,
@@ -212,7 +213,9 @@ export function registerBacktestFill(program: Command): void {
             totalActions += actions.length;
             succeededDates.push(tradeDate);
           } catch (err) {
-            const msg = (err as Error).message;
+            const msg = redactSensitiveText((err as Error).message, [
+              ...(effectivePromptsRoot ? [effectivePromptsRoot] : []),
+            ]);
             errors.push({ date: tradeDate, err: msg });
           }
 
@@ -268,14 +271,14 @@ export function registerBacktestFill(program: Command): void {
         }
       } catch (err) {
         if (err instanceof RpcError) {
-          console.error(pc.red(`bridge error [${err.code}]: ${err.message}`));
+          console.error(pc.red(`bridge error [${err.code}]: ${redactSensitiveText(err.message)}`));
         } else {
-          console.error(pc.red(`error: ${(err as Error).message}`));
+          console.error(pc.red(`error: ${redactSensitiveText((err as Error).message)}`));
         }
         const tail = client.stderrTail.trim();
         if (tail) {
           console.error(pc.dim("\n--- bridge stderr (tail) ---"));
-          console.error(pc.dim(tail.slice(-2000)));
+          console.error(pc.dim(redactSensitiveText(tail).slice(-2000)));
         }
         process.exitCode = 1;
       } finally {
@@ -288,7 +291,10 @@ export function registerBacktestFill(program: Command): void {
           } catch (cleanupErr) {
             console.error(
               pc.yellow(
-                `warning: private prompt worktree cleanup failed: ${(cleanupErr as Error).message}`,
+                `warning: private prompt worktree cleanup failed: ${redactSensitiveText(
+                  (cleanupErr as Error).message,
+                  privatePromptWorktreePath ? [privatePromptWorktreePath] : [],
+                )}`,
               ),
             );
           }
