@@ -23,6 +23,9 @@ PROMPT_RE = re.compile(
 )
 
 
+_SYNC_MANIFEST = "prompts/mosaic/.baseline-sync.json"
+
+
 @dataclass(frozen=True)
 class DriftFinding:
     path: str
@@ -33,6 +36,7 @@ class DriftFinding:
     baseline_ref: str
     private_ref: str
     private_path: str
+    baseline_blob_sha: str
 
 
 @dataclass(frozen=True)
@@ -73,6 +77,71 @@ def _git_exists(repo: Path, ref: str, rel_path: str) -> bool:
         capture_output=True,
     )
     return proc.returncode == 0
+
+
+def _baseline_blob_sha(repo: Path, ref: str, rel_path: str) -> str | None:
+    """Content (blob) SHA of ``rel_path`` at ``ref`` — changes iff the file content does."""
+    proc = subprocess.run(
+        ["git", "rev-parse", f"{ref}:{rel_path}"],
+        cwd=str(repo),
+        text=True,
+        capture_output=True,
+    )
+    return proc.stdout.strip() if proc.returncode == 0 else None
+
+
+def _read_sync_manifest(private_root: Path, private_ref: str) -> dict[str, str]:
+    """Read ``{rel_path: baseline_blob_sha}`` reconciliation manifest from the private repo."""
+    proc = subprocess.run(
+        ["git", "show", f"{private_ref}:{_SYNC_MANIFEST}"],
+        cwd=str(private_root),
+        text=True,
+        capture_output=True,
+    )
+    if proc.returncode != 0:
+        return {}
+    try:
+        data = json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        return {}
+    return {k: v for k, v in data.items() if isinstance(k, str) and isinstance(v, str)}
+
+
+def _mark_synced(private_root: Path, findings: list[DriftFinding]) -> int:
+    """Record each finding's baseline blob SHA in the private repo manifest + commit.
+
+    After an operator reconciles an override with the new baseline, this marks it
+    synced so it stops alerting until the baseline content changes again.
+    """
+    manifest_path = private_root / _SYNC_MANIFEST
+    existing: dict[str, str] = {}
+    if manifest_path.exists():
+        try:
+            existing = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            existing = {}
+    marked = 0
+    for finding in findings:
+        if finding.baseline_blob_sha:
+            existing[finding.path] = finding.baseline_blob_sha
+            marked += 1
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(
+        json.dumps(existing, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    _run_git(private_root, ["add", "--", _SYNC_MANIFEST])
+    if _run_git(private_root, ["diff", "--cached", "--name-only", "--", _SYNC_MANIFEST]).strip():
+        _run_git(
+            private_root,
+            [
+                "-c", "user.name=mosaic-prompts",
+                "-c", "user.email=prompts@mosaic.local",
+                "commit", "-m", f"baseline-sync: mark {marked} override(s) reconciled",
+                "--", _SYNC_MANIFEST,
+            ],
+        )
+    return marked
 
 
 def _current_commit(repo: Path) -> str:
@@ -127,6 +196,7 @@ def check_drift(
     changed_paths = _changed_prompt_paths(project_root, base_ref)
     baseline_ref = _current_commit(project_root)
     private_commit = _run_git(private_root, ["rev-parse", private_ref]).strip()
+    manifest = _read_sync_manifest(private_root, private_ref)
 
     findings: list[DriftFinding] = []
     for rel_path in changed_paths:
@@ -134,6 +204,11 @@ def check_drift(
         if match is None:
             continue
         if not _git_exists(private_root, private_ref, rel_path):
+            continue
+        current_sha = _baseline_blob_sha(project_root, baseline_ref, rel_path) or ""
+        # Staleness, not mere existence: skip overrides already reconciled with
+        # this exact baseline content (recorded in the private repo manifest).
+        if current_sha and manifest.get(rel_path) == current_sha:
             continue
         findings.append(
             DriftFinding(
@@ -145,6 +220,7 @@ def check_drift(
                 baseline_ref=baseline_ref,
                 private_ref=private_commit,
                 private_path=str(private_root / rel_path),
+                baseline_blob_sha=current_sha,
             )
         )
     return findings
@@ -164,8 +240,9 @@ def _print_text(findings: list[DriftFinding]) -> None:
         print(f"  baseline={finding.baseline_ref[:12]} private={finding.private_ref[:12]}")
         print(f"  private_path={finding.private_path}")
         print(
-            "  action=create a private baseline-sync branch and merge the public baseline "
-            "tool/schema/contract changes into this override"
+            "  action=merge the public baseline tool/schema/contract changes into this override, "
+            "then re-run with --mark-synced to record it reconciled (stops alerting until the "
+            "baseline content changes again)"
         )
 
 
@@ -203,6 +280,16 @@ def main(argv: list[str] | None = None) -> int:
         help=(
             "Acknowledge the current drift findings and advance --state-file to project HEAD. "
             "This is the explicit scheduled-mode waiver path."
+        ),
+    )
+    parser.add_argument(
+        "--mark-synced",
+        action="store_true",
+        help=(
+            "Record the current findings' baseline blob SHAs in the private repo "
+            "manifest (and commit), marking those overrides reconciled. Per-path, "
+            "precise alternative to --accept: a marked override stops alerting "
+            "until the baseline content changes again."
         ),
     )
     parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
@@ -247,6 +334,17 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps([asdict(finding) for finding in findings], ensure_ascii=False, indent=2))
     else:
         _print_text(findings)
+
+    if args.mark_synced and findings:
+        try:
+            marked = _mark_synced(_repo_root(private_repo), findings)
+        except Exception as exc:
+            print(f"prompt drift check failed: {type(exc).__name__}: {exc}", file=sys.stderr)
+            return 2
+        if not args.json:
+            print(f"marked {marked} override(s) as reconciled in {_SYNC_MANIFEST}")
+        return 0
+
     if state_file is not None and (not findings or args.accept):
         try:
             _advance_state(state_file, project_repo)

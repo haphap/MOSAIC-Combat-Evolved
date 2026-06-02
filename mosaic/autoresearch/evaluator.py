@@ -20,6 +20,8 @@ from typing import Any, Optional
 logger = logging.getLogger(__name__)
 
 _TOOL_TOKEN_RE = re.compile(r"\bget_[A-Za-z0-9_]+\b")
+# Output-schema section header, e.g. ``## Output schema`` / ``## 输出 schema``.
+_OUTPUT_SECTION_RE = re.compile(r"^\s{0,3}#{1,6}\s+.*(?:output|输出)", re.IGNORECASE | re.MULTILINE)
 
 
 def ensure_baseline_run(
@@ -83,51 +85,93 @@ def _find_run_sharpe(store, run_id: int) -> Optional[float]:
 def scan_prompt_tool_tokens(text: str) -> set[str]:
     """Return get_* tool tokens mentioned in prompt text.
 
-    This is intentionally a narrow v1 compatibility gate: it catches prompt
-    references to removed/renamed tools, but not schema or role-contract drift.
+    Part of the compatibility gate: catches prompt references to removed/renamed
+    tools. Paired with the output-section check below; full field-level schema /
+    role-contract validation still needs the deferred declarative-metadata layer.
     """
     return set(_TOOL_TOKEN_RE.findall(text))
+
+
+def has_output_section(text: str) -> bool:
+    """True if the prompt retains an output-schema section header.
+
+    Every baseline prompt carries a ``## Output schema`` / ``## 输出 schema``
+    section that drives the parseable structured output the agent's schema
+    expects. A mutation that strips it is a structural contract regression
+    (the model loses its output-format instructions).
+    """
+    return _OUTPUT_SECTION_RE.search(text) is not None
 
 
 def validate_prompt_tool_compatibility(
     version: dict[str, Any],
     git,
     available_tools: Optional[set[str]] = None,
+    baseline_git=None,
 ) -> dict[str, Any]:
-    """Check a prompt commit against the current tools.list registry.
+    """Check a prompt commit against the current code (registry + contract).
 
-    Returns ``{"compatible": bool, "unknown_tools": [...], "referenced_tools": [...]}``.
-    The gate reads the committed prompt files at ``modification_commit_hash`` so
-    evaluation does not accidentally validate the floating working tree.
+    Two gates, both reading the committed files at ``modification_commit_hash``
+    (never the floating working tree):
+      * tool existence — referenced ``get_*`` tools must exist in ``tools.list``;
+      * output-section preservation — if the project baseline for this agent has
+        an output-schema section, the mutation must keep one (else the structured
+        output the agent parses is likely broken).
+
+    ``baseline_git`` reads the *project* repo (where the public baseline lives) at
+    ``base_commit_hash`` — required for the output-section gate on private
+    versions, whose ``git`` points at the private repo. When it can't be resolved,
+    the output gate fails open (only positive baseline evidence triggers it).
     """
-    from mosaic.bridge.handlers.prompts import _LANGS, _rel_path
+    from mosaic.bridge.handlers.prompts import _LANGS, _rel_path, _repo_root
     from mosaic.bridge.handlers.tools import tools_list
-    from mosaic.autoresearch.git_ops import GitError
+    from mosaic.autoresearch.git_ops import GitError, GitOps
 
     ref = version.get("modification_commit_hash")
     if not isinstance(ref, str) or not ref:
         raise ValueError("prompt version has no modification_commit_hash")
     agent = version["agent"]
     cohort = version["cohort"]
+    base_commit = version.get("base_commit_hash")
 
     if available_tools is None:
         available_tools = {tool["name"] for tool in tools_list({})}
 
+    if baseline_git is None and isinstance(base_commit, str) and base_commit:
+        try:
+            baseline_git = GitOps(_repo_root())
+        except GitError:
+            baseline_git = None
+
+    def _baseline_had_section(rel: str) -> bool:
+        if baseline_git is None or not base_commit:
+            return False  # can't verify → fail open (no false positives)
+        try:
+            return has_output_section(baseline_git.show_file(base_commit, rel))
+        except GitError:
+            return False
+
     referenced: set[str] = set()
     missing_files: list[str] = []
+    dropped_output_sections: list[str] = []
     for lang in _LANGS:
         rel = _rel_path(agent, cohort, lang)
         try:
-            referenced.update(scan_prompt_tool_tokens(git.show_file(ref, rel)))
+            mod_text = git.show_file(ref, rel)
         except GitError:
             missing_files.append(rel)
+            continue
+        referenced.update(scan_prompt_tool_tokens(mod_text))
+        if not has_output_section(mod_text) and _baseline_had_section(rel):
+            dropped_output_sections.append(rel)
 
     unknown = sorted(referenced - available_tools)
     return {
-        "compatible": not unknown and not missing_files,
+        "compatible": not unknown and not missing_files and not dropped_output_sections,
         "referenced_tools": sorted(referenced),
         "unknown_tools": unknown,
         "missing_files": missing_files,
+        "dropped_output_sections": dropped_output_sections,
     }
 
 

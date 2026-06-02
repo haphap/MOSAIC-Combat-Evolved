@@ -160,7 +160,7 @@ class TestPromptToolCompatibility(unittest.TestCase):
     def test_validate_known_tools(self):
         class FakeGit:
             def show_file(self, _ref: str, _path: str) -> str:
-                return "Use get_macro_data."
+                return "Use get_macro_data.\n## Output schema\n- x"
 
         result = validate_prompt_tool_compatibility(
             {
@@ -172,6 +172,54 @@ class TestPromptToolCompatibility(unittest.TestCase):
             available_tools={"get_macro_data"},
         )
         self.assertTrue(result["compatible"])
+
+    def test_validate_flags_dropped_output_section(self):
+        class FakeModGit:
+            # mutation stripped the output-schema section
+            def show_file(self, _ref: str, _path: str) -> str:
+                return "Use get_macro_data. (no output section)"
+
+        class FakeBaselineGit:
+            # project baseline still has it
+            def show_file(self, _ref: str, _path: str) -> str:
+                return "Use get_macro_data.\n## Output schema\n- field"
+
+        result = validate_prompt_tool_compatibility(
+            {
+                "cohort": "euphoria_2021",
+                "agent": "volatility",
+                "modification_commit_hash": "b" * 40,
+                "base_commit_hash": "a" * 40,
+            },
+            FakeModGit(),
+            available_tools={"get_macro_data"},
+            baseline_git=FakeBaselineGit(),
+        )
+        self.assertFalse(result["compatible"])
+        self.assertEqual(len(result["dropped_output_sections"]), 2)  # zh + en
+
+    def test_validate_allows_drop_when_baseline_lacks_section(self):
+        class FakeModGit:
+            def show_file(self, _ref: str, _path: str) -> str:
+                return "Use get_macro_data."
+
+        class FakeBaselineGit:
+            def show_file(self, _ref: str, _path: str) -> str:
+                return "Use get_macro_data."  # baseline never had a section
+
+        result = validate_prompt_tool_compatibility(
+            {
+                "cohort": "euphoria_2021",
+                "agent": "volatility",
+                "modification_commit_hash": "b" * 40,
+                "base_commit_hash": "a" * 40,
+            },
+            FakeModGit(),
+            available_tools={"get_macro_data"},
+            baseline_git=FakeBaselineGit(),
+        )
+        self.assertTrue(result["compatible"])
+        self.assertEqual(result["dropped_output_sections"], [])
 
 
 class TestComputeDelta(unittest.TestCase):

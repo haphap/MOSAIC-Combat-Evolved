@@ -423,12 +423,13 @@ def autoresearch_evaluate_pending(params: dict[str, Any]) -> dict[str, Any]:
             continue
 
         git = _git_ops_for_branch(v["branch_name"], v)
-        compatibility = validate_prompt_tool_compatibility(v, git)
+        compatibility = validate_prompt_tool_compatibility(v, git, baseline_git=_git_ops())
         if not compatibility["compatible"]:
             detail = (
                 "unknown_tools="
                 f"{compatibility['unknown_tools']}; "
-                f"missing_files={compatibility['missing_files']}"
+                f"missing_files={compatibility['missing_files']}; "
+                f"dropped_output_sections={compatibility.get('dropped_output_sections', [])}"
             )
             store.mark_version_incompatible(version_id, detail)
             store.append_log(version_id, "incompatible", detail)
