@@ -21,7 +21,11 @@ logger = logging.getLogger(__name__)
 
 _TOOL_TOKEN_RE = re.compile(r"\bget_[A-Za-z0-9_]+\b")
 # Output-schema section header, e.g. ``## Output schema`` / ``## 输出 schema``.
-_OUTPUT_SECTION_RE = re.compile(r"^\s{0,3}#{1,6}\s+.*(?:output|输出)", re.IGNORECASE | re.MULTILINE)
+# Anchored on "...output schema" / "...输出 schema" so unrelated headers
+# ("Tool output format", "输出语言设置") don't count as the output gate.
+_OUTPUT_SECTION_RE = re.compile(
+    r"^\s{0,3}#{1,6}\s+.*(?:output|输出)\s*schema", re.IGNORECASE | re.MULTILINE
+)
 
 
 def ensure_baseline_run(
@@ -118,14 +122,15 @@ def validate_prompt_tool_compatibility(
         an output-schema section, the mutation must keep one (else the structured
         output the agent parses is likely broken).
 
-    ``baseline_git`` reads the *project* repo (where the public baseline lives) at
-    ``base_commit_hash`` — required for the output-section gate on private
-    versions, whose ``git`` points at the private repo. When it can't be resolved,
-    the output gate fails open (only positive baseline evidence triggers it).
+    Callers pass ``baseline_git`` = the *project* repo (where the public baseline
+    lives); the gate reads the baseline at ``base_commit_hash``. This is required
+    for private versions, whose ``git`` points at the private repo. When
+    ``baseline_git`` is None or can't read the file, the output gate fails open
+    (only positive baseline evidence triggers a finding).
     """
-    from mosaic.bridge.handlers.prompts import _LANGS, _rel_path, _repo_root
+    from mosaic.bridge.handlers.prompts import _LANGS, _rel_path
     from mosaic.bridge.handlers.tools import tools_list
-    from mosaic.autoresearch.git_ops import GitError, GitOps
+    from mosaic.autoresearch.git_ops import GitError
 
     ref = version.get("modification_commit_hash")
     if not isinstance(ref, str) or not ref:
@@ -136,12 +141,6 @@ def validate_prompt_tool_compatibility(
 
     if available_tools is None:
         available_tools = {tool["name"] for tool in tools_list({})}
-
-    if baseline_git is None and isinstance(base_commit, str) and base_commit:
-        try:
-            baseline_git = GitOps(_repo_root())
-        except GitError:
-            baseline_git = None
 
     def _baseline_had_section(rel: str) -> bool:
         if baseline_git is None or not base_commit:

@@ -9,6 +9,7 @@ from tempfile import TemporaryDirectory
 from mosaic.autoresearch.evaluator import (
     compute_delta,
     ensure_baseline_run,
+    has_output_section,
     scan_prompt_tool_tokens,
     validate_prompt_tool_compatibility,
 )
@@ -129,6 +130,15 @@ class TestEnsureBaselineRun(unittest.TestCase):
 
 class TestPromptToolCompatibility(unittest.TestCase):
     """Tests for the registry-scan compatibility gate."""
+
+    def test_has_output_section_is_anchored_on_schema(self):
+        # real headers match
+        self.assertTrue(has_output_section("## Output schema\n- x"))
+        self.assertTrue(has_output_section("## 输出 schema\n- x"))
+        self.assertTrue(has_output_section("### output  schema"))
+        # unrelated headers containing output/输出 do NOT count as the gate
+        self.assertFalse(has_output_section("## Tool output format"))
+        self.assertFalse(has_output_section("## 输出语言设置"))
 
     def test_scan_prompt_tool_tokens(self):
         tokens = scan_prompt_tool_tokens(

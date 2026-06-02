@@ -343,6 +343,9 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         if not args.json:
             print(f"marked {marked} override(s) as reconciled in {_SYNC_MANIFEST}")
+        # Intentional short-circuit: don't advance --state-file here. The manifest
+        # now records these overrides as reconciled, so the next run sees them as
+        # synced (skipped) and, if nothing else drifts, advances the state cleanly.
         return 0
 
     if state_file is not None and (not findings or args.accept):
