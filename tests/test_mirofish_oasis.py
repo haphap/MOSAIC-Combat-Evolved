@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import unittest
 import urllib.error
 from unittest.mock import patch
@@ -50,12 +51,15 @@ def _happy_router(report_md=_REPORT):
             "/api/simulation/create": {"data": {"simulation_id": "sim_1"}},
             "/api/simulation/prepare": {"data": {"task_id": "t_prep"}},
             "/api/simulation/prepare/status": {"data": {"status": "completed"}},
+            "/api/simulation/start": {"data": {"runner_status": "running"}},
             "/api/report/generate": {"data": {"task_id": "t_gen"}},
             "/api/report/generate/status": {"data": {"status": "completed", "report_id": "rep_1"}},
             "/api/report/rep_1": {"data": {"markdown_content": report_md, "outline": {}}},
         }
         if p.startswith("/api/graph/task/"):
             return _Resp({"data": {"status": "completed"}})
+        if p.endswith("/run-status"):
+            return _Resp({"success": True, "data": {"runner_status": "completed"}})
         if p in routes:
             return _Resp({"success": True, **routes[p]})
         return _Resp({"success": False, "error": f"unexpected {p}"}, status=404)
@@ -73,8 +77,11 @@ def _no_sleep():
 
 class TestOasisMultiStep(unittest.TestCase):
     def test_no_url_raises(self):
-        with self.assertRaises(MiroFishUnavailable) as ctx:
-            OasisMiroFishEngine(base_url="").generate_all_scenarios(None, 5, 1, None)
+        # explicitly unset so a repo .env (loaded by mosaic/__init__) can't leak a URL
+        with patch.dict("os.environ", clear=False):
+            os.environ.pop("MOSAIC_MIROFISH_URL", None)
+            with self.assertRaises(MiroFishUnavailable) as ctx:
+                OasisMiroFishEngine(base_url="").generate_all_scenarios(None, 5, 1, None)
         self.assertIn("MOSAIC_MIROFISH_URL", str(ctx.exception))
 
     def test_walks_full_pipeline_in_order(self):
@@ -90,6 +97,11 @@ class TestOasisMultiStep(unittest.TestCase):
         self.assertTrue(any(p.startswith("/api/graph/task/") for p in paths))
         self.assertIn("/api/simulation/create", paths)
         self.assertIn("/api/simulation/prepare", paths)
+        # the OASIS run happens after prepare and before the report
+        self.assertIn("/api/simulation/start", paths)
+        self.assertTrue(any(p.endswith("/run-status") for p in paths))
+        self.assertLess(paths.index("/api/simulation/prepare"), paths.index("/api/simulation/start"))
+        self.assertLess(paths.index("/api/simulation/start"), paths.index("/api/report/generate"))
         self.assertIn("/api/report/generate", paths)
         self.assertEqual(paths[-1], "/api/report/rep_1")
         self.assertEqual(out[0]["engine"], "oasis")
@@ -166,6 +178,47 @@ class TestOasisMultiStep(unittest.TestCase):
     def test_env_var_default_url(self):
         with patch.dict("os.environ", {"MOSAIC_MIROFISH_URL": "http://env-host:5001"}):
             self.assertEqual(OasisMiroFishEngine()._base_url, "http://env-host:5001")
+
+    def test_start_sends_max_rounds(self):
+        fake, _ = _happy_router()
+        bodies = {}
+
+        def capture(req, timeout=None):
+            if req.method == "POST" and req.data:
+                try:  # ontology/generate is multipart, not JSON — skip it
+                    bodies[req.selector] = json.loads(req.data.decode("utf-8"))
+                except (ValueError, UnicodeDecodeError):
+                    pass
+            return fake(req, timeout)
+
+        with _patch(capture), _no_sleep():
+            OasisMiroFishEngine(base_url="http://x", max_rounds=3).generate_all_scenarios(
+                None, 5, 1, ["base"]
+            )
+        self.assertEqual(bodies["/api/simulation/start"]["max_rounds"], 3)
+        self.assertEqual(bodies["/api/simulation/start"]["simulation_id"], "sim_1")
+
+    def test_run_failed_degrades(self):
+        def fake(req, timeout=None):
+            p = req.selector
+            if p.endswith("/run-status"):
+                return _Resp({"success": True, "data": {"runner_status": "failed"}})
+            base, _ = _happy_router()
+            return base(req, timeout)
+
+        with _patch(fake), _no_sleep():
+            with self.assertRaises(MiroFishUnavailable) as ctx:
+                OasisMiroFishEngine(base_url="http://x").generate_all_scenarios(None, 5, 1, None)
+        self.assertIn("failed", str(ctx.exception))
+
+    def test_skip_start_env_does_report_only(self):
+        fake, calls = _happy_router()
+        with patch.dict("os.environ", {"MOSAIC_MIROFISH_SKIP_START": "1"}):
+            with _patch(fake), _no_sleep():
+                OasisMiroFishEngine(base_url="http://x").generate_all_scenarios(None, 5, 1, ["base"])
+        paths = [p for _, p in calls]
+        self.assertNotIn("/api/simulation/start", paths)
+        self.assertFalse(any(p.endswith("/run-status") for p in paths))
 
 
 if __name__ == "__main__":  # pragma: no cover
