@@ -31,6 +31,13 @@ agents.
    - RISK_ON: VIX < 15 AND σ < 4 AND curve STEEPENING
    - NEUTRAL: anything else
 
+## Scoring boundary
+
+* Tool returns are current evidence only. Do not estimate or mention realized
+  forward returns in the JSON.
+* MOSAIC scorecard evaluates this agent later with persisted point-in-time
+  labels; your job is the as-of macro signal, not future P&L calculation.
+
 ## Output schema
 
 ```json

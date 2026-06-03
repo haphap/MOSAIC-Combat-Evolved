@@ -39,6 +39,13 @@ climate index) for the as_of_date window.
    real estate, youth unemployment) when property climate or OMO data
    signals stress on them — even if the latest policy news did not flag them.
 
+## Scoring boundary
+
+* Tool returns are current evidence only. Do not estimate or mention realized
+  forward returns in the JSON.
+* MOSAIC scorecard evaluates this agent later with persisted point-in-time
+  labels; your job is the as-of macro signal, not future P&L calculation.
+
 ## Output schema
 
 ```json

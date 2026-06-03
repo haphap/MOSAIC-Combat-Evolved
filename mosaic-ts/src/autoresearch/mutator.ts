@@ -223,6 +223,10 @@ async function describePerformance(
       return [
         `raw_macro_score_5d=${s.mean_raw_macro_score_5d?.toFixed(4) ?? "n/a"}`,
         `hit_rate_5d=${pct(s.hit_rate_5d)}`,
+        `label=${s.latest_label_type ?? "n/a"}`,
+        `primary=${pct(s.primary_label_rate)}`,
+        `fallback=${pct(s.fallback_label_rate)}`,
+        `missing=${pct(s.missing_label_rate)}`,
         `n_obs=${s.n_obs}`,
         `effective_macro_score_5d=${s.mean_effective_macro_score_5d ?? "null"}`,
         `influence_equal=${s.mean_influence_weight_equal ?? "null"}`,

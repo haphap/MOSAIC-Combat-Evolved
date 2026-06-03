@@ -32,6 +32,13 @@ sentiment + today's hot topics + the retail-vs-institutional divergence flag**.
    but main-funds net inflow. This is the most actionable upstream
    signal for superinvestor agents.
 
+## Scoring boundary
+
+* Tool returns are current evidence only. Do not estimate or mention realized
+  forward returns in the JSON.
+* MOSAIC scorecard evaluates this agent later with persisted point-in-time
+  labels; your job is the as-of macro signal, not future P&L calculation.
+
 ## Output schema
 
 ```json

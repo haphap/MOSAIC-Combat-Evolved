@@ -151,6 +151,63 @@ class TestScorecardScorePending:
             "macro_scored": 0, "macro_skipped_immature": 0, "macro_skipped_missing": 0,
         }
 
+    def test_runtime_macro_full_label_gate_is_passed_to_scorer(self, tmp_store, monkeypatch):
+        from datetime import date, timedelta
+        from unittest.mock import patch
+
+        d0 = "2024-01-02"
+        t5 = (date.fromisoformat(d0) + timedelta(days=5)).isoformat()
+        tmp_store.append_macro_signals_from_state(
+            {
+                "active_cohort": "cohort_default",
+                "as_of_date": d0,
+                "layer1_outputs": {
+                    "dollar": {
+                        "agent": "dollar",
+                        "dxy_trend": "WEAKENING",
+                        "confidence": 0.6,
+                    }
+                },
+                "layer1_consensus": {"stance": "BULLISH", "confidence": 0.6},
+            }
+        )
+
+        sc = importlib.import_module("mosaic.bridge.handlers.scorecard")
+        monkeypatch.setattr(
+            sc,
+            "_config",
+            lambda: {
+                "autoresearch": {
+                    "macro_agent_specific_labels_enabled": True,
+                    "macro_full_label_sources_enabled": True,
+                    "macro_neutral_band": 0.005,
+                }
+            },
+        )
+        with patch.multiple(
+            "mosaic.dataflows.calendar",
+            next_trading_day=lambda d, n: (date.fromisoformat(d) + timedelta(days=n)).isoformat(),
+            previous_trading_day=lambda d, n: (date.fromisoformat(d) - timedelta(days=n)).isoformat(),
+        ), patch(
+            "mosaic.scorecard.scorer._fetch_close",
+            lambda ts, day: {d0: 100.0, t5: 102.0}.get(day),
+        ), patch(
+            "mosaic.scorecard.scorer._fetch_benchmark_series",
+            lambda *a: [100.0, 101.0, 102.0],
+        ), patch(
+            "mosaic.scorecard.scorer._fetch_instrument_series",
+            lambda *a: [7.2, 7.1, 7.0],
+        ):
+            result = dispatch(
+                "scorecard.score_pending",
+                {"cohort": "cohort_default", "today": "2024-02-01"},
+            )
+
+        assert result["macro_scored"] == 1
+        with tmp_store._connect() as conn:
+            row = conn.execute("SELECT label_type FROM macro_signals").fetchone()
+        assert row["label_type"] == "cny_pressure_path_5d"
+
 
 # ===========================================================================
 # scorecard.list_skill

@@ -27,6 +27,7 @@ import os
 import sqlite3
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
@@ -246,7 +247,12 @@ CREATE TABLE IF NOT EXISTS macro_signals (
     label_type TEXT,                             -- e.g. benchmark_5d / benchmark_fallback_5d
     label_source_status TEXT,                    -- primary / fallback / missing / deferred
     label_value_5d REAL,                         -- raw value of the scoring label
+    terminal_return_5d REAL,
+    max_drawdown_5d REAL,
+    realized_volatility_5d REAL,
+    path_metric_5d REAL,
     benchmark_return_5d REAL,
+    source_series_id TEXT,
     realized_label INTEGER CHECK (realized_label IN (-1, 0, 1)),
     hit_5d INTEGER,                              -- 1 if vote == realized_label
     raw_macro_score_5d REAL,                     -- MVP primary score
@@ -256,6 +262,65 @@ CREATE TABLE IF NOT EXISTS macro_signals (
     prompt_sha256 TEXT,
     scored_at TEXT,                              -- NULL until the 5d window matures
     UNIQUE(cohort, agent, date)
+);
+
+CREATE TABLE IF NOT EXISTS macro_series (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    series_id TEXT NOT NULL,
+    source TEXT NOT NULL,
+    endpoint_name TEXT,
+    instrument TEXT,
+    date TEXT NOT NULL,
+    value REAL,
+    open REAL,
+    high REAL,
+    low REAL,
+    close REAL,
+    volume REAL,
+    metadata_json TEXT,
+    fetched_at TEXT,
+    as_of_date TEXT NOT NULL,
+    UNIQUE(series_id, date, as_of_date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_macro_series_series_date
+    ON macro_series(series_id, date, as_of_date);
+
+CREATE TABLE IF NOT EXISTS macro_documents (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    document_id TEXT NOT NULL,
+    source TEXT NOT NULL,
+    channel TEXT,
+    query TEXT,
+    title TEXT,
+    url TEXT,
+    published_at TEXT,
+    discovered_at TEXT NOT NULL,
+    content_hash TEXT NOT NULL,
+    content_excerpt TEXT,
+    agent_tags_json TEXT,
+    event_tags_json TEXT,
+    sentiment_score REAL,
+    quality_score REAL,
+    UNIQUE(content_hash, discovered_at)
+);
+
+CREATE INDEX IF NOT EXISTS idx_macro_documents_discovered
+    ON macro_documents(discovered_at);
+
+CREATE TABLE IF NOT EXISTS macro_label_sources (
+    agent TEXT NOT NULL,
+    label_type TEXT NOT NULL,
+    primary_series_id TEXT,
+    proxy_series_ids_json TEXT,
+    orientation_rule TEXT,
+    lookback_days INTEGER,
+    forward_horizon_trading_days INTEGER,
+    fallback_label TEXT,
+    availability_status TEXT,
+    implementation_status TEXT,
+    updated_at TEXT,
+    PRIMARY KEY(agent, label_type)
 );
 """
 
@@ -616,6 +681,11 @@ class ScorecardStore:
             self._ensure_column(conn, "backtest_runs", "code_commit_hash", "TEXT")
             self._ensure_column(conn, "macro_signals", "influence_weight_equal", "REAL")
             self._ensure_column(conn, "macro_signals", "effective_macro_score_5d", "REAL")
+            self._ensure_column(conn, "macro_signals", "terminal_return_5d", "REAL")
+            self._ensure_column(conn, "macro_signals", "max_drawdown_5d", "REAL")
+            self._ensure_column(conn, "macro_signals", "realized_volatility_5d", "REAL")
+            self._ensure_column(conn, "macro_signals", "path_metric_5d", "REAL")
+            self._ensure_column(conn, "macro_signals", "source_series_id", "TEXT")
             for column, ddl in (
                 ("layer", "TEXT"),
                 ("previous_weight", "REAL"),
@@ -814,12 +884,41 @@ class ScorecardStore:
                 for r in conn.execute(sql, params).fetchall()
             ]
 
+    def list_macro_signals(
+        self,
+        cohort: str,
+        *,
+        since_date: Optional[str] = None,
+        before_date: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
+        """Return raw macro signal rows, regardless of scoring status."""
+        sql = (
+            "SELECT id, cohort, agent, date, vote, confidence, label_type, "
+            "       label_source_status, label_value_5d, benchmark_return_5d, "
+            "       terminal_return_5d, max_drawdown_5d, realized_volatility_5d, "
+            "       path_metric_5d, source_series_id, realized_label, hit_5d, raw_macro_score_5d, "
+            "       influence_weight_equal, effective_macro_score_5d, scored_at "
+            "FROM macro_signals WHERE cohort = ?"
+        )
+        params: list[Any] = [cohort]
+        if since_date:
+            sql += " AND date >= ?"
+            params.append(since_date)
+        if before_date:
+            sql += " AND date <= ?"
+            params.append(before_date)
+        sql += " ORDER BY date, id"
+        with self._connect() as conn:
+            return [dict(r) for r in conn.execute(sql, params).fetchall()]
+
     def update_macro_scoring(self, row_id: int, fields: dict[str, Any]) -> None:
         """Fill macro scoring columns for one row. ``fields`` keys are column names."""
         allowed = {
-            "label_type", "label_source_status", "label_value_5d", "benchmark_return_5d",
-            "realized_label", "hit_5d", "raw_macro_score_5d", "influence_weight_equal",
-            "effective_macro_score_5d", "scored_at",
+            "label_type", "label_source_status", "label_value_5d", "terminal_return_5d",
+            "max_drawdown_5d", "realized_volatility_5d", "path_metric_5d",
+            "benchmark_return_5d", "source_series_id", "realized_label", "hit_5d",
+            "raw_macro_score_5d", "influence_weight_equal", "effective_macro_score_5d",
+            "scored_at",
         }
         sets = {k: v for k, v in fields.items() if k in allowed}
         if not sets:
@@ -835,7 +934,7 @@ class ScorecardStore:
         """Aggregate scored macro signals per agent (autoresearch macro skill)."""
         sql = (
             "SELECT agent, vote, hit_5d, raw_macro_score_5d, effective_macro_score_5d, "
-            "influence_weight_equal, date "
+            "influence_weight_equal, label_type, label_source_status, date "
             "FROM macro_signals WHERE cohort = ? AND scored_at IS NOT NULL"
         )
         params: list[Any] = [cohort]
@@ -863,6 +962,19 @@ class ScorecardStore:
                 if r["influence_weight_equal"] is not None
             ]
             hits = [r["hit_5d"] for r in recs if r["hit_5d"] is not None]
+            label_counts: dict[str, int] = {}
+            status_counts: dict[str, int] = {}
+            latest_label_type = None
+            latest_date = max((r["date"] for r in recs), default=None)
+            for r in recs:
+                if r["label_type"]:
+                    label_counts[str(r["label_type"])] = label_counts.get(str(r["label_type"]), 0) + 1
+                if r["label_source_status"]:
+                    status = str(r["label_source_status"])
+                    status_counts[status] = status_counts.get(status, 0) + 1
+                if latest_date is not None and r["date"] == latest_date and r["label_type"]:
+                    latest_label_type = str(r["label_type"])
+            status_total = sum(status_counts.values())
             out.append(
                 {
                     "agent": agent,
@@ -871,8 +983,20 @@ class ScorecardStore:
                     "mean_effective_macro_score_5d": (sum(effs) / len(effs)) if effs else None,
                     "hit_rate_5d": (sum(hits) / len(hits)) if hits else None,
                     "mean_influence_weight_equal": (sum(infs) / len(infs)) if infs else None,
+                    "latest_label_type": latest_label_type,
+                    "label_type_counts": label_counts,
+                    "label_source_status_counts": status_counts,
+                    "primary_label_rate": (
+                        status_counts.get("primary", 0) / status_total
+                    ) if status_total else None,
+                    "fallback_label_rate": (
+                        status_counts.get("fallback", 0) / status_total
+                    ) if status_total else None,
+                    "missing_label_rate": (
+                        status_counts.get("missing", 0) / status_total
+                    ) if status_total else None,
                     "sharpe_window": _sharpe(raws),
-                    "latest_signal_date": max((r["date"] for r in recs), default=None),
+                    "latest_signal_date": latest_date,
                 }
             )
         out.sort(key=lambda d: d["agent"])
@@ -888,7 +1012,8 @@ class ScorecardStore:
         sql = (
             "SELECT id, cohort, agent, date, vote, confidence, label_type, "
             "       label_source_status, label_value_5d, benchmark_return_5d, "
-            "       realized_label, hit_5d, raw_macro_score_5d, "
+            "       terminal_return_5d, max_drawdown_5d, realized_volatility_5d, "
+            "       path_metric_5d, source_series_id, realized_label, hit_5d, raw_macro_score_5d, "
             "       influence_weight_equal, effective_macro_score_5d, scored_at "
             "FROM macro_signals "
             "WHERE cohort = ? AND scored_at IS NOT NULL AND raw_macro_score_5d IS NOT NULL"
@@ -903,6 +1028,226 @@ class ScorecardStore:
         sql += " ORDER BY date, id"
         with self._connect() as conn:
             return [dict(r) for r in conn.execute(sql, params).fetchall()]
+
+    # ── macro data-source stores (plan: macro_series / macro_documents / label sources)
+
+    @staticmethod
+    def _json_or_none(value: Any) -> Optional[str]:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            return value
+        return json.dumps(value, ensure_ascii=False, sort_keys=True)
+
+    @staticmethod
+    def _now_iso() -> str:
+        return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+    def append_macro_series(self, rows: dict[str, Any] | list[dict[str, Any]]) -> int:
+        """Upsert point-in-time macro series observations."""
+        batch = [rows] if isinstance(rows, dict) else list(rows)
+        if not batch:
+            return 0
+        now = self._now_iso()
+        norm_rows = []
+        for row in batch:
+            norm_rows.append(
+                {
+                    "series_id": row["series_id"],
+                    "source": row["source"],
+                    "endpoint_name": row.get("endpoint_name"),
+                    "instrument": row.get("instrument"),
+                    "date": row["date"],
+                    "value": row.get("value"),
+                    "open": row.get("open"),
+                    "high": row.get("high"),
+                    "low": row.get("low"),
+                    "close": row.get("close"),
+                    "volume": row.get("volume"),
+                    "metadata_json": self._json_or_none(row.get("metadata_json", row.get("metadata"))),
+                    "fetched_at": row.get("fetched_at") or now,
+                    "as_of_date": row.get("as_of_date") or row["date"],
+                }
+            )
+        with self._connect() as conn:
+            conn.executemany(
+                """
+                INSERT INTO macro_series (
+                    series_id, source, endpoint_name, instrument, date, value,
+                    open, high, low, close, volume, metadata_json, fetched_at, as_of_date
+                ) VALUES (
+                    :series_id, :source, :endpoint_name, :instrument, :date, :value,
+                    :open, :high, :low, :close, :volume, :metadata_json, :fetched_at, :as_of_date
+                )
+                ON CONFLICT(series_id, date, as_of_date) DO UPDATE SET
+                    source = excluded.source,
+                    endpoint_name = excluded.endpoint_name,
+                    instrument = excluded.instrument,
+                    value = excluded.value,
+                    open = excluded.open,
+                    high = excluded.high,
+                    low = excluded.low,
+                    close = excluded.close,
+                    volume = excluded.volume,
+                    metadata_json = excluded.metadata_json,
+                    fetched_at = excluded.fetched_at
+                """,
+                norm_rows,
+            )
+        return len(norm_rows)
+
+    def list_macro_series(
+        self,
+        series_id: str,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        as_of_date: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
+        sql = "SELECT * FROM macro_series WHERE series_id = ?"
+        params: list[Any] = [series_id]
+        if start_date:
+            sql += " AND date >= ?"
+            params.append(start_date)
+        if end_date:
+            sql += " AND date <= ?"
+            params.append(end_date)
+        if as_of_date:
+            sql += " AND as_of_date <= ?"
+            params.append(as_of_date)
+        sql += " ORDER BY date, as_of_date"
+        with self._connect() as conn:
+            return [dict(row) for row in conn.execute(sql, params).fetchall()]
+
+    def append_macro_documents(self, rows: dict[str, Any] | list[dict[str, Any]]) -> int:
+        """Upsert OpenCLI/Tushare document observations by content hash/discovery time."""
+        batch = [rows] if isinstance(rows, dict) else list(rows)
+        if not batch:
+            return 0
+        now = self._now_iso()
+        norm_rows = []
+        for row in batch:
+            norm_rows.append(
+                {
+                    "document_id": row.get("document_id") or row["content_hash"],
+                    "source": row["source"],
+                    "channel": row.get("channel"),
+                    "query": row.get("query"),
+                    "title": row.get("title"),
+                    "url": row.get("url"),
+                    "published_at": row.get("published_at"),
+                    "discovered_at": row.get("discovered_at") or now,
+                    "content_hash": row["content_hash"],
+                    "content_excerpt": row.get("content_excerpt"),
+                    "agent_tags_json": self._json_or_none(row.get("agent_tags_json", row.get("agent_tags"))),
+                    "event_tags_json": self._json_or_none(row.get("event_tags_json", row.get("event_tags"))),
+                    "sentiment_score": row.get("sentiment_score"),
+                    "quality_score": row.get("quality_score"),
+                }
+            )
+        with self._connect() as conn:
+            conn.executemany(
+                """
+                INSERT INTO macro_documents (
+                    document_id, source, channel, query, title, url, published_at,
+                    discovered_at, content_hash, content_excerpt, agent_tags_json,
+                    event_tags_json, sentiment_score, quality_score
+                ) VALUES (
+                    :document_id, :source, :channel, :query, :title, :url, :published_at,
+                    :discovered_at, :content_hash, :content_excerpt, :agent_tags_json,
+                    :event_tags_json, :sentiment_score, :quality_score
+                )
+                ON CONFLICT(content_hash, discovered_at) DO UPDATE SET
+                    document_id = excluded.document_id,
+                    source = excluded.source,
+                    channel = excluded.channel,
+                    query = excluded.query,
+                    title = excluded.title,
+                    url = excluded.url,
+                    published_at = excluded.published_at,
+                    content_excerpt = excluded.content_excerpt,
+                    agent_tags_json = excluded.agent_tags_json,
+                    event_tags_json = excluded.event_tags_json,
+                    sentiment_score = excluded.sentiment_score,
+                    quality_score = excluded.quality_score
+                """,
+                norm_rows,
+            )
+        return len(norm_rows)
+
+    def list_macro_documents(
+        self,
+        *,
+        source: Optional[str] = None,
+        agent: Optional[str] = None,
+        discovered_at_lte: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
+        sql = "SELECT * FROM macro_documents WHERE 1 = 1"
+        params: list[Any] = []
+        if source:
+            sql += " AND source = ?"
+            params.append(source)
+        if agent:
+            sql += " AND agent_tags_json LIKE ?"
+            params.append(f"%{agent}%")
+        if discovered_at_lte:
+            sql += " AND discovered_at <= ?"
+            params.append(discovered_at_lte)
+        sql += " ORDER BY discovered_at, id"
+        with self._connect() as conn:
+            return [dict(row) for row in conn.execute(sql, params).fetchall()]
+
+    def upsert_macro_label_source(self, row: dict[str, Any]) -> None:
+        now = self._now_iso()
+        payload = {
+            "agent": row["agent"],
+            "label_type": row["label_type"],
+            "primary_series_id": row.get("primary_series_id"),
+            "proxy_series_ids_json": self._json_or_none(
+                row.get("proxy_series_ids_json", row.get("proxy_series_ids"))
+            ),
+            "orientation_rule": row.get("orientation_rule"),
+            "lookback_days": row.get("lookback_days"),
+            "forward_horizon_trading_days": row.get("forward_horizon_trading_days"),
+            "fallback_label": row.get("fallback_label"),
+            "availability_status": row.get("availability_status"),
+            "implementation_status": row.get("implementation_status"),
+            "updated_at": row.get("updated_at") or now,
+        }
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO macro_label_sources (
+                    agent, label_type, primary_series_id, proxy_series_ids_json,
+                    orientation_rule, lookback_days, forward_horizon_trading_days,
+                    fallback_label, availability_status, implementation_status, updated_at
+                ) VALUES (
+                    :agent, :label_type, :primary_series_id, :proxy_series_ids_json,
+                    :orientation_rule, :lookback_days, :forward_horizon_trading_days,
+                    :fallback_label, :availability_status, :implementation_status, :updated_at
+                )
+                ON CONFLICT(agent, label_type) DO UPDATE SET
+                    primary_series_id = excluded.primary_series_id,
+                    proxy_series_ids_json = excluded.proxy_series_ids_json,
+                    orientation_rule = excluded.orientation_rule,
+                    lookback_days = excluded.lookback_days,
+                    forward_horizon_trading_days = excluded.forward_horizon_trading_days,
+                    fallback_label = excluded.fallback_label,
+                    availability_status = excluded.availability_status,
+                    implementation_status = excluded.implementation_status,
+                    updated_at = excluded.updated_at
+                """,
+                payload,
+            )
+
+    def list_macro_label_sources(self, agent: Optional[str] = None) -> list[dict[str, Any]]:
+        sql = "SELECT * FROM macro_label_sources"
+        params: list[Any] = []
+        if agent:
+            sql += " WHERE agent = ?"
+            params.append(agent)
+        sql += " ORDER BY agent, label_type"
+        with self._connect() as conn:
+            return [dict(row) for row in conn.execute(sql, params).fetchall()]
 
     def list_scored(
         self,

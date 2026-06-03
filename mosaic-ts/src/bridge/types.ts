@@ -118,7 +118,7 @@ export interface MosaicConfig {
     inject_context?: boolean;
   };
 
-  // ----- Darwinian weights (Phase 9 gated rewrite) -----
+  // ----- Darwinian weights (Phase 9 evolution, rollback-gated) -----
   darwinian?: {
     weight_rewrite_enabled?: boolean;
     weight_start?: number;
@@ -305,6 +305,12 @@ export interface MacroSkillRow {
   mean_effective_macro_score_5d: number | null;
   hit_rate_5d: number | null;
   mean_influence_weight_equal: number | null;
+  latest_label_type: string | null;
+  label_type_counts: Record<string, number>;
+  label_source_status_counts: Record<string, number>;
+  primary_label_rate: number | null;
+  fallback_label_rate: number | null;
+  missing_label_rate: number | null;
   sharpe_window: number | null;
   latest_signal_date: string | null;
 }

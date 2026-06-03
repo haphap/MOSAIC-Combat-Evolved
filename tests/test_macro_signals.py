@@ -247,14 +247,31 @@ class TestMacroAgentSpecificLabels(unittest.TestCase):
         rows = list_macro_label_inventory()
         self.assertGreaterEqual(len(rows), 20)
         by_key = {(r["agent"], r["label_type"]): r for r in rows}
+        expected_primary = {
+            "central_bank": "rate_sensitive_path_5d",
+            "china": "china_growth_proxy_path_5d",
+            "geopolitical": "risk_off_path_5d",
+            "dollar": "cny_pressure_path_5d",
+            "yield_curve": "curve_sensitive_path_5d",
+            "commodities": "commodity_basket_path_5d",
+            "volatility": "volatility_shock_path_5d",
+            "emerging_markets": "em_hk_relative_path_5d",
+            "news_sentiment": "sentiment_followthrough_path_5d",
+            "institutional_flow": "flow_followthrough_path_5d",
+        }
+        for agent, label_type in expected_primary.items():
+            self.assertTrue(by_key[(agent, label_type)]["available_now"])
+            self.assertEqual(
+                by_key[(agent, label_type)]["implementation_status"],
+                "implemented",
+            )
+            self.assertEqual(primary_label_for_agent(agent).label_type, label_type)
         self.assertTrue(by_key[("volatility", "max_drawdown_5d")]["available_now"])
         self.assertEqual(
             by_key[("institutional_flow", "flow_continuation_5d")]["implementation_status"],
             "deferred",
         )
         self.assertIn("主力资金流", by_key[("institutional_flow", "flow_continuation_5d")]["data_source"])
-        self.assertEqual(primary_label_for_agent("volatility").label_type, "max_drawdown_5d")
-        self.assertIsNone(primary_label_for_agent("dollar"))
 
     def test_available_agent_specific_label_is_primary(self):
         import os
@@ -287,16 +304,21 @@ class TestMacroAgentSpecificLabels(unittest.TestCase):
         with _cal_patch(), \
              patch("mosaic.scorecard.scorer._fetch_close", fake_close), \
              patch("mosaic.scorecard.scorer._fetch_benchmark_series", fake_series):
-            MacroScorer(store, benchmark="000300.SH").score_pending("cohort_default", "2024-02-01")
+            MacroScorer(store, benchmark="000300.SH", full_label_sources_enabled=True).score_pending("cohort_default", "2024-02-01")
 
         with store._connect() as conn:
             row = conn.execute(
-                "SELECT label_type, label_source_status, label_value_5d, "
-                "realized_label, hit_5d, raw_macro_score_5d FROM macro_signals"
+                "SELECT label_type, label_source_status, label_value_5d, terminal_return_5d, "
+                "max_drawdown_5d, path_metric_5d, source_series_id, realized_label, "
+                "hit_5d, raw_macro_score_5d FROM macro_signals"
             ).fetchone()
-        self.assertEqual(row["label_type"], "max_drawdown_5d")
+        self.assertEqual(row["label_type"], "volatility_shock_path_5d")
         self.assertEqual(row["label_source_status"], "primary")
+        self.assertIsNotNone(row["source_series_id"])
+        self.assertLess(row["max_drawdown_5d"], -0.005)
         self.assertLess(row["label_value_5d"], -0.005)
+        self.assertEqual(row["label_value_5d"], row["path_metric_5d"])
+        self.assertLess(row["terminal_return_5d"], 0)
         self.assertEqual(row["realized_label"], -1)
         self.assertEqual(row["hit_5d"], 1)
         self.assertGreater(row["raw_macro_score_5d"], 0)
@@ -329,16 +351,16 @@ class TestMacroAgentSpecificLabels(unittest.TestCase):
         with _cal_patch(), \
              patch("mosaic.scorecard.scorer._fetch_close", fake_close), \
              patch("mosaic.scorecard.scorer._fetch_benchmark_series", lambda *a: [100.0]):
-            MacroScorer(store, benchmark="000300.SH").score_pending("cohort_default", "2024-02-01")
+            MacroScorer(store, benchmark="000300.SH", full_label_sources_enabled=True).score_pending("cohort_default", "2024-02-01")
 
         with store._connect() as conn:
             row = conn.execute(
                 "SELECT label_type, label_source_status FROM macro_signals"
             ).fetchone()
-        self.assertEqual(row["label_type"], "max_drawdown_5d")
+        self.assertEqual(row["label_type"], "volatility_shock_path_5d")
         self.assertEqual(row["label_source_status"], "fallback")
 
-    def test_unavailable_agent_label_records_benchmark_fallback(self):
+    def test_unavailable_agent_label_records_primary_label_with_fallback_status(self):
         import os
         import tempfile
 
@@ -359,15 +381,81 @@ class TestMacroAgentSpecificLabels(unittest.TestCase):
 
         with _cal_patch(), \
              patch("mosaic.scorecard.scorer._fetch_close", fake_close), \
-             patch("mosaic.scorecard.scorer._fetch_benchmark_series", lambda *a: [100, 101, 102]):
-            MacroScorer(store, benchmark="000300.SH").score_pending("cohort_default", "2024-02-01")
+             patch("mosaic.scorecard.scorer._fetch_benchmark_series", lambda *a: [100, 101, 102]), \
+             patch("mosaic.scorecard.scorer._fetch_instrument_series", lambda *a: []):
+            MacroScorer(store, benchmark="000300.SH", full_label_sources_enabled=True).score_pending("cohort_default", "2024-02-01")
 
         with store._connect() as conn:
             row = conn.execute(
                 "SELECT label_type, label_source_status FROM macro_signals"
             ).fetchone()
-        self.assertEqual(row["label_type"], BENCHMARK_FALLBACK_LABEL)
+        self.assertEqual(row["label_type"], "cny_pressure_path_5d")
         self.assertEqual(row["label_source_status"], "fallback")
+
+    def test_all_macro_agents_score_with_primary_path_label(self):
+        import os
+        import tempfile
+
+        d0 = "2024-01-02"
+        outputs = {
+            "central_bank": {"agent": "central_bank", "stance": "ACCOMMODATIVE", "confidence": 0.7},
+            "china": {"agent": "china", "policy_direction": "PRO_GROWTH", "confidence": 0.7},
+            "geopolitical": {"agent": "geopolitical", "escalation_level": 2, "confidence": 0.7},
+            "dollar": {"agent": "dollar", "dxy_trend": "WEAKENING", "confidence": 0.7},
+            "yield_curve": {"agent": "yield_curve", "recession_signal": "GREEN", "confidence": 0.7},
+            "commodities": {"agent": "commodities", "china_demand_signal": "ACCELERATING", "confidence": 0.7},
+            "volatility": {"agent": "volatility", "regime_filter": "RISK_ON", "confidence": 0.7},
+            "emerging_markets": {"agent": "emerging_markets", "em_relative": "OUTPERFORMING", "confidence": 0.7},
+            "news_sentiment": {"agent": "news_sentiment", "retail_sentiment_score": 0.5, "confidence": 0.7},
+            "institutional_flow": {
+                "agent": "institutional_flow",
+                "sectors_in_out": [{"net_amount_cny": 1500}],
+                "confidence": 0.7,
+            },
+        }
+        expected_labels = {
+            "central_bank": "rate_sensitive_path_5d",
+            "china": "china_growth_proxy_path_5d",
+            "geopolitical": "risk_off_path_5d",
+            "dollar": "cny_pressure_path_5d",
+            "yield_curve": "curve_sensitive_path_5d",
+            "commodities": "commodity_basket_path_5d",
+            "volatility": "volatility_shock_path_5d",
+            "emerging_markets": "em_hk_relative_path_5d",
+            "news_sentiment": "sentiment_followthrough_path_5d",
+            "institutional_flow": "flow_followthrough_path_5d",
+        }
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        store = ScorecardStore(db_path=os.path.join(tmp.name, "t.db"))
+        store.append_macro_signals_from_state(_state(outputs, date=d0))
+        t5 = _ntd(d0, 5)
+
+        def fake_close(ts, date):
+            return {d0: 100.0, t5: 102.0}.get(date)
+
+        dated = [(d0, 100.0), (_ntd(d0, 1), 101.0), (t5, 102.0)]
+        with _cal_patch(), \
+             patch("mosaic.scorecard.scorer._fetch_close", fake_close), \
+             patch("mosaic.scorecard.scorer._fetch_benchmark_series", lambda *a: [100, 101, 102]), \
+             patch("mosaic.scorecard.scorer._fetch_instrument_series", lambda *a: [100, 101, 102]), \
+             patch("mosaic.scorecard.scorer._fetch_benchmark_series_dated", lambda *a: dated), \
+             patch("mosaic.scorecard.scorer._fetch_instrument_series_dated", lambda *a: dated):
+            out = MacroScorer(store, benchmark="000300.SH", full_label_sources_enabled=True).score_pending("cohort_default", "2024-02-01")
+
+        self.assertEqual(out["macro_scored"], 10)
+        with store._connect() as conn:
+            rows = conn.execute(
+                "SELECT agent, label_type, label_source_status, path_metric_5d, source_series_id "
+                "FROM macro_signals ORDER BY agent"
+            ).fetchall()
+        self.assertEqual({r["agent"] for r in rows}, set(expected_labels))
+        for row in rows:
+            self.assertEqual(row["label_type"], expected_labels[row["agent"]])
+            self.assertNotEqual(row["label_type"], BENCHMARK_FALLBACK_LABEL)
+            self.assertIn(row["label_source_status"], {"primary", "fallback"})
+            self.assertIsNotNone(row["path_metric_5d"])
+            self.assertIsNotNone(row["source_series_id"])
 
 
 class TestMacroInfluenceDiagnostics(unittest.TestCase):

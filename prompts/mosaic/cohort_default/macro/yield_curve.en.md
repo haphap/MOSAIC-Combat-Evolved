@@ -31,6 +31,13 @@ recession signal" view.
    latest row. CN-US negative spreads are normal in 2024+; sign + magnitude
    both matter.
 
+## Scoring boundary
+
+* Tool returns are current evidence only. Do not estimate or mention realized
+  forward returns in the JSON.
+* MOSAIC scorecard evaluates this agent later with persisted point-in-time
+  labels; your job is the as-of macro signal, not future P&L calculation.
+
 ## Output schema
 
 ```json

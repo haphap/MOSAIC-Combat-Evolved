@@ -26,6 +26,12 @@ A 股贸易敏感板块（半导体设备、出口型制造、能源化工）的
 4. **`trade_impact` 必须量化**：哪个板块受冲击多少（百分点）、哪个相关
    ETF 风险溢价上升多少。
 
+## 评分边界
+
+* 工具返回的数据只作为当日 evidence。不要在 JSON 中预测或填写未来实际收益。
+* MOSAIC scorecard 会在之后用已持久化、point-in-time 的 label 评分；你的任务是输出
+  as-of 宏观信号，不是计算未来 P&L。
+
 ## 输出 schema
 
 ```json

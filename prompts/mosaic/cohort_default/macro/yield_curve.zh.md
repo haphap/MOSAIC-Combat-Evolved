@@ -28,6 +28,12 @@
 4. **量化 `cn_us_spread_bps`**：来自 get_us_china_spread 的当前最新值。
    2024+ 中美利差为负是常态，sign + magnitude 都重要。
 
+## 评分边界
+
+* 工具返回的数据只作为当日 evidence。不要在 JSON 中预测或填写未来实际收益。
+* MOSAIC scorecard 会在之后用已持久化、point-in-time 的 label 评分；你的任务是输出
+  as-of 宏观信号，不是计算未来 P&L。
+
 ## 输出 schema
 
 ```json

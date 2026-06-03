@@ -30,6 +30,13 @@ and produce quantified, evidence-grounded key changes.
    next material policy window or the literal token `unknown`. No "later
    this month", "soon", etc.
 
+## Scoring boundary
+
+* Tool returns are current evidence only. Do not estimate or mention realized
+  forward returns in the JSON.
+* MOSAIC scorecard evaluates this agent later with persisted point-in-time
+  labels; your job is the as-of macro signal, not future P&L calculation.
+
 ## Output schema
 
 The final reply must populate this JSON shape:

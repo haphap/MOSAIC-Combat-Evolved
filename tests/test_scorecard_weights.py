@@ -16,6 +16,9 @@ from mosaic.scorecard import (
 )
 
 
+LEGACY_CONFIG = {"darwinian": {"weight_rewrite_enabled": False}}
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -114,6 +117,10 @@ def _seed_alpha_series(
         )
 
 
+def _compute_legacy_weights(store: ScorecardStore, cohort: str, today: str) -> dict:
+    return compute_weights(store, cohort, today, config=LEGACY_CONFIG)
+
+
 # ---------------------------------------------------------------------------
 # Empty / sparse data
 # ---------------------------------------------------------------------------
@@ -121,7 +128,7 @@ def _seed_alpha_series(
 
 class TestSparseData:
     def test_empty_store_writes_nothing(self, store: ScorecardStore):
-        out = compute_weights(store, "cohort_default", "2024-07-31")
+        out = _compute_legacy_weights(store, "cohort_default", "2024-07-31")
         assert out["written"] == 0
         assert out["agents_uniform_fallback"] == 0
 
@@ -133,7 +140,7 @@ class TestSparseData:
             agent="ackman",
             alphas=[0.01, 0.02, 0.0, 0.005],
         )
-        out = compute_weights(store, "cohort_default", "2024-07-31")
+        out = _compute_legacy_weights(store, "cohort_default", "2024-07-31")
         assert out["written"] == 1
         assert out["agents_uniform_fallback"] == 1
 
@@ -155,7 +162,7 @@ class TestSharpeAndWeight:
         # Use a slight variance so Sharpe is positive.
         alphas = [0.010, 0.011, 0.009, 0.012, 0.008, 0.011, 0.010]
         _seed_alpha_series(store, cohort="cohort_default", agent="ackman", alphas=alphas)
-        out = compute_weights(store, "cohort_default", "2024-07-31")
+        out = _compute_legacy_weights(store, "cohort_default", "2024-07-31")
         assert out["agents_uniform_fallback"] == 0
 
         weights = store.get_darwinian_weights("cohort_default", "2024-07-31")
@@ -168,7 +175,7 @@ class TestSharpeAndWeight:
     def test_negative_alpha_yields_low_weight(self, store: ScorecardStore):
         alphas = [-0.010, -0.012, -0.008, -0.011, -0.010, -0.009, -0.013]
         _seed_alpha_series(store, cohort="cohort_default", agent="ackman", alphas=alphas)
-        compute_weights(store, "cohort_default", "2024-07-31")
+        _compute_legacy_weights(store, "cohort_default", "2024-07-31")
         weights = store.get_darwinian_weights("cohort_default", "2024-07-31")
         ackman = weights["ackman"]
         assert ackman["sharpe_30"] is not None
@@ -180,7 +187,7 @@ class TestSharpeAndWeight:
         # All identical alphas → std=0 → _sharpe returns 0.0 (neutral)
         alphas = [0.005] * 6
         _seed_alpha_series(store, cohort="cohort_default", agent="ackman", alphas=alphas)
-        compute_weights(store, "cohort_default", "2024-07-31")
+        _compute_legacy_weights(store, "cohort_default", "2024-07-31")
         weights = store.get_darwinian_weights("cohort_default", "2024-07-31")
         ackman = weights["ackman"]
         assert ackman["sharpe_30"] == pytest.approx(0.0)
@@ -225,7 +232,7 @@ class TestQuartiles:
             alphas=[-0.01, -0.012, -0.008, -0.011, -0.009, -0.01],
         )
 
-        compute_weights(store, "cohort_default", "2024-07-31")
+        _compute_legacy_weights(store, "cohort_default", "2024-07-31")
         weights = store.get_darwinian_weights("cohort_default", "2024-07-31")
 
         assert weights["agent_top"]["quartile"] == 1
@@ -281,7 +288,7 @@ class TestWindowFilter:
                 alpha_5d=alpha,
             )
 
-        compute_weights(store, "cohort_default", "2024-07-31")
+        _compute_legacy_weights(store, "cohort_default", "2024-07-31")
         weights = store.get_darwinian_weights("cohort_default", "2024-07-31")
         ackman = weights["ackman"]
         # Both windows produce a Sharpe; they should differ since 90d sees the
@@ -299,8 +306,8 @@ class TestWindowFilter:
             agent="ackman",
             alphas=[0.01, 0.011, 0.009, 0.010, 0.012, 0.011],
         )
-        compute_weights(store, "cohort_default", "2024-07-31")
-        compute_weights(store, "cohort_default", "2024-07-31")  # re-run
+        _compute_legacy_weights(store, "cohort_default", "2024-07-31")
+        _compute_legacy_weights(store, "cohort_default", "2024-07-31")  # re-run
         with store._connect() as conn:
             count = conn.execute(
                 "SELECT COUNT(*) FROM darwinian_weights WHERE cohort='cohort_default'"

@@ -158,14 +158,14 @@ def compute_weights(
     of trading day after Scorer has run).
     """
     dcfg = _darwinian_cfg(config)
-    if bool(dcfg.get("weight_rewrite_enabled", False)):
+    if bool(dcfg.get("weight_rewrite_enabled", True)):
         return _compute_evolutionary_weights(store, cohort, today, dcfg)
 
     return _compute_sharpe_weights(store, cohort, today)
 
 
 def _compute_sharpe_weights(store, cohort: str, today: str) -> dict:
-    """Legacy rolling-Sharpe projection. Default path until Phase 9 is gated on."""
+    """Legacy rolling-Sharpe projection used only when the rewrite is disabled."""
     # Pull *all* scored rows for the cohort once and bucket per agent.
     all_scored = store.list_scored(cohort)
     if not all_scored:

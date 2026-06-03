@@ -38,6 +38,96 @@ _IMPLEMENTED = "implemented"
 
 
 MACRO_LABEL_INVENTORY: tuple[MacroLabelSpec, ...] = (
+    MacroLabelSpec(
+        "central_bank",
+        "rate_sensitive_path_5d",
+        "Tushare fund_daily/index_daily rate-sensitive proxy path; fallback benchmark path",
+        True,
+        BENCHMARK_FALLBACK_LABEL,
+        _IMPLEMENTED,
+        0,
+    ),
+    MacroLabelSpec(
+        "china",
+        "china_growth_proxy_path_5d",
+        "Tushare index_daily/fund_daily China growth proxy relative path; policy events deferred",
+        True,
+        BENCHMARK_FALLBACK_LABEL,
+        _IMPLEMENTED,
+        0,
+    ),
+    MacroLabelSpec(
+        "geopolitical",
+        "risk_off_path_5d",
+        "benchmark/HK/commodity/FX risk-off path; current implementation uses benchmark path",
+        True,
+        BENCHMARK_FALLBACK_LABEL,
+        _IMPLEMENTED,
+        0,
+    ),
+    MacroLabelSpec(
+        "dollar",
+        "cny_pressure_path_5d",
+        "Tushare fx_daily USDCNH inverse path; fallback benchmark path",
+        True,
+        BENCHMARK_FALLBACK_LABEL,
+        _IMPLEMENTED,
+        0,
+    ),
+    MacroLabelSpec(
+        "yield_curve",
+        "curve_sensitive_path_5d",
+        "Tushare fund_daily/index_daily rate-sensitive proxy relative path",
+        True,
+        BENCHMARK_FALLBACK_LABEL,
+        _IMPLEMENTED,
+        0,
+    ),
+    MacroLabelSpec(
+        "commodities",
+        "commodity_basket_path_5d",
+        "Tushare fut_daily commodity basket path; fallback benchmark path",
+        True,
+        BENCHMARK_FALLBACK_LABEL,
+        _IMPLEMENTED,
+        0,
+    ),
+    MacroLabelSpec(
+        "volatility",
+        "volatility_shock_path_5d",
+        "benchmark close path with drawdown/volatility penalty; option/iVX proxies deferred",
+        True,
+        BENCHMARK_FALLBACK_LABEL,
+        _IMPLEMENTED,
+        0,
+    ),
+    MacroLabelSpec(
+        "emerging_markets",
+        "em_hk_relative_path_5d",
+        "Tushare fund_daily HK/EM proxy ETF relative to benchmark; fallback benchmark path",
+        True,
+        BENCHMARK_FALLBACK_LABEL,
+        _IMPLEMENTED,
+        0,
+    ),
+    MacroLabelSpec(
+        "news_sentiment",
+        "sentiment_followthrough_path_5d",
+        "OpenCLI/Tushare document event pipeline plus benchmark follow-through path",
+        True,
+        BENCHMARK_FALLBACK_LABEL,
+        _IMPLEMENTED,
+        0,
+    ),
+    MacroLabelSpec(
+        "institutional_flow",
+        "flow_followthrough_path_5d",
+        "Tushare moneyflow_ind_ths/fund_share evidence plus flow-sensitive proxy path; no northbound fallback",
+        True,
+        BENCHMARK_FALLBACK_LABEL,
+        _IMPLEMENTED,
+        0,
+    ),
     # Available now: derived from the same benchmark close series already used
     # by MacroScorer, so no new vendor path or look-ahead surface is introduced.
     MacroLabelSpec(
@@ -293,8 +383,21 @@ def list_macro_label_inventory() -> list[dict]:
     return [spec.as_dict() for spec in MACRO_LABEL_INVENTORY]
 
 
-def primary_label_for_agent(agent: str) -> Optional[MacroLabelSpec]:
+def primary_label_for_agent(
+    agent: str, full_label_sources_enabled: bool = True
+) -> Optional[MacroLabelSpec]:
+    """Best ready primary label for ``agent``.
+
+    P6 rollout gate: when ``full_label_sources_enabled`` is False, the new
+    proxy/relative/basket path labels (those backed by ``macro_path_labels``)
+    are excluded, so scoring rolls back to the validated PR #73 set
+    (benchmark-derived labels) — unvalidated data sources stay out of primary.
+    """
     specs = [s for s in MACRO_LABEL_INVENTORY if s.agent == agent and s.primary_ready]
+    if not full_label_sources_enabled:
+        from mosaic.scorecard.macro_path_labels import PRIMARY_LABEL_CONFIGS
+
+        specs = [s for s in specs if s.label_type not in PRIMARY_LABEL_CONFIGS]
     specs.sort(key=lambda s: (s.primary_order, s.label_type))
     return specs[0] if specs else None
 

@@ -18,8 +18,10 @@ re-attempted forever).
 from __future__ import annotations
 
 import logging
+import math
 import os
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
@@ -296,11 +298,72 @@ def _macro_agent_specific_labels_enabled() -> bool:
         return True
 
 
-def _fetch_benchmark_series(ts_code: str, start_iso: str, end_iso: str) -> list[float]:
-    """Benchmark index closes over [start, end] (chronological). [] on failure.
+def _macro_full_label_sources_enabled() -> bool:
+    """P6 rollout gate. When False (default), the new proxy/relative/basket path
+    labels are NOT used — scoring rolls back to the PR #73 set (benchmark-derived
+    labels), so unvalidated data sources stay out of primary scoring."""
+    try:
+        from mosaic.default_config import DEFAULT_CONFIG
 
-    Used only to estimate trailing realized vol for ``vol_scale_5d``.
-    """
+        return bool(
+            DEFAULT_CONFIG.get("autoresearch", {}).get(
+                "macro_full_label_sources_enabled", False
+            )
+        )
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _normalise_series_date(value: Any) -> Optional[str]:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    if len(raw) >= 8 and raw[:8].isdigit():
+        return f"{raw[:4]}-{raw[4:6]}-{raw[6:8]}"
+    normalised = raw.replace("/", "-")
+    for sep in ("T", " "):
+        normalised = normalised.split(sep, 1)[0]
+    try:
+        return datetime.fromisoformat(normalised).date().isoformat()
+    except ValueError:
+        return normalised[:10] if len(normalised) >= 10 else None
+
+
+def _dated_close_values_from_df(df) -> list[tuple[str, float]]:
+    """Extract chronological ``(date, close)`` points from a vendor DataFrame."""
+    if df is None or getattr(df, "empty", True):
+        return []
+    try:
+        rows = df.copy()
+        date_col = None
+        for candidate in ("trade_date", "date", "nav_date", "datetime", "time"):
+            if candidate in rows.columns:
+                date_col = candidate
+                break
+        value_col = None
+        for candidate in ("close", "bid_close", "ask_close", "settle", "adj_nav", "unit_nav", "value"):
+            if candidate in rows.columns:
+                value_col = candidate
+                break
+        if date_col is None or value_col is None:
+            return []
+        out: list[tuple[str, float]] = []
+        for _, row in rows.iterrows():
+            date = _normalise_series_date(row.get(date_col))
+            value = row.get(value_col)
+            if date is None or value is None:
+                continue
+            close = float(value)
+            if math.isnan(close):
+                continue
+            out.append((date, close))
+        return sorted(out, key=lambda point: point[0])
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def _fetch_benchmark_series_dated(ts_code: str, start_iso: str, end_iso: str) -> list[tuple[str, float]]:
+    """Benchmark index closes over [start, end] as dated points."""
     try:
         from mosaic.dataflows.tushare import (  # type: ignore[attr-defined]
             _get_pro_client,
@@ -312,16 +375,170 @@ def _fetch_benchmark_series(ts_code: str, start_iso: str, end_iso: str) -> list[
         df = pro.index_daily(
             ts_code=norm, start_date=_to_api_date(start_iso), end_date=_to_api_date(end_iso)
         )
+        return _dated_close_values_from_df(df)
     except Exception as exc:  # noqa: BLE001
         logger.warning("benchmark series fetch failed for %s: %s", ts_code, exc)
         return []
-    if df is None or df.empty:
-        return []
+
+
+def _fetch_benchmark_series(ts_code: str, start_iso: str, end_iso: str) -> list[float]:
+    """Benchmark index closes over [start, end] (chronological). [] on failure.
+
+    Used only to estimate trailing realized vol for ``vol_scale_5d``.
+    """
+    return [close for _, close in _fetch_benchmark_series_dated(ts_code, start_iso, end_iso)]
+
+
+def _close_values_from_df(df) -> list[float]:
+    """Extract chronological close-like values from a vendor DataFrame."""
+    return [close for _, close in _dated_close_values_from_df(df)]
+
+
+def _fetch_instrument_series_dated(symbol: str, start_iso: str, end_iso: str) -> list[tuple[str, float]]:
+    """Fetch dated close-like values for a macro proxy instrument.
+
+    Supports the Tushare families used by macro label configs: FXCM FX pairs,
+    commodity futures, A-share indices/ETFs, and regular A-share/HK/US symbols.
+    Returns [] on any vendor failure so callers can mark a fallback.
+    """
     try:
-        df = df.sort_values("trade_date")
-        return [float(x) for x in df["close"].tolist()]
-    except Exception:  # noqa: BLE001
+        from mosaic.dataflows.tushare import (  # type: ignore[attr-defined]
+            _fetch_price_data,
+            _get_pro_client,
+            _normalize_ts_code,
+            _to_api_date,
+        )
+
+        pro = _get_pro_client()
+        start_api = _to_api_date(start_iso)
+        end_api = _to_api_date(end_iso)
+        upper = symbol.strip().upper()
+        if upper.endswith(".FXCM"):
+            df = pro.fx_daily(ts_code=upper, start_date=start_api, end_date=end_api)
+            return _dated_close_values_from_df(df)
+        if upper.rsplit(".", 1)[-1] in {"INE", "SHF", "DCE", "CZC", "CFFEX", "GFEX"}:
+            df = pro.query("fut_daily", ts_code=upper, start_date=start_api, end_date=end_api)
+            return _dated_close_values_from_df(df)
+
+        norm = _normalize_ts_code(upper)
+        if _is_a_share_index(norm):
+            df = pro.index_daily(ts_code=norm, start_date=start_api, end_date=end_api)
+        elif _is_a_share_etf(norm):
+            df = pro.fund_daily(ts_code=norm, start_date=start_api, end_date=end_api)
+        else:
+            df = _fetch_price_data(pro, norm, start_api, end_api)
+        return _dated_close_values_from_df(df)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("macro proxy series fetch failed for %s: %s", symbol, exc)
         return []
+
+
+def _fetch_instrument_series(symbol: str, start_iso: str, end_iso: str) -> list[float]:
+    """Fetch close-like values for a macro proxy instrument."""
+    return [close for _, close in _fetch_instrument_series_dated(symbol, start_iso, end_iso)]
+
+
+def _fallback_benchmark_closes(
+    benchmark: str,
+    start_iso: str,
+    end_iso: str,
+    bench_ret: float,
+) -> list[float]:
+    closes = _fetch_benchmark_series(benchmark, start_iso, end_iso)
+    return closes if len(closes) >= 2 else [1.0, 1.0 + bench_ret]
+
+
+def _fetch_macro_label_closes(
+    *,
+    label_type: str,
+    benchmark: str,
+    start_iso: str,
+    end_iso: str,
+    bench_ret: float,
+) -> tuple[list[float], str, str, int, float]:
+    """Return (closes, source_status, source_series_id, orientation, penalty)."""
+    from mosaic.scorecard.macro_path_labels import (
+        compute_basket_path_label,
+        compute_relative_path_label,
+        label_config_for,
+    )
+
+    config = label_config_for(label_type)
+    if config is None:
+        return (
+            _fallback_benchmark_closes(benchmark, start_iso, end_iso, bench_ret),
+            "fallback",
+            f"fallback:benchmark:{benchmark}",
+            1,
+            1.0,
+        )
+
+    if config.path_kind == "benchmark":
+        closes = _fetch_benchmark_series(benchmark, start_iso, end_iso)
+        if len(closes) >= 2:
+            return (
+                closes,
+                "primary",
+                f"benchmark:{benchmark}",
+                config.orientation,
+                config.drawdown_penalty_lambda,
+            )
+        return (
+            [1.0, 1.0 + bench_ret],
+            "fallback",
+            f"fallback:benchmark_endpoint:{benchmark}",
+            config.orientation,
+            config.drawdown_penalty_lambda,
+        )
+
+    if config.path_kind == "proxy":
+        symbol = config.primary_symbols[0]
+        closes = _fetch_instrument_series(symbol, start_iso, end_iso)
+        if len(closes) >= 2:
+            return (
+                closes,
+                "primary",
+                f"proxy:{symbol}",
+                config.orientation,
+                config.drawdown_penalty_lambda,
+            )
+
+    if config.path_kind == "relative":
+        symbol = config.primary_symbols[0]
+        proxy = _fetch_instrument_series_dated(symbol, start_iso, end_iso)
+        bench = _fetch_benchmark_series_dated(benchmark, start_iso, end_iso)
+        rel = compute_relative_path_label(proxy, bench)
+        if len(rel) >= 2:
+            return (
+                rel,
+                "primary",
+                f"relative:{symbol}:benchmark:{benchmark}",
+                config.orientation,
+                config.drawdown_penalty_lambda,
+            )
+
+    if config.path_kind == "basket":
+        paths = [
+            _fetch_instrument_series_dated(symbol, start_iso, end_iso)
+            for symbol in config.primary_symbols
+        ]
+        basket = compute_basket_path_label(paths)
+        if len(basket) >= 2:
+            return (
+                basket,
+                "primary",
+                f"basket:{','.join(config.primary_symbols)}",
+                config.orientation,
+                config.drawdown_penalty_lambda,
+            )
+
+    return (
+        _fallback_benchmark_closes(benchmark, start_iso, end_iso, bench_ret),
+        "fallback",
+        f"fallback:benchmark:{benchmark}",
+        config.orientation,
+        config.drawdown_penalty_lambda,
+    )
 
 
 def _clip(x: float, lo: float, hi: float) -> float:
@@ -373,6 +590,7 @@ class MacroScorer:
         benchmark: Optional[str] = None,
         neutral_band: Optional[float] = None,
         agent_specific_labels_enabled: Optional[bool] = None,
+        full_label_sources_enabled: Optional[bool] = None,
     ) -> None:
         self.store = store
         self.benchmark = benchmark or _benchmark_ticker()
@@ -383,6 +601,13 @@ class MacroScorer:
             bool(agent_specific_labels_enabled)
             if agent_specific_labels_enabled is not None
             else _macro_agent_specific_labels_enabled()
+        )
+        # P6 rollout gate: when False, restrict primary labels to the validated
+        # PR #73 set (the new proxy/path labels stay out of primary scoring).
+        self.full_label_sources_enabled = (
+            bool(full_label_sources_enabled)
+            if full_label_sources_enabled is not None
+            else _macro_full_label_sources_enabled()
         )
         self._vol_cache: dict[str, float] = {}
 
@@ -428,7 +653,12 @@ class MacroScorer:
             "label_type": label_type,
             "label_source_status": label_source_status,
             "label_value_5d": bench_ret,
+            "terminal_return_5d": bench_ret,
+            "max_drawdown_5d": min(0.0, bench_ret),
+            "realized_volatility_5d": 0.0,
+            "path_metric_5d": bench_ret,
             "benchmark_return_5d": bench_ret,
+            "source_series_id": f"benchmark:{self.benchmark}",
             "realized_label": realized,
             "hit_5d": 1 if row.vote == realized else 0,
             "raw_macro_score_5d": raw,
@@ -445,9 +675,37 @@ class MacroScorer:
             return None
         from mosaic.scorecard.macro_labels import primary_label_for_agent
 
-        spec = primary_label_for_agent(row.agent)
+        spec = primary_label_for_agent(
+            row.agent, full_label_sources_enabled=self.full_label_sources_enabled
+        )
         if spec is None:
             return None
+
+        from mosaic.scorecard.macro_path_labels import compute_drawdown_aware_path_label
+
+        closes, source_status, source_series_id, orientation, penalty = _fetch_macro_label_closes(
+            label_type=spec.label_type,
+            benchmark=self.benchmark,
+            start_iso=row.date,
+            end_iso=t_5d,
+            bench_ret=bench_ret,
+        )
+        if len(closes) >= 2:
+            conf = float(row.confidence) if row.confidence is not None else 0.0
+            outcome = compute_drawdown_aware_path_label(
+                label_type=spec.label_type,
+                closes=closes,
+                vote=int(row.vote),
+                confidence=conf,
+                neutral_band=self.neutral_band,
+                vol_scale=self._vol_scale(row.date),
+                source_series_id=source_series_id,
+                label_source_status=source_status,
+                orientation=orientation,
+                drawdown_penalty_lambda=penalty,
+                benchmark_return_5d=bench_ret,
+            )
+            return outcome.as_update_fields()
 
         if spec.label_type == "max_drawdown_5d":
             closes = _fetch_benchmark_series(self.benchmark, row.date, t_5d)
@@ -523,7 +781,9 @@ class MacroScorer:
                         primary_label_for_agent,
                     )
 
-                    spec = primary_label_for_agent(row.agent)
+                    spec = primary_label_for_agent(
+                        row.agent, full_label_sources_enabled=self.full_label_sources_enabled
+                    )
                     label_type = spec.label_type if spec is not None else BENCHMARK_FALLBACK_LABEL
                 self.store.update_macro_scoring(
                     row.id,

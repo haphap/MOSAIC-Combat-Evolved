@@ -1,4 +1,4 @@
-"""Tests for the gated Phase-9 Darwinian weight rewrite."""
+"""Tests for Phase-9 Darwinian weight evolution."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from mosaic.default_config import DEFAULT_CONFIG
 from mosaic.scorecard.store import ScorecardStore
 from mosaic.scorecard.weights import compute_weights
 
@@ -51,6 +52,10 @@ def _cfg(**overrides):
 
 def _store(tmp_path: Path) -> ScorecardStore:
     return ScorecardStore(db_path=tmp_path / "scorecard.db")
+
+
+def test_default_config_enables_weight_rewrite():
+    assert DEFAULT_CONFIG["darwinian"]["weight_rewrite_enabled"] is True
 
 
 def _add_macro_score(store: ScorecardStore, agent: str, raw: float, date: str = "2024-02-01"):

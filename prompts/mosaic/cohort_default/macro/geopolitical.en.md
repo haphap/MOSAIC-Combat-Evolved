@@ -30,6 +30,13 @@ equipment, export-oriented manufacturing, energy/chemicals).
 4. **`trade_impact` must quantify**: which sector takes how many percent
    hit, which related ETF's risk premium rises by how much.
 
+## Scoring boundary
+
+* Tool returns are current evidence only. Do not estimate or mention realized
+  forward returns in the JSON.
+* MOSAIC scorecard evaluates this agent later with persisted point-in-time
+  labels; your job is the as-of macro signal, not future P&L calculation.
+
 ## Output schema
 
 ```json
