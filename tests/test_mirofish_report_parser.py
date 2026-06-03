@@ -47,6 +47,23 @@ class TestReportParser(unittest.TestCase):
         self.assertEqual(sig.drift, 0.0)
         self.assertLessEqual(sig.confidence, 0.5)
 
+    def test_tail_downside_does_not_invert_base(self):
+        # tail-risk downside range must not drag the base/overall drift negative
+        md = "基准情形上行1%~2%，尾部风险情形下跌8%~12%，总体风险偏好RISK_ON。"
+        sig = parse_report(md)
+        self.assertEqual(sig.regime, "RISK_ON")
+        self.assertGreater(sig.drift, 0)               # base +1~2%, not the -10% tail
+        self.assertAlmostEqual(sig.drift, 0.015, places=3)
+        self.assertEqual(sig.direction, "bullish")
+
+    def test_single_trailing_percent_range_midpoint(self):
+        # "+1.2~+2.8%" (one % sign) must average to the midpoint, not record 2.8
+        sig = parse_report("沪深300预计上行+1.2~+2.8%。")
+        self.assertAlmostEqual(sig.drift, 0.02, places=3)
+        # and the per-%-sign form yields the same midpoint
+        sig2 = parse_report("沪深300预计上行+1.2%~+2.8%。")
+        self.assertAlmostEqual(sig2.drift, 0.02, places=3)
+
     def test_drift_is_clamped(self):
         sig = parse_report("沪深300将大幅上行 80%~120%。")
         self.assertLessEqual(sig.drift, 0.30)

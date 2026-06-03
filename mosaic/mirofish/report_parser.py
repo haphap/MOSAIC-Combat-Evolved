@@ -34,14 +34,21 @@ _NEUTRAL = ((r"\bneutral\b", 2.0), ("中性", 1.5), ("震荡", 1.0), ("区间", 
 _ON = ((r"risk[\s_\-]?on", 1.0), (r"风险偏好[^。\n]{0,8}(?:上行|回升|抬升|转向)", 1.0), ("偏多", 1.0))
 _OFF = ((r"risk[\s_\-]?off", 1.0), ("避险", 1.0), (r"风险偏好[^。\n]{0,8}(?:下行|回落)", 1.0), ("偏空", 1.0))
 
+# A range may carry a single trailing % ("+1.2~+2.8%") or one per number
+# ("+1.2%~+2.8%"); both must yield the midpoint, so the first % is optional.
 _UP_PCT = re.compile(
-    r"(?:上行|上涨|上升|回暖|反弹|走强)[^%\n]{0,16}?\+?\s*(\d+(?:\.\d+)?)\s*%"
-    r"(?:\s*[~\-—至]\s*\+?\s*(\d+(?:\.\d+)?)\s*%)?"
+    r"(?:上行|上涨|上升|回暖|反弹|走强)[^%\n]{0,16}?\+?\s*(\d+(?:\.\d+)?)\s*(?:%\s*)?"
+    r"(?:[~\-—至]\s*\+?\s*(\d+(?:\.\d+)?)\s*)?%"
 )
 _DOWN_PCT = re.compile(
-    r"(?:下行|下跌|下挫|回调|走弱)[^%\n]{0,16}?-?\s*(\d+(?:\.\d+)?)\s*%"
-    r"(?:\s*[~\-—至]\s*-?\s*(\d+(?:\.\d+)?)\s*%)?"
+    r"(?:下行|下跌|下挫|回调|走弱)[^%\n]{0,16}?-?\s*(\d+(?:\.\d+)?)\s*(?:%\s*)?"
+    r"(?:[~\-—至]\s*-?\s*(\d+(?:\.\d+)?)\s*)?%"
 )
+
+# Clauses describing tail/stress scenarios — excluded from the base/overall view
+# so a downside stress range can't invert the base scenario's drift/direction.
+_TAIL_CUE = re.compile(r"尾部|风险情形|压力情形|极端|stress|最坏|下行风险|悲观情形", re.IGNORECASE)
+_CLAUSE_SPLIT = re.compile(r"[。\n；;，,、]")
 
 _DRIFT_CLAMP = 0.30
 _MAX_TAIL = 5
@@ -78,6 +85,13 @@ def _directional_pcts(md: str) -> list[float]:
     return out
 
 
+def _non_tail_text(md: str) -> str:
+    """Drop tail/stress clauses → the base/overall forecast text. Falls back to the
+    whole report if every clause looks like a stress section."""
+    kept = [c for c in _CLAUSE_SPLIT.split(md) if c.strip() and not _TAIL_CUE.search(c)]
+    return "。".join(kept) if kept else md
+
+
 def _tail_risks(md: str) -> list[str]:
     risks: list[str] = []
     for m in re.finditer(r"尾部风险[：:，,]?\s*([^。\n]{2,60})", md):
@@ -103,9 +117,12 @@ def _summary(md: str) -> str:
 
 def parse_report(md: str) -> ReportSignal:
     md = md or ""
-    bull, bear, neu = _weighted(md, _BULL), _weighted(md, _BEAR), _weighted(md, _NEUTRAL)
+    # Base/overall view excludes tail-risk clauses (so a stress downside range
+    # can't invert the base scenario); tail risks are extracted from the full doc.
+    base = _non_tail_text(md)
+    bull, bear, neu = _weighted(base, _BULL), _weighted(base, _BEAR), _weighted(base, _NEUTRAL)
 
-    pcts = _directional_pcts(md)
+    pcts = _directional_pcts(base)
     pct_drift = sum(pcts) / len(pcts) if pcts else None
 
     score = bull - bear
@@ -119,7 +136,7 @@ def parse_report(md: str) -> ReportSignal:
     else:
         direction = "neutral"
 
-    on, off = _weighted(md, _ON), _weighted(md, _OFF)
+    on, off = _weighted(base, _ON), _weighted(base, _OFF)
     if on > off and on > 0:
         regime = "RISK_ON"
     elif off > on and off > 0:
