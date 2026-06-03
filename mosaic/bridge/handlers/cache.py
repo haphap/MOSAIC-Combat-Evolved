@@ -12,7 +12,7 @@ from ..protocol import CONFIG_ERROR, INVALID_PARAMS, RpcError
 from ..registry import method
 
 
-_VALID_CATEGORIES = {"api", "signals", "snapshots", "checkpoints", "all"}
+_VALID_CATEGORIES = {"api", "agent_data", "signals", "snapshots", "checkpoints", "all"}
 
 
 def _manager():
@@ -68,7 +68,7 @@ def cache_details(params: dict[str, Any]) -> dict[str, Any]:
     if category not in _VALID_CATEGORIES - {"all"}:
         raise RpcError(
             INVALID_PARAMS,
-            "'category' must be one of api/signals/snapshots/checkpoints",
+            "'category' must be one of api/agent_data/signals/snapshots/checkpoints",
         )
     if not isinstance(page, int) or page < 1:
         raise RpcError(INVALID_PARAMS, "'page' must be a positive integer")

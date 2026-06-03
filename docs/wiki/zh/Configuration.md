@@ -15,6 +15,7 @@
 | `autoresearch` | cooldown / lockout / keep 阈值 / 月度上限 / 评估窗口 + opt-in `git` push |
 | `mirofish` | `engine` / `scorer` / `inject_context`(均 opt-in;默认 montecarlo / terminal / off) |
 | `data_vendors`、`tool_vendors` | 逐类别数据源选择 |
+| `agent_data_cache` | routed agent tool 数据的 SQLite 精确调用缓存;条目会保留到 TTL 刷新、max-entry 淘汰、cleanup 或 clear(`enabled` 默认 true;`db_path` 可选;`read_ttl_seconds` 默认 86400;`max_entries` 默认 50000;`skip_empty_results` 默认 true) |
 
 ## 持久化模型
 
@@ -29,4 +30,4 @@
 
 ## 环境覆盖
 
-除[快速上手](Getting-Started.md)的键外:`MOSAIC_PYTHON`(解释器)、`MOSAIC_DATA_DIR` / `MOSAIC_RESULTS_DIR` / `MOSAIC_CACHE_DIR`(产物根)、`MOSAIC_BENCHMARK_TICKER`(评分基准)、`QLIB_CN_DATA_PATH` / `QLIB_CN_ETF_PATH`(qlib 数据集)、`MOSAIC_QLIB_REPO` / `MOSAIC_QLIB_ETF_COLLECTOR`(采集器发现)、`MOSAIC_MIROFISH_URL`(OASIS 引擎)。
+除[快速上手](Getting-Started.md)的键外:`MOSAIC_PYTHON`(解释器)、`MOSAIC_DATA_DIR` / `MOSAIC_RESULTS_DIR` / `MOSAIC_CACHE_DIR`(产物根)、`MOSAIC_AGENT_DATA_CACHE_ENABLED` / `MOSAIC_AGENT_DATA_CACHE_DB` / `MOSAIC_AGENT_DATA_CACHE_READ_TTL_SECONDS` / `MOSAIC_AGENT_DATA_CACHE_MAX_ENTRIES` / `MOSAIC_AGENT_DATA_CACHE_SKIP_EMPTY_RESULTS`(routed tool 缓存保留/新鲜度控制)、`MOSAIC_BENCHMARK_TICKER`(评分基准)、`QLIB_CN_DATA_PATH` / `QLIB_CN_ETF_PATH`(qlib 数据集)、`MOSAIC_QLIB_REPO` / `MOSAIC_QLIB_ETF_COLLECTOR`(采集器发现)、`MOSAIC_MIROFISH_URL`(OASIS 引擎)。

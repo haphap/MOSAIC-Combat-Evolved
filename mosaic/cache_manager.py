@@ -9,8 +9,8 @@ from typing import Any
 
 
 class CacheManager:
-    CATEGORIES = ("api", "signals", "snapshots", "checkpoints")
-    _EXCLUDED_API_SUBDIRS: frozenset[str] = frozenset({"shared_snapshots", "checkpoints"})
+    CATEGORIES = ("api", "agent_data", "signals", "snapshots", "checkpoints")
+    _EXCLUDED_API_SUBDIRS: frozenset[str] = frozenset({"agent_data", "shared_snapshots", "checkpoints"})
 
     def __init__(self, config: dict[str, Any]) -> None:
         self._config = config
@@ -18,6 +18,13 @@ class CacheManager:
         self._signal_cache_dir: Path = Path(config["results_dir"]) / "backtest_cache"
         self._snapshot_cache_dir: Path = Path(config["data_cache_dir"]) / "shared_snapshots"
         self._checkpoint_dir: Path = Path(config["data_cache_dir"]) / "checkpoints"
+        self._agent_data_cache = None
+        try:
+            from mosaic.dataflows.agent_data_cache import AgentDataCache
+
+            self._agent_data_cache = AgentDataCache.from_config(config)
+        except Exception:
+            self._agent_data_cache = None
 
     def stats(self) -> dict[str, Any]:
         api_count, api_mb = self._dir_stats(self._api_cache_dir, exclude_subdirs=self._EXCLUDED_API_SUBDIRS)
@@ -31,13 +38,16 @@ class CacheManager:
         snap_count, snap_mb = self._dir_stats(self._snapshot_cache_dir)
         snap_kinds = sorted(p.name for p in self._snapshot_cache_dir.iterdir() if p.is_dir()) if self._snapshot_cache_dir.is_dir() else []
 
+        agent_data = self._agent_data_cache.stats() if self._agent_data_cache else {"entries": 0, "size_mb": 0.0, "by_method": {}}
+
         cp_count, cp_mb = self._dir_stats(self._checkpoint_dir)
         cp_tickers = sorted(p.stem for p in self._checkpoint_dir.glob("*.db")) if self._checkpoint_dir.is_dir() else []
 
-        total_mb = api_mb + sig_mb + snap_mb + cp_mb
+        total_mb = api_mb + sig_mb + snap_mb + cp_mb + agent_data["size_mb"]
 
         return {
             "api": {"count": api_count, "size_mb": round(api_mb, 2), "subdirs": api_subdirs},
+            "agent_data": agent_data,
             "signals": {"count": sig_count, "size_mb": round(sig_mb, 2)},
             "snapshots": {"count": snap_count, "size_mb": round(snap_mb, 2), "kinds": snap_kinds},
             "checkpoints": {"count": cp_count, "size_mb": round(cp_mb, 2), "tickers": cp_tickers},
@@ -55,6 +65,8 @@ class CacheManager:
         for cat in categories:
             if cat == "api":
                 deleted, freed = self._cleanup_dir(self._api_cache_dir, days, exclude_subdirs=self._EXCLUDED_API_SUBDIRS)
+            elif cat == "agent_data":
+                deleted, freed = self._agent_data_cache.cleanup(days) if self._agent_data_cache else (0, 0.0)
             elif cat == "signals":
                 deleted, freed = self._cleanup_dir(self._signal_cache_dir, days)
             elif cat == "snapshots":
@@ -103,6 +115,10 @@ class CacheManager:
                 shutil.rmtree(self._signal_cache_dir)
             return {"deleted_files": count, "freed_mb": round(size_mb, 2)}
 
+        if category == "agent_data":
+            deleted, freed = self._agent_data_cache.drop_database() if self._agent_data_cache else (0, 0.0)
+            return {"deleted_files": deleted, "freed_mb": round(freed, 2)}
+
         if category == "snapshots":
             count, size_mb = self._dir_stats(self._snapshot_cache_dir)
             if self._snapshot_cache_dir.is_dir():
@@ -126,6 +142,8 @@ class CacheManager:
     def details(self, category: str, page: int = 1, page_size: int = 20) -> dict[str, Any]:
         if category == "api":
             paths = list(self._walk_dir(self._api_cache_dir, exclude_subdirs=self._EXCLUDED_API_SUBDIRS))
+        elif category == "agent_data":
+            return self._agent_data_cache.details(page=page, page_size=page_size) if self._agent_data_cache else {"total": 0, "page": page, "entries": []}
         elif category == "signals":
             paths = list(self._walk_dir(self._signal_cache_dir))
         elif category == "snapshots":

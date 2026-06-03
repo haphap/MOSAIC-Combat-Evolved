@@ -22,6 +22,26 @@ _REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
 _DEFAULT_DATA_DIR = os.path.join(_REPO_ROOT, "data")
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() not in {"", "0", "false", "no", "off"}
+
+
+def _env_int_or_none(name: str, default: int | None) -> int | None:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    stripped = raw.strip().lower()
+    if stripped in {"", "none", "null", "off", "disabled"}:
+        return None
+    try:
+        return int(stripped)
+    except ValueError:
+        return default
+
+
 DEFAULT_CONFIG = {
     "project_dir": os.path.abspath(os.path.join(os.path.dirname(__file__), ".")),
     "data_dir": os.getenv("MOSAIC_DATA_DIR", _DEFAULT_DATA_DIR),
@@ -134,6 +154,17 @@ DEFAULT_CONFIG = {
     "snapshot_max_age_days": 30,
     "backtest_cache_max_age_days": 90,
     "checkpoint_max_age_days": 30,
+    # Exact-call cache for every routed agent data tool. Entries persist until
+    # TTL refresh, max-entry eviction, cleanup, or clear. Backtest as-of dates
+    # are folded into the key so historical replay dates cannot share current
+    # or latest-style results.
+    "agent_data_cache": {
+        "enabled": _env_bool("MOSAIC_AGENT_DATA_CACHE_ENABLED", True),
+        "db_path": os.getenv("MOSAIC_AGENT_DATA_CACHE_DB"),
+        "read_ttl_seconds": _env_int_or_none("MOSAIC_AGENT_DATA_CACHE_READ_TTL_SECONDS", 24 * 3600),
+        "max_entries": _env_int_or_none("MOSAIC_AGENT_DATA_CACHE_MAX_ENTRIES", 50_000),
+        "skip_empty_results": _env_bool("MOSAIC_AGENT_DATA_CACHE_SKIP_EMPTY_RESULTS", True),
+    },
     # ============== Cohorts (Phase 5 PRISM, Plan §9) ==============
     "active_cohort": "euphoria_2021",
     "cohorts": {

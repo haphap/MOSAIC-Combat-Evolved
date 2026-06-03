@@ -54,13 +54,14 @@ export interface ToolCallResult {
 
 export interface CacheStats {
   api: { count: number; size_mb: number; subdirs: string[] };
+  agent_data: { entries: number; size_mb: number; by_method: Record<string, number> };
   signals: { count: number; size_mb: number };
   snapshots: { count: number; size_mb: number; kinds: string[] };
   checkpoints: { count: number; size_mb: number; tickers: string[] };
   total_mb: number;
 }
 
-export type CacheCategory = "api" | "signals" | "snapshots" | "checkpoints";
+export type CacheCategory = "api" | "agent_data" | "signals" | "snapshots" | "checkpoints";
 
 /**
  * MOSAIC config — the canonical Phase 0 fields are typed below; the bridge
@@ -108,6 +109,14 @@ export interface MosaicConfig {
   // ----- Data vendors (Phase 0) -----
   data_vendors: Record<string, string>;
   tool_vendors: Record<string, string>;
+  /** SQLite exact-call cache for routed agent data tools. */
+  agent_data_cache?: {
+    enabled?: boolean;
+    db_path?: string | null;
+    read_ttl_seconds?: number | null;
+    max_entries?: number | null;
+    skip_empty_results?: boolean;
+  };
 
   // ----- MiroFish (Plan §11.8 / 7M) -----
   /** Forward-simulation toggles. ``inject_context`` (default false) appends the

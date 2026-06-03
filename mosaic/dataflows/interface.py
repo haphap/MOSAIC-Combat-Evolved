@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime
 
 # Import from vendor-specific modules
@@ -55,10 +56,13 @@ from .qlib_local import (
     get_stock as get_qlib_stock,
     get_indicator as get_qlib_indicator,
 )
+from .agent_data_cache import AgentDataCache
 from .exceptions import DataVendorUnavailable, MissingEtfHoldings
 
 # Configuration and routing logic
 from .config import get_backtest_context, get_config, increment_backtest_health
+
+logger = logging.getLogger(__name__)
 
 # Tools organized by category
 TOOLS_CATEGORIES = {
@@ -447,6 +451,13 @@ def _apply_backtest_date_bounds(method: str, args: tuple, kwargs: dict):
     )
 
 
+def _cache_runtime_context() -> dict[str, str]:
+    context = get_backtest_context()
+    if context.mode == "backtest" and context.as_of_date:
+        return {"mode": "backtest", "as_of_date": context.as_of_date}
+    return {}
+
+
 def is_a_share_ticker(ticker: str) -> bool:
     """Return True when *ticker* maps to an A-share market symbol."""
     if not isinstance(ticker, str) or not ticker.strip():
@@ -461,31 +472,55 @@ def is_a_share_ticker(ticker: str) -> bool:
 def route_to_vendor(method: str, *args, **kwargs):
     """Route method calls to appropriate vendor implementation with fallback support."""
     args, kwargs = _apply_backtest_date_bounds(method, args, kwargs)
-    category = get_category_for_method(method)
-    vendor_config = get_vendor(category, method)
-    primary_vendors = [v.strip() for v in vendor_config.split(',')]
-    last_error = None
 
     if method not in VENDOR_METHODS:
         raise ValueError(f"Method '{method}' not supported")
 
+    config = get_config()
+    category = get_category_for_method(method)
+    vendor_config = get_vendor(category, method)
+    primary_vendors = [v.strip() for v in str(vendor_config).split(',') if v.strip()]
+
     # For Chinese market tickers, prefer qlib (local) then tushare.
     ticker = args[0] if args else kwargs.get("ticker") or kwargs.get("symbol") or ""
     if _is_chinese_ticker(ticker):
-        # Ensure qlib is first if available for this method, then tushare
+        # Ensure qlib is first if available for this method, then tushare.
         for preferred in reversed(["qlib", "tushare"]):
             if preferred in VENDOR_METHODS[method] and preferred not in primary_vendors:
                 primary_vendors.insert(0, preferred)
-            elif preferred in VENDOR_METHODS[method] and primary_vendors[0] != preferred:
+            elif preferred in VENDOR_METHODS[method] and (
+                not primary_vendors or primary_vendors[0] != preferred
+            ):
                 primary_vendors.remove(preferred)
                 primary_vendors.insert(0, preferred)
 
-    # Build fallback chain: primary vendors first, then remaining available vendors
+    # Build fallback chain: primary vendors first, then remaining available vendors.
     all_available_vendors = list(VENDOR_METHODS[method].keys())
     fallback_vendors = primary_vendors.copy()
     for vendor in all_available_vendors:
         if vendor not in fallback_vendors:
             fallback_vendors.append(vendor)
+
+    # The static fallback chain is part of the key so vendor reconfiguration
+    # invalidates old results. A transient fallback hit is intentionally cached
+    # for that configured chain until read TTL expiry or eviction.
+    cache_context = _cache_runtime_context()
+    agent_cache = AgentDataCache.from_config(config)
+    if agent_cache is not None:
+        try:
+            cached = agent_cache.get(
+                method,
+                args,
+                kwargs,
+                vendor_chain=fallback_vendors,
+                runtime_context=cache_context,
+            )
+            if cached.hit:
+                return cached.value
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("agent data cache read failed for %s: %s", method, exc)
+
+    last_error = None
 
     for vendor in fallback_vendors:
         if vendor not in VENDOR_METHODS[method]:
@@ -495,7 +530,26 @@ def route_to_vendor(method: str, *args, **kwargs):
         impl_func = vendor_impl[0] if isinstance(vendor_impl, list) else vendor_impl
 
         try:
-            return impl_func(*args, **kwargs)
+            result = impl_func(*args, **kwargs)
+            if agent_cache is not None:
+                try:
+                    agent_cache.set(
+                        method,
+                        args,
+                        kwargs,
+                        result,
+                        vendor=vendor,
+                        vendor_chain=fallback_vendors,
+                        runtime_context=cache_context,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "agent data cache write failed for %s/%s: %s",
+                        method,
+                        vendor,
+                        exc,
+                    )
+            return result
         except DataVendorUnavailable as exc:
             last_error = exc
             continue  # Try next vendor in fallback chain
