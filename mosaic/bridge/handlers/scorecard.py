@@ -45,6 +45,17 @@ def _store():
     return get_store()
 
 
+def _config() -> dict[str, Any]:
+    try:
+        from mosaic.dataflows.config import get_config
+
+        return get_config()
+    except Exception:
+        from mosaic.default_config import DEFAULT_CONFIG
+
+        return DEFAULT_CONFIG
+
+
 def _require_str(params: dict, key: str) -> str:
     val = params.get(key)
     if not isinstance(val, str) or not val.strip():
@@ -67,20 +78,22 @@ def scorecard_append(params: dict[str, Any]) -> dict[str, Any]:
                       active_cohort + as_of_date + layer{2,3,4}_outputs).
 
     Returns:
-        {"ingested": <int>} — number of recommendation rows upserted
-                              (0 if state has no ticker-bearing outputs).
+        {"ingested": <int>, "macro_ingested": <int>} — recommendation rows +
+        Layer 1 macro_signals rows upserted.
     """
     state = params.get("state")
     if not isinstance(state, dict):
         raise RpcError(INVALID_PARAMS, "'state' must be an object")
     try:
-        n = _store().append_from_state(state)
+        store = _store()
+        n = store.append_from_state(state)
+        macro_n = store.append_macro_signals_from_state(state)
     except ValueError as exc:
-        # expand_state_to_recommendations raises ValueError when as_of_date is missing
+        # expand_* raises ValueError when as_of_date is missing
         raise RpcError(INVALID_PARAMS, str(exc)) from exc
     except Exception as exc:
         raise RpcError(INTERNAL_ERROR, f"{type(exc).__name__}: {exc}") from exc
-    return {"ingested": n}
+    return {"ingested": n, "macro_ingested": macro_n}
 
 
 # ---------------------------------------------------------------------------
@@ -97,22 +110,56 @@ def scorecard_score_pending(params: dict[str, Any]) -> dict[str, Any]:
         today:  str (YYYY-MM-DD)
 
     Returns:
-        {"scored": <int>, "skipped_immature": <int>, "skipped_missing": <int>}
-        — counts as produced by ``Scorer.score_pending``.
+        recommendation counts (``scored`` / ``skipped_immature`` /
+        ``skipped_missing``) merged with macro counts (``macro_scored`` /
+        ``macro_skipped_immature`` / ``macro_skipped_missing``).
     """
     cohort = _require_str(params, "cohort")
     today = _require_str(params, "today")
 
     try:
         from mosaic.scorecard import Scorer
+        from mosaic.scorecard.scorer import MacroScorer
     except ImportError as exc:
         raise RpcError(INTERNAL_ERROR, f"scorecard package not importable: {exc}") from exc
 
     try:
-        scorer = Scorer(_store())
-        return scorer.score_pending(cohort=cohort, today=today)
+        store = _store()
+        ar_cfg = (_config().get("autoresearch", {}) or {})
+        result = dict(Scorer(store).score_pending(cohort=cohort, today=today))
+        result.update(
+            MacroScorer(
+                store,
+                neutral_band=ar_cfg.get("macro_neutral_band"),
+            ).score_pending(cohort=cohort, today=today)
+        )
+        return result
     except RpcError:
         raise
+    except Exception as exc:
+        raise RpcError(INTERNAL_ERROR, f"{type(exc).__name__}: {exc}") from exc
+
+
+# ---------------------------------------------------------------------------
+# scorecard.list_macro_skill (autoresearch macro plan, Phase 3)
+# ---------------------------------------------------------------------------
+
+
+@method("scorecard.list_macro_skill")
+def scorecard_list_macro_skill(params: dict[str, Any]) -> dict[str, Any]:
+    """Aggregate per-agent macro skill from scored ``macro_signals``.
+
+    Params: cohort (str), since (str YYYY-MM-DD, optional).
+    Returns {"rows": [{agent, n_obs, mean_raw_macro_score_5d, hit_rate_5d,
+             mean_effective_macro_score_5d, mean_influence_weight_equal,
+             sharpe_window, latest_signal_date}, ...]}.
+    """
+    cohort = _require_str(params, "cohort")
+    since: Optional[str] = params.get("since") or None
+    if since is not None and not isinstance(since, str):
+        raise RpcError(INVALID_PARAMS, "'since' must be a string when provided")
+    try:
+        return {"rows": _store().list_macro_skill(cohort=cohort, since=since)}
     except Exception as exc:
         raise RpcError(INTERNAL_ERROR, f"{type(exc).__name__}: {exc}") from exc
 

@@ -261,3 +261,163 @@ class Scorer:
             outcome["scored"] += 1
 
         return outcome
+
+
+# ---------------------------------------------------------------------------
+# Macro scorer (autoresearch macro plan — MVP: benchmark 5d direction label)
+# ---------------------------------------------------------------------------
+
+MACRO_VOL_FLOOR = 0.005          # floor for vol_scale_5d (avoid div-by-tiny)
+_DEFAULT_MACRO_NEUTRAL_BAND = 0.005   # ±0.5% raw-return band for realized_label
+_MACRO_VOL_LOOKBACK_CAL_DAYS = 40     # calendar days of benchmark history for realized vol
+_MACRO_MOVE_CLAMP = 3.0
+
+
+def _macro_neutral_band() -> float:
+    """Single source: autoresearch.macro_neutral_band (default 0.005, raw return)."""
+    try:
+        from mosaic.default_config import DEFAULT_CONFIG
+
+        band = DEFAULT_CONFIG.get("autoresearch", {}).get("macro_neutral_band")
+        return float(band) if band is not None else _DEFAULT_MACRO_NEUTRAL_BAND
+    except Exception:  # noqa: BLE001
+        return _DEFAULT_MACRO_NEUTRAL_BAND
+
+
+def _fetch_benchmark_series(ts_code: str, start_iso: str, end_iso: str) -> list[float]:
+    """Benchmark index closes over [start, end] (chronological). [] on failure.
+
+    Used only to estimate trailing realized vol for ``vol_scale_5d``.
+    """
+    try:
+        from mosaic.dataflows.tushare import (  # type: ignore[attr-defined]
+            _get_pro_client,
+            _normalize_ts_code,
+            _to_api_date,
+        )
+        pro = _get_pro_client()
+        norm = _normalize_ts_code(ts_code)
+        df = pro.index_daily(
+            ts_code=norm, start_date=_to_api_date(start_iso), end_date=_to_api_date(end_iso)
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("benchmark series fetch failed for %s: %s", ts_code, exc)
+        return []
+    if df is None or df.empty:
+        return []
+    try:
+        df = df.sort_values("trade_date")
+        return [float(x) for x in df["close"].tolist()]
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def _clip(x: float, lo: float, hi: float) -> float:
+    return lo if x < lo else (hi if x > hi else x)
+
+
+class MacroScorer:
+    """Score pending macro_signals by benchmark 5d direction (MVP).
+
+    Fills realized_label / hit_5d / raw_macro_score_5d (vol-scaled) and marks
+    rows scored so they leave the pending set. ``influence`` / agent-specific
+    labels are follow-ups (left NULL here).
+    """
+
+    def __init__(
+        self,
+        store,
+        benchmark: Optional[str] = None,
+        neutral_band: Optional[float] = None,
+    ) -> None:
+        self.store = store
+        self.benchmark = benchmark or _benchmark_ticker()
+        self.neutral_band = (
+            float(neutral_band) if neutral_band is not None else _macro_neutral_band()
+        )
+        self._vol_cache: dict[str, float] = {}
+
+    def _vol_scale(self, d0_iso: str) -> float:
+        if d0_iso in self._vol_cache:
+            return self._vol_cache[d0_iso]
+        from mosaic.dataflows.calendar import previous_trading_day  # local import
+
+        start = previous_trading_day(d0_iso, _MACRO_VOL_LOOKBACK_CAL_DAYS // 2)
+        closes = _fetch_benchmark_series(self.benchmark, start, d0_iso)
+        vs = MACRO_VOL_FLOOR
+        rets = [
+            (closes[i] - closes[i - 1]) / closes[i - 1]
+            for i in range(1, len(closes))
+            if closes[i - 1]
+        ]
+        if len(rets) >= 5:
+            mean = sum(rets) / len(rets)
+            std = (sum((r - mean) ** 2 for r in rets) / (len(rets) - 1)) ** 0.5
+            vs = max(std * (HORIZON_5D ** 0.5), MACRO_VOL_FLOOR)
+        self._vol_cache[d0_iso] = vs
+        return vs
+
+    def score_pending(self, cohort: str, today: str) -> dict:
+        """Score matured macro signals. Returns macro_* counts."""
+        from mosaic.dataflows.calendar import next_trading_day, previous_trading_day
+
+        last_trading_day = previous_trading_day(today, 0)
+        cutoff_5d = previous_trading_day(last_trading_day, HORIZON_5D)
+        pending = self.store.list_pending_macro(cohort=cohort, before_date=cutoff_5d)
+
+        outcome = {"macro_scored": 0, "macro_skipped_immature": 0, "macro_skipped_missing": 0}
+        bench_cache: dict[str, Optional[float]] = {}
+
+        def _bench(date_iso: str) -> Optional[float]:
+            if date_iso not in bench_cache:
+                bench_cache[date_iso] = _fetch_close(self.benchmark, date_iso)
+            return bench_cache[date_iso]
+
+        for row in pending:
+            d0 = row.date
+            t_5d = next_trading_day(d0, HORIZON_5D)
+            if t_5d > last_trading_day:
+                outcome["macro_skipped_immature"] += 1
+                continue
+
+            b0, b5 = _bench(d0), _bench(t_5d)
+            if b0 in (None, 0) or b5 is None:
+                # Can't price the benchmark — mark scored (missing) so it drops.
+                self.store.update_macro_scoring(
+                    row.id,
+                    {"label_type": "benchmark_5d", "label_source_status": "missing",
+                     "scored_at": today},
+                )
+                outcome["macro_skipped_missing"] += 1
+                continue
+
+            bench_ret = (b5 - b0) / b0
+            band = self.neutral_band
+            realized = 1 if bench_ret > band else (-1 if bench_ret < -band else 0)
+            hit = 1 if row.vote == realized else 0
+
+            vol_scale = self._vol_scale(d0)
+            norm_move = _clip(bench_ret / vol_scale, -_MACRO_MOVE_CLAMP, _MACRO_MOVE_CLAMP)
+            conf = float(row.confidence) if row.confidence is not None else 0.0
+            if row.vote != 0:
+                raw = conf * row.vote * norm_move
+            else:
+                neutral_band_norm = band / vol_scale
+                raw = conf * (neutral_band_norm - abs(norm_move))
+
+            self.store.update_macro_scoring(
+                row.id,
+                {
+                    "label_type": "benchmark_5d",
+                    "label_source_status": "primary",
+                    "label_value_5d": bench_ret,
+                    "benchmark_return_5d": bench_ret,
+                    "realized_label": realized,
+                    "hit_5d": hit,
+                    "raw_macro_score_5d": raw,
+                    "scored_at": today,
+                },
+            )
+            outcome["macro_scored"] += 1
+
+        return outcome

@@ -21,6 +21,7 @@ columns once they're populated).
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import sqlite3
@@ -217,6 +218,34 @@ CREATE TABLE IF NOT EXISTS mirofish_context (
     detail_json TEXT,                            -- full derived summary (JSON)
     created_at TEXT NOT NULL                     -- ISO-8601
 );
+
+-- Layer 1 macro-agent signals (autoresearch macro plan). Macro agents emit
+-- regime signals, not ticker recommendations, so they live here instead of
+-- ``recommendations``. Scored later by direction (benchmark 5d in MVP).
+CREATE TABLE IF NOT EXISTS macro_signals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    cohort TEXT NOT NULL,
+    agent TEXT NOT NULL,
+    date TEXT NOT NULL,                          -- YYYY-MM-DD (signal as-of date)
+    vote INTEGER NOT NULL CHECK (vote IN (-1, 0, 1)),
+    confidence REAL,
+    raw_output_json TEXT,                        -- original structured macro output
+    consensus_stance TEXT,                       -- Layer 1 aggregate stance that day
+    consensus_score REAL,
+    label_type TEXT,                             -- e.g. benchmark_5d / benchmark_fallback_5d
+    label_source_status TEXT,                    -- primary / fallback / missing / deferred
+    label_value_5d REAL,                         -- raw value of the scoring label
+    benchmark_return_5d REAL,
+    realized_label INTEGER CHECK (realized_label IN (-1, 0, 1)),
+    hit_5d INTEGER,                              -- 1 if vote == realized_label
+    raw_macro_score_5d REAL,                     -- MVP primary score
+    influence_weight_equal REAL,                 -- diagnostics (Phase 8)
+    effective_macro_score_5d REAL,               -- diagnostics (Phase 8)
+    prompt_repo_id TEXT,
+    prompt_sha256 TEXT,
+    scored_at TEXT,                              -- NULL until the 5d window matures
+    UNIQUE(cohort, agent, date)
+);
 """
 
 
@@ -235,6 +264,18 @@ class PendingRow:
     ticker: str
     date: str
     action: str
+
+
+@dataclass(frozen=True)
+class PendingMacroRow:
+    """Minimal macro-signal row needed by the macro scorer."""
+
+    id: int
+    cohort: str
+    agent: str
+    date: str
+    vote: int
+    confidence: Optional[float]
 
 
 # ---------------------------------------------------------------------------
@@ -350,6 +391,132 @@ def expand_state_to_recommendations(state: dict[str, Any]) -> list[dict[str, Any
     for row in rows:
         row["replay_triggered"] = replay_flag
 
+    return rows
+
+
+# ---------------------------------------------------------------------------
+# Macro-signal expansion (Layer 1) — mirrors the TS aggregator vote table
+# (mosaic-ts/src/agents/macro/_aggregator.ts ``voteForAgent``). Keep in sync.
+# ---------------------------------------------------------------------------
+
+MACRO_AGENTS: frozenset[str] = frozenset(
+    {
+        "central_bank", "china", "geopolitical", "dollar", "yield_curve",
+        "commodities", "volatility", "emerging_markets", "news_sentiment",
+        "institutional_flow",
+    }
+)
+
+
+_SHARPE_MIN_OBS = 5
+_SHARPE_ANNUALIZATION = (252.0 / 5.0) ** 0.5
+
+
+def _sharpe(values: list[float]) -> Optional[float]:
+    """Annualized Sharpe of a score series; None below ``_SHARPE_MIN_OBS``.
+
+    Same convention as ``scorecard.list_skill`` (n>=5, (mean/std)·sqrt(252)).
+    """
+    n = len(values)
+    if n < _SHARPE_MIN_OBS:
+        return None
+    mean = sum(values) / n
+    var = sum((v - mean) ** 2 for v in values) / max(n - 1, 1)
+    std = var ** 0.5
+    return 0.0 if std == 0 else (mean / std) * _SHARPE_ANNUALIZATION
+
+
+def _macro_vote(agent: str, out: dict[str, Any]) -> int:
+    """Map a macro agent's structured output to a directional vote in {-1,0,+1}.
+
+    Canonical mapping — must match the TS aggregator's ``voteForAgent``.
+    """
+    if agent == "central_bank":
+        s = out.get("stance")
+        return 1 if s == "ACCOMMODATIVE" else (-1 if s == "TIGHTENING" else 0)
+    if agent == "china":
+        d = out.get("policy_direction")
+        return 1 if d == "PRO_GROWTH" else (-1 if d == "RESTRAINING" else 0)
+    if agent == "geopolitical":
+        try:
+            lvl = int(out.get("escalation_level"))
+        except (TypeError, ValueError):
+            return 0
+        return 1 if lvl <= 2 else (-1 if lvl >= 4 else 0)
+    if agent == "dollar":
+        t = out.get("dxy_trend")
+        return 1 if t == "WEAKENING" else (-1 if t == "STRENGTHENING" else 0)
+    if agent == "yield_curve":
+        r = out.get("recession_signal")
+        return 1 if r == "GREEN" else (-1 if r == "RED" else 0)
+    if agent == "commodities":
+        c = out.get("china_demand_signal")
+        return 1 if c == "ACCELERATING" else (-1 if c == "DECELERATING" else 0)
+    if agent == "volatility":
+        r = out.get("regime_filter")
+        return 1 if r == "RISK_ON" else (-1 if r == "RISK_OFF" else 0)
+    if agent == "emerging_markets":
+        e = out.get("em_relative")
+        return 1 if e == "OUTPERFORMING" else (-1 if e == "UNDERPERFORMING" else 0)
+    if agent == "news_sentiment":
+        score = float(out.get("retail_sentiment_score") or 0.0)
+        if out.get("contrarian_flag"):
+            return -1 if score > 0 else 0
+        return 1 if score > 0.3 else (-1 if score < -0.3 else 0)
+    if agent == "institutional_flow":
+        sectors = out.get("sectors_in_out") or []
+        net = sum(
+            float(s.get("net_amount_cny") or 0.0)
+            for s in sectors
+            if isinstance(s, dict)
+        )
+        return 1 if net > 1000 else (-1 if net < -1000 else 0)
+    return 0
+
+
+def expand_state_to_macro_signals(state: dict[str, Any]) -> list[dict[str, Any]]:
+    """Project a daily-cycle state's Layer 1 outputs into macro_signals rows.
+
+    Returns dicts with: cohort / agent / date / vote / confidence /
+    raw_output_json / consensus_stance / consensus_score / prompt_repo_id /
+    prompt_sha256. Scoring columns are filled later by the macro scorer.
+    """
+    cohort = state.get("active_cohort") or "cohort_default"
+    date = state.get("as_of_date")
+    if not isinstance(date, str) or not date:
+        raise ValueError("state.as_of_date is required to expand macro signals")
+
+    consensus = state.get("layer1_consensus") or {}
+    consensus_stance = consensus.get("stance") if isinstance(consensus, dict) else None
+    consensus_score = None
+    if isinstance(consensus, dict):
+        for key in ("score", "layer_1_consensus_score", "confidence"):
+            if consensus.get(key) is not None:
+                consensus_score = float(consensus[key])
+                break
+
+    prompt_repo_id = state.get("prompt_repo_id")
+    prompt_sha256 = state.get("prompt_sha256")
+
+    rows: list[dict[str, Any]] = []
+    for agent, out in (state.get("layer1_outputs") or {}).items():
+        if agent not in MACRO_AGENTS or not isinstance(out, dict):
+            continue
+        conf = out.get("confidence")
+        rows.append(
+            {
+                "cohort": cohort,
+                "agent": agent,
+                "date": date,
+                "vote": _macro_vote(agent, out),
+                "confidence": float(conf) if conf is not None else None,
+                "raw_output_json": json.dumps(out, ensure_ascii=False),
+                "consensus_stance": consensus_stance,
+                "consensus_score": consensus_score,
+                "prompt_repo_id": prompt_repo_id,
+                "prompt_sha256": prompt_sha256,
+            }
+        )
     return rows
 
 
@@ -518,6 +685,130 @@ class ScorecardStore:
                 logger.warning(
                     "update_scoring: no recommendation row with id=%s (no-op)", row_id
                 )
+
+    # ── macro signals (Layer 1) ──────────────────────────────────────────
+
+    def append_macro_signals_from_state(self, state: dict[str, Any]) -> int:
+        """Ingest Layer 1 macro outputs into ``macro_signals``. Returns rows upserted.
+
+        Idempotent on (cohort, agent, date): re-ingest refreshes vote/confidence/
+        raw_output/consensus/provenance but never touches scoring columns
+        (realized_label / raw_macro_score_5d / scored_at / …).
+        """
+        rows = expand_state_to_macro_signals(state)
+        if not rows:
+            return 0
+        with self._connect() as conn:
+            conn.executemany(
+                """
+                INSERT INTO macro_signals (
+                    cohort, agent, date, vote, confidence, raw_output_json,
+                    consensus_stance, consensus_score, prompt_repo_id, prompt_sha256
+                ) VALUES (
+                    :cohort, :agent, :date, :vote, :confidence, :raw_output_json,
+                    :consensus_stance, :consensus_score, :prompt_repo_id, :prompt_sha256
+                )
+                ON CONFLICT(cohort, agent, date) DO UPDATE SET
+                    vote = excluded.vote,
+                    confidence = excluded.confidence,
+                    raw_output_json = excluded.raw_output_json,
+                    consensus_stance = excluded.consensus_stance,
+                    consensus_score = excluded.consensus_score,
+                    prompt_repo_id = excluded.prompt_repo_id,
+                    prompt_sha256 = excluded.prompt_sha256
+                """,
+                rows,
+            )
+        return len(rows)
+
+    def list_pending_macro(
+        self, cohort: Optional[str] = None, before_date: Optional[str] = None
+    ) -> list[PendingMacroRow]:
+        """Macro signals with scored_at IS NULL (and date <= before_date)."""
+        sql = (
+            "SELECT id, cohort, agent, date, vote, confidence FROM macro_signals "
+            "WHERE scored_at IS NULL"
+        )
+        params: list[Any] = []
+        if cohort:
+            sql += " AND cohort = ?"
+            params.append(cohort)
+        if before_date:
+            sql += " AND date <= ?"
+            params.append(before_date)
+        sql += " ORDER BY date, id"
+        with self._connect() as conn:
+            return [
+                PendingMacroRow(
+                    id=r["id"], cohort=r["cohort"], agent=r["agent"],
+                    date=r["date"], vote=r["vote"], confidence=r["confidence"],
+                )
+                for r in conn.execute(sql, params).fetchall()
+            ]
+
+    def update_macro_scoring(self, row_id: int, fields: dict[str, Any]) -> None:
+        """Fill macro scoring columns for one row. ``fields`` keys are column names."""
+        allowed = {
+            "label_type", "label_source_status", "label_value_5d", "benchmark_return_5d",
+            "realized_label", "hit_5d", "raw_macro_score_5d", "influence_weight_equal",
+            "effective_macro_score_5d", "scored_at",
+        }
+        sets = {k: v for k, v in fields.items() if k in allowed}
+        if not sets:
+            return
+        assignments = ", ".join(f"{k} = :{k}" for k in sets)
+        sets["id"] = row_id
+        with self._connect() as conn:
+            cur = conn.execute(f"UPDATE macro_signals SET {assignments} WHERE id = :id", sets)
+            if cur.rowcount == 0:
+                logger.warning("update_macro_scoring: no macro_signals row id=%s", row_id)
+
+    def list_macro_skill(self, cohort: str, since: Optional[str] = None) -> list[dict[str, Any]]:
+        """Aggregate scored macro signals per agent (autoresearch macro skill)."""
+        sql = (
+            "SELECT agent, vote, hit_5d, raw_macro_score_5d, effective_macro_score_5d, "
+            "influence_weight_equal, date "
+            "FROM macro_signals WHERE cohort = ? AND scored_at IS NOT NULL"
+        )
+        params: list[Any] = [cohort]
+        if since:
+            sql += " AND date >= ?"
+            params.append(since)
+        with self._connect() as conn:
+            rows = conn.execute(sql, params).fetchall()
+
+        by_agent: dict[str, list[sqlite3.Row]] = {}
+        for r in rows:
+            by_agent.setdefault(r["agent"], []).append(r)
+
+        out: list[dict[str, Any]] = []
+        for agent, recs in by_agent.items():
+            raws = [r["raw_macro_score_5d"] for r in recs if r["raw_macro_score_5d"] is not None]
+            effs = [
+                r["effective_macro_score_5d"]
+                for r in recs
+                if r["effective_macro_score_5d"] is not None
+            ]
+            infs = [
+                r["influence_weight_equal"]
+                for r in recs
+                if r["influence_weight_equal"] is not None
+            ]
+            hits = [r["hit_5d"] for r in recs if r["hit_5d"] is not None]
+            out.append(
+                {
+                    "agent": agent,
+                    "n_obs": len(recs),
+                    "mean_raw_macro_score_5d": (sum(raws) / len(raws)) if raws else None,
+                    "mean_effective_macro_score_5d": (sum(effs) / len(effs)) if effs else None,
+                    "hit_rate_5d": (sum(hits) / len(hits)) if hits else None,
+                    "mean_influence_weight_equal": (sum(infs) / len(infs)) if infs else None,
+                    "sharpe_window": _sharpe(raws),
+                    "latest_signal_date": max((r["date"] for r in recs), default=None),
+                }
+            )
+        out.sort(key=lambda d: d["agent"])
+        return out
 
     def list_scored(
         self,
@@ -1141,6 +1432,33 @@ class ScorecardStore:
             )
             row = cur.fetchone()
             return row["m"] if row and row["m"] else None
+
+    def last_mutation_at_any(self, cohort: str, agents: Iterable[str]) -> Optional[str]:
+        """Most recent prompt_version created_at across ``agents`` (any status).
+
+        Feeds the macro-layer interval gate (autoresearch macro plan Phase 4)."""
+        agents = list(agents)
+        if not agents:
+            return None
+        placeholders = ",".join("?" for _ in agents)
+        with self._connect() as conn:
+            row = conn.execute(
+                f"SELECT MAX(created_at) AS m FROM prompt_versions "
+                f"WHERE cohort = ? AND agent IN ({placeholders})",
+                (cohort, *agents),
+            ).fetchone()
+            return row["m"] if row and row["m"] else None
+
+    def recently_reverted_agents(self, cohort: str, since_iso: str) -> set[str]:
+        """Agents with a ``revert`` decision at/after ``since_iso`` (recent-revert
+        penalty, autoresearch macro plan Phase 4)."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT DISTINCT agent FROM prompt_versions "
+                "WHERE cohort = ? AND status = 'revert' AND decided_at >= ?",
+                (cohort, since_iso),
+            ).fetchall()
+            return {r["agent"] for r in rows}
 
     def count_mutations_this_month(self, cohort: str, now_iso: str) -> int:
         """Count prompt_versions created in the same calendar month as

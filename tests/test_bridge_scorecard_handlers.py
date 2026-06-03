@@ -100,13 +100,13 @@ def _sample_state(date: str = "2024-06-24") -> dict:
 class TestScorecardAppend:
     def test_happy_path(self, tmp_store):
         result = dispatch("scorecard.append", {"state": _sample_state()})
-        # ackman pick + cio action = 2 rows
-        assert result == {"ingested": 2}
+        # ackman pick + cio action = 2 rows; no layer1 macro outputs in sample
+        assert result == {"ingested": 2, "macro_ingested": 0}
 
     def test_idempotent_re_ingest(self, tmp_store):
         dispatch("scorecard.append", {"state": _sample_state()})
         result = dispatch("scorecard.append", {"state": _sample_state()})
-        assert result == {"ingested": 2}  # upsert
+        assert result == {"ingested": 2, "macro_ingested": 0}  # upsert
         with tmp_store._connect() as conn:
             count = conn.execute("SELECT COUNT(*) FROM recommendations").fetchone()[0]
         assert count == 2  # not 4
@@ -146,7 +146,10 @@ class TestScorecardScorePending:
             "scorecard.score_pending",
             {"cohort": "cohort_default", "today": "2024-07-01"},
         )
-        assert result == {"scored": 0, "skipped_immature": 0, "skipped_missing": 0}
+        assert result == {
+            "scored": 0, "skipped_immature": 0, "skipped_missing": 0,
+            "macro_scored": 0, "macro_skipped_immature": 0, "macro_skipped_missing": 0,
+        }
 
 
 # ===========================================================================

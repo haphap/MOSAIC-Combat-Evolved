@@ -152,6 +152,14 @@ DEFAULT_CONFIG = {
         "keep_threshold_delta_sharpe": 0.1,
         "monthly_modification_cap_per_cohort": 100,
         "evaluation_horizon_trading_days": 5,
+        # Macro layer-aware selection (autoresearch macro plan MVP). macro agents
+        # are ranked within their own layer; the interval gates how often macro
+        # is picked (~the 20% quota in steady state). macro_neutral_band is the
+        # single source for both the macro scorer and selection.
+        "macro_quota": 0.2,
+        "min_macro_interval_days": 5,
+        "macro_neutral_band": 0.005,
+        "recent_revert_penalty_days": 14,
         # Mirror kept (merged-to-main) prompt mutations to a self-hosted git
         # server. OPT-IN; default OFF keeps autoresearch 100% local. When push
         # is True, the keep-path runs `git push <remote> main` after the merge

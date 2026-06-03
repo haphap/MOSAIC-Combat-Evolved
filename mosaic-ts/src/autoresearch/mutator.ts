@@ -21,8 +21,12 @@ import type { BaseChatModel } from "@langchain/core/language_models/chat_models"
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { z } from "zod";
 import { bindStructured } from "../agents/helpers/structured_output.js";
+import { ALL_MACRO_AGENTS } from "../agents/macro/_aggregator.js";
 import { loadPrompt } from "../agents/prompts/loader.js";
 import type { BridgeApi } from "../bridge/types.js";
+
+/** Layer-1 macro agents use their own skill metric (no recommendation alpha). */
+const MACRO_AGENT_SET: ReadonlySet<string> = new Set(ALL_MACRO_AGENTS);
 
 /** Max allowed length swing for a rewrite (Plan §11.5 4B decision #5). */
 export const MAX_LENGTH_DELTA = 0.4;
@@ -206,6 +210,28 @@ async function describePerformance(
   agent: string,
   since?: string,
 ): Promise<string> {
+  // Macro (Layer 1) agents have no recommendation alpha — show macro skill so
+  // the LLM sees its own error type, not a misleading "no recent data".
+  if (MACRO_AGENT_SET.has(agent)) {
+    try {
+      const { rows } = await api.scorecardListMacroSkill(cohort, since);
+      const s = rows.find((r) => r.agent === agent);
+      if (!s) {
+        return "no recent macro data (cold start) — make a conservative clarity-focused edit";
+      }
+      const pct = (x: number | null) => (x == null ? "n/a" : `${(x * 100).toFixed(0)}%`);
+      return [
+        `raw_macro_score_5d=${s.mean_raw_macro_score_5d?.toFixed(4) ?? "n/a"}`,
+        `hit_rate_5d=${pct(s.hit_rate_5d)}`,
+        `n_obs=${s.n_obs}`,
+        `effective_macro_score_5d=${s.mean_effective_macro_score_5d ?? "null"}`,
+        `influence_equal=${s.mean_influence_weight_equal ?? "null"}`,
+      ].join(", ");
+    } catch {
+      return "macro performance unavailable — make a conservative clarity-focused edit";
+    }
+  }
+
   try {
     const [{ rows }, { weights }] = await Promise.all([
       api.scorecardListSkill(cohort, since),

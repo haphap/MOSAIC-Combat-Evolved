@@ -14,8 +14,9 @@ Exposes the prompt-mutation lifecycle to the TS orchestrator:
 
 from __future__ import annotations
 
+import math
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -254,14 +255,20 @@ def autoresearch_trigger(params: dict[str, Any]) -> dict[str, Any]:
 def _select_agent(
     store, cohort: str, force_agent: str | None, config: dict, now: datetime
 ) -> str:
-    """Pick the agent with the lowest rolling Sharpe that passes constraints.
+    """Layer-aware agent selection (autoresearch macro plan Phase 4).
 
-    If force_agent is set, use that directly (still must pass cooldown).
+    macro agents are ranked *within the macro layer* by ``mean_raw_macro_score_5d``
+    (worst first); non-macro agents keep the rolling-Sharpe ranking. The two
+    metrics are never mixed. macro is only eligible when it hasn't been mutated
+    within ``min_macro_interval_days`` (the static-quota realization for the MVP).
+    A recent-revert penalty deprioritizes agents reverted in the last
+    ``recent_revert_penalty_days``. ``force_agent`` bypasses selection but still
+    enforces cooldown.
     """
     from mosaic.autoresearch.constraints import check_cooldown
+    from mosaic.bridge.handlers.prompts import _LAYER_BY_AGENT
 
     if force_agent:
-        # Still enforce cooldown even when agent is forced.
         cd = check_cooldown(store, cohort, force_agent, now, config)
         if not cd:
             raise RpcError(
@@ -270,29 +277,82 @@ def _select_agent(
             )
         return force_agent
 
-    # Get Darwinian weights (which include sharpe_30) for agent ranking.
-    weights = store.get_darwinian_weights(cohort)
-
-    # All agents eligible for mutation (from the layer map).
-    from mosaic.bridge.handlers.prompts import _LAYER_BY_AGENT
+    ar = (config or {}).get("autoresearch", {}) or {}
+    macro_quota = float(ar.get("macro_quota", 0.2))
+    macro_enabled = macro_quota > 0
+    if not macro_enabled:
+        min_macro_interval_days = 10**9
+    else:
+        quota_interval_days = max(1, math.ceil(1.0 / min(macro_quota, 1.0)))
+        min_macro_interval_days = max(
+            int(ar.get("min_macro_interval_days", 5)),
+            quota_interval_days,
+        )
+    recent_revert_penalty_days = int(ar.get("recent_revert_penalty_days", 14))
 
     all_agents = list(_LAYER_BY_AGENT.keys())
+    macro_agents = [a for a in all_agents if _LAYER_BY_AGENT[a] == "macro"]
+    nonmacro_agents = [a for a in all_agents if _LAYER_BY_AGENT[a] != "macro"]
 
-    # Sort agents by rolling sharpe (lowest first = most in need of improvement).
-    def sharpe_key(agent_name: str) -> float:
-        w = weights.get(agent_name)
+    # Agents with a recent revert are tried last (penalty, not a hard block).
+    revert_since = (now - timedelta(days=recent_revert_penalty_days)).isoformat()
+    penalized = store.recently_reverted_agents(cohort, revert_since)
+
+    # macro layer ranked worst→best by mean_raw_macro_score_5d. Cold-start
+    # macro agents stay out of automatic selection until they have real score.
+    macro_skill = {r["agent"]: r for r in store.list_macro_skill(cohort)}
+    scored_macro_agents = [
+        a
+        for a in macro_agents
+        if (macro_skill.get(a) or {}).get("mean_raw_macro_score_5d") is not None
+    ]
+
+    def macro_key(a: str) -> float:
+        return float(macro_skill[a]["mean_raw_macro_score_5d"])
+
+    # non-macro ranked worst→best by rolling Sharpe (existing metric).
+    weights = store.get_darwinian_weights(cohort)
+
+    def sharpe_key(a: str) -> float:
+        w = weights.get(a)
         if w and w.get("sharpe_30") is not None:
             return float(w["sharpe_30"])
-        return 0.0  # no data = neutral priority
+        return 0.0
 
-    candidates = sorted(all_agents, key=sharpe_key)
+    def _first_eligible(ranked: list[str]) -> str | None:
+        # Prefer non-penalized; only fall back to penalized agents if needed.
+        for allow_penalized in (False, True):
+            for a in ranked:
+                if not allow_penalized and a in penalized:
+                    continue
+                if check_cooldown(store, cohort, a, now, config):
+                    return a
+        return None
 
-    for candidate in candidates:
-        cd = check_cooldown(store, cohort, candidate, now, config)
-        if cd:
-            return candidate
+    # Is the macro layer due? (no macro mutation within the interval)
+    macro_due = True
+    last_macro = store.last_mutation_at_any(cohort, macro_agents)
+    if last_macro:
+        last_dt = datetime.fromisoformat(last_macro)
+        if last_dt.tzinfo is None:
+            last_dt = last_dt.replace(tzinfo=timezone.utc)
+        macro_due = (now - last_dt) >= timedelta(days=min_macro_interval_days)
 
-    # All agents are on cooldown.
+    if macro_enabled and macro_due and scored_macro_agents:
+        chosen = _first_eligible(sorted(scored_macro_agents, key=macro_key))
+        if chosen:
+            return chosen
+
+    chosen = _first_eligible(sorted(nonmacro_agents, key=sharpe_key))
+    if chosen:
+        return chosen
+
+    # Last resort: any agent (e.g. macro when not "due" but everything else is
+    # on cooldown) — never silently fail if something is eligible.
+    chosen = _first_eligible(sorted(all_agents, key=sharpe_key))
+    if chosen:
+        return chosen
+
     raise RpcError(
         AUTORESEARCH_ERROR,
         f"all agents in cohort '{cohort}' are on cooldown; try again later",

@@ -17,8 +17,11 @@ from mosaic.scorecard.scorer import (
 )
 from mosaic.scorecard.store import (
     DEFAULT_DB_PATH,
+    MACRO_AGENTS,
+    PendingMacroRow,
     PendingRow,
     ScorecardStore,
+    expand_state_to_macro_signals,
     expand_state_to_recommendations,
 )
 from mosaic.scorecard.weights import (
@@ -56,7 +59,9 @@ __all__ = [
     "DEFAULT_DB_PATH",
     "HORIZON_5D",
     "HORIZON_21D",
+    "MACRO_AGENTS",
     "MIN_OBS_FOR_SHARPE",
+    "PendingMacroRow",
     "PendingRow",
     "ScoreOutcome",
     "Scorer",
@@ -64,6 +69,7 @@ __all__ = [
     "WEIGHT_MAX",
     "WEIGHT_MIN",
     "compute_weights",
+    "expand_state_to_macro_signals",
     "expand_state_to_recommendations",
     "get_store",
     "reset_store_cache",

@@ -258,6 +258,12 @@ export interface ScorecardScoreOutcome {
   skipped_immature: number;
   /** Rows where Tushare returned no close (suspension / missing data). */
   skipped_missing: number;
+  /** Macro signals that received benchmark-5d scoring. */
+  macro_scored: number;
+  /** Macro signals whose 5d horizon has not yet matured. */
+  macro_skipped_immature: number;
+  /** Macro signals where benchmark data was missing. */
+  macro_skipped_missing: number;
 }
 
 /** One row of ``scorecard.list_skill`` aggregate output. */
@@ -274,6 +280,20 @@ export interface SkillRow {
    */
   sharpe_window: number | null;
   n_obs: number;
+}
+
+/** One row of ``scorecard.list_macro_skill`` (autoresearch macro plan). */
+export interface MacroSkillRow {
+  agent: string;
+  n_obs: number;
+  /** MVP primary ranking metric (vol-scaled directional score). */
+  mean_raw_macro_score_5d: number | null;
+  /** Diagnostics (Phase 8); null in the MVP. */
+  mean_effective_macro_score_5d: number | null;
+  hit_rate_5d: number | null;
+  mean_influence_weight_equal: number | null;
+  sharpe_window: number | null;
+  latest_signal_date: string | null;
 }
 
 export interface CioAction {
@@ -828,8 +848,12 @@ export class BridgeApi {
   }
 
   // scorecard.* (Phase 3D)
-  scorecardAppend(state: Record<string, unknown>): Promise<{ ingested: number }> {
-    return this.client.call<{ ingested: number }>("scorecard.append", { state });
+  scorecardAppend(
+    state: Record<string, unknown>,
+  ): Promise<{ ingested: number; macro_ingested: number }> {
+    return this.client.call<{ ingested: number; macro_ingested: number }>("scorecard.append", {
+      state,
+    });
   }
 
   scorecardScorePending(cohort: string, today: string): Promise<ScorecardScoreOutcome> {
@@ -841,6 +865,13 @@ export class BridgeApi {
 
   scorecardListSkill(cohort: string, since?: string): Promise<{ rows: SkillRow[] }> {
     return this.client.call<{ rows: SkillRow[] }>("scorecard.list_skill", {
+      cohort,
+      ...(since ? { since } : {}),
+    });
+  }
+
+  scorecardListMacroSkill(cohort: string, since?: string): Promise<{ rows: MacroSkillRow[] }> {
+    return this.client.call<{ rows: MacroSkillRow[] }>("scorecard.list_macro_skill", {
       cohort,
       ...(since ? { since } : {}),
     });
