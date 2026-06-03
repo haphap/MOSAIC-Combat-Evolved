@@ -443,12 +443,23 @@ hit_5d = vote == realized_label
 
 如果标签是方向性收益，例如 benchmark、周期板块、商品指数、EM 相对收益：
 
+先固定归一化口径（必须在 Phase 2 scorer 落地前定死，因为它决定入库的 `raw_macro_score_5d` 数值，事后改会让历史分数不可比）：
+
+```text
+forward_return_5d = label 标的未来 5 个交易日收益（MVP = benchmark 5d return，原始收益单位）
+vol_scale_5d      = max(trailing_realized_daily_vol_20d * sqrt(5), vol_floor)   # vol_floor 默认 0.005
+normalized_forward_move_5d = clip(forward_return_5d / vol_scale_5d, -3.0, +3.0) # 无量纲，按波动归一
+neutral_band_norm = macro_neutral_band / vol_scale_5d   # 把 0.5% 原始阈值换算到同一归一化口径
+```
+
 ```text
 if vote != 0:
     raw_macro_score_5d = confidence * vote * normalized_forward_move_5d
 else:
-    raw_macro_score_5d = confidence * (neutral_band - abs(normalized_forward_move_5d))
+    raw_macro_score_5d = confidence * (neutral_band_norm - abs(normalized_forward_move_5d))
 ```
+
+单位一致性：`macro_neutral_band`（默认 0.005）是**原始收益**阈值，只用于 Step 2 的 realized_label 分桶；在上面的分数公式里统一换算成 `neutral_band_norm`，使 move 与 band 都在归一化口径下比较，避免原始收益和归一化值混用。
 
 如果标签是风险事件，例如未来最大回撤、realized volatility、risk-off shock：
 
@@ -459,6 +470,8 @@ vote = 0 且没有明显事件 => 小正分
 ```
 
 这个分数的目标是评价 "agent 负责的宏观维度有没有判断对"，而不是简单评价 "CSI300 涨跌有没有判断对"。
+
+MVP 取舍：benchmark 方向标签较粗，在明显趋势行情里，长期投 neutral 的 macro agent 会因为 `neutral_band_norm - |move|` 变负而更容易被排成 "worst"，从而被优先 mutate。这是 MVP 的有意取舍（长期不表态的 channel 价值确实较低）；agent-specific labels（Phase 7）用更贴近各自维度的标签缓解这一偏向。
 
 ### Step 5: 计算 influence diagnostics
 
@@ -527,10 +540,10 @@ latest_signal_date
 mean_raw_macro_score_5d = average(raw_macro_score_5d)
 mean_effective_macro_score_5d = average(effective_macro_score_5d)
 hit_rate_5d = average(hit_5d)
-sharpe_window = annualized Sharpe of effective_macro_score_5d
+sharpe_window = annualized Sharpe of raw_macro_score_5d   # MVP 基于 raw（effective 在 MVP 为 null/diagnostics）
 ```
 
-MVP 的主要排序字段是 `mean_raw_macro_score_5d`。`mean_effective_macro_score_5d` 和 `sharpe_window` 可以返回但不作为默认选择依据。
+MVP 的主要排序字段是 `mean_raw_macro_score_5d`，`sharpe_window` 在 MVP 也基于 `raw_macro_score_5d`。`mean_effective_macro_score_5d` 可以返回但为 null/diagnostics，不作为默认选择依据；influence diagnostics（Phase 8）启用后再另算 effective 版本的 sharpe。
 
 `sharpe_window` 和现有 `scorecard.list_skill` 的语义保持类似：窗口由调用方的 `since` 控制，不等同于 Darwinian rolling 30d，也不映射成 Darwinian weight。
 
@@ -879,6 +892,8 @@ min_matured_agents_for_update = 8
 
 如果某个 `rank_scope` 里满足条件的 agent 太少，则不做 top/bottom quartile 更新，所有 agent 保持 previous weight。macro 层只有 10 个 agent，必须避免每天 2-3 个 agent 因噪声反复乘以 1.05/0.95。
 
+更新节奏：benchmark 标签下 10 个 macro agent 每天同时产生信号、5 个交易日后同批成熟，所以 macro 层权重是**按批**更新而非每日连续更新；若某批成熟且可比的 agent 数 < `min_matured_agents_for_update`，则整批跳过、全部保持 previous weight。引入 agent-specific labels 后 neutral/missing 增多会让更新更稀疏——这只影响 Phase 9 的 Darwinian 演化速度，不影响 MVP（MVP 不迁移 darwinian_weights）。
+
 反馈环保护：
 
 ```text
@@ -1040,6 +1055,8 @@ autoresearch.min_macro_interval_days = 5
 autoresearch.macro_neutral_band = 0.005
 autoresearch.recent_revert_penalty_days = 14
 ```
+
+`autoresearch.macro_neutral_band` 是**唯一**口径来源：Phase 2 的 Python scorer（realized_label 分桶 + `neutral_band_norm` 换算）和 Phase 4 的 selection 都必须读同一个 config 键，不得各自硬编码 0.005，避免评分口径和选择口径漂移。
 
 MVP 选择逻辑：
 
