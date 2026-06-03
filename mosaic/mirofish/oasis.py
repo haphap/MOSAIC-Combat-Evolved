@@ -35,6 +35,8 @@ import urllib.request
 import uuid
 from typing import Any, Mapping, Optional
 
+from mosaic.mirofish.report_parser import ReportSignal, parse_report
+
 DEFAULT_TIMEOUT = 60       # per-request socket timeout
 DEFAULT_POLL_TIMEOUT = 1800  # max seconds to wait for an async step (sim is slow)
 _POLL_INTERVAL = 5
@@ -97,8 +99,6 @@ def _build_seed_text(
 _PROBE = "000300.SH"
 _SCENARIO_PROB = {"base": 0.5, "bull": 0.2, "bear": 0.2, "tail_up": 0.05, "tail_down": 0.05}
 _SCENARIO_DRIFT = {"base": 0.0, "bull": 0.10, "bear": -0.10, "tail_up": 0.25, "tail_down": -0.25}
-_BULL_WORDS = ("利好", "上涨", "看多", "乐观", "反弹", "bullish", "rally", "rise", "positive")
-_BEAR_WORDS = ("利空", "下跌", "看空", "悲观", "回调", "崩", "bearish", "crash", "fall", "risk-off")
 
 
 class MiroFishUnavailable(RuntimeError):
@@ -144,10 +144,10 @@ class OasisMiroFishEngine:
                 "(e.g. http://localhost:5001)."
             )
         report_md = self._run_pipeline(seed, num_days, start_prices)
-        sentiment = self._sentiment(report_md)  # -1..+1
+        signal = parse_report(report_md)  # structured direction/regime/drift/tails
         start = float((start_prices or {}).get(_PROBE, 3500.0))
         types = scenarios or ["base", "bull", "bear", "tail_up", "tail_down"]
-        return [self._scenario(t, start, num_days, sentiment, report_md) for t in types]
+        return [self._scenario(t, start, num_days, signal, report_md) for t in types]
 
     # ---- real multi-step pipeline ----------------------------------------
 
@@ -266,23 +266,20 @@ class OasisMiroFishEngine:
 
     # ---- report → montecarlo-shaped scenario (lossy) ---------------------
 
-    def _sentiment(self, md: str) -> float:
-        low = md.lower()
-        b = sum(low.count(w.lower()) for w in _BULL_WORDS)
-        s = sum(low.count(w.lower()) for w in _BEAR_WORDS)
-        if b + s == 0:
-            return 0.0
-        return max(-1.0, min(1.0, (b - s) / (b + s)))
-
     def _scenario(
-        self, scenario_type: str, start: float, num_days: int, sentiment: float, md: str
+        self, scenario_type: str, start: float, num_days: int, signal: ReportSignal, md: str
     ) -> dict[str, Any]:
-        # drift = scenario scaffold + report sentiment tilt
-        drift = _SCENARIO_DRIFT.get(scenario_type, 0.0) + 0.05 * sentiment
+        # base case = the report's own directional view; bull/bear/tail = stress
+        # scaffolds lightly tilted by the report's drift.
+        if scenario_type == "base":
+            drift = signal.drift
+            regime = signal.regime
+        else:
+            drift = _SCENARIO_DRIFT.get(scenario_type, 0.0) + 0.3 * signal.drift
+            regime = "RISK_ON" if drift > 0.02 else ("RISK_OFF" if drift < -0.02 else "NEUTRAL")
         end = start * (1.0 + drift)
         prices = [round(start + (end - start) * i / max(num_days, 1), 4) for i in range(num_days + 1)]
         cum = end / start - 1.0
-        regime = "RISK_ON" if cum > 0.10 else ("RISK_OFF" if cum < -0.10 else "NEUTRAL")
         return {
             "scenario_type": scenario_type,
             "scenario_name": f"OASIS {scenario_type}",
@@ -301,9 +298,15 @@ class OasisMiroFishEngine:
             "events": [],
             "final_state": {
                 "regime": regime,
-                "narrative": (md[:200] if md else ""),
+                "narrative": signal.summary or (md[:200] if md else ""),
                 "csi300_return": round(cum, 4),
-                "report_sentiment": round(sentiment, 3),
+                # structured report signal (lossy: narrative → directional view, not OHLCV)
+                "report_direction": signal.direction,
+                "report_confidence": signal.confidence,
+                "report_regime": signal.regime,
+                "report_sentiment": signal.signed_score,  # back-compat scalar
+                "tail_risks": signal.tail_risks,
+                "mapping_lossy": True,
             },
         }
 

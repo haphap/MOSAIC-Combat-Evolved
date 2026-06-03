@@ -117,6 +117,19 @@ class TestOasisMultiStep(unittest.TestCase):
         self.assertEqual(by["bull"]["final_state"]["regime"], "RISK_ON")
         self.assertEqual(by["tail_down"]["final_state"]["regime"], "RISK_OFF")
 
+    def test_base_carries_report_signal(self):
+        # base scenario reflects the report's own regime/direction + lossy marker
+        fake, _ = _happy_router()
+        with _patch(fake), _no_sleep():
+            out = OasisMiroFishEngine(base_url="http://x").generate_all_scenarios(
+                {"000300.SH": 3500.0}, 5, 1, ["base"]
+            )
+        fs = out[0]["final_state"]
+        self.assertEqual(fs["report_direction"], "bullish")  # _REPORT is bullish
+        self.assertEqual(fs["regime"], "RISK_ON")            # not NEUTRAL (the old bug)
+        self.assertTrue(fs["mapping_lossy"])
+        self.assertIn("report_confidence", fs)
+
     def test_bearish_report_tilts_down(self):
         fake, _ = _happy_router(report_md="## 崩盘风险\n利空,看空,下跌,risk-off。\n")
         with _patch(fake), _no_sleep():
