@@ -20,7 +20,7 @@ from __future__ import annotations
 import logging
 import os
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -284,6 +284,18 @@ def _macro_neutral_band() -> float:
         return _DEFAULT_MACRO_NEUTRAL_BAND
 
 
+def _macro_agent_specific_labels_enabled() -> bool:
+    try:
+        from mosaic.default_config import DEFAULT_CONFIG
+
+        value = DEFAULT_CONFIG.get("autoresearch", {}).get(
+            "macro_agent_specific_labels_enabled", True
+        )
+        return bool(value)
+    except Exception:  # noqa: BLE001
+        return True
+
+
 def _fetch_benchmark_series(ts_code: str, start_iso: str, end_iso: str) -> list[float]:
     """Benchmark index closes over [start, end] (chronological). [] on failure.
 
@@ -316,6 +328,37 @@ def _clip(x: float, lo: float, hi: float) -> float:
     return lo if x < lo else (hi if x > hi else x)
 
 
+def _max_drawdown(closes: list[float]) -> float:
+    peak: Optional[float] = None
+    worst = 0.0
+    for close in closes:
+        if close <= 0:
+            continue
+        peak = close if peak is None else max(peak, close)
+        if peak:
+            worst = min(worst, (close - peak) / peak)
+    return worst
+
+
+def _score_directional_move(
+    *,
+    vote: int,
+    confidence: float,
+    directional_return: float,
+    vol_scale: float,
+    neutral_band: float,
+) -> float:
+    norm_move = _clip(
+        directional_return / vol_scale,
+        -_MACRO_MOVE_CLAMP,
+        _MACRO_MOVE_CLAMP,
+    )
+    if vote != 0:
+        return confidence * vote * norm_move
+    neutral_band_norm = neutral_band / vol_scale
+    return confidence * (neutral_band_norm - abs(norm_move))
+
+
 class MacroScorer:
     """Score pending macro_signals by benchmark 5d direction (MVP).
 
@@ -329,11 +372,17 @@ class MacroScorer:
         store,
         benchmark: Optional[str] = None,
         neutral_band: Optional[float] = None,
+        agent_specific_labels_enabled: Optional[bool] = None,
     ) -> None:
         self.store = store
         self.benchmark = benchmark or _benchmark_ticker()
         self.neutral_band = (
             float(neutral_band) if neutral_band is not None else _macro_neutral_band()
+        )
+        self.agent_specific_labels_enabled = (
+            bool(agent_specific_labels_enabled)
+            if agent_specific_labels_enabled is not None
+            else _macro_agent_specific_labels_enabled()
         )
         self._vol_cache: dict[str, float] = {}
 
@@ -356,6 +405,90 @@ class MacroScorer:
             vs = max(std * (HORIZON_5D ** 0.5), MACRO_VOL_FLOOR)
         self._vol_cache[d0_iso] = vs
         return vs
+
+    def _benchmark_label_fields(
+        self,
+        *,
+        row,
+        bench_ret: float,
+        label_type: str,
+        label_source_status: str,
+    ) -> dict[str, Any]:
+        band = self.neutral_band
+        realized = 1 if bench_ret > band else (-1 if bench_ret < -band else 0)
+        conf = float(row.confidence) if row.confidence is not None else 0.0
+        raw = _score_directional_move(
+            vote=int(row.vote),
+            confidence=conf,
+            directional_return=bench_ret,
+            vol_scale=self._vol_scale(row.date),
+            neutral_band=band,
+        )
+        return {
+            "label_type": label_type,
+            "label_source_status": label_source_status,
+            "label_value_5d": bench_ret,
+            "benchmark_return_5d": bench_ret,
+            "realized_label": realized,
+            "hit_5d": 1 if row.vote == realized else 0,
+            "raw_macro_score_5d": raw,
+        }
+
+    def _agent_specific_label_fields(
+        self,
+        *,
+        row,
+        bench_ret: float,
+        t_5d: str,
+    ) -> Optional[dict[str, Any]]:
+        if not self.agent_specific_labels_enabled:
+            return None
+        from mosaic.scorecard.macro_labels import primary_label_for_agent
+
+        spec = primary_label_for_agent(row.agent)
+        if spec is None:
+            return None
+
+        if spec.label_type == "max_drawdown_5d":
+            closes = _fetch_benchmark_series(self.benchmark, row.date, t_5d)
+            label_source_status = "primary"
+            if len(closes) < 2:
+                # Exact endpoint closes are already known by the caller; they
+                # still give a conservative 2-point drawdown estimate.
+                closes = [1.0, 1.0 + bench_ret]
+                label_source_status = "fallback"
+            mdd = _max_drawdown(closes)
+            band = self.neutral_band
+            if mdd < -band:
+                realized = -1
+                directional_return = min(bench_ret, mdd)
+            elif bench_ret > band:
+                realized = 1
+                directional_return = bench_ret
+            elif bench_ret < -band:
+                realized = -1
+                directional_return = bench_ret
+            else:
+                realized = 0
+                directional_return = bench_ret
+            conf = float(row.confidence) if row.confidence is not None else 0.0
+            raw = _score_directional_move(
+                vote=int(row.vote),
+                confidence=conf,
+                directional_return=directional_return,
+                vol_scale=self._vol_scale(row.date),
+                neutral_band=band,
+            )
+            return {
+                "label_type": spec.label_type,
+                "label_source_status": label_source_status,
+                "label_value_5d": mdd,
+                "benchmark_return_5d": bench_ret,
+                "realized_label": realized,
+                "hit_5d": 1 if row.vote == realized else 0,
+                "raw_macro_score_5d": raw,
+            }
+        return None
 
     def score_pending(self, cohort: str, today: str) -> dict:
         """Score matured macro signals. Returns macro_* counts."""
@@ -383,41 +516,61 @@ class MacroScorer:
             b0, b5 = _bench(d0), _bench(t_5d)
             if b0 in (None, 0) or b5 is None:
                 # Can't price the benchmark — mark scored (missing) so it drops.
+                label_type = "benchmark_5d"
+                if self.agent_specific_labels_enabled:
+                    from mosaic.scorecard.macro_labels import (
+                        BENCHMARK_FALLBACK_LABEL,
+                        primary_label_for_agent,
+                    )
+
+                    spec = primary_label_for_agent(row.agent)
+                    label_type = spec.label_type if spec is not None else BENCHMARK_FALLBACK_LABEL
                 self.store.update_macro_scoring(
                     row.id,
-                    {"label_type": "benchmark_5d", "label_source_status": "missing",
-                     "scored_at": today},
+                    {
+                        "label_type": label_type,
+                        "label_source_status": "missing",
+                        "influence_weight_equal": row.influence_weight_equal,
+                        "scored_at": today,
+                    },
                 )
                 outcome["macro_skipped_missing"] += 1
                 continue
 
             bench_ret = (b5 - b0) / b0
-            band = self.neutral_band
-            realized = 1 if bench_ret > band else (-1 if bench_ret < -band else 0)
-            hit = 1 if row.vote == realized else 0
-
-            vol_scale = self._vol_scale(d0)
-            norm_move = _clip(bench_ret / vol_scale, -_MACRO_MOVE_CLAMP, _MACRO_MOVE_CLAMP)
-            conf = float(row.confidence) if row.confidence is not None else 0.0
-            if row.vote != 0:
-                raw = conf * row.vote * norm_move
-            else:
-                neutral_band_norm = band / vol_scale
-                raw = conf * (neutral_band_norm - abs(norm_move))
-
-            self.store.update_macro_scoring(
-                row.id,
-                {
-                    "label_type": "benchmark_5d",
-                    "label_source_status": "primary",
-                    "label_value_5d": bench_ret,
-                    "benchmark_return_5d": bench_ret,
-                    "realized_label": realized,
-                    "hit_5d": hit,
-                    "raw_macro_score_5d": raw,
-                    "scored_at": today,
-                },
+            fields = self._agent_specific_label_fields(
+                row=row,
+                bench_ret=bench_ret,
+                t_5d=t_5d,
             )
+            if fields is None and self.agent_specific_labels_enabled:
+                from mosaic.scorecard.macro_labels import BENCHMARK_FALLBACK_LABEL
+
+                fields = self._benchmark_label_fields(
+                    row=row,
+                    bench_ret=bench_ret,
+                    label_type=BENCHMARK_FALLBACK_LABEL,
+                    label_source_status="fallback",
+                )
+            elif fields is None:
+                fields = self._benchmark_label_fields(
+                    row=row,
+                    bench_ret=bench_ret,
+                    label_type="benchmark_5d",
+                    label_source_status="primary",
+                )
+
+            influence = row.influence_weight_equal
+            if influence is not None and fields.get("raw_macro_score_5d") is not None:
+                fields["effective_macro_score_5d"] = (
+                    float(influence) * float(fields["raw_macro_score_5d"])
+                )
+            else:
+                fields["effective_macro_score_5d"] = None
+            fields["influence_weight_equal"] = influence
+            fields["scored_at"] = today
+
+            self.store.update_macro_scoring(row.id, fields)
             outcome["macro_scored"] += 1
 
         return outcome

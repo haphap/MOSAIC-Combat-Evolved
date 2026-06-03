@@ -21,6 +21,7 @@
  *      confidence > 0.5, ordered as in ``ALL_MACRO_AGENTS``.
  */
 
+import type { BridgeApi, DarwinianWeightTable, MosaicConfig } from "../../bridge/index.js";
 import type { DailyCycleStateType, DailyCycleStateUpdate } from "../state.js";
 import type {
   CommoditiesOutput,
@@ -150,20 +151,38 @@ export function voteForAgent(out: MacroAgentOutput): Vote {
 export interface AggregateLayer1Result {
   signal: RegimeSignal;
   /** Per-agent diagnostics for state-inspection / debug logging. */
-  votes: Array<{ agent: string; vote: Vote; confidence: number }>;
+  votes: Array<{
+    agent: string;
+    vote: Vote;
+    confidence: number;
+    darwinian_weight: number;
+    weighted_vote: number;
+    score_weight: number;
+  }>;
+}
+
+export interface AggregateLayer1Options {
+  /** Optional Phase-9 Darwinian weights. Omitted = current equal-weight behavior. */
+  darwinianWeights?: DarwinianWeightTable | Record<string, { weight: number }> | null;
 }
 
 export function aggregateLayer1(
   outputs: Readonly<Record<string, MacroAgentOutput>>,
+  options: AggregateLayer1Options = {},
 ): AggregateLayer1Result {
-  const votes: Array<{ agent: string; vote: Vote; confidence: number }> = [];
+  const votes: AggregateLayer1Result["votes"] = [];
   for (const agent of ALL_MACRO_AGENTS) {
     const out = outputs[agent];
     if (!out) continue;
+    const darwinianWeight = options.darwinianWeights?.[agent]?.weight ?? 1.0;
+    const scoreWeight = out.confidence * darwinianWeight;
     votes.push({
       agent,
       vote: voteForAgent(out),
       confidence: out.confidence,
+      darwinian_weight: darwinianWeight,
+      weighted_vote: voteForAgent(out) * scoreWeight,
+      score_weight: scoreWeight,
     });
   }
 
@@ -182,8 +201,8 @@ export function aggregateLayer1(
   let weightedSum = 0;
   let totalWeight = 0;
   for (const v of votes) {
-    weightedSum += v.vote * v.confidence;
-    totalWeight += v.confidence;
+    weightedSum += v.weighted_vote;
+    totalWeight += v.score_weight;
   }
   const score = totalWeight > 0 ? weightedSum / totalWeight : 0;
 
@@ -236,4 +255,43 @@ export async function aggregateLayer1Node(
 ): Promise<DailyCycleStateUpdate> {
   const result = aggregateLayer1(state.layer1_outputs ?? {});
   return { layer1_consensus: result.signal };
+}
+
+export interface BuildAggregateLayer1NodeDeps {
+  api?: Pick<BridgeApi, "darwinianGetWeights">;
+  config?: MosaicConfig;
+  onLog?: (msg: string) => void;
+}
+
+function darwinianLayer1Enabled(config?: MosaicConfig): boolean {
+  const darwinian = config?.darwinian;
+  return Boolean(darwinian?.weight_rewrite_enabled);
+}
+
+/**
+ * Phase-9 aggregator node builder. The default exported ``aggregateLayer1Node``
+ * remains pure/equal-weight for tests and callers that don't inject deps.
+ * This builder opts into bridge-backed Darwinian weights only when the
+ * feature flag is explicitly enabled.
+ */
+export function buildAggregateLayer1Node(deps: BuildAggregateLayer1NodeDeps = {}) {
+  return async (state: DailyCycleStateType): Promise<DailyCycleStateUpdate> => {
+    let darwinianWeights: DarwinianWeightTable | undefined;
+    if (darwinianLayer1Enabled(deps.config) && deps.api) {
+      try {
+        const date = state.as_of_date || undefined;
+        const result = await deps.api.darwinianGetWeights(state.active_cohort, date);
+        darwinianWeights = result.weights;
+      } catch (err) {
+        deps.onLog?.(
+          `aggregate_l1: darwinian.get_weights failed (${(err as Error).message}); using equal weights`,
+        );
+      }
+    }
+    const result = aggregateLayer1(
+      state.layer1_outputs ?? {},
+      darwinianWeights ? { darwinianWeights } : {},
+    );
+    return { layer1_consensus: result.signal };
+  };
 }

@@ -10,6 +10,11 @@ import unittest
 from unittest.mock import patch
 
 from mosaic.scorecard import expand_state_to_macro_signals, expand_state_to_recommendations
+from mosaic.scorecard.macro_labels import (
+    BENCHMARK_FALLBACK_LABEL,
+    list_macro_label_inventory,
+    primary_label_for_agent,
+)
 from mosaic.scorecard.store import ScorecardStore
 from mosaic.scorecard.scorer import MacroScorer
 
@@ -111,6 +116,7 @@ class TestMacroScorer(unittest.TestCase):
                 store,
                 benchmark="000300.SH",
                 neutral_band=neutral_band,
+                agent_specific_labels_enabled=False,
             ).score_pending("cohort_default", today)
         with store._connect() as conn:
             row = conn.execute(
@@ -234,6 +240,209 @@ class TestMacroSkill(unittest.TestCase):
         var = sum((x - mean) ** 2 for x in scores) / (len(scores) - 1)
         expected = (mean / (var ** 0.5)) * ((252.0 / 5.0) ** 0.5)
         self.assertAlmostEqual(row["sharpe_window"], expected)
+
+
+class TestMacroAgentSpecificLabels(unittest.TestCase):
+    def test_inventory_exposes_sources_and_primary_gate(self):
+        rows = list_macro_label_inventory()
+        self.assertGreaterEqual(len(rows), 20)
+        by_key = {(r["agent"], r["label_type"]): r for r in rows}
+        self.assertTrue(by_key[("volatility", "max_drawdown_5d")]["available_now"])
+        self.assertEqual(
+            by_key[("institutional_flow", "flow_continuation_5d")]["implementation_status"],
+            "deferred",
+        )
+        self.assertIn("主力资金流", by_key[("institutional_flow", "flow_continuation_5d")]["data_source"])
+        self.assertEqual(primary_label_for_agent("volatility").label_type, "max_drawdown_5d")
+        self.assertIsNone(primary_label_for_agent("dollar"))
+
+    def test_available_agent_specific_label_is_primary(self):
+        import os
+        import tempfile
+
+        d0 = "2024-01-02"
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        store = ScorecardStore(db_path=os.path.join(tmp.name, "t.db"))
+        store.append_macro_signals_from_state(
+            _state(
+                {
+                    "volatility": {
+                        "agent": "volatility",
+                        "regime_filter": "RISK_OFF",
+                        "confidence": 0.8,
+                    }
+                },
+                date=d0,
+            )
+        )
+        t5 = _ntd(d0, 5)
+
+        def fake_close(ts, date):
+            return {d0: 100.0, t5: 98.0}.get(date)
+
+        def fake_series(ts, start, end):
+            return [100.0, 103.0, 97.0, 99.0, 98.0]
+
+        with _cal_patch(), \
+             patch("mosaic.scorecard.scorer._fetch_close", fake_close), \
+             patch("mosaic.scorecard.scorer._fetch_benchmark_series", fake_series):
+            MacroScorer(store, benchmark="000300.SH").score_pending("cohort_default", "2024-02-01")
+
+        with store._connect() as conn:
+            row = conn.execute(
+                "SELECT label_type, label_source_status, label_value_5d, "
+                "realized_label, hit_5d, raw_macro_score_5d FROM macro_signals"
+            ).fetchone()
+        self.assertEqual(row["label_type"], "max_drawdown_5d")
+        self.assertEqual(row["label_source_status"], "primary")
+        self.assertLess(row["label_value_5d"], -0.005)
+        self.assertEqual(row["realized_label"], -1)
+        self.assertEqual(row["hit_5d"], 1)
+        self.assertGreater(row["raw_macro_score_5d"], 0)
+
+    def test_max_drawdown_endpoint_only_series_is_marked_fallback(self):
+        import os
+        import tempfile
+
+        d0 = "2024-01-02"
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        store = ScorecardStore(db_path=os.path.join(tmp.name, "t.db"))
+        store.append_macro_signals_from_state(
+            _state(
+                {
+                    "volatility": {
+                        "agent": "volatility",
+                        "regime_filter": "RISK_OFF",
+                        "confidence": 0.8,
+                    }
+                },
+                date=d0,
+            )
+        )
+        t5 = _ntd(d0, 5)
+
+        def fake_close(ts, date):
+            return {d0: 100.0, t5: 98.0}.get(date)
+
+        with _cal_patch(), \
+             patch("mosaic.scorecard.scorer._fetch_close", fake_close), \
+             patch("mosaic.scorecard.scorer._fetch_benchmark_series", lambda *a: [100.0]):
+            MacroScorer(store, benchmark="000300.SH").score_pending("cohort_default", "2024-02-01")
+
+        with store._connect() as conn:
+            row = conn.execute(
+                "SELECT label_type, label_source_status FROM macro_signals"
+            ).fetchone()
+        self.assertEqual(row["label_type"], "max_drawdown_5d")
+        self.assertEqual(row["label_source_status"], "fallback")
+
+    def test_unavailable_agent_label_records_benchmark_fallback(self):
+        import os
+        import tempfile
+
+        d0 = "2024-01-02"
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        store = ScorecardStore(db_path=os.path.join(tmp.name, "t.db"))
+        store.append_macro_signals_from_state(
+            _state(
+                {"dollar": {"agent": "dollar", "dxy_trend": "WEAKENING", "confidence": 0.5}},
+                date=d0,
+            )
+        )
+        t5 = _ntd(d0, 5)
+
+        def fake_close(ts, date):
+            return {d0: 100.0, t5: 102.0}.get(date)
+
+        with _cal_patch(), \
+             patch("mosaic.scorecard.scorer._fetch_close", fake_close), \
+             patch("mosaic.scorecard.scorer._fetch_benchmark_series", lambda *a: [100, 101, 102]):
+            MacroScorer(store, benchmark="000300.SH").score_pending("cohort_default", "2024-02-01")
+
+        with store._connect() as conn:
+            row = conn.execute(
+                "SELECT label_type, label_source_status FROM macro_signals"
+            ).fetchone()
+        self.assertEqual(row["label_type"], BENCHMARK_FALLBACK_LABEL)
+        self.assertEqual(row["label_source_status"], "fallback")
+
+
+class TestMacroInfluenceDiagnostics(unittest.TestCase):
+    def test_expand_records_equal_weight_leave_one_out_influence(self):
+        rows = expand_state_to_macro_signals(
+            _state(
+                {
+                    "central_bank": {
+                        "agent": "central_bank",
+                        "stance": "ACCOMMODATIVE",
+                        "confidence": 1.0,
+                    },
+                    "yield_curve": {
+                        "agent": "yield_curve",
+                        "recession_signal": "RED",
+                        "confidence": 1.0,
+                    },
+                }
+            )
+        )
+        by = {r["agent"]: r for r in rows}
+        self.assertAlmostEqual(by["central_bank"]["influence_weight_equal"], 1.0)
+        self.assertAlmostEqual(by["yield_curve"]["influence_weight_equal"], 1.0)
+
+    def test_effective_macro_score_is_influence_scaled_diagnostic(self):
+        import os
+        import tempfile
+
+        d0 = "2024-01-02"
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        store = ScorecardStore(db_path=os.path.join(tmp.name, "t.db"))
+        store.append_macro_signals_from_state(
+            _state(
+                {
+                    "central_bank": {
+                        "agent": "central_bank",
+                        "stance": "ACCOMMODATIVE",
+                        "confidence": 1.0,
+                    },
+                    "yield_curve": {
+                        "agent": "yield_curve",
+                        "recession_signal": "RED",
+                        "confidence": 1.0,
+                    },
+                },
+                date=d0,
+            )
+        )
+        t5 = _ntd(d0, 5)
+
+        def fake_close(ts, date):
+            return {d0: 100.0, t5: 102.0}.get(date)
+
+        with _cal_patch(), \
+             patch("mosaic.scorecard.scorer._fetch_close", fake_close), \
+             patch("mosaic.scorecard.scorer._fetch_benchmark_series", lambda *a: [100, 101, 102]):
+            MacroScorer(
+                store,
+                benchmark="000300.SH",
+                agent_specific_labels_enabled=False,
+            ).score_pending("cohort_default", "2024-02-01")
+
+        with store._connect() as conn:
+            rows = conn.execute(
+                "SELECT raw_macro_score_5d, influence_weight_equal, "
+                "effective_macro_score_5d FROM macro_signals ORDER BY agent"
+            ).fetchall()
+        for row in rows:
+            self.assertAlmostEqual(
+                row["effective_macro_score_5d"],
+                row["raw_macro_score_5d"] * row["influence_weight_equal"],
+            )
+        skill = {r["agent"]: r for r in store.list_macro_skill("cohort_default")}
+        self.assertIsNotNone(skill["central_bank"]["mean_effective_macro_score_5d"])
 
 
 if __name__ == "__main__":  # pragma: no cover

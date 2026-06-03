@@ -159,6 +159,7 @@ DEFAULT_CONFIG = {
         "macro_quota": 0.2,
         "min_macro_interval_days": 5,
         "macro_neutral_band": 0.005,
+        "macro_agent_specific_labels_enabled": True,
         "recent_revert_penalty_days": 14,
         # Mirror kept (merged-to-main) prompt mutations to a self-hosted git
         # server. OPT-IN; default OFF keeps autoresearch 100% local. When push
@@ -169,6 +170,19 @@ DEFAULT_CONFIG = {
             "push": False,
             "remote": "origin",
         },
+    },
+    "darwinian": {
+        # Gated Phase 9 rewrite. Default OFF preserves the existing
+        # rolling-Sharpe-to-weight subsystem until explicitly validated.
+        "weight_rewrite_enabled": False,
+        "weight_start": 1.0,
+        "weight_floor": 0.3,
+        "weight_ceiling": 2.5,
+        "top_multiplier": 1.05,
+        "bottom_multiplier": 0.95,
+        "min_ranked_agents_per_scope": 8,
+        "min_scored_observations_per_agent": 10,
+        "min_matured_agents_for_update": 8,
     },
     # MiroFish forward-simulation (Plan §11.8 / §11.8.1). 'engine' selects the
     # scenario generator: 'montecarlo' (default — i.i.d. correlated paths +

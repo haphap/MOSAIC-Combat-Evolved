@@ -25,7 +25,7 @@ def _store():
     return ScorecardStore(db_path=os.path.join(d.name, "t.db")), d
 
 
-def _add_scored_macro(store, agent, raw, date="2024-02-01"):
+def _add_scored_macro(store, agent, raw, date="2024-02-01", effective=None, influence=None):
     store.append_macro_signals_from_state(
         {
             "active_cohort": _COHORT,
@@ -38,7 +38,12 @@ def _add_scored_macro(store, agent, raw, date="2024-02-01"):
         rid = conn.execute(
             "SELECT id FROM macro_signals WHERE agent=? AND date=?", (agent, date)
         ).fetchone()[0]
-    store.update_macro_scoring(rid, {"raw_macro_score_5d": raw, "scored_at": date})
+    fields = {"raw_macro_score_5d": raw, "scored_at": date}
+    if effective is not None:
+        fields["effective_macro_score_5d"] = effective
+    if influence is not None:
+        fields["influence_weight_equal"] = influence
+    store.update_macro_scoring(rid, fields)
 
 
 def _add_version(store, agent, created_at, status="pending", decided_at=None):
@@ -108,6 +113,26 @@ class TestLayerAwareSelect(unittest.TestCase):
         self.assertEqual(
             _select_agent(store, _COHORT, "central_bank", DEFAULT_CONFIG, _NOW), "central_bank"
         )
+
+    def test_low_influence_bad_raw_macro_still_selected(self):
+        store, d = _store()
+        self.addCleanup(d.cleanup)
+        _add_scored_macro(
+            store,
+            "volatility",
+            raw=-0.20,
+            effective=-0.001,
+            influence=0.005,
+        )
+        _add_scored_macro(
+            store,
+            "dollar",
+            raw=-0.05,
+            effective=-0.05,
+            influence=1.0,
+        )
+        chosen = _select_agent(store, _COHORT, None, DEFAULT_CONFIG, _NOW)
+        self.assertEqual(chosen, "volatility")
 
 
 if __name__ == "__main__":  # pragma: no cover

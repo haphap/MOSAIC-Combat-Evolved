@@ -309,6 +309,48 @@ class TestDarwinianCompute:
         with pytest.raises(RpcError):
             dispatch("darwinian.compute", {"today": "2024-07-31"})
 
+    def test_uses_runtime_config_for_weight_rewrite(self, tmp_store):
+        from mosaic.dataflows.config import set_config
+
+        agents = [
+            "semiconductor", "energy", "biotech", "consumer",
+            "industrials", "financials", "ackman", "cio",
+        ]
+        for idx, agent in enumerate(agents):
+            with tmp_store._connect() as conn:
+                conn.execute(
+                    "INSERT INTO recommendations("
+                    "cohort, agent, ticker, date, action, alpha_5d, scored_at"
+                    ") VALUES (?, ?, ?, '2024-07-01', 'BUY', ?, '2024-07-08')",
+                    ("cohort_default", agent, f"{agent[:4].upper()}.SH", 0.1 - idx * 0.01),
+                )
+
+        set_config(
+            {
+                "darwinian": {
+                    "weight_rewrite_enabled": True,
+                    "min_scored_observations_per_agent": 1,
+                    "min_ranked_agents_per_scope": 8,
+                }
+            }
+        )
+        try:
+            result = dispatch(
+                "darwinian.compute",
+                {"cohort": "cohort_default", "today": "2024-07-31"},
+            )
+        finally:
+            set_config({})
+
+        assert result["written"] == 8
+        row = dispatch(
+            "darwinian.get_weights",
+            {"cohort": "cohort_default", "date": "2024-07-31"},
+        )["weights"]["semiconductor"]
+        assert row["update_action"] == "up"
+        assert row["performance_metric"] == "alpha_5d_mean_30d"
+        assert row["weight"] == pytest.approx(1.05)
+
 
 # ===========================================================================
 # darwinian.get_weights
@@ -341,6 +383,38 @@ class TestDarwinianGetWeights:
         assert "ackman" in result["weights"]
         assert result["weights"]["ackman"]["weight"] == pytest.approx(1.5)
         assert result["weights"]["ackman"]["quartile"] == 1
+
+    def test_returns_unified_weight_metadata(self, tmp_store):
+        tmp_store.upsert_darwinian_weights(
+            [
+                {
+                    "cohort": "cohort_default",
+                    "agent": "volatility",
+                    "layer": "macro",
+                    "date": "2024-07-31",
+                    "weight": 1.05,
+                    "previous_weight": 1.0,
+                    "performance_metric": "raw_macro_score_5d",
+                    "performance_value": 0.02,
+                    "normalized_performance": 0.02,
+                    "rank_scope": "macro",
+                    "quartile": 1,
+                    "update_action": "up",
+                    "n_obs": 10,
+                    "source_table": "macro_signals",
+                    "source_date": "2024-07-24",
+                },
+            ]
+        )
+        result = dispatch(
+            "darwinian.get_weights",
+            {"cohort": "cohort_default", "date": "2024-07-31"},
+        )
+        row = result["weights"]["volatility"]
+        assert row["layer"] == "macro"
+        assert row["performance_metric"] == "raw_macro_score_5d"
+        assert row["rank_scope"] == "macro"
+        assert row["source_table"] == "macro_signals"
 
     def test_invalid_date_param(self, tmp_store):
         with pytest.raises(RpcError):

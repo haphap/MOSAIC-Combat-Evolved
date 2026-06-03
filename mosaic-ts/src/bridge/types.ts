@@ -118,6 +118,19 @@ export interface MosaicConfig {
     inject_context?: boolean;
   };
 
+  // ----- Darwinian weights (Phase 9 gated rewrite) -----
+  darwinian?: {
+    weight_rewrite_enabled?: boolean;
+    weight_start?: number;
+    weight_floor?: number;
+    weight_ceiling?: number;
+    top_multiplier?: number;
+    bottom_multiplier?: number;
+    min_ranked_agents_per_scope?: number;
+    min_scored_observations_per_agent?: number;
+    min_matured_agents_for_update?: number;
+  };
+
   // ----- Open extension for fields not yet stabilised. -----
   [key: string]: unknown;
 }
@@ -336,6 +349,18 @@ export interface DarwinianAgentWeight {
   sharpe_90: number | null;
   /** 1 (best) to 4 (worst); informational only — multiplier is the weight. */
   quartile: number | null;
+  /** Unified Darwinian metadata. Present when Phase-9 rows are written. */
+  layer?: "macro" | "sector" | "superinvestor" | "decision" | string | null;
+  previous_weight?: number | null;
+  performance_metric?: string | null;
+  performance_value?: number | null;
+  normalized_performance?: number | null;
+  rank_scope?: string | null;
+  update_action?: "up" | "down" | "unchanged" | "skipped" | "legacy_sharpe" | string | null;
+  n_obs?: number | null;
+  source_table?: string | null;
+  source_date?: string | null;
+  updated_at?: string | null;
 }
 
 /** ``{ <agent>: DarwinianAgentWeight }``; empty object means no weights computed yet. */

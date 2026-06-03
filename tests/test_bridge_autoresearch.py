@@ -7,6 +7,7 @@ import os
 import subprocess
 import sys
 import unittest
+import datetime as _dt
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
@@ -56,6 +57,14 @@ autoresearch_revert_modification = _ar.autoresearch_revert_modification
 
 # The module path used by patch() -- must match sys.modules key above.
 _MOD = "mosaic.bridge.handlers.autoresearch"
+
+
+def _ntd(d: str, n: int) -> str:
+    return (_dt.date.fromisoformat(d) + _dt.timedelta(days=n)).isoformat()
+
+
+def _ptd(d: str, n: int) -> str:
+    return (_dt.date.fromisoformat(d) - _dt.timedelta(days=n)).isoformat()
 
 
 def _make_git_repo(path: Path) -> None:
@@ -334,6 +343,170 @@ class TestAutoresearchEvaluatePending(unittest.TestCase):
         self.assertEqual(version["status"], "incompatible")
         log = self.store.get_log()
         self.assertEqual(log[0]["event"], "incompatible")
+
+
+class TestMacroAutoresearchIntegration(unittest.TestCase):
+    """P6 cross-phase macro path: score → select → mutate → evaluate by Sharpe."""
+
+    def setUp(self):
+        self._tmpdir = TemporaryDirectory()
+        self.tmp = Path(self._tmpdir.name)
+        self.db_path = self.tmp / "scorecard.db"
+        self.repo_path = self.tmp / "repo"
+        self.repo_path.mkdir()
+        _make_git_repo(self.repo_path)
+        self.store = ScorecardStore(db_path=self.db_path)
+        self._store_patch = patch.object(_ar, "_store", return_value=self.store)
+        self._repo_patch = patch.object(_ar, "_repo_root", return_value=self.repo_path)
+        self._compat_patch = patch(
+            "mosaic.autoresearch.evaluator.validate_prompt_tool_compatibility",
+            return_value={
+                "compatible": True,
+                "referenced_tools": [],
+                "unknown_tools": [],
+                "missing_files": [],
+            },
+        )
+        self._store_patch.start()
+        self._repo_patch.start()
+        self._compat_patch.start()
+
+    def tearDown(self):
+        self._compat_patch.stop()
+        self._repo_patch.stop()
+        self._store_patch.stop()
+        self._tmpdir.cleanup()
+
+    def test_macro_private_mutation_kept_by_portfolio_delta_not_macro_hit_rate(self):
+        from datetime import datetime, timezone
+
+        from mosaic.scorecard.scorer import MacroScorer
+
+        d0 = "2024-01-02"
+        t5 = _ntd(d0, 5)
+        state = {
+            "active_cohort": "euphoria_2021",
+            "as_of_date": d0,
+            "prompt_repo_id": "private",
+            "prompt_sha256": "f" * 64,
+            "layer1_outputs": {
+                "volatility": {
+                    "agent": "volatility",
+                    "regime_filter": "RISK_ON",
+                    "confidence": 0.8,
+                }
+            },
+            "layer1_consensus": {"stance": "BULLISH", "confidence": 0.8},
+        }
+        self.assertEqual(self.store.append_macro_signals_from_state(state), 1)
+
+        closes = {d0: 100.0, t5: 97.0}
+        with patch.multiple(
+            "mosaic.dataflows.calendar",
+            next_trading_day=_ntd,
+            previous_trading_day=_ptd,
+        ), patch(
+            "mosaic.scorecard.scorer._fetch_close",
+            lambda _ts, date: closes.get(date),
+        ), patch(
+            "mosaic.scorecard.scorer._fetch_benchmark_series",
+            lambda *_args: [100.0, 99.0, 98.0, 97.0],
+        ):
+            MacroScorer(
+                self.store,
+                benchmark="000300.SH",
+                agent_specific_labels_enabled=False,
+            ).score_pending("euphoria_2021", "2024-01-10")
+
+        with self.store._connect() as conn:
+            scored = conn.execute(
+                "SELECT hit_5d, raw_macro_score_5d, prompt_repo_id, prompt_sha256 "
+                "FROM macro_signals"
+            ).fetchone()
+        self.assertEqual(scored["hit_5d"], 0)
+        self.assertLess(scored["raw_macro_score_5d"], 0)
+        self.assertEqual(scored["prompt_repo_id"], "private")
+        self.assertEqual(scored["prompt_sha256"], "f" * 64)
+
+        now = datetime(2024, 3, 1, 12, 0, tzinfo=timezone.utc)
+        with patch.object(_ar, "_now", return_value=now):
+            triggered = autoresearch_trigger({"cohort": "euphoria_2021"})
+        self.assertEqual(triggered["agent"], "volatility")
+
+        autoresearch_record_mutation(
+            {
+                "version_id": triggered["version_id"],
+                "commit_hash": "b" * 40,
+                "summary": "macro risk-on calibration",
+                "prompt_repo_id": "private",
+                "prompt_base_commit_hash": "d" * 40,
+                "prompt_sha256": "f" * 64,
+                "code_commit_hash": "c" * 40,
+            }
+        )
+        version = self.store.get_prompt_version(triggered["version_id"])
+        self.assertEqual(version["prompt_repo_id"], "private")
+        self.assertEqual(version["prompt_sha256"], "f" * 64)
+
+        start, end = "2020-07-01", "2021-02-18"
+        base_run = self.store.create_backtest_run(
+            cohort="euphoria_2021",
+            start_date=start,
+            end_date=end,
+            prompt_commit_hash=version["base_commit_hash"],
+        )
+        wrong_repo_mod_run = self.store.create_backtest_run(
+            cohort="euphoria_2021",
+            start_date=start,
+            end_date=end,
+            prompt_commit_hash="b" * 40,
+            prompt_repo_id="project",
+            prompt_sha256="0" * 64,
+            code_commit_hash="c" * 40,
+        )
+        private_mod_run = self.store.create_backtest_run(
+            cohort="euphoria_2021",
+            start_date=start,
+            end_date=end,
+            prompt_commit_hash="b" * 40,
+            prompt_repo_id="private",
+            prompt_sha256="f" * 64,
+            code_commit_hash="c" * 40,
+        )
+        for run_id in (base_run, wrong_repo_mod_run, private_mod_run):
+            self.store.complete_backtest_run(run_id)
+
+        seen_run_ids = []
+
+        def fake_find_run_sharpe(_store, run_id):
+            seen_run_ids.append(run_id)
+            if run_id == base_run:
+                return 1.0
+            if run_id == private_mod_run:
+                return 1.25
+            if run_id == wrong_repo_mod_run:
+                return 9.0
+            return None
+
+        class FakePrivateGit:
+            def branch_exists(self, _branch: str) -> bool:
+                return True
+
+            def merge_to_main(self, _branch: str) -> None:
+                return None
+
+            def delete_branch(self, _branch: str) -> None:
+                return None
+
+        with patch.object(_ar, "_private_git_ops", return_value=FakePrivateGit()), \
+             patch("mosaic.autoresearch.evaluator._find_run_sharpe", fake_find_run_sharpe):
+            result = autoresearch_evaluate_pending({"version_id": triggered["version_id"]})
+
+        self.assertEqual(result["results"][0]["status"], "kept")
+        self.assertAlmostEqual(result["results"][0]["delta_sharpe"], 0.25)
+        self.assertIn(private_mod_run, seen_run_ids)
+        self.assertNotIn(wrong_repo_mod_run, seen_run_ids)
+        self.assertEqual(self.store.get_prompt_version(triggered["version_id"])["status"], "keep")
 
 
 class TestAutoresearchGetLog(unittest.TestCase):

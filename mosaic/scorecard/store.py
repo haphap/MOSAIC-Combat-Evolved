@@ -67,11 +67,22 @@ CREATE TABLE IF NOT EXISTS darwinian_weights (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     cohort TEXT NOT NULL,
     agent TEXT NOT NULL,
+    layer TEXT,
     date TEXT NOT NULL,                         -- YYYY-MM-DD
     weight REAL NOT NULL CHECK (weight >= 0.3 AND weight <= 2.5),
+    previous_weight REAL,
+    performance_metric TEXT,
+    performance_value REAL,
+    normalized_performance REAL,
+    rank_scope TEXT,
     rolling_sharpe_30 REAL,
     rolling_sharpe_90 REAL,
     quartile INTEGER,                           -- 1 (best) ... 4 (worst)
+    update_action TEXT,
+    n_obs INTEGER,
+    source_table TEXT,
+    source_date TEXT,
+    updated_at TEXT,
     UNIQUE(cohort, agent, date)
 );
 
@@ -276,6 +287,7 @@ class PendingMacroRow:
     date: str
     vote: int
     confidence: Optional[float]
+    influence_weight_equal: Optional[float]
 
 
 # ---------------------------------------------------------------------------
@@ -474,6 +486,38 @@ def _macro_vote(agent: str, out: dict[str, Any]) -> int:
     return 0
 
 
+def _macro_consensus_score(votes: Iterable[tuple[int, Optional[float]]]) -> float:
+    weighted_sum = 0.0
+    total_weight = 0.0
+    for vote, confidence in votes:
+        conf = float(confidence) if confidence is not None else 0.0
+        weighted_sum += int(vote) * conf
+        total_weight += conf
+    return weighted_sum / total_weight if total_weight > 0 else 0.0
+
+
+def _macro_equal_weight_influence(
+    rows: list[dict[str, Any]],
+) -> dict[str, float]:
+    """Equal-Darwinian-weight leave-one-out influence for Layer 1 diagnostics.
+
+    This intentionally mirrors the current Layer-1 formula
+    ``sum(vote*confidence)/sum(confidence)`` with every macro agent's
+    Darwinian weight fixed at 1.0. It must not read updated Darwinian weights,
+    otherwise influence could feed back into the weight update loop.
+    """
+    vote_conf = [
+        (int(r["vote"]), r.get("confidence"))
+        for r in rows
+    ]
+    with_agent = _macro_consensus_score(vote_conf)
+    out: dict[str, float] = {}
+    for idx, row in enumerate(rows):
+        without = _macro_consensus_score([vc for j, vc in enumerate(vote_conf) if j != idx])
+        out[str(row["agent"])] = abs(with_agent - without)
+    return out
+
+
 def expand_state_to_macro_signals(state: dict[str, Any]) -> list[dict[str, Any]]:
     """Project a daily-cycle state's Layer 1 outputs into macro_signals rows.
 
@@ -517,6 +561,9 @@ def expand_state_to_macro_signals(state: dict[str, Any]) -> list[dict[str, Any]]
                 "prompt_sha256": prompt_sha256,
             }
         )
+    influence = _macro_equal_weight_influence(rows)
+    for row in rows:
+        row["influence_weight_equal"] = influence.get(row["agent"])
     return rows
 
 
@@ -567,6 +614,22 @@ class ScorecardStore:
             self._ensure_column(conn, "backtest_runs", "prompt_repo_id", "TEXT")
             self._ensure_column(conn, "backtest_runs", "prompt_sha256", "TEXT")
             self._ensure_column(conn, "backtest_runs", "code_commit_hash", "TEXT")
+            self._ensure_column(conn, "macro_signals", "influence_weight_equal", "REAL")
+            self._ensure_column(conn, "macro_signals", "effective_macro_score_5d", "REAL")
+            for column, ddl in (
+                ("layer", "TEXT"),
+                ("previous_weight", "REAL"),
+                ("performance_metric", "TEXT"),
+                ("performance_value", "REAL"),
+                ("normalized_performance", "REAL"),
+                ("rank_scope", "TEXT"),
+                ("update_action", "TEXT"),
+                ("n_obs", "INTEGER"),
+                ("source_table", "TEXT"),
+                ("source_date", "TEXT"),
+                ("updated_at", "TEXT"),
+            ):
+                self._ensure_column(conn, "darwinian_weights", column, ddl)
 
     def _ensure_column(
         self, conn: sqlite3.Connection, table: str, column: str, ddl: str
@@ -703,10 +766,12 @@ class ScorecardStore:
                 """
                 INSERT INTO macro_signals (
                     cohort, agent, date, vote, confidence, raw_output_json,
-                    consensus_stance, consensus_score, prompt_repo_id, prompt_sha256
+                    consensus_stance, consensus_score, influence_weight_equal,
+                    prompt_repo_id, prompt_sha256
                 ) VALUES (
                     :cohort, :agent, :date, :vote, :confidence, :raw_output_json,
-                    :consensus_stance, :consensus_score, :prompt_repo_id, :prompt_sha256
+                    :consensus_stance, :consensus_score, :influence_weight_equal,
+                    :prompt_repo_id, :prompt_sha256
                 )
                 ON CONFLICT(cohort, agent, date) DO UPDATE SET
                     vote = excluded.vote,
@@ -714,6 +779,7 @@ class ScorecardStore:
                     raw_output_json = excluded.raw_output_json,
                     consensus_stance = excluded.consensus_stance,
                     consensus_score = excluded.consensus_score,
+                    influence_weight_equal = excluded.influence_weight_equal,
                     prompt_repo_id = excluded.prompt_repo_id,
                     prompt_sha256 = excluded.prompt_sha256
                 """,
@@ -726,7 +792,8 @@ class ScorecardStore:
     ) -> list[PendingMacroRow]:
         """Macro signals with scored_at IS NULL (and date <= before_date)."""
         sql = (
-            "SELECT id, cohort, agent, date, vote, confidence FROM macro_signals "
+            "SELECT id, cohort, agent, date, vote, confidence, influence_weight_equal "
+            "FROM macro_signals "
             "WHERE scored_at IS NULL"
         )
         params: list[Any] = []
@@ -742,6 +809,7 @@ class ScorecardStore:
                 PendingMacroRow(
                     id=r["id"], cohort=r["cohort"], agent=r["agent"],
                     date=r["date"], vote=r["vote"], confidence=r["confidence"],
+                    influence_weight_equal=r["influence_weight_equal"],
                 )
                 for r in conn.execute(sql, params).fetchall()
             ]
@@ -809,6 +877,32 @@ class ScorecardStore:
             )
         out.sort(key=lambda d: d["agent"])
         return out
+
+    def list_scored_macro(
+        self,
+        cohort: str,
+        agent: Optional[str] = None,
+        since_date: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
+        """Return scored macro rows with raw_macro_score_5d for Darwinian ranking."""
+        sql = (
+            "SELECT id, cohort, agent, date, vote, confidence, label_type, "
+            "       label_source_status, label_value_5d, benchmark_return_5d, "
+            "       realized_label, hit_5d, raw_macro_score_5d, "
+            "       influence_weight_equal, effective_macro_score_5d, scored_at "
+            "FROM macro_signals "
+            "WHERE cohort = ? AND scored_at IS NOT NULL AND raw_macro_score_5d IS NOT NULL"
+        )
+        params: list[Any] = [cohort]
+        if agent:
+            sql += " AND agent = ?"
+            params.append(agent)
+        if since_date:
+            sql += " AND date >= ?"
+            params.append(since_date)
+        sql += " ORDER BY date, id"
+        with self._connect() as conn:
+            return [dict(r) for r in conn.execute(sql, params).fetchall()]
 
     def list_scored(
         self,
@@ -928,49 +1022,99 @@ class ScorecardStore:
         rows = list(rows)
         if not rows:
             return 0
+        normalized_rows = []
+        for row in rows:
+            normalized = {
+                "cohort": row["cohort"],
+                "agent": row["agent"],
+                "layer": row.get("layer"),
+                "date": row["date"],
+                "weight": row["weight"],
+                "previous_weight": row.get("previous_weight"),
+                "performance_metric": row.get("performance_metric"),
+                "performance_value": row.get("performance_value"),
+                "normalized_performance": row.get("normalized_performance"),
+                "rank_scope": row.get("rank_scope"),
+                "rolling_sharpe_30": row.get("rolling_sharpe_30"),
+                "rolling_sharpe_90": row.get("rolling_sharpe_90"),
+                "quartile": row.get("quartile"),
+                "update_action": row.get("update_action"),
+                "n_obs": row.get("n_obs"),
+                "source_table": row.get("source_table"),
+                "source_date": row.get("source_date"),
+                "updated_at": row.get("updated_at"),
+            }
+            normalized_rows.append(normalized)
         with self._connect() as conn:
             conn.executemany(
                 """
                 INSERT INTO darwinian_weights (
-                    cohort, agent, date, weight,
-                    rolling_sharpe_30, rolling_sharpe_90, quartile
+                    cohort, agent, layer, date, weight, previous_weight,
+                    performance_metric, performance_value, normalized_performance,
+                    rank_scope, rolling_sharpe_30, rolling_sharpe_90, quartile,
+                    update_action, n_obs, source_table, source_date, updated_at
                 ) VALUES (
-                    :cohort, :agent, :date, :weight,
-                    :rolling_sharpe_30, :rolling_sharpe_90, :quartile
+                    :cohort, :agent, :layer, :date, :weight, :previous_weight,
+                    :performance_metric, :performance_value, :normalized_performance,
+                    :rank_scope, :rolling_sharpe_30, :rolling_sharpe_90, :quartile,
+                    :update_action, :n_obs, :source_table, :source_date, :updated_at
                 )
                 ON CONFLICT(cohort, agent, date) DO UPDATE SET
                     weight = excluded.weight,
+                    layer = excluded.layer,
+                    previous_weight = excluded.previous_weight,
+                    performance_metric = excluded.performance_metric,
+                    performance_value = excluded.performance_value,
+                    normalized_performance = excluded.normalized_performance,
+                    rank_scope = excluded.rank_scope,
                     rolling_sharpe_30 = excluded.rolling_sharpe_30,
                     rolling_sharpe_90 = excluded.rolling_sharpe_90,
-                    quartile = excluded.quartile
+                    quartile = excluded.quartile,
+                    update_action = excluded.update_action,
+                    n_obs = excluded.n_obs,
+                    source_table = excluded.source_table,
+                    source_date = excluded.source_date,
+                    updated_at = excluded.updated_at
                 """,
-                rows,
+                normalized_rows,
             )
         return len(rows)
 
     def get_darwinian_weights(
-        self, cohort: str, date: Optional[str] = None
+        self,
+        cohort: str,
+        date: Optional[str] = None,
+        before_date: Optional[str] = None,
     ) -> dict[str, dict[str, Any]]:
         """Return ``{agent: {weight, sharpe_30, sharpe_90, quartile}}``.
 
         If ``date`` is None, returns the latest row per (cohort, agent).
         """
+        select_cols = (
+            "agent, layer, weight, previous_weight, performance_metric, "
+            "performance_value, normalized_performance, rank_scope, "
+            "rolling_sharpe_30, rolling_sharpe_90, quartile, update_action, "
+            "n_obs, source_table, source_date, updated_at"
+        )
         if date:
             sql = (
-                "SELECT agent, weight, rolling_sharpe_30, rolling_sharpe_90, quartile "
+                f"SELECT {select_cols} "
                 "FROM darwinian_weights WHERE cohort = ? AND date = ?"
             )
             params: list[Any] = [cohort, date]
         else:
             sql = (
-                "SELECT agent, weight, rolling_sharpe_30, rolling_sharpe_90, quartile "
+                f"SELECT {select_cols} "
                 "FROM darwinian_weights w1 "
                 "WHERE cohort = ? AND date = ("
                 "  SELECT MAX(date) FROM darwinian_weights w2 "
                 "  WHERE w2.cohort = w1.cohort AND w2.agent = w1.agent"
-                ")"
+                + (" AND w2.date < ?" if before_date else "")
+                + ")"
             )
             params = [cohort]
+            if before_date:
+                params.append(before_date)
 
         with self._connect() as conn:
             cur = conn.execute(sql, params)
@@ -980,6 +1124,17 @@ class ScorecardStore:
                     "sharpe_30": row["rolling_sharpe_30"],
                     "sharpe_90": row["rolling_sharpe_90"],
                     "quartile": row["quartile"],
+                    "layer": row["layer"],
+                    "previous_weight": row["previous_weight"],
+                    "performance_metric": row["performance_metric"],
+                    "performance_value": row["performance_value"],
+                    "normalized_performance": row["normalized_performance"],
+                    "rank_scope": row["rank_scope"],
+                    "update_action": row["update_action"],
+                    "n_obs": row["n_obs"],
+                    "source_table": row["source_table"],
+                    "source_date": row["source_date"],
+                    "updated_at": row["updated_at"],
                 }
                 for row in cur.fetchall()
             }

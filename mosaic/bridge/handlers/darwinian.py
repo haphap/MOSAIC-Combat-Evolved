@@ -24,6 +24,17 @@ def _store():
     return get_store()
 
 
+def _config():
+    try:
+        from mosaic.dataflows.config import get_config
+
+        return get_config()
+    except Exception:  # noqa: BLE001
+        from mosaic.default_config import DEFAULT_CONFIG
+
+        return DEFAULT_CONFIG
+
+
 def _require_str(params: dict, key: str) -> str:
     val = params.get(key)
     if not isinstance(val, str) or not val.strip():
@@ -56,7 +67,7 @@ def darwinian_compute(params: dict[str, Any]) -> dict[str, Any]:
         raise RpcError(INTERNAL_ERROR, f"scorecard package not importable: {exc}") from exc
 
     try:
-        return compute_weights(_store(), cohort=cohort, today=today)
+        return compute_weights(_store(), cohort=cohort, today=today, config=_config())
     except RpcError:
         raise
     except Exception as exc:

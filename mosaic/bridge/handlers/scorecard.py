@@ -131,6 +131,9 @@ def scorecard_score_pending(params: dict[str, Any]) -> dict[str, Any]:
             MacroScorer(
                 store,
                 neutral_band=ar_cfg.get("macro_neutral_band"),
+                agent_specific_labels_enabled=ar_cfg.get(
+                    "macro_agent_specific_labels_enabled"
+                ),
             ).score_pending(cohort=cohort, today=today)
         )
         return result

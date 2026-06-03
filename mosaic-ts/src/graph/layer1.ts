@@ -25,7 +25,7 @@
  */
 
 import { END, START, StateGraph } from "@langchain/langgraph";
-import { aggregateLayer1Node } from "../agents/macro/_aggregator.js";
+import { buildAggregateLayer1Node } from "../agents/macro/_aggregator.js";
 import { buildCentralBankNode } from "../agents/macro/central_bank.js";
 import { buildChinaNode } from "../agents/macro/china.js";
 import { buildCommoditiesNode } from "../agents/macro/commodities.js";
@@ -87,7 +87,7 @@ export function buildLayer1Graph(deps: BuildLayer1GraphDeps) {
     .addNode("emerging_markets", buildEmergingMarketsNode(deps))
     .addNode("news_sentiment", buildNewsSentimentNode(deps))
     .addNode("institutional_flow", buildInstitutionalFlowNode(deps))
-    .addNode(LAYER1_AGGREGATOR_NODE, aggregateLayer1Node);
+    .addNode(LAYER1_AGGREGATOR_NODE, buildAggregateLayer1Node(deps));
 
   // Fan-out START → each macro node; fan-in each → aggregator; aggregator → END
   // (replaced in 2D when Layer 2 lands). Edges added by side effect via

@@ -14,6 +14,7 @@ import {
   ALL_MACRO_AGENTS,
   aggregateLayer1,
   aggregateLayer1Node,
+  buildAggregateLayer1Node,
   STANCE_THRESHOLD,
   voteForAgent,
 } from "../src/agents/macro/_aggregator.js";
@@ -287,6 +288,37 @@ describe("aggregateLayer1", () => {
     expect(signal.stance).toBe("NEUTRAL");
   });
 
+  it("uses optional Darwinian weights in the Layer-1 score", () => {
+    const outputs: Record<string, MacroAgentOutput> = {
+      central_bank: { ...CB_BULL, confidence: 0.5 },
+      china: { ...CN_BULL, confidence: 0.5 },
+      geopolitical: { ...GEO_BULL, confidence: 0.5 },
+      dollar: { ...DLR_BULL, confidence: 0.5 },
+      yield_curve: { ...YC_BULL, confidence: 0.5 },
+      commodities: { ...CMD_BULL, confidence: 0.5 },
+      volatility: { ...VOL_BEAR, confidence: 0.5 },
+      emerging_markets: { ...EM_BEAR, confidence: 0.5 },
+      news_sentiment: { ...NS_BEAR, confidence: 0.5 },
+      institutional_flow: { ...IF_BEAR, confidence: 0.5 },
+    };
+    const equal = aggregateLayer1(outputs);
+    expect(equal.signal.stance).toBe("NEUTRAL");
+
+    const darwinianWeights = Object.fromEntries([
+      ...["central_bank", "china", "geopolitical", "dollar", "yield_curve", "commodities"].map(
+        (agent) => [agent, { weight: 0.3 }],
+      ),
+      ...["volatility", "emerging_markets", "news_sentiment", "institutional_flow"].map((agent) => [
+        agent,
+        { weight: 2.5 },
+      ]),
+    ]);
+    const weighted = aggregateLayer1(outputs, { darwinianWeights });
+    expect(weighted.signal.stance).toBe("BEARISH");
+    expect(weighted.votes.find((v) => v.agent === "volatility")?.darwinian_weight).toBe(2.5);
+    expect(weighted.votes.find((v) => v.agent === "central_bank")?.score_weight).toBe(0.15);
+  });
+
   it("layer_1_consensus_score = mean_confidence × alignment_ratio", () => {
     // Set up 8 bull (conf 0.7) + 2 neutral (conf 0.7); stance should be BULLISH;
     // alignment_ratio = 8/10 = 0.8; mean_conf = 0.7; consensus = 0.56.
@@ -380,6 +412,46 @@ describe("aggregateLayer1Node (LangGraph wrapper)", () => {
     const consensus = (update as { layer1_consensus?: RegimeSignal | null }).layer1_consensus;
     expect(consensus?.stance).toBe("BULLISH"); // both BULL with high conf
     expect(consensus?.layer_1_consensus_score).toBeGreaterThan(0.4);
+  });
+
+  it("fetches Darwinian weights only when the feature flag is enabled", async () => {
+    const state = {
+      active_cohort: "cohort_default",
+      as_of_date: "2024-02-10",
+      layer1_outputs: {
+        central_bank: { ...CB_BULL, confidence: 0.5 },
+        volatility: { ...VOL_BEAR, confidence: 0.5 },
+      },
+    } as unknown as DailyCycleStateType;
+    const calls: Array<[string, string | undefined]> = [];
+    const api = {
+      darwinianGetWeights: async (cohort: string, date?: string) => {
+        calls.push([cohort, date]);
+        return {
+          weights: {
+            central_bank: { weight: 0.3, sharpe_30: null, sharpe_90: null, quartile: 4 },
+            volatility: { weight: 2.5, sharpe_30: null, sharpe_90: null, quartile: 1 },
+          },
+        };
+      },
+    };
+    const node = buildAggregateLayer1Node({
+      api,
+      config: { darwinian: { weight_rewrite_enabled: true } } as never,
+    });
+
+    const update = await node(state);
+
+    expect(calls).toEqual([["cohort_default", "2024-02-10"]]);
+    const consensus = update.layer1_consensus as RegimeSignal | null | undefined;
+    expect(consensus?.stance).toBe("BEARISH");
+
+    const equalNode = buildAggregateLayer1Node({
+      api,
+      config: { darwinian: { weight_rewrite_enabled: false } } as never,
+    });
+    await equalNode(state);
+    expect(calls).toHaveLength(1);
   });
 });
 

@@ -15,6 +15,13 @@ from mosaic.scorecard.scorer import (
     ScoreOutcome,
     Scorer,
 )
+from mosaic.scorecard.macro_labels import (
+    BENCHMARK_FALLBACK_LABEL,
+    MACRO_LABEL_INVENTORY,
+    MacroLabelSpec,
+    list_macro_label_inventory,
+    primary_label_for_agent,
+)
 from mosaic.scorecard.store import (
     DEFAULT_DB_PATH,
     MACRO_AGENTS,
@@ -57,10 +64,13 @@ def reset_store_cache() -> None:
 __all__ = [
     "DEFAULT_BENCHMARK",
     "DEFAULT_DB_PATH",
+    "BENCHMARK_FALLBACK_LABEL",
     "HORIZON_5D",
     "HORIZON_21D",
+    "MACRO_LABEL_INVENTORY",
     "MACRO_AGENTS",
     "MIN_OBS_FOR_SHARPE",
+    "MacroLabelSpec",
     "PendingMacroRow",
     "PendingRow",
     "ScoreOutcome",
@@ -72,5 +82,7 @@ __all__ = [
     "expand_state_to_macro_signals",
     "expand_state_to_recommendations",
     "get_store",
+    "list_macro_label_inventory",
+    "primary_label_for_agent",
     "reset_store_cache",
 ]
