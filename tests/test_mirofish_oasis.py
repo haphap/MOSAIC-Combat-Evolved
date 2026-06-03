@@ -179,11 +179,32 @@ class TestOasisMultiStep(unittest.TestCase):
         from mosaic.mirofish.oasis import _build_seed_text
 
         txt = _build_seed_text(42, 5, {"000300.SH": 3600.0})
-        # names concrete A-share entities so the graph (and sim) has substance
-        for kw in ("沪深300", "北向资金", "宁德时代", "券商", "510300"):
+        # names concrete, *available* A-share signals (not stale northbound net flow)
+        for kw in ("沪深300", "主力资金", "行业资金", "宁德时代", "券商", "510300"):
             self.assertIn(kw, txt)
-        self.assertIn("3600", txt)  # CSI300 level threaded from start_prices
-        self.assertIn("5", txt)     # num_days
+        self.assertNotIn("北向资金", txt)        # disclosure changed; MOSAIC treats it as stale
+        self.assertIn("约 5 个交易日", txt)       # num_days wired (not a bare "5" that 510300 matches)
+        self.assertIn("3600", txt)               # CSI300 level threaded from start_prices
+
+    def test_ontology_upload_carries_seed(self):
+        # Lock the real path: _run_pipeline must upload the substantive seed (with
+        # num_days + CSI300 level threaded) as the ontology/generate multipart file.
+        fake, _ = _happy_router()
+        seen = {}
+
+        def capture(req, timeout=None):
+            if req.selector == "/api/graph/ontology/generate" and req.data:
+                seen["seed"] = req.data.decode("utf-8", "ignore")
+            return fake(req, timeout)
+
+        with _patch(capture), _no_sleep():
+            OasisMiroFishEngine(base_url="http://x").generate_all_scenarios(
+                {"000300.SH": 3600.0}, 7, 1, ["base"]
+            )
+        seed = seen.get("seed", "")
+        self.assertIn("约 7 个交易日", seed)  # num_days actually reaches the service
+        self.assertIn("3600", seed)          # CSI300 start level actually reaches the service
+        self.assertIn("主力资金", seed)
 
     def test_env_var_default_url(self):
         with patch.dict("os.environ", {"MOSAIC_MIROFISH_URL": "http://env-host:5001"}):
