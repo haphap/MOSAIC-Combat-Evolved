@@ -1,7 +1,7 @@
 /**
  * Layer-3 LangGraph subgraph (Plan §11.2 sub-step 2D.2).
  *
- * Topology: START → 4 superinvestor nodes (parallel) → END.
+ * Topology: START → druckenmiller → aschenbrenner → baker → ackman → END.
  * Assumes layer1_consensus + layer2_outputs are pre-populated.
  *
  * No Layer-3 aggregator — Layer-4's cio agent is the final aggregator
@@ -17,7 +17,7 @@ import { buildBakerNode } from "../agents/superinvestor/baker.js";
 import { buildDruckenmillerNode } from "../agents/superinvestor/druckenmiller.js";
 import type { BridgeApi, MosaicConfig } from "../bridge/index.js";
 import type { LlmHandle } from "../llm/factory.js";
-import { chainEdges } from "./_edges.js";
+import { chainEdges, serialEdges } from "./_edges.js";
 
 export interface BuildLayer3GraphDeps {
   llmHandle: LlmHandle;
@@ -38,9 +38,6 @@ export function buildLayer3Graph(deps: BuildLayer3GraphDeps) {
     .addNode("baker", buildBakerNode(deps))
     .addNode("ackman", buildAckmanNode(deps));
 
-  chainEdges(graph, [
-    ...LAYER3_AGENT_NODES.map((name) => [START, name] as const),
-    ...LAYER3_AGENT_NODES.map((name) => [name, END] as const),
-  ]);
+  chainEdges(graph, serialEdges([START, ...LAYER3_AGENT_NODES, END] as const));
   return graph.compile();
 }

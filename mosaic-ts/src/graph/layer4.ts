@@ -1,17 +1,15 @@
 /**
  * Layer-4 LangGraph subgraph (Plan §11.2 sub-step 2D.3).
  *
- * Topology is a small DAG (NOT a simple parallel fan-out like Layer 1-3):
+ * Topology is a deterministic serial chain:
  *
- *   START ─┬→ cro ───────────────┐
- *          └→ alpha_discovery ───┴→ autonomous_execution → cio → END
+ *   START → cro → alpha_discovery → autonomous_execution → cio → END
  *
  * Dependency contract:
- *   * cro + alpha_discovery — both read L1+L2+L3, run in parallel.
- *   * autonomous_execution — waits for both cro + alpha (LangGraph
- *     superstep barrier handles this automatically when a node has
- *     multiple incoming edges).
- *   * cio — final aggregator, waits for autonomous_execution.
+ *   * cro reads L1+L2+L3 first and writes risk objections.
+ *   * alpha_discovery then reads the same upstream state plus CRO context.
+ *   * autonomous_execution waits for CRO + alpha state.
+ *   * cio is the final aggregator.
  *
  * Subgraph assumes Layer-1, Layer-2 and Layer-3 outputs are populated in
  * state. cio's output also writes ``state.portfolio_actions`` (top-level
@@ -26,7 +24,7 @@ import { buildCroNode } from "../agents/decision/cro.js";
 import { DailyCycleState } from "../agents/state.js";
 import type { BridgeApi, MosaicConfig } from "../bridge/index.js";
 import type { LlmHandle } from "../llm/factory.js";
-import { chainEdges } from "./_edges.js";
+import { chainEdges, serialEdges } from "./_edges.js";
 
 export interface BuildLayer4GraphDeps {
   llmHandle: LlmHandle;
@@ -46,6 +44,12 @@ export const LAYER4_AGENT_NODES = [
   "cio",
 ] as const;
 
+export const LAYER4_REPLAY_AGENT_NODES = [
+  "alpha_discovery",
+  "autonomous_execution",
+  "cio",
+] as const;
+
 /** Build (and compile) the Layer-4 decision subgraph. */
 export function buildLayer4Graph(deps: BuildLayer4GraphDeps) {
   const graph = new StateGraph(DailyCycleState)
@@ -54,17 +58,8 @@ export function buildLayer4Graph(deps: BuildLayer4GraphDeps) {
     .addNode("autonomous_execution", buildAutonomousExecutionNode(deps))
     .addNode("cio", buildCioNode(deps));
 
-  chainEdges(graph, [
-    // START → cro, alpha_discovery (parallel)
-    [START, "cro"],
-    [START, "alpha_discovery"],
-    // cro, alpha_discovery → autonomous_execution (synchronisation point)
-    ["cro", "autonomous_execution"],
-    ["alpha_discovery", "autonomous_execution"],
-    // autonomous_execution → cio → END
-    ["autonomous_execution", "cio"],
-    ["cio", END],
-  ]);
+  // Serial L4: keep one LLM/tool stream active at a time.
+  chainEdges(graph, serialEdges([START, ...LAYER4_AGENT_NODES, END] as const));
 
   return graph.compile();
 }
@@ -97,12 +92,7 @@ export function buildLayer4ReplayGraph(deps: BuildLayer4GraphDeps) {
     .addNode("autonomous_execution", buildAutonomousExecutionNode(deps))
     .addNode("cio", buildCioNode(deps));
 
-  chainEdges(graph, [
-    [START, "alpha_discovery"],
-    ["alpha_discovery", "autonomous_execution"],
-    ["autonomous_execution", "cio"],
-    ["cio", END],
-  ]);
+  chainEdges(graph, serialEdges([START, ...LAYER4_REPLAY_AGENT_NODES, END] as const));
 
   return graph.compile();
 }

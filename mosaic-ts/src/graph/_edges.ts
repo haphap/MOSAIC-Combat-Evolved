@@ -32,6 +32,14 @@ type EdgeOf<G extends EdgeAddable> = readonly [
   Parameters<G["addEdge"]>[1],
 ];
 
+type SerialEdgePairs<Nodes extends readonly string[]> = Nodes extends readonly [
+  infer From extends string,
+  infer To extends string,
+  ...infer Rest extends string[],
+]
+  ? readonly [readonly [From, To], ...SerialEdgePairs<readonly [To, ...Rest]>]
+  : readonly [];
+
 /**
  * Add each ``[from, to]`` edge to ``graph`` by side effect. Returns ``graph`` so
  * call sites can still ``return chainEdges(g, edges).compile()`` if desired.
@@ -41,4 +49,17 @@ export function chainEdges<G extends EdgeAddable>(graph: G, edges: ReadonlyArray
     (graph.addEdge as (start: unknown, end: unknown) => unknown)(from, to);
   }
   return graph;
+}
+
+/** Build consecutive ``[from, to]`` edge pairs from a canonical serial node list. */
+export function serialEdges<const Nodes extends readonly [string, string, ...string[]]>(
+  nodes: Nodes,
+): SerialEdgePairs<Nodes> {
+  const edges: Array<readonly [string, string]> = [];
+  let previous = nodes[0];
+  for (const next of nodes.slice(1)) {
+    edges.push([previous, next]);
+    previous = next;
+  }
+  return edges as unknown as SerialEdgePairs<Nodes>;
 }

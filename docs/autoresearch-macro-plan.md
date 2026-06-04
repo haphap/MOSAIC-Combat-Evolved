@@ -152,7 +152,7 @@ Follow-up E: Layer 1 uses Darwinian weights
 ```text
 daily_cycle
   -> layer1 subgraph
-     -> 10 个 macro agents 并行运行
+     -> 10 个 macro agents 串行逐一运行
      -> 每个 macro agent 写入 state.layer1_outputs[agent]
      -> aggregate_l1 读取所有 macro outputs
      -> 写入 state.layer1_consensus

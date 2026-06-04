@@ -106,6 +106,32 @@ class TestOasisMultiStep(unittest.TestCase):
         self.assertEqual(paths[-1], "/api/report/rep_1")
         self.assertEqual(out[0]["engine"], "oasis")
 
+    def test_retries_zero_node_graph_build_once(self):
+        fake, calls = _happy_router()
+        task_polls = 0
+        build_bodies = []
+
+        def capture(req, timeout=None):
+            nonlocal task_polls
+            if req.selector == "/api/graph/build" and req.data:
+                build_bodies.append(json.loads(req.data.decode("utf-8")))
+            if req.selector.startswith("/api/graph/task/"):
+                task_polls += 1
+                nodes = 0 if task_polls == 1 else 3
+                return _Resp(
+                    {"success": True, "data": {"status": "completed", "result": {"node_count": nodes}}}
+                )
+            return fake(req, timeout)
+
+        with _patch(capture), _no_sleep():
+            out = OasisMiroFishEngine(base_url="http://x").generate_all_scenarios(
+                {"000300.SH": 3500.0}, 5, 42, ["base"]
+            )
+        paths = [p for _, p in calls]
+        self.assertEqual(paths.count("/api/graph/build"), 2)
+        self.assertTrue(build_bodies[1].get("force"))
+        self.assertEqual(out[0]["engine"], "oasis")
+
     def test_report_sentiment_maps_to_regime(self):
         fake, _ = _happy_router()
         with _patch(fake), _no_sleep():
@@ -243,6 +269,75 @@ class TestOasisMultiStep(unittest.TestCase):
         self.assertEqual(bodies["/api/simulation/start"]["simulation_id"], "sim_1")
         # graph-memory update must be on so the report reflects THIS run
         self.assertTrue(bodies["/api/simulation/start"]["enable_graph_memory_update"])
+
+    def test_start_threads_llm_config_to_service(self):
+        fake, _ = _happy_router()
+        bodies = {}
+
+        def capture(req, timeout=None):
+            if req.method == "POST" and req.data:
+                try:
+                    bodies[req.selector] = json.loads(req.data.decode("utf-8"))
+                except (ValueError, UnicodeDecodeError):
+                    pass
+            return fake(req, timeout)
+
+        env = {
+            "MOSAIC_MIROFISH_LLM_BASE_URL": "https://llm.example.test/v1",
+            "MOSAIC_MIROFISH_LLM_API_KEY": "test-key",
+            "MOSAIC_MIROFISH_LLM_MODEL": "mimo-v2.5-pro",
+        }
+        with patch.dict("os.environ", env, clear=False):
+            with _patch(capture), _no_sleep():
+                OasisMiroFishEngine(base_url="http://x").generate_all_scenarios(
+                    None, 5, 1, ["base"]
+                )
+
+        self.assertEqual(
+            bodies["/api/simulation/start"]["llm_config"],
+            {
+                "base_url": "https://llm.example.test/v1",
+                "api_key": "test-key",
+                "model": "mimo-v2.5-pro",
+            },
+        )
+
+    def test_threads_embedding_config_to_graph_and_simulation(self):
+        fake, _ = _happy_router()
+        bodies = {}
+        multipart = {}
+
+        def capture(req, timeout=None):
+            if req.selector == "/api/graph/ontology/generate" and req.data:
+                multipart["ontology"] = req.data.decode("utf-8", "ignore")
+            if req.method == "POST" and req.data:
+                try:
+                    bodies[req.selector] = json.loads(req.data.decode("utf-8"))
+                except (ValueError, UnicodeDecodeError):
+                    pass
+            return fake(req, timeout)
+
+        env = {
+            "MOSAIC_MIROFISH_EMBEDDING_BASE_URL": "https://embedding.example.test/v1",
+            "MOSAIC_MIROFISH_EMBEDDING_API_KEY": "test-embed-key",
+            "MOSAIC_MIROFISH_EMBEDDING_MODEL": "text-embedding-v4",
+        }
+        with patch.dict("os.environ", env, clear=False):
+            with _patch(capture), _no_sleep():
+                OasisMiroFishEngine(base_url="http://x").generate_all_scenarios(
+                    None, 5, 1, ["base"]
+                )
+
+        expected = {
+            "base_url": "https://embedding.example.test/v1",
+            "api_key": "test-embed-key",
+            "model": "text-embedding-v4",
+        }
+        self.assertEqual(bodies["/api/graph/build"]["embedding_config"], expected)
+        self.assertEqual(bodies["/api/report/generate"]["embedding_config"], expected)
+        self.assertEqual(bodies["/api/simulation/start"]["embedding_config"], expected)
+        self.assertIn("embedding_config", multipart["ontology"])
+        self.assertIn("text-embedding-v4", multipart["ontology"])
 
     def test_bad_env_max_rounds_falls_back_to_positive_cap(self):
         # 0 / negative / non-int env must NOT drop or corrupt the cap

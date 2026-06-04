@@ -16,10 +16,12 @@ import { buildFakeLlmHandle } from "../_backtest_helpers.js";
 import { pad } from "../_format.js";
 
 const DEFAULT_AGENTS = ["druckenmiller", "ackman", "aschenbrenner", "baker"];
+const MIROFISH_BRIDGE_TIMEOUT_MS = 30 * 60 * 1000;
 
 interface GenerateOpts {
   days?: string;
   seed?: string;
+  scenarios?: string;
   print?: boolean;
   reflexive?: boolean;
   engine?: string;
@@ -30,6 +32,7 @@ interface GenerateOpts {
 interface TrainOpts {
   days?: string;
   seed?: string;
+  scenarios?: string;
   agents?: string;
   dryRun?: boolean;
   fakeLlm?: boolean;
@@ -57,6 +60,10 @@ export function registerMirofish(program: Command): void {
     .description("Generate + print the Monte-Carlo scenario set.")
     .option("--days <n>", "Days to simulate (default 30)")
     .option("--seed <n>", "RNG seed for reproducibility")
+    .option(
+      "--scenarios <list>",
+      "Comma-separated scenario types (base,bull,bear,tail_up,tail_down)",
+    )
     .option("--print", "Print scenario detail")
     .option("--reflexive", "Apply the reflexive actor overlay (price↔behavior feedback)")
     .option(
@@ -71,6 +78,7 @@ export function registerMirofish(program: Command): void {
         const { scenarios } = await api.mirofishGenerateScenarios({
           ...(opts.days ? { num_days: Number.parseInt(opts.days, 10) } : {}),
           ...(opts.seed ? { seed: Number.parseInt(opts.seed, 10) } : {}),
+          ...(opts.scenarios ? { scenarios: splitCsv(opts.scenarios) } : {}),
           ...(opts.reflexive ? { reflexivity: true } : {}),
           ...(engine ? { engine } : {}),
           ...(opts.maxRounds ? { max_rounds: Number.parseInt(opts.maxRounds, 10) } : {}),
@@ -100,6 +108,10 @@ export function registerMirofish(program: Command): void {
     .description("Forward-train agents on simulated scenarios (isolated ledger).")
     .option("--days <n>", "Days to simulate (default 30)")
     .option("--seed <n>", "RNG seed")
+    .option(
+      "--scenarios <list>",
+      "Comma-separated scenario types (base,bull,bear,tail_up,tail_down)",
+    )
     .option("--agents <list>", "Comma-separated agents (default 4 superinvestors)")
     .option("--dry-run", "Score but do not persist")
     .option("--fake-llm", "Deterministic canned recommendations (zero cost)")
@@ -134,6 +146,7 @@ export function registerMirofish(program: Command): void {
         const result = await runMirofishTraining({
           ...(opts.days ? { numDays: Number.parseInt(opts.days, 10) } : {}),
           ...(opts.seed ? { seed: Number.parseInt(opts.seed, 10) } : {}),
+          ...(opts.scenarios ? { scenarios: splitCsv(opts.scenarios) } : {}),
           agents,
           dryRun: opts.dryRun ?? false,
           ...(opts.fakeLlm ? { fakeLlm: true } : {}),
@@ -193,6 +206,13 @@ function resolveEngine(opts: {
   return undefined;
 }
 
+function splitCsv(value: string): string[] {
+  return value
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
 /** Resolve scorer from --path-aware shorthand or --scorer; undefined → server default. */
 function resolveScorer(opts: {
   scorer?: string;
@@ -204,7 +224,7 @@ function resolveScorer(opts: {
 }
 
 async function withApi(fn: (api: BridgeApi) => Promise<void>): Promise<void> {
-  const client = new BridgeClient();
+  const client = new BridgeClient({ defaultTimeoutMs: MIROFISH_BRIDGE_TIMEOUT_MS });
   const api = new BridgeApi(client);
   try {
     await client.start();

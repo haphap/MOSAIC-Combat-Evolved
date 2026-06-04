@@ -19,7 +19,7 @@
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { z } from "zod";
-import { bindStructured } from "../agents/helpers/structured_output.js";
+import { extractTextContent } from "../agents/helpers/content.js";
 import type { BridgeApi, MirofishRecommendation, MirofishScenario } from "../bridge/types.js";
 
 export const RecommendationSchema = z.object({
@@ -66,6 +66,14 @@ const META = [
   "Pick from the scenario's tickers. conviction is 0..1. Be decisive.",
 ].join("\n");
 
+const JSON_META = [
+  META,
+  "",
+  "Return ONLY one valid JSON object. No Markdown, no code fence, no prose before or after it.",
+  'Schema: {"recommendation":"BUY|SELL|HOLD","tickers":["000300.SH"],"conviction":0.0,"reasoning":"short rationale"}',
+  "Use uppercase English for recommendation. tickers must be selected from the scenario tickers.",
+].join("\n");
+
 /** Deterministic canned rec for --fake-llm: long the strongest path. */
 function cannedRecommendation(scenario: MirofishScenario): MirofishRecommendation {
   let best = "";
@@ -91,9 +99,6 @@ async function agentRecommendation(
   fakeLlm: boolean,
 ): Promise<MirofishRecommendation> {
   if (fakeLlm) return cannedRecommendation(scenario);
-
-  const bound = bindStructured(llm, RecommendationSchema, `mirofish:${agent}`);
-  if (bound === null) throw new Error(`mirofish:${agent}: provider lacks structured output`);
   const paths = Object.entries(scenario.price_paths)
     .map(
       ([t, p]) =>
@@ -107,9 +112,224 @@ async function agentRecommendation(
     `Price paths (30d):\n${paths}`,
     `Events:\n${events}`,
   ].join("\n\n");
-  return RecommendationSchema.parse(
-    await bound.invoke([new SystemMessage(META), new HumanMessage(user)]),
+  const response = await llm.invoke([new SystemMessage(JSON_META), new HumanMessage(user)]);
+  const content =
+    typeof response.content === "string" ? response.content : extractTextContent(response.content);
+  return parseRecommendationResponse(content, scenario);
+}
+
+export function parseRecommendationResponse(
+  responseText: string,
+  scenario: MirofishScenario,
+): MirofishRecommendation {
+  const parsed = parseJsonObject(responseText);
+  return RecommendationSchema.parse(normalizeRecommendationPayload(parsed, scenario));
+}
+
+function parseJsonObject(text: string): unknown {
+  const trimmed = text.trim();
+  if (!trimmed) throw new Error("empty recommendation response");
+
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    // Continue to extract the first balanced JSON object from responses that
+    // include code fences or explanatory prose despite the JSON-only prompt.
+  }
+
+  const fence = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fence?.[1]) {
+    try {
+      return JSON.parse(fence[1].trim());
+    } catch {
+      // Fall through to the balanced-object extractor.
+    }
+  }
+
+  const objectText = firstBalancedJsonObject(trimmed);
+  if (!objectText) {
+    throw new Error(
+      `recommendation response did not contain a JSON object: ${trimmed.slice(0, 160)}`,
+    );
+  }
+  return JSON.parse(objectText);
+}
+
+function firstBalancedJsonObject(text: string): string | null {
+  const start = text.indexOf("{");
+  if (start < 0) return null;
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (ch === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (ch === "{") depth++;
+    if (ch === "}") {
+      depth--;
+      if (depth === 0) return text.slice(start, i + 1);
+    }
+  }
+  return null;
+}
+
+function normalizeRecommendationPayload(
+  payload: unknown,
+  scenario: MirofishScenario,
+): MirofishRecommendation {
+  if (!isRecord(payload)) throw new Error("recommendation JSON must be an object");
+
+  const recommendation = normalizeAction(
+    pickString(payload, ["recommendation", "action", "decision", "signal", "建议", "操作"]),
   );
+  const tickers = normalizeTickers(
+    pickValue(payload, [
+      "tickers",
+      "ticker",
+      "symbols",
+      "symbol",
+      "targets",
+      "target",
+      "标的",
+      "代码",
+    ]),
+    scenario,
+  );
+  const conviction = normalizeConviction(
+    pickValue(payload, ["conviction", "confidence", "score", "置信度", "信心"]),
+  );
+  const reasoning =
+    pickString(payload, [
+      "reasoning",
+      "rationale",
+      "reason",
+      "analysis",
+      "thesis",
+      "理由",
+      "逻辑",
+    ]) ?? "model omitted reasoning";
+
+  return { recommendation, tickers, conviction, reasoning };
+}
+
+function normalizeAction(value: string | undefined): MirofishRecommendation["recommendation"] {
+  const raw = (value ?? "").trim();
+  const lower = raw.toLowerCase();
+  if (!raw) throw new Error("recommendation JSON is missing recommendation/action");
+  if (
+    lower === "buy" ||
+    lower.includes("buy") ||
+    lower.includes("long") ||
+    raw.includes("买入") ||
+    raw.includes("做多") ||
+    raw.includes("看多") ||
+    raw.includes("增持") ||
+    raw.includes("加仓")
+  ) {
+    return "BUY";
+  }
+  if (
+    lower === "sell" ||
+    lower.includes("sell") ||
+    lower.includes("short") ||
+    raw.includes("卖出") ||
+    raw.includes("做空") ||
+    raw.includes("看空") ||
+    raw.includes("减持") ||
+    raw.includes("清仓")
+  ) {
+    return "SELL";
+  }
+  if (
+    lower === "hold" ||
+    lower.includes("hold") ||
+    lower.includes("neutral") ||
+    lower.includes("wait") ||
+    raw.includes("持有") ||
+    raw.includes("观望") ||
+    raw.includes("等待") ||
+    raw.includes("不操作") ||
+    raw.includes("空仓")
+  ) {
+    return "HOLD";
+  }
+  throw new Error(`unsupported recommendation action: ${raw}`);
+}
+
+function normalizeTickers(value: unknown, scenario: MirofishScenario): string[] {
+  const scenarioTickers = new Set(Object.keys(scenario.price_paths).map((t) => t.toUpperCase()));
+  const candidates = valuesToStrings(value)
+    .flatMap((s) => s.split(/[,，、;\s]+/))
+    .map((s) => s.trim().toUpperCase())
+    .filter(Boolean);
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const ticker of candidates) {
+    if (seen.has(ticker)) continue;
+    seen.add(ticker);
+    if (scenarioTickers.size === 0 || scenarioTickers.has(ticker)) out.push(ticker);
+  }
+  return out;
+}
+
+function normalizeConviction(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value))
+    return clamp01(value > 1 ? value / 100 : value);
+  if (typeof value === "string") {
+    const match = value.match(/-?\d+(?:\.\d+)?/);
+    if (match) {
+      const parsed = Number(match[0]);
+      if (Number.isFinite(parsed))
+        return clamp01(value.includes("%") || parsed > 1 ? parsed / 100 : parsed);
+    }
+  }
+  return 0.5;
+}
+
+function clamp01(value: number): number {
+  return Math.max(0, Math.min(1, value));
+}
+
+function pickValue(record: Record<string, unknown>, keys: string[]): unknown {
+  for (const key of keys) {
+    if (key in record && record[key] != null) return record[key];
+  }
+  return undefined;
+}
+
+function pickString(record: Record<string, unknown>, keys: string[]): string | undefined {
+  const value = pickValue(record, keys);
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return undefined;
+}
+
+function valuesToStrings(value: unknown): string[] {
+  if (typeof value === "string") return [value];
+  if (typeof value === "number") return [String(value)];
+  if (Array.isArray(value)) return value.flatMap(valuesToStrings);
+  if (isRecord(value)) {
+    const nested = pickValue(value, ["ticker", "symbol", "code", "ts_code", "标的", "代码"]);
+    return nested == null ? [] : valuesToStrings(nested);
+  }
+  return [];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /**

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { BridgeApi, MirofishScenario } from "../src/bridge/types.js";
-import { runMirofishTraining } from "../src/mirofish/trainer.js";
+import { parseRecommendationResponse, runMirofishTraining } from "../src/mirofish/trainer.js";
 
 function scenario(type: string, csiRet: number): MirofishScenario {
   return {
@@ -31,6 +31,13 @@ class FakeLlm {
   }
 }
 
+class JsonLlm {
+  constructor(private readonly content: string) {}
+  async invoke() {
+    return { content: this.content };
+  }
+}
+
 function fakeApi(overrides: Partial<Record<string, unknown>> = {}): BridgeApi {
   return {
     mirofishGenerateScenarios: vi.fn().mockResolvedValue({
@@ -43,6 +50,7 @@ function fakeApi(overrides: Partial<Record<string, unknown>> = {}): BridgeApi {
 }
 
 const deps = (api: BridgeApi) => ({ llm: new FakeLlm() as never, api });
+const jsonDeps = (api: BridgeApi, content: string) => ({ llm: new JsonLlm(content) as never, api });
 
 beforeEach(() => vi.clearAllMocks());
 
@@ -122,5 +130,55 @@ describe("runMirofishTraining", () => {
     await runMirofishTraining({ agents: ["x"], fakeLlm: true, deps: deps(api2) });
     const call = (api2.mirofishScoreRecommendation as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
     expect(call).not.toHaveProperty("scorer"); // default → server decides
+  });
+
+  it("parses provider JSON with trailing prose for real-LLM recommendations", async () => {
+    const rec = parseRecommendationResponse(
+      '{"recommendation":"BUY","tickers":["000300.SH"],"conviction":0.75,"reasoning":"up path"}\n\n结论：买入',
+      scenario("bull", 0.12),
+    );
+    expect(rec).toEqual({
+      recommendation: "BUY",
+      tickers: ["000300.SH"],
+      conviction: 0.75,
+      reasoning: "up path",
+    });
+  });
+
+  it("normalizes Chinese action/ticker fields in real-LLM recommendations", () => {
+    const rec = parseRecommendationResponse(
+      '{"操作":"买入","标的":"000300.SH","置信度":"80%","理由":"上涨路径最强"}',
+      scenario("bull", 0.12),
+    );
+    expect(rec).toMatchObject({
+      recommendation: "BUY",
+      tickers: ["000300.SH"],
+      conviction: 0.8,
+      reasoning: "上涨路径最强",
+    });
+  });
+
+  it("scores a non-fake JSON recommendation without structured-output support", async () => {
+    const api = fakeApi({
+      mirofishGenerateScenarios: vi.fn().mockResolvedValue({ scenarios: [scenario("bull", 0.15)] }),
+    });
+    await runMirofishTraining({
+      agents: ["druckenmiller"],
+      dryRun: true,
+      deps: jsonDeps(
+        api,
+        '```json\n{"action":"long","ticker":"000300.SH","confidence":0.7,"reason":"trend"}\n```',
+      ),
+    });
+    expect(api.mirofishScoreRecommendation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recommendation: {
+          recommendation: "BUY",
+          tickers: ["000300.SH"],
+          conviction: 0.7,
+          reasoning: "trend",
+        },
+      }),
+    );
   });
 });

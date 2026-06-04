@@ -26,6 +26,7 @@ Tool                            Used by                                         
 ``get_yield_curve_cn``          central_bank, yield_curve                         Tushare yc_cb
 ``get_us_china_spread``         yield_curve                                       Tushare yc_cb + FRED DGS10
 ``get_xueqiu_heat``             news_sentiment                                    AkShare stock_hot_follow_xq
+``get_news``                    news_sentiment                                    opencli / brave / yfinance
 ``get_industry_policy``         china                                             Tushare news + keyword filter
 ==============================  ================================================  =====================================
 """
@@ -240,6 +241,44 @@ def get_xueqiu_heat(
         Markdown header + CSV.
     """
     return route_to_vendor("get_xueqiu_heat", ticker, top_n)
+
+
+# ============================================================ News / social signals
+
+
+@tool
+def get_news(
+    ticker: Annotated[
+        str,
+        "Ticker, company alias, or market theme to query (e.g. '000300.SH', "
+        "'A股', '半导体', or 'China market sentiment').",
+    ],
+    start_date: Annotated[
+        str,
+        "Start date in yyyy-mm-dd format (inclusive).",
+    ],
+    end_date: Annotated[
+        str,
+        "End date in yyyy-mm-dd format (inclusive); clamped under backtest.",
+    ],
+) -> str:
+    """
+    Retrieve news and social-media signals for a ticker, company, or theme.
+
+    Dispatches through the configured ``get_news`` vendor chain (opencli by
+    default, with brave / yfinance fallbacks when configured). Used by
+    ``news_sentiment`` to complement Xueqiu heat, Caixin coverage, and
+    policy-news filters with current headline and social context.
+
+    Args:
+        ticker: ticker, company alias, or thematic query.
+        start_date: yyyy-mm-dd inclusive lower bound.
+        end_date: yyyy-mm-dd inclusive upper bound.
+
+    Returns:
+        Markdown news/social-signal summary.
+    """
+    return route_to_vendor("get_news", ticker, start_date, end_date)
 
 
 # ============================================================ Industry policy
@@ -645,6 +684,7 @@ __all__ = [
     "get_yield_curve_cn",
     "get_us_china_spread",
     "get_xueqiu_heat",
+    "get_news",
     "get_industry_policy",
     "get_usdcny",
     "get_commodity_prices",

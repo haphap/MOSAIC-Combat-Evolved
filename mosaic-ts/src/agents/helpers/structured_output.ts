@@ -20,7 +20,7 @@
 
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
-import type { z } from "zod";
+import { z } from "zod";
 import { extractTextContent } from "./content.js";
 import { isChinese } from "./i18n.js";
 
@@ -216,7 +216,7 @@ export async function invokeStructuredOrFreetext<T>(
     }
   }
 
-  // ---- free-text fallback ----
+  // ---- JSON prompt fallback, with free-text degradation if the provider still ignores it ----
   const [systemMsg, userMsg] = messages;
   const systemText =
     typeof systemMsg.content === "string"
@@ -227,10 +227,106 @@ export async function invokeStructuredOrFreetext<T>(
     fallbackInstruction,
     structuredOnlySentences,
   );
-  const response = await llm.invoke([new SystemMessage(fallbackSystem), userMsg]);
+  const response = await llm.invoke([
+    new SystemMessage(buildJsonFallbackSystem(fallbackSystem, schema, agentName)),
+    userMsg,
+  ]);
   const content =
     typeof response.content === "string"
       ? response.content.trim()
       : extractTextContent(response.content);
+  const parsed = tryParseJsonObject(content);
+  if (parsed !== null) {
+    try {
+      const result = schema.parse(parsed);
+      return { rendered: render(result), structured: result };
+    } catch (err) {
+      console.warn(
+        `${agentName}: JSON fallback schema parse failed (${(err as Error).message}); ` +
+          "using free text",
+      );
+    }
+  }
   return { rendered: content, structured: null };
+}
+
+function buildJsonFallbackSystem<T>(
+  baseSystem: string,
+  schema: z.ZodType<T>,
+  agentName: string,
+): string {
+  return (
+    `${baseSystem}\n\n` +
+    "The previous structured-output mechanism was unavailable or invalid. " +
+    "Return ONLY one valid JSON object matching the schema below. " +
+    "Do not include Markdown, code fences, or prose outside the JSON object.\n\n" +
+    `Agent: ${agentName}\n` +
+    `JSON Schema: ${safeJsonSchema(schema)}`
+  );
+}
+
+function safeJsonSchema<T>(schema: z.ZodType<T>): string {
+  try {
+    return JSON.stringify(z.toJSONSchema(schema));
+  } catch {
+    return "(schema unavailable; use the field names and constraints from the task prompt)";
+  }
+}
+
+function tryParseJsonObject(text: string): unknown | null {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    // Continue below.
+  }
+
+  const fence = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fence?.[1]) {
+    try {
+      return JSON.parse(fence[1].trim());
+    } catch {
+      // Continue below.
+    }
+  }
+
+  const objectText = firstBalancedJsonObject(trimmed);
+  if (!objectText) return null;
+  try {
+    return JSON.parse(objectText);
+  } catch {
+    return null;
+  }
+}
+
+function firstBalancedJsonObject(text: string): string | null {
+  const start = text.indexOf("{");
+  if (start < 0) return null;
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (ch === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (ch === "{") depth++;
+    if (ch === "}") {
+      depth--;
+      if (depth === 0) return text.slice(start, i + 1);
+    }
+  }
+  return null;
 }

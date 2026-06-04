@@ -185,7 +185,7 @@ class TestPublicAPI:
         )
         assert len(captured) == 1
         cmd = captured[0]
-        assert "update_data_to_bin" in cmd
+        assert "update_data_to_bin_batch" in cmd
         assert "--end_date" in cmd
         assert "2024-12-31" in cmd
         # Anti-pollution: collector working dirs are pinned out of the repo so
@@ -194,6 +194,56 @@ class TestPublicAPI:
         repo_collectors = str(Path(qlib_ingest.__file__).resolve().parent / "collectors")
         assert not any(repo_collectors in str(a) for a in cmd)
         assert str((tmp_path / "raw")) in cmd
+
+    def test_etf_incremental_uses_batch_collector(
+        self, tmp_path, fake_repo, monkeypatch
+    ):
+        qlib_dir = tmp_path / "qlib_etf"
+        (qlib_dir / "calendars").mkdir(parents=True)
+        (qlib_dir / "calendars" / "day.txt").write_text("2024-12-30\n")
+
+        captured = []
+
+        def fake_run(cmd, **kwargs):
+            captured.append(cmd)
+            return subprocess.CompletedProcess(cmd, 0)
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+
+        qlib_ingest.ingest_incremental(
+            end="2024-12-31",
+            kind="etf",
+            qlib_dir=qlib_dir,
+            raw_dir=tmp_path / "raw",
+            normalize_dir=tmp_path / "norm",
+        )
+        assert len(captured) == 1
+        assert "update_data_to_bin_batch" in captured[0]
+
+    def test_etf_full_uses_batch_pipeline(
+        self, tmp_path, fake_repo, monkeypatch
+    ):
+        captured = []
+
+        def fake_run(cmd, **kwargs):
+            captured.append(cmd)
+            return subprocess.CompletedProcess(cmd, 0)
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+
+        qlib_ingest.ingest_full(
+            start="2000-01-01",
+            end="2026-06-03",
+            kind="etf",
+            qlib_dir=tmp_path / "qlib_etf_full",
+            raw_dir=tmp_path / "raw",
+            normalize_dir=tmp_path / "norm",
+        )
+
+        assert len(captured) == 1
+        assert "pipeline_batch" in captured[0]
+        assert "--detect_new_etfs=False" in captured[0]
+        assert "--parallel_dates=True" in captured[0]
 
     def test_incremental_default_dirs_are_out_of_repo(self, tmp_path, fake_repo, monkeypatch):
         """With no raw_dir/normalize_dir, collector working dirs default to

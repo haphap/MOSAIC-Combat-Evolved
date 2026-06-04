@@ -66,6 +66,11 @@ _EXPECTED_TOOLS = {
         "optional": {"ticker", "top_n"},
         "vendor_method": "get_xueqiu_heat",
     },
+    "get_news": {
+        "required": {"ticker", "start_date", "end_date"},
+        "optional": set(),
+        "vendor_method": "get_news",
+    },
     "get_industry_policy": {
         "required": {"curr_date"},
         "optional": {"look_back_days", "src"},
@@ -249,6 +254,17 @@ class TestDispatch:
     def test_get_xueqiu_heat_with_ticker(self, patched_route):
         macro_tools.get_xueqiu_heat.invoke({"ticker": "600519.SH", "top_n": 5})
         assert patched_route["args"] == ("600519.SH", 5)
+
+    def test_get_news_invocation(self, patched_route):
+        macro_tools.get_news.invoke(
+            {
+                "ticker": "A股 情绪",
+                "start_date": "2024-06-01",
+                "end_date": "2024-06-30",
+            }
+        )
+        assert patched_route["method"] == "get_news"
+        assert patched_route["args"] == ("A股 情绪", "2024-06-01", "2024-06-30")
 
     def test_get_industry_policy_invocation(self, patched_route):
         macro_tools.get_industry_policy.invoke(

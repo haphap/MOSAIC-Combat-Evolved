@@ -20,6 +20,7 @@ _MOSAIC_HOME = os.path.join(os.path.expanduser("~"), ".mosaic")
 # Resolved lazily so tests can move the repo around without restart.
 _REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
 _DEFAULT_DATA_DIR = os.path.join(_REPO_ROOT, "data")
+DEFAULT_ETF_ANALYSIS_START_DATE = "2005-02-23"
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -76,6 +77,10 @@ DEFAULT_CONFIG = {
     "debate_history_char_limit": 12000,
     "memory_min_similarity": 0.15,
     "benchmark_ticker": os.getenv("MOSAIC_BENCHMARK_TICKER"),
+    "etf_analysis_start_date": os.getenv(
+        "MOSAIC_ETF_ANALYSIS_START_DATE",
+        DEFAULT_ETF_ANALYSIS_START_DATE,
+    ),
     "checkpoint_enabled": False,
     "memory_log_path": os.path.join(
         os.getenv("MOSAIC_RESULTS_DIR", os.path.join(_MOSAIC_HOME, "logs")),

@@ -46,6 +46,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+from mosaic.default_config import DEFAULT_ETF_ANALYSIS_START_DATE
+
 logger = logging.getLogger(__name__)
 
 
@@ -264,6 +266,8 @@ def ingest_full(
     """
     if qlib_dir is None:
         qlib_dir = DEFAULT_QLIB_ETF_DATA_DIR if kind == "etf" else DEFAULT_QLIB_DATA_DIR
+    if kind == "etf" and start == "1990-01-01":
+        start = DEFAULT_ETF_ANALYSIS_START_DATE
     qlib_dir = Path(qlib_dir).expanduser()
     raw_dir = Path(raw_dir).expanduser()
     normalize_dir = Path(normalize_dir).expanduser()
@@ -271,6 +275,7 @@ def ingest_full(
     raw_dir.mkdir(parents=True, exist_ok=True)
     normalize_dir.mkdir(parents=True, exist_ok=True)
 
+    verb = "pipeline_batch" if kind == "etf" else "pipeline"
     args = [
         "--source_dir", str(raw_dir),
         "--normalize_dir", str(normalize_dir),
@@ -280,7 +285,11 @@ def ingest_full(
         "--max_workers", str(max_workers),
         "--timeout", str(timeout),
     ]
-    outcome = _run_collector("pipeline", args, kind=kind, stream_stdout=stream_stdout)
+    if kind == "etf":
+        # Full ETF backfills are fastest and least redundant by date.  New-ETF
+        # history detection would fetch the same records again per symbol.
+        args.extend(["--detect_new_etfs=False", "--parallel_dates=True"])
+    outcome = _run_collector(verb, args, kind=kind, stream_stdout=stream_stdout)
     return IngestOutcome(
         verb=outcome.verb,
         returncode=outcome.returncode,
@@ -324,6 +333,7 @@ def ingest_incremental(
             f"qlib data dir not initialised yet: {qlib_dir}. "
             "Run --full first."
         )
+    verb = "update_data_to_bin_batch"
     args = [
         # Constructor args (consumed by Run.__init__ before the verb): pin the
         # collector's working dirs OUT of the repo. Without these they default
@@ -336,7 +346,7 @@ def ingest_incremental(
         "--end_date", end,
         "--timeout", str(timeout),
     ]
-    outcome = _run_collector("update_data_to_bin", args, kind=kind, stream_stdout=stream_stdout)
+    outcome = _run_collector(verb, args, kind=kind, stream_stdout=stream_stdout)
     return IngestOutcome(
         verb=outcome.verb,
         returncode=outcome.returncode,

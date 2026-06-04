@@ -176,6 +176,28 @@ describe("invokeStructuredOrFreetext", () => {
     expect(llm.invokeCalls.length).toBe(1);
   });
 
+  it("parses JSON fallback when structured output is unsupported", async () => {
+    const llm = new ScriptedLlm({
+      supportsStructured: false,
+      responses: [
+        new AIMessage('```json\n{"stance":"ACCOMMODATIVE","key_rate_change_bps":-10}\n```\n已完成'),
+      ],
+    });
+    const result = await invokeStructuredOrFreetext({
+      llm: llm as unknown as Parameters<typeof invokeStructuredOrFreetext>[0]["llm"],
+      schema: Schema,
+      messages: baseMessages,
+      render: (r) => `stance=${r.stance}, bps=${r.key_rate_change_bps}`,
+      agentName: "central_bank",
+    });
+    expect(result.structured).toEqual({
+      stance: "ACCOMMODATIVE",
+      key_rate_change_bps: -10,
+    });
+    expect(result.rendered).toBe("stance=ACCOMMODATIVE, bps=-10");
+    expect(llm.invokeCalls.length).toBe(1);
+  });
+
   it("falls back to free text when structured invoke throws at runtime", async () => {
     const llm = new ScriptedLlm({
       supportsStructured: true,

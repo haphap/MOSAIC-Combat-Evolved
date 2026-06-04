@@ -80,6 +80,7 @@ EXPECTED_MACRO_TOOLS = {
     "get_yield_curve_cn",
     "get_us_china_spread",
     "get_xueqiu_heat",
+    "get_news",
     "get_industry_policy",
 }
 

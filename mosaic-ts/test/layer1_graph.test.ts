@@ -1,11 +1,11 @@
 /**
  * Tests for the Layer-1 LangGraph subgraph (Plan §11.2 sub-step 2C.3).
  *
- * The subgraph topology is fixed (10 macro nodes fan-out, aggregator
- * fan-in), so we focus on:
+ * The subgraph topology is fixed (10 macro nodes serially, then aggregator),
+ * so we focus on:
  *   - All 10 agent nodes + the aggregator are registered
  *   - Compiled graph runs end-to-end with mocked agent outputs
- *   - layer1_consensus is populated correctly after the fan-in
+ *   - layer1_consensus is populated correctly after aggregation
  *
  * Each agent node's internal flow is already covered by central_bank /
  * china / macro_layer1_agents tests; here we only need to know that the
@@ -65,7 +65,7 @@ describe("LAYER1_AGENT_NODES + LAYER1_AGGREGATOR_NODE constants", () => {
   });
 });
 
-// ============================================================ end-to-end mock fan-out
+// ============================================================ end-to-end mock serial graph
 
 const TOOL_SCHEMA: JsonSchemaObject = {
   type: "object",
@@ -271,7 +271,7 @@ const BASE_CONFIG: MosaicConfig = {
   tool_vendors: {},
 };
 
-describe("buildLayer1Graph (end-to-end fan-out / aggregate)", () => {
+describe("buildLayer1Graph (end-to-end serial / aggregate)", () => {
   let promptDir: string;
 
   beforeEach(() => {

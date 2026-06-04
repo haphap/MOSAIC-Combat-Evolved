@@ -69,6 +69,14 @@ _REQUIREMENT = (
 )
 
 
+def _first_env(*names: str) -> str | None:
+    for name in names:
+        value = os.environ.get(name)
+        if value and value.strip():
+            return value.strip()
+    return None
+
+
 def _build_seed_text(
     seed: Optional[int], num_days: int, start_prices: Optional[Mapping[str, float]] = None
 ) -> str:
@@ -128,6 +136,20 @@ class OasisMiroFishEngine:
         self._skip_start = os.environ.get("MOSAIC_MIROFISH_SKIP_START", "").lower() in (
             "1", "true", "yes",
         )
+        self._llm_base_url = _first_env("MOSAIC_MIROFISH_LLM_BASE_URL", "LLM_BASE_URL", "OPENAI_BASE_URL")
+        self._llm_api_key = _first_env("MOSAIC_MIROFISH_LLM_API_KEY", "LLM_API_KEY", "OPENAI_API_KEY")
+        self._llm_model = _first_env("MOSAIC_MIROFISH_LLM_MODEL", "LLM_MODEL")
+        self._embedding_base_url = _first_env(
+            "MOSAIC_MIROFISH_EMBEDDING_BASE_URL",
+            "EMBEDDING_BASE_URL",
+            "DASHSCOPE_BASE_URL",
+        )
+        self._embedding_api_key = _first_env(
+            "MOSAIC_MIROFISH_EMBEDDING_API_KEY",
+            "EMBEDDING_API_KEY",
+            "DASHSCOPE_API_KEY",
+        )
+        self._embedding_model = _first_env("MOSAIC_MIROFISH_EMBEDDING_MODEL", "EMBEDDING_MODEL")
 
     # ---- SwarmEngine interface -------------------------------------------
 
@@ -160,10 +182,7 @@ class OasisMiroFishEngine:
         requirement = _REQUIREMENT.format(num_days=num_days)
         seed_text = _build_seed_text(seed, num_days, start_prices)
         project_id = self._ontology(seed_text, requirement)
-        self._poll(
-            "/api/graph/task/", self._post_json("/api/graph/build", {"project_id": project_id}),
-            key="task_id", via_get=True,
-        )
+        self._build_graph(project_id)
         sim = self._post_json("/api/simulation/create", {"project_id": project_id})
         simulation_id = _dig(sim, "simulation_id")
         if not simulation_id:
@@ -175,7 +194,10 @@ class OasisMiroFishEngine:
         if not self._skip_start:
             self._start_simulation(simulation_id)
             self._poll_run_status(simulation_id)
-        gen = self._post_json("/api/report/generate", {"simulation_id": simulation_id})
+        gen = self._post_json(
+            "/api/report/generate",
+            self._with_model_configs({"simulation_id": simulation_id}),
+        )
         self._poll_status("/api/report/generate/status", _dig(gen, "task_id"), simulation_id)
         report_id = self._report_id(simulation_id)
         rep = self._get_json(f"/api/report/{report_id}")
@@ -183,6 +205,25 @@ class OasisMiroFishEngine:
         if not isinstance(md, str):
             raise MiroFishUnavailable("report has no markdown_content")
         return md
+
+    def _build_graph(self, project_id: str) -> None:
+        """Build graph; retry once if extraction completes with zero nodes."""
+        for attempt in range(2):
+            payload = self._with_model_configs({"project_id": project_id})
+            if attempt > 0:
+                payload["force"] = True
+            result = self._poll(
+                "/api/graph/task/",
+                self._post_json("/api/graph/build", payload),
+                key="task_id",
+                via_get=True,
+            )
+            node_count = _task_result_value(result, "node_count")
+            if node_count is None:
+                return
+            if _safe_int(node_count, 0) > 0:
+                return
+        raise MiroFishUnavailable("graph build completed with zero nodes after retry")
 
     def _start_simulation(self, simulation_id: str) -> None:
         """Kick off the OASIS run (parallel platform), capped at ``max_rounds``."""
@@ -197,9 +238,44 @@ class OasisMiroFishEngine:
             # report is built from mostly pre-run graph state.
             "enable_graph_memory_update": True,
         }
+        llm_config = self._llm_config_payload()
+        if llm_config:
+            body["llm_config"] = llm_config
+        embedding_config = self._embedding_config_payload()
+        if embedding_config:
+            body["embedding_config"] = embedding_config
         data = self._post_json("/api/simulation/start", body)
         if str(_dig(data, "runner_status") or "") in _RUN_ABORTED:
             raise MiroFishUnavailable("simulation/start reported failure")
+
+    def _llm_config_payload(self) -> dict[str, str]:
+        payload: dict[str, str] = {}
+        if self._llm_base_url:
+            payload["base_url"] = self._llm_base_url
+        if self._llm_api_key:
+            payload["api_key"] = self._llm_api_key
+        if self._llm_model:
+            payload["model"] = self._llm_model
+        return payload
+
+    def _embedding_config_payload(self) -> dict[str, str]:
+        payload: dict[str, str] = {}
+        if self._embedding_base_url:
+            payload["base_url"] = self._embedding_base_url
+        if self._embedding_api_key:
+            payload["api_key"] = self._embedding_api_key
+        if self._embedding_model:
+            payload["model"] = self._embedding_model
+        return payload
+
+    def _with_model_configs(self, payload: dict[str, Any]) -> dict[str, Any]:
+        llm_config = self._llm_config_payload()
+        if llm_config:
+            payload["llm_config"] = llm_config
+        embedding_config = self._embedding_config_payload()
+        if embedding_config:
+            payload["embedding_config"] = embedding_config
+        return payload
 
     def _poll_run_status(self, simulation_id: str) -> None:
         """Poll run-status until the run completes; raise if it's aborted/stopped/failed."""
@@ -216,6 +292,12 @@ class OasisMiroFishEngine:
 
     def _ontology(self, seed_text: str, requirement: str) -> str:
         fields = {"simulation_requirement": requirement, "project_name": "mosaic"}
+        llm_config = self._llm_config_payload()
+        if llm_config:
+            fields["llm_config"] = json.dumps(llm_config, ensure_ascii=False)
+        embedding_config = self._embedding_config_payload()
+        if embedding_config:
+            fields["embedding_config"] = json.dumps(embedding_config, ensure_ascii=False)
         files = {"files": ("seed.txt", seed_text.encode("utf-8"), "text/plain")}
         data = self._post_multipart("/api/graph/ontology/generate", fields, files)
         pid = _dig(data, "project_id")
@@ -234,16 +316,16 @@ class OasisMiroFishEngine:
 
     # ---- polling ---------------------------------------------------------
 
-    def _poll(self, base_path: str, started: dict[str, Any], key: str, via_get: bool) -> None:
+    def _poll(self, base_path: str, started: dict[str, Any], key: str, via_get: bool) -> dict[str, Any]:
         task_id = _dig(started, key)
         if not task_id:
-            return  # nothing to poll (already done)
+            return started  # nothing to poll (already done)
         deadline = time.monotonic() + self._poll_timeout
         while time.monotonic() < deadline:
             data = self._get_json(f"{base_path}{task_id}") if via_get else {}
             status = str(_dig(data, "status") or "")
             if status in ("completed", "ready", "success"):
-                return
+                return data
             if status == "failed":
                 raise MiroFishUnavailable(f"task {task_id} failed")
             time.sleep(_POLL_INTERVAL)
@@ -372,3 +454,16 @@ def _dig(body: Any, key: str) -> Any:
     if isinstance(data, dict) and key in data:
         return data[key]
     return body.get(key)
+
+
+def _task_result_value(body: Any, key: str) -> Any:
+    """Read a field from MiroFish task ``data.result`` if present."""
+    if not isinstance(body, dict):
+        return None
+    data = body.get("data")
+    if not isinstance(data, dict):
+        return None
+    result = data.get("result")
+    if isinstance(result, dict):
+        return result.get(key)
+    return None

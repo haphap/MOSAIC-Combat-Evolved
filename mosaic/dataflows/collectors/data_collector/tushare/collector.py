@@ -9,7 +9,7 @@ import json
 import time
 
 import multiprocessing
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, TimeoutError
 
 import numpy as np
 import pandas as pd
@@ -61,6 +61,35 @@ def ts_code_to_qlib_symbol(ts_code: str) -> str:
     if suffix.startswith("bj"):
         return f"bj{code}"
     return f"{suffix}{code}" if suffix else code
+
+
+def qlib_symbol_to_ts_code(symbol: str) -> str:
+    """Convert qlib symbol (e.g., sz000001) to TuShare ts_code (000001.SZ)."""
+    if not symbol or "." in symbol:
+        return symbol
+    normalized = symbol.strip()
+    prefix = normalized[:2].upper()
+    code = normalized[2:]
+    if prefix in {"SZ", "SH", "BJ"} and code.isdigit():
+        return f"{code}.{prefix}"
+    return symbol
+
+
+def is_queryable_incremental_symbol(symbol: str) -> bool:
+    """Return False for legacy BSE symbols that should not be queried live."""
+    normalized = symbol.strip().upper()
+    ts_code = qlib_symbol_to_ts_code(normalized).upper()
+    if ts_code.endswith(".BJ"):
+        return ts_code.split(".", 1)[0].startswith("9")
+    if normalized.startswith("BJ"):
+        return normalized[2:].startswith("9")
+    return True
+
+
+def _estimate_business_rows(start_dt: pd.Timestamp, end_dt: pd.Timestamp) -> int:
+    if start_dt > end_dt:
+        return 0
+    return max(1, len(pd.bdate_range(start_dt.normalize(), end_dt.normalize())))
 
 
 def _normalize_factor(series: pd.Series) -> pd.Series:
@@ -346,6 +375,21 @@ def _process_date_chunk(args) -> Set[str]:
             logger.warning(f"Parallel fetch failed for {trade_date}: {e}")
 
     return local_processed
+
+
+def _terminate_process_pool(executor: ProcessPoolExecutor) -> None:
+    processes = getattr(executor, "_processes", None) or {}
+    for process in list(processes.values()):
+        try:
+            if process.is_alive():
+                process.terminate()
+        except Exception:
+            continue
+    for process in list(processes.values()):
+        try:
+            process.join(timeout=5)
+        except Exception:
+            continue
 
 
 def dump_eod_to_qlib(
@@ -851,7 +895,11 @@ class TushareCollector(BaseCollector):
     def _simple_collector(self, symbol: str):
         """Override to add batch pause functionality."""
         self.sleep()
-        df = self.get_data(symbol, self.interval, self.start_datetime, self.end_datetime)
+        try:
+            df = self.get_data(symbol, self.interval, self.start_datetime, self.end_datetime)
+        except Exception as exc:
+            logger.warning(f"collector failed for {symbol}: {type(exc).__name__}: {exc}")
+            return "ERROR"
         _result = self.NORMAL_FLAG
         if self.check_data_length > 0:
             _result = self.cache_small_data(symbol, df)
@@ -874,10 +922,14 @@ class TushareCollector(BaseCollector):
         pro = ts.pro_api(self.token, timeout=self.timeout)
         # include listed, delisted, paused to avoid survivor bias
         basic = pro.stock_basic(exchange="", list_status="L,D,P", fields="ts_code")
-        return basic["ts_code"].dropna().unique().tolist()
+        return [
+            code
+            for code in basic["ts_code"].dropna().unique().tolist()
+            if is_queryable_incremental_symbol(code)
+        ]
 
     def normalize_symbol(self, symbol: str):
-        return ts_code_to_qlib_symbol(symbol)
+        return ts_code_to_qlib_symbol(qlib_symbol_to_ts_code(symbol))
 
     def get_data(
         self, symbol: str, interval: str, start_datetime: pd.Timestamp, end_datetime: pd.Timestamp
@@ -889,7 +941,12 @@ class TushareCollector(BaseCollector):
         start_dt = pd.Timestamp(start_datetime)
         end_dt = pd.Timestamp(end_datetime)
 
-        symbol_fname = code_to_fname(self.normalize_symbol(symbol))
+        ts_code = qlib_symbol_to_ts_code(symbol)
+        normalized_symbol = self.normalize_symbol(ts_code)
+        if not is_queryable_incremental_symbol(normalized_symbol):
+            logger.info(f"skip legacy BSE symbol during incremental fetch: {symbol}")
+            return pd.DataFrame()
+        symbol_fname = code_to_fname(normalized_symbol)
         existing_path = Path(self.save_dir).joinpath(f"{symbol_fname}.csv")
         last_date = None
         if existing_path.exists():
@@ -914,8 +971,8 @@ class TushareCollector(BaseCollector):
         end_str = end_dt.strftime("%Y%m%d")
 
         pro = ts.pro_api(self.token, timeout=self.timeout)
-        daily = pro.daily(ts_code=symbol, start_date=start_str, end_date=end_str)
-        adj = pro.adj_factor(ts_code=symbol, start_date=start_str, end_date=end_str)
+        daily = pro.daily(ts_code=ts_code, start_date=start_str, end_date=end_str)
+        adj = pro.adj_factor(ts_code=ts_code, start_date=start_str, end_date=end_str)
 
         if daily is None or daily.empty:
             return pd.DataFrame()
@@ -986,6 +1043,7 @@ class TushareBatchCollector:
     API_CALLS_PER_MINUTE = 500
     API_ROWS_PER_CALL = 6000
     API_CALLS_PER_DATE = 2  # daily + adj_factor
+    API_CODES_PER_HISTORY_CALL = 100
     SAFE_CALLS_PER_MINUTE = 450  # 留 50 次余量
 
     def __init__(
@@ -1186,6 +1244,7 @@ class TushareBatchCollector:
             return []
 
         current_codes = basic["ts_code"].dropna().unique().tolist()
+        current_codes = [code for code in current_codes if is_queryable_incremental_symbol(code)]
         current_symbols = {ts_code_to_qlib_symbol(code).upper(): code for code in current_codes}
         new_codes = [code for symbol, code in current_symbols.items() if symbol not in existing]
 
@@ -1250,19 +1309,26 @@ class TushareBatchCollector:
         Returns:
             Set[str]: 已处理的日期集合，格式为 {"2024-01-01", ...}
         """
+        processed: Set[str] = set()
         progress_file = self.temp_dir / "progress.json"
-        if not progress_file.exists():
-            return set()
+        if progress_file.exists():
+            try:
+                with open(progress_file, "r") as f:
+                    data = json.load(f)
+                processed.update(data.get("processed_dates", []))
+            except Exception as e:
+                logger.warning(f"Failed to load progress: {e}")
 
-        try:
-            with open(progress_file, "r") as f:
-                data = json.load(f)
-            processed = set(data.get("processed_dates", []))
-            logger.info(f"Loaded progress: {len(processed)} dates already processed")
-            return processed
-        except Exception as e:
-            logger.warning(f"Failed to load progress: {e}")
-            return set()
+        daily_dir = self.temp_dir / "daily"
+        if daily_dir.exists():
+            for csv_file in daily_dir.glob("*.csv"):
+                try:
+                    processed.add(pd.Timestamp(csv_file.stem).strftime("%Y-%m-%d"))
+                except Exception:
+                    continue
+
+        logger.info(f"Loaded progress: {len(processed)} dates already processed")
+        return processed
 
     def save_progress(self, processed_dates: Set[str]):
         """保存已处理的日期集合"""
@@ -1475,6 +1541,9 @@ class TushareBatchCollector:
             return
 
         pro = ts.pro_api(self.token, timeout=self.timeout)
+        new_stock_codes = [code for code in new_stock_codes if is_queryable_incremental_symbol(code)]
+        if not new_stock_codes:
+            return
 
         try:
             listing_dates = {}
@@ -1496,39 +1565,71 @@ class TushareBatchCollector:
             logger.warning(f"Failed to get stock listing dates: {e}")
             listing_dates = {}
 
-        logger.info(f"Fetching historical data for {len(new_stock_codes)} new stocks...")
-
-        for i, ts_code in enumerate(new_stock_codes):
+        history_requests = []
+        for ts_code in new_stock_codes:
             stock_start = listing_dates.get(ts_code, "20000101")
+            listing_dt = pd.Timestamp(stock_start)
             if start:
-                stock_start = max(pd.Timestamp(start), stock_start)
+                stock_start = max(pd.Timestamp(start), listing_dt)
 
-            if i > 0 and i % 50 == 0:
-                time.sleep(60 / self.SAFE_CALLS_PER_MINUTE)
+            start_dt = max(pd.Timestamp(stock_start), self.start_datetime)
+            end_dt = pd.Timestamp(end) if end else self.end_datetime
+            if start_dt >= end_dt:
+                continue
+
+            symbol = ts_code_to_qlib_symbol(ts_code)
+            symbol_fname = code_to_fname(symbol)
+            history_requests.append(
+                {
+                    "ts_code": ts_code,
+                    "symbol": symbol,
+                    "target_path": self.save_dir / f"{symbol_fname}.csv",
+                    "listing_dt": listing_dt,
+                    "start_dt": start_dt,
+                    "end_dt": end_dt,
+                }
+            )
+
+        batches = self._plan_history_batches(history_requests)
+        logger.info(
+            f"Fetching historical data for {len(history_requests)} new stock windows "
+            f"in {len(batches)} TuShare batches..."
+        )
+
+        processed_symbols: Set[str] = set()
+        call_count = 0
+        rate_window_start = time.time()
+        for batch_idx, batch in enumerate(batches):
+            elapsed = time.time() - rate_window_start
+            if call_count > 0 and elapsed > 0:
+                actual_rate = call_count / (elapsed / 60)
+                if actual_rate > self.SAFE_CALLS_PER_MINUTE:
+                    sleep_time = 60 - (elapsed % 60) + 1
+                    logger.info(f"Rate limit reached, sleeping {sleep_time:.1f}s...")
+                    time.sleep(sleep_time)
+                    rate_window_start = time.time()
+                    call_count = 0
+
+            batch_codes = [item["ts_code"] for item in batch]
+            start_str = min(item["start_dt"] for item in batch).strftime("%Y%m%d")
+            end_str = max(item["end_dt"] for item in batch).strftime("%Y%m%d")
 
             try:
-                start_dt = max(pd.Timestamp(stock_start), self.start_datetime)
-                end_dt = pd.Timestamp(end) if end else self.end_datetime
-                if start_dt >= end_dt:
-                    continue
-
-                symbol = ts_code_to_qlib_symbol(ts_code)
-                symbol_fname = code_to_fname(symbol)
-                target_path = self.save_dir / f"{symbol_fname}.csv"
-
                 daily = pro.daily(
-                    ts_code=ts_code,
-                    start_date=start_dt.strftime("%Y%m%d"),
-                    end_date=end_dt.strftime("%Y%m%d"),
+                    ts_code=",".join(batch_codes),
+                    start_date=start_str,
+                    end_date=end_str,
                 )
+                call_count += 1
                 if daily is None or daily.empty:
                     continue
 
                 adj = pro.adj_factor(
-                    ts_code=ts_code,
-                    start_date=start_dt.strftime("%Y%m%d"),
-                    end_date=end_dt.strftime("%Y%m%d"),
+                    ts_code=",".join(batch_codes),
+                    start_date=start_str,
+                    end_date=end_str,
                 )
+                call_count += 1
                 if adj is not None and not adj.empty:
                     merged = pd.merge(daily, adj, on=["ts_code", "trade_date"], how="left")
                 else:
@@ -1536,25 +1637,86 @@ class TushareBatchCollector:
                     merged["adj_factor"] = 1.0
 
                 merged["date"] = pd.to_datetime(merged["trade_date"])
-                merged["symbol"] = symbol
+                merged["symbol"] = merged["ts_code"].apply(ts_code_to_qlib_symbol)
                 cols = ["ts_code", "date", "open", "high", "low", "close", "vol", "amount", "adj_factor", "symbol"]
                 merged = merged[[c for c in cols if c in merged.columns]]
 
-                if target_path.exists():
-                    existing = pd.read_csv(target_path, parse_dates=["date"])
-                    merged = pd.concat([existing, merged], ignore_index=True)
-                    merged = merged.loc[:, ~merged.columns.duplicated()]
-                    merged = merged.drop_duplicates(subset=["date"], keep="last")
-                    merged = merged.sort_values("date")
+                for item in batch:
+                    symbol_rows = merged[merged["ts_code"] == item["ts_code"]].copy()
+                    if symbol_rows.empty:
+                        continue
+                    symbol_rows = symbol_rows[
+                        (symbol_rows["date"] >= item["start_dt"])
+                        & (symbol_rows["date"] <= item["end_dt"])
+                    ]
+                    if symbol_rows.empty:
+                        continue
 
-                merged.to_csv(target_path, index=False)
+                    target_path = item["target_path"]
+                    if target_path.exists():
+                        existing = pd.read_csv(target_path, parse_dates=["date"])
+                        symbol_rows = pd.concat([existing, symbol_rows], ignore_index=True)
+                        symbol_rows = symbol_rows.loc[:, ~symbol_rows.columns.duplicated()]
+                    symbol_rows = symbol_rows.drop_duplicates(subset=["date"], keep="last")
+                    symbol_rows = symbol_rows.sort_values("date")
+                    symbol_rows.to_csv(target_path, index=False)
+                    processed_symbols.add(item["ts_code"])
 
-                if (i + 1) % 20 == 0:
-                    logger.info(f"Progress: {i + 1}/{len(new_stock_codes)} new stocks processed")
+                if (batch_idx + 1) % 10 == 0:
+                    logger.info(
+                        f"Progress: {batch_idx + 1}/{len(batches)} history batches, "
+                        f"{len(processed_symbols)} symbols with data"
+                    )
             except Exception as e:
-                logger.warning(f"Failed to fetch data for {ts_code}: {e}")
+                logger.warning(f"Failed to fetch history batch {batch_codes[:5]}: {e}")
 
-        logger.info(f"Completed fetching data for {len(new_stock_codes)} new stocks")
+        logger.info(f"Completed fetching data for {len(processed_symbols)}/{len(history_requests)} new stocks")
+
+    def _plan_history_batches(self, history_requests: List[dict]) -> List[List[dict]]:
+        max_rows = max(1, int(self.API_ROWS_PER_CALL))
+        max_codes = max(1, int(self.API_CODES_PER_HISTORY_CALL))
+        batches: List[List[dict]] = []
+        current: List[dict] = []
+
+        for request in sorted(history_requests, key=lambda item: (item["start_dt"], item["end_dt"], item["ts_code"])):
+            candidate = current + [request]
+            if current and (
+                len(candidate) > max_codes
+                or self._estimate_history_batch_rows(candidate) > max_rows
+            ):
+                batches.append(current)
+                current = [request]
+            else:
+                current = candidate
+
+        if current:
+            batches.append(current)
+        return batches
+
+    def _estimate_history_batch_rows(self, batch: List[dict]) -> int:
+        if not batch:
+            return 0
+        api_start = min(item["start_dt"] for item in batch)
+        api_end = max(item["end_dt"] for item in batch)
+        total = 0
+        for item in batch:
+            effective_start = max(pd.Timestamp(item.get("listing_dt", item["start_dt"])), api_start)
+            total += _estimate_business_rows(effective_start, api_end)
+        return total
+
+    def _parallel_chunk_timeout_seconds(self, chunk: List[pd.Timestamp], safe_calls_per_worker: int) -> int:
+        override = os.environ.get("MOSAIC_TUSHARE_PARALLEL_CHUNK_TIMEOUT_SECONDS")
+        if override:
+            try:
+                value = int(override)
+                if value > 0:
+                    return value
+            except ValueError:
+                logger.warning(f"Ignoring invalid MOSAIC_TUSHARE_PARALLEL_CHUNK_TIMEOUT_SECONDS={override!r}")
+
+        rate_limit_floor = len(chunk) * self.API_CALLS_PER_DATE * 60 / max(1, safe_calls_per_worker)
+        per_date_budget = min(10, max(5, int(self.timeout / 30) if self.timeout else 5))
+        return int(max(300, rate_limit_floor + len(chunk) * per_date_budget + 120))
 
     def fetch_dates_parallel(
         self,
@@ -1575,7 +1737,11 @@ class TushareBatchCollector:
         ]
 
         all_processed = processed_dates.copy()
-        with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        safe_calls_per_worker = max(1, self.SAFE_CALLS_PER_MINUTE // max_workers)
+        executor = ProcessPoolExecutor(max_workers=max_workers)
+        timed_out = False
+        futures = []
+        try:
             futures = [
                 executor.submit(
                     _process_date_chunk,
@@ -1584,18 +1750,34 @@ class TushareBatchCollector:
                         self.token,
                         self.timeout,
                         str(self.temp_dir),
-                        self.SAFE_CALLS_PER_MINUTE,
+                        safe_calls_per_worker,
                         self.API_CALLS_PER_DATE,
                     ),
                 )
                 for chunk in chunks
             ]
-            for future in futures:
+            for future, chunk in zip(futures, chunks):
                 try:
-                    result = future.result(timeout=300)
+                    chunk_timeout = self._parallel_chunk_timeout_seconds(chunk, safe_calls_per_worker)
+                    result = future.result(timeout=chunk_timeout)
                     all_processed.update(result)
+                except TimeoutError:
+                    timed_out = True
+                    logger.error(
+                        f"Chunk processing timed out after {chunk_timeout}s "
+                        f"for {len(chunk)} dates; aborting parallel ingest"
+                    )
+                    for pending in futures:
+                        pending.cancel()
+                    _terminate_process_pool(executor)
+                    break
                 except Exception as e:
                     logger.error(f"Chunk processing failed: {e}")
+        finally:
+            executor.shutdown(wait=not timed_out, cancel_futures=True)
+
+        if timed_out:
+            raise RuntimeError("parallel Tushare date fetch timed out")
 
         return all_processed
 
@@ -1892,17 +2074,26 @@ class Run(BaseRun):
         
         if inst_file.exists():
             outdated = []
+            skipped_legacy_bse = 0
             with open(inst_file) as f:
                 for line in f:
                     parts = line.strip().split('\t')
                     if len(parts) >= 3:
                         symbol, _start_d, end_d = parts[0], parts[1], parts[2]
+                        if not is_queryable_incremental_symbol(symbol):
+                            skipped_legacy_bse += 1
+                            continue
                         try:
                             end_ts = pd.Timestamp(end_d)
                             if end_ts < target_date:
                                 outdated.append(symbol)
                         except Exception:
                             pass
+            if skipped_legacy_bse:
+                logger.info(
+                    "Incremental update: skipped "
+                    f"{skipped_legacy_bse} legacy BSE symbols; only BJ9* symbols are queried"
+                )
             
             if outdated:
                 outdated_last_dates = [
@@ -1987,6 +2178,7 @@ class Run(BaseRun):
         start: Optional[str] = None,
         end: Optional[str] = None,
         token: Optional[str] = None,
+        timeout: int = 60,
         delay_per_date: float = 0.1,
         max_workers: int = 8,
         prefer_api: bool = False,
@@ -2017,6 +2209,7 @@ class Run(BaseRun):
             start=start,
             end=end,
             token=token,
+            timeout=timeout,
             delay_per_date=delay_per_date,
             max_workers=max_workers,
         )
@@ -2031,6 +2224,7 @@ class Run(BaseRun):
         qlib_data_1d_dir: str,
         end_date: str = None,
         start_date: str = None,
+        timeout: int = 60,
         delay_per_date: float = 0.1,
         detect_new_stocks: bool = True,
         max_workers: Optional[int] = None,
@@ -2112,11 +2306,12 @@ class Run(BaseRun):
             qlib_dir=qlib_data_1d_dir,
             start=start_date,
             end=end_date,
+            timeout=timeout,
             delay_per_date=delay_per_date,
             max_workers=worker_count,
             prefer_api=True,  # 增量更新时优先使用 API 获取最新日历
             detect_new_stocks=detect_new_stocks,
-            parallel_dates=True,
+            parallel_dates=False,
         )
 
         # 标准化数据
@@ -2157,7 +2352,7 @@ class Run(BaseRun):
 
         效率比 pipeline() 高约 4 倍。
         """
-        worker_count = max_workers if max_workers is not None else 8
+        worker_count = max_workers if max_workers is not None else self.max_workers
         self.download_data_batch(
             qlib_dir=qlib_dir,
             start=start,

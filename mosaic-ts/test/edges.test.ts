@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chainEdges } from "../src/graph/_edges.js";
+import { chainEdges, serialEdges } from "../src/graph/_edges.js";
 
 describe("chainEdges", () => {
   it("adds each edge by side effect and returns the same graph", () => {
@@ -35,5 +35,13 @@ describe("chainEdges", () => {
     };
     chainEdges(fake, []);
     expect(n).toBe(0);
+  });
+
+  it("derives serial edge pairs from a canonical node list", () => {
+    expect(serialEdges(["__start__", "a", "b", "__end__"])).toEqual([
+      ["__start__", "a"],
+      ["a", "b"],
+      ["b", "__end__"],
+    ]);
   });
 });
