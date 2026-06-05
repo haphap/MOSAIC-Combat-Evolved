@@ -132,6 +132,9 @@ def run_full_rke_refresh(
     outputs["operator_handoff.json"] = operator_handoff["json"]
     outputs["operator_handoff.markdown"] = operator_handoff["markdown"]
     outputs["lockbox_review_import_template"] = operator_handoff["lockbox_import_template"]
+    outputs["lockbox_review_import_report"] = (
+        "registry/lockbox/central_bank_lockbox_review_import_report.json"
+    )
     outputs["gold_set_full_import_template"] = operator_handoff["gold_set_full_import_template"]
     outputs["gold_review_import_report"] = (
         "registry/gold_sets/tushare_research_reports.review_import_report.json"

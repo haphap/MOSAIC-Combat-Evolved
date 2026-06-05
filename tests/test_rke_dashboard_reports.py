@@ -105,7 +105,7 @@ def test_dashboard_report_summarizes_completion_and_monitoring():
     assert report["operator_handoff"]["remaining_blocker_count"] >= 3
     assert report["operator_handoff"]["gate_count"] == 3
     assert report["operator_readiness"]["accepted"] is True
-    assert report["operator_readiness"]["check_count"] == 11
+    assert report["operator_readiness"]["check_count"] == 12
     assert report["operator_readiness"]["failure_count"] == 0
     assert report["audit_trace"]["complete"] is True
     assert report["audit_trace"]["node_count"] == 8

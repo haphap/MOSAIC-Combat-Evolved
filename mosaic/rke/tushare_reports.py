@@ -708,6 +708,9 @@ def refresh_tushare_research_report_registry(
     outputs["operator_handoff.json"] = operator_handoff_result["json"]
     outputs["operator_handoff.markdown"] = operator_handoff_result["markdown"]
     outputs["lockbox_review_import_template"] = operator_handoff_result["lockbox_import_template"]
+    outputs["lockbox_review_import_report"] = (
+        "registry/lockbox/central_bank_lockbox_review_import_report.json"
+    )
     outputs["gold_set_full_import_template"] = operator_handoff_result["gold_set_full_import_template"]
     outputs["gold_review_import_report"] = (
         "registry/gold_sets/tushare_research_reports.review_import_report.json"

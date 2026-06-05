@@ -24,6 +24,10 @@ from .license_policy_import import (
     build_source_license_policy_import,
     build_source_license_policy_template,
 )
+from .lockbox_review_import import (
+    LOCKBOX_REVIEW_IMPORT_REPORT_PATH,
+    apply_lockbox_review_import,
+)
 from .operator_handoff import (
     LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH,
     OPERATOR_HANDOFF_JSON_PATH,
@@ -143,6 +147,7 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
     self_generated_paths = {
         OPERATOR_READINESS_REPORT_PATH,
         GOLD_REVIEW_IMPORT_REPORT_PATH,
+        LOCKBOX_REVIEW_IMPORT_REPORT_PATH,
         LICENSE_POLICY_IMPORT_REPORT_PATH,
     }
     missing = tuple(path for path in missing if path not in self_generated_paths)
@@ -232,6 +237,38 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
             and lockbox_template.get("open_count") is None,
             f"lockbox_template_path={LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH}",
             "lockbox import template is missing or already filled",
+        )
+    )
+
+    blank_lockbox = apply_lockbox_review_import(
+        root_path,
+        LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH,
+        dry_run=True,
+    )
+    expected_lockbox_rejections = {
+        "opened_at required",
+        "opened_by required",
+        "open_count required",
+        "result required",
+        "result must be one of not_opened, passed, failed",
+        "open_count must be integer",
+    }
+    checks.append(
+        _check(
+            "blank_lockbox_import_is_rejected",
+            not blank_lockbox.accepted
+            and blank_lockbox.dry_run
+            and not blank_lockbox.applied
+            and not blank_lockbox.production_allowed
+            and blank_lockbox.next_state == "paper_trading"
+            and expected_lockbox_rejections <= set(blank_lockbox.rejected_reasons),
+            (
+                f"accepted={blank_lockbox.accepted}, "
+                f"applied={blank_lockbox.applied}, "
+                f"next_state={blank_lockbox.next_state}, "
+                f"rejections={len(blank_lockbox.rejected_reasons)}"
+            ),
+            "blank lockbox import unexpectedly passes",
         )
     )
 
@@ -337,6 +374,7 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
         SOURCE_LICENSE_POLICY_TEMPLATE_PATH,
         LICENSE_POLICY_IMPORT_REPORT_PATH,
         LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH,
+        LOCKBOX_REVIEW_IMPORT_REPORT_PATH,
     )
     return OperatorReadinessReport(
         report_id="RKE-OPERATOR-READINESS-REPORT-20260606",

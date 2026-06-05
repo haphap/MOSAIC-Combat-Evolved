@@ -1,5 +1,5 @@
 {
-  "artifact_count": 75,
+  "artifact_count": 76,
   "artifacts": [
     {
       "bytes": 539,
@@ -22,9 +22,9 @@
       "sha256": "sha256:de6fc572b0101a18e6030a13a089487c62dc004febf58b1633b45f25acd42604"
     },
     {
-      "bytes": 7372,
+      "bytes": 7453,
       "path": "registry/audits/rke_master_plan_coverage_report.json",
-      "sha256": "sha256:75604f251ca1d599ab67014908f9b419b1a2e48f42eb20a597865831f1a0a295"
+      "sha256": "sha256:0735cb2439f02e2916d9abe08bd32a55d0a60012766f5d0b4ea319fa219b71f6"
     },
     {
       "bytes": 752,
@@ -44,7 +44,7 @@
     {
       "bytes": 1028,
       "path": "registry/compliance/source_text_redaction_report.json",
-      "sha256": "sha256:bd1a08be5c7085eae79a41e4e90d1d68ecf3a3e41f41a68baec821d1fab1b100"
+      "sha256": "sha256:4cf38411695b9f214d06e58a6f1c391c3d3bef34ab276c0adeac879d67695fae"
     },
     {
       "bytes": 7499705,
@@ -69,7 +69,7 @@
     {
       "bytes": 7588,
       "path": "registry/dashboards/rke_dashboard.json",
-      "sha256": "sha256:6a6a22f3efd02324152e82ee2f3d9b1655eb61bda6051cf039c418c91f40d1e1"
+      "sha256": "sha256:ef0c4bbe21c16bd1e476d2e7f774b4de37f16f2c6ab0ba7433abd7619cfec3c2"
     },
     {
       "bytes": 1863,
@@ -192,9 +192,9 @@
       "sha256": "sha256:a1812e59fca001e28dbc2a2bac12a54d5f680a7f6837ba16fdad4d7335b69a36"
     },
     {
-      "bytes": 2924,
+      "bytes": 3195,
       "path": "registry/handoffs/rke_operator_readiness_report.json",
-      "sha256": "sha256:55ab23dadd97b49d8bee3711496575879fc60f3e37368d70b27cb6cecab741a9"
+      "sha256": "sha256:50b03fe3d94290e8180d74bbf1309e42872b878e07f8bc2e057d4110b26b5986"
     },
     {
       "bytes": 383,
@@ -215,6 +215,11 @@
       "bytes": 397,
       "path": "registry/lockbox/central_bank_lockbox_review.json",
       "sha256": "sha256:e8005bf5292b74fd693b24da4e26279209433c5b8442524d0126fefa190244ed"
+    },
+    {
+      "bytes": 699,
+      "path": "registry/lockbox/central_bank_lockbox_review_import_report.json",
+      "sha256": "sha256:ccd4ec73bfdf2da39a4689070f5fb6605702ac379e21d44cdf6551bc898af7c8"
     },
     {
       "bytes": 3696,

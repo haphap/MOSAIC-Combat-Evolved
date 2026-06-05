@@ -53,6 +53,7 @@ REQUIRED_REGISTRY_FILES = (
     "registry/hypotheses/semiconductor_hypotheses.jsonl",
     "registry/integration/phase7_layer_integration_contracts.json",
     "registry/lockbox/central_bank_lockbox_review.json",
+    "registry/lockbox/central_bank_lockbox_review_import_report.json",
     "registry/monitoring/central_bank_monitoring_diagnostics.json",
     "registry/monitoring/central_bank_paper_trading_report.json",
     "registry/monitoring/central_bank_rollback_readiness_report.json",

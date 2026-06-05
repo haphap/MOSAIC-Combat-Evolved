@@ -1,0 +1,24 @@
+{
+  "accepted": false,
+  "applied": false,
+  "decision_state": "not_ready",
+  "downstream_outputs": {},
+  "dry_run": true,
+  "input_path": "registry/review_batches/lockbox_review_next_import_template.json",
+  "next_state": "paper_trading",
+  "policy_reasons": [
+    "lockbox has not been opened"
+  ],
+  "production_allowed": false,
+  "rejected_reasons": [
+    "opened_at required",
+    "opened_by required",
+    "open_count required",
+    "result required",
+    "result must be one of not_opened, passed, failed",
+    "open_count must be integer"
+  ],
+  "report_id": "RKE-LOCKBOX-REVIEW-IMPORT-REPORT-20260606",
+  "result": "",
+  "target_path": "registry/lockbox/central_bank_lockbox_review.json"
+}

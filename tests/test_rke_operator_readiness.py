@@ -35,6 +35,7 @@ def test_operator_readiness_accepts_current_review_bundle():
     assert checks["manual_import_templates_are_sparse"].passed
     assert checks["blank_full_gold_set_import_is_rejected"].passed
     assert checks["lockbox_template_requires_human_decision"].passed
+    assert checks["blank_lockbox_import_is_rejected"].passed
     assert checks["source_license_policy_template_requires_human_decision"].passed
     assert checks["blank_source_license_policy_import_is_rejected"].passed
     assert checks["blank_bundle_dry_run_does_not_promote"].passed
@@ -126,6 +127,28 @@ def test_operator_readiness_rejects_blank_full_gold_set_import(tmp_path: Path):
     assert "500 review rows failed validation" in import_report["blockers"]
 
 
+def test_operator_readiness_rejects_blank_lockbox_import(tmp_path: Path):
+    _copy_registry(tmp_path)
+
+    report = build_operator_readiness_report(tmp_path)
+    lockbox = next(
+        check for check in report.checks if check.check_id == "blank_lockbox_import_is_rejected"
+    )
+    import_report = json.loads(
+        (tmp_path / "registry/lockbox/central_bank_lockbox_review_import_report.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert report.accepted
+    assert lockbox.passed
+    assert import_report["accepted"] is False
+    assert import_report["applied"] is False
+    assert import_report["dry_run"] is True
+    assert import_report["next_state"] == "paper_trading"
+    assert "result required" in import_report["rejected_reasons"]
+
+
 def test_write_operator_readiness_report_outputs_registry_artifact(tmp_path: Path):
     _copy_registry(tmp_path)
 
@@ -138,10 +161,12 @@ def test_write_operator_readiness_report_outputs_registry_artifact(tmp_path: Pat
     assert "registry/review_batches/gold_set_full_import_template.jsonl" in payload["generated_paths"]
     assert "registry/gold_sets/tushare_research_reports.review_import_report.json" in payload["generated_paths"]
     assert "registry/review_batches/source_license_policy_import_report.json" in payload["generated_paths"]
+    assert "registry/lockbox/central_bank_lockbox_review_import_report.json" in payload["generated_paths"]
     assert (tmp_path / "registry/handoffs/rke_operator_readiness_report.json").exists()
     assert (tmp_path / "registry/review_batches/gold_set_full_import_template.jsonl").exists()
     assert (tmp_path / "registry/gold_sets/tushare_research_reports.review_import_report.json").exists()
     assert (tmp_path / "registry/review_batches/source_license_policy_import_report.json").exists()
+    assert (tmp_path / "registry/lockbox/central_bank_lockbox_review_import_report.json").exists()
 
 
 def test_cli_operator_readiness_writes_report(tmp_path: Path, capsys):
