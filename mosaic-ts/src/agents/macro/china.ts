@@ -7,6 +7,7 @@
  *
  * Tools (Plan §5.1 / §11.2 design note 2C-4):
  *   * get_industry_policy   — gov.cn policy documents (primary evidence)
+ *   * get_policy_uncertainty — EPU index, policy-uncertainty regime
  *   * get_pboc_ops          — OMO corroborator
  *   * get_property_data     — 国房景气指数 (real-estate climate; primary A-share
  *                             macro driver — closes the plan §14 #8 gap)
@@ -25,7 +26,12 @@ import { CHINA_FIELD_NAMES, ChinaSchema } from "./_schemas.js";
 // Spec
 // ---------------------------------------------------------------------------
 
-export const REQUIRED_TOOLS = ["get_industry_policy", "get_pboc_ops", "get_property_data"] as const;
+export const REQUIRED_TOOLS = [
+  "get_industry_policy",
+  "get_policy_uncertainty",
+  "get_pboc_ops",
+  "get_property_data",
+] as const;
 
 export const chinaSpec: LayerOneAgentSpec<ChinaOutput> = {
   agentId: "china",

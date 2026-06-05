@@ -2,7 +2,8 @@
  * volatility Layer-1 macro agent (Plan §5.1).
  *
  * Plan §5.1 tools: `get_ivx` + `get_etf_indicator(510050.SH)` (now available —
- * macro-tools gap closed, plan §14 #8) + `get_fred_series(VIXCLS)`.
+ * macro-tools gap closed, plan §14 #8) + `get_fred_series(VIXCLS)` +
+ * `get_realized_volatility` (AKShare OMAN / Risk-Lab realized vol).
  * `get_ivx` is a yfinance CSI-300 realized-vol proxy (no public iVX feed).
  */
 
@@ -15,7 +16,12 @@ import {
 } from "./_factory.js";
 import { VOLATILITY_FIELD_NAMES, VolatilitySchema } from "./_schemas.js";
 
-export const REQUIRED_TOOLS = ["get_fred_series", "get_ivx", "get_etf_indicator"] as const;
+export const REQUIRED_TOOLS = [
+  "get_fred_series",
+  "get_ivx",
+  "get_realized_volatility",
+  "get_etf_indicator",
+] as const;
 
 export const volatilitySpec: LayerOneAgentSpec<VolatilityOutput> = {
   agentId: "volatility",

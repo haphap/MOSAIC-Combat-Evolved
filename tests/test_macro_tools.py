@@ -76,6 +76,11 @@ _EXPECTED_TOOLS = {
         "optional": {"look_back_days", "src"},
         "vendor_method": "get_industry_policy",
     },
+    "get_policy_uncertainty": {
+        "required": {"curr_date"},
+        "optional": {"symbol", "top_n"},
+        "vendor_method": "get_policy_uncertainty",
+    },
     "get_usdcny": {
         "required": {"curr_date"},
         "optional": {"look_back_days"},
@@ -90,6 +95,11 @@ _EXPECTED_TOOLS = {
         "required": {"curr_date"},
         "optional": {"look_back_days"},
         "vendor_method": "get_ivx",
+    },
+    "get_realized_volatility": {
+        "required": {"curr_date"},
+        "optional": {"source", "symbol", "metric", "top_n"},
+        "vendor_method": "get_realized_volatility",
     },
     "get_etf_indicator": {
         "required": {"symbol", "curr_date"},
@@ -272,6 +282,17 @@ class TestDispatch:
         )
         assert patched_route["args"] == ("2024-06-30", 14, "wallstreetcn")
 
+    def test_get_policy_uncertainty_default(self, patched_route):
+        macro_tools.get_policy_uncertainty.invoke({"curr_date": "2024-06-30"})
+        assert patched_route["method"] == "get_policy_uncertainty"
+        assert patched_route["args"] == ("2024-06-30", "China", 24)
+
+    def test_get_policy_uncertainty_overrides_symbol(self, patched_route):
+        macro_tools.get_policy_uncertainty.invoke(
+            {"curr_date": "2024-06-30", "symbol": "USA", "top_n": 6}
+        )
+        assert patched_route["args"] == ("2024-06-30", "USA", 6)
+
     def test_get_usdcny_invocation(self, patched_route):
         macro_tools.get_usdcny.invoke({"curr_date": "2024-06-30"})
         assert patched_route["method"] == "get_usdcny"
@@ -284,6 +305,22 @@ class TestDispatch:
     def test_get_ivx_invocation(self, patched_route):
         macro_tools.get_ivx.invoke({"curr_date": "2024-06-30"})
         assert patched_route["args"] == ("2024-06-30", 30)
+
+    def test_get_realized_volatility_default(self, patched_route):
+        macro_tools.get_realized_volatility.invoke({"curr_date": "2024-06-30"})
+        assert patched_route["method"] == "get_realized_volatility"
+        assert patched_route["args"] == ("2024-06-30", "oman", None, "rk_th2", 30)
+
+    def test_get_realized_volatility_overrides_source(self, patched_route):
+        macro_tools.get_realized_volatility.invoke(
+            {
+                "curr_date": "2024-06-30",
+                "source": "rlab",
+                "symbol": "39693",
+                "top_n": 12,
+            }
+        )
+        assert patched_route["args"] == ("2024-06-30", "rlab", "39693", "rk_th2", 12)
 
     def test_get_etf_indicator_invocation(self, patched_route):
         macro_tools.get_etf_indicator.invoke({"symbol": "510050.SH", "curr_date": "2024-06-30"})

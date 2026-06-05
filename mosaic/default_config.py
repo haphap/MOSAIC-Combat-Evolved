@@ -156,11 +156,13 @@ DEFAULT_CONFIG = {
         "get_us_china_spread": "tushare,fred",
         "get_xueqiu_heat": "akshare",
         "get_industry_policy": "govcn",
+        "get_policy_uncertainty": "akshare",
         "get_fred_series": "tushare,fred",
         # Macro layer gap-fill (Plan §14 #8 / §11.5 4.0 P1)
         "get_usdcny": "tushare",
         "get_commodity_prices": "tushare",
         "get_ivx": "yfinance",
+        "get_realized_volatility": "akshare",
         "get_etf_indicator": "tushare",
         "get_fund_flow": "tushare",
         "get_caixin_sentiment": "opencli",

@@ -39,6 +39,7 @@ const TOOL_SCHEMA: JsonSchemaObject = {
 
 const FAKE_TOOL_METADATAS: ToolMetadata[] = [
   { name: "get_industry_policy", description: "policy documents", args_schema: TOOL_SCHEMA },
+  { name: "get_policy_uncertainty", description: "EPU index", args_schema: TOOL_SCHEMA },
   { name: "get_pboc_ops", description: "PBOC ops", args_schema: TOOL_SCHEMA },
   { name: "get_property_data", description: "real-estate climate", args_schema: TOOL_SCHEMA },
 ];
@@ -151,6 +152,7 @@ describe("chinaSpec", () => {
     expect(chinaSpec.agentId).toBe("china");
     expect([...REQUIRED_TOOLS]).toEqual([
       "get_industry_policy",
+      "get_policy_uncertainty",
       "get_pboc_ops",
       "get_property_data",
     ]);
@@ -245,7 +247,7 @@ describe("buildChinaNode (vertical slice via factory)", () => {
     clearPromptCache();
   });
 
-  it("end-to-end: 3 tools dispatched, structured output written to layer1_outputs.china", async () => {
+  it("end-to-end: tools dispatched, structured output written to layer1_outputs.china", async () => {
     const canned: ChinaOutput = {
       agent: "china",
       policy_direction: "PRO_GROWTH",
@@ -287,6 +289,7 @@ describe("buildChinaNode (vertical slice via factory)", () => {
 
     const api = fakeApi({
       get_industry_policy: "datetime,title\n20240624,国务院发布科技产业扶持意见",
+      get_policy_uncertainty: "date,China_Policy_Index\n2024-06-01,580.2",
       get_pboc_ops: "trade_date,op_type,volume\n20240624,Reverse Repo,200",
       get_property_data: "日期,最新值\n2024-06-01,92.1",
     });

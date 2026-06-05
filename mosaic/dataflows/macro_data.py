@@ -1,7 +1,7 @@
 """A-share macro & sentiment data sources for Layer-1 agents.
 
-Covers seven of the **macro_data** category functions consumed by the Layer-1
-analysts (Plan §5.1):
+Covers the **macro_data** category functions consumed by the Layer-1 analysts
+(Plan §5.1):
 
 ==================================  =====================================  ============================================================
 Function                            Vendor / endpoint                      Used by (Layer-1 agents)
@@ -13,6 +13,8 @@ Function                            Vendor / endpoint                      Used 
 :func:`get_us_china_spread`         Tushare ``yc_cb`` + ``us_tycr``        ``yield_curve``
 :func:`get_xueqiu_heat`             AkShare ``stock_hot_search_xq``        ``news_sentiment``
 :func:`get_industry_policy`         gov.cn policy document library         ``china``
+:func:`get_policy_uncertainty`      AkShare ``article_epu_index``          ``china``
+:func:`get_realized_volatility`     AkShare OMAN / Risk-Lab RV             ``volatility``
 ==================================  =====================================  ============================================================
 
 All public functions return ``str`` (markdown-with-CSV body) so they slot into
@@ -126,6 +128,29 @@ def _df_to_markdown_csv(
     # Use pandas' built-in to_csv — preserves headers, handles NaN as empty cells.
     df.to_csv(buf, index=False)
     return buf.getvalue()
+
+
+def _find_date_column(df) -> str | None:
+    """Best-effort date-column inference for vendor tables."""
+    date_names = {"date", "datetime", "time", "trade_date", "index", "日期", "时间"}
+    for col in df.columns:
+        if str(col).strip().lower() in date_names:
+            return col
+    return None
+
+
+def _latest_on_or_before(df, parsed_dates, curr_date: str, top_n: int):
+    import pandas as pd  # noqa: PLC0415
+
+    cutoff = pd.Timestamp(curr_date)
+    return (
+        df.assign(_dt=parsed_dates)
+        .dropna(subset=["_dt"])
+        .loc[lambda d: d["_dt"] <= cutoff]
+        .sort_values("_dt", ascending=False)
+        .head(int(top_n))
+        .drop(columns=["_dt"])
+    )
 
 
 # ============================================================ 1. PBOC ops
@@ -529,6 +554,80 @@ def get_industry_policy(
     )
 
 
+# ============================================================ 8. Policy uncertainty
+
+
+def get_policy_uncertainty(curr_date: str, symbol: str = "China", top_n: int = 24) -> str:
+    """Fetch economic policy uncertainty (EPU) index rows as of ``curr_date``.
+
+    AkShare ``article_epu_index`` returns monthly EPU series by country/region
+    from policyuncertainty.com. The source schema varies by symbol, but common
+    rows include ``year``, ``month`` and ``<Symbol>_Policy_Index``. We return
+    the most recent ``top_n`` rows on or before ``curr_date`` so stale/later
+    source updates are visible while backtests remain point-in-time bounded.
+
+    Used by ``china`` as a country-level policy-uncertainty regime input.
+    """
+    _validate_iso_date(curr_date, "curr_date")
+    if not str(symbol).strip():
+        raise DataVendorUnavailable("symbol must be a non-empty country/region name.")
+    if top_n < 1:
+        raise DataVendorUnavailable("top_n must be >= 1.")
+    try:
+        import akshare as ak  # noqa: PLC0415
+        import pandas as pd  # noqa: PLC0415
+    except ImportError as exc:
+        raise DataVendorUnavailable(
+            "akshare + pandas are required. Install via `uv pip install -e .[data]`."
+        ) from exc
+
+    resolved_symbol = str(symbol).strip()
+    try:
+        df = ak.article_epu_index(symbol=resolved_symbol)
+    except Exception as exc:
+        raise DataVendorUnavailable(f"AkShare article_epu_index failed: {exc}") from exc
+
+    if df is not None and not df.empty:
+        df = df.copy()
+        lower_cols = {str(c).strip().lower(): c for c in df.columns}
+        if "year" in lower_cols and "month" in lower_cols:
+            year_col = lower_cols["year"]
+            month_col = lower_cols["month"]
+            parts = pd.DataFrame(
+                {
+                    "year": pd.to_numeric(df[year_col], errors="coerce"),
+                    "month": pd.to_numeric(df[month_col], errors="coerce"),
+                    "day": 1,
+                }
+            )
+            parsed = pd.to_datetime(parts, errors="coerce")
+            df = df.assign(date=parsed.dt.strftime("%Y-%m-%d"))
+            ordered_cols = ["date"] + [c for c in df.columns if c != "date"]
+            df = _latest_on_or_before(df[ordered_cols], parsed, curr_date, top_n)
+        else:
+            date_col = _find_date_column(df)
+            if date_col:
+                parsed = pd.to_datetime(df[date_col], errors="coerce")
+                df = df.rename(columns={date_col: "date"})
+                df = df.assign(date=parsed.dt.strftime("%Y-%m-%d"))
+                df = _latest_on_or_before(df, parsed, curr_date, top_n)
+            else:
+                df = df.head(int(top_n))
+
+    return _df_to_markdown_csv(
+        df,
+        title=(
+            "经济政策不确定性指数 / Economic Policy Uncertainty "
+            f"{resolved_symbol} (as of {curr_date})"
+        ),
+        subtitle=(
+            "Source: AkShare article_epu_index / policyuncertainty.com. "
+            f"Returns the latest {top_n} monthly rows on or before curr_date."
+        ),
+        empty_note=f"No EPU rows for {resolved_symbol} on or before {curr_date}.",
+    )
+
+
 # ============================================================ 8. USD/CNY FX
 
 
@@ -682,6 +781,108 @@ def get_ivx(curr_date: str, look_back_days: int = 30, index_symbol: str = "00030
             "Proxy: std(daily log return)×√252. Source: yfinance (no public iVX feed)."
         ),
         empty_note=f"No yfinance data for {index_symbol}.",
+    )
+
+
+# ============================================================ 11. Realized volatility (AkShare)
+
+
+def get_realized_volatility(
+    curr_date: str,
+    source: str = "oman",
+    symbol: str | None = None,
+    metric: str = "rk_th2",
+    top_n: int = 30,
+) -> str:
+    """Fetch AKShare realized-volatility series as of ``curr_date``.
+
+    ``source="oman"`` calls ``article_oman_rv`` (Oxford-Man realized
+    volatility) with ``symbol`` defaulting to ``FTSE`` and ``metric`` mapped to
+    AkShare's ``index`` argument (default ``rk_th2``). ``source="rlab"`` calls
+    ``article_rlab_rv`` (Risk-Lab) with ``symbol`` defaulting to ``39693``; the
+    ``metric`` argument is ignored by that endpoint.
+
+    Returns the most recent ``top_n`` rows on or before ``curr_date``. This is
+    point-in-time safe under backtest date clamping and avoids blank outputs
+    when a vendor's public realized-volatility feed stops updating before the
+    analysis date.
+    """
+    _validate_iso_date(curr_date, "curr_date")
+    if top_n < 1:
+        raise DataVendorUnavailable("top_n must be >= 1.")
+    try:
+        import akshare as ak  # noqa: PLC0415
+        import pandas as pd  # noqa: PLC0415
+    except ImportError as exc:
+        raise DataVendorUnavailable(
+            "akshare + pandas are required. Install via `uv pip install -e .[data]`."
+        ) from exc
+
+    source_norm = str(source).strip().lower().replace("_", "-")
+    if source_norm in {"oman", "oxford", "oxford-man"}:
+        endpoint = "article_oman_rv"
+        resolved_source = "oman"
+        resolved_symbol = str(symbol or "FTSE").strip()
+        resolved_metric = str(metric or "rk_th2").strip()
+        try:
+            raw = ak.article_oman_rv(symbol=resolved_symbol, index=resolved_metric)
+        except Exception as exc:
+            raise DataVendorUnavailable(f"AkShare {endpoint} failed: {exc}") from exc
+        subtitle = (
+            f"Source: AkShare {endpoint}(symbol='{resolved_symbol}', "
+            f"index='{resolved_metric}') / Oxford-Man. "
+            f"Returns latest {top_n} rows on or before curr_date."
+        )
+        value_col = resolved_metric
+    elif source_norm in {"rlab", "risklab", "risk-lab"}:
+        endpoint = "article_rlab_rv"
+        resolved_source = "rlab"
+        resolved_symbol = str(symbol or "39693").strip()
+        resolved_metric = ""
+        try:
+            raw = ak.article_rlab_rv(symbol=resolved_symbol)
+        except Exception as exc:
+            raise DataVendorUnavailable(f"AkShare {endpoint} failed: {exc}") from exc
+        subtitle = (
+            f"Source: AkShare {endpoint}(symbol='{resolved_symbol}') / Risk-Lab. "
+            f"Returns latest {top_n} rows on or before curr_date."
+        )
+        value_col = "realized_vol"
+    else:
+        raise DataVendorUnavailable("source must be 'oman' or 'rlab'.")
+
+    if raw is None:
+        df = pd.DataFrame()
+    elif isinstance(raw, pd.Series):
+        df = raw.rename(value_col).reset_index()
+    elif isinstance(raw, pd.DataFrame):
+        df = raw.copy()
+        if _find_date_column(df) is None and not isinstance(df.index, pd.RangeIndex):
+            df = df.reset_index()
+    else:
+        df = pd.DataFrame(raw)
+
+    if df is not None and not df.empty:
+        date_col = _find_date_column(df)
+        if date_col:
+            parsed = pd.to_datetime(df[date_col], errors="coerce")
+            df = df.rename(columns={date_col: "date"})
+            data_cols = [c for c in df.columns if c != "date"]
+            if len(data_cols) == 1 and data_cols[0] != value_col:
+                df = df.rename(columns={data_cols[0]: value_col})
+            df = df.assign(date=parsed.dt.strftime("%Y-%m-%d"))
+            df = _latest_on_or_before(df, parsed, curr_date, top_n)
+        else:
+            df = df.head(int(top_n))
+
+    label = f"{resolved_source}:{resolved_symbol}"
+    if resolved_metric:
+        label = f"{label}:{resolved_metric}"
+    return _df_to_markdown_csv(
+        df,
+        title=f"已实现波动率 / Realized Volatility {label} (as of {curr_date})",
+        subtitle=subtitle,
+        empty_note=f"No realized-volatility rows for {label} on or before {curr_date}.",
     )
 
 
@@ -922,9 +1123,11 @@ __all__ = [
     "get_us_china_spread",
     "get_xueqiu_heat",
     "get_industry_policy",
+    "get_policy_uncertainty",
     "get_usdcny",
     "get_commodity_prices",
     "get_ivx",
+    "get_realized_volatility",
     "get_etf_indicator",
     "get_fund_flow",
     "get_property_data",

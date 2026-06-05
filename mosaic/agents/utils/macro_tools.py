@@ -13,7 +13,7 @@ The ``@tool`` decorator from ``langchain_core`` builds an ``args_schema``
 (Pydantic v2) from ``Annotated`` parameters, which the bridge then exposes
 to the TS front-end via ``tools.list``.
 
-Coverage (8 tools, Plan §5.1 Layer-1):
+Coverage (macro tools, Plan §5.1 Layer-1):
 
 ==============================  ================================================  =====================================
 Tool                            Used by                                           Vendor
@@ -28,6 +28,8 @@ Tool                            Used by                                         
 ``get_xueqiu_heat``             news_sentiment                                    AkShare stock_hot_follow_xq
 ``get_news``                    news_sentiment                                    opencli / brave / yfinance
 ``get_industry_policy``         china                                             gov.cn policy document library
+``get_policy_uncertainty``      china                                             AkShare article_epu_index
+``get_realized_volatility``     volatility                                        AkShare article_oman_rv/article_rlab_rv
 ==============================  ================================================  =====================================
 """
 
@@ -323,6 +325,44 @@ def get_industry_policy(
     return route_to_vendor("get_industry_policy", curr_date, look_back_days, src)
 
 
+# ============================================================ Policy uncertainty
+
+
+@tool
+def get_policy_uncertainty(
+    curr_date: Annotated[
+        str,
+        "Current date (yyyy-mm-dd). Only EPU rows on or before this date are returned.",
+    ],
+    symbol: Annotated[
+        str,
+        "Country/region name accepted by AkShare article_epu_index, e.g. 'China', "
+        "'USA', 'Global', 'Hong Kong', or 'Europe'. Case-sensitive names should "
+        "match the AKShare policy-uncertainty table.",
+    ] = "China",
+    top_n: Annotated[
+        int,
+        "Number of most-recent monthly rows on or before curr_date to return.",
+    ] = 24,
+) -> str:
+    """
+    Retrieve the economic policy uncertainty (EPU) index as of a date.
+
+    Source: AkShare ``article_epu_index`` / policyuncertainty.com. Returns the
+    latest monthly rows for a country/region on or before ``curr_date``. Used by
+    ``china`` as a country-level policy-uncertainty regime input.
+
+    Args:
+        curr_date: yyyy-mm-dd point-in-time cutoff.
+        symbol: country/region selector, default 'China'.
+        top_n: number of most-recent rows, default 24.
+
+    Returns:
+        Markdown header + CSV with date/year/month and the policy-index column.
+    """
+    return route_to_vendor("get_policy_uncertainty", curr_date, symbol, top_n)
+
+
 # ============================================================ USD/CNY
 
 
@@ -417,6 +457,62 @@ def get_ivx(
         Markdown header (carrying annualized_realized_vol_pct) + CSV of closes.
     """
     return route_to_vendor("get_ivx", curr_date, look_back_days)
+
+
+# ============================================================ Realized volatility
+
+
+@tool
+def get_realized_volatility(
+    curr_date: Annotated[
+        str,
+        "Current date (yyyy-mm-dd). Only rows on or before this date are returned.",
+    ],
+    source: Annotated[
+        str,
+        "Realized-volatility source: 'oman' for Oxford-Man or 'rlab' for Risk-Lab.",
+    ] = "oman",
+    symbol: Annotated[
+        Optional[str],
+        "Source-specific index symbol. Defaults to 'FTSE' for OMAN and '39693' "
+        "for Risk-Lab when omitted.",
+    ] = None,
+    metric: Annotated[
+        str,
+        "OMAN metric passed as AkShare article_oman_rv(index=...). Default 'rk_th2'. "
+        "Ignored for Risk-Lab.",
+    ] = "rk_th2",
+    top_n: Annotated[
+        int,
+        "Number of most-recent rows on or before curr_date to return.",
+    ] = 30,
+) -> str:
+    """
+    Retrieve realized-volatility data from AKShare as of a date.
+
+    ``source='oman'`` calls Oxford-Man ``article_oman_rv``; ``source='rlab'``
+    calls Risk-Lab ``article_rlab_rv``. Returns the latest rows on or before
+    ``curr_date`` so backtests remain point-in-time bounded. Used by
+    ``volatility`` to complement VIX and the China iVX proxy.
+
+    Args:
+        curr_date: yyyy-mm-dd point-in-time cutoff.
+        source: 'oman' or 'rlab'.
+        symbol: source-specific symbol; omitted = source default.
+        metric: OMAN metric/index, default 'rk_th2'.
+        top_n: row cap, default 30.
+
+    Returns:
+        Markdown header + CSV with date and realized-volatility value.
+    """
+    return route_to_vendor(
+        "get_realized_volatility",
+        curr_date,
+        source,
+        symbol,
+        metric,
+        top_n,
+    )
 
 
 # ============================================================ ETF indicator
@@ -690,9 +786,11 @@ __all__ = [
     "get_xueqiu_heat",
     "get_news",
     "get_industry_policy",
+    "get_policy_uncertainty",
     "get_usdcny",
     "get_commodity_prices",
     "get_ivx",
+    "get_realized_volatility",
     "get_etf_indicator",
     "get_fund_flow",
     "get_etf_price_data",

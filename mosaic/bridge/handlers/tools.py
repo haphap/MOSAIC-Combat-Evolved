@@ -38,7 +38,7 @@ from ..registry import method
 # the codebase requires adding its dotted path here.
 #
 # Phase 0 Day 1: empty (bridge skeleton only).
-# Phase 0 Day 4: + mosaic.agents.utils.macro_tools (8 macro tools).
+# Phase 0 Day 4+: + mosaic.agents.utils.macro_tools (macro tools).
 # Phase 2 Layer 2/3/4 will add sector / superinvestor / decision tool modules.
 _TOOL_MODULES: tuple[str, ...] = (
     "mosaic.agents.utils.macro_tools",                  # Phase 0 Day 4 ✓

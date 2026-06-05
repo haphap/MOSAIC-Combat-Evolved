@@ -1,6 +1,6 @@
 """Tests for ``mosaic.dataflows.macro_data``.
 
-All seven functions are exercised offline via :mod:`unittest.mock` patches of
+Functions are exercised offline via :mod:`unittest.mock` patches of
 the underlying Tushare ``_query_pro`` helper, AkShare, and the FRED client.
 Live integration tests are gated on ``TUSHARE_TOKEN`` / ``FRED_API_KEY`` and
 remain skipped in CI.
@@ -448,6 +448,58 @@ def test_get_property_data_rejects_zero_top_n():
         macro_data.get_property_data("2025-06-30", top_n=0)
 
 
+# --------------------------------------------------------------------- Policy uncertainty
+
+
+@pytest.fixture
+def fake_policy_uncertainty_module(monkeypatch):
+    """Stand-in for ``akshare.article_epu_index``."""
+
+    class _StubAk:
+        def __init__(self, df=None, raises=None):
+            self._df = df
+            self._raises = raises
+
+        def article_epu_index(self, symbol="China"):
+            assert symbol == "China"
+            if self._raises is not None:
+                raise self._raises
+            return self._df
+
+    def _make(df=None, raises=None):
+        monkeypatch.setitem(__import__("sys").modules, "akshare", _StubAk(df=df, raises=raises))
+
+    return _make
+
+
+def test_get_policy_uncertainty_returns_latest_rows(fake_policy_uncertainty_module):
+    df = pd.DataFrame(
+        {
+            "year": [2024, 2024, 2024, 2024],
+            "month": [1, 2, 3, 4],
+            "China_Policy_Index": [100.0, 110.0, 120.0, 130.0],
+        }
+    )
+    fake_policy_uncertainty_module(df=df)
+    out = macro_data.get_policy_uncertainty("2024-03-15", top_n=2)
+    assert "Economic Policy Uncertainty" in out
+    assert "2024-03-01" in out
+    assert "2024-02-01" in out
+    assert "2024-04-01" not in out
+    assert "2024-01-01" not in out
+
+
+def test_get_policy_uncertainty_failure_wraps(fake_policy_uncertainty_module):
+    fake_policy_uncertainty_module(raises=RuntimeError("epu down"))
+    with pytest.raises(DataVendorUnavailable, match="article_epu_index failed"):
+        macro_data.get_policy_uncertainty("2024-06-30")
+
+
+def test_get_policy_uncertainty_rejects_zero_top_n():
+    with pytest.raises(DataVendorUnavailable, match=">= 1"):
+        macro_data.get_policy_uncertainty("2024-06-30", top_n=0)
+
+
 # --------------------------------------------------------------------- 7. Industry policy
 
 
@@ -557,6 +609,75 @@ def test_get_ivx_computes_realized_vol(fake_yf_module):
 def test_get_ivx_empty(fake_yf_module):
     fake_yf_module(pd.DataFrame())
     assert "No yfinance data" in macro_data.get_ivx("2024-06-26", look_back_days=5)
+
+
+# --------------------------------------------------------------------- 11. Realized volatility
+
+
+@pytest.fixture
+def fake_realized_vol_module(monkeypatch):
+    """Stand-in for ``akshare.article_oman_rv`` / ``article_rlab_rv``."""
+
+    class _StubAk:
+        def __init__(self, df=None, raises=None):
+            self._df = df
+            self._raises = raises
+            self.calls = []
+
+        def article_oman_rv(self, symbol="FTSE", index="rk_th2"):
+            self.calls.append(("oman", symbol, index))
+            if self._raises is not None:
+                raise self._raises
+            return self._df
+
+        def article_rlab_rv(self, symbol="39693"):
+            self.calls.append(("rlab", symbol))
+            if self._raises is not None:
+                raise self._raises
+            return self._df
+
+    def _make(df=None, raises=None):
+        stub = _StubAk(df=df, raises=raises)
+        monkeypatch.setitem(__import__("sys").modules, "akshare", stub)
+        return stub
+
+    return _make
+
+
+def test_get_realized_volatility_from_oman_series(fake_realized_vol_module):
+    idx = pd.date_range("2024-06-01", periods=4, freq="D")
+    series = pd.Series([9.1, 9.2, 9.3, 9.4], index=idx)
+    stub = fake_realized_vol_module(df=series)
+    out = macro_data.get_realized_volatility("2024-06-03", top_n=2)
+    assert stub.calls == [("oman", "FTSE", "rk_th2")]
+    assert "Realized Volatility oman:FTSE:rk_th2" in out
+    assert "2024-06-03" in out
+    assert "2024-06-02" in out
+    assert "2024-06-04" not in out
+
+
+def test_get_realized_volatility_from_rlab_dataframe(fake_realized_vol_module):
+    df = pd.DataFrame(
+        {"date": ["2024-06-01", "2024-06-02", "2024-06-03"], "value": [0.1, 0.2, 0.3]}
+    )
+    stub = fake_realized_vol_module(df=df)
+    out = macro_data.get_realized_volatility("2024-06-03", source="rlab", top_n=1)
+    assert stub.calls == [("rlab", "39693")]
+    assert "realized_vol" in out
+    assert "2024-06-03" in out
+    assert "2024-06-02" not in out
+
+
+def test_get_realized_volatility_failure_wraps(fake_realized_vol_module):
+    fake_realized_vol_module(raises=RuntimeError("vol down"))
+    with pytest.raises(DataVendorUnavailable, match="article_oman_rv failed"):
+        macro_data.get_realized_volatility("2024-06-30")
+
+
+def test_get_realized_volatility_rejects_unknown_source(fake_realized_vol_module):
+    fake_realized_vol_module(df=pd.Series(dtype=float))
+    with pytest.raises(DataVendorUnavailable, match="source must be"):
+        macro_data.get_realized_volatility("2024-06-30", source="bad")
 
 
 # --------------------------------------------------------------------- 11. ETF indicator

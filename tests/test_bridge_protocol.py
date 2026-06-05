@@ -11,8 +11,8 @@ Two layers:
    network or vendor keys required.
 2. **Macro-tool subprocess** — 5 tests covering tool registration, schema
    validation, vendor-unavailable error mapping, and backtest-mode blocking
-   for the eight Layer-1 macro tools added on Day 4. Plus one live smoke
-   case gated on ``TUSHARE_TOKEN``.
+   for the Layer-1 macro tools. Plus one live smoke case gated on
+   ``TUSHARE_TOKEN``.
 
 Tests that need real vendor data (Tushare / FRED / akshare) are skipped
 unless the relevant token is set; that lets CI run hermetically while local
@@ -72,7 +72,7 @@ def _resolve_python() -> str:
 
 PYTHON = _resolve_python()
 
-# Expected count of tools.list entries on the Phase-0 Day-4 surface.
+# Expected macro tools surfaced by tools.list.
 EXPECTED_MACRO_TOOLS = {
     "get_fred_series",
     "get_pboc_ops",
@@ -82,6 +82,8 @@ EXPECTED_MACRO_TOOLS = {
     "get_xueqiu_heat",
     "get_news",
     "get_industry_policy",
+    "get_policy_uncertainty",
+    "get_realized_volatility",
 }
 
 
@@ -176,14 +178,19 @@ class BridgeProtocolTests(_BridgeTestCase):
     # ------------------------------------------------------- tools.* tests
 
     def test_tools_list_returns_metadata_for_each_macro_tool(self) -> None:
-        """tools.list must surface the 8 macro tools with name/description/schema.
+        """tools.list must surface macro tools with name/description/schema.
 
-        Phase 0 Day 4 lands exactly the macro_tools module. Phase 2+ will add
-        more; assert ≥8 so this test stays green as the surface grows.
+        Phase 0 Day 4 landed the macro_tools module. Later phases add more
+        modules; assert a lower bound so this test stays green as the surface
+        grows.
         """
         tools = self.call_ok("tools.list", {})
         self.assertIsInstance(tools, list)
-        self.assertGreaterEqual(len(tools), 8, "expected ≥8 @tool functions on Phase 0")
+        self.assertGreaterEqual(
+            len(tools),
+            len(EXPECTED_MACRO_TOOLS),
+            "expected every required macro @tool function",
+        )
         names = {t["name"] for t in tools}
         # Every macro tool must be present
         self.assertTrue(EXPECTED_MACRO_TOOLS.issubset(names))

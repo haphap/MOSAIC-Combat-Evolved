@@ -24,9 +24,11 @@ from .macro_data import (
     get_us_china_spread as get_us_china_spread_impl,
     get_xueqiu_heat as get_xueqiu_heat_impl,
     get_industry_policy as get_industry_policy_impl,
+    get_policy_uncertainty as get_policy_uncertainty_impl,
     get_usdcny as get_usdcny_impl,
     get_commodity_prices as get_commodity_prices_impl,
     get_ivx as get_ivx_impl,
+    get_realized_volatility as get_realized_volatility_impl,
     get_etf_indicator as get_etf_indicator_macro_impl,
     get_fund_flow as get_fund_flow_impl,
     get_property_data as get_property_data_impl,
@@ -135,9 +137,11 @@ TOOLS_CATEGORIES = {
             "get_us_china_spread",
             "get_xueqiu_heat",
             "get_industry_policy",
+            "get_policy_uncertainty",
             "get_usdcny",
             "get_commodity_prices",
             "get_ivx",
+            "get_realized_volatility",
             "get_etf_indicator",
             "get_fund_flow",
             "get_caixin_sentiment",
@@ -269,6 +273,9 @@ VENDOR_METHODS = {
         # gov.cn policy document library replaced the Tushare news path.
         "tushare": get_industry_policy_impl,
     },
+    "get_policy_uncertainty": {
+        "akshare": get_policy_uncertainty_impl,
+    },
     "get_usdcny": {
         "tushare": get_usdcny_impl,
     },
@@ -277,6 +284,9 @@ VENDOR_METHODS = {
     },
     "get_ivx": {
         "yfinance": get_ivx_impl,
+    },
+    "get_realized_volatility": {
+        "akshare": get_realized_volatility_impl,
     },
     "get_etf_indicator": {
         "tushare": get_etf_indicator_macro_impl,
@@ -329,9 +339,11 @@ _CURRENT_DATE_METHODS = {
     "get_yield_curve_cn": 0,
     "get_us_china_spread": 0,
     "get_industry_policy": 0,
+    "get_policy_uncertainty": 0,
     "get_usdcny": 0,
     "get_commodity_prices": 0,
     "get_ivx": 0,
+    "get_realized_volatility": 0,
     "get_etf_indicator": 1,
     "get_fund_flow": 1,
     "get_caixin_sentiment": 0,

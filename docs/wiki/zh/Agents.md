@@ -8,7 +8,7 @@ MOSAIC 跑 **4 层共 25 个智能体**,由 LangGraph.js(`mosaic-ts/src/graph/da
 
 `central_bank`、`china`、`commodities`、`dollar`、`emerging_markets`、`geopolitical`、`institutional_flow`、`news_sentiment`、`volatility`、`yield_curve`。(`_aggregator.ts` 汇总 Layer-1 输出。)
 
-Layer-1 agent 调用 sidecar 工具(Tushare/akshare/FRED/雪球 等)—— 如 `volatility` 用 `get_ivx` + `get_etf_indicator(510050.SH)`;`emerging_markets` 用 `get_etf_price_data`;`china` 用 `get_property_data`(国房景气指数)。macro 层共 18 个工具。
+Layer-1 agent 调用 sidecar 工具(Tushare/akshare/FRED/雪球 等)—— 如 `volatility` 用 `get_ivx` + `get_realized_volatility` + `get_etf_indicator(510050.SH)`;`emerging_markets` 用 `get_etf_price_data`;`china` 用 `get_property_data`(国房景气指数) + `get_policy_uncertainty`(EPU)。macro 层共 20 个工具。
 
 ## 第 2 层 —— 行业 (7)
 
