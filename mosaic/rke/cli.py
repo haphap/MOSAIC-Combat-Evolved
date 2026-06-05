@@ -15,11 +15,31 @@ from .registry_manifest import (
     validate_required_registry,
     write_registry_manifest,
 )
+from .tushare_reports import refresh_tushare_research_report_registry
 from .workflows import run_full_rke_refresh
 
 
 def _print_json(payload: Any) -> None:
     print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+
+
+def _load_env_file(path: str | None) -> None:
+    if not path:
+        return
+    try:
+        from dotenv import load_dotenv
+    except ImportError as exc:
+        raise RuntimeError("python-dotenv is required to load --env-file") from exc
+    load_dotenv(path, override=False)
+
+
+def _split_repeated_csv(values: Sequence[str] | None) -> tuple[str, ...]:
+    if not values:
+        return ()
+    out: list[str] = []
+    for value in values:
+        out.extend(item.strip() for item in value.split(",") if item.strip())
+    return tuple(out)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -42,6 +62,41 @@ def build_parser() -> argparse.ArgumentParser:
 
     dashboard = subparsers.add_parser("dashboard", help="Write dashboard JSON and Markdown reports.")
     dashboard.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
+
+    fetch_reports = subparsers.add_parser(
+        "fetch-tushare-reports",
+        help="Fetch Tushare research reports and refresh dependent Phase -1 registry artifacts.",
+    )
+    fetch_reports.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
+    fetch_reports.add_argument("--start-date", required=True, help="Inclusive YYYY-MM-DD query start date.")
+    fetch_reports.add_argument("--end-date", required=True, help="Inclusive YYYY-MM-DD query end date.")
+    fetch_reports.add_argument(
+        "--stock-code",
+        action="append",
+        dest="stock_codes",
+        help="Tushare stock code. May be repeated or comma-separated.",
+    )
+    fetch_reports.add_argument(
+        "--industry-keyword",
+        action="append",
+        dest="industry_keywords",
+        help="Tushare industry keyword. May be repeated or comma-separated.",
+    )
+    fetch_reports.add_argument(
+        "--max-reports-per-query",
+        type=int,
+        default=6000,
+        help="Local per-query cap after Tushare returns rows. Defaults to 6000.",
+    )
+    fetch_reports.add_argument(
+        "--overwrite-review-templates",
+        action="store_true",
+        help="Regenerate gold-set and license review templates even when they contain manual values.",
+    )
+    fetch_reports.add_argument(
+        "--env-file",
+        help="Optional .env file to load before initializing the Tushare client.",
+    )
 
     validate = subparsers.add_parser("validate-required", help="Validate required registry files.")
     validate.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
@@ -71,6 +126,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         result = write_dashboard_reports(root)
         _print_json(result)
         return 0
+    if args.command == "fetch-tushare-reports":
+        _load_env_file(args.env_file)
+        result = refresh_tushare_research_report_registry(
+            root,
+            stock_codes=_split_repeated_csv(args.stock_codes),
+            industry_keywords=_split_repeated_csv(args.industry_keywords),
+            start_date=args.start_date,
+            end_date=args.end_date,
+            max_reports_per_query=args.max_reports_per_query,
+            preserve_review_templates=not args.overwrite_review_templates,
+        )
+        _print_json(asdict(result))
+        return 0 if result.manifest_valid else 2
     if args.command == "validate-required":
         missing, empty = validate_required_registry(root)
         manifest = build_registry_manifest(root) if not missing and not empty else None

@@ -182,6 +182,14 @@ from .sector_demo import (
     build_sector_semiconductor_demo,
     write_sector_semiconductor_demo_registry,
 )
+from .tushare_reports import (
+    RkeResearchReport,
+    TushareResearchReportRefreshResult,
+    fetch_tushare_research_reports,
+    normalize_research_report_row,
+    refresh_tushare_research_report_registry,
+    write_research_reports_jsonl,
+)
 from .validation_hardening import (
     AblationCheckResult,
     AblationResult,
@@ -346,6 +354,12 @@ __all__ = [
     "SectorSemiconductorDemoBundle",
     "build_sector_semiconductor_demo",
     "write_sector_semiconductor_demo_registry",
+    "RkeResearchReport",
+    "TushareResearchReportRefreshResult",
+    "fetch_tushare_research_reports",
+    "normalize_research_report_row",
+    "refresh_tushare_research_report_registry",
+    "write_research_reports_jsonl",
     "AblationCheckResult",
     "AblationResult",
     "RegimeBucketObservation",

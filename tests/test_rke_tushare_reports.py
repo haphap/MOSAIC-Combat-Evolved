@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+import shutil
+from pathlib import Path
 
 import pandas as pd
 
 from mosaic.rke.tushare_reports import (
     fetch_tushare_research_reports,
     normalize_research_report_row,
+    refresh_tushare_research_report_registry,
     write_research_reports_jsonl,
 )
 
@@ -111,3 +114,51 @@ def test_write_research_reports_jsonl(tmp_path):
     row = json.loads(path.read_text(encoding="utf-8").strip())
     assert row["source_type"] == "tushare_research_report"
     assert row["source_span_id"].endswith(":abstract")
+
+
+def test_refresh_tushare_research_report_registry_updates_dependent_artifacts(tmp_path: Path):
+    shutil.copytree(Path("registry"), tmp_path / "registry")
+    fake = FakeTusharePro()
+
+    result = refresh_tushare_research_report_registry(
+        tmp_path,
+        stock_codes=("600519.SH",),
+        industry_keywords=("银行",),
+        start_date="2026-06-01",
+        end_date="2026-06-05",
+        max_reports_per_query=6000,
+        discovered_at="2026-06-05T12:00:00+00:00",
+        pro=fake,
+    )
+
+    source_rows = [
+        json.loads(line)
+        for line in (tmp_path / "registry/sources/tushare_research_reports.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+    manifest = json.loads(
+        (tmp_path / "registry/sources/tushare_research_reports.manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    license_rows = (
+        tmp_path / "registry/compliance/tushare_license_review_template.jsonl"
+    ).read_text(encoding="utf-8").splitlines()
+    gold_rows = (
+        tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    ).read_text(encoding="utf-8").splitlines()
+
+    assert result.source_rows == 2
+    assert result.rows_with_abstract == 2
+    assert result.gold_candidate_rows == 2
+    assert result.gold_review_template_updated
+    assert result.license_review_template_updated
+    assert result.manifest_valid
+    assert len(source_rows) == 2
+    assert len(license_rows) == 2
+    assert len(gold_rows) == 20
+    assert manifest["output_path"] == "registry/sources/tushare_research_reports.jsonl"
+    assert manifest["max_reports_per_query"] == 6000
+    assert manifest["query_key_counts"] == {"600519.SH": 1, "银行": 1}
+    assert manifest["rows_with_abstract"] == 2

@@ -88,6 +88,12 @@ def test_license_review_restriction_keeps_source_out_of_production():
 
 
 def test_tushare_license_review_template_is_pending_manual_approval():
+    source_rows = [
+        json.loads(line)
+        for line in Path("registry/sources/tushare_research_reports.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
     rows = [
         json.loads(line)
         for line in Path("registry/compliance/tushare_license_review_template.jsonl")
@@ -95,7 +101,7 @@ def test_tushare_license_review_template_is_pending_manual_approval():
         .splitlines()
     ]
 
-    assert len(rows) == 65
+    assert len(rows) == len(source_rows)
     assert {row["current_license_status"] for row in rows} == {"pending_review"}
     assert {row["approved_for_production_runtime"] for row in rows} == {None}
     assert {row["approved_for_derived_claim_storage"] for row in rows} == {None}

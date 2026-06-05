@@ -4,6 +4,7 @@ import json
 import shutil
 from pathlib import Path
 
+from mosaic.rke import TushareResearchReportRefreshResult
 from mosaic.rke.cli import main
 
 
@@ -51,6 +52,60 @@ def test_rke_cli_refresh_preserves_reviews(tmp_path: Path, capsys):
     assert code == 0
     assert output["manifest_valid"] is True
     assert gold_review.read_text(encoding="utf-8") == original
+
+
+def test_rke_cli_fetch_tushare_reports_passes_query_args(monkeypatch, tmp_path: Path, capsys):
+    captured = {}
+
+    def fake_refresh(root, **kwargs):
+        captured["root"] = str(root)
+        captured.update(kwargs)
+        return TushareResearchReportRefreshResult(
+            root=str(root),
+            source_rows=3,
+            rows_with_abstract=3,
+            gold_candidate_rows=3,
+            gold_review_template_updated=True,
+            license_review_template_updated=True,
+            publish_date_min="2026-06-01",
+            publish_date_max="2026-06-05",
+            report_type_counts={"个股研报": 2, "行业研报": 1},
+            query_key_counts={"600519.SH": 1, "300750.SZ": 1, "银行": 1},
+            completion_ready_for_broad_rollout=False,
+            manifest_valid=True,
+            outputs={"source": "registry/sources/tushare_research_reports.jsonl"},
+        )
+
+    monkeypatch.setattr("mosaic.rke.cli.refresh_tushare_research_report_registry", fake_refresh)
+
+    code = main(
+        (
+            "fetch-tushare-reports",
+            "--root",
+            str(tmp_path),
+            "--start-date",
+            "2026-06-01",
+            "--end-date",
+            "2026-06-05",
+            "--stock-code",
+            "600519.SH,300750.SZ",
+            "--industry-keyword",
+            "银行",
+            "--max-reports-per-query",
+            "42",
+        )
+    )
+    output = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert output["source_rows"] == 3
+    assert captured["root"] == str(tmp_path)
+    assert captured["stock_codes"] == ("600519.SH", "300750.SZ")
+    assert captured["industry_keywords"] == ("银行",)
+    assert captured["start_date"] == "2026-06-01"
+    assert captured["end_date"] == "2026-06-05"
+    assert captured["max_reports_per_query"] == 42
+    assert captured["preserve_review_templates"] is True
 
 
 def test_pyproject_exposes_mosaic_rke_console_script():

@@ -66,4 +66,5 @@ def test_full_refresh_recreates_missing_review_templates(tmp_path: Path):
     assert gold_review.exists()
     assert license_review.exists()
     assert len(gold_review.read_text(encoding="utf-8").splitlines()) == 500
-    assert len(license_review.read_text(encoding="utf-8").splitlines()) == 65
+    source_rows = (tmp_path / "registry/sources/tushare_research_reports.jsonl").read_text(encoding="utf-8").splitlines()
+    assert len(license_review.read_text(encoding="utf-8").splitlines()) == len(source_rows)

@@ -9,6 +9,7 @@ with source IDs, span IDs, hashes, publication dates, and discovery timestamps.
 from __future__ import annotations
 
 import json
+from collections import Counter
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from hashlib import sha256
@@ -16,6 +17,18 @@ from pathlib import Path
 from typing import Any, Iterable, Literal, Mapping, Sequence
 
 from mosaic.dataflows.tushare import _RESEARCH_REPORT_FIELDS, _get_pro_client
+
+from .completion_auditor import write_completion_audit
+from .compliance import write_source_license_review_template
+from .dashboard_reports import write_dashboard_reports
+from .phase_minus1 import (
+    audit_research_report_corpus,
+    load_jsonl,
+    select_gold_set_candidates,
+    write_gold_set_candidates,
+    write_gold_set_review_template,
+)
+from .registry_manifest import write_registry_manifest
 
 ReportKind = Literal["stock", "industry"]
 
@@ -67,6 +80,23 @@ class RkeResearchReport:
             self.abstract,
         ]
         return "\n\n".join(part for part in parts if part)
+
+
+@dataclass(frozen=True)
+class TushareResearchReportRefreshResult:
+    root: str
+    source_rows: int
+    rows_with_abstract: int
+    gold_candidate_rows: int
+    gold_review_template_updated: bool
+    license_review_template_updated: bool
+    publish_date_min: str | None
+    publish_date_max: str | None
+    report_type_counts: Mapping[str, int]
+    query_key_counts: Mapping[str, int]
+    completion_ready_for_broad_rollout: bool
+    manifest_valid: bool
+    outputs: Mapping[str, str]
 
 
 def normalize_research_report_row(
@@ -199,3 +229,204 @@ def write_research_reports_jsonl(
         for row in rows:
             fh.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
     return {"path": str(path), "rows": len(rows)}
+
+
+def _template_has_manual_values(path: Path, fields: Sequence[str]) -> bool:
+    if not path.exists():
+        return False
+    for row in load_jsonl(path):
+        for field in fields:
+            if row.get(field) not in (None, ""):
+                return True
+    return False
+
+
+def _write_research_report_manifest(
+    *,
+    output_path: Path,
+    source_path: Path,
+    start_date: str,
+    end_date: str,
+    stock_codes: Sequence[str],
+    industry_keywords: Sequence[str],
+    max_reports_per_query: int,
+    row_count: int,
+    rows_with_abstract: int,
+    publish_date_min: str | None,
+    publish_date_max: str | None,
+    report_type_counts: Mapping[str, int],
+    query_key_counts: Mapping[str, int],
+    ingested_at: str,
+) -> dict[str, Any]:
+    payload = {
+        "corpus_id": f"CORPUS-TSRR-{end_date.replace('-', '')}-001",
+        "ingested_at": ingested_at,
+        "license_status": "pending_review",
+        "max_reports_per_query": max_reports_per_query,
+        "not_yet": [
+            "not a passed gold set",
+            "not production runtime input",
+            "not a trading signal",
+        ],
+        "output_path": str(source_path),
+        "phase_minus_1_use": [
+            "source pool for claim extraction reliability spike",
+            "source metadata and span ID fixture",
+            "manual gold-set sampling input",
+        ],
+        "point_in_time_note": (
+            "Rows are stamped with discovered_at at ingestion time; sell-side usage remains "
+            "sandbox-only until compliance review."
+        ),
+        "publish_date_max": publish_date_max,
+        "publish_date_min": publish_date_min,
+        "query_key_counts": dict(query_key_counts),
+        "query_set": {
+            "industry_keywords": list(industry_keywords),
+            "stock_codes": list(stock_codes),
+        },
+        "query_window": {
+            "end_date": end_date,
+            "start_date": start_date,
+        },
+        "report_type_counts": dict(report_type_counts),
+        "row_count": row_count,
+        "rows_with_abstract": rows_with_abstract,
+        "source": "tushare.pro.research_report",
+    }
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return {"path": str(output_path), "rows": 1}
+
+
+def refresh_tushare_research_report_registry(
+    root: str | Path = ".",
+    *,
+    stock_codes: Sequence[str],
+    industry_keywords: Sequence[str],
+    start_date: str,
+    end_date: str,
+    max_reports_per_query: int = 6000,
+    preserve_review_templates: bool = True,
+    discovered_at: str | None = None,
+    pro: Any | None = None,
+) -> TushareResearchReportRefreshResult:
+    """Fetch Tushare reports and refresh dependent Phase -1 registry artifacts."""
+    if not stock_codes and not industry_keywords:
+        raise ValueError("at least one stock code or industry keyword is required")
+    if max_reports_per_query <= 0:
+        raise ValueError("max_reports_per_query must be positive")
+
+    root_path = Path(root)
+    ingested_at = discovered_at or _utc_now()
+    reports = fetch_tushare_research_reports(
+        stock_codes=stock_codes,
+        industry_keywords=industry_keywords,
+        start_date=start_date,
+        end_date=end_date,
+        max_reports_per_query=max_reports_per_query,
+        discovered_at=ingested_at,
+        pro=pro,
+    )
+    if not reports:
+        raise RuntimeError("Tushare research_report returned zero rows; registry was not refreshed")
+
+    outputs: dict[str, str] = {}
+    source_path = root_path / "registry/sources/tushare_research_reports.jsonl"
+    source_result = write_research_reports_jsonl(reports, source_path)
+    outputs["source"] = str(source_result["path"])
+
+    source_rows = load_jsonl(source_path)
+    audit = audit_research_report_corpus(source_rows)
+    report_type_counts = Counter(str(row.get("report_type") or "") for row in source_rows)
+    query_key_counts = Counter(str(row.get("query_key") or "") for row in source_rows)
+
+    candidates = select_gold_set_candidates(source_rows, max_documents=50)
+    gold_candidates_path = root_path / "registry/sources/tushare_research_reports.gold_candidates.jsonl"
+    gold_candidates_result = write_gold_set_candidates(candidates, gold_candidates_path)
+    outputs["gold_candidates"] = str(gold_candidates_result["path"])
+
+    gold_review_path = root_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    gold_review_updated = False
+    gold_review_has_manual_values = _template_has_manual_values(
+        gold_review_path,
+        (
+            "manual_claim_text",
+            "claim_correct",
+            "source_span_supports_claim",
+            "direction_correct",
+            "variable_mapping_correct",
+            "unsupported_field_false_grounded",
+            "reviewer",
+            "review_notes",
+        ),
+    )
+    if not preserve_review_templates or not gold_review_has_manual_values:
+        gold_review_result = write_gold_set_review_template(
+            candidates,
+            gold_review_path,
+            claims_per_document=10,
+        )
+        outputs["gold_review_template"] = str(gold_review_result["path"])
+        gold_review_updated = True
+
+    license_review_path = root_path / "registry/compliance/tushare_license_review_template.jsonl"
+    license_review_updated = False
+    license_review_has_manual_values = _template_has_manual_values(
+        license_review_path,
+        (
+            "approved_for_derived_claim_storage",
+            "approved_for_production_runtime",
+            "reviewer",
+            "review_date",
+            "notes",
+        ),
+    )
+    if not preserve_review_templates or not license_review_has_manual_values:
+        license_review_result = write_source_license_review_template(source_rows, license_review_path)
+        outputs["license_review_template"] = str(license_review_result["path"])
+        license_review_updated = True
+
+    manifest_result = _write_research_report_manifest(
+        output_path=root_path / "registry/sources/tushare_research_reports.manifest.json",
+        source_path=Path("registry/sources/tushare_research_reports.jsonl"),
+        start_date=start_date,
+        end_date=end_date,
+        stock_codes=stock_codes,
+        industry_keywords=industry_keywords,
+        max_reports_per_query=max_reports_per_query,
+        row_count=audit.row_count,
+        rows_with_abstract=audit.rows_with_abstract,
+        publish_date_min=audit.publish_date_min,
+        publish_date_max=audit.publish_date_max,
+        report_type_counts=report_type_counts,
+        query_key_counts=query_key_counts,
+        ingested_at=ingested_at,
+    )
+    outputs["source_manifest"] = str(manifest_result["path"])
+
+    completion_result = write_completion_audit(root_path)
+    dashboard_result = write_dashboard_reports(root_path)
+    registry_manifest_result = write_registry_manifest(root_path)
+    outputs["completion_audit"] = str(completion_result["path"])
+    outputs.update({f"dashboard.{key}": value for key, value in dashboard_result.items()})
+    outputs["registry_manifest"] = str(registry_manifest_result["path"])
+
+    return TushareResearchReportRefreshResult(
+        root=str(root_path),
+        source_rows=audit.row_count,
+        rows_with_abstract=audit.rows_with_abstract,
+        gold_candidate_rows=int(gold_candidates_result["rows"]),
+        gold_review_template_updated=gold_review_updated,
+        license_review_template_updated=license_review_updated,
+        publish_date_min=audit.publish_date_min,
+        publish_date_max=audit.publish_date_max,
+        report_type_counts=dict(report_type_counts),
+        query_key_counts=dict(query_key_counts),
+        completion_ready_for_broad_rollout=bool(completion_result["ready_for_broad_rollout"]),
+        manifest_valid=bool(registry_manifest_result["valid"]),
+        outputs=outputs,
+    )
