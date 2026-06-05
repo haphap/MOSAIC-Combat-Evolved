@@ -8,6 +8,7 @@
 - Production monitor action: none
 - Lockbox result: not_opened
 - Validation ablations accepted: True
+- Sector demo: sandbox
 
 ## Blockers
 

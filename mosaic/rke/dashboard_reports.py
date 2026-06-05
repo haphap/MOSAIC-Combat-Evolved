@@ -21,6 +21,14 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
     lockbox = _read_json(lockbox_path) if lockbox_path.exists() else {}
     hardening_path = root_path / "registry/validation_hardening/central_bank_hardening_report.json"
     hardening = _read_json(hardening_path) if hardening_path.exists() else {}
+    sector_rule_path = root_path / "registry/rule_packs/sector.semiconductor.policy_substitution.v1.json"
+    sector_disagreement_path = root_path / "registry/disagreement/semiconductor_policy_substitution.json"
+    sector_runtime_path = root_path / "registry/runtime_outputs/sector.semiconductor.demo.20260605.json"
+    sector_rule = _read_json(sector_rule_path) if sector_rule_path.exists() else {}
+    sector_disagreement = (
+        _read_json(sector_disagreement_path) if sector_disagreement_path.exists() else {}
+    )
+    sector_runtime = _read_json(sector_runtime_path) if sector_runtime_path.exists() else {}
     criteria = completion.get("criteria", ())
     return {
         "dashboard_id": "RKE-DASHBOARD-20260605",
@@ -43,6 +51,18 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
             "horizon_metric_failures": hardening.get("horizon_metric_failures", ()),
             "precision_failures": hardening.get("precision_failures", ()),
             "regime_failures": hardening.get("regime_partial_pooling", {}).get("failures", ()),
+        },
+        "sector_demo": {
+            "rule_pack_id": sector_rule.get("rule_pack_id"),
+            "demo_status": sector_rule.get("demo_status"),
+            "production_allowed": sector_rule.get("production_allowed"),
+            "empirical_confidence_bin": sector_rule.get("empirical_confidence_bin"),
+            "disagreement_cluster_id": sector_disagreement.get("cluster", {}).get("cluster_id"),
+            "recommendation_actionability": (
+                (sector_runtime.get("recommendations") or [{}])[0].get("actionability")
+                if sector_runtime
+                else None
+            ),
         },
         "audit_trace": {
             "source_count": len(audit_trace.get("source_ids", ())),
@@ -73,6 +93,7 @@ def render_dashboard_markdown(report: Mapping[str, Any]) -> str:
         f"- Production monitor action: {monitor.get('action')}",
         f"- Lockbox result: {dict(report.get('lockbox') or {}).get('result')}",
         f"- Validation ablations accepted: {dict(report.get('validation_hardening') or {}).get('ablation_accepted')}",
+        f"- Sector demo: {dict(report.get('sector_demo') or {}).get('demo_status')}",
         "",
         "## Blockers",
         "",

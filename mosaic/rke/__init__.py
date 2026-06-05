@@ -149,6 +149,13 @@ from .runtime import (
     RuntimeRecommendation,
     check_runtime_output,
 )
+from .sector_demo import (
+    DisagreementCluster,
+    DisagreementEvidence,
+    SectorSemiconductorDemoBundle,
+    build_sector_semiconductor_demo,
+    write_sector_semiconductor_demo_registry,
+)
 from .validation_hardening import (
     AblationCheckResult,
     AblationResult,
@@ -284,6 +291,11 @@ __all__ = [
     "RuntimeOutputCheckResult",
     "RuntimeRecommendation",
     "check_runtime_output",
+    "DisagreementCluster",
+    "DisagreementEvidence",
+    "SectorSemiconductorDemoBundle",
+    "build_sector_semiconductor_demo",
+    "write_sector_semiconductor_demo_registry",
     "AblationCheckResult",
     "AblationResult",
     "RegimeBucketObservation",

@@ -1,0 +1,44 @@
+{
+  "cluster": {
+    "cluster_id": "DISAGREE-SEMI-POLICY-SUB-20260605",
+    "confidence_cap": 0.6,
+    "opposing_claim_ids": [],
+    "production_blockers": [
+      "sell-side research license_status=pending_review",
+      "text proxy coverage drift is high",
+      "no hardened validation experiment"
+    ],
+    "resolution": "Keep as provenance demo; cap confidence at 0.60 and require flow or price confirmation.",
+    "risk_claim_ids": [
+      "CLAIM-SEMI-20260605-0002",
+      "CLAIM-SEMI-20260605-0003"
+    ],
+    "supportive_claim_ids": [
+      "CLAIM-SEMI-20260605-0001"
+    ],
+    "topic": "semiconductor_policy_substitution"
+  },
+  "evidence": [
+    {
+      "claim_id": "CLAIM-SEMI-20260605-0001",
+      "source_id": "SRC-TSRR-20260601-da7d37f092a6084a",
+      "stance": "supportive",
+      "summary": "storage cycle support claim",
+      "topic": "semiconductor_policy_substitution"
+    },
+    {
+      "claim_id": "CLAIM-SEMI-20260605-0002",
+      "source_id": "SRC-TSRR-20260601-da7d37f092a6084a",
+      "stance": "valuation_risk",
+      "summary": "valuation above historical center risk",
+      "topic": "semiconductor_policy_substitution"
+    },
+    {
+      "claim_id": "CLAIM-SEMI-20260605-0003",
+      "source_id": "SRC-TSRR-20260601-da7d37f092a6084a",
+      "stance": "risk",
+      "summary": "trade friction risk",
+      "topic": "semiconductor_policy_substitution"
+    }
+  ]
+}

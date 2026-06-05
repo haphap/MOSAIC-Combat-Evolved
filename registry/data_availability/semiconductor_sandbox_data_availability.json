@@ -1,0 +1,56 @@
+{
+  "matrix_id": "DAM-SEMI-SANDBOX-2026Q2",
+  "proxies": {
+    "semiconductor_etf_flow_20d": {
+      "allowed_for_production": true,
+      "allowed_for_validation": true,
+      "coverage_drift_risk": "low",
+      "data_source": "qlib_or_vendor_pit_flow",
+      "history_end": "2026-06-05",
+      "history_start": "2005-01-01",
+      "known_biases": [],
+      "metric_proxy": "semiconductor_etf_flow_20d",
+      "notes": "",
+      "point_in_time_available": true,
+      "publication_lag_days": null,
+      "restatement_risk": "low",
+      "survivorship_bias_risk": "low",
+      "timestamp_granularity": "daily",
+      "vintage_handling": "as_reported"
+    },
+    "semiconductor_policy_theme_mentions_20d": {
+      "allowed_for_production": false,
+      "allowed_for_validation": false,
+      "coverage_drift_risk": "high",
+      "data_source": "tushare_research_report_text_sandbox",
+      "history_end": "2026-06-05",
+      "history_start": "2026-02-06",
+      "known_biases": [],
+      "metric_proxy": "semiconductor_policy_theme_mentions_20d",
+      "notes": "Sandbox only until license review and historical text coverage audit pass.",
+      "point_in_time_available": true,
+      "publication_lag_days": null,
+      "restatement_risk": "low",
+      "survivorship_bias_risk": "medium",
+      "timestamp_granularity": "daily",
+      "vintage_handling": "as_published"
+    },
+    "semiconductor_relative_return_20d": {
+      "allowed_for_production": true,
+      "allowed_for_validation": true,
+      "coverage_drift_risk": "low",
+      "data_source": "qlib_pit_prices",
+      "history_end": "2026-06-05",
+      "history_start": "2005-01-01",
+      "known_biases": [],
+      "metric_proxy": "semiconductor_relative_return_20d",
+      "notes": "",
+      "point_in_time_available": true,
+      "publication_lag_days": null,
+      "restatement_risk": "low",
+      "survivorship_bias_risk": "low",
+      "timestamp_granularity": "daily",
+      "vintage_handling": "as_reported"
+    }
+  }
+}

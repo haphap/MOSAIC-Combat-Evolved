@@ -1,0 +1,56 @@
+{
+  "agent_id": "sector.semiconductor",
+  "demo_status": "sandbox",
+  "empirical_confidence_bin": "low",
+  "production_allowed": false,
+  "rule_pack_id": "sector.semiconductor.policy_substitution.v1",
+  "rules": {
+    "sector.semiconductor.soft.014": {
+      "horizon_days": [
+        20,
+        60
+      ],
+      "hypothesis_ids": [
+        "HYP-SEMI-20260605-0001",
+        "HYP-SEMI-20260605-0002"
+      ],
+      "learnable_parameters": {
+        "confidence_cap": {
+          "max": 0.6,
+          "min": 0.0,
+          "type": "float",
+          "unit": null,
+          "value": 0.6
+        },
+        "confirmation_window_days": {
+          "max": 60,
+          "min": 10,
+          "type": "integer",
+          "unit": "trading_day",
+          "value": 20
+        }
+      },
+      "mechanism_chain": [
+        "policy_substitution_theme",
+        "flow_or_price_confirmation",
+        "semiconductor_relative_interest"
+      ],
+      "metric_proxies": [
+        "semiconductor_policy_theme_mentions_20d",
+        "semiconductor_etf_flow_20d",
+        "semiconductor_relative_return_20d"
+      ],
+      "rule_id": "sector.semiconductor.soft.014",
+      "rule_type": "soft",
+      "source_claim_ids": [
+        "CLAIM-SEMI-20260605-0001",
+        "CLAIM-SEMI-20260605-0002",
+        "CLAIM-SEMI-20260605-0003"
+      ],
+      "status": "candidate",
+      "validation_required": true,
+      "validation_status": "sandbox_only"
+    }
+  },
+  "status": "candidate"
+}

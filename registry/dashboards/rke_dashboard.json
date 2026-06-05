@@ -67,6 +67,14 @@
       "statement": "Pass a small positive risk-appetite prior to downstream sector agents."
     }
   ],
+  "sector_demo": {
+    "demo_status": "sandbox",
+    "disagreement_cluster_id": "DISAGREE-SEMI-POLICY-SUB-20260605",
+    "empirical_confidence_bin": "low",
+    "production_allowed": false,
+    "recommendation_actionability": "monitor_only",
+    "rule_pack_id": "sector.semiconductor.policy_substitution.v1"
+  },
   "validation_hardening": {
     "ablation_accepted": true,
     "horizon_metric_failures": [],

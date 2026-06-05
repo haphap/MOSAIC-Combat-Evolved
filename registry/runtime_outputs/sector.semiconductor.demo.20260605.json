@@ -1,0 +1,96 @@
+{
+  "agent_output_id": "OUT-SEMI-20260605-0001",
+  "confidence_components": {
+    "data_confidence": 0.5,
+    "empirical_validation_confidence": 0.3,
+    "regime_match_confidence": 0.5,
+    "research_confidence": 0.55
+  },
+  "downstream_handoff": {
+    "agent_id": "sector.semiconductor",
+    "summary": "sandbox_monitor_only_policy_substitution_demo"
+  },
+  "evidence_ledger": [
+    {
+      "as_of": "2026-06-05",
+      "confidence_impact": "capped",
+      "direction": "mixed",
+      "evidence_id": "E-SEMI-20260605-0001",
+      "fallback": false,
+      "freshness_days": 0,
+      "metric": "semiconductor_policy_theme_mentions_20d",
+      "source_claim_ids": [
+        "CLAIM-SEMI-20260605-0001",
+        "CLAIM-SEMI-20260605-0002",
+        "CLAIM-SEMI-20260605-0003"
+      ],
+      "source_tool": "tushare_research_report_sandbox",
+      "source_type": "source_grounded_claim",
+      "unit": "theme",
+      "value": "storage_cycle_support_with_risks"
+    }
+  ],
+  "hypothesis_ids_used": [
+    "HYP-SEMI-20260605-0001",
+    "HYP-SEMI-20260605-0002"
+  ],
+  "inferences": [
+    {
+      "evidence_ids": [
+        "E-SEMI-20260605-0001"
+      ],
+      "inference_id": "I-SEMI-20260605-0001",
+      "rule_ids": [
+        "sector.semiconductor.soft.014"
+      ],
+      "source_claim_ids": [
+        "CLAIM-SEMI-20260605-0001",
+        "CLAIM-SEMI-20260605-0002",
+        "CLAIM-SEMI-20260605-0003"
+      ],
+      "statement": "Semiconductor policy-substitution evidence is mixed and sandbox-only."
+    }
+  ],
+  "progress_event": {
+    "agent_id": "sector.semiconductor",
+    "confidence": 0.5,
+    "evidence_count": 1,
+    "fallback_count": 0,
+    "layer": "sector",
+    "missing_count": 0,
+    "schema_valid": true,
+    "status": "completed",
+    "tools_used": [
+      "tushare_research_report_sandbox"
+    ]
+  },
+  "recommendations": [
+    {
+      "actionability": "monitor_only",
+      "confidence": 0.5,
+      "inference_ids": [
+        "I-SEMI-20260605-0001"
+      ],
+      "recommendation_id": "R-SEMI-20260605-0001",
+      "statement": "Monitor only until current flow or price confirmation exists."
+    }
+  ],
+  "research_rule_ids_used": [
+    "sector.semiconductor.soft.014"
+  ],
+  "rule_aggregation_summary": {
+    "confidence_cap": 0.6,
+    "correlated_rule_duplicate_count": 0,
+    "has_opposing_rules": false,
+    "research_only": true
+  },
+  "source_claim_ids_used": [
+    "CLAIM-SEMI-20260605-0001",
+    "CLAIM-SEMI-20260605-0002",
+    "CLAIM-SEMI-20260605-0003"
+  ],
+  "uncertainties": [
+    "sell-side report license is pending review",
+    "risk claims require validation before any tilt"
+  ]
+}
