@@ -66,10 +66,18 @@ def test_sector_semiconductor_demo_registry_writer(tmp_path: Path):
         encoding="utf-8",
     )
     outputs = write_sector_semiconductor_demo_registry(tmp_path)
+    sources = [
+        json.loads(line)
+        for line in Path(outputs["sources"]).read_text(encoding="utf-8").splitlines()
+    ]
     rule_pack = json.loads(Path(outputs["rule_pack"]).read_text(encoding="utf-8"))
     disagreement = json.loads(Path(outputs["disagreement"]).read_text(encoding="utf-8"))
     runtime = json.loads(Path(outputs["runtime_output"]).read_text(encoding="utf-8"))
 
+    assert sources
+    assert "abstract" not in sources[0]
+    assert sources[0]["source_hash"].startswith("sha256:")
+    assert sources[0]["claim_span_previews"]
     assert rule_pack["demo_status"] == "sandbox"
     assert rule_pack["production_allowed"] is False
     assert rule_pack["empirical_confidence_bin"] == "low"

@@ -93,6 +93,23 @@ def _license_gate(root: Path) -> tuple[bool, str, str]:
     )
 
 
+def _source_text_redaction_gate(root: Path) -> tuple[bool, str, str]:
+    report = _optional_json(root / "registry/compliance/source_text_redaction_report.json")
+    if report is None:
+        return False, "source text redaction report missing", "source text redaction report missing"
+    if report.get("accepted") is True:
+        return (
+            True,
+            f"{report.get('source_text_count')} Tushare source texts checked for long-passage exposure",
+            "",
+        )
+    return (
+        False,
+        f"{report.get('failure_count')} source text redaction failure(s)",
+        "long source text appears outside approved sandbox artifacts",
+    )
+
+
 def _validation_gate(
     experiment: Mapping[str, Any] | None,
     hardening: Mapping[str, Any] | None,
@@ -185,6 +202,7 @@ def audit_master_plan_completion(root: str | Path = ".") -> CompletionAudit:
 
     gold_passed, gold_evidence, gold_blocker = _gold_set_gate(root_path)
     license_passed, license_evidence, license_blocker = _license_gate(root_path)
+    redaction_passed, redaction_evidence, redaction_blocker = _source_text_redaction_gate(root_path)
     validation_passed, validation_evidence, validation_blocker = _validation_gate(
         experiment,
         hardening,
@@ -274,9 +292,9 @@ def audit_master_plan_completion(root: str | Path = ".") -> CompletionAudit:
             CompletionCriterion(
                 "C11",
                 "Compliance gate blocks unauthorized reports from production runtime.",
-                license_passed,
-                license_evidence,
-                license_blocker,
+                license_passed and redaction_passed,
+                f"{license_evidence}; {redaction_evidence}",
+                "; ".join(blocker for blocker in (license_blocker, redaction_blocker) if blocker),
             ),
             CompletionCriterion(
                 "C12",

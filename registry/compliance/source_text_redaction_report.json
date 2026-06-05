@@ -1,0 +1,33 @@
+{
+  "accepted": true,
+  "allowed_raw_text_globs": [
+    "registry/gold_sets/tushare_research_reports.review_packet.*"
+  ],
+  "allowed_raw_text_paths": [
+    "registry/sources/tushare_research_reports.jsonl",
+    "registry/sources/tushare_research_reports.gold_candidates.jsonl",
+    "registry/gold_sets/tushare_research_reports.review_template.jsonl",
+    "registry/gold_sets/tushare_research_reports.candidate_claims.jsonl"
+  ],
+  "checked_path_count": 378,
+  "failure_count": 0,
+  "fingerprint_count": 5892,
+  "min_match_chars": 80,
+  "records": [],
+  "report_id": "RKE-SOURCE-TEXT-REDACTION-REPORT-20260606",
+  "scanned_path_globs": [
+    "registry/**/*.json",
+    "registry/**/*.jsonl",
+    "registry/**/*.md",
+    "registry/**/*.log",
+    "registry/**/*.txt",
+    "docs/**/*.md",
+    "prompts/**/*.md",
+    "mosaic/**/*.py",
+    "mosaic-ts/src/**/*.ts",
+    "mosaic-ts/src/**/*.tsx"
+  ],
+  "skipped_allowed_path_count": 6,
+  "source_path": "registry/sources/tushare_research_reports.jsonl",
+  "source_text_count": 207
+}

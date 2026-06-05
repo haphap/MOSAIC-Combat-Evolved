@@ -31,6 +31,9 @@ def test_dashboard_report_summarizes_completion_and_monitoring():
     assert report["source_validation"]["accepted_for_sandbox"] is True
     assert report["source_validation"]["accepted_for_production"] is False
     assert report["source_validation"]["production_blocker_count"] == 207
+    assert report["source_text_redaction"]["accepted"] is True
+    assert report["source_text_redaction"]["failure_count"] == 0
+    assert report["source_text_redaction"]["source_text_count"] == 207
     assert report["sector_demo"]["demo_status"] == "sandbox"
     assert report["sector_demo"]["production_allowed"] is False
     assert report["sector_demo"]["recommendation_actionability"] == "monitor_only"
@@ -70,6 +73,8 @@ def test_dashboard_markdown_renders_blockers():
     assert "Validation statistical significance accepted: True" in markdown
     assert "Source validation sandbox accepted: True" in markdown
     assert "Source validation production blockers: 207" in markdown
+    assert "Source text redaction accepted: True" in markdown
+    assert "Source text redaction failures: 0" in markdown
     assert "Sector demo: sandbox" in markdown
     assert "Macro expansion candidates: 3" in markdown
     assert "Phase 7 sector actionability: monitor_only" in markdown

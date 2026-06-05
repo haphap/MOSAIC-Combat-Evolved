@@ -47,6 +47,7 @@ from .runtime import (
     check_runtime_output,
 )
 from .source_registry_validation import write_source_registry_validation_report
+from .source_text_redaction import write_source_text_redaction_report
 from .validation_hardening import (
     write_statistical_significance_report,
     write_validation_hardening_report,
@@ -570,6 +571,7 @@ def write_central_bank_mvp_registry(root: str | Path = ".") -> dict[str, str]:
         outputs["runtime_output"],
         {"agent_output_id": "OUT-CB-20260605-0001", **_jsonable(bundle.runtime_output)},
     )
+    source_text_redaction_output = write_source_text_redaction_report(root_path)
     governance_outputs = write_experiment_governance_registry(root_path)
     return {
         **{key: str(path) for key, path in outputs.items()},
@@ -578,6 +580,7 @@ def write_central_bank_mvp_registry(root: str | Path = ".") -> dict[str, str]:
         "claim_variable_vocabulary": str(claim_vocabulary_output["path"]),
         "claim_variable_validation": str(claim_variable_check_output["path"]),
         "source_registry_validation": str(source_validation_output["path"]),
+        "source_text_redaction": str(source_text_redaction_output["path"]),
         "validation_hardening": str(validation_hardening_output["path"]),
         "statistical_significance": str(statistical_significance_output["path"]),
         **governance_outputs,

@@ -78,3 +78,19 @@ If either approval is false, the corresponding use is written into
 Do not put long sell-side report passages into prompts, runtime outputs, logs,
 or public artifacts. Production prompts may cite source IDs, span IDs, hashes,
 and short reviewer-approved claim text, not long original abstracts.
+
+Run the source-text redaction audit with:
+
+```bash
+mosaic-rke source-text-status --root .
+```
+
+The audit fingerprints long Tushare research-report abstracts and scans
+runtime, prompt, dashboard, registry, docs, and agent-code artifacts for
+long-passage exposure. The report stores only source IDs, source hashes, artifact
+paths, and matched-chunk hashes; it must not echo the matched source text.
+
+Allowed raw-text locations are limited to source-pool and manual-review sandbox
+artifacts required for Phase -1 gold-set work. If a long passage appears outside
+those sandbox paths, C11 remains failed even if license review later approves the
+source for production retrieval.

@@ -280,6 +280,12 @@ from .source_registry_validation import (
     build_source_registry_validation_report,
     write_source_registry_validation_report,
 )
+from .source_text_redaction import (
+    SourceTextExposureRecord,
+    SourceTextRedactionReport,
+    build_source_text_redaction_report,
+    write_source_text_redaction_report,
+)
 from .tushare_reports import (
     RkeResearchReport,
     TushareResearchReportRefreshResult,
@@ -531,6 +537,10 @@ __all__ = [
     "SourceRegistryValidationReport",
     "build_source_registry_validation_report",
     "write_source_registry_validation_report",
+    "SourceTextExposureRecord",
+    "SourceTextRedactionReport",
+    "build_source_text_redaction_report",
+    "write_source_text_redaction_report",
     "RkeResearchReport",
     "TushareResearchReportRefreshResult",
     "fetch_tushare_research_reports",

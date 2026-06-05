@@ -261,6 +261,7 @@ def build_master_plan_coverage_report(root: str | Path = ".") -> MasterPlanCover
                     "registry/compliance/tushare_license_review_template.jsonl",
                     "registry/compliance/tushare_license_review_packet.json",
                     "registry/compliance/tushare_license_review_summary.json",
+                    "registry/compliance/source_text_redaction_report.json",
                     "registry/source_checks/source_registry_validation_report.json",
                 ),
                 blocked_if_failed=True,

@@ -1,0 +1,66 @@
+from __future__ import annotations
+
+import json
+import shutil
+from dataclasses import asdict
+from pathlib import Path
+
+from mosaic.rke import (
+    build_source_text_redaction_report,
+    write_source_text_redaction_report,
+)
+
+
+def _copy_registry(dst_root: Path) -> None:
+    shutil.copytree(Path("registry"), dst_root / "registry")
+
+
+def _first_tushare_abstract_snippet(root: Path, size: int = 160) -> str:
+    source_path = root / "registry/sources/tushare_research_reports.jsonl"
+    for line in source_path.read_text(encoding="utf-8").splitlines():
+        abstract = str(json.loads(line).get("abstract") or "")
+        if len("".join(abstract.split())) >= 100:
+            return abstract[:size]
+    raise AssertionError("expected at least one long Tushare abstract")
+
+
+def test_source_text_redaction_accepts_current_registry():
+    report = build_source_text_redaction_report(".")
+
+    assert report.accepted
+    assert report.failure_count == 0
+    assert report.source_text_count == 207
+    assert report.fingerprint_count > report.source_text_count
+    assert report.checked_path_count > 0
+    assert report.min_match_chars == 80
+
+
+def test_source_text_redaction_rejects_runtime_long_source_text(tmp_path: Path):
+    _copy_registry(tmp_path)
+    snippet = _first_tushare_abstract_snippet(tmp_path)
+    runtime_path = tmp_path / "registry/runtime_outputs/source_text_leak.json"
+    runtime_path.write_text(
+        json.dumps({"bad_runtime_context": snippet}, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    report = build_source_text_redaction_report(tmp_path)
+    payload = json.dumps(asdict(report), ensure_ascii=False)
+
+    assert not report.accepted
+    assert report.failure_count >= 1
+    assert any(record.artifact_path == "registry/runtime_outputs/source_text_leak.json" for record in report.records)
+    assert snippet not in payload
+    assert "matched_chunk_hashes" in payload
+
+
+def test_source_text_redaction_writer_outputs_report(tmp_path: Path):
+    _copy_registry(tmp_path)
+
+    result = write_source_text_redaction_report(tmp_path)
+    payload = json.loads(Path(result["path"]).read_text(encoding="utf-8"))
+
+    assert payload["accepted"] is True
+    assert payload["failure_count"] == 0
+    assert payload["source_text_count"] == 207
+    assert payload["allowed_raw_text_paths"]

@@ -20,6 +20,7 @@ REQUIRED_REGISTRY_FILES = (
     "registry/compliance/tushare_license_review_packet.json",
     "registry/compliance/tushare_license_review_packet.md",
     "registry/compliance/tushare_license_review_template.jsonl",
+    "registry/compliance/source_text_redaction_report.json",
     "registry/dashboards/rke_dashboard.json",
     "registry/dashboards/rke_dashboard.md",
     "registry/docs/rke_policy_doc_validation_report.json",

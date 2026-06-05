@@ -179,9 +179,11 @@ def _write_gold_downstream(root_path: Path) -> dict[str, str]:
     from .dashboard_reports import write_dashboard_reports
     from .registry_manifest import write_registry_manifest
     from .review_gates import write_gold_set_review_summary
+    from .source_text_redaction import write_source_text_redaction_report
 
     outputs: dict[str, str] = {}
     outputs["gold_set_review_summary"] = str(write_gold_set_review_summary(root_path)["path"])
+    outputs["source_text_redaction"] = str(write_source_text_redaction_report(root_path)["path"])
     outputs["completion_audit"] = str(write_completion_audit(root_path)["path"])
     outputs.update({f"dashboard.{key}": value for key, value in write_dashboard_reports(root_path).items()})
     outputs["registry_manifest"] = str(write_registry_manifest(root_path)["path"])
@@ -194,10 +196,12 @@ def _write_license_downstream(root_path: Path) -> dict[str, str]:
     from .registry_manifest import write_registry_manifest
     from .review_gates import write_source_license_review_summary
     from .source_registry_validation import write_source_registry_validation_report
+    from .source_text_redaction import write_source_text_redaction_report
 
     outputs: dict[str, str] = {}
     outputs["license_review_summary"] = str(write_source_license_review_summary(root_path)["path"])
     outputs["source_registry_validation"] = str(write_source_registry_validation_report(root_path)["path"])
+    outputs["source_text_redaction"] = str(write_source_text_redaction_report(root_path)["path"])
     outputs["completion_audit"] = str(write_completion_audit(root_path)["path"])
     outputs.update({f"dashboard.{key}": value for key, value in write_dashboard_reports(root_path).items()})
     outputs["registry_manifest"] = str(write_registry_manifest(root_path)["path"])

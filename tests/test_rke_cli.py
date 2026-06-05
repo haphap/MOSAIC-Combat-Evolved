@@ -147,6 +147,19 @@ def test_rke_cli_source_status_writes_summary(tmp_path: Path, capsys):
     assert (tmp_path / "registry/source_checks/source_registry_validation_report.json").exists()
 
 
+def test_rke_cli_source_text_status_writes_summary(tmp_path: Path, capsys):
+    _copy_registry(tmp_path)
+
+    code = main(("source-text-status", "--root", str(tmp_path)))
+    output = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert output["accepted"] is True
+    assert output["failure_count"] == 0
+    assert output["source_text_count"] == 207
+    assert (tmp_path / "registry/compliance/source_text_redaction_report.json").exists()
+
+
 def test_rke_cli_fetch_tushare_reports_passes_query_args(monkeypatch, tmp_path: Path, capsys):
     captured = {}
 

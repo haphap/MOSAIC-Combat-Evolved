@@ -1,5 +1,5 @@
 {
-  "artifact_count": 58,
+  "artifact_count": 59,
   "artifacts": [
     {
       "bytes": 539,
@@ -7,14 +7,14 @@
       "sha256": "sha256:96bffa7532572b41c0652258621869532e6a99a5bfeb54238a15b8918d1bbfdb"
     },
     {
-      "bytes": 2961,
+      "bytes": 3021,
       "path": "registry/audits/rke_completion_audit.json",
-      "sha256": "sha256:45e23fe76523bea6b3b38cf4acf9c8c18443722ed00e17388e576fc5e199dd56"
+      "sha256": "sha256:a3d8362b7932b4305685b92f93198a42024447c18220dc1a912b67eb57c9d440"
     },
     {
-      "bytes": 6415,
+      "bytes": 6480,
       "path": "registry/audits/rke_master_plan_coverage_report.json",
-      "sha256": "sha256:7898d05775a47ba93aecbfbbe8f8faf561163485d5fe99d465d8e9ac049ff1c2"
+      "sha256": "sha256:9db0c01b170bce2e957b332788ee4d61d4b9dab3d1f93e9b81d0add1131a436c"
     },
     {
       "bytes": 752,
@@ -30,6 +30,11 @@
       "bytes": 1572,
       "path": "registry/claims/semiconductor_claims.jsonl",
       "sha256": "sha256:318984f73c181951699f13889118bc1a6aaab0d1d947d7d67d437941d21e6c8f"
+    },
+    {
+      "bytes": 1025,
+      "path": "registry/compliance/source_text_redaction_report.json",
+      "sha256": "sha256:2318db49cfb6081222840130ce9df317c4dcaffd431b44d6b061c029fc69ed9d"
     },
     {
       "bytes": 159537,
@@ -52,14 +57,14 @@
       "sha256": "sha256:d519117af396793a5f27fc06e808ca93b55d6f4a2d0ae63bd6c7b9c360cadbd0"
     },
     {
-      "bytes": 5715,
+      "bytes": 5919,
       "path": "registry/dashboards/rke_dashboard.json",
-      "sha256": "sha256:4ecb8e00676f3f83c1965d5657264a5e6c77883bb80c19e69163f72b00289a4c"
+      "sha256": "sha256:607734287f1c8eac7d8eb50e4bfdae7757a051ae61882eb058463d98b5e6db21"
     },
     {
-      "bytes": 1197,
+      "bytes": 1272,
       "path": "registry/dashboards/rke_dashboard.md",
-      "sha256": "sha256:39a5d5bcdb0b45b91f9869dbbd1166485d79934a3fb51a8cfec2ae438d3f6eed"
+      "sha256": "sha256:72a720278fdec6f97483a16455d955ac22e88d9a78fef3fa4f503d522dc3652f"
     },
     {
       "bytes": 1233,
@@ -84,7 +89,7 @@
     {
       "bytes": 913,
       "path": "registry/docs/rke_policy_doc_validation_report.json",
-      "sha256": "sha256:e4bd091b3bfb05a0012e57b9ee7b187aa81543aa3f17f4538d83167b8de8056d"
+      "sha256": "sha256:f2e79d5cbaf7350e4aa8c74a20a0a993dc19da91f02b4c0e1007e486688eac71"
     },
     {
       "bytes": 604,
@@ -262,9 +267,9 @@
       "sha256": "sha256:93ddb09ee4518b895bc75de8694cd647ef1c950ed91afa84617a127456fcb564"
     },
     {
-      "bytes": 3753,
+      "bytes": 1213,
       "path": "registry/sources/semiconductor_demo_sources.jsonl",
-      "sha256": "sha256:879064a91045d9f8b819f8fed6a1a69a3e45acfb5ff06868972888be3afb6868"
+      "sha256": "sha256:31fce153ce5cb668eb0f4b467dd8d91b0d6a01777b7755ab34519168b23ad055"
     },
     {
       "bytes": 180884,
@@ -279,7 +284,7 @@
     {
       "bytes": 1247,
       "path": "registry/sources/tushare_research_reports.manifest.json",
-      "sha256": "sha256:ea929083afec01e962378dd8f2c4e35724365949d078d226d2f7008555142984"
+      "sha256": "sha256:44ca8ce010bf5cb895098c0b8e53a5c08baae5707f1d700aae4cad3018075b05"
     },
     {
       "bytes": 1668,

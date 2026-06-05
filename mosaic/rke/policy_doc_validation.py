@@ -49,6 +49,7 @@ REQUIRED_POLICY_DOC_MARKERS: Mapping[str, Sequence[str]] = {
         "Production Runtime Gate",
         "Manual License Review",
         "mosaic-rke apply-license-review",
+        "mosaic-rke source-text-status",
         "Original Text Handling",
     ),
 }

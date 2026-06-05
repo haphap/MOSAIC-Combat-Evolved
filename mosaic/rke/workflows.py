@@ -24,6 +24,7 @@ from .review_gates import write_gold_set_review_summary, write_source_license_re
 from .schema_validation import write_schema_validation_report
 from .sector_demo import write_sector_semiconductor_demo_registry
 from .source_registry_validation import write_source_registry_validation_report
+from .source_text_redaction import write_source_text_redaction_report
 from .validation_hardening import (
     write_statistical_significance_report,
     write_validation_hardening_report,
@@ -83,6 +84,7 @@ def run_full_rke_refresh(
     statistical_significance = write_statistical_significance_report(root_path)
     prompt_asset_summary = write_prompt_asset_validation_report(root_path)
     policy_doc_summary = write_policy_doc_validation_report(root_path)
+    source_text_redaction = write_source_text_redaction_report(root_path)
     audit_result = write_completion_audit(root_path)
     master_plan_coverage = write_master_plan_coverage_report(root_path)
     dashboard_outputs = write_dashboard_reports(root_path)
@@ -103,6 +105,7 @@ def run_full_rke_refresh(
     outputs["statistical_significance_report"] = str(statistical_significance["path"])
     outputs["prompt_asset_validation_report"] = str(prompt_asset_summary["path"])
     outputs["policy_doc_validation_report"] = str(policy_doc_summary["path"])
+    outputs["source_text_redaction_report"] = str(source_text_redaction["path"])
     outputs["completion_audit"] = str(audit_result["path"])
     outputs["master_plan_coverage_report"] = str(master_plan_coverage["path"])
     outputs.update({f"dashboard.{key}": value for key, value in dashboard_outputs.items()})

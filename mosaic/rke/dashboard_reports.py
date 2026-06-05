@@ -25,6 +25,10 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
     hardening = _read_json(hardening_path) if hardening_path.exists() else {}
     source_validation_path = root_path / "registry/source_checks/source_registry_validation_report.json"
     source_validation = _read_json(source_validation_path) if source_validation_path.exists() else {}
+    source_text_redaction_path = root_path / "registry/compliance/source_text_redaction_report.json"
+    source_text_redaction = (
+        _read_json(source_text_redaction_path) if source_text_redaction_path.exists() else {}
+    )
     statistical_path = (
         root_path
         / "registry/evaluation/statistical_significance/central_bank_after_cost_significance.json"
@@ -124,6 +128,14 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
             "production_blocker_count": source_validation.get("production_blocker_count"),
             "unique_source_count": source_validation.get("unique_source_count"),
             "duplicate_reference_count": source_validation.get("duplicate_reference_count"),
+        },
+        "source_text_redaction": {
+            "accepted": source_text_redaction.get("accepted"),
+            "failure_count": source_text_redaction.get("failure_count"),
+            "source_text_count": source_text_redaction.get("source_text_count"),
+            "checked_path_count": source_text_redaction.get("checked_path_count"),
+            "skipped_allowed_path_count": source_text_redaction.get("skipped_allowed_path_count"),
+            "min_match_chars": source_text_redaction.get("min_match_chars"),
         },
         "sector_demo": {
             "rule_pack_id": sector_rule.get("rule_pack_id"),
@@ -266,6 +278,8 @@ def render_dashboard_markdown(report: Mapping[str, Any]) -> str:
         f"- Validation statistical significance accepted: {dict(report.get('validation_hardening') or {}).get('statistical_significance_accepted')}",
         f"- Source validation sandbox accepted: {dict(report.get('source_validation') or {}).get('accepted_for_sandbox')}",
         f"- Source validation production blockers: {dict(report.get('source_validation') or {}).get('production_blocker_count')}",
+        f"- Source text redaction accepted: {dict(report.get('source_text_redaction') or {}).get('accepted')}",
+        f"- Source text redaction failures: {dict(report.get('source_text_redaction') or {}).get('failure_count')}",
         f"- Sector demo: {dict(report.get('sector_demo') or {}).get('demo_status')}",
         f"- Macro expansion candidates: {dict(report.get('macro_expansion') or {}).get('candidate_count')}",
         f"- Phase 7 sector actionability: {dict(report.get('layer_integration') or {}).get('sector_actionability')}",

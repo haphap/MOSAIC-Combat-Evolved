@@ -13,6 +13,8 @@
 - Validation statistical significance accepted: True
 - Source validation sandbox accepted: True
 - Source validation production blockers: 207
+- Source text redaction accepted: True
+- Source text redaction failures: 0
 - Sector demo: sandbox
 - Macro expansion candidates: 3
 - Phase 7 sector actionability: monitor_only

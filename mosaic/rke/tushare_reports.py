@@ -39,6 +39,7 @@ from .registry_manifest import write_registry_manifest
 from .review_gates import write_gold_set_review_summary, write_source_license_review_summary
 from .schema_validation import write_schema_validation_report
 from .source_registry_validation import write_source_registry_validation_report
+from .source_text_redaction import write_source_text_redaction_report
 from .validation_hardening import (
     write_statistical_significance_report,
     write_validation_hardening_report,
@@ -463,6 +464,7 @@ def refresh_tushare_research_report_registry(
     statistical_significance_result = write_statistical_significance_report(root_path)
     prompt_asset_summary_result = write_prompt_asset_validation_report(root_path)
     policy_doc_summary_result = write_policy_doc_validation_report(root_path)
+    source_text_redaction_result = write_source_text_redaction_report(root_path)
     completion_result = write_completion_audit(root_path)
     master_plan_coverage_result = write_master_plan_coverage_report(root_path)
     dashboard_result = write_dashboard_reports(root_path)
@@ -483,6 +485,7 @@ def refresh_tushare_research_report_registry(
     outputs["statistical_significance_report"] = str(statistical_significance_result["path"])
     outputs["prompt_asset_validation_report"] = str(prompt_asset_summary_result["path"])
     outputs["policy_doc_validation_report"] = str(policy_doc_summary_result["path"])
+    outputs["source_text_redaction_report"] = str(source_text_redaction_result["path"])
     outputs["completion_audit"] = str(completion_result["path"])
     outputs["master_plan_coverage_report"] = str(master_plan_coverage_result["path"])
     outputs.update({f"dashboard.{key}": value for key, value in dashboard_result.items()})

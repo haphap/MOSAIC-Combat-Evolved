@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict, dataclass
+from hashlib import sha256
 from pathlib import Path
 from typing import Any, Literal, Mapping, Sequence
 
@@ -82,6 +83,47 @@ def _write_jsonl(path: Path, rows: Sequence[Any]) -> None:
     with path.open("w", encoding="utf-8") as fh:
         for row in rows:
             fh.write(json.dumps(_jsonable(row), ensure_ascii=False, sort_keys=True) + "\n")
+
+
+def _short_hash(text: str) -> str:
+    return "sha256:" + sha256(text.encode("utf-8")).hexdigest()[:16]
+
+
+def _redacted_source_rows(bundle: SectorSemiconductorDemoBundle) -> tuple[dict[str, Any], ...]:
+    claims_by_source: dict[str, list[SourceGroundedClaim]] = {}
+    for claim in bundle.claims:
+        claims_by_source.setdefault(claim.source_id, []).append(claim)
+
+    rows: list[dict[str, Any]] = []
+    for row in bundle.source_rows:
+        source_id = str(row.get("source_id") or "")
+        rows.append(
+            {
+                "source_id": source_id,
+                "source_span_id": str(row.get("source_span_id") or ""),
+                "source_type": str(row.get("source_type") or ""),
+                "publish_date": str(row.get("publish_date") or ""),
+                "discovered_at": str(row.get("discovered_at") or ""),
+                "license_status": str(row.get("license_status") or ""),
+                "point_in_time_available": row.get("point_in_time_available") is True,
+                "source_hash": str(row.get("source_hash") or ""),
+                "title": str(row.get("title") or ""),
+                "institution": str(row.get("institution") or ""),
+                "query_key": str(row.get("query_key") or ""),
+                "report_type": str(row.get("report_type") or ""),
+                "raw_source_ref": "registry/sources/tushare_research_reports.jsonl",
+                "original_text_storage": "redacted_long_text_in_phase_minus_1_source_pool",
+                "claim_span_previews": [
+                    {
+                        "claim_id": claim.claim_id,
+                        "claim_text": claim.claim_text,
+                        "source_text_hash": _short_hash(claim.claim_text),
+                    }
+                    for claim in sorted(claims_by_source.get(source_id, ()), key=lambda item: item.claim_id)
+                ],
+            }
+        )
+    return tuple(rows)
 
 
 def _find_report(rows: Sequence[Mapping[str, Any]], *, contains: str) -> Mapping[str, Any]:
@@ -410,7 +452,7 @@ def write_sector_semiconductor_demo_registry(root: str | Path = ".") -> dict[str
         "runtime_output": root_path
         / "registry/runtime_outputs/sector.semiconductor.demo.20260605.json",
     }
-    _write_jsonl(outputs["sources"], bundle.source_rows)
+    _write_jsonl(outputs["sources"], _redacted_source_rows(bundle))
     _write_jsonl(outputs["claims"], bundle.claims)
     _write_jsonl(outputs["hypotheses"], bundle.hypotheses)
     _write_json(outputs["data_availability"], bundle.data_matrix)
