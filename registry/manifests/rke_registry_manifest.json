@@ -282,14 +282,14 @@
       "sha256": "sha256:285440df2c9d851740a3d74d15943ae0f269c299d584b811fee42535c6e9d874"
     },
     {
-      "bytes": 869065,
+      "bytes": 916065,
       "path": "registry/review_batches/gold_set_full_import_template.jsonl",
-      "sha256": "sha256:e2927e5928fcfc73973aedabc15e9ef966889778076b21fd778d4e42596462f5"
+      "sha256": "sha256:3c9cb9feddf48e7a2f2b257406bb34362b4ac9634800d915a271e4ba34231cb3"
     },
     {
-      "bytes": 93379,
+      "bytes": 98079,
       "path": "registry/review_batches/gold_set_next_import_template.jsonl",
-      "sha256": "sha256:ee188324907b9593313b1a6c05eacf13b988d3b0439db825319b767071080af5"
+      "sha256": "sha256:efb9c574706dfb159df5a62ace8037fefa25812bf11fa55218a0dddd23d0315a"
     },
     {
       "bytes": 265,
@@ -304,12 +304,12 @@
     {
       "bytes": 5204,
       "path": "registry/review_batches/manual_review_bundle_manifest.json",
-      "sha256": "sha256:5bed9281d23b1b0e629e7685e2b778878e9ae4a41369b93a6031975fd284a7b6"
+      "sha256": "sha256:d0f4844ea2c3ddaac55ee20613e7cde099306940a8b78814f31a8d3412ddfe10"
     },
     {
-      "bytes": 28556,
+      "bytes": 33256,
       "path": "registry/review_batches/source_license_next_import_template.jsonl",
-      "sha256": "sha256:7938f701bf5cc445f2d63c8ebbe5476ea55df6af3b7717c1978d598f957e7db1"
+      "sha256": "sha256:822e6e9710632ea4d920932a5024ac24d78f90d16b10c3c2285bf2c36f1efb07"
     },
     {
       "bytes": 970,

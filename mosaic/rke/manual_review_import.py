@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict, dataclass
+from hashlib import sha256
 from pathlib import Path
 from typing import Any, Literal, Mapping, Sequence
 
@@ -38,6 +39,7 @@ LICENSE_IMPORTED_FIELDS = (
     "review_date",
     "notes",
 )
+TARGET_ROW_HASH_FIELD = "target_row_hash"
 
 
 @dataclass(frozen=True)
@@ -90,6 +92,11 @@ def _write_jsonl(path: Path, rows: Sequence[Mapping[str, Any]]) -> dict[str, Any
     return {"path": str(path), "rows": len(rows)}
 
 
+def review_row_fingerprint(row: Mapping[str, Any]) -> str:
+    encoded = json.dumps(_jsonable(row), ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+    return "sha256:" + sha256(encoded).hexdigest()
+
+
 def _resolve_input_path(root_path: Path, input_path: str | Path) -> Path:
     path = Path(input_path)
     return path if path.is_absolute() else root_path / path
@@ -138,6 +145,9 @@ def _optional_exact_match_failures(
             failures.append(f"{field} must match {expected}")
     if target_row is None:
         return failures
+    expected_hash = str(row.get(TARGET_ROW_HASH_FIELD) or "").strip()
+    if expected_hash and expected_hash != review_row_fingerprint(target_row):
+        failures.append(f"{TARGET_ROW_HASH_FIELD} does not match target review row")
     for field in target_fields:
         actual = str(row.get(field) or "").strip()
         if not actual:

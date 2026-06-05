@@ -84,12 +84,14 @@ def test_manual_review_batches_export_sparse_import_templates(tmp_path: Path):
     assert gold_rows[0]["proposed_claim_text"]
     assert len(gold_rows[0]["proposed_claim_text"]) <= 72
     assert isinstance(gold_rows[0]["proposed_claim_text_truncated"], bool)
+    assert gold_rows[0]["target_row_hash"].startswith("sha256:")
     assert gold_rows[0]["proposed_source_text_hash"].startswith("sha256:")
     assert gold_rows[0]["gold_set_domain"]
     assert gold_rows[0]["gold_set_domain_matches"]
     assert gold_rows[0]["proposed_review_risk_flags"]
     assert gold_rows[0]["manual_claim_text"] == ""
     assert gold_rows[0]["claim_correct"] is None
+    assert license_rows[0]["target_row_hash"].startswith("sha256:")
     assert license_rows[0]["approved_for_production_runtime"] is None
     assert "apply-gold-review" in status["gold_set"]["dry_run_command"]
     assert "apply-license-review" in status["source_license"]["dry_run_command"]

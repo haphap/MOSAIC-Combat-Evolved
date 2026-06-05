@@ -13,7 +13,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Literal, Mapping, Sequence
 
-from .manual_review_import import GOLD_BOOL_FIELDS
+from .manual_review_import import GOLD_BOOL_FIELDS, TARGET_ROW_HASH_FIELD, review_row_fingerprint
 from .phase_minus1 import load_jsonl
 
 
@@ -112,6 +112,7 @@ def _gold_template_row(row: Mapping[str, Any]) -> dict[str, Any]:
     proposed_claim_text = str(row.get("proposed_claim_text") or "").strip()
     return {
         "claim_id": str(row.get("claim_id") or ""),
+        TARGET_ROW_HASH_FIELD: review_row_fingerprint(row),
         "source_id": str(row.get("source_id") or ""),
         "source_span_id": str(row.get("source_span_id") or ""),
         "document_id": str(row.get("document_id") or row.get("source_id") or ""),
@@ -151,6 +152,7 @@ def _gold_template_row(row: Mapping[str, Any]) -> dict[str, Any]:
 def _license_template_row(row: Mapping[str, Any]) -> dict[str, Any]:
     return {
         "source_id": str(row.get("source_id") or ""),
+        TARGET_ROW_HASH_FIELD: review_row_fingerprint(row),
         "source_type": str(row.get("source_type") or ""),
         "title": str(row.get("title") or ""),
         "publish_date": str(row.get("publish_date") or ""),

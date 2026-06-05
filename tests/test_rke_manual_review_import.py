@@ -150,6 +150,24 @@ def test_apply_gold_set_review_import_rejects_mismatched_template_references(tmp
     assert "source_id does not match target review row" in reasons
 
 
+def test_apply_gold_set_review_import_rejects_stale_target_row_hash(tmp_path: Path):
+    _copy_registry(tmp_path)
+    import_path = tmp_path / "gold_import_stale_hash.jsonl"
+    row = _accepted_gold_template_row(
+        _load_jsonl(tmp_path / "registry/review_batches/gold_set_next_import_template.jsonl")[0]
+    )
+    target_path = tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    target_rows = _load_jsonl(target_path)
+    target_rows[0]["proposed_claim_text"] = "changed after reviewer exported import template"
+    _write_jsonl(target_path, target_rows)
+    _write_jsonl(import_path, [row])
+
+    report = apply_gold_set_review_import(tmp_path, import_path)
+
+    assert not report.accepted
+    assert "target_row_hash does not match target review row" in set(report.invalid_rows[0].reasons)
+
+
 def test_apply_license_review_import_passes_c11_and_source_production_gate(tmp_path: Path):
     _copy_registry(tmp_path)
     import_path = tmp_path / "license_import.jsonl"
@@ -190,6 +208,24 @@ def test_apply_license_review_import_rejects_mismatched_template_references(tmp_
     assert report.applied_rows == 0
     assert "review_context_ref must match registry/compliance/tushare_license_review_packet.json" in reasons
     assert "publish_date does not match target review row" in reasons
+
+
+def test_apply_license_review_import_rejects_stale_target_row_hash(tmp_path: Path):
+    _copy_registry(tmp_path)
+    import_path = tmp_path / "license_import_stale_hash.jsonl"
+    row = _accepted_license_template_row(
+        _load_jsonl(tmp_path / "registry/review_batches/source_license_next_import_template.jsonl")[0]
+    )
+    target_path = tmp_path / "registry/compliance/tushare_license_review_template.jsonl"
+    target_rows = _load_jsonl(target_path)
+    target_rows[0]["title"] = "changed after reviewer exported import template"
+    _write_jsonl(target_path, target_rows)
+    _write_jsonl(import_path, [row])
+
+    report = apply_source_license_review_import(tmp_path, import_path)
+
+    assert not report.accepted
+    assert "target_row_hash does not match target review row" in set(report.invalid_rows[0].reasons)
 
 
 def test_apply_license_review_import_rejects_duplicate_or_invalid_rows(tmp_path: Path):
