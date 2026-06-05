@@ -88,7 +88,9 @@ def test_write_operator_readiness_report_outputs_registry_artifact(tmp_path: Pat
     assert result["accepted"] is True
     assert payload["accepted"] is True
     assert payload["failure_count"] == 0
+    assert "registry/review_batches/gold_set_full_import_template.jsonl" in payload["generated_paths"]
     assert (tmp_path / "registry/handoffs/rke_operator_readiness_report.json").exists()
+    assert (tmp_path / "registry/review_batches/gold_set_full_import_template.jsonl").exists()
 
 
 def test_cli_operator_readiness_writes_report(tmp_path: Path, capsys):

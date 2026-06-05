@@ -14,7 +14,7 @@
 - promotion-status
 - lockbox
 
-Dry-run command: `mosaic-rke promotion-dry-run --root . --gold-input registry/review_batches/gold_set_next_import_template.jsonl --license-input registry/review_batches/source_license_next_import_template.jsonl --lockbox-input registry/review_batches/lockbox_review_next_import_template.json`
+Dry-run command: `mosaic-rke build-license-review-import --root . --policy registry/review_batches/source_license_policy_template.json --output registry/review_batches/source_license_policy_import.jsonl && mosaic-rke promotion-dry-run --root . --gold-input registry/review_batches/gold_set_full_import_template.jsonl --license-input registry/review_batches/source_license_policy_import.jsonl --lockbox-input registry/review_batches/lockbox_review_next_import_template.json`
 
 ## Gates
 
@@ -25,6 +25,7 @@ Dry-run command: `mosaic-rke promotion-dry-run --root . --gold-input registry/re
 - Evidence: 0 / 500 gold-set claims reviewed
 - Review packet: registry/gold_sets/tushare_research_reports.review_packet.json
 - Import template: registry/review_batches/gold_set_next_import_template.jsonl
+- Full import template: registry/review_batches/gold_set_full_import_template.jsonl
 - Policy template: none
 - Pending rows: 500
 - Exported rows: 50
@@ -39,6 +40,7 @@ Dry-run command: `mosaic-rke promotion-dry-run --root . --gold-input registry/re
 - Evidence: 0 / 9812 sources approved for production runtime
 - Review packet: registry/compliance/tushare_license_review_packet.json
 - Import template: registry/review_batches/source_license_next_import_template.jsonl
+- Full import template: registry/review_batches/source_license_policy_import.jsonl
 - Policy template: registry/review_batches/source_license_policy_template.json
 - Pending rows: 9812
 - Exported rows: 50
@@ -53,6 +55,7 @@ Dry-run command: `mosaic-rke promotion-dry-run --root . --gold-input registry/re
 - Evidence: lockbox_state=not_ready, next_state=paper_trading
 - Review packet: registry/evaluation/lockbox/lockbox_policy.json
 - Import template: registry/review_batches/lockbox_review_next_import_template.json
+- Full import template: none
 - Policy template: none
 - Pending rows: None
 - Exported rows: 1

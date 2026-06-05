@@ -92,6 +92,10 @@ def test_dashboard_report_summarizes_completion_and_monitoring():
     assert report["manual_review_gates"]["review_batches"]["gold_set_pending_rows"] == 500
     assert report["manual_review_gates"]["review_batches"]["gold_set_exported_rows"] == 50
     assert (
+        report["manual_review_gates"]["review_batches"]["gold_set_full_import_template"]
+        == "registry/review_batches/gold_set_full_import_template.jsonl"
+    )
+    assert (
         report["manual_review_gates"]["review_batches"]["source_license_pending_rows"]
         == source_row_count
     )
@@ -139,6 +143,7 @@ def test_dashboard_markdown_renders_blockers():
     assert "Gold candidate claims: 500" in markdown
     assert "License review packet pending sources:" in markdown
     assert "Next gold review batch rows: 50" in markdown
+    assert "Full gold review import template: registry/review_batches/gold_set_full_import_template.jsonl" in markdown
     assert "Next license review batch rows: 50" in markdown
     assert "Operator handoff ready: True" in markdown
     assert "Operator handoff blockers:" in markdown

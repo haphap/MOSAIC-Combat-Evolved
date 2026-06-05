@@ -30,6 +30,7 @@
 - License review pending sources: 9812
 - License review packet pending sources: 9812
 - Next gold review batch rows: 50
+- Full gold review import template: registry/review_batches/gold_set_full_import_template.jsonl
 - Next license review batch rows: 50
 - Operator handoff ready: True
 - Operator handoff blockers: 5

@@ -5,6 +5,7 @@
   ],
   "generated_paths": [
     "registry/review_batches/gold_set_next_import_template.jsonl",
+    "registry/review_batches/gold_set_full_import_template.jsonl",
     "registry/review_batches/source_license_next_import_template.jsonl",
     "registry/review_batches/manual_review_batch_status.json"
   ],
@@ -14,6 +15,7 @@
     "dry_run_command": "mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_next_import_template.jsonl --dry-run",
     "exported_rows": 50,
     "first_pending_id": "GOLD-SRC-TSRR-20260605-566dea13371dfb10-001",
+    "full_import_template_path": "registry/review_batches/gold_set_full_import_template.jsonl",
     "import_template_path": "registry/review_batches/gold_set_next_import_template.jsonl",
     "last_pending_id": "GOLD-SRC-TSRR-20260505-bcbf31964055f067-010",
     "pending_rows": 500,
@@ -40,6 +42,7 @@
     "dry_run_command": "mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_next_import_template.jsonl --dry-run",
     "exported_rows": 50,
     "first_pending_id": "SRC-TSRR-20260605-ffdcd6ee4b92e50d",
+    "full_import_template_path": "",
     "import_template_path": "registry/review_batches/source_license_next_import_template.jsonl",
     "last_pending_id": "SRC-TSRR-20260205-000e063f936c12e4",
     "pending_rows": 9812,

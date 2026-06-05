@@ -17,7 +17,7 @@
     {
       "blocker": "",
       "check_id": "manual_batch_templates_match_status",
-      "evidence": "gold_exported=50/50, license_exported=50/50",
+      "evidence": "gold_exported=50/50, gold_full=500/500, license_exported=50/50",
       "passed": true
     },
     {
@@ -63,6 +63,7 @@
     "registry/handoffs/rke_operator_handoff.md",
     "registry/handoffs/rke_operator_readiness_report.json",
     "registry/review_batches/gold_set_next_import_template.jsonl",
+    "registry/review_batches/gold_set_full_import_template.jsonl",
     "registry/review_batches/source_license_next_import_template.jsonl",
     "registry/review_batches/source_license_policy_template.json",
     "registry/review_batches/lockbox_review_next_import_template.json"

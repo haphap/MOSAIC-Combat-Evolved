@@ -9,6 +9,7 @@ from typing import Any, Mapping, Sequence
 
 from .manual_review_batches import (
     GOLD_BATCH_IMPORT_TEMPLATE_PATH,
+    GOLD_FULL_IMPORT_TEMPLATE_PATH,
     LICENSE_BATCH_IMPORT_TEMPLATE_PATH,
     build_manual_review_batch_status,
 )
@@ -100,7 +101,11 @@ def _template_row_count(root_path: Path, relative_path: str) -> int:
 
 
 def _import_templates_are_sparse(root_path: Path) -> tuple[bool, str, str]:
-    for relative_path in (GOLD_BATCH_IMPORT_TEMPLATE_PATH, LICENSE_BATCH_IMPORT_TEMPLATE_PATH):
+    for relative_path in (
+        GOLD_BATCH_IMPORT_TEMPLATE_PATH,
+        GOLD_FULL_IMPORT_TEMPLATE_PATH,
+        LICENSE_BATCH_IMPORT_TEMPLATE_PATH,
+    ):
         path = root_path / relative_path
         if not path.exists():
             return False, f"{relative_path} missing", f"{relative_path} missing"
@@ -112,7 +117,7 @@ def _import_templates_are_sparse(root_path: Path) -> tuple[bool, str, str]:
                     f"{relative_path} row {index} has forbidden fields {leaked}",
                     "manual import template includes long source-text field",
                 )
-            if relative_path == GOLD_BATCH_IMPORT_TEMPLATE_PATH:
+            if relative_path in {GOLD_BATCH_IMPORT_TEMPLATE_PATH, GOLD_FULL_IMPORT_TEMPLATE_PATH}:
                 preview = str(row.get("proposed_claim_text") or "")
                 if len(preview) > 72:
                     return (
@@ -155,17 +160,20 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
 
     batch_status, _, _ = build_manual_review_batch_status(root_path)
     gold_rows = _template_row_count(root_path, GOLD_BATCH_IMPORT_TEMPLATE_PATH)
+    gold_full_rows = _template_row_count(root_path, GOLD_FULL_IMPORT_TEMPLATE_PATH)
     license_rows = _template_row_count(root_path, LICENSE_BATCH_IMPORT_TEMPLATE_PATH)
     checks.append(
         _check(
             "manual_batch_templates_match_status",
             batch_status.ready_for_manual_review
             and gold_rows == batch_status.gold_set.exported_rows
+            and gold_full_rows == batch_status.gold_set.pending_rows
             and license_rows == batch_status.source_license.exported_rows
             and batch_status.gold_set.exported_rows > 0
             and batch_status.source_license.exported_rows > 0,
             (
                 f"gold_exported={batch_status.gold_set.exported_rows}/{gold_rows}, "
+                f"gold_full={batch_status.gold_set.pending_rows}/{gold_full_rows}, "
                 f"license_exported={batch_status.source_license.exported_rows}/{license_rows}"
             ),
             "manual batch templates do not match batch status",
@@ -257,6 +265,7 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
         OPERATOR_HANDOFF_MD_PATH,
         OPERATOR_READINESS_REPORT_PATH,
         GOLD_BATCH_IMPORT_TEMPLATE_PATH,
+        GOLD_FULL_IMPORT_TEMPLATE_PATH,
         LICENSE_BATCH_IMPORT_TEMPLATE_PATH,
         SOURCE_LICENSE_POLICY_TEMPLATE_PATH,
         LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH,

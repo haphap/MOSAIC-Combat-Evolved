@@ -32,6 +32,7 @@ class OperatorGateHandoff:
     evidence: str
     review_packet_path: str
     import_template_path: str
+    full_import_template_path: str
     policy_template_path: str
     pending_rows: int | None
     exported_rows: int | None
@@ -133,6 +134,7 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
             evidence=str(pg02.get("evidence") or ""),
             review_packet_path=gold.review_packet_path,
             import_template_path=gold.import_template_path,
+            full_import_template_path=gold.full_import_template_path,
             policy_template_path="",
             pending_rows=gold.pending_rows,
             exported_rows=gold.exported_rows,
@@ -150,6 +152,7 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
             evidence=str(pg03.get("evidence") or ""),
             review_packet_path=source_license.review_packet_path,
             import_template_path=source_license.import_template_path,
+            full_import_template_path=DEFAULT_LICENSE_POLICY_IMPORT_PATH,
             policy_template_path=SOURCE_LICENSE_POLICY_TEMPLATE_PATH,
             pending_rows=source_license.pending_rows,
             exported_rows=source_license.exported_rows,
@@ -180,6 +183,7 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
             evidence=str(pg09.get("evidence") or ""),
             review_packet_path="registry/evaluation/lockbox/lockbox_policy.json",
             import_template_path=LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH,
+            full_import_template_path="",
             policy_template_path="",
             pending_rows=None,
             exported_rows=1,
@@ -205,6 +209,7 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
     )
     generated_paths = (
         gold.import_template_path,
+        gold.full_import_template_path,
         source_license.import_template_path,
         SOURCE_LICENSE_POLICY_TEMPLATE_PATH,
         LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH,
@@ -224,9 +229,12 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
         generated_paths=generated_paths,
         run_order=("promotion-dry-run", "gold_set", "source_license", "promotion-status", "lockbox"),
         promotion_dry_run_command=(
+            "mosaic-rke build-license-review-import --root . "
+            f"--policy {SOURCE_LICENSE_POLICY_TEMPLATE_PATH} "
+            f"--output {DEFAULT_LICENSE_POLICY_IMPORT_PATH} && "
             "mosaic-rke promotion-dry-run --root . "
-            f"--gold-input {gold.import_template_path} "
-            f"--license-input {source_license.import_template_path} "
+            f"--gold-input {gold.full_import_template_path} "
+            f"--license-input {DEFAULT_LICENSE_POLICY_IMPORT_PATH} "
             f"--lockbox-input {LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH}"
         ),
     )
@@ -258,6 +266,7 @@ def render_operator_handoff_markdown(handoff: OperatorHandoff) -> str:
                 f"- Evidence: {gate.evidence}",
                 f"- Review packet: {gate.review_packet_path}",
                 f"- Import template: {gate.import_template_path}",
+                f"- Full import template: {gate.full_import_template_path or 'none'}",
                 f"- Policy template: {gate.policy_template_path or 'none'}",
                 f"- Pending rows: {gate.pending_rows}",
                 f"- Exported rows: {gate.exported_rows}",
@@ -289,6 +298,7 @@ def write_operator_handoff(root: str | Path = ".") -> dict[str, Any]:
         "markdown": str(md_path),
         "lockbox_import_template": str(lockbox_template["path"]),
         "gold_set_import_template": review_batches["gold_set_import_template"],
+        "gold_set_full_import_template": review_batches["gold_set_full_import_template"],
         "source_license_import_template": review_batches["source_license_import_template"],
         "source_license_policy_template": str(policy_template["path"]),
     }

@@ -111,6 +111,7 @@ def run_full_rke_refresh(
     outputs["license_review_packet.markdown"] = license_packet["markdown"]
     outputs["manual_review_batch_status"] = review_batches["status"]
     outputs["manual_review_gold_set_import_template"] = review_batches["gold_set_import_template"]
+    outputs["manual_review_gold_set_full_import_template"] = review_batches["gold_set_full_import_template"]
     outputs["manual_review_source_license_import_template"] = review_batches["source_license_import_template"]
     outputs["claim_variable_vocabulary"] = str(claim_vocabulary["path"])
     outputs["gold_candidate_claims"] = gold_candidate_claims["candidate_claims"]
@@ -131,6 +132,7 @@ def run_full_rke_refresh(
     outputs["operator_handoff.json"] = operator_handoff["json"]
     outputs["operator_handoff.markdown"] = operator_handoff["markdown"]
     outputs["lockbox_review_import_template"] = operator_handoff["lockbox_import_template"]
+    outputs["gold_set_full_import_template"] = operator_handoff["gold_set_full_import_template"]
     outputs["source_license_policy_template"] = operator_handoff["source_license_policy_template"]
     outputs["rollback_readiness_report"] = str(rollback_readiness["path"])
     outputs["operator_readiness_report"] = str(operator_readiness["path"])

@@ -20,6 +20,7 @@ from .phase_minus1 import load_jsonl
 GOLD_REVIEW_TEMPLATE_PATH = "registry/gold_sets/tushare_research_reports.review_template.jsonl"
 GOLD_REVIEW_PACKET_PATH = "registry/gold_sets/tushare_research_reports.review_packet.json"
 GOLD_BATCH_IMPORT_TEMPLATE_PATH = "registry/review_batches/gold_set_next_import_template.jsonl"
+GOLD_FULL_IMPORT_TEMPLATE_PATH = "registry/review_batches/gold_set_full_import_template.jsonl"
 LICENSE_REVIEW_TEMPLATE_PATH = "registry/compliance/tushare_license_review_template.jsonl"
 LICENSE_REVIEW_PACKET_PATH = "registry/compliance/tushare_license_review_packet.json"
 LICENSE_BATCH_IMPORT_TEMPLATE_PATH = "registry/review_batches/source_license_next_import_template.jsonl"
@@ -32,6 +33,7 @@ class ReviewBatchExportSummary:
     target_path: str
     review_packet_path: str
     import_template_path: str
+    full_import_template_path: str
     total_rows: int
     pending_rows: int
     batch_size: int
@@ -169,6 +171,7 @@ def _summary(
     target_path: str,
     packet_path: str,
     import_template_path: str,
+    full_import_template_path: str = "",
     total_rows: int,
     pending_ids: Sequence[str],
     batch_size: int,
@@ -185,6 +188,7 @@ def _summary(
         target_path=target_path,
         review_packet_path=packet_path,
         import_template_path=import_template_path,
+        full_import_template_path=full_import_template_path,
         total_rows=total_rows,
         pending_rows=len(pending_ids),
         batch_size=batch_size,
@@ -224,6 +228,7 @@ def build_manual_review_batch_status(
         target_path=GOLD_REVIEW_TEMPLATE_PATH,
         packet_path=GOLD_REVIEW_PACKET_PATH,
         import_template_path=GOLD_BATCH_IMPORT_TEMPLATE_PATH,
+        full_import_template_path=GOLD_FULL_IMPORT_TEMPLATE_PATH,
         total_rows=len(gold_rows),
         pending_ids=gold_pending_ids,
         batch_size=gold_batch_size,
@@ -271,6 +276,7 @@ def build_manual_review_batch_status(
         source_license=license_summary,
         generated_paths=(
             GOLD_BATCH_IMPORT_TEMPLATE_PATH,
+            GOLD_FULL_IMPORT_TEMPLATE_PATH,
             LICENSE_BATCH_IMPORT_TEMPLATE_PATH,
             MANUAL_REVIEW_BATCH_STATUS_PATH,
         ),
@@ -291,13 +297,18 @@ def write_manual_review_batches(
         gold_batch_size=gold_batch_size,
         license_batch_size=license_batch_size,
     )
+    gold_rows = load_jsonl(root_path / GOLD_REVIEW_TEMPLATE_PATH)
+    gold_full = tuple(_gold_template_row(row) for row in gold_rows if not _gold_row_complete(row))
     gold_result = _write_jsonl(root_path / GOLD_BATCH_IMPORT_TEMPLATE_PATH, gold_batch)
+    gold_full_result = _write_jsonl(root_path / GOLD_FULL_IMPORT_TEMPLATE_PATH, gold_full)
     license_result = _write_jsonl(root_path / LICENSE_BATCH_IMPORT_TEMPLATE_PATH, license_batch)
     status_result = _write_json(root_path / MANUAL_REVIEW_BATCH_STATUS_PATH, asdict(status))
     return {
         "status": str(status_result["path"]),
         "gold_set_import_template": str(gold_result["path"]),
+        "gold_set_full_import_template": str(gold_full_result["path"]),
         "source_license_import_template": str(license_result["path"]),
         "gold_set_rows": int(gold_result["rows"]),
+        "gold_set_full_rows": int(gold_full_result["rows"]),
         "source_license_rows": int(license_result["rows"]),
     }

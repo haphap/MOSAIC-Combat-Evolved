@@ -64,14 +64,17 @@ def test_manual_review_batches_export_sparse_import_templates(tmp_path: Path):
     paths = write_manual_review_batches(tmp_path, gold_batch_size=12, license_batch_size=7)
     status = json.loads(Path(paths["status"]).read_text(encoding="utf-8"))
     gold_rows = _load_jsonl(Path(paths["gold_set_import_template"]))
+    gold_full_rows = _load_jsonl(Path(paths["gold_set_full_import_template"]))
     license_rows = _load_jsonl(Path(paths["source_license_import_template"]))
 
     assert status["ready_for_manual_review"] is True
     assert status["gold_set"]["pending_rows"] == 500
     assert status["gold_set"]["exported_rows"] == 12
+    assert status["gold_set"]["full_import_template_path"] == "registry/review_batches/gold_set_full_import_template.jsonl"
     assert status["source_license"]["pending_rows"] == source_count
     assert status["source_license"]["exported_rows"] == 7
     assert len(gold_rows) == 12
+    assert len(gold_full_rows) == 500
     assert len(license_rows) == 7
     assert "span_preview" not in gold_rows[0]
     assert "abstract" not in gold_rows[0]

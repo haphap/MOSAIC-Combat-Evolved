@@ -256,6 +256,9 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
                 "gold_set_exported_rows": (review_batch_status.get("gold_set") or {}).get(
                     "exported_rows"
                 ),
+                "gold_set_full_import_template": (review_batch_status.get("gold_set") or {}).get(
+                    "full_import_template_path"
+                ),
                 "gold_set_dry_run_command": (review_batch_status.get("gold_set") or {}).get(
                     "dry_run_command"
                 ),
@@ -373,6 +376,7 @@ def render_dashboard_markdown(report: Mapping[str, Any]) -> str:
         f"- License review pending sources: {dict(dict(report.get('manual_review_gates') or {}).get('source_license') or {}).get('pending_sources')}",
         f"- License review packet pending sources: {dict(dict(report.get('manual_review_gates') or {}).get('license_review_packet') or {}).get('pending_sources')}",
         f"- Next gold review batch rows: {dict(dict(report.get('manual_review_gates') or {}).get('review_batches') or {}).get('gold_set_exported_rows')}",
+        f"- Full gold review import template: {dict(dict(report.get('manual_review_gates') or {}).get('review_batches') or {}).get('gold_set_full_import_template')}",
         f"- Next license review batch rows: {dict(dict(report.get('manual_review_gates') or {}).get('review_batches') or {}).get('source_license_exported_rows')}",
         f"- Operator handoff ready: {dict(report.get('operator_handoff') or {}).get('ready_for_operator_review')}",
         f"- Operator handoff blockers: {dict(report.get('operator_handoff') or {}).get('remaining_blocker_count')}",
