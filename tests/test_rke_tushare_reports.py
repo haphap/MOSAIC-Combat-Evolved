@@ -351,6 +351,7 @@ def test_refresh_tushare_research_report_registry_updates_dependent_artifacts(tm
     assert result.manifest_valid
     assert "operator_handoff.json" in result.outputs
     assert "lockbox_review_import_template" in result.outputs
+    assert "source_license_policy_template" in result.outputs
     assert "rollback_readiness_report" in result.outputs
     assert "operator_readiness_report" in result.outputs
     assert "production_monitor_diagnostics" in result.outputs

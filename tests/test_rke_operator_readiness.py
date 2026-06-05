@@ -34,6 +34,7 @@ def test_operator_readiness_accepts_current_review_bundle():
     assert checks["manual_batch_templates_match_status"].passed
     assert checks["manual_import_templates_are_sparse"].passed
     assert checks["lockbox_template_requires_human_decision"].passed
+    assert checks["source_license_policy_template_requires_human_decision"].passed
     assert checks["blank_bundle_dry_run_does_not_promote"].passed
     assert checks["promotion_gate_still_blocks_production"].passed
     assert checks["source_text_redaction_clean"].passed
@@ -52,6 +53,30 @@ def test_operator_readiness_detects_long_source_text_in_import_template(tmp_path
     assert not report.accepted
     assert not sparse.passed
     assert "long source-text field" in sparse.blocker
+
+
+def test_operator_readiness_detects_filled_policy_template(tmp_path: Path):
+    _copy_registry(tmp_path)
+    result = write_operator_readiness_report(tmp_path)
+    policy_path = tmp_path / "registry/review_batches/source_license_policy_template.json"
+    policy = json.loads(policy_path.read_text(encoding="utf-8"))
+    policy["approved_for_production_runtime"] = True
+    policy_path.write_text(
+        json.dumps(policy, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    report = build_operator_readiness_report(tmp_path)
+    policy_check = next(
+        check
+        for check in report.checks
+        if check.check_id == "source_license_policy_template_requires_human_decision"
+    )
+
+    assert result["accepted"] is True
+    assert not report.accepted
+    assert not policy_check.passed
+    assert "policy template" in policy_check.blocker
 
 
 def test_write_operator_readiness_report_outputs_registry_artifact(tmp_path: Path):

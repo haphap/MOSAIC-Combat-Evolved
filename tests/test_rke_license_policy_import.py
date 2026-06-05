@@ -6,6 +6,8 @@ from pathlib import Path
 from mosaic.rke import (
     apply_source_license_review_import,
     build_source_license_policy_import,
+    build_source_license_policy_template,
+    write_source_license_policy_template,
 )
 from mosaic.rke.cli import main
 
@@ -64,6 +66,31 @@ def test_build_source_license_policy_import_expands_signed_policy(tmp_path: Path
     assert rows[0]["approved_for_production_runtime"] is False
     assert dry_run.accepted
     assert dry_run.applied_rows == 0
+
+
+def test_source_license_policy_template_requires_reviewer_decision():
+    template = build_source_license_policy_template(".")
+
+    assert template["approved_for_derived_claim_storage"] is None
+    assert template["approved_for_production_runtime"] is None
+    assert template["reviewer"] == ""
+    assert template["review_date"] == ""
+    assert template["matched_row_count"] == 9812
+    assert template["filters"]["source_type"] == ["tushare_research_report"]
+    assert template["filters"]["current_license_status"] == ["pending_review"]
+    assert "build-license-review-import" in template["build_command"]
+
+
+def test_write_source_license_policy_template_outputs_registry_artifact(tmp_path: Path):
+    _copy_registry(tmp_path)
+
+    result = write_source_license_policy_template(tmp_path)
+    payload = json.loads(Path(result["path"]).read_text(encoding="utf-8"))
+
+    assert result["rows"] == 1
+    assert payload["approved_for_production_runtime"] is None
+    assert payload["matched_row_count"] == 3
+    assert (tmp_path / "registry/review_batches/source_license_policy_template.json").exists()
 
 
 def test_build_source_license_policy_import_dry_run_does_not_write_output(tmp_path: Path):

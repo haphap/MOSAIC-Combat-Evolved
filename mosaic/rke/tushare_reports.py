@@ -707,6 +707,7 @@ def refresh_tushare_research_report_registry(
     outputs["operator_handoff.json"] = operator_handoff_result["json"]
     outputs["operator_handoff.markdown"] = operator_handoff_result["markdown"]
     outputs["lockbox_review_import_template"] = operator_handoff_result["lockbox_import_template"]
+    outputs["source_license_policy_template"] = operator_handoff_result["source_license_policy_template"]
     outputs["rollback_readiness_report"] = str(rollback_readiness_result["path"])
     outputs["operator_readiness_report"] = str(operator_readiness_result["path"])
     outputs["master_plan_coverage_report"] = str(master_plan_coverage_result["path"])

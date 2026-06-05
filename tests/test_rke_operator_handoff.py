@@ -42,6 +42,8 @@ def test_operator_handoff_summarizes_remaining_manual_gates():
     lockbox = next(gate for gate in handoff.gates if gate.review_kind == "lockbox")
     assert gold.pending_rows == 500
     assert license_gate.pending_rows == 9812
+    assert license_gate.policy_template_path == "registry/review_batches/source_license_policy_template.json"
+    assert "source_license_policy_template.json" in license_gate.dry_run_command
     assert lockbox.import_template_path == "registry/review_batches/lockbox_review_next_import_template.json"
     assert "apply-lockbox-review" in lockbox.dry_run_command
 
@@ -67,6 +69,9 @@ def test_write_operator_handoff_outputs_json_markdown_and_lockbox_template(tmp_p
     lockbox_template = json.loads(
         Path(paths["lockbox_import_template"]).read_text(encoding="utf-8")
     )
+    policy_template = json.loads(
+        Path(paths["source_license_policy_template"]).read_text(encoding="utf-8")
+    )
     markdown = Path(paths["markdown"]).read_text(encoding="utf-8")
 
     assert payload["ready_for_operator_review"] is True
@@ -74,6 +79,9 @@ def test_write_operator_handoff_outputs_json_markdown_and_lockbox_template(tmp_p
     assert "promotion-dry-run" in payload["promotion_dry_run_command"]
     assert len(payload["gates"]) == 3
     assert lockbox_template["result"] == ""
+    assert policy_template["approved_for_production_runtime"] is None
+    assert policy_template["matched_row_count"] == 9812
+    assert "source_license_policy_template.json" in markdown
     assert markdown.startswith("# RKE Operator Handoff")
 
 
@@ -89,3 +97,4 @@ def test_cli_operator_handoff_writes_package(tmp_path: Path, capsys):
     assert (tmp_path / "registry/handoffs/rke_operator_handoff.json").exists()
     assert (tmp_path / "registry/handoffs/rke_operator_handoff.md").exists()
     assert (tmp_path / "registry/review_batches/lockbox_review_next_import_template.json").exists()
+    assert (tmp_path / "registry/review_batches/source_license_policy_template.json").exists()

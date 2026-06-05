@@ -25,6 +25,7 @@ Dry-run command: `mosaic-rke promotion-dry-run --root . --gold-input registry/re
 - Evidence: 0 / 500 gold-set claims reviewed
 - Review packet: registry/gold_sets/tushare_research_reports.review_packet.json
 - Import template: registry/review_batches/gold_set_next_import_template.jsonl
+- Policy template: none
 - Pending rows: 500
 - Exported rows: 50
 - Dry run: `mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_next_import_template.jsonl --dry-run`
@@ -38,11 +39,12 @@ Dry-run command: `mosaic-rke promotion-dry-run --root . --gold-input registry/re
 - Evidence: 0 / 9812 sources approved for production runtime
 - Review packet: registry/compliance/tushare_license_review_packet.json
 - Import template: registry/review_batches/source_license_next_import_template.jsonl
+- Policy template: registry/review_batches/source_license_policy_template.json
 - Pending rows: 9812
 - Exported rows: 50
-- Dry run: `mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_next_import_template.jsonl --dry-run`
-- Apply: `mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_next_import_template.jsonl`
-- Note: Compliance approval is required before production runtime retrieval.
+- Dry run: `mosaic-rke build-license-review-import --root . --policy registry/review_batches/source_license_policy_template.json --output registry/review_batches/source_license_policy_import.jsonl && mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_policy_import.jsonl --dry-run`
+- Apply: `mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_policy_import.jsonl`
+- Note: Compliance approval is required before production runtime retrieval. For same-source decisions, fill the policy template first instead of editing every source row manually.
 
 ### PG09 lockbox
 
@@ -51,6 +53,7 @@ Dry-run command: `mosaic-rke promotion-dry-run --root . --gold-input registry/re
 - Evidence: lockbox_state=not_ready, next_state=paper_trading
 - Review packet: registry/evaluation/lockbox/lockbox_policy.json
 - Import template: registry/review_batches/lockbox_review_next_import_template.json
+- Policy template: none
 - Pending rows: None
 - Exported rows: 1
 - Dry run: `mosaic-rke apply-lockbox-review --root . --input registry/review_batches/lockbox_review_next_import_template.json --dry-run`

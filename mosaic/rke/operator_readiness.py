@@ -12,6 +12,10 @@ from .manual_review_batches import (
     LICENSE_BATCH_IMPORT_TEMPLATE_PATH,
     build_manual_review_batch_status,
 )
+from .license_policy_import import (
+    SOURCE_LICENSE_POLICY_TEMPLATE_PATH,
+    build_source_license_policy_template,
+)
 from .operator_handoff import (
     LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH,
     OPERATOR_HANDOFF_JSON_PATH,
@@ -186,6 +190,24 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
         )
     )
 
+    policy_path = root_path / SOURCE_LICENSE_POLICY_TEMPLATE_PATH
+    policy_template = _read_json(policy_path) if policy_path.exists() else {}
+    expected_policy = build_source_license_policy_template(root_path)
+    checks.append(
+        _check(
+            "source_license_policy_template_requires_human_decision",
+            bool(policy_template)
+            and policy_template == expected_policy
+            and policy_template.get("approved_for_derived_claim_storage") is None
+            and policy_template.get("approved_for_production_runtime") is None
+            and not str(policy_template.get("reviewer") or "").strip()
+            and int(policy_template.get("matched_row_count") or 0)
+            == batch_status.source_license.pending_rows,
+            f"policy_template_path={SOURCE_LICENSE_POLICY_TEMPLATE_PATH}",
+            "source-license policy template is missing, scoped incorrectly, or already filled",
+        )
+    )
+
     blank_dry_run = build_promotion_dry_run_report(
         root_path,
         gold_input=GOLD_BATCH_IMPORT_TEMPLATE_PATH,
@@ -236,6 +258,7 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
         OPERATOR_READINESS_REPORT_PATH,
         GOLD_BATCH_IMPORT_TEMPLATE_PATH,
         LICENSE_BATCH_IMPORT_TEMPLATE_PATH,
+        SOURCE_LICENSE_POLICY_TEMPLATE_PATH,
         LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH,
     )
     return OperatorReadinessReport(

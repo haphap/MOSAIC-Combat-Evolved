@@ -13,6 +13,7 @@ from .phase_minus1 import load_jsonl
 
 DEFAULT_LICENSE_POLICY_IMPORT_PATH = "registry/review_batches/source_license_policy_import.jsonl"
 LICENSE_POLICY_IMPORT_REPORT_PATH = "registry/review_batches/source_license_policy_import_report.json"
+SOURCE_LICENSE_POLICY_TEMPLATE_PATH = "registry/review_batches/source_license_policy_template.json"
 
 
 @dataclass(frozen=True)
@@ -133,6 +134,61 @@ def _review_row(row: Mapping[str, Any], policy: Mapping[str, Any]) -> dict[str, 
         "reviewer": str(policy.get("reviewer") or ""),
         "source_id": str(row.get("source_id") or ""),
     }
+
+
+def build_source_license_policy_template(root: str | Path = ".") -> Mapping[str, Any]:
+    """Build a reviewer-fillable policy template for same-source license batches.
+
+    The template is intentionally not accepted by ``build-license-review-import``
+    until a reviewer supplies the booleans, reviewer, and review_date.
+    """
+    root_path = Path(root)
+    review_rows = load_jsonl(root_path / LICENSE_REVIEW_TEMPLATE_PATH)
+    source_types = sorted({str(row.get("source_type") or "") for row in review_rows if row.get("source_type")})
+    statuses = sorted(
+        {
+            str(row.get("current_license_status") or "")
+            for row in review_rows
+            if row.get("current_license_status")
+        }
+    )
+    publish_dates = sorted(str(row.get("publish_date") or "") for row in review_rows if row.get("publish_date"))
+    return {
+        "approved_for_derived_claim_storage": None,
+        "approved_for_production_runtime": None,
+        "build_command": (
+            "mosaic-rke build-license-review-import --root . "
+            f"--policy {SOURCE_LICENSE_POLICY_TEMPLATE_PATH} "
+            f"--output {DEFAULT_LICENSE_POLICY_IMPORT_PATH}"
+        ),
+        "dry_run_command": (
+            "mosaic-rke apply-license-review --root . "
+            f"--input {DEFAULT_LICENSE_POLICY_IMPORT_PATH} --dry-run"
+        ),
+        "filters": {
+            "current_license_status": statuses,
+            "source_type": source_types,
+        },
+        "matched_row_count": len(review_rows),
+        "notes": "",
+        "publish_date_max": publish_dates[-1] if publish_dates else None,
+        "publish_date_min": publish_dates[0] if publish_dates else None,
+        "review_date": "",
+        "reviewer": "",
+        "target_review_path": LICENSE_REVIEW_TEMPLATE_PATH,
+        "template_note": (
+            "Reviewer must fill reviewer, review_date, notes, and both approval "
+            "booleans before expanding this policy into per-source import rows."
+        ),
+    }
+
+
+def write_source_license_policy_template(root: str | Path = ".") -> dict[str, Any]:
+    root_path = Path(root)
+    return _write_json(
+        root_path / SOURCE_LICENSE_POLICY_TEMPLATE_PATH,
+        build_source_license_policy_template(root_path),
+    )
 
 
 def build_source_license_policy_import(

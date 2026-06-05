@@ -13,6 +13,7 @@
       "operator_note": "Review source-grounded claim labels before applying this batch.",
       "passed": false,
       "pending_rows": 500,
+      "policy_template_path": "",
       "required_manual_fields": [
         "manual_claim_text",
         "claim_correct",
@@ -28,17 +29,18 @@
       "review_packet_path": "registry/gold_sets/tushare_research_reports.review_packet.json"
     },
     {
-      "apply_command": "mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_next_import_template.jsonl",
+      "apply_command": "mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_policy_import.jsonl",
       "blocker": "source license review still pending or restricted",
-      "dry_run_command": "mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_next_import_template.jsonl --dry-run",
+      "dry_run_command": "mosaic-rke build-license-review-import --root . --policy registry/review_batches/source_license_policy_template.json --output registry/review_batches/source_license_policy_import.jsonl && mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_policy_import.jsonl --dry-run",
       "evidence": "0 / 9812 sources approved for production runtime",
       "evidence_path": "registry/compliance/tushare_license_review_summary.json",
       "exported_rows": 50,
       "gate_id": "PG03",
       "import_template_path": "registry/review_batches/source_license_next_import_template.jsonl",
-      "operator_note": "Compliance approval is required before production runtime retrieval.",
+      "operator_note": "Compliance approval is required before production runtime retrieval. For same-source decisions, fill the policy template first instead of editing every source row manually.",
       "passed": false,
       "pending_rows": 9812,
+      "policy_template_path": "registry/review_batches/source_license_policy_template.json",
       "required_manual_fields": [
         "approved_for_derived_claim_storage",
         "approved_for_production_runtime",
@@ -61,6 +63,7 @@
       "operator_note": "Open lockbox only after manual gold and license gates pass.",
       "passed": false,
       "pending_rows": null,
+      "policy_template_path": "",
       "required_manual_fields": [
         "opened_at",
         "opened_by",
@@ -77,6 +80,7 @@
   "generated_paths": [
     "registry/review_batches/gold_set_next_import_template.jsonl",
     "registry/review_batches/source_license_next_import_template.jsonl",
+    "registry/review_batches/source_license_policy_template.json",
     "registry/review_batches/lockbox_review_next_import_template.json",
     "registry/handoffs/rke_operator_handoff.json",
     "registry/handoffs/rke_operator_handoff.md"

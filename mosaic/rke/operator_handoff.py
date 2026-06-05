@@ -7,6 +7,11 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from .license_policy_import import (
+    DEFAULT_LICENSE_POLICY_IMPORT_PATH,
+    SOURCE_LICENSE_POLICY_TEMPLATE_PATH,
+    write_source_license_policy_template,
+)
 from .lockbox_review_import import LOCKBOX_REVIEW_PATH
 from .manual_review_batches import build_manual_review_batch_status, write_manual_review_batches
 from .promotion_gate import build_production_promotion_gate_report, write_production_promotion_gate_report
@@ -27,6 +32,7 @@ class OperatorGateHandoff:
     evidence: str
     review_packet_path: str
     import_template_path: str
+    policy_template_path: str
     pending_rows: int | None
     exported_rows: int | None
     required_manual_fields: Sequence[str]
@@ -127,6 +133,7 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
             evidence=str(pg02.get("evidence") or ""),
             review_packet_path=gold.review_packet_path,
             import_template_path=gold.import_template_path,
+            policy_template_path="",
             pending_rows=gold.pending_rows,
             exported_rows=gold.exported_rows,
             required_manual_fields=tuple(gold.required_manual_fields),
@@ -143,12 +150,26 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
             evidence=str(pg03.get("evidence") or ""),
             review_packet_path=source_license.review_packet_path,
             import_template_path=source_license.import_template_path,
+            policy_template_path=SOURCE_LICENSE_POLICY_TEMPLATE_PATH,
             pending_rows=source_license.pending_rows,
             exported_rows=source_license.exported_rows,
             required_manual_fields=tuple(source_license.required_manual_fields),
-            dry_run_command=source_license.dry_run_command,
-            apply_command=source_license.apply_command,
-            operator_note="Compliance approval is required before production runtime retrieval.",
+            dry_run_command=(
+                "mosaic-rke build-license-review-import --root . "
+                f"--policy {SOURCE_LICENSE_POLICY_TEMPLATE_PATH} "
+                f"--output {DEFAULT_LICENSE_POLICY_IMPORT_PATH} && "
+                "mosaic-rke apply-license-review --root . "
+                f"--input {DEFAULT_LICENSE_POLICY_IMPORT_PATH} --dry-run"
+            ),
+            apply_command=(
+                "mosaic-rke apply-license-review --root . "
+                f"--input {DEFAULT_LICENSE_POLICY_IMPORT_PATH}"
+            ),
+            operator_note=(
+                "Compliance approval is required before production runtime retrieval. "
+                "For same-source decisions, fill the policy template first instead of "
+                "editing every source row manually."
+            ),
         ),
         OperatorGateHandoff(
             gate_id="PG09",
@@ -159,6 +180,7 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
             evidence=str(pg09.get("evidence") or ""),
             review_packet_path="registry/evaluation/lockbox/lockbox_policy.json",
             import_template_path=LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH,
+            policy_template_path="",
             pending_rows=None,
             exported_rows=1,
             required_manual_fields=(
@@ -184,6 +206,7 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
     generated_paths = (
         gold.import_template_path,
         source_license.import_template_path,
+        SOURCE_LICENSE_POLICY_TEMPLATE_PATH,
         LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH,
         OPERATOR_HANDOFF_JSON_PATH,
         OPERATOR_HANDOFF_MD_PATH,
@@ -235,6 +258,7 @@ def render_operator_handoff_markdown(handoff: OperatorHandoff) -> str:
                 f"- Evidence: {gate.evidence}",
                 f"- Review packet: {gate.review_packet_path}",
                 f"- Import template: {gate.import_template_path}",
+                f"- Policy template: {gate.policy_template_path or 'none'}",
                 f"- Pending rows: {gate.pending_rows}",
                 f"- Exported rows: {gate.exported_rows}",
                 f"- Dry run: `{gate.dry_run_command}`",
@@ -252,6 +276,7 @@ def render_operator_handoff_markdown(handoff: OperatorHandoff) -> str:
 def write_operator_handoff(root: str | Path = ".") -> dict[str, Any]:
     root_path = Path(root)
     review_batches = write_manual_review_batches(root_path)
+    policy_template = write_source_license_policy_template(root_path)
     lockbox_template = write_lockbox_review_import_template(root_path)
     write_production_promotion_gate_report(root_path)
     handoff = build_operator_handoff(root_path)
@@ -265,4 +290,5 @@ def write_operator_handoff(root: str | Path = ".") -> dict[str, Any]:
         "lockbox_import_template": str(lockbox_template["path"]),
         "gold_set_import_template": review_batches["gold_set_import_template"],
         "source_license_import_template": review_batches["source_license_import_template"],
+        "source_license_policy_template": str(policy_template["path"]),
     }

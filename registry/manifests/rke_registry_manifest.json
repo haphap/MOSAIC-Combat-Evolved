@@ -1,5 +1,5 @@
 {
-  "artifact_count": 71,
+  "artifact_count": 72,
   "artifacts": [
     {
       "bytes": 539,
@@ -44,7 +44,7 @@
     {
       "bytes": 1028,
       "path": "registry/compliance/source_text_redaction_report.json",
-      "sha256": "sha256:273837637da94ce0d4c03cae9eb6c0abb070368daa78505cdc7515be198205f7"
+      "sha256": "sha256:14be5d940440a94efd3e94405bbe1227e12507a7748278988796bc398561aa21"
     },
     {
       "bytes": 7499705,
@@ -69,7 +69,7 @@
     {
       "bytes": 7485,
       "path": "registry/dashboards/rke_dashboard.json",
-      "sha256": "sha256:8271e2cfb243c9bbbcdbdf32985103f85207c8d9cfe63f926f30e355fa4c783f"
+      "sha256": "sha256:3c506f21e4aa045eb96b45f1e9401973a5aaaeb026a484c6993cd23e50830d9f"
     },
     {
       "bytes": 1767,
@@ -177,19 +177,19 @@
       "sha256": "sha256:06bc1225f9bf48e1e1284ca5d78f2048b4a620034df65f2225ea53757b6144d1"
     },
     {
-      "bytes": 4784,
+      "bytes": 5290,
       "path": "registry/handoffs/rke_operator_handoff.json",
-      "sha256": "sha256:0d8e1b46595a70a9a61430d09c2a34dd20597c3ae784f4b8995ae8c4b8061fa9"
+      "sha256": "sha256:3e1960c857965fc6d8ee9a0a2a071c1e2000963270a24ad3daf64d5eda80e56d"
     },
     {
-      "bytes": 2822,
+      "bytes": 3227,
       "path": "registry/handoffs/rke_operator_handoff.md",
-      "sha256": "sha256:5d58e699b71efb778055ed3894de90380912a2183d447d967a586c9dde4ae336"
+      "sha256": "sha256:49d6be25758aea56d71d8e1e3b0e06410d01673393559938da07c857b30bf274"
     },
     {
-      "bytes": 1980,
+      "bytes": 2280,
       "path": "registry/handoffs/rke_operator_readiness_report.json",
-      "sha256": "sha256:1ee8ccecffb6705b418f9c999e321676108c5f02200cb9de08e177f02b68d0d7"
+      "sha256": "sha256:70c39af5b86f79c5f549b0a76f8ec22d8409696023a704dca24377b41553595b"
     },
     {
       "bytes": 383,
@@ -285,6 +285,11 @@
       "bytes": 28556,
       "path": "registry/review_batches/source_license_next_import_template.jsonl",
       "sha256": "sha256:7938f701bf5cc445f2d63c8ebbe5476ea55df6af3b7717c1978d598f957e7db1"
+    },
+    {
+      "bytes": 978,
+      "path": "registry/review_batches/source_license_policy_template.json",
+      "sha256": "sha256:945ee21bff2f930a1ed5136f7ed47c2702e968a2f1ab637da0d7c64ced93a5de"
     },
     {
       "bytes": 995,

@@ -65,6 +65,11 @@ If a source is not approved for production runtime, it remains blocked by C11.
 For large same-source review sets, compliance can sign one scoped policy and
 expand it into the sparse JSONL expected by `apply-license-review`:
 
+The operator handoff writes a reviewer-fillable starter policy at
+`registry/review_batches/source_license_policy_template.json`. It is deliberately
+incomplete: `reviewer`, `review_date`, and both approval booleans must be filled
+before it can be expanded.
+
 ```json
 {
   "approved_for_derived_claim_storage": true,
@@ -84,7 +89,7 @@ Build the import rows:
 ```bash
 mosaic-rke build-license-review-import \
   --root . \
-  --policy reviewed_source_policy.json \
+  --policy registry/review_batches/source_license_policy_template.json \
   --output registry/review_batches/source_license_policy_import.jsonl
 ```
 

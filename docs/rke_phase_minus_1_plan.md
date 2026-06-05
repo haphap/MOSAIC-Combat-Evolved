@@ -123,12 +123,16 @@ mosaic-rke promotion-dry-run --root . \
 ```
 
 For large same-source license queues, build the `apply-license-review` input
-from a signed policy file instead of hand-filling every row:
+from a signed policy file instead of hand-filling every row. The operator
+handoff generates a fillable starter policy at
+`registry/review_batches/source_license_policy_template.json`; reviewers must
+fill the approval booleans, reviewer, review date, and notes before expanding
+it:
 
 ```bash
 mosaic-rke build-license-review-import \
   --root . \
-  --policy reviewed_source_policy.json \
+  --policy registry/review_batches/source_license_policy_template.json \
   --output registry/review_batches/source_license_policy_import.jsonl
 
 mosaic-rke apply-license-review \
