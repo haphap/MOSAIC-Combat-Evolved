@@ -39,8 +39,9 @@ Seed corpus:
 - Source: Tushare `pro.research_report`
 - Current seed query window: `2026-02-05` to `2026-06-05`
 - Current seed query set:
-  - stocks: `600519.SH`, `300750.SZ`
-  - industries: `银行`, `半导体`
+  - full-market `report_type`: `个股研报`, `行业研报`
+  - date chunking: 7 calendar days per Tushare query window
+  - source rows: 9,812 total, with 4,756 `个股研报` rows and 5,056 `行业研报` rows
 
 Gold-set target from the master plan:
 
@@ -53,7 +54,10 @@ Gold-set target from the master plan:
 - variable mapping accuracy >= 0.80
 - unsupported-field false grounding <= 0.05
 
-Current seed corpus is not yet the gold set. It is the first source pool for sampling and annotation.
+Current seed corpus is not yet the gold set. It is the source pool for
+sampling, claim extraction, license review, and annotation. Targeted
+stock-code / industry-keyword queries remain supported only as supplements when
+reviewers need additional examples for a sparse domain.
 
 ## Immediate Work Order
 
