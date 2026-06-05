@@ -20,10 +20,20 @@ import type { z } from "zod";
 import { type BridgeApi, type MosaicConfig, pickBridgeTools } from "../../bridge/index.js";
 import type { LlmHandle } from "../../llm/factory.js";
 import { runAgentToolLoop } from "../helpers/agent_loop.js";
+import {
+  AgentTimeoutError,
+  buildLlmCall,
+  formatAgentEvent,
+  formatDurationMs,
+  resolveAgentTimeoutMs,
+  safeErrorMessage,
+  summarizeAgentOutput,
+  withAgentTimeout,
+} from "../helpers/runtime.js";
 import { invokeStructuredOrFreetext } from "../helpers/structured_output.js";
 import { type LoaderLanguage, loadPrompt } from "../prompts/loader.js";
 import type { DailyCycleStateType, DailyCycleStateUpdate } from "../state.js";
-import type { LlmCallRecord, RegimeSignal, SuperinvestorOutput } from "../types.js";
+import type { RegimeSignal, SuperinvestorOutput } from "../types.js";
 
 export interface LayerThreeAgentSpec<TOutput extends SuperinvestorOutput> {
   agentId: string;
@@ -42,6 +52,8 @@ export interface LayerThreeAgentDeps {
   config: MosaicConfig;
   llmHandleStructured?: LlmHandle;
   onLog?: (msg: string) => void;
+  /** Per-agent wall-clock timeout in seconds. Default: 300; <=0 disables. */
+  agentTimeoutSeconds?: number;
   /** Override prompt-root directory (tests inject a tmpdir). */
   promptsRoot?: string;
 }
@@ -53,64 +65,112 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
   deps: LayerThreeAgentDeps,
 ): LayerThreeAgentNode {
   return async function layerThreeAgentNode(state) {
-    const cohort = state.active_cohort || "cohort_default";
-    const language = pickPromptLanguage(deps.config);
-
-    const systemPrompt = await loadPrompt({
-      agent: spec.agentId,
-      cohort,
-      language,
-      ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
-    });
-
-    const tools = await pickBridgeTools(deps.api, spec.requiredTools, {
-      ...(state.mode === "backtest" && state.as_of_date
-        ? { context: { mode: "backtest", as_of_date: state.as_of_date } }
-        : {}),
-    });
-
-    const userContext = buildLayerThreeUserContext(state, spec.agentId);
-    const loopResult = await runAgentToolLoop({
-      llm: deps.llmHandle.llm,
-      tools: tools as StructuredToolInterface[],
-      systemMessage: systemPrompt,
-      initialMessages: [new HumanMessage(userContext)],
-      onLog: deps.onLog ?? (() => undefined),
-    });
-
     const structuredHandle = deps.llmHandleStructured ?? deps.llmHandle;
-    const extractorSystem = spec.buildExtractorSystem
-      ? spec.buildExtractorSystem(language)
-      : defaultExtractorSystem(spec, language);
-    const extractor = await invokeStructuredOrFreetext<TOutput>({
-      llm: structuredHandle.llm,
-      schema: spec.schema,
-      messages: [
-        new SystemMessage(extractorSystem),
-        new HumanMessage(loopResult.analysisText || "(no analysis produced)"),
-      ],
-      render: spec.render,
-      agentName: spec.agentId,
-      structuredOnlySentences: spec.structuredOnlySentences ?? [],
-    });
+    const timeoutMs = resolveAgentTimeoutMs(deps.agentTimeoutSeconds);
+    const onLog = deps.onLog ?? (() => undefined);
+    const startedAt = Date.now();
+    onLog(
+      formatAgentEvent("start", "L3", spec.agentId, [
+        `timeout=${timeoutMs > 0 ? formatDurationMs(timeoutMs) : "off"}`,
+      ]),
+    );
 
-    const output =
-      extractor.structured ?? spec.fallback(loopResult.analysisText, state.layer1_consensus);
+    try {
+      return await withAgentTimeout(
+        async (signal) => {
+          const cohort = state.active_cohort || "cohort_default";
+          const language = pickPromptLanguage(deps.config);
+          onLog(formatAgentEvent("phase", "L3", spec.agentId, ["prepare"]));
 
-    const llmCall: LlmCallRecord = {
-      ts: new Date().toISOString(),
-      agent: spec.agentId,
-      model: structuredHandle.model,
-      provider: structuredHandle.provider,
-      prompt_tokens: 0,
-      completion_tokens: 0,
-      cost_usd: 0,
-    };
+          const systemPrompt = await loadPrompt({
+            agent: spec.agentId,
+            cohort,
+            language,
+            ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
+          });
 
-    return {
-      layer3_outputs: { [spec.agentId]: output },
-      llm_calls: [llmCall],
-    };
+          const tools = await pickBridgeTools(deps.api, spec.requiredTools, {
+            ...(state.mode === "backtest" && state.as_of_date
+              ? { context: { mode: "backtest", as_of_date: state.as_of_date } }
+              : {}),
+          });
+
+          const userContext = buildLayerThreeUserContext(state, spec.agentId);
+          const loopResult = await runAgentToolLoop({
+            llm: deps.llmHandle.llm,
+            tools: tools as StructuredToolInterface[],
+            systemMessage: systemPrompt,
+            initialMessages: [new HumanMessage(userContext)],
+            onLog: (msg) => onLog(formatAgentEvent("phase", "L3", spec.agentId, [msg])),
+            signal,
+          });
+
+          onLog(
+            formatAgentEvent("phase", "L3", spec.agentId, [
+              `extract chars=${loopResult.analysisText.length}`,
+            ]),
+          );
+          const extractorSystem = spec.buildExtractorSystem
+            ? spec.buildExtractorSystem(language)
+            : defaultExtractorSystem(spec, language);
+          const extractor = await invokeStructuredOrFreetext<TOutput>({
+            llm: structuredHandle.llm,
+            schema: spec.schema,
+            messages: [
+              new SystemMessage(extractorSystem),
+              new HumanMessage(loopResult.analysisText || "(no analysis produced)"),
+            ],
+            render: spec.render,
+            agentName: spec.agentId,
+            structuredOnlySentences: spec.structuredOnlySentences ?? [],
+            onLog: (msg) => onLog(formatAgentEvent("phase", "L3", spec.agentId, [msg])),
+            signal,
+          });
+
+          const output =
+            extractor.structured ?? spec.fallback(loopResult.analysisText, state.layer1_consensus);
+          const llmCall = buildLlmCall(spec.agentId, structuredHandle);
+
+          onLog(
+            formatAgentEvent("done", "L3", spec.agentId, [
+              `elapsed=${formatDurationMs(Date.now() - startedAt)}`,
+              `analysis_llm=${loopResult.llmInvocations}`,
+              `tools=${loopResult.toolCalls}`,
+              `source=${extractor.structured ? "structured" : "fallback"}`,
+              summarizeAgentOutput(output),
+            ]),
+          );
+
+          return {
+            layer3_outputs: { [spec.agentId]: output },
+            llm_calls: [llmCall],
+          };
+        },
+        timeoutMs,
+        `L3 ${spec.agentId}`,
+      );
+    } catch (err) {
+      if (err instanceof AgentTimeoutError) {
+        const output = spec.fallback("", state.layer1_consensus);
+        onLog(
+          formatAgentEvent("timeout", "L3", spec.agentId, [
+            `elapsed=${formatDurationMs(Date.now() - startedAt)}`,
+            summarizeAgentOutput(output),
+          ]),
+        );
+        return {
+          layer3_outputs: { [spec.agentId]: output },
+          llm_calls: [buildLlmCall(spec.agentId, structuredHandle)],
+        };
+      }
+      onLog(
+        formatAgentEvent("error", "L3", spec.agentId, [
+          `elapsed=${formatDurationMs(Date.now() - startedAt)}`,
+          `message=${safeErrorMessage(err)}`,
+        ]),
+      );
+      throw err;
+    }
   };
 }
 

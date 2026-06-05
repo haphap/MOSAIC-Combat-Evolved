@@ -54,6 +54,8 @@ DEFAULT_CONFIG = {
         "MOSAIC_CACHE_DIR",
         os.path.join(_MOSAIC_HOME, "cache"),
     ),
+    "china_policy_db_dir": os.getenv("MOSAIC_CHINA_POLICY_DB_DIR"),
+    "china_policy_db_raw_base_url": os.getenv("MOSAIC_CHINA_POLICY_DB_RAW_BASE_URL"),
     # ============== LLM settings ==============
     # Default to Anthropic Claude Sonnet (Plan §1). Local Lemonade Qwen and
     # DeepSeek can be swapped in via config.set at runtime to control cost.
@@ -114,7 +116,7 @@ DEFAULT_CONFIG = {
         "etf_reference_data": "tushare",
         "broker_research": "tushare",
         "stock_research": "tushare",
-        "macro_data": "tushare,fred,akshare",
+        "macro_data": "pbc,govcn,tushare,fred,akshare",
     },
     # Tool-level configuration (takes precedence over category-level).
     "tool_vendors": {
@@ -137,13 +139,13 @@ DEFAULT_CONFIG = {
         "get_broker_research": "tushare",
         "get_stock_research": "tushare",
         # Macro layer (Phase 0 Day 3+)
-        "get_pboc_ops": "tushare",
+        "get_pboc_ops": "pbc",
         "get_lhb_ranking": "tushare",
         "get_yield_curve_cn": "tushare",
         "get_us_china_spread": "tushare,fred",
         "get_xueqiu_heat": "akshare",
-        "get_industry_policy": "tushare",
-        "get_fred_series": "fred",
+        "get_industry_policy": "govcn",
+        "get_fred_series": "tushare,fred",
         # Macro layer gap-fill (Plan §14 #8 / §11.5 4.0 P1)
         "get_usdcny": "tushare",
         "get_commodity_prices": "tushare",

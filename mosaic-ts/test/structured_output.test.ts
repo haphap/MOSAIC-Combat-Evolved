@@ -159,21 +159,49 @@ describe("invokeStructuredOrFreetext", () => {
     expect(llm.invokeCalls.length).toBe(0); // free-text path not used
   });
 
+  it("canonicalizes wrong agent literals before schema validation", async () => {
+    const AgentSchema = z.object({
+      agent: z.literal("news_sentiment"),
+      retail_sentiment_score: z.number(),
+    });
+    const llm = new ScriptedLlm({
+      structuredResponse: { agent: "wrong_agent", retail_sentiment_score: 0.2 },
+    });
+
+    const result = await invokeStructuredOrFreetext({
+      llm: llm as unknown as Parameters<typeof invokeStructuredOrFreetext>[0]["llm"],
+      schema: AgentSchema,
+      messages: baseMessages,
+      render: (r) => `${r.agent}:${r.retail_sentiment_score}`,
+      agentName: "news_sentiment",
+    });
+
+    expect(result.structured).toEqual({
+      agent: "news_sentiment",
+      retail_sentiment_score: 0.2,
+    });
+    expect(result.rendered).toBe("news_sentiment:0.2");
+    expect(llm.invokeCalls.length).toBe(0);
+  });
+
   it("falls back to free text when withStructuredOutput throws at construction", async () => {
     const llm = new ScriptedLlm({
       supportsStructured: false,
       responses: [new AIMessage("PBOC stance: NEUTRAL.")],
     });
+    const logs: string[] = [];
     const result = await invokeStructuredOrFreetext({
       llm: llm as unknown as Parameters<typeof invokeStructuredOrFreetext>[0]["llm"],
       schema: Schema,
       messages: baseMessages,
       render: () => "UNREACHABLE",
       agentName: "central_bank",
+      onLog: (msg) => logs.push(msg),
     });
     expect(result.structured).toBeNull();
     expect(result.rendered).toBe("PBOC stance: NEUTRAL.");
     expect(llm.invokeCalls.length).toBe(1);
+    expect(logs[0]).toContain("provider does not support withStructuredOutput");
   });
 
   it("parses JSON fallback when structured output is unsupported", async () => {
@@ -196,6 +224,31 @@ describe("invokeStructuredOrFreetext", () => {
     });
     expect(result.rendered).toBe("stance=ACCOMMODATIVE, bps=-10");
     expect(llm.invokeCalls.length).toBe(1);
+  });
+
+  it("canonicalizes wrong agent literals in JSON fallback", async () => {
+    const AgentSchema = z.object({
+      agent: z.literal("semiconductor"),
+      sector_score: z.number(),
+    });
+    const llm = new ScriptedLlm({
+      supportsStructured: false,
+      responses: [new AIMessage('{"agent":"wrong_agent","sector_score":0.4}')],
+    });
+
+    const result = await invokeStructuredOrFreetext({
+      llm: llm as unknown as Parameters<typeof invokeStructuredOrFreetext>[0]["llm"],
+      schema: AgentSchema,
+      messages: baseMessages,
+      render: (r) => `${r.agent}:${r.sector_score}`,
+      agentName: "semiconductor",
+    });
+
+    expect(result.structured).toEqual({
+      agent: "semiconductor",
+      sector_score: 0.4,
+    });
+    expect(result.rendered).toBe("semiconductor:0.4");
   });
 
   it("falls back to free text when structured invoke throws at runtime", async () => {

@@ -32,6 +32,8 @@ _SUFFIX_MAP = {
 _A_SHARE_EXCHANGES = {"SH", "SZ", "BJ"}
 _TUSHARE_QUERY_MAX_ATTEMPTS = 3
 _TUSHARE_QUERY_BACKOFF_SECONDS = (0.5, 1.5)
+_ETF_UNIVERSE_FUND_BASIC_CACHE_TTL_SECONDS = 60 * 60
+_ETF_UNIVERSE_MAX_ENRICHED_ROWS = 6
 
 
 def _parse_date(date_str: str) -> datetime:
@@ -158,13 +160,92 @@ def _resolve_broker_industry_keyword(
     )
 
 
+_RESEARCH_REPORT_FIELDS = "trade_date,title,abstr,author,inst_csname,ts_code,ind_name,url"
+
+
+def _format_research_report_date(value: object) -> str:
+    pub_date = str(value or "").strip()
+    if len(pub_date) == 8 and pub_date.isdigit():
+        return f"{pub_date[:4]}-{pub_date[4:6]}-{pub_date[6:]}"
+    return pub_date
+
+
+def _append_research_report_rows(lines: list[str], data: pd.DataFrame) -> None:
+    for idx, (_, row) in enumerate(data.iterrows(), 1):
+        pub_date = _format_research_report_date(row.get("trade_date", ""))
+        inst = str(row.get("inst_csname", "")).strip()
+        title = str(row.get("title", "")).strip()
+        abstr = str(row.get("abstr", "")).strip()
+        author = str(row.get("author", "")).strip()
+        ind_name = str(row.get("ind_name", "")).strip()
+        url = str(row.get("url", "")).strip()
+
+        lines.append(f"## Report {idx}: {pub_date} | {inst}")
+        if title:
+            lines.append(f"**Title:** {title}")
+        if author:
+            lines.append(f"**Author:** {author}")
+        if ind_name and ind_name.lower() not in ("nan", "none", ""):
+            lines.append(f"**Industry:** {ind_name}")
+        if url and url.lower() not in ("nan", "none", ""):
+            lines.append(f"**Source:** {url}")
+        if abstr and abstr.lower() not in ("nan", "none", ""):
+            lines.append(f"\n{abstr}")
+        else:
+            lines.append("\n*Abstract not available for this report.*")
+        lines.append("")
+
+
+def _format_no_research_reports(
+    *,
+    title: str,
+    start_date: str,
+    end_date: str,
+    context_lines: Iterable[str] = (),
+    wide_data: pd.DataFrame | None = None,
+    wide_days: int = 120,
+    max_reports: int = 30,
+) -> str:
+    lines = [
+        f"# {title}",
+        "",
+        f"Period: {start_date} to {end_date} | Total: 0 reports",
+        "Status: no reports found in the requested period.",
+    ]
+    for line in context_lines:
+        if line:
+            lines.append(line)
+
+    if wide_data is not None and not wide_data.empty:
+        wide_total = len(wide_data)
+        wide_rows = wide_data.sort_values("trade_date", ascending=False).head(max_reports)
+        lines.extend(
+            [
+                (
+                    f"Fallback: {wide_total} report(s) found within the past {wide_days} days. "
+                    "Rows below are outside the requested window and should be treated as context."
+                ),
+                "",
+            ]
+        )
+        _append_research_report_rows(lines, wide_rows)
+    else:
+        lines.append(f"Fallback: no reports found within the past {wide_days} days.")
+
+    return "\n".join(lines)
+
+
 _cached_pro_client = None
+_etf_fund_basic_cache: tuple[float, pd.DataFrame] | None = None
+_etf_factor_snapshot_cache: dict[tuple[str, str], dict[str, object]] = {}
 
 
 def clear_pro_client_cache():
     """Clear the cached tushare client so the next call re-initializes."""
-    global _cached_pro_client
+    global _cached_pro_client, _etf_fund_basic_cache, _etf_factor_snapshot_cache
     _cached_pro_client = None
+    _etf_fund_basic_cache = None
+    _etf_factor_snapshot_cache = {}
 
 
 def _get_pro_client():
@@ -614,6 +695,14 @@ def _infer_etf_exposure_bucket(row: pd.Series) -> str:
     return "broad_market"
 
 
+def _is_money_market_fund(row: pd.Series) -> bool:
+    text = " ".join(
+        str(row.get(column, "") or "")
+        for column in ("name", "benchmark", "fund_type", "invest_type")
+    ).lower()
+    return "货币" in text or "money market" in text
+
+
 def _score_etf_liquidity(avg_amount: float | None) -> int | None:
     if avg_amount is None:
         return None
@@ -767,15 +856,38 @@ def _enrich_etf_universe_snapshot(df: pd.DataFrame, curr_date: str) -> pd.DataFr
 
     enriched = df.copy()
     enriched["exposure_bucket"] = enriched.apply(_infer_etf_exposure_bucket, axis=1)
-    for index, row in enriched.iterrows():
+    max_enriched = max(0, int(_ETF_UNIVERSE_MAX_ENRICHED_ROWS))
+    for row_position, (index, row) in enumerate(enriched.iterrows()):
         ts_code = row.get("ts_code")
-        try:
-            factor_snapshot = _latest_etf_factor_snapshot(ts_code, curr_date)
-        except Exception as exc:
-            factor_snapshot = {"factor_status": f"error: {exc}"}
+        if row_position >= max_enriched:
+            enriched.at[index, "factor_status"] = (
+                f"not_enriched; enrichment_cap={max_enriched}"
+            )
+            continue
+        cache_key = (str(ts_code), curr_date)
+        factor_snapshot = _etf_factor_snapshot_cache.get(cache_key)
+        if factor_snapshot is None:
+            try:
+                factor_snapshot = _latest_etf_factor_snapshot(str(ts_code), curr_date)
+            except Exception as exc:
+                factor_snapshot = {"factor_status": f"error: {exc}"}
+            _etf_factor_snapshot_cache[cache_key] = dict(factor_snapshot)
         for key, value in factor_snapshot.items():
             enriched.at[index, key] = value
     return enriched
+
+
+def _get_etf_fund_basic_snapshot() -> pd.DataFrame:
+    global _etf_fund_basic_cache
+    now = time.time()
+    if _etf_fund_basic_cache is not None:
+        cached_at, cached_df = _etf_fund_basic_cache
+        if now - cached_at <= _ETF_UNIVERSE_FUND_BASIC_CACHE_TTL_SECONDS:
+            return cached_df.copy()
+
+    df = _query_pro("fund_basic")
+    _etf_fund_basic_cache = (now, df.copy())
+    return df
 
 
 def get_etf_daily(symbol: str, start_date: str, end_date: str) -> str:
@@ -942,7 +1054,7 @@ def get_etf_universe(
     asset_scope: str | None = None,
     limit: int = 50,
 ) -> str:
-    df = _query_pro("fund_basic")
+    df = _get_etf_fund_basic_snapshot()
     if df.empty:
         return "No ETF universe data found."
 
@@ -951,8 +1063,15 @@ def get_etf_universe(
         output = output[
             output["list_date"].astype(str).fillna("") <= _to_api_date(curr_date)
         ]
-    if market and "market" in output.columns:
-        output = output[output["market"].astype(str).str.upper() == market.upper()]
+    if "ts_code" in output.columns:
+        output = output[
+            ~output["ts_code"].astype(str).str.upper().str.endswith(".OF")
+        ]
+    output = output[~output.apply(_is_money_market_fund, axis=1)]
+
+    normalized_market = (market or "E").strip().upper()
+    if normalized_market and normalized_market != "ALL" and "market" in output.columns:
+        output = output[output["market"].astype(str).str.upper() == normalized_market]
 
     output["asset_scope"] = output.apply(_infer_etf_asset_scope, axis=1)
     normalized_scope = (asset_scope or "").strip().lower()
@@ -961,7 +1080,7 @@ def get_etf_universe(
 
     if output.empty:
         scope_label = normalized_scope or "all"
-        market_label = market or "all"
+        market_label = market or "E"
         return f"No ETF universe entries found for market={market_label} scope={scope_label}."
 
     if "list_date" in output.columns:
@@ -970,14 +1089,18 @@ def get_etf_universe(
     limited = output.head(max(1, int(limit))).reset_index(drop=True)
     reference_date = curr_date or datetime.now().strftime("%Y-%m-%d")
     limited = _enrich_etf_universe_snapshot(limited, reference_date)
+    enriched_rows = min(len(limited), max(0, int(_ETF_UNIVERSE_MAX_ENRICHED_ROWS)))
     summary_lines = [
         f"Universe size after filters: {len(output)}",
         f"Returned rows: {len(limited)}",
-        "Returned rows enriched with liquidity, NAV, share-change, and exposure factor fields.",
+        f"Enriched rows: {enriched_rows} of {len(limited)}",
+        "Rows beyond the enrichment cap keep basic ETF metadata and factor_status=not_enriched.",
         "latest_close comes from Tushare fund_daily and reflects the latest available daily close, not an intraday real-time quote.",
     ]
     if market:
         summary_lines.append(f"Market filter: {market.upper()}")
+    else:
+        summary_lines.append("Market filter: E (default exchange-traded ETF universe)")
     if normalized_scope:
         summary_lines.append(f"Asset scope: {normalized_scope}")
 
@@ -1710,7 +1833,7 @@ def get_indicator(
     curr_date: str,
     look_back_days: int,
 ) -> str:
-    from etfagents.dataflows.indicator_descriptions import INDICATOR_DESCRIPTIONS as descriptions
+    from mosaic.dataflows.indicator_descriptions import INDICATOR_DESCRIPTIONS as descriptions
     if indicator not in descriptions:
         raise ValueError(
             f"Indicator {indicator} is not supported. Please choose from: {list(descriptions.keys())}"
@@ -2164,10 +2287,10 @@ def get_broker_reports(
             ``extra_ind_names`` without resolving industry from stock reports.
 
     Returns:
-        Formatted Markdown string of broker research reports with full abstracts
+        Formatted Markdown string of broker research reports with full abstracts, or a no-data note
 
     Raises:
-        DataVendorUnavailable: If ticker is not A-share, tushare token missing, or no data
+        DataVendorUnavailable: If ticker is not A-share, tushare token missing, or vendor failures
     """
     pro = _get_pro_client()
     ts_code = _normalize_ts_code(ticker)
@@ -2204,12 +2327,27 @@ def get_broker_reports(
             "together with explicit extra_ind_names."
         )
     else:
-        industry, industry_source, basic_industry = _resolve_broker_industry_keyword(
-            pro,
-            ts_code,
-            start_date,
-            end_date,
-        )
+        try:
+            industry, industry_source, basic_industry = _resolve_broker_industry_keyword(
+                pro,
+                ts_code,
+                start_date,
+                end_date,
+            )
+        except DataVendorUnavailable as exc:
+            message = str(exc)
+            if not message.startswith("Cannot determine broker-search industry keyword"):
+                raise
+            return _format_no_research_reports(
+                title=f"Industry Research Reports for unresolved industry (search keyword for {ts_code})",
+                start_date=start_date,
+                end_date=end_date,
+                context_lines=[
+                    "Industry keyword source: unresolved",
+                    f"Resolution failed: {message}",
+                ],
+                max_reports=max_reports,
+            )
 
     start_api = start_date.replace("-", "")
     end_api = end_date.replace("-", "")
@@ -2235,7 +2373,7 @@ def get_broker_reports(
                 start_date=start_api,
                 end_date=end_api,
                 report_type="行业研报",
-                fields="trade_date,title,abstr,author,inst_csname,ts_code,ind_name,url",
+                fields=_RESEARCH_REPORT_FIELDS,
             )
         except Exception as exc:
             last_exc = exc
@@ -2272,25 +2410,33 @@ def get_broker_reports(
                     start_date=wide_start,
                     end_date=end_api,
                     report_type="行业研报",
-                    fields="trade_date,inst_csname",
+                    fields=_RESEARCH_REPORT_FIELDS,
                 )
                 if wide_data is not None and not wide_data.empty:
-                    raise DataVendorUnavailable(
-                        f"No industry research reports found for '{candidate}' "
-                        f"(search keyword for {ts_code}, resolved from {industry_source}) "
-                        f"between {start_date} and {end_date}, but {len(wide_data)} report(s) exist "
-                        f"within the past 120 days. Try widening the date range."
+                    return _format_no_research_reports(
+                        title=f"Industry Research Reports for {candidate} (search keyword for {ts_code})",
+                        start_date=start_date,
+                        end_date=end_date,
+                        context_lines=[
+                            f"Industry keyword source: {industry_source}",
+                            f"Stock basic industry: {basic_industry}" if basic_industry else "",
+                        ],
+                        wide_data=wide_data,
+                        max_reports=max_reports,
                     )
-        except DataVendorUnavailable:
-            raise
         except Exception as exc:
             logger.debug("Wider-window industry report search failed: %s", exc)
 
         candidates_label = ", ".join(candidate_industries) or "N/A"
-        raise DataVendorUnavailable(
-            f"No industry research reports found for search keyword(s) [{candidates_label}] "
-            f"(derived for {ts_code} via {industry_source}) between {start_date} and {end_date}. "
-            "The tushare data source may not have coverage for this industry in the requested time window."
+        return _format_no_research_reports(
+            title=f"Industry Research Reports for {candidates_label} (search keyword for {ts_code})",
+            start_date=start_date,
+            end_date=end_date,
+            context_lines=[
+                f"Industry keyword source: {industry_source}",
+                f"Stock basic industry: {basic_industry}" if basic_industry else "",
+            ],
+            max_reports=max_reports,
         )
 
     data = data.sort_values("trade_date", ascending=False).head(max_reports)
@@ -2304,31 +2450,7 @@ def get_broker_reports(
     ]
     if basic_industry and basic_industry != matched_industry:
         lines.insert(3, f"Stock basic industry: {basic_industry}")
-    for idx, (_, row) in enumerate(data.iterrows(), 1):
-        pub_date = str(row.get("trade_date", ""))
-        if len(pub_date) == 8:
-            pub_date = f"{pub_date[:4]}-{pub_date[4:6]}-{pub_date[6:]}"
-        inst = str(row.get("inst_csname", "")).strip()
-        title = str(row.get("title", "")).strip()
-        abstr = str(row.get("abstr", "")).strip()
-        author = str(row.get("author", "")).strip()
-        ind_name = str(row.get("ind_name", "")).strip()
-        url = str(row.get("url", "")).strip()
-
-        lines.append(f"## Report {idx}: {pub_date} | {inst}")
-        if title:
-            lines.append(f"**Title:** {title}")
-        if author:
-            lines.append(f"**Author:** {author}")
-        if ind_name and ind_name.lower() not in ("nan", "none", ""):
-            lines.append(f"**Industry:** {ind_name}")
-        if url and url.lower() not in ("nan", "none", ""):
-            lines.append(f"**Source:** {url}")
-        if abstr and abstr.lower() not in ("nan", "none", ""):
-            lines.append(f"\n{abstr}")
-        else:
-            lines.append("\n*Abstract not available for this report.*")
-        lines.append("")
+    _append_research_report_rows(lines, data)
 
     return "\n".join(lines)
 
@@ -2353,10 +2475,10 @@ def get_stock_reports(
         max_reports: Maximum number of reports to return (default 30)
 
     Returns:
-        Formatted Markdown string of individual stock research reports with full abstracts
+        Formatted Markdown string of individual stock research reports with full abstracts, or a no-data note
 
     Raises:
-        DataVendorUnavailable: If ticker is not A-share, tushare token missing, or no data
+        DataVendorUnavailable: If ticker is not A-share, tushare token missing, or vendor failures
     """
     pro = _get_pro_client()
     ts_code = _normalize_ts_code(ticker)
@@ -2376,7 +2498,7 @@ def get_stock_reports(
             start_date=start_api,
             end_date=end_api,
             report_type="个股研报",
-            fields="trade_date,title,abstr,author,inst_csname,ts_code,ind_name,url",
+            fields=_RESEARCH_REPORT_FIELDS,
         )
     except Exception as exc:
         raise DataVendorUnavailable(
@@ -2394,23 +2516,24 @@ def get_stock_reports(
                 start_date=wide_start,
                 end_date=end_api,
                 report_type="个股研报",
-                fields="trade_date,inst_csname",
+                fields=_RESEARCH_REPORT_FIELDS,
             )
             if wide_data is not None and not wide_data.empty:
-                raise DataVendorUnavailable(
-                    f"No stock research reports found for '{ts_code}' "
-                    f"between {start_date} and {end_date}, but {len(wide_data)} report(s) exist "
-                    f"within the past 120 days. Try widening the date range."
+                return _format_no_research_reports(
+                    title=f"Individual Stock Research Reports for {ts_code}",
+                    start_date=start_date,
+                    end_date=end_date,
+                    wide_data=wide_data,
+                    max_reports=max_reports,
                 )
-        except DataVendorUnavailable:
-            raise
         except Exception as exc:
             logger.debug("Wider-window stock report search failed: %s", exc)
 
-        raise DataVendorUnavailable(
-            f"No stock research reports found for '{ts_code}' "
-            f"between {start_date} and {end_date}. The tushare data source may not have "
-            f"coverage for this stock in the requested time window."
+        return _format_no_research_reports(
+            title=f"Individual Stock Research Reports for {ts_code}",
+            start_date=start_date,
+            end_date=end_date,
+            max_reports=max_reports,
         )
 
     data = data.sort_values("trade_date", ascending=False).head(max_reports)
@@ -2421,30 +2544,6 @@ def get_stock_reports(
         f"Period: {start_date} to {end_date} | Total: {len(data)} reports",
         "",
     ]
-    for idx, (_, row) in enumerate(data.iterrows(), 1):
-        pub_date = str(row.get("trade_date", ""))
-        if len(pub_date) == 8:
-            pub_date = f"{pub_date[:4]}-{pub_date[4:6]}-{pub_date[6:]}"
-        inst = str(row.get("inst_csname", "")).strip()
-        title = str(row.get("title", "")).strip()
-        abstr = str(row.get("abstr", "")).strip()
-        author = str(row.get("author", "")).strip()
-        ind_name = str(row.get("ind_name", "")).strip()
-        url = str(row.get("url", "")).strip()
-
-        lines.append(f"## Report {idx}: {pub_date} | {inst}")
-        if title:
-            lines.append(f"**Title:** {title}")
-        if author:
-            lines.append(f"**Author:** {author}")
-        if ind_name and ind_name.lower() not in ("nan", "none", ""):
-            lines.append(f"**Industry:** {ind_name}")
-        if url and url.lower() not in ("nan", "none", ""):
-            lines.append(f"**Source:** {url}")
-        if abstr and abstr.lower() not in ("nan", "none", ""):
-            lines.append(f"\n{abstr}")
-        else:
-            lines.append("\n*Abstract not available for this report.*")
-        lines.append("")
+    _append_research_report_rows(lines, data)
 
     return "\n".join(lines)

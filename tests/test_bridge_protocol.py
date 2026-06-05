@@ -371,11 +371,9 @@ class MacroToolBridgeTests(_BridgeTestCase):
         self.assertIn("start_date", err["message"])
         self.assertIn("end_date", err["message"])
 
-    def test_get_pboc_ops_without_token_returns_clean_error(self) -> None:
-        """Without TUSHARE_TOKEN the call must surface a clear vendor-unavailable
-        error, not crash the bridge."""
-        # Force the env var to be missing inside the bridge subprocess by
-        # restarting it without TUSHARE_TOKEN.
+    def test_get_pboc_ops_empty_cache_returns_clean_error(self) -> None:
+        """With network disabled and no local mirror, the call must surface a
+        clear vendor-unavailable error, not crash the bridge."""
         self.tearDown()
         self._tmp = tempfile.TemporaryDirectory()
         self._cache_dir = Path(self._tmp.name) / "cache"
@@ -383,21 +381,12 @@ class MacroToolBridgeTests(_BridgeTestCase):
         self._cache_dir.mkdir()
         self._results_dir.mkdir()
 
-        env = {
-            k: v for k, v in os.environ.items()
-            if k not in ("TUSHARE_TOKEN", "TUSHARE_API_TOKEN", "TS_TOKEN")
-        }
-        # mosaic/__init__.py calls load_dotenv() at import; setting the keys
-        # to empty strings rather than deleting them prevents that from
-        # repopulating from a developer's local .env file (load_dotenv
-        # default is override=False, so it won't replace an existing key).
+        env = dict(os.environ)
         env.update(
             {
-                "TUSHARE_TOKEN": "",
-                "TUSHARE_API_TOKEN": "",
-                "TS_TOKEN": "",
                 "MOSAIC_CACHE_DIR": str(self._cache_dir),
                 "MOSAIC_RESULTS_DIR": str(self._results_dir),
+                "MOSAIC_PBOC_OPS_DISABLE_NETWORK": "1",
                 "PYTHONUNBUFFERED": "1",
             }
         )
@@ -422,7 +411,7 @@ class MacroToolBridgeTests(_BridgeTestCase):
         # Either TOOL_EXECUTION_ERROR (RuntimeError from fallback exhaustion)
         # or DATA_VENDOR_UNAVAILABLE (raised directly by the vendor).
         self.assertIn(err["code"], (-32001, -32003))
-        self.assertIn("TUSHARE_TOKEN", err["message"])
+        self.assertIn("PBOC open-market cache is empty", err["message"])
 
         # Bridge must still serve subsequent calls.
         result = self.call_ok("tools.list", {}, req_id=99)

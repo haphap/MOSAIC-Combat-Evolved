@@ -38,7 +38,7 @@ const TOOL_SCHEMA: JsonSchemaObject = {
 };
 
 const FAKE_TOOL_METADATAS: ToolMetadata[] = [
-  { name: "get_industry_policy", description: "policy news", args_schema: TOOL_SCHEMA },
+  { name: "get_industry_policy", description: "policy documents", args_schema: TOOL_SCHEMA },
   { name: "get_pboc_ops", description: "PBOC ops", args_schema: TOOL_SCHEMA },
   { name: "get_property_data", description: "real-estate climate", args_schema: TOOL_SCHEMA },
 ];

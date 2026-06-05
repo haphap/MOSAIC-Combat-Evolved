@@ -39,6 +39,8 @@ export interface BuildLayer2GraphDeps {
   config: MosaicConfig;
   llmHandleStructured?: LlmHandle;
   onLog?: (msg: string) => void;
+  /** Per-agent wall-clock timeout in seconds. Default: 300; <=0 disables. */
+  agentTimeoutSeconds?: number;
   /** Override prompt-root directory (tests inject a tmpdir). */
   promptsRoot?: string;
 }

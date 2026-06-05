@@ -141,8 +141,11 @@ class TestFetch:
         with mock.patch.object(
             fred.requests, "get", return_value=mock_response_factory(err_payload)
         ):
-            with pytest.raises(DataVendorUnavailable, match="Series does not exist"):
-                fred.get_fred_series("NONSENSE", "2024-01-01", "2024-06-30")
+            out = fred.get_fred_series("NONSENSE", "2024-01-01", "2024-06-30")
+
+        assert out.startswith("# FRED series NONSENSE, 2024-01-01 to 2024-06-30")
+        assert "# FRED unavailable:" in out
+        assert out.rstrip().endswith("date,value")
 
     def test_http_failure_wraps_to_data_vendor_unavailable(
         self, monkeypatch, mock_response_factory
@@ -157,8 +160,38 @@ class TestFetch:
                 None, status_code=500, raises=real_requests.HTTPError("500 Server Error")
             ),
         ):
-            with pytest.raises(DataVendorUnavailable, match="failed"):
-                fred.get_fred_series("FEDFUNDS", "2024-01-01", "2024-06-30")
+            out = fred.get_fred_series("FEDFUNDS", "2024-01-01", "2024-06-30")
+
+        assert out.startswith("# FRED series FEDFUNDS, 2024-01-01 to 2024-06-30")
+        assert "# FRED unavailable:" in out
+        assert out.rstrip().endswith("date,value")
+
+    def test_http_400_returns_empty_csv_and_redacts_api_key(
+        self, monkeypatch, mock_response_factory
+    ):
+        import requests as real_requests
+
+        monkeypatch.setenv("FRED_API_KEY", "fake-secret")
+        url = (
+            "https://api.stlouisfed.org/fred/series/observations?"
+            "series_id=BAD&api_key=fake-secret&file_type=json"
+        )
+        with mock.patch.object(
+            fred.requests,
+            "get",
+            return_value=mock_response_factory(
+                None,
+                status_code=400,
+                raises=real_requests.HTTPError(
+                    f"400 Client Error: Bad Request for url: {url}"
+                ),
+            ),
+        ):
+            out = fred.get_fred_series("BAD", "2024-01-01", "2024-06-30")
+
+        assert "fake-secret" not in out
+        assert "api_key=<redacted>" in out
+        assert out.rstrip().endswith("date,value")
 
 
 # --------------------------------------------------------------------- caching

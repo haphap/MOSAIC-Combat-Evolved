@@ -3,8 +3,8 @@
  *
  * Plan §5.1 tools: `get_xueqiu_heat` + `get_news` (opencli) +
  * `get_caixin_sentiment` (now available — Caixin/财新 via opencli, gap closed
- * §14 #8). `get_industry_policy` (policy-keyword filter over Tushare news)
- * retained as a corroborator.
+ * §14 #8). `get_industry_policy` (gov.cn policy document library) retained
+ * as a corroborator.
  */
 
 import type { NewsSentimentOutput } from "../types.js";

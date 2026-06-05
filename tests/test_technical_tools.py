@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from mosaic.agents.utils import technical_tools as tt
 
 
@@ -26,11 +28,19 @@ def test_indicators_routes_with_default_lookback(monkeypatch):
     assert cap["args"] == ("600519.SH", "rsi", "2024-06-30", 60)
 
 
-def test_indicator_is_enum_constrained():
-    schema = tt.get_indicators.args_schema.model_json_schema()
-    enum = schema["properties"]["indicator"]["enum"]
-    assert "rsi" in enum and "macd" in enum and "boll" in enum
-    assert "not_an_indicator" not in enum
+def test_indicators_normalizes_common_llm_indicator_names(monkeypatch):
+    cap = {}
+    monkeypatch.setattr(tt, "route_to_vendor", lambda m, *a: cap.update(method=m, args=a) or "MD")
+    tt.get_indicators.invoke({"symbol": "600519.SH", "indicator": "RSI", "curr_date": "2024-06-30"})
+    assert cap["args"] == ("600519.SH", "rsi", "2024-06-30", 60)
+
+
+def test_indicator_rejects_unknown_name_before_routing(monkeypatch):
+    monkeypatch.setattr(tt, "route_to_vendor", lambda *a: "MD")
+    with pytest.raises(ValueError, match="not supported"):
+        tt.get_indicators.invoke(
+            {"symbol": "600519.SH", "indicator": "not_an_indicator", "curr_date": "2024-06-30"}
+        )
 
 
 def test_module_exposed_via_bridge():

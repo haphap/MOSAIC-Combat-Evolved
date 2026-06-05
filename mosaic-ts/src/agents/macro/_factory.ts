@@ -32,10 +32,20 @@ import type { z } from "zod";
 import { type BridgeApi, type MosaicConfig, pickBridgeTools } from "../../bridge/index.js";
 import type { LlmHandle } from "../../llm/factory.js";
 import { runAgentToolLoop } from "../helpers/agent_loop.js";
+import {
+  AgentTimeoutError,
+  buildLlmCall,
+  formatAgentEvent,
+  formatDurationMs,
+  resolveAgentTimeoutMs,
+  safeErrorMessage,
+  summarizeAgentOutput,
+  withAgentTimeout,
+} from "../helpers/runtime.js";
 import { invokeStructuredOrFreetext } from "../helpers/structured_output.js";
 import { type LoaderLanguage, loadPrompt } from "../prompts/loader.js";
 import type { DailyCycleStateType, DailyCycleStateUpdate } from "../state.js";
-import type { LlmCallRecord, MacroAgentOutput } from "../types.js";
+import type { MacroAgentOutput } from "../types.js";
 
 /**
  * Per-agent configuration for the Layer-1 factory. Each macro agent file
@@ -81,6 +91,8 @@ export interface LayerOneAgentDeps {
   /** Optional structured-output LLM (defaults to ``llmHandle``). */
   llmHandleStructured?: LlmHandle;
   onLog?: (msg: string) => void;
+  /** Per-agent wall-clock timeout in seconds. Default: 300; <=0 disables. */
+  agentTimeoutSeconds?: number;
   /** Override the prompt-root directory (tests inject a tmpdir). Defaults to
    *  ``findPromptsRoot()`` resolution. */
   promptsRoot?: string;
@@ -97,71 +109,117 @@ export function buildLayerOneAgentNode<TOutput extends MacroAgentOutput>(
   deps: LayerOneAgentDeps,
 ): LayerOneAgentNode {
   return async function layerOneAgentNode(state) {
-    const cohort = state.active_cohort || "cohort_default";
-    const language = pickPromptLanguage(deps.config);
-
-    // Phase 0: load bilingual prompt for this cohort.
-    const systemPrompt = await loadPrompt({
-      agent: spec.agentId,
-      cohort,
-      language,
-      ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
-    });
-
-    // Phase 0b: pull the agent's tools from the bridge (with backtest context
-    // attached so date-bound tools clamp end_date correctly).
-    const tools = await pickBridgeTools(deps.api, spec.requiredTools, {
-      ...(state.mode === "backtest" && state.as_of_date
-        ? { context: { mode: "backtest", as_of_date: state.as_of_date } }
-        : {}),
-    });
-
-    // Phase 1: tool-bound free-form analysis loop.
-    const userContext = buildUserContext(state, spec.agentId);
-    const loopResult = await runAgentToolLoop({
-      llm: deps.llmHandle.llm,
-      tools: tools as StructuredToolInterface[],
-      systemMessage: systemPrompt,
-      initialMessages: [new HumanMessage(userContext)],
-      onLog: deps.onLog ?? (() => undefined),
-    });
-
-    // Phase 2: structured extraction from the analysis text.
     const structuredHandle = deps.llmHandleStructured ?? deps.llmHandle;
-    const extractorSystem = spec.buildExtractorSystem
-      ? spec.buildExtractorSystem(language)
-      : defaultExtractorSystem(spec, language);
-    const extractor = await invokeStructuredOrFreetext<TOutput>({
-      llm: structuredHandle.llm,
-      schema: spec.schema,
-      messages: [
-        new SystemMessage(extractorSystem),
-        new HumanMessage(loopResult.analysisText || "(no analysis produced)"),
-      ],
-      render: spec.render,
-      agentName: spec.agentId,
-      structuredOnlySentences: spec.structuredOnlySentences ?? [],
-    });
+    const timeoutMs = resolveAgentTimeoutMs(deps.agentTimeoutSeconds);
+    const onLog = deps.onLog ?? (() => undefined);
+    const startedAt = Date.now();
+    onLog(
+      formatAgentEvent("start", "L1", spec.agentId, [
+        `timeout=${timeoutMs > 0 ? formatDurationMs(timeoutMs) : "off"}`,
+      ]),
+    );
 
-    // Phase 3: assemble state update.
-    const output = extractor.structured ?? spec.fallback(loopResult.analysisText);
+    try {
+      return await withAgentTimeout(
+        async (signal) => {
+          const cohort = state.active_cohort || "cohort_default";
+          const language = pickPromptLanguage(deps.config);
+          onLog(formatAgentEvent("phase", "L1", spec.agentId, ["prepare"]));
 
-    const llmCall: LlmCallRecord = {
-      ts: new Date().toISOString(),
-      agent: spec.agentId,
-      model: structuredHandle.model,
-      provider: structuredHandle.provider,
-      // Token counts are 0 here — Phase 3 scorecard will plumb provider
-      // callbacks for accurate counts.
-      prompt_tokens: 0,
-      completion_tokens: 0,
-      cost_usd: 0,
-    };
+          // Phase 0: load bilingual prompt for this cohort.
+          const systemPrompt = await loadPrompt({
+            agent: spec.agentId,
+            cohort,
+            language,
+            ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
+          });
 
-    return {
-      layer1_outputs: { [spec.agentId]: output },
-      llm_calls: [llmCall],
-    };
+          // Phase 0b: pull the agent's tools from the bridge (with backtest
+          // context attached so date-bound tools clamp end_date correctly).
+          const tools = await pickBridgeTools(deps.api, spec.requiredTools, {
+            ...(state.mode === "backtest" && state.as_of_date
+              ? { context: { mode: "backtest", as_of_date: state.as_of_date } }
+              : {}),
+          });
+
+          // Phase 1: tool-bound free-form analysis loop.
+          const userContext = buildUserContext(state, spec.agentId);
+          const loopResult = await runAgentToolLoop({
+            llm: deps.llmHandle.llm,
+            tools: tools as StructuredToolInterface[],
+            systemMessage: systemPrompt,
+            initialMessages: [new HumanMessage(userContext)],
+            onLog: (msg) => onLog(formatAgentEvent("phase", "L1", spec.agentId, [msg])),
+            signal,
+          });
+
+          // Phase 2: structured extraction from the analysis text.
+          onLog(
+            formatAgentEvent("phase", "L1", spec.agentId, [
+              `extract chars=${loopResult.analysisText.length}`,
+            ]),
+          );
+          const extractorSystem = spec.buildExtractorSystem
+            ? spec.buildExtractorSystem(language)
+            : defaultExtractorSystem(spec, language);
+          const extractor = await invokeStructuredOrFreetext<TOutput>({
+            llm: structuredHandle.llm,
+            schema: spec.schema,
+            messages: [
+              new SystemMessage(extractorSystem),
+              new HumanMessage(loopResult.analysisText || "(no analysis produced)"),
+            ],
+            render: spec.render,
+            agentName: spec.agentId,
+            structuredOnlySentences: spec.structuredOnlySentences ?? [],
+            onLog: (msg) => onLog(formatAgentEvent("phase", "L1", spec.agentId, [msg])),
+            signal,
+          });
+
+          // Phase 3: assemble state update.
+          const output = extractor.structured ?? spec.fallback(loopResult.analysisText);
+          const llmCall = buildLlmCall(spec.agentId, structuredHandle);
+
+          onLog(
+            formatAgentEvent("done", "L1", spec.agentId, [
+              `elapsed=${formatDurationMs(Date.now() - startedAt)}`,
+              `analysis_llm=${loopResult.llmInvocations}`,
+              `tools=${loopResult.toolCalls}`,
+              `source=${extractor.structured ? "structured" : "fallback"}`,
+              summarizeAgentOutput(output),
+            ]),
+          );
+
+          return {
+            layer1_outputs: { [spec.agentId]: output },
+            llm_calls: [llmCall],
+          };
+        },
+        timeoutMs,
+        `L1 ${spec.agentId}`,
+      );
+    } catch (err) {
+      if (err instanceof AgentTimeoutError) {
+        const output = spec.fallback("");
+        onLog(
+          formatAgentEvent("timeout", "L1", spec.agentId, [
+            `elapsed=${formatDurationMs(Date.now() - startedAt)}`,
+            summarizeAgentOutput(output),
+          ]),
+        );
+        return {
+          layer1_outputs: { [spec.agentId]: output },
+          llm_calls: [buildLlmCall(spec.agentId, structuredHandle)],
+        };
+      }
+      onLog(
+        formatAgentEvent("error", "L1", spec.agentId, [
+          `elapsed=${formatDurationMs(Date.now() - startedAt)}`,
+          `message=${safeErrorMessage(err)}`,
+        ]),
+      );
+      throw err;
+    }
   };
 }
 

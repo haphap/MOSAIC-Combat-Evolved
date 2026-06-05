@@ -3,6 +3,8 @@
  *
  * Tools: `get_etf_price_data` / `get_etf_info` / `get_etf_nav` /
  * `get_etf_universe` + `get_us_china_spread` + `get_fred_series(DTWEXBGS)`.
+ * DTWEXBGS uses the exact FRED broad-dollar series; DGS* series still route
+ * through Tushare us_tycr first.
  * Use ETF prices on HK/A-share/EM-proxy funds (e.g. 510300.SH, 513050.SH) for
  * the HK-A ratio. (Northbound flow dropped — live quota disclosure discontinued.)
  */
@@ -19,6 +21,7 @@ import { EMERGING_MARKETS_FIELD_NAMES, EmergingMarketsSchema } from "./_schemas.
 export const REQUIRED_TOOLS = [
   "get_etf_price_data",
   "get_us_china_spread",
+  "get_fred_series",
   "get_etf_info",
   "get_etf_nav",
   "get_etf_universe",

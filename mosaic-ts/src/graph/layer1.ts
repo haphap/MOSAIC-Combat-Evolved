@@ -46,6 +46,8 @@ export interface BuildLayer1GraphDeps {
   llmHandleStructured?: LlmHandle;
   /** Per-agent log channel forwarded into runAgentToolLoop. */
   onLog?: (msg: string) => void;
+  /** Per-agent wall-clock timeout in seconds. Default: 300; <=0 disables. */
+  agentTimeoutSeconds?: number;
   /** Override prompt-root directory (tests inject a tmpdir). */
   promptsRoot?: string;
 }

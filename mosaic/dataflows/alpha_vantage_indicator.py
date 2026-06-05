@@ -42,7 +42,7 @@ def get_indicator(
         "vwma": ("VWMA", "close")
     }
 
-    from etfagents.dataflows.indicator_descriptions import INDICATOR_DESCRIPTIONS as indicator_descriptions
+    from mosaic.dataflows.indicator_descriptions import INDICATOR_DESCRIPTIONS as indicator_descriptions
 
     if indicator not in supported_indicators:
         raise ValueError(

@@ -17,7 +17,6 @@ export const REQUIRED_TOOLS = [
   "get_industry_policy",
   "get_xueqiu_heat",
   "get_lhb_ranking",
-  "get_fred_series",
   "get_broker_research",
   "get_etf_holdings",
   "get_stock_data",

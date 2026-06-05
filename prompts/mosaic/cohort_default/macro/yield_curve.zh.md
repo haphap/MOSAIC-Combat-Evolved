@@ -8,8 +8,9 @@
 * `get_yield_curve_cn(curr_date, look_back_days=30)` —— 中债国债曲线日数据
   （1y/2y/3y/5y/7y/10y/30y）。判断 curve_shape 必须看 30 天窗口的形态变化，
   不是单日截面。
-* `get_fred_series(series_id, start_date, end_date)` —— 必须拉 `DGS10` +
-  `DGS2`（美国 10Y / 2Y），否则无法判断 US 端衰退信号。
+* `get_fred_series(series_id, start_date, end_date)` —— 拉 `DGS10` +
+  `DGS2`（美国 10Y / 2Y）。该工具会优先从 Tushare `us_tycr` 获取，
+  FRED 仅作为后备；否则无法判断 US 端衰退信号。
 * `get_us_china_spread(curr_date, look_back_days=30)` —— 合成的 CN 10Y -
   US 10Y 利差。
 

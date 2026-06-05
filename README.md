@@ -73,6 +73,13 @@ cd ..
 cp .env.example .env
 ```
 
+Optional parsed China policy database:
+
+```bash
+git clone https://github.com/haphap/china-policy-db.git ../china-policy-db
+echo "MOSAIC_CHINA_POLICY_DB_DIR=$(pwd)/../china-policy-db" >> .env
+```
+
 Run a full no-cost smoke cycle:
 
 ```bash

@@ -20,6 +20,7 @@ from .macro_data import (
     get_pboc_ops as get_pboc_ops_impl,
     get_lhb_ranking as get_lhb_ranking_impl,
     get_yield_curve_cn as get_yield_curve_cn_impl,
+    get_tushare_macro_series as get_tushare_macro_series_impl,
     get_us_china_spread as get_us_china_spread_impl,
     get_xueqiu_heat as get_xueqiu_heat_impl,
     get_industry_policy as get_industry_policy_impl,
@@ -157,6 +158,8 @@ VENDOR_LIST = [
     "fred",
     "akshare",
     "tsinghua",
+    "pbc",
+    "govcn",
 ]
 
 # Mapping of methods to their vendor-specific implementations
@@ -238,9 +241,13 @@ VENDOR_METHODS = {
     },
     # macro_data
     "get_fred_series": {
+        "tushare": get_tushare_macro_series_impl,
         "fred": get_fred_series_impl,
     },
     "get_pboc_ops": {
+        "pbc": get_pboc_ops_impl,
+        # Backward-compatible alias for persisted configs created before the
+        # direct PBOC website mirror replaced the stale Tushare cb_op path.
         "tushare": get_pboc_ops_impl,
     },
     "get_lhb_ranking": {
@@ -257,6 +264,9 @@ VENDOR_METHODS = {
         "akshare": get_xueqiu_heat_impl,
     },
     "get_industry_policy": {
+        "govcn": get_industry_policy_impl,
+        # Backward-compatible alias for persisted configs created before the
+        # gov.cn policy document library replaced the Tushare news path.
         "tushare": get_industry_policy_impl,
     },
     "get_usdcny": {

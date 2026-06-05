@@ -74,7 +74,7 @@ def get_stock_stats_indicators_window(
     look_back_days: Annotated[int, "how many days to look back"],
 ) -> str:
 
-    from etfagents.dataflows.indicator_descriptions import INDICATOR_DESCRIPTIONS as best_ind_params
+    from mosaic.dataflows.indicator_descriptions import INDICATOR_DESCRIPTIONS as best_ind_params
 
     if indicator not in best_ind_params:
         raise ValueError(

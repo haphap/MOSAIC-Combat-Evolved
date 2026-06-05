@@ -102,30 +102,21 @@ class TestMarkdownCsv:
 # --------------------------------------------------------------------- 1. PBOC ops
 
 
-def test_get_pboc_ops_uses_window(mock_query_pro):
-    canned = _df_with_rows(
-        [
-            {"trade_date": "20240624", "op_type": "Reverse Repo", "volume": 200, "rate": 1.8, "term": 7},
-            {"trade_date": "20240625", "op_type": "MLF", "volume": 100, "rate": 2.5, "term": 365},
-        ]
-    )
-    m = mock_query_pro(canned)
+def test_get_pboc_ops_delegates_to_pboc_website_mirror(monkeypatch):
+    from mosaic.dataflows import pboc_ops  # noqa: PLC0415
+
+    calls = []
+
+    def fake_pboc(curr_date, look_back_days):
+        calls.append((curr_date, look_back_days))
+        return "# PBOC Open Market Announcements\npub_date,title\n2024-06-30,x\n"
+
+    monkeypatch.setattr(pboc_ops, "get_pboc_ops", fake_pboc)
 
     out = macro_data.get_pboc_ops("2024-06-30", look_back_days=7)
 
-    assert m.call_count == 1
-    kwargs = m.call_args.kwargs
-    assert kwargs["start_date"] == "20240623"
-    assert kwargs["end_date"] == "20240630"
-    assert "PBOC Open Market Operations" in out
-    assert "Reverse Repo" in out
-    assert "MLF" in out
-
-
-def test_get_pboc_ops_empty_frame(mock_query_pro):
-    mock_query_pro(pd.DataFrame())
-    out = macro_data.get_pboc_ops("2024-06-30", look_back_days=2)
-    assert "No PBOC operations recorded" in out
+    assert calls == [("2024-06-30", 7)]
+    assert "PBOC Open Market Announcements" in out
 
 
 # --------------------------------------------------------------------- 2. North-flow
@@ -186,8 +177,31 @@ def test_get_yield_curve_cn_emits_csv(mock_query_pro):
 # --------------------------------------------------------------------- 5. US-CN spread
 
 
-def test_us_china_spread_merges_fred_and_tushare(monkeypatch, mock_query_pro):
-    # Tushare side: minimal yc_cb payload with 10y rows on three dates.
+def test_tushare_macro_series_maps_dgs10_to_us_tycr(mock_query_pro):
+    us_df = _df_with_rows(
+        [
+            {"date": "20240624", "y2": 4.30, "y10": 4.40},
+            {"date": "20240625", "y2": 4.32, "y10": 4.42},
+        ]
+    )
+    m = mock_query_pro(us_df)
+
+    out = macro_data.get_tushare_macro_series("DGS10", "2024-06-24", "2024-06-25")
+
+    assert m.call_args.args == ("us_tycr",)
+    assert m.call_args.kwargs["start_date"] == "20240624"
+    assert "Tushare macro series DGS10" in out
+    assert "2024-06-25,4.42" in out
+
+
+def test_tushare_macro_series_unsupported_falls_back_by_raising(mock_query_pro):
+    mock_query_pro(pd.DataFrame())
+    with pytest.raises(DataVendorUnavailable, match="does not support"):
+        macro_data.get_tushare_macro_series("FEDFUNDS", "2024-06-24", "2024-06-25")
+
+
+def test_us_china_spread_merges_tushare_us_tycr_and_yc_cb(mock_query_pro):
+    # Tushare CN side: minimal yc_cb payload with 10y rows on three dates.
     cn_df = _df_with_rows(
         [
             {"trade_date": "20240624", "curve_term": "10", "curve_yield": 2.4},
@@ -197,38 +211,76 @@ def test_us_china_spread_merges_fred_and_tushare(monkeypatch, mock_query_pro):
             {"trade_date": "20240624", "curve_term": "1", "curve_yield": 1.5},
         ]
     )
-    mock_query_pro(cn_df)
-
-    # FRED side: monkeypatch the module-level fetcher.
-    fred_df = pd.DataFrame(
-        {
-            "date": pd.to_datetime(["2024-06-24", "2024-06-25", "2024-06-26"]),
-            "value": [4.30, 4.32, 4.40],
-        }
+    us_df = _df_with_rows(
+        [
+            {"date": "20240624", "y2": 4.00, "y10": 4.30},
+            {"date": "20240625", "y2": 4.02, "y10": 4.32},
+            {"date": "20240626", "y2": 4.05, "y10": 4.40},
+        ]
     )
 
-    def _fake_fetch(series_id, start_date=None, end_date=None):
-        assert series_id == "DGS10"
-        return fred_df
+    def fake_query(api_name, **_kwargs):
+        if api_name == "yc_cb":
+            return cn_df
+        if api_name == "us_tycr":
+            return us_df
+        raise AssertionError(api_name)
 
-    from mosaic.dataflows import fred as fred_mod
-
-    monkeypatch.setattr(fred_mod, "_fetch_series_dataframe", _fake_fetch)
+    mock_query_pro(None, side_effect=fake_query)
 
     out = macro_data.get_us_china_spread("2024-06-26", look_back_days=2)
 
     assert "US-CN 10Y Yield Spread" in out
+    assert "Tushare us_tycr.y10 + Tushare yc_cb" in out
     # spread = (4.30 - 2.40) * 100 = 190.0
     assert "190.0" in out
     # spread = (4.40 - 2.45) * 100 = 195.0
     assert "195.0" in out
 
 
-def test_us_china_spread_handles_missing_us_leg(monkeypatch, mock_query_pro):
+def test_us_china_spread_falls_back_to_fred_when_us_tycr_unavailable(monkeypatch, mock_query_pro):
     cn_df = _df_with_rows(
         [{"trade_date": "20240624", "curve_term": "10", "curve_yield": 2.4}]
     )
-    mock_query_pro(cn_df)
+
+    def fake_query(api_name, **_kwargs):
+        if api_name == "yc_cb":
+            return cn_df
+        if api_name == "us_tycr":
+            raise DataVendorUnavailable("us_tycr unavailable")
+        raise AssertionError(api_name)
+
+    mock_query_pro(None, side_effect=fake_query)
+
+    from mosaic.dataflows import fred as fred_mod
+
+    def _fake_fetch(series_id, start_date=None, end_date=None):
+        assert series_id == "DGS10"
+        return pd.DataFrame(
+            {"date": pd.to_datetime(["2024-06-24"]), "value": [4.30]}
+        )
+
+    monkeypatch.setattr(fred_mod, "_fetch_series_dataframe", _fake_fetch)
+
+    out = macro_data.get_us_china_spread("2024-06-30", look_back_days=10)
+
+    assert "FRED DGS10 fallback" in out
+    assert "190.0" in out
+
+
+def test_us_china_spread_handles_missing_us_leg_without_tool_error(monkeypatch, mock_query_pro):
+    cn_df = _df_with_rows(
+        [{"trade_date": "20240624", "curve_term": "10", "curve_yield": 2.4}]
+    )
+
+    def fake_query(api_name, **_kwargs):
+        if api_name == "yc_cb":
+            return cn_df
+        if api_name == "us_tycr":
+            raise DataVendorUnavailable("us_tycr unavailable")
+        raise AssertionError(api_name)
+
+    mock_query_pro(None, side_effect=fake_query)
 
     from mosaic.dataflows import fred as fred_mod
 
@@ -237,8 +289,10 @@ def test_us_china_spread_handles_missing_us_leg(monkeypatch, mock_query_pro):
 
     monkeypatch.setattr(fred_mod, "_fetch_series_dataframe", _raise)
 
-    with pytest.raises(DataVendorUnavailable, match="FRED DGS10"):
-        macro_data.get_us_china_spread("2024-06-30", look_back_days=10)
+    out = macro_data.get_us_china_spread("2024-06-30", look_back_days=10)
+
+    assert "US leg unavailable" in out
+    assert "No US-CN spread observations" in out
 
 
 def test_extract_cn_10y_yield_handles_alt_schema():
@@ -397,34 +451,29 @@ def test_get_property_data_rejects_zero_top_n():
 # --------------------------------------------------------------------- 7. Industry policy
 
 
-def test_get_industry_policy_filters_keywords(mock_query_pro):
-    canned = _df_with_rows(
-        [
-            {
-                "datetime": "2024-06-25 10:00",
-                "title": "国务院发布新质生产力发展规划",
-                "content": "国务院今日发布关于推动新质生产力发展的指导意见，重点支持半导体...",
-            },
-            {
-                "datetime": "2024-06-25 12:30",
-                "title": "茅台股价创新高",
-                "content": "贵州茅台早盘冲高，市值再创历史新高。",
-            },
-        ]
+def test_get_industry_policy_uses_gov_policy_source(monkeypatch):
+    calls = {}
+
+    def fake_get_gov_policy_documents(curr_date, look_back_days, *, keywords=None):
+        calls["args"] = (curr_date, look_back_days)
+        calls["keywords"] = keywords
+        return "gov policy csv"
+
+    monkeypatch.setattr(
+        macro_data,
+        "get_gov_policy_documents",
+        fake_get_gov_policy_documents,
     )
-    mock_query_pro(canned)
 
-    out = macro_data.get_industry_policy("2024-06-30", look_back_days=7)
+    out = macro_data.get_industry_policy(
+        "2024-06-30",
+        look_back_days=7,
+        src="wallstreetcn",
+        keywords=("能源",),
+    )
 
-    assert "Industry Policy News" in out
-    assert "新质生产力" in out
-    assert "茅台" not in out  # filtered out
-
-
-def test_get_industry_policy_empty_results(mock_query_pro):
-    mock_query_pro(pd.DataFrame())
-    out = macro_data.get_industry_policy("2024-06-30", look_back_days=7)
-    assert "No policy-flagged news rows" in out
+    assert out == "gov policy csv"
+    assert calls == {"args": ("2024-06-30", 7), "keywords": ("能源",)}
 
 
 # --------------------------------------------------------------------- 8. USD/CNY
@@ -445,6 +494,15 @@ def test_get_usdcny_uses_usdcnh_pair(mock_query_pro):
 def test_get_usdcny_empty(mock_query_pro):
     mock_query_pro(pd.DataFrame())
     assert "No fx_daily rows" in macro_data.get_usdcny("2024-06-30", look_back_days=3)
+
+
+def test_get_usdcny_unavailable_returns_empty_csv(mock_query_pro):
+    mock_query_pro(None, side_effect=DataVendorUnavailable("connection reset"))
+
+    out = macro_data.get_usdcny("2024-06-30", look_back_days=3)
+
+    assert "Tushare fx_daily unavailable: connection reset" in out
+    assert "No fx_daily rows for USDCNH.FXCM" in out
 
 
 # --------------------------------------------------------------------- 9. Commodity prices

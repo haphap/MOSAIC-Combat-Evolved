@@ -10,7 +10,8 @@
 
 * `get_us_china_spread(curr_date, look_back_days=30)` —— CN-US 利差。利差
   收窄通常伴随 EM 跑赢 DM。
-* `get_fred_series` —— 拉 `DTWEXBGS`（美元）。DXY 走弱时 EM 资金倾向流入。
+* `get_fred_series` —— 拉 `DTWEXBGS`（FRED 精确的贸易加权美元指数）。
+  美元走弱时 EM 资金倾向流入。
 * `get_etf_price_data(symbol, ...)` —— A 股宽基/跨境 ETF 价格（如 510300.SH 沪深300、
   513050.SH 中概互联）作 EM/HK-A 实测代理。
 * `get_etf_universe(curr_date, market, asset_scope, limit)` —— **自主发现**:列出
@@ -20,20 +21,20 @@
 
 ## 工作流程
 
-1. **核心两工具必调**（us_china_spread + fred DXY）。
+1. **核心两工具必调**（us_china_spread + DTWEXBGS）。
 2. **ETF 用法（自主发现）**：先用 `get_etf_universe` 找宽基/跨境 ETF，再对感兴趣
    的标的用 `get_etf_info`/`get_etf_nav`/`get_etf_price_data` 实测 EM/HK-A 表现，
    作为资金流判断的价格佐证。
 3. **`em_relative` 严格定义**：
-   - OUTPERFORMING：DXY 走弱 + A/HK ETF 走强 + 利差收窄
-   - UNDERPERFORMING：DXY 走强 + A/HK ETF 走弱 + 利差扩大
+   - OUTPERFORMING：DTWEXBGS 走弱 + A/HK ETF 走强 + 利差收窄
+   - UNDERPERFORMING：DTWEXBGS 走强 + A/HK ETF 走弱 + 利差扩大
    - INLINE：其余
 4. **`hk_a_share_ratio` 用 ETF 实测**：港股/中概 ETF 价格（如 513050.SH）/
    A 股宽基 ETF 价格（如 510300.SH）。> 1 = 港股相对强，< 1 = A 股相对强。
    在 `key_drivers` 注明用的是哪两只 ETF。
 5. **`capital_flow` 严格定义**：
-   - NET_INFLOW：A/HK ETF 价格 + 份额（get_etf_nav）连续走升 + DXY 走弱
-   - NET_OUTFLOW：A/HK ETF 价格连续走弱 + DXY 走强
+   - NET_INFLOW：A/HK ETF 价格 + 份额（get_etf_nav）连续走升 + DTWEXBGS 走弱
+   - NET_OUTFLOW：A/HK ETF 价格连续走弱 + DTWEXBGS 走强
    - FLAT：其他
 
 ## 评分边界
@@ -58,4 +59,4 @@
 ## 写作约束
 
 * `key_drivers` 至少含一条注明 hk_a_share_ratio 用的是哪两只 ETF 的价格比。
-* 若当日取不到 ETF 价格，回退到利差 + DXY 判断，并把 `confidence ≤ 0.5`。
+* 若当日取不到 ETF 价格，回退到利差 + DTWEXBGS 判断，并把 `confidence ≤ 0.5`。

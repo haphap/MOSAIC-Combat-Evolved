@@ -1,7 +1,8 @@
 /**
  * dollar Layer-1 macro agent (Plan §5.1).
  *
- * Tools: `get_fred_series(DTWEXBGS)` + `get_usdcny` + `get_us_china_spread`.
+ * Tools: `get_fred_series(DTWEXBGS)` (FRED exact broad dollar index) +
+ * `get_usdcny` + `get_us_china_spread`.
  * (Northbound 沪深港通 flow was dropped — live quota disclosure discontinued.)
  */
 

@@ -4,7 +4,7 @@
  * Plan §5.1 tools: `get_us_china_relations` (now available — Tsinghua sino-US
  * relations index, macro-tools gap closed §14 #8) + `get_xueqiu_heat` (retail
  * attention captures geopolitical events fast) + `get_industry_policy`
- * (filters policy news incl. trade-war / export-control language).
+ * (gov.cn policy documents incl. trade-war / export-control language).
  */
 
 import type { GeopoliticalOutput } from "../types.js";

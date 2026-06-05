@@ -6,7 +6,7 @@
  * will follow in 2C.2.
  *
  * Tools (Plan §5.1 / §11.2 design note 2C-4):
- *   * get_industry_policy   — policy news flow (primary evidence)
+ *   * get_industry_policy   — gov.cn policy documents (primary evidence)
  *   * get_pboc_ops          — OMO corroborator
  *   * get_property_data     — 国房景气指数 (real-estate climate; primary A-share
  *                             macro driver — closes the plan §14 #8 gap)

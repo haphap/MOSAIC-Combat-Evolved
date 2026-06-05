@@ -5,7 +5,7 @@
 ## 数据源
 
 - **Tushare**(`tushare.py`)—— 主要 A 股个股 + ETF 数据(`pro.daily`、`pro.fund_daily`、`pro.index_daily`、财务),以及**研究报告**(`pro.research_report`):`get_broker_reports`(行业研报,行业级)和 `get_stock_reports`(个股研报,个股级)。LangChain `@tool` 封装 `get_broker_research` / `get_stock_research` 在 `mosaic/agents/utils/research_report_tools.py`,挂载到行业 + 投资哲学 agent(见[智能体](Agents.md))。
-- **akshare**、**yfinance**、**FRED**(`macro_data.py`、`fred.py`)、雪球热度 等 —— 宏观/全球/情绪工具。含 `get_property_data`(akshare `macro_china_real_estate` —— 月度国房景气指数,按 `curr_date` 点对点裁剪),`get_stock_moneyflow` / `get_industry_moneyflow`(A 股资金流向,同花顺数据),由 `china` 与行业 agent 使用。macro 层共 **18 个工具**(全 5 模块共 30 个 —— 见 [Bridge RPC](Bridge-RPC.md) 的模块拆分)。
+- **gov.cn**、**央行官网**、**akshare**、**yfinance**、**FRED**(`macro_data.py`、`gov_policy.py`、`pboc_ops.py`、`fred.py`)、雪球热度 等 —— 宏观/全球/情绪工具。含 `get_industry_policy`(国务院政策文件库)、`get_pboc_ops`(央行公开市场公告镜像)、`get_property_data`(akshare `macro_china_real_estate` —— 月度国房景气指数,按 `curr_date` 点对点裁剪),`get_stock_moneyflow` / `get_industry_moneyflow`(A 股资金流向,同花顺数据),由 `china` 与行业 agent 使用。macro 层共 **18 个工具**(全 5 模块共 30 个 —— 见 [Bridge RPC](Bridge-RPC.md) 的模块拆分)。
 - **工具模块** —— `mosaic/agents/utils/` 下所有 LangChain `@tool` 装饰函数注册为 `tools.list` / `tools.call` RPC。五个模块:`macro_tools`(18 个)、`etf_tools`(4 个:信息/净值/持仓/全市场)、`financial_tools`(4 个:基本面/资产负债表/利润表/现金流)、`research_report_tools`(2 个:行业/个股)、`technical_tools`(2 个:行情/技术指标)。每个 agent 使用限定子集 —— 见[智能体](Agents.md)逐层分配。
 - 工具选择由配置驱动(`MosaicConfig` 的 `data_vendors` / `tool_vendors`)。
 

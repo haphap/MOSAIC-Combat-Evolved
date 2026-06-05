@@ -40,6 +40,8 @@ export interface AgentToolLoopOptions {
   maxLoops?: number;
   /** Forward LLM stderr / debug logs through this channel (default: silent). */
   onLog?: (msg: string) => void;
+  /** Abort signal for the current agent wall-clock timeout. */
+  signal?: AbortSignal;
 }
 
 export interface AgentToolLoopResult {
@@ -78,10 +80,11 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
   const llmWithTools = opts.llm.bindTools(opts.tools as StructuredToolInterface[]);
 
   for (let step = 0; step < maxLoops; step++) {
-    const ai = (await llmWithTools.invoke([
-      new SystemMessage(opts.systemMessage),
-      ...messages,
-    ])) as AIMessage;
+    opts.onLog?.(`analysis_llm=${step + 1}/${maxLoops}`);
+    const ai = (await llmWithTools.invoke(
+      [new SystemMessage(opts.systemMessage), ...messages],
+      opts.signal ? { signal: opts.signal } : undefined,
+    )) as AIMessage;
     llmInvocations++;
     messages.push(ai);
 
@@ -98,6 +101,12 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
       return { analysisText: analysis, llmInvocations, toolCalls, messages };
     }
 
+    opts.onLog?.(
+      `tools=${calls.length} names=${calls
+        .map((call) => call.name ?? "unknown")
+        .slice(0, 5)
+        .join(",")}`,
+    );
     for (const call of calls) {
       const name = call.name ?? "";
       toolCalls++;
@@ -114,7 +123,10 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
       }
       let output: string;
       try {
-        const raw = await tool.invoke(call.args ?? {});
+        const raw = await tool.invoke(
+          call.args ?? {},
+          opts.signal ? { signal: opts.signal } : undefined,
+        );
         output = typeof raw === "string" ? raw : String(raw);
       } catch (err) {
         output = `Tool '${name}' raised: ${(err as Error).message}`;
@@ -131,14 +143,17 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
 
   // maxLoops hit — force one final non-tool invocation so we get something
   // usable. This matches Phase 1's tool-loop forced-final behaviour.
-  const final = (await opts.llm.invoke([
-    new SystemMessage(opts.systemMessage),
-    ...messages,
-    new HumanMessage(
-      "Tool budget exhausted. Now write the final structured-friendly analysis " +
-        "based on the data you already have, and do not call further tools.",
-    ),
-  ])) as AIMessage;
+  const final = (await opts.llm.invoke(
+    [
+      new SystemMessage(opts.systemMessage),
+      ...messages,
+      new HumanMessage(
+        "Tool budget exhausted. Now write the final structured-friendly analysis " +
+          "based on the data you already have, and do not call further tools.",
+      ),
+    ],
+    opts.signal ? { signal: opts.signal } : undefined,
+  )) as AIMessage;
   llmInvocations++;
   messages.push(final);
   const raw = extractTextContent(final.content as unknown);

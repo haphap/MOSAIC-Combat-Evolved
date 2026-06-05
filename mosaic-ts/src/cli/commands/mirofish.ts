@@ -12,6 +12,7 @@ import pc from "picocolors";
 import { BridgeApi, BridgeClient, RpcError } from "../../bridge/index.js";
 import { createLlmFromConfig } from "../../llm/factory.js";
 import { runMirofishTraining } from "../../mirofish/trainer.js";
+import { redactSensitiveText } from "../../security/redaction.js";
 import { buildFakeLlmHandle } from "../_backtest_helpers.js";
 import { pad } from "../_format.js";
 
@@ -154,7 +155,7 @@ export function registerMirofish(program: Command): void {
           ...(engine ? { engine } : {}),
           ...(scorer ? { scorer } : {}),
           deps: { llm: llmHandle.llm, api },
-          onLog: (m) => console.log(pc.dim(`  ${m}`)),
+          onLog: (m) => console.log(pc.dim(`  ${redactSensitiveText(m)}`)),
         });
         console.log(pc.cyan(`\n  ${pad("agent", 18)} ${pad("avg_score", 10)} scenarios`));
         console.log(pc.dim(`  ${"─".repeat(44)}`));
@@ -231,14 +232,14 @@ async function withApi(fn: (api: BridgeApi) => Promise<void>): Promise<void> {
     await fn(api);
   } catch (err) {
     if (err instanceof RpcError) {
-      console.error(pc.red(`bridge error [${err.code}]: ${err.message}`));
+      console.error(pc.red(`bridge error [${err.code}]: ${redactSensitiveText(err.message)}`));
     } else {
-      console.error(pc.red(`error: ${(err as Error).message}`));
+      console.error(pc.red(`error: ${redactSensitiveText((err as Error).message)}`));
     }
     const tail = client.stderrTail.trim();
     if (tail) {
       console.error(pc.dim("\n--- bridge stderr (tail) ---"));
-      console.error(pc.dim(tail.slice(-2000)));
+      console.error(pc.dim(redactSensitiveText(tail).slice(-2000)));
     }
     process.exitCode = 1;
   } finally {

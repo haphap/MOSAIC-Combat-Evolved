@@ -34,6 +34,7 @@ import io
 import json
 import logging
 import os
+import re
 import threading
 import time
 from collections import deque
@@ -185,8 +186,14 @@ def _request_observations(
         response = requests.get(url, params=params, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
     except requests.RequestException as exc:
+        status_code = getattr(locals().get("response", None), "status_code", None)
+        if status_code in {400, 404}:
+            return {
+                "observations": [],
+                "_fred_unavailable": _redact_http_error(exc),
+            }
         raise DataVendorUnavailable(
-            f"FRED request for series {series_id!r} failed: {exc}"
+            f"FRED request for series {series_id!r} failed: {_redact_http_error(exc)}"
         ) from exc
 
     try:
@@ -198,11 +205,27 @@ def _request_observations(
 
     if "error_code" in payload or "error_message" in payload:
         message = payload.get("error_message", "unknown error")
+        code = str(payload.get("error_code") or "")
+        if code in {"400", "404"}:
+            return {
+                "observations": [],
+                "_fred_unavailable": _redact_http_error(str(message)),
+            }
         raise DataVendorUnavailable(
             f"FRED returned error for series {series_id!r}: {message}"
         )
 
     return payload
+
+
+def _redact_http_error(exc: BaseException) -> str:
+    text = str(exc)
+    return re.sub(
+        r"([?&](?:api_key|apikey|token|access_token)=)[^\s&#]+",
+        r"\1<redacted>",
+        text,
+        flags=re.IGNORECASE,
+    )
 
 
 def _observations_to_rows(payload: dict[str, Any]) -> list[tuple[str, float | None]]:
@@ -284,9 +307,10 @@ def get_fred_series(
         2024-02-01,5.33
         ...
 
-    Missing observations are emitted as empty ``value`` cells. Raises
-    :class:`DataVendorUnavailable` on bad inputs, missing API key, or HTTP
-    failure — caller's fallback chain decides what to do.
+    Missing observations are emitted as empty ``value`` cells. Missing,
+    invalid, or temporarily unavailable FRED series return an empty CSV with an
+    ``unavailable`` comment so agent tool loops can continue. Raises
+    :class:`DataVendorUnavailable` on bad inputs or missing API key.
     """
     series_id = (series_id or "").strip().upper()
     if not series_id:
@@ -294,13 +318,25 @@ def get_fred_series(
     start_date = _validate_iso_date(start_date, "start_date")
     end_date = _validate_iso_date(end_date, "end_date")
 
-    payload = _get_payload_with_cache(series_id, start_date, end_date)
+    try:
+        payload = _get_payload_with_cache(series_id, start_date, end_date)
+    except DataVendorUnavailable as exc:
+        message = str(exc)
+        if "FRED_API_KEY" in message:
+            raise
+        payload = {
+            "observations": [],
+            "_fred_unavailable": _redact_http_error(message),
+        }
     rows = _observations_to_rows(payload)
 
     buffer = io.StringIO()
     label_start = start_date or (rows[0][0] if rows else "earliest")
     label_end = end_date or (rows[-1][0] if rows else "latest")
     buffer.write(f"# FRED series {series_id}, {label_start} to {label_end}\n")
+    unavailable = payload.get("_fred_unavailable")
+    if unavailable:
+        buffer.write(f"# FRED unavailable: {_redact_http_error(str(unavailable))}\n")
     writer = csv.writer(buffer)
     writer.writerow(["date", "value"])
     for date_str, value in rows:

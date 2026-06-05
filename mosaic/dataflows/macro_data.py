@@ -6,12 +6,13 @@ analysts (Plan §5.1):
 ==================================  =====================================  ============================================================
 Function                            Vendor / endpoint                      Used by (Layer-1 agents)
 ==================================  =====================================  ============================================================
-:func:`get_pboc_ops`                Tushare ``cb_op``                      ``central_bank``, ``china``
+:func:`get_pboc_ops`                PBOC website mirror                    ``central_bank``, ``china``
 :func:`get_lhb_ranking`             Tushare ``top_list``                   ``institutional_flow``
 :func:`get_yield_curve_cn`          Tushare ``yc_cb``                      ``central_bank``, ``yield_curve``
-:func:`get_us_china_spread`         Tushare ``yc_cb`` + FRED ``DGS10``     ``yield_curve``
+:func:`get_tushare_macro_series`    Tushare ``us_tycr`` / ``fx_daily``     ``dollar``, ``yield_curve``
+:func:`get_us_china_spread`         Tushare ``yc_cb`` + ``us_tycr``        ``yield_curve``
 :func:`get_xueqiu_heat`             AkShare ``stock_hot_search_xq``        ``news_sentiment``
-:func:`get_industry_policy`         Tushare ``news`` (filtered)            ``china``
+:func:`get_industry_policy`         gov.cn policy document library         ``china``
 ==================================  =====================================  ============================================================
 
 All public functions return ``str`` (markdown-with-CSV body) so they slot into
@@ -21,7 +22,7 @@ chain decides what to do.
 
 Endpoint disclaimer
 -------------------
-Several endpoint names follow the plan exactly (``cb_op``, ``yc_cb``,
+Several endpoint names follow the plan exactly (``yc_cb``,
 ``anns_d``) but have not yet been live-verified against the current Tushare
 API surface. If a name turns out to differ, the call site here is the only
 place to update — the rest of the system (interface routing, tests, bridge)
@@ -39,6 +40,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from .exceptions import DataVendorUnavailable
+from .gov_policy import get_gov_policy_documents
 
 logger = logging.getLogger(__name__)
 
@@ -130,27 +132,14 @@ def _df_to_markdown_csv(
 
 
 def get_pboc_ops(curr_date: str, look_back_days: int = 7) -> str:
-    """Fetch People's Bank of China open-market operations over a window.
-
-    Window = ``[curr_date - look_back_days, curr_date]``. The Tushare endpoint
-    ``cb_op`` returns daily injections / withdrawals via reverse repo, MLF,
-    SLF, etc. (operation type, volume, rate, term).
+    """Fetch People's Bank of China open-market announcements over a window.
 
     Used by Layer-1 agents ``central_bank`` (assess monetary stance) and
     ``china`` (track domestic policy direction).
     """
-    start_date, end_date = _date_range_from_lookback(curr_date, look_back_days)
-    df = _query_tushare(
-        "cb_op",
-        start_date=_to_tushare_date(start_date),
-        end_date=_to_tushare_date(end_date),
-    )
-    return _df_to_markdown_csv(
-        df,
-        title=f"PBOC Open Market Operations ({start_date} → {end_date})",
-        subtitle="Source: Tushare cb_op. Columns include op_type, volume (亿元), rate, term.",
-        empty_note=f"No PBOC operations recorded between {start_date} and {end_date}.",
-    )
+    from .pboc_ops import get_pboc_ops as _get_pboc_ops_from_pbc  # noqa: PLC0415
+
+    return _get_pboc_ops_from_pbc(curr_date, look_back_days)
 
 
 # ============================================================ 3. LHB ranking
@@ -223,11 +212,107 @@ def get_yield_curve_cn(curr_date: str, look_back_days: int = 30) -> str:
 # ============================================================ 5. US-CN 10Y spread
 
 
+_US_TREASURY_SERIES_FIELDS = {
+    "DGS1MO": "m1",
+    "DGS2MO": "m2",
+    "DGS3MO": "m3",
+    "DGS6MO": "m6",
+    "DGS1": "y1",
+    "DGS2": "y2",
+    "DGS3": "y3",
+    "DGS5": "y5",
+    "DGS7": "y7",
+    "DGS10": "y10",
+    "DGS20": "y20",
+    "DGS30": "y30",
+}
+
+
+def get_tushare_macro_series(
+    series_id: str,
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> str:
+    """Fetch a macro series from Tushare using the ``get_fred_series`` shape.
+
+    This is a compatibility adapter for agent prompts/tool schemas that still
+    name FRED series.  Route ordering now tries this Tushare adapter before the
+    real FRED client, so series covered by Tushare avoid FRED entirely while
+    unsupported series raise :class:`DataVendorUnavailable` and fall back.
+    """
+    series_id = (series_id or "").strip().upper()
+    if not series_id:
+        raise DataVendorUnavailable("series_id must be a non-empty string.")
+    start_date = _validate_iso_date(start_date, "start_date")
+    end_date = _validate_iso_date(end_date, "end_date")
+    if start_date and end_date and start_date > end_date:
+        raise DataVendorUnavailable(
+            f"start_date {start_date!r} is after end_date {end_date!r}."
+        )
+
+    if series_id in _US_TREASURY_SERIES_FIELDS:
+        field = _US_TREASURY_SERIES_FIELDS[series_id]
+        df = _fetch_tushare_us_treasury_series(series_id, field, start_date, end_date)
+        return _df_to_markdown_csv(
+            df,
+            title=f"Tushare macro series {series_id} ({start_date} → {end_date})",
+            subtitle=(
+                f"Source: Tushare us_tycr.{field}. Compatible replacement for "
+                f"FRED {series_id}; values are percentages."
+            ),
+            empty_note=f"No Tushare us_tycr rows for {series_id} between {start_date} and {end_date}.",
+        )
+
+    raise DataVendorUnavailable(
+        f"Tushare macro adapter does not support series {series_id!r}; falling back to FRED."
+    )
+
+
+def _normalise_tushare_date_column(df, source_col: str, target_col: str = "date"):
+    import pandas as pd  # noqa: PLC0415
+
+    values = df[source_col].astype(str).str.strip()
+    parsed = pd.to_datetime(values, format="%Y%m%d", errors="coerce")
+    parsed = parsed.where(~parsed.isna(), pd.to_datetime(values, errors="coerce"))
+    return df.assign(**{target_col: parsed.dt.strftime("%Y-%m-%d")}).dropna(subset=[target_col])
+
+
+def _fetch_tushare_us_treasury_series(
+    series_id: str,
+    field: str,
+    start_date: str | None,
+    end_date: str | None,
+):
+    import pandas as pd  # noqa: PLC0415
+
+    if not start_date or not end_date:
+        raise DataVendorUnavailable(
+            f"Tushare us_tycr requires start_date and end_date for {series_id}."
+        )
+    df = _query_tushare(
+        "us_tycr",
+        start_date=_to_tushare_date(start_date),
+        end_date=_to_tushare_date(end_date),
+    )
+    if df is None or df.empty:
+        raise DataVendorUnavailable(
+            f"Tushare us_tycr returned no rows for {series_id} between {start_date} and {end_date}."
+        )
+    if "date" not in df.columns or field not in df.columns:
+        raise DataVendorUnavailable(
+            f"Tushare us_tycr response missing required columns date/{field}."
+        )
+    out = _normalise_tushare_date_column(df[["date", field]].copy(), "date")
+    out = out.rename(columns={field: "value"})
+    out["value"] = pd.to_numeric(out["value"], errors="coerce")
+    return out[["date", "value"]].dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
+
+
 def get_us_china_spread(curr_date: str, look_back_days: int = 30) -> str:
     """Compute the US-CN 10-year sovereign yield spread over a window.
 
     * CN 10Y from Tushare ``yc_cb`` (curve_type=0, 10y tenor).
-    * US 10Y from FRED ``DGS10``.
+    * US 10Y from Tushare ``us_tycr.y10`` first, FRED ``DGS10`` fallback.
 
     Spread (bps) = US 10Y - CN 10Y, both in percent.
 
@@ -256,15 +341,27 @@ def get_us_china_spread(curr_date: str, look_back_days: int = 30) -> str:
     else:
         cn_view = pd.DataFrame(columns=["date", "cn_10y_pct"])
 
-    # Now pull US DGS10 from FRED.
-    from .fred import _fetch_series_dataframe  # noqa: PLC0415
-
+    us_source = "Tushare us_tycr.y10"
     try:
-        us_df = _fetch_series_dataframe("DGS10", start_date, end_date)
-    except DataVendorUnavailable as exc:
-        raise DataVendorUnavailable(
-            f"US-CN spread requires FRED DGS10 — {exc}"
-        ) from exc
+        us_df = _fetch_tushare_us_treasury_series("DGS10", "y10", start_date, end_date)
+    except DataVendorUnavailable as tushare_exc:
+        from .fred import _fetch_series_dataframe  # noqa: PLC0415
+
+        try:
+            us_df = _fetch_series_dataframe("DGS10", start_date, end_date)
+            us_source = "FRED DGS10 fallback"
+        except DataVendorUnavailable as fred_exc:
+            empty = pd.DataFrame(columns=["date", "us_10y_pct", "cn_10y_pct", "spread_bps"])
+            return _df_to_markdown_csv(
+                empty,
+                title=f"US-CN 10Y Yield Spread ({start_date} → {end_date})",
+                subtitle=(
+                    "spread_bps = (us_10y_pct - cn_10y_pct) * 100. "
+                    f"US leg unavailable: Tushare us_tycr.y10 ({tushare_exc}); "
+                    f"FRED DGS10 ({fred_exc})."
+                ),
+                empty_note=f"No US-CN spread observations between {start_date} and {end_date}.",
+            )
     us_view = us_df.rename(columns={"value": "us_10y_pct"})
     us_view["date"] = pd.to_datetime(us_view["date"], errors="coerce")
     us_view = us_view.dropna(subset=["date"])
@@ -283,7 +380,7 @@ def get_us_china_spread(curr_date: str, look_back_days: int = 30) -> str:
     return _df_to_markdown_csv(
         merged[["date", "us_10y_pct", "cn_10y_pct", "spread_bps"]] if not merged.empty else merged,
         title=f"US-CN 10Y Yield Spread ({start_date} → {end_date})",
-        subtitle="spread_bps = (us_10y_pct - cn_10y_pct) * 100. Sources: FRED DGS10 + Tushare yc_cb.",
+        subtitle=f"spread_bps = (us_10y_pct - cn_10y_pct) * 100. Sources: {us_source} + Tushare yc_cb.",
         empty_note=f"No overlapping observations between {start_date} and {end_date}.",
     )
 
@@ -406,80 +503,29 @@ def get_xueqiu_heat(ticker: str | None = None, top_n: int = 30) -> str:
 # ============================================================ 7. Industry policy
 
 
-_DEFAULT_POLICY_KEYWORDS = (
-    "政策",
-    "监管",
-    "改革",
-    "规划",
-    "通知",
-    "意见",
-    "国务院",
-    "央行",
-    "证监会",
-    "工信部",
-    "发改委",
-    "财政部",
-    "产业",
-    "新质生产力",
-)
-
-
 def get_industry_policy(
     curr_date: str,
     look_back_days: int = 7,
+    src: str = "govcn",
+    *,
     keywords: tuple[str, ...] | None = None,
-    src: str = "sina",
 ) -> str:
-    """Fetch policy-relevant news headlines over a window.
+    """Fetch policy-relevant documents over a window.
 
-    Window = ``[curr_date - look_back_days, curr_date]``. We hit Tushare
-    ``news`` (新闻快讯) — a broad real-time newsfeed across multiple sources —
-    then filter the body to rows containing any of the supplied keywords. The
-    default keyword list targets central-government and regulator policy
-    language.
+    The default source is the public State Council policy document library
+    behind ``https://www.gov.cn/zhengce/zhengcewenjianku/index.htm``.  It
+    provides structured government, department, gazette, and policy-interpretation
+    records without Tushare ``news`` permissions.
 
-    Used by ``china`` (policy-direction signal) and indirectly by sector
-    agents looking for industry-specific catalysts.
-
-    The plan §11 mentions ``anns_d``; that endpoint surfaces issuer-level
-    company filings rather than policy news, so we route through the
-    higher-recall ``news`` endpoint and filter. If the schema differs we
-    fall back to returning the raw frame.
+    ``src`` is retained for the existing bridge schema.  Values other than
+    ``govcn`` are accepted for backward compatibility but do not route back to
+    Tushare.
     """
-    start_date, end_date = _date_range_from_lookback(curr_date, look_back_days)
-
-    df = _query_tushare(
-        "news",
-        start_date=_to_tushare_date(start_date),
-        end_date=_to_tushare_date(end_date),
-        src=src,
-    )
-
-    keywords = keywords or _DEFAULT_POLICY_KEYWORDS
-    if df is not None and not df.empty:
-        text_cols = [c for c in ("content", "title") if c in df.columns]
-        if text_cols:
-            mask = False
-            for col in text_cols:
-                col_str = df[col].astype(str)
-                col_mask = False
-                for kw in keywords:
-                    col_mask = col_mask | col_str.str.contains(kw, na=False)
-                mask = mask | col_mask
-            try:
-                df = df[mask]
-            except Exception:
-                # If mask logic above degraded to a scalar bool, fall through.
-                pass
-
-    return _df_to_markdown_csv(
-        df,
-        title=f"产业政策 / Industry Policy News ({start_date} → {end_date})",
-        subtitle=(
-            f"Source: Tushare news (src={src}); "
-            f"keyword filter: {', '.join(keywords)}"
-        ),
-        empty_note=f"No policy-flagged news rows between {start_date} and {end_date}.",
+    _ = src
+    return get_gov_policy_documents(
+        curr_date,
+        look_back_days,
+        keywords=keywords,
     )
 
 
@@ -497,16 +543,32 @@ def get_usdcny(curr_date: str, look_back_days: int = 30) -> str:
     Used by ``dollar`` (DXY/CNY/CN-US-spread triangulation).
     """
     start_date, end_date = _date_range_from_lookback(curr_date, look_back_days)
-    df = _query_tushare(
-        "fx_daily",
-        ts_code="USDCNH.FXCM",
-        start_date=_to_tushare_date(start_date),
-        end_date=_to_tushare_date(end_date),
-    )
+    title = f"USD/CNY (offshore USDCNH.FXCM) ({start_date} → {end_date})"
+    subtitle = "Source: Tushare fx_daily. bid_close/ask_close = CNH per USD. Dates GMT."
+    try:
+        df = _query_tushare(
+            "fx_daily",
+            ts_code="USDCNH.FXCM",
+            start_date=_to_tushare_date(start_date),
+            end_date=_to_tushare_date(end_date),
+        )
+    except DataVendorUnavailable as exc:
+        try:
+            import pandas as pd  # noqa: PLC0415
+        except ImportError as imp_exc:
+            raise DataVendorUnavailable(
+                "pandas is required to materialise Tushare responses."
+            ) from imp_exc
+        return _df_to_markdown_csv(
+            pd.DataFrame(),
+            title=title,
+            subtitle=f"{subtitle} Tushare fx_daily unavailable: {exc}",
+            empty_note=f"No fx_daily rows for USDCNH.FXCM between {start_date} and {end_date}.",
+        )
     return _df_to_markdown_csv(
         df,
-        title=f"USD/CNY (offshore USDCNH.FXCM) ({start_date} → {end_date})",
-        subtitle="Source: Tushare fx_daily. bid_close/ask_close = CNH per USD. Dates GMT.",
+        title=title,
+        subtitle=subtitle,
         empty_note=f"No fx_daily rows for USDCNH.FXCM between {start_date} and {end_date}.",
     )
 
@@ -856,6 +918,7 @@ __all__ = [
     "get_pboc_ops",
     "get_lhb_ranking",
     "get_yield_curve_cn",
+    "get_tushare_macro_series",
     "get_us_china_spread",
     "get_xueqiu_heat",
     "get_industry_policy",

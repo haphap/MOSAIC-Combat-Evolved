@@ -54,6 +54,8 @@ export interface BuildDailyCycleGraphDeps {
   config: MosaicConfig;
   llmHandleStructured?: LlmHandle;
   onLog?: (msg: string) => void;
+  /** Per-agent wall-clock timeout in seconds. Default: 300; <=0 disables. */
+  agentTimeoutSeconds?: number;
   /** Veto threshold (rejected / candidate ratio). Default 0.5 per plan §11.2 #5. */
   vetoThreshold?: number;
   /** Override prompt-root directory (tests inject a tmpdir). */

@@ -25,6 +25,16 @@ import type { BridgeApi, MosaicConfig } from "../../bridge/index.js";
 import type { LlmHandle } from "../../llm/factory.js";
 import { formatMirofishContext } from "../../mirofish/context.js";
 import { extractTextContent } from "../helpers/content.js";
+import {
+  AgentTimeoutError,
+  buildLlmCall,
+  formatAgentEvent,
+  formatDurationMs,
+  resolveAgentTimeoutMs,
+  safeErrorMessage,
+  summarizeAgentOutput,
+  withAgentTimeout,
+} from "../helpers/runtime.js";
 import { invokeStructuredOrFreetext } from "../helpers/structured_output.js";
 import { type LoaderLanguage, loadPrompt } from "../prompts/loader.js";
 import type { DailyCycleStateType, DailyCycleStateUpdate } from "../state.js";
@@ -64,6 +74,8 @@ export interface LayerFourAgentDeps {
   config: MosaicConfig;
   llmHandleStructured?: LlmHandle;
   onLog?: (msg: string) => void;
+  /** Per-agent wall-clock timeout in seconds. Default: 300; <=0 disables. */
+  agentTimeoutSeconds?: number;
   /** Override prompt-root directory (tests inject a tmpdir). */
   promptsRoot?: string;
 }
@@ -75,77 +87,106 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
   deps: LayerFourAgentDeps,
 ): LayerFourAgentNode {
   return async function layerFourAgentNode(state) {
-    const cohort = state.active_cohort || "cohort_default";
-    const language = pickPromptLanguage(deps.config);
-
-    // Phase 0: load prompt.
-    const systemPrompt = await loadPrompt({
-      agent: spec.agentId,
-      cohort,
-      language,
-      ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
-    });
-
-    // Phase 1: synthesis (no tools, single invoke).
-    const userContext = await spec.buildUserContext(state);
-    const augmentedContext = await maybeAppendMirofishContext(
-      spec,
-      userContext,
-      deps,
-      state,
-      language,
-    );
-    const analysisResponse = await deps.llmHandle.llm.invoke([
-      new SystemMessage(systemPrompt),
-      new HumanMessage(augmentedContext),
-    ]);
-    const analysisText =
-      typeof analysisResponse.content === "string"
-        ? analysisResponse.content
-        : extractTextContent(analysisResponse.content);
-
-    // Phase 2: structured extraction.
     const structuredHandle = deps.llmHandleStructured ?? deps.llmHandle;
-    const extractorSystem = spec.buildExtractorSystem
-      ? spec.buildExtractorSystem(language)
-      : defaultExtractorSystem(spec, language);
-    const extractor = await invokeStructuredOrFreetext<TOutput>({
-      llm: structuredHandle.llm,
-      schema: spec.schema,
-      messages: [
-        new SystemMessage(extractorSystem),
-        new HumanMessage(analysisText || "(no analysis produced)"),
-      ],
-      render: spec.render,
-      agentName: spec.agentId,
-      structuredOnlySentences: spec.structuredOnlySentences ?? [],
-    });
+    const timeoutMs = resolveAgentTimeoutMs(deps.agentTimeoutSeconds);
+    const onLog = deps.onLog ?? (() => undefined);
+    const startedAt = Date.now();
+    onLog(
+      formatAgentEvent("start", "L4", spec.agentId, [
+        `timeout=${timeoutMs > 0 ? formatDurationMs(timeoutMs) : "off"}`,
+      ]),
+    );
 
-    const output = extractor.structured ?? spec.fallback(analysisText);
+    try {
+      return await withAgentTimeout(
+        async (signal) => {
+          const cohort = state.active_cohort || "cohort_default";
+          const language = pickPromptLanguage(deps.config);
+          onLog(formatAgentEvent("phase", "L4", spec.agentId, ["prepare"]));
 
-    const llmCall: LlmCallRecord = {
-      ts: new Date().toISOString(),
-      agent: spec.agentId,
-      model: structuredHandle.model,
-      provider: structuredHandle.provider,
-      prompt_tokens: 0,
-      completion_tokens: 0,
-      cost_usd: 0,
-    };
+          // Phase 0: load prompt.
+          const systemPrompt = await loadPrompt({
+            agent: spec.agentId,
+            cohort,
+            language,
+            ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
+          });
 
-    // Per-agent state update. cio additionally mirrors portfolio_actions to
-    // the top-level field so Phase 3 scorecard / TUI consumers don't have
-    // to dive through layer4_outputs.cio.
-    const baseUpdate: DailyCycleStateUpdate = {
-      layer4_outputs: { [spec.stateUpdateField]: output } as Partial<Layer4Outputs>,
-      llm_calls: [llmCall],
-    };
-    if (spec.stateUpdateField === "cio") {
-      const cioOut = output as unknown as CioOutput;
-      (baseUpdate as { portfolio_actions: PortfolioAction[] }).portfolio_actions =
-        cioOut.portfolio_actions;
+          // Phase 1: synthesis (no tools, single invoke).
+          const userContext = await spec.buildUserContext(state);
+          const augmentedContext = await maybeAppendMirofishContext(
+            spec,
+            userContext,
+            deps,
+            state,
+            language,
+          );
+          onLog(formatAgentEvent("phase", "L4", spec.agentId, ["synthesis_llm=1"]));
+          const analysisResponse = await deps.llmHandle.llm.invoke(
+            [new SystemMessage(systemPrompt), new HumanMessage(augmentedContext)],
+            signal ? { signal } : undefined,
+          );
+          const analysisText =
+            typeof analysisResponse.content === "string"
+              ? analysisResponse.content
+              : extractTextContent(analysisResponse.content);
+
+          // Phase 2: structured extraction.
+          onLog(
+            formatAgentEvent("phase", "L4", spec.agentId, [`extract chars=${analysisText.length}`]),
+          );
+          const extractorSystem = spec.buildExtractorSystem
+            ? spec.buildExtractorSystem(language)
+            : defaultExtractorSystem(spec, language);
+          const extractor = await invokeStructuredOrFreetext<TOutput>({
+            llm: structuredHandle.llm,
+            schema: spec.schema,
+            messages: [
+              new SystemMessage(extractorSystem),
+              new HumanMessage(analysisText || "(no analysis produced)"),
+            ],
+            render: spec.render,
+            agentName: spec.agentId,
+            structuredOnlySentences: spec.structuredOnlySentences ?? [],
+            onLog: (msg) => onLog(formatAgentEvent("phase", "L4", spec.agentId, [msg])),
+            signal,
+          });
+
+          const output = extractor.structured ?? spec.fallback(analysisText);
+          onLog(
+            formatAgentEvent("done", "L4", spec.agentId, [
+              `elapsed=${formatDurationMs(Date.now() - startedAt)}`,
+              "analysis_llm=1",
+              "tools=0",
+              `source=${extractor.structured ? "structured" : "fallback"}`,
+              summarizeAgentOutput(output),
+            ]),
+          );
+
+          return buildLayerFourUpdate(spec, output, buildLlmCall(spec.agentId, structuredHandle));
+        },
+        timeoutMs,
+        `L4 ${spec.agentId}`,
+      );
+    } catch (err) {
+      if (err instanceof AgentTimeoutError) {
+        const output = spec.fallback("");
+        onLog(
+          formatAgentEvent("timeout", "L4", spec.agentId, [
+            `elapsed=${formatDurationMs(Date.now() - startedAt)}`,
+            summarizeAgentOutput(output),
+          ]),
+        );
+        return buildLayerFourUpdate(spec, output, buildLlmCall(spec.agentId, structuredHandle));
+      }
+      onLog(
+        formatAgentEvent("error", "L4", spec.agentId, [
+          `elapsed=${formatDurationMs(Date.now() - startedAt)}`,
+          `message=${safeErrorMessage(err)}`,
+        ]),
+      );
+      throw err;
     }
-    return baseUpdate;
   };
 }
 
@@ -202,4 +243,24 @@ function defaultExtractorSystem<TOutput extends Layer4AgentOutput>(
     `(empty arrays / confidence ≤ 0.3). ` +
     lang
   );
+}
+
+function buildLayerFourUpdate<TOutput extends Layer4AgentOutput>(
+  spec: LayerFourAgentSpec<TOutput>,
+  output: TOutput,
+  llmCall: LlmCallRecord,
+): DailyCycleStateUpdate {
+  // Per-agent state update. cio additionally mirrors portfolio_actions to
+  // the top-level field so Phase 3 scorecard / TUI consumers don't have
+  // to dive through layer4_outputs.cio.
+  const baseUpdate: DailyCycleStateUpdate = {
+    layer4_outputs: { [spec.stateUpdateField]: output } as Partial<Layer4Outputs>,
+    llm_calls: [llmCall],
+  };
+  if (spec.stateUpdateField === "cio") {
+    const cioOut = output as unknown as CioOutput;
+    (baseUpdate as { portfolio_actions: PortfolioAction[] }).portfolio_actions =
+      cioOut.portfolio_actions;
+  }
+  return baseUpdate;
 }

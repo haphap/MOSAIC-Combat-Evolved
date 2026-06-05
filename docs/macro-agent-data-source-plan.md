@@ -247,7 +247,8 @@ implementation_status
 
 Evidence sources:
 
-- Tushare `cb_op` 或 catalog 中验证后的央行公开市场操作 endpoint。
+- PBOC 公开市场业务网页镜像（`mosaic.dataflows.pboc_ops`）：公开市场业务公告、交易公告、
+  买断式逆回购、国债买卖、中央银行票据、CBS、SFISF、中央国库现金管理等栏目。
 - Tushare `shibor`, `shibor_quote`, `yc_cb`。
 - FRED `FEDFUNDS`, `DFF`, `SOFR` 相关利率序列。
 - OpenCLI query bundle：PBOC、MLF、OMO、reserve requirement、Fed、FOMC。
@@ -290,7 +291,7 @@ Secondary labels:
 Implementation tasks:
 
 - 建 `china_macro_release_series`，低频宏观数据只作为 evidence/event，不直接当 5 日收益。
-- 建 `policy_event_classifier`，从 Tushare news/research_report 和 OpenCLI 文档中抽取政策强度。
+- 建 `policy_event_classifier`，从 gov.cn 政策文件库、Tushare research_report 和 OpenCLI 文档中抽取政策强度。
 - 用政策事件后的行业/指数 forward path 做 drawdown-aware label。
 
 ### `geopolitical`

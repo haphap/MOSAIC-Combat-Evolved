@@ -8,7 +8,7 @@
  *
  * Tools (Plan §5.1):
  *   * get_pboc_ops          — PBOC OMO / MLF / SLF
- *   * get_fred_series       — FRED FEDFUNDS / DFF
+ *   * get_fred_series       — Fed FEDFUNDS / DFF (FRED fallback; Tushare covers other mapped macro series)
  *   * get_yield_curve_cn    — China treasury curve, used as PBOC transmission proxy
  */
 

@@ -7,8 +7,9 @@ coupling among **DXY + USD/CNY + CN-US rate spread** and produce a compact
 ## Tools
 
 * `get_fred_series(series_id, start_date, end_date)` — **must** pull at
-  least `DTWEXBGS` (broad USD index). Optionally also `DGS10` to see how
-  rate spreads transmit to FX.
+  least `DTWEXBGS` (exact FRED broad trade-weighted dollar index).
+  Optionally also pull `DGS10` to see how rate spreads transmit to FX
+  (`DGS10` uses Tushare `us_tycr` first).
 * `get_usdcny(curr_date)` — onshore / offshore RMB exchange rate. When DXY
   strengthens the RMB typically weakens and vice versa; the cleanest
   "dollar vs RMB" coupling signal.
@@ -18,7 +19,7 @@ coupling among **DXY + USD/CNY + CN-US rate spread** and produce a compact
 ## Workflow
 
 1. **All three tools required** — single-side reads are not allowed.
-2. **Quantify**: cite DXY level + WoW BPS change, USD/CNY level + WoW move,
+2. **Quantify**: cite DTWEXBGS level + WoW move, USD/CNY level + WoW move,
    CN-US 10Y spread in BPS.
 3. **`dxy_cny_correlation` is the correlation coefficient × 100, integer**
    (e.g. 73 means 0.73). Positive = RMB weakens as the broad dollar
@@ -49,9 +50,9 @@ coupling among **DXY + USD/CNY + CN-US rate spread** and produce a compact
 
 ## Writing constraints
 
-* `cny_pressure = HIGH` only when DXY +1% WoW **and** USD/CNY depreciates in
+* `cny_pressure = HIGH` only when DTWEXBGS is +1% WoW **and** USD/CNY depreciates in
   step.
-* `cny_pressure = LOW` only when DXY -1% WoW **and** USD/CNY appreciates in
+* `cny_pressure = LOW` only when DTWEXBGS is -1% WoW **and** USD/CNY appreciates in
   step.
 * When the (CN-US) spread compresses below -100 BPS, `cny_pressure` is at
   least MODERATE.

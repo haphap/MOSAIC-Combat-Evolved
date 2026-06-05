@@ -11,8 +11,8 @@ relative to DM** + **HK / A share preference** + **EM capital flow**.
 
 * `get_us_china_spread(curr_date, look_back_days=30)` — CN-US spread.
   Spread narrowing typically accompanies EM outperforming DM.
-* `get_fred_series` — pull `DTWEXBGS` (USD). When DXY weakens EM tends to
-  see inflows.
+* `get_fred_series` — pull `DTWEXBGS` (exact FRED broad trade-weighted
+  dollar index). When DTWEXBGS weakens EM tends to see inflows.
 * `get_etf_price_data(symbol, ...)` — A-share broad-base / cross-border ETF
   prices (e.g. 510300.SH CSI300, 513050.SH China-internet) as an EM/HK-A proxy.
 * `get_etf_universe(curr_date, market, asset_scope, limit)` — **discovery**:
@@ -23,13 +23,13 @@ relative to DM** + **HK / A share preference** + **EM capital flow**.
 
 ## Workflow
 
-1. **The two core tools are required** (us_china_spread + fred DXY).
+1. **The two core tools are required** (us_china_spread + DTWEXBGS).
 2. **ETF usage (self-discovery)**: first `get_etf_universe` to find a broad-base /
    cross-border ETF, then `get_etf_info`/`get_etf_nav`/`get_etf_price_data` on the
    ones of interest to measure EM/HK-A performance as price corroboration.
 3. **`em_relative` strict definitions**:
-   - OUTPERFORMING: DXY weakening + A/HK ETFs rising + spread narrowing
-   - UNDERPERFORMING: DXY strengthening + A/HK ETFs falling + spread wider
+   - OUTPERFORMING: DTWEXBGS weakening + A/HK ETFs rising + spread narrowing
+   - UNDERPERFORMING: DTWEXBGS strengthening + A/HK ETFs falling + spread wider
    - INLINE: anything else
 4. **`hk_a_share_ratio` measured via ETFs**: HK / China-internet ETF price
    (e.g. 513050.SH) / A-share broad-base ETF price (e.g. 510300.SH).
@@ -37,8 +37,8 @@ relative to DM** + **HK / A share preference** + **EM capital flow**.
    two ETFs you used in `key_drivers`.
 5. **`capital_flow` strict definitions**:
    - NET_INFLOW: A/HK ETF price + shares (get_etf_nav) rising consistently
-     + DXY weakening
-   - NET_OUTFLOW: A/HK ETF price falling consistently + DXY strengthening
+     + DTWEXBGS weakening
+   - NET_OUTFLOW: A/HK ETF price falling consistently + DTWEXBGS strengthening
    - FLAT: anything else
 
 ## Scoring boundary
@@ -65,5 +65,5 @@ relative to DM** + **HK / A share preference** + **EM capital flow**.
 
 * `key_drivers` must include at least one bullet stating which two ETFs'
   price ratio backs `hk_a_share_ratio`.
-* If ETF prices are unavailable today, fall back to spread + DXY and set
+* If ETF prices are unavailable today, fall back to spread + DTWEXBGS and set
   `confidence ≤ 0.5`.

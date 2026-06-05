@@ -36,14 +36,27 @@ export function bindStructured<TSchema extends z.ZodType>(
   llm: BaseChatModel,
   schema: TSchema,
   agentName: string,
-): { invoke: (input: unknown) => Promise<z.infer<TSchema>> } | null {
+  onLog?: (msg: string) => void,
+): {
+  invoke: (input: unknown, options?: { signal?: AbortSignal }) => Promise<z.infer<TSchema>>;
+} | null {
   try {
+    const schemaWithCanonicalAgent = z.preprocess(
+      (value) => canonicalizeAgentField(value, agentName),
+      schema,
+    );
     // withStructuredOutput return type is provider-dependent; erase via any.
     // biome-ignore lint/suspicious/noExplicitAny: return type depends on provider
-    const bound = (llm as any).withStructuredOutput(schema);
-    return { invoke: (input: unknown) => bound.invoke(input) as Promise<z.infer<TSchema>> };
+    const bound = (llm as any).withStructuredOutput(schemaWithCanonicalAgent);
+    return {
+      invoke: async (input: unknown, options?: { signal?: AbortSignal }) => {
+        const result = await bound.invoke(input, options);
+        return canonicalizeExistingAgentField(result, agentName) as z.infer<TSchema>;
+      },
+    };
   } catch (err) {
-    console.warn(
+    emitStructuredLog(
+      onLog,
       `${agentName}: provider does not support withStructuredOutput (${(err as Error).message}); ` +
         "falling back to free-text generation",
     );
@@ -178,6 +191,10 @@ export interface StructuredInvokeOptions<T> {
    * message when falling back to free-text mode (see Plan §11.2 2A.2-2).
    */
   structuredOnlySentences?: ReadonlyArray<string>;
+  /** Optional log channel for structured fallback progress. */
+  onLog?: (msg: string) => void;
+  /** Abort signal for the current agent wall-clock timeout. */
+  signal?: AbortSignal;
 }
 
 /**
@@ -199,17 +216,20 @@ export async function invokeStructuredOrFreetext<T>(
     fallbackInstruction,
     structuredMessages,
     structuredOnlySentences,
+    onLog,
+    signal,
   } = opts;
 
   // ---- structured path ----
-  const bound = bindStructured(llm, schema, agentName);
+  const bound = bindStructured(llm, schema, agentName, onLog);
   if (bound !== null) {
     try {
       const invokeTarget = structuredMessages ?? messages;
-      const result = (await bound.invoke(invokeTarget)) as T;
+      const result = (await bound.invoke(invokeTarget, signal ? { signal } : undefined)) as T;
       return { rendered: render(result), structured: result };
     } catch (err) {
-      console.warn(
+      emitStructuredLog(
+        onLog,
         `${agentName}: structured-output invocation failed (${(err as Error).message}); ` +
           "retrying once as free text",
       );
@@ -227,10 +247,10 @@ export async function invokeStructuredOrFreetext<T>(
     fallbackInstruction,
     structuredOnlySentences,
   );
-  const response = await llm.invoke([
-    new SystemMessage(buildJsonFallbackSystem(fallbackSystem, schema, agentName)),
-    userMsg,
-  ]);
+  const response = await llm.invoke(
+    [new SystemMessage(buildJsonFallbackSystem(fallbackSystem, schema, agentName)), userMsg],
+    signal ? { signal } : undefined,
+  );
   const content =
     typeof response.content === "string"
       ? response.content.trim()
@@ -238,16 +258,44 @@ export async function invokeStructuredOrFreetext<T>(
   const parsed = tryParseJsonObject(content);
   if (parsed !== null) {
     try {
-      const result = schema.parse(parsed);
+      const result = schema.parse(canonicalizeAgentField(parsed, agentName));
       return { rendered: render(result), structured: result };
     } catch (err) {
-      console.warn(
+      emitStructuredLog(
+        onLog,
         `${agentName}: JSON fallback schema parse failed (${(err as Error).message}); ` +
           "using free text",
       );
     }
   }
   return { rendered: content, structured: null };
+}
+
+function emitStructuredLog(onLog: ((msg: string) => void) | undefined, message: string): void {
+  if (onLog) {
+    onLog(message);
+  } else {
+    console.warn(message);
+  }
+}
+
+function canonicalizeAgentField(value: unknown, agentName: string): unknown {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return value;
+  }
+  return { ...value, agent: agentName };
+}
+
+function canonicalizeExistingAgentField(value: unknown, agentName: string): unknown {
+  if (
+    value === null ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    !Object.hasOwn(value, "agent")
+  ) {
+    return value;
+  }
+  return { ...value, agent: agentName };
 }
 
 function buildJsonFallbackSystem<T>(

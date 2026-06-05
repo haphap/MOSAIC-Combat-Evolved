@@ -9,8 +9,9 @@ recession signal" view.
 * `get_yield_curve_cn(curr_date, look_back_days=30)` — daily CN treasury
   yields (1y/2y/3y/5y/7y/10y/30y). Curve-shape calls require the 30-day
   trend, not a single day's snapshot.
-* `get_fred_series(series_id, start_date, end_date)` — must pull `DGS10`
-  + `DGS2` (US 10Y / 2Y). Without these you cannot infer US recession risk.
+* `get_fred_series(series_id, start_date, end_date)` — pull `DGS10`
+  + `DGS2` (US 10Y / 2Y). This tool tries Tushare `us_tycr` first and
+  uses FRED only as fallback. Without these you cannot infer US recession risk.
 * `get_us_china_spread(curr_date, look_back_days=30)` — composite CN 10Y -
   US 10Y spread.
 

@@ -1,8 +1,8 @@
 /**
  * yield_curve Layer-1 macro agent (Plan §5.1).
  *
- * Tools: get_yield_curve_cn (CN curve daily) + get_fred_series (US DGS10/DGS2)
- * + get_us_china_spread (composite). All three exist in Phase 0.
+ * Tools: get_yield_curve_cn (CN curve daily) + get_fred_series (US DGS10/DGS2,
+ * routed through Tushare us_tycr first) + get_us_china_spread (composite).
  */
 
 import type { YieldCurveOutput } from "../types.js";

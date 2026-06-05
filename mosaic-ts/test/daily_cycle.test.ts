@@ -730,6 +730,7 @@ describe("buildDailyCycleGraph (end-to-end smoke, no veto)", () => {
 
   it("runs all 25 agents through 4 layers, populates portfolio_actions, no veto", async () => {
     const llm = new ScriptedLlm25(makeCannedOutputs({ croRejected: 0 }));
+    const logs: string[] = [];
     const handle: LlmHandle = {
       llm: llm as unknown as LlmHandle["llm"],
       provider: "fake",
@@ -742,6 +743,8 @@ describe("buildDailyCycleGraph (end-to-end smoke, no veto)", () => {
       api: fakeApi,
       config: BASE_CONFIG,
       promptsRoot: promptDir,
+      agentTimeoutSeconds: 0,
+      onLog: (msg) => logs.push(msg),
     });
 
     const final = (await graph.invoke(emptyState())) as DailyCycleStateType;
@@ -780,6 +783,11 @@ describe("buildDailyCycleGraph (end-to-end smoke, no veto)", () => {
     expect(final.llm_calls).toHaveLength(25);
     // R-A1: no veto → replay never ran.
     expect(final.replay_triggered).toBe(false);
+    expect(logs).toContainEqual(
+      expect.stringContaining("[agent:start] L1 central_bank timeout=off"),
+    );
+    expect(logs).toContainEqual(expect.stringContaining("[agent:done] L4 cio"));
+    expect(logs).toContainEqual(expect.stringContaining("actions=2"));
   });
 });
 

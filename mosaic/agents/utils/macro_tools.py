@@ -5,7 +5,7 @@ which:
 
 1. Applies any active backtest date-bounds context (clamping ``end_date`` /
    ``curr_date`` to ``as_of_date``).
-2. Dispatches to the appropriate vendor implementation (Tushare / AkShare /
+2. Dispatches to the appropriate vendor implementation (PBOC / Tushare / AkShare /
    FRED) per the active config (``data_vendors`` / ``tool_vendors``).
 3. Walks the fallback chain on :class:`DataVendorUnavailable`.
 
@@ -18,16 +18,16 @@ Coverage (8 tools, Plan §5.1 Layer-1):
 ==============================  ================================================  =====================================
 Tool                            Used by                                           Vendor
 ==============================  ================================================  =====================================
-``get_fred_series``             central_bank, dollar, yield_curve, commodities,   FRED
-                                volatility (FEDFUNDS, DGS10, DGS2, DTWEXBGS,
-                                DCOILWTICO, GOLDPMGBD228NLBM, VIXCLS, etc.)
-``get_pboc_ops``                central_bank, china                               Tushare cb_op
+``get_fred_series``             central_bank, dollar, yield_curve, commodities,   Tushare where covered,
+                                volatility (DGS* uses Tushare first;             then FRED fallback
+                                DTWEXBGS/FEDFUNDS/VIXCLS stay FRED fallback)
+``get_pboc_ops``                central_bank, china                               PBOC website mirror
 ``get_lhb_ranking``             institutional_flow                                Tushare top_list
 ``get_yield_curve_cn``          central_bank, yield_curve                         Tushare yc_cb
 ``get_us_china_spread``         yield_curve                                       Tushare yc_cb + FRED DGS10
 ``get_xueqiu_heat``             news_sentiment                                    AkShare stock_hot_follow_xq
 ``get_news``                    news_sentiment                                    opencli / brave / yfinance
-``get_industry_policy``         china                                             Tushare news + keyword filter
+``get_industry_policy``         china                                             gov.cn policy document library
 ==============================  ================================================  =====================================
 """
 
@@ -40,15 +40,16 @@ from langchain_core.tools import tool
 from mosaic.dataflows.interface import route_to_vendor
 
 
-# ============================================================ FRED
+# ============================================================ Macro series (Tushare preferred, FRED fallback)
 
 
 @tool
 def get_fred_series(
     series_id: Annotated[
         str,
-        "FRED series identifier (e.g. 'FEDFUNDS', 'DGS10', 'DGS2', 'DTWEXBGS', "
-        "'DCOILWTICO', 'GOLDPMGBD228NLBM', 'VIXCLS').",
+        "Macro series identifier. Tushare is used first where available "
+        "(e.g. DGS10/DGS2 via us_tycr), then FRED fallback for exact FRED "
+        "series such as DTWEXBGS, FEDFUNDS, or VIXCLS.",
     ],
     start_date: Annotated[
         str,
@@ -60,21 +61,22 @@ def get_fred_series(
     ],
 ) -> str:
     """
-    Retrieve a FRED (Federal Reserve Economic Data) time series as CSV.
+    Retrieve a macro time series as CSV using the configured vendor chain.
 
     Used by Layer-1 macro agents to anchor monetary, FX, commodity, and
-    volatility narratives in hard, point-in-time figures. Common series:
-    FEDFUNDS / DFF for Fed funds, DGS10 / DGS2 for the U.S. yield curve,
-    DTWEXBGS for the broad dollar, DCOILWTICO for oil, VIXCLS for VIX.
+    volatility narratives in hard, point-in-time figures. Tushare covers
+    U.S. treasury curve series (DGS*) via ``us_tycr``. Unsupported or more
+    precise FRED-only series such as DTWEXBGS, FEDFUNDS, and VIXCLS fall back
+    to the FRED client.
 
     Args:
-        series_id: FRED series identifier.
+        series_id: Macro/FRED-style series identifier.
         start_date: yyyy-mm-dd inclusive lower bound.
         end_date: yyyy-mm-dd inclusive upper bound.
 
     Returns:
         CSV with header line ``date,value``. Missing observations come back as
-        empty cells. Output prefixed by a ``# FRED series ...`` markdown comment.
+        empty cells. Output is prefixed by a vendor/source markdown comment.
     """
     return route_to_vendor("get_fred_series", series_id, start_date, end_date)
 
@@ -96,7 +98,9 @@ def get_pboc_ops(
     """
     Retrieve People's Bank of China open-market operations over a window.
 
-    Captures daily injections / withdrawals via reverse repo, MLF, SLF, etc.
+    Captures PBOC open-market announcements from the official website mirror,
+    including reverse repo, outright reverse repo, treasury trades, CBS, SFISF,
+    central-bank bills and treasury cash management notices.
     Used by ``central_bank`` (assess monetary stance) and ``china`` (track
     domestic policy direction).
 
@@ -105,7 +109,8 @@ def get_pboc_ops(
         look_back_days: window length in calendar days, default 7.
 
     Returns:
-        Markdown header + CSV with ``op_type``, ``volume``, ``rate``, ``term``.
+        Markdown header + CSV with title, operation type, amount, rate, term
+        and source URL fields.
     """
     return route_to_vendor("get_pboc_ops", curr_date, look_back_days)
 
@@ -185,11 +190,11 @@ def get_us_china_spread(
     """
     Compute the U.S.–China 10-year sovereign yield spread over a window.
 
-    Composite metric: U.S. 10Y from FRED ``DGS10`` minus China 10Y from
-    Tushare ``yc_cb`` (curve_type=0). Reported as ``spread_bps =
-    (us_10y_pct - cn_10y_pct) * 100`` for each trading date that has both
-    legs. Used by ``yield_curve`` to anchor reports on a hard cross-market
-    metric.
+    Composite metric: U.S. 10Y from Tushare ``us_tycr.y10`` first (FRED
+    ``DGS10`` fallback) minus China 10Y from Tushare ``yc_cb`` (curve_type=0).
+    Reported as ``spread_bps = (us_10y_pct - cn_10y_pct) * 100`` for each
+    trading date that has both legs. Used by ``yield_curve`` to anchor reports
+    on a hard cross-market metric.
 
     Args:
         curr_date: yyyy-mm-dd window end.
@@ -292,29 +297,28 @@ def get_industry_policy(
     ],
     look_back_days: Annotated[
         int,
-        "How many calendar days of news to scan.",
+        "How many calendar days of policy documents to scan.",
     ] = 7,
     src: Annotated[
         str,
-        "Tushare news source channel (e.g. 'sina', 'wallstreetcn', '10jqka', "
-        "'eastmoney', 'cls', 'yuncaijing', 'fenghuang').",
-    ] = "sina",
+        "Policy source selector retained for compatibility; gov.cn is used by default.",
+    ] = "govcn",
 ) -> str:
     """
-    Retrieve policy-flagged news headlines over a window.
+    Retrieve policy documents and policy interpretation items over a window.
 
-    Pulls Tushare ``news`` for the given window and source channel, then
-    filters the body to rows containing any of a built-in policy keyword set
-    (政策, 监管, 改革, 规划, 国务院, 央行, 证监会, 工信部, 发改委, 财政部,
-    产业, 新质生产力, ...). Used by ``china`` (policy-direction signal).
+    Pulls the public gov.cn State Council policy document library for the
+    given window. The source includes 国务院文件、国务院部门文件、国务院公报
+    and 政策解读, with title, issuing body, document number, topic, summary,
+    and URL fields. Used by ``china`` (policy-direction signal).
 
     Args:
         curr_date: yyyy-mm-dd window end.
         look_back_days: window length in calendar days, default 7.
-        src: Tushare news source channel, default 'sina'.
+        src: source selector kept for bridge compatibility, default 'govcn'.
 
     Returns:
-        Markdown header + CSV. Empty result if no policy-flagged rows match.
+        Markdown header + CSV. Empty result if no policy documents match.
     """
     return route_to_vendor("get_industry_policy", curr_date, look_back_days, src)
 
