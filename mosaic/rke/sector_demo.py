@@ -396,7 +396,9 @@ def build_sector_semiconductor_demo(
 
 def write_sector_semiconductor_demo_registry(root: str | Path = ".") -> dict[str, str]:
     root_path = Path(root)
-    bundle = build_sector_semiconductor_demo()
+    bundle = build_sector_semiconductor_demo(
+        load_jsonl(root_path / "registry/sources/tushare_research_reports.jsonl")
+    )
     outputs = {
         "sources": root_path / "registry/sources/semiconductor_demo_sources.jsonl",
         "claims": root_path / "registry/claims/semiconductor_claims.jsonl",

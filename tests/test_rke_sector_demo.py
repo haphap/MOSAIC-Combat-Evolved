@@ -52,6 +52,12 @@ def test_sector_semiconductor_runtime_is_monitor_only_under_research_only_gate()
 
 
 def test_sector_semiconductor_demo_registry_writer(tmp_path: Path):
+    source_dir = tmp_path / "registry/sources"
+    source_dir.mkdir(parents=True, exist_ok=True)
+    (source_dir / "tushare_research_reports.jsonl").write_text(
+        Path("registry/sources/tushare_research_reports.jsonl").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
     outputs = write_sector_semiconductor_demo_registry(tmp_path)
     rule_pack = json.loads(Path(outputs["rule_pack"]).read_text(encoding="utf-8"))
     disagreement = json.loads(Path(outputs["disagreement"]).read_text(encoding="utf-8"))

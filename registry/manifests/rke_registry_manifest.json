@@ -1,0 +1,168 @@
+{
+  "artifact_count": 32,
+  "artifacts": [
+    {
+      "bytes": 539,
+      "path": "registry/audits/central_bank_mvp_audit_trace.json",
+      "sha256": "sha256:96bffa7532572b41c0652258621869532e6a99a5bfeb54238a15b8918d1bbfdb"
+    },
+    {
+      "bytes": 2921,
+      "path": "registry/audits/rke_completion_audit.json",
+      "sha256": "sha256:37a5a301c1563bc0681284f3f43b69718e06bbd4f675f4f6cdc10346768ea171"
+    },
+    {
+      "bytes": 508,
+      "path": "registry/claims/central_bank_claims.jsonl",
+      "sha256": "sha256:cdb09ffba1392b25f13685c2df818d3448dfde8848a2a605e25918c64235f84d"
+    },
+    {
+      "bytes": 1724,
+      "path": "registry/claims/semiconductor_claims.jsonl",
+      "sha256": "sha256:ea50e6c87b6ae3000d2136baca65ab71cdbfbcfc025c50c8cc5e503b48205787"
+    },
+    {
+      "bytes": 26875,
+      "path": "registry/compliance/tushare_license_review_template.jsonl",
+      "sha256": "sha256:4e611712295cbedd8a8c624c29924a3c070cfc3a754dec8497a624d257fa690b"
+    },
+    {
+      "bytes": 2639,
+      "path": "registry/dashboards/rke_dashboard.json",
+      "sha256": "sha256:d0912778593dbedc91af88fab80e0b0e91782bf53aa1477da7968925658fb56c"
+    },
+    {
+      "bytes": 560,
+      "path": "registry/dashboards/rke_dashboard.md",
+      "sha256": "sha256:68cd0b3dc74ad9d5c6260984d66c8c9a5ae42c546a7a52a3aa772d87f0587913"
+    },
+    {
+      "bytes": 1233,
+      "path": "registry/data_availability/central_bank_data_availability.json",
+      "sha256": "sha256:3b06141651b2e7c8565329a7cdd0863a682f3d07d5a6aee839b787987511020a"
+    },
+    {
+      "bytes": 3618,
+      "path": "registry/data_availability/macro_expansion_data_availability.json",
+      "sha256": "sha256:19901bc89355e3b7d33a8d180e50a46a411c79d5145faf5467d0ae8f60c8c6ed"
+    },
+    {
+      "bytes": 1987,
+      "path": "registry/data_availability/semiconductor_sandbox_data_availability.json",
+      "sha256": "sha256:319126a3a42f7911bc9435dfd5ba6ad9c21134f42408f4112ea2cd7228a2fdc7"
+    },
+    {
+      "bytes": 1396,
+      "path": "registry/disagreement/semiconductor_policy_substitution.json",
+      "sha256": "sha256:d6594d7557bf7e003301bd730bba73888ff07649e336613a62ad62beb13f6871"
+    },
+    {
+      "bytes": 1601,
+      "path": "registry/expansion/macro_phase6_expansion.json",
+      "sha256": "sha256:42f76b7d72719458067bd1cda53a0b3897d3bbfa16fb634430b492962c28ba19"
+    },
+    {
+      "bytes": 1846,
+      "path": "registry/experiments/central_bank_validation_experiment_v2.json",
+      "sha256": "sha256:dffddaeb9d573cc39add0a9a67d1c4b4d9e222a31ad70ae77aafaaf96b191454"
+    },
+    {
+      "bytes": 978550,
+      "path": "registry/gold_sets/tushare_research_reports.review_template.jsonl",
+      "sha256": "sha256:4c10d16ca15ca4f4ad9175ee8192546779898c15900bfc2d9e8a689db475e27a"
+    },
+    {
+      "bytes": 383,
+      "path": "registry/hypotheses/central_bank_hypotheses.jsonl",
+      "sha256": "sha256:4475a495b905020bd173f319492b98dccc96dcdd1afd658d98725bed4e3f67be"
+    },
+    {
+      "bytes": 927,
+      "path": "registry/hypotheses/semiconductor_hypotheses.jsonl",
+      "sha256": "sha256:57f4d85697586dd22f3597d106a4813ac26e54be190d3f7890c0714a7ac7fa44"
+    },
+    {
+      "bytes": 1716,
+      "path": "registry/integration/phase7_layer_integration_contracts.json",
+      "sha256": "sha256:ab7a7dcd7899ae968372b312e9a330a84ff3e15cb3008eed15f715876993eb0e"
+    },
+    {
+      "bytes": 397,
+      "path": "registry/lockbox/central_bank_lockbox_review.json",
+      "sha256": "sha256:e8005bf5292b74fd693b24da4e26279209433c5b8442524d0126fefa190244ed"
+    },
+    {
+      "bytes": 1397,
+      "path": "registry/monitoring/central_bank_paper_trading_report.json",
+      "sha256": "sha256:11b24f464734bff90a0ac2f8ef99aa53357497b725d6d1f965b863b22330f694"
+    },
+    {
+      "bytes": 539,
+      "path": "registry/parameter_priors/central_bank_parameter_priors.jsonl",
+      "sha256": "sha256:e887e41482b6eee623f9018a35f3ded830a0f829b492e5dd89db543cea9b0df9"
+    },
+    {
+      "bytes": 789,
+      "path": "registry/patches/central_bank_paper_trading_patch.json",
+      "sha256": "sha256:b3400460aedc8a5112347e32ab9e96aa0c0d7f26cfbce7a8954aa8d24b026e56"
+    },
+    {
+      "bytes": 1587,
+      "path": "registry/prompt_ir/macro.central_bank.json",
+      "sha256": "sha256:26ed4f954c272d37b3575912438ee33188c737800731e930fd7dc712954197c3"
+    },
+    {
+      "bytes": 995,
+      "path": "registry/rule_packs/macro.central_bank.liquidity.v1.json",
+      "sha256": "sha256:8d0807ca329d6ef4a52034031e8766ae6201fe2d2043d2499d687b8f5eac7929"
+    },
+    {
+      "bytes": 1468,
+      "path": "registry/rule_packs/sector.semiconductor.policy_substitution.v1.json",
+      "sha256": "sha256:12cb55f18f842b800499f6536bdc74cc833afb947e0f7b9a8fd85b0ed8cfa89c"
+    },
+    {
+      "bytes": 2404,
+      "path": "registry/runtime_outputs/macro.central_bank.20260605.json",
+      "sha256": "sha256:c8ffd30cd88b32a47958f9905cdc228eb079211a9bd98008d7921f1450e5bad8"
+    },
+    {
+      "bytes": 2610,
+      "path": "registry/runtime_outputs/sector.semiconductor.demo.20260605.json",
+      "sha256": "sha256:f5b1e7298bff41ec2c764086318298d83bc1fcd1a48a8c9cf97df06897f99861"
+    },
+    {
+      "bytes": 316,
+      "path": "registry/sources/central_bank_sources.jsonl",
+      "sha256": "sha256:93ddb09ee4518b895bc75de8694cd647ef1c950ed91afa84617a127456fcb564"
+    },
+    {
+      "bytes": 3753,
+      "path": "registry/sources/semiconductor_demo_sources.jsonl",
+      "sha256": "sha256:bbd16c77408b35b9a163511579f0ec2e100273a2d4583b31db66fe5e1865b6eb"
+    },
+    {
+      "bytes": 180884,
+      "path": "registry/sources/tushare_research_reports.gold_candidates.jsonl",
+      "sha256": "sha256:9426f596cd98a1ce2f1d804ed9a76949531911f8184fc555ff80edeb12951d5b"
+    },
+    {
+      "bytes": 234936,
+      "path": "registry/sources/tushare_research_reports.jsonl",
+      "sha256": "sha256:203913f4595a6a4dfe7b93e8d7477ebb975ba725647114010d314cebe843fc17"
+    },
+    {
+      "bytes": 1128,
+      "path": "registry/sources/tushare_research_reports.manifest.json",
+      "sha256": "sha256:1d694fa4d0c28ed247f7612862329084b64c424ae21cedcabb88c626bd74beb7"
+    },
+    {
+      "bytes": 1420,
+      "path": "registry/validation_hardening/central_bank_hardening_report.json",
+      "sha256": "sha256:50ec159de9de512c052f98b56e9ac49aeaa4596935998774ec8344f0c62acadf"
+    }
+  ],
+  "empty_required": [],
+  "manifest_id": "RKE-REGISTRY-MANIFEST-20260606",
+  "missing_required": []
+}

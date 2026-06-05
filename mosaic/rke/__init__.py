@@ -158,6 +158,14 @@ from .prompt_ir import (
     build_central_bank_runtime_input,
     validate_prompt_ir_contract,
 )
+from .registry_manifest import (
+    RegistryArtifact,
+    RegistryManifest,
+    build_registry_manifest,
+    file_sha256,
+    validate_required_registry,
+    write_registry_manifest,
+)
 from .runtime import (
     EvidenceLedgerItem,
     ProgressEvent,
@@ -185,6 +193,10 @@ from .validation_hardening import (
     check_horizon_metric_alignment,
     check_scoring_precision,
     evaluate_regime_partial_pooling,
+)
+from .workflows import (
+    RkeRefreshResult,
+    run_full_rke_refresh,
 )
 
 __all__ = [
@@ -316,6 +328,12 @@ __all__ = [
     "build_central_bank_prompt_ir",
     "build_central_bank_runtime_input",
     "validate_prompt_ir_contract",
+    "RegistryArtifact",
+    "RegistryManifest",
+    "build_registry_manifest",
+    "file_sha256",
+    "validate_required_registry",
+    "write_registry_manifest",
     "EvidenceLedgerItem",
     "ProgressEvent",
     "RuntimeAgentOutput",
@@ -338,4 +356,6 @@ __all__ = [
     "check_horizon_metric_alignment",
     "check_scoring_precision",
     "evaluate_regime_partial_pooling",
+    "RkeRefreshResult",
+    "run_full_rke_refresh",
 ]
