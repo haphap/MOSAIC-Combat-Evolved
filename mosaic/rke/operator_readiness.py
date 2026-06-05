@@ -37,7 +37,7 @@ from .operator_handoff import (
     write_operator_handoff,
 )
 from .phase_minus1 import load_jsonl
-from .promotion_dry_run import build_promotion_dry_run_report
+from .promotion_dry_run import PROMOTION_DRY_RUN_REPORT_PATH, write_promotion_dry_run_report
 from .promotion_gate import build_production_promotion_gate_report
 from .registry_manifest import validate_required_registry
 
@@ -149,6 +149,7 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
         GOLD_REVIEW_IMPORT_REPORT_PATH,
         LOCKBOX_REVIEW_IMPORT_REPORT_PATH,
         LICENSE_POLICY_IMPORT_REPORT_PATH,
+        PROMOTION_DRY_RUN_REPORT_PATH,
     }
     missing = tuple(path for path in missing if path not in self_generated_paths)
     empty = tuple(path for path in empty if path not in self_generated_paths)
@@ -319,21 +320,23 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
         )
     )
 
-    blank_dry_run = build_promotion_dry_run_report(
+    write_promotion_dry_run_report(
         root_path,
-        gold_input=GOLD_BATCH_IMPORT_TEMPLATE_PATH,
+        gold_input=GOLD_FULL_IMPORT_TEMPLATE_PATH,
         license_input=LICENSE_BATCH_IMPORT_TEMPLATE_PATH,
         lockbox_input=LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH,
     )
+    blank_dry_run = _read_json(root_path / PROMOTION_DRY_RUN_REPORT_PATH)
     checks.append(
         _check(
             "blank_bundle_dry_run_does_not_promote",
-            blank_dry_run.mutated_original_registry is False
-            and not blank_dry_run.accepted
-            and not blank_dry_run.production_allowed_after_simulation,
+            blank_dry_run.get("mutated_original_registry") is False
+            and blank_dry_run.get("accepted") is False
+            and blank_dry_run.get("production_allowed_after_simulation") is False,
             (
-                f"accepted={blank_dry_run.accepted}, "
-                f"after_next_state={blank_dry_run.after_next_state}"
+                f"accepted={blank_dry_run.get('accepted')}, "
+                f"after_next_state={blank_dry_run.get('after_next_state')}, "
+                f"path={PROMOTION_DRY_RUN_REPORT_PATH}"
             ),
             "blank manual templates unexpectedly pass promotion dry-run",
         )
@@ -375,6 +378,7 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
         LICENSE_POLICY_IMPORT_REPORT_PATH,
         LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH,
         LOCKBOX_REVIEW_IMPORT_REPORT_PATH,
+        PROMOTION_DRY_RUN_REPORT_PATH,
     )
     return OperatorReadinessReport(
         report_id="RKE-OPERATOR-READINESS-REPORT-20260606",

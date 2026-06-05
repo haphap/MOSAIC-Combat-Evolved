@@ -29,6 +29,7 @@ def test_operator_readiness_accepts_current_review_bundle():
 
     assert report.accepted
     assert report.failure_count == 0
+    assert "registry/promotion/rke_promotion_dry_run_report.json" in report.generated_paths
     assert checks["required_registry_valid"].passed
     assert checks["handoff_ready_for_operator"].passed
     assert checks["manual_batch_templates_match_status"].passed
@@ -154,6 +155,11 @@ def test_write_operator_readiness_report_outputs_registry_artifact(tmp_path: Pat
 
     result = write_operator_readiness_report(tmp_path)
     payload = json.loads(Path(result["path"]).read_text(encoding="utf-8"))
+    dry_run_payload = json.loads(
+        (tmp_path / "registry/promotion/rke_promotion_dry_run_report.json").read_text(
+            encoding="utf-8"
+        )
+    )
 
     assert result["accepted"] is True
     assert payload["accepted"] is True
@@ -162,11 +168,20 @@ def test_write_operator_readiness_report_outputs_registry_artifact(tmp_path: Pat
     assert "registry/gold_sets/tushare_research_reports.review_import_report.json" in payload["generated_paths"]
     assert "registry/review_batches/source_license_policy_import_report.json" in payload["generated_paths"]
     assert "registry/lockbox/central_bank_lockbox_review_import_report.json" in payload["generated_paths"]
+    assert "registry/promotion/rke_promotion_dry_run_report.json" in payload["generated_paths"]
+    assert dry_run_payload["accepted"] is False
+    assert dry_run_payload["mutated_original_registry"] is False
+    assert dry_run_payload["production_allowed_after_simulation"] is False
+    assert dry_run_payload["after_next_state"] == "paper_trading"
+    assert {
+        step["review_kind"] for step in dry_run_payload["steps"] if step["provided"]
+    } == {"gold_set", "source_license", "lockbox"}
     assert (tmp_path / "registry/handoffs/rke_operator_readiness_report.json").exists()
     assert (tmp_path / "registry/review_batches/gold_set_full_import_template.jsonl").exists()
     assert (tmp_path / "registry/gold_sets/tushare_research_reports.review_import_report.json").exists()
     assert (tmp_path / "registry/review_batches/source_license_policy_import_report.json").exists()
     assert (tmp_path / "registry/lockbox/central_bank_lockbox_review_import_report.json").exists()
+    assert (tmp_path / "registry/promotion/rke_promotion_dry_run_report.json").exists()
 
 
 def test_cli_operator_readiness_writes_report(tmp_path: Path, capsys):

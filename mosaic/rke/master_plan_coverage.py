@@ -172,6 +172,7 @@ def build_master_plan_coverage_report(root: str | Path = ".") -> MasterPlanCover
                     "registry/evaluation/cost_model/cost_model_v1.json",
                     "registry/evaluation/lockbox/lockbox_policy.json",
                     "registry/evaluation/overlap_correction/effective_n_overlap_policy.json",
+                    "registry/promotion/rke_promotion_dry_run_report.json",
                     "registry/promotion/rke_production_promotion_gate.json",
                     "registry/lockbox/central_bank_lockbox_review_import_report.json",
                 ),

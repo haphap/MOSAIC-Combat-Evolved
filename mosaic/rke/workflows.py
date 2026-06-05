@@ -145,6 +145,9 @@ def run_full_rke_refresh(
     outputs["source_license_policy_import_report"] = (
         "registry/review_batches/source_license_policy_import_report.json"
     )
+    outputs["promotion_dry_run_report"] = (
+        "registry/promotion/rke_promotion_dry_run_report.json"
+    )
     outputs["master_plan_coverage_report"] = str(master_plan_coverage["path"])
     outputs.update({f"dashboard.{key}": value for key, value in dashboard_outputs.items()})
     outputs["registry_manifest"] = str(manifest_result["path"])

@@ -74,6 +74,7 @@ def test_full_refresh_preserves_existing_review_templates(tmp_path: Path):
     assert "gold_review_import_report" in result.outputs
     assert "source_license_policy_template" in result.outputs
     assert "source_license_policy_import_report" in result.outputs
+    assert "promotion_dry_run_report" in result.outputs
     assert "rollback_readiness_report" in result.outputs
     assert "operator_readiness_report" in result.outputs
     assert "production_promotion_gate" in result.outputs

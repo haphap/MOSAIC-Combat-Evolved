@@ -1,0 +1,68 @@
+{
+  "accepted": false,
+  "after_blockers": [
+    "broad-rollout completion audit still has blockers",
+    "manual gold-set review still required",
+    "source license review still pending or restricted",
+    "source registry has production blockers",
+    "lockbox has not been opened"
+  ],
+  "after_next_state": "paper_trading",
+  "before_blockers": [
+    "broad-rollout completion audit still has blockers",
+    "manual gold-set review still required",
+    "source license review still pending or restricted",
+    "source registry has production blockers",
+    "lockbox has not been opened"
+  ],
+  "before_next_state": "paper_trading",
+  "mutated_original_registry": false,
+  "production_allowed_after_simulation": false,
+  "report_id": "RKE-PROMOTION-DRY-RUN-REPORT-20260606",
+  "root": ".",
+  "simulated": true,
+  "staged_production_allowed_after_simulation": false,
+  "steps": [
+    {
+      "accepted": false,
+      "applied": false,
+      "blockers": [
+        "500 review rows failed validation"
+      ],
+      "changed_rows": 0,
+      "input_path": "registry/review_batches/gold_set_full_import_template.jsonl",
+      "provided": true,
+      "result": "rejected",
+      "review_kind": "gold_set"
+    },
+    {
+      "accepted": false,
+      "applied": false,
+      "blockers": [
+        "50 review rows failed validation"
+      ],
+      "changed_rows": 0,
+      "input_path": "registry/review_batches/source_license_next_import_template.jsonl",
+      "provided": true,
+      "result": "rejected",
+      "review_kind": "source_license"
+    },
+    {
+      "accepted": false,
+      "applied": false,
+      "blockers": [
+        "opened_at required",
+        "opened_by required",
+        "open_count required",
+        "result required",
+        "result must be one of not_opened, passed, failed",
+        "open_count must be integer"
+      ],
+      "changed_rows": 0,
+      "input_path": "registry/review_batches/lockbox_review_next_import_template.json",
+      "provided": true,
+      "result": "rejected",
+      "review_kind": "lockbox"
+    }
+  ]
+}

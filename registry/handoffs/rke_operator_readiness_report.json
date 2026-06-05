@@ -59,7 +59,7 @@
     {
       "blocker": "",
       "check_id": "blank_bundle_dry_run_does_not_promote",
-      "evidence": "accepted=False, after_next_state=paper_trading",
+      "evidence": "accepted=False, after_next_state=paper_trading, path=registry/promotion/rke_promotion_dry_run_report.json",
       "passed": true
     },
     {
@@ -87,7 +87,8 @@
     "registry/review_batches/source_license_policy_template.json",
     "registry/review_batches/source_license_policy_import_report.json",
     "registry/review_batches/lockbox_review_next_import_template.json",
-    "registry/lockbox/central_bank_lockbox_review_import_report.json"
+    "registry/lockbox/central_bank_lockbox_review_import_report.json",
+    "registry/promotion/rke_promotion_dry_run_report.json"
   ],
   "passed_count": 12,
   "report_id": "RKE-OPERATOR-READINESS-REPORT-20260606"
