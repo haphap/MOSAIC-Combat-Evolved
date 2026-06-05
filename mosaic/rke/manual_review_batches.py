@@ -99,22 +99,41 @@ def _license_row_complete(row: Mapping[str, Any]) -> bool:
     )
 
 
+def _short_review_preview(value: Any, *, max_chars: int = 72) -> str:
+    text = str(value or "").strip()
+    if len(text) <= max_chars:
+        return text
+    return text[: max_chars - 3].rstrip() + "..."
+
+
 def _gold_template_row(row: Mapping[str, Any]) -> dict[str, Any]:
+    proposed_claim_text = str(row.get("proposed_claim_text") or "").strip()
     return {
         "claim_id": str(row.get("claim_id") or ""),
         "source_id": str(row.get("source_id") or ""),
         "source_span_id": str(row.get("source_span_id") or ""),
         "document_id": str(row.get("document_id") or row.get("source_id") or ""),
+        "gold_set_domain": str(row.get("gold_set_domain") or "other"),
+        "gold_set_domains": tuple(row.get("gold_set_domains") or ()),
+        "gold_set_domain_matches": dict(row.get("gold_set_domain_matches") or {}),
+        "gold_set_domain_scores": dict(row.get("gold_set_domain_scores") or {}),
         "review_context_ref": GOLD_REVIEW_PACKET_PATH,
         "target_review_path": GOLD_REVIEW_TEMPLATE_PATH,
+        "proposed_claim_text": _short_review_preview(proposed_claim_text),
+        "proposed_claim_text_truncated": len(proposed_claim_text) > 72,
         "proposed_claim_type": row.get("proposed_claim_type"),
+        "proposed_extraction_confidence_bin": row.get("proposed_extraction_confidence_bin"),
+        "proposed_gold_set_domain": row.get("proposed_gold_set_domain"),
+        "proposed_gold_set_domains": tuple(row.get("proposed_gold_set_domains") or ()),
         "proposed_direction": row.get("proposed_direction"),
         "proposed_cause_variables": tuple(row.get("proposed_cause_variables") or ()),
         "proposed_target_variables": tuple(row.get("proposed_target_variables") or ()),
+        "proposed_review_risk_flags": tuple(row.get("proposed_review_risk_flags") or ()),
         "proposed_source_start_char": row.get("proposed_source_start_char"),
         "proposed_source_end_char": row.get("proposed_source_end_char"),
         "proposed_source_span_ref_id": row.get("proposed_source_span_ref_id"),
         "proposed_source_text_hash": row.get("proposed_source_text_hash"),
+        "proposed_verifier_status": row.get("proposed_verifier_status"),
         "manual_claim_text": "",
         "claim_correct": None,
         "source_span_supports_claim": None,

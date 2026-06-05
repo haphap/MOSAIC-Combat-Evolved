@@ -349,6 +349,7 @@ def merge_candidate_claims_into_review_template(
                     "proposed_source_span_ref_id": claim.source_span_ref_id,
                     "proposed_source_start_char": claim.source_start_char,
                     "proposed_source_end_char": claim.source_end_char,
+                    "proposed_source_text_hash": claim.source_text_hash,
                     "proposed_extraction_confidence_bin": claim.extraction_confidence_bin,
                     "proposed_review_risk_flags": list(claim.review_risk_flags),
                     "proposed_verifier_status": claim.verifier_status,

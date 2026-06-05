@@ -162,9 +162,9 @@
       "sha256": "sha256:46907189dd29b25a3a05f0bb53c85512d17ab4d2dd24adb61c71f557781212a1"
     },
     {
-      "bytes": 1454628,
+      "bytes": 1482628,
       "path": "registry/gold_sets/tushare_research_reports.review_template.jsonl",
-      "sha256": "sha256:d4a71ed6c849a4a7e1c0893dafe692c446de75c2894dcfca7e9760e1f1ae7559"
+      "sha256": "sha256:06bc1225f9bf48e1e1284ca5d78f2048b4a620034df65f2225ea53757b6144d1"
     },
     {
       "bytes": 383,
@@ -232,9 +232,9 @@
       "sha256": "sha256:285440df2c9d851740a3d74d15943ae0f269c299d584b811fee42535c6e9d874"
     },
     {
-      "bytes": 51520,
+      "bytes": 93379,
       "path": "registry/review_batches/gold_set_next_import_template.jsonl",
-      "sha256": "sha256:a10fbeb2e5c344f9fb8b85b8883acce5cd0870bb559fc5347756320cb496685d"
+      "sha256": "sha256:ee188324907b9593313b1a6c05eacf13b988d3b0439db825319b767071080af5"
     },
     {
       "bytes": 2574,

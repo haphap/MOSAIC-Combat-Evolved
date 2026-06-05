@@ -74,9 +74,15 @@ def test_manual_review_batches_export_sparse_import_templates(tmp_path: Path):
     assert len(gold_rows) == 12
     assert len(license_rows) == 7
     assert "span_preview" not in gold_rows[0]
-    assert "proposed_claim_text" not in gold_rows[0]
     assert "abstract" not in gold_rows[0]
     assert "abstract" not in license_rows[0]
+    assert gold_rows[0]["proposed_claim_text"]
+    assert len(gold_rows[0]["proposed_claim_text"]) <= 72
+    assert isinstance(gold_rows[0]["proposed_claim_text_truncated"], bool)
+    assert gold_rows[0]["proposed_source_text_hash"].startswith("sha256:")
+    assert gold_rows[0]["gold_set_domain"]
+    assert gold_rows[0]["gold_set_domain_matches"]
+    assert gold_rows[0]["proposed_review_risk_flags"]
     assert gold_rows[0]["manual_claim_text"] == ""
     assert gold_rows[0]["claim_correct"] is None
     assert license_rows[0]["approved_for_production_runtime"] is None
