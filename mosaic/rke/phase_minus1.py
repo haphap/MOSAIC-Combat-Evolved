@@ -8,9 +8,11 @@ from __future__ import annotations
 
 import json
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
+
+from .p0 import ClaimExtractionGoldSet
 
 
 REQUIRED_SOURCE_ROW_FIELDS = {
@@ -47,6 +49,19 @@ class CorpusAudit:
             and not self.missing_required_fields
             and not self.duplicate_source_hashes
         )
+
+
+@dataclass(frozen=True)
+class GoldSetReviewRecord:
+    source_id: str
+    source_span_id: str
+    claim_id: str
+    document_id: str
+    claim_correct: bool
+    source_span_supports_claim: bool
+    direction_correct: bool
+    variable_mapping_correct: bool
+    unsupported_field_false_grounded: bool
 
 
 def load_jsonl(path: str | Path) -> list[dict[str, Any]]:
@@ -144,3 +159,94 @@ def write_gold_set_candidates(
         for row in rows:
             fh.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
     return {"path": str(path), "rows": len(rows)}
+
+
+def build_gold_set_review_template(
+    candidates: Sequence[Mapping[str, Any]],
+    *,
+    claims_per_document: int = 10,
+    span_preview_chars: int = 600,
+) -> list[dict[str, Any]]:
+    """Create blank manual-review rows from sampled source documents."""
+    if claims_per_document <= 0:
+        raise ValueError("claims_per_document must be positive")
+    rows: list[dict[str, Any]] = []
+    for candidate in candidates:
+        source_id = str(candidate.get("source_id") or "")
+        span_id = str(candidate.get("source_span_id") or f"{source_id}:abstract")
+        text = str(candidate.get("abstract") or candidate.get("source_span_text") or "")
+        for idx in range(1, claims_per_document + 1):
+            rows.append(
+                {
+                    "source_id": source_id,
+                    "source_span_id": span_id,
+                    "claim_id": f"GOLD-{source_id}-{idx:03d}",
+                    "document_id": source_id,
+                    "span_preview": text[:span_preview_chars],
+                    "manual_claim_text": "",
+                    "claim_correct": None,
+                    "source_span_supports_claim": None,
+                    "direction_correct": None,
+                    "variable_mapping_correct": None,
+                    "unsupported_field_false_grounded": None,
+                    "reviewer": "",
+                    "review_notes": "",
+                }
+            )
+    return rows
+
+
+def write_gold_set_review_template(
+    candidates: Sequence[Mapping[str, Any]],
+    output_path: str | Path,
+    *,
+    claims_per_document: int = 10,
+) -> dict[str, Any]:
+    path = Path(output_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    rows = build_gold_set_review_template(candidates, claims_per_document=claims_per_document)
+    with path.open("w", encoding="utf-8") as fh:
+        for row in rows:
+            fh.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
+    return {"path": str(path), "rows": len(rows)}
+
+
+def evaluate_gold_set_reviews(
+    records: Sequence[GoldSetReviewRecord | Mapping[str, Any]],
+    *,
+    gold_set_id: str,
+) -> ClaimExtractionGoldSet:
+    normalized: list[dict[str, Any]] = [
+        asdict(record) if isinstance(record, GoldSetReviewRecord) else dict(record)
+        for record in records
+    ]
+    n = len(normalized)
+    if n == 0:
+        return ClaimExtractionGoldSet(
+            gold_set_id=gold_set_id,
+            sample_size_documents=0,
+            sample_size_claims=0,
+            claim_precision=0.0,
+            source_span_support_precision=0.0,
+            direction_accuracy=0.0,
+            variable_mapping_accuracy=0.0,
+            unsupported_field_false_grounding_rate=1.0,
+        )
+    documents = {str(record.get("document_id") or record.get("source_id") or "") for record in normalized}
+
+    def rate(field: str) -> float:
+        return round(sum(record.get(field) is True for record in normalized) / n, 6)
+
+    return ClaimExtractionGoldSet(
+        gold_set_id=gold_set_id,
+        sample_size_documents=len(documents - {""}),
+        sample_size_claims=n,
+        claim_precision=rate("claim_correct"),
+        source_span_support_precision=rate("source_span_supports_claim"),
+        direction_accuracy=rate("direction_correct"),
+        variable_mapping_accuracy=rate("variable_mapping_correct"),
+        unsupported_field_false_grounding_rate=round(
+            sum(record.get("unsupported_field_false_grounded") is True for record in normalized) / n,
+            6,
+        ),
+    )

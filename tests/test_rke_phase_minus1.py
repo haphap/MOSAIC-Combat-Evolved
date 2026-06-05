@@ -3,10 +3,14 @@ from __future__ import annotations
 import json
 
 from mosaic.rke import (
+    GoldSetReviewRecord,
     audit_research_report_corpus,
+    build_gold_set_review_template,
+    evaluate_gold_set_reviews,
     load_jsonl,
     select_gold_set_candidates,
     write_gold_set_candidates,
+    write_gold_set_review_template,
 )
 
 
@@ -71,3 +75,57 @@ def test_phase_minus1_loads_jsonl(tmp_path):
     path.write_text(json.dumps(_row("SRC-1", "600519.SH"), ensure_ascii=False) + "\n", encoding="utf-8")
 
     assert load_jsonl(path)[0]["source_id"] == "SRC-1"
+
+
+def test_phase_minus1_gold_set_template_and_gate(tmp_path):
+    candidates = [_row(f"SRC-{idx:02d}", "银行", "行业研报") for idx in range(50)]
+
+    template = build_gold_set_review_template(candidates, claims_per_document=10)
+    out = write_gold_set_review_template(
+        candidates,
+        tmp_path / "gold_review_template.jsonl",
+        claims_per_document=10,
+    )
+    reviewed = [
+        GoldSetReviewRecord(
+            source_id=row["source_id"],
+            source_span_id=row["source_span_id"],
+            claim_id=row["claim_id"],
+            document_id=row["document_id"],
+            claim_correct=True,
+            source_span_supports_claim=True,
+            direction_correct=True,
+            variable_mapping_correct=True,
+            unsupported_field_false_grounded=False,
+        )
+        for row in template
+    ]
+
+    gold_set = evaluate_gold_set_reviews(reviewed, gold_set_id="GOLD-CLAIM-2026Q2")
+
+    assert len(template) == 500
+    assert out["rows"] == 500
+    assert template[0]["claim_correct"] is None
+    assert gold_set.sample_size_documents == 50
+    assert gold_set.sample_size_claims == 500
+    assert gold_set.passed
+
+
+def test_phase_minus1_gold_set_gate_rejects_small_or_unreviewed_samples():
+    unreviewed = build_gold_set_review_template([_row("SRC-1", "600519.SH")], claims_per_document=2)
+
+    gold_set = evaluate_gold_set_reviews(unreviewed, gold_set_id="GOLD-INCOMPLETE")
+
+    assert not gold_set.passed
+    assert gold_set.sample_size_documents == 1
+    assert gold_set.sample_size_claims == 2
+    assert "gold set requires >= 50 documents" in gold_set.gate_failures()
+
+
+def test_tushare_gold_set_review_template_is_ready_for_manual_labels():
+    rows = load_jsonl("registry/gold_sets/tushare_research_reports.review_template.jsonl")
+
+    assert len(rows) == 500
+    assert len({row["source_id"] for row in rows}) == 50
+    assert {row["claim_correct"] for row in rows} == {None}
+    assert {row["source_span_supports_claim"] for row in rows} == {None}

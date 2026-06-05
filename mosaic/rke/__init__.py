@@ -77,10 +77,14 @@ from .monitoring import (
 )
 from .phase_minus1 import (
     CorpusAudit,
+    GoldSetReviewRecord,
     audit_research_report_corpus,
+    build_gold_set_review_template,
+    evaluate_gold_set_reviews,
     load_jsonl,
     select_gold_set_candidates,
     write_gold_set_candidates,
+    write_gold_set_review_template,
 )
 from .pipelines import (
     ClaimAnnotation,
@@ -182,10 +186,14 @@ __all__ = [
     "evaluate_production_monitor",
     "validate_audit_trace",
     "CorpusAudit",
+    "GoldSetReviewRecord",
     "audit_research_report_corpus",
+    "build_gold_set_review_template",
+    "evaluate_gold_set_reviews",
     "load_jsonl",
     "select_gold_set_candidates",
     "write_gold_set_candidates",
+    "write_gold_set_review_template",
     "ClaimAnnotation",
     "IngestedDocument",
     "SourceSpan",
