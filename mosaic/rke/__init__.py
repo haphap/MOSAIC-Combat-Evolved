@@ -18,8 +18,12 @@ from .central_bank_mvp import (
 from .compliance import (
     SourceLicenseDecision,
     SourceLicensePolicy,
+    SourceLicenseReviewRecord,
+    apply_source_license_reviews,
+    build_source_license_review_template,
     evaluate_source_license,
     filter_sources_for_runtime,
+    write_source_license_review_template,
 )
 from .p0 import (
     AggregationResult,
@@ -135,8 +139,12 @@ __all__ = [
     "write_central_bank_mvp_registry",
     "SourceLicenseDecision",
     "SourceLicensePolicy",
+    "SourceLicenseReviewRecord",
+    "apply_source_license_reviews",
+    "build_source_license_review_template",
     "evaluate_source_license",
     "filter_sources_for_runtime",
+    "write_source_license_review_template",
     "AggregationResult",
     "ClaimCheckResult",
     "ClaimExtractionGoldSet",

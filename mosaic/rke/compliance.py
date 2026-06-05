@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Literal, Mapping, Sequence
 
 
@@ -18,6 +20,16 @@ class SourceLicenseDecision:
     allowed_for_derived_claim_storage: bool
     allowed_for_production_runtime: bool
     reasons: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class SourceLicenseReviewRecord:
+    source_id: str
+    approved_for_derived_claim_storage: bool
+    approved_for_production_runtime: bool
+    reviewer: str
+    review_date: str
+    notes: str = ""
 
 
 @dataclass(frozen=True)
@@ -94,3 +106,86 @@ def filter_sources_for_runtime(
         elif decision.allowed_for_sandbox:
             allowed.append(source)
     return tuple(allowed), tuple(decisions)
+
+
+def build_source_license_review_template(
+    sources: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for source in sources:
+        rows.append(
+            {
+                "source_id": str(source.get("source_id") or ""),
+                "source_type": str(source.get("source_type") or ""),
+                "title": str(source.get("title") or ""),
+                "publish_date": str(source.get("publish_date") or ""),
+                "current_license_status": str(source.get("license_status") or "pending_review"),
+                "approved_for_derived_claim_storage": None,
+                "approved_for_production_runtime": None,
+                "reviewer": "",
+                "review_date": "",
+                "notes": "",
+            }
+        )
+    return rows
+
+
+def write_source_license_review_template(
+    sources: Sequence[Mapping[str, Any]],
+    output_path: str | Path,
+) -> dict[str, Any]:
+    path = Path(output_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    rows = build_source_license_review_template(sources)
+    with path.open("w", encoding="utf-8") as fh:
+        for row in rows:
+            fh.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
+    return {"path": str(path), "rows": len(rows)}
+
+
+def apply_source_license_reviews(
+    sources: Sequence[Mapping[str, Any]],
+    reviews: Sequence[SourceLicenseReviewRecord | Mapping[str, Any]],
+) -> tuple[dict[str, Any], ...]:
+    review_by_source = {
+        str(review.source_id if isinstance(review, SourceLicenseReviewRecord) else review.get("source_id")): review
+        for review in reviews
+    }
+    updated: list[dict[str, Any]] = []
+    for source in sources:
+        row = dict(source)
+        source_id = str(row.get("source_id") or "")
+        review = review_by_source.get(source_id)
+        if review is None:
+            updated.append(row)
+            continue
+        if isinstance(review, SourceLicenseReviewRecord):
+            derived = review.approved_for_derived_claim_storage
+            production = review.approved_for_production_runtime
+            reviewer = review.reviewer
+            review_date = review.review_date
+            notes = review.notes
+        else:
+            derived = review.get("approved_for_derived_claim_storage") is True
+            production = review.get("approved_for_production_runtime") is True
+            reviewer = str(review.get("reviewer") or "")
+            review_date = str(review.get("review_date") or "")
+            notes = str(review.get("notes") or "")
+        forbidden_uses: list[str] = []
+        allowed_uses = ["human_reading", "internal_research_summary"]
+        if derived:
+            allowed_uses.append("derived_claim_storage")
+        else:
+            forbidden_uses.append("derived_claim_storage")
+        if production:
+            allowed_uses.append("production_runtime_retrieval")
+        else:
+            forbidden_uses.append("production_runtime_retrieval")
+        row["license_status"] = "approved" if derived and production else "restricted"
+        row["allowed_uses"] = allowed_uses
+        row["forbidden_uses"] = forbidden_uses
+        row["review_owner"] = reviewer
+        row["review_date"] = review_date
+        row["review_notes"] = notes
+        updated.append(row)
+    return tuple(updated)
