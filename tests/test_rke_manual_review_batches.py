@@ -30,29 +30,35 @@ def _write_jsonl(path: Path, rows: list[dict]) -> None:
 
 
 def _accepted_gold_row(row: dict) -> dict:
-    return {
-        "claim_id": row["claim_id"],
-        "manual_claim_text": row.get("proposed_claim_text") or "manual claim",
-        "claim_correct": True,
-        "source_span_supports_claim": True,
-        "direction_correct": True,
-        "variable_mapping_correct": True,
-        "unsupported_field_false_grounded": False,
-        "reviewer": "reviewer-a",
-        "review_date": "2026-06-06",
-        "review_notes": "batch fixture",
-    }
+    out = dict(row)
+    out.update(
+        {
+            "manual_claim_text": row.get("proposed_claim_text") or "manual claim",
+            "claim_correct": True,
+            "source_span_supports_claim": True,
+            "direction_correct": True,
+            "variable_mapping_correct": True,
+            "unsupported_field_false_grounded": False,
+            "reviewer": "reviewer-a",
+            "review_date": "2026-06-06",
+            "review_notes": "batch fixture",
+        }
+    )
+    return out
 
 
 def _accepted_license_row(row: dict) -> dict:
-    return {
-        "source_id": row["source_id"],
-        "approved_for_derived_claim_storage": True,
-        "approved_for_production_runtime": True,
-        "reviewer": "compliance",
-        "review_date": "2026-06-06",
-        "notes": "batch fixture",
-    }
+    out = dict(row)
+    out.update(
+        {
+            "approved_for_derived_claim_storage": True,
+            "approved_for_production_runtime": True,
+            "reviewer": "compliance",
+            "review_date": "2026-06-06",
+            "notes": "batch fixture",
+        }
+    )
+    return out
 
 
 def _license_review_source_count(root: Path) -> int:
@@ -127,9 +133,9 @@ def test_manual_review_bundle_manifest_detects_missing_artifact(tmp_path: Path):
 
 def test_manual_review_batch_status_moves_after_partial_import(tmp_path: Path):
     _copy_registry(tmp_path)
-    gold_template = _load_jsonl(tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl")
-    license_template = _load_jsonl(tmp_path / "registry/compliance/tushare_license_review_template.jsonl")
-    source_count = len(license_template)
+    gold_template = _load_jsonl(tmp_path / "registry/review_batches/gold_set_next_import_template.jsonl")
+    license_template = _load_jsonl(tmp_path / "registry/review_batches/source_license_next_import_template.jsonl")
+    source_count = _license_review_source_count(tmp_path)
     first_gold_id = gold_template[0]["claim_id"]
     first_license_id = license_template[0]["source_id"]
     gold_import = tmp_path / "gold_batch_import.jsonl"

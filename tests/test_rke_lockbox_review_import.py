@@ -12,6 +12,12 @@ from mosaic.rke import (
     build_production_promotion_gate_report,
 )
 from mosaic.rke.cli import main
+from mosaic.rke.manual_review_import import (
+    LICENSE_REVIEW_PACKET_PATH,
+    LICENSE_REVIEW_TEMPLATE_PATH,
+    TARGET_ROW_HASH_FIELD,
+    review_row_fingerprint,
+)
 
 
 def _copy_registry(dst_root: Path) -> None:
@@ -50,6 +56,7 @@ def _passed_lockbox_review(root: Path) -> dict:
 def _gold_import_rows(root: Path) -> list[dict]:
     return [
         {
+            **row,
             "claim_id": row["claim_id"],
             "manual_claim_text": row.get("proposed_claim_text") or "manual claim",
             "claim_correct": True,
@@ -61,7 +68,7 @@ def _gold_import_rows(root: Path) -> list[dict]:
             "review_date": "2026-06-06",
             "review_notes": "fixture approval",
         }
-        for row in _load_jsonl(root / "registry/gold_sets/tushare_research_reports.review_template.jsonl")
+        for row in _load_jsonl(root / "registry/review_batches/gold_set_full_import_template.jsonl")
     ]
 
 
@@ -69,6 +76,13 @@ def _license_import_rows(root: Path) -> list[dict]:
     return [
         {
             "source_id": row["source_id"],
+            TARGET_ROW_HASH_FIELD: review_row_fingerprint(row),
+            "source_type": str(row.get("source_type") or ""),
+            "title": str(row.get("title") or ""),
+            "publish_date": str(row.get("publish_date") or ""),
+            "current_license_status": str(row.get("current_license_status") or ""),
+            "review_context_ref": LICENSE_REVIEW_PACKET_PATH,
+            "target_review_path": LICENSE_REVIEW_TEMPLATE_PATH,
             "approved_for_derived_claim_storage": True,
             "approved_for_production_runtime": True,
             "reviewer": "compliance",

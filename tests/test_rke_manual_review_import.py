@@ -13,6 +13,12 @@ from mosaic.rke import (
     summarize_source_license_review,
 )
 from mosaic.rke.cli import main
+from mosaic.rke.manual_review_import import (
+    LICENSE_REVIEW_PACKET_PATH,
+    LICENSE_REVIEW_TEMPLATE_PATH,
+    TARGET_ROW_HASH_FIELD,
+    review_row_fingerprint,
+)
 
 
 def _copy_registry(dst_root: Path) -> None:
@@ -64,22 +70,8 @@ def _accepted_license_template_row(row: dict) -> dict:
 
 
 def _gold_import_rows(root: Path) -> list[dict]:
-    rows = _load_jsonl(root / "registry/gold_sets/tushare_research_reports.review_template.jsonl")
-    return [
-        {
-            "claim_id": row["claim_id"],
-            "manual_claim_text": row.get("proposed_claim_text") or "manual claim",
-            "claim_correct": True,
-            "source_span_supports_claim": True,
-            "direction_correct": True,
-            "variable_mapping_correct": True,
-            "unsupported_field_false_grounded": False,
-            "reviewer": "reviewer-a",
-            "review_date": "2026-06-06",
-            "review_notes": "fixture approval",
-        }
-        for row in rows
-    ]
+    rows = _load_jsonl(root / "registry/review_batches/gold_set_full_import_template.jsonl")
+    return [_accepted_gold_template_row(row) for row in rows]
 
 
 def _license_import_rows(root: Path) -> list[dict]:
@@ -87,6 +79,13 @@ def _license_import_rows(root: Path) -> list[dict]:
     return [
         {
             "source_id": row["source_id"],
+            TARGET_ROW_HASH_FIELD: review_row_fingerprint(row),
+            "source_type": str(row.get("source_type") or ""),
+            "title": str(row.get("title") or ""),
+            "publish_date": str(row.get("publish_date") or ""),
+            "current_license_status": str(row.get("current_license_status") or ""),
+            "review_context_ref": LICENSE_REVIEW_PACKET_PATH,
+            "target_review_path": LICENSE_REVIEW_TEMPLATE_PATH,
             "approved_for_derived_claim_storage": True,
             "approved_for_production_runtime": True,
             "reviewer": "compliance",
@@ -168,6 +167,32 @@ def test_apply_gold_set_review_import_rejects_stale_target_row_hash(tmp_path: Pa
     assert "target_row_hash does not match target review row" in set(report.invalid_rows[0].reasons)
 
 
+def test_apply_gold_set_review_import_rejects_legacy_import_without_provenance(tmp_path: Path):
+    _copy_registry(tmp_path)
+    import_path = tmp_path / "gold_import_legacy.jsonl"
+    target_row = _load_jsonl(tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl")[0]
+    legacy = {
+        "claim_id": target_row["claim_id"],
+        "manual_claim_text": target_row.get("proposed_claim_text") or "manual claim",
+        "claim_correct": True,
+        "source_span_supports_claim": True,
+        "direction_correct": True,
+        "variable_mapping_correct": True,
+        "unsupported_field_false_grounded": False,
+        "reviewer": "reviewer-a",
+        "review_date": "2026-06-06",
+        "review_notes": "legacy fixture",
+    }
+    _write_jsonl(import_path, [legacy])
+
+    report = apply_gold_set_review_import(tmp_path, import_path)
+    reasons = set(report.invalid_rows[0].reasons)
+
+    assert not report.accepted
+    assert "target_review_path required" in reasons
+    assert "target_row_hash required" in reasons
+
+
 def test_apply_license_review_import_passes_c11_and_source_production_gate(tmp_path: Path):
     _copy_registry(tmp_path)
     import_path = tmp_path / "license_import.jsonl"
@@ -226,6 +251,28 @@ def test_apply_license_review_import_rejects_stale_target_row_hash(tmp_path: Pat
 
     assert not report.accepted
     assert "target_row_hash does not match target review row" in set(report.invalid_rows[0].reasons)
+
+
+def test_apply_license_review_import_rejects_legacy_import_without_provenance(tmp_path: Path):
+    _copy_registry(tmp_path)
+    import_path = tmp_path / "license_import_legacy.jsonl"
+    target_row = _load_jsonl(tmp_path / "registry/compliance/tushare_license_review_template.jsonl")[0]
+    legacy = {
+        "source_id": target_row["source_id"],
+        "approved_for_derived_claim_storage": True,
+        "approved_for_production_runtime": True,
+        "reviewer": "compliance",
+        "review_date": "2026-06-06",
+        "notes": "legacy fixture",
+    }
+    _write_jsonl(import_path, [legacy])
+
+    report = apply_source_license_review_import(tmp_path, import_path)
+    reasons = set(report.invalid_rows[0].reasons)
+
+    assert not report.accepted
+    assert "target_review_path required" in reasons
+    assert "target_row_hash required" in reasons
 
 
 def test_apply_license_review_import_rejects_duplicate_or_invalid_rows(tmp_path: Path):

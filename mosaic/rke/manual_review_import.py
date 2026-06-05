@@ -141,16 +141,21 @@ def _optional_exact_match_failures(
     failures: list[str] = []
     for field, expected in expected_values.items():
         actual = str(row.get(field) or "").strip()
-        if actual and actual != expected:
+        if not actual:
+            failures.append(f"{field} required")
+        elif actual != expected:
             failures.append(f"{field} must match {expected}")
-    if target_row is None:
-        return failures
     expected_hash = str(row.get(TARGET_ROW_HASH_FIELD) or "").strip()
-    if expected_hash and expected_hash != review_row_fingerprint(target_row):
+    if not expected_hash:
+        failures.append(f"{TARGET_ROW_HASH_FIELD} required")
+    elif target_row is not None and expected_hash != review_row_fingerprint(target_row):
         failures.append(f"{TARGET_ROW_HASH_FIELD} does not match target review row")
     for field in target_fields:
         actual = str(row.get(field) or "").strip()
         if not actual:
+            failures.append(f"{field} required")
+            continue
+        if target_row is None:
             continue
         expected = str(target_row.get(field) or "").strip()
         if actual != expected:
