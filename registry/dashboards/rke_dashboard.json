@@ -133,7 +133,7 @@
   },
   "operator_readiness": {
     "accepted": true,
-    "check_count": 12,
+    "check_count": 13,
     "failure_count": 0
   },
   "paper_trading": {

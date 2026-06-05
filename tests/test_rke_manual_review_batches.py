@@ -7,7 +7,9 @@ from pathlib import Path
 from mosaic.rke import (
     apply_gold_set_review_import,
     apply_source_license_review_import,
+    build_manual_review_bundle_manifest,
     build_manual_review_batch_status,
+    write_manual_review_bundle_manifest,
     write_manual_review_batches,
 )
 
@@ -91,6 +93,34 @@ def test_manual_review_batches_export_sparse_import_templates(tmp_path: Path):
     assert license_rows[0]["approved_for_production_runtime"] is None
     assert "apply-gold-review" in status["gold_set"]["dry_run_command"]
     assert "apply-license-review" in status["source_license"]["dry_run_command"]
+
+
+def test_manual_review_bundle_manifest_hashes_review_artifacts(tmp_path: Path):
+    _copy_registry(tmp_path)
+
+    result = write_manual_review_bundle_manifest(tmp_path)
+    payload = json.loads(Path(result["path"]).read_text(encoding="utf-8"))
+    artifacts = {artifact["path"]: artifact for artifact in payload["artifacts"]}
+
+    assert result["accepted"] is True
+    assert payload["accepted"] is True
+    assert payload["artifact_count"] >= 16
+    assert payload["blockers"] == []
+    assert "registry/review_batches/manual_review_bundle_manifest.json" not in artifacts
+    assert artifacts["registry/review_batches/gold_set_full_import_template.jsonl"]["row_count"] == 500
+    assert artifacts["registry/review_batches/source_license_next_import_template.jsonl"]["row_count"] == 50
+    assert artifacts["registry/promotion/rke_promotion_dry_run_report.json"]["format"] == "json"
+    assert all(artifact["sha256"].startswith("sha256:") for artifact in payload["artifacts"])
+
+
+def test_manual_review_bundle_manifest_detects_missing_artifact(tmp_path: Path):
+    _copy_registry(tmp_path)
+    (tmp_path / "registry/review_batches/lockbox_review_next_import_template.json").unlink()
+
+    manifest = build_manual_review_bundle_manifest(tmp_path)
+
+    assert not manifest.accepted
+    assert any("lockbox_review_next_import_template.json missing" in blocker for blocker in manifest.blockers)
 
 
 def test_manual_review_batch_status_moves_after_partial_import(tmp_path: Path):

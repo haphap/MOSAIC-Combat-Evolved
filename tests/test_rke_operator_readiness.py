@@ -29,7 +29,9 @@ def test_operator_readiness_accepts_current_review_bundle():
 
     assert report.accepted
     assert report.failure_count == 0
+    assert report.check_count == 13
     assert "registry/promotion/rke_promotion_dry_run_report.json" in report.generated_paths
+    assert "registry/review_batches/manual_review_bundle_manifest.json" in report.generated_paths
     assert checks["required_registry_valid"].passed
     assert checks["handoff_ready_for_operator"].passed
     assert checks["manual_batch_templates_match_status"].passed
@@ -40,6 +42,7 @@ def test_operator_readiness_accepts_current_review_bundle():
     assert checks["source_license_policy_template_requires_human_decision"].passed
     assert checks["blank_source_license_policy_import_is_rejected"].passed
     assert checks["blank_bundle_dry_run_does_not_promote"].passed
+    assert checks["manual_review_bundle_manifest_current"].passed
     assert checks["promotion_gate_still_blocks_production"].passed
     assert checks["source_text_redaction_clean"].passed
 
@@ -160,6 +163,11 @@ def test_write_operator_readiness_report_outputs_registry_artifact(tmp_path: Pat
             encoding="utf-8"
         )
     )
+    bundle_payload = json.loads(
+        (tmp_path / "registry/review_batches/manual_review_bundle_manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
 
     assert result["accepted"] is True
     assert payload["accepted"] is True
@@ -169,6 +177,7 @@ def test_write_operator_readiness_report_outputs_registry_artifact(tmp_path: Pat
     assert "registry/review_batches/source_license_policy_import_report.json" in payload["generated_paths"]
     assert "registry/lockbox/central_bank_lockbox_review_import_report.json" in payload["generated_paths"]
     assert "registry/promotion/rke_promotion_dry_run_report.json" in payload["generated_paths"]
+    assert "registry/review_batches/manual_review_bundle_manifest.json" in payload["generated_paths"]
     assert dry_run_payload["accepted"] is False
     assert dry_run_payload["mutated_original_registry"] is False
     assert dry_run_payload["production_allowed_after_simulation"] is False
@@ -176,12 +185,15 @@ def test_write_operator_readiness_report_outputs_registry_artifact(tmp_path: Pat
     assert {
         step["review_kind"] for step in dry_run_payload["steps"] if step["provided"]
     } == {"gold_set", "source_license", "lockbox"}
+    assert bundle_payload["accepted"] is True
+    assert bundle_payload["artifact_count"] >= 16
     assert (tmp_path / "registry/handoffs/rke_operator_readiness_report.json").exists()
     assert (tmp_path / "registry/review_batches/gold_set_full_import_template.jsonl").exists()
     assert (tmp_path / "registry/gold_sets/tushare_research_reports.review_import_report.json").exists()
     assert (tmp_path / "registry/review_batches/source_license_policy_import_report.json").exists()
     assert (tmp_path / "registry/lockbox/central_bank_lockbox_review_import_report.json").exists()
     assert (tmp_path / "registry/promotion/rke_promotion_dry_run_report.json").exists()
+    assert (tmp_path / "registry/review_batches/manual_review_bundle_manifest.json").exists()
 
 
 def test_cli_operator_readiness_writes_report(tmp_path: Path, capsys):

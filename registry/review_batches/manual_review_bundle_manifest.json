@@ -1,0 +1,152 @@
+{
+  "accepted": true,
+  "artifact_count": 16,
+  "artifacts": [
+    {
+      "bytes": 5772,
+      "exists": true,
+      "format": "json",
+      "path": "registry/handoffs/rke_operator_handoff.json",
+      "role": "operator_handoff_json",
+      "row_count": null,
+      "sha256": "sha256:129f820e4716dad70b8d61eebffbee060c394ea3b51382bd9cf04fbe27af0699"
+    },
+    {
+      "bytes": 3604,
+      "exists": true,
+      "format": "markdown",
+      "path": "registry/handoffs/rke_operator_handoff.md",
+      "role": "operator_handoff_markdown",
+      "row_count": null,
+      "sha256": "sha256:a1812e59fca001e28dbc2a2bac12a54d5f680a7f6837ba16fdad4d7335b69a36"
+    },
+    {
+      "bytes": 2774,
+      "exists": true,
+      "format": "json",
+      "path": "registry/review_batches/manual_review_batch_status.json",
+      "role": "manual_review_batch_status",
+      "row_count": null,
+      "sha256": "sha256:0a34545e100bba9d7105c90201d27f794deb5ee44bfcc14da154fd2e79808c8b"
+    },
+    {
+      "bytes": 186408,
+      "exists": true,
+      "format": "json",
+      "path": "registry/gold_sets/tushare_research_reports.review_packet.json",
+      "role": "gold_review_packet_json",
+      "row_count": null,
+      "sha256": "sha256:35313eb69f3569176022e2651b6aed9c7a0720bf8ef355e50b658ba05c72e1bc"
+    },
+    {
+      "bytes": 17852,
+      "exists": true,
+      "format": "markdown",
+      "path": "registry/gold_sets/tushare_research_reports.review_packet.md",
+      "role": "gold_review_packet_markdown",
+      "row_count": null,
+      "sha256": "sha256:b905a7956255ebee4434f38a7a92a5c5e9719cc4b1a2fa57cda45c8d68975d39"
+    },
+    {
+      "bytes": 93379,
+      "exists": true,
+      "format": "jsonl",
+      "path": "registry/review_batches/gold_set_next_import_template.jsonl",
+      "role": "gold_next_import_template",
+      "row_count": 50,
+      "sha256": "sha256:ee188324907b9593313b1a6c05eacf13b988d3b0439db825319b767071080af5"
+    },
+    {
+      "bytes": 869065,
+      "exists": true,
+      "format": "jsonl",
+      "path": "registry/review_batches/gold_set_full_import_template.jsonl",
+      "role": "gold_full_import_template",
+      "row_count": 500,
+      "sha256": "sha256:e2927e5928fcfc73973aedabc15e9ef966889778076b21fd778d4e42596462f5"
+    },
+    {
+      "bytes": 239420,
+      "exists": true,
+      "format": "json",
+      "path": "registry/gold_sets/tushare_research_reports.review_import_report.json",
+      "role": "gold_blank_import_report",
+      "row_count": null,
+      "sha256": "sha256:1695a413b9ed694f22289f5fefba03ec5ad84617b937d27b4b2e6af510eca9a1"
+    },
+    {
+      "bytes": 7499705,
+      "exists": true,
+      "format": "json",
+      "path": "registry/compliance/tushare_license_review_packet.json",
+      "role": "license_review_packet_json",
+      "row_count": null,
+      "sha256": "sha256:639cb424650cce12025645f13d1b17a3eeac4e2d400b07703649928f6f5515c8"
+    },
+    {
+      "bytes": 2649703,
+      "exists": true,
+      "format": "markdown",
+      "path": "registry/compliance/tushare_license_review_packet.md",
+      "role": "license_review_packet_markdown",
+      "row_count": null,
+      "sha256": "sha256:9ef592d66165656a9222d6f554ecffc22c099dc81840e176f268b0780749b154"
+    },
+    {
+      "bytes": 28556,
+      "exists": true,
+      "format": "jsonl",
+      "path": "registry/review_batches/source_license_next_import_template.jsonl",
+      "role": "license_next_import_template",
+      "row_count": 50,
+      "sha256": "sha256:7938f701bf5cc445f2d63c8ebbe5476ea55df6af3b7717c1978d598f957e7db1"
+    },
+    {
+      "bytes": 978,
+      "exists": true,
+      "format": "json",
+      "path": "registry/review_batches/source_license_policy_template.json",
+      "role": "license_policy_template",
+      "row_count": null,
+      "sha256": "sha256:945ee21bff2f930a1ed5136f7ed47c2702e968a2f1ab637da0d7c64ced93a5de"
+    },
+    {
+      "bytes": 970,
+      "exists": true,
+      "format": "json",
+      "path": "registry/review_batches/source_license_policy_import_report.json",
+      "role": "license_policy_blank_import_report",
+      "row_count": null,
+      "sha256": "sha256:ae67b29400b62728f48ed8fccbc2781b4ec8c20ae093500851979c697a1883df"
+    },
+    {
+      "bytes": 265,
+      "exists": true,
+      "format": "json",
+      "path": "registry/review_batches/lockbox_review_next_import_template.json",
+      "role": "lockbox_import_template",
+      "row_count": null,
+      "sha256": "sha256:eec248899fc3b6e78d659cd721374dad85957f0fb3d7916a4e823e5d97eab855"
+    },
+    {
+      "bytes": 699,
+      "exists": true,
+      "format": "json",
+      "path": "registry/lockbox/central_bank_lockbox_review_import_report.json",
+      "role": "lockbox_blank_import_report",
+      "row_count": null,
+      "sha256": "sha256:ccd4ec73bfdf2da39a4689070f5fb6605702ac379e21d44cdf6551bc898af7c8"
+    },
+    {
+      "bytes": 2055,
+      "exists": true,
+      "format": "json",
+      "path": "registry/promotion/rke_promotion_dry_run_report.json",
+      "role": "promotion_blank_dry_run_report",
+      "row_count": null,
+      "sha256": "sha256:9b211d2df59dd99abed7399cd3efe4bc533422fdc480d09a083576e6f0c28536"
+    }
+  ],
+  "blockers": [],
+  "manifest_id": "RKE-MANUAL-REVIEW-BUNDLE-MANIFEST-20260606"
+}

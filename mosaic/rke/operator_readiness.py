@@ -13,6 +13,11 @@ from .manual_review_batches import (
     LICENSE_BATCH_IMPORT_TEMPLATE_PATH,
     build_manual_review_batch_status,
 )
+from .manual_review_bundle_manifest import (
+    MANUAL_REVIEW_BUNDLE_ARTIFACTS,
+    MANUAL_REVIEW_BUNDLE_MANIFEST_PATH,
+    write_manual_review_bundle_manifest,
+)
 from .manual_review_import import (
     GOLD_REVIEW_IMPORT_REPORT_PATH,
     apply_gold_set_review_import,
@@ -149,6 +154,7 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
         GOLD_REVIEW_IMPORT_REPORT_PATH,
         LOCKBOX_REVIEW_IMPORT_REPORT_PATH,
         LICENSE_POLICY_IMPORT_REPORT_PATH,
+        MANUAL_REVIEW_BUNDLE_MANIFEST_PATH,
         PROMOTION_DRY_RUN_REPORT_PATH,
     }
     missing = tuple(path for path in missing if path not in self_generated_paths)
@@ -342,6 +348,29 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
         )
     )
 
+    bundle_result = write_manual_review_bundle_manifest(root_path)
+    bundle_manifest = _read_json(root_path / MANUAL_REVIEW_BUNDLE_MANIFEST_PATH)
+    bundle_paths = {
+        str(artifact.get("path") or "")
+        for artifact in bundle_manifest.get("artifacts", ())
+        if artifact.get("exists") is True
+    }
+    expected_bundle_paths = {path for _, path, _ in MANUAL_REVIEW_BUNDLE_ARTIFACTS}
+    checks.append(
+        _check(
+            "manual_review_bundle_manifest_current",
+            bundle_result["accepted"] is True
+            and int(bundle_manifest.get("artifact_count") or 0) == len(MANUAL_REVIEW_BUNDLE_ARTIFACTS)
+            and expected_bundle_paths <= bundle_paths
+            and all(str(artifact.get("sha256") or "").startswith("sha256:") for artifact in bundle_manifest["artifacts"]),
+            (
+                f"artifact_count={bundle_manifest.get('artifact_count')}, "
+                f"blockers={len(bundle_manifest.get('blockers') or [])}"
+            ),
+            "manual review bundle manifest is missing, stale, or incomplete",
+        )
+    )
+
     promotion = build_production_promotion_gate_report(root_path)
     checks.append(
         _check(
@@ -379,6 +408,7 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
         LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH,
         LOCKBOX_REVIEW_IMPORT_REPORT_PATH,
         PROMOTION_DRY_RUN_REPORT_PATH,
+        MANUAL_REVIEW_BUNDLE_MANIFEST_PATH,
     )
     return OperatorReadinessReport(
         report_id="RKE-OPERATOR-READINESS-REPORT-20260606",

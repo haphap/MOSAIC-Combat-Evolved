@@ -189,6 +189,12 @@ from .manual_review_batches import (
     build_manual_review_batch_status,
     write_manual_review_batches,
 )
+from .manual_review_bundle_manifest import (
+    ManualReviewBundleArtifact,
+    ManualReviewBundleManifest,
+    build_manual_review_bundle_manifest,
+    write_manual_review_bundle_manifest,
+)
 from .operator_handoff import (
     OperatorGateHandoff,
     OperatorHandoff,
@@ -531,6 +537,10 @@ __all__ = [
     "ReviewBatchExportSummary",
     "build_manual_review_batch_status",
     "write_manual_review_batches",
+    "ManualReviewBundleArtifact",
+    "ManualReviewBundleManifest",
+    "build_manual_review_bundle_manifest",
+    "write_manual_review_bundle_manifest",
     "OperatorGateHandoff",
     "OperatorHandoff",
     "build_lockbox_review_import_template",

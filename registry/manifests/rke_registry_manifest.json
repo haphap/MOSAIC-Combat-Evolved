@@ -1,5 +1,5 @@
 {
-  "artifact_count": 77,
+  "artifact_count": 78,
   "artifacts": [
     {
       "bytes": 539,
@@ -22,9 +22,9 @@
       "sha256": "sha256:de6fc572b0101a18e6030a13a089487c62dc004febf58b1633b45f25acd42604"
     },
     {
-      "bytes": 7592,
+      "bytes": 7732,
       "path": "registry/audits/rke_master_plan_coverage_report.json",
-      "sha256": "sha256:c128004021435f19cd26acf2ab9bb9887e90dd170fcb682867bde6fbacfd6c21"
+      "sha256": "sha256:fc017740e67fd262c429ed043cc85a1c9ee3247cdd4b43c9062e8c968e2ffb40"
     },
     {
       "bytes": 752,
@@ -69,7 +69,7 @@
     {
       "bytes": 7588,
       "path": "registry/dashboards/rke_dashboard.json",
-      "sha256": "sha256:c3033afc701172e6e1b32567e67970ef18b3176cffbd43f4ab758adbf2aa406d"
+      "sha256": "sha256:e342fe4f3e07bd50392d66e1781d4444a07325f0c99564c159eaafdcb1b455d3"
     },
     {
       "bytes": 1863,
@@ -192,9 +192,9 @@
       "sha256": "sha256:a1812e59fca001e28dbc2a2bac12a54d5f680a7f6837ba16fdad4d7335b69a36"
     },
     {
-      "bytes": 3314,
+      "bytes": 3545,
       "path": "registry/handoffs/rke_operator_readiness_report.json",
-      "sha256": "sha256:05bef21efa8670e4aead841596c65ff7492a3b56cd09aecd7c695c3226a74a60"
+      "sha256": "sha256:96d4ab2e1f77fd184f417ffd1780c5bc0a1ec3633ab687c005ffee0f557f8d60"
     },
     {
       "bytes": 383,
@@ -300,6 +300,11 @@
       "bytes": 2774,
       "path": "registry/review_batches/manual_review_batch_status.json",
       "sha256": "sha256:0a34545e100bba9d7105c90201d27f794deb5ee44bfcc14da154fd2e79808c8b"
+    },
+    {
+      "bytes": 5204,
+      "path": "registry/review_batches/manual_review_bundle_manifest.json",
+      "sha256": "sha256:5bed9281d23b1b0e629e7685e2b778878e9ae4a41369b93a6031975fd284a7b6"
     },
     {
       "bytes": 28556,

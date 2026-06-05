@@ -721,6 +721,9 @@ def refresh_tushare_research_report_registry(
     outputs["source_license_policy_import_report"] = (
         "registry/review_batches/source_license_policy_import_report.json"
     )
+    outputs["manual_review_bundle_manifest"] = (
+        "registry/review_batches/manual_review_bundle_manifest.json"
+    )
     outputs["promotion_dry_run_report"] = (
         "registry/promotion/rke_promotion_dry_run_report.json"
     )
