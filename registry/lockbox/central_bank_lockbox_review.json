@@ -1,0 +1,11 @@
+{
+  "experiment_family_id": "FAM-CB-LIQUIDITY-2026Q2",
+  "experiment_id": "EXP-CB-20260605-0001",
+  "open_count": 0,
+  "opened_at": "",
+  "opened_by": "",
+  "parameter_search_after_open": false,
+  "result": "not_opened",
+  "rule_design_after_open": false,
+  "notes": "Central-bank MVP is paper-trading ready but not final-production eligible until one-time lockbox review is opened and passed."
+}

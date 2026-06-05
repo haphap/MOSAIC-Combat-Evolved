@@ -79,6 +79,13 @@ from .governance import (
     default_evolution_targets,
     validate_patch,
 )
+from .lockbox import (
+    LockboxDecision,
+    LockboxPolicy,
+    LockboxReview,
+    evaluate_lockbox_review,
+    summarize_lockbox_reviews,
+)
 from .monitoring import (
     PaperTradingReport,
     PaperTradingSnapshot,
@@ -200,6 +207,11 @@ __all__ = [
     "ProductionPatch",
     "default_evolution_targets",
     "validate_patch",
+    "LockboxDecision",
+    "LockboxPolicy",
+    "LockboxReview",
+    "evaluate_lockbox_review",
+    "summarize_lockbox_reviews",
     "PaperTradingReport",
     "PaperTradingSnapshot",
     "ProductionMonitorPolicy",

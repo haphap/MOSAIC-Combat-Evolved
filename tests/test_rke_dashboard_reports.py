@@ -18,6 +18,8 @@ def test_dashboard_report_summarizes_completion_and_monitoring():
     assert report["completion"]["passed"] == 10
     assert report["completion"]["total"] == 12
     assert report["paper_trading"]["ready"] is True
+    assert report["lockbox"]["result"] == "not_opened"
+    assert report["lockbox"]["production_allowed"] is False
     assert report["audit_trace"]["agent_output_count"] == 1
     assert "manual" in " ".join(report["completion"]["blockers"])
 

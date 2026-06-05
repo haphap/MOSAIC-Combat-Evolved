@@ -6,6 +6,7 @@
 - Mean live vs baseline delta: 0.035
 - Production monitor state: production
 - Production monitor action: none
+- Lockbox result: not_opened
 
 ## Blockers
 

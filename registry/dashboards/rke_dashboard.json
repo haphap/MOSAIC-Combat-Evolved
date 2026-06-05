@@ -16,6 +16,11 @@
     "total": 12
   },
   "dashboard_id": "RKE-DASHBOARD-20260605",
+  "lockbox": {
+    "open_count": 0,
+    "production_allowed": false,
+    "result": "not_opened"
+  },
   "paper_trading": {
     "mean_calibration_error": 0.025,
     "mean_live_net_alpha_after_cost": 0.0055,

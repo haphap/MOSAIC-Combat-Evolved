@@ -17,6 +17,8 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
     paper = _read_json(root_path / "registry/monitoring/central_bank_paper_trading_report.json")
     audit_trace = _read_json(root_path / "registry/audits/central_bank_mvp_audit_trace.json")
     runtime = _read_json(root_path / "registry/runtime_outputs/macro.central_bank.20260605.json")
+    lockbox_path = root_path / "registry/lockbox/central_bank_lockbox_review.json"
+    lockbox = _read_json(lockbox_path) if lockbox_path.exists() else {}
     criteria = completion.get("criteria", ())
     return {
         "dashboard_id": "RKE-DASHBOARD-20260605",
@@ -28,6 +30,12 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
         },
         "paper_trading": paper.get("paper_trading_summary", {}),
         "production_monitor": paper.get("production_monitor", {}),
+        "lockbox": {
+            "result": lockbox.get("result"),
+            "open_count": lockbox.get("open_count"),
+            "production_allowed": lockbox.get("result") == "passed"
+            and int(lockbox.get("open_count") or 0) <= 1,
+        },
         "audit_trace": {
             "source_count": len(audit_trace.get("source_ids", ())),
             "claim_count": len(audit_trace.get("claim_ids", ())),
@@ -55,6 +63,7 @@ def render_dashboard_markdown(report: Mapping[str, Any]) -> str:
         f"- Mean live vs baseline delta: {paper.get('mean_live_vs_baseline_delta')}",
         f"- Production monitor state: {monitor.get('state')}",
         f"- Production monitor action: {monitor.get('action')}",
+        f"- Lockbox result: {dict(report.get('lockbox') or {}).get('result')}",
         "",
         "## Blockers",
         "",
