@@ -354,6 +354,7 @@ def test_refresh_tushare_research_report_registry_updates_dependent_artifacts(tm
     assert "gold_set_full_import_template" in result.outputs
     assert "manual_review_gold_set_full_import_template" in result.outputs
     assert "source_license_policy_template" in result.outputs
+    assert "source_license_policy_import_report" in result.outputs
     assert "rollback_readiness_report" in result.outputs
     assert "operator_readiness_report" in result.outputs
     assert "production_monitor_diagnostics" in result.outputs

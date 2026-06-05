@@ -712,6 +712,9 @@ def refresh_tushare_research_report_registry(
     outputs["source_license_policy_template"] = operator_handoff_result["source_license_policy_template"]
     outputs["rollback_readiness_report"] = str(rollback_readiness_result["path"])
     outputs["operator_readiness_report"] = str(operator_readiness_result["path"])
+    outputs["source_license_policy_import_report"] = (
+        "registry/review_batches/source_license_policy_import_report.json"
+    )
     outputs["master_plan_coverage_report"] = str(master_plan_coverage_result["path"])
     outputs.update({f"dashboard.{key}": value for key, value in dashboard_result.items()})
     outputs["registry_manifest"] = str(registry_manifest_result["path"])

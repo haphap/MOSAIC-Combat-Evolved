@@ -14,7 +14,10 @@ from .manual_review_batches import (
     build_manual_review_batch_status,
 )
 from .license_policy_import import (
+    DEFAULT_LICENSE_POLICY_IMPORT_PATH,
+    LICENSE_POLICY_IMPORT_REPORT_PATH,
     SOURCE_LICENSE_POLICY_TEMPLATE_PATH,
+    build_source_license_policy_import,
     build_source_license_policy_template,
 )
 from .operator_handoff import (
@@ -133,8 +136,9 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
     checks: list[OperatorReadinessCheck] = []
 
     missing, empty = validate_required_registry(root_path)
-    missing = tuple(path for path in missing if path != OPERATOR_READINESS_REPORT_PATH)
-    empty = tuple(path for path in empty if path != OPERATOR_READINESS_REPORT_PATH)
+    self_generated_paths = {OPERATOR_READINESS_REPORT_PATH, LICENSE_POLICY_IMPORT_REPORT_PATH}
+    missing = tuple(path for path in missing if path not in self_generated_paths)
+    empty = tuple(path for path in empty if path not in self_generated_paths)
     checks.append(
         _check(
             "required_registry_valid",
@@ -216,6 +220,35 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
         )
     )
 
+    policy_dry_run = build_source_license_policy_import(
+        root_path,
+        SOURCE_LICENSE_POLICY_TEMPLATE_PATH,
+        output_path=DEFAULT_LICENSE_POLICY_IMPORT_PATH,
+        dry_run=True,
+    )
+    policy_blockers = set(policy_dry_run.blockers)
+    expected_policy_blockers = {
+        "reviewer required",
+        "review_date required",
+        "approved_for_derived_claim_storage must be boolean",
+        "approved_for_production_runtime must be boolean",
+    }
+    checks.append(
+        _check(
+            "blank_source_license_policy_import_is_rejected",
+            not policy_dry_run.accepted
+            and policy_dry_run.output_rows == 0
+            and expected_policy_blockers <= policy_blockers,
+            (
+                f"accepted={policy_dry_run.accepted}, "
+                f"matched_rows={policy_dry_run.matched_rows}, "
+                f"output_rows={policy_dry_run.output_rows}, "
+                f"blockers={len(policy_dry_run.blockers)}"
+            ),
+            "blank source-license policy unexpectedly expands into import rows",
+        )
+    )
+
     blank_dry_run = build_promotion_dry_run_report(
         root_path,
         gold_input=GOLD_BATCH_IMPORT_TEMPLATE_PATH,
@@ -268,6 +301,7 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
         GOLD_FULL_IMPORT_TEMPLATE_PATH,
         LICENSE_BATCH_IMPORT_TEMPLATE_PATH,
         SOURCE_LICENSE_POLICY_TEMPLATE_PATH,
+        LICENSE_POLICY_IMPORT_REPORT_PATH,
         LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH,
     )
     return OperatorReadinessReport(

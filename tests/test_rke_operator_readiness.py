@@ -35,6 +35,7 @@ def test_operator_readiness_accepts_current_review_bundle():
     assert checks["manual_import_templates_are_sparse"].passed
     assert checks["lockbox_template_requires_human_decision"].passed
     assert checks["source_license_policy_template_requires_human_decision"].passed
+    assert checks["blank_source_license_policy_import_is_rejected"].passed
     assert checks["blank_bundle_dry_run_does_not_promote"].passed
     assert checks["promotion_gate_still_blocks_production"].passed
     assert checks["source_text_redaction_clean"].passed
@@ -79,6 +80,28 @@ def test_operator_readiness_detects_filled_policy_template(tmp_path: Path):
     assert "policy template" in policy_check.blocker
 
 
+def test_operator_readiness_rejects_blank_source_license_policy_import(tmp_path: Path):
+    _copy_registry(tmp_path)
+
+    report = build_operator_readiness_report(tmp_path)
+    policy_import = next(
+        check for check in report.checks if check.check_id == "blank_source_license_policy_import_is_rejected"
+    )
+    import_report = json.loads(
+        (tmp_path / "registry/review_batches/source_license_policy_import_report.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert report.accepted
+    assert policy_import.passed
+    assert import_report["accepted"] is False
+    assert import_report["dry_run"] is True
+    assert import_report["output_rows"] == 0
+    assert "reviewer required" in import_report["blockers"]
+    assert not (tmp_path / "registry/review_batches/source_license_policy_import.jsonl").exists()
+
+
 def test_write_operator_readiness_report_outputs_registry_artifact(tmp_path: Path):
     _copy_registry(tmp_path)
 
@@ -89,8 +112,10 @@ def test_write_operator_readiness_report_outputs_registry_artifact(tmp_path: Pat
     assert payload["accepted"] is True
     assert payload["failure_count"] == 0
     assert "registry/review_batches/gold_set_full_import_template.jsonl" in payload["generated_paths"]
+    assert "registry/review_batches/source_license_policy_import_report.json" in payload["generated_paths"]
     assert (tmp_path / "registry/handoffs/rke_operator_readiness_report.json").exists()
     assert (tmp_path / "registry/review_batches/gold_set_full_import_template.jsonl").exists()
+    assert (tmp_path / "registry/review_batches/source_license_policy_import_report.json").exists()
 
 
 def test_cli_operator_readiness_writes_report(tmp_path: Path, capsys):

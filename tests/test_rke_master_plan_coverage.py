@@ -34,8 +34,12 @@ def test_master_plan_coverage_reports_only_manual_blockers():
     phase_4 = next(record for record in report.records if record.section_id == "Phase-4")
     assert "registry/monitoring/central_bank_monitoring_diagnostics.json" in phase_4.evidence_paths
     assert "registry/monitoring/central_bank_rollback_readiness_report.json" in phase_4.evidence_paths
+    phase_1b = next(record for record in report.records if record.section_id == "Phase-1B")
+    assert "registry/review_batches/gold_set_full_import_template.jsonl" in phase_1b.evidence_paths
     compliance = next(record for record in report.records if record.section_id == "Compliance")
     assert "registry/handoffs/rke_operator_readiness_report.json" in compliance.evidence_paths
+    assert "registry/review_batches/source_license_policy_template.json" in compliance.evidence_paths
+    assert "registry/review_batches/source_license_policy_import_report.json" in compliance.evidence_paths
 
 
 def test_master_plan_coverage_detects_missing_phase_artifact(tmp_path: Path):

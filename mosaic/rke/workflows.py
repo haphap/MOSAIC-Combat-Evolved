@@ -136,6 +136,9 @@ def run_full_rke_refresh(
     outputs["source_license_policy_template"] = operator_handoff["source_license_policy_template"]
     outputs["rollback_readiness_report"] = str(rollback_readiness["path"])
     outputs["operator_readiness_report"] = str(operator_readiness["path"])
+    outputs["source_license_policy_import_report"] = (
+        "registry/review_batches/source_license_policy_import_report.json"
+    )
     outputs["master_plan_coverage_report"] = str(master_plan_coverage["path"])
     outputs.update({f"dashboard.{key}": value for key, value in dashboard_outputs.items()})
     outputs["registry_manifest"] = str(manifest_result["path"])

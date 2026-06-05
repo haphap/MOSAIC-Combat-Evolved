@@ -1,5 +1,5 @@
 {
-  "artifact_count": 73,
+  "artifact_count": 74,
   "artifacts": [
     {
       "bytes": 539,
@@ -187,9 +187,9 @@
       "sha256": "sha256:a1812e59fca001e28dbc2a2bac12a54d5f680a7f6837ba16fdad4d7335b69a36"
     },
     {
-      "bytes": 2366,
+      "bytes": 2645,
       "path": "registry/handoffs/rke_operator_readiness_report.json",
-      "sha256": "sha256:e21daf2251c512b2b071adbc0c29759362c23ba9fcc0885f203d65ddba8b2afc"
+      "sha256": "sha256:7004250fa5ee69e1433d7e9ddc76d0eb80e01f57b9d92048b4e8e50b177b4764"
     },
     {
       "bytes": 383,
@@ -290,6 +290,11 @@
       "bytes": 28556,
       "path": "registry/review_batches/source_license_next_import_template.jsonl",
       "sha256": "sha256:7938f701bf5cc445f2d63c8ebbe5476ea55df6af3b7717c1978d598f957e7db1"
+    },
+    {
+      "bytes": 970,
+      "path": "registry/review_batches/source_license_policy_import_report.json",
+      "sha256": "sha256:ae67b29400b62728f48ed8fccbc2781b4ec8c20ae093500851979c697a1883df"
     },
     {
       "bytes": 978,
