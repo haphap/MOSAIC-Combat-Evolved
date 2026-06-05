@@ -56,19 +56,19 @@
       "candidate_available_count": 500,
       "candidate_claim_count": 500,
       "manual_fields_preserved": true,
-      "missing_variable_mapping_count": 359,
+      "missing_variable_mapping_count": 349,
       "review_rows_with_candidate_fields": 500
     },
     "gold_review_packet": {
-      "candidate_span_ref_count": 219,
+      "candidate_span_ref_count": 216,
       "document_count": 50,
       "pending_review_rows": 500,
       "risk_flag_counts": {
-        "canonical_variable_mapping_needed": 12,
+        "canonical_variable_mapping_needed": 10,
         "license_pending": 50,
         "manual_review_required": 50,
         "no_mechanism_sentence_detected": 2,
-        "span_preview_truncated": 42
+        "span_preview_truncated": 40
       },
       "status": "manual_review_pending"
     },

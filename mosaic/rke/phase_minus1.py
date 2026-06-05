@@ -28,54 +28,99 @@ REQUIRED_SOURCE_ROW_FIELDS = {
     "license_status",
 }
 
-GOLD_SET_DOMAIN_KEYWORDS: Mapping[str, tuple[str, ...]] = {
-    "central_bank": (
-        "央行",
-        "中国人民银行",
-        "公开市场",
-        "逆回购",
-        "货币政策",
-        "流动性",
-        "降准",
-        "降息",
-        "LPR",
-        "信贷",
-        "利率",
-        "银行",
-    ),
-    "dollar": (
-        "美元",
-        "DXY",
-        "汇率",
-        "人民币",
-        "离岸",
-        "美债",
-        "中美利差",
-        "外资",
-        "美联储",
-        "Fed",
-        "USDCNY",
-    ),
-    "volatility": (
-        "波动",
-        "VIX",
-        "风险偏好",
-        "风险溢价",
-        "避险",
-        "震荡",
-        "回撤",
-        "风险",
-    ),
-    "semiconductor": (
-        "半导体",
-        "芯片",
-        "存储",
-        "算力",
-        "国产替代",
-        "集成电路",
-    ),
+GOLD_SET_DOMAIN_KEYWORD_SPECS: Mapping[str, Mapping[str, tuple[str, ...]]] = {
+    "central_bank": {
+        "strong": (
+            "央行",
+            "中国人民银行",
+            "公开市场",
+            "逆回购",
+            "买断式逆回购",
+            "货币政策",
+            "降准",
+            "降息",
+            "LPR",
+            "MLF",
+            "SLF",
+            "OMO",
+        ),
+        "weak": (
+            "流动性",
+            "信贷",
+            "利率",
+            "银行间",
+            "资金面",
+            "国债收益率",
+        ),
+    },
+    "dollar": {
+        "strong": (
+            "美元",
+            "DXY",
+            "美元指数",
+            "USDCNY",
+            "USDCNH",
+            "人民币汇率",
+            "中美利差",
+            "美联储",
+            "Fed",
+            "美债",
+        ),
+        "weak": (
+            "汇率",
+            "人民币",
+            "离岸",
+            "外资",
+        ),
+    },
+    "volatility": {
+        "strong": (
+            "VIX",
+            "iVX",
+            "隐含波动率",
+            "realized volatility",
+            "风险偏好",
+            "风险溢价",
+            "避险",
+            "回撤",
+        ),
+        "weak": (
+            "波动",
+            "震荡",
+            "风险",
+            "下跌",
+            "调整",
+        ),
+    },
+    "semiconductor": {
+        "strong": (
+            "半导体",
+            "芯片",
+            "集成电路",
+            "晶圆",
+            "存储芯片",
+            "HBM",
+            "DRAM",
+            "NAND",
+            "封测",
+            "光刻",
+            "EDA",
+        ),
+        "weak": (
+            "存储",
+            "算力",
+            "国产替代",
+            "AI算力",
+            "数据中心",
+        ),
+    },
 }
-REQUIRED_GOLD_SET_DOMAINS = tuple(GOLD_SET_DOMAIN_KEYWORDS)
+GOLD_SET_DOMAIN_KEYWORDS: Mapping[str, tuple[str, ...]] = {
+    domain: tuple(keyword for keywords in spec.values() for keyword in keywords)
+    for domain, spec in GOLD_SET_DOMAIN_KEYWORD_SPECS.items()
+}
+REQUIRED_GOLD_SET_DOMAINS = tuple(GOLD_SET_DOMAIN_KEYWORD_SPECS)
+GOLD_SET_DOMAIN_KEYWORD_WEIGHTS = {"strong": 3, "weak": 1}
 
 
 @dataclass(frozen=True)
@@ -171,6 +216,7 @@ def select_gold_set_candidates(
         return []
     selected: list[dict[str, Any]] = []
     seen: set[str] = set()
+    assigned_counts: Counter[str] = Counter()
     per_domain_quota = max(1, max_documents // (len(REQUIRED_GOLD_SET_DOMAINS) + 1))
 
     def add_row(row: Mapping[str, Any], assigned_domain: str) -> bool:
@@ -179,10 +225,18 @@ def select_gold_set_candidates(
             return False
         out = dict(row)
         domains = _gold_set_domains(row)
+        evidence = _gold_set_domain_evidence(row)
         out["gold_set_domain"] = assigned_domain
         out["gold_set_domains"] = domains
+        out["gold_set_domain_scores"] = {
+            domain: int(details["score"]) for domain, details in evidence.items()
+        }
+        out["gold_set_domain_matches"] = {
+            domain: list(details["keywords"]) for domain, details in evidence.items()
+        }
         selected.append(out)
         seen.add(source_id)
+        assigned_counts[assigned_domain] += 1
         return True
 
     domain_buckets: dict[str, list[Mapping[str, Any]]] = {
@@ -214,10 +268,10 @@ def select_gold_set_candidates(
             candidates = global_buckets[bucket]
             while candidates:
                 row = candidates.pop(0)
-                domains = _gold_set_domains(row)
+                domains = tuple(domain for domain in _gold_set_domains(row) if domain in REQUIRED_GOLD_SET_DOMAINS)
                 assigned_domain = next(
-                    (domain for domain in domains if domain in REQUIRED_GOLD_SET_DOMAINS),
-                    domains[0],
+                    (domain for domain in domains if assigned_counts[domain] < per_domain_quota),
+                    "other",
                 )
                 if add_row(row, assigned_domain):
                     progressed = True
@@ -237,13 +291,37 @@ def _gold_set_text(row: Mapping[str, Any]) -> str:
 
 
 def _gold_set_domains(row: Mapping[str, Any]) -> tuple[str, ...]:
-    text = _gold_set_text(row)
+    evidence = _gold_set_domain_evidence(row)
     domains = tuple(
-        domain
-        for domain, keywords in GOLD_SET_DOMAIN_KEYWORDS.items()
-        if any(keyword in text for keyword in keywords)
+        sorted(
+            evidence,
+            key=lambda domain: (-int(evidence[domain]["score"]), domain),
+        )
     )
     return domains or ("other",)
+
+
+def _gold_set_domain_evidence(row: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
+    text = _gold_set_text(row)
+    lowered = text.lower()
+    evidence: dict[str, dict[str, Any]] = {}
+    for domain, spec in GOLD_SET_DOMAIN_KEYWORD_SPECS.items():
+        score = 0
+        has_strong = False
+        keywords: list[str] = []
+        for strength, candidates in spec.items():
+            weight = GOLD_SET_DOMAIN_KEYWORD_WEIGHTS[strength]
+            for keyword in candidates:
+                if keyword.lower() in lowered:
+                    score += weight
+                    has_strong = has_strong or strength == "strong"
+                    keywords.append(keyword)
+        if has_strong or score >= 2:
+            evidence[domain] = {
+                "score": score,
+                "keywords": tuple(dict.fromkeys(keywords)),
+            }
+    return evidence
 
 
 def _ordered_gold_set_source_rows(rows: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
@@ -307,6 +385,8 @@ def build_gold_set_review_template(
                     "document_id": source_id,
                     "gold_set_domain": str(candidate.get("gold_set_domain") or "other"),
                     "gold_set_domains": tuple(candidate.get("gold_set_domains") or ()),
+                    "gold_set_domain_matches": dict(candidate.get("gold_set_domain_matches") or {}),
+                    "gold_set_domain_scores": dict(candidate.get("gold_set_domain_scores") or {}),
                     "span_preview": text[:span_preview_chars],
                     "manual_claim_text": "",
                     "claim_correct": None,

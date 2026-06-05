@@ -26,9 +26,11 @@ def test_gold_review_packet_summarizes_current_manual_queue():
     assert packet.review_rows_with_candidate_fields == 500
     assert packet.candidate_span_ref_count > 0
     assert set(REQUIRED_GOLD_SET_DOMAINS).issubset(packet.domain_counts)
+    assert "other" in packet.domain_counts
     assert packet.risk_flag_counts["manual_review_required"] == 50
     assert packet.risk_flag_counts["license_pending"] == 50
     assert all(document.pending_claim_rows == 10 for document in packet.documents)
+    assert any(document.gold_set_domain_matches for document in packet.documents)
 
 
 def test_gold_review_packet_uses_offsets_not_source_text_for_span_refs():
@@ -50,6 +52,7 @@ def test_gold_review_packet_markdown_renders_review_queue_summary():
     assert "Pending review rows: 500" in markdown
     assert "Candidate claims: 500" in markdown
     assert "Domains:" in markdown
+    assert "domain_hits=" in markdown
     assert "Review Queue" in markdown
 
 

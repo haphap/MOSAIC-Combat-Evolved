@@ -72,6 +72,8 @@ class GoldReviewDocumentPacket:
     source_span_id: str
     gold_set_domain: str
     gold_set_domains: Sequence[str]
+    gold_set_domain_matches: Mapping[str, Sequence[str]]
+    gold_set_domain_scores: Mapping[str, int]
     title: str
     publish_date: str
     report_type: str
@@ -235,6 +237,11 @@ def _document_packet(
         source_span_id=source_span_id,
         gold_set_domain=str(candidate.get("gold_set_domain") or "other"),
         gold_set_domains=tuple(candidate.get("gold_set_domains") or ("other",)),
+        gold_set_domain_matches=dict(candidate.get("gold_set_domain_matches") or {}),
+        gold_set_domain_scores={
+            str(domain): int(score)
+            for domain, score in dict(candidate.get("gold_set_domain_scores") or {}).items()
+        },
         title=str(candidate.get("title") or ""),
         publish_date=str(candidate.get("publish_date") or ""),
         report_type=report_type,
@@ -340,10 +347,11 @@ def render_gold_review_packet_markdown(packet: GoldReviewPacket) -> str:
         )
         hints = ", ".join(document.canonical_variable_hints) or "needs reviewer mapping"
         flags = ", ".join(document.risk_flags)
+        domain_hits = "/".join(document.gold_set_domain_matches.get(document.gold_set_domain, ())[:4]) or "none"
         lines.append(
             f"- {document.source_id} | {document.publish_date} | {document.gold_set_domain} | {document.query_key} | "
             f"{document.report_type} | pending={document.pending_claim_rows} | vars={hints} | "
-            f"spans={span_refs or 'none'} | flags={flags}"
+            f"domain_hits={domain_hits} | spans={span_refs or 'none'} | flags={flags}"
         )
     return "\n".join(lines)
 

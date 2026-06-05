@@ -90,7 +90,28 @@ def test_phase_minus1_selects_gold_set_candidates_by_required_domains():
     assert set(REQUIRED_GOLD_SET_DOMAINS).issubset(
         {candidate["gold_set_domain"] for candidate in candidates}
     )
+    assert "other" in {candidate["gold_set_domain"] for candidate in candidates}
     assert all(candidate["gold_set_domains"] for candidate in candidates)
+    assert all(candidate["gold_set_domain_scores"] for candidate in candidates if candidate["gold_set_domain"] != "other")
+    assert all(
+        candidate["gold_set_domain_matches"] for candidate in candidates if candidate["gold_set_domain"] != "other"
+    )
+
+
+def test_phase_minus1_domain_matching_requires_strong_or_multiple_weak_terms():
+    rows = [
+        _row("SRC-WEAK-ONLY", "银行", "行业研报") | {"abstract": "银行盈利修复。"},
+        _row("SRC-CB-WEAKS", "资金面", "行业研报") | {"abstract": "资金面和利率共同影响短端流动性。"},
+        _row("SRC-DOLLAR-STRONG", "策略", "行业研报") | {"abstract": "美元指数上行压制人民币汇率。"},
+    ]
+
+    candidates = select_gold_set_candidates(rows, max_documents=3)
+    by_id = {candidate["source_id"]: candidate for candidate in candidates}
+
+    assert by_id["SRC-WEAK-ONLY"]["gold_set_domains"] == ("other",)
+    assert by_id["SRC-CB-WEAKS"]["gold_set_domains"][0] == "central_bank"
+    assert by_id["SRC-CB-WEAKS"]["gold_set_domain_scores"]["central_bank"] >= 2
+    assert by_id["SRC-DOLLAR-STRONG"]["gold_set_domains"][0] == "dollar"
 
 
 def test_phase_minus1_loads_jsonl(tmp_path):
@@ -129,6 +150,8 @@ def test_phase_minus1_gold_set_template_and_gate(tmp_path):
     assert len(template) == 500
     assert out["rows"] == 500
     assert template[0]["claim_correct"] is None
+    assert "gold_set_domain_scores" in template[0]
+    assert "gold_set_domain_matches" in template[0]
     assert gold_set.sample_size_documents == 50
     assert gold_set.sample_size_claims == 500
     assert gold_set.passed
