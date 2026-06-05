@@ -108,6 +108,26 @@ mosaic-rke apply-license-review --root . --input reviewed_sources.jsonl
 Both import commands support `--dry-run`. They reject duplicate IDs, unknown IDs,
 missing reviewer/date fields, and non-boolean gate fields.
 
+Refresh the Tushare research-report source pool:
+
+```bash
+mosaic-rke fetch-tushare-reports \
+  --root . \
+  --start-date 2026-02-05 \
+  --end-date 2026-06-05 \
+  --stock-code 600519.SH,300750.SZ \
+  --industry-keyword 银行 \
+  --industry-keyword 半导体 \
+  --stock-query-batch-size 50
+```
+
+The refresh command first tries to batch stock-code queries by joining codes into
+Tushare's comma-separated `ts_code` parameter. If a whole batch returns zero
+rows, it automatically falls back to single-code queries so `research_report`
+batch quirks do not drop available reports. It then refreshes the dependent
+source, gold-set, license, redaction, dashboard, promotion-gate, coverage, and
+manifest artifacts. Industry keywords still use separate `ind_name` queries.
+
 The generated batch templates are review aids. They contain IDs, hashes, source
 refs, and empty manual fields, but not full abstracts or span previews. Reviewers
 may fill a batch file and dry-run it before applying.

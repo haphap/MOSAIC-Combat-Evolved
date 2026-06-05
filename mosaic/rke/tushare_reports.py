@@ -170,28 +170,46 @@ def _df_to_records(df: Any) -> list[dict[str, Any]]:
     return list(df.to_dict("records"))
 
 
-def fetch_tushare_research_reports(
+def _chunked(values: Sequence[str], size: int) -> list[tuple[str, ...]]:
+    if size <= 0:
+        raise ValueError("stock_query_batch_size must be positive")
+    normalized = tuple(str(value or "").strip() for value in values if str(value or "").strip())
+    return [normalized[index : index + size] for index in range(0, len(normalized), size)]
+
+
+def _fetch_stock_batch_records(
+    client: Any,
+    stock_batch: Sequence[str],
     *,
-    stock_codes: Sequence[str] = (),
-    industry_keywords: Sequence[str] = (),
-    start_date: str,
-    end_date: str,
-    max_reports_per_query: int = 100,
-    discovered_at: str | None = None,
-    pro: Any | None = None,
-) -> list[RkeResearchReport]:
-    """Fetch stock and/or industry research reports from Tushare.
+    start_api: str,
+    end_api: str,
+    max_reports_per_query: int,
+) -> list[dict[str, Any]]:
+    batch_key = ",".join(stock_batch)
+    records: list[dict[str, Any]] = []
+    try:
+        records = _df_to_records(
+            client.research_report(
+                ts_code=batch_key,
+                start_date=start_api,
+                end_date=end_api,
+                report_type="个股研报",
+                fields=_RESEARCH_REPORT_FIELDS,
+            )
+        )
+    except Exception:
+        if len(stock_batch) == 1:
+            raise
 
-    ``stock_codes`` should be Tushare codes such as ``600519.SH``. Industry
-    keywords are passed to Tushare's ``ind_name`` field.
-    """
-    client = pro or _get_pro_client()
-    stamp = discovered_at or _utc_now()
-    start_api = _api_date(start_date)
-    end_api = _api_date(end_date)
-    reports: list[RkeResearchReport] = []
+    if records or len(stock_batch) == 1:
+        return records[:max_reports_per_query]
 
-    for ts_code in stock_codes:
+    # Some Tushare endpoints document comma-separated ``ts_code`` support, but
+    # research_report can return zero rows for a batch while single-code queries
+    # return data. Preserve correctness by falling back when the whole batch is
+    # empty.
+    fallback_records: list[dict[str, Any]] = []
+    for ts_code in stock_batch:
         df = client.research_report(
             ts_code=ts_code,
             start_date=start_api,
@@ -199,13 +217,48 @@ def fetch_tushare_research_reports(
             report_type="个股研报",
             fields=_RESEARCH_REPORT_FIELDS,
         )
-        records = _df_to_records(df)
-        for row in records[:max_reports_per_query]:
+        fallback_records.extend(_df_to_records(df)[:max_reports_per_query])
+    return fallback_records
+
+
+def fetch_tushare_research_reports(
+    *,
+    stock_codes: Sequence[str] = (),
+    industry_keywords: Sequence[str] = (),
+    start_date: str,
+    end_date: str,
+    max_reports_per_query: int = 100,
+    stock_query_batch_size: int = 50,
+    discovered_at: str | None = None,
+    pro: Any | None = None,
+) -> list[RkeResearchReport]:
+    """Fetch stock and/or industry research reports from Tushare.
+
+    ``stock_codes`` should be Tushare codes such as ``600519.SH``. Industry
+    keywords are passed to Tushare's ``ind_name`` field. Stock codes are batched
+    into comma-separated ``ts_code`` queries because Tushare supports fetching
+    multiple stock-report codes per request.
+    """
+    client = pro or _get_pro_client()
+    stamp = discovered_at or _utc_now()
+    start_api = _api_date(start_date)
+    end_api = _api_date(end_date)
+    reports: list[RkeResearchReport] = []
+
+    for stock_batch in _chunked(stock_codes, stock_query_batch_size):
+        records = _fetch_stock_batch_records(
+            client,
+            stock_batch,
+            start_api=start_api,
+            end_api=end_api,
+            max_reports_per_query=max_reports_per_query,
+        )
+        for row in records:
             reports.append(
                 normalize_research_report_row(
                     row,
                     report_type="个股研报",
-                    query_key=ts_code,
+                    query_key=str(row.get("ts_code") or "").strip() or ",".join(stock_batch),
                     discovered_at=stamp,
                 )
             )
@@ -290,6 +343,7 @@ def _write_research_report_manifest(
     stock_codes: Sequence[str],
     industry_keywords: Sequence[str],
     max_reports_per_query: int,
+    stock_query_batch_size: int,
     row_count: int,
     rows_with_abstract: int,
     publish_date_min: str | None,
@@ -303,6 +357,7 @@ def _write_research_report_manifest(
         "ingested_at": ingested_at,
         "license_status": "pending_review",
         "max_reports_per_query": max_reports_per_query,
+        "stock_query_batch_size": stock_query_batch_size,
         "not_yet": [
             "not a passed gold set",
             "not production runtime input",
@@ -350,6 +405,7 @@ def refresh_tushare_research_report_registry(
     start_date: str,
     end_date: str,
     max_reports_per_query: int = 6000,
+    stock_query_batch_size: int = 50,
     preserve_review_templates: bool = True,
     discovered_at: str | None = None,
     pro: Any | None = None,
@@ -359,6 +415,8 @@ def refresh_tushare_research_report_registry(
         raise ValueError("at least one stock code or industry keyword is required")
     if max_reports_per_query <= 0:
         raise ValueError("max_reports_per_query must be positive")
+    if stock_query_batch_size <= 0:
+        raise ValueError("stock_query_batch_size must be positive")
 
     root_path = Path(root)
     ingested_at = discovered_at or _utc_now()
@@ -368,6 +426,7 @@ def refresh_tushare_research_report_registry(
         start_date=start_date,
         end_date=end_date,
         max_reports_per_query=max_reports_per_query,
+        stock_query_batch_size=stock_query_batch_size,
         discovered_at=ingested_at,
         pro=pro,
     )
@@ -443,6 +502,7 @@ def refresh_tushare_research_report_registry(
         stock_codes=stock_codes,
         industry_keywords=industry_keywords,
         max_reports_per_query=max_reports_per_query,
+        stock_query_batch_size=stock_query_batch_size,
         row_count=audit.row_count,
         rows_with_abstract=audit.rows_with_abstract,
         publish_date_min=audit.publish_date_min,

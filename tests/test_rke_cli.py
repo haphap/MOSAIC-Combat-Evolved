@@ -238,6 +238,8 @@ def test_rke_cli_fetch_tushare_reports_passes_query_args(monkeypatch, tmp_path: 
             "银行",
             "--max-reports-per-query",
             "42",
+            "--stock-query-batch-size",
+            "2",
         )
     )
     output = json.loads(capsys.readouterr().out)
@@ -250,6 +252,7 @@ def test_rke_cli_fetch_tushare_reports_passes_query_args(monkeypatch, tmp_path: 
     assert captured["start_date"] == "2026-06-01"
     assert captured["end_date"] == "2026-06-05"
     assert captured["max_reports_per_query"] == 42
+    assert captured["stock_query_batch_size"] == 2
     assert captured["preserve_review_templates"] is True
 
 

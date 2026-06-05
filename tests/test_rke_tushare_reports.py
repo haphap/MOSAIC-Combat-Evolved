@@ -21,6 +21,44 @@ class FakeTusharePro:
     def research_report(self, **kwargs):
         self.calls.append(kwargs)
         if kwargs.get("report_type") == "个股研报":
+            rows = []
+            for ts_code in str(kwargs["ts_code"]).split(","):
+                rows.append(
+                    {
+                        "trade_date": "20260603",
+                        "title": f"Liquidity leader update {ts_code}",
+                        "abstr": "PBOC liquidity support may improve short-term risk appetite.",
+                        "author": "Analyst A",
+                        "inst_csname": "Broker A",
+                        "ts_code": ts_code,
+                        "ind_name": "银行",
+                        "url": "https://example.invalid/a",
+                    }
+                )
+            return pd.DataFrame(rows)
+        return pd.DataFrame(
+            [
+                {
+                    "trade_date": "20260602",
+                    "title": "Banking sector liquidity review",
+                    "abstr": "Liquidity injection requires confirmation from rates and flows.",
+                    "author": "Analyst B",
+                    "inst_csname": "Broker B",
+                    "ts_code": "",
+                    "ind_name": kwargs["ind_name"],
+                    "url": "https://example.invalid/b",
+                }
+            ]
+        )
+
+
+class LegacySingleRowFakeTusharePro:
+    def __init__(self):
+        self.calls: list[dict[str, object]] = []
+
+    def research_report(self, **kwargs):
+        self.calls.append(kwargs)
+        if kwargs.get("report_type") == "个股研报":
             return pd.DataFrame(
                 [
                     {
@@ -51,6 +89,14 @@ class FakeTusharePro:
         )
 
 
+class BatchUnsupportedFakeTusharePro(FakeTusharePro):
+    def research_report(self, **kwargs):
+        if kwargs.get("report_type") == "个股研报" and "," in str(kwargs.get("ts_code") or ""):
+            self.calls.append(kwargs)
+            return pd.DataFrame(columns=["trade_date", "title", "abstr", "author", "inst_csname", "ts_code", "ind_name", "url"])
+        return super().research_report(**kwargs)
+
+
 def test_fetch_tushare_research_reports_uses_stock_and_industry_queries():
     fake = FakeTusharePro()
 
@@ -72,6 +118,43 @@ def test_fetch_tushare_research_reports_uses_stock_and_industry_queries():
     assert all(report.source_hash.startswith("sha256:") for report in reports)
     assert all(report.point_in_time_available for report in reports)
     assert all(report.license_status == "pending_review" for report in reports)
+
+
+def test_fetch_tushare_research_reports_batches_stock_codes_in_one_ts_code_query():
+    fake = FakeTusharePro()
+
+    reports = fetch_tushare_research_reports(
+        stock_codes=("600519.SH", "300750.SZ"),
+        start_date="2026-06-01",
+        end_date="2026-06-05",
+        stock_query_batch_size=2,
+        discovered_at="2026-06-05T12:00:00+00:00",
+        pro=fake,
+    )
+
+    assert len(fake.calls) == 1
+    assert fake.calls[0]["ts_code"] == "600519.SH,300750.SZ"
+    assert {report.query_key for report in reports} == {"600519.SH", "300750.SZ"}
+
+
+def test_fetch_tushare_research_reports_falls_back_when_stock_batch_returns_empty():
+    fake = BatchUnsupportedFakeTusharePro()
+
+    reports = fetch_tushare_research_reports(
+        stock_codes=("601100.SH", "920033.BJ"),
+        start_date="2026-06-01",
+        end_date="2026-06-05",
+        stock_query_batch_size=2,
+        discovered_at="2026-06-05T12:00:00+00:00",
+        pro=fake,
+    )
+
+    assert [call["ts_code"] for call in fake.calls] == [
+        "601100.SH,920033.BJ",
+        "601100.SH",
+        "920033.BJ",
+    ]
+    assert {report.query_key for report in reports} == {"601100.SH", "920033.BJ"}
 
 
 def test_normalize_research_report_row_builds_source_and_span_ids():
@@ -98,7 +181,7 @@ def test_normalize_research_report_row_builds_source_and_span_ids():
 
 
 def test_write_research_reports_jsonl(tmp_path):
-    fake = FakeTusharePro()
+    fake = LegacySingleRowFakeTusharePro()
     reports = fetch_tushare_research_reports(
         stock_codes=("600519.SH",),
         start_date="2026-06-01",
@@ -160,6 +243,7 @@ def test_refresh_tushare_research_report_registry_updates_dependent_artifacts(tm
     assert len(gold_rows) == 20
     assert manifest["output_path"] == "registry/sources/tushare_research_reports.jsonl"
     assert manifest["max_reports_per_query"] == 6000
+    assert manifest["stock_query_batch_size"] == 50
     assert manifest["query_key_counts"] == {"600519.SH": 1, "银行": 1}
     assert manifest["rows_with_abstract"] == 2
 

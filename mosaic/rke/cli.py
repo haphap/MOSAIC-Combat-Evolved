@@ -281,6 +281,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Local per-query cap after Tushare returns rows. Defaults to 6000.",
     )
     fetch_reports.add_argument(
+        "--stock-query-batch-size",
+        type=int,
+        default=50,
+        help="Number of stock codes to join in one Tushare ts_code query. Defaults to 50.",
+    )
+    fetch_reports.add_argument(
         "--overwrite-review-templates",
         action="store_true",
         help="Regenerate gold-set and license review templates even when they contain manual values.",
@@ -494,6 +500,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             start_date=args.start_date,
             end_date=args.end_date,
             max_reports_per_query=args.max_reports_per_query,
+            stock_query_batch_size=args.stock_query_batch_size,
             preserve_review_templates=not args.overwrite_review_templates,
         )
         _print_json(asdict(result))
