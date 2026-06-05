@@ -37,7 +37,7 @@ def project_repo_root() -> Path:
 
 
 def private_prompt_repo_from_env() -> Path | None:
-    env = os.getenv("MOSAIC_PRIVATE_PROMPT_REPO")
+    env = os.getenv("MOSAIC_PROMPTS_REPO") or os.getenv("MOSAIC_PRIVATE_PROMPT_REPO")
     if not env or not env.strip():
         return None
     return Path(env).expanduser().resolve()

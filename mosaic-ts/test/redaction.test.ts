@@ -10,6 +10,34 @@ describe("redactSensitiveText", () => {
     );
   });
 
+  it("redacts configured MOSAIC-Prompts repo paths", () => {
+    const oldRepo = process.env.MOSAIC_PROMPTS_REPO;
+    const oldRoot = process.env.MOSAIC_PROMPTS_ROOT;
+    try {
+      process.env.MOSAIC_PROMPTS_REPO = "/tmp/MOSAIC-Prompts";
+      process.env.MOSAIC_PROMPTS_ROOT = "/tmp/direct-prompts-root";
+
+      expect(
+        redactSensitiveText(
+          "repo=/tmp/MOSAIC-Prompts/prompts/mosaic/cohort_default/macro/x.zh.md root=/tmp/direct-prompts-root/cohort_default/macro/x.zh.md",
+        ),
+      ).toBe(
+        "repo=<private-prompt-repo>/cohort_default/macro/x.zh.md root=<private-prompt-repo>/cohort_default/macro/x.zh.md",
+      );
+    } finally {
+      if (oldRepo === undefined) {
+        delete process.env.MOSAIC_PROMPTS_REPO;
+      } else {
+        process.env.MOSAIC_PROMPTS_REPO = oldRepo;
+      }
+      if (oldRoot === undefined) {
+        delete process.env.MOSAIC_PROMPTS_ROOT;
+      } else {
+        process.env.MOSAIC_PROMPTS_ROOT = oldRoot;
+      }
+    }
+  });
+
   it("redacts prompt body fields in serialized errors", () => {
     const text = `validation failed: {"zh_prompt":"秘密正文","en_prompt":"secret body"}`;
 

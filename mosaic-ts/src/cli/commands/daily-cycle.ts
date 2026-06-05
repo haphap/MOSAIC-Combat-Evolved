@@ -25,6 +25,7 @@ import {
   parseAgentTimeoutSeconds,
   resolveAgentTimeoutMs,
 } from "../../agents/helpers/runtime.js";
+import { formatPromptSourceLabel } from "../../agents/prompts/cohorts.js";
 import type { DailyCycleStateType } from "../../agents/state.js";
 import type { PortfolioAction } from "../../agents/types.js";
 import { BridgeApi, BridgeClient, RpcError } from "../../bridge/index.js";
@@ -32,6 +33,7 @@ import { buildDailyCycleGraph } from "../../graph/daily_cycle.js";
 import { createLlmFromConfig, type LlmHandle } from "../../llm/factory.js";
 import { redactSensitiveText } from "../../security/redaction.js";
 import { pad } from "../_format.js";
+import { applyPromptSourceOverrides } from "../prompt-source.js";
 
 interface DailyCycleOptions {
   cohort?: string;
@@ -40,6 +42,8 @@ interface DailyCycleOptions {
   llmProvider?: string;
   model?: string;
   baseUrl?: string;
+  promptsRepo?: string;
+  promptsRoot?: string;
   out?: string;
   vetoThreshold?: string;
   agentTimeoutSeconds?: string;
@@ -58,6 +62,8 @@ export function registerDailyCycle(program: Command): void {
     .option("--llm-provider <name>", "Override LLM provider from bridge config")
     .option("--model <name>", "Override LLM model id (e.g. local Lemonade Qwen)")
     .option("--base-url <url>", "Override LLM base URL (e.g. http://127.0.0.1:8020/api/v0)")
+    .option("--prompts-repo <path>", "Use a private prompt git repo for this run")
+    .option("--prompts-root <path>", "Use a direct prompts/mosaic root for this run")
     .option("--out <path>", "Write the final state JSON to <path> instead of pretty-printing")
     .option(
       "--veto-threshold <num>",
@@ -71,6 +77,8 @@ export function registerDailyCycle(program: Command): void {
       const client = new BridgeClient();
       const api = new BridgeApi(client);
       try {
+        applyPromptSourceOverrides(opts);
+
         await client.start();
         const config = await api.configGet();
 
@@ -92,6 +100,7 @@ export function registerDailyCycle(program: Command): void {
             ),
           ),
         );
+        console.log(pc.dim(redactSensitiveText(`prompts=${formatPromptSourceLabel()}`)));
 
         const cohort = opts.cohort ?? config.active_cohort ?? "cohort_default";
         const asOfDate = opts.date ?? new Date().toISOString().slice(0, 10);

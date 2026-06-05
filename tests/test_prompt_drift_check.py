@@ -122,6 +122,7 @@ def test_main_json_output(tmp_path: Path, capsys):
 
 def test_main_requires_private_repo(tmp_path: Path, monkeypatch, capsys):
     project = _init_repo(tmp_path / "project")
+    monkeypatch.delenv("MOSAIC_PROMPTS_REPO", raising=False)
     monkeypatch.delenv("MOSAIC_PRIVATE_PROMPT_REPO", raising=False)
 
     rc = check_prompt_drift.main(["--repo", str(project), "--base-ref", "HEAD"])

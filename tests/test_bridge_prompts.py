@@ -107,7 +107,7 @@ class TestWrite:
         assert not (repo / "prompts/mosaic/crisis_2008").exists()
 
     def test_private_git_requires_config(self, repo: Path):
-        with pytest.raises(RpcError, match="MOSAIC_PRIVATE_PROMPT_REPO"):
+        with pytest.raises(RpcError, match="MOSAIC_PROMPTS_REPO"):
             dispatch("prompts.write", {
                 "agent": "volatility", "cohort": "crisis_2008",
                 "contents": {"zh": "new zh\n"},
@@ -141,6 +141,23 @@ class TestWrite:
             f"{BRANCH}:prompts/mosaic/crisis_2008/macro/volatility.zh.md",
         )
         assert prompt_at_branch.startswith("new zh")
+
+    def test_to_private_git_accepts_mosaic_prompts_repo(self, repo: Path, tmp_path: Path, monkeypatch):
+        private_repo = tmp_path / "MOSAIC-Prompts"
+        init_private_prompt_repo(private_repo, project_root=repo)
+        monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
+        monkeypatch.setenv("MOSAIC_PROMPTS_REPO_ID", "haphap/MOSAIC-Prompts")
+
+        r = dispatch("prompts.write", {
+            "agent": "volatility", "cohort": "crisis_2008",
+            "contents": {"zh": "new zh\n"},
+            "target": "private_git",
+            "branch": BRANCH,
+        })
+
+        assert r["target"] == "private_git"
+        assert r["prompt_repo_id"] == "haphap/MOSAIC-Prompts"
+        assert len(r["prompt_commit_hash"]) == 40
 
     def test_to_project_git_branch_commits(self, repo: Path):
         r = dispatch("prompts.write", {

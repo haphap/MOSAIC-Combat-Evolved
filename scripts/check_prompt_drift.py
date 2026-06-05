@@ -153,7 +153,7 @@ def _resolve_commit(repo: Path, ref: str) -> str:
 
 
 def _private_repo_from_env() -> Path | None:
-    value = os.getenv("MOSAIC_PRIVATE_PROMPT_REPO")
+    value = os.getenv("MOSAIC_PROMPTS_REPO") or os.getenv("MOSAIC_PRIVATE_PROMPT_REPO")
     if not value or not value.strip():
         return None
     return Path(value).expanduser().resolve()
@@ -263,7 +263,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--private-repo",
         default=None,
-        help="Private prompt repo root. Defaults to MOSAIC_PRIVATE_PROMPT_REPO.",
+        help="Private prompt repo root. Defaults to MOSAIC_PROMPTS_REPO or MOSAIC_PRIVATE_PROMPT_REPO.",
     )
     parser.add_argument("--private-ref", default="HEAD", help="Private prompt repo ref to inspect")
     parser.add_argument(
@@ -298,7 +298,8 @@ def main(argv: list[str] | None = None) -> int:
     private_repo = Path(args.private_repo).expanduser().resolve() if args.private_repo else _private_repo_from_env()
     if private_repo is None:
         print(
-            "prompt drift check requires --private-repo or MOSAIC_PRIVATE_PROMPT_REPO",
+            "prompt drift check requires --private-repo, MOSAIC_PROMPTS_REPO, or "
+            "MOSAIC_PRIVATE_PROMPT_REPO",
             file=sys.stderr,
         )
         return 2

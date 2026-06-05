@@ -12,10 +12,10 @@
  *       macro/<agent>.{zh,en}.md
  *       ...
  *
- * Resolution rule: when an agent prompt is requested for a non-default cohort,
- * fall back to ``cohort_default`` if the cohort-specific file is missing.
- * This lets newly-created cohorts inherit the baseline until autoresearch
- * (Phase 4) overwrites individual agent prompts.
+ * Resolution rule: bundled project prompts are the default. When an external
+ * prompt repo/root is explicitly configured, its cohort/default files are
+ * preferred, with bundled prompts remaining as fallback. For non-default
+ * cohorts, ``cohort_default`` is the cohort fallback inside each root.
  */
 
 import { existsSync } from "node:fs";
@@ -73,16 +73,45 @@ export const ALL_AGENTS: ReadonlyArray<string> = [
 
 export const DEFAULT_COHORT = "cohort_default";
 
-/** Find ``<repoRoot>/prompts/mosaic/`` — the prompt root for all cohorts. */
-export function findPromptsRoot(): string {
+export type ConfiguredPromptSource =
+  | { kind: "private-root"; root: string }
+  | { kind: "private-repo"; repo: string; root: string };
+
+/** Find the bundled ``<repoRoot>/prompts/mosaic/`` fallback prompt root. */
+export function findBundledPromptsRoot(): string {
   return join(findRepoRoot(), "prompts", "mosaic");
+}
+
+export function getConfiguredPromptSource(): ConfiguredPromptSource | null {
+  const explicitRoot = process.env.MOSAIC_PROMPTS_ROOT?.trim();
+  if (explicitRoot) return { kind: "private-root", root: explicitRoot };
+
+  const repo =
+    process.env.MOSAIC_PROMPTS_REPO?.trim() ?? process.env.MOSAIC_PRIVATE_PROMPT_REPO?.trim();
+  if (repo) return { kind: "private-repo", repo, root: join(repo, "prompts", "mosaic") };
+
+  return null;
+}
+
+/** Find the configured private/external prompt root, if explicitly set. */
+export function findConfiguredPrivatePromptsRoot(): string | undefined {
+  return getConfiguredPromptSource()?.root;
+}
+
+export function formatPromptSourceLabel(source = getConfiguredPromptSource()): string {
+  if (!source) return "bundled";
+  if (source.kind === "private-root") return `private-root:${source.root}`;
+  return `private-repo:${source.repo}`;
+}
+
+/** Find the default prompt root for all cohorts: the bundled project prompts. */
+export function findPromptsRoot(): string {
+  return findBundledPromptsRoot();
 }
 
 /** Find ``<privatePromptRepo>/prompts/mosaic/`` when configured. */
 export function findPrivatePromptsRoot(): string | undefined {
-  const repo = process.env.MOSAIC_PRIVATE_PROMPT_REPO?.trim();
-  if (!repo) return undefined;
-  return join(repo, "prompts", "mosaic");
+  return findConfiguredPrivatePromptsRoot();
 }
 
 /** Path within a cohort to one agent's prompt file. */
@@ -105,8 +134,10 @@ export function promptPath(opts: {
 
 /**
  * Resolution order for a single (agent, language) request:
- *   1. ``<cohort>/<layer>/<agent>.<language>.md``    (cohort-specific)
- *   2. ``cohort_default/<layer>/<agent>.<language>.md`` (baseline fallback)
+ *   1. configured private root: ``<cohort>/<layer>/<agent>.<language>.md``
+ *   2. configured private root: ``cohort_default/<layer>/<agent>.<language>.md``
+ *   3. bundled root: ``<cohort>/<layer>/<agent>.<language>.md``
+ *   4. bundled root: ``cohort_default/<layer>/<agent>.<language>.md``
  *
  * Returns the first candidate that exists on disk, or null if neither does.
  */
@@ -142,7 +173,10 @@ export function promptPathCandidates(opts: {
   const baselineRoot = opts.promptsRoot ?? findPromptsRoot();
   const privateRoot =
     opts.privatePromptsRoot ?? (opts.promptsRoot ? undefined : findPrivatePromptsRoot());
-  const roots = privateRoot ? [privateRoot, baselineRoot] : [baselineRoot];
+  const roots: string[] = [];
+  for (const root of [privateRoot, baselineRoot]) {
+    if (root && !roots.includes(root)) roots.push(root);
+  }
   const paths: string[] = [];
   for (const root of roots) {
     for (const cohort of candidates) {

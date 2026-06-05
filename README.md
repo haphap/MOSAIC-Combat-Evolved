@@ -80,6 +80,17 @@ git clone https://github.com/haphap/china-policy-db.git ../china-policy-db
 echo "MOSAIC_CHINA_POLICY_DB_DIR=$(pwd)/../china-policy-db" >> .env
 ```
 
+Optional private prompt repo:
+
+By default, agents load prompts from `MOSAIC-Agents/prompts/mosaic`. To make all
+agent runs prefer an external prompt repo, clone `MOSAIC-Prompts` outside this
+checkout and configure it once in `.env`:
+
+```bash
+git clone https://github.com/haphap/MOSAIC-Prompts.git ../MOSAIC-Prompts
+echo "MOSAIC_PROMPTS_REPO=$(pwd)/../MOSAIC-Prompts" >> .env
+```
+
 Run a full no-cost smoke cycle:
 
 ```bash

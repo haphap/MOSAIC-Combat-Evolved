@@ -61,7 +61,8 @@ def _private_git_ops():
     if repo is None:
         raise RpcError(
             INVALID_PARAMS,
-            "MOSAIC_PRIVATE_PROMPT_REPO is required for private autoresearch branches",
+            "MOSAIC_PROMPTS_REPO or MOSAIC_PRIVATE_PROMPT_REPO is required for "
+            "private autoresearch branches",
         )
     try:
         return GitOps(validate_private_prompt_repo(repo, project_root=_repo_root()))
@@ -76,7 +77,7 @@ def _git_ops_for_branch(branch: str, version: dict[str, Any] | None = None):
         if not private_git.branch_exists(branch):
             raise RpcError(
                 AUTORESEARCH_ERROR,
-                f"private prompt branch not found in MOSAIC_PRIVATE_PROMPT_REPO: {branch}",
+                f"private prompt branch not found in configured prompt repo: {branch}",
             )
         return private_git
 

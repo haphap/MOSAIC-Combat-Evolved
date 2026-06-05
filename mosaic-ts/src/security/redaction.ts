@@ -19,11 +19,17 @@ function configuredPrivateRoots(extraRoots: ReadonlyArray<string> = []): string[
   for (const root of extraRoots) {
     if (root.trim()) roots.add(root.trim());
   }
-  const privateRepo = process.env.MOSAIC_PRIVATE_PROMPT_REPO?.trim();
-  if (privateRepo) {
-    roots.add(privateRepo);
-    roots.add(`${privateRepo}${sep}prompts${sep}mosaic`);
-    roots.add(`${privateRepo}/prompts/mosaic`);
+  for (const envName of ["MOSAIC_PRIVATE_PROMPT_REPO", "MOSAIC_PROMPTS_REPO"]) {
+    const repo = process.env[envName]?.trim();
+    if (repo) {
+      roots.add(repo);
+      roots.add(`${repo}${sep}prompts${sep}mosaic`);
+      roots.add(`${repo}/prompts/mosaic`);
+    }
+  }
+  const promptRoot = process.env.MOSAIC_PROMPTS_ROOT?.trim();
+  if (promptRoot) {
+    roots.add(promptRoot);
   }
   return [...roots].sort((a, b) => b.length - a.length);
 }

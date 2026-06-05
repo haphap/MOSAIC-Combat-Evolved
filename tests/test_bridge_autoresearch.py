@@ -310,7 +310,7 @@ class TestAutoresearchEvaluatePending(unittest.TestCase):
         with self.assertRaises(RpcError) as ctx:
             autoresearch_evaluate_pending({"version_id": vid})
 
-        self.assertIn("MOSAIC_PRIVATE_PROMPT_REPO", ctx.exception.message)
+        self.assertIn("MOSAIC_PROMPTS_REPO", ctx.exception.message)
 
     def test_scan_all_without_version_id(self):
         self._mutated_version("cohort/euphoria_2021/auto/volatility/2021-01-01")

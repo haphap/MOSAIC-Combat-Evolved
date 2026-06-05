@@ -36,6 +36,8 @@ AUTORESEARCH_DIFF_MARKERS = (
     re.compile(r"\bmutation rationale\b", re.IGNORECASE),
     re.compile(r"\bprompt_sha256\b", re.IGNORECASE),
     re.compile(r"\bprompt_repo_id\b", re.IGNORECASE),
+    re.compile(r"\bMOSAIC_PROMPTS_REPO\b"),
+    re.compile(r"\bMOSAIC_PROMPTS_ROOT\b"),
     re.compile(r"\bMOSAIC_PRIVATE_PROMPT_REPO\b"),
 )
 

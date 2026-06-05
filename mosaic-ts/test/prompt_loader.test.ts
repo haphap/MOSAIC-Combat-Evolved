@@ -5,7 +5,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   AGENTS_BY_LAYER,
   ALL_AGENTS,
+  findBundledPromptsRoot,
   findPrivatePromptsRoot,
+  findPromptsRoot,
   LAYER_BY_AGENT,
   promptPath,
   resolvePromptPath,
@@ -86,9 +88,15 @@ describe("resolvePromptPath fallback chain", () => {
   let fake: FakeRoot;
   let privateFake: FakeRoot;
   let oldPrivateRepo: string | undefined;
+  let oldPromptsRepo: string | undefined;
+  let oldPromptsRoot: string | undefined;
   beforeEach(() => {
     oldPrivateRepo = process.env.MOSAIC_PRIVATE_PROMPT_REPO;
+    oldPromptsRepo = process.env.MOSAIC_PROMPTS_REPO;
+    oldPromptsRoot = process.env.MOSAIC_PROMPTS_ROOT;
     delete process.env.MOSAIC_PRIVATE_PROMPT_REPO;
+    delete process.env.MOSAIC_PROMPTS_REPO;
+    delete process.env.MOSAIC_PROMPTS_ROOT;
     fake = makeFakePromptsRoot();
     privateFake = makeFakePromptsRoot();
     clearPromptCache();
@@ -100,6 +108,16 @@ describe("resolvePromptPath fallback chain", () => {
       delete process.env.MOSAIC_PRIVATE_PROMPT_REPO;
     } else {
       process.env.MOSAIC_PRIVATE_PROMPT_REPO = oldPrivateRepo;
+    }
+    if (oldPromptsRepo === undefined) {
+      delete process.env.MOSAIC_PROMPTS_REPO;
+    } else {
+      process.env.MOSAIC_PROMPTS_REPO = oldPromptsRepo;
+    }
+    if (oldPromptsRoot === undefined) {
+      delete process.env.MOSAIC_PROMPTS_ROOT;
+    } else {
+      process.env.MOSAIC_PROMPTS_ROOT = oldPromptsRoot;
     }
   });
 
@@ -208,6 +226,40 @@ describe("resolvePromptPath fallback chain", () => {
   it("derives the private prompt root from MOSAIC_PRIVATE_PROMPT_REPO", () => {
     process.env.MOSAIC_PRIVATE_PROMPT_REPO = "/tmp/private-prompts";
     expect(findPrivatePromptsRoot()).toBe("/tmp/private-prompts/prompts/mosaic");
+  });
+
+  it("keeps bundled prompts as the default prompt root", () => {
+    process.env.MOSAIC_PROMPTS_REPO = "/tmp/MOSAIC-Prompts";
+    expect(findPromptsRoot()).toBe(findBundledPromptsRoot());
+  });
+
+  it("derives the private prompt root from MOSAIC_PROMPTS_REPO", () => {
+    process.env.MOSAIC_PROMPTS_REPO = "/tmp/MOSAIC-Prompts";
+    expect(findPrivatePromptsRoot()).toBe("/tmp/MOSAIC-Prompts/prompts/mosaic");
+  });
+
+  it("lets MOSAIC_PROMPTS_ROOT point directly at prompts/mosaic", () => {
+    process.env.MOSAIC_PROMPTS_REPO = "/tmp/MOSAIC-Prompts";
+    process.env.MOSAIC_PROMPTS_ROOT = "/tmp/direct-prompts-root";
+    expect(findPrivatePromptsRoot()).toBe("/tmp/direct-prompts-root");
+  });
+
+  it("prefers MOSAIC_PROMPTS_ROOT when no promptsRoot is passed", () => {
+    const expected = fake.putPrompt({
+      cohort: "cohort_default",
+      layer: "macro",
+      agent: "central_bank",
+      language: "zh",
+      body: "external root body",
+    });
+    process.env.MOSAIC_PROMPTS_ROOT = fake.root;
+
+    const found = resolvePromptPath({
+      agent: "central_bank",
+      cohort: "cohort_default",
+      language: "zh",
+    });
+    expect(found).toBe(expected);
   });
 });
 

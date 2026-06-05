@@ -106,7 +106,8 @@ def _private_git():
     if repo is None:
         raise RpcError(
             INVALID_PARAMS,
-            "MOSAIC_PRIVATE_PROMPT_REPO is required for prompts.write(target=private_git)",
+            "MOSAIC_PROMPTS_REPO or MOSAIC_PRIVATE_PROMPT_REPO is required for "
+            "prompts.write(target=private_git)",
         )
     try:
         return GitOps(validate_private_prompt_repo(repo, project_root=_repo_root()))
@@ -115,7 +116,9 @@ def _private_git():
 
 
 def _prompt_repo_id() -> str:
-    return os.getenv("MOSAIC_PRIVATE_PROMPT_REPO_ID", "private")
+    return os.getenv("MOSAIC_PROMPTS_REPO_ID") or os.getenv(
+        "MOSAIC_PRIVATE_PROMPT_REPO_ID", "private"
+    )
 
 
 def _public_write_allowed(params: dict[str, Any]) -> bool:

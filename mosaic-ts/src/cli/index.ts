@@ -25,6 +25,9 @@ import { registerPrompts } from "./commands/prompts.js";
 import { registerScorecard } from "./commands/scorecard.js";
 import { registerToolCall } from "./commands/tool-call.js";
 import { registerToolLoop } from "./commands/tool-loop.js";
+import { loadProjectEnv } from "./env.js";
+
+loadProjectEnv();
 
 const program = new Command();
 
