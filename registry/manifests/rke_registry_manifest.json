@@ -302,9 +302,9 @@
       "sha256": "sha256:0a34545e100bba9d7105c90201d27f794deb5ee44bfcc14da154fd2e79808c8b"
     },
     {
-      "bytes": 5204,
+      "bytes": 5205,
       "path": "registry/review_batches/manual_review_bundle_manifest.json",
-      "sha256": "sha256:d0f4844ea2c3ddaac55ee20613e7cde099306940a8b78814f31a8d3412ddfe10"
+      "sha256": "sha256:5acad196895f1f73191ba0dbc59a5a83f5eccf253ff233ed8e505a4b239b377d"
     },
     {
       "bytes": 33256,
@@ -317,9 +317,9 @@
       "sha256": "sha256:ae67b29400b62728f48ed8fccbc2781b4ec8c20ae093500851979c697a1883df"
     },
     {
-      "bytes": 978,
+      "bytes": 1165,
       "path": "registry/review_batches/source_license_policy_template.json",
-      "sha256": "sha256:945ee21bff2f930a1ed5136f7ed47c2702e968a2f1ab637da0d7c64ced93a5de"
+      "sha256": "sha256:ca4cc5ebd2ba2870d0936d8fdf6c9706ea2983e09d4c92218e96d5ae1c5fed67"
     },
     {
       "bytes": 995,

@@ -31,7 +31,22 @@ def _load_jsonl(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
 
 
-def _policy(**overrides) -> dict:
+def _policy(root: Path, **overrides) -> dict:
+    payload = dict(build_source_license_policy_template(root))
+    payload.update(
+        {
+            "approved_for_derived_claim_storage": True,
+            "approved_for_production_runtime": False,
+            "notes": "compliance policy fixture",
+            "review_date": "2026-06-06",
+            "reviewer": "compliance",
+        }
+    )
+    payload.update(overrides)
+    return payload
+
+
+def _legacy_policy(**overrides) -> dict:
     payload = {
         "approved_for_derived_claim_storage": True,
         "approved_for_production_runtime": False,
@@ -51,7 +66,7 @@ def test_build_source_license_policy_import_expands_signed_policy(tmp_path: Path
     _copy_registry(tmp_path)
     policy_path = tmp_path / "policy.json"
     output_path = tmp_path / "policy_import.jsonl"
-    _write_json(policy_path, _policy())
+    _write_json(policy_path, _policy(tmp_path))
 
     report = build_source_license_policy_import(tmp_path, policy_path, output_path=output_path)
     rows = _load_jsonl(output_path)
@@ -61,6 +76,8 @@ def test_build_source_license_policy_import_expands_signed_policy(tmp_path: Path
     assert report.matched_rows == len(rows)
     assert report.output_rows == len(rows)
     assert rows
+    assert rows[0]["target_row_hash"].startswith("sha256:")
+    assert rows[0]["target_review_path"] == "registry/compliance/tushare_license_review_template.jsonl"
     assert rows[0]["reviewer"] == "compliance"
     assert rows[0]["approved_for_derived_claim_storage"] is True
     assert rows[0]["approved_for_production_runtime"] is False
@@ -76,6 +93,7 @@ def test_source_license_policy_template_requires_reviewer_decision():
     assert template["reviewer"] == ""
     assert template["review_date"] == ""
     assert template["matched_row_count"] == 9812
+    assert template["matched_rows_fingerprint"].startswith("sha256:")
     assert template["filters"]["source_type"] == ["tushare_research_report"]
     assert template["filters"]["current_license_status"] == ["pending_review"]
     assert "build-license-review-import" in template["build_command"]
@@ -90,6 +108,7 @@ def test_write_source_license_policy_template_outputs_registry_artifact(tmp_path
     assert result["rows"] == 1
     assert payload["approved_for_production_runtime"] is None
     assert payload["matched_row_count"] == 3
+    assert payload["matched_rows_fingerprint"].startswith("sha256:")
     assert (tmp_path / "registry/review_batches/source_license_policy_template.json").exists()
 
 
@@ -97,7 +116,7 @@ def test_build_source_license_policy_import_dry_run_does_not_write_output(tmp_pa
     _copy_registry(tmp_path)
     policy_path = tmp_path / "policy.json"
     output_path = tmp_path / "policy_import.jsonl"
-    _write_json(policy_path, _policy())
+    _write_json(policy_path, _policy(tmp_path))
 
     report = build_source_license_policy_import(
         tmp_path,
@@ -116,7 +135,7 @@ def test_build_source_license_policy_import_rejects_unscoped_policy(tmp_path: Pa
     _copy_registry(tmp_path)
     policy_path = tmp_path / "policy.json"
     output_path = tmp_path / "policy_import.jsonl"
-    _write_json(policy_path, _policy(filters={}))
+    _write_json(policy_path, _policy(tmp_path, filters={}))
 
     report = build_source_license_policy_import(tmp_path, policy_path, output_path=output_path)
 
@@ -125,11 +144,46 @@ def test_build_source_license_policy_import_rejects_unscoped_policy(tmp_path: Pa
     assert not output_path.exists()
 
 
+def test_build_source_license_policy_import_rejects_stale_policy_fingerprint(tmp_path: Path):
+    _copy_registry(tmp_path)
+    policy_path = tmp_path / "policy.json"
+    output_path = tmp_path / "policy_import.jsonl"
+    policy = _policy(tmp_path)
+    review_path = tmp_path / "registry/compliance/tushare_license_review_template.jsonl"
+    rows = _load_jsonl(review_path)
+    rows[0]["title"] = "changed after policy template export"
+    review_path.write_text(
+        "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
+        encoding="utf-8",
+    )
+    _write_json(policy_path, policy)
+
+    report = build_source_license_policy_import(tmp_path, policy_path, output_path=output_path)
+
+    assert not report.accepted
+    assert "matched_rows_fingerprint does not match current matched rows" in report.blockers
+    assert not output_path.exists()
+
+
+def test_build_source_license_policy_import_rejects_legacy_policy_without_fingerprint(tmp_path: Path):
+    _copy_registry(tmp_path)
+    policy_path = tmp_path / "policy.json"
+    output_path = tmp_path / "policy_import.jsonl"
+    _write_json(policy_path, _legacy_policy())
+
+    report = build_source_license_policy_import(tmp_path, policy_path, output_path=output_path)
+
+    assert not report.accepted
+    assert "matched_rows_fingerprint does not match current matched rows" in report.blockers
+    assert "matched_row_count does not match current matched rows" in report.blockers
+    assert not output_path.exists()
+
+
 def test_cli_build_license_review_import(tmp_path: Path, capsys):
     _copy_registry(tmp_path)
     policy_path = tmp_path / "policy.json"
     output_path = tmp_path / "policy_import.jsonl"
-    _write_json(policy_path, _policy())
+    _write_json(policy_path, _policy(tmp_path))
 
     code = main(
         (

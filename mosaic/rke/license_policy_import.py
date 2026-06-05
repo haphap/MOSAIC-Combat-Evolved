@@ -4,16 +4,18 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict, dataclass
+from hashlib import sha256
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from .manual_review_import import LICENSE_REVIEW_TEMPLATE_PATH
+from .manual_review_import import LICENSE_REVIEW_TEMPLATE_PATH, TARGET_ROW_HASH_FIELD, review_row_fingerprint
 from .phase_minus1 import load_jsonl
 
 
 DEFAULT_LICENSE_POLICY_IMPORT_PATH = "registry/review_batches/source_license_policy_import.jsonl"
 LICENSE_POLICY_IMPORT_REPORT_PATH = "registry/review_batches/source_license_policy_import_report.json"
 SOURCE_LICENSE_POLICY_TEMPLATE_PATH = "registry/review_batches/source_license_policy_template.json"
+MATCHED_ROWS_FINGERPRINT_FIELD = "matched_rows_fingerprint"
 
 
 @dataclass(frozen=True)
@@ -125,14 +127,33 @@ def _matches(row: Mapping[str, Any], filters: SourceLicensePolicyFilters) -> boo
     )
 
 
+def _matched_rows_fingerprint(rows: Sequence[Mapping[str, Any]]) -> str:
+    payload = [
+        {
+            "source_id": str(row.get("source_id") or ""),
+            TARGET_ROW_HASH_FIELD: review_row_fingerprint(row),
+        }
+        for row in rows
+    ]
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+    return "sha256:" + sha256(encoded).hexdigest()
+
+
 def _review_row(row: Mapping[str, Any], policy: Mapping[str, Any]) -> dict[str, Any]:
     return {
         "approved_for_derived_claim_storage": policy.get("approved_for_derived_claim_storage"),
         "approved_for_production_runtime": policy.get("approved_for_production_runtime"),
+        "current_license_status": str(row.get("current_license_status") or ""),
         "notes": str(policy.get("notes") or ""),
+        "publish_date": str(row.get("publish_date") or ""),
         "review_date": str(policy.get("review_date") or ""),
+        "review_context_ref": str(policy.get("review_context_ref") or "registry/compliance/tushare_license_review_packet.json"),
         "reviewer": str(policy.get("reviewer") or ""),
         "source_id": str(row.get("source_id") or ""),
+        "source_type": str(row.get("source_type") or ""),
+        TARGET_ROW_HASH_FIELD: review_row_fingerprint(row),
+        "target_review_path": LICENSE_REVIEW_TEMPLATE_PATH,
+        "title": str(row.get("title") or ""),
     }
 
 
@@ -153,6 +174,11 @@ def build_source_license_policy_template(root: str | Path = ".") -> Mapping[str,
         }
     )
     publish_dates = sorted(str(row.get("publish_date") or "") for row in review_rows if row.get("publish_date"))
+    filters = SourceLicensePolicyFilters(
+        current_license_status=tuple(statuses),
+        source_type=tuple(source_types),
+    )
+    matched_rows = [row for row in review_rows if _matches(row, filters)]
     return {
         "approved_for_derived_claim_storage": None,
         "approved_for_production_runtime": None,
@@ -169,11 +195,13 @@ def build_source_license_policy_template(root: str | Path = ".") -> Mapping[str,
             "current_license_status": statuses,
             "source_type": source_types,
         },
-        "matched_row_count": len(review_rows),
+        "matched_row_count": len(matched_rows),
+        MATCHED_ROWS_FINGERPRINT_FIELD: _matched_rows_fingerprint(matched_rows),
         "notes": "",
         "publish_date_max": publish_dates[-1] if publish_dates else None,
         "publish_date_min": publish_dates[0] if publish_dates else None,
         "review_date": "",
+        "review_context_ref": "registry/compliance/tushare_license_review_packet.json",
         "reviewer": "",
         "target_review_path": LICENSE_REVIEW_TEMPLATE_PATH,
         "template_note": (
@@ -220,8 +248,15 @@ def build_source_license_policy_import(
     review_rows = load_jsonl(root_path / LICENSE_REVIEW_TEMPLATE_PATH)
     matched = [row for row in review_rows if _matches(row, filters)]
     output_rows = [_review_row(row, policy) for row in matched]
+    matched_rows_fingerprint = _matched_rows_fingerprint(matched)
 
     blockers: list[str] = []
+    if str(policy.get("target_review_path") or "").strip() != LICENSE_REVIEW_TEMPLATE_PATH:
+        blockers.append(f"target_review_path must match {LICENSE_REVIEW_TEMPLATE_PATH}")
+    if str(policy.get(MATCHED_ROWS_FINGERPRINT_FIELD) or "").strip() != matched_rows_fingerprint:
+        blockers.append(f"{MATCHED_ROWS_FINGERPRINT_FIELD} does not match current matched rows")
+    if policy.get("matched_row_count") != len(matched):
+        blockers.append("matched_row_count does not match current matched rows")
     if not reviewer:
         blockers.append("reviewer required")
     if not review_date:

@@ -102,13 +102,13 @@
       "sha256": "sha256:822e6e9710632ea4d920932a5024ac24d78f90d16b10c3c2285bf2c36f1efb07"
     },
     {
-      "bytes": 978,
+      "bytes": 1165,
       "exists": true,
       "format": "json",
       "path": "registry/review_batches/source_license_policy_template.json",
       "role": "license_policy_template",
       "row_count": null,
-      "sha256": "sha256:945ee21bff2f930a1ed5136f7ed47c2702e968a2f1ab637da0d7c64ced93a5de"
+      "sha256": "sha256:ca4cc5ebd2ba2870d0936d8fdf6c9706ea2983e09d4c92218e96d5ae1c5fed67"
     },
     {
       "bytes": 970,
