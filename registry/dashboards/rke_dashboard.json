@@ -16,6 +16,18 @@
     "total": 12
   },
   "dashboard_id": "RKE-DASHBOARD-20260605",
+  "experiment_governance": {
+    "adjusted_q_value": 0.012,
+    "effective_n": 80,
+    "family_id": "FAM-CB-LIQUIDITY-2026Q2",
+    "lockbox_policy_status": "paper_trading_only",
+    "max_fdr": 0.1,
+    "minimum_effective_n": 60,
+    "net_alpha_after_cost": 0.013,
+    "overlap_policy": "block_bootstrap",
+    "primary_metric": "net_alpha_after_cost_20d",
+    "selected_experiment_id": "EXP-CB-20260605-0001"
+  },
   "layer_integration": {
     "decision_agent": "decision.cio",
     "decision_cash_floor": 0.05,

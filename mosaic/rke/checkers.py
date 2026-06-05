@@ -6,6 +6,10 @@ from dataclasses import dataclass
 from typing import Any, Mapping
 
 from .governance import EvolutionTargets, ProductionPatch, validate_patch
+from .experiment_governance import (
+    ExperimentGovernanceBundle,
+    validate_experiment_governance_bundle,
+)
 from .p0 import (
     DataAvailabilityMatrix,
     LearnableParameter,
@@ -96,6 +100,19 @@ def check_experiment(
             "status": decision.status,
             "paper_trading_allowed": decision.paper_trading_allowed,
             "production_allowed": decision.production_allowed,
+        },
+    )
+
+
+def check_experiment_governance(bundle: ExperimentGovernanceBundle) -> CheckerResult:
+    failures = validate_experiment_governance_bundle(bundle)
+    return CheckerResult(
+        checker_name="experiment_governance_checker",
+        accepted=not failures,
+        reasons=failures,
+        metadata={
+            "family_id": bundle.experiment_family.family_id,
+            "experiment_id": bundle.experiment_family.selected_experiment_id,
         },
     )
 

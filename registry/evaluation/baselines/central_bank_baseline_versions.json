@@ -1,0 +1,13 @@
+{
+  "agent_id": "macro.central_bank",
+  "baseline_output_ref": "registry/runtime_outputs/macro.central_bank.20260605.json",
+  "baseline_prompt_ref": "registry/prompt_ir/macro.central_bank.json",
+  "baseline_version": "prompt-ir-0.3.1",
+  "candidate_output_ref": "registry/runtime_outputs/macro.central_bank.20260605.json",
+  "candidate_prompt_ref": "registry/prompt_ir/macro.central_bank.json",
+  "candidate_version": "prompt-ir-0.3.2-exp",
+  "historical_snapshot_refs": [
+    "registry/monitoring/central_bank_paper_trading_report.json"
+  ],
+  "registry_id": "BASELINE-VERSIONS-CB-LIQUIDITY-20260606"
+}

@@ -13,6 +13,7 @@
 - Phase 7 sector actionability: monitor_only
 - Gold-set review pending claims: 500
 - License review pending sources: 207
+- Experiment governance family: FAM-CB-LIQUIDITY-2026Q2
 
 ## Blockers
 

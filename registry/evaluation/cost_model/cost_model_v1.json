@@ -1,0 +1,15 @@
+{
+  "calibration_must_not_degrade": true,
+  "drawdown_worsening": 0.01,
+  "estimated_transaction_cost": 0.003,
+  "experiment_id": "EXP-CB-20260605-0001",
+  "gross_alpha": 0.018,
+  "max_drawdown_worsening": 0.02,
+  "max_turnover_delta": 0.2,
+  "min_net_alpha": 0.005,
+  "model_id": "COST-MODEL-V1-CB-LIQUIDITY-20260606",
+  "net_alpha_after_cost": 0.013,
+  "primary_metric": "net_alpha_after_cost_20d",
+  "slippage": 0.002,
+  "turnover_delta": 0.08
+}

@@ -1,0 +1,11 @@
+{
+  "direct_production_allowed": false,
+  "experiment_id": "EXP-CB-20260605-0001",
+  "lockbox_open_count": 0,
+  "lockbox_passed": false,
+  "lockbox_required_for_final_promotion": true,
+  "next_state_if_pass": "paper_trading",
+  "policy_id": "LOCKBOX-POLICY-CB-LIQUIDITY-20260606",
+  "policy_status": "paper_trading_only",
+  "walk_forward_required": true
+}

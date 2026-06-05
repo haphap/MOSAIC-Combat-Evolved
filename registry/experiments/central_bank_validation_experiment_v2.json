@@ -2,9 +2,15 @@
   "acceptance_rule": {
     "calibration_must_not_degrade": true,
     "cost_model_required": true,
+    "drawdown_worsening": 0.01,
+    "estimated_transaction_cost": 0.003,
+    "gross_alpha": 0.018,
     "max_drawdown_not_worse_than": 0.02,
     "min_net_alpha": 0.005,
+    "net_alpha_after_cost": 0.013,
     "primary_metric": "net_alpha_after_cost_20d",
+    "slippage": 0.002,
+    "turnover_delta": 0.08,
     "turnover_not_worse_than": 0.2
   },
   "agent_id": "macro.central_bank",

@@ -1,0 +1,19 @@
+{
+  "adjusted_q_value": 0.012,
+  "agent_id": "macro.central_bank",
+  "correction_scope": "FAM-CB-LIQUIDITY-2026Q2",
+  "experiment_ids": [
+    "EXP-CB-20260605-0001"
+  ],
+  "family_id": "FAM-CB-LIQUIDITY-2026Q2",
+  "max_fdr": 0.1,
+  "multiple_testing_method": "benjamini_hochberg_fdr",
+  "parameter_paths": [
+    "/rule_packs/macro.central_bank.liquidity.v1/rules/macro.central_bank.soft.001/learnable_parameters/net_injection_window_days/value"
+  ],
+  "promotion_scope": "paper_trading_only_until_lockbox_and_manual_gates_pass",
+  "rule_ids": [
+    "macro.central_bank.soft.001"
+  ],
+  "selected_experiment_id": "EXP-CB-20260605-0001"
+}

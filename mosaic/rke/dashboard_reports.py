@@ -37,6 +37,14 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
     license_review_path = root_path / "registry/compliance/tushare_license_review_summary.json"
     gold_review = _read_json(gold_review_path) if gold_review_path.exists() else {}
     license_review = _read_json(license_review_path) if license_review_path.exists() else {}
+    family_path = root_path / "registry/evaluation/experiment_family_registry/central_bank_liquidity_family.json"
+    cost_model_path = root_path / "registry/evaluation/cost_model/cost_model_v1.json"
+    overlap_path = root_path / "registry/evaluation/overlap_correction/effective_n_overlap_policy.json"
+    lockbox_policy_path = root_path / "registry/evaluation/lockbox/lockbox_policy.json"
+    family = _read_json(family_path) if family_path.exists() else {}
+    cost_model = _read_json(cost_model_path) if cost_model_path.exists() else {}
+    overlap_policy = _read_json(overlap_path) if overlap_path.exists() else {}
+    lockbox_policy = _read_json(lockbox_policy_path) if lockbox_policy_path.exists() else {}
     criteria = completion.get("criteria", ())
     return {
         "dashboard_id": "RKE-DASHBOARD-20260605",
@@ -102,6 +110,18 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
                 "passed": license_review.get("passed"),
             },
         },
+        "experiment_governance": {
+            "family_id": family.get("family_id"),
+            "selected_experiment_id": family.get("selected_experiment_id"),
+            "adjusted_q_value": family.get("adjusted_q_value"),
+            "max_fdr": family.get("max_fdr"),
+            "primary_metric": cost_model.get("primary_metric"),
+            "net_alpha_after_cost": cost_model.get("net_alpha_after_cost"),
+            "effective_n": overlap_policy.get("effective_n"),
+            "minimum_effective_n": overlap_policy.get("minimum_effective_n"),
+            "overlap_policy": overlap_policy.get("overlap_policy"),
+            "lockbox_policy_status": lockbox_policy.get("policy_status"),
+        },
         "audit_trace": {
             "source_count": len(audit_trace.get("source_ids", ())),
             "claim_count": len(audit_trace.get("claim_ids", ())),
@@ -136,6 +156,7 @@ def render_dashboard_markdown(report: Mapping[str, Any]) -> str:
         f"- Phase 7 sector actionability: {dict(report.get('layer_integration') or {}).get('sector_actionability')}",
         f"- Gold-set review pending claims: {dict(dict(report.get('manual_review_gates') or {}).get('gold_set') or {}).get('pending_claims')}",
         f"- License review pending sources: {dict(dict(report.get('manual_review_gates') or {}).get('source_license') or {}).get('pending_sources')}",
+        f"- Experiment governance family: {dict(report.get('experiment_governance') or {}).get('family_id')}",
         "",
         "## Blockers",
         "",

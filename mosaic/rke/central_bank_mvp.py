@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from .governance import ProductionPatch, default_evolution_targets, validate_patch
+from .experiment_governance import write_experiment_governance_registry
 from .monitoring import (
     PaperTradingReport,
     PaperTradingSnapshot,
@@ -134,9 +135,15 @@ def _serialize_validation_experiment(experiment: Any) -> dict[str, Any]:
         },
         "acceptance_rule": {
             "primary_metric": experiment.cost_acceptance.primary_metric,
+            "gross_alpha": experiment.cost_acceptance.gross_alpha,
+            "estimated_transaction_cost": experiment.cost_acceptance.estimated_transaction_cost,
+            "slippage": experiment.cost_acceptance.slippage,
+            "net_alpha_after_cost": experiment.cost_acceptance.net_alpha_after_cost,
             "min_net_alpha": experiment.cost_acceptance.min_net_alpha,
             "cost_model_required": True,
+            "turnover_delta": experiment.cost_acceptance.turnover_delta,
             "turnover_not_worse_than": experiment.cost_acceptance.max_turnover_delta,
+            "drawdown_worsening": experiment.cost_acceptance.drawdown_worsening,
             "max_drawdown_not_worse_than": experiment.cost_acceptance.max_drawdown_worsening,
             "calibration_must_not_degrade": True,
         },
@@ -519,7 +526,8 @@ def write_central_bank_mvp_registry(root: str | Path = ".") -> dict[str, str]:
         outputs["runtime_output"],
         {"agent_output_id": "OUT-CB-20260605-0001", **_jsonable(bundle.runtime_output)},
     )
-    return {key: str(path) for key, path in outputs.items()}
+    governance_outputs = write_experiment_governance_registry(root_path)
+    return {**{key: str(path) for key, path in outputs.items()}, **governance_outputs}
 
 
 def main() -> None:
