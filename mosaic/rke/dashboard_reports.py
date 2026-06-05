@@ -41,10 +41,14 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
     cost_model_path = root_path / "registry/evaluation/cost_model/cost_model_v1.json"
     overlap_path = root_path / "registry/evaluation/overlap_correction/effective_n_overlap_policy.json"
     lockbox_policy_path = root_path / "registry/evaluation/lockbox/lockbox_policy.json"
+    schema_validation_path = root_path / "registry/schemas/rke_schema_validation_report.json"
     family = _read_json(family_path) if family_path.exists() else {}
     cost_model = _read_json(cost_model_path) if cost_model_path.exists() else {}
     overlap_policy = _read_json(overlap_path) if overlap_path.exists() else {}
     lockbox_policy = _read_json(lockbox_policy_path) if lockbox_policy_path.exists() else {}
+    schema_validation = (
+        _read_json(schema_validation_path) if schema_validation_path.exists() else {}
+    )
     criteria = completion.get("criteria", ())
     return {
         "dashboard_id": "RKE-DASHBOARD-20260605",
@@ -122,6 +126,11 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
             "overlap_policy": overlap_policy.get("overlap_policy"),
             "lockbox_policy_status": lockbox_policy.get("policy_status"),
         },
+        "schema_validation": {
+            "accepted": schema_validation.get("accepted"),
+            "failure_count": schema_validation.get("failure_count"),
+            "record_count": len(schema_validation.get("records") or ()),
+        },
         "audit_trace": {
             "source_count": len(audit_trace.get("source_ids", ())),
             "claim_count": len(audit_trace.get("claim_ids", ())),
@@ -157,6 +166,7 @@ def render_dashboard_markdown(report: Mapping[str, Any]) -> str:
         f"- Gold-set review pending claims: {dict(dict(report.get('manual_review_gates') or {}).get('gold_set') or {}).get('pending_claims')}",
         f"- License review pending sources: {dict(dict(report.get('manual_review_gates') or {}).get('source_license') or {}).get('pending_sources')}",
         f"- Experiment governance family: {dict(report.get('experiment_governance') or {}).get('family_id')}",
+        f"- Schema validation failures: {dict(report.get('schema_validation') or {}).get('failure_count')}",
         "",
         "## Blockers",
         "",

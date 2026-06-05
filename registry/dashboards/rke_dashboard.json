@@ -107,6 +107,11 @@
       "statement": "Pass a small positive risk-appetite prior to downstream sector agents."
     }
   ],
+  "schema_validation": {
+    "accepted": true,
+    "failure_count": 0,
+    "record_count": 15
+  },
   "sector_demo": {
     "demo_status": "sandbox",
     "disagreement_cluster_id": "DISAGREE-SEMI-POLICY-SUB-20260605",

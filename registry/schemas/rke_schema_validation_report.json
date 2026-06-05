@@ -1,0 +1,112 @@
+{
+  "accepted": true,
+  "failure_count": 0,
+  "records": [
+    {
+      "accepted": true,
+      "artifact_path": "registry/sources/central_bank_sources.jsonl",
+      "failures": [],
+      "item_count": 1,
+      "schema_path": "schemas/source_metadata.schema.json"
+    },
+    {
+      "accepted": true,
+      "artifact_path": "registry/claims/central_bank_claims.jsonl",
+      "failures": [],
+      "item_count": 1,
+      "schema_path": "schemas/source_grounded_claim.schema.json"
+    },
+    {
+      "accepted": true,
+      "artifact_path": "registry/claims/semiconductor_claims.jsonl",
+      "failures": [],
+      "item_count": 3,
+      "schema_path": "schemas/source_grounded_claim.schema.json"
+    },
+    {
+      "accepted": true,
+      "artifact_path": "registry/hypotheses/central_bank_hypotheses.jsonl",
+      "failures": [],
+      "item_count": 1,
+      "schema_path": "schemas/hypothesis.schema.json"
+    },
+    {
+      "accepted": true,
+      "artifact_path": "registry/hypotheses/semiconductor_hypotheses.jsonl",
+      "failures": [],
+      "item_count": 2,
+      "schema_path": "schemas/hypothesis.schema.json"
+    },
+    {
+      "accepted": true,
+      "artifact_path": "registry/data_availability/central_bank_data_availability.json",
+      "failures": [],
+      "item_count": 1,
+      "schema_path": "schemas/data_availability_matrix.schema.json"
+    },
+    {
+      "accepted": true,
+      "artifact_path": "registry/data_availability/semiconductor_sandbox_data_availability.json",
+      "failures": [],
+      "item_count": 1,
+      "schema_path": "schemas/data_availability_matrix.schema.json"
+    },
+    {
+      "accepted": true,
+      "artifact_path": "registry/data_availability/macro_expansion_data_availability.json",
+      "failures": [],
+      "item_count": 1,
+      "schema_path": "schemas/data_availability_matrix.schema.json"
+    },
+    {
+      "accepted": true,
+      "artifact_path": "registry/parameter_priors/central_bank_parameter_priors.jsonl",
+      "failures": [],
+      "item_count": 1,
+      "schema_path": "schemas/parameter_prior.schema.json"
+    },
+    {
+      "accepted": true,
+      "artifact_path": "registry/experiments/central_bank_validation_experiment_v2.json",
+      "failures": [],
+      "item_count": 1,
+      "schema_path": "schemas/validation_experiment_v2.schema.json"
+    },
+    {
+      "accepted": true,
+      "artifact_path": "registry/patches/central_bank_paper_trading_patch.json",
+      "failures": [],
+      "item_count": 1,
+      "schema_path": "schemas/production_patch.schema.json"
+    },
+    {
+      "accepted": true,
+      "artifact_path": "registry/rule_packs/macro.central_bank.liquidity.v1.json",
+      "failures": [],
+      "item_count": 1,
+      "schema_path": "schemas/rule_pack.schema.yaml"
+    },
+    {
+      "accepted": true,
+      "artifact_path": "registry/rule_packs/sector.semiconductor.policy_substitution.v1.json",
+      "failures": [],
+      "item_count": 1,
+      "schema_path": "schemas/rule_pack.schema.yaml"
+    },
+    {
+      "accepted": true,
+      "artifact_path": "schemas/confidence_policy.schema.yaml",
+      "failures": [],
+      "item_count": 1,
+      "schema_path": "schemas/confidence_policy.schema.yaml"
+    },
+    {
+      "accepted": true,
+      "artifact_path": "schemas/rule_aggregation_policy.schema.yaml",
+      "failures": [],
+      "item_count": 1,
+      "schema_path": "schemas/rule_aggregation_policy.schema.yaml"
+    }
+  ],
+  "report_id": "RKE-SCHEMA-VALIDATION-REPORT-20260606"
+}

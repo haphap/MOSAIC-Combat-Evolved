@@ -1,5 +1,5 @@
 {
-  "artifact_count": 40,
+  "artifact_count": 41,
   "artifacts": [
     {
       "bytes": 539,
@@ -32,14 +32,14 @@
       "sha256": "sha256:d519117af396793a5f27fc06e808ca93b55d6f4a2d0ae63bd6c7b9c360cadbd0"
     },
     {
-      "bytes": 3398,
+      "bytes": 3497,
       "path": "registry/dashboards/rke_dashboard.json",
-      "sha256": "sha256:10605b18a62ae6e15ec43b666577775e5e51cdb2e5a5feee2e197f915ab4b3e7"
+      "sha256": "sha256:1e27d64c1c74b6ad3cbc46047cd8ddfe43c499b4849968dcda579d8eb64b16c3"
     },
     {
-      "bytes": 692,
+      "bytes": 724,
       "path": "registry/dashboards/rke_dashboard.md",
-      "sha256": "sha256:0ea534aff843fbc3989f7f6d3e3ab4971ccdd1a8bf3237035104bac4c0b897f2"
+      "sha256": "sha256:3dee2fe7266373abcdba05d2e968ece0e347147bd637e4c98641feff6a76644e"
     },
     {
       "bytes": 1233,
@@ -170,6 +170,11 @@
       "bytes": 2610,
       "path": "registry/runtime_outputs/sector.semiconductor.demo.20260605.json",
       "sha256": "sha256:f5b1e7298bff41ec2c764086318298d83bc1fcd1a48a8c9cf97df06897f99861"
+    },
+    {
+      "bytes": 3482,
+      "path": "registry/schemas/rke_schema_validation_report.json",
+      "sha256": "sha256:e93b51c8e2b618bada34b326ad5f64bf2108d7ea3eda7d3e8c2a9def45c657b7"
     },
     {
       "bytes": 316,

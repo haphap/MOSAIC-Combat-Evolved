@@ -21,6 +21,7 @@ from .review_gates import (
     write_gold_set_review_summary,
     write_source_license_review_summary,
 )
+from .schema_validation import build_schema_validation_report, write_schema_validation_report
 from .tushare_reports import refresh_tushare_research_report_registry
 from .workflows import run_full_rke_refresh
 
@@ -68,6 +69,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     dashboard = subparsers.add_parser("dashboard", help="Write dashboard JSON and Markdown reports.")
     dashboard.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
+
+    schema_status = subparsers.add_parser(
+        "schema-status",
+        help="Write and print the Phase 1 schema validation report.",
+    )
+    schema_status.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
 
     gold_status = subparsers.add_parser(
         "gold-set-status",
@@ -144,6 +151,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         result = write_dashboard_reports(root)
         _print_json(result)
         return 0
+    if args.command == "schema-status":
+        write_schema_validation_report(root)
+        result = build_schema_validation_report(root)
+        _print_json(
+            {
+                "accepted": result.accepted,
+                "failure_count": result.failure_count,
+                "records": [asdict(record) for record in result.records],
+            }
+        )
+        return 0 if result.accepted else 2
     if args.command == "gold-set-status":
         write_gold_set_review_summary(root)
         _print_json(asdict(summarize_gold_set_review(root)))

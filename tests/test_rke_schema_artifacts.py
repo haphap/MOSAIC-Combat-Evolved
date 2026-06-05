@@ -3,6 +3,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from mosaic.rke import (
+    build_schema_validation_report,
+    validate_json_schema_artifact,
+)
+from mosaic.rke.cli import main
+
 
 REQUIRED_SCHEMA_FILES = {
     "source_metadata.schema.json",
@@ -56,3 +62,64 @@ def test_yaml_policy_schema_artifacts_pin_master_plan_defaults():
     assert "single_rule_max_adjustment: 0.05" in aggregation
     assert "conflict_object_required" in aggregation
     assert "<layer>.<agent>.<rule_type>.<serial>" in rule_pack
+
+
+def test_schema_validation_report_accepts_current_registry():
+    report = build_schema_validation_report(".")
+
+    assert report.accepted
+    assert report.failure_count == 0
+    assert len(report.records) >= 15
+    assert {
+        "schemas/source_metadata.schema.json",
+        "schemas/source_grounded_claim.schema.json",
+        "schemas/validation_experiment_v2.schema.json",
+        "schemas/rule_pack.schema.yaml",
+        "schemas/confidence_policy.schema.yaml",
+    } <= {record.schema_path for record in report.records}
+
+
+def test_schema_validation_rejects_missing_required_field(tmp_path: Path):
+    schema_dir = tmp_path / "schemas"
+    artifact_dir = tmp_path / "registry/sources"
+    schema_dir.mkdir(parents=True)
+    artifact_dir.mkdir(parents=True)
+    (schema_dir / "source_metadata.schema.json").write_text(
+        Path("schemas/source_metadata.schema.json").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    (artifact_dir / "central_bank_sources.jsonl").write_text(
+        json.dumps(
+            {
+                "source_id": "SRC-X",
+                "source_type": "official",
+                "publish_date": "2026-06-06",
+                "ingest_time": "2026-06-06T00:00:00+00:00",
+                "license_status": "approved",
+                "point_in_time_available": True,
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    record = validate_json_schema_artifact(
+        root=tmp_path,
+        schema_path="schemas/source_metadata.schema.json",
+        artifact_path="registry/sources/central_bank_sources.jsonl",
+        artifact_kind="jsonl",
+    )
+
+    assert not record.accepted
+    assert any("source_hash" in failure for failure in record.failures)
+
+
+def test_schema_status_cli_writes_report(capsys):
+    code = main(("schema-status", "--root", "."))
+    output = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert output["accepted"] is True
+    assert output["failure_count"] == 0
+    assert Path("registry/schemas/rke_schema_validation_report.json").exists()

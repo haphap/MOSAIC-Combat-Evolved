@@ -196,6 +196,13 @@ from .runtime import (
     RuntimeRecommendation,
     check_runtime_output,
 )
+from .schema_validation import (
+    SchemaValidationRecord,
+    SchemaValidationReport,
+    build_schema_validation_report,
+    validate_json_schema_artifact,
+    write_schema_validation_report,
+)
 from .sector_demo import (
     DisagreementCluster,
     DisagreementEvidence,
@@ -387,6 +394,11 @@ __all__ = [
     "RuntimeOutputCheckResult",
     "RuntimeRecommendation",
     "check_runtime_output",
+    "SchemaValidationRecord",
+    "SchemaValidationReport",
+    "build_schema_validation_report",
+    "validate_json_schema_artifact",
+    "write_schema_validation_report",
     "DisagreementCluster",
     "DisagreementEvidence",
     "SectorSemiconductorDemoBundle",
