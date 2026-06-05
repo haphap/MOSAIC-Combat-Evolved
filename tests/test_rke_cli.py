@@ -12,6 +12,15 @@ def _copy_registry(dst_root: Path) -> None:
     shutil.copytree(Path("registry"), dst_root / "registry")
 
 
+def _redaction_source_text_count(root: Path) -> int:
+    payload = json.loads(
+        (root / "registry/compliance/source_text_redaction_report.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    return int(payload["source_text_count"])
+
+
 def test_rke_cli_validate_required_success(capsys):
     code = main(("validate-required", "--root", "."))
     output = json.loads(capsys.readouterr().out)
@@ -156,8 +165,8 @@ def test_rke_cli_source_text_status_writes_summary(tmp_path: Path, capsys):
     assert code == 0
     assert output["accepted"] is True
     assert output["failure_count"] == 0
-    assert output["source_text_count"] == 207
     assert (tmp_path / "registry/compliance/source_text_redaction_report.json").exists()
+    assert output["source_text_count"] == _redaction_source_text_count(tmp_path)
 
 
 def test_rke_cli_promotion_status_writes_report(tmp_path: Path, capsys):
@@ -236,10 +245,14 @@ def test_rke_cli_fetch_tushare_reports_passes_query_args(monkeypatch, tmp_path: 
             "600519.SH,300750.SZ",
             "--industry-keyword",
             "银行",
+            "--report-type",
+            "个股研报,行业研报",
             "--max-reports-per-query",
             "42",
             "--stock-query-batch-size",
             "2",
+            "--date-chunk-days",
+            "7",
         )
     )
     output = json.loads(capsys.readouterr().out)
@@ -249,10 +262,12 @@ def test_rke_cli_fetch_tushare_reports_passes_query_args(monkeypatch, tmp_path: 
     assert captured["root"] == str(tmp_path)
     assert captured["stock_codes"] == ("600519.SH", "300750.SZ")
     assert captured["industry_keywords"] == ("银行",)
+    assert captured["report_types"] == ("个股研报", "行业研报")
     assert captured["start_date"] == "2026-06-01"
     assert captured["end_date"] == "2026-06-05"
     assert captured["max_reports_per_query"] == 42
     assert captured["stock_query_batch_size"] == 2
+    assert captured["date_chunk_days"] == 7
     assert captured["preserve_review_templates"] is True
 
 

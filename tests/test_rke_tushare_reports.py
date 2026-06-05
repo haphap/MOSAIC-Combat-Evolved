@@ -97,6 +97,45 @@ class BatchUnsupportedFakeTusharePro(FakeTusharePro):
         return super().research_report(**kwargs)
 
 
+class FullMarketFakeTusharePro:
+    def __init__(self):
+        self.calls: list[dict[str, object]] = []
+
+    def research_report(self, **kwargs):
+        self.calls.append(kwargs)
+        report_type = str(kwargs["report_type"])
+        start_date = str(kwargs["start_date"])
+        if report_type == "个股研报":
+            return pd.DataFrame(
+                [
+                    {
+                        "trade_date": start_date,
+                        "title": f"Full-market stock report {start_date}",
+                        "abstr": "Stock report text.",
+                        "author": "Analyst C",
+                        "inst_csname": "Broker C",
+                        "ts_code": "000001.SZ",
+                        "ind_name": "银行",
+                        "url": "https://example.invalid/c",
+                    }
+                ]
+            )
+        return pd.DataFrame(
+            [
+                {
+                    "trade_date": start_date,
+                    "title": f"Full-market industry report {start_date}",
+                    "abstr": "Industry report text.",
+                    "author": "Analyst D",
+                    "inst_csname": "Broker D",
+                    "ts_code": "",
+                    "ind_name": "半导体",
+                    "url": "https://example.invalid/d",
+                }
+            ]
+        )
+
+
 def test_fetch_tushare_research_reports_uses_stock_and_industry_queries():
     fake = FakeTusharePro()
 
@@ -155,6 +194,30 @@ def test_fetch_tushare_research_reports_falls_back_when_stock_batch_returns_empt
         "920033.BJ",
     ]
     assert {report.query_key for report in reports} == {"601100.SH", "920033.BJ"}
+
+
+def test_fetch_tushare_research_reports_queries_full_market_by_report_type_windows():
+    fake = FullMarketFakeTusharePro()
+
+    reports = fetch_tushare_research_reports(
+        report_types=("个股研报", "行业研报"),
+        start_date="2026-06-01",
+        end_date="2026-06-03",
+        date_chunk_days=2,
+        discovered_at="2026-06-05T12:00:00+00:00",
+        pro=fake,
+    )
+
+    assert len(fake.calls) == 4
+    assert [(call["report_type"], call["start_date"], call["end_date"]) for call in fake.calls] == [
+        ("个股研报", "20260601", "20260602"),
+        ("个股研报", "20260603", "20260603"),
+        ("行业研报", "20260601", "20260602"),
+        ("行业研报", "20260603", "20260603"),
+    ]
+    assert len(reports) == 4
+    assert {report.report_type for report in reports} == {"个股研报", "行业研报"}
+    assert {report.query_key for report in reports} == {"000001.SZ", "半导体"}
 
 
 def test_normalize_research_report_row_builds_source_and_span_ids():
@@ -244,6 +307,8 @@ def test_refresh_tushare_research_report_registry_updates_dependent_artifacts(tm
     assert manifest["output_path"] == "registry/sources/tushare_research_reports.jsonl"
     assert manifest["max_reports_per_query"] == 6000
     assert manifest["stock_query_batch_size"] == 50
+    assert manifest["date_chunk_days"] == 31
+    assert manifest["query_set"]["report_types"] == []
     assert manifest["query_key_counts"] == {"600519.SH": 1, "银行": 1}
     assert manifest["rows_with_abstract"] == 2
 

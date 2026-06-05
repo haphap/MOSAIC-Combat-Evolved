@@ -114,19 +114,38 @@ Refresh the Tushare research-report source pool:
 mosaic-rke fetch-tushare-reports \
   --root . \
   --start-date 2026-02-05 \
-  --end-date 2026-06-05 \
+  --end-date 2026-06-06 \
+  --report-type 个股研报 \
+  --report-type 行业研报 \
+  --date-chunk-days 7 \
+  --max-reports-per-query 6000
+```
+
+The recommended corpus refresh queries full-market Tushare `research_report`
+rows by `report_type` and date windows. This avoids hand-maintaining a large
+stock or industry keyword list and makes the manifest reproducible via
+`query_set.report_types` and `date_chunk_days`.
+
+Targeted stock and industry queries are still supported for supplements:
+
+```bash
+mosaic-rke fetch-tushare-reports \
+  --root . \
+  --start-date 2026-02-05 \
+  --end-date 2026-06-06 \
   --stock-code 600519.SH,300750.SZ \
   --industry-keyword 银行 \
   --industry-keyword 半导体 \
   --stock-query-batch-size 50
 ```
 
-The refresh command first tries to batch stock-code queries by joining codes into
-Tushare's comma-separated `ts_code` parameter. If a whole batch returns zero
-rows, it automatically falls back to single-code queries so `research_report`
-batch quirks do not drop available reports. It then refreshes the dependent
+For stock-code queries, the refresh command first tries to batch codes by
+joining them into Tushare's comma-separated `ts_code` parameter. If a whole
+batch returns zero rows, it automatically falls back to single-code queries so
+`research_report` batch quirks do not drop available reports. Industry keywords
+still use separate `ind_name` queries. Every refresh updates the dependent
 source, gold-set, license, redaction, dashboard, promotion-gate, coverage, and
-manifest artifacts. Industry keywords still use separate `ind_name` queries.
+manifest artifacts.
 
 The generated batch templates are review aids. They contain IDs, hashes, source
 refs, and empty manual fields, but not full abstracts or span previews. Reviewers

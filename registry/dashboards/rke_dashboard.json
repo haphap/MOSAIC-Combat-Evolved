@@ -56,15 +56,15 @@
       "candidate_available_count": 500,
       "candidate_claim_count": 500,
       "manual_fields_preserved": true,
-      "missing_variable_mapping_count": 79,
+      "missing_variable_mapping_count": 433,
       "review_rows_with_candidate_fields": 500
     },
     "gold_review_packet": {
-      "candidate_span_ref_count": 244,
+      "candidate_span_ref_count": 246,
       "document_count": 50,
       "pending_review_rows": 500,
       "risk_flag_counts": {
-        "canonical_variable_mapping_needed": 4,
+        "canonical_variable_mapping_needed": 14,
         "license_pending": 50,
         "manual_review_required": 50,
         "span_preview_truncated": 49
@@ -80,11 +80,11 @@
     "license_review_packet": {
       "approved_for_derived_claim_storage": 0,
       "approved_for_production_runtime": 0,
-      "pending_sources": 207,
+      "pending_sources": 9812,
       "policy_reason_counts": {
-        "pending_review source is sandbox-only until compliance approval": 207
+        "pending_review source is sandbox-only until compliance approval": 9812
       },
-      "source_count": 207,
+      "source_count": 9812,
       "status": "manual_review_pending"
     },
     "review_batches": {
@@ -94,14 +94,14 @@
       "ready_for_manual_review": true,
       "source_license_dry_run_command": "mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_next_import_template.jsonl --dry-run",
       "source_license_exported_rows": 50,
-      "source_license_pending_rows": 207
+      "source_license_pending_rows": 9812
     },
     "source_license": {
       "approved_for_production_runtime": 0,
       "passed": false,
-      "pending_sources": 207,
+      "pending_sources": 9812,
       "reviewed_sources": 0,
-      "total_sources": 207
+      "total_sources": 9812
     }
   },
   "master_plan_coverage": {
@@ -197,15 +197,15 @@
     "failure_count": 0,
     "min_match_chars": 80,
     "skipped_allowed_path_count": 6,
-    "source_text_count": 207
+    "source_text_count": 9783
   },
   "source_validation": {
     "accepted_for_production": false,
     "accepted_for_sandbox": true,
     "duplicate_reference_count": 1,
     "failure_count": 0,
-    "production_blocker_count": 207,
-    "unique_source_count": 208
+    "production_blocker_count": 9812,
+    "unique_source_count": 9813
   },
   "validation_hardening": {
     "ablation_accepted": true,

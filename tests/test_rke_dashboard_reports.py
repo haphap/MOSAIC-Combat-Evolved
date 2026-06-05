@@ -10,8 +10,27 @@ from mosaic.rke import (
 )
 
 
+def _source_row_count() -> int:
+    return sum(
+        1
+        for line in Path("registry/sources/tushare_research_reports.jsonl").read_text(
+            encoding="utf-8"
+        ).splitlines()
+        if line.strip()
+    )
+
+
+def _source_text_count() -> int:
+    payload = json.loads(
+        Path("registry/compliance/source_text_redaction_report.json").read_text(encoding="utf-8")
+    )
+    return int(payload["source_text_count"])
+
+
 def test_dashboard_report_summarizes_completion_and_monitoring():
     report = build_dashboard_report(".")
+    source_row_count = _source_row_count()
+    source_text_count = _source_text_count()
 
     assert report["dashboard_id"] == "RKE-DASHBOARD-20260605"
     assert report["ready_for_broad_rollout"] is False
@@ -35,10 +54,10 @@ def test_dashboard_report_summarizes_completion_and_monitoring():
     assert report["validation_hardening"]["after_cost_ci_low"] > 0
     assert report["source_validation"]["accepted_for_sandbox"] is True
     assert report["source_validation"]["accepted_for_production"] is False
-    assert report["source_validation"]["production_blocker_count"] == 207
+    assert report["source_validation"]["production_blocker_count"] == source_row_count
     assert report["source_text_redaction"]["accepted"] is True
     assert report["source_text_redaction"]["failure_count"] == 0
-    assert report["source_text_redaction"]["source_text_count"] == 207
+    assert report["source_text_redaction"]["source_text_count"] == source_text_count
     assert report["sector_demo"]["demo_status"] == "sandbox"
     assert report["sector_demo"]["production_allowed"] is False
     assert report["sector_demo"]["recommendation_actionability"] == "monitor_only"
@@ -61,12 +80,15 @@ def test_dashboard_report_summarizes_completion_and_monitoring():
     assert report["manual_review_gates"]["gold_candidate_claims"]["review_rows_with_candidate_fields"] == 500
     assert report["manual_review_gates"]["gold_candidate_claims"]["manual_fields_preserved"] is True
     assert report["manual_review_gates"]["license_review_packet"]["status"] == "manual_review_pending"
-    assert report["manual_review_gates"]["license_review_packet"]["source_count"] == 207
+    assert report["manual_review_gates"]["license_review_packet"]["source_count"] == source_row_count
     assert report["manual_review_gates"]["license_review_packet"]["approved_for_production_runtime"] == 0
     assert report["manual_review_gates"]["review_batches"]["ready_for_manual_review"] is True
     assert report["manual_review_gates"]["review_batches"]["gold_set_pending_rows"] == 500
     assert report["manual_review_gates"]["review_batches"]["gold_set_exported_rows"] == 50
-    assert report["manual_review_gates"]["review_batches"]["source_license_pending_rows"] == 207
+    assert (
+        report["manual_review_gates"]["review_batches"]["source_license_pending_rows"]
+        == source_row_count
+    )
     assert report["manual_review_gates"]["review_batches"]["source_license_exported_rows"] == 50
     assert report["audit_trace"]["agent_output_count"] == 1
     assert "manual" in " ".join(report["completion"]["blockers"])
@@ -74,6 +96,7 @@ def test_dashboard_report_summarizes_completion_and_monitoring():
 
 def test_dashboard_markdown_renders_blockers():
     markdown = render_dashboard_markdown(build_dashboard_report("."))
+    source_row_count = _source_row_count()
 
     assert "# RKE Dashboard" in markdown
     assert "Broad rollout ready: false" in markdown
@@ -84,7 +107,7 @@ def test_dashboard_markdown_renders_blockers():
     assert "Validation ablations accepted: True" in markdown
     assert "Validation statistical significance accepted: True" in markdown
     assert "Source validation sandbox accepted: True" in markdown
-    assert "Source validation production blockers: 207" in markdown
+    assert f"Source validation production blockers: {source_row_count}" in markdown
     assert "Source text redaction accepted: True" in markdown
     assert "Source text redaction failures: 0" in markdown
     assert "Sector demo: sandbox" in markdown

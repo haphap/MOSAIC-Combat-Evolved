@@ -8,21 +8,38 @@ from mosaic.rke import (
     build_source_registry_validation_report,
     write_source_registry_validation_report,
 )
+from mosaic.rke.source_registry_validation import SOURCE_REGISTRY_PATHS
 
 
 def _copy_registry(src_root: Path, dst_root: Path) -> None:
     shutil.copytree(src_root / "registry", dst_root / "registry")
 
 
+def _source_rows(root: Path, relative_path: str) -> list[dict[str, object]]:
+    path = root / relative_path
+    if not path.exists():
+        return []
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
+
+
+def _expected_source_counts(root: Path) -> tuple[int, int, int]:
+    rows = [row for relative_path in SOURCE_REGISTRY_PATHS for row in _source_rows(root, relative_path)]
+    unique_source_ids = {str(row.get("source_id") or "") for row in rows}
+    return len(rows), len(unique_source_ids), len(rows) - len(unique_source_ids)
+
+
 def test_source_registry_validation_accepts_sandbox_but_reports_production_blockers():
     report = build_source_registry_validation_report(".")
+    reference_count, unique_count, duplicate_count = _expected_source_counts(Path("."))
+    tushare_count = len(_source_rows(Path("."), "registry/sources/tushare_research_reports.jsonl"))
 
     assert report.accepted_for_sandbox
     assert not report.accepted_for_production
     assert report.failure_count == 0
-    assert report.unique_source_count == 208
-    assert report.duplicate_reference_count == 1
-    assert report.production_blocker_count == 207
+    assert report.source_reference_count == reference_count
+    assert report.unique_source_count == unique_count
+    assert report.duplicate_reference_count == duplicate_count
+    assert report.production_blocker_count == tushare_count
 
 
 def test_source_registry_validation_rejects_missing_ingest_timestamp(tmp_path: Path):

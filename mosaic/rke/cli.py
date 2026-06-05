@@ -275,6 +275,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Tushare industry keyword. May be repeated or comma-separated.",
     )
     fetch_reports.add_argument(
+        "--report-type",
+        action="append",
+        dest="report_types",
+        help=(
+            "Tushare report_type to query across the whole market by date window. "
+            "May be repeated or comma-separated, e.g. 行业研报,个股研报."
+        ),
+    )
+    fetch_reports.add_argument(
         "--max-reports-per-query",
         type=int,
         default=6000,
@@ -285,6 +294,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=50,
         help="Number of stock codes to join in one Tushare ts_code query. Defaults to 50.",
+    )
+    fetch_reports.add_argument(
+        "--date-chunk-days",
+        type=int,
+        default=31,
+        help="Days per full-market report_type query window. Defaults to 31.",
     )
     fetch_reports.add_argument(
         "--overwrite-review-templates",
@@ -497,10 +512,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             root,
             stock_codes=_split_repeated_csv(args.stock_codes),
             industry_keywords=_split_repeated_csv(args.industry_keywords),
+            report_types=_split_repeated_csv(args.report_types),
             start_date=args.start_date,
             end_date=args.end_date,
             max_reports_per_query=args.max_reports_per_query,
             stock_query_batch_size=args.stock_query_batch_size,
+            date_chunk_days=args.date_chunk_days,
             preserve_review_templates=not args.overwrite_review_templates,
         )
         _print_json(asdict(result))

@@ -157,6 +157,7 @@ def _source_text_fingerprints(
 def build_source_text_redaction_report(root: str | Path = ".") -> SourceTextRedactionReport:
     root_path = Path(root)
     fingerprints, source_text_count = _source_text_fingerprints(root_path)
+    fingerprint_lookup = dict(fingerprints)
     scanned_paths, skipped_allowed = _iter_scanned_paths(root_path)
     records: list[SourceTextExposureRecord] = []
 
@@ -167,8 +168,12 @@ def build_source_text_redaction_report(root: str | Path = ".") -> SourceTextReda
             continue
         normalized = _normalize_for_match(text)
         matches_by_source: dict[tuple[str, str, str], list[str]] = {}
-        for chunk, metadata in fingerprints:
-            if chunk not in normalized:
+        if len(normalized) < TEXT_MATCH_MIN_CHARS:
+            continue
+        for start in range(0, len(normalized) - TEXT_MATCH_MIN_CHARS + 1):
+            chunk = normalized[start : start + TEXT_MATCH_MIN_CHARS]
+            metadata = fingerprint_lookup.get(chunk)
+            if metadata is None:
                 continue
             key = (
                 metadata["source_id"],

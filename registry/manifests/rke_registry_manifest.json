@@ -7,9 +7,9 @@
       "sha256": "sha256:96bffa7532572b41c0652258621869532e6a99a5bfeb54238a15b8918d1bbfdb"
     },
     {
-      "bytes": 3021,
+      "bytes": 3023,
       "path": "registry/audits/rke_completion_audit.json",
-      "sha256": "sha256:a3d8362b7932b4305685b92f93198a42024447c18220dc1a912b67eb57c9d440"
+      "sha256": "sha256:69e42949346778cb662f6dc8b8fe734387fa13d7a13683dde5439385699def49"
     },
     {
       "bytes": 6825,
@@ -32,39 +32,39 @@
       "sha256": "sha256:318984f73c181951699f13889118bc1a6aaab0d1d947d7d67d437941d21e6c8f"
     },
     {
-      "bytes": 1025,
+      "bytes": 1028,
       "path": "registry/compliance/source_text_redaction_report.json",
-      "sha256": "sha256:45f5be2e24ca84e657667fc51fe2f3c7d442f949086eefa8472c5251e1ffc185"
+      "sha256": "sha256:2aa0c734e903ffded9ff39d254cc66bb33c4776116e713d48a0bf9f7f2030da7"
     },
     {
-      "bytes": 159537,
+      "bytes": 7499705,
       "path": "registry/compliance/tushare_license_review_packet.json",
-      "sha256": "sha256:cd2ddce9741a424c3f96a6e4d4d095869a044f8e25735ee00249c0d3f521bd55"
+      "sha256": "sha256:639cb424650cce12025645f13d1b17a3eeac4e2d400b07703649928f6f5515c8"
     },
     {
-      "bytes": 56347,
+      "bytes": 2649703,
       "path": "registry/compliance/tushare_license_review_packet.md",
-      "sha256": "sha256:213e036d49ce095784009c104c9d58cbd16d832065386b7bf4fb6a844e122f05"
+      "sha256": "sha256:9ef592d66165656a9222d6f554ecffc22c099dc81840e176f268b0780749b154"
     },
     {
-      "bytes": 9292,
+      "bytes": 412707,
       "path": "registry/compliance/tushare_license_review_summary.json",
-      "sha256": "sha256:b66d2dbcfa59119f1a0e1ade1f51dba3926743e7def1da8ed90588bb59c07baf"
+      "sha256": "sha256:f6a2b0fc81cbe073df41fb0c4029d030d75d7e6e9e3d23adf496c91ad3da79c1"
     },
     {
-      "bytes": 86833,
+      "bytes": 4094060,
       "path": "registry/compliance/tushare_license_review_template.jsonl",
-      "sha256": "sha256:d519117af396793a5f27fc06e808ca93b55d6f4a2d0ae63bd6c7b9c360cadbd0"
+      "sha256": "sha256:b07a0175603d46122f147d6b2e9de7ff96df4b3dacbee21f631f20c2a7118603"
     },
     {
-      "bytes": 6699,
+      "bytes": 6710,
       "path": "registry/dashboards/rke_dashboard.json",
-      "sha256": "sha256:7fc78e02e7831b57522534c6596d59790797baaf34404e12bcac70732d632a63"
+      "sha256": "sha256:485f464abb5f2dcef15bb1f356cf95d53ab160a6d1d7f1472d36ce2456096a3f"
     },
     {
-      "bytes": 1419,
+      "bytes": 1422,
       "path": "registry/dashboards/rke_dashboard.md",
-      "sha256": "sha256:829f8d2cfbd83908df79be947d349f3d272aa3f886ca7ffbdb9e10e716b10398"
+      "sha256": "sha256:5c23a64635e63c58646bf735199a30a3a84f47c3a8ec017c64378754c19c80e6"
     },
     {
       "bytes": 1233,
@@ -89,7 +89,7 @@
     {
       "bytes": 913,
       "path": "registry/docs/rke_policy_doc_validation_report.json",
-      "sha256": "sha256:bb174f3afc8b2574e2e78b360041f43f232df45388ff3c98b5d666fe8bb53c22"
+      "sha256": "sha256:d366e678523cb503207b39c7e45e2ea5f7058ca642d3a60ad57101fdcee04ee2"
     },
     {
       "bytes": 604,
@@ -137,24 +137,24 @@
       "sha256": "sha256:2d1f68bea8757460a3c59dc298c713ec3750b44f5ed8f40378787772e9fad027"
     },
     {
-      "bytes": 460208,
+      "bytes": 445022,
       "path": "registry/gold_sets/tushare_research_reports.candidate_claims.jsonl",
-      "sha256": "sha256:f4ef2aea5630a758a6162268aba4b5d3538ab5255f57efd725783ff8731cde0c"
+      "sha256": "sha256:bdd5d41f2a84664cdbe746430e406adc72b1a78e2a93ff0a8e8f7fafd8b526eb"
     },
     {
-      "bytes": 895,
+      "bytes": 932,
       "path": "registry/gold_sets/tushare_research_reports.candidate_claims.summary.json",
-      "sha256": "sha256:9a9156bad7ec5e6208a89bcfa0b7e5b550da945b8045b71d74a8223d03d0559f"
+      "sha256": "sha256:5f69ac9752c8801c3f40bf660fbf958536d56fcb438233303fcecc32b13bbbf9"
     },
     {
-      "bytes": 179699,
+      "bytes": 182073,
       "path": "registry/gold_sets/tushare_research_reports.review_packet.json",
-      "sha256": "sha256:170a729eb7aaa3d64caf359ce543040a4d913cdf56a872eab3f6b532b3c59617"
+      "sha256": "sha256:7b2b0277892b54131af2017cbf414633cfa1f09b098f1a68e3688785f9c1e64a"
     },
     {
-      "bytes": 14972,
+      "bytes": 14915,
       "path": "registry/gold_sets/tushare_research_reports.review_packet.md",
-      "sha256": "sha256:fa74fdce56bb2917ae8b418a0c98b7d2eb5e0e790dfd3558cb1af16d3b9c98cb"
+      "sha256": "sha256:f374fb8c5f359cb411d9caccdaa599c6e5224a39eb71c848b729332b5e936c80"
     },
     {
       "bytes": 380,
@@ -162,9 +162,9 @@
       "sha256": "sha256:46907189dd29b25a3a05f0bb53c85512d17ab4d2dd24adb61c71f557781212a1"
     },
     {
-      "bytes": 1331758,
+      "bytes": 1309842,
       "path": "registry/gold_sets/tushare_research_reports.review_template.jsonl",
-      "sha256": "sha256:f232f022c4175701a647fbcd6d6c8dfa183cbf7b9c0d3495b62da203e3ba7e71"
+      "sha256": "sha256:43d881d3cf17f690818e1bdf12bdfcedde353d64cb0c907fde8cee90c3788978"
     },
     {
       "bytes": 383,
@@ -207,9 +207,9 @@
       "sha256": "sha256:b3400460aedc8a5112347e32ab9e96aa0c0d7f26cfbce7a8954aa8d24b026e56"
     },
     {
-      "bytes": 3753,
+      "bytes": 3755,
       "path": "registry/promotion/rke_production_promotion_gate.json",
-      "sha256": "sha256:1415a134fe8cebc08341e0f6e85b781d261d44d5dfe5c2bb0b92cf9ac4f21a20"
+      "sha256": "sha256:1594a61f6dedcda0df60ebc650ef45bb3a079018f0d1f3bfad679285aff5e0be"
     },
     {
       "bytes": 2825,
@@ -232,19 +232,19 @@
       "sha256": "sha256:285440df2c9d851740a3d74d15943ae0f269c299d584b811fee42535c6e9d874"
     },
     {
-      "bytes": 52682,
+      "bytes": 45700,
       "path": "registry/review_batches/gold_set_next_import_template.jsonl",
-      "sha256": "sha256:2673da8319ff869b7a197f7efbd8d1727d958764bc86253e623cc7288f5fa0a5"
+      "sha256": "sha256:8265e368590bc284f1d9d5ecfc88df5a2108d6f1d548e9d1fd6518995369b791"
     },
     {
-      "bytes": 2571,
+      "bytes": 2574,
       "path": "registry/review_batches/manual_review_batch_status.json",
-      "sha256": "sha256:f2727a9983af32fb2389efea43cbde15b88e795870437655f2cbfcc7e0a6a879"
+      "sha256": "sha256:a7f8505a96fe3a305c818202e47c938a865437660e56b3d0dce4fbf58697f092"
     },
     {
-      "bytes": 29679,
+      "bytes": 28556,
       "path": "registry/review_batches/source_license_next_import_template.jsonl",
-      "sha256": "sha256:100da89446375860806d839d75c7ff5f23d6fdcac08b70ed5dca3708d27edb9f"
+      "sha256": "sha256:7938f701bf5cc445f2d63c8ebbe5476ea55df6af3b7717c1978d598f957e7db1"
     },
     {
       "bytes": 995,
@@ -277,9 +277,9 @@
       "sha256": "sha256:e93b51c8e2b618bada34b326ad5f64bf2108d7ea3eda7d3e8c2a9def45c657b7"
     },
     {
-      "bytes": 77833,
+      "bytes": 3650896,
       "path": "registry/source_checks/source_registry_validation_report.json",
-      "sha256": "sha256:69f09a8201a6e57680edb493bb8664471ecd50f81ff5e098deb2cc42603bf4b2"
+      "sha256": "sha256:f03a1b08e375bd7cede2c1c65cd529fd31162159a9a533deb42691f839a48c8b"
     },
     {
       "bytes": 316,
@@ -292,19 +292,19 @@
       "sha256": "sha256:31fce153ce5cb668eb0f4b467dd8d91b0d6a01777b7755ab34519168b23ad055"
     },
     {
-      "bytes": 180884,
+      "bytes": 197251,
       "path": "registry/sources/tushare_research_reports.gold_candidates.jsonl",
-      "sha256": "sha256:d8a5aa10fe309b7f05a76d1280f5c514b197f59737ea22c6a1b424e07e1a2371"
+      "sha256": "sha256:96d6718cbb2cad646650f4b9b0d1c5ba8bea7d86f56ff4b36e93923312ec930e"
     },
     {
-      "bytes": 795059,
+      "bytes": 38245700,
       "path": "registry/sources/tushare_research_reports.jsonl",
-      "sha256": "sha256:11b2b56f55d73c234cf0bd237a9550dbfcb185271950a2e8872eb361c7712e81"
+      "sha256": "sha256:3efc25ccc0d540ed6f4d8e0c5cbcfaf1903d1671aed918de5ae0b9187ecb2642"
     },
     {
-      "bytes": 1247,
+      "bytes": 40820,
       "path": "registry/sources/tushare_research_reports.manifest.json",
-      "sha256": "sha256:44ca8ce010bf5cb895098c0b8e53a5c08baae5707f1d700aae4cad3018075b05"
+      "sha256": "sha256:ac4fa310687b6e43eca747337ac72dfc85f486c5733868e118fbae9cd873e16a"
     },
     {
       "bytes": 1668,

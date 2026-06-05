@@ -9,6 +9,7 @@ from mosaic.rke import (
     build_source_text_redaction_report,
     write_source_text_redaction_report,
 )
+from mosaic.rke.source_text_redaction import TEXT_MATCH_MIN_CHARS, _normalize_for_match
 
 
 def _copy_registry(dst_root: Path) -> None:
@@ -24,12 +25,22 @@ def _first_tushare_abstract_snippet(root: Path, size: int = 160) -> str:
     raise AssertionError("expected at least one long Tushare abstract")
 
 
+def _current_source_text_count(root: Path) -> int:
+    source_path = root / "registry/sources/tushare_research_reports.jsonl"
+    return sum(
+        1
+        for line in source_path.read_text(encoding="utf-8").splitlines()
+        if len(_normalize_for_match(str(json.loads(line).get("abstract") or "")))
+        >= TEXT_MATCH_MIN_CHARS
+    )
+
+
 def test_source_text_redaction_accepts_current_registry():
     report = build_source_text_redaction_report(".")
 
     assert report.accepted
     assert report.failure_count == 0
-    assert report.source_text_count == 207
+    assert report.source_text_count == _current_source_text_count(Path("."))
     assert report.fingerprint_count > report.source_text_count
     assert report.checked_path_count > 0
     assert report.min_match_chars == 80
@@ -62,5 +73,5 @@ def test_source_text_redaction_writer_outputs_report(tmp_path: Path):
 
     assert payload["accepted"] is True
     assert payload["failure_count"] == 0
-    assert payload["source_text_count"] == 207
+    assert payload["source_text_count"] == _current_source_text_count(tmp_path)
     assert payload["allowed_raw_text_paths"]

@@ -11,7 +11,7 @@
   ],
   "checked_path_count": 385,
   "failure_count": 0,
-  "fingerprint_count": 5892,
+  "fingerprint_count": 282538,
   "min_match_chars": 80,
   "records": [],
   "report_id": "RKE-SOURCE-TEXT-REDACTION-REPORT-20260606",
@@ -29,5 +29,5 @@
   ],
   "skipped_allowed_path_count": 6,
   "source_path": "registry/sources/tushare_research_reports.jsonl",
-  "source_text_count": 207
+  "source_text_count": 9783
 }

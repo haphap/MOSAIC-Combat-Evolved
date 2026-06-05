@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 from collections import Counter
 from dataclasses import asdict, dataclass, replace
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from hashlib import sha256
 from pathlib import Path
 from typing import Any, Iterable, Literal, Mapping, Sequence
@@ -177,6 +177,33 @@ def _chunked(values: Sequence[str], size: int) -> list[tuple[str, ...]]:
     return [normalized[index : index + size] for index in range(0, len(normalized), size)]
 
 
+def _date_windows(start_date: str, end_date: str, chunk_days: int) -> list[tuple[str, str]]:
+    if chunk_days <= 0:
+        raise ValueError("date_chunk_days must be positive")
+    start = date.fromisoformat(start_date)
+    end = date.fromisoformat(end_date)
+    if start > end:
+        raise ValueError("start_date must be on or before end_date")
+
+    windows: list[tuple[str, str]] = []
+    cursor = start
+    while cursor <= end:
+        window_end = min(cursor + timedelta(days=chunk_days - 1), end)
+        windows.append((_api_date(cursor.isoformat()), _api_date(window_end.isoformat())))
+        cursor = window_end + timedelta(days=1)
+    return windows
+
+
+def _broad_query_key(row: Mapping[str, Any], report_type: str) -> str:
+    ts_code = str(row.get("ts_code") or "").strip()
+    if ts_code:
+        return ts_code
+    industry = str(row.get("ind_name") or "").strip()
+    if industry:
+        return industry
+    return report_type
+
+
 def _fetch_stock_batch_records(
     client: Any,
     stock_batch: Sequence[str],
@@ -221,14 +248,33 @@ def _fetch_stock_batch_records(
     return fallback_records
 
 
+def _fetch_report_type_records(
+    client: Any,
+    report_type: str,
+    *,
+    start_api: str,
+    end_api: str,
+    max_reports_per_query: int,
+) -> list[dict[str, Any]]:
+    df = client.research_report(
+        start_date=start_api,
+        end_date=end_api,
+        report_type=report_type,
+        fields=_RESEARCH_REPORT_FIELDS,
+    )
+    return _df_to_records(df)[:max_reports_per_query]
+
+
 def fetch_tushare_research_reports(
     *,
     stock_codes: Sequence[str] = (),
     industry_keywords: Sequence[str] = (),
+    report_types: Sequence[str] = (),
     start_date: str,
     end_date: str,
     max_reports_per_query: int = 100,
     stock_query_batch_size: int = 50,
+    date_chunk_days: int = 31,
     discovered_at: str | None = None,
     pro: Any | None = None,
 ) -> list[RkeResearchReport]:
@@ -237,13 +283,32 @@ def fetch_tushare_research_reports(
     ``stock_codes`` should be Tushare codes such as ``600519.SH``. Industry
     keywords are passed to Tushare's ``ind_name`` field. Stock codes are batched
     into comma-separated ``ts_code`` queries because Tushare supports fetching
-    multiple stock-report codes per request.
+    multiple stock-report codes per request. ``report_types`` query full-market
+    reports by date window, which is the preferred mode for corpus collection.
     """
     client = pro or _get_pro_client()
     stamp = discovered_at or _utc_now()
     start_api = _api_date(start_date)
     end_api = _api_date(end_date)
     reports: list[RkeResearchReport] = []
+
+    for report_type in tuple(str(value or "").strip() for value in report_types if str(value or "").strip()):
+        for window_start_api, window_end_api in _date_windows(start_date, end_date, date_chunk_days):
+            for row in _fetch_report_type_records(
+                client,
+                report_type,
+                start_api=window_start_api,
+                end_api=window_end_api,
+                max_reports_per_query=max_reports_per_query,
+            ):
+                reports.append(
+                    normalize_research_report_row(
+                        row,
+                        report_type=report_type,
+                        query_key=_broad_query_key(row, report_type),
+                        discovered_at=stamp,
+                    )
+                )
 
     for stock_batch in _chunked(stock_codes, stock_query_batch_size):
         records = _fetch_stock_batch_records(
@@ -342,8 +407,10 @@ def _write_research_report_manifest(
     end_date: str,
     stock_codes: Sequence[str],
     industry_keywords: Sequence[str],
+    report_types: Sequence[str],
     max_reports_per_query: int,
     stock_query_batch_size: int,
+    date_chunk_days: int,
     row_count: int,
     rows_with_abstract: int,
     publish_date_min: str | None,
@@ -358,6 +425,7 @@ def _write_research_report_manifest(
         "license_status": "pending_review",
         "max_reports_per_query": max_reports_per_query,
         "stock_query_batch_size": stock_query_batch_size,
+        "date_chunk_days": date_chunk_days,
         "not_yet": [
             "not a passed gold set",
             "not production runtime input",
@@ -378,6 +446,7 @@ def _write_research_report_manifest(
         "query_key_counts": dict(query_key_counts),
         "query_set": {
             "industry_keywords": list(industry_keywords),
+            "report_types": list(report_types),
             "stock_codes": list(stock_codes),
         },
         "query_window": {
@@ -402,31 +471,37 @@ def refresh_tushare_research_report_registry(
     *,
     stock_codes: Sequence[str],
     industry_keywords: Sequence[str],
+    report_types: Sequence[str] = (),
     start_date: str,
     end_date: str,
     max_reports_per_query: int = 6000,
     stock_query_batch_size: int = 50,
+    date_chunk_days: int = 31,
     preserve_review_templates: bool = True,
     discovered_at: str | None = None,
     pro: Any | None = None,
 ) -> TushareResearchReportRefreshResult:
     """Fetch Tushare reports and refresh dependent Phase -1 registry artifacts."""
-    if not stock_codes and not industry_keywords:
-        raise ValueError("at least one stock code or industry keyword is required")
+    if not stock_codes and not industry_keywords and not report_types:
+        raise ValueError("at least one stock code, industry keyword, or report type is required")
     if max_reports_per_query <= 0:
         raise ValueError("max_reports_per_query must be positive")
     if stock_query_batch_size <= 0:
         raise ValueError("stock_query_batch_size must be positive")
+    if date_chunk_days <= 0:
+        raise ValueError("date_chunk_days must be positive")
 
     root_path = Path(root)
     ingested_at = discovered_at or _utc_now()
     reports = fetch_tushare_research_reports(
         stock_codes=stock_codes,
         industry_keywords=industry_keywords,
+        report_types=report_types,
         start_date=start_date,
         end_date=end_date,
         max_reports_per_query=max_reports_per_query,
         stock_query_batch_size=stock_query_batch_size,
+        date_chunk_days=date_chunk_days,
         discovered_at=ingested_at,
         pro=pro,
     )
@@ -501,8 +576,10 @@ def refresh_tushare_research_report_registry(
         end_date=end_date,
         stock_codes=stock_codes,
         industry_keywords=industry_keywords,
+        report_types=report_types,
         max_reports_per_query=max_reports_per_query,
         stock_query_batch_size=stock_query_batch_size,
+        date_chunk_days=date_chunk_days,
         row_count=audit.row_count,
         rows_with_abstract=audit.rows_with_abstract,
         publish_date_min=audit.publish_date_min,

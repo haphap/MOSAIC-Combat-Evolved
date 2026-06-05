@@ -53,8 +53,13 @@ def _accepted_license_row(row: dict) -> dict:
     }
 
 
+def _license_review_source_count(root: Path) -> int:
+    return len(_load_jsonl(root / "registry/compliance/tushare_license_review_template.jsonl"))
+
+
 def test_manual_review_batches_export_sparse_import_templates(tmp_path: Path):
     _copy_registry(tmp_path)
+    source_count = _license_review_source_count(tmp_path)
 
     paths = write_manual_review_batches(tmp_path, gold_batch_size=12, license_batch_size=7)
     status = json.loads(Path(paths["status"]).read_text(encoding="utf-8"))
@@ -64,7 +69,7 @@ def test_manual_review_batches_export_sparse_import_templates(tmp_path: Path):
     assert status["ready_for_manual_review"] is True
     assert status["gold_set"]["pending_rows"] == 500
     assert status["gold_set"]["exported_rows"] == 12
-    assert status["source_license"]["pending_rows"] == 207
+    assert status["source_license"]["pending_rows"] == source_count
     assert status["source_license"]["exported_rows"] == 7
     assert len(gold_rows) == 12
     assert len(license_rows) == 7
@@ -83,6 +88,7 @@ def test_manual_review_batch_status_moves_after_partial_import(tmp_path: Path):
     _copy_registry(tmp_path)
     gold_template = _load_jsonl(tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl")
     license_template = _load_jsonl(tmp_path / "registry/compliance/tushare_license_review_template.jsonl")
+    source_count = len(license_template)
     first_gold_id = gold_template[0]["claim_id"]
     first_license_id = license_template[0]["source_id"]
     gold_import = tmp_path / "gold_batch_import.jsonl"
@@ -101,6 +107,6 @@ def test_manual_review_batch_status_moves_after_partial_import(tmp_path: Path):
     assert gold_report.accepted
     assert license_report.accepted
     assert status.gold_set.pending_rows == 499
-    assert status.source_license.pending_rows == 206
+    assert status.source_license.pending_rows == source_count - 1
     assert all(row["claim_id"] != first_gold_id for row in gold_batch)
     assert all(row["source_id"] != first_license_id for row in license_batch)

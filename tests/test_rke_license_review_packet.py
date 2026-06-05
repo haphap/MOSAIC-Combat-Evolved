@@ -11,22 +11,28 @@ from mosaic.rke import (
 )
 
 
+def _license_review_source_count(root: Path) -> int:
+    path = root / "registry/compliance/tushare_license_review_template.jsonl"
+    return sum(1 for line in path.read_text(encoding="utf-8").splitlines() if line.strip())
+
+
 def test_license_review_packet_summarizes_current_manual_queue():
     packet = build_license_review_packet(".")
+    source_count = _license_review_source_count(Path("."))
 
     assert packet.packet_id == "RKE-SOURCE-LICENSE-REVIEW-PACKET-20260606"
     assert packet.status == "manual_review_pending"
     assert packet.manual_review_required
-    assert packet.source_count == 207
-    assert packet.review_row_count == 207
+    assert packet.source_count == source_count
+    assert packet.review_row_count == source_count
     assert packet.reviewed_sources == 0
-    assert packet.pending_sources == 207
+    assert packet.pending_sources == source_count
     assert packet.approved_for_derived_claim_storage == 0
     assert packet.approved_for_production_runtime == 0
-    assert packet.current_license_status_counts == {"pending_review": 207}
+    assert packet.current_license_status_counts == {"pending_review": source_count}
     assert packet.policy_reason_counts[
         "pending_review source is sandbox-only until compliance approval"
-    ] == 207
+    ] == source_count
 
 
 def test_license_review_packet_records_missing_manual_fields():
@@ -41,10 +47,11 @@ def test_license_review_packet_records_missing_manual_fields():
 
 def test_license_review_packet_markdown_renders_review_queue_summary():
     markdown = render_license_review_packet_markdown(build_license_review_packet("."))
+    source_count = _license_review_source_count(Path("."))
 
     assert markdown.startswith("# RKE Source License Review Packet")
     assert "Status: manual_review_pending" in markdown
-    assert "Pending sources: 207" in markdown
+    assert f"Pending sources: {source_count}" in markdown
     assert "Review Queue" in markdown
 
 
@@ -55,6 +62,6 @@ def test_license_review_packet_writer_outputs_json_and_markdown(tmp_path: Path):
     payload = json.loads(Path(paths["json"]).read_text(encoding="utf-8"))
     markdown = Path(paths["markdown"]).read_text(encoding="utf-8")
 
-    assert payload["source_count"] == 207
+    assert payload["source_count"] == _license_review_source_count(tmp_path)
     assert payload["manual_review_required"] is True
     assert markdown.startswith("# RKE Source License Review Packet")

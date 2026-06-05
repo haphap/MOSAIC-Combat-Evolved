@@ -74,7 +74,7 @@
       "blocker": "source license review still pending or restricted",
       "criterion_id": "C11",
       "description": "Compliance gate blocks unauthorized reports from production runtime.",
-      "evidence": "0 / 207 sources approved for production runtime; 207 Tushare source texts checked for long-passage exposure",
+      "evidence": "0 / 9812 sources approved for production runtime; 9783 Tushare source texts checked for long-passage exposure",
       "passed": false
     },
     {

@@ -14,17 +14,17 @@
 - Validation ablations accepted: True
 - Validation statistical significance accepted: True
 - Source validation sandbox accepted: True
-- Source validation production blockers: 207
+- Source validation production blockers: 9812
 - Source text redaction accepted: True
 - Source text redaction failures: 0
 - Sector demo: sandbox
 - Macro expansion candidates: 3
 - Phase 7 sector actionability: monitor_only
 - Gold-set review pending claims: 500
-- Gold review packet spans: 244
+- Gold review packet spans: 246
 - Gold candidate claims: 500
-- License review pending sources: 207
-- License review packet pending sources: 207
+- License review pending sources: 9812
+- License review packet pending sources: 9812
 - Next gold review batch rows: 50
 - Next license review batch rows: 50
 - Experiment governance family: FAM-CB-LIQUIDITY-2026Q2

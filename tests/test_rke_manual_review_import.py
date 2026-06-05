@@ -102,7 +102,8 @@ def test_apply_gold_set_review_import_dry_run_does_not_modify_template(tmp_path:
 def test_apply_license_review_import_passes_c11_and_source_production_gate(tmp_path: Path):
     _copy_registry(tmp_path)
     import_path = tmp_path / "license_import.jsonl"
-    _write_jsonl(import_path, _license_import_rows(tmp_path))
+    license_rows = _license_import_rows(tmp_path)
+    _write_jsonl(import_path, license_rows)
 
     report = apply_source_license_review_import(tmp_path, import_path)
     summary = summarize_source_license_review(tmp_path)
@@ -111,7 +112,7 @@ def test_apply_license_review_import_passes_c11_and_source_production_gate(tmp_p
     by_id = {criterion.criterion_id: criterion for criterion in audit.criteria}
 
     assert report.accepted
-    assert report.applied_rows == 207
+    assert report.applied_rows == len(license_rows)
     assert summary.review_complete
     assert summary.passed
     assert source_validation.accepted_for_production
@@ -142,8 +143,9 @@ def test_cli_apply_review_import_commands(tmp_path: Path, capsys):
     _copy_registry(tmp_path)
     gold_import = tmp_path / "gold_import.jsonl"
     license_import = tmp_path / "license_import.jsonl"
+    license_rows = _license_import_rows(tmp_path)
     _write_jsonl(gold_import, _gold_import_rows(tmp_path))
-    _write_jsonl(license_import, _license_import_rows(tmp_path))
+    _write_jsonl(license_import, license_rows)
 
     gold_code = main(("apply-gold-review", "--root", str(tmp_path), "--input", str(gold_import)))
     gold_output = json.loads(capsys.readouterr().out)
@@ -157,4 +159,4 @@ def test_cli_apply_review_import_commands(tmp_path: Path, capsys):
     assert gold_output["applied_rows"] == 500
     assert license_code == 0
     assert license_output["accepted"] is True
-    assert license_output["applied_rows"] == 207
+    assert license_output["applied_rows"] == len(license_rows)
