@@ -9,6 +9,7 @@
 - Lockbox result: not_opened
 - Validation ablations accepted: True
 - Sector demo: sandbox
+- Macro expansion candidates: 3
 
 ## Blockers
 

@@ -95,6 +95,14 @@ from .lockbox import (
     evaluate_lockbox_review,
     summarize_lockbox_reviews,
 )
+from .macro_expansion import (
+    MacroExpansionCandidate,
+    MacroExpansionPlan,
+    build_macro_expansion_data_matrix,
+    build_macro_expansion_plan,
+    central_bank_phase4_ready_from_registry,
+    write_macro_expansion_registry,
+)
 from .monitoring import (
     PaperTradingReport,
     PaperTradingSnapshot,
@@ -247,6 +255,12 @@ __all__ = [
     "LockboxReview",
     "evaluate_lockbox_review",
     "summarize_lockbox_reviews",
+    "MacroExpansionCandidate",
+    "MacroExpansionPlan",
+    "build_macro_expansion_data_matrix",
+    "build_macro_expansion_plan",
+    "central_bank_phase4_ready_from_registry",
+    "write_macro_expansion_registry",
     "PaperTradingReport",
     "PaperTradingSnapshot",
     "ProductionMonitorPolicy",

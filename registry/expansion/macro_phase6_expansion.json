@@ -1,0 +1,60 @@
+{
+  "candidates": [
+    {
+      "agent_id": "macro.volatility",
+      "candidate_rule_pack_id": "macro.volatility.risk_off.v1",
+      "metric_proxies": [
+        "vix_close",
+        "realized_volatility_rk_th2"
+      ],
+      "production_allowed": false,
+      "required_validation": [
+        "experiment_family",
+        "effective_n",
+        "walk_forward",
+        "paper_trading"
+      ],
+      "rule_family": "risk_off_gate",
+      "status": "candidate"
+    },
+    {
+      "agent_id": "macro.dollar",
+      "candidate_rule_pack_id": "macro.dollar.dollar_pressure.v1",
+      "metric_proxies": [
+        "fred_dtwexbgs",
+        "usdcny_fixing",
+        "cn_us_rate_spread_10y"
+      ],
+      "production_allowed": false,
+      "required_validation": [
+        "experiment_family",
+        "multiple_testing_control",
+        "cost_aware_acceptance",
+        "paper_trading"
+      ],
+      "rule_family": "dollar_pressure",
+      "status": "candidate"
+    },
+    {
+      "agent_id": "macro.yield_curve",
+      "candidate_rule_pack_id": "macro.yield_curve.curve_regime.v1",
+      "metric_proxies": [
+        "cn_yield_curve_10y_1y_spread",
+        "cn_us_rate_spread_10y"
+      ],
+      "production_allowed": false,
+      "required_validation": [
+        "experiment_family",
+        "regime_partial_pooling",
+        "lockbox_policy",
+        "paper_trading"
+      ],
+      "rule_family": "curve_regime",
+      "status": "candidate"
+    }
+  ],
+  "central_bank_phase4_ready": true,
+  "phase": "Phase 6",
+  "production_allowed": false,
+  "unlocked_by": "central_bank Phase 4 paper-trading gate"
+}

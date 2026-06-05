@@ -21,6 +21,12 @@
     "production_allowed": false,
     "result": "not_opened"
   },
+  "macro_expansion": {
+    "candidate_count": 3,
+    "central_bank_phase4_ready": true,
+    "phase": "Phase 6",
+    "production_allowed": false
+  },
   "paper_trading": {
     "mean_calibration_error": 0.025,
     "mean_live_net_alpha_after_cost": 0.0055,
