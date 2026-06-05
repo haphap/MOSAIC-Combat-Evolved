@@ -7,6 +7,7 @@
 - Production monitor state: production
 - Production monitor action: none
 - Lockbox result: not_opened
+- Validation ablations accepted: True
 
 ## Blockers
 

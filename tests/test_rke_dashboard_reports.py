@@ -20,6 +20,8 @@ def test_dashboard_report_summarizes_completion_and_monitoring():
     assert report["paper_trading"]["ready"] is True
     assert report["lockbox"]["result"] == "not_opened"
     assert report["lockbox"]["production_allowed"] is False
+    assert report["validation_hardening"]["ablation_accepted"] is True
+    assert report["validation_hardening"]["horizon_metric_failures"] == []
     assert report["audit_trace"]["agent_output_count"] == 1
     assert "manual" in " ".join(report["completion"]["blockers"])
 
@@ -29,6 +31,7 @@ def test_dashboard_markdown_renders_blockers():
 
     assert "# RKE Dashboard" in markdown
     assert "Broad rollout ready: false" in markdown
+    assert "Validation ablations accepted: True" in markdown
     assert "manual" in markdown
     assert "license" in markdown
 

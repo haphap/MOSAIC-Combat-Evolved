@@ -140,6 +140,18 @@ from .runtime import (
     RuntimeRecommendation,
     check_runtime_output,
 )
+from .validation_hardening import (
+    AblationCheckResult,
+    AblationResult,
+    RegimeBucketObservation,
+    RegimeEffect,
+    RegimePartialPoolingPolicy,
+    RegimePartialPoolingReport,
+    check_ablation_coverage,
+    check_horizon_metric_alignment,
+    check_scoring_precision,
+    evaluate_regime_partial_pooling,
+)
 
 __all__ = [
     "AuditReference",
@@ -256,4 +268,14 @@ __all__ = [
     "RuntimeOutputCheckResult",
     "RuntimeRecommendation",
     "check_runtime_output",
+    "AblationCheckResult",
+    "AblationResult",
+    "RegimeBucketObservation",
+    "RegimeEffect",
+    "RegimePartialPoolingPolicy",
+    "RegimePartialPoolingReport",
+    "check_ablation_coverage",
+    "check_horizon_metric_alignment",
+    "check_scoring_precision",
+    "evaluate_regime_partial_pooling",
 ]

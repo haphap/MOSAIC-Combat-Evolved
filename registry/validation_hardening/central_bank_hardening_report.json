@@ -1,0 +1,61 @@
+{
+  "ablation_checks": {
+    "accepted": true,
+    "results": [
+      {
+        "ablation_type": "single_rule",
+        "metric_delta": 0.012,
+        "passed": true
+      },
+      {
+        "ablation_type": "rule_group",
+        "metric_delta": 0.011,
+        "passed": true
+      },
+      {
+        "ablation_type": "correlated_rule_dedup",
+        "metric_delta": 0.003,
+        "passed": true
+      },
+      {
+        "ablation_type": "interaction",
+        "metric_delta": 0.002,
+        "passed": true
+      },
+      {
+        "ablation_type": "aggregation_level_backtest",
+        "metric_delta": 0.013,
+        "passed": true
+      }
+    ]
+  },
+  "experiment_id": "EXP-CB-20260605-0001",
+  "horizon_metric_failures": [],
+  "precision_failures": [],
+  "regime_partial_pooling": {
+    "failures": [
+      "risk_off: bucket_effective_n below diagnostic threshold"
+    ],
+    "global_delta": 0.013,
+    "regime_effects": {
+      "neutral": {
+        "effective_n": 80,
+        "gate_status": "regime_specific_gate",
+        "raw_delta": 0.013,
+        "shrunk_delta": 0.013
+      },
+      "risk_off": {
+        "effective_n": 23,
+        "gate_status": "insufficient_data",
+        "raw_delta": -0.01,
+        "shrunk_delta": 0.003019
+      },
+      "risk_on": {
+        "effective_n": 44,
+        "gate_status": "auxiliary_evidence",
+        "raw_delta": 0.018,
+        "shrunk_delta": 0.015973
+      }
+    }
+  }
+}

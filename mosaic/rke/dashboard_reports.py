@@ -19,6 +19,8 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
     runtime = _read_json(root_path / "registry/runtime_outputs/macro.central_bank.20260605.json")
     lockbox_path = root_path / "registry/lockbox/central_bank_lockbox_review.json"
     lockbox = _read_json(lockbox_path) if lockbox_path.exists() else {}
+    hardening_path = root_path / "registry/validation_hardening/central_bank_hardening_report.json"
+    hardening = _read_json(hardening_path) if hardening_path.exists() else {}
     criteria = completion.get("criteria", ())
     return {
         "dashboard_id": "RKE-DASHBOARD-20260605",
@@ -35,6 +37,12 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
             "open_count": lockbox.get("open_count"),
             "production_allowed": lockbox.get("result") == "passed"
             and int(lockbox.get("open_count") or 0) <= 1,
+        },
+        "validation_hardening": {
+            "ablation_accepted": hardening.get("ablation_checks", {}).get("accepted"),
+            "horizon_metric_failures": hardening.get("horizon_metric_failures", ()),
+            "precision_failures": hardening.get("precision_failures", ()),
+            "regime_failures": hardening.get("regime_partial_pooling", {}).get("failures", ()),
         },
         "audit_trace": {
             "source_count": len(audit_trace.get("source_ids", ())),
@@ -64,6 +72,7 @@ def render_dashboard_markdown(report: Mapping[str, Any]) -> str:
         f"- Production monitor state: {monitor.get('state')}",
         f"- Production monitor action: {monitor.get('action')}",
         f"- Lockbox result: {dict(report.get('lockbox') or {}).get('result')}",
+        f"- Validation ablations accepted: {dict(report.get('validation_hardening') or {}).get('ablation_accepted')}",
         "",
         "## Blockers",
         "",
