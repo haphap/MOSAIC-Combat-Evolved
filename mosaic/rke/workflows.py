@@ -15,6 +15,7 @@ from .gold_candidate_claims import write_gold_candidate_claims
 from .gold_review_packet import write_gold_review_packet
 from .license_review_packet import write_license_review_packet
 from .macro_expansion import write_macro_expansion_registry
+from .master_plan_coverage import write_master_plan_coverage_report
 from .phase_minus1 import load_jsonl, write_gold_set_review_template
 from .policy_doc_validation import write_policy_doc_validation_report
 from .prompt_asset_validation import write_prompt_asset_validation_report
@@ -83,6 +84,7 @@ def run_full_rke_refresh(
     prompt_asset_summary = write_prompt_asset_validation_report(root_path)
     policy_doc_summary = write_policy_doc_validation_report(root_path)
     audit_result = write_completion_audit(root_path)
+    master_plan_coverage = write_master_plan_coverage_report(root_path)
     dashboard_outputs = write_dashboard_reports(root_path)
     manifest_result = write_registry_manifest(root_path)
     outputs["gold_set_review_summary"] = str(gold_summary["path"])
@@ -102,6 +104,7 @@ def run_full_rke_refresh(
     outputs["prompt_asset_validation_report"] = str(prompt_asset_summary["path"])
     outputs["policy_doc_validation_report"] = str(policy_doc_summary["path"])
     outputs["completion_audit"] = str(audit_result["path"])
+    outputs["master_plan_coverage_report"] = str(master_plan_coverage["path"])
     outputs.update({f"dashboard.{key}": value for key, value in dashboard_outputs.items()})
     outputs["registry_manifest"] = str(manifest_result["path"])
     return RkeRefreshResult(

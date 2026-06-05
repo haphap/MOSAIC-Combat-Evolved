@@ -17,6 +17,10 @@ def test_dashboard_report_summarizes_completion_and_monitoring():
     assert report["ready_for_broad_rollout"] is False
     assert report["completion"]["passed"] == 10
     assert report["completion"]["total"] == 12
+    assert report["master_plan_coverage"]["coverage_complete"] is True
+    assert report["master_plan_coverage"]["ready_for_broad_rollout"] is False
+    assert report["master_plan_coverage"]["missing_count"] == 0
+    assert report["master_plan_coverage"]["blocked_count"] == 2
     assert report["paper_trading"]["ready"] is True
     assert report["lockbox"]["result"] == "not_opened"
     assert report["lockbox"]["production_allowed"] is False
@@ -60,6 +64,8 @@ def test_dashboard_markdown_renders_blockers():
 
     assert "# RKE Dashboard" in markdown
     assert "Broad rollout ready: false" in markdown
+    assert "Master-plan coverage missing: 0" in markdown
+    assert "Master-plan coverage blocked: 2" in markdown
     assert "Validation ablations accepted: True" in markdown
     assert "Validation statistical significance accepted: True" in markdown
     assert "Source validation sandbox accepted: True" in markdown

@@ -24,6 +24,10 @@ from .manual_review_import import (
     apply_gold_set_review_import,
     apply_source_license_review_import,
 )
+from .master_plan_coverage import (
+    build_master_plan_coverage_report,
+    write_master_plan_coverage_report,
+)
 from .policy_doc_validation import (
     build_policy_doc_validation_report,
     write_policy_doc_validation_report,
@@ -108,6 +112,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     audit = subparsers.add_parser("audit", help="Recompute completion audit.")
     audit.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
+
+    master_plan_status = subparsers.add_parser(
+        "master-plan-status",
+        help="Write and print the master-plan coverage audit.",
+    )
+    master_plan_status.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
 
     dashboard = subparsers.add_parser("dashboard", help="Write dashboard JSON and Markdown reports.")
     dashboard.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
@@ -253,6 +263,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         result = write_completion_audit(root)
         _print_json(result)
         return 0
+    if args.command == "master-plan-status":
+        write_master_plan_coverage_report(root)
+        result = build_master_plan_coverage_report(root)
+        _print_json(asdict(result))
+        return 0 if result.coverage_complete else 2
     if args.command == "dashboard":
         result = write_dashboard_reports(root)
         _print_json(result)

@@ -41,6 +41,20 @@ def test_rke_cli_manifest_writes_file(tmp_path: Path, capsys):
     assert Path(output["path"]).exists()
 
 
+def test_rke_cli_master_plan_status_writes_coverage(tmp_path: Path, capsys):
+    _copy_registry(tmp_path)
+    shutil.copytree(Path("schemas"), tmp_path / "schemas")
+
+    code = main(("master-plan-status", "--root", str(tmp_path)))
+    output = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert output["coverage_complete"] is True
+    assert output["ready_for_broad_rollout"] is False
+    assert output["blocked_count"] == 2
+    assert (tmp_path / "registry/audits/rke_master_plan_coverage_report.json").exists()
+
+
 def test_rke_cli_refresh_preserves_reviews(tmp_path: Path, capsys):
     _copy_registry(tmp_path)
     gold_review = tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"

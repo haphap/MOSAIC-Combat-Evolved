@@ -166,6 +166,12 @@ from .manual_review_import import (
     apply_gold_set_review_import,
     apply_source_license_review_import,
 )
+from .master_plan_coverage import (
+    MasterPlanCoverageRecord,
+    MasterPlanCoverageReport,
+    build_master_plan_coverage_report,
+    write_master_plan_coverage_report,
+)
 from .policy_doc_validation import (
     PolicyDocValidationRecord,
     PolicyDocValidationReport,
@@ -439,6 +445,10 @@ __all__ = [
     "ManualReviewImportReport",
     "apply_gold_set_review_import",
     "apply_source_license_review_import",
+    "MasterPlanCoverageRecord",
+    "MasterPlanCoverageReport",
+    "build_master_plan_coverage_report",
+    "write_master_plan_coverage_report",
     "PolicyDocValidationRecord",
     "PolicyDocValidationReport",
     "build_policy_doc_validation_report",

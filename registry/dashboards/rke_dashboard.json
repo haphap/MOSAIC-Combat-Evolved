@@ -95,6 +95,13 @@
       "total_sources": 207
     }
   },
+  "master_plan_coverage": {
+    "blocked_count": 2,
+    "coverage_complete": true,
+    "missing_count": 0,
+    "passed_count": 10,
+    "ready_for_broad_rollout": false
+  },
   "paper_trading": {
     "mean_calibration_error": 0.025,
     "mean_live_net_alpha_after_cost": 0.0055,

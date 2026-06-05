@@ -14,6 +14,8 @@ def _read_json(path: Path) -> dict[str, Any]:
 def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
     root_path = Path(root)
     completion = _read_json(root_path / "registry/audits/rke_completion_audit.json")
+    coverage_path = root_path / "registry/audits/rke_master_plan_coverage_report.json"
+    coverage = _read_json(coverage_path) if coverage_path.exists() else {}
     paper = _read_json(root_path / "registry/monitoring/central_bank_paper_trading_report.json")
     audit_trace = _read_json(root_path / "registry/audits/central_bank_mvp_audit_trace.json")
     runtime = _read_json(root_path / "registry/runtime_outputs/macro.central_bank.20260605.json")
@@ -90,6 +92,13 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
             "passed": sum(item.get("passed") is True for item in criteria),
             "total": len(criteria),
             "blockers": [item.get("blocker") for item in criteria if item.get("blocker")],
+        },
+        "master_plan_coverage": {
+            "coverage_complete": coverage.get("coverage_complete"),
+            "ready_for_broad_rollout": coverage.get("ready_for_broad_rollout"),
+            "passed_count": coverage.get("passed_count"),
+            "blocked_count": coverage.get("blocked_count"),
+            "missing_count": coverage.get("missing_count"),
         },
         "paper_trading": paper.get("paper_trading_summary", {}),
         "production_monitor": paper.get("production_monitor", {}),
@@ -246,6 +255,8 @@ def render_dashboard_markdown(report: Mapping[str, Any]) -> str:
         "",
         f"- Broad rollout ready: {str(report.get('ready_for_broad_rollout')).lower()}",
         f"- Completion: {completion.get('passed', 0)} / {completion.get('total', 0)}",
+        f"- Master-plan coverage missing: {dict(report.get('master_plan_coverage') or {}).get('missing_count')}",
+        f"- Master-plan coverage blocked: {dict(report.get('master_plan_coverage') or {}).get('blocked_count')}",
         f"- Paper trading ready: {str(paper.get('ready')).lower()}",
         f"- Mean live vs baseline delta: {paper.get('mean_live_vs_baseline_delta')}",
         f"- Production monitor state: {monitor.get('state')}",

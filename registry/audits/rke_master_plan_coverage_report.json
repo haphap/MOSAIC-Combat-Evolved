@@ -1,0 +1,154 @@
+{
+  "blocked_count": 2,
+  "coverage_complete": true,
+  "master_plan_path": "docs/master_plan_v1_1.md",
+  "missing_count": 0,
+  "passed_count": 10,
+  "ready_for_broad_rollout": false,
+  "records": [
+    {
+      "blocker": "",
+      "evidence_paths": [
+        "registry/data_availability/central_bank_data_availability.json",
+        "registry/data_availability/macro_expansion_data_availability.json"
+      ],
+      "requirement": "PIT data availability matrix covers central_bank and macro-expansion proxies.",
+      "section_id": "Phase-1A",
+      "status": "passed"
+    },
+    {
+      "blocker": "manual gold-set review still required",
+      "evidence_paths": [
+        "registry/gold_sets/tushare_research_reports.review_template.jsonl",
+        "registry/gold_sets/tushare_research_reports.candidate_claims.jsonl",
+        "registry/gold_sets/tushare_research_reports.review_packet.json",
+        "registry/gold_sets/tushare_research_reports.review_summary.json"
+      ],
+      "requirement": "Claim extraction reliability has 50-document / 500-claim manual gold-set gate.",
+      "section_id": "Phase-1B",
+      "status": "blocked"
+    },
+    {
+      "blocker": "",
+      "evidence_paths": [
+        "registry/evaluation/baselines/central_bank_baseline_versions.json",
+        "registry/evaluation/experiment_family_registry/central_bank_liquidity_family.json",
+        "registry/evaluation/pre_registration/central_bank_liquidity_preregistration.json",
+        "registry/evaluation/cost_model/cost_model_v1.json",
+        "registry/evaluation/lockbox/lockbox_policy.json",
+        "registry/evaluation/overlap_correction/effective_n_overlap_policy.json"
+      ],
+      "requirement": "Experiment governance artifacts exist for baseline, preregistration, cost, lockbox, and overlap policy.",
+      "section_id": "Phase-0",
+      "status": "passed"
+    },
+    {
+      "blocker": "",
+      "evidence_paths": [
+        "registry/schemas/rke_schema_validation_report.json",
+        "registry/docs/rke_policy_doc_validation_report.json",
+        "schemas/source_metadata.schema.json",
+        "schemas/source_grounded_claim.schema.json",
+        "schemas/hypothesis.schema.json",
+        "schemas/data_availability_matrix.schema.json",
+        "schemas/rule_pack.schema.yaml",
+        "schemas/parameter_prior.schema.json",
+        "schemas/validation_experiment_v2.schema.json",
+        "schemas/production_patch.schema.json",
+        "schemas/confidence_policy.schema.yaml",
+        "schemas/rule_aggregation_policy.schema.yaml"
+      ],
+      "requirement": "Hardened schemas and policy docs are validated.",
+      "section_id": "Phase-1",
+      "status": "passed"
+    },
+    {
+      "blocker": "",
+      "evidence_paths": [
+        "registry/rule_packs/macro.central_bank.liquidity.v1.json",
+        "registry/parameter_priors/central_bank_parameter_priors.jsonl",
+        "registry/experiments/central_bank_validation_experiment_v2.json",
+        "registry/validation_hardening/central_bank_hardening_report.json",
+        "registry/evaluation/statistical_significance/central_bank_after_cost_significance.json"
+      ],
+      "requirement": "Central-bank validation MVP includes hardened validation, effective N, FDR, costs, CI, and DSR.",
+      "section_id": "Phase-2",
+      "status": "passed"
+    },
+    {
+      "blocker": "",
+      "evidence_paths": [
+        "registry/prompt_ir/macro.central_bank.json",
+        "registry/runtime_inputs/macro.central_bank.20260605.json",
+        "registry/runtime_outputs/macro.central_bank.20260605.json",
+        "registry/prompt_checks/prompt_asset_validation_report.json"
+      ],
+      "requirement": "Runtime integration provides rule aggregation, evidence binding, progress event, and downstream handoff.",
+      "section_id": "Phase-3",
+      "status": "passed"
+    },
+    {
+      "blocker": "",
+      "evidence_paths": [
+        "registry/monitoring/central_bank_paper_trading_report.json"
+      ],
+      "requirement": "Paper-trading dashboard reports live-vs-baseline, calibration, turnover, cost, alpha decay, and rollback state.",
+      "section_id": "Phase-4",
+      "status": "passed"
+    },
+    {
+      "blocker": "",
+      "evidence_paths": [
+        "registry/rule_packs/sector.semiconductor.policy_substitution.v1.json",
+        "registry/claims/semiconductor_claims.jsonl",
+        "registry/hypotheses/semiconductor_hypotheses.jsonl",
+        "registry/disagreement/semiconductor_policy_substitution.json",
+        "registry/runtime_outputs/sector.semiconductor.demo.20260605.json"
+      ],
+      "requirement": "Sector semiconductor provenance demo remains sandbox-only with disagreement evidence.",
+      "section_id": "Phase-5",
+      "status": "passed"
+    },
+    {
+      "blocker": "",
+      "evidence_paths": [
+        "registry/expansion/macro_phase6_expansion.json",
+        "registry/data_availability/macro_expansion_data_availability.json"
+      ],
+      "requirement": "Macro expansion plan covers additional macro families after central_bank Phase 4 readiness.",
+      "section_id": "Phase-6",
+      "status": "passed"
+    },
+    {
+      "blocker": "",
+      "evidence_paths": [
+        "registry/integration/phase7_layer_integration_contracts.json"
+      ],
+      "requirement": "Sector / superinvestor / decision integration contracts encode handoff, actionability, cash floor, and override audit.",
+      "section_id": "Phase-7",
+      "status": "passed"
+    },
+    {
+      "blocker": "source license review still pending or restricted",
+      "evidence_paths": [
+        "registry/compliance/tushare_license_review_template.jsonl",
+        "registry/compliance/tushare_license_review_packet.json",
+        "registry/compliance/tushare_license_review_summary.json",
+        "registry/source_checks/source_registry_validation_report.json"
+      ],
+      "requirement": "Compliance gate blocks unauthorized reports from production runtime and can apply reviewed license decisions.",
+      "section_id": "Compliance",
+      "status": "blocked"
+    },
+    {
+      "blocker": "",
+      "evidence_paths": [
+        "registry/audits/central_bank_mvp_audit_trace.json"
+      ],
+      "requirement": "Audit viewer traces source to claim to hypothesis to rule to parameter to experiment to patch to agent output.",
+      "section_id": "Audit",
+      "status": "passed"
+    }
+  ],
+  "report_id": "RKE-MASTER-PLAN-COVERAGE-REPORT-20260606"
+}

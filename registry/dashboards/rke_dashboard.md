@@ -2,6 +2,8 @@
 
 - Broad rollout ready: false
 - Completion: 10 / 12
+- Master-plan coverage missing: 0
+- Master-plan coverage blocked: 2
 - Paper trading ready: true
 - Mean live vs baseline delta: 0.035
 - Production monitor state: production

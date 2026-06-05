@@ -12,6 +12,7 @@ from typing import Any, Sequence
 REQUIRED_REGISTRY_FILES = (
     "registry/audits/central_bank_mvp_audit_trace.json",
     "registry/audits/rke_completion_audit.json",
+    "registry/audits/rke_master_plan_coverage_report.json",
     "registry/claim_checks/claim_variable_validation_report.json",
     "registry/claims/central_bank_claims.jsonl",
     "registry/claims/semiconductor_claims.jsonl",

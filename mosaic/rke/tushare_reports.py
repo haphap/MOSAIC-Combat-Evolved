@@ -25,6 +25,7 @@ from .dashboard_reports import write_dashboard_reports
 from .gold_candidate_claims import write_gold_candidate_claims
 from .gold_review_packet import write_gold_review_packet
 from .license_review_packet import write_license_review_packet
+from .master_plan_coverage import write_master_plan_coverage_report
 from .phase_minus1 import (
     audit_research_report_corpus,
     load_jsonl,
@@ -463,6 +464,7 @@ def refresh_tushare_research_report_registry(
     prompt_asset_summary_result = write_prompt_asset_validation_report(root_path)
     policy_doc_summary_result = write_policy_doc_validation_report(root_path)
     completion_result = write_completion_audit(root_path)
+    master_plan_coverage_result = write_master_plan_coverage_report(root_path)
     dashboard_result = write_dashboard_reports(root_path)
     registry_manifest_result = write_registry_manifest(root_path)
     outputs["gold_review_summary"] = str(gold_summary_result["path"])
@@ -482,6 +484,7 @@ def refresh_tushare_research_report_registry(
     outputs["prompt_asset_validation_report"] = str(prompt_asset_summary_result["path"])
     outputs["policy_doc_validation_report"] = str(policy_doc_summary_result["path"])
     outputs["completion_audit"] = str(completion_result["path"])
+    outputs["master_plan_coverage_report"] = str(master_plan_coverage_result["path"])
     outputs.update({f"dashboard.{key}": value for key, value in dashboard_result.items()})
     outputs["registry_manifest"] = str(registry_manifest_result["path"])
 
