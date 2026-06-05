@@ -28,6 +28,8 @@ from .p0 import (
     compute_confidence_v1,
     evaluate_validation_experiment,
 )
+from .pipelines import plan_parameter_update
+from .prompt_assets import write_prompt_evolution_registry
 from .prompt_ir import (
     PromptIRContract,
     build_central_bank_prompt_ir,
@@ -405,6 +407,25 @@ def build_central_bank_mvp_bundle() -> CentralBankMvpBundle:
         evolution_targets=default_evolution_targets(),
         valid_experiment_ids={mvp["experiment"].experiment_id},
     )
+    mutation = plan_parameter_update(
+        mutation_id="MUT-CB-20260605-0001",
+        source_experiment_id=mvp["experiment"].experiment_id,
+        parameter_prior=mvp["parameter_prior"],
+        validation_decision=decision,
+        selected_value=10,
+        risk="May respond more slowly to very short liquidity shocks.",
+    )
+    mutation_validation = validate_patch(
+        mutation,
+        current_registry={target_path: 7},
+        parameter_types={
+            target_path: mvp["rule_pack"].rules["macro.central_bank.soft.001"].learnable_parameters[
+                "net_injection_window_days"
+            ]
+        },
+        evolution_targets=default_evolution_targets(),
+        valid_experiment_ids={mvp["experiment"].experiment_id},
+    )
     paper_report = PaperTradingReport(
         rule_id="macro.central_bank.soft.001",
         snapshots=(
@@ -456,6 +477,8 @@ def build_central_bank_mvp_bundle() -> CentralBankMvpBundle:
         "validation_decision": decision,
         "production_patch": patch,
         "patch_validation": patch_validation,
+        "mutation_proposal": mutation,
+        "mutation_validation": mutation_validation,
         "paper_trading_report": paper_report,
         "paper_trading_summary": paper_report.summarize(),
         "production_monitor": production_monitor,
@@ -500,6 +523,7 @@ def write_central_bank_mvp_registry(root: str | Path = ".") -> dict[str, str]:
         "audit": root_path / "registry/audits/central_bank_mvp_audit_trace.json",
         "completion_audit": root_path / "registry/audits/rke_completion_audit.json",
         "prompt_ir": root_path / "registry/prompt_ir/macro.central_bank.json",
+        "runtime_input": root_path / "registry/runtime_inputs/macro.central_bank.20260605.json",
         "runtime_output": root_path
         / "registry/runtime_outputs/macro.central_bank.20260605.json",
     }
@@ -522,12 +546,19 @@ def write_central_bank_mvp_registry(root: str | Path = ".") -> dict[str, str]:
     _write_json(outputs["audit"], artifacts["audit_trace"])
     _write_json(outputs["completion_audit"], bundle.completion_audit)
     _write_json(outputs["prompt_ir"], bundle.prompt_ir)
+    prompt_outputs = write_prompt_evolution_registry(
+        root_path,
+        contract=bundle.prompt_ir,
+        runtime_input=artifacts["runtime_input"],
+        mutation=artifacts["mutation_proposal"],
+        mutation_validation=artifacts["mutation_validation"],
+    )
     _write_json(
         outputs["runtime_output"],
         {"agent_output_id": "OUT-CB-20260605-0001", **_jsonable(bundle.runtime_output)},
     )
     governance_outputs = write_experiment_governance_registry(root_path)
-    return {**{key: str(path) for key, path in outputs.items()}, **governance_outputs}
+    return {**{key: str(path) for key, path in outputs.items()}, **prompt_outputs, **governance_outputs}
 
 
 def main() -> None:

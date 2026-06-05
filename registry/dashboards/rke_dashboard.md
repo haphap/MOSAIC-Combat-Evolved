@@ -15,6 +15,7 @@
 - License review pending sources: 207
 - Experiment governance family: FAM-CB-LIQUIDITY-2026Q2
 - Schema validation failures: 0
+- Prompt mutation validation accepted: True
 
 ## Blockers
 

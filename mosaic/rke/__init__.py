@@ -171,6 +171,12 @@ from .prompt_ir import (
     build_central_bank_runtime_input,
     validate_prompt_ir_contract,
 )
+from .prompt_assets import (
+    MutationPatchArtifact,
+    RenderedPromptArtifact,
+    render_prompt_markdown,
+    write_prompt_evolution_registry,
+)
 from .registry_manifest import (
     RegistryArtifact,
     RegistryManifest,
@@ -375,6 +381,10 @@ __all__ = [
     "build_central_bank_prompt_ir",
     "build_central_bank_runtime_input",
     "validate_prompt_ir_contract",
+    "MutationPatchArtifact",
+    "RenderedPromptArtifact",
+    "render_prompt_markdown",
+    "write_prompt_evolution_registry",
     "RegistryArtifact",
     "RegistryManifest",
     "build_registry_manifest",

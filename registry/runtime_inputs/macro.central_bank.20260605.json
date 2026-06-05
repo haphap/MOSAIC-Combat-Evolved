@@ -1,0 +1,33 @@
+{
+  "active_rule_packs": [
+    "macro.central_bank.liquidity.v1"
+  ],
+  "agent_id": "macro.central_bank",
+  "current_regime": {
+    "liquidity": "supportive",
+    "risk_appetite": "neutral",
+    "volatility": "normal"
+  },
+  "rule_validation_scores": {
+    "macro.central_bank.soft.001": {
+      "allowed_max_adjustment": 0.1,
+      "empirical_confidence_bin": "medium",
+      "validation_status": "paper_trading"
+    }
+  },
+  "runtime_date": "2026-06-05",
+  "tool_outputs_normalized": [
+    {
+      "as_of": "2026-06-05",
+      "fallback": false,
+      "freshness_days": 0,
+      "lookback_window_days": 7,
+      "metric": "pboc_net_injection_7d",
+      "quality_flags": [],
+      "tool_call_id": "TC-CB-20260605-0001",
+      "tool_name": "get_pboc_ops",
+      "unit": "CNY 100mn",
+      "value": 12500
+    }
+  ]
+}

@@ -6,6 +6,7 @@ from pathlib import Path
 from mosaic.rke import (
     build_central_bank_mvp_bundle,
     build_central_bank_prompt_ir,
+    render_prompt_markdown,
     validate_prompt_ir_contract,
     write_central_bank_mvp_registry,
 )
@@ -32,6 +33,7 @@ def test_central_bank_mvp_bundle_reaches_paper_trading_but_blocks_broad_rollout(
     assert artifacts["validation_decision"].status == "paper_trading"
     assert artifacts["runtime_output_check"].accepted
     assert artifacts["patch_validation"].accepted
+    assert artifacts["mutation_validation"].accepted
     assert artifacts["paper_trading_summary"]["ready"]
     assert artifacts["production_monitor"].state == "production"
     assert artifacts["audit_trace_failures"] == ()
@@ -65,3 +67,26 @@ def test_central_bank_registry_writer_emits_schema_aligned_artifacts(tmp_path: P
     assert experiment["multiple_testing_control"]["adjusted_q_value"] <= 0.10
     assert source_rows[0]["source_id"] == claim_rows[0]["source_id"]
     assert completion_audit["criteria"][1]["passed"] is False
+
+    rendered_prompt = Path(outputs["rendered_prompt_markdown"]).read_text(encoding="utf-8")
+    rendered_metadata = json.loads(Path(outputs["rendered_prompt_metadata"]).read_text(encoding="utf-8"))
+    runtime_input = json.loads(Path(outputs["runtime_input"]).read_text(encoding="utf-8"))
+    mutation_patch = json.loads(Path(outputs["mutation_patch"]).read_text(encoding="utf-8"))
+
+    assert "## Output Schema" in rendered_prompt
+    assert "research_only_no_trade" in rendered_prompt
+    assert rendered_metadata["output_schema_ref"] == "agent_output_schema.v2"
+    assert runtime_input["active_rule_packs"] == ["macro.central_bank.liquidity.v1"]
+    assert mutation_patch["mutation"]["mutation_id"] == "MUT-CB-20260605-0001"
+    assert mutation_patch["validation"]["accepted"] is True
+    assert mutation_patch["production_allowed"] is False
+
+
+def test_render_prompt_markdown_keeps_schema_and_guardrails():
+    bundle = build_central_bank_mvp_bundle()
+    text = render_prompt_markdown(bundle.prompt_ir, bundle.artifacts["runtime_input"])
+
+    assert "# macro.central_bank RKE Runtime Prompt" in text
+    assert "get_pboc_ops" in text
+    assert "output_schema_ref: agent_output_schema.v2" in text
+    assert "research_reports_are_prior_not_signal" in text

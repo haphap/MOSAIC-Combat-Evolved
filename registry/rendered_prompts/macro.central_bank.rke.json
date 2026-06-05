@@ -1,0 +1,16 @@
+{
+  "agent_id": "macro.central_bank",
+  "guardrails": [
+    "research_reports_are_prior_not_signal",
+    "research_only_no_trade",
+    "no_direct_production_promotion"
+  ],
+  "handoff_schema_ref": "downstream_handoff.v1",
+  "output_schema_ref": "agent_output_schema.v2",
+  "progress_event_schema_ref": "progress_event.v1",
+  "prompt_id": "PROMPT-MACRO-CENTRAL-BANK-RKE-20260606",
+  "prompt_ir_ref": "registry/prompt_ir/macro.central_bank.json",
+  "prompt_version": "0.3.2-rke",
+  "rendered_prompt_path": "registry/rendered_prompts/macro.central_bank.rke.md",
+  "runtime_input_ref": "registry/runtime_inputs/macro.central_bank.20260605.json"
+}

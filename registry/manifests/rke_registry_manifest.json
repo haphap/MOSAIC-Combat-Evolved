@@ -1,5 +1,5 @@
 {
-  "artifact_count": 41,
+  "artifact_count": 45,
   "artifacts": [
     {
       "bytes": 539,
@@ -32,14 +32,14 @@
       "sha256": "sha256:d519117af396793a5f27fc06e808ca93b55d6f4a2d0ae63bd6c7b9c360cadbd0"
     },
     {
-      "bytes": 3497,
+      "bytes": 3923,
       "path": "registry/dashboards/rke_dashboard.json",
-      "sha256": "sha256:1e27d64c1c74b6ad3cbc46047cd8ddfe43c499b4849968dcda579d8eb64b16c3"
+      "sha256": "sha256:f8d33840d153acb7c629a7a535e7ea28d85a72eeabec9c2181976e458636b349"
     },
     {
-      "bytes": 724,
+      "bytes": 768,
       "path": "registry/dashboards/rke_dashboard.md",
-      "sha256": "sha256:3dee2fe7266373abcdba05d2e968ece0e347147bd637e4c98641feff6a76644e"
+      "sha256": "sha256:43ca29c9e1b5369985c014524a600590b97c67b452a05738a81be8ef0cc6f199"
     },
     {
       "bytes": 1233,
@@ -137,6 +137,11 @@
       "sha256": "sha256:11b24f464734bff90a0ac2f8ef99aa53357497b725d6d1f965b863b22330f694"
     },
     {
+      "bytes": 914,
+      "path": "registry/mutation_patches/central_bank_parameter_update.json",
+      "sha256": "sha256:07a9697b3d79bc1aa801e0dbfa91b6ced56cc854a818118dbce1da559edd924d"
+    },
+    {
       "bytes": 539,
       "path": "registry/parameter_priors/central_bank_parameter_priors.jsonl",
       "sha256": "sha256:e887e41482b6eee623f9018a35f3ded830a0f829b492e5dd89db543cea9b0df9"
@@ -152,6 +157,16 @@
       "sha256": "sha256:26ed4f954c272d37b3575912438ee33188c737800731e930fd7dc712954197c3"
     },
     {
+      "bytes": 643,
+      "path": "registry/rendered_prompts/macro.central_bank.rke.json",
+      "sha256": "sha256:b68432ee58450eec7ef4e88d48ba4196a1917bd13f00cf9c820fdb259a4b5d0d"
+    },
+    {
+      "bytes": 990,
+      "path": "registry/rendered_prompts/macro.central_bank.rke.md",
+      "sha256": "sha256:285440df2c9d851740a3d74d15943ae0f269c299d584b811fee42535c6e9d874"
+    },
+    {
       "bytes": 995,
       "path": "registry/rule_packs/macro.central_bank.liquidity.v1.json",
       "sha256": "sha256:8d0807ca329d6ef4a52034031e8766ae6201fe2d2043d2499d687b8f5eac7929"
@@ -160,6 +175,11 @@
       "bytes": 1468,
       "path": "registry/rule_packs/sector.semiconductor.policy_substitution.v1.json",
       "sha256": "sha256:12cb55f18f842b800499f6536bdc74cc833afb947e0f7b9a8fd85b0ed8cfa89c"
+    },
+    {
+      "bytes": 816,
+      "path": "registry/runtime_inputs/macro.central_bank.20260605.json",
+      "sha256": "sha256:8f336e7070c76b62cb66d72ca46a579b380823a557eaaae52fa1b4f79785cae9"
     },
     {
       "bytes": 2404,

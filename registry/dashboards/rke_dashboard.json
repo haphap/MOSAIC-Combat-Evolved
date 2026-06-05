@@ -82,6 +82,14 @@
     "reasons": [],
     "state": "production"
   },
+  "prompt_evolution": {
+    "mutation_id": "MUT-CB-20260605-0001",
+    "mutation_target_path": "/rule_packs/macro.central_bank.liquidity.v1/rules/macro.central_bank.soft.001/learnable_parameters/net_injection_window_days/value",
+    "mutation_validation_accepted": true,
+    "production_allowed": false,
+    "prompt_version": "0.3.2-rke",
+    "rendered_prompt_path": "registry/rendered_prompts/macro.central_bank.rke.md"
+  },
   "ready_for_broad_rollout": false,
   "runtime_progress": {
     "agent_id": "macro.central_bank",

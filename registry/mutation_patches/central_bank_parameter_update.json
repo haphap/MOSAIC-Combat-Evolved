@@ -1,0 +1,29 @@
+{
+  "mutation": {
+    "agent_id": "macro.central_bank",
+    "expected_effect": {
+      "direction": "increase",
+      "net_alpha_after_cost": 0.013,
+      "primary_metric": "net_alpha_after_cost_20d"
+    },
+    "mutation_id": "MUT-CB-20260605-0001",
+    "new_value": 10,
+    "old_value": 7,
+    "operation": "replace",
+    "proposal_type": "parameter_update",
+    "risk": "May respond more slowly to very short liquidity shocks.",
+    "rollback_condition": {
+      "delta_lt": -0.02,
+      "metric": "live_net_alpha_after_cost_20d",
+      "window_trading_days": 60
+    },
+    "source_experiment_id": "EXP-CB-20260605-0001",
+    "target_path": "/rule_packs/macro.central_bank.liquidity.v1/rules/macro.central_bank.soft.001/learnable_parameters/net_injection_window_days/value"
+  },
+  "production_allowed": false,
+  "promotion_state": "paper_trading",
+  "validation": {
+    "accepted": true,
+    "reasons": []
+  }
+}
