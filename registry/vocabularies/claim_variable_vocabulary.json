@@ -55,6 +55,55 @@
       "status": "sandbox",
       "variable_id": "semiconductor_policy_substitution_alpha",
       "variable_type": "target"
+    },
+    {
+      "description": "Battery product and process technology iteration affecting competitive position.",
+      "domain": "sector.ev_battery",
+      "status": "sandbox",
+      "variable_id": "ev_battery_technology_iteration",
+      "variable_type": "cause"
+    },
+    {
+      "description": "Charging, swapping, and downstream replenishment ecosystem demand.",
+      "domain": "sector.ev_battery",
+      "status": "sandbox",
+      "variable_id": "ev_charging_ecosystem_demand",
+      "variable_type": "both"
+    },
+    {
+      "description": "Expected profitability of battery leaders after product and demand changes.",
+      "domain": "sector.ev_battery",
+      "status": "sandbox",
+      "variable_id": "battery_profitability_expectation",
+      "variable_type": "target"
+    },
+    {
+      "description": "Demand recovery and channel inventory normalization for liquor leaders.",
+      "domain": "sector.consumer",
+      "status": "sandbox",
+      "variable_id": "liquor_demand_recovery",
+      "variable_type": "cause"
+    },
+    {
+      "description": "Expected profitability and pricing power of consumer sector leaders.",
+      "domain": "sector.consumer",
+      "status": "sandbox",
+      "variable_id": "consumer_leader_profitability_expectation",
+      "variable_type": "target"
+    },
+    {
+      "description": "Credit supply, loan growth, and financial support intensity for banks.",
+      "domain": "sector.bank",
+      "status": "sandbox",
+      "variable_id": "bank_credit_supply",
+      "variable_type": "cause"
+    },
+    {
+      "description": "Net interest margin and profitability pressure in the banking sector.",
+      "domain": "sector.bank",
+      "status": "sandbox",
+      "variable_id": "bank_net_interest_margin_pressure",
+      "variable_type": "target"
     }
   ],
   "vocabulary_id": "CLAIM-VARIABLE-VOCABULARY-20260606"

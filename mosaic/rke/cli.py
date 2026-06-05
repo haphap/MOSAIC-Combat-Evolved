@@ -15,6 +15,9 @@ from .claim_vocabulary import (
 )
 from .completion_auditor import write_completion_audit
 from .dashboard_reports import write_dashboard_reports
+from .gold_candidate_claims import (
+    write_gold_candidate_claims,
+)
 from .gold_review_packet import build_gold_review_packet, write_gold_review_packet
 from .license_review_packet import build_license_review_packet, write_license_review_packet
 from .prompt_asset_validation import (
@@ -142,6 +145,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Write and print the Phase -1 gold-set manual review packet summary.",
     )
     gold_packet.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
+
+    gold_candidate_claims = subparsers.add_parser(
+        "gold-candidate-claims",
+        help="Write and print deterministic source-bound candidate claims for gold-set review.",
+    )
+    gold_candidate_claims.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
 
     license_status = subparsers.add_parser(
         "license-status",
@@ -292,9 +301,29 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "document_count": packet.document_count,
                 "review_row_count": packet.review_row_count,
                 "pending_review_rows": packet.pending_review_rows,
+                "candidate_claim_count": packet.candidate_claim_count,
+                "candidate_claim_available_count": packet.candidate_claim_available_count,
+                "review_rows_with_candidate_fields": packet.review_rows_with_candidate_fields,
                 "candidate_span_ref_count": packet.candidate_span_ref_count,
                 "manual_review_required": packet.manual_review_required,
                 "risk_flag_counts": packet.risk_flag_counts,
+            }
+        )
+        return 0
+    if args.command == "gold-candidate-claims":
+        paths = write_gold_candidate_claims(root)
+        summary = json.loads(Path(paths["summary"]).read_text(encoding="utf-8"))
+        _print_json(
+            {
+                "paths": paths,
+                "summary_id": summary["summary_id"],
+                "candidate_claim_count": summary["candidate_claim_count"],
+                "candidate_available_count": summary["candidate_available_count"],
+                "missing_variable_mapping_count": summary["missing_variable_mapping_count"],
+                "review_rows_with_candidate_fields": summary["review_rows_with_candidate_fields"],
+                "manual_fields_preserved": summary["manual_fields_preserved"],
+                "direction_counts": summary["direction_counts"],
+                "claim_type_counts": summary["claim_type_counts"],
             }
         )
         return 0

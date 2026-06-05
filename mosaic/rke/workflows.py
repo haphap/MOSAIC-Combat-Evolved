@@ -11,6 +11,7 @@ from .claim_vocabulary import write_claim_variable_validation_report, write_clai
 from .completion_auditor import write_completion_audit
 from .compliance import write_source_license_review_template
 from .dashboard_reports import write_dashboard_reports
+from .gold_candidate_claims import write_gold_candidate_claims
 from .gold_review_packet import write_gold_review_packet
 from .license_review_packet import write_license_review_packet
 from .macro_expansion import write_macro_expansion_registry
@@ -71,6 +72,7 @@ def run_full_rke_refresh(
     license_summary = write_source_license_review_summary(root_path)
     license_packet = write_license_review_packet(root_path)
     claim_vocabulary = write_claim_variable_vocabulary(root_path)
+    gold_candidate_claims = write_gold_candidate_claims(root_path)
     gold_packet = write_gold_review_packet(root_path)
     claim_variable_summary = write_claim_variable_validation_report(root_path)
     source_validation = write_source_registry_validation_report(root_path)
@@ -88,6 +90,8 @@ def run_full_rke_refresh(
     outputs["license_review_packet.json"] = license_packet["json"]
     outputs["license_review_packet.markdown"] = license_packet["markdown"]
     outputs["claim_variable_vocabulary"] = str(claim_vocabulary["path"])
+    outputs["gold_candidate_claims"] = gold_candidate_claims["candidate_claims"]
+    outputs["gold_candidate_claims_summary"] = gold_candidate_claims["summary"]
     outputs["claim_variable_validation_report"] = str(claim_variable_summary["path"])
     outputs["source_registry_validation_report"] = str(source_validation["path"])
     outputs["schema_validation_report"] = str(schema_summary["path"])

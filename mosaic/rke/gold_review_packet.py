@@ -21,6 +21,7 @@ from .phase_minus1 import load_jsonl
 
 GOLD_REVIEW_PACKET_JSON_PATH = "registry/gold_sets/tushare_research_reports.review_packet.json"
 GOLD_REVIEW_PACKET_MD_PATH = "registry/gold_sets/tushare_research_reports.review_packet.md"
+GOLD_CANDIDATE_CLAIMS_SUMMARY_PATH = "registry/gold_sets/tushare_research_reports.candidate_claims.summary.json"
 GOLD_CANDIDATES_PATH = "registry/sources/tushare_research_reports.gold_candidates.jsonl"
 GOLD_REVIEW_TEMPLATE_PATH = "registry/gold_sets/tushare_research_reports.review_template.jsonl"
 
@@ -93,6 +94,9 @@ class GoldReviewPacket:
     document_count: int
     review_row_count: int
     pending_review_rows: int
+    candidate_claim_count: int
+    candidate_claim_available_count: int
+    review_rows_with_candidate_fields: int
     candidate_span_ref_count: int
     query_key_counts: Mapping[str, int]
     report_type_counts: Mapping[str, int]
@@ -118,6 +122,12 @@ def _write_json(path: Path, payload: Mapping[str, Any]) -> dict[str, Any]:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(_jsonable(payload), ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return {"path": str(path), "rows": 1}
+
+
+def _optional_json(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def _short_hash(text: str) -> str:
@@ -239,6 +249,7 @@ def build_gold_review_packet(root: str | Path = ".") -> GoldReviewPacket:
     candidates = load_jsonl(root_path / GOLD_CANDIDATES_PATH)
     review_rows = load_jsonl(root_path / GOLD_REVIEW_TEMPLATE_PATH)
     review_by_source = _review_rows_by_source(review_rows)
+    candidate_claim_summary = _optional_json(root_path / GOLD_CANDIDATE_CLAIMS_SUMMARY_PATH)
     vocabulary = load_claim_variable_vocabulary(root_path)
     known_variable_ids = {variable.variable_id for variable in vocabulary.variables}
     documents = tuple(
@@ -275,6 +286,13 @@ def build_gold_review_packet(root: str | Path = ".") -> GoldReviewPacket:
         document_count=len(documents),
         review_row_count=len(review_rows),
         pending_review_rows=sum(_row_pending(row) for row in review_rows),
+        candidate_claim_count=int(candidate_claim_summary.get("candidate_claim_count") or 0),
+        candidate_claim_available_count=int(
+            candidate_claim_summary.get("candidate_available_count") or 0
+        ),
+        review_rows_with_candidate_fields=int(
+            candidate_claim_summary.get("review_rows_with_candidate_fields") or 0
+        ),
         candidate_span_ref_count=sum(len(document.candidate_span_refs) for document in documents),
         query_key_counts=dict(query_key_counts),
         report_type_counts=dict(report_type_counts),
@@ -291,6 +309,9 @@ def render_gold_review_packet_markdown(packet: GoldReviewPacket) -> str:
         f"- Documents: {packet.document_count}",
         f"- Review rows: {packet.review_row_count}",
         f"- Pending review rows: {packet.pending_review_rows}",
+        f"- Candidate claims: {packet.candidate_claim_count}",
+        f"- Candidate claims with source text: {packet.candidate_claim_available_count}",
+        f"- Review rows with candidate fields: {packet.review_rows_with_candidate_fields}",
         f"- Candidate span refs: {packet.candidate_span_ref_count}",
         f"- Manual review required: {str(packet.manual_review_required).lower()}",
         "",

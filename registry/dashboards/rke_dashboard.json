@@ -52,6 +52,13 @@
     "production_allowed": false
   },
   "manual_review_gates": {
+    "gold_candidate_claims": {
+      "candidate_available_count": 500,
+      "candidate_claim_count": 500,
+      "manual_fields_preserved": true,
+      "missing_variable_mapping_count": 79,
+      "review_rows_with_candidate_fields": 500
+    },
     "gold_review_packet": {
       "candidate_span_ref_count": 244,
       "document_count": 50,

@@ -112,6 +112,14 @@ from .governance import (
     default_evolution_targets,
     validate_patch,
 )
+from .gold_candidate_claims import (
+    GoldCandidateClaim,
+    GoldCandidateClaimSummary,
+    build_gold_candidate_claim_summary,
+    build_gold_candidate_claims,
+    merge_candidate_claims_into_review_template,
+    write_gold_candidate_claims,
+)
 from .gold_review_packet import (
     CandidateSpanRef,
     GoldReviewDocumentPacket,
@@ -379,6 +387,12 @@ __all__ = [
     "ProductionPatch",
     "default_evolution_targets",
     "validate_patch",
+    "GoldCandidateClaim",
+    "GoldCandidateClaimSummary",
+    "build_gold_candidate_claim_summary",
+    "build_gold_candidate_claims",
+    "merge_candidate_claims_into_review_template",
+    "write_gold_candidate_claims",
     "CandidateSpanRef",
     "GoldReviewDocumentPacket",
     "GoldReviewPacket",

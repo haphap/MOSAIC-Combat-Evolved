@@ -20,6 +20,9 @@ def test_gold_review_packet_summarizes_current_manual_queue():
     assert packet.document_count == 50
     assert packet.review_row_count == 500
     assert packet.pending_review_rows == 500
+    assert packet.candidate_claim_count == 500
+    assert packet.candidate_claim_available_count == 500
+    assert packet.review_rows_with_candidate_fields == 500
     assert packet.candidate_span_ref_count > 0
     assert packet.risk_flag_counts["manual_review_required"] == 50
     assert packet.risk_flag_counts["license_pending"] == 50
@@ -43,6 +46,7 @@ def test_gold_review_packet_markdown_renders_review_queue_summary():
     assert markdown.startswith("# RKE Gold Review Packet")
     assert "Status: manual_review_pending" in markdown
     assert "Pending review rows: 500" in markdown
+    assert "Candidate claims: 500" in markdown
     assert "Review Queue" in markdown
 
 
@@ -54,5 +58,6 @@ def test_gold_review_packet_writer_outputs_json_and_markdown(tmp_path: Path):
     markdown = Path(paths["markdown"]).read_text(encoding="utf-8")
 
     assert payload["document_count"] == 50
+    assert payload["candidate_claim_count"] == 500
     assert payload["manual_review_required"] is True
     assert markdown.startswith("# RKE Gold Review Packet")

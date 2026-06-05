@@ -59,6 +59,8 @@ def test_rke_cli_review_status_commands_write_summaries(tmp_path: Path, capsys):
 
     gold_code = main(("gold-set-status", "--root", str(tmp_path)))
     gold_output = json.loads(capsys.readouterr().out)
+    candidate_code = main(("gold-candidate-claims", "--root", str(tmp_path)))
+    candidate_output = json.loads(capsys.readouterr().out)
     packet_code = main(("gold-review-packet", "--root", str(tmp_path)))
     packet_output = json.loads(capsys.readouterr().out)
     license_code = main(("license-status", "--root", str(tmp_path)))
@@ -69,8 +71,18 @@ def test_rke_cli_review_status_commands_write_summaries(tmp_path: Path, capsys):
     assert gold_code == 0
     assert gold_output["pending_claims"] == 500
     assert (tmp_path / "registry/gold_sets/tushare_research_reports.review_summary.json").exists()
+    assert candidate_code == 0
+    assert candidate_output["candidate_claim_count"] == 500
+    assert candidate_output["review_rows_with_candidate_fields"] == 500
+    assert candidate_output["manual_fields_preserved"] is True
+    assert (tmp_path / "registry/gold_sets/tushare_research_reports.candidate_claims.jsonl").exists()
+    assert (
+        tmp_path / "registry/gold_sets/tushare_research_reports.candidate_claims.summary.json"
+    ).exists()
     assert packet_code == 0
     assert packet_output["pending_review_rows"] == 500
+    assert packet_output["candidate_claim_count"] == 500
+    assert packet_output["review_rows_with_candidate_fields"] == 500
     assert packet_output["candidate_span_ref_count"] > 0
     assert (tmp_path / "registry/gold_sets/tushare_research_reports.review_packet.json").exists()
     assert (tmp_path / "registry/gold_sets/tushare_research_reports.review_packet.md").exists()

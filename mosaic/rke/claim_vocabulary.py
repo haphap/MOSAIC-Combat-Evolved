@@ -113,6 +113,55 @@ DEFAULT_VARIABLES = (
         description="Relative return potential attributed to domestic policy-substitution logic.",
         status="sandbox",
     ),
+    ClaimVariableDefinition(
+        variable_id="ev_battery_technology_iteration",
+        domain="sector.ev_battery",
+        variable_type="cause",
+        description="Battery product and process technology iteration affecting competitive position.",
+        status="sandbox",
+    ),
+    ClaimVariableDefinition(
+        variable_id="ev_charging_ecosystem_demand",
+        domain="sector.ev_battery",
+        variable_type="both",
+        description="Charging, swapping, and downstream replenishment ecosystem demand.",
+        status="sandbox",
+    ),
+    ClaimVariableDefinition(
+        variable_id="battery_profitability_expectation",
+        domain="sector.ev_battery",
+        variable_type="target",
+        description="Expected profitability of battery leaders after product and demand changes.",
+        status="sandbox",
+    ),
+    ClaimVariableDefinition(
+        variable_id="liquor_demand_recovery",
+        domain="sector.consumer",
+        variable_type="cause",
+        description="Demand recovery and channel inventory normalization for liquor leaders.",
+        status="sandbox",
+    ),
+    ClaimVariableDefinition(
+        variable_id="consumer_leader_profitability_expectation",
+        domain="sector.consumer",
+        variable_type="target",
+        description="Expected profitability and pricing power of consumer sector leaders.",
+        status="sandbox",
+    ),
+    ClaimVariableDefinition(
+        variable_id="bank_credit_supply",
+        domain="sector.bank",
+        variable_type="cause",
+        description="Credit supply, loan growth, and financial support intensity for banks.",
+        status="sandbox",
+    ),
+    ClaimVariableDefinition(
+        variable_id="bank_net_interest_margin_pressure",
+        domain="sector.bank",
+        variable_type="target",
+        description="Net interest margin and profitability pressure in the banking sector.",
+        status="sandbox",
+    ),
 )
 
 

@@ -42,10 +42,16 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
     integration = _read_json(integration_path) if integration_path.exists() else {}
     gold_review_path = root_path / "registry/gold_sets/tushare_research_reports.review_summary.json"
     gold_packet_path = root_path / "registry/gold_sets/tushare_research_reports.review_packet.json"
+    gold_candidate_claims_path = (
+        root_path / "registry/gold_sets/tushare_research_reports.candidate_claims.summary.json"
+    )
     license_review_path = root_path / "registry/compliance/tushare_license_review_summary.json"
     license_packet_path = root_path / "registry/compliance/tushare_license_review_packet.json"
     gold_review = _read_json(gold_review_path) if gold_review_path.exists() else {}
     gold_packet = _read_json(gold_packet_path) if gold_packet_path.exists() else {}
+    gold_candidate_claims = (
+        _read_json(gold_candidate_claims_path) if gold_candidate_claims_path.exists() else {}
+    )
     license_review = _read_json(license_review_path) if license_review_path.exists() else {}
     license_packet = _read_json(license_packet_path) if license_packet_path.exists() else {}
     family_path = root_path / "registry/evaluation/experiment_family_registry/central_bank_liquidity_family.json"
@@ -145,6 +151,17 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
                 "candidate_span_ref_count": gold_packet.get("candidate_span_ref_count"),
                 "risk_flag_counts": gold_packet.get("risk_flag_counts"),
             },
+            "gold_candidate_claims": {
+                "candidate_claim_count": gold_candidate_claims.get("candidate_claim_count"),
+                "candidate_available_count": gold_candidate_claims.get("candidate_available_count"),
+                "missing_variable_mapping_count": gold_candidate_claims.get(
+                    "missing_variable_mapping_count"
+                ),
+                "review_rows_with_candidate_fields": gold_candidate_claims.get(
+                    "review_rows_with_candidate_fields"
+                ),
+                "manual_fields_preserved": gold_candidate_claims.get("manual_fields_preserved"),
+            },
             "source_license": {
                 "reviewed_sources": license_review.get("reviewed_sources"),
                 "total_sources": license_review.get("total_sources"),
@@ -237,6 +254,7 @@ def render_dashboard_markdown(report: Mapping[str, Any]) -> str:
         f"- Phase 7 sector actionability: {dict(report.get('layer_integration') or {}).get('sector_actionability')}",
         f"- Gold-set review pending claims: {dict(dict(report.get('manual_review_gates') or {}).get('gold_set') or {}).get('pending_claims')}",
         f"- Gold review packet spans: {dict(dict(report.get('manual_review_gates') or {}).get('gold_review_packet') or {}).get('candidate_span_ref_count')}",
+        f"- Gold candidate claims: {dict(dict(report.get('manual_review_gates') or {}).get('gold_candidate_claims') or {}).get('candidate_claim_count')}",
         f"- License review pending sources: {dict(dict(report.get('manual_review_gates') or {}).get('source_license') or {}).get('pending_sources')}",
         f"- License review packet pending sources: {dict(dict(report.get('manual_review_gates') or {}).get('license_review_packet') or {}).get('pending_sources')}",
         f"- Experiment governance family: {dict(report.get('experiment_governance') or {}).get('family_id')}",

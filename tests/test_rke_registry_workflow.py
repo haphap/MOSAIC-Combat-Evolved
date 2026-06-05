@@ -39,7 +39,13 @@ def test_registry_manifest_tracks_hashes_and_required_artifacts(tmp_path: Path):
 def test_full_refresh_preserves_existing_review_templates(tmp_path: Path):
     _copy_registry(Path("."), tmp_path)
     gold_review = tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
-    original_gold = gold_review.read_text(encoding="utf-8")
+    gold_rows = [json.loads(line) for line in gold_review.read_text(encoding="utf-8").splitlines()]
+    gold_rows[0]["manual_claim_text"] = "reviewer-entered claim"
+    gold_rows[0]["claim_correct"] = True
+    gold_review.write_text(
+        "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in gold_rows),
+        encoding="utf-8",
+    )
     license_review = tmp_path / "registry/compliance/tushare_license_review_template.jsonl"
     original_license = license_review.read_text(encoding="utf-8")
 
@@ -48,8 +54,12 @@ def test_full_refresh_preserves_existing_review_templates(tmp_path: Path):
 
     assert result.manifest_valid
     assert manifest.valid
-    assert gold_review.read_text(encoding="utf-8") == original_gold
+    refreshed_gold = [json.loads(line) for line in gold_review.read_text(encoding="utf-8").splitlines()]
+    assert refreshed_gold[0]["manual_claim_text"] == "reviewer-entered claim"
+    assert refreshed_gold[0]["claim_correct"] is True
+    assert refreshed_gold[0]["proposed_claim_text"]
     assert license_review.read_text(encoding="utf-8") == original_license
+    assert "gold_candidate_claims" in result.outputs
     assert "registry_manifest" in result.outputs
 
 

@@ -129,3 +129,5 @@ def test_tushare_gold_set_review_template_is_ready_for_manual_labels():
     assert len({row["source_id"] for row in rows}) == 50
     assert {row["claim_correct"] for row in rows} == {None}
     assert {row["source_span_supports_claim"] for row in rows} == {None}
+    assert all(row["proposed_claim_text"] for row in rows)
+    assert {row["proposed_verifier_status"] for row in rows} == {"requires_review"}
