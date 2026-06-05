@@ -192,9 +192,9 @@
       "sha256": "sha256:a1812e59fca001e28dbc2a2bac12a54d5f680a7f6837ba16fdad4d7335b69a36"
     },
     {
-      "bytes": 3545,
+      "bytes": 3744,
       "path": "registry/handoffs/rke_operator_readiness_report.json",
-      "sha256": "sha256:96d4ab2e1f77fd184f417ffd1780c5bc0a1ec3633ab687c005ffee0f557f8d60"
+      "sha256": "sha256:3b1327282b5eb751ccf201599874e57e08a61432e641d890988b3ebbe8c45ea9"
     },
     {
       "bytes": 383,

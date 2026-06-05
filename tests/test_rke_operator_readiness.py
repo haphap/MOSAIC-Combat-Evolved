@@ -29,13 +29,14 @@ def test_operator_readiness_accepts_current_review_bundle():
 
     assert report.accepted
     assert report.failure_count == 0
-    assert report.check_count == 13
+    assert report.check_count == 14
     assert "registry/promotion/rke_promotion_dry_run_report.json" in report.generated_paths
     assert "registry/review_batches/manual_review_bundle_manifest.json" in report.generated_paths
     assert checks["required_registry_valid"].passed
     assert checks["handoff_ready_for_operator"].passed
     assert checks["manual_batch_templates_match_status"].passed
     assert checks["manual_import_templates_are_sparse"].passed
+    assert checks["manual_import_templates_have_provenance"].passed
     assert checks["blank_full_gold_set_import_is_rejected"].passed
     assert checks["lockbox_template_requires_human_decision"].passed
     assert checks["blank_lockbox_import_is_rejected"].passed
@@ -60,6 +61,23 @@ def test_operator_readiness_detects_long_source_text_in_import_template(tmp_path
     assert not report.accepted
     assert not sparse.passed
     assert "long source-text field" in sparse.blocker
+
+
+def test_operator_readiness_detects_missing_manual_template_provenance(tmp_path: Path):
+    _copy_registry(tmp_path)
+    gold_import = tmp_path / "registry/review_batches/gold_set_next_import_template.jsonl"
+    rows = _load_jsonl(gold_import)
+    rows[0].pop("target_row_hash")
+    _write_jsonl(gold_import, rows)
+
+    report = build_operator_readiness_report(tmp_path)
+    provenance = next(
+        check for check in report.checks if check.check_id == "manual_import_templates_have_provenance"
+    )
+
+    assert not report.accepted
+    assert not provenance.passed
+    assert "provenance" in provenance.blocker
 
 
 def test_operator_readiness_detects_filled_policy_template(tmp_path: Path):

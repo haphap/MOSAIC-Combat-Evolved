@@ -20,16 +20,19 @@ from .manual_review_bundle_manifest import (
 )
 from .manual_review_import import (
     GOLD_REVIEW_IMPORT_REPORT_PATH,
+    TARGET_ROW_HASH_FIELD,
     apply_gold_set_review_import,
 )
 from .license_policy_import import (
     DEFAULT_LICENSE_POLICY_IMPORT_PATH,
     LICENSE_POLICY_IMPORT_REPORT_PATH,
+    MATCHED_ROWS_FINGERPRINT_FIELD,
     SOURCE_LICENSE_POLICY_TEMPLATE_PATH,
     build_source_license_policy_import,
     build_source_license_policy_template,
 )
 from .lockbox_review_import import (
+    LOCKBOX_REVIEW_CONTEXT_HASH_FIELD,
     LOCKBOX_REVIEW_IMPORT_REPORT_PATH,
     apply_lockbox_review_import,
 )
@@ -144,6 +147,61 @@ def _import_templates_are_sparse(root_path: Path) -> tuple[bool, str, str]:
     return True, "gold/license import templates omit long source text", ""
 
 
+def _manual_review_templates_have_provenance(root_path: Path) -> tuple[bool, str, str]:
+    jsonl_requirements = {
+        GOLD_BATCH_IMPORT_TEMPLATE_PATH: ("target_review_path", "review_context_ref", TARGET_ROW_HASH_FIELD),
+        GOLD_FULL_IMPORT_TEMPLATE_PATH: ("target_review_path", "review_context_ref", TARGET_ROW_HASH_FIELD),
+        LICENSE_BATCH_IMPORT_TEMPLATE_PATH: (
+            "target_review_path",
+            "review_context_ref",
+            TARGET_ROW_HASH_FIELD,
+        ),
+    }
+    for relative_path, required_fields in jsonl_requirements.items():
+        path = root_path / relative_path
+        if not path.exists():
+            return False, f"{relative_path} missing", f"{relative_path} missing"
+        rows = load_jsonl(path)
+        if not rows:
+            return False, f"{relative_path} has 0 rows", "manual import template has no provenance rows"
+        for index, row in enumerate(rows, 1):
+            missing = [field for field in required_fields if not str(row.get(field) or "").strip()]
+            if missing:
+                return (
+                    False,
+                    f"{relative_path} row {index} missing provenance fields {missing}",
+                    "manual import template is missing provenance or row fingerprint fields",
+                )
+
+    json_requirements = {
+        SOURCE_LICENSE_POLICY_TEMPLATE_PATH: (
+            "target_review_path",
+            "review_context_ref",
+            MATCHED_ROWS_FINGERPRINT_FIELD,
+        ),
+        LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH: (
+            "target_review_path",
+            "review_context_ref",
+            TARGET_ROW_HASH_FIELD,
+            LOCKBOX_REVIEW_CONTEXT_HASH_FIELD,
+        ),
+    }
+    for relative_path, required_fields in json_requirements.items():
+        path = root_path / relative_path
+        if not path.exists():
+            return False, f"{relative_path} missing", f"{relative_path} missing"
+        row = _read_json(path)
+        missing = [field for field in required_fields if not str(row.get(field) or "").strip()]
+        if missing:
+            return (
+                False,
+                f"{relative_path} missing provenance fields {missing}",
+                "manual review policy or lockbox template is missing provenance fingerprints",
+            )
+
+    return True, "manual import templates include target paths and fingerprints", ""
+
+
 def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadinessReport:
     root_path = Path(root)
     checks: list[OperatorReadinessCheck] = []
@@ -206,6 +264,16 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
 
     sparse_ok, sparse_evidence, sparse_blocker = _import_templates_are_sparse(root_path)
     checks.append(_check("manual_import_templates_are_sparse", sparse_ok, sparse_evidence, sparse_blocker))
+
+    provenance_ok, provenance_evidence, provenance_blocker = _manual_review_templates_have_provenance(root_path)
+    checks.append(
+        _check(
+            "manual_import_templates_have_provenance",
+            provenance_ok,
+            provenance_evidence,
+            provenance_blocker,
+        )
+    )
 
     blank_gold_full = apply_gold_set_review_import(
         root_path,

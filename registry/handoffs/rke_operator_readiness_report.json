@@ -1,6 +1,6 @@
 {
   "accepted": true,
-  "check_count": 13,
+  "check_count": 14,
   "checks": [
     {
       "blocker": "",
@@ -24,6 +24,12 @@
       "blocker": "",
       "check_id": "manual_import_templates_are_sparse",
       "evidence": "gold/license import templates omit long source text",
+      "passed": true
+    },
+    {
+      "blocker": "",
+      "check_id": "manual_import_templates_have_provenance",
+      "evidence": "manual import templates include target paths and fingerprints",
       "passed": true
     },
     {
@@ -97,6 +103,6 @@
     "registry/promotion/rke_promotion_dry_run_report.json",
     "registry/review_batches/manual_review_bundle_manifest.json"
   ],
-  "passed_count": 13,
+  "passed_count": 14,
   "report_id": "RKE-OPERATOR-READINESS-REPORT-20260606"
 }
