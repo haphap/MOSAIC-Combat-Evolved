@@ -40,6 +40,16 @@ LICENSE_IMPORTED_FIELDS = (
     "notes",
 )
 TARGET_ROW_HASH_FIELD = "target_row_hash"
+MANUAL_REVIEW_IMPORT_FORBIDDEN_FIELDS = frozenset(
+    {
+        "abstract",
+        "source_text",
+        "source_span_text",
+        "span_text",
+        "span_preview",
+        "full_text",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -119,6 +129,13 @@ def _reviewer_fields_invalid(row: Mapping[str, Any]) -> list[str]:
     if not str(row.get("review_date") or "").strip():
         failures.append("review_date required")
     return failures
+
+
+def _forbidden_field_failures(row: Mapping[str, Any]) -> list[str]:
+    return [
+        f"{field} forbidden in manual review import"
+        for field in sorted(MANUAL_REVIEW_IMPORT_FORBIDDEN_FIELDS & set(row))
+    ]
 
 
 def _gold_row_failures(row: Mapping[str, Any]) -> list[str]:
@@ -330,6 +347,7 @@ def apply_gold_set_review_import(
             failures.append("duplicate claim_id in import")
         if row_id in missing_target_ids:
             failures.append("claim_id missing from target review template")
+        failures.extend(_forbidden_field_failures(row))
         failures.extend(_gold_reference_failures(row, target_by_id.get(row_id)))
         failures.extend(_gold_row_failures(row))
         if failures:
@@ -396,6 +414,7 @@ def apply_source_license_review_import(
             failures.append("duplicate source_id in import")
         if row_id in missing_target_ids:
             failures.append("source_id missing from target review template")
+        failures.extend(_forbidden_field_failures(row))
         failures.extend(_license_reference_failures(row, target_by_id.get(row_id)))
         failures.extend(_license_row_failures(row))
         if failures:

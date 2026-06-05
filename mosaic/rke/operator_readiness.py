@@ -20,6 +20,7 @@ from .manual_review_bundle_manifest import (
 )
 from .manual_review_import import (
     GOLD_REVIEW_IMPORT_REPORT_PATH,
+    MANUAL_REVIEW_IMPORT_FORBIDDEN_FIELDS,
     TARGET_ROW_HASH_FIELD,
     apply_gold_set_review_import,
 )
@@ -51,16 +52,6 @@ from .registry_manifest import validate_required_registry
 
 
 OPERATOR_READINESS_REPORT_PATH = "registry/handoffs/rke_operator_readiness_report.json"
-_FORBIDDEN_IMPORT_FIELDS = frozenset(
-    {
-        "abstract",
-        "source_text",
-        "source_span_text",
-        "span_text",
-        "span_preview",
-        "full_text",
-    }
-)
 
 
 @dataclass(frozen=True)
@@ -129,7 +120,7 @@ def _import_templates_are_sparse(root_path: Path) -> tuple[bool, str, str]:
         if not path.exists():
             return False, f"{relative_path} missing", f"{relative_path} missing"
         for index, row in enumerate(load_jsonl(path), 1):
-            leaked = sorted(_FORBIDDEN_IMPORT_FIELDS & set(row))
+            leaked = sorted(MANUAL_REVIEW_IMPORT_FORBIDDEN_FIELDS & set(row))
             if leaked:
                 return (
                     False,
