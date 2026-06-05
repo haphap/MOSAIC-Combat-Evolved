@@ -108,6 +108,24 @@ mosaic-rke apply-license-review --root . --input reviewed_sources.jsonl
 Both import commands support `--dry-run`. They reject duplicate IDs, unknown IDs,
 missing reviewer/date fields, and non-boolean gate fields.
 
+For large same-source license queues, build the `apply-license-review` input
+from a signed policy file instead of hand-filling every row:
+
+```bash
+mosaic-rke build-license-review-import \
+  --root . \
+  --policy reviewed_source_policy.json \
+  --output registry/review_batches/source_license_policy_import.jsonl
+
+mosaic-rke apply-license-review \
+  --root . \
+  --input registry/review_batches/source_license_policy_import.jsonl \
+  --dry-run
+```
+
+The policy builder never applies approvals by itself; it only writes sparse
+per-source import rows plus an audit report.
+
 Refresh the Tushare research-report source pool:
 
 ```bash

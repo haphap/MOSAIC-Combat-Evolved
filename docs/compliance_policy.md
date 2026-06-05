@@ -62,6 +62,38 @@ After a successful import, the system recomputes:
 
 If a source is not approved for production runtime, it remains blocked by C11.
 
+For large same-source review sets, compliance can sign one scoped policy and
+expand it into the sparse JSONL expected by `apply-license-review`:
+
+```json
+{
+  "approved_for_derived_claim_storage": true,
+  "approved_for_production_runtime": false,
+  "reviewer": "compliance",
+  "review_date": "2026-06-06",
+  "notes": "reviewed Tushare research-report source class for sandbox-derived claims only",
+  "filters": {
+    "source_type": ["tushare_research_report"],
+    "current_license_status": ["pending_review"]
+  }
+}
+```
+
+Build the import rows:
+
+```bash
+mosaic-rke build-license-review-import \
+  --root . \
+  --policy reviewed_source_policy.json \
+  --output registry/review_batches/source_license_policy_import.jsonl
+```
+
+This command does not apply the decision. It only expands a reviewer/date-stamped
+policy into per-source rows and writes an audit report at
+`registry/review_batches/source_license_policy_import_report.json`. The generated
+JSONL must still pass `mosaic-rke apply-license-review --dry-run` before being
+applied.
+
 ## Allowed Uses
 
 When a review row approves derived claim storage, the source may be used for

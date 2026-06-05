@@ -20,6 +20,7 @@ from .gold_candidate_claims import (
 )
 from .gold_review_packet import build_gold_review_packet, write_gold_review_packet
 from .license_review_packet import build_license_review_packet, write_license_review_packet
+from .license_policy_import import build_source_license_policy_import
 from .lockbox_review_import import apply_lockbox_review_import
 from .manual_review_import import (
     apply_gold_set_review_import,
@@ -228,6 +229,19 @@ def build_parser() -> argparse.ArgumentParser:
     apply_license_review.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
     apply_license_review.add_argument("--input", required=True, help="JSONL file containing source license decisions.")
     apply_license_review.add_argument("--dry-run", action="store_true", help="Validate without changing review rows.")
+
+    build_license_import = subparsers.add_parser(
+        "build-license-review-import",
+        help="Expand a signed source-license policy JSON into an apply-license-review JSONL input.",
+    )
+    build_license_import.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
+    build_license_import.add_argument("--policy", required=True, help="JSON policy file with reviewer/date, decisions, and filters.")
+    build_license_import.add_argument(
+        "--output",
+        default="registry/review_batches/source_license_policy_import.jsonl",
+        help="Output JSONL path. Defaults to registry/review_batches/source_license_policy_import.jsonl.",
+    )
+    build_license_import.add_argument("--dry-run", action="store_true", help="Validate and report without writing output JSONL.")
 
     apply_lockbox_review = subparsers.add_parser(
         "apply-lockbox-review",
@@ -487,6 +501,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0 if report.accepted else 2
     if args.command == "apply-license-review":
         report = apply_source_license_review_import(root, args.input, dry_run=args.dry_run)
+        _print_json(asdict(report))
+        return 0 if report.accepted else 2
+    if args.command == "build-license-review-import":
+        report = build_source_license_policy_import(
+            root,
+            args.policy,
+            output_path=args.output,
+            dry_run=args.dry_run,
+        )
         _print_json(asdict(report))
         return 0 if report.accepted else 2
     if args.command == "apply-lockbox-review":
