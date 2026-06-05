@@ -1,5 +1,11 @@
 """Research Knowledge Engine primitives for MOSAIC."""
 
+from .audit_viewer import (
+    AuditReference,
+    AuditView,
+    build_audit_view,
+    build_registry_index,
+)
 from .central_bank_mvp import (
     CentralBankMvpBundle,
     CompletionAudit,
@@ -8,6 +14,12 @@ from .central_bank_mvp import (
     build_central_bank_runtime_output,
     build_completion_audit,
     write_central_bank_mvp_registry,
+)
+from .compliance import (
+    SourceLicenseDecision,
+    SourceLicensePolicy,
+    evaluate_source_license,
+    filter_sources_for_runtime,
 )
 from .p0 import (
     AggregationResult,
@@ -92,6 +104,10 @@ from .runtime import (
 )
 
 __all__ = [
+    "AuditReference",
+    "AuditView",
+    "build_audit_view",
+    "build_registry_index",
     "CentralBankMvpBundle",
     "CompletionAudit",
     "CompletionCriterion",
@@ -99,6 +115,10 @@ __all__ = [
     "build_central_bank_runtime_output",
     "build_completion_audit",
     "write_central_bank_mvp_registry",
+    "SourceLicenseDecision",
+    "SourceLicensePolicy",
+    "evaluate_source_license",
+    "filter_sources_for_runtime",
     "AggregationResult",
     "ClaimCheckResult",
     "ClaimExtractionGoldSet",

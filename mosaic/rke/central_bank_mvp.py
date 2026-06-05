@@ -515,7 +515,10 @@ def write_central_bank_mvp_registry(root: str | Path = ".") -> dict[str, str]:
     _write_json(outputs["audit"], artifacts["audit_trace"])
     _write_json(outputs["completion_audit"], bundle.completion_audit)
     _write_json(outputs["prompt_ir"], bundle.prompt_ir)
-    _write_json(outputs["runtime_output"], bundle.runtime_output)
+    _write_json(
+        outputs["runtime_output"],
+        {"agent_output_id": "OUT-CB-20260605-0001", **_jsonable(bundle.runtime_output)},
+    )
     return {key: str(path) for key, path in outputs.items()}
 
 
