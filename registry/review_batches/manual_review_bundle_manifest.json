@@ -120,13 +120,13 @@
       "sha256": "sha256:ae67b29400b62728f48ed8fccbc2781b4ec8c20ae093500851979c697a1883df"
     },
     {
-      "bytes": 265,
+      "bytes": 613,
       "exists": true,
       "format": "json",
       "path": "registry/review_batches/lockbox_review_next_import_template.json",
       "role": "lockbox_import_template",
       "row_count": null,
-      "sha256": "sha256:eec248899fc3b6e78d659cd721374dad85957f0fb3d7916a4e823e5d97eab855"
+      "sha256": "sha256:9dafa74c7b3122920a347ad8d386e470bf6ebb895bf0fa6cfe7f8e79b0efec85"
     },
     {
       "bytes": 699,

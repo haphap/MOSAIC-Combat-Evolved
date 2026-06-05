@@ -8,10 +8,13 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from .lockbox import LockboxReview, evaluate_lockbox_review
+from .manual_review_import import TARGET_ROW_HASH_FIELD, review_row_fingerprint
 
 
+LOCKBOX_POLICY_PATH = "registry/evaluation/lockbox/lockbox_policy.json"
 LOCKBOX_REVIEW_PATH = "registry/lockbox/central_bank_lockbox_review.json"
 LOCKBOX_REVIEW_IMPORT_REPORT_PATH = "registry/lockbox/central_bank_lockbox_review_import_report.json"
+LOCKBOX_REVIEW_CONTEXT_HASH_FIELD = "review_context_hash"
 
 LOCKBOX_REQUIRED_FIELDS = (
     "experiment_family_id",
@@ -87,6 +90,25 @@ def _normalize_lockbox_row(row: Mapping[str, Any], target: Mapping[str, Any]) ->
     }
 
 
+def _provenance_failures(
+    row: Mapping[str, Any],
+    target: Mapping[str, Any],
+    policy: Mapping[str, Any],
+) -> list[str]:
+    failures: list[str] = []
+    if str(row.get("target_review_path") or "").strip() != LOCKBOX_REVIEW_PATH:
+        failures.append(f"target_review_path must match {LOCKBOX_REVIEW_PATH}")
+    if str(row.get("review_context_ref") or "").strip() != LOCKBOX_POLICY_PATH:
+        failures.append(f"review_context_ref must match {LOCKBOX_POLICY_PATH}")
+    if str(row.get(TARGET_ROW_HASH_FIELD) or "").strip() != review_row_fingerprint(target):
+        failures.append(f"{TARGET_ROW_HASH_FIELD} does not match current lockbox review target")
+    if str(row.get(LOCKBOX_REVIEW_CONTEXT_HASH_FIELD) or "").strip() != review_row_fingerprint(policy):
+        failures.append(
+            f"{LOCKBOX_REVIEW_CONTEXT_HASH_FIELD} does not match current lockbox review context"
+        )
+    return failures
+
+
 def _row_failures(row: Mapping[str, Any], target: Mapping[str, Any]) -> list[str]:
     failures: list[str] = []
     for field in LOCKBOX_REQUIRED_FIELDS:
@@ -151,9 +173,11 @@ def apply_lockbox_review_import(
     resolved_input = _resolve_path(root_path, input_path)
     target_path = root_path / LOCKBOX_REVIEW_PATH
     target = _read_json(target_path)
+    policy = _read_json(root_path / LOCKBOX_POLICY_PATH)
     input_row = _read_json(resolved_input)
     normalized = _normalize_lockbox_row(input_row, target)
     rejected_reasons = _row_failures(normalized, target)
+    rejected_reasons.extend(_provenance_failures(input_row, target, policy))
     decision = (
         evaluate_lockbox_review(LockboxReview(**normalized))
         if not rejected_reasons

@@ -7,5 +7,9 @@
   "opened_by": "",
   "parameter_search_after_open": false,
   "result": "",
-  "rule_design_after_open": false
+  "review_context_hash": "sha256:068512fdfb2632887dd093af770d61dd340e199604a22aa5249e7958edd478cf",
+  "review_context_ref": "registry/evaluation/lockbox/lockbox_policy.json",
+  "rule_design_after_open": false,
+  "target_review_path": "registry/lockbox/central_bank_lockbox_review.json",
+  "target_row_hash": "sha256:0b39a20fcd0826937d42a0425a2bb9a9b50379eab8aff24d58247d8ced70f08b"
 }

@@ -12,7 +12,12 @@ from .license_policy_import import (
     SOURCE_LICENSE_POLICY_TEMPLATE_PATH,
     write_source_license_policy_template,
 )
-from .lockbox_review_import import LOCKBOX_REVIEW_PATH
+from .lockbox_review_import import (
+    LOCKBOX_POLICY_PATH,
+    LOCKBOX_REVIEW_CONTEXT_HASH_FIELD,
+    LOCKBOX_REVIEW_PATH,
+)
+from .manual_review_import import TARGET_ROW_HASH_FIELD, review_row_fingerprint
 from .manual_review_batches import build_manual_review_batch_status, write_manual_review_batches
 from .promotion_gate import build_production_promotion_gate_report, write_production_promotion_gate_report
 
@@ -92,6 +97,7 @@ def _criterion_by_id(criteria: Sequence[Any], criterion_id: str) -> Mapping[str,
 def build_lockbox_review_import_template(root: str | Path = ".") -> Mapping[str, Any]:
     root_path = Path(root)
     target = _read_json(root_path / LOCKBOX_REVIEW_PATH)
+    policy = _read_json(root_path / LOCKBOX_POLICY_PATH)
     return {
         "experiment_family_id": str(target.get("experiment_family_id") or ""),
         "experiment_id": str(target.get("experiment_id") or ""),
@@ -102,6 +108,10 @@ def build_lockbox_review_import_template(root: str | Path = ".") -> Mapping[str,
         "parameter_search_after_open": False,
         "rule_design_after_open": False,
         "notes": "",
+        "review_context_ref": LOCKBOX_POLICY_PATH,
+        LOCKBOX_REVIEW_CONTEXT_HASH_FIELD: review_row_fingerprint(policy),
+        TARGET_ROW_HASH_FIELD: review_row_fingerprint(target),
+        "target_review_path": LOCKBOX_REVIEW_PATH,
     }
 
 

@@ -8,6 +8,7 @@ from mosaic.rke import (
     apply_gold_set_review_import,
     apply_lockbox_review_import,
     apply_source_license_review_import,
+    build_lockbox_review_import_template,
     build_production_promotion_gate_report,
 )
 from mosaic.rke.cli import main
@@ -33,10 +34,9 @@ def _write_json(path: Path, row: dict) -> None:
     path.write_text(json.dumps(row, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
-def _passed_lockbox_review() -> dict:
+def _passed_lockbox_review(root: Path) -> dict:
     return {
-        "experiment_family_id": "FAM-CB-LIQUIDITY-2026Q2",
-        "experiment_id": "EXP-CB-20260605-0001",
+        **build_lockbox_review_import_template(root),
         "opened_at": "2026-06-06T10:00:00+08:00",
         "opened_by": "quant_research",
         "open_count": 1,
@@ -84,7 +84,7 @@ def test_apply_lockbox_review_import_dry_run_does_not_modify_target(tmp_path: Pa
     target = tmp_path / "registry/lockbox/central_bank_lockbox_review.json"
     original = target.read_text(encoding="utf-8")
     import_path = tmp_path / "lockbox_review.json"
-    _write_json(import_path, _passed_lockbox_review())
+    _write_json(import_path, _passed_lockbox_review(tmp_path))
 
     report = apply_lockbox_review_import(tmp_path, import_path, dry_run=True)
 
@@ -97,7 +97,11 @@ def test_apply_lockbox_review_import_dry_run_does_not_modify_target(tmp_path: Pa
 def test_apply_lockbox_review_import_records_failed_review_without_promotion(tmp_path: Path):
     _copy_registry(tmp_path)
     import_path = tmp_path / "lockbox_review_failed.json"
-    failed = {**_passed_lockbox_review(), "result": "failed", "notes": "fixture lockbox failure"}
+    failed = {
+        **_passed_lockbox_review(tmp_path),
+        "result": "failed",
+        "notes": "fixture lockbox failure",
+    }
     _write_json(import_path, failed)
 
     report = apply_lockbox_review_import(tmp_path, import_path)
@@ -114,7 +118,7 @@ def test_apply_lockbox_review_import_records_failed_review_without_promotion(tmp
 def test_apply_lockbox_review_import_rejects_mismatched_experiment(tmp_path: Path):
     _copy_registry(tmp_path)
     import_path = tmp_path / "lockbox_review_bad.json"
-    bad = {**_passed_lockbox_review(), "experiment_id": "EXP-OTHER"}
+    bad = {**_passed_lockbox_review(tmp_path), "experiment_id": "EXP-OTHER"}
     _write_json(import_path, bad)
 
     report = apply_lockbox_review_import(tmp_path, import_path)
@@ -127,7 +131,7 @@ def test_apply_lockbox_review_import_rejects_mismatched_experiment(tmp_path: Pat
 def test_apply_lockbox_review_import_rejects_missing_experiment_identity(tmp_path: Path):
     _copy_registry(tmp_path)
     import_path = tmp_path / "lockbox_review_missing_identity.json"
-    bad = _passed_lockbox_review()
+    bad = _passed_lockbox_review(tmp_path)
     bad.pop("experiment_id")
     _write_json(import_path, bad)
 
@@ -145,7 +149,7 @@ def test_lockbox_review_import_allows_production_after_manual_gates(tmp_path: Pa
     lockbox_import = tmp_path / "lockbox_review.json"
     _write_jsonl(gold_import, _gold_import_rows(tmp_path))
     _write_jsonl(license_import, _license_import_rows(tmp_path))
-    _write_json(lockbox_import, _passed_lockbox_review())
+    _write_json(lockbox_import, _passed_lockbox_review(tmp_path))
 
     apply_gold_set_review_import(tmp_path, gold_import)
     apply_source_license_review_import(tmp_path, license_import)
@@ -161,7 +165,7 @@ def test_lockbox_review_import_allows_production_after_manual_gates(tmp_path: Pa
 def test_cli_apply_lockbox_review_import(tmp_path: Path, capsys):
     _copy_registry(tmp_path)
     import_path = tmp_path / "lockbox_review.json"
-    _write_json(import_path, _passed_lockbox_review())
+    _write_json(import_path, _passed_lockbox_review(tmp_path))
 
     code = main(("apply-lockbox-review", "--root", str(tmp_path), "--input", str(import_path)))
     output = json.loads(capsys.readouterr().out)
@@ -170,3 +174,60 @@ def test_cli_apply_lockbox_review_import(tmp_path: Path, capsys):
     assert output["accepted"] is True
     assert output["applied"] is True
     assert (tmp_path / "registry/lockbox/central_bank_lockbox_review_import_report.json").exists()
+
+
+def test_apply_lockbox_review_import_rejects_stale_target_fingerprint(tmp_path: Path):
+    _copy_registry(tmp_path)
+    import_path = tmp_path / "lockbox_review_stale_target.json"
+    row = _passed_lockbox_review(tmp_path)
+    target_path = tmp_path / "registry/lockbox/central_bank_lockbox_review.json"
+    target = json.loads(target_path.read_text(encoding="utf-8"))
+    target["notes"] = "changed after lockbox review template export"
+    _write_json(target_path, target)
+    _write_json(import_path, row)
+
+    report = apply_lockbox_review_import(tmp_path, import_path)
+
+    assert not report.accepted
+    assert not report.applied
+    assert "target_row_hash does not match current lockbox review target" in report.rejected_reasons
+
+
+def test_apply_lockbox_review_import_rejects_stale_context_fingerprint(tmp_path: Path):
+    _copy_registry(tmp_path)
+    import_path = tmp_path / "lockbox_review_stale_context.json"
+    row = _passed_lockbox_review(tmp_path)
+    policy_path = tmp_path / "registry/evaluation/lockbox/lockbox_policy.json"
+    policy = json.loads(policy_path.read_text(encoding="utf-8"))
+    policy["policy_status"] = "changed-after-template-export"
+    _write_json(policy_path, policy)
+    _write_json(import_path, row)
+
+    report = apply_lockbox_review_import(tmp_path, import_path)
+
+    assert not report.accepted
+    assert not report.applied
+    assert "review_context_hash does not match current lockbox review context" in report.rejected_reasons
+
+
+def test_apply_lockbox_review_import_rejects_legacy_import_without_provenance(tmp_path: Path):
+    _copy_registry(tmp_path)
+    import_path = tmp_path / "lockbox_review_legacy.json"
+    legacy = {
+        "experiment_family_id": "FAM-CB-LIQUIDITY-2026Q2",
+        "experiment_id": "EXP-CB-20260605-0001",
+        "opened_at": "2026-06-06T10:00:00+08:00",
+        "opened_by": "quant_research",
+        "open_count": 1,
+        "result": "passed",
+        "parameter_search_after_open": False,
+        "rule_design_after_open": False,
+        "notes": "legacy fixture lockbox pass",
+    }
+    _write_json(import_path, legacy)
+
+    report = apply_lockbox_review_import(tmp_path, import_path)
+
+    assert not report.accepted
+    assert "target_review_path must match registry/lockbox/central_bank_lockbox_review.json" in report.rejected_reasons
+    assert "target_row_hash does not match current lockbox review target" in report.rejected_reasons

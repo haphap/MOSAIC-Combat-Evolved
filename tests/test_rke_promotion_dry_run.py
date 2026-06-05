@@ -4,7 +4,11 @@ import json
 import shutil
 from pathlib import Path
 
-from mosaic.rke import build_promotion_dry_run_report, write_promotion_dry_run_report
+from mosaic.rke import (
+    build_lockbox_review_import_template,
+    build_promotion_dry_run_report,
+    write_promotion_dry_run_report,
+)
 from mosaic.rke.cli import main
 
 
@@ -63,10 +67,9 @@ def _license_import_rows(root: Path) -> list[dict]:
     ]
 
 
-def _passed_lockbox_review() -> dict:
+def _passed_lockbox_review(root: Path) -> dict:
     return {
-        "experiment_family_id": "FAM-CB-LIQUIDITY-2026Q2",
-        "experiment_id": "EXP-CB-20260605-0001",
+        **build_lockbox_review_import_template(root),
         "opened_at": "2026-06-06T10:00:00+08:00",
         "opened_by": "quant_research",
         "open_count": 1,
@@ -86,7 +89,7 @@ def test_promotion_dry_run_simulates_full_manual_gate_pass_without_mutating_root
     lockbox_input = tmp_path / "lockbox_import.json"
     _write_jsonl(gold_input, _gold_import_rows(tmp_path))
     _write_jsonl(license_input, _license_import_rows(tmp_path))
-    _write_json(lockbox_input, _passed_lockbox_review())
+    _write_json(lockbox_input, _passed_lockbox_review(tmp_path))
 
     report = build_promotion_dry_run_report(
         tmp_path,
@@ -134,7 +137,7 @@ def test_cli_promotion_dry_run_validates_inputs(tmp_path: Path, capsys):
     lockbox_input = tmp_path / "lockbox_import.json"
     _write_jsonl(gold_input, _gold_import_rows(tmp_path))
     _write_jsonl(license_input, _license_import_rows(tmp_path))
-    _write_json(lockbox_input, _passed_lockbox_review())
+    _write_json(lockbox_input, _passed_lockbox_review(tmp_path))
 
     code = main(
         (

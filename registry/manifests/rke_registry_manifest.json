@@ -292,9 +292,9 @@
       "sha256": "sha256:efb9c574706dfb159df5a62ace8037fefa25812bf11fa55218a0dddd23d0315a"
     },
     {
-      "bytes": 265,
+      "bytes": 613,
       "path": "registry/review_batches/lockbox_review_next_import_template.json",
-      "sha256": "sha256:eec248899fc3b6e78d659cd721374dad85957f0fb3d7916a4e823e5d97eab855"
+      "sha256": "sha256:9dafa74c7b3122920a347ad8d386e470bf6ebb895bf0fa6cfe7f8e79b0efec85"
     },
     {
       "bytes": 2774,
@@ -304,7 +304,7 @@
     {
       "bytes": 5205,
       "path": "registry/review_batches/manual_review_bundle_manifest.json",
-      "sha256": "sha256:5acad196895f1f73191ba0dbc59a5a83f5eccf253ff233ed8e505a4b239b377d"
+      "sha256": "sha256:7b84c2ac294c836f01bdd39709eb73e22a2159d5a551a0ed603e89bca7cc9cbe"
     },
     {
       "bytes": 33256,

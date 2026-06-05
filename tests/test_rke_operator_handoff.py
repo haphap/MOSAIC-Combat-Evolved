@@ -55,6 +55,10 @@ def test_lockbox_review_import_template_requires_human_decision():
 
     assert template["experiment_family_id"] == "FAM-CB-LIQUIDITY-2026Q2"
     assert template["experiment_id"] == "EXP-CB-20260605-0001"
+    assert template["target_review_path"] == "registry/lockbox/central_bank_lockbox_review.json"
+    assert template["review_context_ref"] == "registry/evaluation/lockbox/lockbox_policy.json"
+    assert template["target_row_hash"].startswith("sha256:")
+    assert template["review_context_hash"].startswith("sha256:")
     assert template["result"] == ""
     assert template["opened_at"] == ""
     assert template["opened_by"] == ""
@@ -82,6 +86,8 @@ def test_write_operator_handoff_outputs_json_markdown_and_lockbox_template(tmp_p
     assert "source_license_policy_import.jsonl" in payload["promotion_dry_run_command"]
     assert len(payload["gates"]) == 3
     assert lockbox_template["result"] == ""
+    assert lockbox_template["target_row_hash"].startswith("sha256:")
+    assert lockbox_template["review_context_hash"].startswith("sha256:")
     assert policy_template["approved_for_production_runtime"] is None
     assert policy_template["matched_row_count"] == 9812
     assert "source_license_policy_template.json" in markdown
