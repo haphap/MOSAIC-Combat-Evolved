@@ -24,8 +24,8 @@
     {
       "blocker": "",
       "criterion_id": "C04",
-      "description": "Validation v2 report includes effective N, overlap, FDR, and costs.",
-      "evidence": "EXP-CB-20260605-0001",
+      "description": "Validation v2 report includes effective N, overlap, FDR, costs, CI, and DSR.",
+      "evidence": "EXP-CB-20260605-0001 + hardening/statistical gates",
       "passed": true
     },
     {

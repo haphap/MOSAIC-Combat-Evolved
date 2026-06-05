@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from dataclasses import asdict
 from pathlib import Path
 
@@ -22,11 +23,33 @@ def test_completion_auditor_recomputes_current_registry_gates():
     assert not audit.ready_for_broad_rollout
     assert by_id["C01"].passed
     assert by_id["C04"].passed
+    assert "hardening/statistical" in by_id["C04"].evidence
     assert by_id["C12"].passed
     assert not by_id["C02"].passed
     assert not by_id["C11"].passed
     assert "gold-set" in by_id["C02"].evidence
     assert "license review" in by_id["C11"].blocker
+
+
+def test_completion_auditor_requires_statistical_significance_gate(tmp_path: Path):
+    shutil.copytree(Path("registry"), tmp_path / "registry")
+    statistical_path = (
+        tmp_path
+        / "registry/evaluation/statistical_significance/central_bank_after_cost_significance.json"
+    )
+    statistical = json.loads(statistical_path.read_text(encoding="utf-8"))
+    statistical["confidence_interval"]["low"] = -0.001
+    statistical["accepted"] = False
+    statistical_path.write_text(
+        json.dumps(statistical, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    audit = audit_master_plan_completion(tmp_path)
+    by_id = {criterion.criterion_id: criterion for criterion in audit.criteria}
+
+    assert not by_id["C04"].passed
+    assert "confidence interval includes zero" in by_id["C04"].blocker
 
 
 def test_completion_auditor_writes_registry_file(tmp_path: Path):

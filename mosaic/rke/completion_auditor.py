@@ -93,22 +93,57 @@ def _license_gate(root: Path) -> tuple[bool, str, str]:
     )
 
 
-def _validation_gate(experiment: Mapping[str, Any] | None) -> tuple[bool, str, str]:
+def _validation_gate(
+    experiment: Mapping[str, Any] | None,
+    hardening: Mapping[str, Any] | None,
+    statistical: Mapping[str, Any] | None,
+) -> tuple[bool, str, str]:
     if experiment is None:
         return False, "validation experiment missing", "experiment registry missing"
     sampling = dict(experiment.get("sampling_design") or {})
     mtc = dict(experiment.get("multiple_testing_control") or {})
     acceptance = dict(experiment.get("acceptance_rule") or {})
-    required = (
-        sampling.get("effective_n", 0) >= sampling.get("minimum_effective_n", 10**9),
-        bool(sampling.get("overlap_policy")),
-        mtc.get("adjusted_q_value", 1.0) <= mtc.get("max_fdr", 0.0),
-        acceptance.get("cost_model_required") is True,
-        acceptance.get("primary_metric") == "net_alpha_after_cost_20d",
+    failures: list[str] = []
+    if sampling.get("effective_n", 0) < sampling.get("minimum_effective_n", 10**9):
+        failures.append("effective_n below minimum")
+    if not sampling.get("overlap_policy"):
+        failures.append("overlap policy missing")
+    if mtc.get("adjusted_q_value", 1.0) > mtc.get("max_fdr", 0.0):
+        failures.append("multiple testing correction failed")
+    if acceptance.get("cost_model_required") is not True:
+        failures.append("cost model requirement missing")
+    if acceptance.get("primary_metric") != "net_alpha_after_cost_20d":
+        failures.append("primary after-cost metric missing")
+
+    if hardening is None:
+        failures.append("validation hardening report missing")
+    else:
+        if hardening.get("ablation_checks", {}).get("accepted") is not True:
+            failures.append("ablation checks failed")
+        if hardening.get("horizon_metric_failures"):
+            failures.append("horizon-metric alignment failed")
+        if hardening.get("precision_failures"):
+            failures.append("scoring precision check failed")
+
+    if statistical is None:
+        failures.append("statistical significance report missing")
+    else:
+        ci = dict(statistical.get("confidence_interval") or {})
+        if statistical.get("accepted") is not True:
+            failures.append("statistical significance gate failed")
+        if float(ci.get("low") or 0.0) <= 0:
+            failures.append("after-cost confidence interval includes zero")
+        if float(statistical.get("deflated_sharpe_ratio") or 0.0) < float(
+            statistical.get("minimum_deflated_sharpe_ratio") or 10**9
+        ):
+            failures.append("deflated Sharpe ratio below threshold")
+
+    evidence = (
+        f"{experiment.get('experiment_id')} + hardening/statistical gates"
+        if not failures
+        else str(experiment.get("experiment_id") or "unknown experiment")
     )
-    if all(required):
-        return True, str(experiment.get("experiment_id")), ""
-    return False, str(experiment.get("experiment_id") or "unknown experiment"), "validation gates incomplete"
+    return not failures, evidence, "; ".join(failures)
 
 
 def _audit_trace_gate(root: Path) -> tuple[bool, str, str]:
@@ -130,6 +165,12 @@ def audit_master_plan_completion(root: str | Path = ".") -> CompletionAudit:
     experiment = _optional_json(
         root_path / "registry/experiments/central_bank_validation_experiment_v2.json"
     )
+    hardening = _optional_json(
+        root_path / "registry/validation_hardening/central_bank_hardening_report.json"
+    )
+    statistical = _optional_json(
+        root_path / "registry/evaluation/statistical_significance/central_bank_after_cost_significance.json"
+    )
     runtime_output = _optional_json(
         root_path / "registry/runtime_outputs/macro.central_bank.20260605.json"
     )
@@ -144,7 +185,11 @@ def audit_master_plan_completion(root: str | Path = ".") -> CompletionAudit:
 
     gold_passed, gold_evidence, gold_blocker = _gold_set_gate(root_path)
     license_passed, license_evidence, license_blocker = _license_gate(root_path)
-    validation_passed, validation_evidence, validation_blocker = _validation_gate(experiment)
+    validation_passed, validation_evidence, validation_blocker = _validation_gate(
+        experiment,
+        hardening,
+        statistical,
+    )
     audit_passed, audit_evidence, audit_blocker = _audit_trace_gate(root_path)
 
     runtime_passed = bool(runtime_output) and _runtime_output_passes(runtime_output)
@@ -174,7 +219,7 @@ def audit_master_plan_completion(root: str | Path = ".") -> CompletionAudit:
             ),
             CompletionCriterion(
                 "C04",
-                "Validation v2 report includes effective N, overlap, FDR, and costs.",
+                "Validation v2 report includes effective N, overlap, FDR, costs, CI, and DSR.",
                 validation_passed,
                 validation_evidence,
                 validation_blocker,
