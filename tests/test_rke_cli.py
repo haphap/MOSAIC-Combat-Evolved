@@ -95,6 +95,18 @@ def test_rke_cli_claim_status_writes_summary(tmp_path: Path, capsys):
     assert (tmp_path / "registry/vocabularies/claim_variable_vocabulary.json").exists()
 
 
+def test_rke_cli_source_status_writes_summary(tmp_path: Path, capsys):
+    _copy_registry(tmp_path)
+
+    code = main(("source-status", "--root", str(tmp_path)))
+    output = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert output["accepted_for_sandbox"] is True
+    assert output["accepted_for_production"] is False
+    assert (tmp_path / "registry/source_checks/source_registry_validation_report.json").exists()
+
+
 def test_rke_cli_fetch_tushare_reports_passes_query_args(monkeypatch, tmp_path: Path, capsys):
     captured = {}
 

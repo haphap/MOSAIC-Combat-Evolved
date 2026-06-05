@@ -18,6 +18,7 @@ from .registry_manifest import write_registry_manifest
 from .review_gates import write_gold_set_review_summary, write_source_license_review_summary
 from .schema_validation import write_schema_validation_report
 from .sector_demo import write_sector_semiconductor_demo_registry
+from .source_registry_validation import write_source_registry_validation_report
 from .validation_hardening import (
     write_statistical_significance_report,
     write_validation_hardening_report,
@@ -68,6 +69,7 @@ def run_full_rke_refresh(
     license_summary = write_source_license_review_summary(root_path)
     claim_vocabulary = write_claim_variable_vocabulary(root_path)
     claim_variable_summary = write_claim_variable_validation_report(root_path)
+    source_validation = write_source_registry_validation_report(root_path)
     schema_summary = write_schema_validation_report(root_path)
     validation_hardening = write_validation_hardening_report(root_path)
     statistical_significance = write_statistical_significance_report(root_path)
@@ -79,6 +81,7 @@ def run_full_rke_refresh(
     outputs["license_review_summary"] = str(license_summary["path"])
     outputs["claim_variable_vocabulary"] = str(claim_vocabulary["path"])
     outputs["claim_variable_validation_report"] = str(claim_variable_summary["path"])
+    outputs["source_registry_validation_report"] = str(source_validation["path"])
     outputs["schema_validation_report"] = str(schema_summary["path"])
     outputs["validation_hardening_report"] = str(validation_hardening["path"])
     outputs["statistical_significance_report"] = str(statistical_significance["path"])

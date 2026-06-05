@@ -233,6 +233,12 @@ from .sector_demo import (
     build_sector_semiconductor_demo,
     write_sector_semiconductor_demo_registry,
 )
+from .source_registry_validation import (
+    SourceRegistryValidationRecord,
+    SourceRegistryValidationReport,
+    build_source_registry_validation_report,
+    write_source_registry_validation_report,
+)
 from .tushare_reports import (
     RkeResearchReport,
     TushareResearchReportRefreshResult,
@@ -451,6 +457,10 @@ __all__ = [
     "SectorSemiconductorDemoBundle",
     "build_sector_semiconductor_demo",
     "write_sector_semiconductor_demo_registry",
+    "SourceRegistryValidationRecord",
+    "SourceRegistryValidationReport",
+    "build_source_registry_validation_report",
+    "write_source_registry_validation_report",
     "RkeResearchReport",
     "TushareResearchReportRefreshResult",
     "fetch_tushare_research_reports",

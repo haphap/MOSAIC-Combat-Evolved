@@ -136,6 +136,14 @@
     "recommendation_actionability": "monitor_only",
     "rule_pack_id": "sector.semiconductor.policy_substitution.v1"
   },
+  "source_validation": {
+    "accepted_for_production": false,
+    "accepted_for_sandbox": true,
+    "duplicate_reference_count": 1,
+    "failure_count": 0,
+    "production_blocker_count": 207,
+    "unique_source_count": 208
+  },
   "validation_hardening": {
     "ablation_accepted": true,
     "after_cost_ci_low": 0.00516,

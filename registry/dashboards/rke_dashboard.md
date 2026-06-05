@@ -9,6 +9,8 @@
 - Lockbox result: not_opened
 - Validation ablations accepted: True
 - Validation statistical significance accepted: True
+- Source validation sandbox accepted: True
+- Source validation production blockers: 207
 - Sector demo: sandbox
 - Macro expansion candidates: 3
 - Phase 7 sector actionability: monitor_only

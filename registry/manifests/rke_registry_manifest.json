@@ -1,5 +1,5 @@
 {
-  "artifact_count": 49,
+  "artifact_count": 50,
   "artifacts": [
     {
       "bytes": 539,
@@ -37,14 +37,14 @@
       "sha256": "sha256:d519117af396793a5f27fc06e808ca93b55d6f4a2d0ae63bd6c7b9c360cadbd0"
     },
     {
-      "bytes": 4265,
+      "bytes": 4495,
       "path": "registry/dashboards/rke_dashboard.json",
-      "sha256": "sha256:208c72a680e58304ace53fb4ac4e19478004d3991ad704a178aad8b3dd5ff599"
+      "sha256": "sha256:432c391b9230cea98cb1f86aa8c232cc30d6a7cfe54c52e565de253f8a79ab71"
     },
     {
-      "bytes": 899,
+      "bytes": 987,
       "path": "registry/dashboards/rke_dashboard.md",
-      "sha256": "sha256:de4ab834ea3c6fb1e90cd36b3cf6645bdff774aa900c534246ce3c838c9787fc"
+      "sha256": "sha256:c3385ce4629b6aad1aa3090e1501fac090de4149a982fde3ca7e80bf39a9459e"
     },
     {
       "bytes": 1233,
@@ -212,6 +212,11 @@
       "sha256": "sha256:e93b51c8e2b618bada34b326ad5f64bf2108d7ea3eda7d3e8c2a9def45c657b7"
     },
     {
+      "bytes": 77833,
+      "path": "registry/source_checks/source_registry_validation_report.json",
+      "sha256": "sha256:69f09a8201a6e57680edb493bb8664471ecd50f81ff5e098deb2cc42603bf4b2"
+    },
+    {
       "bytes": 316,
       "path": "registry/sources/central_bank_sources.jsonl",
       "sha256": "sha256:93ddb09ee4518b895bc75de8694cd647ef1c950ed91afa84617a127456fcb564"
@@ -234,7 +239,7 @@
     {
       "bytes": 1247,
       "path": "registry/sources/tushare_research_reports.manifest.json",
-      "sha256": "sha256:94b2e4825e726927e5416cf0f4f658e4d6aba196431f9f6e03a26c4a03bd859e"
+      "sha256": "sha256:ea929083afec01e962378dd8f2c4e35724365949d078d226d2f7008555142984"
     },
     {
       "bytes": 1668,

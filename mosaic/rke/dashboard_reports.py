@@ -21,6 +21,8 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
     lockbox = _read_json(lockbox_path) if lockbox_path.exists() else {}
     hardening_path = root_path / "registry/validation_hardening/central_bank_hardening_report.json"
     hardening = _read_json(hardening_path) if hardening_path.exists() else {}
+    source_validation_path = root_path / "registry/source_checks/source_registry_validation_report.json"
+    source_validation = _read_json(source_validation_path) if source_validation_path.exists() else {}
     statistical_path = (
         root_path
         / "registry/evaluation/statistical_significance/central_bank_after_cost_significance.json"
@@ -91,6 +93,14 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
             "statistical_significance_accepted": statistical.get("accepted"),
             "after_cost_ci_low": (statistical.get("confidence_interval") or {}).get("low"),
             "deflated_sharpe_ratio": statistical.get("deflated_sharpe_ratio"),
+        },
+        "source_validation": {
+            "accepted_for_sandbox": source_validation.get("accepted_for_sandbox"),
+            "accepted_for_production": source_validation.get("accepted_for_production"),
+            "failure_count": source_validation.get("failure_count"),
+            "production_blocker_count": source_validation.get("production_blocker_count"),
+            "unique_source_count": source_validation.get("unique_source_count"),
+            "duplicate_reference_count": source_validation.get("duplicate_reference_count"),
         },
         "sector_demo": {
             "rule_pack_id": sector_rule.get("rule_pack_id"),
@@ -197,6 +207,8 @@ def render_dashboard_markdown(report: Mapping[str, Any]) -> str:
         f"- Lockbox result: {dict(report.get('lockbox') or {}).get('result')}",
         f"- Validation ablations accepted: {dict(report.get('validation_hardening') or {}).get('ablation_accepted')}",
         f"- Validation statistical significance accepted: {dict(report.get('validation_hardening') or {}).get('statistical_significance_accepted')}",
+        f"- Source validation sandbox accepted: {dict(report.get('source_validation') or {}).get('accepted_for_sandbox')}",
+        f"- Source validation production blockers: {dict(report.get('source_validation') or {}).get('production_blocker_count')}",
         f"- Sector demo: {dict(report.get('sector_demo') or {}).get('demo_status')}",
         f"- Macro expansion candidates: {dict(report.get('macro_expansion') or {}).get('candidate_count')}",
         f"- Phase 7 sector actionability: {dict(report.get('layer_integration') or {}).get('sector_actionability')}",

@@ -52,6 +52,7 @@ REQUIRED_REGISTRY_FILES = (
     "registry/runtime_outputs/macro.central_bank.20260605.json",
     "registry/runtime_outputs/sector.semiconductor.demo.20260605.json",
     "registry/schemas/rke_schema_validation_report.json",
+    "registry/source_checks/source_registry_validation_report.json",
     "registry/sources/central_bank_sources.jsonl",
     "registry/sources/semiconductor_demo_sources.jsonl",
     "registry/sources/tushare_research_reports.gold_candidates.jsonl",

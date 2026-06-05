@@ -33,6 +33,7 @@ from .prompt_asset_validation import write_prompt_asset_validation_report
 from .registry_manifest import write_registry_manifest
 from .review_gates import write_gold_set_review_summary, write_source_license_review_summary
 from .schema_validation import write_schema_validation_report
+from .source_registry_validation import write_source_registry_validation_report
 from .validation_hardening import (
     write_statistical_significance_report,
     write_validation_hardening_report,
@@ -448,6 +449,7 @@ def refresh_tushare_research_report_registry(
     license_summary_result = write_source_license_review_summary(root_path)
     claim_vocabulary_result = write_claim_variable_vocabulary(root_path)
     claim_variable_summary_result = write_claim_variable_validation_report(root_path)
+    source_validation_result = write_source_registry_validation_report(root_path)
     schema_summary_result = write_schema_validation_report(root_path)
     validation_hardening_result = write_validation_hardening_report(root_path)
     statistical_significance_result = write_statistical_significance_report(root_path)
@@ -459,6 +461,7 @@ def refresh_tushare_research_report_registry(
     outputs["license_review_summary"] = str(license_summary_result["path"])
     outputs["claim_variable_vocabulary"] = str(claim_vocabulary_result["path"])
     outputs["claim_variable_validation_report"] = str(claim_variable_summary_result["path"])
+    outputs["source_registry_validation_report"] = str(source_validation_result["path"])
     outputs["schema_validation_report"] = str(schema_summary_result["path"])
     outputs["validation_hardening_report"] = str(validation_hardening_result["path"])
     outputs["statistical_significance_report"] = str(statistical_significance_result["path"])

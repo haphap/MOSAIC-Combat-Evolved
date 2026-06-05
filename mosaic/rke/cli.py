@@ -31,6 +31,10 @@ from .review_gates import (
     write_source_license_review_summary,
 )
 from .schema_validation import build_schema_validation_report, write_schema_validation_report
+from .source_registry_validation import (
+    build_source_registry_validation_report,
+    write_source_registry_validation_report,
+)
 from .tushare_reports import refresh_tushare_research_report_registry
 from .validation_hardening import (
     build_central_bank_statistical_significance_report,
@@ -112,6 +116,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Write and print the claim variable vocabulary validation report.",
     )
     claim_status.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
+
+    source_status = subparsers.add_parser(
+        "source-status",
+        help="Write and print the source registry validation report.",
+    )
+    source_status.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
 
     validation_status = subparsers.add_parser(
         "validation-status",
@@ -228,6 +238,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             }
         )
         return 0 if result.accepted else 2
+    if args.command == "source-status":
+        write_source_registry_validation_report(root)
+        result = build_source_registry_validation_report(root)
+        _print_json(asdict(result))
+        return 0 if result.accepted_for_sandbox else 2
     if args.command == "validation-status":
         write_validation_hardening_report(root)
         write_statistical_significance_report(root)
