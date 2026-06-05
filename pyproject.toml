@@ -17,6 +17,9 @@ dependencies = [
     # Phase 1+ will add the rest of the ETFAgents deps + a few new ones
 ]
 
+[project.scripts]
+mosaic-rke = "mosaic.rke.cli:main"
+
 [project.optional-dependencies]
 # Day 2+ data layer
 data = [
