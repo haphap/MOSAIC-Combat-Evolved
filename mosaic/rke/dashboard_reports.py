@@ -31,6 +31,8 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
     sector_runtime = _read_json(sector_runtime_path) if sector_runtime_path.exists() else {}
     macro_expansion_path = root_path / "registry/expansion/macro_phase6_expansion.json"
     macro_expansion = _read_json(macro_expansion_path) if macro_expansion_path.exists() else {}
+    integration_path = root_path / "registry/integration/phase7_layer_integration_contracts.json"
+    integration = _read_json(integration_path) if integration_path.exists() else {}
     criteria = completion.get("criteria", ())
     return {
         "dashboard_id": "RKE-DASHBOARD-20260605",
@@ -72,6 +74,13 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
             "candidate_count": len(macro_expansion.get("candidates") or ()),
             "production_allowed": macro_expansion.get("production_allowed"),
         },
+        "layer_integration": {
+            "sector_agent": integration.get("sector", {}).get("agent_id"),
+            "sector_actionability": integration.get("sector", {}).get("actionability"),
+            "superinvestor_agent": integration.get("superinvestor", {}).get("agent_id"),
+            "decision_agent": integration.get("decision", {}).get("agent_id"),
+            "decision_cash_floor": integration.get("decision", {}).get("cash_floor"),
+        },
         "audit_trace": {
             "source_count": len(audit_trace.get("source_ids", ())),
             "claim_count": len(audit_trace.get("claim_ids", ())),
@@ -103,6 +112,7 @@ def render_dashboard_markdown(report: Mapping[str, Any]) -> str:
         f"- Validation ablations accepted: {dict(report.get('validation_hardening') or {}).get('ablation_accepted')}",
         f"- Sector demo: {dict(report.get('sector_demo') or {}).get('demo_status')}",
         f"- Macro expansion candidates: {dict(report.get('macro_expansion') or {}).get('candidate_count')}",
+        f"- Phase 7 sector actionability: {dict(report.get('layer_integration') or {}).get('sector_actionability')}",
         "",
         "## Blockers",
         "",

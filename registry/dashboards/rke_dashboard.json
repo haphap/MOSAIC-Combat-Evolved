@@ -16,6 +16,13 @@
     "total": 12
   },
   "dashboard_id": "RKE-DASHBOARD-20260605",
+  "layer_integration": {
+    "decision_agent": "decision.cio",
+    "decision_cash_floor": 0.05,
+    "sector_actionability": "monitor_only",
+    "sector_agent": "sector.semiconductor",
+    "superinvestor_agent": "superinvestor.druckenmiller"
+  },
   "lockbox": {
     "open_count": 0,
     "production_allowed": false,

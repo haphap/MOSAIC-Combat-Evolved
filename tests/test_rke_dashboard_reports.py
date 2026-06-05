@@ -27,6 +27,8 @@ def test_dashboard_report_summarizes_completion_and_monitoring():
     assert report["sector_demo"]["recommendation_actionability"] == "monitor_only"
     assert report["macro_expansion"]["candidate_count"] == 3
     assert report["macro_expansion"]["production_allowed"] is False
+    assert report["layer_integration"]["sector_actionability"] == "monitor_only"
+    assert report["layer_integration"]["decision_cash_floor"] == 0.05
     assert report["audit_trace"]["agent_output_count"] == 1
     assert "manual" in " ".join(report["completion"]["blockers"])
 
@@ -39,6 +41,7 @@ def test_dashboard_markdown_renders_blockers():
     assert "Validation ablations accepted: True" in markdown
     assert "Sector demo: sandbox" in markdown
     assert "Macro expansion candidates: 3" in markdown
+    assert "Phase 7 sector actionability: monitor_only" in markdown
     assert "manual" in markdown
     assert "license" in markdown
 

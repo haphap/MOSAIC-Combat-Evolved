@@ -95,6 +95,16 @@ from .lockbox import (
     evaluate_lockbox_review,
     summarize_lockbox_reviews,
 )
+from .layer_integration import (
+    DecisionIntegrationOutput,
+    IntegrationCheckResult,
+    SectorIntegrationOutput,
+    SuperinvestorCandidateReview,
+    SuperinvestorIntegrationOutput,
+    check_decision_integration,
+    check_sector_integration,
+    check_superinvestor_integration,
+)
 from .macro_expansion import (
     MacroExpansionCandidate,
     MacroExpansionPlan,
@@ -255,6 +265,14 @@ __all__ = [
     "LockboxReview",
     "evaluate_lockbox_review",
     "summarize_lockbox_reviews",
+    "DecisionIntegrationOutput",
+    "IntegrationCheckResult",
+    "SectorIntegrationOutput",
+    "SuperinvestorCandidateReview",
+    "SuperinvestorIntegrationOutput",
+    "check_decision_integration",
+    "check_sector_integration",
+    "check_superinvestor_integration",
     "MacroExpansionCandidate",
     "MacroExpansionPlan",
     "build_macro_expansion_data_matrix",

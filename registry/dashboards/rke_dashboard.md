@@ -10,6 +10,7 @@
 - Validation ablations accepted: True
 - Sector demo: sandbox
 - Macro expansion candidates: 3
+- Phase 7 sector actionability: monitor_only
 
 ## Blockers
 

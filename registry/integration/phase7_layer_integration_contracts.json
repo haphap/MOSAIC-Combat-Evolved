@@ -1,0 +1,58 @@
+{
+  "decision": {
+    "agent_id": "decision.cio",
+    "cash_floor": 0.05,
+    "correlated_exposure_notes": [
+      "semiconductor sandbox signal is correlated with growth beta and must not override risk gates"
+    ],
+    "execution_turnover_impact": "tiny-tilt maximum; no direct execution from sandbox signal",
+    "ignored_signal_reasons": [
+      "sector.semiconductor.policy_substitution.v1 remains sandbox-only"
+    ],
+    "override_audit": [
+      "research-only signals cannot override CRO hard risk gates"
+    ],
+    "risk_discount": 0.2,
+    "upstream_agent_ids": [
+      "macro.central_bank",
+      "sector.semiconductor",
+      "decision.cro"
+    ]
+  },
+  "sector": {
+    "actionability": "monitor_only",
+    "agent_id": "sector.semiconductor",
+    "confidence": 0.5,
+    "confirmation_dimensions": [
+      "policy"
+    ],
+    "macro_handoff_ids": [
+      "OUT-CB-20260605-0001"
+    ],
+    "rule_pack_ids": [
+      "sector.semiconductor.policy_substitution.v1"
+    ]
+  },
+  "superinvestor": {
+    "accepted_candidates": [
+      {
+        "accepted": true,
+        "mismatch_with_style": "",
+        "reason": "candidate remains watchlist-only and matches quality-growth review style",
+        "style_fit_score": 0.74,
+        "ticker": "WATCHLIST-SEMI-QUALITY"
+      }
+    ],
+    "agent_id": "superinvestor.druckenmiller",
+    "investor_style": "macro-aware concentrated growth",
+    "rejected_candidates": [
+      {
+        "accepted": false,
+        "mismatch_with_style": "sandbox-only policy theme lacks price/flow confirmation",
+        "reason": "no current confirmation and valuation risk is present",
+        "style_fit_score": 0.42,
+        "ticker": "POLICY-THEME-ONLY-SEMI"
+      }
+    ]
+  }
+}
