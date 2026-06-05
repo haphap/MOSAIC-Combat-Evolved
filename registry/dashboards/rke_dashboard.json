@@ -1,0 +1,65 @@
+{
+  "audit_trace": {
+    "agent_output_count": 1,
+    "claim_count": 1,
+    "experiment_count": 1,
+    "patch_count": 1,
+    "rule_count": 1,
+    "source_count": 1
+  },
+  "completion": {
+    "blockers": [
+      "manual gold-set review still required",
+      "source license review still pending or restricted"
+    ],
+    "passed": 10,
+    "total": 12
+  },
+  "dashboard_id": "RKE-DASHBOARD-20260605",
+  "paper_trading": {
+    "mean_calibration_error": 0.025,
+    "mean_live_net_alpha_after_cost": 0.0055,
+    "mean_live_vs_baseline_delta": 0.035,
+    "mean_turnover": 0.075,
+    "n": 2,
+    "ready": true,
+    "rule_id": "macro.central_bank.soft.001"
+  },
+  "production_monitor": {
+    "action": "none",
+    "metrics": {
+      "calibration_error": 0.03,
+      "effect_ratio": 0.6153846153846154,
+      "effective_events": 80,
+      "rolling_net_alpha_after_cost": 0.008,
+      "turnover_delta": 0.05
+    },
+    "reasons": [],
+    "state": "production"
+  },
+  "ready_for_broad_rollout": false,
+  "runtime_progress": {
+    "agent_id": "macro.central_bank",
+    "confidence": 0.64,
+    "evidence_count": 1,
+    "fallback_count": 0,
+    "layer": "macro",
+    "missing_count": 0,
+    "schema_valid": true,
+    "status": "completed",
+    "tools_used": [
+      "get_pboc_ops"
+    ]
+  },
+  "runtime_recommendations": [
+    {
+      "actionability": "watchlist_or_tiny_tilt",
+      "confidence": 0.64,
+      "inference_ids": [
+        "I-CB-20260605-0001"
+      ],
+      "recommendation_id": "R-CB-20260605-0001",
+      "statement": "Pass a small positive risk-appetite prior to downstream sector agents."
+    }
+  ]
+}

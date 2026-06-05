@@ -15,6 +15,10 @@ from .central_bank_mvp import (
     build_completion_audit,
     write_central_bank_mvp_registry,
 )
+from .completion_auditor import (
+    audit_master_plan_completion,
+    write_completion_audit,
+)
 from .compliance import (
     SourceLicenseDecision,
     SourceLicensePolicy,
@@ -24,6 +28,11 @@ from .compliance import (
     evaluate_source_license,
     filter_sources_for_runtime,
     write_source_license_review_template,
+)
+from .dashboard_reports import (
+    build_dashboard_report,
+    render_dashboard_markdown,
+    write_dashboard_reports,
 )
 from .p0 import (
     AggregationResult,
@@ -137,6 +146,8 @@ __all__ = [
     "build_central_bank_runtime_output",
     "build_completion_audit",
     "write_central_bank_mvp_registry",
+    "audit_master_plan_completion",
+    "write_completion_audit",
     "SourceLicenseDecision",
     "SourceLicensePolicy",
     "SourceLicenseReviewRecord",
@@ -145,6 +156,9 @@ __all__ = [
     "evaluate_source_license",
     "filter_sources_for_runtime",
     "write_source_license_review_template",
+    "build_dashboard_report",
+    "render_dashboard_markdown",
+    "write_dashboard_reports",
     "AggregationResult",
     "ClaimCheckResult",
     "ClaimExtractionGoldSet",

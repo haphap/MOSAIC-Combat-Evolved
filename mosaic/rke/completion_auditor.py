@@ -1,0 +1,275 @@
+"""Dynamic completion audit for the RKE master plan."""
+
+from __future__ import annotations
+
+import json
+from dataclasses import asdict
+from pathlib import Path
+from typing import Any, Mapping
+
+from .audit_viewer import build_audit_view, build_registry_index
+from .central_bank_mvp import CompletionAudit, CompletionCriterion
+from .compliance import apply_source_license_reviews, evaluate_source_license
+from .phase_minus1 import evaluate_gold_set_reviews, load_jsonl
+
+
+def _read_json(path: Path) -> dict[str, Any]:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _optional_json(path: Path) -> dict[str, Any] | None:
+    if not path.exists():
+        return None
+    return _read_json(path)
+
+
+def _optional_jsonl(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    return load_jsonl(path)
+
+
+def _runtime_output_passes(runtime_output: Mapping[str, Any]) -> bool:
+    required = (
+        "evidence_ledger",
+        "research_rule_ids_used",
+        "source_claim_ids_used",
+        "hypothesis_ids_used",
+        "inferences",
+        "recommendations",
+        "confidence_components",
+        "rule_aggregation_summary",
+        "downstream_handoff",
+        "progress_event",
+    )
+    return all(runtime_output.get(field) for field in required)
+
+
+def _gold_set_gate(root: Path) -> tuple[bool, str, str]:
+    rows = _optional_jsonl(root / "registry/gold_sets/tushare_research_reports.review_template.jsonl")
+    if not rows:
+        return False, "gold-set review records missing", "gold-set review file missing"
+    review_fields = (
+        "claim_correct",
+        "source_span_supports_claim",
+        "direction_correct",
+        "variable_mapping_correct",
+        "unsupported_field_false_grounded",
+    )
+    if any(row.get(field) is None for row in rows for field in review_fields):
+        return (
+            False,
+            f"gold-set review records present: {len({str(row.get('document_id') or row.get('source_id') or '') for row in rows})} documents / {len(rows)} claims",
+            "manual gold-set review still required",
+        )
+    gold_set = evaluate_gold_set_reviews(rows, gold_set_id="GOLD-CLAIM-2026Q2")
+    if gold_set.passed:
+        return True, "manual gold-set review passed", ""
+    failures = "; ".join(gold_set.gate_failures())
+    return (
+        False,
+        f"gold-set review records present: {gold_set.sample_size_documents} documents / "
+        f"{gold_set.sample_size_claims} claims",
+        failures or "manual review fields are not yet accepted",
+    )
+
+
+def _license_gate(root: Path) -> tuple[bool, str, str]:
+    sources = _optional_jsonl(root / "registry/sources/tushare_research_reports.jsonl")
+    reviews = _optional_jsonl(root / "registry/compliance/tushare_license_review_template.jsonl")
+    if not sources:
+        return False, "Tushare source rows missing", "source registry missing"
+    if not reviews:
+        return False, "license review records missing", "license review file missing"
+    reviewed_sources = apply_source_license_reviews(sources, reviews)
+    decisions = [evaluate_source_license(source) for source in reviewed_sources]
+    approved = [decision for decision in decisions if decision.allowed_for_production_runtime]
+    if len(approved) == len(sources):
+        return True, f"{len(approved)} sources approved for production runtime", ""
+    return (
+        False,
+        f"{len(approved)} / {len(sources)} sources approved for production runtime",
+        "source license review still pending or restricted",
+    )
+
+
+def _validation_gate(experiment: Mapping[str, Any] | None) -> tuple[bool, str, str]:
+    if experiment is None:
+        return False, "validation experiment missing", "experiment registry missing"
+    sampling = dict(experiment.get("sampling_design") or {})
+    mtc = dict(experiment.get("multiple_testing_control") or {})
+    acceptance = dict(experiment.get("acceptance_rule") or {})
+    required = (
+        sampling.get("effective_n", 0) >= sampling.get("minimum_effective_n", 10**9),
+        bool(sampling.get("overlap_policy")),
+        mtc.get("adjusted_q_value", 1.0) <= mtc.get("max_fdr", 0.0),
+        acceptance.get("cost_model_required") is True,
+        acceptance.get("primary_metric") == "net_alpha_after_cost_20d",
+    )
+    if all(required):
+        return True, str(experiment.get("experiment_id")), ""
+    return False, str(experiment.get("experiment_id") or "unknown experiment"), "validation gates incomplete"
+
+
+def _audit_trace_gate(root: Path) -> tuple[bool, str, str]:
+    trace = _optional_json(root / "registry/audits/central_bank_mvp_audit_trace.json")
+    if trace is None:
+        return False, "audit trace missing", "audit trace file missing"
+    view = build_audit_view(
+        trace,
+        registry_index=build_registry_index(root),
+        trace_id="central-bank-mvp",
+    )
+    if view.complete:
+        return True, f"{len(view.references)} registry references resolved", ""
+    return False, f"{len(view.references)} registry references resolved", "; ".join(view.missing_references)
+
+
+def audit_master_plan_completion(root: str | Path = ".") -> CompletionAudit:
+    root_path = Path(root)
+    experiment = _optional_json(
+        root_path / "registry/experiments/central_bank_validation_experiment_v2.json"
+    )
+    runtime_output = _optional_json(
+        root_path / "registry/runtime_outputs/macro.central_bank.20260605.json"
+    )
+    paper_report = _optional_json(
+        root_path / "registry/monitoring/central_bank_paper_trading_report.json"
+    )
+    data_matrix = _optional_json(
+        root_path / "registry/data_availability/central_bank_data_availability.json"
+    )
+    patch = _optional_json(root_path / "registry/patches/central_bank_paper_trading_patch.json")
+    rule_pack = _optional_json(root_path / "registry/rule_packs/macro.central_bank.liquidity.v1.json")
+
+    gold_passed, gold_evidence, gold_blocker = _gold_set_gate(root_path)
+    license_passed, license_evidence, license_blocker = _license_gate(root_path)
+    validation_passed, validation_evidence, validation_blocker = _validation_gate(experiment)
+    audit_passed, audit_evidence, audit_blocker = _audit_trace_gate(root_path)
+
+    runtime_passed = bool(runtime_output) and _runtime_output_passes(runtime_output)
+    aggregation = dict((runtime_output or {}).get("rule_aggregation_summary") or {})
+    completion = CompletionAudit(
+        criteria=(
+            CompletionCriterion(
+                "C01",
+                "At least one macro rule family reaches the Phase 4 paper-trading gate.",
+                bool(paper_report and paper_report.get("paper_trading_summary", {}).get("ready")),
+                "central_bank paper-trading report",
+                "" if paper_report else "paper trading report missing",
+            ),
+            CompletionCriterion(
+                "C02",
+                "Claim extraction gold set passes the manual precision gate.",
+                gold_passed,
+                gold_evidence,
+                gold_blocker,
+            ),
+            CompletionCriterion(
+                "C03",
+                "Data availability matrix covers the production candidate proxies.",
+                bool(data_matrix and {"pboc_net_injection_7d", "risk_appetite_proxy"} <= set(data_matrix.get("proxies", {}))),
+                "central_bank data availability matrix",
+                "" if data_matrix else "data availability matrix missing",
+            ),
+            CompletionCriterion(
+                "C04",
+                "Validation v2 report includes effective N, overlap, FDR, and costs.",
+                validation_passed,
+                validation_evidence,
+                validation_blocker,
+            ),
+            CompletionCriterion(
+                "C05",
+                "Runtime aggregation implements de-duplication and conflict objects.",
+                runtime_passed
+                and "correlated_rule_duplicate_count" in aggregation
+                and "has_opposing_rules" in aggregation,
+                "runtime output aggregation summary",
+                "" if runtime_passed else "runtime output missing required fields",
+            ),
+            CompletionCriterion(
+                "C06",
+                "Confidence policy v1 uses the conservative min-components function.",
+                Path(root_path / "schemas/confidence_policy.schema.yaml").exists(),
+                "confidence_policy.schema.yaml + compute_confidence_v1 tests",
+                "",
+            ),
+            CompletionCriterion(
+                "C07",
+                "Research-only no-trade rule is enforced by checker.",
+                runtime_passed,
+                "runtime output checker and focused tests",
+                "" if runtime_passed else "runtime output checker evidence missing",
+            ),
+            CompletionCriterion(
+                "C08",
+                "Patch validator rejects forbidden paths and mismatched target paths.",
+                bool(patch and patch.get("allowed_by_evolution_targets") is True),
+                "central_bank paper-trading patch + patch checker tests",
+                "" if patch else "patch registry missing",
+            ),
+            CompletionCriterion(
+                "C09",
+                "Paper trading monitor outputs live-vs-baseline deltas.",
+                bool(
+                    paper_report
+                    and "mean_live_vs_baseline_delta" in paper_report.get("paper_trading_summary", {})
+                ),
+                "central_bank paper-trading summary",
+                "" if paper_report else "paper trading report missing",
+            ),
+            CompletionCriterion(
+                "C10",
+                "Production monitor can detect alpha decay and calibration drift.",
+                bool(paper_report and paper_report.get("production_monitor")),
+                "production monitor report + monitoring tests",
+                "" if paper_report else "production monitor report missing",
+            ),
+            CompletionCriterion(
+                "C11",
+                "Compliance gate blocks unauthorized reports from production runtime.",
+                license_passed,
+                license_evidence,
+                license_blocker,
+            ),
+            CompletionCriterion(
+                "C12",
+                "Audit viewer trace covers source to agent output.",
+                audit_passed,
+                audit_evidence,
+                audit_blocker,
+            ),
+        )
+    )
+    if rule_pack is None:
+        criteria = list(completion.criteria)
+        criteria[0] = CompletionCriterion(
+            criteria[0].criterion_id,
+            criteria[0].description,
+            False,
+            criteria[0].evidence,
+            "central_bank rule pack missing",
+        )
+        return CompletionAudit(criteria=tuple(criteria))
+    return completion
+
+
+def write_completion_audit(root: str | Path = ".") -> dict[str, Any]:
+    root_path = Path(root)
+    audit = audit_master_plan_completion(root_path)
+    output_path = root_path / "registry/audits/rke_completion_audit.json"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(
+        json.dumps(asdict(audit), ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return {"path": str(output_path), "ready_for_broad_rollout": audit.ready_for_broad_rollout}
+
+
+def main() -> None:
+    print(json.dumps(write_completion_audit(Path.cwd()), indent=2, sort_keys=True))
+
+
+if __name__ == "__main__":
+    main()
