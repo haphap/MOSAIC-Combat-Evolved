@@ -44,6 +44,9 @@ def test_dashboard_report_summarizes_completion_and_monitoring():
     assert report["production_monitor_diagnostics"]["accepted"] is True
     assert report["production_monitor_diagnostics"]["scenario_count"] == 6
     assert report["production_monitor_diagnostics"]["failure_count"] == 0
+    assert report["rollback_readiness"]["accepted"] is True
+    assert report["rollback_readiness"]["check_count"] == 5
+    assert report["rollback_readiness"]["failure_count"] == 0
     assert report["lockbox"]["result"] == "not_opened"
     assert report["lockbox"]["production_allowed"] is False
     assert report["promotion_gate"]["paper_trading_allowed"] is True
@@ -125,6 +128,8 @@ def test_dashboard_markdown_renders_blockers():
     assert f"Source validation production blockers: {source_row_count}" in markdown
     assert "Production monitor diagnostics accepted: True" in markdown
     assert "Production monitor diagnostic failures: 0" in markdown
+    assert "Rollback readiness accepted: True" in markdown
+    assert "Rollback readiness failures: 0" in markdown
     assert "Source text redaction accepted: True" in markdown
     assert "Source text redaction failures: 0" in markdown
     assert "Sector demo: sandbox" in markdown

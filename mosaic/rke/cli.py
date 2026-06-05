@@ -44,6 +44,7 @@ from .monitoring_diagnostics import (
     build_production_monitor_diagnostics,
     write_production_monitor_diagnostics,
 )
+from .rollback_readiness import build_rollback_readiness_report, write_rollback_readiness_report
 from .policy_doc_validation import (
     build_policy_doc_validation_report,
     write_policy_doc_validation_report,
@@ -200,6 +201,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Write and print production-monitor diagnostic scenarios.",
     )
     monitoring_diagnostics.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
+
+    rollback_readiness = subparsers.add_parser(
+        "rollback-readiness",
+        help="Write and print soft/hard/compliance rollback readiness checks.",
+    )
+    rollback_readiness.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
 
     promotion_status = subparsers.add_parser(
         "promotion-status",
@@ -496,6 +503,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         result = build_production_monitor_diagnostics()
         _print_json(asdict(result))
         return 0 if result.accepted else 2
+    if args.command == "rollback-readiness":
+        result = write_rollback_readiness_report(root)
+        report = build_rollback_readiness_report(root)
+        _print_json({"path": result["path"], **asdict(report)})
+        return 0 if report.accepted else 2
     if args.command == "promotion-status":
         write_production_promotion_gate_report(root)
         result = build_production_promotion_gate_report(root)

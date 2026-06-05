@@ -1,0 +1,54 @@
+{
+  "accepted": true,
+  "check_count": 5,
+  "checks": [
+    {
+      "action": "reduce_weight_and_revalidate",
+      "blocker": "",
+      "check_id": "soft_rollback_alpha_decay",
+      "evidence_path": "registry/monitoring/central_bank_monitoring_diagnostics.json",
+      "passed": true,
+      "rollback_type": "soft",
+      "trigger": "alpha effect decayed below threshold"
+    },
+    {
+      "action": "rollback",
+      "blocker": "",
+      "check_id": "hard_rollback_negative_alpha",
+      "evidence_path": "registry/monitoring/central_bank_monitoring_diagnostics.json",
+      "passed": true,
+      "rollback_type": "hard",
+      "trigger": "live net alpha after cost is negative with calibration drift"
+    },
+    {
+      "action": "apply patch rollback rule",
+      "blocker": "",
+      "check_id": "patch_has_slow_decay_rollback_rule",
+      "evidence_path": "registry/patches/central_bank_paper_trading_patch.json",
+      "passed": true,
+      "rollback_type": "patch",
+      "trigger": "live_net_alpha_after_cost_20d"
+    },
+    {
+      "action": "block production runtime retrieval",
+      "blocker": "",
+      "check_id": "compliance_rollback_blocks_runtime_retrieval",
+      "evidence_path": "registry/source_checks/source_registry_validation_report.json",
+      "passed": true,
+      "rollback_type": "compliance",
+      "trigger": "source production blockers=9812"
+    },
+    {
+      "action": "keep rule in paper_trading",
+      "blocker": "",
+      "check_id": "promotion_gate_respects_rollback_blocks",
+      "evidence_path": "registry/promotion/rke_production_promotion_gate.json",
+      "passed": true,
+      "rollback_type": "promotion",
+      "trigger": "manual or compliance rollback blockers remain active"
+    }
+  ],
+  "failure_count": 0,
+  "passed_count": 5,
+  "report_id": "RKE-ROLLBACK-READINESS-REPORT-20260606"
+}

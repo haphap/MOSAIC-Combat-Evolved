@@ -183,6 +183,11 @@
     "rendered_prompt_path": "registry/rendered_prompts/macro.central_bank.rke.md"
   },
   "ready_for_broad_rollout": false,
+  "rollback_readiness": {
+    "accepted": true,
+    "check_count": 5,
+    "failure_count": 0
+  },
   "runtime_progress": {
     "agent_id": "macro.central_bank",
     "confidence": 0.64,
@@ -222,7 +227,7 @@
   },
   "source_text_redaction": {
     "accepted": true,
-    "checked_path_count": 397,
+    "checked_path_count": 399,
     "failure_count": 0,
     "min_match_chars": 80,
     "skipped_allowed_path_count": 6,

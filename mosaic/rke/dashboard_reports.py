@@ -31,6 +31,10 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
     monitor_diagnostics = (
         _read_json(monitor_diagnostics_path) if monitor_diagnostics_path.exists() else {}
     )
+    rollback_readiness_path = root_path / "registry/monitoring/central_bank_rollback_readiness_report.json"
+    rollback_readiness = (
+        _read_json(rollback_readiness_path) if rollback_readiness_path.exists() else {}
+    )
     source_validation_path = root_path / "registry/source_checks/source_registry_validation_report.json"
     source_validation = _read_json(source_validation_path) if source_validation_path.exists() else {}
     source_text_redaction_path = root_path / "registry/compliance/source_text_redaction_report.json"
@@ -128,6 +132,11 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
             "accepted": monitor_diagnostics.get("accepted"),
             "scenario_count": monitor_diagnostics.get("scenario_count"),
             "failure_count": monitor_diagnostics.get("failure_count"),
+        },
+        "rollback_readiness": {
+            "accepted": rollback_readiness.get("accepted"),
+            "check_count": rollback_readiness.get("check_count"),
+            "failure_count": rollback_readiness.get("failure_count"),
         },
         "lockbox": {
             "result": lockbox.get("result"),
@@ -344,6 +353,8 @@ def render_dashboard_markdown(report: Mapping[str, Any]) -> str:
         f"- Production monitor action: {monitor.get('action')}",
         f"- Production monitor diagnostics accepted: {dict(report.get('production_monitor_diagnostics') or {}).get('accepted')}",
         f"- Production monitor diagnostic failures: {dict(report.get('production_monitor_diagnostics') or {}).get('failure_count')}",
+        f"- Rollback readiness accepted: {dict(report.get('rollback_readiness') or {}).get('accepted')}",
+        f"- Rollback readiness failures: {dict(report.get('rollback_readiness') or {}).get('failure_count')}",
         f"- Lockbox result: {dict(report.get('lockbox') or {}).get('result')}",
         f"- Promotion next state: {dict(report.get('promotion_gate') or {}).get('next_state')}",
         f"- Promotion production allowed: {dict(report.get('promotion_gate') or {}).get('production_allowed')}",

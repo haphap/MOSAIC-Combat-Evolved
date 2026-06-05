@@ -54,6 +54,7 @@ REQUIRED_REGISTRY_FILES = (
     "registry/lockbox/central_bank_lockbox_review.json",
     "registry/monitoring/central_bank_monitoring_diagnostics.json",
     "registry/monitoring/central_bank_paper_trading_report.json",
+    "registry/monitoring/central_bank_rollback_readiness_report.json",
     "registry/mutation_patches/central_bank_parameter_update.json",
     "registry/parameter_priors/central_bank_parameter_priors.jsonl",
     "registry/patches/central_bank_paper_trading_patch.json",

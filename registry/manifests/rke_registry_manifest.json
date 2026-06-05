@@ -1,5 +1,5 @@
 {
-  "artifact_count": 70,
+  "artifact_count": 71,
   "artifacts": [
     {
       "bytes": 539,
@@ -22,9 +22,9 @@
       "sha256": "sha256:de6fc572b0101a18e6030a13a089487c62dc004febf58b1633b45f25acd42604"
     },
     {
-      "bytes": 7015,
+      "bytes": 7154,
       "path": "registry/audits/rke_master_plan_coverage_report.json",
-      "sha256": "sha256:2fbb5ffae1f439289396f46f7b9dd3660e146286be4555439c0f5513d823e51e"
+      "sha256": "sha256:40710d077412a44d7b4d6bc857fdedce5a79d4a172dd8ba39d6e88c7c05443c3"
     },
     {
       "bytes": 752,
@@ -44,7 +44,7 @@
     {
       "bytes": 1028,
       "path": "registry/compliance/source_text_redaction_report.json",
-      "sha256": "sha256:ae002dc9721a347a2e3e1141c2fa518bca725611835da2e6500cdef19a49f064"
+      "sha256": "sha256:273837637da94ce0d4c03cae9eb6c0abb070368daa78505cdc7515be198205f7"
     },
     {
       "bytes": 7499705,
@@ -67,14 +67,14 @@
       "sha256": "sha256:b07a0175603d46122f147d6b2e9de7ff96df4b3dacbee21f631f20c2a7118603"
     },
     {
-      "bytes": 7289,
+      "bytes": 7485,
       "path": "registry/dashboards/rke_dashboard.json",
-      "sha256": "sha256:401fad05146fda306fe12048a140c2e519891712ae32499664f921d3d5b33dce"
+      "sha256": "sha256:8271e2cfb243c9bbbcdbdf32985103f85207c8d9cfe63f926f30e355fa4c783f"
     },
     {
-      "bytes": 1629,
+      "bytes": 1767,
       "path": "registry/dashboards/rke_dashboard.md",
-      "sha256": "sha256:308e344a305933c4c9448d190b9da06d255499fb8144a4bddebd2e0326e775e6"
+      "sha256": "sha256:664da764b4ae3fb79547a0655ff1c04f27388586a0a3b1247e70f87dadb15806"
     },
     {
       "bytes": 1233,
@@ -222,6 +222,11 @@
       "sha256": "sha256:11b24f464734bff90a0ac2f8ef99aa53357497b725d6d1f965b863b22330f694"
     },
     {
+      "bytes": 1840,
+      "path": "registry/monitoring/central_bank_rollback_readiness_report.json",
+      "sha256": "sha256:a1cabb7fe448c6fb9f4d213a5785ec73f0f2a0147e57c9c090efd127482d9591"
+    },
+    {
       "bytes": 914,
       "path": "registry/mutation_patches/central_bank_parameter_update.json",
       "sha256": "sha256:07a9697b3d79bc1aa801e0dbfa91b6ced56cc854a818118dbce1da559edd924d"
@@ -339,7 +344,7 @@
     {
       "bytes": 40820,
       "path": "registry/sources/tushare_research_reports.manifest.json",
-      "sha256": "sha256:968e62a95da7d3b1115c60e5156bd2a2d584808dcea861c4a3b5847637e69dda"
+      "sha256": "sha256:cc565ce0e6a2413c1c0cc7f51fa81e1d949e8ff9216883dacc8b6d4afc7cc601"
     },
     {
       "bytes": 1668,

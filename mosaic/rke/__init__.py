@@ -229,6 +229,12 @@ from .monitoring_diagnostics import (
     build_production_monitor_diagnostics,
     write_production_monitor_diagnostics,
 )
+from .rollback_readiness import (
+    RollbackReadinessCheck,
+    RollbackReadinessReport,
+    build_rollback_readiness_report,
+    write_rollback_readiness_report,
+)
 from .phase_minus1 import (
     CorpusAudit,
     GoldSetReviewRecord,
@@ -551,6 +557,10 @@ __all__ = [
     "ProductionMonitorDiagnosticsReport",
     "build_production_monitor_diagnostics",
     "write_production_monitor_diagnostics",
+    "RollbackReadinessCheck",
+    "RollbackReadinessReport",
+    "build_rollback_readiness_report",
+    "write_rollback_readiness_report",
     "CorpusAudit",
     "GoldSetReviewRecord",
     "REQUIRED_GOLD_SET_DOMAINS",

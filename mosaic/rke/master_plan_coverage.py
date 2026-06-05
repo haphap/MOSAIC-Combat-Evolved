@@ -229,6 +229,7 @@ def build_master_plan_coverage_report(root: str | Path = ".") -> MasterPlanCover
                 evidence_paths=(
                     "registry/monitoring/central_bank_paper_trading_report.json",
                     "registry/monitoring/central_bank_monitoring_diagnostics.json",
+                    "registry/monitoring/central_bank_rollback_readiness_report.json",
                 ),
             ),
             _record(

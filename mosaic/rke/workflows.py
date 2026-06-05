@@ -27,6 +27,7 @@ from .prompt_asset_validation import write_prompt_asset_validation_report
 from .promotion_gate import write_production_promotion_gate_report
 from .registry_manifest import write_registry_manifest
 from .review_gates import write_gold_set_review_summary, write_source_license_review_summary
+from .rollback_readiness import write_rollback_readiness_report
 from .schema_validation import write_schema_validation_report
 from .sector_demo import write_sector_semiconductor_demo_registry
 from .source_registry_validation import write_source_registry_validation_report
@@ -97,6 +98,7 @@ def run_full_rke_refresh(
     audit_result = write_completion_audit(root_path)
     promotion_gate = write_production_promotion_gate_report(root_path)
     operator_handoff = write_operator_handoff(root_path)
+    rollback_readiness = write_rollback_readiness_report(root_path)
     operator_readiness = write_operator_readiness_report(root_path)
     master_plan_coverage = write_master_plan_coverage_report(root_path)
     dashboard_outputs = write_dashboard_reports(root_path)
@@ -129,6 +131,7 @@ def run_full_rke_refresh(
     outputs["operator_handoff.json"] = operator_handoff["json"]
     outputs["operator_handoff.markdown"] = operator_handoff["markdown"]
     outputs["lockbox_review_import_template"] = operator_handoff["lockbox_import_template"]
+    outputs["rollback_readiness_report"] = str(rollback_readiness["path"])
     outputs["operator_readiness_report"] = str(operator_readiness["path"])
     outputs["master_plan_coverage_report"] = str(master_plan_coverage["path"])
     outputs.update({f"dashboard.{key}": value for key, value in dashboard_outputs.items()})
