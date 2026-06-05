@@ -112,6 +112,14 @@ from .governance import (
     default_evolution_targets,
     validate_patch,
 )
+from .gold_review_packet import (
+    CandidateSpanRef,
+    GoldReviewDocumentPacket,
+    GoldReviewPacket,
+    build_gold_review_packet,
+    render_gold_review_packet_markdown,
+    write_gold_review_packet,
+)
 from .lockbox import (
     LockboxDecision,
     LockboxPolicy,
@@ -364,6 +372,12 @@ __all__ = [
     "ProductionPatch",
     "default_evolution_targets",
     "validate_patch",
+    "CandidateSpanRef",
+    "GoldReviewDocumentPacket",
+    "GoldReviewPacket",
+    "build_gold_review_packet",
+    "render_gold_review_packet_markdown",
+    "write_gold_review_packet",
     "LockboxDecision",
     "LockboxPolicy",
     "LockboxReview",

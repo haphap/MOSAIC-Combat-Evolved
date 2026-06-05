@@ -22,6 +22,7 @@ from .completion_auditor import write_completion_audit
 from .compliance import write_source_license_review_template
 from .claim_vocabulary import write_claim_variable_validation_report, write_claim_variable_vocabulary
 from .dashboard_reports import write_dashboard_reports
+from .gold_review_packet import write_gold_review_packet
 from .phase_minus1 import (
     audit_research_report_corpus,
     load_jsonl,
@@ -448,6 +449,7 @@ def refresh_tushare_research_report_registry(
     gold_summary_result = write_gold_set_review_summary(root_path)
     license_summary_result = write_source_license_review_summary(root_path)
     claim_vocabulary_result = write_claim_variable_vocabulary(root_path)
+    gold_packet_result = write_gold_review_packet(root_path)
     claim_variable_summary_result = write_claim_variable_validation_report(root_path)
     source_validation_result = write_source_registry_validation_report(root_path)
     schema_summary_result = write_schema_validation_report(root_path)
@@ -458,6 +460,8 @@ def refresh_tushare_research_report_registry(
     dashboard_result = write_dashboard_reports(root_path)
     registry_manifest_result = write_registry_manifest(root_path)
     outputs["gold_review_summary"] = str(gold_summary_result["path"])
+    outputs["gold_review_packet.json"] = gold_packet_result["json"]
+    outputs["gold_review_packet.markdown"] = gold_packet_result["markdown"]
     outputs["license_review_summary"] = str(license_summary_result["path"])
     outputs["claim_variable_vocabulary"] = str(claim_vocabulary_result["path"])
     outputs["claim_variable_validation_report"] = str(claim_variable_summary_result["path"])

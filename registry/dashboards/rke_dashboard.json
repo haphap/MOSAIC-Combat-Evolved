@@ -52,6 +52,18 @@
     "production_allowed": false
   },
   "manual_review_gates": {
+    "gold_review_packet": {
+      "candidate_span_ref_count": 244,
+      "document_count": 50,
+      "pending_review_rows": 500,
+      "risk_flag_counts": {
+        "canonical_variable_mapping_needed": 4,
+        "license_pending": 50,
+        "manual_review_required": 50,
+        "span_preview_truncated": 49
+      },
+      "status": "manual_review_pending"
+    },
     "gold_set": {
       "passed": false,
       "pending_claims": 500,

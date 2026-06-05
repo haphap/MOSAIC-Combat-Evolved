@@ -1,5 +1,5 @@
 {
-  "artifact_count": 50,
+  "artifact_count": 52,
   "artifacts": [
     {
       "bytes": 539,
@@ -37,14 +37,14 @@
       "sha256": "sha256:d519117af396793a5f27fc06e808ca93b55d6f4a2d0ae63bd6c7b9c360cadbd0"
     },
     {
-      "bytes": 4495,
+      "bytes": 4862,
       "path": "registry/dashboards/rke_dashboard.json",
-      "sha256": "sha256:432c391b9230cea98cb1f86aa8c232cc30d6a7cfe54c52e565de253f8a79ab71"
+      "sha256": "sha256:1824028d4b04e073a3345401c0164d8bf4565b37c1f67ad77bd77ae525081b20"
     },
     {
-      "bytes": 987,
+      "bytes": 1019,
       "path": "registry/dashboards/rke_dashboard.md",
-      "sha256": "sha256:c3385ce4629b6aad1aa3090e1501fac090de4149a982fde3ca7e80bf39a9459e"
+      "sha256": "sha256:d09c1b9cac908b61dc5e2562b899a1c3e4c007c7d902c72ee38f293cd8686b2e"
     },
     {
       "bytes": 1233,
@@ -110,6 +110,16 @@
       "bytes": 2031,
       "path": "registry/experiments/central_bank_validation_experiment_v2.json",
       "sha256": "sha256:2d1f68bea8757460a3c59dc298c713ec3750b44f5ed8f40378787772e9fad027"
+    },
+    {
+      "bytes": 179581,
+      "path": "registry/gold_sets/tushare_research_reports.review_packet.json",
+      "sha256": "sha256:6380e6318d850d9771dd1cf61941e87efb0aa444fcc86afdd4685a7059901090"
+    },
+    {
+      "bytes": 14866,
+      "path": "registry/gold_sets/tushare_research_reports.review_packet.md",
+      "sha256": "sha256:4f1e59e93e4d20db0bfeaf9697dae281bd2c7dcd85b794fb2817fd537d0b5596"
     },
     {
       "bytes": 380,

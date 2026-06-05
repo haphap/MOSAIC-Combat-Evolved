@@ -41,8 +41,10 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
     integration_path = root_path / "registry/integration/phase7_layer_integration_contracts.json"
     integration = _read_json(integration_path) if integration_path.exists() else {}
     gold_review_path = root_path / "registry/gold_sets/tushare_research_reports.review_summary.json"
+    gold_packet_path = root_path / "registry/gold_sets/tushare_research_reports.review_packet.json"
     license_review_path = root_path / "registry/compliance/tushare_license_review_summary.json"
     gold_review = _read_json(gold_review_path) if gold_review_path.exists() else {}
+    gold_packet = _read_json(gold_packet_path) if gold_packet_path.exists() else {}
     license_review = _read_json(license_review_path) if license_review_path.exists() else {}
     family_path = root_path / "registry/evaluation/experiment_family_registry/central_bank_liquidity_family.json"
     cost_model_path = root_path / "registry/evaluation/cost_model/cost_model_v1.json"
@@ -134,6 +136,13 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
                 "pending_claims": gold_review.get("pending_claims"),
                 "passed": gold_review.get("passed"),
             },
+            "gold_review_packet": {
+                "status": gold_packet.get("status"),
+                "document_count": gold_packet.get("document_count"),
+                "pending_review_rows": gold_packet.get("pending_review_rows"),
+                "candidate_span_ref_count": gold_packet.get("candidate_span_ref_count"),
+                "risk_flag_counts": gold_packet.get("risk_flag_counts"),
+            },
             "source_license": {
                 "reviewed_sources": license_review.get("reviewed_sources"),
                 "total_sources": license_review.get("total_sources"),
@@ -213,6 +222,7 @@ def render_dashboard_markdown(report: Mapping[str, Any]) -> str:
         f"- Macro expansion candidates: {dict(report.get('macro_expansion') or {}).get('candidate_count')}",
         f"- Phase 7 sector actionability: {dict(report.get('layer_integration') or {}).get('sector_actionability')}",
         f"- Gold-set review pending claims: {dict(dict(report.get('manual_review_gates') or {}).get('gold_set') or {}).get('pending_claims')}",
+        f"- Gold review packet spans: {dict(dict(report.get('manual_review_gates') or {}).get('gold_review_packet') or {}).get('candidate_span_ref_count')}",
         f"- License review pending sources: {dict(dict(report.get('manual_review_gates') or {}).get('source_license') or {}).get('pending_sources')}",
         f"- Experiment governance family: {dict(report.get('experiment_governance') or {}).get('family_id')}",
         f"- Schema validation failures: {dict(report.get('schema_validation') or {}).get('failure_count')}",

@@ -15,6 +15,7 @@ from .claim_vocabulary import (
 )
 from .completion_auditor import write_completion_audit
 from .dashboard_reports import write_dashboard_reports
+from .gold_review_packet import build_gold_review_packet, write_gold_review_packet
 from .prompt_asset_validation import (
     build_prompt_asset_validation_report,
     write_prompt_asset_validation_report,
@@ -134,6 +135,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Write and print the manual gold-set review gate summary.",
     )
     gold_status.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
+
+    gold_packet = subparsers.add_parser(
+        "gold-review-packet",
+        help="Write and print the Phase -1 gold-set manual review packet summary.",
+    )
+    gold_packet.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
 
     license_status = subparsers.add_parser(
         "license-status",
@@ -266,6 +273,23 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "gold-set-status":
         write_gold_set_review_summary(root)
         _print_json(asdict(summarize_gold_set_review(root)))
+        return 0
+    if args.command == "gold-review-packet":
+        paths = write_gold_review_packet(root)
+        packet = build_gold_review_packet(root)
+        _print_json(
+            {
+                "paths": paths,
+                "packet_id": packet.packet_id,
+                "status": packet.status,
+                "document_count": packet.document_count,
+                "review_row_count": packet.review_row_count,
+                "pending_review_rows": packet.pending_review_rows,
+                "candidate_span_ref_count": packet.candidate_span_ref_count,
+                "manual_review_required": packet.manual_review_required,
+                "risk_flag_counts": packet.risk_flag_counts,
+            }
+        )
         return 0
     if args.command == "license-status":
         write_source_license_review_summary(root)

@@ -33,6 +33,8 @@ REQUIRED_REGISTRY_FILES = (
     "registry/evaluation/statistical_significance/central_bank_after_cost_significance.json",
     "registry/experiments/central_bank_validation_experiment_v2.json",
     "registry/gold_sets/tushare_research_reports.review_summary.json",
+    "registry/gold_sets/tushare_research_reports.review_packet.json",
+    "registry/gold_sets/tushare_research_reports.review_packet.md",
     "registry/gold_sets/tushare_research_reports.review_template.jsonl",
     "registry/hypotheses/central_bank_hypotheses.jsonl",
     "registry/hypotheses/semiconductor_hypotheses.jsonl",
