@@ -34,6 +34,21 @@
     "phase": "Phase 6",
     "production_allowed": false
   },
+  "manual_review_gates": {
+    "gold_set": {
+      "passed": false,
+      "pending_claims": 500,
+      "reviewed_claims": 0,
+      "total_claims": 500
+    },
+    "source_license": {
+      "approved_for_production_runtime": 0,
+      "passed": false,
+      "pending_sources": 207,
+      "reviewed_sources": 0,
+      "total_sources": 207
+    }
+  },
   "paper_trading": {
     "mean_calibration_error": 0.025,
     "mean_live_net_alpha_after_cost": 0.0055,

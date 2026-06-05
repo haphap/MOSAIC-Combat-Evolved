@@ -33,6 +33,10 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
     macro_expansion = _read_json(macro_expansion_path) if macro_expansion_path.exists() else {}
     integration_path = root_path / "registry/integration/phase7_layer_integration_contracts.json"
     integration = _read_json(integration_path) if integration_path.exists() else {}
+    gold_review_path = root_path / "registry/gold_sets/tushare_research_reports.review_summary.json"
+    license_review_path = root_path / "registry/compliance/tushare_license_review_summary.json"
+    gold_review = _read_json(gold_review_path) if gold_review_path.exists() else {}
+    license_review = _read_json(license_review_path) if license_review_path.exists() else {}
     criteria = completion.get("criteria", ())
     return {
         "dashboard_id": "RKE-DASHBOARD-20260605",
@@ -81,6 +85,23 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
             "decision_agent": integration.get("decision", {}).get("agent_id"),
             "decision_cash_floor": integration.get("decision", {}).get("cash_floor"),
         },
+        "manual_review_gates": {
+            "gold_set": {
+                "reviewed_claims": gold_review.get("reviewed_claims"),
+                "total_claims": gold_review.get("total_claims"),
+                "pending_claims": gold_review.get("pending_claims"),
+                "passed": gold_review.get("passed"),
+            },
+            "source_license": {
+                "reviewed_sources": license_review.get("reviewed_sources"),
+                "total_sources": license_review.get("total_sources"),
+                "pending_sources": license_review.get("pending_sources"),
+                "approved_for_production_runtime": license_review.get(
+                    "approved_for_production_runtime"
+                ),
+                "passed": license_review.get("passed"),
+            },
+        },
         "audit_trace": {
             "source_count": len(audit_trace.get("source_ids", ())),
             "claim_count": len(audit_trace.get("claim_ids", ())),
@@ -113,6 +134,8 @@ def render_dashboard_markdown(report: Mapping[str, Any]) -> str:
         f"- Sector demo: {dict(report.get('sector_demo') or {}).get('demo_status')}",
         f"- Macro expansion candidates: {dict(report.get('macro_expansion') or {}).get('candidate_count')}",
         f"- Phase 7 sector actionability: {dict(report.get('layer_integration') or {}).get('sector_actionability')}",
+        f"- Gold-set review pending claims: {dict(dict(report.get('manual_review_gates') or {}).get('gold_set') or {}).get('pending_claims')}",
+        f"- License review pending sources: {dict(dict(report.get('manual_review_gates') or {}).get('source_license') or {}).get('pending_sources')}",
         "",
         "## Blockers",
         "",

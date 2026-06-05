@@ -15,6 +15,12 @@ from .registry_manifest import (
     validate_required_registry,
     write_registry_manifest,
 )
+from .review_gates import (
+    summarize_gold_set_review,
+    summarize_source_license_review,
+    write_gold_set_review_summary,
+    write_source_license_review_summary,
+)
 from .tushare_reports import refresh_tushare_research_report_registry
 from .workflows import run_full_rke_refresh
 
@@ -62,6 +68,18 @@ def build_parser() -> argparse.ArgumentParser:
 
     dashboard = subparsers.add_parser("dashboard", help="Write dashboard JSON and Markdown reports.")
     dashboard.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
+
+    gold_status = subparsers.add_parser(
+        "gold-set-status",
+        help="Write and print the manual gold-set review gate summary.",
+    )
+    gold_status.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
+
+    license_status = subparsers.add_parser(
+        "license-status",
+        help="Write and print the source license review gate summary.",
+    )
+    license_status.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
 
     fetch_reports = subparsers.add_parser(
         "fetch-tushare-reports",
@@ -125,6 +143,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "dashboard":
         result = write_dashboard_reports(root)
         _print_json(result)
+        return 0
+    if args.command == "gold-set-status":
+        write_gold_set_review_summary(root)
+        _print_json(asdict(summarize_gold_set_review(root)))
+        return 0
+    if args.command == "license-status":
+        write_source_license_review_summary(root)
+        _print_json(asdict(summarize_source_license_review(root)))
         return 0
     if args.command == "fetch-tushare-reports":
         _load_env_file(args.env_file)

@@ -29,6 +29,7 @@ from .phase_minus1 import (
     write_gold_set_review_template,
 )
 from .registry_manifest import write_registry_manifest
+from .review_gates import write_gold_set_review_summary, write_source_license_review_summary
 
 ReportKind = Literal["stock", "industry"]
 
@@ -408,9 +409,13 @@ def refresh_tushare_research_report_registry(
     )
     outputs["source_manifest"] = str(manifest_result["path"])
 
+    gold_summary_result = write_gold_set_review_summary(root_path)
+    license_summary_result = write_source_license_review_summary(root_path)
     completion_result = write_completion_audit(root_path)
     dashboard_result = write_dashboard_reports(root_path)
     registry_manifest_result = write_registry_manifest(root_path)
+    outputs["gold_review_summary"] = str(gold_summary_result["path"])
+    outputs["license_review_summary"] = str(license_summary_result["path"])
     outputs["completion_audit"] = str(completion_result["path"])
     outputs.update({f"dashboard.{key}": value for key, value in dashboard_result.items()})
     outputs["registry_manifest"] = str(registry_manifest_result["path"])

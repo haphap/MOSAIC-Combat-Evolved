@@ -166,6 +166,14 @@ from .registry_manifest import (
     validate_required_registry,
     write_registry_manifest,
 )
+from .review_gates import (
+    GoldSetReviewSummary,
+    SourceLicenseReviewSummary,
+    summarize_gold_set_review,
+    summarize_source_license_review,
+    write_gold_set_review_summary,
+    write_source_license_review_summary,
+)
 from .runtime import (
     EvidenceLedgerItem,
     ProgressEvent,
@@ -342,6 +350,12 @@ __all__ = [
     "file_sha256",
     "validate_required_registry",
     "write_registry_manifest",
+    "GoldSetReviewSummary",
+    "SourceLicenseReviewSummary",
+    "summarize_gold_set_review",
+    "summarize_source_license_review",
+    "write_gold_set_review_summary",
+    "write_source_license_review_summary",
     "EvidenceLedgerItem",
     "ProgressEvent",
     "RuntimeAgentOutput",

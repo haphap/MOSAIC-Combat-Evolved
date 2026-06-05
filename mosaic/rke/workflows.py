@@ -13,6 +13,7 @@ from .dashboard_reports import write_dashboard_reports
 from .macro_expansion import write_macro_expansion_registry
 from .phase_minus1 import load_jsonl, write_gold_set_review_template
 from .registry_manifest import write_registry_manifest
+from .review_gates import write_gold_set_review_summary, write_source_license_review_summary
 from .sector_demo import write_sector_semiconductor_demo_registry
 
 
@@ -56,9 +57,13 @@ def run_full_rke_refresh(
         result = write_source_license_review_template(source_rows, license_review_path)
         outputs["license_review_template"] = str(result["path"])
 
+    gold_summary = write_gold_set_review_summary(root_path)
+    license_summary = write_source_license_review_summary(root_path)
     audit_result = write_completion_audit(root_path)
     dashboard_outputs = write_dashboard_reports(root_path)
     manifest_result = write_registry_manifest(root_path)
+    outputs["gold_set_review_summary"] = str(gold_summary["path"])
+    outputs["license_review_summary"] = str(license_summary["path"])
     outputs["completion_audit"] = str(audit_result["path"])
     outputs.update({f"dashboard.{key}": value for key, value in dashboard_outputs.items()})
     outputs["registry_manifest"] = str(manifest_result["path"])

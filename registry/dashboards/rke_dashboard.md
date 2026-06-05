@@ -11,6 +11,8 @@
 - Sector demo: sandbox
 - Macro expansion candidates: 3
 - Phase 7 sector actionability: monitor_only
+- Gold-set review pending claims: 500
+- License review pending sources: 207
 
 ## Blockers
 

@@ -54,6 +54,22 @@ def test_rke_cli_refresh_preserves_reviews(tmp_path: Path, capsys):
     assert gold_review.read_text(encoding="utf-8") == original
 
 
+def test_rke_cli_review_status_commands_write_summaries(tmp_path: Path, capsys):
+    _copy_registry(tmp_path)
+
+    gold_code = main(("gold-set-status", "--root", str(tmp_path)))
+    gold_output = json.loads(capsys.readouterr().out)
+    license_code = main(("license-status", "--root", str(tmp_path)))
+    license_output = json.loads(capsys.readouterr().out)
+
+    assert gold_code == 0
+    assert gold_output["pending_claims"] == 500
+    assert (tmp_path / "registry/gold_sets/tushare_research_reports.review_summary.json").exists()
+    assert license_code == 0
+    assert license_output["pending_sources"] == license_output["total_sources"]
+    assert (tmp_path / "registry/compliance/tushare_license_review_summary.json").exists()
+
+
 def test_rke_cli_fetch_tushare_reports_passes_query_args(monkeypatch, tmp_path: Path, capsys):
     captured = {}
 
