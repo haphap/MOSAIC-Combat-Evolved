@@ -17,11 +17,25 @@ REQUIRED_SCHEMA_FILES = {
     "rule_aggregation_policy.schema.yaml",
 }
 
+REQUIRED_POLICY_DOCS = {
+    "master_plan_v1_1.md",
+    "validation_policy.md",
+    "claim_extraction_guidelines.md",
+    "confidence_policy.md",
+    "compliance_policy.md",
+}
+
 
 def test_phase1_schema_artifacts_exist():
     schema_dir = Path("schemas")
 
     assert {path.name for path in schema_dir.iterdir()} >= REQUIRED_SCHEMA_FILES
+
+
+def test_master_plan_policy_docs_exist():
+    docs_dir = Path("docs")
+
+    assert {path.name for path in docs_dir.iterdir()} >= REQUIRED_POLICY_DOCS
 
 
 def test_json_schema_artifacts_are_parseable_and_have_required_fields():
