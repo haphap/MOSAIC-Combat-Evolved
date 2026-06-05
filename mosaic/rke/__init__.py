@@ -15,6 +15,17 @@ from .central_bank_mvp import (
     build_completion_audit,
     write_central_bank_mvp_registry,
 )
+from .claim_vocabulary import (
+    ClaimVariableDefinition,
+    ClaimVariableValidationRecord,
+    ClaimVariableValidationReport,
+    ClaimVariableVocabulary,
+    build_claim_variable_validation_report,
+    build_default_claim_variable_vocabulary,
+    load_claim_variable_vocabulary,
+    write_claim_variable_validation_report,
+    write_claim_variable_vocabulary,
+)
 from .checkers import (
     CheckerResult,
     check_agent_runtime_output,
@@ -259,6 +270,15 @@ __all__ = [
     "build_central_bank_runtime_output",
     "build_completion_audit",
     "write_central_bank_mvp_registry",
+    "ClaimVariableDefinition",
+    "ClaimVariableValidationRecord",
+    "ClaimVariableValidationReport",
+    "ClaimVariableVocabulary",
+    "build_claim_variable_validation_report",
+    "build_default_claim_variable_vocabulary",
+    "load_claim_variable_vocabulary",
+    "write_claim_variable_validation_report",
+    "write_claim_variable_vocabulary",
     "CheckerResult",
     "check_agent_runtime_output",
     "check_claim_grounding",

@@ -1,0 +1,32 @@
+{
+  "accepted": true,
+  "failure_count": 0,
+  "records": [
+    {
+      "accepted": true,
+      "artifact_paths": [
+        "registry/vocabularies/claim_variable_vocabulary.json"
+      ],
+      "check_id": "CLAIM-VOCABULARY-SCHEMA",
+      "details": {
+        "variable_count": 8
+      },
+      "failures": []
+    },
+    {
+      "accepted": true,
+      "artifact_paths": [
+        "registry/claims/central_bank_claims.jsonl",
+        "registry/claims/semiconductor_claims.jsonl"
+      ],
+      "check_id": "CLAIM-VARIABLE-MAPPING",
+      "details": {
+        "claim_count": 4,
+        "unused_variable_count": 0,
+        "used_variable_count": 8
+      },
+      "failures": []
+    }
+  ],
+  "report_id": "RKE-CLAIM-VARIABLE-VALIDATION-REPORT-20260606"
+}

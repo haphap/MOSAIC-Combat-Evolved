@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Mapping
 
 from .central_bank_mvp import write_central_bank_mvp_registry
+from .claim_vocabulary import write_claim_variable_validation_report, write_claim_variable_vocabulary
 from .completion_auditor import write_completion_audit
 from .compliance import write_source_license_review_template
 from .dashboard_reports import write_dashboard_reports
@@ -61,6 +62,8 @@ def run_full_rke_refresh(
 
     gold_summary = write_gold_set_review_summary(root_path)
     license_summary = write_source_license_review_summary(root_path)
+    claim_vocabulary = write_claim_variable_vocabulary(root_path)
+    claim_variable_summary = write_claim_variable_validation_report(root_path)
     schema_summary = write_schema_validation_report(root_path)
     prompt_asset_summary = write_prompt_asset_validation_report(root_path)
     audit_result = write_completion_audit(root_path)
@@ -68,6 +71,8 @@ def run_full_rke_refresh(
     manifest_result = write_registry_manifest(root_path)
     outputs["gold_set_review_summary"] = str(gold_summary["path"])
     outputs["license_review_summary"] = str(license_summary["path"])
+    outputs["claim_variable_vocabulary"] = str(claim_vocabulary["path"])
+    outputs["claim_variable_validation_report"] = str(claim_variable_summary["path"])
     outputs["schema_validation_report"] = str(schema_summary["path"])
     outputs["prompt_asset_validation_report"] = str(prompt_asset_summary["path"])
     outputs["completion_audit"] = str(audit_result["path"])

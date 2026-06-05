@@ -1,0 +1,61 @@
+{
+  "variables": [
+    {
+      "description": "Net liquidity injection by the PBOC open-market operation channel.",
+      "domain": "macro.central_bank",
+      "status": "active",
+      "variable_id": "pboc_net_injection",
+      "variable_type": "cause"
+    },
+    {
+      "description": "Short-horizon funding and liquidity pressure affected by central-bank operations.",
+      "domain": "macro.central_bank",
+      "status": "active",
+      "variable_id": "short_term_liquidity_pressure",
+      "variable_type": "target"
+    },
+    {
+      "description": "Demand impulse from AI compute, storage, and data-center workloads.",
+      "domain": "sector.semiconductor",
+      "status": "sandbox",
+      "variable_id": "ai_compute_demand",
+      "variable_type": "cause"
+    },
+    {
+      "description": "Semiconductor storage-cycle tightness and pricing cycle state.",
+      "domain": "sector.semiconductor",
+      "status": "sandbox",
+      "variable_id": "semiconductor_storage_cycle",
+      "variable_type": "target"
+    },
+    {
+      "description": "Relative or historical valuation percentile used as a failure-mode condition.",
+      "domain": "cross_asset.valuation",
+      "status": "sandbox",
+      "variable_id": "valuation_percentile",
+      "variable_type": "cause"
+    },
+    {
+      "description": "Forward relative alpha after a policy or industrial catalyst.",
+      "domain": "sector.semiconductor",
+      "status": "sandbox",
+      "variable_id": "forward_alpha_after_policy_catalyst",
+      "variable_type": "target"
+    },
+    {
+      "description": "External trade or technology-friction intensity that can cap policy-substitution themes.",
+      "domain": "macro.geopolitics",
+      "status": "sandbox",
+      "variable_id": "trade_friction_intensity",
+      "variable_type": "cause"
+    },
+    {
+      "description": "Relative return potential attributed to domestic policy-substitution logic.",
+      "domain": "sector.semiconductor",
+      "status": "sandbox",
+      "variable_id": "semiconductor_policy_substitution_alpha",
+      "variable_type": "target"
+    }
+  ],
+  "vocabulary_id": "CLAIM-VARIABLE-VOCABULARY-20260606"
+}

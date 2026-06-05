@@ -7,6 +7,7 @@ from dataclasses import asdict, dataclass, is_dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from .claim_vocabulary import write_claim_variable_validation_report, write_claim_variable_vocabulary
 from .governance import ProductionPatch, default_evolution_targets, validate_patch
 from .experiment_governance import write_experiment_governance_registry
 from .monitoring import (
@@ -555,6 +556,8 @@ def write_central_bank_mvp_registry(root: str | Path = ".") -> dict[str, str]:
         mutation_validation=artifacts["mutation_validation"],
     )
     prompt_check_output = write_prompt_asset_validation_report(root_path)
+    claim_vocabulary_output = write_claim_variable_vocabulary(root_path)
+    claim_variable_check_output = write_claim_variable_validation_report(root_path)
     _write_json(
         outputs["runtime_output"],
         {"agent_output_id": "OUT-CB-20260605-0001", **_jsonable(bundle.runtime_output)},
@@ -564,6 +567,8 @@ def write_central_bank_mvp_registry(root: str | Path = ".") -> dict[str, str]:
         **{key: str(path) for key, path in outputs.items()},
         **prompt_outputs,
         "prompt_asset_validation": str(prompt_check_output["path"]),
+        "claim_variable_vocabulary": str(claim_vocabulary_output["path"]),
+        "claim_variable_validation": str(claim_variable_check_output["path"]),
         **governance_outputs,
     }
 

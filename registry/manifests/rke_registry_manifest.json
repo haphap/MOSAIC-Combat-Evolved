@@ -1,5 +1,5 @@
 {
-  "artifact_count": 46,
+  "artifact_count": 48,
   "artifacts": [
     {
       "bytes": 539,
@@ -10,6 +10,11 @@
       "bytes": 2922,
       "path": "registry/audits/rke_completion_audit.json",
       "sha256": "sha256:d212a7416e13ff2a88450aa716183d006dea16f6c5f2be95a9229e2355bc73ca"
+    },
+    {
+      "bytes": 751,
+      "path": "registry/claim_checks/claim_variable_validation_report.json",
+      "sha256": "sha256:20d7da8c9432e1d7176c88446c0ebd7d807932b6c07ab0ed28c65542e7f07b02"
     },
     {
       "bytes": 508,
@@ -32,14 +37,14 @@
       "sha256": "sha256:d519117af396793a5f27fc06e808ca93b55d6f4a2d0ae63bd6c7b9c360cadbd0"
     },
     {
-      "bytes": 4043,
+      "bytes": 4149,
       "path": "registry/dashboards/rke_dashboard.json",
-      "sha256": "sha256:0a4c9cb34d5aec5d873d5ac059935224cc3428da51da4b78db50470a472bd26f"
+      "sha256": "sha256:538181c8ba7d46709a9680687893ea69c1e689f01f42d9b5e23df232944844e4"
     },
     {
-      "bytes": 806,
+      "bytes": 846,
       "path": "registry/dashboards/rke_dashboard.md",
-      "sha256": "sha256:ad506a002a53df3dcac77302faca1be681a758c6979d1e786d20a48dfe46e4cb"
+      "sha256": "sha256:729a6bdb8e70103a2d71dca187b87008885663c9a3cdefaf40c50dfcdf949fd0"
     },
     {
       "bytes": 1233,
@@ -230,6 +235,11 @@
       "bytes": 1420,
       "path": "registry/validation_hardening/central_bank_hardening_report.json",
       "sha256": "sha256:50ec159de9de512c052f98b56e9ac49aeaa4596935998774ec8344f0c62acadf"
+    },
+    {
+      "bytes": 2151,
+      "path": "registry/vocabularies/claim_variable_vocabulary.json",
+      "sha256": "sha256:f84f123051df64936b0f126e827cde4eeb388498ebd05318e98598cd1bf42804"
     }
   ],
   "empty_required": [],

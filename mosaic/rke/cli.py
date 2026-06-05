@@ -8,6 +8,11 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Sequence
 
+from .claim_vocabulary import (
+    build_claim_variable_validation_report,
+    write_claim_variable_validation_report,
+    write_claim_variable_vocabulary,
+)
 from .completion_auditor import write_completion_audit
 from .dashboard_reports import write_dashboard_reports
 from .prompt_asset_validation import (
@@ -85,6 +90,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Write and print the rendered prompt asset validation report.",
     )
     prompt_status.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
+
+    claim_status = subparsers.add_parser(
+        "claim-status",
+        help="Write and print the claim variable vocabulary validation report.",
+    )
+    claim_status.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
 
     gold_status = subparsers.add_parser(
         "gold-set-status",
@@ -175,6 +186,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "prompt-status":
         write_prompt_asset_validation_report(root)
         result = build_prompt_asset_validation_report(root)
+        _print_json(
+            {
+                "accepted": result.accepted,
+                "failure_count": result.failure_count,
+                "records": [asdict(record) for record in result.records],
+            }
+        )
+        return 0 if result.accepted else 2
+    if args.command == "claim-status":
+        write_claim_variable_vocabulary(root)
+        write_claim_variable_validation_report(root)
+        result = build_claim_variable_validation_report(root)
         _print_json(
             {
                 "accepted": result.accepted,

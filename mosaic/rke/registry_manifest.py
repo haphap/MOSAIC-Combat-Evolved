@@ -12,6 +12,7 @@ from typing import Any, Sequence
 REQUIRED_REGISTRY_FILES = (
     "registry/audits/central_bank_mvp_audit_trace.json",
     "registry/audits/rke_completion_audit.json",
+    "registry/claim_checks/claim_variable_validation_report.json",
     "registry/claims/central_bank_claims.jsonl",
     "registry/claims/semiconductor_claims.jsonl",
     "registry/compliance/tushare_license_review_summary.json",
@@ -56,6 +57,7 @@ REQUIRED_REGISTRY_FILES = (
     "registry/sources/tushare_research_reports.jsonl",
     "registry/sources/tushare_research_reports.manifest.json",
     "registry/validation_hardening/central_bank_hardening_report.json",
+    "registry/vocabularies/claim_variable_vocabulary.json",
 )
 
 
