@@ -137,6 +137,13 @@ from .layer_integration import (
     check_sector_integration,
     check_superinvestor_integration,
 )
+from .license_review_packet import (
+    LicenseReviewPacket,
+    LicenseReviewSourcePacket,
+    build_license_review_packet,
+    render_license_review_packet_markdown,
+    write_license_review_packet,
+)
 from .macro_expansion import (
     MacroExpansionCandidate,
     MacroExpansionPlan,
@@ -391,6 +398,11 @@ __all__ = [
     "check_decision_integration",
     "check_sector_integration",
     "check_superinvestor_integration",
+    "LicenseReviewPacket",
+    "LicenseReviewSourcePacket",
+    "build_license_review_packet",
+    "render_license_review_packet_markdown",
+    "write_license_review_packet",
     "MacroExpansionCandidate",
     "MacroExpansionPlan",
     "build_macro_expansion_data_matrix",

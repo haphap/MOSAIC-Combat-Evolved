@@ -16,6 +16,8 @@ REQUIRED_REGISTRY_FILES = (
     "registry/claims/central_bank_claims.jsonl",
     "registry/claims/semiconductor_claims.jsonl",
     "registry/compliance/tushare_license_review_summary.json",
+    "registry/compliance/tushare_license_review_packet.json",
+    "registry/compliance/tushare_license_review_packet.md",
     "registry/compliance/tushare_license_review_template.jsonl",
     "registry/dashboards/rke_dashboard.json",
     "registry/dashboards/rke_dashboard.md",

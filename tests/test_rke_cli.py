@@ -63,6 +63,8 @@ def test_rke_cli_review_status_commands_write_summaries(tmp_path: Path, capsys):
     packet_output = json.loads(capsys.readouterr().out)
     license_code = main(("license-status", "--root", str(tmp_path)))
     license_output = json.loads(capsys.readouterr().out)
+    license_packet_code = main(("license-review-packet", "--root", str(tmp_path)))
+    license_packet_output = json.loads(capsys.readouterr().out)
 
     assert gold_code == 0
     assert gold_output["pending_claims"] == 500
@@ -75,6 +77,11 @@ def test_rke_cli_review_status_commands_write_summaries(tmp_path: Path, capsys):
     assert license_code == 0
     assert license_output["pending_sources"] == license_output["total_sources"]
     assert (tmp_path / "registry/compliance/tushare_license_review_summary.json").exists()
+    assert license_packet_code == 0
+    assert license_packet_output["pending_sources"] == license_output["total_sources"]
+    assert license_packet_output["approved_for_production_runtime"] == 0
+    assert (tmp_path / "registry/compliance/tushare_license_review_packet.json").exists()
+    assert (tmp_path / "registry/compliance/tushare_license_review_packet.md").exists()
 
 
 def test_rke_cli_prompt_status_writes_summary(tmp_path: Path, capsys):

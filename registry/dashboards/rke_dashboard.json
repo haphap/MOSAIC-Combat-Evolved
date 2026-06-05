@@ -70,6 +70,16 @@
       "reviewed_claims": 0,
       "total_claims": 500
     },
+    "license_review_packet": {
+      "approved_for_derived_claim_storage": 0,
+      "approved_for_production_runtime": 0,
+      "pending_sources": 207,
+      "policy_reason_counts": {
+        "pending_review source is sandbox-only until compliance approval": 207
+      },
+      "source_count": 207,
+      "status": "manual_review_pending"
+    },
     "source_license": {
       "approved_for_production_runtime": 0,
       "passed": false,

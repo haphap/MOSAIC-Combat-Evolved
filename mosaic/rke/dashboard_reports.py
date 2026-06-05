@@ -43,9 +43,11 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
     gold_review_path = root_path / "registry/gold_sets/tushare_research_reports.review_summary.json"
     gold_packet_path = root_path / "registry/gold_sets/tushare_research_reports.review_packet.json"
     license_review_path = root_path / "registry/compliance/tushare_license_review_summary.json"
+    license_packet_path = root_path / "registry/compliance/tushare_license_review_packet.json"
     gold_review = _read_json(gold_review_path) if gold_review_path.exists() else {}
     gold_packet = _read_json(gold_packet_path) if gold_packet_path.exists() else {}
     license_review = _read_json(license_review_path) if license_review_path.exists() else {}
+    license_packet = _read_json(license_packet_path) if license_packet_path.exists() else {}
     family_path = root_path / "registry/evaluation/experiment_family_registry/central_bank_liquidity_family.json"
     cost_model_path = root_path / "registry/evaluation/cost_model/cost_model_v1.json"
     overlap_path = root_path / "registry/evaluation/overlap_correction/effective_n_overlap_policy.json"
@@ -152,6 +154,18 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
                 ),
                 "passed": license_review.get("passed"),
             },
+            "license_review_packet": {
+                "status": license_packet.get("status"),
+                "source_count": license_packet.get("source_count"),
+                "pending_sources": license_packet.get("pending_sources"),
+                "approved_for_derived_claim_storage": license_packet.get(
+                    "approved_for_derived_claim_storage"
+                ),
+                "approved_for_production_runtime": license_packet.get(
+                    "approved_for_production_runtime"
+                ),
+                "policy_reason_counts": license_packet.get("policy_reason_counts"),
+            },
         },
         "experiment_governance": {
             "family_id": family.get("family_id"),
@@ -224,6 +238,7 @@ def render_dashboard_markdown(report: Mapping[str, Any]) -> str:
         f"- Gold-set review pending claims: {dict(dict(report.get('manual_review_gates') or {}).get('gold_set') or {}).get('pending_claims')}",
         f"- Gold review packet spans: {dict(dict(report.get('manual_review_gates') or {}).get('gold_review_packet') or {}).get('candidate_span_ref_count')}",
         f"- License review pending sources: {dict(dict(report.get('manual_review_gates') or {}).get('source_license') or {}).get('pending_sources')}",
+        f"- License review packet pending sources: {dict(dict(report.get('manual_review_gates') or {}).get('license_review_packet') or {}).get('pending_sources')}",
         f"- Experiment governance family: {dict(report.get('experiment_governance') or {}).get('family_id')}",
         f"- Schema validation failures: {dict(report.get('schema_validation') or {}).get('failure_count')}",
         f"- Claim variable validation failures: {dict(report.get('claim_variable_validation') or {}).get('failure_count')}",

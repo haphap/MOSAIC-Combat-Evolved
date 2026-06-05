@@ -43,6 +43,9 @@ def test_dashboard_report_summarizes_completion_and_monitoring():
     assert report["manual_review_gates"]["gold_review_packet"]["status"] == "manual_review_pending"
     assert report["manual_review_gates"]["gold_review_packet"]["document_count"] == 50
     assert report["manual_review_gates"]["gold_review_packet"]["candidate_span_ref_count"] > 0
+    assert report["manual_review_gates"]["license_review_packet"]["status"] == "manual_review_pending"
+    assert report["manual_review_gates"]["license_review_packet"]["source_count"] == 207
+    assert report["manual_review_gates"]["license_review_packet"]["approved_for_production_runtime"] == 0
     assert report["audit_trace"]["agent_output_count"] == 1
     assert "manual" in " ".join(report["completion"]["blockers"])
 
@@ -60,6 +63,7 @@ def test_dashboard_markdown_renders_blockers():
     assert "Macro expansion candidates: 3" in markdown
     assert "Phase 7 sector actionability: monitor_only" in markdown
     assert "Gold review packet spans:" in markdown
+    assert "License review packet pending sources:" in markdown
     assert "Claim variable validation failures: 0" in markdown
     assert "Prompt asset validation failures: 0" in markdown
     assert "Prompt mutation validation accepted: True" in markdown

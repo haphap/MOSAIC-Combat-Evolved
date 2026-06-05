@@ -16,6 +16,7 @@ from .claim_vocabulary import (
 from .completion_auditor import write_completion_audit
 from .dashboard_reports import write_dashboard_reports
 from .gold_review_packet import build_gold_review_packet, write_gold_review_packet
+from .license_review_packet import build_license_review_packet, write_license_review_packet
 from .prompt_asset_validation import (
     build_prompt_asset_validation_report,
     write_prompt_asset_validation_report,
@@ -147,6 +148,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Write and print the source license review gate summary.",
     )
     license_status.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
+
+    license_packet = subparsers.add_parser(
+        "license-review-packet",
+        help="Write and print the source license manual review packet summary.",
+    )
+    license_packet.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
 
     fetch_reports = subparsers.add_parser(
         "fetch-tushare-reports",
@@ -294,6 +301,24 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "license-status":
         write_source_license_review_summary(root)
         _print_json(asdict(summarize_source_license_review(root)))
+        return 0
+    if args.command == "license-review-packet":
+        paths = write_license_review_packet(root)
+        packet = build_license_review_packet(root)
+        _print_json(
+            {
+                "paths": paths,
+                "packet_id": packet.packet_id,
+                "status": packet.status,
+                "source_count": packet.source_count,
+                "review_row_count": packet.review_row_count,
+                "pending_sources": packet.pending_sources,
+                "approved_for_derived_claim_storage": packet.approved_for_derived_claim_storage,
+                "approved_for_production_runtime": packet.approved_for_production_runtime,
+                "manual_review_required": packet.manual_review_required,
+                "policy_reason_counts": packet.policy_reason_counts,
+            }
+        )
         return 0
     if args.command == "fetch-tushare-reports":
         _load_env_file(args.env_file)
