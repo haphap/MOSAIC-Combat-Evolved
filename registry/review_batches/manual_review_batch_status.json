@@ -13,9 +13,9 @@
     "batch_size": 50,
     "dry_run_command": "mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_next_import_template.jsonl --dry-run",
     "exported_rows": 50,
-    "first_pending_id": "GOLD-SRC-TSRR-20260426-12710e0f0171e875-001",
+    "first_pending_id": "GOLD-SRC-TSRR-20260605-566dea13371dfb10-001",
     "import_template_path": "registry/review_batches/gold_set_next_import_template.jsonl",
-    "last_pending_id": "GOLD-SRC-TSRR-20260430-ff82e1b5ccbc48f9-010",
+    "last_pending_id": "GOLD-SRC-TSRR-20260505-bcbf31964055f067-010",
     "pending_rows": 500,
     "required_manual_fields": [
       "manual_claim_text",

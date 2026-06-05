@@ -21,7 +21,7 @@
 - Macro expansion candidates: 3
 - Phase 7 sector actionability: monitor_only
 - Gold-set review pending claims: 500
-- Gold review packet spans: 246
+- Gold review packet spans: 219
 - Gold candidate claims: 500
 - License review pending sources: 9812
 - License review packet pending sources: 9812

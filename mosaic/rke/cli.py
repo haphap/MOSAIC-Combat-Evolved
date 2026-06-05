@@ -451,6 +451,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "candidate_claim_available_count": packet.candidate_claim_available_count,
                 "review_rows_with_candidate_fields": packet.review_rows_with_candidate_fields,
                 "candidate_span_ref_count": packet.candidate_span_ref_count,
+                "domain_counts": packet.domain_counts,
                 "manual_review_required": packet.manual_review_required,
                 "risk_flag_counts": packet.risk_flag_counts,
             }

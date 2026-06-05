@@ -9,7 +9,7 @@
     "registry/gold_sets/tushare_research_reports.review_template.jsonl",
     "registry/gold_sets/tushare_research_reports.candidate_claims.jsonl"
   ],
-  "checked_path_count": 385,
+  "checked_path_count": 386,
   "failure_count": 0,
   "fingerprint_count": 282538,
   "min_match_chars": 80,

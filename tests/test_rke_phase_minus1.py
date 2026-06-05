@@ -4,6 +4,7 @@ import json
 
 from mosaic.rke import (
     GoldSetReviewRecord,
+    REQUIRED_GOLD_SET_DOMAINS,
     audit_research_report_corpus,
     build_gold_set_review_template,
     evaluate_gold_set_reviews,
@@ -70,6 +71,28 @@ def test_phase_minus1_selects_and_writes_gold_set_candidates(tmp_path):
     assert {row["source_id"] for row in loaded} == {row["source_id"] for row in candidates}
 
 
+def test_phase_minus1_selects_gold_set_candidates_by_required_domains():
+    rows = [
+        _row("SRC-CB-1", "银行", "行业研报")
+        | {"abstract": "央行公开市场逆回购提升流动性，信贷利率边际改善。"},
+        _row("SRC-DOLLAR-1", "外资", "行业研报")
+        | {"abstract": "美元指数和人民币汇率影响外资风险偏好。"},
+        _row("SRC-VOL-1", "策略", "行业研报")
+        | {"abstract": "市场波动上升，风险偏好下降，回撤压力增加。"},
+        _row("SRC-SEMI-1", "半导体", "行业研报")
+        | {"abstract": "半导体芯片国产替代和AI算力需求提升。"},
+        _row("SRC-OTHER-1", "食品饮料", "个股研报")
+        | {"abstract": "消费需求修复。"},
+    ]
+
+    candidates = select_gold_set_candidates(rows, max_documents=5)
+
+    assert set(REQUIRED_GOLD_SET_DOMAINS).issubset(
+        {candidate["gold_set_domain"] for candidate in candidates}
+    )
+    assert all(candidate["gold_set_domains"] for candidate in candidates)
+
+
 def test_phase_minus1_loads_jsonl(tmp_path):
     path = tmp_path / "rows.jsonl"
     path.write_text(json.dumps(_row("SRC-1", "600519.SH"), ensure_ascii=False) + "\n", encoding="utf-8")
@@ -127,6 +150,7 @@ def test_tushare_gold_set_review_template_is_ready_for_manual_labels():
 
     assert len(rows) == 500
     assert len({row["source_id"] for row in rows}) == 50
+    assert set(REQUIRED_GOLD_SET_DOMAINS).issubset({row["gold_set_domain"] for row in rows})
     assert {row["claim_correct"] for row in rows} == {None}
     assert {row["source_span_supports_claim"] for row in rows} == {None}
     assert all(row["proposed_claim_text"] for row in rows)

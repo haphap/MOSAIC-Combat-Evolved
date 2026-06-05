@@ -76,6 +76,8 @@ class GoldCandidateClaim:
     claim_id: str
     source_id: str
     source_span_id: str
+    gold_set_domain: str
+    gold_set_domains: Sequence[str]
     source_span_ref_id: str
     source_start_char: int
     source_end_char: int
@@ -100,6 +102,7 @@ class GoldCandidateClaimSummary:
     candidate_claim_count: int
     candidate_available_count: int
     missing_variable_mapping_count: int
+    domain_counts: Mapping[str, int]
     direction_counts: Mapping[str, int]
     claim_type_counts: Mapping[str, int]
     risk_flag_counts: Mapping[str, int]
@@ -268,6 +271,12 @@ def _candidate_claim_for_review_row(
         claim_id=str(review_row.get("claim_id") or f"GOLD-{source_id}-{row_index + 1:03d}"),
         source_id=source_id,
         source_span_id=source_span_id,
+        gold_set_domain=str(
+            review_row.get("gold_set_domain") or candidate.get("gold_set_domain") or "other"
+        ),
+        gold_set_domains=tuple(
+            review_row.get("gold_set_domains") or candidate.get("gold_set_domains") or ("other",)
+        ),
         source_span_ref_id=f"{source_span_id}:candidate-{row_index + 1:02d}",
         source_start_char=start_char,
         source_end_char=end_char,
@@ -332,6 +341,8 @@ def merge_candidate_claims_into_review_template(
                 {
                     "proposed_claim_text": claim.claim_text,
                     "proposed_claim_type": claim.claim_type,
+                    "proposed_gold_set_domain": claim.gold_set_domain,
+                    "proposed_gold_set_domains": list(claim.gold_set_domains),
                     "proposed_cause_variables": list(claim.cause_variables),
                     "proposed_target_variables": list(claim.target_variables),
                     "proposed_direction": claim.direction,
@@ -365,6 +376,7 @@ def build_gold_candidate_claim_summary(
 ) -> GoldCandidateClaimSummary:
     claims = tuple(candidate_claims or build_gold_candidate_claims(root))
     risk_counts = Counter(flag for claim in claims for flag in claim.review_risk_flags)
+    domain_counts = Counter(claim.gold_set_domain for claim in claims)
     direction_counts = Counter(claim.direction for claim in claims)
     claim_type_counts = Counter(claim.claim_type for claim in claims)
     return GoldCandidateClaimSummary(
@@ -376,6 +388,7 @@ def build_gold_candidate_claim_summary(
         missing_variable_mapping_count=sum(
             "canonical_variable_mapping_needed" in claim.review_risk_flags for claim in claims
         ),
+        domain_counts=dict(domain_counts),
         direction_counts=dict(direction_counts),
         claim_type_counts=dict(claim_type_counts),
         risk_flag_counts=dict(risk_counts),

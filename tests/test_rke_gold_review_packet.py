@@ -5,6 +5,7 @@ import shutil
 from pathlib import Path
 
 from mosaic.rke import (
+    REQUIRED_GOLD_SET_DOMAINS,
     build_gold_review_packet,
     render_gold_review_packet_markdown,
     write_gold_review_packet,
@@ -24,6 +25,7 @@ def test_gold_review_packet_summarizes_current_manual_queue():
     assert packet.candidate_claim_available_count == 500
     assert packet.review_rows_with_candidate_fields == 500
     assert packet.candidate_span_ref_count > 0
+    assert set(REQUIRED_GOLD_SET_DOMAINS).issubset(packet.domain_counts)
     assert packet.risk_flag_counts["manual_review_required"] == 50
     assert packet.risk_flag_counts["license_pending"] == 50
     assert all(document.pending_claim_rows == 10 for document in packet.documents)
@@ -47,6 +49,7 @@ def test_gold_review_packet_markdown_renders_review_queue_summary():
     assert "Status: manual_review_pending" in markdown
     assert "Pending review rows: 500" in markdown
     assert "Candidate claims: 500" in markdown
+    assert "Domains:" in markdown
     assert "Review Queue" in markdown
 
 

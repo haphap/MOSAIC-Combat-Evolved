@@ -205,6 +205,7 @@ from .monitoring import (
 from .phase_minus1 import (
     CorpusAudit,
     GoldSetReviewRecord,
+    REQUIRED_GOLD_SET_DOMAINS,
     audit_research_report_corpus,
     build_gold_set_review_template,
     evaluate_gold_set_reviews,
@@ -498,6 +499,7 @@ __all__ = [
     "validate_audit_trace",
     "CorpusAudit",
     "GoldSetReviewRecord",
+    "REQUIRED_GOLD_SET_DOMAINS",
     "audit_research_report_corpus",
     "build_gold_set_review_template",
     "evaluate_gold_set_reviews",

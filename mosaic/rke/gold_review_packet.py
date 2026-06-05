@@ -70,6 +70,8 @@ class CandidateSpanRef:
 class GoldReviewDocumentPacket:
     source_id: str
     source_span_id: str
+    gold_set_domain: str
+    gold_set_domains: Sequence[str]
     title: str
     publish_date: str
     report_type: str
@@ -98,6 +100,7 @@ class GoldReviewPacket:
     candidate_claim_available_count: int
     review_rows_with_candidate_fields: int
     candidate_span_ref_count: int
+    domain_counts: Mapping[str, int]
     query_key_counts: Mapping[str, int]
     report_type_counts: Mapping[str, int]
     risk_flag_counts: Mapping[str, int]
@@ -230,6 +233,8 @@ def _document_packet(
     return GoldReviewDocumentPacket(
         source_id=source_id,
         source_span_id=source_span_id,
+        gold_set_domain=str(candidate.get("gold_set_domain") or "other"),
+        gold_set_domains=tuple(candidate.get("gold_set_domains") or ("other",)),
         title=str(candidate.get("title") or ""),
         publish_date=str(candidate.get("publish_date") or ""),
         report_type=report_type,
@@ -257,6 +262,7 @@ def build_gold_review_packet(root: str | Path = ".") -> GoldReviewPacket:
         for candidate in candidates
     )
     risk_counts = Counter(flag for document in documents for flag in document.risk_flags)
+    domain_counts = Counter(document.gold_set_domain for document in documents)
     query_key_counts = Counter(document.query_key for document in documents)
     report_type_counts = Counter(document.report_type for document in documents)
     return GoldReviewPacket(
@@ -294,6 +300,7 @@ def build_gold_review_packet(root: str | Path = ".") -> GoldReviewPacket:
             candidate_claim_summary.get("review_rows_with_candidate_fields") or 0
         ),
         candidate_span_ref_count=sum(len(document.candidate_span_refs) for document in documents),
+        domain_counts=dict(domain_counts),
         query_key_counts=dict(query_key_counts),
         report_type_counts=dict(report_type_counts),
         risk_flag_counts=dict(risk_counts),
@@ -322,6 +329,7 @@ def render_gold_review_packet_markdown(packet: GoldReviewPacket) -> str:
         lines.append(f"- {key}: {value}")
     lines.extend(["", "## Coverage", ""])
     lines.append(f"- Query keys: {json.dumps(dict(packet.query_key_counts), ensure_ascii=False, sort_keys=True)}")
+    lines.append(f"- Domains: {json.dumps(dict(packet.domain_counts), ensure_ascii=False, sort_keys=True)}")
     lines.append(f"- Report types: {json.dumps(dict(packet.report_type_counts), ensure_ascii=False, sort_keys=True)}")
     lines.append(f"- Risk flags: {json.dumps(dict(packet.risk_flag_counts), ensure_ascii=False, sort_keys=True)}")
     lines.extend(["", "## Review Queue", ""])
@@ -333,7 +341,7 @@ def render_gold_review_packet_markdown(packet: GoldReviewPacket) -> str:
         hints = ", ".join(document.canonical_variable_hints) or "needs reviewer mapping"
         flags = ", ".join(document.risk_flags)
         lines.append(
-            f"- {document.source_id} | {document.publish_date} | {document.query_key} | "
+            f"- {document.source_id} | {document.publish_date} | {document.gold_set_domain} | {document.query_key} | "
             f"{document.report_type} | pending={document.pending_claim_rows} | vars={hints} | "
             f"spans={span_refs or 'none'} | flags={flags}"
         )

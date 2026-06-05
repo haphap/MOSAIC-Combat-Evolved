@@ -28,6 +28,55 @@ REQUIRED_SOURCE_ROW_FIELDS = {
     "license_status",
 }
 
+GOLD_SET_DOMAIN_KEYWORDS: Mapping[str, tuple[str, ...]] = {
+    "central_bank": (
+        "央行",
+        "中国人民银行",
+        "公开市场",
+        "逆回购",
+        "货币政策",
+        "流动性",
+        "降准",
+        "降息",
+        "LPR",
+        "信贷",
+        "利率",
+        "银行",
+    ),
+    "dollar": (
+        "美元",
+        "DXY",
+        "汇率",
+        "人民币",
+        "离岸",
+        "美债",
+        "中美利差",
+        "外资",
+        "美联储",
+        "Fed",
+        "USDCNY",
+    ),
+    "volatility": (
+        "波动",
+        "VIX",
+        "风险偏好",
+        "风险溢价",
+        "避险",
+        "震荡",
+        "回撤",
+        "风险",
+    ),
+    "semiconductor": (
+        "半导体",
+        "芯片",
+        "存储",
+        "算力",
+        "国产替代",
+        "集成电路",
+    ),
+}
+REQUIRED_GOLD_SET_DOMAINS = tuple(GOLD_SET_DOMAIN_KEYWORDS)
+
 
 @dataclass(frozen=True)
 class CorpusAudit:
@@ -111,34 +160,66 @@ def select_gold_set_candidates(
     *,
     max_documents: int = 50,
 ) -> list[dict[str, Any]]:
-    """Select a balanced deterministic sample by query key and report type."""
+    """Select a deterministic, domain-stratified manual-review sample.
+
+    Phase -1 needs a gold set that covers the planned macro/sector domains, not
+    just the first lexicographic stock-code buckets. Rows may match multiple
+    domains; the selected row records both the assigned domain and all matched
+    domains for reviewer audit.
+    """
     if max_documents <= 0:
         return []
-    ordered = sorted(
-        rows,
-        key=lambda row: (
-            str(row.get("query_key") or ""),
-            str(row.get("report_type") or ""),
-            str(row.get("publish_date") or ""),
-            str(row.get("source_id") or ""),
-        ),
-        reverse=True,
-    )
     selected: list[dict[str, Any]] = []
     seen: set[str] = set()
-    buckets: dict[tuple[str, str], list[Mapping[str, Any]]] = {}
+    per_domain_quota = max(1, max_documents // (len(REQUIRED_GOLD_SET_DOMAINS) + 1))
+
+    def add_row(row: Mapping[str, Any], assigned_domain: str) -> bool:
+        source_id = str(row.get("source_id") or "")
+        if not source_id or source_id in seen or len(selected) >= max_documents:
+            return False
+        out = dict(row)
+        domains = _gold_set_domains(row)
+        out["gold_set_domain"] = assigned_domain
+        out["gold_set_domains"] = domains
+        selected.append(out)
+        seen.add(source_id)
+        return True
+
+    domain_buckets: dict[str, list[Mapping[str, Any]]] = {
+        domain: [] for domain in REQUIRED_GOLD_SET_DOMAINS
+    }
+    global_buckets: dict[tuple[str, str], list[Mapping[str, Any]]] = {}
+    ordered = _ordered_gold_set_source_rows(rows)
     for row in ordered:
-        buckets.setdefault((str(row.get("query_key") or ""), str(row.get("report_type") or "")), []).append(row)
+        for domain in _gold_set_domains(row):
+            if domain in domain_buckets:
+                domain_buckets[domain].append(row)
+        global_buckets.setdefault(
+            (str(row.get("query_key") or ""), str(row.get("report_type") or "")),
+            [],
+        ).append(row)
+
+    for domain in REQUIRED_GOLD_SET_DOMAINS:
+        domain_selected = 0
+        while domain_selected < per_domain_quota and len(selected) < max_documents:
+            row = _pop_next_domain_row(domain_buckets[domain], seen)
+            if row is None:
+                break
+            if add_row(row, domain):
+                domain_selected += 1
+
     while len(selected) < max_documents:
         progressed = False
-        for bucket in sorted(buckets):
-            candidates = buckets[bucket]
+        for bucket in sorted(global_buckets):
+            candidates = global_buckets[bucket]
             while candidates:
                 row = candidates.pop(0)
-                source_id = str(row.get("source_id") or "")
-                if source_id and source_id not in seen:
-                    selected.append(dict(row))
-                    seen.add(source_id)
+                domains = _gold_set_domains(row)
+                assigned_domain = next(
+                    (domain for domain in domains if domain in REQUIRED_GOLD_SET_DOMAINS),
+                    domains[0],
+                )
+                if add_row(row, assigned_domain):
                     progressed = True
                     break
             if len(selected) >= max_documents:
@@ -146,6 +227,48 @@ def select_gold_set_candidates(
         if not progressed:
             break
     return selected
+
+
+def _gold_set_text(row: Mapping[str, Any]) -> str:
+    return " ".join(
+        str(row.get(field) or "")
+        for field in ("query_key", "industry", "title", "abstract", "report_type", "ts_code")
+    )
+
+
+def _gold_set_domains(row: Mapping[str, Any]) -> tuple[str, ...]:
+    text = _gold_set_text(row)
+    domains = tuple(
+        domain
+        for domain, keywords in GOLD_SET_DOMAIN_KEYWORDS.items()
+        if any(keyword in text for keyword in keywords)
+    )
+    return domains or ("other",)
+
+
+def _ordered_gold_set_source_rows(rows: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+    report_type_rank = {"行业研报": 0, "个股研报": 1}
+    return sorted(
+        rows,
+        key=lambda row: (
+            str(row.get("publish_date") or ""),
+            -report_type_rank.get(str(row.get("report_type") or ""), 9),
+            str(row.get("query_key") or ""),
+            str(row.get("source_id") or ""),
+        ),
+        reverse=True,
+    )
+
+
+def _pop_next_domain_row(
+    candidates: list[Mapping[str, Any]],
+    seen: set[str],
+) -> Mapping[str, Any] | None:
+    for index, row in enumerate(candidates):
+        source_id = str(row.get("source_id") or "")
+        if source_id and source_id not in seen:
+            return candidates.pop(index)
+    return None
 
 
 def write_gold_set_candidates(
@@ -182,6 +305,8 @@ def build_gold_set_review_template(
                     "source_span_id": span_id,
                     "claim_id": f"GOLD-{source_id}-{idx:03d}",
                     "document_id": source_id,
+                    "gold_set_domain": str(candidate.get("gold_set_domain") or "other"),
+                    "gold_set_domains": tuple(candidate.get("gold_set_domains") or ()),
                     "span_preview": text[:span_preview_chars],
                     "manual_claim_text": "",
                     "claim_correct": None,
