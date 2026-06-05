@@ -20,6 +20,7 @@ from .gold_candidate_claims import (
 )
 from .gold_review_packet import build_gold_review_packet, write_gold_review_packet
 from .license_review_packet import build_license_review_packet, write_license_review_packet
+from .lockbox_review_import import apply_lockbox_review_import
 from .manual_review_import import (
     apply_gold_set_review_import,
     apply_source_license_review_import,
@@ -227,6 +228,14 @@ def build_parser() -> argparse.ArgumentParser:
     apply_license_review.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
     apply_license_review.add_argument("--input", required=True, help="JSONL file containing source license decisions.")
     apply_license_review.add_argument("--dry-run", action="store_true", help="Validate without changing review rows.")
+
+    apply_lockbox_review = subparsers.add_parser(
+        "apply-lockbox-review",
+        help="Validate and apply a JSON lockbox review record.",
+    )
+    apply_lockbox_review.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
+    apply_lockbox_review.add_argument("--input", required=True, help="JSON file containing one lockbox review record.")
+    apply_lockbox_review.add_argument("--dry-run", action="store_true", help="Validate without changing the lockbox record.")
 
     review_batches = subparsers.add_parser(
         "review-batches",
@@ -457,6 +466,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0 if report.accepted else 2
     if args.command == "apply-license-review":
         report = apply_source_license_review_import(root, args.input, dry_run=args.dry_run)
+        _print_json(asdict(report))
+        return 0 if report.accepted else 2
+    if args.command == "apply-lockbox-review":
+        report = apply_lockbox_review_import(root, args.input, dry_run=args.dry_run)
         _print_json(asdict(report))
         return 0 if report.accepted else 2
     if args.command == "review-batches":

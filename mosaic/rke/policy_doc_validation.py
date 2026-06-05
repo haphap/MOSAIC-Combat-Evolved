@@ -39,6 +39,7 @@ REQUIRED_POLICY_DOC_MARKERS: Mapping[str, Sequence[str]] = {
         "Cost-Aware Acceptance",
         "Promotion Boundary",
         "mosaic-rke promotion-status",
+        "mosaic-rke apply-lockbox-review",
     ),
     "docs/confidence_policy.md": (
         "Conservative Function",

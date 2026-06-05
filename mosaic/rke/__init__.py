@@ -135,6 +135,10 @@ from .lockbox import (
     evaluate_lockbox_review,
     summarize_lockbox_reviews,
 )
+from .lockbox_review_import import (
+    LockboxReviewImportReport,
+    apply_lockbox_review_import,
+)
 from .layer_integration import (
     DecisionIntegrationOutput,
     IntegrationCheckResult,
@@ -440,6 +444,8 @@ __all__ = [
     "LockboxReview",
     "evaluate_lockbox_review",
     "summarize_lockbox_reviews",
+    "LockboxReviewImportReport",
+    "apply_lockbox_review_import",
     "DecisionIntegrationOutput",
     "IntegrationCheckResult",
     "SectorIntegrationOutput",

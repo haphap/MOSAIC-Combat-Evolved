@@ -34,7 +34,7 @@
     {
       "bytes": 1025,
       "path": "registry/compliance/source_text_redaction_report.json",
-      "sha256": "sha256:28488acbc03fc23bcff6fa6d69371035db9002311434decbb52672525d0b9935"
+      "sha256": "sha256:45f5be2e24ca84e657667fc51fe2f3c7d442f949086eefa8472c5251e1ffc185"
     },
     {
       "bytes": 159537,
@@ -59,7 +59,7 @@
     {
       "bytes": 6699,
       "path": "registry/dashboards/rke_dashboard.json",
-      "sha256": "sha256:9fcb2f4b2025a39119c934737ddf4e456a06691862f4e81038aa240dd3afe9b0"
+      "sha256": "sha256:7fc78e02e7831b57522534c6596d59790797baaf34404e12bcac70732d632a63"
     },
     {
       "bytes": 1419,
@@ -89,7 +89,7 @@
     {
       "bytes": 913,
       "path": "registry/docs/rke_policy_doc_validation_report.json",
-      "sha256": "sha256:8f5d2206fc11037320d6c92fe2812bf00142427d0e4f19b7373727aa26b034be"
+      "sha256": "sha256:bb174f3afc8b2574e2e78b360041f43f232df45388ff3c98b5d666fe8bb53c22"
     },
     {
       "bytes": 604,

@@ -78,6 +78,17 @@ decision. It must report `production_allowed = false` until staged gates and the
 one-time lockbox review pass. It is an audit artifact, not an automatic deploy
 command.
 
+Import a one-time lockbox review with:
+
+```bash
+mosaic-rke apply-lockbox-review --root . --input reviewed_lockbox.json --dry-run
+mosaic-rke apply-lockbox-review --root . --input reviewed_lockbox.json
+```
+
+The import validates experiment identity, open count, reviewer fields, result,
+and post-open search flags. It can record a failed lockbox review, but production
+remains blocked unless the evaluated lockbox decision is production-eligible.
+
 Production eligibility also requires:
 
 - claim gold-set gate passed;
