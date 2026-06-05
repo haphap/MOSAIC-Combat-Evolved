@@ -48,6 +48,7 @@ class OperatorHandoff:
     gates: Sequence[OperatorGateHandoff]
     generated_paths: Sequence[str]
     run_order: Sequence[str]
+    promotion_dry_run_command: str
 
 
 def _jsonable(value: Any) -> Any:
@@ -198,7 +199,13 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
         remaining_blockers=tuple(promotion.blockers),
         gates=gates,
         generated_paths=generated_paths,
-        run_order=("gold_set", "source_license", "promotion-status", "lockbox"),
+        run_order=("promotion-dry-run", "gold_set", "source_license", "promotion-status", "lockbox"),
+        promotion_dry_run_command=(
+            "mosaic-rke promotion-dry-run --root . "
+            f"--gold-input {gold.import_template_path} "
+            f"--license-input {source_license.import_template_path} "
+            f"--lockbox-input {LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH}"
+        ),
     )
 
 
@@ -216,7 +223,8 @@ def render_operator_handoff_markdown(handoff: OperatorHandoff) -> str:
         "",
     ]
     lines.extend(f"- {item}" for item in handoff.run_order)
-    lines.extend(["", "## Gates", ""])
+    lines.extend(["", f"Dry-run command: `{handoff.promotion_dry_run_command}`", ""])
+    lines.extend(["## Gates", ""])
     for gate in handoff.gates:
         lines.extend(
             [

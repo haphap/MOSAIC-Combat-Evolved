@@ -202,7 +202,7 @@ def build_production_promotion_gate_report(root: str | Path = ".") -> Production
         ),
     )
 
-    staged_required = {f"PG{idx:02d}" for idx in range(2, 9)}
+    staged_required = {f"PG{idx:02d}" for idx in range(1, 9)}
     staged_allowed = all(
         criterion.passed for criterion in criteria if criterion.criterion_id in staged_required
     )

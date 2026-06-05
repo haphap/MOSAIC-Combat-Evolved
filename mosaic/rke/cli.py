@@ -48,6 +48,7 @@ from .promotion_gate import (
     build_production_promotion_gate_report,
     write_production_promotion_gate_report,
 )
+from .promotion_dry_run import build_promotion_dry_run_report, write_promotion_dry_run_report
 from .registry_manifest import (
     build_registry_manifest,
     validate_required_registry,
@@ -191,6 +192,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="Write and print the production-promotion gate report.",
     )
     promotion_status.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
+
+    promotion_dry_run = subparsers.add_parser(
+        "promotion-dry-run",
+        help="Simulate reviewed gold/license/lockbox inputs without mutating the registry.",
+    )
+    promotion_dry_run.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
+    promotion_dry_run.add_argument("--gold-input", help="Reviewed gold-set JSONL input.")
+    promotion_dry_run.add_argument("--license-input", help="Reviewed source-license JSONL input.")
+    promotion_dry_run.add_argument("--lockbox-input", help="Reviewed lockbox JSON input.")
+    promotion_dry_run.add_argument(
+        "--write-report",
+        action="store_true",
+        help="Write registry/promotion/rke_promotion_dry_run_report.json.",
+    )
 
     gold_status = subparsers.add_parser(
         "gold-set-status",
@@ -461,6 +476,22 @@ def main(argv: Sequence[str] | None = None) -> int:
         result = build_production_promotion_gate_report(root)
         _print_json(asdict(result))
         return 0 if result.paper_trading_allowed else 2
+    if args.command == "promotion-dry-run":
+        if args.write_report:
+            write_promotion_dry_run_report(
+                root,
+                gold_input=args.gold_input,
+                license_input=args.license_input,
+                lockbox_input=args.lockbox_input,
+            )
+        result = build_promotion_dry_run_report(
+            root,
+            gold_input=args.gold_input,
+            license_input=args.license_input,
+            lockbox_input=args.lockbox_input,
+        )
+        _print_json(asdict(result))
+        return 0 if result.accepted else 2
     if args.command == "gold-set-status":
         write_gold_set_review_summary(root)
         _print_json(asdict(summarize_gold_set_review(root)))

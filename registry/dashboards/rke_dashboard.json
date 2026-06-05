@@ -123,6 +123,7 @@
     "ready_for_operator_review": true,
     "remaining_blocker_count": 5,
     "run_order": [
+      "promotion-dry-run",
       "gold_set",
       "source_license",
       "promotion-status",

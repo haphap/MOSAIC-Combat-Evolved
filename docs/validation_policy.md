@@ -71,6 +71,19 @@ Run the promotion gate audit with:
 mosaic-rke promotion-status --root .
 ```
 
+Before applying reviewed manual inputs, simulate the combined promotion result
+without mutating the working registry:
+
+```bash
+mosaic-rke promotion-dry-run --root . \
+  --gold-input reviewed_gold_set.jsonl \
+  --license-input reviewed_sources.jsonl \
+  --lockbox-input reviewed_lockbox.json
+```
+
+The command copies the registry into a temporary directory, applies the supplied
+review files there, and reports the resulting promotion gate.
+
 The gate combines completion audit, manual gold-set status, source-license
 review, source-text redaction, production source validation, paper-trading
 readiness, production monitor state, rollback rule, and lockbox review into one

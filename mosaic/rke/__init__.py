@@ -272,6 +272,12 @@ from .promotion_gate import (
     build_production_promotion_gate_report,
     write_production_promotion_gate_report,
 )
+from .promotion_dry_run import (
+    PromotionDryRunReport,
+    PromotionDryRunStep,
+    build_promotion_dry_run_report,
+    write_promotion_dry_run_report,
+)
 from .registry_manifest import (
     RegistryArtifact,
     RegistryManifest,
@@ -568,6 +574,10 @@ __all__ = [
     "PromotionGateCriterion",
     "build_production_promotion_gate_report",
     "write_production_promotion_gate_report",
+    "PromotionDryRunReport",
+    "PromotionDryRunStep",
+    "build_promotion_dry_run_report",
+    "write_promotion_dry_run_report",
     "RegistryArtifact",
     "RegistryManifest",
     "build_registry_manifest",

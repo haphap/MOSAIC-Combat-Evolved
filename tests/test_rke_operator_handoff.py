@@ -24,7 +24,14 @@ def test_operator_handoff_summarizes_remaining_manual_gates():
     assert handoff.production_allowed is False
     assert handoff.direct_production_forbidden is True
     assert handoff.ready_for_operator_review is True
-    assert handoff.run_order == ("gold_set", "source_license", "promotion-status", "lockbox")
+    assert handoff.run_order == (
+        "promotion-dry-run",
+        "gold_set",
+        "source_license",
+        "promotion-status",
+        "lockbox",
+    )
+    assert "promotion-dry-run" in handoff.promotion_dry_run_command
     assert {gate.review_kind for gate in handoff.gates} == {
         "gold_set",
         "source_license",
@@ -64,6 +71,7 @@ def test_write_operator_handoff_outputs_json_markdown_and_lockbox_template(tmp_p
 
     assert payload["ready_for_operator_review"] is True
     assert payload["production_allowed"] is False
+    assert "promotion-dry-run" in payload["promotion_dry_run_command"]
     assert len(payload["gates"]) == 3
     assert lockbox_template["result"] == ""
     assert markdown.startswith("# RKE Operator Handoff")

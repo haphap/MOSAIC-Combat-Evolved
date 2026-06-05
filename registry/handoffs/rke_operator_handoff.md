@@ -8,10 +8,13 @@
 
 ## Run Order
 
+- promotion-dry-run
 - gold_set
 - source_license
 - promotion-status
 - lockbox
+
+Dry-run command: `mosaic-rke promotion-dry-run --root . --gold-input registry/review_batches/gold_set_next_import_template.jsonl --license-input registry/review_batches/source_license_next_import_template.jsonl --lockbox-input registry/review_batches/lockbox_review_next_import_template.json`
 
 ## Gates
 

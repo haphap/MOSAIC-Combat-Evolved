@@ -108,6 +108,16 @@ mosaic-rke apply-license-review --root . --input reviewed_sources.jsonl
 Both import commands support `--dry-run`. They reject duplicate IDs, unknown IDs,
 missing reviewer/date fields, and non-boolean gate fields.
 
+Before applying a reviewed gold/license/lockbox bundle, simulate the combined
+promotion outcome without mutating the registry:
+
+```bash
+mosaic-rke promotion-dry-run --root . \
+  --gold-input reviewed_gold_set.jsonl \
+  --license-input reviewed_sources.jsonl \
+  --lockbox-input reviewed_lockbox.json
+```
+
 For large same-source license queues, build the `apply-license-review` input
 from a signed policy file instead of hand-filling every row:
 
