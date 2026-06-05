@@ -271,6 +271,7 @@ def build_master_plan_coverage_report(root: str | Path = ".") -> MasterPlanCover
                     "registry/compliance/source_text_redaction_report.json",
                     "registry/source_checks/source_registry_validation_report.json",
                     "registry/review_batches/source_license_next_import_template.jsonl",
+                    "registry/handoffs/rke_operator_readiness_report.json",
                 ),
                 blocked_if_failed=True,
             ),

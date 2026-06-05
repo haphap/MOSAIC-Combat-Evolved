@@ -1,0 +1,65 @@
+{
+  "accepted": true,
+  "check_count": 8,
+  "checks": [
+    {
+      "blocker": "",
+      "check_id": "required_registry_valid",
+      "evidence": "missing=0, empty=0",
+      "passed": true
+    },
+    {
+      "blocker": "",
+      "check_id": "handoff_ready_for_operator",
+      "evidence": "gates=['gold_set', 'lockbox', 'source_license'], next_state=paper_trading",
+      "passed": true
+    },
+    {
+      "blocker": "",
+      "check_id": "manual_batch_templates_match_status",
+      "evidence": "gold_exported=50/50, license_exported=50/50",
+      "passed": true
+    },
+    {
+      "blocker": "",
+      "check_id": "manual_import_templates_are_sparse",
+      "evidence": "gold/license import templates omit long source text",
+      "passed": true
+    },
+    {
+      "blocker": "",
+      "check_id": "lockbox_template_requires_human_decision",
+      "evidence": "lockbox_template_path=registry/review_batches/lockbox_review_next_import_template.json",
+      "passed": true
+    },
+    {
+      "blocker": "",
+      "check_id": "blank_bundle_dry_run_does_not_promote",
+      "evidence": "accepted=False, after_next_state=paper_trading",
+      "passed": true
+    },
+    {
+      "blocker": "",
+      "check_id": "promotion_gate_still_blocks_production",
+      "evidence": "next_state=paper_trading, blockers=5",
+      "passed": true
+    },
+    {
+      "blocker": "",
+      "check_id": "source_text_redaction_clean",
+      "evidence": "failure_count=0",
+      "passed": true
+    }
+  ],
+  "failure_count": 0,
+  "generated_paths": [
+    "registry/handoffs/rke_operator_handoff.json",
+    "registry/handoffs/rke_operator_handoff.md",
+    "registry/handoffs/rke_operator_readiness_report.json",
+    "registry/review_batches/gold_set_next_import_template.jsonl",
+    "registry/review_batches/source_license_next_import_template.jsonl",
+    "registry/review_batches/lockbox_review_next_import_template.json"
+  ],
+  "passed_count": 8,
+  "report_id": "RKE-OPERATOR-READINESS-REPORT-20260606"
+}

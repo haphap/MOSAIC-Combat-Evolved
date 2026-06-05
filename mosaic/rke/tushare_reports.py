@@ -28,6 +28,7 @@ from .gold_review_packet import write_gold_review_packet
 from .license_review_packet import write_license_review_packet
 from .manual_review_batches import write_manual_review_batches
 from .operator_handoff import write_operator_handoff
+from .operator_readiness import write_operator_readiness_report
 from .master_plan_coverage import write_master_plan_coverage_report
 from .monitoring_diagnostics import write_production_monitor_diagnostics
 from .phase_minus1 import (
@@ -672,6 +673,7 @@ def refresh_tushare_research_report_registry(
     completion_result = write_completion_audit(root_path)
     promotion_gate_result = write_production_promotion_gate_report(root_path)
     operator_handoff_result = write_operator_handoff(root_path)
+    operator_readiness_result = write_operator_readiness_report(root_path)
     master_plan_coverage_result = write_master_plan_coverage_report(root_path)
     dashboard_result = write_dashboard_reports(root_path)
     registry_manifest_result = write_registry_manifest(root_path)
@@ -703,6 +705,7 @@ def refresh_tushare_research_report_registry(
     outputs["operator_handoff.json"] = operator_handoff_result["json"]
     outputs["operator_handoff.markdown"] = operator_handoff_result["markdown"]
     outputs["lockbox_review_import_template"] = operator_handoff_result["lockbox_import_template"]
+    outputs["operator_readiness_report"] = str(operator_readiness_result["path"])
     outputs["master_plan_coverage_report"] = str(master_plan_coverage_result["path"])
     outputs.update({f"dashboard.{key}": value for key, value in dashboard_result.items()})
     outputs["registry_manifest"] = str(registry_manifest_result["path"])

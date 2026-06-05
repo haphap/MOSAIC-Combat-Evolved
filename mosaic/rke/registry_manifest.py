@@ -47,6 +47,7 @@ REQUIRED_REGISTRY_FILES = (
     "registry/gold_sets/tushare_research_reports.review_template.jsonl",
     "registry/handoffs/rke_operator_handoff.json",
     "registry/handoffs/rke_operator_handoff.md",
+    "registry/handoffs/rke_operator_readiness_report.json",
     "registry/hypotheses/central_bank_hypotheses.jsonl",
     "registry/hypotheses/semiconductor_hypotheses.jsonl",
     "registry/integration/phase7_layer_integration_contracts.json",

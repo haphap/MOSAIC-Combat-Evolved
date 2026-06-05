@@ -141,7 +141,8 @@
         "registry/compliance/tushare_license_review_summary.json",
         "registry/compliance/source_text_redaction_report.json",
         "registry/source_checks/source_registry_validation_report.json",
-        "registry/review_batches/source_license_next_import_template.jsonl"
+        "registry/review_batches/source_license_next_import_template.jsonl",
+        "registry/handoffs/rke_operator_readiness_report.json"
       ],
       "requirement": "Compliance gate blocks unauthorized reports from production runtime and can apply reviewed license decisions.",
       "section_id": "Compliance",

@@ -68,6 +68,7 @@ def test_full_refresh_preserves_existing_review_templates(tmp_path: Path):
     assert "operator_handoff.json" in result.outputs
     assert "operator_handoff.markdown" in result.outputs
     assert "lockbox_review_import_template" in result.outputs
+    assert "operator_readiness_report" in result.outputs
     assert "production_promotion_gate" in result.outputs
     assert "production_monitor_diagnostics" in result.outputs
     assert "registry_manifest" in result.outputs

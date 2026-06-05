@@ -32,6 +32,10 @@ from .manual_review_batches import (
     write_manual_review_batches,
 )
 from .operator_handoff import build_operator_handoff, write_operator_handoff
+from .operator_readiness import (
+    build_operator_readiness_report,
+    write_operator_readiness_report,
+)
 from .master_plan_coverage import (
     build_master_plan_coverage_report,
     write_master_plan_coverage_report,
@@ -307,6 +311,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Write and print the remaining manual gate handoff package.",
     )
     operator_handoff.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
+
+    operator_readiness = subparsers.add_parser(
+        "operator-readiness",
+        help="Write and print operator handoff bundle integrity checks.",
+    )
+    operator_readiness.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
 
     fetch_reports = subparsers.add_parser(
         "fetch-tushare-reports",
@@ -610,6 +620,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         handoff = build_operator_handoff(root)
         _print_json({"paths": paths, "handoff": asdict(handoff)})
         return 0 if handoff.ready_for_operator_review else 2
+    if args.command == "operator-readiness":
+        result = write_operator_readiness_report(root)
+        report = build_operator_readiness_report(root)
+        _print_json({"path": result["path"], **asdict(report)})
+        return 0 if report.accepted else 2
     if args.command == "fetch-tushare-reports":
         _load_env_file(args.env_file)
         result = refresh_tushare_research_report_registry(

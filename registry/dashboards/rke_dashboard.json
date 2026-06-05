@@ -130,6 +130,11 @@
       "lockbox"
     ]
   },
+  "operator_readiness": {
+    "accepted": true,
+    "check_count": 8,
+    "failure_count": 0
+  },
   "paper_trading": {
     "mean_calibration_error": 0.025,
     "mean_live_net_alpha_after_cost": 0.0055,
@@ -217,7 +222,7 @@
   },
   "source_text_redaction": {
     "accepted": true,
-    "checked_path_count": 395,
+    "checked_path_count": 397,
     "failure_count": 0,
     "min_match_chars": 80,
     "skipped_allowed_path_count": 6,

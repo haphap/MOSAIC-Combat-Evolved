@@ -1,5 +1,5 @@
 {
-  "artifact_count": 69,
+  "artifact_count": 70,
   "artifacts": [
     {
       "bytes": 539,
@@ -185,6 +185,11 @@
       "bytes": 2822,
       "path": "registry/handoffs/rke_operator_handoff.md",
       "sha256": "sha256:5d58e699b71efb778055ed3894de90380912a2183d447d967a586c9dde4ae336"
+    },
+    {
+      "bytes": 1980,
+      "path": "registry/handoffs/rke_operator_readiness_report.json",
+      "sha256": "sha256:1ee8ccecffb6705b418f9c999e321676108c5f02200cb9de08e177f02b68d0d7"
     },
     {
       "bytes": 383,

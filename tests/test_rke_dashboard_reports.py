@@ -97,6 +97,9 @@ def test_dashboard_report_summarizes_completion_and_monitoring():
     assert report["operator_handoff"]["next_state"] == "paper_trading"
     assert report["operator_handoff"]["remaining_blocker_count"] >= 3
     assert report["operator_handoff"]["gate_count"] == 3
+    assert report["operator_readiness"]["accepted"] is True
+    assert report["operator_readiness"]["check_count"] == 8
+    assert report["operator_readiness"]["failure_count"] == 0
     assert report["audit_trace"]["complete"] is True
     assert report["audit_trace"]["node_count"] == 8
     assert report["audit_trace"]["edge_count"] >= 12
@@ -134,6 +137,8 @@ def test_dashboard_markdown_renders_blockers():
     assert "Next license review batch rows: 50" in markdown
     assert "Operator handoff ready: True" in markdown
     assert "Operator handoff blockers:" in markdown
+    assert "Operator readiness accepted: True" in markdown
+    assert "Operator readiness failures: 0" in markdown
     assert "Claim variable validation failures: 0" in markdown
     assert "Prompt asset validation failures: 0" in markdown
     assert "Policy doc validation failures: 0" in markdown

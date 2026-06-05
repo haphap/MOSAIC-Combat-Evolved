@@ -63,6 +63,7 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
     license_packet_path = root_path / "registry/compliance/tushare_license_review_packet.json"
     review_batch_status_path = root_path / "registry/review_batches/manual_review_batch_status.json"
     operator_handoff_path = root_path / "registry/handoffs/rke_operator_handoff.json"
+    operator_readiness_path = root_path / "registry/handoffs/rke_operator_readiness_report.json"
     gold_review = _read_json(gold_review_path) if gold_review_path.exists() else {}
     gold_packet = _read_json(gold_packet_path) if gold_packet_path.exists() else {}
     gold_candidate_claims = (
@@ -74,6 +75,9 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
         _read_json(review_batch_status_path) if review_batch_status_path.exists() else {}
     )
     operator_handoff = _read_json(operator_handoff_path) if operator_handoff_path.exists() else {}
+    operator_readiness = (
+        _read_json(operator_readiness_path) if operator_readiness_path.exists() else {}
+    )
     family_path = root_path / "registry/evaluation/experiment_family_registry/central_bank_liquidity_family.json"
     cost_model_path = root_path / "registry/evaluation/cost_model/cost_model_v1.json"
     overlap_path = root_path / "registry/evaluation/overlap_correction/effective_n_overlap_policy.json"
@@ -264,6 +268,11 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
             "gate_count": len(operator_handoff.get("gates") or ()),
             "run_order": operator_handoff.get("run_order"),
         },
+        "operator_readiness": {
+            "accepted": operator_readiness.get("accepted"),
+            "check_count": operator_readiness.get("check_count"),
+            "failure_count": operator_readiness.get("failure_count"),
+        },
         "experiment_governance": {
             "family_id": family.get("family_id"),
             "selected_experiment_id": family.get("selected_experiment_id"),
@@ -356,6 +365,8 @@ def render_dashboard_markdown(report: Mapping[str, Any]) -> str:
         f"- Next license review batch rows: {dict(dict(report.get('manual_review_gates') or {}).get('review_batches') or {}).get('source_license_exported_rows')}",
         f"- Operator handoff ready: {dict(report.get('operator_handoff') or {}).get('ready_for_operator_review')}",
         f"- Operator handoff blockers: {dict(report.get('operator_handoff') or {}).get('remaining_blocker_count')}",
+        f"- Operator readiness accepted: {dict(report.get('operator_readiness') or {}).get('accepted')}",
+        f"- Operator readiness failures: {dict(report.get('operator_readiness') or {}).get('failure_count')}",
         f"- Experiment governance family: {dict(report.get('experiment_governance') or {}).get('family_id')}",
         f"- Schema validation failures: {dict(report.get('schema_validation') or {}).get('failure_count')}",
         f"- Claim variable validation failures: {dict(report.get('claim_variable_validation') or {}).get('failure_count')}",
