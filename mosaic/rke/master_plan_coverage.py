@@ -226,7 +226,10 @@ def build_master_plan_coverage_report(root: str | Path = ".") -> MasterPlanCover
                 "C09",
                 section_id="Phase-4",
                 requirement="Paper-trading dashboard reports live-vs-baseline, calibration, turnover, cost, alpha decay, and rollback state.",
-                evidence_paths=("registry/monitoring/central_bank_paper_trading_report.json",),
+                evidence_paths=(
+                    "registry/monitoring/central_bank_paper_trading_report.json",
+                    "registry/monitoring/central_bank_monitoring_diagnostics.json",
+                ),
             ),
             _record(
                 root_path,

@@ -29,6 +29,7 @@ from .license_review_packet import write_license_review_packet
 from .manual_review_batches import write_manual_review_batches
 from .operator_handoff import write_operator_handoff
 from .master_plan_coverage import write_master_plan_coverage_report
+from .monitoring_diagnostics import write_production_monitor_diagnostics
 from .phase_minus1 import (
     audit_research_report_corpus,
     load_jsonl,
@@ -663,6 +664,7 @@ def refresh_tushare_research_report_registry(
     schema_summary_result = write_schema_validation_report(root_path)
     validation_hardening_result = write_validation_hardening_report(root_path)
     statistical_significance_result = write_statistical_significance_report(root_path)
+    monitoring_diagnostics_result = write_production_monitor_diagnostics(root_path)
     prompt_asset_summary_result = write_prompt_asset_validation_report(root_path)
     policy_doc_summary_result = write_policy_doc_validation_report(root_path)
     source_text_redaction_result = write_source_text_redaction_report(root_path)
@@ -690,6 +692,7 @@ def refresh_tushare_research_report_registry(
     outputs["schema_validation_report"] = str(schema_summary_result["path"])
     outputs["validation_hardening_report"] = str(validation_hardening_result["path"])
     outputs["statistical_significance_report"] = str(statistical_significance_result["path"])
+    outputs["production_monitor_diagnostics"] = str(monitoring_diagnostics_result["path"])
     outputs["prompt_asset_validation_report"] = str(prompt_asset_summary_result["path"])
     outputs["policy_doc_validation_report"] = str(policy_doc_summary_result["path"])
     outputs["source_text_redaction_report"] = str(source_text_redaction_result["path"])

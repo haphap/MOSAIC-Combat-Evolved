@@ -36,6 +36,10 @@ from .master_plan_coverage import (
     build_master_plan_coverage_report,
     write_master_plan_coverage_report,
 )
+from .monitoring_diagnostics import (
+    build_production_monitor_diagnostics,
+    write_production_monitor_diagnostics,
+)
 from .policy_doc_validation import (
     build_policy_doc_validation_report,
     write_policy_doc_validation_report,
@@ -186,6 +190,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Write and print the validation-hardening and statistical-significance reports.",
     )
     validation_status.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
+
+    monitoring_diagnostics = subparsers.add_parser(
+        "monitoring-diagnostics",
+        help="Write and print production-monitor diagnostic scenarios.",
+    )
+    monitoring_diagnostics.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
 
     promotion_status = subparsers.add_parser(
         "promotion-status",
@@ -471,6 +481,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             }
         )
         return 0 if accepted else 2
+    if args.command == "monitoring-diagnostics":
+        write_production_monitor_diagnostics(root)
+        result = build_production_monitor_diagnostics()
+        _print_json(asdict(result))
+        return 0 if result.accepted else 2
     if args.command == "promotion-status":
         write_production_promotion_gate_report(root)
         result = build_production_promotion_gate_report(root)

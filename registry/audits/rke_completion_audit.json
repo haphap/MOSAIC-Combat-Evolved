@@ -67,7 +67,7 @@
       "blocker": "",
       "criterion_id": "C10",
       "description": "Production monitor can detect alpha decay and calibration drift.",
-      "evidence": "production monitor report + monitoring tests",
+      "evidence": "production monitor report + 6 diagnostic scenarios",
       "passed": true
     },
     {

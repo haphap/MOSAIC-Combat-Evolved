@@ -8,6 +8,8 @@
 - Mean live vs baseline delta: 0.035
 - Production monitor state: production
 - Production monitor action: none
+- Production monitor diagnostics accepted: True
+- Production monitor diagnostic failures: 0
 - Lockbox result: not_opened
 - Promotion next state: paper_trading
 - Promotion production allowed: False

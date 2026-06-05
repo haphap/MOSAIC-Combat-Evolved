@@ -1,0 +1,131 @@
+{
+  "accepted": true,
+  "failure_count": 0,
+  "passed_count": 6,
+  "report_id": "RKE-PRODUCTION-MONITOR-DIAGNOSTICS-20260606",
+  "scenario_count": 6,
+  "scenarios": [
+    {
+      "expected_action": "none",
+      "expected_state": "production",
+      "failure": "",
+      "passed": true,
+      "result": {
+        "action": "none",
+        "metrics": {
+          "calibration_error": 0.03,
+          "effect_ratio": 0.6153846153846154,
+          "effective_events": 80,
+          "rolling_net_alpha_after_cost": 0.008,
+          "turnover_delta": 0.05
+        },
+        "reasons": [],
+        "state": "production"
+      },
+      "scenario_id": "healthy_production"
+    },
+    {
+      "expected_action": "keep_monitoring",
+      "expected_state": "insufficient_data",
+      "failure": "",
+      "passed": true,
+      "result": {
+        "action": "keep_monitoring",
+        "metrics": {
+          "effective_events": 10
+        },
+        "reasons": [
+          "not enough live effective events"
+        ],
+        "state": "insufficient_data"
+      },
+      "scenario_id": "insufficient_live_events"
+    },
+    {
+      "expected_action": "reduce_weight_and_revalidate",
+      "expected_state": "monitored_decay",
+      "failure": "",
+      "passed": true,
+      "result": {
+        "action": "reduce_weight_and_revalidate",
+        "metrics": {
+          "calibration_error": 0.03,
+          "effect_ratio": 0.3076923076923077,
+          "effective_events": 80,
+          "rolling_net_alpha_after_cost": 0.004,
+          "turnover_delta": 0.05
+        },
+        "reasons": [
+          "alpha effect decayed below threshold"
+        ],
+        "state": "monitored_decay"
+      },
+      "scenario_id": "alpha_decay"
+    },
+    {
+      "expected_action": "reduce_weight_and_revalidate",
+      "expected_state": "monitored_decay",
+      "failure": "",
+      "passed": true,
+      "result": {
+        "action": "reduce_weight_and_revalidate",
+        "metrics": {
+          "calibration_error": 0.14,
+          "effect_ratio": 0.6153846153846154,
+          "effective_events": 80,
+          "rolling_net_alpha_after_cost": 0.008,
+          "turnover_delta": 0.05
+        },
+        "reasons": [
+          "confidence calibration drift exceeds threshold"
+        ],
+        "state": "monitored_decay"
+      },
+      "scenario_id": "calibration_drift"
+    },
+    {
+      "expected_action": "reduce_weight_and_revalidate",
+      "expected_state": "monitored_decay",
+      "failure": "",
+      "passed": true,
+      "result": {
+        "action": "reduce_weight_and_revalidate",
+        "metrics": {
+          "calibration_error": 0.03,
+          "effect_ratio": 0.6153846153846154,
+          "effective_events": 80,
+          "rolling_net_alpha_after_cost": 0.008,
+          "turnover_delta": 0.25
+        },
+        "reasons": [
+          "turnover increased beyond threshold"
+        ],
+        "state": "monitored_decay"
+      },
+      "scenario_id": "turnover_spike"
+    },
+    {
+      "expected_action": "rollback",
+      "expected_state": "rollback_required",
+      "failure": "",
+      "passed": true,
+      "result": {
+        "action": "rollback",
+        "metrics": {
+          "calibration_error": 0.14,
+          "effect_ratio": -0.15384615384615385,
+          "effective_events": 80,
+          "rolling_net_alpha_after_cost": -0.002,
+          "turnover_delta": 0.05
+        },
+        "reasons": [
+          "alpha effect decayed below threshold",
+          "confidence calibration drift exceeds threshold",
+          "live net alpha after cost is negative"
+        ],
+        "state": "rollback_required"
+      },
+      "scenario_id": "negative_alpha_with_calibration_drift"
+    }
+  ]
+}

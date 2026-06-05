@@ -19,6 +19,7 @@ from .macro_expansion import write_macro_expansion_registry
 from .manual_review_batches import write_manual_review_batches
 from .operator_handoff import write_operator_handoff
 from .master_plan_coverage import write_master_plan_coverage_report
+from .monitoring_diagnostics import write_production_monitor_diagnostics
 from .phase_minus1 import load_jsonl, write_gold_set_review_template
 from .policy_doc_validation import write_policy_doc_validation_report
 from .prompt_asset_validation import write_prompt_asset_validation_report
@@ -87,6 +88,7 @@ def run_full_rke_refresh(
     schema_summary = write_schema_validation_report(root_path)
     validation_hardening = write_validation_hardening_report(root_path)
     statistical_significance = write_statistical_significance_report(root_path)
+    monitoring_diagnostics = write_production_monitor_diagnostics(root_path)
     prompt_asset_summary = write_prompt_asset_validation_report(root_path)
     policy_doc_summary = write_policy_doc_validation_report(root_path)
     source_text_redaction = write_source_text_redaction_report(root_path)
@@ -114,6 +116,7 @@ def run_full_rke_refresh(
     outputs["schema_validation_report"] = str(schema_summary["path"])
     outputs["validation_hardening_report"] = str(validation_hardening["path"])
     outputs["statistical_significance_report"] = str(statistical_significance["path"])
+    outputs["production_monitor_diagnostics"] = str(monitoring_diagnostics["path"])
     outputs["prompt_asset_validation_report"] = str(prompt_asset_summary["path"])
     outputs["policy_doc_validation_report"] = str(policy_doc_summary["path"])
     outputs["source_text_redaction_report"] = str(source_text_redaction["path"])

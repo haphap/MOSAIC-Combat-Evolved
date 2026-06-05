@@ -94,7 +94,8 @@
     {
       "blocker": "",
       "evidence_paths": [
-        "registry/monitoring/central_bank_paper_trading_report.json"
+        "registry/monitoring/central_bank_paper_trading_report.json",
+        "registry/monitoring/central_bank_monitoring_diagnostics.json"
       ],
       "requirement": "Paper-trading dashboard reports live-vs-baseline, calibration, turnover, cost, alpha decay, and rollback state.",
       "section_id": "Phase-4",

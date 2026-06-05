@@ -217,6 +217,12 @@ from .monitoring import (
     evaluate_production_monitor,
     validate_audit_trace,
 )
+from .monitoring_diagnostics import (
+    ProductionMonitorDiagnosticScenario,
+    ProductionMonitorDiagnosticsReport,
+    build_production_monitor_diagnostics,
+    write_production_monitor_diagnostics,
+)
 from .phase_minus1 import (
     CorpusAudit,
     GoldSetReviewRecord,
@@ -531,6 +537,10 @@ __all__ = [
     "build_audit_trace",
     "evaluate_production_monitor",
     "validate_audit_trace",
+    "ProductionMonitorDiagnosticScenario",
+    "ProductionMonitorDiagnosticsReport",
+    "build_production_monitor_diagnostics",
+    "write_production_monitor_diagnostics",
     "CorpusAudit",
     "GoldSetReviewRecord",
     "REQUIRED_GOLD_SET_DOMAINS",

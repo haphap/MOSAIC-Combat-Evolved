@@ -31,6 +31,8 @@ def test_master_plan_coverage_reports_only_manual_blockers():
     audit = next(record for record in report.records if record.section_id == "Audit")
     assert "registry/audits/central_bank_mvp_audit_view.json" in audit.evidence_paths
     assert "registry/audits/central_bank_mvp_audit_view.md" in audit.evidence_paths
+    phase_4 = next(record for record in report.records if record.section_id == "Phase-4")
+    assert "registry/monitoring/central_bank_monitoring_diagnostics.json" in phase_4.evidence_paths
 
 
 def test_master_plan_coverage_detects_missing_phase_artifact(tmp_path: Path):

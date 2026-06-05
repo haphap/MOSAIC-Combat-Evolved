@@ -24,6 +24,8 @@ def test_completion_auditor_recomputes_current_registry_gates():
     assert by_id["C01"].passed
     assert by_id["C04"].passed
     assert "hardening/statistical" in by_id["C04"].evidence
+    assert by_id["C10"].passed
+    assert "6 diagnostic scenarios" in by_id["C10"].evidence
     assert by_id["C12"].passed
     assert not by_id["C02"].passed
     assert not by_id["C11"].passed

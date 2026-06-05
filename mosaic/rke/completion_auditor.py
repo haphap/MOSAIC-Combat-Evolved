@@ -191,6 +191,9 @@ def audit_master_plan_completion(root: str | Path = ".") -> CompletionAudit:
     paper_report = _optional_json(
         root_path / "registry/monitoring/central_bank_paper_trading_report.json"
     )
+    monitor_diagnostics = _optional_json(
+        root_path / "registry/monitoring/central_bank_monitoring_diagnostics.json"
+    )
     data_matrix = _optional_json(
         root_path / "registry/data_availability/central_bank_data_availability.json"
     )
@@ -209,6 +212,19 @@ def audit_master_plan_completion(root: str | Path = ".") -> CompletionAudit:
 
     runtime_passed = bool(runtime_output) and _runtime_output_passes(runtime_output)
     aggregation = dict((runtime_output or {}).get("rule_aggregation_summary") or {})
+    monitor_diagnostics_passed = (
+        bool(paper_report and paper_report.get("production_monitor"))
+        and bool(monitor_diagnostics)
+        and monitor_diagnostics.get("accepted") is True
+    )
+    if not paper_report:
+        monitor_diagnostics_blocker = "production monitor report missing"
+    elif not monitor_diagnostics:
+        monitor_diagnostics_blocker = "production monitor diagnostics missing"
+    elif monitor_diagnostics.get("accepted") is not True:
+        monitor_diagnostics_blocker = "production monitor diagnostics failed"
+    else:
+        monitor_diagnostics_blocker = ""
     completion = CompletionAudit(
         criteria=(
             CompletionCriterion(
@@ -282,9 +298,12 @@ def audit_master_plan_completion(root: str | Path = ".") -> CompletionAudit:
             CompletionCriterion(
                 "C10",
                 "Production monitor can detect alpha decay and calibration drift.",
-                bool(paper_report and paper_report.get("production_monitor")),
-                "production monitor report + monitoring tests",
-                "" if paper_report else "production monitor report missing",
+                monitor_diagnostics_passed,
+                (
+                    "production monitor report + "
+                    f"{(monitor_diagnostics or {}).get('scenario_count', 0)} diagnostic scenarios"
+                ),
+                monitor_diagnostics_blocker,
             ),
             CompletionCriterion(
                 "C11",
