@@ -24,6 +24,10 @@ from .manual_review_import import (
     apply_gold_set_review_import,
     apply_source_license_review_import,
 )
+from .policy_doc_validation import (
+    build_policy_doc_validation_report,
+    write_policy_doc_validation_report,
+)
 from .prompt_asset_validation import (
     build_prompt_asset_validation_report,
     write_prompt_asset_validation_report,
@@ -107,6 +111,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     dashboard = subparsers.add_parser("dashboard", help="Write dashboard JSON and Markdown reports.")
     dashboard.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
+
+    policy_doc_status = subparsers.add_parser(
+        "policy-doc-status",
+        help="Write and print the RKE policy documentation validation report.",
+    )
+    policy_doc_status.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
 
     schema_status = subparsers.add_parser(
         "schema-status",
@@ -247,6 +257,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         result = write_dashboard_reports(root)
         _print_json(result)
         return 0
+    if args.command == "policy-doc-status":
+        write_policy_doc_validation_report(root)
+        result = build_policy_doc_validation_report(root)
+        _print_json(asdict(result))
+        return 0 if result.accepted else 2
     if args.command == "schema-status":
         write_schema_validation_report(root)
         result = build_schema_validation_report(root)

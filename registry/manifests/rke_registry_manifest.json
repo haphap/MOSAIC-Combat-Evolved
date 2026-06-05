@@ -1,5 +1,5 @@
 {
-  "artifact_count": 56,
+  "artifact_count": 57,
   "artifacts": [
     {
       "bytes": 539,
@@ -47,14 +47,14 @@
       "sha256": "sha256:d519117af396793a5f27fc06e808ca93b55d6f4a2d0ae63bd6c7b9c360cadbd0"
     },
     {
-      "bytes": 5452,
+      "bytes": 5542,
       "path": "registry/dashboards/rke_dashboard.json",
-      "sha256": "sha256:ff588f7fc8c23681b83b140b3f3ebfc322936da5dd6379a98b0bfd42680ad1c5"
+      "sha256": "sha256:85f88c843679be54bccc04db47d56bf5d9c6d4eebe7af7c3a3026119d77e1d13"
     },
     {
-      "bytes": 1093,
+      "bytes": 1129,
       "path": "registry/dashboards/rke_dashboard.md",
-      "sha256": "sha256:2bd89688a316ad0ca175e04e0c43608a10125fdc03a404e8d4ff581e181f17a6"
+      "sha256": "sha256:b736b44baa042f9e4dd79358576f9327b151f21b440483fb5f4b43d33b1df7f9"
     },
     {
       "bytes": 1233,
@@ -75,6 +75,11 @@
       "bytes": 1396,
       "path": "registry/disagreement/semiconductor_policy_substitution.json",
       "sha256": "sha256:d6594d7557bf7e003301bd730bba73888ff07649e336613a62ad62beb13f6871"
+    },
+    {
+      "bytes": 913,
+      "path": "registry/docs/rke_policy_doc_validation_report.json",
+      "sha256": "sha256:e4bd091b3bfb05a0012e57b9ee7b187aa81543aa3f17f4538d83167b8de8056d"
     },
     {
       "bytes": 604,

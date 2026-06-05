@@ -52,3 +52,57 @@ Broad rollout requires a manual gold set to pass:
 - direction accuracy at least 0.85;
 - variable mapping accuracy at least 0.80;
 - false grounding of unsupported fields at most 0.05.
+
+## Candidate Claims
+
+Candidate claims are reviewer aids, not accepted labels.
+
+The deterministic generator writes:
+
+- `registry/gold_sets/tushare_research_reports.candidate_claims.jsonl`
+- `registry/gold_sets/tushare_research_reports.candidate_claims.summary.json`
+
+Each candidate claim must include:
+
+- `claim_id` matching the gold-set review row;
+- `source_id` and `source_span_id`;
+- source span offsets and `source_text_hash`;
+- proposed `claim_type`, `direction`, `cause_variables`, and `target_variables`;
+- `verifier_status = requires_review`;
+- review risk flags.
+
+The generator may populate `proposed_*` fields in
+`registry/gold_sets/tushare_research_reports.review_template.jsonl`, but it must
+not fill any manual review field.
+
+Manual fields are:
+
+- `manual_claim_text`
+- `claim_correct`
+- `source_span_supports_claim`
+- `direction_correct`
+- `variable_mapping_correct`
+- `unsupported_field_false_grounded`
+- `reviewer`
+- `review_date`
+- `review_notes`
+
+## Manual Import
+
+Human labels are imported with:
+
+```bash
+mosaic-rke apply-gold-review --root . --input reviewed_gold_set.jsonl
+```
+
+Use `--dry-run` to validate without mutating the template.
+
+The import is accepted only when the whole batch passes:
+
+- every `claim_id` exists in the target review template;
+- no duplicate `claim_id`;
+- all boolean review fields are booleans;
+- `manual_claim_text`, `reviewer`, and `review_date` are present.
+
+On success, downstream summaries and completion audit are recomputed. C02 passes
+only after the manual metrics satisfy the gold-set gate.

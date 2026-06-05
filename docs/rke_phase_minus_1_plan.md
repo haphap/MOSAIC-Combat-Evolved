@@ -64,6 +64,44 @@ Current seed corpus is not yet the gold set. It is the first source pool for sam
 5. Build central-bank PIT matrix and reject non-PIT proxies.
 6. Only after both spikes pass, freeze hardened P0 schemas.
 
+## Current Review Workflow
+
+The current Phase -1 review queue is generated from Tushare research reports:
+
+- 50 sampled documents;
+- 500 review rows;
+- deterministic candidate claims;
+- source span offsets and hashes;
+- controlled-vocabulary variable hints;
+- manual review fields left empty.
+
+Refresh candidate claims:
+
+```bash
+mosaic-rke gold-candidate-claims --root .
+```
+
+Inspect the reviewer packet:
+
+```bash
+mosaic-rke gold-review-packet --root .
+```
+
+Import reviewed claim labels:
+
+```bash
+mosaic-rke apply-gold-review --root . --input reviewed_gold_set.jsonl
+```
+
+Import source license approvals:
+
+```bash
+mosaic-rke apply-license-review --root . --input reviewed_sources.jsonl
+```
+
+Both import commands support `--dry-run`. They reject duplicate IDs, unknown IDs,
+missing reviewer/date fields, and non-boolean gate fields.
+
 ## Non-Goals
 
 - Do not compile sell-side claims directly into production rules.

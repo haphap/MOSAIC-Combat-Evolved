@@ -21,6 +21,7 @@ REQUIRED_REGISTRY_FILES = (
     "registry/compliance/tushare_license_review_template.jsonl",
     "registry/dashboards/rke_dashboard.json",
     "registry/dashboards/rke_dashboard.md",
+    "registry/docs/rke_policy_doc_validation_report.json",
     "registry/data_availability/central_bank_data_availability.json",
     "registry/data_availability/macro_expansion_data_availability.json",
     "registry/data_availability/semiconductor_sandbox_data_availability.json",

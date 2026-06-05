@@ -166,6 +166,12 @@ from .manual_review_import import (
     apply_gold_set_review_import,
     apply_source_license_review_import,
 )
+from .policy_doc_validation import (
+    PolicyDocValidationRecord,
+    PolicyDocValidationReport,
+    build_policy_doc_validation_report,
+    write_policy_doc_validation_report,
+)
 from .monitoring import (
     PaperTradingReport,
     PaperTradingSnapshot,
@@ -433,6 +439,10 @@ __all__ = [
     "ManualReviewImportReport",
     "apply_gold_set_review_import",
     "apply_source_license_review_import",
+    "PolicyDocValidationRecord",
+    "PolicyDocValidationReport",
+    "build_policy_doc_validation_report",
+    "write_policy_doc_validation_report",
     "PaperTradingReport",
     "PaperTradingSnapshot",
     "ProductionMonitorPolicy",

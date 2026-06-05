@@ -23,6 +23,7 @@
 - Schema validation failures: 0
 - Claim variable validation failures: 0
 - Prompt asset validation failures: 0
+- Policy doc validation failures: 0
 - Prompt mutation validation accepted: True
 
 ## Blockers

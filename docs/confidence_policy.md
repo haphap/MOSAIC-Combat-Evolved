@@ -36,3 +36,37 @@ If current data does not confirm the research prior:
 - `data_confidence <= 0.50`;
 - `final_confidence <= 0.50`;
 - actionability must be `no_trade` or `monitor_only`.
+
+## Required Runtime Components
+
+Runtime confidence must be traceable to:
+
+- evidence ledger entries with tool, metric, value, as-of date, freshness, and
+  fallback status;
+- rule fire outputs with rule IDs, validation status, and source claim IDs;
+- aggregation summary with correlated-rule de-duplication;
+- conflict objects when opposing rules fire;
+- downstream handoff and progress event.
+
+Research-derived adjustments are capped at three levels:
+
+- single rule;
+- rule group;
+- global research adjustment.
+
+## Calibration
+
+Confidence buckets must be compared against realized outcomes.
+
+Each bucket should track:
+
+- expected hit rate;
+- realized hit rate;
+- calibration error;
+- sample size;
+- degradation status;
+- required action.
+
+If calibration degrades, confidence mapping must be lowered or the rule must be
+revalidated. LLM-written confidence values without calibration evidence are not
+valid production confidence.

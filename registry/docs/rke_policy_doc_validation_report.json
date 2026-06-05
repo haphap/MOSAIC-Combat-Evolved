@@ -1,0 +1,43 @@
+{
+  "accepted": true,
+  "failure_count": 0,
+  "records": [
+    {
+      "accepted": true,
+      "bytes": 52326,
+      "missing_markers": [],
+      "path": "docs/master_plan_v1_1.md"
+    },
+    {
+      "accepted": true,
+      "bytes": 3429,
+      "missing_markers": [],
+      "path": "docs/rke_phase_minus_1_plan.md"
+    },
+    {
+      "accepted": true,
+      "bytes": 2831,
+      "missing_markers": [],
+      "path": "docs/claim_extraction_guidelines.md"
+    },
+    {
+      "accepted": true,
+      "bytes": 2598,
+      "missing_markers": [],
+      "path": "docs/validation_policy.md"
+    },
+    {
+      "accepted": true,
+      "bytes": 2059,
+      "missing_markers": [],
+      "path": "docs/confidence_policy.md"
+    },
+    {
+      "accepted": true,
+      "bytes": 2534,
+      "missing_markers": [],
+      "path": "docs/compliance_policy.md"
+    }
+  ],
+  "report_id": "RKE-POLICY-DOC-VALIDATION-REPORT-20260606"
+}

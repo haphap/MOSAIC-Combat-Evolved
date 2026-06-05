@@ -38,6 +38,8 @@ def test_dashboard_report_summarizes_completion_and_monitoring():
     assert report["claim_variable_validation"]["failure_count"] == 0
     assert report["prompt_evolution"]["asset_validation_accepted"] is True
     assert report["prompt_evolution"]["asset_validation_failure_count"] == 0
+    assert report["prompt_evolution"]["policy_doc_validation_accepted"] is True
+    assert report["prompt_evolution"]["policy_doc_validation_failure_count"] == 0
     assert report["prompt_evolution"]["mutation_validation_accepted"] is True
     assert report["prompt_evolution"]["production_allowed"] is False
     assert report["manual_review_gates"]["gold_review_packet"]["status"] == "manual_review_pending"
@@ -70,6 +72,7 @@ def test_dashboard_markdown_renders_blockers():
     assert "License review packet pending sources:" in markdown
     assert "Claim variable validation failures: 0" in markdown
     assert "Prompt asset validation failures: 0" in markdown
+    assert "Policy doc validation failures: 0" in markdown
     assert "Prompt mutation validation accepted: True" in markdown
     assert "manual" in markdown
     assert "license" in markdown

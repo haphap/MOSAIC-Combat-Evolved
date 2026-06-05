@@ -61,6 +61,7 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
     schema_validation_path = root_path / "registry/schemas/rke_schema_validation_report.json"
     claim_variable_validation_path = root_path / "registry/claim_checks/claim_variable_validation_report.json"
     prompt_validation_path = root_path / "registry/prompt_checks/prompt_asset_validation_report.json"
+    policy_doc_validation_path = root_path / "registry/docs/rke_policy_doc_validation_report.json"
     rendered_prompt_path = root_path / "registry/rendered_prompts/macro.central_bank.rke.json"
     mutation_patch_path = root_path / "registry/mutation_patches/central_bank_parameter_update.json"
     family = _read_json(family_path) if family_path.exists() else {}
@@ -75,6 +76,9 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
     )
     prompt_validation = (
         _read_json(prompt_validation_path) if prompt_validation_path.exists() else {}
+    )
+    policy_doc_validation = (
+        _read_json(policy_doc_validation_path) if policy_doc_validation_path.exists() else {}
     )
     rendered_prompt = _read_json(rendered_prompt_path) if rendered_prompt_path.exists() else {}
     mutation_patch = _read_json(mutation_patch_path) if mutation_patch_path.exists() else {}
@@ -212,6 +216,8 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
             "asset_validation_accepted": prompt_validation.get("accepted"),
             "asset_validation_failure_count": prompt_validation.get("failure_count"),
             "asset_validation_record_count": len(prompt_validation.get("records") or ()),
+            "policy_doc_validation_accepted": policy_doc_validation.get("accepted"),
+            "policy_doc_validation_failure_count": policy_doc_validation.get("failure_count"),
             "mutation_id": (mutation_patch.get("mutation") or {}).get("mutation_id"),
             "mutation_target_path": (mutation_patch.get("mutation") or {}).get("target_path"),
             "mutation_validation_accepted": (mutation_patch.get("validation") or {}).get("accepted"),
@@ -261,6 +267,7 @@ def render_dashboard_markdown(report: Mapping[str, Any]) -> str:
         f"- Schema validation failures: {dict(report.get('schema_validation') or {}).get('failure_count')}",
         f"- Claim variable validation failures: {dict(report.get('claim_variable_validation') or {}).get('failure_count')}",
         f"- Prompt asset validation failures: {dict(report.get('prompt_evolution') or {}).get('asset_validation_failure_count')}",
+        f"- Policy doc validation failures: {dict(report.get('prompt_evolution') or {}).get('policy_doc_validation_failure_count')}",
         f"- Prompt mutation validation accepted: {dict(report.get('prompt_evolution') or {}).get('mutation_validation_accepted')}",
         "",
         "## Blockers",

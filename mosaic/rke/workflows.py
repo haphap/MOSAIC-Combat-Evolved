@@ -16,6 +16,7 @@ from .gold_review_packet import write_gold_review_packet
 from .license_review_packet import write_license_review_packet
 from .macro_expansion import write_macro_expansion_registry
 from .phase_minus1 import load_jsonl, write_gold_set_review_template
+from .policy_doc_validation import write_policy_doc_validation_report
 from .prompt_asset_validation import write_prompt_asset_validation_report
 from .registry_manifest import write_registry_manifest
 from .review_gates import write_gold_set_review_summary, write_source_license_review_summary
@@ -80,6 +81,7 @@ def run_full_rke_refresh(
     validation_hardening = write_validation_hardening_report(root_path)
     statistical_significance = write_statistical_significance_report(root_path)
     prompt_asset_summary = write_prompt_asset_validation_report(root_path)
+    policy_doc_summary = write_policy_doc_validation_report(root_path)
     audit_result = write_completion_audit(root_path)
     dashboard_outputs = write_dashboard_reports(root_path)
     manifest_result = write_registry_manifest(root_path)
@@ -98,6 +100,7 @@ def run_full_rke_refresh(
     outputs["validation_hardening_report"] = str(validation_hardening["path"])
     outputs["statistical_significance_report"] = str(statistical_significance["path"])
     outputs["prompt_asset_validation_report"] = str(prompt_asset_summary["path"])
+    outputs["policy_doc_validation_report"] = str(policy_doc_summary["path"])
     outputs["completion_audit"] = str(audit_result["path"])
     outputs.update({f"dashboard.{key}": value for key, value in dashboard_outputs.items()})
     outputs["registry_manifest"] = str(manifest_result["path"])
