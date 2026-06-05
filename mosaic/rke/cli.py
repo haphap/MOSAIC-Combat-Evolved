@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
-from dataclasses import asdict
+from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -32,11 +32,27 @@ from .review_gates import (
 )
 from .schema_validation import build_schema_validation_report, write_schema_validation_report
 from .tushare_reports import refresh_tushare_research_report_registry
+from .validation_hardening import (
+    build_central_bank_statistical_significance_report,
+    build_central_bank_validation_hardening_report,
+    write_statistical_significance_report,
+    write_validation_hardening_report,
+)
 from .workflows import run_full_rke_refresh
 
 
+def _jsonable(value: Any) -> Any:
+    if is_dataclass(value) and not isinstance(value, type):
+        return _jsonable(asdict(value))
+    if isinstance(value, dict):
+        return {str(key): _jsonable(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_jsonable(item) for item in value]
+    return value
+
+
 def _print_json(payload: Any) -> None:
-    print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+    print(json.dumps(_jsonable(payload), ensure_ascii=False, indent=2, sort_keys=True))
 
 
 def _load_env_file(path: str | None) -> None:
@@ -96,6 +112,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Write and print the claim variable vocabulary validation report.",
     )
     claim_status.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
+
+    validation_status = subparsers.add_parser(
+        "validation-status",
+        help="Write and print the validation-hardening and statistical-significance reports.",
+    )
+    validation_status.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
 
     gold_status = subparsers.add_parser(
         "gold-set-status",
@@ -206,6 +228,26 @@ def main(argv: Sequence[str] | None = None) -> int:
             }
         )
         return 0 if result.accepted else 2
+    if args.command == "validation-status":
+        write_validation_hardening_report(root)
+        write_statistical_significance_report(root)
+        hardening = build_central_bank_validation_hardening_report()
+        significance = build_central_bank_statistical_significance_report()
+        accepted = (
+            not hardening["horizon_metric_failures"]
+            and not hardening["precision_failures"]
+            and hardening["ablation_checks"]["accepted"] is True
+            and significance.accepted
+        )
+        _print_json(
+            {
+                "accepted": accepted,
+                "experiment_id": significance.experiment_id,
+                "statistical_significance": asdict(significance),
+                "validation_hardening": hardening,
+            }
+        )
+        return 0 if accepted else 2
     if args.command == "gold-set-status":
         write_gold_set_review_summary(root)
         _print_json(asdict(summarize_gold_set_review(root)))

@@ -33,6 +33,10 @@ from .prompt_asset_validation import write_prompt_asset_validation_report
 from .registry_manifest import write_registry_manifest
 from .review_gates import write_gold_set_review_summary, write_source_license_review_summary
 from .schema_validation import write_schema_validation_report
+from .validation_hardening import (
+    write_statistical_significance_report,
+    write_validation_hardening_report,
+)
 
 ReportKind = Literal["stock", "industry"]
 
@@ -445,6 +449,8 @@ def refresh_tushare_research_report_registry(
     claim_vocabulary_result = write_claim_variable_vocabulary(root_path)
     claim_variable_summary_result = write_claim_variable_validation_report(root_path)
     schema_summary_result = write_schema_validation_report(root_path)
+    validation_hardening_result = write_validation_hardening_report(root_path)
+    statistical_significance_result = write_statistical_significance_report(root_path)
     prompt_asset_summary_result = write_prompt_asset_validation_report(root_path)
     completion_result = write_completion_audit(root_path)
     dashboard_result = write_dashboard_reports(root_path)
@@ -454,6 +460,8 @@ def refresh_tushare_research_report_registry(
     outputs["claim_variable_vocabulary"] = str(claim_vocabulary_result["path"])
     outputs["claim_variable_validation_report"] = str(claim_variable_summary_result["path"])
     outputs["schema_validation_report"] = str(schema_summary_result["path"])
+    outputs["validation_hardening_report"] = str(validation_hardening_result["path"])
+    outputs["statistical_significance_report"] = str(statistical_significance_result["path"])
     outputs["prompt_asset_validation_report"] = str(prompt_asset_summary_result["path"])
     outputs["completion_audit"] = str(completion_result["path"])
     outputs.update({f"dashboard.{key}": value for key, value in dashboard_result.items()})

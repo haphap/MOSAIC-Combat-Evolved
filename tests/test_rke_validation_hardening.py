@@ -6,11 +6,15 @@ from pathlib import Path
 from mosaic.rke import (
     AblationResult,
     RegimeBucketObservation,
+    StatisticalSignificanceInput,
+    build_central_bank_statistical_significance_report,
     check_ablation_coverage,
     check_horizon_metric_alignment,
     check_scoring_precision,
+    evaluate_statistical_significance,
     evaluate_regime_partial_pooling,
 )
+from mosaic.rke.cli import main
 
 
 def test_regime_partial_pooling_shrinks_small_buckets():
@@ -89,6 +93,30 @@ def test_scoring_precision_rejects_false_quality_scores():
     assert "research_strength: use coarse quality bin high/medium/low/unknown" in failures
 
 
+def test_statistical_significance_requires_positive_ci_and_dsr():
+    accepted = build_central_bank_statistical_significance_report()
+    rejected = evaluate_statistical_significance(
+        StatisticalSignificanceInput(
+            experiment_id="EXP-BAD",
+            metric_name="net_alpha_after_cost_20d",
+            mean_effect=0.003,
+            standard_error=0.004,
+            effective_n=80,
+            minimum_effective_n=60,
+            tested_specification_count=5,
+            observed_sharpe=0.2,
+            deflated_sharpe_ratio=0.8,
+        )
+    )
+
+    assert accepted.accepted
+    assert accepted.confidence_interval["low"] > 0
+    assert accepted.deflated_sharpe_ratio >= accepted.minimum_deflated_sharpe_ratio
+    assert not rejected.accepted
+    assert "after-cost confidence interval includes zero" in rejected.failures
+    assert "deflated_sharpe_ratio below threshold" in rejected.failures
+
+
 def test_central_bank_validation_hardening_registry_is_parseable():
     payload = json.loads(
         Path("registry/validation_hardening/central_bank_hardening_report.json").read_text(
@@ -100,6 +128,35 @@ def test_central_bank_validation_hardening_registry_is_parseable():
     assert payload["ablation_checks"]["accepted"] is True
     assert payload["horizon_metric_failures"] == []
     assert payload["precision_failures"] == []
+    assert payload["statistical_significance_ref"] == (
+        "registry/evaluation/statistical_significance/central_bank_after_cost_significance.json"
+    )
     assert payload["regime_partial_pooling"]["regime_effects"]["risk_off"]["gate_status"] == (
         "insufficient_data"
     )
+
+
+def test_central_bank_statistical_significance_registry_is_parseable():
+    payload = json.loads(
+        Path("registry/evaluation/statistical_significance/central_bank_after_cost_significance.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert payload["experiment_id"] == "EXP-CB-20260605-0001"
+    assert payload["accepted"] is True
+    assert payload["confidence_interval"]["low"] > 0
+    assert payload["deflated_sharpe_ratio"] >= payload["minimum_deflated_sharpe_ratio"]
+
+
+def test_validation_status_cli_writes_reports(capsys):
+    code = main(("validation-status", "--root", "."))
+    output = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert output["accepted"] is True
+    assert output["statistical_significance"]["accepted"] is True
+    assert Path("registry/validation_hardening/central_bank_hardening_report.json").exists()
+    assert Path(
+        "registry/evaluation/statistical_significance/central_bank_after_cost_significance.json"
+    ).exists()

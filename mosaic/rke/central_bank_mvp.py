@@ -46,6 +46,10 @@ from .runtime import (
     RuntimeRecommendation,
     check_runtime_output,
 )
+from .validation_hardening import (
+    write_statistical_significance_report,
+    write_validation_hardening_report,
+)
 
 
 @dataclass(frozen=True)
@@ -558,6 +562,8 @@ def write_central_bank_mvp_registry(root: str | Path = ".") -> dict[str, str]:
     prompt_check_output = write_prompt_asset_validation_report(root_path)
     claim_vocabulary_output = write_claim_variable_vocabulary(root_path)
     claim_variable_check_output = write_claim_variable_validation_report(root_path)
+    validation_hardening_output = write_validation_hardening_report(root_path)
+    statistical_significance_output = write_statistical_significance_report(root_path)
     _write_json(
         outputs["runtime_output"],
         {"agent_output_id": "OUT-CB-20260605-0001", **_jsonable(bundle.runtime_output)},
@@ -569,6 +575,8 @@ def write_central_bank_mvp_registry(root: str | Path = ".") -> dict[str, str]:
         "prompt_asset_validation": str(prompt_check_output["path"]),
         "claim_variable_vocabulary": str(claim_vocabulary_output["path"]),
         "claim_variable_validation": str(claim_variable_check_output["path"]),
+        "validation_hardening": str(validation_hardening_output["path"]),
+        "statistical_significance": str(statistical_significance_output["path"]),
         **governance_outputs,
     }
 

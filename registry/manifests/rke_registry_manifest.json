@@ -1,5 +1,5 @@
 {
-  "artifact_count": 48,
+  "artifact_count": 49,
   "artifacts": [
     {
       "bytes": 539,
@@ -37,14 +37,14 @@
       "sha256": "sha256:d519117af396793a5f27fc06e808ca93b55d6f4a2d0ae63bd6c7b9c360cadbd0"
     },
     {
-      "bytes": 4149,
+      "bytes": 4265,
       "path": "registry/dashboards/rke_dashboard.json",
-      "sha256": "sha256:538181c8ba7d46709a9680687893ea69c1e689f01f42d9b5e23df232944844e4"
+      "sha256": "sha256:208c72a680e58304ace53fb4ac4e19478004d3991ad704a178aad8b3dd5ff599"
     },
     {
-      "bytes": 846,
+      "bytes": 899,
       "path": "registry/dashboards/rke_dashboard.md",
-      "sha256": "sha256:729a6bdb8e70103a2d71dca187b87008885663c9a3cdefaf40c50dfcdf949fd0"
+      "sha256": "sha256:de4ab834ea3c6fb1e90cd36b3cf6645bdff774aa900c534246ce3c838c9787fc"
     },
     {
       "bytes": 1233,
@@ -95,6 +95,11 @@
       "bytes": 601,
       "path": "registry/evaluation/pre_registration/central_bank_liquidity_preregistration.json",
       "sha256": "sha256:88c88ef0e2f2bbd09d44d2a5d9c0ec91558cb2ed349c6bcad6dc04e2ae3ffca8"
+    },
+    {
+      "bytes": 457,
+      "path": "registry/evaluation/statistical_significance/central_bank_after_cost_significance.json",
+      "sha256": "sha256:23dd42811c6589233c9b59b85035b943fb6845397f4ba4970e68925304bb2c0e"
     },
     {
       "bytes": 1601,
@@ -232,9 +237,9 @@
       "sha256": "sha256:94b2e4825e726927e5416cf0f4f658e4d6aba196431f9f6e03a26c4a03bd859e"
     },
     {
-      "bytes": 1420,
+      "bytes": 1668,
       "path": "registry/validation_hardening/central_bank_hardening_report.json",
-      "sha256": "sha256:50ec159de9de512c052f98b56e9ac49aeaa4596935998774ec8344f0c62acadf"
+      "sha256": "sha256:e6e9eaddf0e1b3fce70989b3e14bf7229c8befc8e2fb39317f8e6a8bcd0a9118"
     },
     {
       "bytes": 2151,

@@ -1,30 +1,36 @@
 {
   "ablation_checks": {
     "accepted": true,
+    "reasons": [],
     "results": [
       {
         "ablation_type": "single_rule",
         "metric_delta": 0.012,
+        "notes": "",
         "passed": true
       },
       {
         "ablation_type": "rule_group",
         "metric_delta": 0.011,
+        "notes": "",
         "passed": true
       },
       {
         "ablation_type": "correlated_rule_dedup",
         "metric_delta": 0.003,
+        "notes": "",
         "passed": true
       },
       {
         "ablation_type": "interaction",
         "metric_delta": 0.002,
+        "notes": "",
         "passed": true
       },
       {
         "ablation_type": "aggregation_level_backtest",
         "metric_delta": 0.013,
+        "notes": "",
         "passed": true
       }
     ]
@@ -57,5 +63,6 @@
         "shrunk_delta": 0.015973
       }
     }
-  }
+  },
+  "statistical_significance_ref": "registry/evaluation/statistical_significance/central_bank_after_cost_significance.json"
 }

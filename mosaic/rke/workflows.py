@@ -18,6 +18,10 @@ from .registry_manifest import write_registry_manifest
 from .review_gates import write_gold_set_review_summary, write_source_license_review_summary
 from .schema_validation import write_schema_validation_report
 from .sector_demo import write_sector_semiconductor_demo_registry
+from .validation_hardening import (
+    write_statistical_significance_report,
+    write_validation_hardening_report,
+)
 
 
 @dataclass(frozen=True)
@@ -65,6 +69,8 @@ def run_full_rke_refresh(
     claim_vocabulary = write_claim_variable_vocabulary(root_path)
     claim_variable_summary = write_claim_variable_validation_report(root_path)
     schema_summary = write_schema_validation_report(root_path)
+    validation_hardening = write_validation_hardening_report(root_path)
+    statistical_significance = write_statistical_significance_report(root_path)
     prompt_asset_summary = write_prompt_asset_validation_report(root_path)
     audit_result = write_completion_audit(root_path)
     dashboard_outputs = write_dashboard_reports(root_path)
@@ -74,6 +80,8 @@ def run_full_rke_refresh(
     outputs["claim_variable_vocabulary"] = str(claim_vocabulary["path"])
     outputs["claim_variable_validation_report"] = str(claim_variable_summary["path"])
     outputs["schema_validation_report"] = str(schema_summary["path"])
+    outputs["validation_hardening_report"] = str(validation_hardening["path"])
+    outputs["statistical_significance_report"] = str(statistical_significance["path"])
     outputs["prompt_asset_validation_report"] = str(prompt_asset_summary["path"])
     outputs["completion_audit"] = str(audit_result["path"])
     outputs.update({f"dashboard.{key}": value for key, value in dashboard_outputs.items()})

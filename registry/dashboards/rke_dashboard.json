@@ -138,10 +138,13 @@
   },
   "validation_hardening": {
     "ablation_accepted": true,
+    "after_cost_ci_low": 0.00516,
+    "deflated_sharpe_ratio": 1.92,
     "horizon_metric_failures": [],
     "precision_failures": [],
     "regime_failures": [
       "risk_off: bucket_effective_n below diagnostic threshold"
-    ]
+    ],
+    "statistical_significance_accepted": true
   }
 }

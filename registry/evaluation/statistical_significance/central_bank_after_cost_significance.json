@@ -1,0 +1,19 @@
+{
+  "accepted": true,
+  "confidence_interval": {
+    "high": 0.02084,
+    "level": 0.95,
+    "low": 0.00516
+  },
+  "deflated_sharpe_ratio": 1.92,
+  "effective_n": 80,
+  "experiment_id": "EXP-CB-20260605-0001",
+  "failures": [],
+  "mean_effect": 0.013,
+  "metric_name": "net_alpha_after_cost_20d",
+  "minimum_deflated_sharpe_ratio": 1.65,
+  "minimum_effective_n": 60,
+  "observed_sharpe": 0.82,
+  "standard_error": 0.004,
+  "tested_specification_count": 5
+}

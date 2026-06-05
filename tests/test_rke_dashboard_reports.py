@@ -22,6 +22,8 @@ def test_dashboard_report_summarizes_completion_and_monitoring():
     assert report["lockbox"]["production_allowed"] is False
     assert report["validation_hardening"]["ablation_accepted"] is True
     assert report["validation_hardening"]["horizon_metric_failures"] == []
+    assert report["validation_hardening"]["statistical_significance_accepted"] is True
+    assert report["validation_hardening"]["after_cost_ci_low"] > 0
     assert report["sector_demo"]["demo_status"] == "sandbox"
     assert report["sector_demo"]["production_allowed"] is False
     assert report["sector_demo"]["recommendation_actionability"] == "monitor_only"
@@ -45,6 +47,7 @@ def test_dashboard_markdown_renders_blockers():
     assert "# RKE Dashboard" in markdown
     assert "Broad rollout ready: false" in markdown
     assert "Validation ablations accepted: True" in markdown
+    assert "Validation statistical significance accepted: True" in markdown
     assert "Sector demo: sandbox" in markdown
     assert "Macro expansion candidates: 3" in markdown
     assert "Phase 7 sector actionability: monitor_only" in markdown

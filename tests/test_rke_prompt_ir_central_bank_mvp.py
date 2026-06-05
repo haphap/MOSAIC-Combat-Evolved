@@ -78,6 +78,9 @@ def test_central_bank_registry_writer_emits_schema_aligned_artifacts(tmp_path: P
     claim_variable_validation = json.loads(
         Path(outputs["claim_variable_validation"]).read_text(encoding="utf-8")
     )
+    statistical_significance = json.loads(
+        Path(outputs["statistical_significance"]).read_text(encoding="utf-8")
+    )
 
     assert "## Output Schema" in rendered_prompt
     assert "research_only_no_trade" in rendered_prompt
@@ -88,6 +91,7 @@ def test_central_bank_registry_writer_emits_schema_aligned_artifacts(tmp_path: P
     assert mutation_patch["production_allowed"] is False
     assert prompt_asset_validation["accepted"] is True
     assert claim_variable_validation["accepted"] is True
+    assert statistical_significance["accepted"] is True
 
 
 def test_render_prompt_markdown_keeps_schema_and_guardrails():
