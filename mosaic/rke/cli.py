@@ -20,6 +20,10 @@ from .gold_candidate_claims import (
 )
 from .gold_review_packet import build_gold_review_packet, write_gold_review_packet
 from .license_review_packet import build_license_review_packet, write_license_review_packet
+from .manual_review_import import (
+    apply_gold_set_review_import,
+    apply_source_license_review_import,
+)
 from .prompt_asset_validation import (
     build_prompt_asset_validation_report,
     write_prompt_asset_validation_report,
@@ -163,6 +167,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="Write and print the source license manual review packet summary.",
     )
     license_packet.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
+
+    apply_gold_review = subparsers.add_parser(
+        "apply-gold-review",
+        help="Validate and apply a JSONL manual gold-set review import.",
+    )
+    apply_gold_review.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
+    apply_gold_review.add_argument("--input", required=True, help="JSONL file containing reviewed gold-set rows.")
+    apply_gold_review.add_argument("--dry-run", action="store_true", help="Validate without changing review rows.")
+
+    apply_license_review = subparsers.add_parser(
+        "apply-license-review",
+        help="Validate and apply a JSONL source-license review import.",
+    )
+    apply_license_review.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
+    apply_license_review.add_argument("--input", required=True, help="JSONL file containing source license decisions.")
+    apply_license_review.add_argument("--dry-run", action="store_true", help="Validate without changing review rows.")
 
     fetch_reports = subparsers.add_parser(
         "fetch-tushare-reports",
@@ -349,6 +369,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             }
         )
         return 0
+    if args.command == "apply-gold-review":
+        report = apply_gold_set_review_import(root, args.input, dry_run=args.dry_run)
+        _print_json(asdict(report))
+        return 0 if report.accepted else 2
+    if args.command == "apply-license-review":
+        report = apply_source_license_review_import(root, args.input, dry_run=args.dry_run)
+        _print_json(asdict(report))
+        return 0 if report.accepted else 2
     if args.command == "fetch-tushare-reports":
         _load_env_file(args.env_file)
         result = refresh_tushare_research_report_registry(

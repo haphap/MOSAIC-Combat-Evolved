@@ -8,7 +8,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from .compliance import evaluate_source_license
+from .compliance import apply_source_license_reviews, evaluate_source_license
 from .phase_minus1 import load_jsonl
 
 
@@ -17,6 +17,7 @@ SOURCE_REGISTRY_PATHS = (
     "registry/sources/tushare_research_reports.jsonl",
     "registry/sources/semiconductor_demo_sources.jsonl",
 )
+SOURCE_LICENSE_REVIEW_PATH = "registry/compliance/tushare_license_review_template.jsonl"
 SOURCE_VALIDATION_REPORT_PATH = "registry/source_checks/source_registry_validation_report.json"
 
 
@@ -60,6 +61,15 @@ def _write_json(path: Path, payload: Mapping[str, Any]) -> dict[str, Any]:
     return {"path": str(path), "rows": 1}
 
 
+def _license_row_reviewed(row: Mapping[str, Any]) -> bool:
+    return (
+        isinstance(row.get("approved_for_derived_claim_storage"), bool)
+        and isinstance(row.get("approved_for_production_runtime"), bool)
+        and bool(str(row.get("reviewer") or "").strip())
+        and bool(str(row.get("review_date") or "").strip())
+    )
+
+
 def _load_sources(root_path: Path) -> list[tuple[str, dict[str, Any]]]:
     rows: list[tuple[str, dict[str, Any]]] = []
     for relative in SOURCE_REGISTRY_PATHS:
@@ -67,6 +77,12 @@ def _load_sources(root_path: Path) -> list[tuple[str, dict[str, Any]]]:
         if not path.exists():
             continue
         rows.extend((relative, row) for row in load_jsonl(path))
+    review_path = root_path / SOURCE_LICENSE_REVIEW_PATH
+    if review_path.exists() and rows:
+        reviews = [row for row in load_jsonl(review_path) if _license_row_reviewed(row)]
+        if reviews:
+            reviewed_rows = apply_source_license_reviews([row for _, row in rows], reviews)
+            rows = [(path, dict(reviewed_row)) for (path, _), reviewed_row in zip(rows, reviewed_rows, strict=True)]
     return rows
 
 

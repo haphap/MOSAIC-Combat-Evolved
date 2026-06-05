@@ -160,6 +160,12 @@ from .macro_expansion import (
     central_bank_phase4_ready_from_registry,
     write_macro_expansion_registry,
 )
+from .manual_review_import import (
+    ManualReviewImportInvalidRow,
+    ManualReviewImportReport,
+    apply_gold_set_review_import,
+    apply_source_license_review_import,
+)
 from .monitoring import (
     PaperTradingReport,
     PaperTradingSnapshot,
@@ -423,6 +429,10 @@ __all__ = [
     "build_macro_expansion_plan",
     "central_bank_phase4_ready_from_registry",
     "write_macro_expansion_registry",
+    "ManualReviewImportInvalidRow",
+    "ManualReviewImportReport",
+    "apply_gold_set_review_import",
+    "apply_source_license_review_import",
     "PaperTradingReport",
     "PaperTradingSnapshot",
     "ProductionMonitorPolicy",
