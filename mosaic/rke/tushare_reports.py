@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
@@ -243,6 +243,29 @@ def _template_has_manual_values(path: Path, fields: Sequence[str]) -> bool:
     return False
 
 
+def _existing_discovered_at_by_hash(path: Path) -> dict[str, str]:
+    if not path.exists():
+        return {}
+    discovered: dict[str, str] = {}
+    for row in load_jsonl(path):
+        source_hash = str(row.get("source_hash") or "").strip()
+        discovered_at = str(row.get("discovered_at") or "").strip()
+        if source_hash and discovered_at:
+            discovered[source_hash] = discovered_at
+    return discovered
+
+
+def _preserve_existing_discovery_times(
+    reports: Sequence[RkeResearchReport],
+    existing_discovered_at: Mapping[str, str],
+) -> list[RkeResearchReport]:
+    preserved: list[RkeResearchReport] = []
+    for report in reports:
+        discovered_at = existing_discovered_at.get(report.source_hash)
+        preserved.append(replace(report, discovered_at=discovered_at) if discovered_at else report)
+    return preserved
+
+
 def _write_research_report_manifest(
     *,
     output_path: Path,
@@ -338,6 +361,11 @@ def refresh_tushare_research_report_registry(
 
     outputs: dict[str, str] = {}
     source_path = root_path / "registry/sources/tushare_research_reports.jsonl"
+    if discovered_at is None:
+        reports = _preserve_existing_discovery_times(
+            reports,
+            _existing_discovered_at_by_hash(source_path),
+        )
     source_result = write_research_reports_jsonl(reports, source_path)
     outputs["source"] = str(source_result["path"])
 

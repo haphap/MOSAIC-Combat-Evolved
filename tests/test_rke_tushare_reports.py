@@ -162,3 +162,33 @@ def test_refresh_tushare_research_report_registry_updates_dependent_artifacts(tm
     assert manifest["max_reports_per_query"] == 6000
     assert manifest["query_key_counts"] == {"600519.SH": 1, "银行": 1}
     assert manifest["rows_with_abstract"] == 2
+
+
+def test_refresh_tushare_research_report_registry_preserves_existing_discovered_at(
+    tmp_path: Path,
+):
+    shutil.copytree(Path("registry"), tmp_path / "registry")
+    source_path = tmp_path / "registry/sources/tushare_research_reports.jsonl"
+    existing_reports = fetch_tushare_research_reports(
+        stock_codes=("600519.SH",),
+        industry_keywords=("银行",),
+        start_date="2026-06-01",
+        end_date="2026-06-05",
+        discovered_at="2026-06-01T00:00:00+00:00",
+        pro=FakeTusharePro(),
+    )
+    write_research_reports_jsonl(existing_reports, source_path)
+
+    refresh_tushare_research_report_registry(
+        tmp_path,
+        stock_codes=("600519.SH",),
+        industry_keywords=("银行",),
+        start_date="2026-06-01",
+        end_date="2026-06-05",
+        max_reports_per_query=6000,
+        pro=FakeTusharePro(),
+    )
+
+    source_rows = [json.loads(line) for line in source_path.read_text(encoding="utf-8").splitlines()]
+
+    assert {row["discovered_at"] for row in source_rows} == {"2026-06-01T00:00:00+00:00"}

@@ -19,6 +19,13 @@ def test_sector_semiconductor_demo_is_source_grounded_and_sandbox_only():
     for claim in bundle.claims:
         assert claim.verifier_status == "passed"
         assert claim.claim_text in spans[claim.source_span_id]
+        assert all(len(variable) > 1 for variable in claim.cause_variables)
+        assert all(len(variable) > 1 for variable in claim.target_variables)
+
+    trade_risk_claim = next(
+        claim for claim in bundle.claims if claim.claim_id == "CLAIM-SEMI-20260605-0003"
+    )
+    assert trade_risk_claim.target_variables == ("semiconductor_policy_substitution_alpha",)
 
     failures = bundle.rule_pack.gate_failures(
         data_matrix=bundle.data_matrix,

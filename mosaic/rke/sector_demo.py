@@ -149,7 +149,7 @@ def build_sector_semiconductor_demo(
             row=trade_risk_row,
             claim_text="中美科技摩擦加剧",
             cause_variables=("trade_friction_intensity",),
-            target_variables=("semiconductor_policy_substitution_alpha"),
+            target_variables=("semiconductor_policy_substitution_alpha",),
             direction="negative",
             claim_type="risk_factor",
         ),

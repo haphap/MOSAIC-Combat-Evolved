@@ -17,9 +17,9 @@
       "sha256": "sha256:cdb09ffba1392b25f13685c2df818d3448dfde8848a2a605e25918c64235f84d"
     },
     {
-      "bytes": 1724,
+      "bytes": 1572,
       "path": "registry/claims/semiconductor_claims.jsonl",
-      "sha256": "sha256:ea50e6c87b6ae3000d2136baca65ab71cdbfbcfc025c50c8cc5e503b48205787"
+      "sha256": "sha256:318984f73c181951699f13889118bc1a6aaab0d1d947d7d67d437941d21e6c8f"
     },
     {
       "bytes": 9292,
@@ -204,22 +204,22 @@
     {
       "bytes": 3753,
       "path": "registry/sources/semiconductor_demo_sources.jsonl",
-      "sha256": "sha256:0d9d1f43066a1c3e7e26cb194de4bc676d57969a329425659067aa852ff93260"
+      "sha256": "sha256:879064a91045d9f8b819f8fed6a1a69a3e45acfb5ff06868972888be3afb6868"
     },
     {
       "bytes": 180884,
       "path": "registry/sources/tushare_research_reports.gold_candidates.jsonl",
-      "sha256": "sha256:cde974178f006cce0370d88d3f047d818c32b3faa18bc4ad47c56ca8ad71d982"
+      "sha256": "sha256:d8a5aa10fe309b7f05a76d1280f5c514b197f59737ea22c6a1b424e07e1a2371"
     },
     {
       "bytes": 795059,
       "path": "registry/sources/tushare_research_reports.jsonl",
-      "sha256": "sha256:49ab35302e05664507bab16836a350c59b2320b54501fedb4957d5ec76c4e45d"
+      "sha256": "sha256:11b2b56f55d73c234cf0bd237a9550dbfcb185271950a2e8872eb361c7712e81"
     },
     {
       "bytes": 1247,
       "path": "registry/sources/tushare_research_reports.manifest.json",
-      "sha256": "sha256:30679c60688a85c0728b5751714e7556dd4f8633d038b56b12ec8b5c3580c9c4"
+      "sha256": "sha256:94b2e4825e726927e5416cf0f4f658e4d6aba196431f9f6e03a26c4a03bd859e"
     },
     {
       "bytes": 1420,
