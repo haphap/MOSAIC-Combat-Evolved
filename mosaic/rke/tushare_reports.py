@@ -28,6 +28,7 @@ from .phase_minus1 import (
     write_gold_set_candidates,
     write_gold_set_review_template,
 )
+from .prompt_asset_validation import write_prompt_asset_validation_report
 from .registry_manifest import write_registry_manifest
 from .review_gates import write_gold_set_review_summary, write_source_license_review_summary
 from .schema_validation import write_schema_validation_report
@@ -441,12 +442,14 @@ def refresh_tushare_research_report_registry(
     gold_summary_result = write_gold_set_review_summary(root_path)
     license_summary_result = write_source_license_review_summary(root_path)
     schema_summary_result = write_schema_validation_report(root_path)
+    prompt_asset_summary_result = write_prompt_asset_validation_report(root_path)
     completion_result = write_completion_audit(root_path)
     dashboard_result = write_dashboard_reports(root_path)
     registry_manifest_result = write_registry_manifest(root_path)
     outputs["gold_review_summary"] = str(gold_summary_result["path"])
     outputs["license_review_summary"] = str(license_summary_result["path"])
     outputs["schema_validation_report"] = str(schema_summary_result["path"])
+    outputs["prompt_asset_validation_report"] = str(prompt_asset_summary_result["path"])
     outputs["completion_audit"] = str(completion_result["path"])
     outputs.update({f"dashboard.{key}": value for key, value in dashboard_result.items()})
     outputs["registry_manifest"] = str(registry_manifest_result["path"])

@@ -1,5 +1,5 @@
 {
-  "artifact_count": 45,
+  "artifact_count": 46,
   "artifacts": [
     {
       "bytes": 539,
@@ -32,14 +32,14 @@
       "sha256": "sha256:d519117af396793a5f27fc06e808ca93b55d6f4a2d0ae63bd6c7b9c360cadbd0"
     },
     {
-      "bytes": 3923,
+      "bytes": 4043,
       "path": "registry/dashboards/rke_dashboard.json",
-      "sha256": "sha256:f8d33840d153acb7c629a7a535e7ea28d85a72eeabec9c2181976e458636b349"
+      "sha256": "sha256:0a4c9cb34d5aec5d873d5ac059935224cc3428da51da4b78db50470a472bd26f"
     },
     {
-      "bytes": 768,
+      "bytes": 806,
       "path": "registry/dashboards/rke_dashboard.md",
-      "sha256": "sha256:43ca29c9e1b5369985c014524a600590b97c67b452a05738a81be8ef0cc6f199"
+      "sha256": "sha256:ad506a002a53df3dcac77302faca1be681a758c6979d1e786d20a48dfe46e4cb"
     },
     {
       "bytes": 1233,
@@ -150,6 +150,11 @@
       "bytes": 789,
       "path": "registry/patches/central_bank_paper_trading_patch.json",
       "sha256": "sha256:b3400460aedc8a5112347e32ab9e96aa0c0d7f26cfbce7a8954aa8d24b026e56"
+    },
+    {
+      "bytes": 2825,
+      "path": "registry/prompt_checks/prompt_asset_validation_report.json",
+      "sha256": "sha256:254c4fbadc2ff2e6cb9b6158cec67522da8c9bd4054b694175db618ebf1011fb"
     },
     {
       "bytes": 1587,

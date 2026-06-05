@@ -83,6 +83,9 @@
     "state": "production"
   },
   "prompt_evolution": {
+    "asset_validation_accepted": true,
+    "asset_validation_failure_count": 0,
+    "asset_validation_record_count": 6,
     "mutation_id": "MUT-CB-20260605-0001",
     "mutation_target_path": "/rule_packs/macro.central_bank.liquidity.v1/rules/macro.central_bank.soft.001/learnable_parameters/net_injection_window_days/value",
     "mutation_validation_accepted": true,

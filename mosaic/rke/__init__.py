@@ -171,6 +171,12 @@ from .prompt_ir import (
     build_central_bank_runtime_input,
     validate_prompt_ir_contract,
 )
+from .prompt_asset_validation import (
+    PromptAssetValidationRecord,
+    PromptAssetValidationReport,
+    build_prompt_asset_validation_report,
+    write_prompt_asset_validation_report,
+)
 from .prompt_assets import (
     MutationPatchArtifact,
     RenderedPromptArtifact,
@@ -381,6 +387,10 @@ __all__ = [
     "build_central_bank_prompt_ir",
     "build_central_bank_runtime_input",
     "validate_prompt_ir_contract",
+    "PromptAssetValidationRecord",
+    "PromptAssetValidationReport",
+    "build_prompt_asset_validation_report",
+    "write_prompt_asset_validation_report",
     "MutationPatchArtifact",
     "RenderedPromptArtifact",
     "render_prompt_markdown",

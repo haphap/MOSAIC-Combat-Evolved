@@ -29,6 +29,7 @@ from .p0 import (
     evaluate_validation_experiment,
 )
 from .pipelines import plan_parameter_update
+from .prompt_asset_validation import write_prompt_asset_validation_report
 from .prompt_assets import write_prompt_evolution_registry
 from .prompt_ir import (
     PromptIRContract,
@@ -553,12 +554,18 @@ def write_central_bank_mvp_registry(root: str | Path = ".") -> dict[str, str]:
         mutation=artifacts["mutation_proposal"],
         mutation_validation=artifacts["mutation_validation"],
     )
+    prompt_check_output = write_prompt_asset_validation_report(root_path)
     _write_json(
         outputs["runtime_output"],
         {"agent_output_id": "OUT-CB-20260605-0001", **_jsonable(bundle.runtime_output)},
     )
     governance_outputs = write_experiment_governance_registry(root_path)
-    return {**{key: str(path) for key, path in outputs.items()}, **prompt_outputs, **governance_outputs}
+    return {
+        **{key: str(path) for key, path in outputs.items()},
+        **prompt_outputs,
+        "prompt_asset_validation": str(prompt_check_output["path"]),
+        **governance_outputs,
+    }
 
 
 def main() -> None:

@@ -1,0 +1,93 @@
+{
+  "accepted": true,
+  "failure_count": 0,
+  "records": [
+    {
+      "accepted": true,
+      "artifact_paths": [
+        "registry/rendered_prompts/macro.central_bank.rke.json",
+        "registry/rendered_prompts/macro.central_bank.rke.md",
+        "registry/prompt_ir/macro.central_bank.json",
+        "registry/runtime_inputs/macro.central_bank.20260605.json",
+        "registry/mutation_patches/central_bank_parameter_update.json"
+      ],
+      "check_id": "PROMPT-ASSET-FILES",
+      "details": {
+        "required_count": 5
+      },
+      "failures": []
+    },
+    {
+      "accepted": true,
+      "artifact_paths": [
+        "registry/rendered_prompts/macro.central_bank.rke.json",
+        "registry/prompt_ir/macro.central_bank.json",
+        "registry/runtime_inputs/macro.central_bank.20260605.json",
+        "registry/rendered_prompts/macro.central_bank.rke.md"
+      ],
+      "check_id": "PROMPT-METADATA-REFS",
+      "details": {
+        "agent_id": "macro.central_bank",
+        "prompt_version": "0.3.2-rke"
+      },
+      "failures": []
+    },
+    {
+      "accepted": true,
+      "artifact_paths": [
+        "registry/rendered_prompts/macro.central_bank.rke.md"
+      ],
+      "check_id": "PROMPT-MARKDOWN-CONTRACT",
+      "details": {
+        "required_guardrails": [
+          "research_reports_are_prior_not_signal",
+          "research_only_no_trade",
+          "no_direct_production_promotion"
+        ]
+      },
+      "failures": []
+    },
+    {
+      "accepted": true,
+      "artifact_paths": [
+        "registry/runtime_inputs/macro.central_bank.20260605.json"
+      ],
+      "check_id": "PROMPT-RUNTIME-EVIDENCE",
+      "details": {
+        "active_rule_packs": [
+          "macro.central_bank.liquidity.v1"
+        ],
+        "tool_output_count": 1
+      },
+      "failures": []
+    },
+    {
+      "accepted": true,
+      "artifact_paths": [
+        "registry/mutation_patches/central_bank_parameter_update.json",
+        "registry/prompt_ir/macro.central_bank.json"
+      ],
+      "check_id": "PROMPT-MUTATION-GATE",
+      "details": {
+        "mutation_id": "MUT-CB-20260605-0001",
+        "target_path": "/rule_packs/macro.central_bank.liquidity.v1/rules/macro.central_bank.soft.001/learnable_parameters/net_injection_window_days/value"
+      },
+      "failures": []
+    },
+    {
+      "accepted": true,
+      "artifact_paths": [
+        "registry/rendered_prompts/macro.central_bank.rke.md",
+        "registry/rendered_prompts/macro.central_bank.rke.json",
+        "registry/runtime_inputs/macro.central_bank.20260605.json",
+        "registry/mutation_patches/central_bank_parameter_update.json"
+      ],
+      "check_id": "PROMPT-LEAK-GUARD",
+      "details": {
+        "payload_count": 4
+      },
+      "failures": []
+    }
+  ],
+  "report_id": "RKE-PROMPT-ASSET-VALIDATION-REPORT-20260606"
+}

@@ -10,6 +10,10 @@ from typing import Any, Sequence
 
 from .completion_auditor import write_completion_audit
 from .dashboard_reports import write_dashboard_reports
+from .prompt_asset_validation import (
+    build_prompt_asset_validation_report,
+    write_prompt_asset_validation_report,
+)
 from .registry_manifest import (
     build_registry_manifest,
     validate_required_registry,
@@ -75,6 +79,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Write and print the Phase 1 schema validation report.",
     )
     schema_status.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
+
+    prompt_status = subparsers.add_parser(
+        "prompt-status",
+        help="Write and print the rendered prompt asset validation report.",
+    )
+    prompt_status.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
 
     gold_status = subparsers.add_parser(
         "gold-set-status",
@@ -154,6 +164,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "schema-status":
         write_schema_validation_report(root)
         result = build_schema_validation_report(root)
+        _print_json(
+            {
+                "accepted": result.accepted,
+                "failure_count": result.failure_count,
+                "records": [asdict(record) for record in result.records],
+            }
+        )
+        return 0 if result.accepted else 2
+    if args.command == "prompt-status":
+        write_prompt_asset_validation_report(root)
+        result = build_prompt_asset_validation_report(root)
         _print_json(
             {
                 "accepted": result.accepted,

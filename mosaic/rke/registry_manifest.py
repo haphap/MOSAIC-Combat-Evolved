@@ -40,6 +40,7 @@ REQUIRED_REGISTRY_FILES = (
     "registry/mutation_patches/central_bank_parameter_update.json",
     "registry/parameter_priors/central_bank_parameter_priors.jsonl",
     "registry/patches/central_bank_paper_trading_patch.json",
+    "registry/prompt_checks/prompt_asset_validation_report.json",
     "registry/prompt_ir/macro.central_bank.json",
     "registry/rendered_prompts/macro.central_bank.rke.json",
     "registry/rendered_prompts/macro.central_bank.rke.md",

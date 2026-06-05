@@ -42,6 +42,7 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
     overlap_path = root_path / "registry/evaluation/overlap_correction/effective_n_overlap_policy.json"
     lockbox_policy_path = root_path / "registry/evaluation/lockbox/lockbox_policy.json"
     schema_validation_path = root_path / "registry/schemas/rke_schema_validation_report.json"
+    prompt_validation_path = root_path / "registry/prompt_checks/prompt_asset_validation_report.json"
     rendered_prompt_path = root_path / "registry/rendered_prompts/macro.central_bank.rke.json"
     mutation_patch_path = root_path / "registry/mutation_patches/central_bank_parameter_update.json"
     family = _read_json(family_path) if family_path.exists() else {}
@@ -50,6 +51,9 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
     lockbox_policy = _read_json(lockbox_policy_path) if lockbox_policy_path.exists() else {}
     schema_validation = (
         _read_json(schema_validation_path) if schema_validation_path.exists() else {}
+    )
+    prompt_validation = (
+        _read_json(prompt_validation_path) if prompt_validation_path.exists() else {}
     )
     rendered_prompt = _read_json(rendered_prompt_path) if rendered_prompt_path.exists() else {}
     mutation_patch = _read_json(mutation_patch_path) if mutation_patch_path.exists() else {}
@@ -138,6 +142,9 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
         "prompt_evolution": {
             "rendered_prompt_path": rendered_prompt.get("rendered_prompt_path"),
             "prompt_version": rendered_prompt.get("prompt_version"),
+            "asset_validation_accepted": prompt_validation.get("accepted"),
+            "asset_validation_failure_count": prompt_validation.get("failure_count"),
+            "asset_validation_record_count": len(prompt_validation.get("records") or ()),
             "mutation_id": (mutation_patch.get("mutation") or {}).get("mutation_id"),
             "mutation_target_path": (mutation_patch.get("mutation") or {}).get("target_path"),
             "mutation_validation_accepted": (mutation_patch.get("validation") or {}).get("accepted"),
@@ -179,6 +186,7 @@ def render_dashboard_markdown(report: Mapping[str, Any]) -> str:
         f"- License review pending sources: {dict(dict(report.get('manual_review_gates') or {}).get('source_license') or {}).get('pending_sources')}",
         f"- Experiment governance family: {dict(report.get('experiment_governance') or {}).get('family_id')}",
         f"- Schema validation failures: {dict(report.get('schema_validation') or {}).get('failure_count')}",
+        f"- Prompt asset validation failures: {dict(report.get('prompt_evolution') or {}).get('asset_validation_failure_count')}",
         f"- Prompt mutation validation accepted: {dict(report.get('prompt_evolution') or {}).get('mutation_validation_accepted')}",
         "",
         "## Blockers",

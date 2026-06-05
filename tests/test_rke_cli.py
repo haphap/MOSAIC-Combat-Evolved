@@ -70,6 +70,18 @@ def test_rke_cli_review_status_commands_write_summaries(tmp_path: Path, capsys):
     assert (tmp_path / "registry/compliance/tushare_license_review_summary.json").exists()
 
 
+def test_rke_cli_prompt_status_writes_summary(tmp_path: Path, capsys):
+    _copy_registry(tmp_path)
+
+    code = main(("prompt-status", "--root", str(tmp_path)))
+    output = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert output["accepted"] is True
+    assert output["failure_count"] == 0
+    assert (tmp_path / "registry/prompt_checks/prompt_asset_validation_report.json").exists()
+
+
 def test_rke_cli_fetch_tushare_reports_passes_query_args(monkeypatch, tmp_path: Path, capsys):
     captured = {}
 
