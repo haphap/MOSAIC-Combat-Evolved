@@ -11,8 +11,10 @@ from .phase_minus1 import load_jsonl
 
 
 GOLD_REVIEW_TEMPLATE_PATH = "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+GOLD_REVIEW_PACKET_PATH = "registry/gold_sets/tushare_research_reports.review_packet.json"
 GOLD_REVIEW_IMPORT_REPORT_PATH = "registry/gold_sets/tushare_research_reports.review_import_report.json"
 LICENSE_REVIEW_TEMPLATE_PATH = "registry/compliance/tushare_license_review_template.jsonl"
+LICENSE_REVIEW_PACKET_PATH = "registry/compliance/tushare_license_review_packet.json"
 LICENSE_REVIEW_IMPORT_REPORT_PATH = "registry/compliance/tushare_license_review_import_report.json"
 
 GOLD_BOOL_FIELDS = (
@@ -122,12 +124,70 @@ def _gold_row_failures(row: Mapping[str, Any]) -> list[str]:
     return failures
 
 
+def _optional_exact_match_failures(
+    row: Mapping[str, Any],
+    target_row: Mapping[str, Any] | None,
+    *,
+    expected_values: Mapping[str, str],
+    target_fields: Sequence[str],
+) -> list[str]:
+    failures: list[str] = []
+    for field, expected in expected_values.items():
+        actual = str(row.get(field) or "").strip()
+        if actual and actual != expected:
+            failures.append(f"{field} must match {expected}")
+    if target_row is None:
+        return failures
+    for field in target_fields:
+        actual = str(row.get(field) or "").strip()
+        if not actual:
+            continue
+        expected = str(target_row.get(field) or "").strip()
+        if actual != expected:
+            failures.append(f"{field} does not match target review row")
+    return failures
+
+
+def _gold_reference_failures(row: Mapping[str, Any], target_row: Mapping[str, Any] | None) -> list[str]:
+    return _optional_exact_match_failures(
+        row,
+        target_row,
+        expected_values={
+            "target_review_path": GOLD_REVIEW_TEMPLATE_PATH,
+            "review_context_ref": GOLD_REVIEW_PACKET_PATH,
+        },
+        target_fields=(
+            "source_id",
+            "source_span_id",
+            "document_id",
+            "gold_set_domain",
+        ),
+    )
+
+
 def _license_row_failures(row: Mapping[str, Any]) -> list[str]:
     failures = _reviewer_fields_invalid(row)
     for field in ("approved_for_derived_claim_storage", "approved_for_production_runtime"):
         if not isinstance(row.get(field), bool):
             failures.append(f"{field} must be boolean")
     return failures
+
+
+def _license_reference_failures(row: Mapping[str, Any], target_row: Mapping[str, Any] | None) -> list[str]:
+    return _optional_exact_match_failures(
+        row,
+        target_row,
+        expected_values={
+            "target_review_path": LICENSE_REVIEW_TEMPLATE_PATH,
+            "review_context_ref": LICENSE_REVIEW_PACKET_PATH,
+        },
+        target_fields=(
+            "source_type",
+            "title",
+            "publish_date",
+            "current_license_status",
+        ),
+    )
 
 
 def _build_report(
@@ -255,6 +315,7 @@ def apply_gold_set_review_import(
             failures.append("duplicate claim_id in import")
         if row_id in missing_target_ids:
             failures.append("claim_id missing from target review template")
+        failures.extend(_gold_reference_failures(row, target_by_id.get(row_id)))
         failures.extend(_gold_row_failures(row))
         if failures:
             invalid_rows.append(
@@ -320,6 +381,7 @@ def apply_source_license_review_import(
             failures.append("duplicate source_id in import")
         if row_id in missing_target_ids:
             failures.append("source_id missing from target review template")
+        failures.extend(_license_reference_failures(row, target_by_id.get(row_id)))
         failures.extend(_license_row_failures(row))
         if failures:
             invalid_rows.append(
