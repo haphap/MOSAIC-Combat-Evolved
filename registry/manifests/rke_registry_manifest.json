@@ -1,5 +1,5 @@
 {
-  "artifact_count": 59,
+  "artifact_count": 62,
   "artifacts": [
     {
       "bytes": 539,
@@ -12,9 +12,9 @@
       "sha256": "sha256:a3d8362b7932b4305685b92f93198a42024447c18220dc1a912b67eb57c9d440"
     },
     {
-      "bytes": 6480,
+      "bytes": 6695,
       "path": "registry/audits/rke_master_plan_coverage_report.json",
-      "sha256": "sha256:9db0c01b170bce2e957b332788ee4d61d4b9dab3d1f93e9b81d0add1131a436c"
+      "sha256": "sha256:e84fcafc4a1a5ddf3bc5ae41796bbdc182a0a6454a1a7ac188c2c71561c89c7f"
     },
     {
       "bytes": 752,
@@ -34,7 +34,7 @@
     {
       "bytes": 1025,
       "path": "registry/compliance/source_text_redaction_report.json",
-      "sha256": "sha256:2318db49cfb6081222840130ce9df317c4dcaffd431b44d6b061c029fc69ed9d"
+      "sha256": "sha256:b305c2b94fbce27b3dea235154993793d85dd41684ab32e1768e92e42d2dba35"
     },
     {
       "bytes": 159537,
@@ -57,14 +57,14 @@
       "sha256": "sha256:d519117af396793a5f27fc06e808ca93b55d6f4a2d0ae63bd6c7b9c360cadbd0"
     },
     {
-      "bytes": 5919,
+      "bytes": 6465,
       "path": "registry/dashboards/rke_dashboard.json",
-      "sha256": "sha256:607734287f1c8eac7d8eb50e4bfdae7757a051ae61882eb058463d98b5e6db21"
+      "sha256": "sha256:f62d7a08146b798ee3c4e0bf84052f5f0bb7c1d53fed4454b093e1c07f0a915c"
     },
     {
-      "bytes": 1272,
+      "bytes": 1343,
       "path": "registry/dashboards/rke_dashboard.md",
-      "sha256": "sha256:72a720278fdec6f97483a16455d955ac22e88d9a78fef3fa4f503d522dc3652f"
+      "sha256": "sha256:8f63a5f327eb0e3b68759c6fcbd6bd1ac8623921be059ee2e36730a06bdb26f4"
     },
     {
       "bytes": 1233,
@@ -89,7 +89,7 @@
     {
       "bytes": 913,
       "path": "registry/docs/rke_policy_doc_validation_report.json",
-      "sha256": "sha256:f2e79d5cbaf7350e4aa8c74a20a0a993dc19da91f02b4c0e1007e486688eac71"
+      "sha256": "sha256:d05ceb6e4cec0bddf84ec802307b373091fd59752a5beb6ddea990b7b602267f"
     },
     {
       "bytes": 604,
@@ -225,6 +225,21 @@
       "bytes": 990,
       "path": "registry/rendered_prompts/macro.central_bank.rke.md",
       "sha256": "sha256:285440df2c9d851740a3d74d15943ae0f269c299d584b811fee42535c6e9d874"
+    },
+    {
+      "bytes": 52682,
+      "path": "registry/review_batches/gold_set_next_import_template.jsonl",
+      "sha256": "sha256:2673da8319ff869b7a197f7efbd8d1727d958764bc86253e623cc7288f5fa0a5"
+    },
+    {
+      "bytes": 2571,
+      "path": "registry/review_batches/manual_review_batch_status.json",
+      "sha256": "sha256:f2727a9983af32fb2389efea43cbde15b88e795870437655f2cbfcc7e0a6a879"
+    },
+    {
+      "bytes": 29679,
+      "path": "registry/review_batches/source_license_next_import_template.jsonl",
+      "sha256": "sha256:100da89446375860806d839d75c7ff5f23d6fdcac08b70ed5dca3708d27edb9f"
     },
     {
       "bytes": 995,

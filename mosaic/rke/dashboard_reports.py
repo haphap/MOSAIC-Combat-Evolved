@@ -53,6 +53,7 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
     )
     license_review_path = root_path / "registry/compliance/tushare_license_review_summary.json"
     license_packet_path = root_path / "registry/compliance/tushare_license_review_packet.json"
+    review_batch_status_path = root_path / "registry/review_batches/manual_review_batch_status.json"
     gold_review = _read_json(gold_review_path) if gold_review_path.exists() else {}
     gold_packet = _read_json(gold_packet_path) if gold_packet_path.exists() else {}
     gold_candidate_claims = (
@@ -60,6 +61,9 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
     )
     license_review = _read_json(license_review_path) if license_review_path.exists() else {}
     license_packet = _read_json(license_packet_path) if license_packet_path.exists() else {}
+    review_batch_status = (
+        _read_json(review_batch_status_path) if review_batch_status_path.exists() else {}
+    )
     family_path = root_path / "registry/evaluation/experiment_family_registry/central_bank_liquidity_family.json"
     cost_model_path = root_path / "registry/evaluation/cost_model/cost_model_v1.json"
     overlap_path = root_path / "registry/evaluation/overlap_correction/effective_n_overlap_policy.json"
@@ -208,6 +212,27 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
                 ),
                 "policy_reason_counts": license_packet.get("policy_reason_counts"),
             },
+            "review_batches": {
+                "ready_for_manual_review": review_batch_status.get("ready_for_manual_review"),
+                "gold_set_pending_rows": (review_batch_status.get("gold_set") or {}).get(
+                    "pending_rows"
+                ),
+                "gold_set_exported_rows": (review_batch_status.get("gold_set") or {}).get(
+                    "exported_rows"
+                ),
+                "gold_set_dry_run_command": (review_batch_status.get("gold_set") or {}).get(
+                    "dry_run_command"
+                ),
+                "source_license_pending_rows": (
+                    review_batch_status.get("source_license") or {}
+                ).get("pending_rows"),
+                "source_license_exported_rows": (
+                    review_batch_status.get("source_license") or {}
+                ).get("exported_rows"),
+                "source_license_dry_run_command": (
+                    review_batch_status.get("source_license") or {}
+                ).get("dry_run_command"),
+            },
         },
         "experiment_governance": {
             "family_id": family.get("family_id"),
@@ -288,6 +313,8 @@ def render_dashboard_markdown(report: Mapping[str, Any]) -> str:
         f"- Gold candidate claims: {dict(dict(report.get('manual_review_gates') or {}).get('gold_candidate_claims') or {}).get('candidate_claim_count')}",
         f"- License review pending sources: {dict(dict(report.get('manual_review_gates') or {}).get('source_license') or {}).get('pending_sources')}",
         f"- License review packet pending sources: {dict(dict(report.get('manual_review_gates') or {}).get('license_review_packet') or {}).get('pending_sources')}",
+        f"- Next gold review batch rows: {dict(dict(report.get('manual_review_gates') or {}).get('review_batches') or {}).get('gold_set_exported_rows')}",
+        f"- Next license review batch rows: {dict(dict(report.get('manual_review_gates') or {}).get('review_batches') or {}).get('source_license_exported_rows')}",
         f"- Experiment governance family: {dict(report.get('experiment_governance') or {}).get('family_id')}",
         f"- Schema validation failures: {dict(report.get('schema_validation') or {}).get('failure_count')}",
         f"- Claim variable validation failures: {dict(report.get('claim_variable_validation') or {}).get('failure_count')}",

@@ -21,6 +21,7 @@ REQUIRED_POLICY_DOC_MARKERS: Mapping[str, Sequence[str]] = {
         "PIT Data Availability",
         "Claim Extraction Reliability",
         "mosaic-rke gold-candidate-claims",
+        "mosaic-rke review-batches",
         "mosaic-rke apply-gold-review",
         "mosaic-rke apply-license-review",
     ),

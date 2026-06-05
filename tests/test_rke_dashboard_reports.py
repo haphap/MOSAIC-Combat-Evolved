@@ -58,6 +58,11 @@ def test_dashboard_report_summarizes_completion_and_monitoring():
     assert report["manual_review_gates"]["license_review_packet"]["status"] == "manual_review_pending"
     assert report["manual_review_gates"]["license_review_packet"]["source_count"] == 207
     assert report["manual_review_gates"]["license_review_packet"]["approved_for_production_runtime"] == 0
+    assert report["manual_review_gates"]["review_batches"]["ready_for_manual_review"] is True
+    assert report["manual_review_gates"]["review_batches"]["gold_set_pending_rows"] == 500
+    assert report["manual_review_gates"]["review_batches"]["gold_set_exported_rows"] == 50
+    assert report["manual_review_gates"]["review_batches"]["source_license_pending_rows"] == 207
+    assert report["manual_review_gates"]["review_batches"]["source_license_exported_rows"] == 50
     assert report["audit_trace"]["agent_output_count"] == 1
     assert "manual" in " ".join(report["completion"]["blockers"])
 
@@ -81,6 +86,8 @@ def test_dashboard_markdown_renders_blockers():
     assert "Gold review packet spans:" in markdown
     assert "Gold candidate claims: 500" in markdown
     assert "License review packet pending sources:" in markdown
+    assert "Next gold review batch rows: 50" in markdown
+    assert "Next license review batch rows: 50" in markdown
     assert "Claim variable validation failures: 0" in markdown
     assert "Prompt asset validation failures: 0" in markdown
     assert "Policy doc validation failures: 0" in markdown

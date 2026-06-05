@@ -23,6 +23,8 @@
 - Gold candidate claims: 500
 - License review pending sources: 207
 - License review packet pending sources: 207
+- Next gold review batch rows: 50
+- Next license review batch rows: 50
 - Experiment governance family: FAM-CB-LIQUIDITY-2026Q2
 - Schema validation failures: 0
 - Claim variable validation failures: 0

@@ -87,6 +87,15 @@
       "source_count": 207,
       "status": "manual_review_pending"
     },
+    "review_batches": {
+      "gold_set_dry_run_command": "mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_next_import_template.jsonl --dry-run",
+      "gold_set_exported_rows": 50,
+      "gold_set_pending_rows": 500,
+      "ready_for_manual_review": true,
+      "source_license_dry_run_command": "mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_next_import_template.jsonl --dry-run",
+      "source_license_exported_rows": 50,
+      "source_license_pending_rows": 207
+    },
     "source_license": {
       "approved_for_production_runtime": 0,
       "passed": false,
@@ -176,7 +185,7 @@
   },
   "source_text_redaction": {
     "accepted": true,
-    "checked_path_count": 378,
+    "checked_path_count": 382,
     "failure_count": 0,
     "min_match_chars": 80,
     "skipped_allowed_path_count": 6,

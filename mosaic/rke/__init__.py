@@ -166,6 +166,12 @@ from .manual_review_import import (
     apply_gold_set_review_import,
     apply_source_license_review_import,
 )
+from .manual_review_batches import (
+    ManualReviewBatchStatus,
+    ReviewBatchExportSummary,
+    build_manual_review_batch_status,
+    write_manual_review_batches,
+)
 from .master_plan_coverage import (
     MasterPlanCoverageRecord,
     MasterPlanCoverageReport,
@@ -451,6 +457,10 @@ __all__ = [
     "ManualReviewImportReport",
     "apply_gold_set_review_import",
     "apply_source_license_review_import",
+    "ManualReviewBatchStatus",
+    "ReviewBatchExportSummary",
+    "build_manual_review_batch_status",
+    "write_manual_review_batches",
     "MasterPlanCoverageRecord",
     "MasterPlanCoverageReport",
     "build_master_plan_coverage_report",

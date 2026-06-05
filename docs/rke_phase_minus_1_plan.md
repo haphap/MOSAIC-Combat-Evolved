@@ -87,6 +87,12 @@ Inspect the reviewer packet:
 mosaic-rke gold-review-packet --root .
 ```
 
+Generate next-batch import templates without copying long source text:
+
+```bash
+mosaic-rke review-batches --root .
+```
+
 Import reviewed claim labels:
 
 ```bash
@@ -101,6 +107,10 @@ mosaic-rke apply-license-review --root . --input reviewed_sources.jsonl
 
 Both import commands support `--dry-run`. They reject duplicate IDs, unknown IDs,
 missing reviewer/date fields, and non-boolean gate fields.
+
+The generated batch templates are review aids. They contain IDs, hashes, source
+refs, and empty manual fields, but not full abstracts or span previews. Reviewers
+may fill a batch file and dry-run it before applying.
 
 ## Non-Goals
 

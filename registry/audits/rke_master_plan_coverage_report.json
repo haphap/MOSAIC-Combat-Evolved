@@ -22,7 +22,9 @@
         "registry/gold_sets/tushare_research_reports.review_template.jsonl",
         "registry/gold_sets/tushare_research_reports.candidate_claims.jsonl",
         "registry/gold_sets/tushare_research_reports.review_packet.json",
-        "registry/gold_sets/tushare_research_reports.review_summary.json"
+        "registry/gold_sets/tushare_research_reports.review_summary.json",
+        "registry/review_batches/manual_review_batch_status.json",
+        "registry/review_batches/gold_set_next_import_template.jsonl"
       ],
       "requirement": "Claim extraction reliability has 50-document / 500-claim manual gold-set gate.",
       "section_id": "Phase-1B",
@@ -135,7 +137,8 @@
         "registry/compliance/tushare_license_review_packet.json",
         "registry/compliance/tushare_license_review_summary.json",
         "registry/compliance/source_text_redaction_report.json",
-        "registry/source_checks/source_registry_validation_report.json"
+        "registry/source_checks/source_registry_validation_report.json",
+        "registry/review_batches/source_license_next_import_template.jsonl"
       ],
       "requirement": "Compliance gate blocks unauthorized reports from production runtime and can apply reviewed license decisions.",
       "section_id": "Compliance",

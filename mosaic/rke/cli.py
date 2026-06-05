@@ -24,6 +24,10 @@ from .manual_review_import import (
     apply_gold_set_review_import,
     apply_source_license_review_import,
 )
+from .manual_review_batches import (
+    build_manual_review_batch_status,
+    write_manual_review_batches,
+)
 from .master_plan_coverage import (
     build_master_plan_coverage_report,
     write_master_plan_coverage_report,
@@ -213,6 +217,24 @@ def build_parser() -> argparse.ArgumentParser:
     apply_license_review.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
     apply_license_review.add_argument("--input", required=True, help="JSONL file containing source license decisions.")
     apply_license_review.add_argument("--dry-run", action="store_true", help="Validate without changing review rows.")
+
+    review_batches = subparsers.add_parser(
+        "review-batches",
+        help="Write next-batch import templates for manual gold-set and source-license reviews.",
+    )
+    review_batches.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
+    review_batches.add_argument(
+        "--gold-batch-size",
+        type=int,
+        default=50,
+        help="Number of pending gold-set review rows to export. Defaults to 50.",
+    )
+    review_batches.add_argument(
+        "--license-batch-size",
+        type=int,
+        default=50,
+        help="Number of pending source-license review rows to export. Defaults to 50.",
+    )
 
     fetch_reports = subparsers.add_parser(
         "fetch-tushare-reports",
@@ -422,6 +444,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         report = apply_source_license_review_import(root, args.input, dry_run=args.dry_run)
         _print_json(asdict(report))
         return 0 if report.accepted else 2
+    if args.command == "review-batches":
+        paths = write_manual_review_batches(
+            root,
+            gold_batch_size=args.gold_batch_size,
+            license_batch_size=args.license_batch_size,
+        )
+        status, _, _ = build_manual_review_batch_status(
+            root,
+            gold_batch_size=args.gold_batch_size,
+            license_batch_size=args.license_batch_size,
+        )
+        _print_json({"paths": paths, "status": asdict(status)})
+        return 0 if status.ready_for_manual_review else 2
     if args.command == "fetch-tushare-reports":
         _load_env_file(args.env_file)
         result = refresh_tushare_research_report_registry(

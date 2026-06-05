@@ -160,6 +160,31 @@ def test_rke_cli_source_text_status_writes_summary(tmp_path: Path, capsys):
     assert (tmp_path / "registry/compliance/source_text_redaction_report.json").exists()
 
 
+def test_rke_cli_review_batches_writes_next_import_templates(tmp_path: Path, capsys):
+    _copy_registry(tmp_path)
+
+    code = main(
+        (
+            "review-batches",
+            "--root",
+            str(tmp_path),
+            "--gold-batch-size",
+            "11",
+            "--license-batch-size",
+            "9",
+        )
+    )
+    output = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert output["status"]["ready_for_manual_review"] is True
+    assert output["status"]["gold_set"]["exported_rows"] == 11
+    assert output["status"]["source_license"]["exported_rows"] == 9
+    assert (tmp_path / "registry/review_batches/manual_review_batch_status.json").exists()
+    assert (tmp_path / "registry/review_batches/gold_set_next_import_template.jsonl").exists()
+    assert (tmp_path / "registry/review_batches/source_license_next_import_template.jsonl").exists()
+
+
 def test_rke_cli_fetch_tushare_reports_passes_query_args(monkeypatch, tmp_path: Path, capsys):
     captured = {}
 

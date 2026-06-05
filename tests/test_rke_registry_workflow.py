@@ -60,6 +60,9 @@ def test_full_refresh_preserves_existing_review_templates(tmp_path: Path):
     assert refreshed_gold[0]["proposed_claim_text"]
     assert license_review.read_text(encoding="utf-8") == original_license
     assert "gold_candidate_claims" in result.outputs
+    assert "manual_review_batch_status" in result.outputs
+    assert "manual_review_gold_set_import_template" in result.outputs
+    assert "manual_review_source_license_import_template" in result.outputs
     assert "registry_manifest" in result.outputs
 
 

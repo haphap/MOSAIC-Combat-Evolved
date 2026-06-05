@@ -15,6 +15,7 @@ from .gold_candidate_claims import write_gold_candidate_claims
 from .gold_review_packet import write_gold_review_packet
 from .license_review_packet import write_license_review_packet
 from .macro_expansion import write_macro_expansion_registry
+from .manual_review_batches import write_manual_review_batches
 from .master_plan_coverage import write_master_plan_coverage_report
 from .phase_minus1 import load_jsonl, write_gold_set_review_template
 from .policy_doc_validation import write_policy_doc_validation_report
@@ -74,6 +75,7 @@ def run_full_rke_refresh(
     gold_summary = write_gold_set_review_summary(root_path)
     license_summary = write_source_license_review_summary(root_path)
     license_packet = write_license_review_packet(root_path)
+    review_batches = write_manual_review_batches(root_path)
     claim_vocabulary = write_claim_variable_vocabulary(root_path)
     gold_candidate_claims = write_gold_candidate_claims(root_path)
     gold_packet = write_gold_review_packet(root_path)
@@ -95,6 +97,9 @@ def run_full_rke_refresh(
     outputs["license_review_summary"] = str(license_summary["path"])
     outputs["license_review_packet.json"] = license_packet["json"]
     outputs["license_review_packet.markdown"] = license_packet["markdown"]
+    outputs["manual_review_batch_status"] = review_batches["status"]
+    outputs["manual_review_gold_set_import_template"] = review_batches["gold_set_import_template"]
+    outputs["manual_review_source_license_import_template"] = review_batches["source_license_import_template"]
     outputs["claim_variable_vocabulary"] = str(claim_vocabulary["path"])
     outputs["gold_candidate_claims"] = gold_candidate_claims["candidate_claims"]
     outputs["gold_candidate_claims_summary"] = gold_candidate_claims["summary"]
