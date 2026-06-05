@@ -23,7 +23,7 @@ from html import unescape
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
-from .china_policy_db import load_external_records
+from .china_policy_db import commit_and_maybe_push_updates, ensure_local_repo, load_external_records
 from .exceptions import DataVendorUnavailable
 
 logger = logging.getLogger(__name__)
@@ -570,8 +570,64 @@ def load_gov_policy_records(cache_dir: str | Path | None = None) -> list[dict[st
     return _load_records(gov_policy_cache_dir(cache_dir))
 
 
-def _load_external_gov_policy_records() -> tuple[list[dict[str, Any]], str] | None:
-    return load_external_records("gov_policy/parsed/policy_documents.jsonl")
+def _load_external_gov_policy_records(
+    *,
+    local_root: Path | None = None,
+    discover_local: bool = True,
+) -> tuple[list[dict[str, Any]], str] | None:
+    return load_external_records(
+        "gov_policy/parsed/policy_documents.jsonl",
+        local_root=local_root,
+        discover_local=discover_local,
+    )
+
+
+def _ensure_china_policy_db_gov_policy_updated(
+    *,
+    start_date: str,
+    end_date: str,
+    fetcher: FetchJson | None = None,
+    max_pages_per_category: int = _DEFAULT_MAX_PAGES,
+) -> tuple[str | None, Path | None]:
+    local = ensure_local_repo()
+    if not local:
+        return None, None
+    root, source = local
+    cache_root = root / "data" / "gov_policy"
+    try:
+        run = ensure_gov_policy_documents_updated(
+            cache_dir=cache_root,
+            start_date=start_date,
+            end_date=end_date,
+            max_pages_per_category=max_pages_per_category,
+            fetcher=fetcher,
+        )
+    except DataVendorUnavailable as exc:
+        logger.warning("china-policy-db gov.cn policy incremental refresh skipped: %s", exc)
+        return f"local repo; refresh skipped after gov.cn policy error: {exc}", root
+    if not run:
+        return "local repo; fresh", root
+
+    git = commit_and_maybe_push_updates(
+        root,
+        ["data/gov_policy"],
+        message="Update gov.cn policy data",
+    )
+    git_note = ""
+    if git.get("committed"):
+        git_note = "; committed"
+    if git.get("pushed"):
+        git_note += "; pushed"
+    if git.get("skipped_commit"):
+        git_note += "; uncommitted local update"
+    if git.get("error"):
+        git_note += "; git update failed"
+    return (
+        "local repo; incremental refresh "
+        f"(pages={run['fetched_pages']}, new_records={run['new_records']}, "
+        f"parsed={run['parsed_records']})"
+        f"{git_note}; root={source}"
+    ), root
 
 
 def _records_in_window(
@@ -651,8 +707,17 @@ def get_gov_policy_documents(
     """Return gov.cn policy documents for a date window."""
     start_date, end_date = _date_window(curr_date, int(look_back_days or 0))
     if cache_dir is None:
+        external_refresh_note, external_root = _ensure_china_policy_db_gov_policy_updated(
+            start_date=start_date,
+            end_date=end_date,
+            fetcher=fetcher,
+            max_pages_per_category=max_pages_per_category,
+        )
         try:
-            external = _load_external_gov_policy_records()
+            external = _load_external_gov_policy_records(
+                local_root=external_root,
+                discover_local=False,
+            )
         except DataVendorUnavailable as exc:
             logger.warning("Ignoring unavailable china-policy-db gov.cn policy records: %s", exc)
             external = None
@@ -669,7 +734,8 @@ def get_gov_policy_documents(
                 records,
                 title=f"产业政策 / Gov.cn Policy Documents ({start_date} → {end_date})",
                 subtitle=(
-                    f"Source: china-policy-db ({source}). "
+                    f"Source: china-policy-db ({source}"
+                    f"{'; ' + external_refresh_note if external_refresh_note else ''}). "
                     f"Categories: {category_names}{suffix}."
                 ),
                 empty_note=f"No gov.cn policy documents recorded between {start_date} and {end_date}.",

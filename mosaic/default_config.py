@@ -21,6 +21,7 @@ _MOSAIC_HOME = os.path.join(os.path.expanduser("~"), ".mosaic")
 _REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
 _DEFAULT_DATA_DIR = os.path.join(_REPO_ROOT, "data")
 DEFAULT_ETF_ANALYSIS_START_DATE = "2005-02-23"
+DEFAULT_CHINA_POLICY_DB_REPO_URL = "https://github.com/haphap/china-policy-db.git"
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -55,7 +56,17 @@ DEFAULT_CONFIG = {
         os.path.join(_MOSAIC_HOME, "cache"),
     ),
     "china_policy_db_dir": os.getenv("MOSAIC_CHINA_POLICY_DB_DIR"),
+    "china_policy_db_repo_url": os.getenv(
+        "MOSAIC_CHINA_POLICY_DB_REPO_URL",
+        DEFAULT_CHINA_POLICY_DB_REPO_URL,
+    ),
     "china_policy_db_raw_base_url": os.getenv("MOSAIC_CHINA_POLICY_DB_RAW_BASE_URL"),
+    "china_policy_db_auto_sync": _env_bool("MOSAIC_CHINA_POLICY_DB_AUTO_SYNC", True),
+    "china_policy_db_git_stale_hours": _env_int_or_none(
+        "MOSAIC_CHINA_POLICY_DB_GIT_STALE_HOURS",
+        6,
+    ),
+    "china_policy_db_push_updates": _env_bool("MOSAIC_CHINA_POLICY_DB_PUSH_UPDATES", False),
     # ============== LLM settings ==============
     # Default to Anthropic Claude Sonnet (Plan §1). Local Lemonade Qwen and
     # DeepSeek can be swapped in via config.set at runtime to control cost.

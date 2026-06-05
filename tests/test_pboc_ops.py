@@ -228,3 +228,30 @@ def test_get_pboc_ops_prefers_external_china_policy_db(tmp_path, monkeypatch):
     assert "china-policy-db" in out
     assert "公开市场业务交易公告 [2026]第105号" in out
     assert "reverse_repo" in out
+
+
+def test_get_pboc_ops_refreshes_local_china_policy_db_before_read(tmp_path, monkeypatch):
+    db_root = tmp_path / "china-policy-db"
+    db_root.mkdir()
+    monkeypatch.setenv("MOSAIC_CHINA_POLICY_DB_DIR", str(db_root))
+
+    empty_list_html = """
+    <html><body>
+    <input id="article_paging_list_hidden" moduleid="empty" totalpage="1" />
+    </body></html>
+    """
+    transaction_category = pboc_ops.PBOC_OMO_CATEGORIES[2]
+
+    def fetcher(url: str) -> str:
+        if url == transaction_category.url:
+            return LIST_HTML
+        if url == ARTICLE_URL:
+            return ARTICLE_HTML
+        return empty_list_html
+
+    out = pboc_ops.get_pboc_ops("2026-06-04", 2, fetcher=fetcher)
+
+    assert (db_root / "data" / "pboc_ops" / "parsed" / "articles.jsonl").is_file()
+    assert "china-policy-db" in out
+    assert "incremental refresh" in out
+    assert "公开市场业务交易公告 [2026]第105号" in out

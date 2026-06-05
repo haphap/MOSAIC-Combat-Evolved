@@ -179,3 +179,26 @@ def test_get_gov_policy_prefers_external_china_policy_db(tmp_path, monkeypatch):
     assert "china-policy-db" in out
     assert "非化石能源" in out
     assert "农业农村现代化" not in out
+
+
+def test_get_gov_policy_refreshes_local_china_policy_db_before_read(tmp_path, monkeypatch):
+    db_root = tmp_path / "china-policy-db"
+    db_root.mkdir()
+    monkeypatch.setenv("MOSAIC_CHINA_POLICY_DB_DIR", str(db_root))
+
+    def fetcher(params):
+        if params["t"] == "zhengcelibrary_gw":
+            return _payload([ROW_ENERGY], page=int(params["p"]))
+        return _payload([], page=int(params["p"]))
+
+    out = gov_policy.get_gov_policy_documents(
+        "2026-06-05",
+        7,
+        fetcher=fetcher,
+        keywords=("能源",),
+    )
+
+    assert (db_root / "data" / "gov_policy" / "parsed" / "policy_documents.jsonl").is_file()
+    assert "china-policy-db" in out
+    assert "incremental refresh" in out
+    assert "非化石能源" in out

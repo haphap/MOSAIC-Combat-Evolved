@@ -80,6 +80,13 @@ git clone https://github.com/haphap/china-policy-db.git ../china-policy-db
 echo "MOSAIC_CHINA_POLICY_DB_DIR=$(pwd)/../china-policy-db" >> .env
 ```
 
+If `MOSAIC_CHINA_POLICY_DB_DIR` is unset, the PBOC and gov.cn policy tools can
+clone `haphap/china-policy-db` under `${MOSAIC_CACHE_DIR}/china-policy-db` on
+first use. They read that local copy first, incrementally refresh stale local
+data, and fall back to the existing official-site crawlers if clone/pull/refresh
+is unavailable. Set `MOSAIC_CHINA_POLICY_DB_PUSH_UPDATES=1` only when this
+machine should push refreshed data back to the policy-db remote.
+
 Optional private prompt repo:
 
 By default, agents load prompts from `MOSAIC-Agents/prompts/mosaic`. To make all

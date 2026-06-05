@@ -18,6 +18,10 @@ _LEAK_VARS = (
     "MOSAIC_PRIVATE_PROMPT_REPO",
     "MOSAIC_PRIVATE_PROMPT_REPO_ID",
     "MOSAIC_MIROFISH_URL",
+    "MOSAIC_CHINA_POLICY_DB_DIR",
+    "MOSAIC_CHINA_POLICY_DB_REPO_URL",
+    "MOSAIC_CHINA_POLICY_DB_RAW_BASE_URL",
+    "MOSAIC_CHINA_POLICY_DB_PUSH_UPDATES",
 )
 
 
@@ -25,3 +29,4 @@ _LEAK_VARS = (
 def _isolate_external_env(monkeypatch):
     for var in _LEAK_VARS:
         monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("MOSAIC_CHINA_POLICY_DB_AUTO_SYNC", "0")
