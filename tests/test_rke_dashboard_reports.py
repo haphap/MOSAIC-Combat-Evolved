@@ -90,6 +90,11 @@ def test_dashboard_report_summarizes_completion_and_monitoring():
         == source_row_count
     )
     assert report["manual_review_gates"]["review_batches"]["source_license_exported_rows"] == 50
+    assert report["audit_trace"]["complete"] is True
+    assert report["audit_trace"]["node_count"] == 8
+    assert report["audit_trace"]["edge_count"] >= 12
+    assert report["audit_trace"]["missing_reference_count"] == 0
+    assert report["audit_trace"]["broken_edge_count"] == 0
     assert report["audit_trace"]["agent_output_count"] == 1
     assert "manual" in " ".join(report["completion"]["blockers"])
 
@@ -122,6 +127,8 @@ def test_dashboard_markdown_renders_blockers():
     assert "Prompt asset validation failures: 0" in markdown
     assert "Policy doc validation failures: 0" in markdown
     assert "Prompt mutation validation accepted: True" in markdown
+    assert "Audit trace complete: True" in markdown
+    assert "Audit trace edges:" in markdown
     assert "manual" in markdown
     assert "license" in markdown
 

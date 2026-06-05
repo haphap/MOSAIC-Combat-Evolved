@@ -8,6 +8,7 @@ from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any, Sequence
 
+from .audit_viewer import build_audit_trace_view, write_audit_trace_view
 from .claim_vocabulary import (
     build_claim_variable_validation_report,
     write_claim_variable_validation_report,
@@ -126,6 +127,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     audit = subparsers.add_parser("audit", help="Recompute completion audit.")
     audit.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
+
+    audit_view = subparsers.add_parser(
+        "audit-view",
+        help="Write and print the central-bank source-to-output audit trace viewer.",
+    )
+    audit_view.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
 
     master_plan_status = subparsers.add_parser(
         "master-plan-status",
@@ -349,7 +356,22 @@ def main(argv: Sequence[str] | None = None) -> int:
         result = write_completion_audit(root)
         _print_json(result)
         return 0
+    if args.command == "audit-view":
+        paths = write_audit_trace_view(root)
+        view = build_audit_trace_view(root)
+        _print_json(
+            {
+                "paths": paths,
+                "complete": view.complete,
+                "node_count": view.node_count,
+                "edge_count": view.edge_count,
+                "missing_references": view.missing_references,
+                "broken_edges": view.broken_edges,
+            }
+        )
+        return 0 if view.complete else 2
     if args.command == "master-plan-status":
+        write_audit_trace_view(root)
         write_master_plan_coverage_report(root)
         result = build_master_plan_coverage_report(root)
         _print_json(asdict(result))

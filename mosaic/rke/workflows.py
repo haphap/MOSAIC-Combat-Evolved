@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
 
+from .audit_viewer import write_audit_trace_view
 from .central_bank_mvp import write_central_bank_mvp_registry
 from .claim_vocabulary import write_claim_variable_validation_report, write_claim_variable_vocabulary
 from .completion_auditor import write_completion_audit
@@ -88,6 +89,7 @@ def run_full_rke_refresh(
     prompt_asset_summary = write_prompt_asset_validation_report(root_path)
     policy_doc_summary = write_policy_doc_validation_report(root_path)
     source_text_redaction = write_source_text_redaction_report(root_path)
+    audit_trace_view = write_audit_trace_view(root_path)
     audit_result = write_completion_audit(root_path)
     promotion_gate = write_production_promotion_gate_report(root_path)
     master_plan_coverage = write_master_plan_coverage_report(root_path)
@@ -113,6 +115,8 @@ def run_full_rke_refresh(
     outputs["prompt_asset_validation_report"] = str(prompt_asset_summary["path"])
     outputs["policy_doc_validation_report"] = str(policy_doc_summary["path"])
     outputs["source_text_redaction_report"] = str(source_text_redaction["path"])
+    outputs["audit_trace_view.json"] = audit_trace_view["json"]
+    outputs["audit_trace_view.markdown"] = audit_trace_view["markdown"]
     outputs["completion_audit"] = str(audit_result["path"])
     outputs["production_promotion_gate"] = str(promotion_gate["path"])
     outputs["master_plan_coverage_report"] = str(master_plan_coverage["path"])

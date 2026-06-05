@@ -18,6 +18,8 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
     coverage = _read_json(coverage_path) if coverage_path.exists() else {}
     paper = _read_json(root_path / "registry/monitoring/central_bank_paper_trading_report.json")
     audit_trace = _read_json(root_path / "registry/audits/central_bank_mvp_audit_trace.json")
+    audit_view_path = root_path / "registry/audits/central_bank_mvp_audit_view.json"
+    audit_view = _read_json(audit_view_path) if audit_view_path.exists() else {}
     runtime = _read_json(root_path / "registry/runtime_outputs/macro.central_bank.20260605.json")
     lockbox_path = root_path / "registry/lockbox/central_bank_lockbox_review.json"
     lockbox = _read_json(lockbox_path) if lockbox_path.exists() else {}
@@ -280,6 +282,11 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
             "production_allowed": mutation_patch.get("production_allowed"),
         },
         "audit_trace": {
+            "complete": audit_view.get("complete"),
+            "node_count": audit_view.get("node_count"),
+            "edge_count": audit_view.get("edge_count"),
+            "missing_reference_count": len(audit_view.get("missing_references") or ()),
+            "broken_edge_count": len(audit_view.get("broken_edges") or ()),
             "source_count": len(audit_trace.get("source_ids", ())),
             "claim_count": len(audit_trace.get("claim_ids", ())),
             "rule_count": len(audit_trace.get("rule_ids", ())),
@@ -333,6 +340,8 @@ def render_dashboard_markdown(report: Mapping[str, Any]) -> str:
         f"- Prompt asset validation failures: {dict(report.get('prompt_evolution') or {}).get('asset_validation_failure_count')}",
         f"- Policy doc validation failures: {dict(report.get('prompt_evolution') or {}).get('policy_doc_validation_failure_count')}",
         f"- Prompt mutation validation accepted: {dict(report.get('prompt_evolution') or {}).get('mutation_validation_accepted')}",
+        f"- Audit trace complete: {dict(report.get('audit_trace') or {}).get('complete')}",
+        f"- Audit trace edges: {dict(report.get('audit_trace') or {}).get('edge_count')}",
         "",
         "## Blockers",
         "",

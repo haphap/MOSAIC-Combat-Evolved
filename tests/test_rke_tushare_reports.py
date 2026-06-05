@@ -136,6 +136,37 @@ class FullMarketFakeTusharePro:
         )
 
 
+class PaginatedFullMarketFakeTusharePro:
+    def __init__(self):
+        self.calls: list[dict[str, object]] = []
+
+    def research_report(self, **kwargs):
+        self.calls.append(kwargs)
+        offset = int(kwargs.get("offset") or 0)
+        page_size = int(kwargs.get("limit") or 1000)
+        if offset == 0:
+            count = page_size
+        elif offset == page_size:
+            count = 2
+        else:
+            count = 0
+        return pd.DataFrame(
+            [
+                {
+                    "trade_date": "20260601",
+                    "title": f"Paged report {offset + index}",
+                    "abstr": f"Paged report text {offset + index}.",
+                    "author": "Analyst P",
+                    "inst_csname": "Broker P",
+                    "ts_code": f"{index:06d}.SZ",
+                    "ind_name": "银行",
+                    "url": f"https://example.invalid/paged/{offset + index}",
+                }
+                for index in range(count)
+            ]
+        )
+
+
 def test_fetch_tushare_research_reports_uses_stock_and_industry_queries():
     fake = FakeTusharePro()
 
@@ -218,6 +249,23 @@ def test_fetch_tushare_research_reports_queries_full_market_by_report_type_windo
     assert len(reports) == 4
     assert {report.report_type for report in reports} == {"个股研报", "行业研报"}
     assert {report.query_key for report in reports} == {"000001.SZ", "半导体"}
+
+
+def test_fetch_tushare_research_reports_paginates_full_market_report_type():
+    fake = PaginatedFullMarketFakeTusharePro()
+
+    reports = fetch_tushare_research_reports(
+        report_types=("个股研报",),
+        start_date="2026-06-01",
+        end_date="2026-06-01",
+        max_reports_per_query=1002,
+        discovered_at="2026-06-05T12:00:00+00:00",
+        pro=fake,
+    )
+
+    assert len(reports) == 1002
+    assert [call["offset"] for call in fake.calls] == [0, 1000]
+    assert {call["limit"] for call in fake.calls} == {1000}
 
 
 def test_normalize_research_report_row_builds_source_and_span_ids():

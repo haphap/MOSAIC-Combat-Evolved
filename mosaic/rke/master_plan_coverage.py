@@ -277,7 +277,11 @@ def build_master_plan_coverage_report(root: str | Path = ".") -> MasterPlanCover
                 "C12",
                 section_id="Audit",
                 requirement="Audit viewer traces source to claim to hypothesis to rule to parameter to experiment to patch to agent output.",
-                evidence_paths=("registry/audits/central_bank_mvp_audit_trace.json",),
+                evidence_paths=(
+                    "registry/audits/central_bank_mvp_audit_trace.json",
+                    "registry/audits/central_bank_mvp_audit_view.json",
+                    "registry/audits/central_bank_mvp_audit_view.md",
+                ),
             ),
         ]
     )

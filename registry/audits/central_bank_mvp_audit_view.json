@@ -1,0 +1,278 @@
+{
+  "broken_edges": [],
+  "complete": true,
+  "edge_count": 15,
+  "edges": [
+    {
+      "relationship": "source_ids",
+      "source_id": "CLAIM-CB-20260605-0001",
+      "source_type": "claim",
+      "target_id": "SRC-CB-20260605-0001",
+      "target_type": "source"
+    },
+    {
+      "relationship": "claim_ids",
+      "source_id": "HYP-CB-20260605-0001",
+      "source_type": "hypothesis",
+      "target_id": "CLAIM-CB-20260605-0001",
+      "target_type": "claim"
+    },
+    {
+      "relationship": "claim_ids",
+      "source_id": "macro.central_bank.soft.001",
+      "source_type": "rule",
+      "target_id": "CLAIM-CB-20260605-0001",
+      "target_type": "claim"
+    },
+    {
+      "relationship": "hypothesis_ids",
+      "source_id": "macro.central_bank.soft.001",
+      "source_type": "rule",
+      "target_id": "HYP-CB-20260605-0001",
+      "target_type": "hypothesis"
+    },
+    {
+      "relationship": "parameter_paths",
+      "source_id": "macro.central_bank.soft.001",
+      "source_type": "rule",
+      "target_id": "/rule_packs/macro.central_bank.liquidity.v1/rules/macro.central_bank.soft.001/learnable_parameters/net_injection_window_days/value",
+      "target_type": "parameter_path"
+    },
+    {
+      "relationship": "claim_ids",
+      "source_id": "/rule_packs/macro.central_bank.liquidity.v1/rules/macro.central_bank.soft.001/learnable_parameters/net_injection_window_days/value",
+      "source_type": "parameter_path",
+      "target_id": "CLAIM-CB-20260605-0001",
+      "target_type": "claim"
+    },
+    {
+      "relationship": "hypothesis_ids",
+      "source_id": "/rule_packs/macro.central_bank.liquidity.v1/rules/macro.central_bank.soft.001/learnable_parameters/net_injection_window_days/value",
+      "source_type": "parameter_path",
+      "target_id": "HYP-CB-20260605-0001",
+      "target_type": "hypothesis"
+    },
+    {
+      "relationship": "rule_ids",
+      "source_id": "/rule_packs/macro.central_bank.liquidity.v1/rules/macro.central_bank.soft.001/learnable_parameters/net_injection_window_days/value",
+      "source_type": "parameter_path",
+      "target_id": "macro.central_bank.soft.001",
+      "target_type": "rule"
+    },
+    {
+      "relationship": "rule_ids",
+      "source_id": "EXP-CB-20260605-0001",
+      "source_type": "experiment",
+      "target_id": "macro.central_bank.soft.001",
+      "target_type": "rule"
+    },
+    {
+      "relationship": "parameter_paths",
+      "source_id": "EXP-CB-20260605-0001",
+      "source_type": "experiment",
+      "target_id": "/rule_packs/macro.central_bank.liquidity.v1/rules/macro.central_bank.soft.001/learnable_parameters/net_injection_window_days/value",
+      "target_type": "parameter_path"
+    },
+    {
+      "relationship": "parameter_paths",
+      "source_id": "PATCH-CB-20260605-0001",
+      "source_type": "patch",
+      "target_id": "/rule_packs/macro.central_bank.liquidity.v1/rules/macro.central_bank.soft.001/learnable_parameters/net_injection_window_days/value",
+      "target_type": "parameter_path"
+    },
+    {
+      "relationship": "experiment_ids",
+      "source_id": "PATCH-CB-20260605-0001",
+      "source_type": "patch",
+      "target_id": "EXP-CB-20260605-0001",
+      "target_type": "experiment"
+    },
+    {
+      "relationship": "claim_ids",
+      "source_id": "OUT-CB-20260605-0001",
+      "source_type": "agent_output",
+      "target_id": "CLAIM-CB-20260605-0001",
+      "target_type": "claim"
+    },
+    {
+      "relationship": "hypothesis_ids",
+      "source_id": "OUT-CB-20260605-0001",
+      "source_type": "agent_output",
+      "target_id": "HYP-CB-20260605-0001",
+      "target_type": "hypothesis"
+    },
+    {
+      "relationship": "rule_ids",
+      "source_id": "OUT-CB-20260605-0001",
+      "source_type": "agent_output",
+      "target_id": "macro.central_bank.soft.001",
+      "target_type": "rule"
+    }
+  ],
+  "missing_references": [],
+  "node_count": 8,
+  "nodes": [
+    {
+      "links": {},
+      "ref_id": "SRC-CB-20260605-0001",
+      "ref_type": "source",
+      "registry_path": "registry/sources/central_bank_sources.jsonl",
+      "summary": {
+        "license_status": "approved",
+        "point_in_time_available": true,
+        "publish_date": "2026-06-05",
+        "source_hash": "sha256:025df5e75c9c922e9a3060a91f688402ebe1af46451d84f14a33db13995e02d3",
+        "source_type": "official_pboc_policy_notice_seed"
+      }
+    },
+    {
+      "links": {
+        "source_ids": [
+          "SRC-CB-20260605-0001"
+        ]
+      },
+      "ref_id": "CLAIM-CB-20260605-0001",
+      "ref_type": "claim",
+      "registry_path": "registry/claims/central_bank_claims.jsonl",
+      "summary": {
+        "cause_variables": [
+          "pboc_net_injection"
+        ],
+        "claim_type": "causal_mechanism",
+        "direction": "positive",
+        "target_variables": [
+          "short_term_liquidity_pressure"
+        ],
+        "verifier_status": "passed"
+      }
+    },
+    {
+      "links": {
+        "claim_ids": [
+          "CLAIM-CB-20260605-0001"
+        ]
+      },
+      "ref_id": "HYP-CB-20260605-0001",
+      "ref_type": "hypothesis",
+      "registry_path": "registry/hypotheses/central_bank_hypotheses.jsonl",
+      "summary": {
+        "hypothesis_type": "market_transmission",
+        "requires_validation": true,
+        "status": "candidate"
+      }
+    },
+    {
+      "links": {
+        "claim_ids": [
+          "CLAIM-CB-20260605-0001"
+        ],
+        "hypothesis_ids": [
+          "HYP-CB-20260605-0001"
+        ],
+        "parameter_paths": [
+          "/rule_packs/macro.central_bank.liquidity.v1/rules/macro.central_bank.soft.001/learnable_parameters/net_injection_window_days/value"
+        ]
+      },
+      "ref_id": "macro.central_bank.soft.001",
+      "ref_type": "rule",
+      "registry_path": "registry/rule_packs/macro.central_bank.liquidity.v1.json",
+      "summary": {
+        "rule_pack_id": "macro.central_bank.liquidity.v1",
+        "rule_type": "soft",
+        "status": "candidate",
+        "validation_status": "pending"
+      }
+    },
+    {
+      "links": {
+        "claim_ids": [
+          "CLAIM-CB-20260605-0001"
+        ],
+        "hypothesis_ids": [
+          "HYP-CB-20260605-0001"
+        ],
+        "rule_ids": [
+          "macro.central_bank.soft.001"
+        ]
+      },
+      "ref_id": "/rule_packs/macro.central_bank.liquidity.v1/rules/macro.central_bank.soft.001/learnable_parameters/net_injection_window_days/value",
+      "ref_type": "parameter_path",
+      "registry_path": "registry/rule_packs/macro.central_bank.liquidity.v1.json",
+      "summary": {
+        "candidate_values": [
+          5,
+          7,
+          10,
+          20
+        ],
+        "current_value": 7,
+        "parameter_path": "/rule_packs/macro.central_bank.liquidity.v1/rules/macro.central_bank.soft.001/learnable_parameters/net_injection_window_days/value",
+        "parameter_proposal_id": "PARAM-CB-20260605-0001",
+        "rule_pack_id": "macro.central_bank.liquidity.v1",
+        "status": "candidate"
+      }
+    },
+    {
+      "links": {
+        "parameter_paths": [
+          "/rule_packs/macro.central_bank.liquidity.v1/rules/macro.central_bank.soft.001/learnable_parameters/net_injection_window_days/value"
+        ],
+        "rule_ids": [
+          "macro.central_bank.soft.001"
+        ]
+      },
+      "ref_id": "EXP-CB-20260605-0001",
+      "ref_type": "experiment",
+      "registry_path": "registry/experiments/central_bank_validation_experiment_v2.json",
+      "summary": {
+        "adjusted_q_value": 0.012,
+        "effective_n": 80,
+        "experiment_family_id": "FAM-CB-LIQUIDITY-2026Q2",
+        "pre_registered": true
+      }
+    },
+    {
+      "links": {
+        "experiment_ids": [
+          "EXP-CB-20260605-0001"
+        ],
+        "parameter_paths": [
+          "/rule_packs/macro.central_bank.liquidity.v1/rules/macro.central_bank.soft.001/learnable_parameters/net_injection_window_days/value"
+        ]
+      },
+      "ref_id": "PATCH-CB-20260605-0001",
+      "ref_type": "patch",
+      "registry_path": "registry/patches/central_bank_paper_trading_patch.json",
+      "summary": {
+        "new_value": 10,
+        "old_value": 7,
+        "operation": "replace",
+        "promotion_state": "paper_trading"
+      }
+    },
+    {
+      "links": {
+        "claim_ids": [
+          "CLAIM-CB-20260605-0001"
+        ],
+        "hypothesis_ids": [
+          "HYP-CB-20260605-0001"
+        ],
+        "rule_ids": [
+          "macro.central_bank.soft.001"
+        ]
+      },
+      "ref_id": "OUT-CB-20260605-0001",
+      "ref_type": "agent_output",
+      "registry_path": "registry/runtime_outputs/macro.central_bank.20260605.json",
+      "summary": {
+        "actionability": "watchlist_or_tiny_tilt",
+        "confidence": 0.64,
+        "progress_status": "completed",
+        "target_signal": "risk_appetite"
+      }
+    }
+  ],
+  "trace_id": "central-bank-mvp",
+  "trace_path": "registry/audits/central_bank_mvp_audit_trace.json"
+}

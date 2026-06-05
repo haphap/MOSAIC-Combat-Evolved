@@ -33,6 +33,8 @@
 - Prompt asset validation failures: 0
 - Policy doc validation failures: 0
 - Prompt mutation validation accepted: True
+- Audit trace complete: True
+- Audit trace edges: 15
 
 ## Blockers
 

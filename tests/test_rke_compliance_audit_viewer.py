@@ -7,11 +7,13 @@ from mosaic.rke import (
     SourceLicenseReviewRecord,
     apply_source_license_reviews,
     build_audit_view,
+    build_audit_trace_view,
     build_registry_index,
     build_source_license_review_template,
     evaluate_source_license,
     filter_sources_for_runtime,
     write_central_bank_mvp_registry,
+    write_audit_trace_view,
     write_source_license_review_template,
 )
 
@@ -128,3 +130,67 @@ def test_audit_viewer_resolves_central_bank_registry_chain(tmp_path: Path):
         "patch",
         "agent_output",
     }
+
+
+def test_audit_trace_view_resolves_required_edges(tmp_path: Path):
+    write_central_bank_mvp_registry(tmp_path)
+
+    view = build_audit_trace_view(tmp_path)
+
+    assert view.complete
+    assert view.node_count == 8
+    assert view.edge_count >= 12
+    assert view.missing_references == ()
+    assert view.broken_edges == ()
+    assert {node.ref_type for node in view.nodes} == {
+        "source",
+        "claim",
+        "hypothesis",
+        "rule",
+        "parameter_path",
+        "experiment",
+        "patch",
+        "agent_output",
+    }
+    assert ("claim", "source") in {(edge.source_type, edge.target_type) for edge in view.edges}
+    assert ("agent_output", "rule") in {
+        (edge.source_type, edge.target_type) for edge in view.edges
+    }
+
+
+def test_audit_trace_view_reports_missing_reference(tmp_path: Path):
+    outputs = write_central_bank_mvp_registry(tmp_path)
+    trace_path = Path(outputs["audit"])
+    trace = json.loads(trace_path.read_text(encoding="utf-8"))
+    trace["claim_ids"] = ["CLAIM-CB-MISSING"]
+    trace_path.write_text(json.dumps(trace, ensure_ascii=False), encoding="utf-8")
+
+    view = build_audit_trace_view(tmp_path)
+
+    assert not view.complete
+    assert view.missing_references == ("claim_ids:CLAIM-CB-MISSING",)
+
+
+def test_audit_trace_view_reports_broken_required_edge(tmp_path: Path):
+    outputs = write_central_bank_mvp_registry(tmp_path)
+    trace_path = Path(outputs["audit"])
+    trace = json.loads(trace_path.read_text(encoding="utf-8"))
+    trace["source_ids"] = []
+    trace_path.write_text(json.dumps(trace, ensure_ascii=False), encoding="utf-8")
+
+    view = build_audit_trace_view(tmp_path)
+
+    assert not view.complete
+    assert any("claim:CLAIM-CB-20260605-0001 missing trace-linked source claim" in item for item in view.broken_edges)
+
+
+def test_write_audit_trace_view_outputs_json_and_markdown(tmp_path: Path):
+    write_central_bank_mvp_registry(tmp_path)
+
+    paths = write_audit_trace_view(tmp_path)
+    payload = json.loads(Path(paths["json"]).read_text(encoding="utf-8"))
+    markdown = Path(paths["markdown"]).read_text(encoding="utf-8")
+
+    assert payload["complete"] is True
+    assert payload["edge_count"] >= 12
+    assert markdown.startswith("# RKE Audit Trace View")

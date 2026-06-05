@@ -7,7 +7,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Mapping
 
-from .audit_viewer import build_audit_view, build_registry_index
+from .audit_viewer import build_audit_trace_view
 from .central_bank_mvp import CompletionAudit, CompletionCriterion
 from .compliance import apply_source_license_reviews, evaluate_source_license
 from .phase_minus1 import evaluate_gold_set_reviews, load_jsonl
@@ -167,14 +167,11 @@ def _audit_trace_gate(root: Path) -> tuple[bool, str, str]:
     trace = _optional_json(root / "registry/audits/central_bank_mvp_audit_trace.json")
     if trace is None:
         return False, "audit trace missing", "audit trace file missing"
-    view = build_audit_view(
-        trace,
-        registry_index=build_registry_index(root),
-        trace_id="central-bank-mvp",
-    )
+    view = build_audit_trace_view(root, trace_id="central-bank-mvp")
     if view.complete:
-        return True, f"{len(view.references)} registry references resolved", ""
-    return False, f"{len(view.references)} registry references resolved", "; ".join(view.missing_references)
+        return True, f"{view.node_count} audit nodes and {view.edge_count} provenance edges resolved", ""
+    blockers = tuple(view.missing_references) + tuple(view.broken_edges)
+    return False, f"{view.node_count} audit nodes and {view.edge_count} provenance edges resolved", "; ".join(blockers)
 
 
 def audit_master_plan_completion(root: str | Path = ".") -> CompletionAudit:

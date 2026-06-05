@@ -149,7 +149,9 @@
     {
       "blocker": "",
       "evidence_paths": [
-        "registry/audits/central_bank_mvp_audit_trace.json"
+        "registry/audits/central_bank_mvp_audit_trace.json",
+        "registry/audits/central_bank_mvp_audit_view.json",
+        "registry/audits/central_bank_mvp_audit_view.md"
       ],
       "requirement": "Audit viewer traces source to claim to hypothesis to rule to parameter to experiment to patch to agent output.",
       "section_id": "Audit",

@@ -64,6 +64,22 @@ def test_rke_cli_master_plan_status_writes_coverage(tmp_path: Path, capsys):
     assert (tmp_path / "registry/audits/rke_master_plan_coverage_report.json").exists()
 
 
+def test_rke_cli_audit_view_writes_trace_view(tmp_path: Path, capsys):
+    _copy_registry(tmp_path)
+
+    code = main(("audit-view", "--root", str(tmp_path)))
+    output = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert output["complete"] is True
+    assert output["node_count"] == 8
+    assert output["edge_count"] >= 12
+    assert output["missing_references"] == []
+    assert output["broken_edges"] == []
+    assert (tmp_path / "registry/audits/central_bank_mvp_audit_view.json").exists()
+    assert (tmp_path / "registry/audits/central_bank_mvp_audit_view.md").exists()
+
+
 def test_rke_cli_refresh_preserves_reviews(tmp_path: Path, capsys):
     _copy_registry(tmp_path)
     gold_review = tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"

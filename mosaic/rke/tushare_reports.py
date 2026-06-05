@@ -18,6 +18,7 @@ from typing import Any, Iterable, Literal, Mapping, Sequence
 
 from mosaic.dataflows.tushare import _RESEARCH_REPORT_FIELDS, _get_pro_client
 
+from .audit_viewer import write_audit_trace_view
 from .completion_auditor import write_completion_audit
 from .compliance import write_source_license_review_template
 from .claim_vocabulary import write_claim_variable_validation_report, write_claim_variable_vocabulary
@@ -48,6 +49,7 @@ from .validation_hardening import (
 )
 
 ReportKind = Literal["stock", "industry"]
+TUSHARE_RESEARCH_REPORT_PAGE_SIZE = 1000
 
 
 def _utc_now() -> str:
@@ -170,6 +172,42 @@ def _df_to_records(df: Any) -> list[dict[str, Any]]:
     return list(df.to_dict("records"))
 
 
+def _fetch_research_report_pages(
+    client: Any,
+    *,
+    max_reports_per_query: int,
+    **params: Any,
+) -> list[dict[str, Any]]:
+    """Fetch Tushare research_report pages until the local cap or exhaustion.
+
+    The endpoint documents larger row limits, but live calls can still return a
+    fixed 1000-row page. Explicit offset paging prevents silent truncation when
+    a date window has more than one page of reports.
+    """
+    if max_reports_per_query <= 0:
+        raise ValueError("max_reports_per_query must be positive")
+
+    page_size = min(max_reports_per_query, TUSHARE_RESEARCH_REPORT_PAGE_SIZE)
+    records: list[dict[str, Any]] = []
+    offset = 0
+    while len(records) < max_reports_per_query:
+        page = _df_to_records(
+            client.research_report(
+                **params,
+                limit=page_size,
+                offset=offset,
+            )
+        )
+        if not page:
+            break
+        remaining = max_reports_per_query - len(records)
+        records.extend(page[:remaining])
+        if len(page) < page_size:
+            break
+        offset += page_size
+    return records
+
+
 def _chunked(values: Sequence[str], size: int) -> list[tuple[str, ...]]:
     if size <= 0:
         raise ValueError("stock_query_batch_size must be positive")
@@ -215,14 +253,14 @@ def _fetch_stock_batch_records(
     batch_key = ",".join(stock_batch)
     records: list[dict[str, Any]] = []
     try:
-        records = _df_to_records(
-            client.research_report(
-                ts_code=batch_key,
-                start_date=start_api,
-                end_date=end_api,
-                report_type="个股研报",
-                fields=_RESEARCH_REPORT_FIELDS,
-            )
+        records = _fetch_research_report_pages(
+            client,
+            ts_code=batch_key,
+            start_date=start_api,
+            end_date=end_api,
+            report_type="个股研报",
+            fields=_RESEARCH_REPORT_FIELDS,
+            max_reports_per_query=max_reports_per_query,
         )
     except Exception:
         if len(stock_batch) == 1:
@@ -237,15 +275,37 @@ def _fetch_stock_batch_records(
     # empty.
     fallback_records: list[dict[str, Any]] = []
     for ts_code in stock_batch:
-        df = client.research_report(
-            ts_code=ts_code,
-            start_date=start_api,
-            end_date=end_api,
-            report_type="个股研报",
-            fields=_RESEARCH_REPORT_FIELDS,
+        fallback_records.extend(
+            _fetch_research_report_pages(
+                client,
+                ts_code=ts_code,
+                start_date=start_api,
+                end_date=end_api,
+                report_type="个股研报",
+                fields=_RESEARCH_REPORT_FIELDS,
+                max_reports_per_query=max_reports_per_query,
+            )
         )
-        fallback_records.extend(_df_to_records(df)[:max_reports_per_query])
-    return fallback_records
+    return fallback_records[:max_reports_per_query]
+
+
+def _fetch_industry_records(
+    client: Any,
+    industry: str,
+    *,
+    start_api: str,
+    end_api: str,
+    max_reports_per_query: int,
+) -> list[dict[str, Any]]:
+    return _fetch_research_report_pages(
+        client,
+        ind_name=industry,
+        start_date=start_api,
+        end_date=end_api,
+        report_type="行业研报",
+        fields=_RESEARCH_REPORT_FIELDS,
+        max_reports_per_query=max_reports_per_query,
+    )
 
 
 def _fetch_report_type_records(
@@ -256,13 +316,14 @@ def _fetch_report_type_records(
     end_api: str,
     max_reports_per_query: int,
 ) -> list[dict[str, Any]]:
-    df = client.research_report(
+    return _fetch_research_report_pages(
+        client,
         start_date=start_api,
         end_date=end_api,
         report_type=report_type,
         fields=_RESEARCH_REPORT_FIELDS,
+        max_reports_per_query=max_reports_per_query,
     )
-    return _df_to_records(df)[:max_reports_per_query]
 
 
 def fetch_tushare_research_reports(
@@ -329,15 +390,14 @@ def fetch_tushare_research_reports(
             )
 
     for industry in industry_keywords:
-        df = client.research_report(
-            ind_name=industry,
-            start_date=start_api,
-            end_date=end_api,
-            report_type="行业研报",
-            fields=_RESEARCH_REPORT_FIELDS,
+        records = _fetch_industry_records(
+            client,
+            industry,
+            start_api=start_api,
+            end_api=end_api,
+            max_reports_per_query=max_reports_per_query,
         )
-        records = _df_to_records(df)
-        for row in records[:max_reports_per_query]:
+        for row in records:
             reports.append(
                 normalize_research_report_row(
                     row,
@@ -605,6 +665,7 @@ def refresh_tushare_research_report_registry(
     prompt_asset_summary_result = write_prompt_asset_validation_report(root_path)
     policy_doc_summary_result = write_policy_doc_validation_report(root_path)
     source_text_redaction_result = write_source_text_redaction_report(root_path)
+    audit_trace_view_result = write_audit_trace_view(root_path)
     completion_result = write_completion_audit(root_path)
     promotion_gate_result = write_production_promotion_gate_report(root_path)
     master_plan_coverage_result = write_master_plan_coverage_report(root_path)
@@ -630,6 +691,8 @@ def refresh_tushare_research_report_registry(
     outputs["prompt_asset_validation_report"] = str(prompt_asset_summary_result["path"])
     outputs["policy_doc_validation_report"] = str(policy_doc_summary_result["path"])
     outputs["source_text_redaction_report"] = str(source_text_redaction_result["path"])
+    outputs["audit_trace_view.json"] = audit_trace_view_result["json"]
+    outputs["audit_trace_view.markdown"] = audit_trace_view_result["markdown"]
     outputs["completion_audit"] = str(completion_result["path"])
     outputs["production_promotion_gate"] = str(promotion_gate_result["path"])
     outputs["master_plan_coverage_report"] = str(master_plan_coverage_result["path"])

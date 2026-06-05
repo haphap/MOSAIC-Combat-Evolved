@@ -81,7 +81,7 @@
       "blocker": "",
       "criterion_id": "C12",
       "description": "Audit viewer trace covers source to agent output.",
-      "evidence": "8 registry references resolved",
+      "evidence": "8 audit nodes and 15 provenance edges resolved",
       "passed": true
     }
   ]

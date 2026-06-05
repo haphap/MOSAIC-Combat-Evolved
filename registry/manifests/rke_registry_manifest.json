@@ -1,5 +1,5 @@
 {
-  "artifact_count": 63,
+  "artifact_count": 65,
   "artifacts": [
     {
       "bytes": 539,
@@ -7,14 +7,24 @@
       "sha256": "sha256:96bffa7532572b41c0652258621869532e6a99a5bfeb54238a15b8918d1bbfdb"
     },
     {
-      "bytes": 3023,
-      "path": "registry/audits/rke_completion_audit.json",
-      "sha256": "sha256:69e42949346778cb662f6dc8b8fe734387fa13d7a13683dde5439385699def49"
+      "bytes": 8912,
+      "path": "registry/audits/central_bank_mvp_audit_view.json",
+      "sha256": "sha256:307bd36d4758590d09f78b7d94b451735b6922b3ff1d66ea74fb68ac2ac97ff2"
     },
     {
-      "bytes": 6825,
+      "bytes": 4224,
+      "path": "registry/audits/central_bank_mvp_audit_view.md",
+      "sha256": "sha256:e1f5145d4656f58272d21b0b0f9b6eb88563d1f5096a16f59216b918a61eefec"
+    },
+    {
+      "bytes": 3039,
+      "path": "registry/audits/rke_completion_audit.json",
+      "sha256": "sha256:6a124ff53a1c16f6e2969cbc2efa25e7b38a5ca3bd31e7d2b73e0bfa0e748a4d"
+    },
+    {
+      "bytes": 6943,
       "path": "registry/audits/rke_master_plan_coverage_report.json",
-      "sha256": "sha256:c00586dd9c2a68cd2405bebdd9f9d1102c78c0be51cadae7dbe3946b407ce8ea"
+      "sha256": "sha256:a7d21e97e2c3a840fd3084712678dc9d9c1146ee768ca3ecca3f4f1c8566ee00"
     },
     {
       "bytes": 752,
@@ -57,14 +67,14 @@
       "sha256": "sha256:b07a0175603d46122f147d6b2e9de7ff96df4b3dacbee21f631f20c2a7118603"
     },
     {
-      "bytes": 6755,
+      "bytes": 6882,
       "path": "registry/dashboards/rke_dashboard.json",
-      "sha256": "sha256:c9dd4e359a7e9de2c0f2a3cadbf8bb42bde6b29a94146ff458aaa6567261f111"
+      "sha256": "sha256:2efb0b968c56c0e3e7e2b77deeeebf508424adfb9da3837e6054a484da9a83f3"
     },
     {
-      "bytes": 1422,
+      "bytes": 1475,
       "path": "registry/dashboards/rke_dashboard.md",
-      "sha256": "sha256:bc8c343efced3dfecc61c6acd56bbcaadb5e8962fd578656e6799efacf25a112"
+      "sha256": "sha256:18e332ff1766c031cbf0c3552db678fd13c3fe14eedf8d787dcb070bd7d139e4"
     },
     {
       "bytes": 1233,

@@ -28,6 +28,9 @@ def test_master_plan_coverage_reports_only_manual_blockers():
     assert set(blocked) == {"Phase-1B", "Compliance"}
     assert "manual gold-set review still required" in blocked["Phase-1B"].blocker
     assert "source license review still pending" in blocked["Compliance"].blocker
+    audit = next(record for record in report.records if record.section_id == "Audit")
+    assert "registry/audits/central_bank_mvp_audit_view.json" in audit.evidence_paths
+    assert "registry/audits/central_bank_mvp_audit_view.md" in audit.evidence_paths
 
 
 def test_master_plan_coverage_detects_missing_phase_artifact(tmp_path: Path):

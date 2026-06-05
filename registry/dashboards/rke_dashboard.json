@@ -1,8 +1,13 @@
 {
   "audit_trace": {
     "agent_output_count": 1,
+    "broken_edge_count": 0,
     "claim_count": 1,
+    "complete": true,
+    "edge_count": 15,
     "experiment_count": 1,
+    "missing_reference_count": 0,
+    "node_count": 8,
     "patch_count": 1,
     "rule_count": 1,
     "source_count": 1

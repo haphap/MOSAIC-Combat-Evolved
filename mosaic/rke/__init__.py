@@ -2,9 +2,15 @@
 
 from .audit_viewer import (
     AuditReference,
+    AuditRecord,
+    AuditTraceView,
     AuditView,
     build_audit_view,
+    build_audit_trace_view,
+    build_registry_audit_records,
     build_registry_index,
+    render_audit_trace_markdown,
+    write_audit_trace_view,
 )
 from .central_bank_mvp import (
     CentralBankMvpBundle,
@@ -342,9 +348,15 @@ from .workflows import (
 
 __all__ = [
     "AuditReference",
+    "AuditRecord",
+    "AuditTraceView",
     "AuditView",
     "build_audit_view",
+    "build_audit_trace_view",
+    "build_registry_audit_records",
     "build_registry_index",
+    "render_audit_trace_markdown",
+    "write_audit_trace_view",
     "CentralBankMvpBundle",
     "CompletionAudit",
     "CompletionCriterion",
