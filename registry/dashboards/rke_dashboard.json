@@ -133,7 +133,7 @@
   },
   "operator_readiness": {
     "accepted": true,
-    "check_count": 10,
+    "check_count": 11,
     "failure_count": 0
   },
   "paper_trading": {
@@ -228,7 +228,7 @@
   },
   "source_text_redaction": {
     "accepted": true,
-    "checked_path_count": 402,
+    "checked_path_count": 403,
     "failure_count": 0,
     "min_match_chars": 80,
     "skipped_allowed_path_count": 6,

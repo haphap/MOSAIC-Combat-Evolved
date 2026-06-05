@@ -13,6 +13,10 @@ from .manual_review_batches import (
     LICENSE_BATCH_IMPORT_TEMPLATE_PATH,
     build_manual_review_batch_status,
 )
+from .manual_review_import import (
+    GOLD_REVIEW_IMPORT_REPORT_PATH,
+    apply_gold_set_review_import,
+)
 from .license_policy_import import (
     DEFAULT_LICENSE_POLICY_IMPORT_PATH,
     LICENSE_POLICY_IMPORT_REPORT_PATH,
@@ -136,7 +140,11 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
     checks: list[OperatorReadinessCheck] = []
 
     missing, empty = validate_required_registry(root_path)
-    self_generated_paths = {OPERATOR_READINESS_REPORT_PATH, LICENSE_POLICY_IMPORT_REPORT_PATH}
+    self_generated_paths = {
+        OPERATOR_READINESS_REPORT_PATH,
+        GOLD_REVIEW_IMPORT_REPORT_PATH,
+        LICENSE_POLICY_IMPORT_REPORT_PATH,
+    }
     missing = tuple(path for path in missing if path not in self_generated_paths)
     empty = tuple(path for path in empty if path not in self_generated_paths)
     checks.append(
@@ -186,6 +194,31 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
 
     sparse_ok, sparse_evidence, sparse_blocker = _import_templates_are_sparse(root_path)
     checks.append(_check("manual_import_templates_are_sparse", sparse_ok, sparse_evidence, sparse_blocker))
+
+    blank_gold_full = apply_gold_set_review_import(
+        root_path,
+        GOLD_FULL_IMPORT_TEMPLATE_PATH,
+        dry_run=True,
+    )
+    checks.append(
+        _check(
+            "blank_full_gold_set_import_is_rejected",
+            not blank_gold_full.accepted
+            and blank_gold_full.dry_run
+            and blank_gold_full.input_rows == batch_status.gold_set.pending_rows
+            and blank_gold_full.applied_rows == 0
+            and blank_gold_full.rejected_rows == batch_status.gold_set.pending_rows
+            and f"{batch_status.gold_set.pending_rows} review rows failed validation"
+            in set(blank_gold_full.blockers),
+            (
+                f"accepted={blank_gold_full.accepted}, "
+                f"input_rows={blank_gold_full.input_rows}, "
+                f"applied_rows={blank_gold_full.applied_rows}, "
+                f"rejected_rows={blank_gold_full.rejected_rows}"
+            ),
+            "blank full gold-set import unexpectedly passes",
+        )
+    )
 
     lockbox_path = root_path / LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH
     lockbox_template = _read_json(lockbox_path) if lockbox_path.exists() else {}
@@ -299,6 +332,7 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
         OPERATOR_READINESS_REPORT_PATH,
         GOLD_BATCH_IMPORT_TEMPLATE_PATH,
         GOLD_FULL_IMPORT_TEMPLATE_PATH,
+        GOLD_REVIEW_IMPORT_REPORT_PATH,
         LICENSE_BATCH_IMPORT_TEMPLATE_PATH,
         SOURCE_LICENSE_POLICY_TEMPLATE_PATH,
         LICENSE_POLICY_IMPORT_REPORT_PATH,

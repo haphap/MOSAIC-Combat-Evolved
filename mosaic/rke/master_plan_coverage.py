@@ -157,6 +157,7 @@ def build_master_plan_coverage_report(root: str | Path = ".") -> MasterPlanCover
                     "registry/review_batches/manual_review_batch_status.json",
                     "registry/review_batches/gold_set_next_import_template.jsonl",
                     "registry/review_batches/gold_set_full_import_template.jsonl",
+                    "registry/gold_sets/tushare_research_reports.review_import_report.json",
                 ),
                 blocked_if_failed=True,
             ),

@@ -44,6 +44,7 @@ REQUIRED_REGISTRY_FILES = (
     "registry/gold_sets/tushare_research_reports.review_packet.md",
     "registry/gold_sets/tushare_research_reports.candidate_claims.jsonl",
     "registry/gold_sets/tushare_research_reports.candidate_claims.summary.json",
+    "registry/gold_sets/tushare_research_reports.review_import_report.json",
     "registry/gold_sets/tushare_research_reports.review_template.jsonl",
     "registry/handoffs/rke_operator_handoff.json",
     "registry/handoffs/rke_operator_handoff.md",
