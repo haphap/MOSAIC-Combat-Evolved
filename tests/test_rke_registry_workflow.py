@@ -63,6 +63,7 @@ def test_full_refresh_preserves_existing_review_templates(tmp_path: Path):
     assert "manual_review_batch_status" in result.outputs
     assert "manual_review_gold_set_import_template" in result.outputs
     assert "manual_review_source_license_import_template" in result.outputs
+    assert "production_promotion_gate" in result.outputs
     assert "registry_manifest" in result.outputs
 
 

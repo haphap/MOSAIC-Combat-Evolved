@@ -160,6 +160,20 @@ def test_rke_cli_source_text_status_writes_summary(tmp_path: Path, capsys):
     assert (tmp_path / "registry/compliance/source_text_redaction_report.json").exists()
 
 
+def test_rke_cli_promotion_status_writes_report(tmp_path: Path, capsys):
+    _copy_registry(tmp_path)
+
+    code = main(("promotion-status", "--root", str(tmp_path)))
+    output = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert output["paper_trading_allowed"] is True
+    assert output["staged_production_allowed"] is False
+    assert output["production_allowed"] is False
+    assert output["next_state"] == "paper_trading"
+    assert (tmp_path / "registry/promotion/rke_production_promotion_gate.json").exists()
+
+
 def test_rke_cli_review_batches_writes_next_import_templates(tmp_path: Path, capsys):
     _copy_registry(tmp_path)
 

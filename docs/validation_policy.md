@@ -63,6 +63,21 @@ Acceptance requires:
 
 Passing validation moves a rule to paper trading, not direct production.
 
+## Production Promotion Gate
+
+Run the promotion gate audit with:
+
+```bash
+mosaic-rke promotion-status --root .
+```
+
+The gate combines completion audit, manual gold-set status, source-license
+review, source-text redaction, production source validation, paper-trading
+readiness, production monitor state, rollback rule, and lockbox review into one
+decision. It must report `production_allowed = false` until staged gates and the
+one-time lockbox review pass. It is an audit artifact, not an automatic deploy
+command.
+
 Production eligibility also requires:
 
 - claim gold-set gate passed;

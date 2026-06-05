@@ -9,6 +9,8 @@
 - Production monitor state: production
 - Production monitor action: none
 - Lockbox result: not_opened
+- Promotion next state: paper_trading
+- Promotion production allowed: False
 - Validation ablations accepted: True
 - Validation statistical significance accepted: True
 - Source validation sandbox accepted: True

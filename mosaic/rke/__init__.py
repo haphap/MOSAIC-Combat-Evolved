@@ -241,6 +241,12 @@ from .prompt_assets import (
     render_prompt_markdown,
     write_prompt_evolution_registry,
 )
+from .promotion_gate import (
+    ProductionPromotionGateReport,
+    PromotionGateCriterion,
+    build_production_promotion_gate_report,
+    write_production_promotion_gate_report,
+)
 from .registry_manifest import (
     RegistryArtifact,
     RegistryManifest,
@@ -514,6 +520,10 @@ __all__ = [
     "RenderedPromptArtifact",
     "render_prompt_markdown",
     "write_prompt_evolution_registry",
+    "ProductionPromotionGateReport",
+    "PromotionGateCriterion",
+    "build_production_promotion_gate_report",
+    "write_production_promotion_gate_report",
     "RegistryArtifact",
     "RegistryManifest",
     "build_registry_manifest",

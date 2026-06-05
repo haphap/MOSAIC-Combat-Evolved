@@ -24,6 +24,11 @@ def test_dashboard_report_summarizes_completion_and_monitoring():
     assert report["paper_trading"]["ready"] is True
     assert report["lockbox"]["result"] == "not_opened"
     assert report["lockbox"]["production_allowed"] is False
+    assert report["promotion_gate"]["paper_trading_allowed"] is True
+    assert report["promotion_gate"]["staged_production_allowed"] is False
+    assert report["promotion_gate"]["production_allowed"] is False
+    assert report["promotion_gate"]["next_state"] == "paper_trading"
+    assert report["promotion_gate"]["blocker_count"] >= 3
     assert report["validation_hardening"]["ablation_accepted"] is True
     assert report["validation_hardening"]["horizon_metric_failures"] == []
     assert report["validation_hardening"]["statistical_significance_accepted"] is True
@@ -74,6 +79,8 @@ def test_dashboard_markdown_renders_blockers():
     assert "Broad rollout ready: false" in markdown
     assert "Master-plan coverage missing: 0" in markdown
     assert "Master-plan coverage blocked: 2" in markdown
+    assert "Promotion next state: paper_trading" in markdown
+    assert "Promotion production allowed: False" in markdown
     assert "Validation ablations accepted: True" in markdown
     assert "Validation statistical significance accepted: True" in markdown
     assert "Source validation sandbox accepted: True" in markdown

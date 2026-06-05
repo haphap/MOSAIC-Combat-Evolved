@@ -21,6 +21,8 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
     runtime = _read_json(root_path / "registry/runtime_outputs/macro.central_bank.20260605.json")
     lockbox_path = root_path / "registry/lockbox/central_bank_lockbox_review.json"
     lockbox = _read_json(lockbox_path) if lockbox_path.exists() else {}
+    promotion_gate_path = root_path / "registry/promotion/rke_production_promotion_gate.json"
+    promotion_gate = _read_json(promotion_gate_path) if promotion_gate_path.exists() else {}
     hardening_path = root_path / "registry/validation_hardening/central_bank_hardening_report.json"
     hardening = _read_json(hardening_path) if hardening_path.exists() else {}
     source_validation_path = root_path / "registry/source_checks/source_registry_validation_report.json"
@@ -115,6 +117,14 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
             "open_count": lockbox.get("open_count"),
             "production_allowed": lockbox.get("result") == "passed"
             and int(lockbox.get("open_count") or 0) <= 1,
+        },
+        "promotion_gate": {
+            "paper_trading_allowed": promotion_gate.get("paper_trading_allowed"),
+            "staged_production_allowed": promotion_gate.get("staged_production_allowed"),
+            "production_allowed": promotion_gate.get("production_allowed"),
+            "next_state": promotion_gate.get("next_state"),
+            "direct_production_forbidden": promotion_gate.get("direct_production_forbidden"),
+            "blocker_count": len(promotion_gate.get("blockers") or ()),
         },
         "validation_hardening": {
             "ablation_accepted": hardening.get("ablation_checks", {}).get("accepted"),
@@ -299,6 +309,8 @@ def render_dashboard_markdown(report: Mapping[str, Any]) -> str:
         f"- Production monitor state: {monitor.get('state')}",
         f"- Production monitor action: {monitor.get('action')}",
         f"- Lockbox result: {dict(report.get('lockbox') or {}).get('result')}",
+        f"- Promotion next state: {dict(report.get('promotion_gate') or {}).get('next_state')}",
+        f"- Promotion production allowed: {dict(report.get('promotion_gate') or {}).get('production_allowed')}",
         f"- Validation ablations accepted: {dict(report.get('validation_hardening') or {}).get('ablation_accepted')}",
         f"- Validation statistical significance accepted: {dict(report.get('validation_hardening') or {}).get('statistical_significance_accepted')}",
         f"- Source validation sandbox accepted: {dict(report.get('source_validation') or {}).get('accepted_for_sandbox')}",

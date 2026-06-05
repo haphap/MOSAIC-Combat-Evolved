@@ -38,6 +38,7 @@ REQUIRED_POLICY_DOC_MARKERS: Mapping[str, Sequence[str]] = {
         "Statistical Controls",
         "Cost-Aware Acceptance",
         "Promotion Boundary",
+        "mosaic-rke promotion-status",
     ),
     "docs/confidence_policy.md": (
         "Conservative Function",

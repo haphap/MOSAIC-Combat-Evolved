@@ -53,6 +53,7 @@ REQUIRED_REGISTRY_FILES = (
     "registry/patches/central_bank_paper_trading_patch.json",
     "registry/prompt_checks/prompt_asset_validation_report.json",
     "registry/prompt_ir/macro.central_bank.json",
+    "registry/promotion/rke_production_promotion_gate.json",
     "registry/rendered_prompts/macro.central_bank.rke.json",
     "registry/rendered_prompts/macro.central_bank.rke.md",
     "registry/rule_packs/macro.central_bank.liquidity.v1.json",

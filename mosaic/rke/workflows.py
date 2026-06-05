@@ -20,6 +20,7 @@ from .master_plan_coverage import write_master_plan_coverage_report
 from .phase_minus1 import load_jsonl, write_gold_set_review_template
 from .policy_doc_validation import write_policy_doc_validation_report
 from .prompt_asset_validation import write_prompt_asset_validation_report
+from .promotion_gate import write_production_promotion_gate_report
 from .registry_manifest import write_registry_manifest
 from .review_gates import write_gold_set_review_summary, write_source_license_review_summary
 from .schema_validation import write_schema_validation_report
@@ -88,6 +89,7 @@ def run_full_rke_refresh(
     policy_doc_summary = write_policy_doc_validation_report(root_path)
     source_text_redaction = write_source_text_redaction_report(root_path)
     audit_result = write_completion_audit(root_path)
+    promotion_gate = write_production_promotion_gate_report(root_path)
     master_plan_coverage = write_master_plan_coverage_report(root_path)
     dashboard_outputs = write_dashboard_reports(root_path)
     manifest_result = write_registry_manifest(root_path)
@@ -112,6 +114,7 @@ def run_full_rke_refresh(
     outputs["policy_doc_validation_report"] = str(policy_doc_summary["path"])
     outputs["source_text_redaction_report"] = str(source_text_redaction["path"])
     outputs["completion_audit"] = str(audit_result["path"])
+    outputs["production_promotion_gate"] = str(promotion_gate["path"])
     outputs["master_plan_coverage_report"] = str(master_plan_coverage["path"])
     outputs.update({f"dashboard.{key}": value for key, value in dashboard_outputs.items()})
     outputs["registry_manifest"] = str(manifest_result["path"])

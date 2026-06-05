@@ -40,6 +40,10 @@ from .prompt_asset_validation import (
     build_prompt_asset_validation_report,
     write_prompt_asset_validation_report,
 )
+from .promotion_gate import (
+    build_production_promotion_gate_report,
+    write_production_promotion_gate_report,
+)
 from .registry_manifest import (
     build_registry_manifest,
     validate_required_registry,
@@ -171,6 +175,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Write and print the validation-hardening and statistical-significance reports.",
     )
     validation_status.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
+
+    promotion_status = subparsers.add_parser(
+        "promotion-status",
+        help="Write and print the production-promotion gate report.",
+    )
+    promotion_status.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
 
     gold_status = subparsers.add_parser(
         "gold-set-status",
@@ -373,6 +383,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             }
         )
         return 0 if accepted else 2
+    if args.command == "promotion-status":
+        write_production_promotion_gate_report(root)
+        result = build_production_promotion_gate_report(root)
+        _print_json(asdict(result))
+        return 0 if result.paper_trading_allowed else 2
     if args.command == "gold-set-status":
         write_gold_set_review_summary(root)
         _print_json(asdict(summarize_gold_set_review(root)))

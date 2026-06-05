@@ -178,6 +178,7 @@ def _write_gold_downstream(root_path: Path) -> dict[str, str]:
     from .completion_auditor import write_completion_audit
     from .dashboard_reports import write_dashboard_reports
     from .manual_review_batches import write_manual_review_batches
+    from .promotion_gate import write_production_promotion_gate_report
     from .registry_manifest import write_registry_manifest
     from .review_gates import write_gold_set_review_summary
     from .source_text_redaction import write_source_text_redaction_report
@@ -189,6 +190,7 @@ def _write_gold_downstream(root_path: Path) -> dict[str, str]:
     outputs["manual_review_gold_set_import_template"] = review_batches["gold_set_import_template"]
     outputs["source_text_redaction"] = str(write_source_text_redaction_report(root_path)["path"])
     outputs["completion_audit"] = str(write_completion_audit(root_path)["path"])
+    outputs["production_promotion_gate"] = str(write_production_promotion_gate_report(root_path)["path"])
     outputs.update({f"dashboard.{key}": value for key, value in write_dashboard_reports(root_path).items()})
     outputs["registry_manifest"] = str(write_registry_manifest(root_path)["path"])
     return outputs
@@ -198,6 +200,7 @@ def _write_license_downstream(root_path: Path) -> dict[str, str]:
     from .completion_auditor import write_completion_audit
     from .dashboard_reports import write_dashboard_reports
     from .manual_review_batches import write_manual_review_batches
+    from .promotion_gate import write_production_promotion_gate_report
     from .registry_manifest import write_registry_manifest
     from .review_gates import write_source_license_review_summary
     from .source_registry_validation import write_source_registry_validation_report
@@ -211,6 +214,7 @@ def _write_license_downstream(root_path: Path) -> dict[str, str]:
     outputs["manual_review_source_license_import_template"] = review_batches["source_license_import_template"]
     outputs["source_text_redaction"] = str(write_source_text_redaction_report(root_path)["path"])
     outputs["completion_audit"] = str(write_completion_audit(root_path)["path"])
+    outputs["production_promotion_gate"] = str(write_production_promotion_gate_report(root_path)["path"])
     outputs.update({f"dashboard.{key}": value for key, value in write_dashboard_reports(root_path).items()})
     outputs["registry_manifest"] = str(write_registry_manifest(root_path)["path"])
     return outputs

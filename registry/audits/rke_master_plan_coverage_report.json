@@ -38,7 +38,8 @@
         "registry/evaluation/pre_registration/central_bank_liquidity_preregistration.json",
         "registry/evaluation/cost_model/cost_model_v1.json",
         "registry/evaluation/lockbox/lockbox_policy.json",
-        "registry/evaluation/overlap_correction/effective_n_overlap_policy.json"
+        "registry/evaluation/overlap_correction/effective_n_overlap_policy.json",
+        "registry/promotion/rke_production_promotion_gate.json"
       ],
       "requirement": "Experiment governance artifacts exist for baseline, preregistration, cost, lockbox, and overlap policy.",
       "section_id": "Phase-0",
@@ -83,7 +84,8 @@
         "registry/prompt_ir/macro.central_bank.json",
         "registry/runtime_inputs/macro.central_bank.20260605.json",
         "registry/runtime_outputs/macro.central_bank.20260605.json",
-        "registry/prompt_checks/prompt_asset_validation_report.json"
+        "registry/prompt_checks/prompt_asset_validation_report.json",
+        "registry/promotion/rke_production_promotion_gate.json"
       ],
       "requirement": "Runtime integration provides rule aggregation, evidence binding, progress event, and downstream handoff.",
       "section_id": "Phase-3",

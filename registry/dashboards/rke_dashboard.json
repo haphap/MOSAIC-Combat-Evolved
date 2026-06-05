@@ -132,6 +132,14 @@
     "reasons": [],
     "state": "production"
   },
+  "promotion_gate": {
+    "blocker_count": 5,
+    "direct_production_forbidden": true,
+    "next_state": "paper_trading",
+    "paper_trading_allowed": true,
+    "production_allowed": false,
+    "staged_production_allowed": false
+  },
   "prompt_evolution": {
     "asset_validation_accepted": true,
     "asset_validation_failure_count": 0,
@@ -185,7 +193,7 @@
   },
   "source_text_redaction": {
     "accepted": true,
-    "checked_path_count": 382,
+    "checked_path_count": 384,
     "failure_count": 0,
     "min_match_chars": 80,
     "skipped_allowed_path_count": 6,

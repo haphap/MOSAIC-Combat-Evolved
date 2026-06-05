@@ -170,6 +170,7 @@ def build_master_plan_coverage_report(root: str | Path = ".") -> MasterPlanCover
                     "registry/evaluation/cost_model/cost_model_v1.json",
                     "registry/evaluation/lockbox/lockbox_policy.json",
                     "registry/evaluation/overlap_correction/effective_n_overlap_policy.json",
+                    "registry/promotion/rke_production_promotion_gate.json",
                 ),
             ),
             _record(
@@ -216,6 +217,7 @@ def build_master_plan_coverage_report(root: str | Path = ".") -> MasterPlanCover
                     "registry/runtime_inputs/macro.central_bank.20260605.json",
                     "registry/runtime_outputs/macro.central_bank.20260605.json",
                     "registry/prompt_checks/prompt_asset_validation_report.json",
+                    "registry/promotion/rke_production_promotion_gate.json",
                 ),
             ),
             _completion_record(

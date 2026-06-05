@@ -36,6 +36,7 @@ from .phase_minus1 import (
 )
 from .policy_doc_validation import write_policy_doc_validation_report
 from .prompt_asset_validation import write_prompt_asset_validation_report
+from .promotion_gate import write_production_promotion_gate_report
 from .registry_manifest import write_registry_manifest
 from .review_gates import write_gold_set_review_summary, write_source_license_review_summary
 from .schema_validation import write_schema_validation_report
@@ -468,6 +469,7 @@ def refresh_tushare_research_report_registry(
     policy_doc_summary_result = write_policy_doc_validation_report(root_path)
     source_text_redaction_result = write_source_text_redaction_report(root_path)
     completion_result = write_completion_audit(root_path)
+    promotion_gate_result = write_production_promotion_gate_report(root_path)
     master_plan_coverage_result = write_master_plan_coverage_report(root_path)
     dashboard_result = write_dashboard_reports(root_path)
     registry_manifest_result = write_registry_manifest(root_path)
@@ -492,6 +494,7 @@ def refresh_tushare_research_report_registry(
     outputs["policy_doc_validation_report"] = str(policy_doc_summary_result["path"])
     outputs["source_text_redaction_report"] = str(source_text_redaction_result["path"])
     outputs["completion_audit"] = str(completion_result["path"])
+    outputs["production_promotion_gate"] = str(promotion_gate_result["path"])
     outputs["master_plan_coverage_report"] = str(master_plan_coverage_result["path"])
     outputs.update({f"dashboard.{key}": value for key, value in dashboard_result.items()})
     outputs["registry_manifest"] = str(registry_manifest_result["path"])
