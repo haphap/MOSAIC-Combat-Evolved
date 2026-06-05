@@ -349,6 +349,8 @@ def test_refresh_tushare_research_report_registry_updates_dependent_artifacts(tm
     assert result.gold_review_template_updated
     assert result.license_review_template_updated
     assert result.manifest_valid
+    assert "operator_handoff.json" in result.outputs
+    assert "lockbox_review_import_template" in result.outputs
     assert len(source_rows) == 2
     assert len(license_rows) == 2
     assert len(gold_rows) == 20

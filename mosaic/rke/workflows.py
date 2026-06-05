@@ -17,6 +17,7 @@ from .gold_review_packet import write_gold_review_packet
 from .license_review_packet import write_license_review_packet
 from .macro_expansion import write_macro_expansion_registry
 from .manual_review_batches import write_manual_review_batches
+from .operator_handoff import write_operator_handoff
 from .master_plan_coverage import write_master_plan_coverage_report
 from .phase_minus1 import load_jsonl, write_gold_set_review_template
 from .policy_doc_validation import write_policy_doc_validation_report
@@ -92,6 +93,7 @@ def run_full_rke_refresh(
     audit_trace_view = write_audit_trace_view(root_path)
     audit_result = write_completion_audit(root_path)
     promotion_gate = write_production_promotion_gate_report(root_path)
+    operator_handoff = write_operator_handoff(root_path)
     master_plan_coverage = write_master_plan_coverage_report(root_path)
     dashboard_outputs = write_dashboard_reports(root_path)
     manifest_result = write_registry_manifest(root_path)
@@ -119,6 +121,9 @@ def run_full_rke_refresh(
     outputs["audit_trace_view.markdown"] = audit_trace_view["markdown"]
     outputs["completion_audit"] = str(audit_result["path"])
     outputs["production_promotion_gate"] = str(promotion_gate["path"])
+    outputs["operator_handoff.json"] = operator_handoff["json"]
+    outputs["operator_handoff.markdown"] = operator_handoff["markdown"]
+    outputs["lockbox_review_import_template"] = operator_handoff["lockbox_import_template"]
     outputs["master_plan_coverage_report"] = str(master_plan_coverage["path"])
     outputs.update({f"dashboard.{key}": value for key, value in dashboard_outputs.items()})
     outputs["registry_manifest"] = str(manifest_result["path"])

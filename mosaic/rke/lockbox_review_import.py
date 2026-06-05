@@ -125,11 +125,16 @@ def _row_failures(row: Mapping[str, Any], target: Mapping[str, Any]) -> list[str
 def _write_lockbox_downstream(root_path: Path) -> dict[str, str]:
     from .dashboard_reports import write_dashboard_reports
     from .master_plan_coverage import write_master_plan_coverage_report
+    from .operator_handoff import write_operator_handoff
     from .promotion_gate import write_production_promotion_gate_report
     from .registry_manifest import write_registry_manifest
 
     outputs: dict[str, str] = {}
     outputs["production_promotion_gate"] = str(write_production_promotion_gate_report(root_path)["path"])
+    operator_handoff = write_operator_handoff(root_path)
+    outputs["operator_handoff.json"] = operator_handoff["json"]
+    outputs["operator_handoff.markdown"] = operator_handoff["markdown"]
+    outputs["lockbox_review_import_template"] = operator_handoff["lockbox_import_template"]
     outputs.update({f"dashboard.{key}": value for key, value in write_dashboard_reports(root_path).items()})
     outputs["master_plan_coverage"] = str(write_master_plan_coverage_report(root_path)["path"])
     outputs["registry_manifest"] = str(write_registry_manifest(root_path)["path"])

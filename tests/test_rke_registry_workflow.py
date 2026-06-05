@@ -65,6 +65,9 @@ def test_full_refresh_preserves_existing_review_templates(tmp_path: Path):
     assert "manual_review_source_license_import_template" in result.outputs
     assert "audit_trace_view.json" in result.outputs
     assert "audit_trace_view.markdown" in result.outputs
+    assert "operator_handoff.json" in result.outputs
+    assert "operator_handoff.markdown" in result.outputs
+    assert "lockbox_review_import_template" in result.outputs
     assert "production_promotion_gate" in result.outputs
     assert "registry_manifest" in result.outputs
 

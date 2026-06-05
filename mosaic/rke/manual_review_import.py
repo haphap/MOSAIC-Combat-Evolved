@@ -178,6 +178,7 @@ def _write_gold_downstream(root_path: Path) -> dict[str, str]:
     from .completion_auditor import write_completion_audit
     from .dashboard_reports import write_dashboard_reports
     from .manual_review_batches import write_manual_review_batches
+    from .operator_handoff import write_operator_handoff
     from .promotion_gate import write_production_promotion_gate_report
     from .registry_manifest import write_registry_manifest
     from .review_gates import write_gold_set_review_summary
@@ -191,6 +192,10 @@ def _write_gold_downstream(root_path: Path) -> dict[str, str]:
     outputs["source_text_redaction"] = str(write_source_text_redaction_report(root_path)["path"])
     outputs["completion_audit"] = str(write_completion_audit(root_path)["path"])
     outputs["production_promotion_gate"] = str(write_production_promotion_gate_report(root_path)["path"])
+    operator_handoff = write_operator_handoff(root_path)
+    outputs["operator_handoff.json"] = operator_handoff["json"]
+    outputs["operator_handoff.markdown"] = operator_handoff["markdown"]
+    outputs["lockbox_review_import_template"] = operator_handoff["lockbox_import_template"]
     outputs.update({f"dashboard.{key}": value for key, value in write_dashboard_reports(root_path).items()})
     outputs["registry_manifest"] = str(write_registry_manifest(root_path)["path"])
     return outputs
@@ -200,6 +205,7 @@ def _write_license_downstream(root_path: Path) -> dict[str, str]:
     from .completion_auditor import write_completion_audit
     from .dashboard_reports import write_dashboard_reports
     from .manual_review_batches import write_manual_review_batches
+    from .operator_handoff import write_operator_handoff
     from .promotion_gate import write_production_promotion_gate_report
     from .registry_manifest import write_registry_manifest
     from .review_gates import write_source_license_review_summary
@@ -215,6 +221,10 @@ def _write_license_downstream(root_path: Path) -> dict[str, str]:
     outputs["source_text_redaction"] = str(write_source_text_redaction_report(root_path)["path"])
     outputs["completion_audit"] = str(write_completion_audit(root_path)["path"])
     outputs["production_promotion_gate"] = str(write_production_promotion_gate_report(root_path)["path"])
+    operator_handoff = write_operator_handoff(root_path)
+    outputs["operator_handoff.json"] = operator_handoff["json"]
+    outputs["operator_handoff.markdown"] = operator_handoff["markdown"]
+    outputs["lockbox_review_import_template"] = operator_handoff["lockbox_import_template"]
     outputs.update({f"dashboard.{key}": value for key, value in write_dashboard_reports(root_path).items()})
     outputs["registry_manifest"] = str(write_registry_manifest(root_path)["path"])
     return outputs

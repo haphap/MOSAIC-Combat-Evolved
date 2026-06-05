@@ -187,6 +187,15 @@ from .manual_review_batches import (
     build_manual_review_batch_status,
     write_manual_review_batches,
 )
+from .operator_handoff import (
+    OperatorGateHandoff,
+    OperatorHandoff,
+    build_lockbox_review_import_template,
+    build_operator_handoff,
+    render_operator_handoff_markdown,
+    write_lockbox_review_import_template,
+    write_operator_handoff,
+)
 from .master_plan_coverage import (
     MasterPlanCoverageRecord,
     MasterPlanCoverageReport,
@@ -494,6 +503,13 @@ __all__ = [
     "ReviewBatchExportSummary",
     "build_manual_review_batch_status",
     "write_manual_review_batches",
+    "OperatorGateHandoff",
+    "OperatorHandoff",
+    "build_lockbox_review_import_template",
+    "build_operator_handoff",
+    "render_operator_handoff_markdown",
+    "write_lockbox_review_import_template",
+    "write_operator_handoff",
     "MasterPlanCoverageRecord",
     "MasterPlanCoverageReport",
     "build_master_plan_coverage_report",

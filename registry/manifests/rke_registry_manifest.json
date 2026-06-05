@@ -1,5 +1,5 @@
 {
-  "artifact_count": 65,
+  "artifact_count": 68,
   "artifacts": [
     {
       "bytes": 539,
@@ -67,14 +67,14 @@
       "sha256": "sha256:b07a0175603d46122f147d6b2e9de7ff96df4b3dacbee21f631f20c2a7118603"
     },
     {
-      "bytes": 6882,
+      "bytes": 7149,
       "path": "registry/dashboards/rke_dashboard.json",
-      "sha256": "sha256:2efb0b968c56c0e3e7e2b77deeeebf508424adfb9da3837e6054a484da9a83f3"
+      "sha256": "sha256:b33fa5d8a7f167206d342a94f671a13d74c8337a83e1be42247f9a93070f0059"
     },
     {
-      "bytes": 1475,
+      "bytes": 1537,
       "path": "registry/dashboards/rke_dashboard.md",
-      "sha256": "sha256:18e332ff1766c031cbf0c3552db678fd13c3fe14eedf8d787dcb070bd7d139e4"
+      "sha256": "sha256:b682b7c2d2ad0bfb1a98b4f9e83f43d22e0366d701f090f627b23d3770d8179c"
     },
     {
       "bytes": 1233,
@@ -177,6 +177,16 @@
       "sha256": "sha256:06bc1225f9bf48e1e1284ca5d78f2048b4a620034df65f2225ea53757b6144d1"
     },
     {
+      "bytes": 4451,
+      "path": "registry/handoffs/rke_operator_handoff.json",
+      "sha256": "sha256:bcfda867452130ec89f68d73982f569074caa276b1ac29b90145cce6790b6b67"
+    },
+    {
+      "bytes": 2508,
+      "path": "registry/handoffs/rke_operator_handoff.md",
+      "sha256": "sha256:da1fdafde93df9aac74eb823461c0c6027b09ab1ec00e61f32385f4ef7391420"
+    },
+    {
       "bytes": 383,
       "path": "registry/hypotheses/central_bank_hypotheses.jsonl",
       "sha256": "sha256:4475a495b905020bd173f319492b98dccc96dcdd1afd658d98725bed4e3f67be"
@@ -245,6 +255,11 @@
       "bytes": 93379,
       "path": "registry/review_batches/gold_set_next_import_template.jsonl",
       "sha256": "sha256:ee188324907b9593313b1a6c05eacf13b988d3b0439db825319b767071080af5"
+    },
+    {
+      "bytes": 265,
+      "path": "registry/review_batches/lockbox_review_next_import_template.json",
+      "sha256": "sha256:eec248899fc3b6e78d659cd721374dad85957f0fb3d7916a4e823e5d97eab855"
     },
     {
       "bytes": 2574,

@@ -31,6 +31,7 @@ from .manual_review_batches import (
     build_manual_review_batch_status,
     write_manual_review_batches,
 )
+from .operator_handoff import build_operator_handoff, write_operator_handoff
 from .master_plan_coverage import (
     build_master_plan_coverage_report,
     write_master_plan_coverage_report,
@@ -275,6 +276,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=50,
         help="Number of pending source-license review rows to export. Defaults to 50.",
     )
+
+    operator_handoff = subparsers.add_parser(
+        "operator-handoff",
+        help="Write and print the remaining manual gate handoff package.",
+    )
+    operator_handoff.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
 
     fetch_reports = subparsers.add_parser(
         "fetch-tushare-reports",
@@ -552,6 +559,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         _print_json({"paths": paths, "status": asdict(status)})
         return 0 if status.ready_for_manual_review else 2
+    if args.command == "operator-handoff":
+        paths = write_operator_handoff(root)
+        handoff = build_operator_handoff(root)
+        _print_json({"paths": paths, "handoff": asdict(handoff)})
+        return 0 if handoff.ready_for_operator_review else 2
     if args.command == "fetch-tushare-reports":
         _load_env_file(args.env_file)
         result = refresh_tushare_research_report_registry(

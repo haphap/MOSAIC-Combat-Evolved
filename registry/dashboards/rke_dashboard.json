@@ -117,6 +117,18 @@
     "passed_count": 10,
     "ready_for_broad_rollout": false
   },
+  "operator_handoff": {
+    "gate_count": 3,
+    "next_state": "paper_trading",
+    "ready_for_operator_review": true,
+    "remaining_blocker_count": 5,
+    "run_order": [
+      "gold_set",
+      "source_license",
+      "promotion-status",
+      "lockbox"
+    ]
+  },
   "paper_trading": {
     "mean_calibration_error": 0.025,
     "mean_live_net_alpha_after_cost": 0.0055,

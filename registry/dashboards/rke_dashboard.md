@@ -27,6 +27,8 @@
 - License review packet pending sources: 9812
 - Next gold review batch rows: 50
 - Next license review batch rows: 50
+- Operator handoff ready: True
+- Operator handoff blockers: 5
 - Experiment governance family: FAM-CB-LIQUIDITY-2026Q2
 - Schema validation failures: 0
 - Claim variable validation failures: 0

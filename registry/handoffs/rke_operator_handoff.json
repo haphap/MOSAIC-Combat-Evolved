@@ -1,0 +1,103 @@
+{
+  "direct_production_forbidden": true,
+  "gates": [
+    {
+      "apply_command": "mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_next_import_template.jsonl",
+      "blocker": "manual gold-set review still required",
+      "dry_run_command": "mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_next_import_template.jsonl --dry-run",
+      "evidence": "0 / 500 gold-set claims reviewed",
+      "evidence_path": "registry/gold_sets/tushare_research_reports.review_summary.json",
+      "exported_rows": 50,
+      "gate_id": "PG02",
+      "import_template_path": "registry/review_batches/gold_set_next_import_template.jsonl",
+      "operator_note": "Review source-grounded claim labels before applying this batch.",
+      "passed": false,
+      "pending_rows": 500,
+      "required_manual_fields": [
+        "manual_claim_text",
+        "claim_correct",
+        "source_span_supports_claim",
+        "direction_correct",
+        "variable_mapping_correct",
+        "unsupported_field_false_grounded",
+        "reviewer",
+        "review_date",
+        "review_notes"
+      ],
+      "review_kind": "gold_set",
+      "review_packet_path": "registry/gold_sets/tushare_research_reports.review_packet.json"
+    },
+    {
+      "apply_command": "mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_next_import_template.jsonl",
+      "blocker": "source license review still pending or restricted",
+      "dry_run_command": "mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_next_import_template.jsonl --dry-run",
+      "evidence": "0 / 9812 sources approved for production runtime",
+      "evidence_path": "registry/compliance/tushare_license_review_summary.json",
+      "exported_rows": 50,
+      "gate_id": "PG03",
+      "import_template_path": "registry/review_batches/source_license_next_import_template.jsonl",
+      "operator_note": "Compliance approval is required before production runtime retrieval.",
+      "passed": false,
+      "pending_rows": 9812,
+      "required_manual_fields": [
+        "approved_for_derived_claim_storage",
+        "approved_for_production_runtime",
+        "reviewer",
+        "review_date",
+        "notes"
+      ],
+      "review_kind": "source_license",
+      "review_packet_path": "registry/compliance/tushare_license_review_packet.json"
+    },
+    {
+      "apply_command": "mosaic-rke apply-lockbox-review --root . --input registry/review_batches/lockbox_review_next_import_template.json",
+      "blocker": "lockbox has not been opened",
+      "dry_run_command": "mosaic-rke apply-lockbox-review --root . --input registry/review_batches/lockbox_review_next_import_template.json --dry-run",
+      "evidence": "lockbox_state=not_ready, next_state=paper_trading",
+      "evidence_path": "registry/lockbox/central_bank_lockbox_review.json",
+      "exported_rows": 1,
+      "gate_id": "PG09",
+      "import_template_path": "registry/review_batches/lockbox_review_next_import_template.json",
+      "operator_note": "Open lockbox only after manual gold and license gates pass.",
+      "passed": false,
+      "pending_rows": null,
+      "required_manual_fields": [
+        "opened_at",
+        "opened_by",
+        "open_count",
+        "result",
+        "parameter_search_after_open",
+        "rule_design_after_open",
+        "notes"
+      ],
+      "review_kind": "lockbox",
+      "review_packet_path": "registry/evaluation/lockbox/lockbox_policy.json"
+    }
+  ],
+  "generated_paths": [
+    "registry/review_batches/gold_set_next_import_template.jsonl",
+    "registry/review_batches/source_license_next_import_template.jsonl",
+    "registry/review_batches/lockbox_review_next_import_template.json",
+    "registry/handoffs/rke_operator_handoff.json",
+    "registry/handoffs/rke_operator_handoff.md"
+  ],
+  "handoff_id": "RKE-OPERATOR-HANDOFF-20260606",
+  "next_state": "paper_trading",
+  "paper_trading_allowed": true,
+  "production_allowed": false,
+  "ready_for_operator_review": true,
+  "remaining_blockers": [
+    "broad-rollout completion audit still has blockers",
+    "manual gold-set review still required",
+    "source license review still pending or restricted",
+    "source registry has production blockers",
+    "lockbox has not been opened"
+  ],
+  "run_order": [
+    "gold_set",
+    "source_license",
+    "promotion-status",
+    "lockbox"
+  ],
+  "staged_production_allowed": false
+}
