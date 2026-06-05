@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RKE Production Patch",
+  "type": "object",
+  "required": ["patch_id", "source_experiment_id", "operation", "target_path", "old_value", "new_value", "allowed_by_evolution_targets", "validation_summary", "rollback_rule"],
+  "properties": {
+    "patch_id": {"type": "string"},
+    "source_experiment_id": {"type": "string"},
+    "operation": {"enum": ["replace", "append", "tighten", "relax"]},
+    "target_path": {"type": "string", "pattern": "^/rule_packs/"},
+    "allowed_by_evolution_targets": {"type": "boolean"},
+    "validation_summary": {"type": "object"},
+    "rollback_rule": {"type": "object"}
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RKE Data Availability Matrix",
+  "type": "object",
+  "required": ["matrix_id", "proxies"],
+  "properties": {
+    "matrix_id": {"type": "string", "minLength": 1},
+    "proxies": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["metric_proxy", "data_source", "point_in_time_available", "history_start", "history_end", "vintage_handling", "allowed_for_validation", "allowed_for_production"],
+        "properties": {
+          "metric_proxy": {"type": "string"},
+          "data_source": {"type": "string"},
+          "point_in_time_available": {"type": "boolean"},
+          "history_start": {"type": "string"},
+          "history_end": {"type": "string"},
+          "vintage_handling": {"type": "string"},
+          "allowed_for_validation": {"type": "boolean"},
+          "allowed_for_production": {"type": "boolean"}
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": false
+}

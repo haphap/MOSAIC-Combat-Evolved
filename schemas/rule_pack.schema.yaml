@@ -1,0 +1,19 @@
+title: RKE Rule Pack
+required:
+  - rule_pack_id
+  - agent_id
+  - status
+  - rules
+rules_required:
+  - rule_id
+  - rule_type
+  - status
+  - source_claim_ids
+  - metric_proxies
+  - mechanism_chain
+  - horizon_days
+  - learnable_parameters
+  - validation_required
+canonical:
+  rule_pack_id: "<layer>.<agent>.<theme>.v<major>"
+  rule_id: "<layer>.<agent>.<rule_type>.<serial>"

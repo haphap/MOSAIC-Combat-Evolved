@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RKE Source Metadata",
+  "type": "object",
+  "required": ["source_id", "source_type", "publish_date", "ingest_time", "license_status", "point_in_time_available", "source_hash"],
+  "properties": {
+    "source_id": {"type": "string", "minLength": 1},
+    "source_type": {"type": "string", "minLength": 1},
+    "publish_date": {"type": "string", "minLength": 1},
+    "ingest_time": {"type": "string", "minLength": 1},
+    "license_status": {"enum": ["approved", "pending_review", "restricted", "prohibited"]},
+    "point_in_time_available": {"type": "boolean"},
+    "source_hash": {"type": "string", "pattern": "^sha256:"}
+  },
+  "additionalProperties": true
+}

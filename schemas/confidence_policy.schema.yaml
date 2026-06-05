@@ -1,0 +1,18 @@
+title: RKE Confidence Policy v1
+components:
+  - data_confidence
+  - research_confidence
+  - empirical_validation_confidence
+  - regime_match_confidence
+safe_default_function: "min(components), then min(confidence_cap)"
+research_only_without_current_data:
+  data_confidence_max: 0.50
+  final_confidence_max: 0.50
+  actionability_allowed:
+    - no_trade
+    - monitor_only
+thresholds:
+  no_tilt_lt: 0.55
+  watchlist_or_tiny_tilt_lt: 0.65
+  modest_tilt_lt: 0.75
+  risk_approval_required_gte: 0.75

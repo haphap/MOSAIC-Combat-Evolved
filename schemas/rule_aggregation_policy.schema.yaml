@@ -1,0 +1,15 @@
+title: RKE Rule Aggregation Policy v1
+caps:
+  single_rule_max_adjustment: 0.05
+  rule_group_max_adjustment: 0.10
+  global_research_adjustment_cap: 0.20
+  research_only_adjustment_cap: 0.05
+conflict_handling:
+  same_target_same_horizon_opposite_direction: conflict_object_required
+  correlated_rules: group_and_deduplicate
+  different_horizons: keep_separate
+validation_required:
+  - single_rule_ablation
+  - rule_group_ablation
+  - correlated_rule_dedup_test
+  - aggregation_level_backtest

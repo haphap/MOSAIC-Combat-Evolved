@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RKE Validation Experiment v2",
+  "type": "object",
+  "required": ["experiment_id", "experiment_family_id", "pre_registered", "frozen_spec_hash", "agent_id", "rule_ids", "parameter_paths", "candidate_values", "sampling_design", "multiple_testing_control", "acceptance_rule"],
+  "properties": {
+    "experiment_id": {"type": "string"},
+    "experiment_family_id": {"type": "string"},
+    "pre_registered": {"const": true},
+    "frozen_spec_hash": {"type": "string", "pattern": "^sha256:"},
+    "agent_id": {"type": "string"},
+    "rule_ids": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+    "parameter_paths": {"type": "array", "items": {"type": "string", "pattern": "^/rule_packs/"}, "minItems": 1},
+    "candidate_values": {"type": "array", "minItems": 1},
+    "sampling_design": {"type": "object"},
+    "multiple_testing_control": {"type": "object"},
+    "acceptance_rule": {"type": "object"}
+  },
+  "additionalProperties": true
+}

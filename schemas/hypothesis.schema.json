@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RKE Hypothesis",
+  "type": "object",
+  "required": ["hypothesis_id", "derived_from_claim_ids", "hypothesis_type", "statement", "not_source_grounded", "requires_validation", "proposed_metric_proxies", "status"],
+  "properties": {
+    "hypothesis_id": {"type": "string", "minLength": 1},
+    "derived_from_claim_ids": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+    "hypothesis_type": {"type": "string", "minLength": 1},
+    "statement": {"type": "string", "minLength": 1},
+    "not_source_grounded": {"const": true},
+    "requires_validation": {"const": true},
+    "proposed_metric_proxies": {"type": "array", "items": {"type": "string"}},
+    "status": {"enum": ["draft", "candidate", "validated", "rejected"]}
+  },
+  "additionalProperties": true
+}

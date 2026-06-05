@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RKE Source-Grounded Claim",
+  "type": "object",
+  "required": ["claim_id", "source_id", "source_span_id", "claim_type", "claim_text", "cause_variables", "target_variables", "direction", "verifier_status"],
+  "properties": {
+    "claim_id": {"type": "string", "minLength": 1},
+    "source_id": {"type": "string", "minLength": 1},
+    "source_span_id": {"type": "string", "minLength": 1},
+    "claim_type": {"type": "string", "minLength": 1},
+    "claim_text": {"type": "string", "minLength": 1},
+    "cause_variables": {"type": "array", "items": {"type": "string"}},
+    "target_variables": {"type": "array", "items": {"type": "string"}},
+    "direction": {"enum": ["positive", "negative", "neutral", "ambiguous"]},
+    "unsupported_fields": {"type": "array", "items": {"type": "string"}},
+    "verifier_status": {"enum": ["pending", "passed", "failed", "requires_review"]}
+  },
+  "additionalProperties": true
+}

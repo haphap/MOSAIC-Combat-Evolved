@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RKE Parameter Prior",
+  "type": "object",
+  "required": ["parameter_proposal_id", "agent_id", "target_path", "current_value", "candidate_values", "prior_source_claim_ids", "validation_required", "status"],
+  "properties": {
+    "parameter_proposal_id": {"type": "string"},
+    "agent_id": {"type": "string"},
+    "target_path": {"type": "string", "pattern": "^/rule_packs/"},
+    "candidate_values": {"type": "array", "minItems": 1},
+    "prior_source_claim_ids": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+    "prior_hypothesis_ids": {"type": "array", "items": {"type": "string"}},
+    "validation_required": {"const": true},
+    "status": {"enum": ["candidate", "validated", "rejected"]}
+  },
+  "additionalProperties": true
+}
