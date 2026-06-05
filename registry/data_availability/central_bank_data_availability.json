@@ -1,0 +1,39 @@
+{
+  "matrix_id": "DAM-CB-P0-2026Q2",
+  "proxies": {
+    "pboc_net_injection_7d": {
+      "allowed_for_production": true,
+      "allowed_for_validation": true,
+      "coverage_drift_risk": "low",
+      "data_source": "official_pboc_omo",
+      "history_end": "2026-06-05",
+      "history_start": "2015-01-01",
+      "known_biases": [],
+      "metric_proxy": "pboc_net_injection_7d",
+      "notes": "",
+      "point_in_time_available": true,
+      "publication_lag_days": null,
+      "restatement_risk": "low",
+      "survivorship_bias_risk": "none",
+      "timestamp_granularity": "daily",
+      "vintage_handling": "as_published"
+    },
+    "risk_appetite_proxy": {
+      "allowed_for_production": true,
+      "allowed_for_validation": true,
+      "coverage_drift_risk": "low",
+      "data_source": "qlib_pit_sector_style_returns",
+      "history_end": "2026-06-05",
+      "history_start": "2005-01-01",
+      "known_biases": [],
+      "metric_proxy": "risk_appetite_proxy",
+      "notes": "",
+      "point_in_time_available": true,
+      "publication_lag_days": null,
+      "restatement_risk": "low",
+      "survivorship_bias_risk": "low",
+      "timestamp_granularity": "daily",
+      "vintage_handling": "as_reported"
+    }
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "agent_id": "macro.central_bank",
+  "rule_pack_id": "macro.central_bank.liquidity.v1",
+  "rules": {
+    "macro.central_bank.soft.001": {
+      "horizon_days": [
+        20,
+        20
+      ],
+      "hypothesis_ids": [
+        "HYP-CB-20260605-0001"
+      ],
+      "learnable_parameters": {
+        "net_injection_window_days": {
+          "max": 20,
+          "min": 3,
+          "type": "integer",
+          "unit": "trading_day",
+          "value": 7
+        }
+      },
+      "mechanism_chain": [
+        "pboc_net_injection",
+        "short_term_liquidity_pressure",
+        "risk_appetite_proxy"
+      ],
+      "metric_proxies": [
+        "pboc_net_injection_7d",
+        "risk_appetite_proxy"
+      ],
+      "rule_id": "macro.central_bank.soft.001",
+      "rule_type": "soft",
+      "source_claim_ids": [
+        "CLAIM-CB-20260605-0001"
+      ],
+      "status": "candidate",
+      "validation_required": true,
+      "validation_status": "pending"
+    }
+  },
+  "status": "candidate"
+}

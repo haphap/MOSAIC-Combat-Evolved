@@ -1,0 +1,60 @@
+{
+  "agent_id": "macro.central_bank",
+  "cohort": "cohort_default",
+  "confidence_policy_ref": "confidence_policy.v1",
+  "evolution_targets": {
+    "allowed_paths": [
+      "/rule_packs/*/rules/*/learnable_parameters/*/value",
+      "/rule_packs/*/rules/*/confidence_policy/*",
+      "/rule_packs/*/rules/*/predicate/*"
+    ],
+    "forbidden_paths": [
+      "/role_contract",
+      "/tool_contract/required_tools",
+      "/output_schema_ref",
+      "/evidence_schema",
+      "/guardrails",
+      "/compliance_gates",
+      "/validation_acceptance_standards"
+    ]
+  },
+  "fallback_tools": [
+    {
+      "confidence_cap": 0.6,
+      "name": "liquidity_proxy_from_rates"
+    }
+  ],
+  "guardrails": [
+    "research_reports_are_prior_not_signal",
+    "research_only_no_trade",
+    "no_direct_production_promotion"
+  ],
+  "handoff_schema_ref": "downstream_handoff.v1",
+  "layer": "macro",
+  "output_schema_ref": "agent_output_schema.v2",
+  "progress_event_schema_ref": "progress_event.v1",
+  "prompt_version": "0.3.2-rke",
+  "required_tools": [
+    {
+      "freshness_max_days": 1,
+      "name": "get_pboc_ops",
+      "required": true
+    }
+  ],
+  "research_rule_pack_refs": [
+    "macro.central_bank.liquidity.v1"
+  ],
+  "role_contract": {
+    "may_decide": [
+      "liquidity_regime",
+      "policy_window_signal",
+      "confidence_cap"
+    ],
+    "must_not_decide": [
+      "final_portfolio_sizing",
+      "single_stock_recommendation"
+    ],
+    "responsibility": "Generate central-bank and liquidity regime signals."
+  },
+  "rule_aggregation_policy_ref": "rule_aggregation_policy.v1"
+}

@@ -1,0 +1,88 @@
+{
+  "criteria": [
+    {
+      "blocker": "",
+      "criterion_id": "C01",
+      "description": "At least one macro rule family reaches the Phase 4 paper-trading gate.",
+      "evidence": "central_bank liquidity MVP bundle",
+      "passed": true
+    },
+    {
+      "blocker": "manual gold-set review still required",
+      "criterion_id": "C02",
+      "description": "Claim extraction gold set passes the manual precision gate.",
+      "evidence": "gold-set gate is implemented; live manual labels are not yet accepted",
+      "passed": false
+    },
+    {
+      "blocker": "",
+      "criterion_id": "C03",
+      "description": "Data availability matrix covers the production candidate proxies.",
+      "evidence": "DAM-CB-P0-2026Q2",
+      "passed": true
+    },
+    {
+      "blocker": "",
+      "criterion_id": "C04",
+      "description": "Validation v2 report includes effective N, overlap, FDR, and costs.",
+      "evidence": "EXP-CB-20260605-0001",
+      "passed": true
+    },
+    {
+      "blocker": "",
+      "criterion_id": "C05",
+      "description": "Runtime aggregation implements de-duplication and conflict objects.",
+      "evidence": "aggregate_rule_outputs + runtime output checker",
+      "passed": true
+    },
+    {
+      "blocker": "",
+      "criterion_id": "C06",
+      "description": "Confidence policy v1 uses the conservative min-components function.",
+      "evidence": "compute_confidence_v1",
+      "passed": true
+    },
+    {
+      "blocker": "",
+      "criterion_id": "C07",
+      "description": "Research-only no-trade rule is enforced by checker.",
+      "evidence": "check_runtime_output and confidence policy",
+      "passed": true
+    },
+    {
+      "blocker": "",
+      "criterion_id": "C08",
+      "description": "Patch validator rejects forbidden paths and mismatched target paths.",
+      "evidence": "validate_patch",
+      "passed": true
+    },
+    {
+      "blocker": "",
+      "criterion_id": "C09",
+      "description": "Paper trading monitor outputs live-vs-baseline deltas.",
+      "evidence": "PaperTradingReport.summarize",
+      "passed": true
+    },
+    {
+      "blocker": "",
+      "criterion_id": "C10",
+      "description": "Production monitor can detect alpha decay and calibration drift.",
+      "evidence": "evaluate_production_monitor",
+      "passed": true
+    },
+    {
+      "blocker": "source license review still pending",
+      "criterion_id": "C11",
+      "description": "Compliance gate blocks unauthorized reports from production runtime.",
+      "evidence": "ResearchSourceMetadata gate and Tushare pending_review status",
+      "passed": false
+    },
+    {
+      "blocker": "",
+      "criterion_id": "C12",
+      "description": "Audit viewer trace covers source to agent output.",
+      "evidence": "build_audit_trace",
+      "passed": true
+    }
+  ]
+}

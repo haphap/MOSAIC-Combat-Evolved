@@ -1,0 +1,26 @@
+{
+  "agent_output_ids": [
+    "OUT-CB-20260605-0001"
+  ],
+  "claim_ids": [
+    "CLAIM-CB-20260605-0001"
+  ],
+  "experiment_ids": [
+    "EXP-CB-20260605-0001"
+  ],
+  "hypothesis_ids": [
+    "HYP-CB-20260605-0001"
+  ],
+  "parameter_paths": [
+    "/rule_packs/macro.central_bank.liquidity.v1/rules/macro.central_bank.soft.001/learnable_parameters/net_injection_window_days/value"
+  ],
+  "patch_ids": [
+    "PATCH-CB-20260605-0001"
+  ],
+  "rule_ids": [
+    "macro.central_bank.soft.001"
+  ],
+  "source_ids": [
+    "SRC-CB-20260605-0001"
+  ]
+}

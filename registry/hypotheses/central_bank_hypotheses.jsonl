@@ -1,0 +1,1 @@
+{"derived_from_claim_ids": ["CLAIM-CB-20260605-0001"], "hypothesis_id": "HYP-CB-20260605-0001", "hypothesis_type": "market_transmission", "not_source_grounded": true, "proposed_metric_proxies": ["pboc_net_injection_7d", "risk_appetite_proxy"], "requires_validation": true, "statement": "A confirmed liquidity impulse can support short-horizon risk appetite.", "status": "candidate"}

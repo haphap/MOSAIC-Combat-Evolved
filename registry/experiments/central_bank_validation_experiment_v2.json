@@ -1,0 +1,63 @@
+{
+  "acceptance_rule": {
+    "calibration_must_not_degrade": true,
+    "cost_model_required": true,
+    "max_drawdown_not_worse_than": 0.02,
+    "min_net_alpha": 0.005,
+    "primary_metric": "net_alpha_after_cost_20d",
+    "turnover_not_worse_than": 0.2
+  },
+  "agent_id": "macro.central_bank",
+  "baseline_version": "prompt-ir-0.3.1",
+  "candidate_values": [
+    5,
+    7,
+    10,
+    20
+  ],
+  "candidate_version": "prompt-ir-0.3.2-exp",
+  "data_requirements": {
+    "as_reported_required": true,
+    "metric_proxies": [
+      "pboc_net_injection_7d",
+      "risk_appetite_proxy"
+    ],
+    "point_in_time_required": true,
+    "survivorship_bias_control_required": true
+  },
+  "experiment_family_id": "FAM-CB-LIQUIDITY-2026Q2",
+  "experiment_id": "EXP-CB-20260605-0001",
+  "frozen_spec_hash": "sha256:80dccd96fde1f0670861d2e3007b01a573afd1daa5fb3482cc3bff4302768734",
+  "multiple_testing_control": {
+    "adjusted_q_value": 0.012,
+    "family_scope": "FAM-CB-LIQUIDITY-2026Q2",
+    "max_fdr": 0.1,
+    "method": "benjamini_hochberg_fdr"
+  },
+  "parameter_paths": [
+    "/rule_packs/macro.central_bank.liquidity.v1/rules/macro.central_bank.soft.001/learnable_parameters/net_injection_window_days/value"
+  ],
+  "pre_registered": true,
+  "pre_registration_time": "2026-06-05T11:00:00+09:00",
+  "promotion_policy": {
+    "allow_direct_production": false,
+    "next_state_if_pass": "paper_trading"
+  },
+  "rule_ids": [
+    "macro.central_bank.soft.001"
+  ],
+  "sampling_design": {
+    "block_length_days": 20,
+    "effective_n": 80,
+    "horizon_days": 20,
+    "minimum_effective_n": 60,
+    "nominal_n": 1600,
+    "overlap_policy": "block_bootstrap",
+    "signal_unit": "independent_event"
+  },
+  "validation_design": {
+    "lockbox_required_for_final_promotion": true,
+    "partial_pooling_required": true,
+    "walk_forward_required": true
+  }
+}

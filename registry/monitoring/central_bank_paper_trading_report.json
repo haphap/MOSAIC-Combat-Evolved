@@ -1,0 +1,52 @@
+{
+  "paper_trading_report": {
+    "rule_id": "macro.central_bank.soft.001",
+    "snapshots": [
+      {
+        "baseline_signal": 0.08,
+        "calibration_error": 0.02,
+        "conflict_rate": 0.0,
+        "date": "2026-06-05",
+        "fallback_rate": 0.0,
+        "live_net_alpha_after_cost": 0.006,
+        "live_shadow_signal": 0.12,
+        "missing_data_rate": 0.0,
+        "rule_id": "macro.central_bank.soft.001",
+        "turnover": 0.08
+      },
+      {
+        "baseline_signal": 0.07,
+        "calibration_error": 0.03,
+        "conflict_rate": 0.0,
+        "date": "2026-06-06",
+        "fallback_rate": 0.0,
+        "live_net_alpha_after_cost": 0.005,
+        "live_shadow_signal": 0.1,
+        "missing_data_rate": 0.0,
+        "rule_id": "macro.central_bank.soft.001",
+        "turnover": 0.07
+      }
+    ]
+  },
+  "paper_trading_summary": {
+    "mean_calibration_error": 0.025,
+    "mean_live_net_alpha_after_cost": 0.0055,
+    "mean_live_vs_baseline_delta": 0.035,
+    "mean_turnover": 0.075,
+    "n": 2,
+    "ready": true,
+    "rule_id": "macro.central_bank.soft.001"
+  },
+  "production_monitor": {
+    "action": "none",
+    "metrics": {
+      "calibration_error": 0.03,
+      "effect_ratio": 0.6153846153846154,
+      "effective_events": 80,
+      "rolling_net_alpha_after_cost": 0.008,
+      "turnover_delta": 0.05
+    },
+    "reasons": [],
+    "state": "production"
+  }
+}

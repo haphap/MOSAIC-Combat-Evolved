@@ -1,0 +1,24 @@
+{
+  "allowed_by_evolution_targets": true,
+  "new_value": 10,
+  "old_value": 7,
+  "operation": "replace",
+  "patch_id": "PATCH-CB-20260605-0001",
+  "rollback_rule": {
+    "hard_trigger_delta_lt": -0.02,
+    "metric": "live_net_alpha_after_cost_20d",
+    "review_window_trading_days": 60,
+    "slow_decay_detection": true
+  },
+  "source_experiment_id": "EXP-CB-20260605-0001",
+  "target_path": "/rule_packs/macro.central_bank.liquidity.v1/rules/macro.central_bank.soft.001/learnable_parameters/net_injection_window_days/value",
+  "validation_summary": {
+    "adjusted_q_value": 0.012,
+    "effective_n": 80,
+    "lockbox_passed": false,
+    "net_alpha_after_cost": 0.013,
+    "overlap_policy": "block_bootstrap",
+    "promotion_state": "paper_trading",
+    "walk_forward_passed": true
+  }
+}

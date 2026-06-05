@@ -1,0 +1,92 @@
+{
+  "confidence_components": {
+    "data_confidence": 0.72,
+    "empirical_validation_confidence": 0.66,
+    "regime_match_confidence": 0.7,
+    "research_confidence": 0.68
+  },
+  "downstream_handoff": {
+    "agent_id": "macro.central_bank",
+    "summary": "liquidity_supportive_paper_trading_signal",
+    "target_signal": "risk_appetite"
+  },
+  "evidence_ledger": [
+    {
+      "as_of": "2026-06-05",
+      "confidence_impact": "positive",
+      "direction": "liquidity_supportive",
+      "evidence_id": "E-CB-20260605-0001",
+      "fallback": false,
+      "freshness_days": 0,
+      "metric": "pboc_net_injection_7d",
+      "source_claim_ids": [
+        "CLAIM-CB-20260605-0001"
+      ],
+      "source_tool": "get_pboc_ops",
+      "source_type": "tool_output",
+      "unit": "CNY 100mn",
+      "value": 12500
+    }
+  ],
+  "hypothesis_ids_used": [
+    "HYP-CB-20260605-0001"
+  ],
+  "inferences": [
+    {
+      "evidence_ids": [
+        "E-CB-20260605-0001"
+      ],
+      "inference_id": "I-CB-20260605-0001",
+      "rule_ids": [
+        "macro.central_bank.soft.001"
+      ],
+      "source_claim_ids": [
+        "CLAIM-CB-20260605-0001"
+      ],
+      "statement": "PBOC liquidity data confirms the candidate liquidity impulse rule."
+    }
+  ],
+  "progress_event": {
+    "agent_id": "macro.central_bank",
+    "confidence": 0.64,
+    "evidence_count": 1,
+    "fallback_count": 0,
+    "layer": "macro",
+    "missing_count": 0,
+    "schema_valid": true,
+    "status": "completed",
+    "tools_used": [
+      "get_pboc_ops"
+    ]
+  },
+  "recommendations": [
+    {
+      "actionability": "watchlist_or_tiny_tilt",
+      "confidence": 0.64,
+      "inference_ids": [
+        "I-CB-20260605-0001"
+      ],
+      "recommendation_id": "R-CB-20260605-0001",
+      "statement": "Pass a small positive risk-appetite prior to downstream sector agents."
+    }
+  ],
+  "research_rule_ids_used": [
+    "macro.central_bank.soft.001"
+  ],
+  "rule_aggregation_summary": {
+    "correlated_rule_duplicate_count": 0,
+    "final_research_delta": 0.05,
+    "group_deltas": {
+      "macro.central_bank.liquidity": 0.05
+    },
+    "has_opposing_rules": false,
+    "horizon_days": 20,
+    "target_signal": "risk_appetite"
+  },
+  "source_claim_ids_used": [
+    "CLAIM-CB-20260605-0001"
+  ],
+  "uncertainties": [
+    "paper-trading gate remains required before production promotion"
+  ]
+}
