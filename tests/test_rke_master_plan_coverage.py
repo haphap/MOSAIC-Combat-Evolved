@@ -61,6 +61,55 @@ def test_master_plan_coverage_detects_missing_phase_artifact(tmp_path: Path):
     assert "central_bank_validation_experiment_v2.json" in phase_2.blocker
 
 
+def test_master_plan_coverage_reports_invalid_completion_audit_json(tmp_path: Path):
+    _copy_registry_and_schemas(tmp_path)
+    completion_path = tmp_path / "registry/audits/rke_completion_audit.json"
+    completion_path.write_text("{", encoding="utf-8")
+
+    report = build_master_plan_coverage_report(tmp_path)
+    phase_2 = next(record for record in report.records if record.section_id == "Phase-2")
+    compliance = next(record for record in report.records if record.section_id == "Compliance")
+
+    assert not report.coverage_complete
+    assert not report.ready_for_broad_rollout
+    assert report.missing_count >= 6
+    assert phase_2.status == "missing"
+    assert compliance.status == "missing"
+    assert "completion audit must contain valid JSON" in phase_2.blocker
+    assert "completion audit must contain valid JSON" in compliance.blocker
+
+
+def test_master_plan_coverage_reports_non_object_completion_audit(tmp_path: Path):
+    _copy_registry_and_schemas(tmp_path)
+    completion_path = tmp_path / "registry/audits/rke_completion_audit.json"
+    completion_path.write_text(json.dumps(["not", "an", "object"]), encoding="utf-8")
+
+    report = build_master_plan_coverage_report(tmp_path)
+    phase_3 = next(record for record in report.records if record.section_id == "Phase-3")
+
+    assert not report.coverage_complete
+    assert phase_3.status == "missing"
+    assert "completion audit must be object" in phase_3.blocker
+
+
+def test_master_plan_coverage_reports_malformed_completion_criteria_rows(tmp_path: Path):
+    _copy_registry_and_schemas(tmp_path)
+    completion_path = tmp_path / "registry/audits/rke_completion_audit.json"
+    completion = json.loads(completion_path.read_text(encoding="utf-8"))
+    completion["criteria"].append("not an object")
+    completion_path.write_text(
+        json.dumps(completion, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    report = build_master_plan_coverage_report(tmp_path)
+    audit = next(record for record in report.records if record.section_id == "Audit")
+
+    assert not report.coverage_complete
+    assert audit.status == "missing"
+    assert "completion audit criteria row must be object" in audit.blocker
+
+
 def test_master_plan_coverage_writer_and_cli(tmp_path: Path, capsys):
     _copy_registry_and_schemas(tmp_path)
 

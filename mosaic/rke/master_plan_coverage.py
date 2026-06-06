@@ -50,7 +50,7 @@ def _write_json(path: Path, payload: Mapping[str, Any]) -> dict[str, Any]:
     return {"path": str(path), "rows": 1}
 
 
-def _read_json(path: Path) -> dict[str, Any]:
+def _read_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
@@ -66,12 +66,29 @@ def _all_exist(root_path: Path, evidence_paths: Sequence[str]) -> tuple[bool, st
     return True, ""
 
 
-def _completion_by_id(root_path: Path) -> dict[str, Mapping[str, Any]]:
+def _completion_by_id(root_path: Path) -> tuple[dict[str, Mapping[str, Any]], str]:
     path = root_path / "registry/audits/rke_completion_audit.json"
     if not path.exists():
-        return {}
-    payload = _read_json(path)
-    return {str(row.get("criterion_id")): row for row in payload.get("criteria", ())}
+        return {}, ""
+    try:
+        payload = _read_json(path)
+    except json.JSONDecodeError as exc:
+        return {}, f"completion audit must contain valid JSON: {exc.msg}"
+    if not isinstance(payload, Mapping):
+        return {}, "completion audit must be object"
+    criteria = payload.get("criteria") or ()
+    if not isinstance(criteria, list | tuple):
+        return {}, "completion audit criteria must be list"
+    completion: dict[str, Mapping[str, Any]] = {}
+    invalid_rows: list[str] = []
+    for index, row in enumerate(criteria, 1):
+        if not isinstance(row, Mapping):
+            invalid_rows.append(str(index))
+            continue
+        completion[str(row.get("criterion_id"))] = row
+    if invalid_rows:
+        return completion, f"completion audit criteria row must be object at row(s): {', '.join(invalid_rows)}"
+    return completion, ""
 
 
 def _record(
@@ -107,16 +124,21 @@ def _completion_record(
     requirement: str,
     evidence_paths: Sequence[str],
     blocked_if_failed: bool = False,
+    completion_error: str = "",
 ) -> MasterPlanCoverageRecord:
     row = completion.get(criterion_id, {})
     passed = row.get("passed") is True
-    blocker = str(row.get("blocker") or "")
-    if passed:
+    blocker = completion_error or str(row.get("blocker") or "")
+    if completion_error:
+        status: CoverageStatus = "missing"
+    elif passed:
         status: CoverageStatus = "passed"
     elif blocked_if_failed and blocker:
         status = "blocked"
     else:
         status = "missing"
+        if not blocker:
+            blocker = f"completion criterion {criterion_id} missing or not passed"
     return _record(
         root_path,
         section_id=section_id,
@@ -129,7 +151,7 @@ def _completion_record(
 
 def build_master_plan_coverage_report(root: str | Path = ".") -> MasterPlanCoverageReport:
     root_path = Path(root)
-    completion = _completion_by_id(root_path)
+    completion, completion_error = _completion_by_id(root_path)
     records: list[MasterPlanCoverageRecord] = []
 
     records.extend(
@@ -161,6 +183,7 @@ def build_master_plan_coverage_report(root: str | Path = ".") -> MasterPlanCover
                     "registry/gold_sets/tushare_research_reports.review_import_report.json",
                 ),
                 blocked_if_failed=True,
+                completion_error=completion_error,
             ),
             _record(
                 root_path,
@@ -210,6 +233,7 @@ def build_master_plan_coverage_report(root: str | Path = ".") -> MasterPlanCover
                     "registry/validation_hardening/central_bank_hardening_report.json",
                     "registry/evaluation/statistical_significance/central_bank_after_cost_significance.json",
                 ),
+                completion_error=completion_error,
             ),
             _completion_record(
                 root_path,
@@ -224,6 +248,7 @@ def build_master_plan_coverage_report(root: str | Path = ".") -> MasterPlanCover
                     "registry/prompt_checks/prompt_asset_validation_report.json",
                     "registry/promotion/rke_production_promotion_gate.json",
                 ),
+                completion_error=completion_error,
             ),
             _completion_record(
                 root_path,
@@ -236,6 +261,7 @@ def build_master_plan_coverage_report(root: str | Path = ".") -> MasterPlanCover
                     "registry/monitoring/central_bank_monitoring_diagnostics.json",
                     "registry/monitoring/central_bank_rollback_readiness_report.json",
                 ),
+                completion_error=completion_error,
             ),
             _record(
                 root_path,
@@ -283,6 +309,7 @@ def build_master_plan_coverage_report(root: str | Path = ".") -> MasterPlanCover
                     "registry/handoffs/rke_operator_readiness_report.json",
                 ),
                 blocked_if_failed=True,
+                completion_error=completion_error,
             ),
             _completion_record(
                 root_path,
@@ -295,6 +322,7 @@ def build_master_plan_coverage_report(root: str | Path = ".") -> MasterPlanCover
                     "registry/audits/central_bank_mvp_audit_view.json",
                     "registry/audits/central_bank_mvp_audit_view.md",
                 ),
+                completion_error=completion_error,
             ),
         ]
     )
