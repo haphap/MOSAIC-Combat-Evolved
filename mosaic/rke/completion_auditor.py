@@ -29,6 +29,17 @@ def _optional_jsonl(path: Path) -> list[dict[str, Any]]:
     return load_jsonl(path)
 
 
+def _split_mapping_rows(rows: list[Any]) -> tuple[list[Mapping[str, Any]], tuple[int, ...]]:
+    valid: list[Mapping[str, Any]] = []
+    invalid: list[int] = []
+    for index, row in enumerate(rows, 1):
+        if isinstance(row, Mapping):
+            valid.append(row)
+        else:
+            invalid.append(index)
+    return valid, tuple(invalid)
+
+
 def _runtime_output_passes(runtime_output: Mapping[str, Any]) -> bool:
     required = (
         "evidence_ledger",
@@ -46,9 +57,16 @@ def _runtime_output_passes(runtime_output: Mapping[str, Any]) -> bool:
 
 
 def _gold_set_gate(root: Path) -> tuple[bool, str, str]:
-    rows = _optional_jsonl(root / "registry/gold_sets/tushare_research_reports.review_template.jsonl")
-    if not rows:
+    raw_rows = _optional_jsonl(root / "registry/gold_sets/tushare_research_reports.review_template.jsonl")
+    if not raw_rows:
         return False, "gold-set review records missing", "gold-set review file missing"
+    rows, invalid_rows = _split_mapping_rows(raw_rows)
+    if invalid_rows:
+        return (
+            False,
+            f"gold-set review records malformed: {len(invalid_rows)} non-object row(s) / {len(raw_rows)} rows",
+            f"gold-set review row must be object at row(s): {', '.join(str(row) for row in invalid_rows)}",
+        )
     review_fields = (
         "claim_correct",
         "source_span_supports_claim",
@@ -75,12 +93,26 @@ def _gold_set_gate(root: Path) -> tuple[bool, str, str]:
 
 
 def _license_gate(root: Path) -> tuple[bool, str, str]:
-    sources = _optional_jsonl(root / "registry/sources/tushare_research_reports.jsonl")
-    reviews = _optional_jsonl(root / "registry/compliance/tushare_license_review_template.jsonl")
-    if not sources:
+    raw_sources = _optional_jsonl(root / "registry/sources/tushare_research_reports.jsonl")
+    raw_reviews = _optional_jsonl(root / "registry/compliance/tushare_license_review_template.jsonl")
+    if not raw_sources:
         return False, "Tushare source rows missing", "source registry missing"
-    if not reviews:
+    if not raw_reviews:
         return False, "license review records missing", "license review file missing"
+    sources, invalid_source_rows = _split_mapping_rows(raw_sources)
+    reviews, invalid_review_rows = _split_mapping_rows(raw_reviews)
+    if invalid_source_rows:
+        return (
+            False,
+            f"Tushare source rows malformed: {len(invalid_source_rows)} non-object row(s) / {len(raw_sources)} rows",
+            f"source registry row must be object at row(s): {', '.join(str(row) for row in invalid_source_rows)}",
+        )
+    if invalid_review_rows:
+        return (
+            False,
+            f"license review records malformed: {len(invalid_review_rows)} non-object row(s) / {len(raw_reviews)} rows",
+            f"source license review row must be object at row(s): {', '.join(str(row) for row in invalid_review_rows)}",
+        )
     reviewed_sources = apply_source_license_reviews(sources, reviews)
     decisions = [evaluate_source_license(source) for source in reviewed_sources]
     approved = [decision for decision in decisions if decision.allowed_for_production_runtime]

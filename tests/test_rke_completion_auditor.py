@@ -54,6 +54,38 @@ def test_completion_auditor_requires_statistical_significance_gate(tmp_path: Pat
     assert "confidence interval includes zero" in by_id["C04"].blocker
 
 
+def test_completion_auditor_rejects_non_object_gold_review_rows(tmp_path: Path):
+    shutil.copytree(Path("registry"), tmp_path / "registry")
+    review_path = tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    review_path.write_text(
+        review_path.read_text(encoding="utf-8") + json.dumps(["not", "an", "object"]) + "\n",
+        encoding="utf-8",
+    )
+
+    audit = audit_master_plan_completion(tmp_path)
+    by_id = {criterion.criterion_id: criterion for criterion in audit.criteria}
+
+    assert len(audit.criteria) == 12
+    assert not by_id["C02"].passed
+    assert "gold-set review row must be object" in by_id["C02"].blocker
+
+
+def test_completion_auditor_rejects_non_object_license_review_rows(tmp_path: Path):
+    shutil.copytree(Path("registry"), tmp_path / "registry")
+    review_path = tmp_path / "registry/compliance/tushare_license_review_template.jsonl"
+    review_path.write_text(
+        review_path.read_text(encoding="utf-8") + json.dumps("not an object") + "\n",
+        encoding="utf-8",
+    )
+
+    audit = audit_master_plan_completion(tmp_path)
+    by_id = {criterion.criterion_id: criterion for criterion in audit.criteria}
+
+    assert len(audit.criteria) == 12
+    assert not by_id["C11"].passed
+    assert "source license review row must be object" in by_id["C11"].blocker
+
+
 def test_completion_auditor_writes_registry_file(tmp_path: Path):
     write_central_bank_mvp_registry(tmp_path)
     gold_candidates = load_jsonl("registry/sources/tushare_research_reports.gold_candidates.jsonl")
