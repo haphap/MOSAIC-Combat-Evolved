@@ -120,9 +120,12 @@ the policy can be expanded. `filters` must be an object, and `source_type`,
 strings.
 
 Run `mosaic-rke review-progress --root .` after editing the reviewed policy. It
-writes `registry/review_batches/manual_review_progress_report.json`, a read-only
-status report that shows whether the policy expands cleanly and how many
-source-license rows would become complete. It does not apply approvals.
+writes `registry/review_batches/manual_review_progress_report.json` and
+`registry/review_batches/manual_review_runbook.md`. The JSON report shows
+whether the policy expands cleanly and how many source-license rows would become
+complete. The Markdown runbook shows the prepare, dry-run, apply, and promotion
+dry-run commands for all remaining manual gates. Neither artifact applies
+approvals.
 
 ## Allowed Uses
 

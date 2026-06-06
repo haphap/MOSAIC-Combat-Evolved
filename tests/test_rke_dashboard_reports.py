@@ -162,6 +162,10 @@ def test_dashboard_report_summarizes_completion_and_monitoring():
     )
     assert report["manual_review_gates"]["review_progress"]["gate_count"] == 3
     assert report["manual_review_gates"]["review_progress"]["blocker_count"] >= 3
+    assert (
+        report["manual_review_gates"]["review_progress"]["runbook_path"]
+        == "registry/review_batches/manual_review_runbook.md"
+    )
     assert report["operator_handoff"]["ready_for_operator_review"] is True
     assert report["operator_handoff"]["next_state"] == "paper_trading"
     assert report["operator_handoff"]["remaining_blocker_count"] >= 3
@@ -250,6 +254,7 @@ def test_dashboard_markdown_renders_blockers():
     )
     assert "Manual review promotion dry-run ready: False" in markdown
     assert "Manual review progress blockers:" in markdown
+    assert "Manual review runbook: registry/review_batches/manual_review_runbook.md" in markdown
     assert "Operator handoff ready: True" in markdown
     assert "Operator handoff blockers:" in markdown
     assert "Operator readiness accepted: True" in markdown

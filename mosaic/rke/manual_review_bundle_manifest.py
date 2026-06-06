@@ -17,6 +17,7 @@ MANUAL_REVIEW_BUNDLE_ARTIFACTS: tuple[tuple[str, str, BundleArtifactFormat], ...
     ("operator_handoff_markdown", "registry/handoffs/rke_operator_handoff.md", "markdown"),
     ("manual_review_batch_status", "registry/review_batches/manual_review_batch_status.json", "json"),
     ("manual_review_progress_report", "registry/review_batches/manual_review_progress_report.json", "json"),
+    ("manual_review_runbook_markdown", "registry/review_batches/manual_review_runbook.md", "markdown"),
     ("gold_review_packet_json", "registry/gold_sets/tushare_research_reports.review_packet.json", "json"),
     ("gold_review_packet_markdown", "registry/gold_sets/tushare_research_reports.review_packet.md", "markdown"),
     ("gold_review_workbook_markdown", "registry/review_batches/gold_set_review_workbook.md", "markdown"),

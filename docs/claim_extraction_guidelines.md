@@ -106,6 +106,12 @@ read-only checklist: it lists pending claim IDs, row hashes, source offsets,
 variables, risk flags, and short claim previews, but it must not be edited or
 used as an import file.
 
+Run `mosaic-rke review-progress --root .` after editing reviewer scratch files.
+It writes `registry/review_batches/manual_review_progress_report.json` and
+`registry/review_batches/manual_review_runbook.md`. The runbook is the
+operator-facing command checklist for the gold-set, source-license, and lockbox
+review sequence.
+
 The import is accepted only when the whole batch passes:
 
 - every `claim_id` exists in the target review template;

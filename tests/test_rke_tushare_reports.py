@@ -392,6 +392,7 @@ def test_refresh_tushare_research_report_registry_updates_dependent_artifacts(tm
     assert "source_license_policy_template" in result.outputs
     assert "source_license_policy_import_report" in result.outputs
     assert "manual_review_bundle_manifest" in result.outputs
+    assert "manual_review_runbook" in result.outputs
     assert "promotion_dry_run_report" in result.outputs
     assert "rollback_readiness_report" in result.outputs
     assert "operator_readiness_report" in result.outputs

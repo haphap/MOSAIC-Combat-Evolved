@@ -826,6 +826,9 @@ def refresh_tushare_research_report_registry(
     outputs["manual_review_progress_report"] = operator_handoff_result[
         "manual_review_progress_report"
     ]
+    outputs["manual_review_runbook"] = operator_handoff_result[
+        "manual_review_runbook"
+    ]
     outputs["claim_variable_vocabulary"] = str(claim_vocabulary_result["path"])
     outputs["gold_candidate_claims"] = gold_candidate_claims_result["candidate_claims"]
     outputs["gold_candidate_claims_summary"] = gold_candidate_claims_result["summary"]

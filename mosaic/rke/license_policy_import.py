@@ -199,6 +199,7 @@ def _policy_rejection_report(
     resolved_output_path: Path,
     dry_run: bool,
     blocker: str,
+    write_report: bool = True,
 ) -> SourceLicensePolicyImportReport:
     _, _, review_blockers, total_review_rows = _load_review_template_rows(root_path)
     report = SourceLicensePolicyImportReport(
@@ -218,7 +219,8 @@ def _policy_rejection_report(
         filters=SourceLicensePolicyFilters(),
         blockers=tuple(dict.fromkeys((blocker, *review_blockers))),
     )
-    _write_json(root_path / LICENSE_POLICY_IMPORT_REPORT_PATH, asdict(report))
+    if write_report:
+        _write_json(root_path / LICENSE_POLICY_IMPORT_REPORT_PATH, asdict(report))
     return report
 
 
@@ -711,6 +713,7 @@ def build_source_license_policy_import(
     *,
     output_path: str | Path = DEFAULT_LICENSE_POLICY_IMPORT_PATH,
     dry_run: bool = False,
+    write_report: bool = True,
 ) -> SourceLicensePolicyImportReport:
     """Build a sparse ``apply-license-review`` input from a signed policy file.
 
@@ -734,6 +737,7 @@ def build_source_license_policy_import(
             resolved_output_path=resolved_output_path,
             dry_run=dry_run,
             blocker=f"source-license policy must contain valid JSON: {exc.msg}",
+            write_report=write_report,
         )
     raw_review_rows, review_rows, review_row_blockers, total_review_rows = _load_review_template_rows(root_path)
     if not isinstance(policy_payload, Mapping):
@@ -754,7 +758,8 @@ def build_source_license_policy_import(
             filters=SourceLicensePolicyFilters(),
             blockers=tuple(dict.fromkeys(("source-license policy must be object", *review_row_blockers))),
         )
-        _write_json(root_path / LICENSE_POLICY_IMPORT_REPORT_PATH, asdict(report))
+        if write_report:
+            _write_json(root_path / LICENSE_POLICY_IMPORT_REPORT_PATH, asdict(report))
         return report
 
     policy = policy_payload
@@ -850,5 +855,6 @@ def build_source_license_policy_import(
         filters=filters,
         blockers=tuple(blockers),
     )
-    _write_json(root_path / LICENSE_POLICY_IMPORT_REPORT_PATH, asdict(report))
+    if write_report:
+        _write_json(root_path / LICENSE_POLICY_IMPORT_REPORT_PATH, asdict(report))
     return report

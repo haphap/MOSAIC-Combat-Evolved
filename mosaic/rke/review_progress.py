@@ -11,24 +11,30 @@ from typing import Any, Literal, Mapping, Sequence
 
 from .license_policy_import import (
     DEFAULT_LICENSE_POLICY_IMPORT_PATH,
+    SOURCE_LICENSE_POLICY_TEMPLATE_PATH,
     SOURCE_LICENSE_REVIEWED_POLICY_PATH,
+    SOURCE_LICENSE_REVIEW_WORKBOOK_MD_PATH,
     build_source_license_policy_import,
 )
 from .lockbox_review_import import apply_lockbox_review_import
 from .manual_review_batches import (
+    GOLD_BATCH_IMPORT_TEMPLATE_PATH,
+    GOLD_FULL_IMPORT_TEMPLATE_PATH,
     GOLD_FULL_REVIEWED_IMPORT_PATH,
+    GOLD_REVIEW_WORKBOOK_MD_PATH,
+    LICENSE_BATCH_IMPORT_TEMPLATE_PATH,
     build_manual_review_batch_status,
 )
 from .manual_review_import import (
     apply_gold_set_review_import,
-    apply_source_license_review_import,
 )
 from .operator_handoff import LOCKBOX_REVIEWED_IMPORT_PATH
-from .review_gates import summarize_gold_set_review, summarize_source_license_review
+from .review_gates import summarize_gold_set_review
 
 
 MANUAL_REVIEW_PROGRESS_REPORT_ID = "RKE-MANUAL-REVIEW-PROGRESS-20260606"
 MANUAL_REVIEW_PROGRESS_REPORT_PATH = "registry/review_batches/manual_review_progress_report.json"
+MANUAL_REVIEW_RUNBOOK_MD_PATH = "registry/review_batches/manual_review_runbook.md"
 
 ReviewProgressKind = Literal["gold_set", "source_license", "lockbox"]
 
@@ -201,32 +207,33 @@ def _source_license_progress(root_path: Path) -> ManualReviewGateProgress:
         )
 
     input_rows = _json_object_exists(resolved_input)
-    with tempfile.TemporaryDirectory(prefix="mosaic-rke-review-progress-") as tmp_dir:
-        temp_root = Path(tmp_dir)
-        _copy_registry(root_path, temp_root)
-        temp_output = temp_root / DEFAULT_LICENSE_POLICY_IMPORT_PATH
-        policy_report = build_source_license_policy_import(
-            temp_root,
-            resolved_input,
-            output_path=temp_output,
-            dry_run=False,
-        )
-        apply_report = None
-        if policy_report.accepted:
-            apply_report = apply_source_license_review_import(temp_root, temp_output)
-        summary = summarize_source_license_review(temp_root)
-    apply_blockers = apply_report.blockers if apply_report is not None else ()
-    blockers = _dedupe((*policy_report.blockers, *apply_blockers, *summary.blockers))
+    policy_report = build_source_license_policy_import(
+        root_path,
+        resolved_input,
+        output_path=DEFAULT_LICENSE_POLICY_IMPORT_PATH,
+        dry_run=True,
+        write_report=False,
+    )
+    complete_rows = policy_report.matched_rows if policy_report.accepted else 0
+    pending_rows = max(target_rows - complete_rows, 0)
+    blockers = list(policy_report.blockers)
+    if pending_rows:
+        blockers.append(f"{pending_rows} source license review rows still pending")
+    if policy_report.accepted and policy_report.approved_for_production_runtime is not True:
+        blockers.append(f"0 / {target_rows} sources approved for production runtime")
+    blockers = _dedupe(blockers)
     return ManualReviewGateProgress(
         review_kind="source_license",
         input_path=input_path,
         input_exists=True,
         target_rows=target_rows,
         input_rows=input_rows,
-        complete_rows=summary.reviewed_sources,
-        pending_rows=summary.pending_sources,
-        simulation_accepted=policy_report.accepted and (apply_report is not None and apply_report.accepted),
-        ready_for_promotion=policy_report.accepted and (apply_report is not None and apply_report.accepted) and summary.passed,
+        complete_rows=complete_rows,
+        pending_rows=pending_rows,
+        simulation_accepted=policy_report.accepted,
+        ready_for_promotion=policy_report.accepted
+        and pending_rows == 0
+        and policy_report.approved_for_production_runtime is True,
         blockers=blockers,
         prepare_command=prepare_command,
         dry_run_command=dry_run_command,
@@ -302,6 +309,122 @@ def write_manual_review_progress_report(root: str | Path = ".") -> dict[str, Any
     result = _write_json(root_path / MANUAL_REVIEW_PROGRESS_REPORT_PATH, asdict(report))
     return {
         "path": str(result["path"]),
+        "ready_for_promotion_dry_run": report.ready_for_promotion_dry_run,
+        "blocker_count": len(report.blockers),
+    }
+
+
+def render_manual_review_runbook_markdown(report: ManualReviewProgressReport) -> str:
+    gate_lookup = {gate.review_kind: gate for gate in report.gates}
+    gold = gate_lookup["gold_set"]
+    source_license = gate_lookup["source_license"]
+    lockbox = gate_lookup["lockbox"]
+    lines = [
+        "# RKE Manual Review Runbook",
+        "",
+        "This artifact is a read-only operator checklist for the remaining manual RKE gates.",
+        "It records paths, commands, row counts, and current blockers only.",
+        "",
+        "## Current Progress",
+        "",
+        f"- Promotion dry-run ready: {str(report.ready_for_promotion_dry_run).lower()}",
+        (
+            "- Gold-set review: "
+            f"{gold.complete_rows}/{gold.target_rows} complete; "
+            f"scratch exists: {str(gold.input_exists).lower()}; "
+            f"simulation accepted: {str(gold.simulation_accepted).lower()}"
+        ),
+        (
+            "- Source-license review: "
+            f"{source_license.complete_rows}/{source_license.target_rows} complete; "
+            f"scratch exists: {str(source_license.input_exists).lower()}; "
+            f"simulation accepted: {str(source_license.simulation_accepted).lower()}"
+        ),
+        (
+            "- Lockbox review: "
+            f"{lockbox.complete_rows}/{lockbox.target_rows} complete; "
+            f"scratch exists: {str(lockbox.input_exists).lower()}; "
+            f"simulation accepted: {str(lockbox.simulation_accepted).lower()}"
+        ),
+        "",
+        "## Prepare Commands",
+        "",
+        f"- Gold-set: `{gold.prepare_command}`",
+        f"- Source-license: `{source_license.prepare_command}`",
+        f"- Lockbox: `{lockbox.prepare_command}`",
+        "",
+        "## Reviewer Inputs",
+        "",
+        f"- Gold-set reviewed scratch: `{GOLD_FULL_REVIEWED_IMPORT_PATH}`",
+        f"- Source-license reviewed policy: `{SOURCE_LICENSE_REVIEWED_POLICY_PATH}`",
+        f"- Lockbox reviewed scratch: `{LOCKBOX_REVIEWED_IMPORT_PATH}`",
+        "",
+        "Reviewed scratch files are operator-local decision files. Do not commit them unless the operator explicitly chooses to publish signed review decisions.",
+        "",
+        "## Read-Only Checklists",
+        "",
+        f"- Gold-set workbook: `{GOLD_REVIEW_WORKBOOK_MD_PATH}`",
+        "- Gold-set packet JSON: `registry/gold_sets/tushare_research_reports.review_packet.json`",
+        "- Gold-set packet Markdown: `registry/gold_sets/tushare_research_reports.review_packet.md`",
+        f"- Source-license workbook: `{SOURCE_LICENSE_REVIEW_WORKBOOK_MD_PATH}`",
+        "- Source-license packet JSON: `registry/compliance/tushare_license_review_packet.json`",
+        "- Source-license packet Markdown: `registry/compliance/tushare_license_review_packet.md`",
+        f"- Source-license policy template: `{SOURCE_LICENSE_POLICY_TEMPLATE_PATH}`",
+        "- Lockbox policy packet: `registry/evaluation/lockbox/lockbox_policy.json`",
+        "",
+        "These checklist files are not import files. Use them to inspect IDs, hashes, counts, and short previews only.",
+        "",
+        "## Import Templates",
+        "",
+        f"- Next gold-set batch template: `{GOLD_BATCH_IMPORT_TEMPLATE_PATH}`",
+        f"- Full gold-set import template: `{GOLD_FULL_IMPORT_TEMPLATE_PATH}`",
+        f"- Next source-license batch template: `{LICENSE_BATCH_IMPORT_TEMPLATE_PATH}`",
+        f"- Expanded source-license import output: `{DEFAULT_LICENSE_POLICY_IMPORT_PATH}`",
+        "- Lockbox import template: `registry/review_batches/lockbox_review_next_import_template.json`",
+        "",
+        "## Dry-Run Commands",
+        "",
+        f"- Gold-set: `{gold.dry_run_command}`",
+        f"- Source-license: `{source_license.dry_run_command}`",
+        f"- Lockbox: `{lockbox.dry_run_command}`",
+        "",
+        "## Apply Commands",
+        "",
+        f"- Gold-set: `{gold.apply_command}`",
+        f"- Source-license: `{source_license.apply_command}`",
+        f"- Lockbox: `{lockbox.apply_command}`",
+        "",
+        "## Promotion Dry Run",
+        "",
+        (
+            "`mosaic-rke build-license-review-import --root . "
+            f"--policy {SOURCE_LICENSE_REVIEWED_POLICY_PATH} "
+            f"--output {DEFAULT_LICENSE_POLICY_IMPORT_PATH} && "
+            "mosaic-rke promotion-dry-run --root . "
+            f"--gold-input {GOLD_FULL_REVIEWED_IMPORT_PATH} "
+            f"--license-input {DEFAULT_LICENSE_POLICY_IMPORT_PATH} "
+            f"--lockbox-input {LOCKBOX_REVIEWED_IMPORT_PATH}`"
+        ),
+        "",
+        "## Current Blockers",
+        "",
+    ]
+    if report.blockers:
+        lines.extend(f"- {blocker}" for blocker in report.blockers)
+    else:
+        lines.append("- none")
+    return "\n".join(lines).rstrip()
+
+
+def write_manual_review_runbook(root: str | Path = ".") -> dict[str, Any]:
+    root_path = Path(root)
+    report = build_manual_review_progress(root_path)
+    path = root_path / MANUAL_REVIEW_RUNBOOK_MD_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+    markdown = render_manual_review_runbook_markdown(report)
+    path.write_text(markdown + "\n", encoding="utf-8")
+    return {
+        "path": str(path),
         "ready_for_promotion_dry_run": report.ready_for_promotion_dry_run,
         "blocker_count": len(report.blockers),
     }

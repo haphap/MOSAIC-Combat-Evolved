@@ -197,8 +197,14 @@ def test_write_operator_handoff_outputs_json_markdown_and_lockbox_template(
     assert license_gate["workbook_path"] == "registry/review_batches/source_license_review_workbook.md"
     assert "registry/review_batches/source_license_review_workbook.md" in payload["generated_paths"]
     assert "registry/review_batches/manual_review_progress_report.json" in payload["generated_paths"]
+    assert "registry/review_batches/manual_review_runbook.md" in payload["generated_paths"]
+    assert paths["manual_review_runbook"].endswith(
+        "registry/review_batches/manual_review_runbook.md"
+    )
+    assert (tmp_path / "registry/review_batches/manual_review_runbook.md").exists()
     assert "source_license_policy_template.json" in markdown
     assert "source_license_review_workbook.md" in markdown
+    assert "manual_review_runbook.md" in markdown
     assert "source_license_policy_reviewed.json" in markdown
     assert "prepare-license-policy-review" in markdown
     assert "prepare-gold-review" in markdown
@@ -237,3 +243,4 @@ def test_cli_operator_handoff_writes_package(tmp_path: Path, capsys):
     assert (
         tmp_path / "registry/review_batches/manual_review_progress_report.json"
     ).exists()
+    assert (tmp_path / "registry/review_batches/manual_review_runbook.md").exists()

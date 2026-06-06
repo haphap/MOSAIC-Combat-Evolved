@@ -142,6 +142,7 @@ def run_full_rke_refresh(
     outputs["manual_review_source_license_import_template"] = review_batches["source_license_import_template"]
     outputs["manual_review_source_license_workbook"] = review_batches["source_license_review_workbook"]
     outputs["manual_review_progress_report"] = operator_handoff["manual_review_progress_report"]
+    outputs["manual_review_runbook"] = operator_handoff["manual_review_runbook"]
     outputs["claim_variable_vocabulary"] = str(claim_vocabulary["path"])
     outputs["gold_candidate_claims"] = gold_candidate_claims["candidate_claims"]
     outputs["gold_candidate_claims_summary"] = gold_candidate_claims["summary"]

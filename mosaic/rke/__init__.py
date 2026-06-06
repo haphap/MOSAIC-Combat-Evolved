@@ -336,10 +336,13 @@ from .review_gates import (
 )
 from .review_progress import (
     MANUAL_REVIEW_PROGRESS_REPORT_PATH,
+    MANUAL_REVIEW_RUNBOOK_MD_PATH,
     ManualReviewGateProgress,
     ManualReviewProgressReport,
     build_manual_review_progress,
+    render_manual_review_runbook_markdown,
     write_manual_review_progress_report,
+    write_manual_review_runbook,
 )
 from .runtime import (
     EvidenceLedgerItem,
@@ -671,10 +674,13 @@ __all__ = [
     "write_gold_set_review_summary",
     "write_source_license_review_summary",
     "MANUAL_REVIEW_PROGRESS_REPORT_PATH",
+    "MANUAL_REVIEW_RUNBOOK_MD_PATH",
     "ManualReviewGateProgress",
     "ManualReviewProgressReport",
     "build_manual_review_progress",
+    "render_manual_review_runbook_markdown",
     "write_manual_review_progress_report",
+    "write_manual_review_runbook",
     "EvidenceLedgerItem",
     "ProgressEvent",
     "RuntimeAgentOutput",

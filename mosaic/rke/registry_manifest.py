@@ -74,6 +74,7 @@ REQUIRED_REGISTRY_FILES = (
     "registry/review_batches/manual_review_batch_status.json",
     "registry/review_batches/manual_review_bundle_manifest.json",
     "registry/review_batches/manual_review_progress_report.json",
+    "registry/review_batches/manual_review_runbook.md",
     "registry/review_batches/gold_set_full_import_template.jsonl",
     "registry/review_batches/gold_set_next_import_template.jsonl",
     "registry/review_batches/lockbox_review_next_import_template.json",

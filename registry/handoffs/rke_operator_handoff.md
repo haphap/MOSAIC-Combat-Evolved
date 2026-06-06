@@ -6,6 +6,8 @@
 - Production allowed: false
 - Direct production forbidden: true
 
+- Manual review runbook: registry/review_batches/manual_review_runbook.md
+
 ## Run Order
 
 - promotion-dry-run

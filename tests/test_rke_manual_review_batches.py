@@ -282,7 +282,7 @@ def test_manual_review_bundle_manifest_hashes_review_artifacts(tmp_path: Path):
 
     assert result["accepted"] is True
     assert payload["accepted"] is True
-    assert payload["artifact_count"] >= 19
+    assert payload["artifact_count"] >= 20
     assert payload["blockers"] == []
     assert "registry/review_batches/manual_review_bundle_manifest.json" not in artifacts
     assert payload["promotion_dry_run"]["accepted"] is False
@@ -292,6 +292,7 @@ def test_manual_review_bundle_manifest_hashes_review_artifacts(tmp_path: Path):
     assert payload["promotion_dry_run"]["missing_steps"] == []
     assert artifacts["registry/review_batches/gold_set_full_import_template.jsonl"]["row_count"] == 500
     assert artifacts["registry/review_batches/manual_review_progress_report.json"]["format"] == "json"
+    assert artifacts["registry/review_batches/manual_review_runbook.md"]["format"] == "markdown"
     assert artifacts["registry/review_batches/gold_set_review_workbook.md"]["format"] == "markdown"
     assert artifacts["registry/review_batches/source_license_review_workbook.md"]["format"] == "markdown"
     assert artifacts["registry/review_batches/source_license_next_import_template.jsonl"]["row_count"] == 50

@@ -95,6 +95,7 @@ Import a one-time lockbox review with:
 
 ```bash
 mosaic-rke prepare-lockbox-review --root .
+mosaic-rke review-progress --root .
 mosaic-rke apply-lockbox-review \
   --root . \
   --input registry/review_batches/lockbox_reviewed.json \
@@ -103,6 +104,11 @@ mosaic-rke apply-lockbox-review \
   --root . \
   --input registry/review_batches/lockbox_reviewed.json
 ```
+
+`mosaic-rke review-progress --root .` writes
+`registry/review_batches/manual_review_runbook.md`, which records the current
+gold-set, source-license, and lockbox gate status plus the exact dry-run and
+apply commands. It is read-only and does not open or apply the lockbox review.
 
 The import validates experiment identity, open count, reviewer fields, result,
 and post-open search flags. It can record a failed lockbox review, but production

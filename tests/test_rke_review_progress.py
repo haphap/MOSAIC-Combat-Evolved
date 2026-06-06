@@ -7,7 +7,12 @@ from pathlib import Path
 from mosaic.rke.cli import main
 from mosaic.rke.license_policy_import import build_source_license_policy_template
 from mosaic.rke.operator_handoff import build_lockbox_review_import_template
-from mosaic.rke.review_progress import build_manual_review_progress, write_manual_review_progress_report
+from mosaic.rke.review_progress import (
+    build_manual_review_progress,
+    render_manual_review_runbook_markdown,
+    write_manual_review_progress_report,
+    write_manual_review_runbook,
+)
 
 
 def _copy_registry(dst_root: Path) -> None:
@@ -117,6 +122,32 @@ def test_write_manual_review_progress_report_outputs_registry_artifact(tmp_path:
     assert payload["ready_for_promotion_dry_run"] is False
     assert len(payload["gates"]) == 3
     assert payload["gates"][0]["review_kind"] == "gold_set"
+
+
+def test_manual_review_runbook_renders_operator_checklist_without_source_text(tmp_path: Path):
+    _copy_registry(tmp_path)
+
+    report = build_manual_review_progress(tmp_path)
+    markdown = render_manual_review_runbook_markdown(report)
+    result = write_manual_review_runbook(tmp_path)
+    written = Path(result["path"]).read_text(encoding="utf-8")
+
+    assert markdown.startswith("# RKE Manual Review Runbook")
+    assert written == markdown + "\n"
+    assert result["path"].endswith("registry/review_batches/manual_review_runbook.md")
+    assert result["ready_for_promotion_dry_run"] is False
+    assert "mosaic-rke prepare-gold-review --root . --full" in markdown
+    assert "mosaic-rke prepare-license-policy-review --root ." in markdown
+    assert "mosaic-rke prepare-lockbox-review --root ." in markdown
+    assert "registry/review_batches/gold_set_full_reviewed.jsonl" in markdown
+    assert "registry/review_batches/source_license_policy_reviewed.json" in markdown
+    assert "registry/review_batches/lockbox_reviewed.json" in markdown
+    assert "registry/review_batches/gold_set_review_workbook.md" in markdown
+    assert "registry/review_batches/source_license_review_workbook.md" in markdown
+    assert "promotion-dry-run" in markdown
+    assert "Do not commit" in markdown
+    assert "abstract" not in markdown.lower()
+    assert "source_span_text" not in markdown
 
 
 def test_review_progress_accepts_complete_reviewed_scratch_files(tmp_path: Path, capsys):
