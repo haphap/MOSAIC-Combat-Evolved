@@ -67,14 +67,32 @@ def _read_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _read_jsonl(path: Path) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
+def _read_jsonl(path: Path) -> list[Any]:
+    rows: list[Any] = []
     with path.open("r", encoding="utf-8") as fh:
         for line in fh:
             line = line.strip()
             if line:
                 rows.append(json.loads(line))
     return rows
+
+
+def _path_label(root_path: Path, path: Path) -> str:
+    try:
+        return path.relative_to(root_path).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+
+def _read_mapping_jsonl(path: Path, root_path: Path) -> tuple[list[Mapping[str, Any]], tuple[str, ...]]:
+    rows: list[Mapping[str, Any]] = []
+    blockers: list[str] = []
+    for index, row in enumerate(_read_jsonl(path), 1):
+        if isinstance(row, Mapping):
+            rows.append(row)
+        else:
+            blockers.append(f"{_path_label(root_path, path)} row {index} must be object")
+    return rows, tuple(blockers)
 
 
 def _jsonable(value: Any) -> Any:
@@ -143,13 +161,18 @@ def _upsert_record(
     record["summary"].update(dict(summary or {}))
 
 
-def build_registry_audit_records(root: str | Path) -> Mapping[tuple[str, str], AuditRecord]:
+def _build_registry_audit_records_with_blockers(
+    root: str | Path,
+) -> tuple[Mapping[tuple[str, str], AuditRecord], tuple[str, ...]]:
     """Index registry records and their provenance links without storing source text."""
     root_path = Path(root)
     raw_index: dict[tuple[str, str], dict[str, Any]] = {}
+    blockers: list[str] = []
 
     for path in (root_path / "registry/sources").glob("*.jsonl"):
-        for row in _read_jsonl(path):
+        rows, row_blockers = _read_mapping_jsonl(path, root_path)
+        blockers.extend(row_blockers)
+        for row in rows:
             _upsert_record(
                 raw_index,
                 ref_type="source",
@@ -164,7 +187,9 @@ def build_registry_audit_records(root: str | Path) -> Mapping[tuple[str, str], A
                 },
             )
     for path in (root_path / "registry/claims").glob("*.jsonl"):
-        for row in _read_jsonl(path):
+        rows, row_blockers = _read_mapping_jsonl(path, root_path)
+        blockers.extend(row_blockers)
+        for row in rows:
             _upsert_record(
                 raw_index,
                 ref_type="claim",
@@ -180,7 +205,9 @@ def build_registry_audit_records(root: str | Path) -> Mapping[tuple[str, str], A
                 },
             )
     for path in (root_path / "registry/hypotheses").glob("*.jsonl"):
-        for row in _read_jsonl(path):
+        rows, row_blockers = _read_mapping_jsonl(path, root_path)
+        blockers.extend(row_blockers)
+        for row in rows:
             _upsert_record(
                 raw_index,
                 ref_type="hypothesis",
@@ -229,7 +256,9 @@ def build_registry_audit_records(root: str | Path) -> Mapping[tuple[str, str], A
                     summary={"rule_pack_id": rule_pack_id, "parameter_path": parameter_path},
                 )
     for path in (root_path / "registry/parameter_priors").glob("*.jsonl"):
-        for row in _read_jsonl(path):
+        rows, row_blockers = _read_mapping_jsonl(path, root_path)
+        blockers.extend(row_blockers)
+        for row in rows:
             target_path = str(row.get("target_path") or "")
             _upsert_record(
                 raw_index,
@@ -305,7 +334,7 @@ def build_registry_audit_records(root: str | Path) -> Mapping[tuple[str, str], A
             },
         )
 
-    return {
+    records = {
         key: AuditRecord(
             ref_type=str(record["ref_type"]),
             ref_id=str(record["ref_id"]),
@@ -315,6 +344,12 @@ def build_registry_audit_records(root: str | Path) -> Mapping[tuple[str, str], A
         )
         for key, record in raw_index.items()
     }
+    return records, tuple(blockers)
+
+
+def build_registry_audit_records(root: str | Path) -> Mapping[tuple[str, str], AuditRecord]:
+    records, _ = _build_registry_audit_records_with_blockers(root)
+    return records
 
 
 def build_registry_index(root: str | Path) -> Mapping[tuple[str, str], AuditReference]:
@@ -322,13 +357,16 @@ def build_registry_index(root: str | Path) -> Mapping[tuple[str, str], AuditRefe
     index: dict[tuple[str, str], AuditReference] = {}
 
     for path in (root_path / "registry/sources").glob("*.jsonl"):
-        for row in _read_jsonl(path):
+        rows, _ = _read_mapping_jsonl(path, root_path)
+        for row in rows:
             _add(index, "source", row.get("source_id"), path)
     for path in (root_path / "registry/claims").glob("*.jsonl"):
-        for row in _read_jsonl(path):
+        rows, _ = _read_mapping_jsonl(path, root_path)
+        for row in rows:
             _add(index, "claim", row.get("claim_id"), path)
     for path in (root_path / "registry/hypotheses").glob("*.jsonl"):
-        for row in _read_jsonl(path):
+        rows, _ = _read_mapping_jsonl(path, root_path)
+        for row in rows:
             _add(index, "hypothesis", row.get("hypothesis_id"), path)
     for path in (root_path / "registry/rule_packs").glob("*.json"):
         payload = _read_json(path)
@@ -341,7 +379,8 @@ def build_registry_index(root: str | Path) -> Mapping[tuple[str, str], AuditRefe
                 )
                 _add(index, "parameter_path", target_path, path)
     for path in (root_path / "registry/parameter_priors").glob("*.jsonl"):
-        for row in _read_jsonl(path):
+        rows, _ = _read_mapping_jsonl(path, root_path)
+        for row in rows:
             _add(index, "parameter_path", row.get("target_path"), path)
     for path in (root_path / "registry/experiments").glob("*.json"):
         _add(index, "experiment", _read_json(path).get("experiment_id"), path)
@@ -453,7 +492,7 @@ def build_audit_trace_view(
     if not resolved_trace_path.is_absolute():
         resolved_trace_path = root_path / resolved_trace_path
     trace = _read_json(resolved_trace_path)
-    records = build_registry_audit_records(root_path)
+    records, registry_blockers = _build_registry_audit_records_with_blockers(root_path)
 
     nodes: list[AuditRecord] = []
     missing: list[str] = []
@@ -487,7 +526,7 @@ def build_audit_trace_view(
                     )
                 )
 
-    broken_edges: list[str] = []
+    broken_edges: list[str] = list(registry_blockers)
     for node in nodes:
         for field_name, target_type, label in REQUIRED_LINKS.get(node.ref_type, ()):
             if not _has_trace_link(node, field_name=field_name, target_type=target_type, node_keys=node_keys):

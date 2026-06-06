@@ -80,6 +80,22 @@ def test_rke_cli_audit_view_writes_trace_view(tmp_path: Path, capsys):
     assert (tmp_path / "registry/audits/central_bank_mvp_audit_view.md").exists()
 
 
+def test_rke_cli_audit_view_reports_malformed_jsonl_rows(tmp_path: Path, capsys):
+    _copy_registry(tmp_path)
+    claim_path = tmp_path / "registry/claims/central_bank_claims.jsonl"
+    claim_path.write_text(
+        claim_path.read_text(encoding="utf-8") + json.dumps("not an object") + "\n",
+        encoding="utf-8",
+    )
+
+    code = main(("audit-view", "--root", str(tmp_path)))
+    output = json.loads(capsys.readouterr().out)
+
+    assert code == 2
+    assert output["complete"] is False
+    assert "registry/claims/central_bank_claims.jsonl row 2 must be object" in output["broken_edges"]
+
+
 def test_rke_cli_refresh_preserves_reviews(tmp_path: Path, capsys):
     _copy_registry(tmp_path)
     gold_review = tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"

@@ -184,6 +184,22 @@ def test_audit_trace_view_reports_broken_required_edge(tmp_path: Path):
     assert any("claim:CLAIM-CB-20260605-0001 missing trace-linked source claim" in item for item in view.broken_edges)
 
 
+def test_audit_trace_view_reports_malformed_jsonl_rows(tmp_path: Path):
+    write_central_bank_mvp_registry(tmp_path)
+    claim_path = tmp_path / "registry/claims/central_bank_claims.jsonl"
+    claim_path.write_text(
+        claim_path.read_text(encoding="utf-8") + json.dumps("not an object") + "\n",
+        encoding="utf-8",
+    )
+
+    index = build_registry_index(tmp_path)
+    view = build_audit_trace_view(tmp_path)
+
+    assert ("claim", "CLAIM-CB-20260605-0001") in index
+    assert not view.complete
+    assert "registry/claims/central_bank_claims.jsonl row 2 must be object" in view.broken_edges
+
+
 def test_write_audit_trace_view_outputs_json_and_markdown(tmp_path: Path):
     write_central_bank_mvp_registry(tmp_path)
 
