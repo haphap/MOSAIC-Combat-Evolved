@@ -62,6 +62,7 @@ class SourceTextRedactionReport:
     failure_count: int
     source_path: str
     source_text_count: int
+    malformed_source_row_count: int
     fingerprint_count: int
     checked_path_count: int
     skipped_allowed_path_count: int
@@ -69,6 +70,7 @@ class SourceTextRedactionReport:
     scanned_path_globs: Sequence[str]
     allowed_raw_text_paths: Sequence[str]
     allowed_raw_text_globs: Sequence[str]
+    blockers: Sequence[str]
     records: Sequence[SourceTextExposureRecord]
 
 
@@ -89,6 +91,17 @@ def _write_json(path: Path, payload: Mapping[str, Any]) -> dict[str, Any]:
         encoding="utf-8",
     )
     return {"path": str(path), "rows": 1}
+
+
+def _split_mapping_rows(rows: Sequence[Any]) -> tuple[list[Mapping[str, Any]], tuple[int, ...]]:
+    valid_rows: list[Mapping[str, Any]] = []
+    invalid_row_numbers: list[int] = []
+    for index, row in enumerate(rows, 1):
+        if isinstance(row, Mapping):
+            valid_rows.append(row)
+        else:
+            invalid_row_numbers.append(index)
+    return valid_rows, tuple(invalid_row_numbers)
 
 
 def _normalize_for_match(text: str) -> str:
@@ -126,14 +139,15 @@ def _iter_scanned_paths(root_path: Path) -> tuple[tuple[str, Path], int]:
 
 def _source_text_fingerprints(
     root_path: Path,
-) -> tuple[tuple[tuple[str, Mapping[str, str]], ...], int]:
+) -> tuple[tuple[tuple[str, Mapping[str, str]], ...], int, tuple[int, ...]]:
     source_path = root_path / TUSHARE_SOURCE_PATH
     if not source_path.exists():
-        return (), 0
+        return (), 0, ()
 
     fingerprints: dict[str, Mapping[str, str]] = {}
     source_text_count = 0
-    for row in load_jsonl(source_path):
+    rows, invalid_rows = _split_mapping_rows(load_jsonl(source_path))
+    for row in rows:
         abstract = _normalize_for_match(str(row.get("abstract") or ""))
         if len(abstract) < TEXT_MATCH_MIN_CHARS:
             continue
@@ -151,15 +165,25 @@ def _source_text_fingerprints(
             chunk = abstract[start : start + TEXT_MATCH_MIN_CHARS]
             if len(chunk) >= TEXT_MATCH_MIN_CHARS:
                 fingerprints.setdefault(chunk, metadata)
-    return tuple(sorted(fingerprints.items(), key=lambda item: (item[1]["source_id"], item[0]))), source_text_count
+    return (
+        tuple(sorted(fingerprints.items(), key=lambda item: (item[1]["source_id"], item[0]))),
+        source_text_count,
+        invalid_rows,
+    )
 
 
 def build_source_text_redaction_report(root: str | Path = ".") -> SourceTextRedactionReport:
     root_path = Path(root)
-    fingerprints, source_text_count = _source_text_fingerprints(root_path)
+    fingerprints, source_text_count, invalid_source_rows = _source_text_fingerprints(root_path)
     fingerprint_lookup = dict(fingerprints)
     scanned_paths, skipped_allowed = _iter_scanned_paths(root_path)
     records: list[SourceTextExposureRecord] = []
+    blockers: list[str] = []
+    if invalid_source_rows:
+        blockers.append(
+            "source registry row must be object at row(s): "
+            + ", ".join(str(row_number) for row_number in invalid_source_rows)
+        )
 
     for relative, path in scanned_paths:
         try:
@@ -196,10 +220,11 @@ def build_source_text_redaction_report(root: str | Path = ".") -> SourceTextReda
 
     return SourceTextRedactionReport(
         report_id="RKE-SOURCE-TEXT-REDACTION-REPORT-20260606",
-        accepted=not records,
+        accepted=not records and not blockers,
         failure_count=len(records),
         source_path=TUSHARE_SOURCE_PATH,
         source_text_count=source_text_count,
+        malformed_source_row_count=len(invalid_source_rows),
         fingerprint_count=len(fingerprints),
         checked_path_count=len(scanned_paths),
         skipped_allowed_path_count=skipped_allowed,
@@ -207,6 +232,7 @@ def build_source_text_redaction_report(root: str | Path = ".") -> SourceTextReda
         scanned_path_globs=SCANNED_PATH_GLOBS,
         allowed_raw_text_paths=ALLOWED_RAW_TEXT_PATHS,
         allowed_raw_text_globs=ALLOWED_RAW_TEXT_GLOBS,
+        blockers=tuple(blockers),
         records=tuple(records),
     )
 

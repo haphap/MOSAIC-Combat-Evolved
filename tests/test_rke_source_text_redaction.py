@@ -40,6 +40,8 @@ def test_source_text_redaction_accepts_current_registry():
 
     assert report.accepted
     assert report.failure_count == 0
+    assert report.malformed_source_row_count == 0
+    assert report.blockers == ()
     assert report.source_text_count == _current_source_text_count(Path("."))
     assert report.fingerprint_count > report.source_text_count
     assert report.checked_path_count > 0
@@ -65,6 +67,28 @@ def test_source_text_redaction_rejects_runtime_long_source_text(tmp_path: Path):
     assert "matched_chunk_hashes" in payload
 
 
+def test_source_text_redaction_reports_malformed_source_rows(tmp_path: Path):
+    _copy_registry(tmp_path)
+    source_path = tmp_path / "registry/sources/tushare_research_reports.jsonl"
+    source_count = sum(1 for line in source_path.read_text(encoding="utf-8").splitlines() if line.strip())
+    source_path.write_text(
+        source_path.read_text(encoding="utf-8") + json.dumps(["not", "an", "object"]) + "\n",
+        encoding="utf-8",
+    )
+
+    report = build_source_text_redaction_report(tmp_path)
+    result = write_source_text_redaction_report(tmp_path)
+    payload = json.loads(Path(result["path"]).read_text(encoding="utf-8"))
+
+    assert not report.accepted
+    assert report.failure_count == 0
+    assert report.malformed_source_row_count == 1
+    assert f"source registry row must be object at row(s): {source_count + 1}" in report.blockers
+    assert payload["accepted"] is False
+    assert payload["malformed_source_row_count"] == 1
+    assert payload["blockers"] == list(report.blockers)
+
+
 def test_source_text_redaction_writer_outputs_report(tmp_path: Path):
     _copy_registry(tmp_path)
 
@@ -73,5 +97,7 @@ def test_source_text_redaction_writer_outputs_report(tmp_path: Path):
 
     assert payload["accepted"] is True
     assert payload["failure_count"] == 0
+    assert payload["malformed_source_row_count"] == 0
+    assert payload["blockers"] == []
     assert payload["source_text_count"] == _current_source_text_count(tmp_path)
     assert payload["allowed_raw_text_paths"]
