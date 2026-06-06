@@ -57,6 +57,17 @@ def _write_json(path: Path, payload: Mapping[str, Any]) -> dict[str, Any]:
     return {"path": str(path), "rows": 1}
 
 
+def _split_mapping_rows(rows: Sequence[Any]) -> tuple[list[Mapping[str, Any]], tuple[int, ...]]:
+    valid: list[Mapping[str, Any]] = []
+    invalid: list[int] = []
+    for index, row in enumerate(rows, 1):
+        if isinstance(row, Mapping):
+            valid.append(row)
+        else:
+            invalid.append(index)
+    return valid, tuple(invalid)
+
+
 def _gold_row_reviewed(row: Mapping[str, Any]) -> bool:
     return all(row.get(field) is not None for field in GOLD_REVIEW_FIELDS)
 
@@ -68,21 +79,27 @@ def summarize_gold_set_review(
 ) -> GoldSetReviewSummary:
     root_path = Path(root)
     review_path = root_path / review_relative_path
-    rows = load_jsonl(review_path) if review_path.exists() else []
+    raw_rows = load_jsonl(review_path) if review_path.exists() else []
+    rows, invalid_rows = _split_mapping_rows(raw_rows)
     documents = {str(row.get("document_id") or row.get("source_id") or "") for row in rows}
     documents.discard("")
     reviewed = [row for row in rows if _gold_row_reviewed(row)]
-    pending_claims = len(rows) - len(reviewed)
+    pending_claims = len(raw_rows) - len(reviewed)
     blockers: list[str] = []
     metrics: dict[str, float | int] | None = None
     passed = False
 
-    if not rows:
+    if not raw_rows:
         blockers.append("gold-set review file missing or empty")
+    if invalid_rows:
+        blockers.append(
+            "gold-set review row must be object at row(s): "
+            + ", ".join(str(row_number) for row_number in invalid_rows)
+        )
     if pending_claims:
         blockers.append(f"{pending_claims} gold-set claim review rows still pending")
 
-    if rows and pending_claims == 0:
+    if rows and not invalid_rows and pending_claims == 0:
         gold_set = evaluate_gold_set_reviews(rows, gold_set_id="GOLD-CLAIM-2026Q2")
         metrics = {
             "sample_size_documents": gold_set.sample_size_documents,
@@ -101,10 +118,10 @@ def summarize_gold_set_review(
         summary_id="RKE-GOLD-SET-REVIEW-SUMMARY-20260606",
         review_path=review_relative_path,
         total_documents=len(documents),
-        total_claims=len(rows),
+        total_claims=len(raw_rows),
         reviewed_claims=len(reviewed),
         pending_claims=pending_claims,
-        review_complete=bool(rows) and pending_claims == 0,
+        review_complete=bool(raw_rows) and not invalid_rows and pending_claims == 0,
         passed=passed,
         metrics=metrics,
         blockers=tuple(blockers),
@@ -136,8 +153,10 @@ def summarize_source_license_review(
     root_path = Path(root)
     source_path = root_path / source_relative_path
     review_path = root_path / review_relative_path
-    sources = load_jsonl(source_path) if source_path.exists() else []
-    reviews = load_jsonl(review_path) if review_path.exists() else []
+    raw_sources = load_jsonl(source_path) if source_path.exists() else []
+    raw_reviews = load_jsonl(review_path) if review_path.exists() else []
+    sources, invalid_source_rows = _split_mapping_rows(raw_sources)
+    reviews, invalid_review_rows = _split_mapping_rows(raw_reviews)
     source_ids = {str(row.get("source_id") or "") for row in sources}
     review_ids = {str(row.get("source_id") or "") for row in reviews}
     source_ids.discard("")
@@ -154,10 +173,24 @@ def summarize_source_license_review(
     pending_sources = len(source_ids - reviewed_ids)
     blockers: list[str] = []
 
-    if not sources:
+    if not raw_sources:
         blockers.append("source registry missing or empty")
-    if not reviews:
+    elif not sources:
+        blockers.append("source registry has no valid source rows")
+    if not raw_reviews:
         blockers.append("license review file missing or empty")
+    elif not reviews:
+        blockers.append("license review file has no valid review rows")
+    if invalid_source_rows:
+        blockers.append(
+            "source registry row must be object at row(s): "
+            + ", ".join(str(row_number) for row_number in invalid_source_rows)
+        )
+    if invalid_review_rows:
+        blockers.append(
+            "source license review row must be object at row(s): "
+            + ", ".join(str(row_number) for row_number in invalid_review_rows)
+        )
     if pending_sources:
         blockers.append(f"{pending_sources} source license review rows still pending")
     if extra_review_ids:
@@ -167,17 +200,24 @@ def summarize_source_license_review(
             f"{approved_for_production} / {len(source_ids)} sources approved for production runtime"
         )
 
-    passed = bool(sources) and not pending_sources and not extra_review_ids and approved_for_production == len(source_ids)
+    passed = (
+        bool(sources)
+        and not invalid_source_rows
+        and not invalid_review_rows
+        and not pending_sources
+        and not extra_review_ids
+        and approved_for_production == len(source_ids)
+    )
     return SourceLicenseReviewSummary(
         summary_id="RKE-SOURCE-LICENSE-REVIEW-SUMMARY-20260606",
         source_path=source_relative_path,
         review_path=review_relative_path,
         total_sources=len(source_ids),
-        total_review_rows=len(reviews),
+        total_review_rows=len(raw_reviews),
         reviewed_sources=len(reviewed_ids & source_ids),
         pending_sources=pending_sources,
         approved_for_production_runtime=int(approved_for_production),
-        review_complete=bool(sources) and pending_sources == 0 and not extra_review_ids,
+        review_complete=bool(sources) and not invalid_source_rows and not invalid_review_rows and pending_sources == 0 and not extra_review_ids,
         passed=passed,
         missing_review_source_ids=missing_review_ids,
         extra_review_source_ids=extra_review_ids,
