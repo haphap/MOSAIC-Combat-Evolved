@@ -7,8 +7,16 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Literal, Mapping, Sequence
 
+from .completion_acceptance import (
+    EXPECTED_COMPLETION_CRITERION_IDS,
+    MASTER_PLAN_ACCEPTANCE_SECTION,
+    MASTER_PLAN_PATH,
+)
 
-MASTER_PLAN_COVERAGE_REPORT_PATH = "registry/audits/rke_master_plan_coverage_report.json"
+
+MASTER_PLAN_COVERAGE_REPORT_PATH = (
+    "registry/audits/rke_master_plan_coverage_report.json"
+)
 
 CoverageStatus = Literal["passed", "blocked", "missing"]
 
@@ -46,7 +54,11 @@ def _jsonable(value: Any) -> Any:
 
 def _write_json(path: Path, payload: Mapping[str, Any]) -> dict[str, Any]:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(_jsonable(payload), ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    path.write_text(
+        json.dumps(_jsonable(payload), ensure_ascii=False, indent=2, sort_keys=True)
+        + "\n",
+        encoding="utf-8",
+    )
     return {"path": str(path), "rows": 1}
 
 
@@ -69,7 +81,9 @@ def _all_exist(root_path: Path, evidence_paths: Sequence[str]) -> tuple[bool, st
     return True, ""
 
 
-def _evidence_content_errors(root_path: Path, evidence_paths: Sequence[str]) -> tuple[str, ...]:
+def _evidence_content_errors(
+    root_path: Path, evidence_paths: Sequence[str]
+) -> tuple[str, ...]:
     errors: list[str] = []
     for relative in evidence_paths:
         path = root_path / relative
@@ -115,18 +129,71 @@ def _completion_by_id(root_path: Path) -> tuple[dict[str, Mapping[str, Any]], st
         return {}, f"completion audit must contain valid JSON: {exc.msg}"
     if not isinstance(payload, Mapping):
         return {}, "completion audit must be object"
+    master_plan_path = payload.get("master_plan_path")
+    if master_plan_path != MASTER_PLAN_PATH:
+        return {}, f"completion audit master_plan_path must be {MASTER_PLAN_PATH}"
+    acceptance_section = payload.get("acceptance_section")
+    if str(acceptance_section) != MASTER_PLAN_ACCEPTANCE_SECTION:
+        return (
+            {},
+            f"completion audit acceptance_section must be {MASTER_PLAN_ACCEPTANCE_SECTION}",
+        )
+    acceptance_count = payload.get("acceptance_criteria_count")
+    try:
+        parsed_acceptance_count = int(acceptance_count)
+    except (TypeError, ValueError):
+        return {}, "completion audit acceptance_criteria_count must be an integer"
+    if parsed_acceptance_count != len(EXPECTED_COMPLETION_CRITERION_IDS):
+        return (
+            {},
+            f"completion audit acceptance_criteria_count must be {len(EXPECTED_COMPLETION_CRITERION_IDS)}",
+        )
     criteria = payload.get("criteria") or ()
     if not isinstance(criteria, list | tuple):
         return {}, "completion audit criteria must be list"
     completion: dict[str, Mapping[str, Any]] = {}
     invalid_rows: list[str] = []
+    ids: list[str] = []
     for index, row in enumerate(criteria, 1):
         if not isinstance(row, Mapping):
             invalid_rows.append(str(index))
             continue
-        completion[str(row.get("criterion_id"))] = row
+        criterion_id = str(row.get("criterion_id"))
+        ids.append(criterion_id)
+        if criterion_id in completion:
+            return (
+                completion,
+                f"completion audit criterion_id duplicated: {criterion_id}",
+            )
+        completion[criterion_id] = row
     if invalid_rows:
-        return completion, f"completion audit criteria row must be object at row(s): {', '.join(invalid_rows)}"
+        return (
+            completion,
+            f"completion audit criteria row must be object at row(s): {', '.join(invalid_rows)}",
+        )
+    expected = list(EXPECTED_COMPLETION_CRITERION_IDS)
+    if ids != expected:
+        missing = [
+            criterion_id for criterion_id in expected if criterion_id not in completion
+        ]
+        unexpected = [
+            criterion_id
+            for criterion_id in ids
+            if criterion_id not in EXPECTED_COMPLETION_CRITERION_IDS
+        ]
+        details: list[str] = []
+        if missing:
+            details.append(f"missing: {', '.join(missing)}")
+        if unexpected:
+            details.append(f"unexpected: {', '.join(unexpected)}")
+        if not details:
+            details.append("criteria are out of order")
+        return (
+            completion,
+            "completion audit criteria must exactly match C01-C12 in order ("
+            + "; ".join(details)
+            + ")",
+        )
     return completion, ""
 
 
@@ -188,7 +255,9 @@ def _completion_record(
     )
 
 
-def build_master_plan_coverage_report(root: str | Path = ".") -> MasterPlanCoverageReport:
+def build_master_plan_coverage_report(
+    root: str | Path = ".",
+) -> MasterPlanCoverageReport:
     root_path = Path(root)
     completion, completion_error = _completion_by_id(root_path)
     records: list[MasterPlanCoverageRecord] = []
@@ -329,7 +398,9 @@ def build_master_plan_coverage_report(root: str | Path = ".") -> MasterPlanCover
                 root_path,
                 section_id="Phase-7",
                 requirement="Sector / superinvestor / decision integration contracts encode handoff, actionability, cash floor, and override audit.",
-                evidence_paths=("registry/integration/phase7_layer_integration_contracts.json",),
+                evidence_paths=(
+                    "registry/integration/phase7_layer_integration_contracts.json",
+                ),
             ),
             _completion_record(
                 root_path,

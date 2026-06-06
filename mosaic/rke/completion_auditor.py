@@ -9,6 +9,7 @@ from typing import Any, Mapping
 
 from .audit_viewer import build_audit_trace_view
 from .central_bank_mvp import CompletionAudit, CompletionCriterion
+from .completion_acceptance import final_acceptance_metadata
 from .compliance import apply_source_license_reviews, evaluate_source_license
 from .phase_minus1 import evaluate_gold_set_reviews
 
@@ -60,7 +61,9 @@ def _optional_jsonl(path: Path, label: str) -> tuple[list[Any], str]:
     return rows, ""
 
 
-def _split_mapping_rows(rows: list[Any]) -> tuple[list[Mapping[str, Any]], tuple[int, ...]]:
+def _split_mapping_rows(
+    rows: list[Any],
+) -> tuple[list[Mapping[str, Any]], tuple[int, ...]]:
     valid: list[Mapping[str, Any]] = []
     invalid: list[int] = []
     for index, row in enumerate(rows, 1):
@@ -161,7 +164,9 @@ def _license_gate(root: Path) -> tuple[bool, str, str]:
         )
     reviewed_sources = apply_source_license_reviews(sources, reviews)
     decisions = [evaluate_source_license(source) for source in reviewed_sources]
-    approved = [decision for decision in decisions if decision.allowed_for_production_runtime]
+    approved = [
+        decision for decision in decisions if decision.allowed_for_production_runtime
+    ]
     if len(approved) == len(sources):
         return True, f"{len(approved)} sources approved for production runtime", ""
     return (
@@ -179,7 +184,11 @@ def _source_text_redaction_gate(root: Path) -> tuple[bool, str, str]:
     if report_error:
         return False, "source text redaction report malformed", report_error
     if report is None:
-        return False, "source text redaction report missing", "source text redaction report missing"
+        return (
+            False,
+            "source text redaction report missing",
+            "source text redaction report missing",
+        )
     if report.get("accepted") is True:
         return (
             True,
@@ -206,11 +215,19 @@ def _validation_gate(
         return False, "validation experiment malformed", experiment_error
     if experiment is None:
         return False, "validation experiment missing", "experiment registry missing"
-    sampling, sampling_error = _mapping_field(experiment, "sampling_design", "sampling_design")
-    mtc, mtc_error = _mapping_field(experiment, "multiple_testing_control", "multiple_testing_control")
-    acceptance, acceptance_error = _mapping_field(experiment, "acceptance_rule", "acceptance_rule")
+    sampling, sampling_error = _mapping_field(
+        experiment, "sampling_design", "sampling_design"
+    )
+    mtc, mtc_error = _mapping_field(
+        experiment, "multiple_testing_control", "multiple_testing_control"
+    )
+    acceptance, acceptance_error = _mapping_field(
+        experiment, "acceptance_rule", "acceptance_rule"
+    )
     failures: list[str] = []
-    failures.extend(error for error in (sampling_error, mtc_error, acceptance_error) if error)
+    failures.extend(
+        error for error in (sampling_error, mtc_error, acceptance_error) if error
+    )
     if sampling.get("effective_n", 0) < sampling.get("minimum_effective_n", 10**9):
         failures.append("effective_n below minimum")
     if not sampling.get("overlap_policy"):
@@ -227,7 +244,9 @@ def _validation_gate(
     elif hardening is None:
         failures.append("validation hardening report missing")
     else:
-        ablation_checks, ablation_error = _mapping_field(hardening, "ablation_checks", "ablation_checks")
+        ablation_checks, ablation_error = _mapping_field(
+            hardening, "ablation_checks", "ablation_checks"
+        )
         if ablation_error:
             failures.append(ablation_error)
         if ablation_checks.get("accepted") is not True:
@@ -242,7 +261,9 @@ def _validation_gate(
     elif statistical is None:
         failures.append("statistical significance report missing")
     else:
-        ci, ci_error = _mapping_field(statistical, "confidence_interval", "confidence_interval")
+        ci, ci_error = _mapping_field(
+            statistical, "confidence_interval", "confidence_interval"
+        )
         if ci_error:
             failures.append(ci_error)
         if statistical.get("accepted") is not True:
@@ -274,11 +295,23 @@ def _audit_trace_gate(root: Path) -> tuple[bool, str, str]:
     try:
         view = build_audit_trace_view(root, trace_id="central-bank-mvp")
     except Exception as exc:  # noqa: BLE001 - malformed registry artifacts should block, not crash, the audit
-        return False, "audit trace resolution failed", f"audit trace resolution failed: {exc}"
+        return (
+            False,
+            "audit trace resolution failed",
+            f"audit trace resolution failed: {exc}",
+        )
     if view.complete:
-        return True, f"{view.node_count} audit nodes and {view.edge_count} provenance edges resolved", ""
+        return (
+            True,
+            f"{view.node_count} audit nodes and {view.edge_count} provenance edges resolved",
+            "",
+        )
     blockers = tuple(view.missing_references) + tuple(view.broken_edges)
-    return False, f"{view.node_count} audit nodes and {view.edge_count} provenance edges resolved", "; ".join(blockers)
+    return (
+        False,
+        f"{view.node_count} audit nodes and {view.edge_count} provenance edges resolved",
+        "; ".join(blockers),
+    )
 
 
 def audit_master_plan_completion(root: str | Path = ".") -> CompletionAudit:
@@ -292,7 +325,8 @@ def audit_master_plan_completion(root: str | Path = ".") -> CompletionAudit:
         "validation hardening report",
     )
     statistical, statistical_error = _optional_mapping(
-        root_path / "registry/evaluation/statistical_significance/central_bank_after_cost_significance.json",
+        root_path
+        / "registry/evaluation/statistical_significance/central_bank_after_cost_significance.json",
         "statistical significance report",
     )
     runtime_output, runtime_output_error = _optional_mapping(
@@ -322,7 +356,9 @@ def audit_master_plan_completion(root: str | Path = ".") -> CompletionAudit:
 
     gold_passed, gold_evidence, gold_blocker = _gold_set_gate(root_path)
     license_passed, license_evidence, license_blocker = _license_gate(root_path)
-    redaction_passed, redaction_evidence, redaction_blocker = _source_text_redaction_gate(root_path)
+    redaction_passed, redaction_evidence, redaction_blocker = (
+        _source_text_redaction_gate(root_path)
+    )
     validation_passed, validation_evidence, validation_blocker = _validation_gate(
         experiment,
         hardening,
@@ -386,7 +422,9 @@ def audit_master_plan_completion(root: str | Path = ".") -> CompletionAudit:
             CompletionCriterion(
                 "C01",
                 "At least one macro rule family reaches the Phase 4 paper-trading gate.",
-                not paper_report_error and not paper_summary_error and paper_summary.get("ready") is True,
+                not paper_report_error
+                and not paper_summary_error
+                and paper_summary.get("ready") is True,
                 "central_bank paper-trading report",
                 paper_report_error
                 or paper_summary_error
@@ -407,7 +445,8 @@ def audit_master_plan_completion(root: str | Path = ".") -> CompletionAudit:
                     and not data_proxies_error
                     and bool(
                         data_matrix
-                        and {"pboc_net_injection_7d", "risk_appetite_proxy"} <= set(data_proxies)
+                        and {"pboc_net_injection_7d", "risk_appetite_proxy"}
+                        <= set(data_proxies)
                     )
                 ),
                 "central_bank data availability matrix",
@@ -447,12 +486,15 @@ def audit_master_plan_completion(root: str | Path = ".") -> CompletionAudit:
                 "runtime output checker and focused tests",
                 runtime_output_error
                 or aggregation_error
-                or ("" if runtime_passed else "runtime output checker evidence missing"),
+                or (
+                    "" if runtime_passed else "runtime output checker evidence missing"
+                ),
             ),
             CompletionCriterion(
                 "C08",
                 "Patch validator rejects forbidden paths and mismatched target paths.",
-                not patch_error and bool(patch and patch.get("allowed_by_evolution_targets") is True),
+                not patch_error
+                and bool(patch and patch.get("allowed_by_evolution_targets") is True),
                 "central_bank paper-trading patch + patch checker tests",
                 patch_error or ("" if patch else "patch registry missing"),
             ),
@@ -485,7 +527,11 @@ def audit_master_plan_completion(root: str | Path = ".") -> CompletionAudit:
                 "Compliance gate blocks unauthorized reports from production runtime.",
                 license_passed and redaction_passed,
                 f"{license_evidence}; {redaction_evidence}",
-                "; ".join(blocker for blocker in (license_blocker, redaction_blocker) if blocker),
+                "; ".join(
+                    blocker
+                    for blocker in (license_blocker, redaction_blocker)
+                    if blocker
+                ),
             ),
             CompletionCriterion(
                 "C12",
@@ -512,13 +558,26 @@ def audit_master_plan_completion(root: str | Path = ".") -> CompletionAudit:
 def write_completion_audit(root: str | Path = ".") -> dict[str, Any]:
     root_path = Path(root)
     audit = audit_master_plan_completion(root_path)
+    passed_count = sum(1 for item in audit.criteria if item.passed)
+    payload = {
+        "report_id": "RKE-COMPLETION-AUDIT-20260606",
+        **final_acceptance_metadata(),
+        **asdict(audit),
+        "ready_for_broad_rollout": audit.ready_for_broad_rollout,
+        "passed_count": passed_count,
+        "blocked_count": len(audit.criteria) - passed_count,
+        "blockers": list(audit.blockers),
+    }
     output_path = root_path / "registry/audits/rke_completion_audit.json"
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(
-        json.dumps(asdict(audit), ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
-    return {"path": str(output_path), "ready_for_broad_rollout": audit.ready_for_broad_rollout}
+    return {
+        "path": str(output_path),
+        "ready_for_broad_rollout": audit.ready_for_broad_rollout,
+    }
 
 
 def main() -> None:
