@@ -204,13 +204,29 @@ def validate_rule_pack_schema_artifact(root: str | Path, artifact_path: str) -> 
     rules_required = _extract_yaml_list(schema_text, "rules_required")
     rule_pack = _read_json(root_path / artifact_path)
     failures: list[str] = []
+    if not isinstance(rule_pack, Mapping):
+        return SchemaValidationRecord(
+            schema_path="schemas/rule_pack.schema.yaml",
+            artifact_path=artifact_path,
+            item_count=1,
+            accepted=False,
+            failures=("$: expected object",),
+        )
     for field in required:
         if field not in rule_pack:
             failures.append(f"$.{field}: required")
-    rules = dict(rule_pack.get("rules") or {})
-    if not rules:
+    raw_rules = rule_pack.get("rules") or {}
+    if not isinstance(raw_rules, Mapping):
+        rules: Mapping[str, Any] = {}
+        failures.append("$.rules: expected object")
+    else:
+        rules = raw_rules
+    if not raw_rules:
         failures.append("$.rules: required non-empty rule map")
     for rule_id, rule in rules.items():
+        if not isinstance(rule, Mapping):
+            failures.append(f"$.rules.{rule_id}: expected object")
+            continue
         for field in rules_required:
             if field not in rule:
                 failures.append(f"$.rules.{rule_id}.{field}: required")

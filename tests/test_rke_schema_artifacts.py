@@ -8,6 +8,7 @@ from mosaic.rke import (
     validate_json_schema_artifact,
 )
 from mosaic.rke.cli import main
+from mosaic.rke.schema_validation import validate_rule_pack_schema_artifact
 
 
 REQUIRED_SCHEMA_FILES = {
@@ -113,6 +114,53 @@ def test_schema_validation_rejects_missing_required_field(tmp_path: Path):
 
     assert not record.accepted
     assert any("source_hash" in failure for failure in record.failures)
+
+
+def test_rule_pack_schema_validation_rejects_non_object_artifact(tmp_path: Path):
+    schema_dir = tmp_path / "schemas"
+    rule_dir = tmp_path / "registry/rule_packs"
+    schema_dir.mkdir(parents=True)
+    rule_dir.mkdir(parents=True)
+    (schema_dir / "rule_pack.schema.yaml").write_text(
+        Path("schemas/rule_pack.schema.yaml").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    artifact_path = "registry/rule_packs/bad_rule_pack.json"
+    (tmp_path / artifact_path).write_text(json.dumps(["not", "an", "object"]), encoding="utf-8")
+
+    record = validate_rule_pack_schema_artifact(tmp_path, artifact_path)
+
+    assert not record.accepted
+    assert record.failures == ("$: expected object",)
+
+
+def test_rule_pack_schema_validation_rejects_non_object_rule(tmp_path: Path):
+    schema_dir = tmp_path / "schemas"
+    rule_dir = tmp_path / "registry/rule_packs"
+    schema_dir.mkdir(parents=True)
+    rule_dir.mkdir(parents=True)
+    (schema_dir / "rule_pack.schema.yaml").write_text(
+        Path("schemas/rule_pack.schema.yaml").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    artifact_path = "registry/rule_packs/bad_rule_pack.json"
+    (tmp_path / artifact_path).write_text(
+        json.dumps(
+            {
+                "agent_id": "macro.central_bank",
+                "rule_pack_id": "macro.central_bank.bad.v1",
+                "rules": {"bad_rule": ["not", "an", "object"]},
+                "version": "v1",
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    record = validate_rule_pack_schema_artifact(tmp_path, artifact_path)
+
+    assert not record.accepted
+    assert "$.rules.bad_rule: expected object" in record.failures
 
 
 def test_schema_status_cli_writes_report(capsys):
