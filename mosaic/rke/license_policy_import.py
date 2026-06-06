@@ -270,6 +270,13 @@ def _matched_rows_fingerprint(rows: Sequence[Mapping[str, Any]]) -> str:
     return "sha256:" + sha256(encoded).hexdigest()
 
 
+def _matched_publish_date_bounds(rows: Sequence[Mapping[str, Any]]) -> tuple[str | None, str | None]:
+    publish_dates = sorted(str(row.get("publish_date") or "").strip() for row in rows if row.get("publish_date"))
+    if not publish_dates:
+        return None, None
+    return publish_dates[0], publish_dates[-1]
+
+
 def _review_row(row: Mapping[str, Any], policy: Mapping[str, Any]) -> dict[str, Any]:
     return {
         "approved_for_derived_claim_storage": policy.get("approved_for_derived_claim_storage"),
@@ -382,6 +389,7 @@ def build_source_license_policy_import(
     matched = [row for row in review_rows if _matches(row, filters)]
     output_rows = [_review_row(row, policy) for row in matched]
     matched_rows_fingerprint = _matched_rows_fingerprint(matched)
+    publish_date_min, publish_date_max = _matched_publish_date_bounds(matched)
 
     blockers: list[str] = []
     for field in _unexpected_policy_fields(policy):
@@ -416,6 +424,10 @@ def build_source_license_policy_import(
         blockers.append(f"{MATCHED_ROWS_FINGERPRINT_FIELD} does not match current matched rows")
     if policy.get("matched_row_count") != len(matched):
         blockers.append("matched_row_count does not match current matched rows")
+    if policy.get("publish_date_min") != publish_date_min:
+        blockers.append("publish_date_min does not match current matched rows")
+    if policy.get("publish_date_max") != publish_date_max:
+        blockers.append("publish_date_max does not match current matched rows")
     if not isinstance(derived, bool):
         blockers.append("approved_for_derived_claim_storage must be boolean")
     if not isinstance(production, bool):

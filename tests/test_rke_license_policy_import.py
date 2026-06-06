@@ -10,6 +10,10 @@ from mosaic.rke import (
     write_source_license_policy_template,
 )
 from mosaic.rke.cli import main
+from mosaic.rke.license_policy_import import (
+    MATCHED_ROWS_FINGERPRINT_FIELD,
+    _matched_rows_fingerprint,
+)
 
 
 def _copy_registry(dst_root: Path) -> None:
@@ -279,6 +283,55 @@ def test_build_source_license_policy_import_accepts_valid_publish_date_filters(
     assert report.filters.publish_date_min == policy["publish_date_min"]
     assert report.filters.publish_date_max == policy["publish_date_max"]
     assert output_path.exists()
+
+
+def test_build_source_license_policy_import_accepts_scoped_publish_date_metadata(
+    tmp_path: Path,
+):
+    _copy_registry(tmp_path)
+    policy_path = tmp_path / "policy.json"
+    output_path = tmp_path / "policy_import.jsonl"
+    review_rows = _load_jsonl(tmp_path / "registry/compliance/tushare_license_review_template.jsonl")
+    matched = [review_rows[0]]
+    publish_date = matched[0]["publish_date"]
+    policy = _policy(tmp_path)
+    policy["filters"] = {"source_id_prefix": [matched[0]["source_id"]]}
+    policy["matched_row_count"] = len(matched)
+    policy[MATCHED_ROWS_FINGERPRINT_FIELD] = _matched_rows_fingerprint(matched)
+    policy["publish_date_min"] = publish_date
+    policy["publish_date_max"] = publish_date
+    _write_json(policy_path, policy)
+
+    report = build_source_license_policy_import(tmp_path, policy_path, output_path=output_path)
+    rows = _load_jsonl(output_path)
+
+    assert report.accepted
+    assert report.matched_rows == 1
+    assert rows[0]["source_id"] == matched[0]["source_id"]
+
+
+def test_build_source_license_policy_import_rejects_stale_publish_date_metadata(
+    tmp_path: Path,
+):
+    _copy_registry(tmp_path)
+    policy_path = tmp_path / "policy.json"
+    output_path = tmp_path / "policy_import.jsonl"
+    review_rows = _load_jsonl(tmp_path / "registry/compliance/tushare_license_review_template.jsonl")
+    matched = [review_rows[0]]
+    policy = _policy(tmp_path)
+    policy["filters"] = {"source_id_prefix": [matched[0]["source_id"]]}
+    policy["matched_row_count"] = len(matched)
+    policy[MATCHED_ROWS_FINGERPRINT_FIELD] = _matched_rows_fingerprint(matched)
+    policy["publish_date_min"] = "2026-01-01"
+    policy["publish_date_max"] = "2026-01-01"
+    _write_json(policy_path, policy)
+
+    report = build_source_license_policy_import(tmp_path, policy_path, output_path=output_path)
+
+    assert not report.accepted
+    assert "publish_date_min does not match current matched rows" in report.blockers
+    assert "publish_date_max does not match current matched rows" in report.blockers
+    assert not output_path.exists()
 
 
 def test_build_source_license_policy_import_rejects_invalid_filter_date_format(

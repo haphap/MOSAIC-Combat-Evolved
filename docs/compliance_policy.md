@@ -99,6 +99,11 @@ policy into per-source rows and writes an audit report at
 JSONL must still pass `mosaic-rke apply-license-review --dry-run` before being
 applied.
 
+The policy's `matched_row_count`, `matched_rows_fingerprint`, `publish_date_min`,
+and `publish_date_max` are audit fields tied to the current filters. If a
+reviewer narrows or changes `filters`, these fields must be regenerated before
+the policy can be expanded.
+
 ## Allowed Uses
 
 When a review row approves derived claim storage, the source may be used for
