@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from mosaic.rke import (
     GoldSetReviewRecord,
     REQUIRED_GOLD_SET_DOMAINS,
@@ -81,6 +83,20 @@ def test_phase_minus1_selects_and_writes_gold_set_candidates(tmp_path):
     assert out["rows"] == 2
     loaded = [json.loads(line) for line in (tmp_path / "gold_candidates.jsonl").read_text(encoding="utf-8").splitlines()]
     assert {row["source_id"] for row in loaded} == {row["source_id"] for row in candidates}
+
+
+def test_phase_minus1_candidate_selection_rejects_malformed_source_rows():
+    rows = [_row("SRC-1", "600519.SH"), ["not", "an", "object"]]
+
+    with pytest.raises(ValueError, match=r"source row must be object at row\(s\): 2"):
+        select_gold_set_candidates(rows, max_documents=2)
+
+
+def test_phase_minus1_gold_candidate_writer_rejects_malformed_rows(tmp_path):
+    candidates = [_row("SRC-1", "600519.SH"), "not an object"]
+
+    with pytest.raises(ValueError, match=r"gold candidate row must be object at row\(s\): 2"):
+        write_gold_set_candidates(candidates, tmp_path / "gold_candidates.jsonl")
 
 
 def test_phase_minus1_selects_gold_set_candidates_by_required_domains():
@@ -167,6 +183,13 @@ def test_phase_minus1_gold_set_template_and_gate(tmp_path):
     assert gold_set.sample_size_documents == 50
     assert gold_set.sample_size_claims == 500
     assert gold_set.passed
+
+
+def test_phase_minus1_gold_set_template_rejects_malformed_candidates():
+    candidates = [_row("SRC-1", "银行", "行业研报"), "not an object"]
+
+    with pytest.raises(ValueError, match=r"gold candidate row must be object at row\(s\): 2"):
+        build_gold_set_review_template(candidates, claims_per_document=1)
 
 
 def test_phase_minus1_gold_set_gate_rejects_small_or_unreviewed_samples():

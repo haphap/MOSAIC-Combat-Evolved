@@ -168,6 +168,19 @@ def load_jsonl(path: str | Path) -> list[dict[str, Any]]:
     return rows
 
 
+def _require_mapping_rows(rows: Sequence[Any], *, label: str) -> list[Mapping[str, Any]]:
+    valid_rows: list[Mapping[str, Any]] = []
+    invalid_rows: list[str] = []
+    for index, row in enumerate(rows, 1):
+        if isinstance(row, Mapping):
+            valid_rows.append(row)
+        else:
+            invalid_rows.append(str(index))
+    if invalid_rows:
+        raise ValueError(f"{label} row must be object at row(s): {', '.join(invalid_rows)}")
+    return valid_rows
+
+
 def audit_research_report_corpus(rows: Sequence[Any]) -> CorpusAudit:
     valid_rows: list[Mapping[str, Any]] = []
     invalid_row_numbers: list[int] = []
@@ -213,7 +226,7 @@ def audit_research_report_corpus(rows: Sequence[Any]) -> CorpusAudit:
 
 
 def select_gold_set_candidates(
-    rows: Sequence[Mapping[str, Any]],
+    rows: Sequence[Any],
     *,
     max_documents: int = 50,
 ) -> list[dict[str, Any]]:
@@ -226,6 +239,7 @@ def select_gold_set_candidates(
     """
     if max_documents <= 0:
         return []
+    source_rows = _require_mapping_rows(rows, label="source")
     selected: list[dict[str, Any]] = []
     seen: set[str] = set()
     assigned_counts: Counter[str] = Counter()
@@ -255,7 +269,7 @@ def select_gold_set_candidates(
         domain: [] for domain in REQUIRED_GOLD_SET_DOMAINS
     }
     global_buckets: dict[tuple[str, str], list[Mapping[str, Any]]] = {}
-    ordered = _ordered_gold_set_source_rows(rows)
+    ordered = _ordered_gold_set_source_rows(source_rows)
     for row in ordered:
         for domain in _gold_set_domains(row):
             if domain in domain_buckets:
@@ -362,12 +376,12 @@ def _pop_next_domain_row(
 
 
 def write_gold_set_candidates(
-    candidates: Iterable[Mapping[str, Any]],
+    candidates: Iterable[Any],
     output_path: str | Path,
 ) -> dict[str, Any]:
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    rows = list(candidates)
+    rows = _require_mapping_rows(list(candidates), label="gold candidate")
     with path.open("w", encoding="utf-8") as fh:
         for row in rows:
             fh.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
@@ -375,7 +389,7 @@ def write_gold_set_candidates(
 
 
 def build_gold_set_review_template(
-    candidates: Sequence[Mapping[str, Any]],
+    candidates: Sequence[Any],
     *,
     claims_per_document: int = 10,
     span_preview_chars: int = 600,
@@ -384,7 +398,7 @@ def build_gold_set_review_template(
     if claims_per_document <= 0:
         raise ValueError("claims_per_document must be positive")
     rows: list[dict[str, Any]] = []
-    for candidate in candidates:
+    for candidate in _require_mapping_rows(candidates, label="gold candidate"):
         source_id = str(candidate.get("source_id") or "")
         span_id = str(candidate.get("source_span_id") or f"{source_id}:abstract")
         text = str(candidate.get("abstract") or candidate.get("source_span_text") or "")
@@ -414,7 +428,7 @@ def build_gold_set_review_template(
 
 
 def write_gold_set_review_template(
-    candidates: Sequence[Mapping[str, Any]],
+    candidates: Sequence[Any],
     output_path: str | Path,
     *,
     claims_per_document: int = 10,
