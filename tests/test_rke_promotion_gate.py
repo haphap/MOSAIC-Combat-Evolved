@@ -21,6 +21,7 @@ from mosaic.rke.manual_review_import import (
 def _copy_registry(dst_root: Path) -> None:
     shutil.copytree(Path("registry"), dst_root / "registry")
     shutil.copytree(Path("schemas"), dst_root / "schemas")
+    shutil.copytree(Path("docs"), dst_root / "docs")
 
 
 def _load_jsonl(path: Path) -> list[dict]:

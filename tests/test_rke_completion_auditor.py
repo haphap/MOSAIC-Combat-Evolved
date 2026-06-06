@@ -173,9 +173,9 @@ def test_completion_auditor_rejects_malformed_runtime_output(tmp_path: Path):
     by_id = {criterion.criterion_id: criterion for criterion in audit.criteria}
 
     assert not by_id["C05"].passed
-    assert not by_id["C07"].passed
+    assert not by_id["C06"].passed
     assert "runtime output must be object" in by_id["C05"].blocker
-    assert "runtime output must be object" in by_id["C07"].blocker
+    assert "runtime output must be object" in by_id["C06"].blocker
 
 
 def test_completion_auditor_rejects_invalid_json_runtime_output(tmp_path: Path):
@@ -189,9 +189,73 @@ def test_completion_auditor_rejects_invalid_json_runtime_output(tmp_path: Path):
     by_id = {criterion.criterion_id: criterion for criterion in audit.criteria}
 
     assert not by_id["C05"].passed
-    assert not by_id["C07"].passed
+    assert not by_id["C06"].passed
     assert "runtime output must contain valid JSON" in by_id["C05"].blocker
-    assert "runtime output must contain valid JSON" in by_id["C07"].blocker
+    assert "runtime output must contain valid JSON" in by_id["C06"].blocker
+
+
+def test_completion_auditor_requires_confidence_policy_trace(tmp_path: Path):
+    shutil.copytree(Path("registry"), tmp_path / "registry")
+    runtime_path = (
+        tmp_path / "registry/runtime_outputs/macro.central_bank.20260605.json"
+    )
+    runtime = json.loads(runtime_path.read_text(encoding="utf-8"))
+    runtime.pop("confidence_policy_trace", None)
+    runtime_path.write_text(
+        json.dumps(runtime, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    audit = audit_master_plan_completion(tmp_path)
+    by_id = {criterion.criterion_id: criterion for criterion in audit.criteria}
+
+    assert not by_id["C06"].passed
+    assert "confidence_policy_trace missing" in by_id["C06"].blocker
+
+
+def test_completion_auditor_rejects_non_conservative_confidence_trace(tmp_path: Path):
+    shutil.copytree(Path("registry"), tmp_path / "registry")
+    runtime_path = (
+        tmp_path / "registry/runtime_outputs/macro.central_bank.20260605.json"
+    )
+    runtime = json.loads(runtime_path.read_text(encoding="utf-8"))
+    runtime["confidence_policy_trace"]["final_confidence"] = 0.66
+    runtime["recommendations"][0]["confidence"] = 0.66
+    runtime["progress_event"]["confidence"] = 0.66
+    runtime_path.write_text(
+        json.dumps(runtime, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    audit = audit_master_plan_completion(tmp_path)
+    by_id = {criterion.criterion_id: criterion for criterion in audit.criteria}
+
+    assert not by_id["C06"].passed
+    assert (
+        "final_confidence must equal min(pre_cap, confidence_cap)"
+        in by_id["C06"].blocker
+    )
+
+
+def test_completion_auditor_rejects_research_only_actionability(tmp_path: Path):
+    shutil.copytree(Path("registry"), tmp_path / "registry")
+    sector_path = (
+        tmp_path / "registry/runtime_outputs/sector.semiconductor.demo.20260605.json"
+    )
+    sector = json.loads(sector_path.read_text(encoding="utf-8"))
+    sector["recommendations"][0]["actionability"] = "modest_tilt"
+    sector["recommendations"][0]["confidence"] = 0.62
+    sector_path.write_text(
+        json.dumps(sector, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    audit = audit_master_plan_completion(tmp_path)
+    by_id = {criterion.criterion_id: criterion for criterion in audit.criteria}
+
+    assert not by_id["C07"].passed
+    assert "actionability must be no_trade or monitor_only" in by_id["C07"].blocker
+    assert "confidence must be <= 0.50" in by_id["C07"].blocker
 
 
 def test_completion_auditor_rejects_malformed_validation_experiment(tmp_path: Path):

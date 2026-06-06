@@ -45,6 +45,21 @@ def _mapping_field(
     return {}, f"{label} must be object"
 
 
+def _sequence_field(
+    payload: Mapping[str, Any] | None,
+    field: str,
+    label: str,
+) -> tuple[list[Any], str]:
+    if not payload:
+        return [], ""
+    value = payload.get(field)
+    if value is None:
+        return [], ""
+    if isinstance(value, list | tuple):
+        return list(value), ""
+    return [], f"{label} must be list"
+
+
 def _optional_jsonl(path: Path, label: str) -> tuple[list[Any], str]:
     if not path.exists():
         return [], ""
@@ -59,6 +74,19 @@ def _optional_jsonl(path: Path, label: str) -> tuple[list[Any], str]:
             except json.JSONDecodeError as exc:
                 return [], f"{label} row {index} must contain valid JSON: {exc.msg}"
     return rows, ""
+
+
+def _float_field(
+    payload: Mapping[str, Any], field: str, label: str
+) -> tuple[float | None, str]:
+    value = payload.get(field)
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None, f"{label}.{field} must be numeric"
+    if number < 0.0 or number > 1.0:
+        return None, f"{label}.{field} must be between 0 and 1"
+    return number, ""
 
 
 def _split_mapping_rows(
@@ -88,6 +116,272 @@ def _runtime_output_passes(runtime_output: Mapping[str, Any]) -> bool:
         "progress_event",
     )
     return all(runtime_output.get(field) for field in required)
+
+
+_CONFIDENCE_COMPONENTS = (
+    "data_confidence",
+    "research_confidence",
+    "empirical_validation_confidence",
+    "regime_match_confidence",
+)
+
+
+def _nearly_equal(left: float, right: float, *, tolerance: float = 1e-9) -> bool:
+    return abs(left - right) <= tolerance
+
+
+def _confidence_policy_gate(
+    root: Path,
+    runtime_output: Mapping[str, Any] | None,
+    runtime_output_error: str = "",
+) -> tuple[bool, str, str]:
+    failures: list[str] = []
+    schema_path = root / "schemas/confidence_policy.schema.yaml"
+    doc_path = root / "docs/confidence_policy.md"
+    if not schema_path.exists():
+        failures.append("confidence policy schema missing")
+    else:
+        schema_text = schema_path.read_text(encoding="utf-8")
+        for marker in (
+            "safe_default_function:",
+            "research_only_without_current_data:",
+            "final_confidence_max: 0.50",
+        ):
+            if marker not in schema_text:
+                failures.append(f"confidence policy schema missing {marker}")
+    if not doc_path.exists():
+        failures.append("confidence policy doc missing")
+    else:
+        doc_text = doc_path.read_text(encoding="utf-8")
+        for marker in (
+            "final_confidence = min(pre_cap_confidence, confidence_cap)",
+            "Research-Only Rule",
+        ):
+            if marker not in doc_text:
+                failures.append(f"confidence policy doc missing {marker}")
+
+    if runtime_output_error:
+        failures.append(runtime_output_error)
+    if not runtime_output:
+        failures.append("runtime output missing")
+        return False, "confidence policy runtime trace missing", "; ".join(failures)
+
+    components, components_error = _mapping_field(
+        runtime_output,
+        "confidence_components",
+        "confidence_components",
+    )
+    trace, trace_error = _mapping_field(
+        runtime_output,
+        "confidence_policy_trace",
+        "confidence_policy_trace",
+    )
+    failures.extend(error for error in (components_error, trace_error) if error)
+    if not trace:
+        failures.append("confidence_policy_trace missing")
+        return False, "confidence policy runtime trace missing", "; ".join(failures)
+    if trace.get("policy_ref") != "confidence_policy.v1":
+        failures.append(
+            "confidence_policy_trace.policy_ref must be confidence_policy.v1"
+        )
+    if trace.get("safe_default_function") != "min_components_then_cap":
+        failures.append(
+            "confidence_policy_trace.safe_default_function must be min_components_then_cap"
+        )
+    if tuple(trace.get("component_order") or ()) != _CONFIDENCE_COMPONENTS:
+        failures.append(
+            "confidence_policy_trace.component_order must match confidence policy components"
+        )
+
+    parsed_components: dict[str, float] = {}
+    for component in _CONFIDENCE_COMPONENTS:
+        value, error = _float_field(components, component, "confidence_components")
+        if error:
+            failures.append(error)
+        elif value is not None:
+            parsed_components[component] = value
+    if len(parsed_components) != len(_CONFIDENCE_COMPONENTS):
+        return False, "confidence policy runtime trace incomplete", "; ".join(failures)
+
+    current_data_confirmed = bool(trace.get("current_data_confirmed"))
+    data_confidence = parsed_components["data_confidence"]
+    if not current_data_confirmed:
+        data_confidence = min(data_confidence, 0.50)
+    expected_pre_cap = min(
+        data_confidence,
+        parsed_components["research_confidence"],
+        parsed_components["empirical_validation_confidence"],
+        parsed_components["regime_match_confidence"],
+    )
+    pre_cap, pre_cap_error = _float_field(
+        trace, "pre_cap_confidence", "confidence_policy_trace"
+    )
+    cap, cap_error = _float_field(trace, "confidence_cap", "confidence_policy_trace")
+    final, final_error = _float_field(
+        trace, "final_confidence", "confidence_policy_trace"
+    )
+    failures.extend(error for error in (pre_cap_error, cap_error, final_error) if error)
+    if pre_cap is not None and not _nearly_equal(pre_cap, expected_pre_cap):
+        failures.append(
+            "confidence_policy_trace.pre_cap_confidence must equal min confidence component"
+        )
+    if cap is not None and final is not None:
+        expected_final = min(expected_pre_cap, cap)
+        if not _nearly_equal(final, expected_final):
+            failures.append(
+                "confidence_policy_trace.final_confidence must equal min(pre_cap, confidence_cap)"
+            )
+        if not current_data_confirmed and final > 0.50:
+            failures.append("research-only confidence must be capped at 0.50")
+
+    recommendations, recommendations_error = _sequence_field(
+        runtime_output,
+        "recommendations",
+        "recommendations",
+    )
+    progress_event, progress_error = _mapping_field(
+        runtime_output, "progress_event", "progress_event"
+    )
+    failures.extend(error for error in (recommendations_error, progress_error) if error)
+    for index, row in enumerate(recommendations, 1):
+        if not isinstance(row, Mapping):
+            failures.append(f"recommendations row {index} must be object")
+            continue
+        rec_confidence, rec_error = _float_field(
+            row, "confidence", f"recommendations[{index}]"
+        )
+        if rec_error:
+            failures.append(rec_error)
+        elif (
+            final is not None
+            and rec_confidence is not None
+            and not _nearly_equal(rec_confidence, final)
+        ):
+            failures.append(
+                f"recommendations[{index}].confidence must equal final_confidence"
+            )
+        if not current_data_confirmed and row.get("actionability") not in {
+            "no_trade",
+            "monitor_only",
+        }:
+            failures.append(
+                f"recommendations[{index}].actionability violates research-only rule"
+            )
+    progress_confidence, progress_confidence_error = _float_field(
+        progress_event,
+        "confidence",
+        "progress_event",
+    )
+    if progress_confidence_error:
+        failures.append(progress_confidence_error)
+    elif (
+        final is not None
+        and progress_confidence is not None
+        and not _nearly_equal(progress_confidence, final)
+    ):
+        failures.append("progress_event.confidence must equal final_confidence")
+
+    if failures:
+        return False, "confidence policy runtime trace checked", "; ".join(failures)
+    return (
+        True,
+        f"policy_ref=confidence_policy.v1, pre_cap={expected_pre_cap:.2f}, cap={cap:.2f}, final={final:.2f}",
+        "",
+    )
+
+
+def _research_only_no_trade_gate(
+    prompt_ir: Mapping[str, Any] | None,
+    sector_runtime: Mapping[str, Any] | None,
+    *,
+    prompt_ir_error: str = "",
+    sector_runtime_error: str = "",
+) -> tuple[bool, str, str]:
+    failures: list[str] = []
+    if prompt_ir_error:
+        failures.append(prompt_ir_error)
+    if sector_runtime_error:
+        failures.append(sector_runtime_error)
+    if not prompt_ir:
+        failures.append("prompt IR missing")
+    else:
+        guardrails = prompt_ir.get("guardrails") or ()
+        if "research_only_no_trade" not in guardrails:
+            failures.append("prompt IR guardrails must include research_only_no_trade")
+    if not sector_runtime:
+        failures.append("sector research-only runtime output missing")
+        return (
+            False,
+            "research-only no-trade runtime evidence missing",
+            "; ".join(failures),
+        )
+
+    aggregation, aggregation_error = _mapping_field(
+        sector_runtime,
+        "rule_aggregation_summary",
+        "sector rule_aggregation_summary",
+    )
+    recommendations, recommendations_error = _sequence_field(
+        sector_runtime,
+        "recommendations",
+        "sector recommendations",
+    )
+    progress_event, progress_error = _mapping_field(
+        sector_runtime,
+        "progress_event",
+        "sector progress_event",
+    )
+    failures.extend(
+        error
+        for error in (aggregation_error, recommendations_error, progress_error)
+        if error
+    )
+    if aggregation.get("research_only") is not True:
+        failures.append(
+            "sector runtime must mark rule_aggregation_summary.research_only=true"
+        )
+    if not recommendations:
+        failures.append("sector runtime recommendations missing")
+    allowed_actionability = {"no_trade", "monitor_only"}
+    for index, row in enumerate(recommendations, 1):
+        if not isinstance(row, Mapping):
+            failures.append(f"sector recommendations row {index} must be object")
+            continue
+        actionability = row.get("actionability")
+        if actionability not in allowed_actionability:
+            failures.append(
+                f"sector recommendations[{index}].actionability must be no_trade or monitor_only"
+            )
+        confidence, confidence_error = _float_field(
+            row, "confidence", f"sector recommendations[{index}]"
+        )
+        if confidence_error:
+            failures.append(confidence_error)
+        elif confidence is not None and confidence > 0.50:
+            failures.append(
+                f"sector recommendations[{index}].confidence must be <= 0.50"
+            )
+    progress_confidence, progress_confidence_error = _float_field(
+        progress_event,
+        "confidence",
+        "sector progress_event",
+    )
+    if progress_confidence_error:
+        failures.append(progress_confidence_error)
+    elif progress_confidence is not None and progress_confidence > 0.50:
+        failures.append("sector progress_event.confidence must be <= 0.50")
+
+    if failures:
+        return (
+            False,
+            "research-only no-trade runtime evidence checked",
+            "; ".join(failures),
+        )
+    return (
+        True,
+        f"guardrail=research_only_no_trade, research_only=true, recommendations={len(recommendations)} monitor-only/no-trade",
+        "",
+    )
 
 
 def _gold_set_gate(root: Path) -> tuple[bool, str, str]:
@@ -333,6 +627,14 @@ def audit_master_plan_completion(root: str | Path = ".") -> CompletionAudit:
         root_path / "registry/runtime_outputs/macro.central_bank.20260605.json",
         "runtime output",
     )
+    prompt_ir, prompt_ir_error = _optional_mapping(
+        root_path / "registry/prompt_ir/macro.central_bank.json",
+        "prompt IR",
+    )
+    sector_runtime, sector_runtime_error = _optional_mapping(
+        root_path / "registry/runtime_outputs/sector.semiconductor.demo.20260605.json",
+        "sector research-only runtime output",
+    )
     paper_report, paper_report_error = _optional_mapping(
         root_path / "registry/monitoring/central_bank_paper_trading_report.json",
         "paper trading report",
@@ -368,6 +670,21 @@ def audit_master_plan_completion(root: str | Path = ".") -> CompletionAudit:
         statistical_error=statistical_error,
     )
     audit_passed, audit_evidence, audit_blocker = _audit_trace_gate(root_path)
+    confidence_passed, confidence_evidence, confidence_blocker = (
+        _confidence_policy_gate(
+            root_path,
+            runtime_output,
+            runtime_output_error=runtime_output_error,
+        )
+    )
+    research_only_passed, research_only_evidence, research_only_blocker = (
+        _research_only_no_trade_gate(
+            prompt_ir,
+            sector_runtime,
+            prompt_ir_error=prompt_ir_error,
+            sector_runtime_error=sector_runtime_error,
+        )
+    )
 
     aggregation, aggregation_error = _mapping_field(
         runtime_output,
@@ -475,20 +792,16 @@ def audit_master_plan_completion(root: str | Path = ".") -> CompletionAudit:
             CompletionCriterion(
                 "C06",
                 "Confidence policy v1 uses the conservative min-components function.",
-                Path(root_path / "schemas/confidence_policy.schema.yaml").exists(),
-                "confidence_policy.schema.yaml + compute_confidence_v1 tests",
-                "",
+                confidence_passed,
+                confidence_evidence,
+                confidence_blocker,
             ),
             CompletionCriterion(
                 "C07",
                 "Research-only no-trade rule is enforced by checker.",
-                runtime_passed,
-                "runtime output checker and focused tests",
-                runtime_output_error
-                or aggregation_error
-                or (
-                    "" if runtime_passed else "runtime output checker evidence missing"
-                ),
+                research_only_passed,
+                research_only_evidence,
+                research_only_blocker,
             ),
             CompletionCriterion(
                 "C08",

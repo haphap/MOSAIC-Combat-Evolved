@@ -86,6 +86,7 @@ class RuntimeAgentOutput:
     rule_aggregation_summary: Mapping[str, Any]
     downstream_handoff: Mapping[str, Any]
     progress_event: ProgressEvent
+    confidence_policy_trace: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -119,7 +120,9 @@ def check_runtime_output(
         failures.extend(evidence.validate())
         unverified = set(evidence.source_claim_ids) - verified_claim_ids
         if unverified:
-            failures.append(f"{evidence.evidence_id}: unverified source_claim_ids {sorted(unverified)}")
+            failures.append(
+                f"{evidence.evidence_id}: unverified source_claim_ids {sorted(unverified)}"
+            )
 
     for inference in output.inferences:
         if not inference.evidence_ids:
@@ -128,29 +131,43 @@ def check_runtime_output(
             failures.append(f"{inference.inference_id}: rule_ids required")
         missing_evidence = set(inference.evidence_ids) - set(evidence_by_id)
         if missing_evidence:
-            failures.append(f"{inference.inference_id}: unknown evidence_ids {sorted(missing_evidence)}")
+            failures.append(
+                f"{inference.inference_id}: unknown evidence_ids {sorted(missing_evidence)}"
+            )
         if set(inference.rule_ids) - set(output.research_rule_ids_used):
-            failures.append(f"{inference.inference_id}: rule_ids not declared in research_rule_ids_used")
+            failures.append(
+                f"{inference.inference_id}: rule_ids not declared in research_rule_ids_used"
+            )
 
     independent_sources = {
-        (item.source_type, item.source_tool, item.metric) for item in output.evidence_ledger
+        (item.source_type, item.source_tool, item.metric)
+        for item in output.evidence_ledger
     }
     for recommendation in output.recommendations:
         if not recommendation.inference_ids:
-            failures.append(f"{recommendation.recommendation_id}: inference_ids required")
+            failures.append(
+                f"{recommendation.recommendation_id}: inference_ids required"
+            )
         missing_inferences = set(recommendation.inference_ids) - set(inference_by_id)
         if missing_inferences:
             failures.append(
                 f"{recommendation.recommendation_id}: unknown inference_ids {sorted(missing_inferences)}"
             )
         if recommendation.confidence > confidence_cap:
-            failures.append(f"{recommendation.recommendation_id}: confidence exceeds cap")
+            failures.append(
+                f"{recommendation.recommendation_id}: confidence exceeds cap"
+            )
         if recommendation.confidence >= 0.75 and len(independent_sources) < 2:
             failures.append(
                 f"{recommendation.recommendation_id}: high confidence requires two independent evidence sources"
             )
-        if research_only and recommendation.actionability not in {"no_trade", "monitor_only"}:
-            failures.append(f"{recommendation.recommendation_id}: research-only output must not be actionable")
+        if research_only and recommendation.actionability not in {
+            "no_trade",
+            "monitor_only",
+        }:
+            failures.append(
+                f"{recommendation.recommendation_id}: research-only output must not be actionable"
+            )
 
     if output.rule_aggregation_summary.get("has_opposing_rules"):
         if not output.rule_aggregation_summary.get("conflict_objects"):

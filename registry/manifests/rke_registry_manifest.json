@@ -17,9 +17,9 @@
       "sha256": "sha256:e1f5145d4656f58272d21b0b0f9b6eb88563d1f5096a16f59216b918a61eefec"
     },
     {
-      "bytes": 5057,
+      "bytes": 5118,
       "path": "registry/audits/rke_completion_audit.json",
-      "sha256": "sha256:07fc56d923fd55dc93d56d4a2c2e662538137c9f6c76ee2c3ab05cf4b0b10571"
+      "sha256": "sha256:974e8c7a56013300076030cd918e365e656e54bc17cb9b76c6a37013ed8b1fbe"
     },
     {
       "bytes": 8061,
@@ -44,7 +44,7 @@
     {
       "bytes": 1081,
       "path": "registry/compliance/source_text_redaction_report.json",
-      "sha256": "sha256:aab932d3cfa50aa3c661d5af1dd693ceeb1378ef2f90d3ab7f4d26be556d6864"
+      "sha256": "sha256:c9e246860610b85545dcf532e9938c71076467689f1690bc89c5efec4bbcd653"
     },
     {
       "bytes": 7499723,
@@ -69,7 +69,7 @@
     {
       "bytes": 8409,
       "path": "registry/dashboards/rke_dashboard.json",
-      "sha256": "sha256:b8a92b14ca2f9f7217307560598974ca8172dbecd75fb5e33bdc6ec0a2877d52"
+      "sha256": "sha256:5f48741da03ca8ac8d93d8112598a7369667964d08b86eb4a29e9d401e20a5f5"
     },
     {
       "bytes": 2220,
@@ -357,14 +357,14 @@
       "sha256": "sha256:8f336e7070c76b62cb66d72ca46a579b380823a557eaaae52fa1b4f79785cae9"
     },
     {
-      "bytes": 2404,
+      "bytes": 3108,
       "path": "registry/runtime_outputs/macro.central_bank.20260605.json",
-      "sha256": "sha256:c8ffd30cd88b32a47958f9905cdc228eb079211a9bd98008d7921f1450e5bad8"
+      "sha256": "sha256:2ed05c074f68b44b29413b4774238ac6dc73e264c67fdfe97f2acc418b64f7fc"
     },
     {
-      "bytes": 2610,
+      "bytes": 2643,
       "path": "registry/runtime_outputs/sector.semiconductor.demo.20260605.json",
-      "sha256": "sha256:f5b1e7298bff41ec2c764086318298d83bc1fcd1a48a8c9cf97df06897f99861"
+      "sha256": "sha256:ca508b588f57f5a6a80b5294abef85c6a5dcf6d14b67d3bfb0e9558320baa980"
     },
     {
       "bytes": 3482,

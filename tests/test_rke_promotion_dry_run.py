@@ -21,15 +21,22 @@ from mosaic.rke.manual_review_import import (
 def _copy_registry(dst_root: Path) -> None:
     shutil.copytree(Path("registry"), dst_root / "registry")
     shutil.copytree(Path("schemas"), dst_root / "schemas")
+    shutil.copytree(Path("docs"), dst_root / "docs")
 
 
 def _load_jsonl(path: Path) -> list[dict]:
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
+    return [
+        json.loads(line)
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line
+    ]
 
 
 def _write_jsonl(path: Path, rows: list[dict]) -> None:
     path.write_text(
-        "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
+        "".join(
+            json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows
+        ),
         encoding="utf-8",
     )
 
@@ -56,7 +63,9 @@ def _gold_import_rows(root: Path) -> list[dict]:
             "review_date": "2026-06-06",
             "review_notes": "fixture approval",
         }
-        for row in _load_jsonl(root / "registry/review_batches/gold_set_full_import_template.jsonl")
+        for row in _load_jsonl(
+            root / "registry/review_batches/gold_set_full_import_template.jsonl"
+        )
     ]
 
 
@@ -77,7 +86,9 @@ def _license_import_rows(root: Path) -> list[dict]:
             "review_date": "2026-06-06",
             "notes": "fixture approval",
         }
-        for row in _load_jsonl(root / "registry/compliance/tushare_license_review_template.jsonl")
+        for row in _load_jsonl(
+            root / "registry/compliance/tushare_license_review_template.jsonl"
+        )
     ]
 
 
@@ -94,7 +105,9 @@ def _passed_lockbox_review(root: Path) -> dict:
     }
 
 
-def test_promotion_dry_run_simulates_full_manual_gate_pass_without_mutating_root(tmp_path: Path):
+def test_promotion_dry_run_simulates_full_manual_gate_pass_without_mutating_root(
+    tmp_path: Path,
+):
     _copy_registry(tmp_path)
     lockbox_target = tmp_path / "registry/lockbox/central_bank_lockbox_review.json"
     original_lockbox = lockbox_target.read_text(encoding="utf-8")
@@ -119,7 +132,11 @@ def test_promotion_dry_run_simulates_full_manual_gate_pass_without_mutating_root
     assert report.staged_production_allowed_after_simulation is True
     assert report.production_allowed_after_simulation is True
     assert report.after_blockers == ()
-    assert {step.review_kind for step in report.steps} == {"gold_set", "source_license", "lockbox"}
+    assert {step.review_kind for step in report.steps} == {
+        "gold_set",
+        "source_license",
+        "lockbox",
+    }
     assert lockbox_target.read_text(encoding="utf-8") == original_lockbox
 
 
@@ -128,7 +145,11 @@ def test_promotion_dry_run_reports_missing_inputs():
 
     assert not report.accepted
     assert not report.production_allowed_after_simulation
-    assert {step.review_kind for step in report.steps} == {"gold_set", "source_license", "lockbox"}
+    assert {step.review_kind for step in report.steps} == {
+        "gold_set",
+        "source_license",
+        "lockbox",
+    }
     assert all(not step.provided for step in report.steps)
     assert all(step.result == "not_provided" for step in report.steps)
 
@@ -153,7 +174,11 @@ def test_write_promotion_dry_run_report_outputs_file(tmp_path: Path):
     _copy_registry(tmp_path)
 
     result = write_promotion_dry_run_report(tmp_path)
-    payload = json.loads((tmp_path / "registry/promotion/rke_promotion_dry_run_report.json").read_text(encoding="utf-8"))
+    payload = json.loads(
+        (tmp_path / "registry/promotion/rke_promotion_dry_run_report.json").read_text(
+            encoding="utf-8"
+        )
+    )
 
     assert result["accepted"] is False
     assert Path(result["path"]).exists()

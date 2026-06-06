@@ -73,7 +73,8 @@ def _jsonable(value: Any) -> Any:
 def _write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        json.dumps(_jsonable(payload), ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        json.dumps(_jsonable(payload), ensure_ascii=False, indent=2, sort_keys=True)
+        + "\n",
         encoding="utf-8",
     )
 
@@ -82,14 +83,18 @@ def _write_jsonl(path: Path, rows: Sequence[Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as fh:
         for row in rows:
-            fh.write(json.dumps(_jsonable(row), ensure_ascii=False, sort_keys=True) + "\n")
+            fh.write(
+                json.dumps(_jsonable(row), ensure_ascii=False, sort_keys=True) + "\n"
+            )
 
 
 def _short_hash(text: str) -> str:
     return "sha256:" + sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
-def _redacted_source_rows(bundle: SectorSemiconductorDemoBundle) -> tuple[dict[str, Any], ...]:
+def _redacted_source_rows(
+    bundle: SectorSemiconductorDemoBundle,
+) -> tuple[dict[str, Any], ...]:
     claims_by_source: dict[str, list[SourceGroundedClaim]] = {}
     for claim in bundle.claims:
         claims_by_source.setdefault(claim.source_id, []).append(claim)
@@ -119,14 +124,19 @@ def _redacted_source_rows(bundle: SectorSemiconductorDemoBundle) -> tuple[dict[s
                         "claim_text": claim.claim_text,
                         "source_text_hash": _short_hash(claim.claim_text),
                     }
-                    for claim in sorted(claims_by_source.get(source_id, ()), key=lambda item: item.claim_id)
+                    for claim in sorted(
+                        claims_by_source.get(source_id, ()),
+                        key=lambda item: item.claim_id,
+                    )
                 ],
             }
         )
     return tuple(rows)
 
 
-def _require_mapping_rows(rows: Sequence[Any], *, label: str) -> list[Mapping[str, Any]]:
+def _require_mapping_rows(
+    rows: Sequence[Any], *, label: str
+) -> list[Mapping[str, Any]]:
     valid_rows: list[Mapping[str, Any]] = []
     invalid_rows: list[str] = []
     for index, row in enumerate(rows, 1):
@@ -139,16 +149,22 @@ def _require_mapping_rows(rows: Sequence[Any], *, label: str) -> list[Mapping[st
     return valid_rows
 
 
-def _load_required_mapping_rows(path: str | Path, *, label: str) -> list[Mapping[str, Any]]:
+def _load_required_mapping_rows(
+    path: str | Path, *, label: str
+) -> list[Mapping[str, Any]]:
     rows, parse_errors = load_jsonl_with_errors(path, label=label)
     if parse_errors:
         raise ValueError("; ".join(parse_errors))
     return _require_mapping_rows(rows, label=label)
 
 
-def _find_report(rows: Sequence[Mapping[str, Any]], *, contains: str) -> Mapping[str, Any]:
+def _find_report(
+    rows: Sequence[Mapping[str, Any]], *, contains: str
+) -> Mapping[str, Any]:
     for row in rows:
-        if row.get("query_key") == "半导体" and contains in str(row.get("abstract") or ""):
+        if row.get("query_key") == "半导体" and contains in str(
+            row.get("abstract") or ""
+        ):
             return row
     raise ValueError(f"no semiconductor report contains required span: {contains}")
 
@@ -249,7 +265,10 @@ def build_sector_semiconductor_demo(
             statement="High valuation or external friction should cap any policy-substitution signal.",
             not_source_grounded=True,
             requires_validation=True,
-            proposed_metric_proxies=("valuation_percentile_3y", "trade_friction_news_count_20d"),
+            proposed_metric_proxies=(
+                "valuation_percentile_3y",
+                "trade_friction_news_count_20d",
+            ),
             status="draft",
         ),
     )
@@ -400,7 +419,9 @@ def build_sector_semiconductor_demo(
         ),
         research_rule_ids_used=(rule.rule_id,),
         source_claim_ids_used=tuple(claim.claim_id for claim in claims),
-        hypothesis_ids_used=tuple(hypothesis.hypothesis_id for hypothesis in hypotheses),
+        hypothesis_ids_used=tuple(
+            hypothesis.hypothesis_id for hypothesis in hypotheses
+        ),
         inferences=(
             RuntimeInference(
                 inference_id="I-SEMI-20260605-0001",
@@ -451,7 +472,9 @@ def build_sector_semiconductor_demo(
             confidence=0.50,
         ),
     )
-    unique_sources = {str(row["source_id"]): row for row in (cycle_row, valuation_row, trade_risk_row)}
+    unique_sources = {
+        str(row["source_id"]): row for row in (cycle_row, valuation_row, trade_risk_row)
+    }
     return SectorSemiconductorDemoBundle(
         source_rows=tuple(unique_sources.values()),
         claims=claims,
@@ -478,8 +501,10 @@ def write_sector_semiconductor_demo_registry(root: str | Path = ".") -> dict[str
         "hypotheses": root_path / "registry/hypotheses/semiconductor_hypotheses.jsonl",
         "data_availability": root_path
         / "registry/data_availability/semiconductor_sandbox_data_availability.json",
-        "rule_pack": root_path / "registry/rule_packs/sector.semiconductor.policy_substitution.v1.json",
-        "disagreement": root_path / "registry/disagreement/semiconductor_policy_substitution.json",
+        "rule_pack": root_path
+        / "registry/rule_packs/sector.semiconductor.policy_substitution.v1.json",
+        "disagreement": root_path
+        / "registry/disagreement/semiconductor_policy_substitution.json",
         "runtime_output": root_path
         / "registry/runtime_outputs/sector.semiconductor.demo.20260605.json",
     }
@@ -505,13 +530,22 @@ def write_sector_semiconductor_demo_registry(root: str | Path = ".") -> dict[str
     )
     _write_json(
         outputs["runtime_output"],
-        {"agent_output_id": "OUT-SEMI-20260605-0001", **_jsonable(bundle.runtime_output)},
+        {
+            "agent_output_id": "OUT-SEMI-20260605-0001",
+            **_jsonable(bundle.runtime_output),
+        },
     )
     return {key: str(path) for key, path in outputs.items()}
 
 
 def main() -> None:
-    print(json.dumps(write_sector_semiconductor_demo_registry(Path.cwd()), indent=2, sort_keys=True))
+    print(
+        json.dumps(
+            write_sector_semiconductor_demo_registry(Path.cwd()),
+            indent=2,
+            sort_keys=True,
+        )
+    )
 
 
 if __name__ == "__main__":

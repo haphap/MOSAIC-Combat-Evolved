@@ -23,21 +23,31 @@ from mosaic.rke.manual_review_import import (
 def _copy_registry(dst_root: Path) -> None:
     shutil.copytree(Path("registry"), dst_root / "registry")
     shutil.copytree(Path("schemas"), dst_root / "schemas")
+    shutil.copytree(Path("docs"), dst_root / "docs")
 
 
 def _load_jsonl(path: Path) -> list[dict]:
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
+    return [
+        json.loads(line)
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line
+    ]
 
 
 def _write_jsonl(path: Path, rows: list[dict]) -> None:
     path.write_text(
-        "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
+        "".join(
+            json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows
+        ),
         encoding="utf-8",
     )
 
 
 def _write_json(path: Path, row: dict) -> None:
-    path.write_text(json.dumps(row, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    path.write_text(
+        json.dumps(row, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
 
 
 def _passed_lockbox_review(root: Path) -> dict:
@@ -68,7 +78,9 @@ def _gold_import_rows(root: Path) -> list[dict]:
             "review_date": "2026-06-06",
             "review_notes": "fixture approval",
         }
-        for row in _load_jsonl(root / "registry/review_batches/gold_set_full_import_template.jsonl")
+        for row in _load_jsonl(
+            root / "registry/review_batches/gold_set_full_import_template.jsonl"
+        )
     ]
 
 
@@ -89,7 +101,9 @@ def _license_import_rows(root: Path) -> list[dict]:
             "review_date": "2026-06-06",
             "notes": "fixture approval",
         }
-        for row in _load_jsonl(root / "registry/compliance/tushare_license_review_template.jsonl")
+        for row in _load_jsonl(
+            root / "registry/compliance/tushare_license_review_template.jsonl"
+        )
     ]
 
 
@@ -108,7 +122,9 @@ def test_apply_lockbox_review_import_dry_run_does_not_modify_target(tmp_path: Pa
     assert target.read_text(encoding="utf-8") == original
 
 
-def test_apply_lockbox_review_import_records_failed_review_without_promotion(tmp_path: Path):
+def test_apply_lockbox_review_import_records_failed_review_without_promotion(
+    tmp_path: Path,
+):
     _copy_registry(tmp_path)
     import_path = tmp_path / "lockbox_review_failed.json"
     failed = {
@@ -142,7 +158,9 @@ def test_apply_lockbox_review_import_rejects_mismatched_experiment(tmp_path: Pat
     assert any("experiment_id" in reason for reason in report.rejected_reasons)
 
 
-def test_apply_lockbox_review_import_rejects_missing_experiment_identity(tmp_path: Path):
+def test_apply_lockbox_review_import_rejects_missing_experiment_identity(
+    tmp_path: Path,
+):
     _copy_registry(tmp_path)
     import_path = tmp_path / "lockbox_review_missing_identity.json"
     bad = _passed_lockbox_review(tmp_path)
@@ -167,7 +185,9 @@ def test_apply_lockbox_review_import_rejects_non_object_input(tmp_path: Path):
     assert not report.applied
     assert report.result == ""
     assert report.rejected_reasons == ("lockbox review import must be object",)
-    assert (tmp_path / "registry/lockbox/central_bank_lockbox_review_import_report.json").exists()
+    assert (
+        tmp_path / "registry/lockbox/central_bank_lockbox_review_import_report.json"
+    ).exists()
 
 
 def test_apply_lockbox_review_import_rejects_invalid_json_input(tmp_path: Path):
@@ -179,22 +199,34 @@ def test_apply_lockbox_review_import_rejects_invalid_json_input(tmp_path: Path):
 
     assert not report.accepted
     assert not report.applied
-    assert any("lockbox review import must contain valid JSON" in reason for reason in report.rejected_reasons)
-    assert (tmp_path / "registry/lockbox/central_bank_lockbox_review_import_report.json").exists()
+    assert any(
+        "lockbox review import must contain valid JSON" in reason
+        for reason in report.rejected_reasons
+    )
+    assert (
+        tmp_path / "registry/lockbox/central_bank_lockbox_review_import_report.json"
+    ).exists()
 
 
 def test_apply_lockbox_review_import_rejects_invalid_json_target(tmp_path: Path):
     _copy_registry(tmp_path)
     import_path = tmp_path / "lockbox_review.json"
     _write_json(import_path, _passed_lockbox_review(tmp_path))
-    (tmp_path / "registry/lockbox/central_bank_lockbox_review.json").write_text("{", encoding="utf-8")
+    (tmp_path / "registry/lockbox/central_bank_lockbox_review.json").write_text(
+        "{", encoding="utf-8"
+    )
 
     report = apply_lockbox_review_import(tmp_path, import_path)
 
     assert not report.accepted
     assert not report.applied
-    assert any("lockbox target must contain valid JSON" in reason for reason in report.rejected_reasons)
-    assert (tmp_path / "registry/lockbox/central_bank_lockbox_review_import_report.json").exists()
+    assert any(
+        "lockbox target must contain valid JSON" in reason
+        for reason in report.rejected_reasons
+    )
+    assert (
+        tmp_path / "registry/lockbox/central_bank_lockbox_review_import_report.json"
+    ).exists()
 
 
 def test_lockbox_review_import_allows_production_after_manual_gates(tmp_path: Path):
@@ -240,13 +272,17 @@ def test_cli_apply_lockbox_review_import(tmp_path: Path, capsys):
     import_path = tmp_path / "lockbox_review.json"
     _write_json(import_path, _passed_lockbox_review(tmp_path))
 
-    code = main(("apply-lockbox-review", "--root", str(tmp_path), "--input", str(import_path)))
+    code = main(
+        ("apply-lockbox-review", "--root", str(tmp_path), "--input", str(import_path))
+    )
     output = json.loads(capsys.readouterr().out)
 
     assert code == 0
     assert output["accepted"] is True
     assert output["applied"] is True
-    assert (tmp_path / "registry/lockbox/central_bank_lockbox_review_import_report.json").exists()
+    assert (
+        tmp_path / "registry/lockbox/central_bank_lockbox_review_import_report.json"
+    ).exists()
 
 
 def test_apply_lockbox_review_import_rejects_stale_target_fingerprint(tmp_path: Path):
@@ -263,7 +299,10 @@ def test_apply_lockbox_review_import_rejects_stale_target_fingerprint(tmp_path: 
 
     assert not report.accepted
     assert not report.applied
-    assert "target_row_hash does not match current lockbox review target" in report.rejected_reasons
+    assert (
+        "target_row_hash does not match current lockbox review target"
+        in report.rejected_reasons
+    )
 
 
 def test_apply_lockbox_review_import_rejects_stale_context_fingerprint(tmp_path: Path):
@@ -280,10 +319,15 @@ def test_apply_lockbox_review_import_rejects_stale_context_fingerprint(tmp_path:
 
     assert not report.accepted
     assert not report.applied
-    assert "review_context_hash does not match current lockbox review context" in report.rejected_reasons
+    assert (
+        "review_context_hash does not match current lockbox review context"
+        in report.rejected_reasons
+    )
 
 
-def test_apply_lockbox_review_import_rejects_legacy_import_without_provenance(tmp_path: Path):
+def test_apply_lockbox_review_import_rejects_legacy_import_without_provenance(
+    tmp_path: Path,
+):
     _copy_registry(tmp_path)
     import_path = tmp_path / "lockbox_review_legacy.json"
     legacy = {
@@ -302,11 +346,19 @@ def test_apply_lockbox_review_import_rejects_legacy_import_without_provenance(tm
     report = apply_lockbox_review_import(tmp_path, import_path)
 
     assert not report.accepted
-    assert "target_review_path must match registry/lockbox/central_bank_lockbox_review.json" in report.rejected_reasons
-    assert "target_row_hash does not match current lockbox review target" in report.rejected_reasons
+    assert (
+        "target_review_path must match registry/lockbox/central_bank_lockbox_review.json"
+        in report.rejected_reasons
+    )
+    assert (
+        "target_row_hash does not match current lockbox review target"
+        in report.rejected_reasons
+    )
 
 
-def test_apply_lockbox_review_import_rejects_forbidden_source_text_fields(tmp_path: Path):
+def test_apply_lockbox_review_import_rejects_forbidden_source_text_fields(
+    tmp_path: Path,
+):
     _copy_registry(tmp_path)
     import_path = tmp_path / "lockbox_review_with_source_text.json"
     row = _passed_lockbox_review(tmp_path)
@@ -319,7 +371,9 @@ def test_apply_lockbox_review_import_rejects_forbidden_source_text_fields(tmp_pa
     assert "abstract forbidden in lockbox review import" in report.rejected_reasons
 
 
-def test_apply_lockbox_review_import_rejects_nested_forbidden_source_text_fields(tmp_path: Path):
+def test_apply_lockbox_review_import_rejects_nested_forbidden_source_text_fields(
+    tmp_path: Path,
+):
     _copy_registry(tmp_path)
     import_path = tmp_path / "lockbox_review_with_nested_source_text.json"
     row = _passed_lockbox_review(tmp_path)
@@ -331,7 +385,10 @@ def test_apply_lockbox_review_import_rejects_nested_forbidden_source_text_fields
     report = apply_lockbox_review_import(tmp_path, import_path)
 
     assert not report.accepted
-    assert "review_context.source_span_text forbidden in lockbox review import" in report.rejected_reasons
+    assert (
+        "review_context.source_span_text forbidden in lockbox review import"
+        in report.rejected_reasons
+    )
 
 
 def test_apply_lockbox_review_import_rejects_unexpected_fields(tmp_path: Path):
@@ -344,7 +401,9 @@ def test_apply_lockbox_review_import_rejects_unexpected_fields(tmp_path: Path):
     report = apply_lockbox_review_import(tmp_path, import_path)
 
     assert not report.accepted
-    assert "extra_context unexpected in lockbox review import" in report.rejected_reasons
+    assert (
+        "extra_context unexpected in lockbox review import" in report.rejected_reasons
+    )
 
 
 def test_apply_lockbox_review_import_rejects_non_string_review_fields(tmp_path: Path):
@@ -374,7 +433,9 @@ def test_apply_lockbox_review_import_rejects_opened_at_without_time_or_timezone(
     report = apply_lockbox_review_import(tmp_path, import_path)
 
     assert not report.accepted
-    assert "opened_at must be ISO-8601 datetime with timezone" in report.rejected_reasons
+    assert (
+        "opened_at must be ISO-8601 datetime with timezone" in report.rejected_reasons
+    )
 
 
 def test_apply_lockbox_review_import_rejects_opened_at_without_timezone(tmp_path: Path):
@@ -387,7 +448,9 @@ def test_apply_lockbox_review_import_rejects_opened_at_without_timezone(tmp_path
     report = apply_lockbox_review_import(tmp_path, import_path)
 
     assert not report.accepted
-    assert "opened_at must be ISO-8601 datetime with timezone" in report.rejected_reasons
+    assert (
+        "opened_at must be ISO-8601 datetime with timezone" in report.rejected_reasons
+    )
 
 
 def test_apply_lockbox_review_import_rejects_not_opened_result(tmp_path: Path):
@@ -404,5 +467,8 @@ def test_apply_lockbox_review_import_rejects_not_opened_result(tmp_path: Path):
 
     assert not report.accepted
     assert not report.applied
-    assert "lockbox review import result must be passed or failed" in report.rejected_reasons
+    assert (
+        "lockbox review import result must be passed or failed"
+        in report.rejected_reasons
+    )
     assert target.read_text(encoding="utf-8") == original

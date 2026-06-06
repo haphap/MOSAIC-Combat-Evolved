@@ -6,6 +6,29 @@
     "regime_match_confidence": 0.7,
     "research_confidence": 0.68
   },
+  "confidence_policy_trace": {
+    "actionability": "watchlist_or_tiny_tilt",
+    "cap_reasons": [],
+    "component_order": [
+      "data_confidence",
+      "research_confidence",
+      "empirical_validation_confidence",
+      "regime_match_confidence"
+    ],
+    "components": {
+      "data_confidence": 0.72,
+      "empirical_validation_confidence": 0.66,
+      "regime_match_confidence": 0.7,
+      "research_confidence": 0.68
+    },
+    "confidence_bucket": "medium_low",
+    "confidence_cap": 0.64,
+    "current_data_confirmed": true,
+    "final_confidence": 0.64,
+    "policy_ref": "confidence_policy.v1",
+    "pre_cap_confidence": 0.66,
+    "safe_default_function": "min_components_then_cap"
+  },
   "downstream_handoff": {
     "agent_id": "macro.central_bank",
     "summary": "liquidity_supportive_paper_trading_signal",

@@ -6,6 +6,7 @@
     "regime_match_confidence": 0.5,
     "research_confidence": 0.55
   },
+  "confidence_policy_trace": {},
   "downstream_handoff": {
     "agent_id": "sector.semiconductor",
     "summary": "sandbox_monitor_only_policy_substitution_demo"

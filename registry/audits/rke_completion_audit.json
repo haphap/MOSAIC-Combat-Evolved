@@ -96,14 +96,14 @@
       "blocker": "",
       "criterion_id": "C06",
       "description": "Confidence policy v1 uses the conservative min-components function.",
-      "evidence": "confidence_policy.schema.yaml + compute_confidence_v1 tests",
+      "evidence": "policy_ref=confidence_policy.v1, pre_cap=0.66, cap=0.64, final=0.64",
       "passed": true
     },
     {
       "blocker": "",
       "criterion_id": "C07",
       "description": "Research-only no-trade rule is enforced by checker.",
-      "evidence": "runtime output checker and focused tests",
+      "evidence": "guardrail=research_only_no_trade, research_only=true, recommendations=1 monitor-only/no-trade",
       "passed": true
     },
     {

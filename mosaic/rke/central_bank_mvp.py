@@ -7,7 +7,10 @@ from dataclasses import asdict, dataclass, is_dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from .claim_vocabulary import write_claim_variable_validation_report, write_claim_variable_vocabulary
+from .claim_vocabulary import (
+    write_claim_variable_validation_report,
+    write_claim_variable_vocabulary,
+)
 from .governance import ProductionPatch, default_evolution_targets, validate_patch
 from .experiment_governance import write_experiment_governance_registry
 from .monitoring import (
@@ -73,7 +76,9 @@ class CompletionAudit:
 
     @property
     def blockers(self) -> tuple[str, ...]:
-        return tuple(item.blocker for item in self.criteria if not item.passed and item.blocker)
+        return tuple(
+            item.blocker for item in self.criteria if not item.passed and item.blocker
+        )
 
 
 @dataclass(frozen=True)
@@ -97,7 +102,8 @@ def _jsonable(value: Any) -> Any:
 def _write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        json.dumps(_jsonable(payload), ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        json.dumps(_jsonable(payload), ensure_ascii=False, indent=2, sort_keys=True)
+        + "\n",
         encoding="utf-8",
     )
 
@@ -106,7 +112,9 @@ def _write_jsonl(path: Path, rows: Sequence[Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as fh:
         for row in rows:
-            fh.write(json.dumps(_jsonable(row), ensure_ascii=False, sort_keys=True) + "\n")
+            fh.write(
+                json.dumps(_jsonable(row), ensure_ascii=False, sort_keys=True) + "\n"
+            )
 
 
 def _serialize_validation_experiment(experiment: Any) -> dict[str, Any]:
@@ -183,6 +191,24 @@ def build_central_bank_runtime_output() -> RuntimeAgentOutput:
         confidence_cap=0.64,
         current_data_confirmed=True,
     )
+    confidence_trace = {
+        "policy_ref": "confidence_policy.v1",
+        "safe_default_function": "min_components_then_cap",
+        "component_order": (
+            "data_confidence",
+            "research_confidence",
+            "empirical_validation_confidence",
+            "regime_match_confidence",
+        ),
+        "components": asdict(confidence_components),
+        "pre_cap_confidence": confidence.pre_cap_confidence,
+        "confidence_cap": 0.64,
+        "final_confidence": confidence.final_confidence,
+        "confidence_bucket": confidence.confidence_bucket,
+        "actionability": confidence.actionability,
+        "current_data_confirmed": True,
+        "cap_reasons": confidence.cap_reasons,
+    }
     rule_fire = RuleFireOutput(
         rule_id="macro.central_bank.soft.001",
         rule_group_id="macro.central_bank.liquidity",
@@ -236,8 +262,11 @@ def build_central_bank_runtime_output() -> RuntimeAgentOutput:
         hypothesis_ids_used=(mvp["hypothesis"].hypothesis_id,),
         inferences=(inference,),
         recommendations=(recommendation,),
-        uncertainties=("paper-trading gate remains required before production promotion",),
+        uncertainties=(
+            "paper-trading gate remains required before production promotion",
+        ),
         confidence_components=asdict(confidence_components),
+        confidence_policy_trace=confidence_trace,
         rule_aggregation_summary={
             "target_signal": aggregation.target_signal,
             "horizon_days": aggregation.horizon_days,
@@ -301,7 +330,9 @@ def build_completion_audit(
             "Validation v2 report includes effective N, overlap, FDR, and costs.",
             validation_report_ready,
             "EXP-CB-20260605-0001",
-            "" if validation_report_ready else "validation report missing required metrics",
+            ""
+            if validation_report_ready
+            else "validation report missing required metrics",
         ),
         CompletionCriterion(
             "C05",
@@ -347,7 +378,9 @@ def build_completion_audit(
             "Compliance gate blocks unauthorized reports from production runtime.",
             compliance_production_approved,
             "ResearchSourceMetadata gate and Tushare pending_review status",
-            "" if compliance_production_approved else "source license review still pending",
+            ""
+            if compliance_production_approved
+            else "source license review still pending",
         ),
         CompletionCriterion(
             "C12",
@@ -377,7 +410,9 @@ def build_central_bank_mvp_bundle() -> CentralBankMvpBundle:
             }
         ),
     )
-    decision = evaluate_validation_experiment(mvp["experiment"], data_matrix=mvp["data_matrix"])
+    decision = evaluate_validation_experiment(
+        mvp["experiment"], data_matrix=mvp["data_matrix"]
+    )
     prompt_ir = build_central_bank_prompt_ir()
     prompt_ir_failures = validate_prompt_ir_contract(prompt_ir)
     runtime_input = build_central_bank_runtime_input()
@@ -408,9 +443,9 @@ def build_central_bank_mvp_bundle() -> CentralBankMvpBundle:
         patch,
         current_registry={target_path: 7},
         parameter_types={
-            target_path: mvp["rule_pack"].rules["macro.central_bank.soft.001"].learnable_parameters[
-                "net_injection_window_days"
-            ]
+            target_path: mvp["rule_pack"]
+            .rules["macro.central_bank.soft.001"]
+            .learnable_parameters["net_injection_window_days"]
         },
         evolution_targets=default_evolution_targets(),
         valid_experiment_ids={mvp["experiment"].experiment_id},
@@ -427,9 +462,9 @@ def build_central_bank_mvp_bundle() -> CentralBankMvpBundle:
         mutation,
         current_registry={target_path: 7},
         parameter_types={
-            target_path: mvp["rule_pack"].rules["macro.central_bank.soft.001"].learnable_parameters[
-                "net_injection_window_days"
-            ]
+            target_path: mvp["rule_pack"]
+            .rules["macro.central_bank.soft.001"]
+            .learnable_parameters["net_injection_window_days"]
         },
         evolution_targets=default_evolution_targets(),
         valid_experiment_ids={mvp["experiment"].experiment_id},
@@ -520,7 +555,8 @@ def write_central_bank_mvp_registry(root: str | Path = ".") -> dict[str, str]:
         "source_metadata": root_path / "registry/sources/central_bank_sources.jsonl",
         "claims": root_path / "registry/claims/central_bank_claims.jsonl",
         "hypotheses": root_path / "registry/hypotheses/central_bank_hypotheses.jsonl",
-        "rule_pack": root_path / "registry/rule_packs/macro.central_bank.liquidity.v1.json",
+        "rule_pack": root_path
+        / "registry/rule_packs/macro.central_bank.liquidity.v1.json",
         "parameter_prior": root_path
         / "registry/parameter_priors/central_bank_parameter_priors.jsonl",
         "experiment": root_path
@@ -531,7 +567,8 @@ def write_central_bank_mvp_registry(root: str | Path = ".") -> dict[str, str]:
         "audit": root_path / "registry/audits/central_bank_mvp_audit_trace.json",
         "completion_audit": root_path / "registry/audits/rke_completion_audit.json",
         "prompt_ir": root_path / "registry/prompt_ir/macro.central_bank.json",
-        "runtime_input": root_path / "registry/runtime_inputs/macro.central_bank.20260605.json",
+        "runtime_input": root_path
+        / "registry/runtime_inputs/macro.central_bank.20260605.json",
         "runtime_output": root_path
         / "registry/runtime_outputs/macro.central_bank.20260605.json",
     }
@@ -541,7 +578,9 @@ def write_central_bank_mvp_registry(root: str | Path = ".") -> dict[str, str]:
     _write_jsonl(outputs["hypotheses"], (artifacts["hypothesis"],))
     _write_json(outputs["rule_pack"], artifacts["rule_pack"])
     _write_jsonl(outputs["parameter_prior"], (artifacts["parameter_prior"],))
-    _write_json(outputs["experiment"], _serialize_validation_experiment(artifacts["experiment"]))
+    _write_json(
+        outputs["experiment"], _serialize_validation_experiment(artifacts["experiment"])
+    )
     _write_json(outputs["patch"], artifacts["production_patch"])
     _write_json(
         outputs["monitoring"],

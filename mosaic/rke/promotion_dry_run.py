@@ -10,7 +10,10 @@ from pathlib import Path
 from typing import Any, Literal, Mapping, Sequence
 
 from .lockbox_review_import import apply_lockbox_review_import
-from .manual_review_import import apply_gold_set_review_import, apply_source_license_review_import
+from .manual_review_import import (
+    apply_gold_set_review_import,
+    apply_source_license_review_import,
+)
 from .promotion_gate import build_production_promotion_gate_report
 
 
@@ -60,7 +63,8 @@ def _jsonable(value: Any) -> Any:
 def _write_json(path: Path, payload: Mapping[str, Any]) -> dict[str, Any]:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        json.dumps(_jsonable(payload), ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        json.dumps(_jsonable(payload), ensure_ascii=False, indent=2, sort_keys=True)
+        + "\n",
         encoding="utf-8",
     )
     return {"path": str(path), "rows": 1}
@@ -78,6 +82,9 @@ def _copy_registry(root_path: Path, temp_root: Path) -> None:
     schemas_path = root_path / "schemas"
     if schemas_path.exists():
         shutil.copytree(schemas_path, temp_root / "schemas")
+    docs_path = root_path / "docs"
+    if docs_path.exists():
+        shutil.copytree(docs_path, temp_root / "docs")
 
 
 def _missing_step(review_kind: PromotionDryRunKind) -> PromotionDryRunStep:
