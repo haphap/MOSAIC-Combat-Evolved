@@ -15,7 +15,6 @@ from .manual_review_import import (
     manual_review_forbidden_field_paths,
     review_row_fingerprint,
 )
-from .phase_minus1 import load_jsonl
 
 
 DEFAULT_LICENSE_POLICY_IMPORT_PATH = "registry/review_batches/source_license_policy_import.jsonl"
@@ -108,21 +107,41 @@ def _write_jsonl(path: Path, rows: Sequence[Mapping[str, Any]]) -> dict[str, Any
     return {"path": str(path), "rows": len(rows)}
 
 
-def _split_mapping_rows(rows: Sequence[Any]) -> tuple[list[Mapping[str, Any]], tuple[int, ...]]:
-    valid_rows: list[Mapping[str, Any]] = []
-    invalid_row_numbers: list[int] = []
-    for index, row in enumerate(rows, 1):
-        if isinstance(row, Mapping):
-            valid_rows.append(row)
-        else:
-            invalid_row_numbers.append(index)
-    return valid_rows, tuple(invalid_row_numbers)
-
-
 def _malformed_review_row_blocker(row_numbers: Sequence[int]) -> str:
     return "source license review row must be object at row(s): " + ", ".join(
         str(row_number) for row_number in row_numbers
     )
+
+
+def _load_review_template_rows(root_path: Path) -> tuple[list[Any], list[Mapping[str, Any]], tuple[str, ...], int]:
+    path = root_path / LICENSE_REVIEW_TEMPLATE_PATH
+    if not path.exists():
+        return [], [], (f"{LICENSE_REVIEW_TEMPLATE_PATH} missing",), 0
+
+    raw_rows: list[Any] = []
+    valid_rows: list[Mapping[str, Any]] = []
+    invalid_row_numbers: list[int] = []
+    blockers: list[str] = []
+    total_rows = 0
+    with path.open("r", encoding="utf-8") as handle:
+        for line_number, line in enumerate(handle, 1):
+            line = line.strip()
+            if not line:
+                continue
+            total_rows += 1
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError as exc:
+                blockers.append(f"source license review row {line_number} must contain valid JSON: {exc.msg}")
+                continue
+            raw_rows.append(row)
+            if isinstance(row, Mapping):
+                valid_rows.append(row)
+            else:
+                invalid_row_numbers.append(line_number)
+    if invalid_row_numbers:
+        blockers.append(_malformed_review_row_blocker(invalid_row_numbers))
+    return raw_rows, valid_rows, tuple(blockers), total_rows
 
 
 def _as_str_tuple(value: object) -> tuple[str, ...]:
@@ -144,7 +163,7 @@ def _policy_rejection_report(
     dry_run: bool,
     blocker: str,
 ) -> SourceLicensePolicyImportReport:
-    raw_review_rows = load_jsonl(root_path / LICENSE_REVIEW_TEMPLATE_PATH)
+    _, _, review_blockers, total_review_rows = _load_review_template_rows(root_path)
     report = SourceLicensePolicyImportReport(
         report_id="RKE-SOURCE-LICENSE-POLICY-IMPORT-REPORT-20260606",
         policy_path=str(resolved_policy_path),
@@ -152,7 +171,7 @@ def _policy_rejection_report(
         output_path=str(resolved_output_path),
         dry_run=dry_run,
         accepted=False,
-        total_review_rows=len(raw_review_rows),
+        total_review_rows=total_review_rows,
         matched_rows=0,
         output_rows=0,
         reviewer="",
@@ -160,7 +179,7 @@ def _policy_rejection_report(
         approved_for_derived_claim_storage=None,
         approved_for_production_runtime=None,
         filters=SourceLicensePolicyFilters(),
-        blockers=(blocker,),
+        blockers=tuple(dict.fromkeys((blocker, *review_blockers))),
     )
     _write_json(root_path / LICENSE_POLICY_IMPORT_REPORT_PATH, asdict(report))
     return report
@@ -370,8 +389,7 @@ def build_source_license_policy_template(root: str | Path = ".") -> Mapping[str,
     until a reviewer supplies the booleans, reviewer, and review_date.
     """
     root_path = Path(root)
-    raw_review_rows = load_jsonl(root_path / LICENSE_REVIEW_TEMPLATE_PATH)
-    review_rows, _ = _split_mapping_rows(raw_review_rows)
+    _, review_rows, _, _ = _load_review_template_rows(root_path)
     source_types = sorted({str(row.get("source_type") or "") for row in review_rows if row.get("source_type")})
     statuses = sorted(
         {
@@ -456,8 +474,7 @@ def build_source_license_policy_import(
             dry_run=dry_run,
             blocker=f"source-license policy must contain valid JSON: {exc.msg}",
         )
-    raw_review_rows = load_jsonl(root_path / LICENSE_REVIEW_TEMPLATE_PATH)
-    review_rows, invalid_review_rows = _split_mapping_rows(raw_review_rows)
+    raw_review_rows, review_rows, review_row_blockers, total_review_rows = _load_review_template_rows(root_path)
     if not isinstance(policy_payload, Mapping):
         report = SourceLicensePolicyImportReport(
             report_id="RKE-SOURCE-LICENSE-POLICY-IMPORT-REPORT-20260606",
@@ -466,7 +483,7 @@ def build_source_license_policy_import(
             output_path=str(resolved_output_path),
             dry_run=dry_run,
             accepted=False,
-            total_review_rows=len(raw_review_rows),
+            total_review_rows=total_review_rows,
             matched_rows=0,
             output_rows=0,
             reviewer="",
@@ -474,7 +491,7 @@ def build_source_license_policy_import(
             approved_for_derived_claim_storage=None,
             approved_for_production_runtime=None,
             filters=SourceLicensePolicyFilters(),
-            blockers=("source-license policy must be object",),
+            blockers=tuple(dict.fromkeys(("source-license policy must be object", *review_row_blockers))),
         )
         _write_json(root_path / LICENSE_POLICY_IMPORT_REPORT_PATH, asdict(report))
         return report
@@ -493,8 +510,7 @@ def build_source_license_policy_import(
     publish_date_min, publish_date_max = _matched_publish_date_bounds(matched)
 
     blockers: list[str] = []
-    if invalid_review_rows:
-        blockers.append(_malformed_review_row_blocker(invalid_review_rows))
+    blockers.extend(review_row_blockers)
     for field in _unexpected_policy_fields(policy):
         blockers.append(f"{field} unexpected in source-license policy import")
     for field in _forbidden_policy_fields(policy):
@@ -563,7 +579,7 @@ def build_source_license_policy_import(
         output_path=str(resolved_output_path),
         dry_run=dry_run,
         accepted=accepted,
-        total_review_rows=len(raw_review_rows),
+        total_review_rows=total_review_rows,
         matched_rows=len(matched),
         output_rows=0 if dry_run else len(output_rows) if accepted else 0,
         reviewer=reviewer,

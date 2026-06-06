@@ -130,6 +130,17 @@ def test_source_license_policy_template_ignores_malformed_review_rows(tmp_path: 
     assert template["matched_rows_fingerprint"].startswith("sha256:")
 
 
+def test_source_license_policy_template_ignores_malformed_json_review_rows(tmp_path: Path):
+    _copy_registry(tmp_path)
+    review_path = tmp_path / "registry/compliance/tushare_license_review_template.jsonl"
+    review_path.write_text(review_path.read_text(encoding="utf-8") + "{\n", encoding="utf-8")
+
+    template = build_source_license_policy_template(tmp_path)
+
+    assert template["matched_row_count"] == 3
+    assert template["matched_rows_fingerprint"].startswith("sha256:")
+
+
 def test_build_source_license_policy_import_rejects_malformed_review_rows(tmp_path: Path):
     _copy_registry(tmp_path)
     policy_path = tmp_path / "policy.json"
@@ -148,6 +159,50 @@ def test_build_source_license_policy_import_rejects_malformed_review_rows(tmp_pa
     assert not report.accepted
     assert report.total_review_rows == expected_row
     assert f"source license review row must be object at row(s): {expected_row}" in report.blockers
+    assert not output_path.exists()
+
+
+def test_build_source_license_policy_import_rejects_malformed_json_review_rows(tmp_path: Path):
+    _copy_registry(tmp_path)
+    policy_path = tmp_path / "policy.json"
+    output_path = tmp_path / "policy_import.jsonl"
+    policy = _policy(tmp_path)
+    review_path = tmp_path / "registry/compliance/tushare_license_review_template.jsonl"
+    expected_row = len(review_path.read_text(encoding="utf-8").splitlines()) + 1
+    review_path.write_text(review_path.read_text(encoding="utf-8") + "{\n", encoding="utf-8")
+    _write_json(policy_path, policy)
+
+    report = build_source_license_policy_import(tmp_path, policy_path, output_path=output_path)
+
+    assert not report.accepted
+    assert report.total_review_rows == expected_row
+    assert any(
+        f"source license review row {expected_row} must contain valid JSON" in blocker
+        for blocker in report.blockers
+    )
+    assert not output_path.exists()
+
+
+def test_build_source_license_policy_import_reports_review_rows_when_policy_invalid(
+    tmp_path: Path,
+):
+    _copy_registry(tmp_path)
+    policy_path = tmp_path / "policy.json"
+    output_path = tmp_path / "policy_import.jsonl"
+    review_path = tmp_path / "registry/compliance/tushare_license_review_template.jsonl"
+    expected_row = len(review_path.read_text(encoding="utf-8").splitlines()) + 1
+    review_path.write_text(review_path.read_text(encoding="utf-8") + "{\n", encoding="utf-8")
+    policy_path.write_text("{", encoding="utf-8")
+
+    report = build_source_license_policy_import(tmp_path, policy_path, output_path=output_path)
+
+    assert not report.accepted
+    assert report.total_review_rows == expected_row
+    assert any("source-license policy must contain valid JSON" in blocker for blocker in report.blockers)
+    assert any(
+        f"source license review row {expected_row} must contain valid JSON" in blocker
+        for blocker in report.blockers
+    )
     assert not output_path.exists()
 
 
