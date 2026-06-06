@@ -569,6 +569,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "manual_fields_preserved": summary["manual_fields_preserved"],
                 "direction_counts": summary["direction_counts"],
                 "claim_type_counts": summary["claim_type_counts"],
+                "blockers": summary.get("blockers", []),
             }
         )
         return 0

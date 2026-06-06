@@ -192,6 +192,19 @@ def test_rke_cli_review_status_commands_report_malformed_jsonl_rows(tmp_path: Pa
     assert license_output["total_review_rows"] == 9813
 
 
+def test_rke_cli_gold_candidate_claims_reports_malformed_jsonl_rows(tmp_path: Path, capsys):
+    _copy_registry(tmp_path)
+    candidates_path = tmp_path / "registry/sources/tushare_research_reports.gold_candidates.jsonl"
+    candidates_path.write_text(candidates_path.read_text(encoding="utf-8") + "{\n", encoding="utf-8")
+
+    code = main(("gold-candidate-claims", "--root", str(tmp_path)))
+    output = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert output["candidate_claim_count"] == 500
+    assert any("gold candidate row 51 must contain valid JSON" in blocker for blocker in output["blockers"])
+
+
 def test_rke_cli_prompt_status_writes_summary(tmp_path: Path, capsys):
     _copy_registry(tmp_path)
 

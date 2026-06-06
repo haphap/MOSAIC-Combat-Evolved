@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from .claim_vocabulary import load_claim_variable_vocabulary
-from .phase_minus1 import load_jsonl
+from .phase_minus1 import load_jsonl_with_errors
 
 
 GOLD_CANDIDATE_CLAIMS_PATH = "registry/gold_sets/tushare_research_reports.candidate_claims.jsonl"
@@ -314,8 +314,14 @@ def _build_gold_candidate_claims_with_blockers(
     root: str | Path = ".",
 ) -> tuple[tuple[GoldCandidateClaim, ...], tuple[str, ...]]:
     root_path = Path(root)
-    raw_candidates = load_jsonl(root_path / GOLD_CANDIDATES_PATH)
-    raw_review_rows = load_jsonl(root_path / GOLD_REVIEW_TEMPLATE_PATH)
+    raw_candidates, candidate_parse_blockers = load_jsonl_with_errors(
+        root_path / GOLD_CANDIDATES_PATH,
+        label="gold candidate",
+    )
+    raw_review_rows, review_parse_blockers = load_jsonl_with_errors(
+        root_path / GOLD_REVIEW_TEMPLATE_PATH,
+        label="gold-set review",
+    )
     candidates, invalid_candidate_rows = _split_mapping_rows(raw_candidates)
     review_rows, invalid_review_rows = _split_mapping_rows(raw_review_rows)
     review_by_source = _review_rows_by_source(review_rows)
@@ -335,7 +341,7 @@ def _build_gold_candidate_claims_with_blockers(
                     known_variable_ids,
                 )
             )
-    blockers: list[str] = []
+    blockers: list[str] = [*candidate_parse_blockers, *review_parse_blockers]
     if invalid_candidate_rows:
         blockers.append(_malformed_row_blocker("gold candidate", invalid_candidate_rows))
     if invalid_review_rows:
@@ -355,7 +361,10 @@ def merge_candidate_claims_into_review_template(
 ) -> dict[str, Any]:
     root_path = Path(root)
     review_path = root_path / GOLD_REVIEW_TEMPLATE_PATH
-    raw_rows = load_jsonl(review_path)
+    raw_rows, review_parse_blockers = load_jsonl_with_errors(
+        review_path,
+        label="gold-set review",
+    )
     rows, invalid_review_rows = _split_mapping_rows(raw_rows)
     claims = candidate_claims or build_gold_candidate_claims(root_path)
     by_claim_id = {claim.claim_id: claim for claim in claims}
@@ -387,11 +396,9 @@ def merge_candidate_claims_into_review_template(
                 }
             )
         merged.append(out)
-    blockers = (
-        (_malformed_row_blocker("gold-set review", invalid_review_rows),)
-        if invalid_review_rows
-        else ()
-    )
+    blockers = [*review_parse_blockers]
+    if invalid_review_rows:
+        blockers.append(_malformed_row_blocker("gold-set review", invalid_review_rows))
     if not blockers:
         _write_jsonl(review_path, merged)
     manual_after = {
@@ -400,11 +407,11 @@ def merge_candidate_claims_into_review_template(
     }
     return {
         "path": str(review_path),
-        "rows": len(raw_rows),
+        "rows": len(raw_rows) + len(review_parse_blockers),
         "rows_with_candidate_fields": sum("proposed_claim_text" in row for row in merged),
         "manual_fields_preserved": manual_before == manual_after,
         "applied": not blockers,
-        "blockers": blockers,
+        "blockers": tuple(blockers),
     }
 
 
