@@ -259,6 +259,26 @@ def test_apply_gold_set_review_import_rejects_non_string_review_fields(tmp_path:
     assert "review_notes must be string" in reasons
 
 
+def test_apply_gold_set_review_import_rejects_non_string_identity_fields(tmp_path: Path):
+    _copy_registry(tmp_path)
+    import_path = tmp_path / "gold_import_with_non_string_identity_fields.jsonl"
+    row = _accepted_gold_template_row(
+        _load_jsonl(tmp_path / "registry/review_batches/gold_set_next_import_template.jsonl")[0]
+    )
+    row["claim_id"] = ["not", "a", "string"]
+    row["source_id"] = {"source": "not a string"}
+    row[TARGET_ROW_HASH_FIELD] = ["not", "a", "hash"]
+    _write_jsonl(import_path, [row])
+
+    report = apply_gold_set_review_import(tmp_path, import_path)
+    reasons = set(report.invalid_rows[0].reasons)
+
+    assert not report.accepted
+    assert "claim_id must be string" in reasons
+    assert "source_id must be string" in reasons
+    assert "target_row_hash must be string" in reasons
+
+
 def test_apply_gold_set_review_import_rejects_invalid_review_date_format(tmp_path: Path):
     _copy_registry(tmp_path)
     import_path = tmp_path / "gold_import_with_bad_review_date.jsonl"
@@ -421,6 +441,28 @@ def test_apply_license_review_import_rejects_non_string_review_fields(tmp_path: 
     assert not report.accepted
     assert "reviewer must be string" in reasons
     assert "notes must be string" in reasons
+
+
+def test_apply_license_review_import_rejects_non_string_identity_fields(tmp_path: Path):
+    _copy_registry(tmp_path)
+    import_path = tmp_path / "license_import_with_non_string_identity_fields.jsonl"
+    row = _accepted_license_template_row(
+        _load_jsonl(tmp_path / "registry/review_batches/source_license_next_import_template.jsonl")[0]
+    )
+    row["source_id"] = {"source": "not a string"}
+    row["target_review_path"] = ["not", "a", "path"]
+    row["publish_date"] = ["2026-06-06"]
+    row[TARGET_ROW_HASH_FIELD] = {"hash": "not a string"}
+    _write_jsonl(import_path, [row])
+
+    report = apply_source_license_review_import(tmp_path, import_path)
+    reasons = set(report.invalid_rows[0].reasons)
+
+    assert not report.accepted
+    assert "source_id must be string" in reasons
+    assert "target_review_path must be string" in reasons
+    assert "publish_date must be string" in reasons
+    assert "target_row_hash must be string" in reasons
 
 
 def test_apply_license_review_import_rejects_invalid_review_date_format(tmp_path: Path):

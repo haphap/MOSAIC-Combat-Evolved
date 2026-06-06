@@ -148,6 +148,11 @@ def _duplicates(ids: Sequence[str]) -> tuple[str, ...]:
     return tuple(sorted(duplicates))
 
 
+def _row_string_id(row: Mapping[str, Any], field: str) -> str:
+    value = row.get(field)
+    return value.strip() if isinstance(value, str) else ""
+
+
 def _reviewer_fields_invalid(row: Mapping[str, Any]) -> list[str]:
     failures: list[str] = []
     failures.extend(_required_string_field_failures(row, "reviewer"))
@@ -236,20 +241,22 @@ def _optional_exact_match_failures(
 ) -> list[str]:
     failures: list[str] = []
     for field, expected in expected_values.items():
-        actual = str(row.get(field) or "").strip()
+        actual, field_failures = _required_string_value(row, field)
+        failures.extend(field_failures)
+        if field_failures:
+            continue
         if not actual:
             failures.append(f"{field} required")
         elif actual != expected:
             failures.append(f"{field} must match {expected}")
-    expected_hash = str(row.get(TARGET_ROW_HASH_FIELD) or "").strip()
-    if not expected_hash:
-        failures.append(f"{TARGET_ROW_HASH_FIELD} required")
-    elif target_row is not None and expected_hash != review_row_fingerprint(target_row):
+    expected_hash, hash_failures = _required_string_value(row, TARGET_ROW_HASH_FIELD)
+    failures.extend(hash_failures)
+    if not hash_failures and target_row is not None and expected_hash != review_row_fingerprint(target_row):
         failures.append(f"{TARGET_ROW_HASH_FIELD} does not match target review row")
     for field in target_fields:
-        actual = str(row.get(field) or "").strip()
-        if not actual:
-            failures.append(f"{field} required")
+        actual, field_failures = _required_string_value(row, field)
+        failures.extend(field_failures)
+        if field_failures:
             continue
         if target_row is None:
             continue
@@ -257,6 +264,18 @@ def _optional_exact_match_failures(
         if actual != expected:
             failures.append(f"{field} does not match target review row")
     return failures
+
+
+def _required_string_value(row: Mapping[str, Any], field: str) -> tuple[str, list[str]]:
+    value = row.get(field)
+    if value is None or value == "":
+        return "", [f"{field} required"]
+    if not isinstance(value, str):
+        return "", [f"{field} must be string"]
+    stripped = value.strip()
+    if not stripped:
+        return "", [f"{field} required"]
+    return stripped, []
 
 
 def _gold_reference_failures(row: Mapping[str, Any], target_row: Mapping[str, Any] | None) -> list[str]:
@@ -418,15 +437,14 @@ def apply_gold_set_review_import(
         target_rows,
         (*GOLD_IMPORT_TEMPLATE_ONLY_FIELDS, *GOLD_IMPORTED_FIELDS),
     )
-    input_ids = [str(row.get("claim_id") or "") for row in input_rows]
+    input_ids = [_row_string_id(row, "claim_id") for row in input_rows]
     duplicate_ids = _duplicates(input_ids)
     missing_target_ids = tuple(sorted({row_id for row_id in input_ids if row_id and row_id not in target_by_id}))
     invalid_rows: list[ManualReviewImportInvalidRow] = []
     for idx, row in enumerate(input_rows, 1):
-        row_id = str(row.get("claim_id") or "")
+        row_id = _row_string_id(row, "claim_id")
         failures: list[str] = []
-        if not row_id:
-            failures.append("claim_id required")
+        failures.extend(_required_string_field_failures(row, "claim_id"))
         if row_id in duplicate_ids:
             failures.append("duplicate claim_id in import")
         if row_id in missing_target_ids:
@@ -487,15 +505,14 @@ def apply_source_license_review_import(
     target_rows = load_jsonl(target_path)
     target_by_id = {str(row.get("source_id") or ""): row for row in target_rows}
     allowed_fields = _allowed_review_import_fields(target_rows, LICENSE_IMPORTED_FIELDS)
-    input_ids = [str(row.get("source_id") or "") for row in input_rows]
+    input_ids = [_row_string_id(row, "source_id") for row in input_rows]
     duplicate_ids = _duplicates(input_ids)
     missing_target_ids = tuple(sorted({row_id for row_id in input_ids if row_id and row_id not in target_by_id}))
     invalid_rows: list[ManualReviewImportInvalidRow] = []
     for idx, row in enumerate(input_rows, 1):
-        row_id = str(row.get("source_id") or "")
+        row_id = _row_string_id(row, "source_id")
         failures: list[str] = []
-        if not row_id:
-            failures.append("source_id required")
+        failures.extend(_required_string_field_failures(row, "source_id"))
         if row_id in duplicate_ids:
             failures.append("duplicate source_id in import")
         if row_id in missing_target_ids:
