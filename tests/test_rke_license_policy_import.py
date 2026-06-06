@@ -262,6 +262,94 @@ def test_build_source_license_policy_import_rejects_invalid_review_date_format(t
     assert not output_path.exists()
 
 
+def test_build_source_license_policy_import_accepts_valid_publish_date_filters(
+    tmp_path: Path,
+):
+    _copy_registry(tmp_path)
+    policy_path = tmp_path / "policy.json"
+    output_path = tmp_path / "policy_import.jsonl"
+    policy = _policy(tmp_path)
+    policy["filters"]["publish_date_min"] = policy["publish_date_min"]
+    policy["filters"]["publish_date_max"] = policy["publish_date_max"]
+    _write_json(policy_path, policy)
+
+    report = build_source_license_policy_import(tmp_path, policy_path, output_path=output_path)
+
+    assert report.accepted
+    assert report.filters.publish_date_min == policy["publish_date_min"]
+    assert report.filters.publish_date_max == policy["publish_date_max"]
+    assert output_path.exists()
+
+
+def test_build_source_license_policy_import_rejects_invalid_filter_date_format(
+    tmp_path: Path,
+):
+    _copy_registry(tmp_path)
+    policy_path = tmp_path / "policy.json"
+    output_path = tmp_path / "policy_import.jsonl"
+    policy = _policy(tmp_path)
+    policy["filters"]["publish_date_min"] = "2026/06/01"
+    _write_json(policy_path, policy)
+
+    report = build_source_license_policy_import(tmp_path, policy_path, output_path=output_path)
+
+    assert not report.accepted
+    assert "filters.publish_date_min must be YYYY-MM-DD" in report.blockers
+    assert not output_path.exists()
+
+
+def test_build_source_license_policy_import_rejects_non_string_filter_date(
+    tmp_path: Path,
+):
+    _copy_registry(tmp_path)
+    policy_path = tmp_path / "policy.json"
+    output_path = tmp_path / "policy_import.jsonl"
+    policy = _policy(tmp_path)
+    policy["filters"]["publish_date_max"] = ["2026-06-06"]
+    _write_json(policy_path, policy)
+
+    report = build_source_license_policy_import(tmp_path, policy_path, output_path=output_path)
+
+    assert not report.accepted
+    assert "filters.publish_date_max must be string" in report.blockers
+    assert not output_path.exists()
+
+
+def test_build_source_license_policy_import_rejects_reversed_filter_date_range(
+    tmp_path: Path,
+):
+    _copy_registry(tmp_path)
+    policy_path = tmp_path / "policy.json"
+    output_path = tmp_path / "policy_import.jsonl"
+    policy = _policy(tmp_path)
+    policy["filters"]["publish_date_min"] = "2026-06-06"
+    policy["filters"]["publish_date_max"] = "2026-02-05"
+    _write_json(policy_path, policy)
+
+    report = build_source_license_policy_import(tmp_path, policy_path, output_path=output_path)
+
+    assert not report.accepted
+    assert "filters.publish_date_min must be <= filters.publish_date_max" in report.blockers
+    assert not output_path.exists()
+
+
+def test_build_source_license_policy_import_rejects_invalid_policy_date_metadata(
+    tmp_path: Path,
+):
+    _copy_registry(tmp_path)
+    policy_path = tmp_path / "policy.json"
+    output_path = tmp_path / "policy_import.jsonl"
+    policy = _policy(tmp_path)
+    policy["publish_date_min"] = "2026/02/05"
+    _write_json(policy_path, policy)
+
+    report = build_source_license_policy_import(tmp_path, policy_path, output_path=output_path)
+
+    assert not report.accepted
+    assert "publish_date_min must be YYYY-MM-DD" in report.blockers
+    assert not output_path.exists()
+
+
 def test_cli_build_license_review_import(tmp_path: Path, capsys):
     _copy_registry(tmp_path)
     policy_path = tmp_path / "policy.json"

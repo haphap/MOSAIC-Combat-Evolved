@@ -149,15 +149,41 @@ def _required_policy_string_failures(policy: Mapping[str, Any], field: str) -> l
 
 
 def _iso_policy_date_failures(policy: Mapping[str, Any], field: str) -> list[str]:
-    value = policy.get(field)
+    return _iso_optional_date_failures(policy.get(field), field)
+
+
+def _iso_optional_date_failures(value: Any, label: str) -> list[str]:
     if not isinstance(value, str) or not value.strip():
         return []
     try:
         parsed = date.fromisoformat(value)
     except ValueError:
-        return [f"{field} must be YYYY-MM-DD"]
+        return [f"{label} must be YYYY-MM-DD"]
     if parsed.isoformat() != value:
-        return [f"{field} must be YYYY-MM-DD"]
+        return [f"{label} must be YYYY-MM-DD"]
+    return []
+
+
+def _optional_policy_date_range_failures(
+    start_value: Any,
+    end_value: Any,
+    *,
+    start_label: str,
+    end_label: str,
+) -> list[str]:
+    if not isinstance(start_value, str) or not isinstance(end_value, str):
+        return []
+    start = start_value.strip()
+    end = end_value.strip()
+    if not start or not end:
+        return []
+    try:
+        parsed_start = date.fromisoformat(start)
+        parsed_end = date.fromisoformat(end)
+    except ValueError:
+        return []
+    if parsed_start > parsed_end:
+        return [f"{start_label} must be <= {end_label}"]
     return []
 
 
@@ -168,6 +194,29 @@ def _optional_policy_string_failures(policy: Mapping[str, Any], field: str) -> l
     if not isinstance(value, str):
         return [f"{field} must be string"]
     return []
+
+
+def _policy_filter_date_failures(policy: Mapping[str, Any]) -> list[str]:
+    raw_filters = policy.get("filters") or {}
+    if not isinstance(raw_filters, Mapping):
+        return []
+    failures: list[str] = []
+    for field in ("publish_date_min", "publish_date_max"):
+        value = raw_filters.get(field)
+        label = f"filters.{field}"
+        if value is not None and not isinstance(value, str):
+            failures.append(f"{label} must be string")
+            continue
+        failures.extend(_iso_optional_date_failures(value, label))
+    failures.extend(
+        _optional_policy_date_range_failures(
+            raw_filters.get("publish_date_min"),
+            raw_filters.get("publish_date_max"),
+            start_label="filters.publish_date_min",
+            end_label="filters.publish_date_max",
+        )
+    )
+    return failures
 
 
 def _policy_filters(policy: Mapping[str, Any]) -> SourceLicensePolicyFilters:
@@ -350,6 +399,17 @@ def build_source_license_policy_import(
         "publish_date_max",
     ):
         blockers.extend(_optional_policy_string_failures(policy, field))
+    for field in ("publish_date_min", "publish_date_max"):
+        blockers.extend(_iso_policy_date_failures(policy, field))
+    blockers.extend(
+        _optional_policy_date_range_failures(
+            policy.get("publish_date_min"),
+            policy.get("publish_date_max"),
+            start_label="publish_date_min",
+            end_label="publish_date_max",
+        )
+    )
+    blockers.extend(_policy_filter_date_failures(policy))
     if str(policy.get("target_review_path") or "").strip() != LICENSE_REVIEW_TEMPLATE_PATH:
         blockers.append(f"target_review_path must match {LICENSE_REVIEW_TEMPLATE_PATH}")
     if str(policy.get(MATCHED_ROWS_FINGERPRINT_FIELD) or "").strip() != matched_rows_fingerprint:
