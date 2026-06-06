@@ -86,6 +86,14 @@ def _mapping_sequence_field(
     return tuple(rows)
 
 
+def _blocked_section_ids(records: Sequence[Mapping[str, Any]]) -> tuple[str, ...]:
+    return tuple(
+        str(record.get("section_id"))
+        for record in records
+        if record.get("status") == "blocked"
+    )
+
+
 def _first_mapping_item_field(
     payload: Mapping[str, Any],
     field_name: str,
@@ -608,6 +616,30 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
         label="registry/runtime_outputs/macro.central_bank.20260605.json",
         artifact_errors=artifact_errors,
     )
+    coverage_records = _mapping_sequence_field(
+        coverage,
+        "records",
+        label="registry/audits/rke_master_plan_coverage_report.json",
+        artifact_errors=artifact_errors,
+    )
+    coverage_mvp_deliverable_records = _mapping_sequence_field(
+        coverage,
+        "mvp_deliverable_records",
+        label="registry/audits/rke_master_plan_coverage_report.json",
+        artifact_errors=artifact_errors,
+    )
+    coverage_mvp_exit_records = _mapping_sequence_field(
+        coverage,
+        "mvp_exit_records",
+        label="registry/audits/rke_master_plan_coverage_report.json",
+        artifact_errors=artifact_errors,
+    )
+    coverage_final_acceptance_records = _mapping_sequence_field(
+        coverage,
+        "final_acceptance_records",
+        label="registry/audits/rke_master_plan_coverage_report.json",
+        artifact_errors=artifact_errors,
+    )
     return {
         "dashboard_id": "RKE-DASHBOARD-20260605",
         "artifact_errors": tuple(artifact_errors),
@@ -627,6 +659,35 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
             "passed_count": coverage.get("passed_count"),
             "blocked_count": coverage.get("blocked_count"),
             "missing_count": coverage.get("missing_count"),
+            "blocked_sections": _blocked_section_ids(coverage_records),
+            "mvp_deliverables": {
+                "section": coverage.get("mvp_deliverables_section"),
+                "ready": coverage.get("mvp_deliverables_ready"),
+                "passed_count": coverage.get("mvp_deliverables_passed_count"),
+                "blocked_count": coverage.get("mvp_deliverables_blocked_count"),
+                "missing_count": coverage.get("mvp_deliverables_missing_count"),
+                "blocked_sections": _blocked_section_ids(
+                    coverage_mvp_deliverable_records
+                ),
+            },
+            "mvp_exit_criteria": {
+                "section": coverage.get("mvp_exit_criteria_section"),
+                "ready": coverage.get("mvp_exit_ready"),
+                "passed_count": coverage.get("mvp_exit_passed_count"),
+                "blocked_count": coverage.get("mvp_exit_blocked_count"),
+                "missing_count": coverage.get("mvp_exit_missing_count"),
+                "blocked_sections": _blocked_section_ids(coverage_mvp_exit_records),
+            },
+            "final_acceptance": {
+                "section": coverage.get("final_acceptance_section"),
+                "ready": coverage.get("final_acceptance_ready"),
+                "passed_count": coverage.get("final_acceptance_passed_count"),
+                "blocked_count": coverage.get("final_acceptance_blocked_count"),
+                "missing_count": coverage.get("final_acceptance_missing_count"),
+                "blocked_sections": _blocked_section_ids(
+                    coverage_final_acceptance_records
+                ),
+            },
         },
         "paper_trading": paper_summary,
         "production_monitor": production_monitor,
@@ -864,6 +925,10 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
 
 def render_dashboard_markdown(report: Mapping[str, Any]) -> str:
     completion = dict(report.get("completion") or {})
+    coverage = dict(report.get("master_plan_coverage") or {})
+    mvp_deliverables = dict(coverage.get("mvp_deliverables") or {})
+    mvp_exit = dict(coverage.get("mvp_exit_criteria") or {})
+    final_acceptance = dict(coverage.get("final_acceptance") or {})
     paper = dict(report.get("paper_trading") or {})
     monitor = dict(report.get("production_monitor") or {})
     blockers = completion.get("blockers") or []
@@ -873,8 +938,15 @@ def render_dashboard_markdown(report: Mapping[str, Any]) -> str:
         f"- Broad rollout ready: {str(report.get('ready_for_broad_rollout')).lower()}",
         f"- Dashboard artifact errors: {len(report.get('artifact_errors') or ())}",
         f"- Completion: {completion.get('passed', 0)} / {completion.get('total', 0)}",
-        f"- Master-plan coverage missing: {dict(report.get('master_plan_coverage') or {}).get('missing_count')}",
-        f"- Master-plan coverage blocked: {dict(report.get('master_plan_coverage') or {}).get('blocked_count')}",
+        f"- Master-plan coverage missing: {coverage.get('missing_count')}",
+        f"- Master-plan coverage blocked: {coverage.get('blocked_count')}",
+        f"- Master-plan blocked sections: {', '.join(coverage.get('blocked_sections') or ()) or 'none'}",
+        f"- MVP deliverables blocked: {mvp_deliverables.get('blocked_count')}",
+        f"- MVP deliverable blocked sections: {', '.join(mvp_deliverables.get('blocked_sections') or ()) or 'none'}",
+        f"- MVP exit criteria blocked: {mvp_exit.get('blocked_count')}",
+        f"- MVP exit blocked sections: {', '.join(mvp_exit.get('blocked_sections') or ()) or 'none'}",
+        f"- Final acceptance blocked: {final_acceptance.get('blocked_count')}",
+        f"- Final acceptance blocked sections: {', '.join(final_acceptance.get('blocked_sections') or ()) or 'none'}",
         f"- Paper trading ready: {str(paper.get('ready')).lower()}",
         f"- Mean live vs baseline delta: {paper.get('mean_live_vs_baseline_delta')}",
         f"- Production monitor state: {monitor.get('state')}",

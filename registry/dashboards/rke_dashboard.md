@@ -5,6 +5,13 @@
 - Completion: 10 / 12
 - Master-plan coverage missing: 0
 - Master-plan coverage blocked: 2
+- Master-plan blocked sections: Phase-1B, Compliance
+- MVP deliverables blocked: 1
+- MVP deliverable blocked sections: MVP-D2
+- MVP exit criteria blocked: 1
+- MVP exit blocked sections: MVP-E01
+- Final acceptance blocked: 2
+- Final acceptance blocked sections: FinalAcceptance-C02, FinalAcceptance-C11
 - Paper trading ready: true
 - Mean live vs baseline delta: 0.035
 - Production monitor state: production

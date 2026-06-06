@@ -122,8 +122,43 @@
   },
   "master_plan_coverage": {
     "blocked_count": 2,
+    "blocked_sections": [
+      "Phase-1B",
+      "Compliance"
+    ],
     "coverage_complete": true,
+    "final_acceptance": {
+      "blocked_count": 2,
+      "blocked_sections": [
+        "FinalAcceptance-C02",
+        "FinalAcceptance-C11"
+      ],
+      "missing_count": 0,
+      "passed_count": 10,
+      "ready": false,
+      "section": "22"
+    },
     "missing_count": 0,
+    "mvp_deliverables": {
+      "blocked_count": 1,
+      "blocked_sections": [
+        "MVP-D2"
+      ],
+      "missing_count": 0,
+      "passed_count": 9,
+      "ready": false,
+      "section": "16.3"
+    },
+    "mvp_exit_criteria": {
+      "blocked_count": 1,
+      "blocked_sections": [
+        "MVP-E01"
+      ],
+      "missing_count": 0,
+      "passed_count": 12,
+      "ready": false,
+      "section": "16.4"
+    },
     "passed_count": 10,
     "ready_for_broad_rollout": false
   },

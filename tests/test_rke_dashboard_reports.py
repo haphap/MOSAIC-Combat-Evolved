@@ -48,6 +48,26 @@ def test_dashboard_report_summarizes_completion_and_monitoring():
     assert report["master_plan_coverage"]["ready_for_broad_rollout"] is False
     assert report["master_plan_coverage"]["missing_count"] == 0
     assert report["master_plan_coverage"]["blocked_count"] == 2
+    assert report["master_plan_coverage"]["blocked_sections"] == (
+        "Phase-1B",
+        "Compliance",
+    )
+    assert report["master_plan_coverage"]["mvp_deliverables"]["section"] == "16.3"
+    assert report["master_plan_coverage"]["mvp_deliverables"]["blocked_count"] == 1
+    assert report["master_plan_coverage"]["mvp_deliverables"]["blocked_sections"] == (
+        "MVP-D2",
+    )
+    assert report["master_plan_coverage"]["mvp_exit_criteria"]["section"] == "16.4"
+    assert report["master_plan_coverage"]["mvp_exit_criteria"]["blocked_count"] == 1
+    assert report["master_plan_coverage"]["mvp_exit_criteria"]["blocked_sections"] == (
+        "MVP-E01",
+    )
+    assert report["master_plan_coverage"]["final_acceptance"]["section"] == "22"
+    assert report["master_plan_coverage"]["final_acceptance"]["blocked_count"] == 2
+    assert report["master_plan_coverage"]["final_acceptance"]["blocked_sections"] == (
+        "FinalAcceptance-C02",
+        "FinalAcceptance-C11",
+    )
     assert report["paper_trading"]["ready"] is True
     assert report["production_monitor_diagnostics"]["accepted"] is True
     assert report["production_monitor_diagnostics"]["scenario_count"] == 6
@@ -153,7 +173,9 @@ def test_dashboard_report_summarizes_completion_and_monitoring():
         == 50
     )
     assert (
-        report["manual_review_gates"]["review_batches"]["source_license_review_workbook"]
+        report["manual_review_gates"]["review_batches"][
+            "source_license_review_workbook"
+        ]
         == "registry/review_batches/source_license_review_workbook.md"
     )
     assert (
@@ -223,6 +245,16 @@ def test_dashboard_markdown_renders_blockers():
     assert "Dashboard artifact errors: 0" in markdown
     assert "Master-plan coverage missing: 0" in markdown
     assert "Master-plan coverage blocked: 2" in markdown
+    assert "Master-plan blocked sections: Phase-1B, Compliance" in markdown
+    assert "MVP deliverables blocked: 1" in markdown
+    assert "MVP deliverable blocked sections: MVP-D2" in markdown
+    assert "MVP exit criteria blocked: 1" in markdown
+    assert "MVP exit blocked sections: MVP-E01" in markdown
+    assert "Final acceptance blocked: 2" in markdown
+    assert (
+        "Final acceptance blocked sections: FinalAcceptance-C02, FinalAcceptance-C11"
+        in markdown
+    )
     assert "Promotion next state: paper_trading" in markdown
     assert "Promotion production allowed: False" in markdown
     assert "Validation ablations accepted: True" in markdown
@@ -246,7 +278,10 @@ def test_dashboard_markdown_renders_blockers():
         "Full gold review import template: registry/review_batches/gold_set_full_import_template.jsonl"
         in markdown
     )
-    assert "Gold review workbook: registry/review_batches/gold_set_review_workbook.md" in markdown
+    assert (
+        "Gold review workbook: registry/review_batches/gold_set_review_workbook.md"
+        in markdown
+    )
     assert "Next license review batch rows: 50" in markdown
     assert (
         "Source license review workbook: registry/review_batches/source_license_review_workbook.md"
@@ -254,7 +289,10 @@ def test_dashboard_markdown_renders_blockers():
     )
     assert "Manual review promotion dry-run ready: False" in markdown
     assert "Manual review progress blockers:" in markdown
-    assert "Manual review runbook: registry/review_batches/manual_review_runbook.md" in markdown
+    assert (
+        "Manual review runbook: registry/review_batches/manual_review_runbook.md"
+        in markdown
+    )
     assert "Operator handoff ready: True" in markdown
     assert "Operator handoff blockers:" in markdown
     assert "Operator readiness accepted: True" in markdown
