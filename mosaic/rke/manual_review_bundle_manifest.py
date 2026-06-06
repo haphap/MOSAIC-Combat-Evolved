@@ -113,7 +113,18 @@ def _inspect_artifact(
             blockers.append(f"{relative_path} invalid json: {type(exc).__name__}")
     elif artifact_format == "jsonl":
         try:
-            row_count = len(load_jsonl(path))
+            rows = load_jsonl(path)
+            row_count = len(rows)
+            invalid_rows = [
+                str(index)
+                for index, row in enumerate(rows, 1)
+                if not isinstance(row, Mapping)
+            ]
+            if invalid_rows:
+                blockers.append(
+                    f"{relative_path} row must be object at row(s): "
+                    + ", ".join(invalid_rows)
+                )
         except Exception as exc:  # noqa: BLE001
             blockers.append(f"{relative_path} invalid jsonl: {type(exc).__name__}")
 
