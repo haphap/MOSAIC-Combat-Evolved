@@ -116,6 +116,41 @@ def test_write_source_license_policy_template_outputs_registry_artifact(tmp_path
     assert (tmp_path / "registry/review_batches/source_license_policy_template.json").exists()
 
 
+def test_source_license_policy_template_ignores_malformed_review_rows(tmp_path: Path):
+    _copy_registry(tmp_path)
+    review_path = tmp_path / "registry/compliance/tushare_license_review_template.jsonl"
+    review_path.write_text(
+        review_path.read_text(encoding="utf-8") + json.dumps(["not", "an", "object"]) + "\n",
+        encoding="utf-8",
+    )
+
+    template = build_source_license_policy_template(tmp_path)
+
+    assert template["matched_row_count"] == 3
+    assert template["matched_rows_fingerprint"].startswith("sha256:")
+
+
+def test_build_source_license_policy_import_rejects_malformed_review_rows(tmp_path: Path):
+    _copy_registry(tmp_path)
+    policy_path = tmp_path / "policy.json"
+    output_path = tmp_path / "policy_import.jsonl"
+    policy = _policy(tmp_path)
+    review_path = tmp_path / "registry/compliance/tushare_license_review_template.jsonl"
+    expected_row = len(review_path.read_text(encoding="utf-8").splitlines()) + 1
+    review_path.write_text(
+        review_path.read_text(encoding="utf-8") + json.dumps("not an object") + "\n",
+        encoding="utf-8",
+    )
+    _write_json(policy_path, policy)
+
+    report = build_source_license_policy_import(tmp_path, policy_path, output_path=output_path)
+
+    assert not report.accepted
+    assert report.total_review_rows == expected_row
+    assert f"source license review row must be object at row(s): {expected_row}" in report.blockers
+    assert not output_path.exists()
+
+
 def test_build_source_license_policy_import_dry_run_does_not_write_output(tmp_path: Path):
     _copy_registry(tmp_path)
     policy_path = tmp_path / "policy.json"

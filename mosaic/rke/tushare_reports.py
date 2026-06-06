@@ -434,6 +434,10 @@ def _template_has_manual_values(path: Path, fields: Sequence[str]) -> bool:
     if not path.exists():
         return False
     for row in load_jsonl(path):
+        if not isinstance(row, Mapping):
+            # Do not overwrite a malformed review template during refresh.
+            # Downstream review gates surface the row-level blocker.
+            return True
         for field in fields:
             if row.get(field) not in (None, ""):
                 return True
@@ -445,6 +449,8 @@ def _existing_discovered_at_by_hash(path: Path) -> dict[str, str]:
         return {}
     discovered: dict[str, str] = {}
     for row in load_jsonl(path):
+        if not isinstance(row, Mapping):
+            continue
         source_hash = str(row.get("source_hash") or "").strip()
         discovered_at = str(row.get("discovered_at") or "").strip()
         if source_hash and discovered_at:
