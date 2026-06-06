@@ -43,6 +43,23 @@ def test_tushare_pending_review_reports_are_sandbox_only():
     assert sandbox_sources == (row,)
 
 
+def test_malformed_source_rows_are_rejected_by_license_gate():
+    row = _first_jsonl_row(Path("registry/sources/tushare_research_reports.jsonl"))
+
+    malformed_decision = evaluate_source_license("not an object")
+    sandbox_sources, decisions = filter_sources_for_runtime((row, "not an object"), production=False)
+
+    assert malformed_decision.source_id == "<malformed-source-row>"
+    assert malformed_decision.license_status == "invalid"
+    assert not malformed_decision.allowed_for_ingest
+    assert not malformed_decision.allowed_for_sandbox
+    assert not malformed_decision.allowed_for_derived_claim_storage
+    assert not malformed_decision.allowed_for_production_runtime
+    assert malformed_decision.reasons == ("source row must be object",)
+    assert sandbox_sources == (row,)
+    assert decisions[-1] == malformed_decision
+
+
 def test_license_review_template_and_approval_gate(tmp_path: Path):
     row = _first_jsonl_row(Path("registry/sources/tushare_research_reports.jsonl"))
     template = build_source_license_review_template((row,))

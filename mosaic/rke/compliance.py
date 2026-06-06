@@ -41,10 +41,21 @@ class SourceLicensePolicy:
 
 
 def evaluate_source_license(
-    source: Mapping[str, Any],
+    source: Any,
     *,
     policy: SourceLicensePolicy = SourceLicensePolicy(),
 ) -> SourceLicenseDecision:
+    if not isinstance(source, Mapping):
+        return SourceLicenseDecision(
+            source_id="<malformed-source-row>",
+            license_status="invalid",
+            allowed_for_ingest=False,
+            allowed_for_sandbox=False,
+            allowed_for_derived_claim_storage=False,
+            allowed_for_production_runtime=False,
+            reasons=("source row must be object",),
+        )
+
     source_id = str(source.get("source_id") or "<missing-source-id>")
     license_status = str(source.get("license_status") or "pending_review")
     reasons: list[str] = []
@@ -90,7 +101,7 @@ def evaluate_source_license(
 
 
 def filter_sources_for_runtime(
-    sources: Sequence[Mapping[str, Any]],
+    sources: Sequence[Any],
     *,
     production: bool,
     policy: SourceLicensePolicy = SourceLicensePolicy(),
