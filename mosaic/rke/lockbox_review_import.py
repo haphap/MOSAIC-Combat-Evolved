@@ -138,6 +138,26 @@ def _unexpected_field_failures(row: Mapping[str, Any]) -> list[str]:
     ]
 
 
+def _string_type_failures(row: Mapping[str, Any]) -> list[str]:
+    failures: list[str] = []
+    for field in (
+        "experiment_family_id",
+        "experiment_id",
+        "opened_at",
+        "opened_by",
+        "result",
+        "notes",
+        "review_context_ref",
+        "target_review_path",
+        TARGET_ROW_HASH_FIELD,
+        LOCKBOX_REVIEW_CONTEXT_HASH_FIELD,
+    ):
+        value = row.get(field)
+        if value is not None and not isinstance(value, str):
+            failures.append(f"{field} must be string")
+    return failures
+
+
 def _row_failures(row: Mapping[str, Any], target: Mapping[str, Any]) -> list[str]:
     failures: list[str] = []
     for field in LOCKBOX_REQUIRED_FIELDS:
@@ -206,6 +226,7 @@ def apply_lockbox_review_import(
     input_row = _read_json(resolved_input)
     normalized = _normalize_lockbox_row(input_row, target)
     rejected_reasons = _row_failures(normalized, target)
+    rejected_reasons.extend(_string_type_failures(input_row))
     rejected_reasons.extend(_unexpected_field_failures(input_row))
     rejected_reasons.extend(_forbidden_field_failures(input_row))
     rejected_reasons.extend(_provenance_failures(input_row, target, policy))

@@ -136,6 +136,26 @@ def _unexpected_policy_fields(policy: Mapping[str, Any]) -> tuple[str, ...]:
     return tuple(sorted(fields))
 
 
+def _required_policy_string_failures(policy: Mapping[str, Any], field: str) -> list[str]:
+    value = policy.get(field)
+    if value is None or value == "":
+        return [f"{field} required"]
+    if not isinstance(value, str):
+        return [f"{field} must be string"]
+    if not value.strip():
+        return [f"{field} required"]
+    return []
+
+
+def _optional_policy_string_failures(policy: Mapping[str, Any], field: str) -> list[str]:
+    value = policy.get(field)
+    if value is None:
+        return []
+    if not isinstance(value, str):
+        return [f"{field} must be string"]
+    return []
+
+
 def _policy_filters(policy: Mapping[str, Any]) -> SourceLicensePolicyFilters:
     raw_filters = policy.get("filters") or {}
     if not isinstance(raw_filters, Mapping):
@@ -289,8 +309,10 @@ def build_source_license_policy_import(
 
     policy = _load_policy(resolved_policy_path)
     filters = _policy_filters(policy)
-    reviewer = str(policy.get("reviewer") or "").strip()
-    review_date = str(policy.get("review_date") or "").strip()
+    reviewer_value = policy.get("reviewer")
+    review_date_value = policy.get("review_date")
+    reviewer = reviewer_value.strip() if isinstance(reviewer_value, str) else ""
+    review_date = review_date_value.strip() if isinstance(review_date_value, str) else ""
     derived = policy.get("approved_for_derived_claim_storage")
     production = policy.get("approved_for_production_runtime")
     review_rows = load_jsonl(root_path / LICENSE_REVIEW_TEMPLATE_PATH)
@@ -303,16 +325,22 @@ def build_source_license_policy_import(
         blockers.append(f"{field} unexpected in source-license policy import")
     for field in _forbidden_policy_fields(policy):
         blockers.append(f"{field} forbidden in source-license policy import")
+    for field in ("reviewer", "review_date"):
+        blockers.extend(_required_policy_string_failures(policy, field))
+    for field in (
+        "notes",
+        "review_context_ref",
+        "target_review_path",
+        "publish_date_min",
+        "publish_date_max",
+    ):
+        blockers.extend(_optional_policy_string_failures(policy, field))
     if str(policy.get("target_review_path") or "").strip() != LICENSE_REVIEW_TEMPLATE_PATH:
         blockers.append(f"target_review_path must match {LICENSE_REVIEW_TEMPLATE_PATH}")
     if str(policy.get(MATCHED_ROWS_FINGERPRINT_FIELD) or "").strip() != matched_rows_fingerprint:
         blockers.append(f"{MATCHED_ROWS_FINGERPRINT_FIELD} does not match current matched rows")
     if policy.get("matched_row_count") != len(matched):
         blockers.append("matched_row_count does not match current matched rows")
-    if not reviewer:
-        blockers.append("reviewer required")
-    if not review_date:
-        blockers.append("review_date required")
     if not isinstance(derived, bool):
         blockers.append("approved_for_derived_claim_storage must be boolean")
     if not isinstance(production, bool):

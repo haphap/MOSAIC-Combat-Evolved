@@ -149,11 +149,29 @@ def _duplicates(ids: Sequence[str]) -> tuple[str, ...]:
 
 def _reviewer_fields_invalid(row: Mapping[str, Any]) -> list[str]:
     failures: list[str] = []
-    if not str(row.get("reviewer") or "").strip():
-        failures.append("reviewer required")
-    if not str(row.get("review_date") or "").strip():
-        failures.append("review_date required")
+    failures.extend(_required_string_field_failures(row, "reviewer"))
+    failures.extend(_required_string_field_failures(row, "review_date"))
     return failures
+
+
+def _required_string_field_failures(row: Mapping[str, Any], field: str) -> list[str]:
+    value = row.get(field)
+    if value is None or value == "":
+        return [f"{field} required"]
+    if not isinstance(value, str):
+        return [f"{field} must be string"]
+    if not value.strip():
+        return [f"{field} required"]
+    return []
+
+
+def _optional_string_field_failures(row: Mapping[str, Any], field: str) -> list[str]:
+    value = row.get(field)
+    if value is None:
+        return []
+    if not isinstance(value, str):
+        return [f"{field} must be string"]
+    return []
 
 
 def _forbidden_field_failures(row: Mapping[str, Any]) -> list[str]:
@@ -186,8 +204,8 @@ def _unexpected_field_failures(
 
 def _gold_row_failures(row: Mapping[str, Any]) -> list[str]:
     failures = _reviewer_fields_invalid(row)
-    if not str(row.get("manual_claim_text") or "").strip():
-        failures.append("manual_claim_text required")
+    failures.extend(_required_string_field_failures(row, "manual_claim_text"))
+    failures.extend(_optional_string_field_failures(row, "review_notes"))
     for field in GOLD_BOOL_FIELDS:
         if not isinstance(row.get(field), bool):
             failures.append(f"{field} must be boolean")
@@ -245,6 +263,7 @@ def _gold_reference_failures(row: Mapping[str, Any], target_row: Mapping[str, An
 
 def _license_row_failures(row: Mapping[str, Any]) -> list[str]:
     failures = _reviewer_fields_invalid(row)
+    failures.extend(_optional_string_field_failures(row, "notes"))
     for field in ("approved_for_derived_claim_storage", "approved_for_production_runtime"):
         if not isinstance(row.get(field), bool):
             failures.append(f"{field} must be boolean")

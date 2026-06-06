@@ -230,6 +230,23 @@ def test_build_source_license_policy_import_rejects_unexpected_fields(tmp_path: 
     assert not output_path.exists()
 
 
+def test_build_source_license_policy_import_rejects_non_string_review_fields(tmp_path: Path):
+    _copy_registry(tmp_path)
+    policy_path = tmp_path / "policy.json"
+    output_path = tmp_path / "policy_import.jsonl"
+    policy = _policy(tmp_path)
+    policy["reviewer"] = {"name": "not a string"}
+    policy["notes"] = ["not", "a", "string"]
+    _write_json(policy_path, policy)
+
+    report = build_source_license_policy_import(tmp_path, policy_path, output_path=output_path)
+
+    assert not report.accepted
+    assert "reviewer must be string" in report.blockers
+    assert "notes must be string" in report.blockers
+    assert not output_path.exists()
+
+
 def test_cli_build_license_review_import(tmp_path: Path, capsys):
     _copy_registry(tmp_path)
     policy_path = tmp_path / "policy.json"
