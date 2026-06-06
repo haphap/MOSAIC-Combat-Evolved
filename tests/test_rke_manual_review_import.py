@@ -295,6 +295,21 @@ def test_apply_gold_set_review_import_rejects_invalid_review_date_format(tmp_pat
     assert "review_date must be YYYY-MM-DD" in reasons
 
 
+def test_apply_gold_set_review_import_rejects_non_object_rows(tmp_path: Path):
+    _copy_registry(tmp_path)
+    import_path = tmp_path / "gold_import_with_non_object_row.jsonl"
+    _write_jsonl(import_path, [["not", "an", "object"]])
+
+    report = apply_gold_set_review_import(tmp_path, import_path)
+
+    assert not report.accepted
+    assert report.applied_rows == 0
+    assert report.rejected_rows == 1
+    assert report.invalid_rows[0].row_number == 1
+    assert report.invalid_rows[0].row_id == "<non-object-row-1>"
+    assert report.invalid_rows[0].reasons == ("review row must be object",)
+
+
 def test_apply_license_review_import_passes_c11_and_source_production_gate(tmp_path: Path):
     _copy_registry(tmp_path)
     import_path = tmp_path / "license_import.jsonl"
@@ -479,6 +494,21 @@ def test_apply_license_review_import_rejects_invalid_review_date_format(tmp_path
 
     assert not report.accepted
     assert "review_date must be YYYY-MM-DD" in reasons
+
+
+def test_apply_license_review_import_rejects_non_object_rows(tmp_path: Path):
+    _copy_registry(tmp_path)
+    import_path = tmp_path / "license_import_with_non_object_row.jsonl"
+    _write_jsonl(import_path, ["not an object"])
+
+    report = apply_source_license_review_import(tmp_path, import_path)
+
+    assert not report.accepted
+    assert report.applied_rows == 0
+    assert report.rejected_rows == 1
+    assert report.invalid_rows[0].row_number == 1
+    assert report.invalid_rows[0].row_id == "<non-object-row-1>"
+    assert report.invalid_rows[0].reasons == ("review row must be object",)
 
 
 def test_apply_license_review_import_rejects_duplicate_or_invalid_rows(tmp_path: Path):

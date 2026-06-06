@@ -83,7 +83,7 @@ def _write_json(path: Path, payload: Mapping[str, Any]) -> dict[str, Any]:
     return {"path": str(path), "rows": 1}
 
 
-def _read_json(path: Path) -> dict[str, Any]:
+def _read_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
@@ -247,17 +247,28 @@ def apply_lockbox_review_import(
     root_path = Path(root)
     resolved_input = _resolve_path(root_path, input_path)
     target_path = root_path / LOCKBOX_REVIEW_PATH
-    target = _read_json(target_path)
-    policy = _read_json(root_path / LOCKBOX_POLICY_PATH)
-    input_row = _read_json(resolved_input)
+    target_payload = _read_json(target_path)
+    policy_payload = _read_json(root_path / LOCKBOX_POLICY_PATH)
+    input_payload = _read_json(resolved_input)
+    rejected_reasons: list[str] = []
+    if not isinstance(target_payload, Mapping):
+        rejected_reasons.append("lockbox target must be object")
+    if not isinstance(policy_payload, Mapping):
+        rejected_reasons.append("lockbox policy must be object")
+    if not isinstance(input_payload, Mapping):
+        rejected_reasons.append("lockbox review import must be object")
+    target = target_payload if isinstance(target_payload, Mapping) else {}
+    policy = policy_payload if isinstance(policy_payload, Mapping) else {}
+    input_row = input_payload if isinstance(input_payload, Mapping) else {}
     normalized = _normalize_lockbox_row(input_row, target)
-    rejected_reasons = _row_failures(normalized, target)
-    rejected_reasons.extend(_target_already_opened_failures(target))
-    rejected_reasons.extend(_string_type_failures(input_row))
-    rejected_reasons.extend(_opened_at_format_failures(input_row))
-    rejected_reasons.extend(_unexpected_field_failures(input_row))
-    rejected_reasons.extend(_forbidden_field_failures(input_row))
-    rejected_reasons.extend(_provenance_failures(input_row, target, policy))
+    if isinstance(input_payload, Mapping):
+        rejected_reasons.extend(_row_failures(normalized, target))
+        rejected_reasons.extend(_target_already_opened_failures(target))
+        rejected_reasons.extend(_string_type_failures(input_row))
+        rejected_reasons.extend(_opened_at_format_failures(input_row))
+        rejected_reasons.extend(_unexpected_field_failures(input_row))
+        rejected_reasons.extend(_forbidden_field_failures(input_row))
+        rejected_reasons.extend(_provenance_failures(input_row, target, policy))
     decision = (
         evaluate_lockbox_review(LockboxReview(**normalized))
         if not rejected_reasons

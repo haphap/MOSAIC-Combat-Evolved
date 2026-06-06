@@ -327,7 +327,7 @@ def _build_report(
     input_path: Path,
     target_path: str,
     dry_run: bool,
-    input_rows: Sequence[Mapping[str, Any]],
+    input_rows: Sequence[Any],
     applied_rows: int,
     duplicate_ids: Sequence[str],
     missing_target_ids: Sequence[str],
@@ -437,11 +437,21 @@ def apply_gold_set_review_import(
         target_rows,
         (*GOLD_IMPORT_TEMPLATE_ONLY_FIELDS, *GOLD_IMPORTED_FIELDS),
     )
-    input_ids = [_row_string_id(row, "claim_id") for row in input_rows]
+    input_ids = [_row_string_id(row, "claim_id") for row in input_rows if isinstance(row, Mapping)]
     duplicate_ids = _duplicates(input_ids)
     missing_target_ids = tuple(sorted({row_id for row_id in input_ids if row_id and row_id not in target_by_id}))
     invalid_rows: list[ManualReviewImportInvalidRow] = []
-    for idx, row in enumerate(input_rows, 1):
+    for idx, raw_row in enumerate(input_rows, 1):
+        if not isinstance(raw_row, Mapping):
+            invalid_rows.append(
+                ManualReviewImportInvalidRow(
+                    row_number=idx,
+                    row_id=f"<non-object-row-{idx}>",
+                    reasons=("review row must be object",),
+                )
+            )
+            continue
+        row = raw_row
         row_id = _row_string_id(row, "claim_id")
         failures: list[str] = []
         failures.extend(_required_string_field_failures(row, "claim_id"))
@@ -462,7 +472,7 @@ def apply_gold_set_review_import(
     downstream_outputs: dict[str, str] = {}
     accepted = bool(input_rows) and not duplicate_ids and not missing_target_ids and not invalid_rows
     if accepted and not dry_run:
-        import_by_id = {str(row["claim_id"]): row for row in input_rows}
+        import_by_id = {str(row["claim_id"]): row for row in input_rows if isinstance(row, Mapping)}
         merged: list[dict[str, Any]] = []
         for row in target_rows:
             out = dict(row)
@@ -505,11 +515,21 @@ def apply_source_license_review_import(
     target_rows = load_jsonl(target_path)
     target_by_id = {str(row.get("source_id") or ""): row for row in target_rows}
     allowed_fields = _allowed_review_import_fields(target_rows, LICENSE_IMPORTED_FIELDS)
-    input_ids = [_row_string_id(row, "source_id") for row in input_rows]
+    input_ids = [_row_string_id(row, "source_id") for row in input_rows if isinstance(row, Mapping)]
     duplicate_ids = _duplicates(input_ids)
     missing_target_ids = tuple(sorted({row_id for row_id in input_ids if row_id and row_id not in target_by_id}))
     invalid_rows: list[ManualReviewImportInvalidRow] = []
-    for idx, row in enumerate(input_rows, 1):
+    for idx, raw_row in enumerate(input_rows, 1):
+        if not isinstance(raw_row, Mapping):
+            invalid_rows.append(
+                ManualReviewImportInvalidRow(
+                    row_number=idx,
+                    row_id=f"<non-object-row-{idx}>",
+                    reasons=("review row must be object",),
+                )
+            )
+            continue
+        row = raw_row
         row_id = _row_string_id(row, "source_id")
         failures: list[str] = []
         failures.extend(_required_string_field_failures(row, "source_id"))
@@ -530,7 +550,7 @@ def apply_source_license_review_import(
     downstream_outputs: dict[str, str] = {}
     accepted = bool(input_rows) and not duplicate_ids and not missing_target_ids and not invalid_rows
     if accepted and not dry_run:
-        import_by_id = {str(row["source_id"]): row for row in input_rows}
+        import_by_id = {str(row["source_id"]): row for row in input_rows if isinstance(row, Mapping)}
         merged: list[dict[str, Any]] = []
         for row in target_rows:
             out = dict(row)

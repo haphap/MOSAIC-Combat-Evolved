@@ -156,6 +156,20 @@ def test_apply_lockbox_review_import_rejects_missing_experiment_identity(tmp_pat
     assert "experiment_id required" in report.rejected_reasons
 
 
+def test_apply_lockbox_review_import_rejects_non_object_input(tmp_path: Path):
+    _copy_registry(tmp_path)
+    import_path = tmp_path / "lockbox_review_array.json"
+    import_path.write_text(json.dumps(["not", "an", "object"]), encoding="utf-8")
+
+    report = apply_lockbox_review_import(tmp_path, import_path)
+
+    assert not report.accepted
+    assert not report.applied
+    assert report.result == ""
+    assert report.rejected_reasons == ("lockbox review import must be object",)
+    assert (tmp_path / "registry/lockbox/central_bank_lockbox_review_import_report.json").exists()
+
+
 def test_lockbox_review_import_allows_production_after_manual_gates(tmp_path: Path):
     _copy_registry(tmp_path)
     gold_import = tmp_path / "gold_import.jsonl"
