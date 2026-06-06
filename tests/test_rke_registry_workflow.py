@@ -10,6 +10,7 @@ from mosaic.rke import (
     build_registry_manifest,
     run_full_rke_refresh,
     validate_required_registry,
+    validate_required_registry_content,
     write_registry_manifest,
 )
 
@@ -20,9 +21,11 @@ def _copy_registry(src_root: Path, dst_root: Path) -> None:
 
 def test_required_registry_files_are_present_in_repo():
     missing, empty = validate_required_registry(".")
+    invalid = validate_required_registry_content(".")
 
     assert missing == ()
     assert empty == ()
+    assert invalid == ()
 
 
 def test_registry_manifest_tracks_hashes_and_required_artifacts(tmp_path: Path):
@@ -35,7 +38,35 @@ def test_registry_manifest_tracks_hashes_and_required_artifacts(tmp_path: Path):
     assert manifest["manifest_id"] == "RKE-REGISTRY-MANIFEST-20260606"
     assert manifest["artifact_count"] >= 30
     assert manifest["missing_required"] == []
+    assert manifest["empty_required"] == []
+    assert manifest["invalid_required"] == []
     assert all(item["sha256"].startswith("sha256:") for item in manifest["artifacts"])
+
+
+def test_registry_manifest_reports_malformed_required_json(tmp_path: Path):
+    _copy_registry(Path("."), tmp_path)
+    target = tmp_path / "registry/audits/rke_completion_audit.json"
+    target.write_text("{", encoding="utf-8")
+
+    manifest = build_registry_manifest(tmp_path)
+
+    assert not manifest.valid
+    assert manifest.missing_required == ()
+    assert manifest.empty_required == ()
+    assert len(manifest.invalid_required) == 1
+    assert "registry/audits/rke_completion_audit.json must contain valid JSON" in manifest.invalid_required[0]
+
+
+def test_registry_manifest_reports_malformed_required_jsonl(tmp_path: Path):
+    _copy_registry(Path("."), tmp_path)
+    target = tmp_path / "registry/claims/central_bank_claims.jsonl"
+    expected_row = len(target.read_text(encoding="utf-8").splitlines()) + 1
+    target.write_text(target.read_text(encoding="utf-8") + "{\n", encoding="utf-8")
+
+    invalid = validate_required_registry_content(tmp_path)
+
+    assert len(invalid) == 1
+    assert f"registry/claims/central_bank_claims.jsonl row {expected_row} must contain valid JSON" in invalid[0]
 
 
 def test_full_refresh_preserves_existing_review_templates(tmp_path: Path):

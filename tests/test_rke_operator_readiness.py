@@ -53,6 +53,20 @@ def test_operator_readiness_accepts_current_review_bundle():
     assert checks["source_text_redaction_clean"].passed
 
 
+def test_operator_readiness_reports_malformed_required_registry_artifact(tmp_path: Path):
+    _copy_registry(tmp_path)
+    required_jsonl = tmp_path / "registry/claims/semiconductor_claims.jsonl"
+    required_jsonl.write_text("{\n", encoding="utf-8")
+
+    report = build_operator_readiness_report(tmp_path)
+    required = next(check for check in report.checks if check.check_id == "required_registry_valid")
+
+    assert not report.accepted
+    assert not required.passed
+    assert "invalid=1" in required.evidence
+    assert "registry/claims/semiconductor_claims.jsonl row 1 must contain valid JSON" in required.blocker
+
+
 def test_operator_readiness_detects_long_source_text_in_import_template(tmp_path: Path):
     _copy_registry(tmp_path)
     gold_import = tmp_path / "registry/review_batches/gold_set_next_import_template.jsonl"

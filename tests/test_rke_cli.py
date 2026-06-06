@@ -28,6 +28,8 @@ def test_rke_cli_validate_required_success(capsys):
     assert code == 0
     assert output["valid"] is True
     assert output["missing_required"] == []
+    assert output["empty_required"] == []
+    assert output["invalid_required"] == []
 
 
 def test_rke_cli_validate_required_failure(tmp_path: Path, capsys):
@@ -37,6 +39,22 @@ def test_rke_cli_validate_required_failure(tmp_path: Path, capsys):
     assert code == 2
     assert output["valid"] is False
     assert "registry/audits/rke_completion_audit.json" in output["missing_required"]
+    assert output["invalid_required"] == []
+
+
+def test_rke_cli_validate_required_rejects_invalid_json(tmp_path: Path, capsys):
+    _copy_registry(tmp_path)
+    target = tmp_path / "registry/audits/rke_completion_audit.json"
+    target.write_text("{", encoding="utf-8")
+
+    code = main(("validate-required", "--root", str(tmp_path)))
+    output = json.loads(capsys.readouterr().out)
+
+    assert code == 2
+    assert output["valid"] is False
+    assert output["missing_required"] == []
+    assert len(output["invalid_required"]) == 1
+    assert "registry/audits/rke_completion_audit.json must contain valid JSON" in output["invalid_required"][0]
 
 
 def test_rke_cli_manifest_writes_file(tmp_path: Path, capsys):

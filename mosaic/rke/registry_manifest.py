@@ -105,10 +105,11 @@ class RegistryManifest:
     artifacts: Sequence[RegistryArtifact]
     missing_required: Sequence[str]
     empty_required: Sequence[str]
+    invalid_required: Sequence[str]
 
     @property
     def valid(self) -> bool:
-        return not self.missing_required and not self.empty_required
+        return not self.missing_required and not self.empty_required and not self.invalid_required
 
 
 def file_sha256(path: Path) -> str:
@@ -128,6 +129,46 @@ def validate_required_registry(root: str | Path = ".") -> tuple[tuple[str, ...],
     return tuple(missing), tuple(empty)
 
 
+def validate_required_registry_content(root: str | Path = ".") -> tuple[str, ...]:
+    root_path = Path(root)
+    invalid: list[str] = []
+    for relative in REQUIRED_REGISTRY_FILES:
+        path = root_path / relative
+        if not path.exists() or path.stat().st_size <= 0:
+            continue
+        if relative.endswith(".json"):
+            _validate_json_object(path, relative, invalid)
+        elif relative.endswith(".jsonl"):
+            _validate_jsonl_objects(path, relative, invalid)
+    return tuple(invalid)
+
+
+def _validate_json_object(path: Path, relative: str, invalid: list[str]) -> None:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        invalid.append(f"{relative} must contain valid JSON: {exc.msg}")
+        return
+    if not isinstance(payload, dict):
+        invalid.append(f"{relative} must be object")
+
+
+def _validate_jsonl_objects(path: Path, relative: str, invalid: list[str]) -> None:
+    with path.open("r", encoding="utf-8") as handle:
+        for index, line in enumerate(handle, 1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError as exc:
+                invalid.append(f"{relative} row {index} must contain valid JSON: {exc.msg}")
+                return
+            if not isinstance(payload, dict):
+                invalid.append(f"{relative} row {index} must be object")
+                return
+
+
 def build_registry_manifest(root: str | Path = ".") -> RegistryManifest:
     root_path = Path(root)
     artifacts: list[RegistryArtifact] = []
@@ -145,12 +186,14 @@ def build_registry_manifest(root: str | Path = ".") -> RegistryManifest:
             )
         )
     missing, empty = validate_required_registry(root_path)
+    invalid = validate_required_registry_content(root_path)
     return RegistryManifest(
         manifest_id="RKE-REGISTRY-MANIFEST-20260606",
         artifact_count=len(artifacts),
         artifacts=tuple(artifacts),
         missing_required=missing,
         empty_required=empty,
+        invalid_required=invalid,
     )
 
 

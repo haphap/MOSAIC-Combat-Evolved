@@ -61,6 +61,7 @@ from .promotion_dry_run import build_promotion_dry_run_report, write_promotion_d
 from .registry_manifest import (
     build_registry_manifest,
     validate_required_registry,
+    validate_required_registry_content,
     write_registry_manifest,
 )
 from .review_gates import (
@@ -655,16 +656,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0 if result.manifest_valid else 2
     if args.command == "validate-required":
         missing, empty = validate_required_registry(root)
+        invalid = validate_required_registry_content(root)
         manifest = build_registry_manifest(root) if not missing and not empty else None
+        valid = not missing and not empty and not invalid
         _print_json(
             {
-                "valid": not missing and not empty,
+                "valid": valid,
                 "missing_required": missing,
                 "empty_required": empty,
+                "invalid_required": invalid,
                 "artifact_count": manifest.artifact_count if manifest else None,
             }
         )
-        return 0 if not missing and not empty else 2
+        return 0 if valid else 2
     raise AssertionError(f"unhandled command: {args.command}")
 
 

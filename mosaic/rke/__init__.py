@@ -310,6 +310,7 @@ from .registry_manifest import (
     build_registry_manifest,
     file_sha256,
     validate_required_registry,
+    validate_required_registry_content,
     write_registry_manifest,
 )
 from .review_gates import (
@@ -627,6 +628,7 @@ __all__ = [
     "build_registry_manifest",
     "file_sha256",
     "validate_required_registry",
+    "validate_required_registry_content",
     "write_registry_manifest",
     "GoldSetReviewSummary",
     "SourceLicenseReviewSummary",

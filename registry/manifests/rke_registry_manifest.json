@@ -27,9 +27,9 @@
       "sha256": "sha256:fc017740e67fd262c429ed043cc85a1c9ee3247cdd4b43c9062e8c968e2ffb40"
     },
     {
-      "bytes": 752,
+      "bytes": 792,
       "path": "registry/claim_checks/claim_variable_validation_report.json",
-      "sha256": "sha256:a0898855080c9e0d7c5837a645dc2d50ed6bb44d831744dc616f86aa7d124866"
+      "sha256": "sha256:9cdd07862da92fe53009bff86efdadd320bfc226f92904a2cd5fa74ef78923b4"
     },
     {
       "bytes": 508,
@@ -67,14 +67,14 @@
       "sha256": "sha256:b07a0175603d46122f147d6b2e9de7ff96df4b3dacbee21f631f20c2a7118603"
     },
     {
-      "bytes": 7588,
+      "bytes": 7613,
       "path": "registry/dashboards/rke_dashboard.json",
-      "sha256": "sha256:2a18dcf286dc523701db246d16b6aa307ad3b7cfb83faaadca785492786604d4"
+      "sha256": "sha256:585c59948e065df0b10eec722c774085cc37df9ea9e76ece78f70a1140439b31"
     },
     {
-      "bytes": 1863,
+      "bytes": 1894,
       "path": "registry/dashboards/rke_dashboard.md",
-      "sha256": "sha256:f168d4689432234cb489d63995bdf80f78d3a38b3c5e5f5888d2c87c23fb875e"
+      "sha256": "sha256:011cddda6017532f4692d5c7f5d70008ac564f13573bcb1fc68904dcceab749e"
     },
     {
       "bytes": 1233,
@@ -182,19 +182,19 @@
       "sha256": "sha256:06bc1225f9bf48e1e1284ca5d78f2048b4a620034df65f2225ea53757b6144d1"
     },
     {
-      "bytes": 5772,
+      "bytes": 5790,
       "path": "registry/handoffs/rke_operator_handoff.json",
-      "sha256": "sha256:129f820e4716dad70b8d61eebffbee060c394ea3b51382bd9cf04fbe27af0699"
+      "sha256": "sha256:8c21d7ee79ee6e63f155d2a0aa83f3281177133a81a96064dc810c910e4c39ea"
     },
     {
-      "bytes": 3604,
+      "bytes": 3622,
       "path": "registry/handoffs/rke_operator_handoff.md",
-      "sha256": "sha256:a1812e59fca001e28dbc2a2bac12a54d5f680a7f6837ba16fdad4d7335b69a36"
+      "sha256": "sha256:d1287de30f13d6b4f05604daf265d8778c1571a2fd0ab29d9c688ac31f6367e5"
     },
     {
-      "bytes": 3756,
+      "bytes": 3767,
       "path": "registry/handoffs/rke_operator_readiness_report.json",
-      "sha256": "sha256:d89d3effb7516f88e6011539d378356f56b1326416a17e8ebe96e59f73152171"
+      "sha256": "sha256:e0f4a550084b746dc2ab5029ba2fe87867fcf8636d68f01ea03fcbdb9364334e"
     },
     {
       "bytes": 383,
@@ -252,9 +252,9 @@
       "sha256": "sha256:b3400460aedc8a5112347e32ab9e96aa0c0d7f26cfbce7a8954aa8d24b026e56"
     },
     {
-      "bytes": 3755,
+      "bytes": 3773,
       "path": "registry/promotion/rke_production_promotion_gate.json",
-      "sha256": "sha256:1594a61f6dedcda0df60ebc650ef45bb3a079018f0d1f3bfad679285aff5e0be"
+      "sha256": "sha256:f23619c9cef954c6e4eed7b1c151a40b4859a803f10672e39205fc78f5b9ac35"
     },
     {
       "bytes": 2055,
@@ -304,7 +304,7 @@
     {
       "bytes": 5205,
       "path": "registry/review_batches/manual_review_bundle_manifest.json",
-      "sha256": "sha256:6302d62a46a6765a64d8c1fae5ecfba51b1076207191df77a46833507eebe886"
+      "sha256": "sha256:8fdec96d219614ca14c8af4c2c53fa92be19440d988df76ae5f1250e48540ed9"
     },
     {
       "bytes": 33256,
@@ -393,6 +393,7 @@
     }
   ],
   "empty_required": [],
+  "invalid_required": [],
   "manifest_id": "RKE-REGISTRY-MANIFEST-20260606",
   "missing_required": []
 }

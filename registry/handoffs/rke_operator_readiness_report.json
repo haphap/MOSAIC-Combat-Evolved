@@ -5,7 +5,7 @@
     {
       "blocker": "",
       "check_id": "required_registry_valid",
-      "evidence": "missing=0, empty=0",
+      "evidence": "missing=0, empty=0, invalid=0",
       "passed": true
     },
     {

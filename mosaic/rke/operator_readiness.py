@@ -48,7 +48,7 @@ from .operator_handoff import (
 from .phase_minus1 import load_jsonl
 from .promotion_dry_run import PROMOTION_DRY_RUN_REPORT_PATH, write_promotion_dry_run_report
 from .promotion_gate import build_production_promotion_gate_report
-from .registry_manifest import validate_required_registry
+from .registry_manifest import validate_required_registry, validate_required_registry_content
 
 
 OPERATOR_READINESS_REPORT_PATH = "registry/handoffs/rke_operator_readiness_report.json"
@@ -239,6 +239,7 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
     checks: list[OperatorReadinessCheck] = []
 
     missing, empty = validate_required_registry(root_path)
+    invalid = validate_required_registry_content(root_path)
     self_generated_paths = {
         OPERATOR_READINESS_REPORT_PATH,
         GOLD_REVIEW_IMPORT_REPORT_PATH,
@@ -252,9 +253,9 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
     checks.append(
         _check(
             "required_registry_valid",
-            not missing and not empty,
-            f"missing={len(missing)}, empty={len(empty)}",
-            "required registry artifacts are missing or empty",
+            not missing and not empty and not invalid,
+            f"missing={len(missing)}, empty={len(empty)}, invalid={len(invalid)}",
+            "; ".join((*missing, *empty, *invalid)) or "required registry artifacts are missing, empty, or malformed",
         )
     )
 
