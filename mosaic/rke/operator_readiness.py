@@ -265,6 +265,87 @@ def _manual_review_templates_have_provenance(root_path: Path) -> tuple[bool, str
     return True, "manual import templates include target paths and fingerprints", ""
 
 
+def _handoff_command_sequence_complete(handoff: Any) -> tuple[bool, str, str]:
+    expected_steps = (
+        "review-progress-preflight",
+        "prepare-gold-review",
+        "fill-gold-review",
+        "dry-run-gold-review",
+        "apply-gold-review",
+        "prepare-source-license-review",
+        "fill-source-license-policy",
+        "dry-run-source-license-review",
+        "apply-source-license-review",
+        "promotion-status-before-lockbox",
+        "prepare-lockbox-review",
+        "fill-lockbox-review",
+        "dry-run-lockbox-review",
+        "promotion-dry-run",
+        "apply-lockbox-review",
+        "promotion-status-final",
+    )
+    sequence = tuple(getattr(handoff, "command_sequence", ()) or ())
+    step_ids = tuple(str(getattr(step, "step_id", "") or "") for step in sequence)
+    run_order = tuple(str(item) for item in getattr(handoff, "run_order", ()) or ())
+    by_id = {str(getattr(step, "step_id", "") or ""): step for step in sequence}
+    failures: list[str] = []
+    if step_ids != expected_steps:
+        failures.append("command_sequence step order is incomplete or out of order")
+    if run_order != step_ids:
+        failures.append("run_order must mirror command_sequence step_id order")
+
+    fill_expectations = {
+        "fill-gold-review": "registry/review_batches/gold_set_full_reviewed.jsonl",
+        "fill-source-license-policy": "registry/review_batches/source_license_policy_reviewed.json",
+        "fill-lockbox-review": "registry/review_batches/lockbox_reviewed.json",
+    }
+    for step_id, expected_input in fill_expectations.items():
+        step = by_id.get(step_id)
+        if step is None:
+            failures.append(f"{step_id} missing")
+            continue
+        if str(getattr(step, "command", "") or ""):
+            failures.append(f"{step_id} must be a manual step without command")
+        if str(getattr(step, "manual_input_path", "") or "") != expected_input:
+            failures.append(f"{step_id} manual input path mismatch")
+
+    source_apply = by_id.get("apply-source-license-review")
+    source_apply_command = str(getattr(source_apply, "command", "") or "")
+    if (
+        "build-license-review-import" not in source_apply_command
+        or "source_license_policy_reviewed.json" not in source_apply_command
+        or "apply-license-review" not in source_apply_command
+    ):
+        failures.append("source-license apply step must build the import before applying it")
+
+    promotion_dry_run = by_id.get("promotion-dry-run")
+    promotion_dry_run_command = str(getattr(promotion_dry_run, "command", "") or "")
+    if (
+        "promotion-dry-run" not in promotion_dry_run_command
+        or "gold_set_full_reviewed.jsonl" not in promotion_dry_run_command
+        or "source_license_policy_import.jsonl" not in promotion_dry_run_command
+        or "lockbox_reviewed.json" not in promotion_dry_run_command
+    ):
+        failures.append("promotion dry-run must use all three reviewed inputs")
+
+    expected_before_promotion = (
+        "dry-run-gold-review",
+        "dry-run-source-license-review",
+        "dry-run-lockbox-review",
+    )
+    if step_ids == expected_steps:
+        promotion_index = step_ids.index("promotion-dry-run")
+        for step_id in expected_before_promotion:
+            if step_ids.index(step_id) > promotion_index:
+                failures.append(f"{step_id} must run before promotion-dry-run")
+
+    evidence = (
+        f"steps={len(step_ids)}, first={step_ids[0] if step_ids else 'none'}, "
+        f"last={step_ids[-1] if step_ids else 'none'}"
+    )
+    return not failures, evidence, "; ".join(failures)
+
+
 def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadinessReport:
     root_path = Path(root)
     write_source_license_review_workbook(root_path)
@@ -304,6 +385,15 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
             and not handoff.production_allowed,
             f"gates={sorted(gate_kinds)}, next_state={handoff.next_state}",
             "operator handoff does not expose all manual gates safely",
+        )
+    )
+    sequence_ok, sequence_evidence, sequence_blocker = _handoff_command_sequence_complete(handoff)
+    checks.append(
+        _check(
+            "handoff_command_sequence_complete",
+            sequence_ok,
+            sequence_evidence,
+            sequence_blocker or "operator handoff command sequence is incomplete or unsafe",
         )
     )
 

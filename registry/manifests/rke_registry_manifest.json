@@ -69,7 +69,7 @@
     {
       "bytes": 8409,
       "path": "registry/dashboards/rke_dashboard.json",
-      "sha256": "sha256:ad4068c1a4be41236b45bfe0ca27dd60d04ab86b3002e7ee67764ff737fc45e9"
+      "sha256": "sha256:b8a92b14ca2f9f7217307560598974ca8172dbecd75fb5e33bdc6ec0a2877d52"
     },
     {
       "bytes": 2220,
@@ -192,9 +192,9 @@
       "sha256": "sha256:1847dfc99c1f441e162ae4c65458768d632caf331c4e552b85d36868fec6f833"
     },
     {
-      "bytes": 4037,
+      "bytes": 4239,
       "path": "registry/handoffs/rke_operator_readiness_report.json",
-      "sha256": "sha256:5d43b9832d065e31c94ac7cd83abc66098ec7dd1695408dc7d609e8663c6f26c"
+      "sha256": "sha256:ec23ce663c4373484a501f9828a99eb2c094a49d4394e7c376f0c84d84645fb8"
     },
     {
       "bytes": 383,

@@ -153,7 +153,7 @@
   },
   "operator_readiness": {
     "accepted": true,
-    "check_count": 14,
+    "check_count": 15,
     "failure_count": 0
   },
   "paper_trading": {

@@ -34,7 +34,7 @@ def test_operator_readiness_accepts_current_review_bundle():
 
     assert report.accepted
     assert report.failure_count == 0
-    assert report.check_count == 14
+    assert report.check_count == 15
     assert "registry/promotion/rke_promotion_dry_run_report.json" in report.generated_paths
     assert "registry/review_batches/gold_set_review_workbook.md" in report.generated_paths
     assert "registry/review_batches/source_license_review_workbook.md" in report.generated_paths
@@ -43,6 +43,8 @@ def test_operator_readiness_accepts_current_review_bundle():
     assert "registry/review_batches/manual_review_bundle_manifest.json" in report.generated_paths
     assert checks["required_registry_valid"].passed
     assert checks["handoff_ready_for_operator"].passed
+    assert checks["handoff_command_sequence_complete"].passed
+    assert "steps=16" in checks["handoff_command_sequence_complete"].evidence
     assert checks["manual_batch_templates_match_status"].passed
     assert checks["manual_import_templates_are_sparse"].passed
     assert checks["manual_import_templates_have_provenance"].passed
