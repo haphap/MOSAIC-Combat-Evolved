@@ -108,7 +108,10 @@ mosaic-rke apply-lockbox-review \
 `mosaic-rke review-progress --root .` writes
 `registry/review_batches/manual_review_runbook.md`, which records the current
 gold-set, source-license, and lockbox gate status plus the exact dry-run and
-apply commands. It is read-only and does not open or apply the lockbox review.
+apply commands. It also records the lockbox acceptance rule: one final holdout
+open, a signed passed result, no post-open parameter or rule search, and matching
+target/context hashes. It is read-only and does not open or apply the lockbox
+review.
 
 The import validates experiment identity, open count, reviewer fields, result,
 and post-open search flags. It can record a failed lockbox review, but production

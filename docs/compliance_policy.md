@@ -124,8 +124,10 @@ writes `registry/review_batches/manual_review_progress_report.json` and
 `registry/review_batches/manual_review_runbook.md`. The JSON report shows
 whether the policy expands cleanly and how many source-license rows would become
 complete. The Markdown runbook shows the prepare, dry-run, apply, and promotion
-dry-run commands for all remaining manual gates. Neither artifact applies
-approvals.
+dry-run commands for all remaining manual gates. It also records the reviewed
+policy's required fields, matched-row fingerprint constraints, date/filter-scope
+alignment, and the production requirement that every current source be approved
+for runtime retrieval. Neither artifact applies approvals.
 
 ## Allowed Uses
 

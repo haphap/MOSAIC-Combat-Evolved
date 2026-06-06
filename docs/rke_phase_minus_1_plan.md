@@ -120,7 +120,9 @@ status evidence: it records whether each reviewed scratch file exists, how many
 rows are complete, and whether the simulated import is promotion-ready. The
 Markdown runbook is the operator checklist for prepare, dry-run, apply, and
 promotion dry-run commands across gold-set, source-license, and lockbox gates.
-Neither artifact applies reviewer decisions.
+It includes the required review fields, row hash / fingerprint checks, gold-set
+quality thresholds, source-license production approval requirement, and lockbox
+one-open acceptance rule. Neither artifact applies reviewer decisions.
 
 Import source license approvals:
 
@@ -164,7 +166,8 @@ The same handoff also writes
 `registry/review_batches/manual_review_runbook.md`. Use the workbook to inspect
 the policy scope, matched row fingerprint, date bounds, source-type/status
 counts, and short title previews. Use the runbook for command order and current
-blockers. Do not edit or import the workbook; the reviewed JSON policy is the
+blockers, plus the policy fields and matched-row fingerprint checks required for
+acceptance. Do not edit or import the workbook; the reviewed JSON policy is the
 only source-license decision input.
 
 ```bash

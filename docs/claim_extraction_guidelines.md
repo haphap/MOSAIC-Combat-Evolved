@@ -110,7 +110,10 @@ Run `mosaic-rke review-progress --root .` after editing reviewer scratch files.
 It writes `registry/review_batches/manual_review_progress_report.json` and
 `registry/review_batches/manual_review_runbook.md`. The runbook is the
 operator-facing command checklist for the gold-set, source-license, and lockbox
-review sequence.
+review sequence. It also records the gold-set acceptance criteria: required
+review fields, row hash preservation, 50-document / 500-claim coverage, and the
+precision, accuracy, and false-grounding thresholds enforced by
+`ClaimExtractionGoldSet.gate_failures()`.
 
 The import is accepted only when the whole batch passes:
 

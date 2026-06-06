@@ -69,7 +69,7 @@
     {
       "bytes": 8001,
       "path": "registry/dashboards/rke_dashboard.json",
-      "sha256": "sha256:703af99b1b49b3317ab08d0915e56b0815e8f8b53caeab9405fd55cf7385ceca"
+      "sha256": "sha256:3825dbcef6666b96728191a876406d94ec49ea725554d2e5f35542675a7f5859"
     },
     {
       "bytes": 2220,
@@ -99,7 +99,7 @@
     {
       "bytes": 914,
       "path": "registry/docs/rke_policy_doc_validation_report.json",
-      "sha256": "sha256:73dd6c9a7e3347ee922521b77c962d1e141aa877382a3f103ac20889e79e98b5"
+      "sha256": "sha256:70b5e2f8ef0b5b5a19b25ff6e691dbd3a1c71113defbe205b88e351e06779c89"
     },
     {
       "bytes": 604,
@@ -309,7 +309,7 @@
     {
       "bytes": 6907,
       "path": "registry/review_batches/manual_review_bundle_manifest.json",
-      "sha256": "sha256:268e2819eb7e78050ac3de46efab3732902384811075af75607a14925132d3f1"
+      "sha256": "sha256:92d98313669f86966b6689e03b88a22de51b9411f8d09b1efad9fc0351f9ca4c"
     },
     {
       "bytes": 3445,
@@ -317,9 +317,9 @@
       "sha256": "sha256:e9d49f5fd2a88d381acf0e0e7a8f7d5817fcf27d6ebe0d1b51136c3cf88e8b8a"
     },
     {
-      "bytes": 4549,
+      "bytes": 6539,
       "path": "registry/review_batches/manual_review_runbook.md",
-      "sha256": "sha256:987909e78af60c515bc8cc332a0097287ffb3b05a1aae11ba9bab5bea6c9ace8"
+      "sha256": "sha256:966b5a489772ac291c2651a63c1777b98ad572da8adb278afc2531a6d116e0e5"
     },
     {
       "bytes": 33256,

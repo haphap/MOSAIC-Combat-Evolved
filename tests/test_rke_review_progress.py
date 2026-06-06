@@ -144,6 +144,18 @@ def test_manual_review_runbook_renders_operator_checklist_without_source_text(tm
     assert "registry/review_batches/lockbox_reviewed.json" in markdown
     assert "registry/review_batches/gold_set_review_workbook.md" in markdown
     assert "registry/review_batches/source_license_review_workbook.md" in markdown
+    assert "## Gate Acceptance Criteria" in markdown
+    assert "manual_claim_text" in markdown
+    assert "claim precision >= 0.85" in markdown
+    assert "span-support precision >= 0.90" in markdown
+    assert "direction accuracy >= 0.85" in markdown
+    assert "variable mapping accuracy >= 0.80" in markdown
+    assert "unsupported-field false grounding <= 0.05" in markdown
+    assert "approved_for_production_runtime=true" in markdown
+    assert "matched_rows_fingerprint" in markdown
+    assert "result=passed" in markdown
+    assert "open_count<=1" in markdown
+    assert "matching target/context hashes" in markdown
     assert "promotion-dry-run" in markdown
     assert "Do not commit" in markdown
     assert "abstract" not in markdown.lower()

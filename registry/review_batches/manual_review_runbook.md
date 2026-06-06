@@ -1,7 +1,7 @@
 # RKE Manual Review Runbook
 
 This artifact is a read-only operator checklist for the remaining manual RKE gates.
-It records paths, commands, row counts, and current blockers only.
+It records paths, commands, row counts, acceptance criteria, and current blockers only.
 
 ## Current Progress
 
@@ -36,6 +36,21 @@ Reviewed scratch files are operator-local decision files. Do not commit them unl
 - Lockbox policy packet: `registry/evaluation/lockbox/lockbox_policy.json`
 
 These checklist files are not import files. Use them to inspect IDs, hashes, counts, and short previews only.
+
+## Gate Acceptance Criteria
+
+Gold-set review is accepted only when all current 500 claim rows are completed and the dry run accepts the import.
+Each gold-set row must keep the template IDs and hashes intact and must fill `manual_claim_text`, `reviewer`, `review_date`, `claim_correct`, `source_span_supports_claim`, `direction_correct`, `variable_mapping_correct`, and `unsupported_field_false_grounded`.
+The resulting gold-set summary must satisfy the code-defined gate: at least 50 documents, at least 500 claims, claim precision >= 0.85, span-support precision >= 0.90, direction accuracy >= 0.85, variable mapping accuracy >= 0.80, and unsupported-field false grounding <= 0.05.
+
+Source-license review is accepted only when the reviewed policy expands to all current source rows and both the build step and license import dry run accept it.
+The reviewed policy must fill `reviewer`, `review_date`, `approved_for_derived_claim_storage`, and `approved_for_production_runtime`; production promotion requires `approved_for_production_runtime=true` for every matched current source.
+The policy must keep `target_review_path`, `review_context_ref`, `matched_row_count`, `matched_rows_fingerprint`, publish-date bounds, and filter scope aligned with the current template; rerun prepare if the source scope changes.
+
+Lockbox review is accepted only after the final holdout is opened once, the import dry run accepts the signed row, and the lockbox decision allows production.
+The lockbox row must fill `opened_at`, `opened_by`, `open_count`, `result`, `parameter_search_after_open`, and `rule_design_after_open`; production requires `result=passed`, `open_count<=1`, no parameter search after open, no rule design after open, and matching target/context hashes.
+
+A promotion dry run is ready only when all three gates above report ready for promotion. Missing scratch files, incomplete rows, failed dry runs, or failed quality thresholds keep the system in paper trading.
 
 ## Import Templates
 
