@@ -30,13 +30,13 @@
       "sha256": "sha256:0a34545e100bba9d7105c90201d27f794deb5ee44bfcc14da154fd2e79808c8b"
     },
     {
-      "bytes": 186408,
+      "bytes": 186426,
       "exists": true,
       "format": "json",
       "path": "registry/gold_sets/tushare_research_reports.review_packet.json",
       "role": "gold_review_packet_json",
       "row_count": null,
-      "sha256": "sha256:35313eb69f3569176022e2651b6aed9c7a0720bf8ef355e50b658ba05c72e1bc"
+      "sha256": "sha256:c3ec34300580a43d47a424218b7effacd3fd06e5234454a62c32d1b94d3c2257"
     },
     {
       "bytes": 17852,
@@ -75,13 +75,13 @@
       "sha256": "sha256:1695a413b9ed694f22289f5fefba03ec5ad84617b937d27b4b2e6af510eca9a1"
     },
     {
-      "bytes": 7499705,
+      "bytes": 7499723,
       "exists": true,
       "format": "json",
       "path": "registry/compliance/tushare_license_review_packet.json",
       "role": "license_review_packet_json",
       "row_count": null,
-      "sha256": "sha256:639cb424650cce12025645f13d1b17a3eeac4e2d400b07703649928f6f5515c8"
+      "sha256": "sha256:d167f8e16e7fb9bd029a27451b589d3bcaba26d62f4f0aaf71c337c5749431e3"
     },
     {
       "bytes": 2649703,

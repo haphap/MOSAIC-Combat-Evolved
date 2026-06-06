@@ -16,6 +16,10 @@ def _license_review_source_count(root: Path) -> int:
     return sum(1 for line in path.read_text(encoding="utf-8").splitlines() if line.strip())
 
 
+def _jsonl_count(path: Path) -> int:
+    return sum(1 for line in path.read_text(encoding="utf-8").splitlines() if line.strip())
+
+
 def test_license_review_packet_summarizes_current_manual_queue():
     packet = build_license_review_packet(".")
     source_count = _license_review_source_count(Path("."))
@@ -33,6 +37,34 @@ def test_license_review_packet_summarizes_current_manual_queue():
     assert packet.policy_reason_counts[
         "pending_review source is sandbox-only until compliance approval"
     ] == source_count
+
+
+def test_license_review_packet_reports_malformed_source_and_review_rows(tmp_path: Path):
+    shutil.copytree(Path("registry"), tmp_path / "registry")
+    source_path = tmp_path / "registry/sources/tushare_research_reports.jsonl"
+    review_path = tmp_path / "registry/compliance/tushare_license_review_template.jsonl"
+    source_count = _jsonl_count(source_path)
+    review_count = _jsonl_count(review_path)
+    source_path.write_text(
+        source_path.read_text(encoding="utf-8") + json.dumps("not an object") + "\n",
+        encoding="utf-8",
+    )
+    review_path.write_text(
+        review_path.read_text(encoding="utf-8") + json.dumps(["not", "an", "object"]) + "\n",
+        encoding="utf-8",
+    )
+
+    packet = build_license_review_packet(tmp_path)
+    paths = write_license_review_packet(tmp_path)
+    payload = json.loads(Path(paths["json"]).read_text(encoding="utf-8"))
+
+    assert packet.status == "manual_review_blocked"
+    assert packet.source_count == source_count + 1
+    assert packet.review_row_count == review_count + 1
+    assert packet.pending_sources == source_count
+    assert f"source registry row must be object at row(s): {source_count + 1}" in packet.blockers
+    assert f"source license review row must be object at row(s): {review_count + 1}" in packet.blockers
+    assert payload["blockers"] == list(packet.blockers)
 
 
 def test_license_review_packet_records_missing_manual_fields():

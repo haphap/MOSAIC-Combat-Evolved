@@ -56,11 +56,12 @@ class LicenseReviewPacket:
     source_type_counts: Mapping[str, int]
     policy_reason_counts: Mapping[str, int]
     required_review_fields: Sequence[str]
+    blockers: Sequence[str]
     records: Sequence[LicenseReviewSourcePacket]
 
     @property
     def manual_review_required(self) -> bool:
-        return self.pending_sources > 0 or self.approved_for_production_runtime < self.source_count
+        return bool(self.blockers) or self.pending_sources > 0 or self.approved_for_production_runtime < self.source_count
 
 
 def _jsonable(value: Any) -> Any:
@@ -77,6 +78,17 @@ def _write_json(path: Path, payload: Mapping[str, Any]) -> dict[str, Any]:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(_jsonable(payload), ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return {"path": str(path), "rows": 1}
+
+
+def _split_mapping_rows(rows: Sequence[Any]) -> tuple[list[Mapping[str, Any]], tuple[int, ...]]:
+    valid_rows: list[Mapping[str, Any]] = []
+    invalid_row_numbers: list[int] = []
+    for index, row in enumerate(rows, 1):
+        if isinstance(row, Mapping):
+            valid_rows.append(row)
+        else:
+            invalid_row_numbers.append(index)
+    return valid_rows, tuple(invalid_row_numbers)
 
 
 def _review_by_source(reviews: Sequence[Mapping[str, Any]]) -> dict[str, Mapping[str, Any]]:
@@ -98,8 +110,10 @@ def _missing_review_fields(row: Mapping[str, Any] | None) -> tuple[str, ...]:
 
 def build_license_review_packet(root: str | Path = ".") -> LicenseReviewPacket:
     root_path = Path(root)
-    sources = load_jsonl(root_path / SOURCE_PATH)
-    reviews = load_jsonl(root_path / LICENSE_REVIEW_TEMPLATE_PATH)
+    raw_sources = load_jsonl(root_path / SOURCE_PATH)
+    raw_reviews = load_jsonl(root_path / LICENSE_REVIEW_TEMPLATE_PATH)
+    sources, invalid_source_rows = _split_mapping_rows(raw_sources)
+    reviews, invalid_review_rows = _split_mapping_rows(raw_reviews)
     review_lookup = _review_by_source(reviews)
     reviewed_sources = apply_source_license_reviews(
         sources,
@@ -132,13 +146,24 @@ def build_license_review_packet(root: str | Path = ".") -> LicenseReviewPacket:
             )
         )
 
+    blockers: list[str] = []
+    if invalid_source_rows:
+        blockers.append(
+            "source registry row must be object at row(s): "
+            + ", ".join(str(row_number) for row_number in invalid_source_rows)
+        )
+    if invalid_review_rows:
+        blockers.append(
+            "source license review row must be object at row(s): "
+            + ", ".join(str(row_number) for row_number in invalid_review_rows)
+        )
     return LicenseReviewPacket(
         packet_id="RKE-SOURCE-LICENSE-REVIEW-PACKET-20260606",
-        status="manual_review_pending",
+        status="manual_review_blocked" if blockers else "manual_review_pending",
         source_path=SOURCE_PATH,
         review_path=LICENSE_REVIEW_TEMPLATE_PATH,
-        source_count=len(sources),
-        review_row_count=len(reviews),
+        source_count=len(raw_sources),
+        review_row_count=len(raw_reviews),
         reviewed_sources=sum(record.reviewed for record in records),
         pending_sources=sum(not record.reviewed for record in records),
         approved_for_derived_claim_storage=sum(record.allowed_for_derived_claim_storage for record in records),
@@ -147,6 +172,7 @@ def build_license_review_packet(root: str | Path = ".") -> LicenseReviewPacket:
         source_type_counts=dict(Counter(record.source_type for record in records)),
         policy_reason_counts=dict(reason_counts),
         required_review_fields=REQUIRED_REVIEW_FIELDS,
+        blockers=tuple(blockers),
         records=tuple(records),
     )
 
@@ -163,15 +189,23 @@ def render_license_review_packet_markdown(packet: LicenseReviewPacket) -> str:
         f"- Approved for production runtime: {packet.approved_for_production_runtime}",
         f"- Manual review required: {str(packet.manual_review_required).lower()}",
         "",
-        "## Coverage",
-        "",
-        f"- Current license statuses: {json.dumps(dict(packet.current_license_status_counts), ensure_ascii=False, sort_keys=True)}",
-        f"- Source types: {json.dumps(dict(packet.source_type_counts), ensure_ascii=False, sort_keys=True)}",
-        f"- Policy reasons: {json.dumps(dict(packet.policy_reason_counts), ensure_ascii=False, sort_keys=True)}",
-        "",
-        "## Review Queue",
-        "",
     ]
+    if packet.blockers:
+        lines.extend(["## Blockers", ""])
+        lines.extend(f"- {blocker}" for blocker in packet.blockers)
+        lines.append("")
+    lines.extend(
+        [
+            "## Coverage",
+            "",
+            f"- Current license statuses: {json.dumps(dict(packet.current_license_status_counts), ensure_ascii=False, sort_keys=True)}",
+            f"- Source types: {json.dumps(dict(packet.source_type_counts), ensure_ascii=False, sort_keys=True)}",
+            f"- Policy reasons: {json.dumps(dict(packet.policy_reason_counts), ensure_ascii=False, sort_keys=True)}",
+            "",
+            "## Review Queue",
+            "",
+        ]
+    )
     for record in packet.records:
         missing = ", ".join(record.missing_review_fields) or "none"
         reasons = "; ".join(record.policy_reasons) or "none"

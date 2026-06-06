@@ -33,6 +33,34 @@ def test_gold_review_packet_summarizes_current_manual_queue():
     assert any(document.gold_set_domain_matches for document in packet.documents)
 
 
+def test_gold_review_packet_reports_malformed_candidate_and_review_rows(tmp_path: Path):
+    shutil.copytree(Path("registry"), tmp_path / "registry")
+    candidates_path = tmp_path / "registry/sources/tushare_research_reports.gold_candidates.jsonl"
+    review_path = tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    candidate_count = sum(1 for line in candidates_path.read_text(encoding="utf-8").splitlines() if line.strip())
+    review_count = sum(1 for line in review_path.read_text(encoding="utf-8").splitlines() if line.strip())
+    candidates_path.write_text(
+        candidates_path.read_text(encoding="utf-8") + json.dumps("not an object") + "\n",
+        encoding="utf-8",
+    )
+    review_path.write_text(
+        review_path.read_text(encoding="utf-8") + json.dumps(["not", "an", "object"]) + "\n",
+        encoding="utf-8",
+    )
+
+    packet = build_gold_review_packet(tmp_path)
+    paths = write_gold_review_packet(tmp_path)
+    payload = json.loads(Path(paths["json"]).read_text(encoding="utf-8"))
+
+    assert packet.status == "manual_review_blocked"
+    assert packet.document_count == candidate_count
+    assert packet.review_row_count == review_count + 1
+    assert packet.pending_review_rows == review_count
+    assert f"gold candidate row must be object at row(s): {candidate_count + 1}" in packet.blockers
+    assert f"gold-set review row must be object at row(s): {review_count + 1}" in packet.blockers
+    assert payload["blockers"] == list(packet.blockers)
+
+
 def test_gold_review_packet_uses_offsets_not_source_text_for_span_refs():
     packet = build_gold_review_packet(".")
     document = next(document for document in packet.documents if document.candidate_span_refs)

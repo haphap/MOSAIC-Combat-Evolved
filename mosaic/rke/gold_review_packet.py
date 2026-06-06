@@ -106,11 +106,12 @@ class GoldReviewPacket:
     query_key_counts: Mapping[str, int]
     report_type_counts: Mapping[str, int]
     risk_flag_counts: Mapping[str, int]
+    blockers: Sequence[str]
     documents: Sequence[GoldReviewDocumentPacket]
 
     @property
     def manual_review_required(self) -> bool:
-        return self.pending_review_rows > 0 or self.status != "manual_review_passed"
+        return bool(self.blockers) or self.pending_review_rows > 0 or self.status != "manual_review_passed"
 
 
 def _jsonable(value: Any) -> Any:
@@ -133,6 +134,17 @@ def _optional_json(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _split_mapping_rows(rows: Sequence[Any]) -> tuple[list[Mapping[str, Any]], tuple[int, ...]]:
+    valid_rows: list[Mapping[str, Any]] = []
+    invalid_row_numbers: list[int] = []
+    for index, row in enumerate(rows, 1):
+        if isinstance(row, Mapping):
+            valid_rows.append(row)
+        else:
+            invalid_row_numbers.append(index)
+    return valid_rows, tuple(invalid_row_numbers)
 
 
 def _short_hash(text: str) -> str:
@@ -258,8 +270,10 @@ def _document_packet(
 
 def build_gold_review_packet(root: str | Path = ".") -> GoldReviewPacket:
     root_path = Path(root)
-    candidates = load_jsonl(root_path / GOLD_CANDIDATES_PATH)
-    review_rows = load_jsonl(root_path / GOLD_REVIEW_TEMPLATE_PATH)
+    raw_candidates = load_jsonl(root_path / GOLD_CANDIDATES_PATH)
+    raw_review_rows = load_jsonl(root_path / GOLD_REVIEW_TEMPLATE_PATH)
+    candidates, invalid_candidate_rows = _split_mapping_rows(raw_candidates)
+    review_rows, invalid_review_rows = _split_mapping_rows(raw_review_rows)
     review_by_source = _review_rows_by_source(review_rows)
     candidate_claim_summary = _optional_json(root_path / GOLD_CANDIDATE_CLAIMS_SUMMARY_PATH)
     vocabulary = load_claim_variable_vocabulary(root_path)
@@ -272,9 +286,20 @@ def build_gold_review_packet(root: str | Path = ".") -> GoldReviewPacket:
     domain_counts = Counter(document.gold_set_domain for document in documents)
     query_key_counts = Counter(document.query_key for document in documents)
     report_type_counts = Counter(document.report_type for document in documents)
+    blockers: list[str] = []
+    if invalid_candidate_rows:
+        blockers.append(
+            "gold candidate row must be object at row(s): "
+            + ", ".join(str(row_number) for row_number in invalid_candidate_rows)
+        )
+    if invalid_review_rows:
+        blockers.append(
+            "gold-set review row must be object at row(s): "
+            + ", ".join(str(row_number) for row_number in invalid_review_rows)
+        )
     return GoldReviewPacket(
         packet_id="RKE-GOLD-REVIEW-PACKET-20260606",
-        status="manual_review_pending",
+        status="manual_review_blocked" if blockers else "manual_review_pending",
         review_gate={
             "gold_set_id": "GOLD-CLAIM-2026Q2",
             "claim_precision_min": 0.85,
@@ -297,7 +322,7 @@ def build_gold_review_packet(root: str | Path = ".") -> GoldReviewPacket:
         candidate_path=GOLD_CANDIDATES_PATH,
         review_path=GOLD_REVIEW_TEMPLATE_PATH,
         document_count=len(documents),
-        review_row_count=len(review_rows),
+        review_row_count=len(raw_review_rows),
         pending_review_rows=sum(_row_pending(row) for row in review_rows),
         candidate_claim_count=int(candidate_claim_summary.get("candidate_claim_count") or 0),
         candidate_claim_available_count=int(
@@ -311,6 +336,7 @@ def build_gold_review_packet(root: str | Path = ".") -> GoldReviewPacket:
         query_key_counts=dict(query_key_counts),
         report_type_counts=dict(report_type_counts),
         risk_flag_counts=dict(risk_counts),
+        blockers=tuple(blockers),
         documents=documents,
     )
 
@@ -334,6 +360,9 @@ def render_gold_review_packet_markdown(packet: GoldReviewPacket) -> str:
     ]
     for key, value in packet.review_gate.items():
         lines.append(f"- {key}: {value}")
+    if packet.blockers:
+        lines.extend(["", "## Blockers", ""])
+        lines.extend(f"- {blocker}" for blocker in packet.blockers)
     lines.extend(["", "## Coverage", ""])
     lines.append(f"- Query keys: {json.dumps(dict(packet.query_key_counts), ensure_ascii=False, sort_keys=True)}")
     lines.append(f"- Domains: {json.dumps(dict(packet.domain_counts), ensure_ascii=False, sort_keys=True)}")
