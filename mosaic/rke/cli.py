@@ -37,7 +37,12 @@ from .manual_review_batches import (
     write_gold_review_starter,
     write_manual_review_batches,
 )
-from .operator_handoff import build_operator_handoff, write_operator_handoff
+from .operator_handoff import (
+    LOCKBOX_REVIEWED_IMPORT_PATH,
+    build_operator_handoff,
+    write_lockbox_review_starter,
+    write_operator_handoff,
+)
 from .operator_readiness import (
     build_operator_readiness_report,
     write_operator_readiness_report,
@@ -346,6 +351,22 @@ def build_parser() -> argparse.ArgumentParser:
     apply_lockbox_review.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
     apply_lockbox_review.add_argument("--input", required=True, help="JSON file containing one lockbox review record.")
     apply_lockbox_review.add_argument("--dry-run", action="store_true", help="Validate without changing the lockbox record.")
+
+    prepare_lockbox_review = subparsers.add_parser(
+        "prepare-lockbox-review",
+        help="Write a reviewer-editable lockbox JSON starter without overwriting existing reviews.",
+    )
+    prepare_lockbox_review.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
+    prepare_lockbox_review.add_argument(
+        "--output",
+        default=LOCKBOX_REVIEWED_IMPORT_PATH,
+        help=f"Reviewed lockbox output path. Defaults to {LOCKBOX_REVIEWED_IMPORT_PATH}.",
+    )
+    prepare_lockbox_review.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite an existing reviewed lockbox starter.",
+    )
 
     review_batches = subparsers.add_parser(
         "review-batches",
@@ -691,6 +712,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         report = apply_lockbox_review_import(root, args.input, dry_run=args.dry_run)
         _print_json(asdict(report))
         return 0 if report.accepted else 2
+    if args.command == "prepare-lockbox-review":
+        result = write_lockbox_review_starter(
+            root,
+            output_path=args.output,
+            force=args.force,
+        )
+        _print_json(asdict(result))
+        return 0 if result.written else 2
     if args.command == "review-batches":
         paths = write_manual_review_batches(
             root,

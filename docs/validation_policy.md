@@ -76,9 +76,9 @@ without mutating the working registry:
 
 ```bash
 mosaic-rke promotion-dry-run --root . \
-  --gold-input reviewed_gold_set.jsonl \
-  --license-input reviewed_sources.jsonl \
-  --lockbox-input reviewed_lockbox.json
+  --gold-input registry/review_batches/gold_set_full_reviewed.jsonl \
+  --license-input registry/review_batches/source_license_policy_import.jsonl \
+  --lockbox-input registry/review_batches/lockbox_reviewed.json
 ```
 
 The command copies the registry into a temporary directory, applies the supplied
@@ -94,8 +94,14 @@ command.
 Import a one-time lockbox review with:
 
 ```bash
-mosaic-rke apply-lockbox-review --root . --input reviewed_lockbox.json --dry-run
-mosaic-rke apply-lockbox-review --root . --input reviewed_lockbox.json
+mosaic-rke prepare-lockbox-review --root .
+mosaic-rke apply-lockbox-review \
+  --root . \
+  --input registry/review_batches/lockbox_reviewed.json \
+  --dry-run
+mosaic-rke apply-lockbox-review \
+  --root . \
+  --input registry/review_batches/lockbox_reviewed.json
 ```
 
 The import validates experiment identity, open count, reviewer fields, result,

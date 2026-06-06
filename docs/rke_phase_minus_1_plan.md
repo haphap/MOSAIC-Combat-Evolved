@@ -109,7 +109,15 @@ mosaic-rke apply-gold-review --root . \
 Import source license approvals:
 
 ```bash
-mosaic-rke apply-license-review --root . --input reviewed_sources.jsonl
+mosaic-rke prepare-license-policy-review --root .
+mosaic-rke build-license-review-import \
+  --root . \
+  --policy registry/review_batches/source_license_policy_reviewed.json \
+  --output registry/review_batches/source_license_policy_import.jsonl
+mosaic-rke apply-license-review \
+  --root . \
+  --input registry/review_batches/source_license_policy_import.jsonl \
+  --dry-run
 ```
 
 Both import commands support `--dry-run`. They reject duplicate IDs, unknown IDs,
@@ -120,9 +128,9 @@ promotion outcome without mutating the registry:
 
 ```bash
 mosaic-rke promotion-dry-run --root . \
-  --gold-input reviewed_gold_set.jsonl \
-  --license-input reviewed_sources.jsonl \
-  --lockbox-input reviewed_lockbox.json
+  --gold-input registry/review_batches/gold_set_full_reviewed.jsonl \
+  --license-input registry/review_batches/source_license_policy_import.jsonl \
+  --lockbox-input registry/review_batches/lockbox_reviewed.json
 ```
 
 For large same-source license queues, build the `apply-license-review` input
@@ -149,6 +157,17 @@ mosaic-rke apply-license-review \
 
 The policy builder never applies approvals by itself; it only writes sparse
 per-source import rows plus an audit report.
+
+Prepare and import a one-time lockbox review only after the gold-set and
+source-license gates pass:
+
+```bash
+mosaic-rke prepare-lockbox-review --root .
+mosaic-rke apply-lockbox-review \
+  --root . \
+  --input registry/review_batches/lockbox_reviewed.json \
+  --dry-run
+```
 
 Refresh the Tushare research-report source pool:
 

@@ -35,6 +35,7 @@ OPERATOR_HANDOFF_MD_PATH = "registry/handoffs/rke_operator_handoff.md"
 LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH = (
     "registry/review_batches/lockbox_review_next_import_template.json"
 )
+LOCKBOX_REVIEWED_IMPORT_PATH = "registry/review_batches/lockbox_reviewed.json"
 
 
 @dataclass(frozen=True)
@@ -73,6 +74,16 @@ class OperatorHandoff:
     generated_paths: Sequence[str]
     run_order: Sequence[str]
     promotion_dry_run_command: str
+
+
+@dataclass(frozen=True)
+class LockboxReviewStarterResult:
+    path: str
+    template_path: str
+    force: bool
+    written: bool
+    overwritten: bool
+    blockers: Sequence[str]
 
 
 def _jsonable(value: Any) -> Any:
@@ -147,6 +158,34 @@ def write_lockbox_review_import_template(root: str | Path = ".") -> dict[str, An
     return _write_json(
         root_path / LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH,
         build_lockbox_review_import_template(root_path),
+    )
+
+
+def write_lockbox_review_starter(
+    root: str | Path = ".",
+    *,
+    output_path: str | Path = LOCKBOX_REVIEWED_IMPORT_PATH,
+    force: bool = False,
+) -> LockboxReviewStarterResult:
+    """Write a reviewer-editable lockbox JSON starter without clobbering reviews."""
+    root_path = Path(root)
+    resolved_output_path = Path(output_path)
+    if not resolved_output_path.is_absolute():
+        resolved_output_path = root_path / resolved_output_path
+    template = build_lockbox_review_import_template(root_path)
+    exists = resolved_output_path.exists()
+    blockers: list[str] = []
+    if exists and not force:
+        blockers.append(f"{resolved_output_path} already exists; pass --force to overwrite")
+    if not blockers:
+        _write_json(resolved_output_path, template)
+    return LockboxReviewStarterResult(
+        path=str(resolved_output_path),
+        template_path=LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH,
+        force=force,
+        written=not blockers,
+        overwritten=exists and force and not blockers,
+        blockers=tuple(blockers),
     )
 
 
@@ -266,8 +305,8 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
             import_template_path=LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH,
             full_import_template_path="",
             policy_template_path="",
-            reviewed_policy_path="",
-            prepare_command="",
+            reviewed_policy_path=LOCKBOX_REVIEWED_IMPORT_PATH,
+            prepare_command="mosaic-rke prepare-lockbox-review --root .",
             pending_rows=None,
             exported_rows=1,
             required_manual_fields=(
@@ -281,13 +320,16 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
             ),
             dry_run_command=(
                 "mosaic-rke apply-lockbox-review --root . "
-                f"--input {LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH} --dry-run"
+                f"--input {LOCKBOX_REVIEWED_IMPORT_PATH} --dry-run"
             ),
             apply_command=(
                 "mosaic-rke apply-lockbox-review --root . "
-                f"--input {LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH}"
+                f"--input {LOCKBOX_REVIEWED_IMPORT_PATH}"
             ),
-            operator_note="Open lockbox only after manual gold and license gates pass.",
+            operator_note=(
+                "Run prepare-lockbox-review only after manual gold and license gates pass, "
+                "fill the reviewed scratch JSON, then dry-run before applying the one-time lockbox review."
+            ),
         ),
     )
     generated_paths = (
@@ -324,7 +366,7 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
             "mosaic-rke promotion-dry-run --root . "
             f"--gold-input {GOLD_FULL_REVIEWED_IMPORT_PATH} "
             f"--license-input {DEFAULT_LICENSE_POLICY_IMPORT_PATH} "
-            f"--lockbox-input {LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH}"
+            f"--lockbox-input {LOCKBOX_REVIEWED_IMPORT_PATH}"
         ),
     )
 

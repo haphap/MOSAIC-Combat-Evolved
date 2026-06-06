@@ -55,6 +55,7 @@ registry/review_batches/gold_set_reviewed.jsonl
 registry/review_batches/gold_set_full_reviewed.jsonl
 registry/review_batches/source_license_policy_reviewed.json
 registry/review_batches/source_license_policy_import.jsonl
+registry/review_batches/lockbox_reviewed.json
 
 # TypeScript workspace (Phase 1+)
 mosaic-ts/node_modules/

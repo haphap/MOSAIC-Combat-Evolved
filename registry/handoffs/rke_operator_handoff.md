@@ -14,7 +14,7 @@
 - promotion-status
 - lockbox
 
-Dry-run command: `mosaic-rke build-license-review-import --root . --policy registry/review_batches/source_license_policy_reviewed.json --output registry/review_batches/source_license_policy_import.jsonl && mosaic-rke promotion-dry-run --root . --gold-input registry/review_batches/gold_set_full_reviewed.jsonl --license-input registry/review_batches/source_license_policy_import.jsonl --lockbox-input registry/review_batches/lockbox_review_next_import_template.json`
+Dry-run command: `mosaic-rke build-license-review-import --root . --policy registry/review_batches/source_license_policy_reviewed.json --output registry/review_batches/source_license_policy_import.jsonl && mosaic-rke promotion-dry-run --root . --gold-input registry/review_batches/gold_set_full_reviewed.jsonl --license-input registry/review_batches/source_license_policy_import.jsonl --lockbox-input registry/review_batches/lockbox_reviewed.json`
 
 ## Gates
 
@@ -61,13 +61,13 @@ Dry-run command: `mosaic-rke build-license-review-import --root . --policy regis
 - Import template: registry/review_batches/lockbox_review_next_import_template.json
 - Full import template: none
 - Policy template: none
-- Reviewed policy/input: none
-- Prepare: none
+- Reviewed policy/input: registry/review_batches/lockbox_reviewed.json
+- Prepare: `mosaic-rke prepare-lockbox-review --root .`
 - Pending rows: None
 - Exported rows: 1
-- Dry run: `mosaic-rke apply-lockbox-review --root . --input registry/review_batches/lockbox_review_next_import_template.json --dry-run`
-- Apply: `mosaic-rke apply-lockbox-review --root . --input registry/review_batches/lockbox_review_next_import_template.json`
-- Note: Open lockbox only after manual gold and license gates pass.
+- Dry run: `mosaic-rke apply-lockbox-review --root . --input registry/review_batches/lockbox_reviewed.json --dry-run`
+- Apply: `mosaic-rke apply-lockbox-review --root . --input registry/review_batches/lockbox_reviewed.json`
+- Note: Run prepare-lockbox-review only after manual gold and license gates pass, fill the reviewed scratch JSON, then dry-run before applying the one-time lockbox review.
 
 ## Remaining Blockers
 
