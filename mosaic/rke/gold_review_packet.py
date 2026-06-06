@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from .claim_vocabulary import load_claim_variable_vocabulary
-from .phase_minus1 import load_jsonl
+from .phase_minus1 import load_jsonl_with_errors
 
 
 GOLD_REVIEW_PACKET_JSON_PATH = "registry/gold_sets/tushare_research_reports.review_packet.json"
@@ -130,10 +130,16 @@ def _write_json(path: Path, payload: Mapping[str, Any]) -> dict[str, Any]:
     return {"path": str(path), "rows": 1}
 
 
-def _optional_json(path: Path) -> dict[str, Any]:
+def _optional_json(path: Path, label: str) -> tuple[dict[str, Any], tuple[str, ...]]:
     if not path.exists():
-        return {}
-    return json.loads(path.read_text(encoding="utf-8"))
+        return {}, ()
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        return {}, (f"{label} must contain valid JSON: {exc.msg}",)
+    if not isinstance(payload, Mapping):
+        return {}, (f"{label} must be object",)
+    return dict(payload), ()
 
 
 def _split_mapping_rows(rows: Sequence[Any]) -> tuple[list[Mapping[str, Any]], tuple[int, ...]]:
@@ -270,12 +276,21 @@ def _document_packet(
 
 def build_gold_review_packet(root: str | Path = ".") -> GoldReviewPacket:
     root_path = Path(root)
-    raw_candidates = load_jsonl(root_path / GOLD_CANDIDATES_PATH)
-    raw_review_rows = load_jsonl(root_path / GOLD_REVIEW_TEMPLATE_PATH)
+    raw_candidates, candidate_parse_blockers = load_jsonl_with_errors(
+        root_path / GOLD_CANDIDATES_PATH,
+        label="gold candidate",
+    )
+    raw_review_rows, review_parse_blockers = load_jsonl_with_errors(
+        root_path / GOLD_REVIEW_TEMPLATE_PATH,
+        label="gold-set review",
+    )
     candidates, invalid_candidate_rows = _split_mapping_rows(raw_candidates)
     review_rows, invalid_review_rows = _split_mapping_rows(raw_review_rows)
     review_by_source = _review_rows_by_source(review_rows)
-    candidate_claim_summary = _optional_json(root_path / GOLD_CANDIDATE_CLAIMS_SUMMARY_PATH)
+    candidate_claim_summary, summary_blockers = _optional_json(
+        root_path / GOLD_CANDIDATE_CLAIMS_SUMMARY_PATH,
+        "gold candidate summary",
+    )
     vocabulary = load_claim_variable_vocabulary(root_path)
     known_variable_ids = {variable.variable_id for variable in vocabulary.variables}
     documents = tuple(
@@ -286,7 +301,7 @@ def build_gold_review_packet(root: str | Path = ".") -> GoldReviewPacket:
     domain_counts = Counter(document.gold_set_domain for document in documents)
     query_key_counts = Counter(document.query_key for document in documents)
     report_type_counts = Counter(document.report_type for document in documents)
-    blockers: list[str] = []
+    blockers: list[str] = [*candidate_parse_blockers, *review_parse_blockers, *summary_blockers]
     if invalid_candidate_rows:
         blockers.append(
             "gold candidate row must be object at row(s): "
@@ -322,7 +337,7 @@ def build_gold_review_packet(root: str | Path = ".") -> GoldReviewPacket:
         candidate_path=GOLD_CANDIDATES_PATH,
         review_path=GOLD_REVIEW_TEMPLATE_PATH,
         document_count=len(documents),
-        review_row_count=len(raw_review_rows),
+        review_row_count=len(raw_review_rows) + len(review_parse_blockers),
         pending_review_rows=sum(_row_pending(row) for row in review_rows),
         candidate_claim_count=int(candidate_claim_summary.get("candidate_claim_count") or 0),
         candidate_claim_available_count=int(

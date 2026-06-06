@@ -168,6 +168,21 @@ def load_jsonl(path: str | Path) -> list[dict[str, Any]]:
     return rows
 
 
+def load_jsonl_with_errors(path: str | Path, *, label: str) -> tuple[list[Any], tuple[str, ...]]:
+    rows: list[Any] = []
+    errors: list[str] = []
+    with Path(path).open("r", encoding="utf-8") as fh:
+        for index, line in enumerate(fh, 1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rows.append(json.loads(line))
+            except json.JSONDecodeError as exc:
+                errors.append(f"{label} row {index} must contain valid JSON: {exc.msg}")
+    return rows, tuple(errors)
+
+
 def _require_mapping_rows(rows: Sequence[Any], *, label: str) -> list[Mapping[str, Any]]:
     valid_rows: list[Mapping[str, Any]] = []
     invalid_rows: list[str] = []

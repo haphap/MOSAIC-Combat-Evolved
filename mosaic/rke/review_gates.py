@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from .compliance import apply_source_license_reviews, evaluate_source_license
-from .phase_minus1 import evaluate_gold_set_reviews
+from .phase_minus1 import evaluate_gold_set_reviews, load_jsonl_with_errors
 
 
 GOLD_REVIEW_FIELDS = (
@@ -68,21 +68,6 @@ def _split_mapping_rows(rows: Sequence[Any]) -> tuple[list[Mapping[str, Any]], t
     return valid, tuple(invalid)
 
 
-def _load_jsonl_for_gate(path: Path, label: str) -> tuple[list[Any], tuple[str, ...]]:
-    rows: list[Any] = []
-    blockers: list[str] = []
-    with path.open("r", encoding="utf-8") as handle:
-        for index, line in enumerate(handle, 1):
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                rows.append(json.loads(line))
-            except json.JSONDecodeError as exc:
-                blockers.append(f"{label} row {index} must contain valid JSON: {exc.msg}")
-    return rows, tuple(blockers)
-
-
 def _gold_row_reviewed(row: Mapping[str, Any]) -> bool:
     return all(row.get(field) is not None for field in GOLD_REVIEW_FIELDS)
 
@@ -95,7 +80,7 @@ def summarize_gold_set_review(
     root_path = Path(root)
     review_path = root_path / review_relative_path
     raw_rows, review_parse_blockers = (
-        _load_jsonl_for_gate(review_path, "gold-set review") if review_path.exists() else ([], ())
+        load_jsonl_with_errors(review_path, label="gold-set review") if review_path.exists() else ([], ())
     )
     rows, invalid_rows = _split_mapping_rows(raw_rows)
     documents = {str(row.get("document_id") or row.get("source_id") or "") for row in rows}
@@ -173,10 +158,10 @@ def summarize_source_license_review(
     source_path = root_path / source_relative_path
     review_path = root_path / review_relative_path
     raw_sources, source_parse_blockers = (
-        _load_jsonl_for_gate(source_path, "source registry") if source_path.exists() else ([], ())
+        load_jsonl_with_errors(source_path, label="source registry") if source_path.exists() else ([], ())
     )
     raw_reviews, review_parse_blockers = (
-        _load_jsonl_for_gate(review_path, "source license review") if review_path.exists() else ([], ())
+        load_jsonl_with_errors(review_path, label="source license review") if review_path.exists() else ([], ())
     )
     sources, invalid_source_rows = _split_mapping_rows(raw_sources)
     reviews, invalid_review_rows = _split_mapping_rows(raw_reviews)

@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from .compliance import apply_source_license_reviews, evaluate_source_license
-from .phase_minus1 import load_jsonl
+from .phase_minus1 import load_jsonl_with_errors
 
 
 LICENSE_REVIEW_PACKET_JSON_PATH = "registry/compliance/tushare_license_review_packet.json"
@@ -110,8 +110,14 @@ def _missing_review_fields(row: Mapping[str, Any] | None) -> tuple[str, ...]:
 
 def build_license_review_packet(root: str | Path = ".") -> LicenseReviewPacket:
     root_path = Path(root)
-    raw_sources = load_jsonl(root_path / SOURCE_PATH)
-    raw_reviews = load_jsonl(root_path / LICENSE_REVIEW_TEMPLATE_PATH)
+    raw_sources, source_parse_blockers = load_jsonl_with_errors(
+        root_path / SOURCE_PATH,
+        label="source registry",
+    )
+    raw_reviews, review_parse_blockers = load_jsonl_with_errors(
+        root_path / LICENSE_REVIEW_TEMPLATE_PATH,
+        label="source license review",
+    )
     sources, invalid_source_rows = _split_mapping_rows(raw_sources)
     reviews, invalid_review_rows = _split_mapping_rows(raw_reviews)
     review_lookup = _review_by_source(reviews)
@@ -146,7 +152,7 @@ def build_license_review_packet(root: str | Path = ".") -> LicenseReviewPacket:
             )
         )
 
-    blockers: list[str] = []
+    blockers: list[str] = [*source_parse_blockers, *review_parse_blockers]
     if invalid_source_rows:
         blockers.append(
             "source registry row must be object at row(s): "
@@ -162,8 +168,8 @@ def build_license_review_packet(root: str | Path = ".") -> LicenseReviewPacket:
         status="manual_review_blocked" if blockers else "manual_review_pending",
         source_path=SOURCE_PATH,
         review_path=LICENSE_REVIEW_TEMPLATE_PATH,
-        source_count=len(raw_sources),
-        review_row_count=len(raw_reviews),
+        source_count=len(raw_sources) + len(source_parse_blockers),
+        review_row_count=len(raw_reviews) + len(review_parse_blockers),
         reviewed_sources=sum(record.reviewed for record in records),
         pending_sources=sum(not record.reviewed for record in records),
         approved_for_derived_claim_storage=sum(record.allowed_for_derived_claim_storage for record in records),
