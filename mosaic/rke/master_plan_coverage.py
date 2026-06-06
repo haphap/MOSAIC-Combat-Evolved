@@ -9,6 +9,7 @@ from typing import Any, Literal, Mapping, Sequence
 
 from .completion_acceptance import (
     EXPECTED_COMPLETION_CRITERION_IDS,
+    FINAL_ACCEPTANCE_REQUIREMENTS,
     MASTER_PLAN_ACCEPTANCE_SECTION,
     MASTER_PLAN_PATH,
 )
@@ -34,12 +35,18 @@ class MasterPlanCoverageRecord:
 class MasterPlanCoverageReport:
     report_id: str
     master_plan_path: str
+    final_acceptance_section: str
     coverage_complete: bool
     ready_for_broad_rollout: bool
     passed_count: int
     blocked_count: int
     missing_count: int
     records: Sequence[MasterPlanCoverageRecord]
+    final_acceptance_ready: bool
+    final_acceptance_passed_count: int
+    final_acceptance_blocked_count: int
+    final_acceptance_missing_count: int
+    final_acceptance_records: Sequence[MasterPlanCoverageRecord]
 
 
 def _jsonable(value: Any) -> Any:
@@ -147,6 +154,15 @@ def _completion_by_id(root_path: Path) -> tuple[dict[str, Mapping[str, Any]], st
         return (
             {},
             f"completion audit acceptance_criteria_count must be {len(EXPECTED_COMPLETION_CRITERION_IDS)}",
+        )
+    acceptance_requirements = payload.get("acceptance_requirements")
+    expected_acceptance_requirements = [
+        dict(item) for item in FINAL_ACCEPTANCE_REQUIREMENTS
+    ]
+    if acceptance_requirements != expected_acceptance_requirements:
+        return (
+            {},
+            "completion audit acceptance_requirements must match master plan §22 C01-C12",
         )
     criteria = payload.get("criteria") or ()
     if not isinstance(criteria, list | tuple):
@@ -445,15 +461,59 @@ def build_master_plan_coverage_report(
     passed_count = sum(record.status == "passed" for record in records)
     blocked_count = sum(record.status == "blocked" for record in records)
     missing_count = sum(record.status == "missing" for record in records)
+    final_acceptance_records = _final_acceptance_records(
+        root_path,
+        completion,
+        completion_error=completion_error,
+    )
+    final_passed_count = sum(
+        record.status == "passed" for record in final_acceptance_records
+    )
+    final_blocked_count = sum(
+        record.status == "blocked" for record in final_acceptance_records
+    )
+    final_missing_count = sum(
+        record.status == "missing" for record in final_acceptance_records
+    )
+    final_acceptance_ready = final_missing_count == 0 and final_blocked_count == 0
     return MasterPlanCoverageReport(
         report_id="RKE-MASTER-PLAN-COVERAGE-REPORT-20260606",
         master_plan_path="docs/master_plan_v1_1.md",
-        coverage_complete=missing_count == 0,
-        ready_for_broad_rollout=missing_count == 0 and blocked_count == 0,
+        final_acceptance_section=MASTER_PLAN_ACCEPTANCE_SECTION,
+        coverage_complete=missing_count == 0 and final_missing_count == 0,
+        ready_for_broad_rollout=(
+            missing_count == 0 and blocked_count == 0 and final_acceptance_ready
+        ),
         passed_count=passed_count,
         blocked_count=blocked_count,
         missing_count=missing_count,
         records=tuple(records),
+        final_acceptance_ready=final_acceptance_ready,
+        final_acceptance_passed_count=final_passed_count,
+        final_acceptance_blocked_count=final_blocked_count,
+        final_acceptance_missing_count=final_missing_count,
+        final_acceptance_records=tuple(final_acceptance_records),
+    )
+
+
+def _final_acceptance_records(
+    root_path: Path,
+    completion: Mapping[str, Mapping[str, Any]],
+    *,
+    completion_error: str,
+) -> tuple[MasterPlanCoverageRecord, ...]:
+    return tuple(
+        _completion_record(
+            root_path,
+            completion,
+            str(item["criterion_id"]),
+            section_id=f"FinalAcceptance-{item['criterion_id']}",
+            requirement=str(item["requirement"]),
+            evidence_paths=("registry/audits/rke_completion_audit.json",),
+            blocked_if_failed=True,
+            completion_error=completion_error,
+        )
+        for item in FINAL_ACCEPTANCE_REQUIREMENTS
     )
 
 

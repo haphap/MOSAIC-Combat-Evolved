@@ -24,6 +24,11 @@ def test_master_plan_coverage_reports_only_manual_blockers():
     assert not report.ready_for_broad_rollout
     assert report.missing_count == 0
     assert report.blocked_count == 2
+    assert report.final_acceptance_section == "22"
+    assert report.final_acceptance_passed_count == 10
+    assert report.final_acceptance_blocked_count == 2
+    assert report.final_acceptance_missing_count == 0
+    assert not report.final_acceptance_ready
     blocked = {
         record.section_id: record
         for record in report.records
@@ -32,6 +37,28 @@ def test_master_plan_coverage_reports_only_manual_blockers():
     assert set(blocked) == {"Phase-1B", "Compliance"}
     assert "manual gold-set review still required" in blocked["Phase-1B"].blocker
     assert "source license review still pending" in blocked["Compliance"].blocker
+    final_blocked = {
+        record.section_id: record
+        for record in report.final_acceptance_records
+        if record.status == "blocked"
+    }
+    assert set(final_blocked) == {"FinalAcceptance-C02", "FinalAcceptance-C11"}
+    assert (
+        final_blocked["FinalAcceptance-C02"].requirement
+        == "Claim extraction gold set passes the manual gate."
+    )
+    assert (
+        "manual gold-set review still required"
+        in final_blocked["FinalAcceptance-C02"].blocker
+    )
+    assert (
+        "source license review still pending"
+        in final_blocked["FinalAcceptance-C11"].blocker
+    )
+    assert all(
+        record.evidence_paths == ("registry/audits/rke_completion_audit.json",)
+        for record in report.final_acceptance_records
+    )
     audit = next(record for record in report.records if record.section_id == "Audit")
     assert "registry/audits/central_bank_mvp_audit_view.json" in audit.evidence_paths
     assert "registry/audits/central_bank_mvp_audit_view.md" in audit.evidence_paths
@@ -188,6 +215,7 @@ def test_master_plan_coverage_reports_invalid_completion_audit_json(tmp_path: Pa
     assert not report.coverage_complete
     assert not report.ready_for_broad_rollout
     assert report.missing_count >= 6
+    assert report.final_acceptance_missing_count == 12
     assert phase_2.status == "missing"
     assert compliance.status == "missing"
     assert "completion audit must contain valid JSON" in phase_2.blocker
@@ -291,6 +319,7 @@ def test_master_plan_coverage_rejects_wrong_completion_acceptance_metadata(
 
     assert not report.coverage_complete
     assert compliance.status == "missing"
+    assert report.final_acceptance_missing_count == 12
     assert "completion audit acceptance_criteria_count must be 12" in compliance.blocker
 
 
@@ -319,6 +348,32 @@ def test_master_plan_coverage_rejects_missing_completion_acceptance_metadata(
     )
 
 
+def test_master_plan_coverage_rejects_drifted_completion_acceptance_requirements(
+    tmp_path: Path,
+):
+    _copy_registry_and_schemas(tmp_path)
+    completion_path = tmp_path / "registry/audits/rke_completion_audit.json"
+    completion = json.loads(completion_path.read_text(encoding="utf-8"))
+    completion["acceptance_requirements"][0]["requirement"] = "drifted"
+    completion_path.write_text(
+        json.dumps(completion, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    report = build_master_plan_coverage_report(tmp_path)
+    final_c01 = next(
+        record
+        for record in report.final_acceptance_records
+        if record.section_id == "FinalAcceptance-C01"
+    )
+
+    assert not report.coverage_complete
+    assert not report.final_acceptance_ready
+    assert report.final_acceptance_missing_count == 12
+    assert final_c01.status == "missing"
+    assert "acceptance_requirements must match master plan §22" in final_c01.blocker
+
+
 def test_master_plan_coverage_writer_and_cli(tmp_path: Path, capsys):
     _copy_registry_and_schemas(tmp_path)
 
@@ -331,3 +386,5 @@ def test_master_plan_coverage_writer_and_cli(tmp_path: Path, capsys):
     assert output["coverage_complete"] is True
     assert output["ready_for_broad_rollout"] is False
     assert output["blocked_count"] == 2
+    assert output["final_acceptance_section"] == "22"
+    assert output["final_acceptance_blocked_count"] == 2
