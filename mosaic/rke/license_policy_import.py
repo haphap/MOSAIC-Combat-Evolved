@@ -115,11 +115,8 @@ def _as_str_tuple(value: object) -> tuple[str, ...]:
     return tuple(str(item).strip() for item in values if str(item).strip())
 
 
-def _load_policy(path: Path) -> Mapping[str, Any]:
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(payload, Mapping):
-        raise ValueError("source-license policy must be a JSON object")
-    return payload
+def _load_policy(path: Path) -> Any:
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def _forbidden_policy_fields(policy: Mapping[str, Any]) -> tuple[str, ...]:
@@ -401,7 +398,30 @@ def build_source_license_policy_import(
     if not resolved_output_path.is_absolute():
         resolved_output_path = root_path / resolved_output_path
 
-    policy = _load_policy(resolved_policy_path)
+    policy_payload = _load_policy(resolved_policy_path)
+    review_rows = load_jsonl(root_path / LICENSE_REVIEW_TEMPLATE_PATH)
+    if not isinstance(policy_payload, Mapping):
+        report = SourceLicensePolicyImportReport(
+            report_id="RKE-SOURCE-LICENSE-POLICY-IMPORT-REPORT-20260606",
+            policy_path=str(resolved_policy_path),
+            target_review_path=LICENSE_REVIEW_TEMPLATE_PATH,
+            output_path=str(resolved_output_path),
+            dry_run=dry_run,
+            accepted=False,
+            total_review_rows=len(review_rows),
+            matched_rows=0,
+            output_rows=0,
+            reviewer="",
+            review_date="",
+            approved_for_derived_claim_storage=None,
+            approved_for_production_runtime=None,
+            filters=SourceLicensePolicyFilters(),
+            blockers=("source-license policy must be object",),
+        )
+        _write_json(root_path / LICENSE_POLICY_IMPORT_REPORT_PATH, asdict(report))
+        return report
+
+    policy = policy_payload
     filters = _policy_filters(policy)
     reviewer_value = policy.get("reviewer")
     review_date_value = policy.get("review_date")
@@ -409,7 +429,6 @@ def build_source_license_policy_import(
     review_date = review_date_value.strip() if isinstance(review_date_value, str) else ""
     derived = policy.get("approved_for_derived_claim_storage")
     production = policy.get("approved_for_production_runtime")
-    review_rows = load_jsonl(root_path / LICENSE_REVIEW_TEMPLATE_PATH)
     matched = [row for row in review_rows if _matches(row, filters)]
     output_rows = [_review_row(row, policy) for row in matched]
     matched_rows_fingerprint = _matched_rows_fingerprint(matched)
