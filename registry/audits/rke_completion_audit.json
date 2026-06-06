@@ -89,7 +89,7 @@
       "blocker": "",
       "criterion_id": "C05",
       "description": "Runtime aggregation implements de-duplication and conflict objects.",
-      "evidence": "runtime output aggregation summary",
+      "evidence": "runtime checker accepted aggregation summary; target=risk_appetite, horizon=20, groups=1, delta=0.05",
       "passed": true
     },
     {

@@ -24,6 +24,8 @@ def test_completion_auditor_recomputes_current_registry_gates():
     assert by_id["C01"].passed
     assert by_id["C04"].passed
     assert "hardening/statistical" in by_id["C04"].evidence
+    assert by_id["C05"].passed
+    assert "runtime checker accepted aggregation summary" in by_id["C05"].evidence
     assert by_id["C10"].passed
     assert "6 diagnostic scenarios" in by_id["C10"].evidence
     assert by_id["C12"].passed
@@ -266,6 +268,70 @@ def test_completion_auditor_rejects_invalid_json_runtime_output(tmp_path: Path):
     assert not by_id["C06"].passed
     assert "runtime output must contain valid JSON" in by_id["C05"].blocker
     assert "runtime output must contain valid JSON" in by_id["C06"].blocker
+
+
+def test_completion_auditor_requires_runtime_conflict_objects(tmp_path: Path):
+    shutil.copytree(Path("registry"), tmp_path / "registry")
+    runtime_path = (
+        tmp_path / "registry/runtime_outputs/macro.central_bank.20260605.json"
+    )
+    runtime = json.loads(runtime_path.read_text(encoding="utf-8"))
+    runtime["rule_aggregation_summary"]["has_opposing_rules"] = True
+    runtime["rule_aggregation_summary"].pop("conflict_objects", None)
+    runtime_path.write_text(
+        json.dumps(runtime, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    audit = audit_master_plan_completion(tmp_path)
+    by_id = {criterion.criterion_id: criterion for criterion in audit.criteria}
+
+    assert not by_id["C05"].passed
+    assert "opposing rules require conflict_objects" in by_id["C05"].blocker
+
+
+def test_completion_auditor_requires_runtime_dedup_groups(tmp_path: Path):
+    shutil.copytree(Path("registry"), tmp_path / "registry")
+    runtime_path = (
+        tmp_path / "registry/runtime_outputs/macro.central_bank.20260605.json"
+    )
+    runtime = json.loads(runtime_path.read_text(encoding="utf-8"))
+    runtime["rule_aggregation_summary"]["correlated_rule_duplicate_count"] = 2
+    runtime["rule_aggregation_summary"].pop("deduped_rule_groups", None)
+    runtime_path.write_text(
+        json.dumps(runtime, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    audit = audit_master_plan_completion(tmp_path)
+    by_id = {criterion.criterion_id: criterion for criterion in audit.criteria}
+
+    assert not by_id["C05"].passed
+    assert (
+        "correlated rule duplicates require deduped_rule_groups" in by_id["C05"].blocker
+    )
+
+
+def test_completion_auditor_rejects_aggregation_cap_violation(tmp_path: Path):
+    shutil.copytree(Path("registry"), tmp_path / "registry")
+    runtime_path = (
+        tmp_path / "registry/runtime_outputs/macro.central_bank.20260605.json"
+    )
+    runtime = json.loads(runtime_path.read_text(encoding="utf-8"))
+    runtime["rule_aggregation_summary"]["group_deltas"][
+        "macro.central_bank.liquidity"
+    ] = 0.11
+    runtime["rule_aggregation_summary"]["final_research_delta"] = 0.11
+    runtime_path.write_text(
+        json.dumps(runtime, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    audit = audit_master_plan_completion(tmp_path)
+    by_id = {criterion.criterion_id: criterion for criterion in audit.criteria}
+
+    assert not by_id["C05"].passed
+    assert "exceeds rule_group_max_adjustment" in by_id["C05"].blocker
 
 
 def test_completion_auditor_requires_confidence_policy_trace(tmp_path: Path):

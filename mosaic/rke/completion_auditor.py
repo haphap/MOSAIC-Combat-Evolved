@@ -14,6 +14,14 @@ from .compliance import apply_source_license_reviews, evaluate_source_license
 from .governance import ProductionPatch, default_evolution_targets, validate_patch
 from .p0 import LearnableParameter
 from .phase_minus1 import evaluate_gold_set_reviews
+from .runtime import (
+    EvidenceLedgerItem,
+    ProgressEvent,
+    RuntimeAgentOutput,
+    RuntimeInference,
+    RuntimeRecommendation,
+    check_runtime_output,
+)
 
 
 def _read_json(path: Path) -> Any:
@@ -102,22 +110,6 @@ def _split_mapping_rows(
         else:
             invalid.append(index)
     return valid, tuple(invalid)
-
-
-def _runtime_output_passes(runtime_output: Mapping[str, Any]) -> bool:
-    required = (
-        "evidence_ledger",
-        "research_rule_ids_used",
-        "source_claim_ids_used",
-        "hypothesis_ids_used",
-        "inferences",
-        "recommendations",
-        "confidence_components",
-        "rule_aggregation_summary",
-        "downstream_handoff",
-        "progress_event",
-    )
-    return all(runtime_output.get(field) for field in required)
 
 
 _CONFIDENCE_COMPONENTS = (
@@ -288,6 +280,305 @@ def _confidence_policy_gate(
     return (
         True,
         f"policy_ref=confidence_policy.v1, pre_cap={expected_pre_cap:.2f}, cap={cap:.2f}, final={final:.2f}",
+        "",
+    )
+
+
+def _sequence_mapping_rows(
+    payload: Mapping[str, Any],
+    field: str,
+    label: str,
+) -> tuple[list[Mapping[str, Any]], list[str]]:
+    rows, rows_error = _sequence_field(payload, field, label)
+    failures = [rows_error] if rows_error else []
+    valid_rows: list[Mapping[str, Any]] = []
+    for index, row in enumerate(rows, 1):
+        if isinstance(row, Mapping):
+            valid_rows.append(row)
+        else:
+            failures.append(f"{label} row {index} must be object")
+    return valid_rows, failures
+
+
+def _string_sequence(value: Any) -> tuple[str, ...]:
+    if not isinstance(value, list | tuple):
+        return tuple()
+    return tuple(str(item) for item in value if str(item or "").strip())
+
+
+def _runtime_agent_output_from_mapping(
+    runtime_output: Mapping[str, Any],
+) -> tuple[RuntimeAgentOutput | None, list[str]]:
+    failures: list[str] = []
+    evidence_rows, evidence_failures = _sequence_mapping_rows(
+        runtime_output,
+        "evidence_ledger",
+        "evidence_ledger",
+    )
+    inference_rows, inference_failures = _sequence_mapping_rows(
+        runtime_output,
+        "inferences",
+        "inferences",
+    )
+    recommendation_rows, recommendation_failures = _sequence_mapping_rows(
+        runtime_output,
+        "recommendations",
+        "recommendations",
+    )
+    progress_event, progress_error = _mapping_field(
+        runtime_output,
+        "progress_event",
+        "progress_event",
+    )
+    components, components_error = _mapping_field(
+        runtime_output,
+        "confidence_components",
+        "confidence_components",
+    )
+    aggregation, aggregation_error = _mapping_field(
+        runtime_output,
+        "rule_aggregation_summary",
+        "rule_aggregation_summary",
+    )
+    handoff, handoff_error = _mapping_field(
+        runtime_output,
+        "downstream_handoff",
+        "downstream_handoff",
+    )
+    failures.extend(
+        [
+            *evidence_failures,
+            *inference_failures,
+            *recommendation_failures,
+            *[
+                error
+                for error in (
+                    progress_error,
+                    components_error,
+                    aggregation_error,
+                    handoff_error,
+                )
+                if error
+            ],
+        ]
+    )
+    if failures:
+        return None, failures
+
+    try:
+        evidence = tuple(
+            EvidenceLedgerItem(
+                evidence_id=str(row.get("evidence_id") or ""),
+                source_type=str(row.get("source_type") or ""),
+                source_tool=str(row.get("source_tool") or ""),
+                metric=str(row.get("metric") or ""),
+                value=row.get("value"),
+                unit=str(row.get("unit") or ""),
+                as_of=str(row.get("as_of") or ""),
+                freshness_days=int(row.get("freshness_days")),
+                direction=str(row.get("direction") or ""),
+                fallback=bool(row.get("fallback")),
+                confidence_impact=str(row.get("confidence_impact") or ""),
+                source_claim_ids=_string_sequence(row.get("source_claim_ids")),
+            )
+            for row in evidence_rows
+        )
+        inferences = tuple(
+            RuntimeInference(
+                inference_id=str(row.get("inference_id") or ""),
+                statement=str(row.get("statement") or ""),
+                evidence_ids=_string_sequence(row.get("evidence_ids")),
+                rule_ids=_string_sequence(row.get("rule_ids")),
+                source_claim_ids=_string_sequence(row.get("source_claim_ids")),
+            )
+            for row in inference_rows
+        )
+        recommendations = tuple(
+            RuntimeRecommendation(
+                recommendation_id=str(row.get("recommendation_id") or ""),
+                statement=str(row.get("statement") or ""),
+                inference_ids=_string_sequence(row.get("inference_ids")),
+                confidence=float(row.get("confidence")),
+                actionability=str(row.get("actionability") or ""),
+            )
+            for row in recommendation_rows
+        )
+        progress = ProgressEvent(
+            agent_id=str(progress_event.get("agent_id") or ""),
+            layer=str(progress_event.get("layer") or ""),
+            status=str(progress_event.get("status") or ""),
+            tools_used=_string_sequence(progress_event.get("tools_used")),
+            evidence_count=int(progress_event.get("evidence_count")),
+            fallback_count=int(progress_event.get("fallback_count")),
+            missing_count=int(progress_event.get("missing_count")),
+            schema_valid=bool(progress_event.get("schema_valid")),
+            confidence=float(progress_event.get("confidence")),
+        )
+        confidence_components = {
+            str(key): float(value) for key, value in components.items()
+        }
+        return (
+            RuntimeAgentOutput(
+                evidence_ledger=evidence,
+                research_rule_ids_used=_string_sequence(
+                    runtime_output.get("research_rule_ids_used")
+                ),
+                source_claim_ids_used=_string_sequence(
+                    runtime_output.get("source_claim_ids_used")
+                ),
+                hypothesis_ids_used=_string_sequence(
+                    runtime_output.get("hypothesis_ids_used")
+                ),
+                inferences=inferences,
+                recommendations=recommendations,
+                uncertainties=_string_sequence(runtime_output.get("uncertainties")),
+                confidence_components=confidence_components,
+                rule_aggregation_summary=aggregation,
+                downstream_handoff=handoff,
+                progress_event=progress,
+                confidence_policy_trace=dict(
+                    runtime_output.get("confidence_policy_trace") or {}
+                ),
+            ),
+            [],
+        )
+    except (TypeError, ValueError) as exc:
+        return None, [f"runtime output cannot be restored: {exc}"]
+
+
+def _runtime_aggregation_policy_markers(root: Path) -> list[str]:
+    failures: list[str] = []
+    schema_path = root / "schemas/rule_aggregation_policy.schema.yaml"
+    if not schema_path.exists():
+        return ["rule aggregation policy schema missing"]
+    schema_text = schema_path.read_text(encoding="utf-8")
+    for marker in (
+        "single_rule_max_adjustment: 0.05",
+        "rule_group_max_adjustment: 0.10",
+        "global_research_adjustment_cap: 0.20",
+        "research_only_adjustment_cap: 0.05",
+        "conflict_object_required",
+        "group_and_deduplicate",
+        "correlated_rule_dedup_test",
+        "aggregation_level_backtest",
+    ):
+        if marker not in schema_text:
+            failures.append(f"rule aggregation policy schema missing {marker}")
+    return failures
+
+
+def _runtime_aggregation_gate(
+    root: Path,
+    runtime_output: Mapping[str, Any] | None,
+    *,
+    runtime_output_error: str = "",
+) -> tuple[bool, str, str]:
+    failures = _runtime_aggregation_policy_markers(root)
+    if runtime_output_error:
+        failures.append(runtime_output_error)
+    if not runtime_output:
+        failures.append("runtime output missing")
+        return False, "runtime aggregation evidence missing", "; ".join(failures)
+
+    restored, restore_failures = _runtime_agent_output_from_mapping(runtime_output)
+    failures.extend(restore_failures)
+    if restored is not None:
+        trace, trace_error = _mapping_field(
+            runtime_output,
+            "confidence_policy_trace",
+            "confidence_policy_trace",
+        )
+        failures.append(trace_error) if trace_error else None
+        confidence_cap = trace.get("confidence_cap", 1.0)
+        try:
+            check_result = check_runtime_output(
+                restored,
+                verified_claim_ids=set(restored.source_claim_ids_used),
+                confidence_cap=float(confidence_cap),
+            )
+        except (TypeError, ValueError) as exc:
+            failures.append(f"runtime checker failed to run: {exc}")
+        else:
+            failures.extend(check_result.reasons)
+
+    aggregation, aggregation_error = _mapping_field(
+        runtime_output,
+        "rule_aggregation_summary",
+        "rule_aggregation_summary",
+    )
+    if aggregation_error:
+        failures.append(aggregation_error)
+    target_signal = str(aggregation.get("target_signal") or "").strip()
+    if not target_signal:
+        failures.append("rule_aggregation_summary.target_signal required")
+    try:
+        horizon_days = int(aggregation.get("horizon_days"))
+    except (TypeError, ValueError):
+        horizon_days = 0
+        failures.append("rule_aggregation_summary.horizon_days must be integer")
+    if horizon_days <= 0:
+        failures.append("rule_aggregation_summary.horizon_days must be positive")
+    group_deltas, group_deltas_error = _mapping_field(
+        aggregation,
+        "group_deltas",
+        "rule_aggregation_summary.group_deltas",
+    )
+    if group_deltas_error:
+        failures.append(group_deltas_error)
+    if not group_deltas:
+        failures.append("rule_aggregation_summary.group_deltas required")
+    parsed_group_deltas: dict[str, float] = {}
+    for group_id, raw_delta in group_deltas.items():
+        try:
+            delta = float(raw_delta)
+        except (TypeError, ValueError):
+            failures.append(
+                f"rule_aggregation_summary.group_deltas.{group_id} must be numeric"
+            )
+            continue
+        parsed_group_deltas[str(group_id)] = delta
+        if abs(delta) > 0.10:
+            failures.append(
+                f"rule_aggregation_summary.group_deltas.{group_id} exceeds rule_group_max_adjustment"
+            )
+    try:
+        final_delta = float(aggregation.get("final_research_delta"))
+    except (TypeError, ValueError):
+        final_delta = 0.0
+        failures.append("rule_aggregation_summary.final_research_delta must be numeric")
+    if abs(final_delta) > 0.20:
+        failures.append(
+            "rule_aggregation_summary.final_research_delta exceeds global_research_adjustment_cap"
+        )
+    if parsed_group_deltas:
+        expected_final = max(-0.20, min(0.20, sum(parsed_group_deltas.values())))
+        if not _nearly_equal(final_delta, expected_final):
+            failures.append(
+                "rule_aggregation_summary.final_research_delta must equal capped sum(group_deltas)"
+            )
+    if not isinstance(aggregation.get("has_opposing_rules"), bool):
+        failures.append("rule_aggregation_summary.has_opposing_rules must be boolean")
+    try:
+        duplicate_count = int(aggregation.get("correlated_rule_duplicate_count"))
+    except (TypeError, ValueError):
+        duplicate_count = -1
+        failures.append(
+            "rule_aggregation_summary.correlated_rule_duplicate_count must be integer"
+        )
+    if duplicate_count < 0:
+        failures.append(
+            "rule_aggregation_summary.correlated_rule_duplicate_count must be non-negative"
+        )
+
+    if failures:
+        return False, "runtime aggregation policy checked", "; ".join(failures)
+    return (
+        True,
+        (
+            "runtime checker accepted aggregation summary; "
+            f"target={target_signal}, horizon={horizon_days}, groups={len(group_deltas)}, "
+            f"delta={final_delta:.2f}"
+        ),
         "",
     )
 
@@ -1006,18 +1297,16 @@ def audit_master_plan_completion(root: str | Path = ".") -> CompletionAudit:
             rule_pack_error=rule_pack_error,
         )
     )
-
-    aggregation, aggregation_error = _mapping_field(
+    (
+        runtime_aggregation_passed,
+        runtime_aggregation_evidence,
+        runtime_aggregation_blocker,
+    ) = _runtime_aggregation_gate(
+        root_path,
         runtime_output,
-        "rule_aggregation_summary",
-        "rule_aggregation_summary",
+        runtime_output_error=runtime_output_error,
     )
-    runtime_passed = (
-        not runtime_output_error
-        and not aggregation_error
-        and bool(runtime_output)
-        and _runtime_output_passes(runtime_output)
-    )
+
     paper_summary, paper_summary_error = _mapping_field(
         paper_report,
         "paper_trading_summary",
@@ -1087,13 +1376,9 @@ def audit_master_plan_completion(root: str | Path = ".") -> CompletionAudit:
             CompletionCriterion(
                 "C05",
                 "Runtime aggregation implements de-duplication and conflict objects.",
-                runtime_passed
-                and "correlated_rule_duplicate_count" in aggregation
-                and "has_opposing_rules" in aggregation,
-                "runtime output aggregation summary",
-                runtime_output_error
-                or aggregation_error
-                or ("" if runtime_passed else "runtime output missing required fields"),
+                runtime_aggregation_passed,
+                runtime_aggregation_evidence,
+                runtime_aggregation_blocker,
             ),
             CompletionCriterion(
                 "C06",
