@@ -20,6 +20,7 @@ from .manual_review_import import (
 DEFAULT_LICENSE_POLICY_IMPORT_PATH = "registry/review_batches/source_license_policy_import.jsonl"
 LICENSE_POLICY_IMPORT_REPORT_PATH = "registry/review_batches/source_license_policy_import_report.json"
 SOURCE_LICENSE_POLICY_TEMPLATE_PATH = "registry/review_batches/source_license_policy_template.json"
+SOURCE_LICENSE_REVIEWED_POLICY_PATH = "registry/review_batches/source_license_policy_reviewed.json"
 MATCHED_ROWS_FINGERPRINT_FIELD = "matched_rows_fingerprint"
 SOURCE_LICENSE_POLICY_ALLOWED_FIELDS = frozenset(
     {
@@ -409,7 +410,7 @@ def build_source_license_policy_template(root: str | Path = ".") -> Mapping[str,
         "approved_for_production_runtime": None,
         "build_command": (
             "mosaic-rke build-license-review-import --root . "
-            f"--policy {SOURCE_LICENSE_POLICY_TEMPLATE_PATH} "
+            f"--policy {SOURCE_LICENSE_REVIEWED_POLICY_PATH} "
             f"--output {DEFAULT_LICENSE_POLICY_IMPORT_PATH}"
         ),
         "dry_run_command": (
@@ -430,8 +431,9 @@ def build_source_license_policy_template(root: str | Path = ".") -> Mapping[str,
         "reviewer": "",
         "target_review_path": LICENSE_REVIEW_TEMPLATE_PATH,
         "template_note": (
-            "Reviewer must fill reviewer, review_date, notes, and both approval "
-            "booleans before expanding this policy into per-source import rows."
+            f"Copy this template to {SOURCE_LICENSE_REVIEWED_POLICY_PATH}; reviewer "
+            "must fill reviewer, review_date, notes, and both approval booleans "
+            "in the reviewed policy before expanding it into per-source import rows."
         ),
     }
 

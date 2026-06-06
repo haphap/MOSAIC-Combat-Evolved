@@ -27,19 +27,20 @@
         "review_notes"
       ],
       "review_kind": "gold_set",
-      "review_packet_path": "registry/gold_sets/tushare_research_reports.review_packet.json"
+      "review_packet_path": "registry/gold_sets/tushare_research_reports.review_packet.json",
+      "reviewed_policy_path": ""
     },
     {
       "apply_command": "mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_policy_import.jsonl",
       "blocker": "source license review still pending or restricted",
-      "dry_run_command": "mosaic-rke build-license-review-import --root . --policy registry/review_batches/source_license_policy_template.json --output registry/review_batches/source_license_policy_import.jsonl && mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_policy_import.jsonl --dry-run",
+      "dry_run_command": "mosaic-rke build-license-review-import --root . --policy registry/review_batches/source_license_policy_reviewed.json --output registry/review_batches/source_license_policy_import.jsonl && mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_policy_import.jsonl --dry-run",
       "evidence": "0 / 9812 sources approved for production runtime",
       "evidence_path": "registry/compliance/tushare_license_review_summary.json",
       "exported_rows": 50,
       "full_import_template_path": "registry/review_batches/source_license_policy_import.jsonl",
       "gate_id": "PG03",
       "import_template_path": "registry/review_batches/source_license_next_import_template.jsonl",
-      "operator_note": "Compliance approval is required before production runtime retrieval. For same-source decisions, fill the policy template first instead of editing every source row manually.",
+      "operator_note": "Compliance approval is required before production runtime retrieval. Copy registry/review_batches/source_license_policy_template.json to registry/review_batches/source_license_policy_reviewed.json, fill and sign the reviewed policy, then expand it instead of editing every source row manually.",
       "passed": false,
       "pending_rows": 9812,
       "policy_template_path": "registry/review_batches/source_license_policy_template.json",
@@ -51,7 +52,8 @@
         "notes"
       ],
       "review_kind": "source_license",
-      "review_packet_path": "registry/compliance/tushare_license_review_packet.json"
+      "review_packet_path": "registry/compliance/tushare_license_review_packet.json",
+      "reviewed_policy_path": "registry/review_batches/source_license_policy_reviewed.json"
     },
     {
       "apply_command": "mosaic-rke apply-lockbox-review --root . --input registry/review_batches/lockbox_review_next_import_template.json",
@@ -77,7 +79,8 @@
         "notes"
       ],
       "review_kind": "lockbox",
-      "review_packet_path": "registry/evaluation/lockbox/lockbox_policy.json"
+      "review_packet_path": "registry/evaluation/lockbox/lockbox_policy.json",
+      "reviewed_policy_path": ""
     }
   ],
   "generated_paths": [
@@ -93,7 +96,7 @@
   "next_state": "paper_trading",
   "paper_trading_allowed": true,
   "production_allowed": false,
-  "promotion_dry_run_command": "mosaic-rke build-license-review-import --root . --policy registry/review_batches/source_license_policy_template.json --output registry/review_batches/source_license_policy_import.jsonl && mosaic-rke promotion-dry-run --root . --gold-input registry/review_batches/gold_set_full_import_template.jsonl --license-input registry/review_batches/source_license_policy_import.jsonl --lockbox-input registry/review_batches/lockbox_review_next_import_template.json",
+  "promotion_dry_run_command": "mosaic-rke build-license-review-import --root . --policy registry/review_batches/source_license_policy_reviewed.json --output registry/review_batches/source_license_policy_import.jsonl && mosaic-rke promotion-dry-run --root . --gold-input registry/review_batches/gold_set_full_import_template.jsonl --license-input registry/review_batches/source_license_policy_import.jsonl --lockbox-input registry/review_batches/lockbox_review_next_import_template.json",
   "ready_for_operator_review": true,
   "remaining_blockers": [
     "broad-rollout completion audit still has blockers",

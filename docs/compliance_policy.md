@@ -67,7 +67,9 @@ expand it into the sparse JSONL expected by `apply-license-review`:
 
 The operator handoff writes a reviewer-fillable starter policy at
 `registry/review_batches/source_license_policy_template.json`. It is deliberately
-incomplete: `reviewer`, `review_date`, and both approval booleans must be filled
+incomplete and should remain a regeneratable template. Copy it to
+`registry/review_batches/source_license_policy_reviewed.json`, then fill
+`reviewer`, `review_date`, and both approval booleans in that reviewed file
 before it can be expanded.
 
 ```json
@@ -89,7 +91,7 @@ Build the import rows:
 ```bash
 mosaic-rke build-license-review-import \
   --root . \
-  --policy registry/review_batches/source_license_policy_template.json \
+  --policy registry/review_batches/source_license_policy_reviewed.json \
   --output registry/review_batches/source_license_policy_import.jsonl
 ```
 

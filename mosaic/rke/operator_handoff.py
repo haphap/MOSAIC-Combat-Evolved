@@ -9,6 +9,7 @@ from typing import Any, Mapping, Sequence
 
 from .license_policy_import import (
     DEFAULT_LICENSE_POLICY_IMPORT_PATH,
+    SOURCE_LICENSE_REVIEWED_POLICY_PATH,
     SOURCE_LICENSE_POLICY_TEMPLATE_PATH,
     write_source_license_policy_template,
 )
@@ -47,6 +48,7 @@ class OperatorGateHandoff:
     import_template_path: str
     full_import_template_path: str
     policy_template_path: str
+    reviewed_policy_path: str
     pending_rows: int | None
     exported_rows: int | None
     required_manual_fields: Sequence[str]
@@ -199,6 +201,7 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
             import_template_path=gold.import_template_path,
             full_import_template_path=gold.full_import_template_path,
             policy_template_path="",
+            reviewed_policy_path="",
             pending_rows=gold.pending_rows,
             exported_rows=gold.exported_rows,
             required_manual_fields=tuple(gold.required_manual_fields),
@@ -222,7 +225,7 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
             required_manual_fields=tuple(source_license.required_manual_fields),
             dry_run_command=(
                 "mosaic-rke build-license-review-import --root . "
-                f"--policy {SOURCE_LICENSE_POLICY_TEMPLATE_PATH} "
+                f"--policy {SOURCE_LICENSE_REVIEWED_POLICY_PATH} "
                 f"--output {DEFAULT_LICENSE_POLICY_IMPORT_PATH} && "
                 "mosaic-rke apply-license-review --root . "
                 f"--input {DEFAULT_LICENSE_POLICY_IMPORT_PATH} --dry-run"
@@ -233,9 +236,11 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
             ),
             operator_note=(
                 "Compliance approval is required before production runtime retrieval. "
-                "For same-source decisions, fill the policy template first instead of "
-                "editing every source row manually."
+                f"Copy {SOURCE_LICENSE_POLICY_TEMPLATE_PATH} to "
+                f"{SOURCE_LICENSE_REVIEWED_POLICY_PATH}, fill and sign the reviewed "
+                "policy, then expand it instead of editing every source row manually."
             ),
+            reviewed_policy_path=SOURCE_LICENSE_REVIEWED_POLICY_PATH,
         ),
         OperatorGateHandoff(
             gate_id="PG09",
@@ -248,6 +253,7 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
             import_template_path=LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH,
             full_import_template_path="",
             policy_template_path="",
+            reviewed_policy_path="",
             pending_rows=None,
             exported_rows=1,
             required_manual_fields=(
@@ -299,7 +305,7 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
         ),
         promotion_dry_run_command=(
             "mosaic-rke build-license-review-import --root . "
-            f"--policy {SOURCE_LICENSE_POLICY_TEMPLATE_PATH} "
+            f"--policy {SOURCE_LICENSE_REVIEWED_POLICY_PATH} "
             f"--output {DEFAULT_LICENSE_POLICY_IMPORT_PATH} && "
             "mosaic-rke promotion-dry-run --root . "
             f"--gold-input {gold.full_import_template_path} "
@@ -337,6 +343,7 @@ def render_operator_handoff_markdown(handoff: OperatorHandoff) -> str:
                 f"- Import template: {gate.import_template_path}",
                 f"- Full import template: {gate.full_import_template_path or 'none'}",
                 f"- Policy template: {gate.policy_template_path or 'none'}",
+                f"- Reviewed policy: {gate.reviewed_policy_path or 'none'}",
                 f"- Pending rows: {gate.pending_rows}",
                 f"- Exported rows: {gate.exported_rows}",
                 f"- Dry run: `{gate.dry_run_command}`",

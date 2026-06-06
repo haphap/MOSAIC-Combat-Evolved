@@ -55,7 +55,12 @@ def test_operator_handoff_summarizes_remaining_manual_gates():
         license_gate.policy_template_path
         == "registry/review_batches/source_license_policy_template.json"
     )
-    assert "source_license_policy_template.json" in license_gate.dry_run_command
+    assert (
+        license_gate.reviewed_policy_path
+        == "registry/review_batches/source_license_policy_reviewed.json"
+    )
+    assert "source_license_policy_reviewed.json" in license_gate.dry_run_command
+    assert "source_license_policy_reviewed.json" in handoff.promotion_dry_run_command
     assert (
         lockbox.import_template_path
         == "registry/review_batches/lockbox_review_next_import_template.json"
@@ -145,6 +150,7 @@ def test_write_operator_handoff_outputs_json_markdown_and_lockbox_template(
     assert payload["production_allowed"] is False
     assert "promotion-dry-run" in payload["promotion_dry_run_command"]
     assert "source_license_policy_import.jsonl" in payload["promotion_dry_run_command"]
+    assert "source_license_policy_reviewed.json" in payload["promotion_dry_run_command"]
     assert len(payload["gates"]) == 3
     assert lockbox_template["result"] == ""
     assert lockbox_template["target_row_hash"].startswith("sha256:")
@@ -152,6 +158,7 @@ def test_write_operator_handoff_outputs_json_markdown_and_lockbox_template(
     assert policy_template["approved_for_production_runtime"] is None
     assert policy_template["matched_row_count"] == 9812
     assert "source_license_policy_template.json" in markdown
+    assert "source_license_policy_reviewed.json" in markdown
     assert "gold_set_full_import_template.jsonl" in markdown
     assert markdown.startswith("# RKE Operator Handoff")
 

@@ -12,6 +12,7 @@ from mosaic.rke import (
 from mosaic.rke.cli import main
 from mosaic.rke.license_policy_import import (
     MATCHED_ROWS_FINGERPRINT_FIELD,
+    SOURCE_LICENSE_REVIEWED_POLICY_PATH,
     _matched_rows_fingerprint,
 )
 
@@ -101,6 +102,8 @@ def test_source_license_policy_template_requires_reviewer_decision():
     assert template["filters"]["source_type"] == ["tushare_research_report"]
     assert template["filters"]["current_license_status"] == ["pending_review"]
     assert "build-license-review-import" in template["build_command"]
+    assert SOURCE_LICENSE_REVIEWED_POLICY_PATH in template["build_command"]
+    assert "source_license_policy_template.json" not in template["build_command"]
 
 
 def test_write_source_license_policy_template_outputs_registry_artifact(tmp_path: Path):

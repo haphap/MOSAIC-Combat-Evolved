@@ -3,22 +3,22 @@
   "artifact_count": 16,
   "artifacts": [
     {
-      "bytes": 5790,
+      "bytes": 6072,
       "exists": true,
       "format": "json",
       "path": "registry/handoffs/rke_operator_handoff.json",
       "role": "operator_handoff_json",
       "row_count": null,
-      "sha256": "sha256:8c21d7ee79ee6e63f155d2a0aa83f3281177133a81a96064dc810c910e4c39ea"
+      "sha256": "sha256:b7c8931f34ac0c3a729f957608f5b3e7bbcea29efc68f4fb648a1f9407a2319c"
     },
     {
-      "bytes": 3622,
+      "bytes": 3870,
       "exists": true,
       "format": "markdown",
       "path": "registry/handoffs/rke_operator_handoff.md",
       "role": "operator_handoff_markdown",
       "row_count": null,
-      "sha256": "sha256:d1287de30f13d6b4f05604daf265d8778c1571a2fd0ab29d9c688ac31f6367e5"
+      "sha256": "sha256:b64f55c65245afc2f599a44331f83fe4cc39373b5997682d8583ff9cdd412c5f"
     },
     {
       "bytes": 2774,
@@ -102,13 +102,13 @@
       "sha256": "sha256:822e6e9710632ea4d920932a5024ac24d78f90d16b10c3c2285bf2c36f1efb07"
     },
     {
-      "bytes": 1165,
+      "bytes": 1262,
       "exists": true,
       "format": "json",
       "path": "registry/review_batches/source_license_policy_template.json",
       "role": "license_policy_template",
       "row_count": null,
-      "sha256": "sha256:ca4cc5ebd2ba2870d0936d8fdf6c9706ea2983e09d4c92218e96d5ae1c5fed67"
+      "sha256": "sha256:358bc9fae89e72073b2d24dd32b3daa5160f90483bbaf3a1061e3cfc52d6303e"
     },
     {
       "bytes": 970,
