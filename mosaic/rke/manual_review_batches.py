@@ -14,7 +14,6 @@ from pathlib import Path
 from typing import Any, Literal, Mapping, Sequence
 
 from .manual_review_import import GOLD_BOOL_FIELDS, TARGET_ROW_HASH_FIELD, review_row_fingerprint
-from .phase_minus1 import load_jsonl
 
 
 GOLD_REVIEW_TEMPLATE_PATH = "registry/gold_sets/tushare_research_reports.review_template.jsonl"
@@ -83,15 +82,38 @@ def _write_jsonl(path: Path, rows: Sequence[Mapping[str, Any]]) -> dict[str, Any
     return {"path": str(path), "rows": len(rows)}
 
 
-def _split_mapping_rows(rows: Sequence[Any]) -> tuple[list[Mapping[str, Any]], tuple[int, ...]]:
+def _load_review_rows(
+    root_path: Path,
+    relative_path: str,
+    *,
+    label: str,
+) -> tuple[list[Any], list[Mapping[str, Any]], tuple[int, ...], tuple[str, ...], int]:
+    path = root_path / relative_path
+    if not path.exists():
+        return [], [], (), (), 0
+
+    raw_rows: list[Any] = []
     valid_rows: list[Mapping[str, Any]] = []
     invalid_row_numbers: list[int] = []
-    for index, row in enumerate(rows, 1):
-        if isinstance(row, Mapping):
-            valid_rows.append(row)
-        else:
-            invalid_row_numbers.append(index)
-    return valid_rows, tuple(invalid_row_numbers)
+    parse_blockers: list[str] = []
+    total_rows = 0
+    with path.open("r", encoding="utf-8") as handle:
+        for line_number, line in enumerate(handle, 1):
+            line = line.strip()
+            if not line:
+                continue
+            total_rows += 1
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError as exc:
+                parse_blockers.append(f"{label} row {line_number} must contain valid JSON: {exc.msg}")
+                continue
+            raw_rows.append(row)
+            if isinstance(row, Mapping):
+                valid_rows.append(row)
+            else:
+                invalid_row_numbers.append(line_number)
+    return raw_rows, valid_rows, tuple(invalid_row_numbers), tuple(parse_blockers), total_rows
 
 
 def _gold_row_complete(row: Mapping[str, Any]) -> bool:
@@ -226,10 +248,22 @@ def build_manual_review_batch_status(
         raise ValueError("license_batch_size must be positive")
 
     root_path = Path(root)
-    raw_gold_rows = load_jsonl(root_path / GOLD_REVIEW_TEMPLATE_PATH)
-    raw_license_rows = load_jsonl(root_path / LICENSE_REVIEW_TEMPLATE_PATH)
-    gold_rows, invalid_gold_rows = _split_mapping_rows(raw_gold_rows)
-    license_rows, invalid_license_rows = _split_mapping_rows(raw_license_rows)
+    raw_gold_rows, gold_rows, invalid_gold_rows, gold_parse_blockers, gold_total_rows = _load_review_rows(
+        root_path,
+        GOLD_REVIEW_TEMPLATE_PATH,
+        label="gold-set review",
+    )
+    (
+        raw_license_rows,
+        license_rows,
+        invalid_license_rows,
+        license_parse_blockers,
+        license_total_rows,
+    ) = _load_review_rows(
+        root_path,
+        LICENSE_REVIEW_TEMPLATE_PATH,
+        label="source license review",
+    )
 
     pending_gold = [row for row in gold_rows if not _gold_row_complete(row)]
     pending_license = [row for row in license_rows if not _license_row_complete(row)]
@@ -244,7 +278,7 @@ def build_manual_review_batch_status(
         packet_path=GOLD_REVIEW_PACKET_PATH,
         import_template_path=GOLD_BATCH_IMPORT_TEMPLATE_PATH,
         full_import_template_path=GOLD_FULL_IMPORT_TEMPLATE_PATH,
-        total_rows=len(raw_gold_rows),
+        total_rows=gold_total_rows,
         pending_ids=gold_pending_ids,
         batch_size=gold_batch_size,
         exported_rows=len(gold_batch),
@@ -261,7 +295,7 @@ def build_manual_review_batch_status(
         target_path=LICENSE_REVIEW_TEMPLATE_PATH,
         packet_path=LICENSE_REVIEW_PACKET_PATH,
         import_template_path=LICENSE_BATCH_IMPORT_TEMPLATE_PATH,
-        total_rows=len(raw_license_rows),
+        total_rows=license_total_rows,
         pending_ids=license_pending_ids,
         batch_size=license_batch_size,
         exported_rows=len(license_batch),
@@ -275,6 +309,8 @@ def build_manual_review_batch_status(
     )
 
     blockers: list[str] = []
+    blockers.extend(gold_parse_blockers)
+    blockers.extend(license_parse_blockers)
     if invalid_gold_rows:
         blockers.append(
             "gold-set review row must be object at row(s): "
@@ -300,7 +336,14 @@ def build_manual_review_batch_status(
 
     status = ManualReviewBatchStatus(
         status_id="RKE-MANUAL-REVIEW-BATCH-STATUS-20260606",
-        ready_for_manual_review=bool(gold_rows and license_rows and not invalid_gold_rows and not invalid_license_rows),
+        ready_for_manual_review=bool(
+            gold_rows
+            and license_rows
+            and not invalid_gold_rows
+            and not invalid_license_rows
+            and not gold_parse_blockers
+            and not license_parse_blockers
+        ),
         gold_set=gold_summary,
         source_license=license_summary,
         generated_paths=(
@@ -326,7 +369,11 @@ def write_manual_review_batches(
         gold_batch_size=gold_batch_size,
         license_batch_size=license_batch_size,
     )
-    gold_rows, _ = _split_mapping_rows(load_jsonl(root_path / GOLD_REVIEW_TEMPLATE_PATH))
+    _, gold_rows, _, _, _ = _load_review_rows(
+        root_path,
+        GOLD_REVIEW_TEMPLATE_PATH,
+        label="gold-set review",
+    )
     gold_full = tuple(_gold_template_row(row) for row in gold_rows if not _gold_row_complete(row))
     gold_result = _write_jsonl(root_path / GOLD_BATCH_IMPORT_TEMPLATE_PATH, gold_batch)
     gold_full_result = _write_jsonl(root_path / GOLD_FULL_IMPORT_TEMPLATE_PATH, gold_full)

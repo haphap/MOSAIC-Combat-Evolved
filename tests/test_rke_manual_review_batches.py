@@ -140,6 +140,41 @@ def test_manual_review_batches_reject_malformed_review_rows_without_crashing(tmp
     assert paths["source_license_rows"] == 4
 
 
+def test_manual_review_batches_report_malformed_json_review_rows_without_crashing(tmp_path: Path):
+    _copy_registry(tmp_path)
+    gold_review = tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    license_review = tmp_path / "registry/compliance/tushare_license_review_template.jsonl"
+    gold_count = len(_load_jsonl(gold_review))
+    source_count = _license_review_source_count(tmp_path)
+    gold_review.write_text(gold_review.read_text(encoding="utf-8") + "{\n", encoding="utf-8")
+    license_review.write_text(license_review.read_text(encoding="utf-8") + "{\n", encoding="utf-8")
+
+    status, gold_batch, license_batch = build_manual_review_batch_status(
+        tmp_path,
+        gold_batch_size=3,
+        license_batch_size=4,
+    )
+    paths = write_manual_review_batches(tmp_path, gold_batch_size=3, license_batch_size=4)
+    payload = json.loads(Path(paths["status"]).read_text(encoding="utf-8"))
+
+    assert status.ready_for_manual_review is False
+    assert f"gold-set review row {gold_count + 1} must contain valid JSON" in status.blockers[0]
+    assert any(
+        f"source license review row {source_count + 1} must contain valid JSON" in blocker
+        for blocker in status.blockers
+    )
+    assert status.gold_set.total_rows == gold_count + 1
+    assert status.source_license.total_rows == source_count + 1
+    assert status.gold_set.pending_rows == gold_count
+    assert status.source_license.pending_rows == source_count
+    assert len(gold_batch) == 3
+    assert len(license_batch) == 4
+    assert payload["ready_for_manual_review"] is False
+    assert paths["gold_set_rows"] == 3
+    assert paths["gold_set_full_rows"] == gold_count
+    assert paths["source_license_rows"] == 4
+
+
 def test_manual_review_bundle_manifest_hashes_review_artifacts(tmp_path: Path):
     _copy_registry(tmp_path)
 
