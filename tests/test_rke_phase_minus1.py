@@ -203,6 +203,24 @@ def test_phase_minus1_gold_set_gate_rejects_small_or_unreviewed_samples():
     assert "gold set requires >= 50 documents" in gold_set.gate_failures()
 
 
+def test_phase_minus1_gold_set_gate_counts_malformed_review_rows_as_failures():
+    gold_set = evaluate_gold_set_reviews(
+        ["not an object", ["also", "not", "object"]],
+        gold_set_id="GOLD-MALFORMED",
+    )
+
+    assert not gold_set.passed
+    assert gold_set.sample_size_documents == 2
+    assert gold_set.sample_size_claims == 2
+    assert gold_set.claim_precision == 0.0
+    assert gold_set.source_span_support_precision == 0.0
+    assert gold_set.direction_accuracy == 0.0
+    assert gold_set.variable_mapping_accuracy == 0.0
+    assert gold_set.unsupported_field_false_grounding_rate == 1.0
+    assert "claim_precision below 0.85" in gold_set.gate_failures()
+    assert "unsupported_field_false_grounding_rate above 0.05" in gold_set.gate_failures()
+
+
 def test_tushare_gold_set_review_template_is_ready_for_manual_labels():
     rows = load_jsonl("registry/gold_sets/tushare_research_reports.review_template.jsonl")
 

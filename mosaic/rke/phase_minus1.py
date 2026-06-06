@@ -442,15 +442,39 @@ def write_gold_set_review_template(
     return {"path": str(path), "rows": len(rows)}
 
 
+def _normalize_gold_review_records(records: Sequence[Any]) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    for index, record in enumerate(records, 1):
+        if isinstance(record, GoldSetReviewRecord):
+            normalized.append(asdict(record))
+            continue
+        if isinstance(record, Mapping):
+            normalized.append(dict(record))
+            continue
+
+        row_id = f"<malformed-review-row-{index}>"
+        normalized.append(
+            {
+                "source_id": row_id,
+                "source_span_id": f"{row_id}:span",
+                "claim_id": row_id,
+                "document_id": row_id,
+                "claim_correct": False,
+                "source_span_supports_claim": False,
+                "direction_correct": False,
+                "variable_mapping_correct": False,
+                "unsupported_field_false_grounded": True,
+            }
+        )
+    return normalized
+
+
 def evaluate_gold_set_reviews(
-    records: Sequence[GoldSetReviewRecord | Mapping[str, Any]],
+    records: Sequence[Any],
     *,
     gold_set_id: str,
 ) -> ClaimExtractionGoldSet:
-    normalized: list[dict[str, Any]] = [
-        asdict(record) if isinstance(record, GoldSetReviewRecord) else dict(record)
-        for record in records
-    ]
+    normalized = _normalize_gold_review_records(records)
     n = len(normalized)
     if n == 0:
         return ClaimExtractionGoldSet(
