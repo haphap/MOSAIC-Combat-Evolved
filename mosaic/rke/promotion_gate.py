@@ -55,6 +55,32 @@ def _optional_json(path: Path) -> Any:
     return _read_json(path)
 
 
+def _optional_mapping(path: Path, label: str) -> tuple[Mapping[str, Any], tuple[str, ...]]:
+    if not path.exists():
+        return {}, ()
+    payload = _read_json(path)
+    if isinstance(payload, Mapping):
+        return payload, ()
+    return {}, (f"{label} must be object",)
+
+
+def _child_mapping(
+    payload: Mapping[str, Any],
+    field: str,
+    label: str,
+) -> tuple[dict[str, Any], tuple[str, ...]]:
+    value = payload.get(field)
+    if value is None:
+        return {}, ()
+    if isinstance(value, Mapping):
+        return dict(value), ()
+    return {}, (f"{label} must be object",)
+
+
+def _payload_blocker(errors: Sequence[str], fallback: str) -> str:
+    return "; ".join(errors) if errors else fallback
+
+
 def _write_json(path: Path, payload: Mapping[str, Any]) -> dict[str, Any]:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
@@ -84,13 +110,13 @@ def _criterion(
 
 def _completion_criterion(payload: Mapping[str, Any], criterion_id: str) -> Mapping[str, Any]:
     for row in payload.get("criteria") or ():
-        if row.get("criterion_id") == criterion_id:
+        if isinstance(row, Mapping) and row.get("criterion_id") == criterion_id:
             return row
     return {}
 
 
 def _lockbox_decision_from_payload(payload: Any) -> tuple[Any, tuple[str, ...]]:
-    if not payload:
+    if payload is None or payload == {}:
         return evaluate_lockbox_review(None), ()
     if not isinstance(payload, Mapping):
         return evaluate_lockbox_review(None), ("lockbox review must be object",)
@@ -111,87 +137,163 @@ def build_production_promotion_gate_report(root: str | Path = ".") -> Production
     lockbox_path = "registry/lockbox/central_bank_lockbox_review.json"
     patch_path = "registry/patches/central_bank_paper_trading_patch.json"
 
-    completion = _optional_json(root_path / completion_path)
-    gold = _optional_json(root_path / gold_path)
-    license_review = _optional_json(root_path / license_path)
-    source_validation = _optional_json(root_path / source_validation_path)
-    redaction = _optional_json(root_path / redaction_path)
-    paper = _optional_json(root_path / paper_path)
+    completion, completion_errors = _optional_mapping(root_path / completion_path, "completion audit")
+    gold, gold_errors = _optional_mapping(root_path / gold_path, "gold review summary")
+    license_review, license_errors = _optional_mapping(
+        root_path / license_path,
+        "source license review summary",
+    )
+    source_validation, source_validation_errors = _optional_mapping(
+        root_path / source_validation_path,
+        "source registry validation report",
+    )
+    redaction, redaction_errors = _optional_mapping(
+        root_path / redaction_path,
+        "source text redaction report",
+    )
+    paper, paper_errors = _optional_mapping(root_path / paper_path, "paper-trading report")
     lockbox_payload = _optional_json(root_path / lockbox_path)
-    patch = _optional_json(root_path / patch_path)
+    patch, patch_errors = _optional_mapping(root_path / patch_path, "promotion patch")
 
     lockbox_decision, lockbox_payload_reasons = _lockbox_decision_from_payload(lockbox_payload)
-    paper_summary = dict(paper.get("paper_trading_summary") or {})
-    production_monitor = dict(paper.get("production_monitor") or {})
-    patch_validation = dict(patch.get("validation_summary") or {})
-    rollback_rule = dict(patch.get("rollback_rule") or {})
+    paper_summary, paper_summary_errors = _child_mapping(
+        paper,
+        "paper_trading_summary",
+        "paper_trading_summary",
+    )
+    production_monitor, production_monitor_errors = _child_mapping(
+        paper,
+        "production_monitor",
+        "production_monitor",
+    )
+    patch_validation, patch_validation_errors = _child_mapping(
+        patch,
+        "validation_summary",
+        "patch validation_summary",
+    )
+    rollback_rule, rollback_rule_errors = _child_mapping(
+        patch,
+        "rollback_rule",
+        "patch rollback_rule",
+    )
     c02 = _completion_criterion(completion, "C02")
     c11 = _completion_criterion(completion, "C11")
+    completion_payload_errors = (*completion_errors,)
+    gold_payload_errors = (*gold_errors, *completion_errors)
+    license_payload_errors = (*license_errors, *completion_errors)
+    source_validation_payload_errors = (*source_validation_errors,)
+    redaction_payload_errors = (*redaction_errors,)
+    paper_summary_payload_errors = (*paper_errors, *paper_summary_errors)
+    production_monitor_payload_errors = (*paper_errors, *production_monitor_errors)
+    patch_validation_payload_errors = (*patch_errors, *patch_validation_errors, *rollback_rule_errors)
+    patch_direct_payload_errors = (*patch_errors, *patch_validation_errors)
 
     criteria = (
         _criterion(
             "PG01",
             "Broad-rollout completion audit is green.",
-            bool(completion and all(row.get("passed") is True for row in completion.get("criteria") or ())),
+            (
+                not completion_payload_errors
+                and bool(
+                    completion
+                    and all(
+                        isinstance(row, Mapping) and row.get("passed") is True
+                        for row in completion.get("criteria") or ()
+                    )
+                )
+            ),
             completion_path,
-            f"{sum(row.get('passed') is True for row in completion.get('criteria') or ())} / {len(completion.get('criteria') or ())} completion criteria passed",
-            "broad-rollout completion audit still has blockers",
+            f"{sum(isinstance(row, Mapping) and row.get('passed') is True for row in completion.get('criteria') or ())} / {len(completion.get('criteria') or ())} completion criteria passed",
+            _payload_blocker(
+                completion_payload_errors,
+                "broad-rollout completion audit still has blockers",
+            ),
         ),
         _criterion(
             "PG02",
             "Manual gold-set review passed before staged production.",
-            gold.get("passed") is True and c02.get("passed") is True,
+            not gold_payload_errors and gold.get("passed") is True and c02.get("passed") is True,
             gold_path,
             f"{gold.get('reviewed_claims')} / {gold.get('total_claims')} gold-set claims reviewed",
-            str(c02.get("blocker") or "manual gold-set review still required"),
+            _payload_blocker(
+                gold_payload_errors,
+                str(c02.get("blocker") or "manual gold-set review still required"),
+            ),
         ),
         _criterion(
             "PG03",
             "Source-license review approves production runtime retrieval.",
-            license_review.get("passed") is True and c11.get("passed") is True,
+            (
+                not license_payload_errors
+                and license_review.get("passed") is True
+                and c11.get("passed") is True
+            ),
             license_path,
             f"{license_review.get('approved_for_production_runtime')} / {license_review.get('total_sources')} sources approved for production runtime",
-            str(c11.get("blocker") or "source license review still pending or restricted"),
+            _payload_blocker(
+                license_payload_errors,
+                str(c11.get("blocker") or "source license review still pending or restricted"),
+            ),
         ),
         _criterion(
             "PG04",
             "Source registry accepts production runtime use.",
-            source_validation.get("accepted_for_production") is True,
+            (
+                not source_validation_payload_errors
+                and source_validation.get("accepted_for_production") is True
+            ),
             source_validation_path,
             f"{source_validation.get('production_blocker_count')} source production blockers",
-            "source registry has production blockers",
+            _payload_blocker(
+                source_validation_payload_errors,
+                "source registry has production blockers",
+            ),
         ),
         _criterion(
             "PG05",
             "Long sell-side source text is absent from runtime and public artifacts.",
-            redaction.get("accepted") is True,
+            not redaction_payload_errors and redaction.get("accepted") is True,
             redaction_path,
             f"{redaction.get('failure_count')} source-text redaction failures",
-            "source text redaction audit failed",
+            _payload_blocker(redaction_payload_errors, "source text redaction audit failed"),
         ),
         _criterion(
             "PG06",
             "Paper-trading report is ready.",
-            paper_summary.get("ready") is True,
+            not paper_summary_payload_errors and paper_summary.get("ready") is True,
             paper_path,
             f"paper_trading_ready={paper_summary.get('ready')}, n={paper_summary.get('n')}",
-            "paper-trading report is not ready",
+            _payload_blocker(paper_summary_payload_errors, "paper-trading report is not ready"),
         ),
         _criterion(
             "PG07",
             "Production monitor has not requested rollback.",
-            bool(production_monitor) and production_monitor.get("state") != "rollback_required",
+            (
+                not production_monitor_payload_errors
+                and bool(production_monitor)
+                and production_monitor.get("state") != "rollback_required"
+            ),
             paper_path,
             f"monitor_state={production_monitor.get('state')}, action={production_monitor.get('action')}",
-            "production monitor requires rollback",
+            _payload_blocker(
+                production_monitor_payload_errors,
+                "production monitor requires rollback",
+            ),
         ),
         _criterion(
             "PG08",
             "Promotion patch is still paper-trading and has rollback rule.",
-            patch_validation.get("promotion_state") == "paper_trading" and bool(rollback_rule),
+            (
+                not patch_validation_payload_errors
+                and patch_validation.get("promotion_state") == "paper_trading"
+                and bool(rollback_rule)
+            ),
             patch_path,
             f"promotion_state={patch_validation.get('promotion_state')}, rollback_rule={bool(rollback_rule)}",
-            "patch promotion state or rollback rule is invalid",
+            _payload_blocker(
+                patch_validation_payload_errors,
+                "patch promotion state or rollback rule is invalid",
+            ),
         ),
         _criterion(
             "PG09",
@@ -209,10 +311,10 @@ def build_production_promotion_gate_report(root: str | Path = ".") -> Production
         _criterion(
             "PG10",
             "Direct production remains forbidden until all staged gates and lockbox pass.",
-            patch_validation.get("promotion_state") != "production",
+            not patch_direct_payload_errors and patch_validation.get("promotion_state") != "production",
             patch_path,
             f"promotion_state={patch_validation.get('promotion_state')}",
-            "direct production is not blocked",
+            _payload_blocker(patch_direct_payload_errors, "direct production is not blocked"),
         ),
     )
 

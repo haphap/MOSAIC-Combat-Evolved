@@ -102,6 +102,48 @@ def test_production_promotion_gate_rejects_malformed_lockbox_payload(tmp_path: P
     assert "lockbox review must be object" in pg09.blocker
 
 
+def test_production_promotion_gate_rejects_malformed_completion_payload(tmp_path: Path):
+    _copy_registry(tmp_path)
+    completion_path = tmp_path / "registry/audits/rke_completion_audit.json"
+    completion_path.write_text(json.dumps(["not", "an", "object"]), encoding="utf-8")
+
+    report = build_production_promotion_gate_report(tmp_path)
+    pg01 = next(criterion for criterion in report.criteria if criterion.criterion_id == "PG01")
+
+    assert not report.production_allowed
+    assert not pg01.passed
+    assert "completion audit must be object" in pg01.blocker
+
+
+def test_production_promotion_gate_rejects_malformed_paper_payload(tmp_path: Path):
+    _copy_registry(tmp_path)
+    paper_path = tmp_path / "registry/monitoring/central_bank_paper_trading_report.json"
+    paper_path.write_text(json.dumps(["not", "an", "object"]), encoding="utf-8")
+
+    report = build_production_promotion_gate_report(tmp_path)
+    pg06 = next(criterion for criterion in report.criteria if criterion.criterion_id == "PG06")
+
+    assert not report.paper_trading_allowed
+    assert not pg06.passed
+    assert "paper-trading report must be object" in pg06.blocker
+
+
+def test_production_promotion_gate_rejects_malformed_patch_payload(tmp_path: Path):
+    _copy_registry(tmp_path)
+    patch_path = tmp_path / "registry/patches/central_bank_paper_trading_patch.json"
+    patch_path.write_text(json.dumps(["not", "an", "object"]), encoding="utf-8")
+
+    report = build_production_promotion_gate_report(tmp_path)
+    pg08 = next(criterion for criterion in report.criteria if criterion.criterion_id == "PG08")
+    pg10 = next(criterion for criterion in report.criteria if criterion.criterion_id == "PG10")
+
+    assert not report.paper_trading_allowed
+    assert not pg08.passed
+    assert not pg10.passed
+    assert "promotion patch must be object" in pg08.blocker
+    assert "promotion patch must be object" in pg10.blocker
+
+
 def test_production_promotion_gate_allows_production_after_manual_and_lockbox_gates(tmp_path: Path):
     _copy_registry(tmp_path)
     gold_import = tmp_path / "gold_import.jsonl"
