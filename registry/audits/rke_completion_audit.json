@@ -138,7 +138,7 @@
       "blocker": "",
       "criterion_id": "C12",
       "description": "Audit viewer trace covers source to agent output.",
-      "evidence": "8 audit nodes and 15 provenance edges resolved",
+      "evidence": "8 audit node types and 12 source-to-output chain edges resolved",
       "passed": true
     }
   ],

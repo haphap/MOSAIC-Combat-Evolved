@@ -1656,6 +1656,32 @@ def _data_availability_gate(
     )
 
 
+_AUDIT_REQUIRED_NODE_TYPES = (
+    "source",
+    "claim",
+    "hypothesis",
+    "rule",
+    "parameter_path",
+    "experiment",
+    "patch",
+    "agent_output",
+)
+_AUDIT_REQUIRED_EDGE_CONTRACTS = (
+    ("claim", "source", "source_ids", "source -> claim"),
+    ("hypothesis", "claim", "claim_ids", "claim -> hypothesis"),
+    ("rule", "claim", "claim_ids", "claim -> rule"),
+    ("rule", "hypothesis", "hypothesis_ids", "hypothesis -> rule"),
+    ("rule", "parameter_path", "parameter_paths", "rule -> parameter"),
+    ("experiment", "rule", "rule_ids", "rule -> experiment"),
+    ("experiment", "parameter_path", "parameter_paths", "parameter -> experiment"),
+    ("patch", "experiment", "experiment_ids", "experiment -> patch"),
+    ("patch", "parameter_path", "parameter_paths", "parameter -> patch"),
+    ("agent_output", "claim", "claim_ids", "claim -> agent output"),
+    ("agent_output", "hypothesis", "hypothesis_ids", "hypothesis -> agent output"),
+    ("agent_output", "rule", "rule_ids", "rule -> agent output"),
+)
+
+
 def _audit_trace_gate(root: Path) -> tuple[bool, str, str]:
     trace, trace_error = _optional_mapping(
         root / "registry/audits/central_bank_mvp_audit_trace.json",
@@ -1673,13 +1699,29 @@ def _audit_trace_gate(root: Path) -> tuple[bool, str, str]:
             "audit trace resolution failed",
             f"audit trace resolution failed: {exc}",
         )
-    if view.complete:
+    blockers = list(view.missing_references) + list(view.broken_edges)
+    node_types = {node.ref_type for node in view.nodes}
+    missing_node_types = set(_AUDIT_REQUIRED_NODE_TYPES) - node_types
+    if missing_node_types:
+        blockers.append(f"audit trace missing node types: {sorted(missing_node_types)}")
+    edge_contracts = {
+        (edge.source_type, edge.target_type, edge.relationship) for edge in view.edges
+    }
+    missing_edge_labels: list[str] = []
+    for source_type, target_type, relationship, label in _AUDIT_REQUIRED_EDGE_CONTRACTS:
+        if (source_type, target_type, relationship) not in edge_contracts:
+            missing_edge_labels.append(label)
+    if missing_edge_labels:
+        blockers.append(f"audit trace missing chain edges: {missing_edge_labels}")
+    if view.complete and not blockers:
         return (
             True,
-            f"{view.node_count} audit nodes and {view.edge_count} provenance edges resolved",
+            (
+                f"{len(_AUDIT_REQUIRED_NODE_TYPES)} audit node types and "
+                f"{len(_AUDIT_REQUIRED_EDGE_CONTRACTS)} source-to-output chain edges resolved"
+            ),
             "",
         )
-    blockers = tuple(view.missing_references) + tuple(view.broken_edges)
     return (
         False,
         f"{view.node_count} audit nodes and {view.edge_count} provenance edges resolved",

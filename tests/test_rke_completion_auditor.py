@@ -644,6 +644,48 @@ def test_completion_auditor_rejects_invalid_json_validation_experiment(tmp_path:
     assert "validation experiment must contain valid JSON" in by_id["C04"].blocker
 
 
+def test_completion_auditor_requires_audit_trace_parameter_chain(tmp_path: Path):
+    shutil.copytree(Path("registry"), tmp_path / "registry")
+    trace_path = tmp_path / "registry/audits/central_bank_mvp_audit_trace.json"
+    trace = json.loads(trace_path.read_text(encoding="utf-8"))
+    trace["parameter_paths"] = []
+    trace_path.write_text(
+        json.dumps(trace, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    audit = audit_master_plan_completion(tmp_path)
+    by_id = {criterion.criterion_id: criterion for criterion in audit.criteria}
+
+    assert not by_id["C12"].passed
+    assert "audit trace missing node types" in by_id["C12"].blocker
+    assert "parameter_path" in by_id["C12"].blocker
+    assert "rule -> parameter" in by_id["C12"].blocker
+
+
+def test_completion_auditor_requires_audit_trace_agent_output_rule_edge(
+    tmp_path: Path,
+):
+    shutil.copytree(Path("registry"), tmp_path / "registry")
+    runtime_path = (
+        tmp_path / "registry/runtime_outputs/macro.central_bank.20260605.json"
+    )
+    runtime = json.loads(runtime_path.read_text(encoding="utf-8"))
+    runtime["research_rule_ids_used"] = []
+    runtime_path.write_text(
+        json.dumps(runtime, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    audit = audit_master_plan_completion(tmp_path)
+    by_id = {criterion.criterion_id: criterion for criterion in audit.criteria}
+
+    assert not by_id["C12"].passed
+    assert "agent_output" in by_id["C12"].blocker
+    assert "rule output" in by_id["C12"].blocker
+    assert "rule -> agent output" in by_id["C12"].blocker
+
+
 def test_completion_auditor_writes_registry_file(tmp_path: Path):
     write_central_bank_mvp_registry(tmp_path)
     gold_candidates = load_jsonl(
