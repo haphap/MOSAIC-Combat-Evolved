@@ -179,7 +179,7 @@ def test_build_source_license_policy_import_rejects_legacy_policy_without_finger
 
     assert not report.accepted
     assert "matched_rows_fingerprint does not match current matched rows" in report.blockers
-    assert "matched_row_count does not match current matched rows" in report.blockers
+    assert "matched_row_count must be integer" in report.blockers
     assert not output_path.exists()
 
 
@@ -231,6 +231,40 @@ def test_build_source_license_policy_import_rejects_unexpected_fields(tmp_path: 
     assert not report.accepted
     assert "extra_context unexpected in source-license policy import" in report.blockers
     assert "filters.extra_filter unexpected in source-license policy import" in report.blockers
+    assert not output_path.exists()
+
+
+def test_build_source_license_policy_import_rejects_non_object_filters(tmp_path: Path):
+    _copy_registry(tmp_path)
+    policy_path = tmp_path / "policy.json"
+    output_path = tmp_path / "policy_import.jsonl"
+    policy = _policy(tmp_path)
+    policy["filters"] = ["not", "an", "object"]
+    _write_json(policy_path, policy)
+
+    report = build_source_license_policy_import(tmp_path, policy_path, output_path=output_path)
+
+    assert not report.accepted
+    assert "filters must be object" in report.blockers
+    assert not output_path.exists()
+
+
+def test_build_source_license_policy_import_rejects_non_string_filter_values(
+    tmp_path: Path,
+):
+    _copy_registry(tmp_path)
+    policy_path = tmp_path / "policy.json"
+    output_path = tmp_path / "policy_import.jsonl"
+    policy = _policy(tmp_path)
+    policy["filters"]["source_type"] = ["tushare_research_report", 123]
+    policy["filters"]["source_id_prefix"] = {"prefix": "SRC"}
+    _write_json(policy_path, policy)
+
+    report = build_source_license_policy_import(tmp_path, policy_path, output_path=output_path)
+
+    assert not report.accepted
+    assert "filters.source_type[1] must be string" in report.blockers
+    assert "filters.source_id_prefix must be string or list of strings" in report.blockers
     assert not output_path.exists()
 
 
@@ -331,6 +365,30 @@ def test_build_source_license_policy_import_rejects_stale_publish_date_metadata(
     assert not report.accepted
     assert "publish_date_min does not match current matched rows" in report.blockers
     assert "publish_date_max does not match current matched rows" in report.blockers
+    assert not output_path.exists()
+
+
+def test_build_source_license_policy_import_rejects_bool_matched_row_count(
+    tmp_path: Path,
+):
+    _copy_registry(tmp_path)
+    policy_path = tmp_path / "policy.json"
+    output_path = tmp_path / "policy_import.jsonl"
+    review_rows = _load_jsonl(tmp_path / "registry/compliance/tushare_license_review_template.jsonl")
+    matched = [review_rows[0]]
+    publish_date = matched[0]["publish_date"]
+    policy = _policy(tmp_path)
+    policy["filters"] = {"source_id_prefix": [matched[0]["source_id"]]}
+    policy["matched_row_count"] = True
+    policy[MATCHED_ROWS_FINGERPRINT_FIELD] = _matched_rows_fingerprint(matched)
+    policy["publish_date_min"] = publish_date
+    policy["publish_date_max"] = publish_date
+    _write_json(policy_path, policy)
+
+    report = build_source_license_policy_import(tmp_path, policy_path, output_path=output_path)
+
+    assert not report.accepted
+    assert "matched_row_count must be integer" in report.blockers
     assert not output_path.exists()
 
 

@@ -196,6 +196,30 @@ def _optional_policy_string_failures(policy: Mapping[str, Any], field: str) -> l
     return []
 
 
+def _policy_filter_shape_failures(policy: Mapping[str, Any]) -> list[str]:
+    raw_filters = policy.get("filters") or {}
+    if not isinstance(raw_filters, Mapping):
+        return ["filters must be object"]
+    failures: list[str] = []
+    for field in ("source_type", "current_license_status", "source_id_prefix"):
+        value = raw_filters.get(field)
+        if value is None:
+            continue
+        if isinstance(value, str):
+            if not value.strip():
+                failures.append(f"filters.{field} required")
+            continue
+        if not isinstance(value, list | tuple):
+            failures.append(f"filters.{field} must be string or list of strings")
+            continue
+        for index, item in enumerate(value):
+            if not isinstance(item, str):
+                failures.append(f"filters.{field}[{index}] must be string")
+            elif not item.strip():
+                failures.append(f"filters.{field}[{index}] required")
+    return failures
+
+
 def _policy_filter_date_failures(policy: Mapping[str, Any]) -> list[str]:
     raw_filters = policy.get("filters") or {}
     if not isinstance(raw_filters, Mapping):
@@ -222,7 +246,7 @@ def _policy_filter_date_failures(policy: Mapping[str, Any]) -> list[str]:
 def _policy_filters(policy: Mapping[str, Any]) -> SourceLicensePolicyFilters:
     raw_filters = policy.get("filters") or {}
     if not isinstance(raw_filters, Mapping):
-        raise ValueError("source-license policy filters must be an object")
+        return SourceLicensePolicyFilters()
     return SourceLicensePolicyFilters(
         source_type=_as_str_tuple(raw_filters.get("source_type")),
         current_license_status=_as_str_tuple(raw_filters.get("current_license_status")),
@@ -418,11 +442,15 @@ def build_source_license_policy_import(
         )
     )
     blockers.extend(_policy_filter_date_failures(policy))
+    blockers.extend(_policy_filter_shape_failures(policy))
     if str(policy.get("target_review_path") or "").strip() != LICENSE_REVIEW_TEMPLATE_PATH:
         blockers.append(f"target_review_path must match {LICENSE_REVIEW_TEMPLATE_PATH}")
     if str(policy.get(MATCHED_ROWS_FINGERPRINT_FIELD) or "").strip() != matched_rows_fingerprint:
         blockers.append(f"{MATCHED_ROWS_FINGERPRINT_FIELD} does not match current matched rows")
-    if policy.get("matched_row_count") != len(matched):
+    matched_row_count = policy.get("matched_row_count")
+    if type(matched_row_count) is not int:
+        blockers.append("matched_row_count must be integer")
+    elif matched_row_count != len(matched):
         blockers.append("matched_row_count does not match current matched rows")
     if policy.get("publish_date_min") != publish_date_min:
         blockers.append("publish_date_min does not match current matched rows")

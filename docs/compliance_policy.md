@@ -102,7 +102,9 @@ applied.
 The policy's `matched_row_count`, `matched_rows_fingerprint`, `publish_date_min`,
 and `publish_date_max` are audit fields tied to the current filters. If a
 reviewer narrows or changes `filters`, these fields must be regenerated before
-the policy can be expanded.
+the policy can be expanded. `filters` must be an object, and `source_type`,
+`current_license_status`, and `source_id_prefix` must be strings or arrays of
+strings.
 
 ## Allowed Uses
 
