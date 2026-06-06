@@ -92,7 +92,10 @@ Manual fields are:
 Human labels are imported with:
 
 ```bash
-mosaic-rke apply-gold-review --root . --input reviewed_gold_set.jsonl
+mosaic-rke prepare-gold-review --root . --full
+mosaic-rke apply-gold-review --root . \
+  --input registry/review_batches/gold_set_full_reviewed.jsonl \
+  --dry-run
 ```
 
 Use `--dry-run` to validate without mutating the template.

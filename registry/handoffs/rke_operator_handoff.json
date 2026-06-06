@@ -2,20 +2,20 @@
   "direct_production_forbidden": true,
   "gates": [
     {
-      "apply_command": "mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_next_import_template.jsonl",
+      "apply_command": "mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl",
       "blocker": "manual gold-set review still required",
-      "dry_run_command": "mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_next_import_template.jsonl --dry-run",
+      "dry_run_command": "mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl --dry-run",
       "evidence": "0 / 500 gold-set claims reviewed",
       "evidence_path": "registry/gold_sets/tushare_research_reports.review_summary.json",
-      "exported_rows": 50,
+      "exported_rows": 500,
       "full_import_template_path": "registry/review_batches/gold_set_full_import_template.jsonl",
       "gate_id": "PG02",
       "import_template_path": "registry/review_batches/gold_set_next_import_template.jsonl",
-      "operator_note": "Review source-grounded claim labels before applying this batch.",
+      "operator_note": "Run prepare-gold-review --full, fill the reviewed scratch JSONL, then dry-run before applying the 500-claim gold set.",
       "passed": false,
       "pending_rows": 500,
       "policy_template_path": "",
-      "prepare_command": "",
+      "prepare_command": "mosaic-rke prepare-gold-review --root . --full",
       "required_manual_fields": [
         "manual_claim_text",
         "claim_correct",
@@ -29,7 +29,7 @@
       ],
       "review_kind": "gold_set",
       "review_packet_path": "registry/gold_sets/tushare_research_reports.review_packet.json",
-      "reviewed_policy_path": ""
+      "reviewed_policy_path": "registry/review_batches/gold_set_full_reviewed.jsonl"
     },
     {
       "apply_command": "mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_policy_import.jsonl",
@@ -99,7 +99,7 @@
   "next_state": "paper_trading",
   "paper_trading_allowed": true,
   "production_allowed": false,
-  "promotion_dry_run_command": "mosaic-rke build-license-review-import --root . --policy registry/review_batches/source_license_policy_reviewed.json --output registry/review_batches/source_license_policy_import.jsonl && mosaic-rke promotion-dry-run --root . --gold-input registry/review_batches/gold_set_full_import_template.jsonl --license-input registry/review_batches/source_license_policy_import.jsonl --lockbox-input registry/review_batches/lockbox_review_next_import_template.json",
+  "promotion_dry_run_command": "mosaic-rke build-license-review-import --root . --policy registry/review_batches/source_license_policy_reviewed.json --output registry/review_batches/source_license_policy_import.jsonl && mosaic-rke promotion-dry-run --root . --gold-input registry/review_batches/gold_set_full_reviewed.jsonl --license-input registry/review_batches/source_license_policy_import.jsonl --lockbox-input registry/review_batches/lockbox_review_next_import_template.json",
   "ready_for_operator_review": true,
   "remaining_blockers": [
     "broad-rollout completion audit still has blockers",

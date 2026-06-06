@@ -20,6 +20,8 @@ GOLD_REVIEW_TEMPLATE_PATH = "registry/gold_sets/tushare_research_reports.review_
 GOLD_REVIEW_PACKET_PATH = "registry/gold_sets/tushare_research_reports.review_packet.json"
 GOLD_BATCH_IMPORT_TEMPLATE_PATH = "registry/review_batches/gold_set_next_import_template.jsonl"
 GOLD_FULL_IMPORT_TEMPLATE_PATH = "registry/review_batches/gold_set_full_import_template.jsonl"
+GOLD_REVIEWED_IMPORT_PATH = "registry/review_batches/gold_set_reviewed.jsonl"
+GOLD_FULL_REVIEWED_IMPORT_PATH = "registry/review_batches/gold_set_full_reviewed.jsonl"
 LICENSE_REVIEW_TEMPLATE_PATH = "registry/compliance/tushare_license_review_template.jsonl"
 LICENSE_REVIEW_PACKET_PATH = "registry/compliance/tushare_license_review_packet.json"
 LICENSE_BATCH_IMPORT_TEMPLATE_PATH = "registry/review_batches/source_license_next_import_template.jsonl"
@@ -51,6 +53,18 @@ class ManualReviewBatchStatus:
     gold_set: ReviewBatchExportSummary
     source_license: ReviewBatchExportSummary
     generated_paths: Sequence[str]
+    blockers: Sequence[str]
+
+
+@dataclass(frozen=True)
+class GoldReviewStarterResult:
+    path: str
+    template_path: str
+    full: bool
+    force: bool
+    written: bool
+    overwritten: bool
+    rows: int
     blockers: Sequence[str]
 
 
@@ -388,3 +402,60 @@ def write_manual_review_batches(
         "gold_set_full_rows": int(gold_full_result["rows"]),
         "source_license_rows": int(license_result["rows"]),
     }
+
+
+def write_gold_review_starter(
+    root: str | Path = ".",
+    *,
+    output_path: str | Path | None = None,
+    full: bool = False,
+    force: bool = False,
+    gold_batch_size: int = 50,
+) -> GoldReviewStarterResult:
+    """Write a reviewer-editable gold-set JSONL starter without clobbering reviews."""
+    if gold_batch_size <= 0:
+        raise ValueError("gold_batch_size must be positive")
+
+    root_path = Path(root)
+    relative_output = (
+        output_path
+        if output_path is not None
+        else GOLD_FULL_REVIEWED_IMPORT_PATH
+        if full
+        else GOLD_REVIEWED_IMPORT_PATH
+    )
+    resolved_output_path = Path(relative_output)
+    if not resolved_output_path.is_absolute():
+        resolved_output_path = root_path / resolved_output_path
+
+    if full:
+        _, gold_rows, _, _, _ = _load_review_rows(
+            root_path,
+            GOLD_REVIEW_TEMPLATE_PATH,
+            label="gold-set review",
+        )
+        rows = tuple(_gold_template_row(row) for row in gold_rows if not _gold_row_complete(row))
+        template_path = GOLD_FULL_IMPORT_TEMPLATE_PATH
+    else:
+        _, rows, _ = build_manual_review_batch_status(
+            root_path,
+            gold_batch_size=gold_batch_size,
+        )
+        template_path = GOLD_BATCH_IMPORT_TEMPLATE_PATH
+
+    exists = resolved_output_path.exists()
+    blockers: list[str] = []
+    if exists and not force:
+        blockers.append(f"{resolved_output_path} already exists; pass --force to overwrite")
+    if not blockers:
+        _write_jsonl(resolved_output_path, rows)
+    return GoldReviewStarterResult(
+        path=str(resolved_output_path),
+        template_path=template_path,
+        full=full,
+        force=force,
+        written=not blockers,
+        overwritten=exists and force and not blockers,
+        rows=len(rows),
+        blockers=tuple(blockers),
+    )

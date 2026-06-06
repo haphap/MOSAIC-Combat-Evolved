@@ -187,9 +187,11 @@ from .manual_review_import import (
     apply_source_license_review_import,
 )
 from .manual_review_batches import (
+    GoldReviewStarterResult,
     ManualReviewBatchStatus,
     ReviewBatchExportSummary,
     build_manual_review_batch_status,
+    write_gold_review_starter,
     write_manual_review_batches,
 )
 from .manual_review_bundle_manifest import (
@@ -541,9 +543,11 @@ __all__ = [
     "ManualReviewImportReport",
     "apply_gold_set_review_import",
     "apply_source_license_review_import",
+    "GoldReviewStarterResult",
     "ManualReviewBatchStatus",
     "ReviewBatchExportSummary",
     "build_manual_review_batch_status",
+    "write_gold_review_starter",
     "write_manual_review_batches",
     "ManualReviewBundleArtifact",
     "ManualReviewBundleManifest",

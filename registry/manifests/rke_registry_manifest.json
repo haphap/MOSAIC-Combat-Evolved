@@ -182,14 +182,14 @@
       "sha256": "sha256:06bc1225f9bf48e1e1284ca5d78f2048b4a620034df65f2225ea53757b6144d1"
     },
     {
-      "bytes": 6208,
+      "bytes": 6340,
       "path": "registry/handoffs/rke_operator_handoff.json",
-      "sha256": "sha256:3232f08b714e08e1433b8e8bf940f2b5b7edc1d7c988b6e44f469fd082db30f4"
+      "sha256": "sha256:05854ea2e194a2a4280e91586707c6735334c0877c599af3c9c91c9c624c5f84"
     },
     {
-      "bytes": 3965,
+      "bytes": 4109,
       "path": "registry/handoffs/rke_operator_handoff.md",
-      "sha256": "sha256:1332a300cef05521d47b60060dccffe8bba271418d246863eb355e0a51fb3cd5"
+      "sha256": "sha256:a7794882f8eb858c7b7187e787fe030cd143d756d1ea8dd7412c11387cc950bc"
     },
     {
       "bytes": 3791,
@@ -304,7 +304,7 @@
     {
       "bytes": 5634,
       "path": "registry/review_batches/manual_review_bundle_manifest.json",
-      "sha256": "sha256:8495170f5c40c5ad527a92e76688b837aed5e0ca3831f820f13f43c682f0e283"
+      "sha256": "sha256:18c3de7939321c8468bcc509a5062175dcff069938c2f7ac420ec7fc4234d493"
     },
     {
       "bytes": 33256,

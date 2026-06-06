@@ -49,7 +49,12 @@ def test_operator_handoff_summarizes_remaining_manual_gates():
         gold.full_import_template_path
         == "registry/review_batches/gold_set_full_import_template.jsonl"
     )
-    assert "gold_set_full_import_template.jsonl" in handoff.promotion_dry_run_command
+    assert gold.prepare_command == "mosaic-rke prepare-gold-review --root . --full"
+    assert gold.reviewed_policy_path == "registry/review_batches/gold_set_full_reviewed.jsonl"
+    assert gold.exported_rows == 500
+    assert "gold_set_full_reviewed.jsonl" in gold.dry_run_command
+    assert "gold_set_full_reviewed.jsonl" in handoff.promotion_dry_run_command
+    assert "gold_set_full_import_template.jsonl" not in handoff.promotion_dry_run_command
     assert license_gate.pending_rows == 9812
     assert (
         license_gate.policy_template_path
@@ -150,9 +155,13 @@ def test_write_operator_handoff_outputs_json_markdown_and_lockbox_template(
     assert payload["ready_for_operator_review"] is True
     assert payload["production_allowed"] is False
     assert "promotion-dry-run" in payload["promotion_dry_run_command"]
+    assert "gold_set_full_reviewed.jsonl" in payload["promotion_dry_run_command"]
     assert "source_license_policy_import.jsonl" in payload["promotion_dry_run_command"]
     assert "source_license_policy_reviewed.json" in payload["promotion_dry_run_command"]
     license_gate = next(gate for gate in payload["gates"] if gate["review_kind"] == "source_license")
+    gold_gate = next(gate for gate in payload["gates"] if gate["review_kind"] == "gold_set")
+    assert gold_gate["prepare_command"] == "mosaic-rke prepare-gold-review --root . --full"
+    assert gold_gate["reviewed_policy_path"] == "registry/review_batches/gold_set_full_reviewed.jsonl"
     assert license_gate["prepare_command"] == "mosaic-rke prepare-license-policy-review --root ."
     assert len(payload["gates"]) == 3
     assert lockbox_template["result"] == ""
@@ -163,6 +172,8 @@ def test_write_operator_handoff_outputs_json_markdown_and_lockbox_template(
     assert "source_license_policy_template.json" in markdown
     assert "source_license_policy_reviewed.json" in markdown
     assert "prepare-license-policy-review" in markdown
+    assert "prepare-gold-review" in markdown
+    assert "gold_set_full_reviewed.jsonl" in markdown
     assert "gold_set_full_import_template.jsonl" in markdown
     assert markdown.startswith("# RKE Operator Handoff")
 

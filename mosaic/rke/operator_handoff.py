@@ -20,6 +20,7 @@ from .lockbox_review_import import (
 )
 from .manual_review_import import TARGET_ROW_HASH_FIELD, review_row_fingerprint
 from .manual_review_batches import (
+    GOLD_FULL_REVIEWED_IMPORT_PATH,
     build_manual_review_batch_status,
     write_manual_review_batches,
 )
@@ -202,14 +203,23 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
             import_template_path=gold.import_template_path,
             full_import_template_path=gold.full_import_template_path,
             policy_template_path="",
-            reviewed_policy_path="",
-            prepare_command="",
+            reviewed_policy_path=GOLD_FULL_REVIEWED_IMPORT_PATH,
+            prepare_command="mosaic-rke prepare-gold-review --root . --full",
             pending_rows=gold.pending_rows,
-            exported_rows=gold.exported_rows,
+            exported_rows=gold.pending_rows,
             required_manual_fields=tuple(gold.required_manual_fields),
-            dry_run_command=gold.dry_run_command,
-            apply_command=gold.apply_command,
-            operator_note="Review source-grounded claim labels before applying this batch.",
+            dry_run_command=(
+                "mosaic-rke apply-gold-review --root . "
+                f"--input {GOLD_FULL_REVIEWED_IMPORT_PATH} --dry-run"
+            ),
+            apply_command=(
+                "mosaic-rke apply-gold-review --root . "
+                f"--input {GOLD_FULL_REVIEWED_IMPORT_PATH}"
+            ),
+            operator_note=(
+                "Run prepare-gold-review --full, fill the reviewed scratch JSONL, "
+                "then dry-run before applying the 500-claim gold set."
+            ),
         ),
         OperatorGateHandoff(
             gate_id="PG03",
@@ -312,7 +322,7 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
             f"--policy {SOURCE_LICENSE_REVIEWED_POLICY_PATH} "
             f"--output {DEFAULT_LICENSE_POLICY_IMPORT_PATH} && "
             "mosaic-rke promotion-dry-run --root . "
-            f"--gold-input {gold.full_import_template_path} "
+            f"--gold-input {GOLD_FULL_REVIEWED_IMPORT_PATH} "
             f"--license-input {DEFAULT_LICENSE_POLICY_IMPORT_PATH} "
             f"--lockbox-input {LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH}"
         ),
@@ -347,7 +357,7 @@ def render_operator_handoff_markdown(handoff: OperatorHandoff) -> str:
                 f"- Import template: {gate.import_template_path}",
                 f"- Full import template: {gate.full_import_template_path or 'none'}",
                 f"- Policy template: {gate.policy_template_path or 'none'}",
-                f"- Reviewed policy: {gate.reviewed_policy_path or 'none'}",
+                f"- Reviewed policy/input: {gate.reviewed_policy_path or 'none'}",
                 f"- Prepare: `{gate.prepare_command}`" if gate.prepare_command else "- Prepare: none",
                 f"- Pending rows: {gate.pending_rows}",
                 f"- Exported rows: {gate.exported_rows}",

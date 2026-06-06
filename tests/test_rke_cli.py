@@ -187,6 +187,26 @@ def test_rke_cli_prepare_license_policy_review_protects_existing_file(tmp_path: 
     assert "already exists" in second_output["blockers"][0]
 
 
+def test_rke_cli_prepare_gold_review_supports_full_and_protects_existing_file(tmp_path: Path, capsys):
+    _copy_registry(tmp_path)
+    reviewed_path = tmp_path / "registry/review_batches/gold_set_full_reviewed.jsonl"
+
+    code = main(("prepare-gold-review", "--root", str(tmp_path), "--full"))
+    output = json.loads(capsys.readouterr().out)
+    second_code = main(("prepare-gold-review", "--root", str(tmp_path), "--full"))
+    second_output = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert output["written"] is True
+    assert output["full"] is True
+    assert output["rows"] == 500
+    assert output["path"] == str(reviewed_path)
+    assert reviewed_path.exists()
+    assert second_code == 2
+    assert second_output["written"] is False
+    assert "already exists" in second_output["blockers"][0]
+
+
 def test_rke_cli_review_status_commands_report_malformed_jsonl_rows(tmp_path: Path, capsys):
     _copy_registry(tmp_path)
     gold_path = tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"

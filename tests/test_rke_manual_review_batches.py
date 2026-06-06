@@ -9,6 +9,7 @@ from mosaic.rke import (
     apply_source_license_review_import,
     build_manual_review_bundle_manifest,
     build_manual_review_batch_status,
+    write_gold_review_starter,
     write_manual_review_bundle_manifest,
     write_manual_review_batches,
 )
@@ -106,6 +107,45 @@ def test_manual_review_batches_export_sparse_import_templates(tmp_path: Path):
     assert license_rows[0]["approved_for_production_runtime"] is None
     assert "apply-gold-review" in status["gold_set"]["dry_run_command"]
     assert "apply-license-review" in status["source_license"]["dry_run_command"]
+
+
+def test_write_gold_review_starter_defaults_to_next_batch_and_preserves_existing(tmp_path: Path):
+    _copy_registry(tmp_path)
+
+    first = write_gold_review_starter(tmp_path, gold_batch_size=11)
+    reviewed_path = tmp_path / "registry/review_batches/gold_set_reviewed.jsonl"
+    rows = _load_jsonl(reviewed_path)
+    rows[0]["reviewer"] = "manual reviewer"
+    _write_jsonl(reviewed_path, rows)
+    second = write_gold_review_starter(tmp_path, gold_batch_size=11)
+    preserved = _load_jsonl(reviewed_path)
+
+    assert first.written
+    assert first.rows == 11
+    assert first.template_path == "registry/review_batches/gold_set_next_import_template.jsonl"
+    assert len(rows) == 11
+    assert not second.written
+    assert not second.overwritten
+    assert "already exists" in second.blockers[0]
+    assert preserved[0]["reviewer"] == "manual reviewer"
+
+
+def test_write_gold_review_starter_full_force_overwrites(tmp_path: Path):
+    _copy_registry(tmp_path)
+    reviewed_path = tmp_path / "registry/review_batches/gold_set_full_reviewed.jsonl"
+    _write_jsonl(reviewed_path, [{"reviewer": "stale"}])
+
+    result = write_gold_review_starter(tmp_path, full=True, force=True)
+    rows = _load_jsonl(reviewed_path)
+
+    assert result.written
+    assert result.overwritten
+    assert result.full
+    assert result.rows == 500
+    assert result.template_path == "registry/review_batches/gold_set_full_import_template.jsonl"
+    assert len(rows) == 500
+    assert rows[0]["reviewer"] == ""
+    assert rows[0]["target_row_hash"].startswith("sha256:")
 
 
 def test_manual_review_batches_reject_malformed_review_rows_without_crashing(tmp_path: Path):

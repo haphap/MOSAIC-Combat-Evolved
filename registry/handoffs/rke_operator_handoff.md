@@ -14,7 +14,7 @@
 - promotion-status
 - lockbox
 
-Dry-run command: `mosaic-rke build-license-review-import --root . --policy registry/review_batches/source_license_policy_reviewed.json --output registry/review_batches/source_license_policy_import.jsonl && mosaic-rke promotion-dry-run --root . --gold-input registry/review_batches/gold_set_full_import_template.jsonl --license-input registry/review_batches/source_license_policy_import.jsonl --lockbox-input registry/review_batches/lockbox_review_next_import_template.json`
+Dry-run command: `mosaic-rke build-license-review-import --root . --policy registry/review_batches/source_license_policy_reviewed.json --output registry/review_batches/source_license_policy_import.jsonl && mosaic-rke promotion-dry-run --root . --gold-input registry/review_batches/gold_set_full_reviewed.jsonl --license-input registry/review_batches/source_license_policy_import.jsonl --lockbox-input registry/review_batches/lockbox_review_next_import_template.json`
 
 ## Gates
 
@@ -27,13 +27,13 @@ Dry-run command: `mosaic-rke build-license-review-import --root . --policy regis
 - Import template: registry/review_batches/gold_set_next_import_template.jsonl
 - Full import template: registry/review_batches/gold_set_full_import_template.jsonl
 - Policy template: none
-- Reviewed policy: none
-- Prepare: none
+- Reviewed policy/input: registry/review_batches/gold_set_full_reviewed.jsonl
+- Prepare: `mosaic-rke prepare-gold-review --root . --full`
 - Pending rows: 500
-- Exported rows: 50
-- Dry run: `mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_next_import_template.jsonl --dry-run`
-- Apply: `mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_next_import_template.jsonl`
-- Note: Review source-grounded claim labels before applying this batch.
+- Exported rows: 500
+- Dry run: `mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl --dry-run`
+- Apply: `mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl`
+- Note: Run prepare-gold-review --full, fill the reviewed scratch JSONL, then dry-run before applying the 500-claim gold set.
 
 ### PG03 source_license
 
@@ -44,7 +44,7 @@ Dry-run command: `mosaic-rke build-license-review-import --root . --policy regis
 - Import template: registry/review_batches/source_license_next_import_template.jsonl
 - Full import template: registry/review_batches/source_license_policy_import.jsonl
 - Policy template: registry/review_batches/source_license_policy_template.json
-- Reviewed policy: registry/review_batches/source_license_policy_reviewed.json
+- Reviewed policy/input: registry/review_batches/source_license_policy_reviewed.json
 - Prepare: `mosaic-rke prepare-license-policy-review --root .`
 - Pending rows: 9812
 - Exported rows: 50
@@ -61,7 +61,7 @@ Dry-run command: `mosaic-rke build-license-review-import --root . --policy regis
 - Import template: registry/review_batches/lockbox_review_next_import_template.json
 - Full import template: none
 - Policy template: none
-- Reviewed policy: none
+- Reviewed policy/input: none
 - Prepare: none
 - Pending rows: None
 - Exported rows: 1

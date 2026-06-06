@@ -51,6 +51,8 @@ logs/
 
 # RKE manual-review scratch inputs. Reviewed decisions are applied through
 # controlled import commands; these transient files should not be committed.
+registry/review_batches/gold_set_reviewed.jsonl
+registry/review_batches/gold_set_full_reviewed.jsonl
 registry/review_batches/source_license_policy_reviewed.json
 registry/review_batches/source_license_policy_import.jsonl
 

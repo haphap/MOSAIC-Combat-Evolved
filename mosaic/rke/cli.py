@@ -31,7 +31,10 @@ from .manual_review_import import (
     apply_source_license_review_import,
 )
 from .manual_review_batches import (
+    GOLD_FULL_REVIEWED_IMPORT_PATH,
+    GOLD_REVIEWED_IMPORT_PATH,
     build_manual_review_batch_status,
+    write_gold_review_starter,
     write_manual_review_batches,
 )
 from .operator_handoff import build_operator_handoff, write_operator_handoff
@@ -269,6 +272,35 @@ def build_parser() -> argparse.ArgumentParser:
     apply_gold_review.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
     apply_gold_review.add_argument("--input", required=True, help="JSONL file containing reviewed gold-set rows.")
     apply_gold_review.add_argument("--dry-run", action="store_true", help="Validate without changing review rows.")
+
+    prepare_gold_review = subparsers.add_parser(
+        "prepare-gold-review",
+        help="Write a reviewer-editable gold-set JSONL starter without overwriting existing reviews.",
+    )
+    prepare_gold_review.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
+    prepare_gold_review.add_argument(
+        "--output",
+        help=(
+            f"Reviewed gold-set output path. Defaults to {GOLD_REVIEWED_IMPORT_PATH}, "
+            f"or {GOLD_FULL_REVIEWED_IMPORT_PATH} with --full."
+        ),
+    )
+    prepare_gold_review.add_argument(
+        "--full",
+        action="store_true",
+        help="Export all pending gold-set rows instead of the next batch.",
+    )
+    prepare_gold_review.add_argument(
+        "--gold-batch-size",
+        type=int,
+        default=50,
+        help="Rows for the next-batch starter when --full is not used. Defaults to 50.",
+    )
+    prepare_gold_review.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite an existing reviewed gold-set starter.",
+    )
 
     apply_license_review = subparsers.add_parser(
         "apply-license-review",
@@ -624,6 +656,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         report = apply_gold_set_review_import(root, args.input, dry_run=args.dry_run)
         _print_json(asdict(report))
         return 0 if report.accepted else 2
+    if args.command == "prepare-gold-review":
+        result = write_gold_review_starter(
+            root,
+            output_path=args.output,
+            full=args.full,
+            force=args.force,
+            gold_batch_size=args.gold_batch_size,
+        )
+        _print_json(asdict(result))
+        return 0 if result.written else 2
     if args.command == "apply-license-review":
         report = apply_source_license_review_import(root, args.input, dry_run=args.dry_run)
         _print_json(asdict(report))
