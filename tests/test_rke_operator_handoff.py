@@ -57,6 +57,10 @@ def test_operator_handoff_summarizes_remaining_manual_gates():
     assert "gold_set_full_import_template.jsonl" not in handoff.promotion_dry_run_command
     assert license_gate.pending_rows == 9812
     assert (
+        license_gate.workbook_path
+        == "registry/review_batches/source_license_review_workbook.md"
+    )
+    assert (
         license_gate.policy_template_path
         == "registry/review_batches/source_license_policy_template.json"
     )
@@ -178,7 +182,16 @@ def test_write_operator_handoff_outputs_json_markdown_and_lockbox_template(
     assert lockbox_template["review_context_hash"].startswith("sha256:")
     assert policy_template["approved_for_production_runtime"] is None
     assert policy_template["matched_row_count"] == 9812
+    assert paths["source_license_review_workbook"].endswith(
+        "registry/review_batches/source_license_review_workbook.md"
+    )
+    assert (
+        tmp_path / "registry/review_batches/source_license_review_workbook.md"
+    ).exists()
+    assert license_gate["workbook_path"] == "registry/review_batches/source_license_review_workbook.md"
+    assert "registry/review_batches/source_license_review_workbook.md" in payload["generated_paths"]
     assert "source_license_policy_template.json" in markdown
+    assert "source_license_review_workbook.md" in markdown
     assert "source_license_policy_reviewed.json" in markdown
     assert "prepare-license-policy-review" in markdown
     assert "prepare-gold-review" in markdown
@@ -210,4 +223,7 @@ def test_cli_operator_handoff_writes_package(tmp_path: Path, capsys):
     ).exists()
     assert (
         tmp_path / "registry/review_batches/source_license_policy_template.json"
+    ).exists()
+    assert (
+        tmp_path / "registry/review_batches/source_license_review_workbook.md"
     ).exists()

@@ -29,7 +29,8 @@
       ],
       "review_kind": "gold_set",
       "review_packet_path": "registry/gold_sets/tushare_research_reports.review_packet.json",
-      "reviewed_policy_path": "registry/review_batches/gold_set_full_reviewed.jsonl"
+      "reviewed_policy_path": "registry/review_batches/gold_set_full_reviewed.jsonl",
+      "workbook_path": "registry/review_batches/gold_set_review_workbook.md"
     },
     {
       "apply_command": "mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_policy_import.jsonl",
@@ -41,7 +42,7 @@
       "full_import_template_path": "registry/review_batches/source_license_policy_import.jsonl",
       "gate_id": "PG03",
       "import_template_path": "registry/review_batches/source_license_next_import_template.jsonl",
-      "operator_note": "Compliance approval is required before production runtime retrieval. Copy registry/review_batches/source_license_policy_template.json to registry/review_batches/source_license_policy_reviewed.json, fill and sign the reviewed policy, then expand it instead of editing every source row manually.",
+      "operator_note": "Compliance approval is required before production runtime retrieval. Use registry/review_batches/source_license_review_workbook.md as the read-only source-class checklist. Copy registry/review_batches/source_license_policy_template.json to registry/review_batches/source_license_policy_reviewed.json, fill and sign the reviewed policy, then expand it instead of editing every source row manually.",
       "passed": false,
       "pending_rows": 9812,
       "policy_template_path": "registry/review_batches/source_license_policy_template.json",
@@ -55,7 +56,8 @@
       ],
       "review_kind": "source_license",
       "review_packet_path": "registry/compliance/tushare_license_review_packet.json",
-      "reviewed_policy_path": "registry/review_batches/source_license_policy_reviewed.json"
+      "reviewed_policy_path": "registry/review_batches/source_license_policy_reviewed.json",
+      "workbook_path": "registry/review_batches/source_license_review_workbook.md"
     },
     {
       "apply_command": "mosaic-rke apply-lockbox-review --root . --input registry/review_batches/lockbox_reviewed.json",
@@ -83,7 +85,8 @@
       ],
       "review_kind": "lockbox",
       "review_packet_path": "registry/evaluation/lockbox/lockbox_policy.json",
-      "reviewed_policy_path": "registry/review_batches/lockbox_reviewed.json"
+      "reviewed_policy_path": "registry/review_batches/lockbox_reviewed.json",
+      "workbook_path": ""
     }
   ],
   "generated_paths": [
@@ -91,6 +94,7 @@
     "registry/review_batches/gold_set_full_import_template.jsonl",
     "registry/review_batches/gold_set_review_workbook.md",
     "registry/review_batches/source_license_next_import_template.jsonl",
+    "registry/review_batches/source_license_review_workbook.md",
     "registry/review_batches/source_license_policy_template.json",
     "registry/review_batches/lockbox_review_next_import_template.json",
     "registry/handoffs/rke_operator_handoff.json",

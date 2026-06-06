@@ -181,7 +181,10 @@ def test_rke_cli_prepare_license_policy_review_protects_existing_file(tmp_path: 
     assert code == 0
     assert output["written"] is True
     assert output["path"] == str(reviewed_path)
+    assert output["workbook_path"].endswith("registry/review_batches/source_license_review_workbook.md")
+    assert output["workbook_rows"] == 50
     assert reviewed_path.exists()
+    assert (tmp_path / "registry/review_batches/source_license_review_workbook.md").exists()
     assert second_code == 2
     assert second_output["written"] is False
     assert "already exists" in second_output["blockers"][0]
@@ -401,11 +404,13 @@ def test_rke_cli_review_batches_writes_next_import_templates(tmp_path: Path, cap
     assert output["status"]["gold_set"]["full_import_template_path"] == "registry/review_batches/gold_set_full_import_template.jsonl"
     assert "registry/review_batches/gold_set_review_workbook.md" in output["status"]["generated_paths"]
     assert output["status"]["source_license"]["exported_rows"] == 9
+    assert "registry/review_batches/source_license_review_workbook.md" in output["status"]["generated_paths"]
     assert (tmp_path / "registry/review_batches/manual_review_batch_status.json").exists()
     assert (tmp_path / "registry/review_batches/gold_set_next_import_template.jsonl").exists()
     assert (tmp_path / "registry/review_batches/gold_set_full_import_template.jsonl").exists()
     assert (tmp_path / "registry/review_batches/gold_set_review_workbook.md").exists()
     assert (tmp_path / "registry/review_batches/source_license_next_import_template.jsonl").exists()
+    assert (tmp_path / "registry/review_batches/source_license_review_workbook.md").exists()
 
 
 def test_rke_cli_fetch_tushare_reports_passes_query_args(monkeypatch, tmp_path: Path, capsys):

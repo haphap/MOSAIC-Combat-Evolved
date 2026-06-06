@@ -103,7 +103,8 @@
       "ready_for_manual_review": true,
       "source_license_dry_run_command": "mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_next_import_template.jsonl --dry-run",
       "source_license_exported_rows": 50,
-      "source_license_pending_rows": 9812
+      "source_license_pending_rows": 9812,
+      "source_license_review_workbook": "registry/review_batches/source_license_review_workbook.md"
     },
     "source_license": {
       "approved_for_production_runtime": 0,
@@ -230,7 +231,7 @@
   },
   "source_text_redaction": {
     "accepted": true,
-    "checked_path_count": 409,
+    "checked_path_count": 410,
     "failure_count": 0,
     "min_match_chars": 80,
     "skipped_allowed_path_count": 6,

@@ -5,8 +5,10 @@ from pathlib import Path
 
 from mosaic.rke import (
     apply_source_license_review_import,
+    build_source_license_review_workbook,
     build_source_license_policy_import,
     build_source_license_policy_template,
+    write_source_license_review_workbook,
     write_source_license_reviewed_policy_starter,
     write_source_license_policy_template,
 )
@@ -107,6 +109,29 @@ def test_source_license_policy_template_requires_reviewer_decision():
     assert "source_license_policy_template.json" not in template["build_command"]
 
 
+def test_source_license_review_workbook_is_read_only_policy_checklist(tmp_path: Path):
+    _copy_registry(tmp_path)
+
+    result = write_source_license_review_workbook(tmp_path)
+    summary, rows = build_source_license_review_workbook(tmp_path)
+    workbook = Path(result["path"]).read_text(encoding="utf-8")
+
+    assert result["rows"] == 3
+    assert summary.pending_rows == 3
+    assert summary.matched_row_count == 3
+    assert summary.matched_rows_fingerprint.startswith("sha256:")
+    assert summary.source_type_counts == {"tushare_research_report": 3}
+    assert summary.license_status_counts == {"pending_review": 3}
+    assert len(rows) == 3
+    assert rows[0]["target_row_hash"].startswith("sha256:")
+    assert len(rows[0]["title_preview"]) <= 96
+    assert workbook.startswith("# RKE Source-License Review Workbook")
+    assert "source_license_policy_reviewed.json" in workbook
+    assert "Matched rows fingerprint" in workbook
+    assert "approved_for_production_runtime" not in workbook
+    assert "abstract" not in workbook
+
+
 def test_write_source_license_policy_template_outputs_registry_artifact(tmp_path: Path):
     _copy_registry(tmp_path)
 
@@ -133,6 +158,8 @@ def test_write_source_license_reviewed_policy_starter_does_not_overwrite(tmp_pat
     preserved = json.loads(reviewed_path.read_text(encoding="utf-8"))
 
     assert first.written
+    assert first.workbook_path.endswith("source_license_review_workbook.md")
+    assert first.workbook_rows == 3
     assert not second.written
     assert not second.overwritten
     assert "already exists" in second.blockers[0]

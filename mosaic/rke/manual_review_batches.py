@@ -13,6 +13,10 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Literal, Mapping, Sequence
 
+from .license_policy_import import (
+    SOURCE_LICENSE_REVIEW_WORKBOOK_MD_PATH,
+    write_source_license_review_workbook,
+)
 from .manual_review_import import GOLD_BOOL_FIELDS, TARGET_ROW_HASH_FIELD, review_row_fingerprint
 
 
@@ -528,6 +532,7 @@ def build_manual_review_batch_status(
             GOLD_FULL_IMPORT_TEMPLATE_PATH,
             GOLD_REVIEW_WORKBOOK_MD_PATH,
             LICENSE_BATCH_IMPORT_TEMPLATE_PATH,
+            SOURCE_LICENSE_REVIEW_WORKBOOK_MD_PATH,
             MANUAL_REVIEW_BATCH_STATUS_PATH,
         ),
         blockers=tuple(blockers),
@@ -557,6 +562,7 @@ def write_manual_review_batches(
     gold_full_result = _write_jsonl(root_path / GOLD_FULL_IMPORT_TEMPLATE_PATH, gold_full)
     gold_workbook_result = write_gold_review_workbook(root_path)
     license_result = _write_jsonl(root_path / LICENSE_BATCH_IMPORT_TEMPLATE_PATH, license_batch)
+    license_workbook_result = write_source_license_review_workbook(root_path)
     status_result = _write_json(root_path / MANUAL_REVIEW_BATCH_STATUS_PATH, asdict(status))
     return {
         "status": str(status_result["path"]),
@@ -564,10 +570,12 @@ def write_manual_review_batches(
         "gold_set_full_import_template": str(gold_full_result["path"]),
         "gold_set_review_workbook": str(gold_workbook_result["path"]),
         "source_license_import_template": str(license_result["path"]),
+        "source_license_review_workbook": str(license_workbook_result["path"]),
         "gold_set_rows": int(gold_result["rows"]),
         "gold_set_full_rows": int(gold_full_result["rows"]),
         "gold_set_review_workbook_rows": int(gold_workbook_result["rows"]),
         "source_license_rows": int(license_result["rows"]),
+        "source_license_review_workbook_rows": int(license_workbook_result["rows"]),
     }
 
 

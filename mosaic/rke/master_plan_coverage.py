@@ -344,6 +344,7 @@ def build_master_plan_coverage_report(root: str | Path = ".") -> MasterPlanCover
                     "registry/review_batches/source_license_next_import_template.jsonl",
                     "registry/review_batches/manual_review_bundle_manifest.json",
                     "registry/review_batches/source_license_policy_template.json",
+                    "registry/review_batches/source_license_review_workbook.md",
                     "registry/review_batches/source_license_policy_import_report.json",
                     "registry/handoffs/rke_operator_readiness_report.json",
                 ),

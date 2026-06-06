@@ -24,6 +24,7 @@ MANUAL_REVIEW_BUNDLE_ARTIFACTS: tuple[tuple[str, str, BundleArtifactFormat], ...
     ("gold_blank_import_report", "registry/gold_sets/tushare_research_reports.review_import_report.json", "json"),
     ("license_review_packet_json", "registry/compliance/tushare_license_review_packet.json", "json"),
     ("license_review_packet_markdown", "registry/compliance/tushare_license_review_packet.md", "markdown"),
+    ("license_review_workbook_markdown", "registry/review_batches/source_license_review_workbook.md", "markdown"),
     ("license_next_import_template", "registry/review_batches/source_license_next_import_template.jsonl", "jsonl"),
     ("license_policy_template", "registry/review_batches/source_license_policy_template.json", "json"),
     ("license_policy_blank_import_report", "registry/review_batches/source_license_policy_import_report.json", "json"),

@@ -76,6 +76,13 @@ before it can be expanded.
 mosaic-rke prepare-license-policy-review --root .
 ```
 
+The same prepare command also refreshes
+`registry/review_batches/source_license_review_workbook.md`. The workbook is a
+read-only compliance checklist: it shows the matched row count, source-class
+fingerprint, date range, status/source-type counts, and short title previews for
+sample pending rows. It does not contain abstracts, it is not importable, and it
+does not record approval decisions.
+
 ```json
 {
   "approved_for_derived_claim_storage": true,

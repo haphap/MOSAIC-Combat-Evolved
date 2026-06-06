@@ -30,8 +30,10 @@ from .license_policy_import import (
     LICENSE_POLICY_IMPORT_REPORT_PATH,
     MATCHED_ROWS_FINGERPRINT_FIELD,
     SOURCE_LICENSE_POLICY_TEMPLATE_PATH,
+    SOURCE_LICENSE_REVIEW_WORKBOOK_MD_PATH,
     build_source_license_policy_import,
     build_source_license_policy_template,
+    write_source_license_review_workbook,
 )
 from .lockbox_review_import import (
     LOCKBOX_REVIEW_CONTEXT_HASH_FIELD,
@@ -259,6 +261,7 @@ def _manual_review_templates_have_provenance(root_path: Path) -> tuple[bool, str
 
 def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadinessReport:
     root_path = Path(root)
+    write_source_license_review_workbook(root_path)
     checks: list[OperatorReadinessCheck] = []
 
     missing, empty = validate_required_registry(root_path)
@@ -581,6 +584,7 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
         GOLD_REVIEW_WORKBOOK_MD_PATH,
         GOLD_REVIEW_IMPORT_REPORT_PATH,
         LICENSE_BATCH_IMPORT_TEMPLATE_PATH,
+        SOURCE_LICENSE_REVIEW_WORKBOOK_MD_PATH,
         SOURCE_LICENSE_POLICY_TEMPLATE_PATH,
         LICENSE_POLICY_IMPORT_REPORT_PATH,
         LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH,

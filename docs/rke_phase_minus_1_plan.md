@@ -150,6 +150,12 @@ handoff generates a fillable starter policy at
 fill the approval booleans, reviewer, review date, and notes in the reviewed
 file before expanding it:
 
+The same handoff also writes
+`registry/review_batches/source_license_review_workbook.md`. Use that read-only
+workbook to inspect the policy scope, matched row fingerprint, date bounds,
+source-type/status counts, and short title previews. Do not edit or import the
+workbook; the reviewed JSON policy is the only source-license decision input.
+
 ```bash
 mosaic-rke prepare-license-policy-review --root .
 

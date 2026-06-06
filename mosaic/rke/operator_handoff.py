@@ -11,6 +11,8 @@ from .license_policy_import import (
     DEFAULT_LICENSE_POLICY_IMPORT_PATH,
     SOURCE_LICENSE_REVIEWED_POLICY_PATH,
     SOURCE_LICENSE_POLICY_TEMPLATE_PATH,
+    SOURCE_LICENSE_REVIEW_WORKBOOK_MD_PATH,
+    write_source_license_review_workbook,
     write_source_license_policy_template,
 )
 from .lockbox_review_import import (
@@ -48,6 +50,7 @@ class OperatorGateHandoff:
     evidence_path: str
     evidence: str
     review_packet_path: str
+    workbook_path: str
     import_template_path: str
     full_import_template_path: str
     policy_template_path: str
@@ -240,6 +243,7 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
             evidence_path=str(pg02.get("evidence_path") or ""),
             evidence=str(pg02.get("evidence") or ""),
             review_packet_path=gold.review_packet_path,
+            workbook_path=GOLD_REVIEW_WORKBOOK_MD_PATH,
             import_template_path=gold.import_template_path,
             full_import_template_path=gold.full_import_template_path,
             policy_template_path="",
@@ -270,6 +274,7 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
             evidence_path=str(pg03.get("evidence_path") or ""),
             evidence=str(pg03.get("evidence") or ""),
             review_packet_path=source_license.review_packet_path,
+            workbook_path=SOURCE_LICENSE_REVIEW_WORKBOOK_MD_PATH,
             import_template_path=source_license.import_template_path,
             full_import_template_path=DEFAULT_LICENSE_POLICY_IMPORT_PATH,
             policy_template_path=SOURCE_LICENSE_POLICY_TEMPLATE_PATH,
@@ -289,6 +294,8 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
             ),
             operator_note=(
                 "Compliance approval is required before production runtime retrieval. "
+                f"Use {SOURCE_LICENSE_REVIEW_WORKBOOK_MD_PATH} as the read-only "
+                "source-class checklist. "
                 f"Copy {SOURCE_LICENSE_POLICY_TEMPLATE_PATH} to "
                 f"{SOURCE_LICENSE_REVIEWED_POLICY_PATH}, fill and sign the reviewed "
                 "policy, then expand it instead of editing every source row manually."
@@ -304,6 +311,7 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
             evidence_path=str(pg09.get("evidence_path") or ""),
             evidence=str(pg09.get("evidence") or ""),
             review_packet_path="registry/evaluation/lockbox/lockbox_policy.json",
+            workbook_path="",
             import_template_path=LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH,
             full_import_template_path="",
             policy_template_path="",
@@ -339,6 +347,7 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
         gold.full_import_template_path,
         GOLD_REVIEW_WORKBOOK_MD_PATH,
         source_license.import_template_path,
+        SOURCE_LICENSE_REVIEW_WORKBOOK_MD_PATH,
         SOURCE_LICENSE_POLICY_TEMPLATE_PATH,
         LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH,
         OPERATOR_HANDOFF_JSON_PATH,
@@ -399,6 +408,7 @@ def render_operator_handoff_markdown(handoff: OperatorHandoff) -> str:
                 f"- Blocker: {gate.blocker or 'none'}",
                 f"- Evidence: {gate.evidence}",
                 f"- Review packet: {gate.review_packet_path}",
+                f"- Review workbook: {gate.workbook_path or 'none'}",
                 f"- Import template: {gate.import_template_path}",
                 f"- Full import template: {gate.full_import_template_path or 'none'}",
                 f"- Policy template: {gate.policy_template_path or 'none'}",
@@ -422,6 +432,7 @@ def write_operator_handoff(root: str | Path = ".") -> dict[str, Any]:
     root_path = Path(root)
     review_batches = write_manual_review_batches(root_path)
     policy_template = write_source_license_policy_template(root_path)
+    license_workbook = write_source_license_review_workbook(root_path)
     lockbox_template = _write_lockbox_review_import_template_or_error(root_path)
     write_production_promotion_gate_report(root_path)
     handoff = build_operator_handoff(root_path)
@@ -443,5 +454,6 @@ def write_operator_handoff(root: str | Path = ".") -> dict[str, Any]:
         "source_license_import_template": review_batches[
             "source_license_import_template"
         ],
+        "source_license_review_workbook": str(license_workbook["path"]),
         "source_license_policy_template": str(policy_template["path"]),
     }

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections import Counter
 from dataclasses import asdict, dataclass
 from datetime import date
 from hashlib import sha256
@@ -21,6 +22,8 @@ DEFAULT_LICENSE_POLICY_IMPORT_PATH = "registry/review_batches/source_license_pol
 LICENSE_POLICY_IMPORT_REPORT_PATH = "registry/review_batches/source_license_policy_import_report.json"
 SOURCE_LICENSE_POLICY_TEMPLATE_PATH = "registry/review_batches/source_license_policy_template.json"
 SOURCE_LICENSE_REVIEWED_POLICY_PATH = "registry/review_batches/source_license_policy_reviewed.json"
+SOURCE_LICENSE_REVIEW_WORKBOOK_MD_PATH = "registry/review_batches/source_license_review_workbook.md"
+SOURCE_LICENSE_WORKBOOK_SAMPLE_ROWS = 50
 MATCHED_ROWS_FINGERPRINT_FIELD = "matched_rows_fingerprint"
 SOURCE_LICENSE_POLICY_ALLOWED_FIELDS = frozenset(
     {
@@ -84,9 +87,32 @@ class SourceLicensePolicyImportReport:
 class SourceLicenseReviewedPolicyStarterResult:
     path: str
     template_path: str
+    workbook_path: str
+    workbook_rows: int
     force: bool
     written: bool
     overwritten: bool
+    blockers: Sequence[str]
+
+
+@dataclass(frozen=True)
+class SourceLicenseReviewWorkbookSummary:
+    workbook_id: str
+    path: str
+    review_template_path: str
+    review_packet_path: str
+    policy_template_path: str
+    reviewed_policy_path: str
+    policy_import_path: str
+    pending_rows: int
+    row_count: int
+    sample_rows: int
+    matched_row_count: int
+    matched_rows_fingerprint: str
+    publish_date_min: str | None
+    publish_date_max: str | None
+    source_type_counts: Mapping[str, int]
+    license_status_counts: Mapping[str, int]
     blockers: Sequence[str]
 
 
@@ -356,6 +382,15 @@ def _matches(row: Mapping[str, Any], filters: SourceLicensePolicyFilters) -> boo
     )
 
 
+def _license_row_complete(row: Mapping[str, Any]) -> bool:
+    return (
+        isinstance(row.get("approved_for_derived_claim_storage"), bool)
+        and isinstance(row.get("approved_for_production_runtime"), bool)
+        and bool(str(row.get("reviewer") or "").strip())
+        and bool(str(row.get("review_date") or "").strip())
+    )
+
+
 def _matched_rows_fingerprint(rows: Sequence[Mapping[str, Any]]) -> str:
     payload = [
         {
@@ -390,6 +425,42 @@ def _review_row(row: Mapping[str, Any], policy: Mapping[str, Any]) -> dict[str, 
         TARGET_ROW_HASH_FIELD: review_row_fingerprint(row),
         "target_review_path": LICENSE_REVIEW_TEMPLATE_PATH,
         "title": str(row.get("title") or ""),
+    }
+
+
+def _short_workbook_preview(value: Any, *, max_chars: int = 96) -> str:
+    text = " ".join(str(value or "").split())
+    if len(text) <= max_chars:
+        return text
+    return text[: max_chars - 3].rstrip() + "..."
+
+
+def _markdown_cell(value: Any, *, max_chars: int = 96) -> str:
+    if isinstance(value, Mapping):
+        text = json.dumps(dict(value), ensure_ascii=False, sort_keys=True)
+    elif isinstance(value, (list, tuple, set)):
+        text = ", ".join(str(item) for item in value)
+    else:
+        text = str(value or "")
+    return _short_workbook_preview(text, max_chars=max_chars).replace("|", "\\|") or "-"
+
+
+def _counter_dict(rows: Sequence[Mapping[str, Any]], field: str) -> dict[str, int]:
+    counts = Counter(str(row.get(field) or "").strip() or "missing" for row in rows)
+    return dict(sorted(counts.items()))
+
+
+def _source_license_workbook_row(index: int, row: Mapping[str, Any]) -> dict[str, Any]:
+    title = str(row.get("title") or "").strip()
+    return {
+        "index": index,
+        "source_id": str(row.get("source_id") or ""),
+        TARGET_ROW_HASH_FIELD: review_row_fingerprint(row),
+        "source_type": str(row.get("source_type") or ""),
+        "current_license_status": str(row.get("current_license_status") or ""),
+        "publish_date": str(row.get("publish_date") or ""),
+        "title_preview": _short_workbook_preview(title, max_chars=96),
+        "title_truncated": len(title) > 96,
     }
 
 
@@ -448,6 +519,153 @@ def build_source_license_policy_template(root: str | Path = ".") -> Mapping[str,
     }
 
 
+def build_source_license_review_workbook(
+    root: str | Path = ".",
+    *,
+    sample_rows: int = SOURCE_LICENSE_WORKBOOK_SAMPLE_ROWS,
+) -> tuple[SourceLicenseReviewWorkbookSummary, tuple[Mapping[str, Any], ...]]:
+    """Build a read-only source-license policy review workbook.
+
+    The workbook helps compliance review the policy scope without embedding
+    report abstracts or any approval decisions. The signed policy JSON remains
+    the only importable artifact.
+    """
+    if sample_rows <= 0:
+        raise ValueError("sample_rows must be positive")
+
+    root_path = Path(root)
+    raw_rows, review_rows, review_blockers, total_review_rows = _load_review_template_rows(root_path)
+    pending_rows = [row for row in review_rows if not _license_row_complete(row)]
+    policy_template = build_source_license_policy_template(root_path)
+    filters = _policy_filters(policy_template)
+    matched_rows = [row for row in review_rows if _matches(row, filters)]
+    publish_date_min, publish_date_max = _matched_publish_date_bounds(matched_rows)
+    workbook_rows = tuple(
+        _source_license_workbook_row(index, row)
+        for index, row in enumerate(pending_rows[:sample_rows], 1)
+    )
+    blockers: list[str] = [*review_blockers]
+    if not raw_rows:
+        blockers.append("source-license review template is missing or empty")
+    elif not review_rows:
+        blockers.append("source-license review template has no valid review rows")
+
+    return (
+        SourceLicenseReviewWorkbookSummary(
+            workbook_id="RKE-SOURCE-LICENSE-REVIEW-WORKBOOK-20260606",
+            path=SOURCE_LICENSE_REVIEW_WORKBOOK_MD_PATH,
+            review_template_path=LICENSE_REVIEW_TEMPLATE_PATH,
+            review_packet_path="registry/compliance/tushare_license_review_packet.json",
+            policy_template_path=SOURCE_LICENSE_POLICY_TEMPLATE_PATH,
+            reviewed_policy_path=SOURCE_LICENSE_REVIEWED_POLICY_PATH,
+            policy_import_path=DEFAULT_LICENSE_POLICY_IMPORT_PATH,
+            pending_rows=len(pending_rows),
+            row_count=total_review_rows,
+            sample_rows=len(workbook_rows),
+            matched_row_count=len(matched_rows),
+            matched_rows_fingerprint=_matched_rows_fingerprint(matched_rows),
+            publish_date_min=publish_date_min,
+            publish_date_max=publish_date_max,
+            source_type_counts=_counter_dict(review_rows, "source_type"),
+            license_status_counts=_counter_dict(review_rows, "current_license_status"),
+            blockers=tuple(blockers),
+        ),
+        workbook_rows,
+    )
+
+
+def render_source_license_review_workbook_markdown(
+    summary: SourceLicenseReviewWorkbookSummary,
+    rows: Sequence[Mapping[str, Any]],
+) -> str:
+    lines = [
+        "# RKE Source-License Review Workbook",
+        "",
+        f"- Workbook ID: {summary.workbook_id}",
+        f"- Pending rows: {summary.pending_rows}",
+        f"- Source rows in template: {summary.row_count}",
+        f"- Matched policy rows: {summary.matched_row_count}",
+        f"- Matched rows fingerprint: `{summary.matched_rows_fingerprint}`",
+        f"- Publish date range: {summary.publish_date_min or 'none'} to {summary.publish_date_max or 'none'}",
+        f"- Review template: `{summary.review_template_path}`",
+        f"- Review packet: `{summary.review_packet_path}`",
+        f"- Policy template: `{summary.policy_template_path}`",
+        f"- Reviewed policy: `{summary.reviewed_policy_path}`",
+        f"- Policy import output: `{summary.policy_import_path}`",
+        "- Prepare reviewed policy: `mosaic-rke prepare-license-policy-review --root .`",
+        (
+            "- Build policy import: "
+            "`mosaic-rke build-license-review-import --root . "
+            f"--policy {summary.reviewed_policy_path} --output {summary.policy_import_path}`"
+        ),
+        (
+            "- Dry run policy import: "
+            "`mosaic-rke apply-license-review --root . "
+            f"--input {summary.policy_import_path} --dry-run`"
+        ),
+        "",
+        (
+            "This workbook is read-only. Fill reviewer decisions only in the reviewed "
+            "policy JSON; do not edit this Markdown file or use it as an import file."
+        ),
+        "It intentionally lists only IDs, hashes, dates, statuses, and short title previews.",
+        "",
+        "## Policy Scope",
+        "",
+        "| Field | Value |",
+        "|---|---|",
+        f"| source_type_counts | {_markdown_cell(summary.source_type_counts, max_chars=160)} |",
+        f"| license_status_counts | {_markdown_cell(summary.license_status_counts, max_chars=160)} |",
+        "",
+    ]
+    if summary.blockers:
+        lines.extend(["## Blockers", ""])
+        lines.extend(f"- {blocker}" for blocker in summary.blockers)
+        lines.append("")
+    lines.extend(
+        [
+            "## Sample Pending Source Rows",
+            "",
+            (
+                f"The table shows the first {summary.sample_rows} pending rows. "
+                "The full policy scope is bound by the matched rows fingerprint above."
+            ),
+            "",
+            "| # | source_id | target_hash | publish_date | source_type | status | title_preview |",
+            "|---|---|---|---|---|---|---|",
+        ]
+    )
+    for row in rows:
+        lines.append(
+            "| "
+            + " | ".join(
+                (
+                    _markdown_cell(row.get("index"), max_chars=12),
+                    _markdown_cell(row.get("source_id"), max_chars=48),
+                    _markdown_cell(row.get(TARGET_ROW_HASH_FIELD), max_chars=24),
+                    _markdown_cell(row.get("publish_date"), max_chars=16),
+                    _markdown_cell(row.get("source_type"), max_chars=40),
+                    _markdown_cell(row.get("current_license_status"), max_chars=32),
+                    _markdown_cell(row.get("title_preview"), max_chars=96),
+                )
+            )
+            + " |"
+        )
+    return "\n".join(lines)
+
+
+def write_source_license_review_workbook(root: str | Path = ".") -> dict[str, Any]:
+    root_path = Path(root)
+    summary, rows = build_source_license_review_workbook(root_path)
+    path = root_path / SOURCE_LICENSE_REVIEW_WORKBOOK_MD_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        render_source_license_review_workbook_markdown(summary, rows) + "\n",
+        encoding="utf-8",
+    )
+    return {"path": str(path), "rows": len(rows), "blockers": len(summary.blockers)}
+
+
 def write_source_license_policy_template(root: str | Path = ".") -> dict[str, Any]:
     root_path = Path(root)
     return _write_json(
@@ -468,6 +686,7 @@ def write_source_license_reviewed_policy_starter(
     if not resolved_output_path.is_absolute():
         resolved_output_path = root_path / resolved_output_path
     template = build_source_license_policy_template(root_path)
+    workbook = write_source_license_review_workbook(root_path)
     exists = resolved_output_path.exists()
     blockers: list[str] = []
     if exists and not force:
@@ -477,6 +696,8 @@ def write_source_license_reviewed_policy_starter(
     return SourceLicenseReviewedPolicyStarterResult(
         path=str(resolved_output_path),
         template_path=SOURCE_LICENSE_POLICY_TEMPLATE_PATH,
+        workbook_path=str(workbook["path"]),
+        workbook_rows=int(workbook["rows"]),
         force=force,
         written=not blockers,
         overwritten=exists and force and not blockers,

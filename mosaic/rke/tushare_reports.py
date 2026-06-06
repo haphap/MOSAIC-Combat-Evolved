@@ -818,7 +818,11 @@ def refresh_tushare_research_report_registry(
     outputs["manual_review_batch_status"] = review_batches_result["status"]
     outputs["manual_review_gold_set_import_template"] = review_batches_result["gold_set_import_template"]
     outputs["manual_review_gold_set_full_import_template"] = review_batches_result["gold_set_full_import_template"]
+    outputs["manual_review_gold_set_workbook"] = review_batches_result["gold_set_review_workbook"]
     outputs["manual_review_source_license_import_template"] = review_batches_result["source_license_import_template"]
+    outputs["manual_review_source_license_workbook"] = review_batches_result[
+        "source_license_review_workbook"
+    ]
     outputs["claim_variable_vocabulary"] = str(claim_vocabulary_result["path"])
     outputs["gold_candidate_claims"] = gold_candidate_claims_result["candidate_claims"]
     outputs["gold_candidate_claims_summary"] = gold_candidate_claims_result["summary"]
@@ -846,6 +850,9 @@ def refresh_tushare_research_report_registry(
         "registry/gold_sets/tushare_research_reports.review_import_report.json"
     )
     outputs["source_license_policy_template"] = operator_handoff_result["source_license_policy_template"]
+    outputs["source_license_review_workbook"] = operator_handoff_result[
+        "source_license_review_workbook"
+    ]
     outputs["rollback_readiness_report"] = str(rollback_readiness_result["path"])
     outputs["operator_readiness_report"] = str(operator_readiness_result["path"])
     outputs["source_license_policy_import_report"] = (

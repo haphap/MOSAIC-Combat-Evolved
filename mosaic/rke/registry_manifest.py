@@ -79,6 +79,7 @@ REQUIRED_REGISTRY_FILES = (
     "registry/review_batches/source_license_next_import_template.jsonl",
     "registry/review_batches/source_license_policy_import_report.json",
     "registry/review_batches/source_license_policy_template.json",
+    "registry/review_batches/source_license_review_workbook.md",
     "registry/schemas/rke_schema_validation_report.json",
     "registry/source_checks/source_registry_validation_report.json",
     "registry/sources/central_bank_sources.jsonl",

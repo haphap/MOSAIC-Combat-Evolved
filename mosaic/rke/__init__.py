@@ -163,11 +163,15 @@ from .license_review_packet import (
     write_license_review_packet,
 )
 from .license_policy_import import (
+    SourceLicenseReviewWorkbookSummary,
     SourceLicensePolicyFilters,
     SourceLicensePolicyImportReport,
     SourceLicenseReviewedPolicyStarterResult,
+    build_source_license_review_workbook,
     build_source_license_policy_template,
     build_source_license_policy_import,
+    render_source_license_review_workbook_markdown,
+    write_source_license_review_workbook,
     write_source_license_policy_template,
     write_source_license_reviewed_policy_starter,
 )
@@ -532,8 +536,12 @@ __all__ = [
     "SourceLicensePolicyFilters",
     "SourceLicensePolicyImportReport",
     "SourceLicenseReviewedPolicyStarterResult",
+    "SourceLicenseReviewWorkbookSummary",
+    "build_source_license_review_workbook",
     "build_source_license_policy_template",
     "build_source_license_policy_import",
+    "render_source_license_review_workbook_markdown",
+    "write_source_license_review_workbook",
     "write_source_license_policy_template",
     "write_source_license_reviewed_policy_starter",
     "MacroExpansionCandidate",
