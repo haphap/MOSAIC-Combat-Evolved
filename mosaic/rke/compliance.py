@@ -145,12 +145,19 @@ def write_source_license_review_template(
 
 def apply_source_license_reviews(
     sources: Sequence[Mapping[str, Any]],
-    reviews: Sequence[SourceLicenseReviewRecord | Mapping[str, Any]],
+    reviews: Sequence[Any],
 ) -> tuple[dict[str, Any], ...]:
-    review_by_source = {
-        str(review.source_id if isinstance(review, SourceLicenseReviewRecord) else review.get("source_id")): review
-        for review in reviews
-    }
+    review_by_source: dict[str, SourceLicenseReviewRecord | Mapping[str, Any]] = {}
+    for review in reviews:
+        if isinstance(review, SourceLicenseReviewRecord):
+            source_id = str(review.source_id or "")
+        elif isinstance(review, Mapping):
+            source_id = str(review.get("source_id") or "")
+        else:
+            continue
+        if source_id:
+            review_by_source[source_id] = review
+
     updated: list[dict[str, Any]] = []
     for source in sources:
         row = dict(source)

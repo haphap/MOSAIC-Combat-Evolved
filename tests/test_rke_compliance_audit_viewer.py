@@ -89,6 +89,25 @@ def test_license_review_restriction_keeps_source_out_of_production():
     assert "production_runtime_retrieval is forbidden" in decision.reasons
 
 
+def test_license_review_application_ignores_malformed_review_rows_conservatively():
+    row = _first_jsonl_row(Path("registry/sources/tushare_research_reports.jsonl"))
+
+    updated = apply_source_license_reviews(
+        (row,),
+        (
+            "not an object",
+            ["also", "not", "object"],
+            {"approved_for_derived_claim_storage": True, "approved_for_production_runtime": True},
+        ),
+    )
+    decision = evaluate_source_license(updated[0])
+
+    assert updated[0]["license_status"] == row["license_status"]
+    assert "allowed_uses" not in updated[0]
+    assert not decision.allowed_for_production_runtime
+    assert "pending_review source is sandbox-only until compliance approval" in decision.reasons
+
+
 def test_tushare_license_review_template_is_pending_manual_approval():
     source_rows = [
         json.loads(line)
