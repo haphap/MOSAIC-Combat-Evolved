@@ -54,6 +54,80 @@ def test_completion_auditor_requires_statistical_significance_gate(tmp_path: Pat
     assert "confidence interval includes zero" in by_id["C04"].blocker
 
 
+def test_completion_auditor_requires_rule_pack_data_proxy_coverage(tmp_path: Path):
+    shutil.copytree(Path("registry"), tmp_path / "registry")
+    data_path = (
+        tmp_path / "registry/data_availability/central_bank_data_availability.json"
+    )
+    data_matrix = json.loads(data_path.read_text(encoding="utf-8"))
+    data_matrix["proxies"].pop("risk_appetite_proxy")
+    data_path.write_text(
+        json.dumps(data_matrix, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    audit = audit_master_plan_completion(tmp_path)
+    by_id = {criterion.criterion_id: criterion for criterion in audit.criteria}
+
+    assert not by_id["C03"].passed
+    assert (
+        "data availability proxy missing or malformed: risk_appetite_proxy"
+        in by_id["C03"].blocker
+    )
+
+
+def test_completion_auditor_requires_production_eligible_data_proxy(tmp_path: Path):
+    shutil.copytree(Path("registry"), tmp_path / "registry")
+    data_path = (
+        tmp_path / "registry/data_availability/central_bank_data_availability.json"
+    )
+    data_matrix = json.loads(data_path.read_text(encoding="utf-8"))
+    data_matrix["proxies"]["pboc_net_injection_7d"]["allowed_for_production"] = False
+    data_matrix["proxies"]["pboc_net_injection_7d"]["point_in_time_available"] = False
+    data_path.write_text(
+        json.dumps(data_matrix, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    audit = audit_master_plan_completion(tmp_path)
+    by_id = {criterion.criterion_id: criterion for criterion in audit.criteria}
+
+    assert not by_id["C03"].passed
+    assert (
+        "pboc_net_injection_7d.allowed_for_production must be true"
+        in by_id["C03"].blocker
+    )
+    assert (
+        "pboc_net_injection_7d.point_in_time_available must be true"
+        in by_id["C03"].blocker
+    )
+
+
+def test_completion_auditor_requires_data_proxy_fields(tmp_path: Path):
+    shutil.copytree(Path("registry"), tmp_path / "registry")
+    data_path = (
+        tmp_path / "registry/data_availability/central_bank_data_availability.json"
+    )
+    data_matrix = json.loads(data_path.read_text(encoding="utf-8"))
+    data_matrix["proxies"]["risk_appetite_proxy"].pop("history_start")
+    data_matrix["proxies"]["risk_appetite_proxy"]["known_biases"] = "low"
+    data_path.write_text(
+        json.dumps(data_matrix, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    audit = audit_master_plan_completion(tmp_path)
+    by_id = {criterion.criterion_id: criterion for criterion in audit.criteria}
+
+    assert not by_id["C03"].passed
+    assert "risk_appetite_proxy.history_start missing" in by_id["C03"].blocker
+    assert "risk_appetite_proxy.history_start must be non-empty" in by_id["C03"].blocker
+    assert (
+        "risk_appetite_proxy.known_biases must be list when present"
+        in by_id["C03"].blocker
+    )
+
+
 def test_completion_auditor_rejects_non_object_gold_review_rows(tmp_path: Path):
     shutil.copytree(Path("registry"), tmp_path / "registry")
     review_path = (

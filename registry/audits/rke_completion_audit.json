@@ -75,7 +75,7 @@
       "blocker": "",
       "criterion_id": "C03",
       "description": "Data availability matrix covers the production candidate proxies.",
-      "evidence": "central_bank data availability matrix",
+      "evidence": "2 rule-pack proxies PIT/validation/production eligible across 1 candidate rule(s): pboc_net_injection_7d, risk_appetite_proxy",
       "passed": true
     },
     {

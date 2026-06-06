@@ -17,9 +17,9 @@
       "sha256": "sha256:e1f5145d4656f58272d21b0b0f9b6eb88563d1f5096a16f59216b918a61eefec"
     },
     {
-      "bytes": 5160,
+      "bytes": 5248,
       "path": "registry/audits/rke_completion_audit.json",
-      "sha256": "sha256:fc2af6cb6ec18e8da60951e1f0845cec835380da0e004f6fd80666581656eba2"
+      "sha256": "sha256:1634d4ab74663ed6f415682cbf7eb48124f8eb40cda2c3eb9f02d9a5cbe62c55"
     },
     {
       "bytes": 8061,

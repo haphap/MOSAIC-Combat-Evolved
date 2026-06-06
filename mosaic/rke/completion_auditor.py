@@ -749,6 +749,139 @@ def _validation_gate(
     return not failures, evidence, "; ".join(failures)
 
 
+_DATA_AVAILABILITY_REQUIRED_FIELDS = (
+    "metric_proxy",
+    "data_source",
+    "point_in_time_available",
+    "history_start",
+    "history_end",
+    "vintage_handling",
+    "survivorship_bias_risk",
+    "timestamp_granularity",
+    "allowed_for_validation",
+    "allowed_for_production",
+)
+
+
+def _data_availability_gate(
+    data_matrix: Mapping[str, Any] | None,
+    rule_pack: Mapping[str, Any] | None,
+    *,
+    data_matrix_error: str = "",
+    rule_pack_error: str = "",
+) -> tuple[bool, str, str]:
+    failures: list[str] = []
+    if data_matrix_error:
+        failures.append(data_matrix_error)
+    if rule_pack_error:
+        failures.append(rule_pack_error)
+    if data_matrix is None:
+        failures.append("data availability matrix missing")
+    if rule_pack is None:
+        failures.append("central_bank rule pack missing")
+    if failures:
+        return False, "central_bank data availability matrix", "; ".join(failures)
+
+    data_proxies, data_proxies_error = _mapping_field(
+        data_matrix,
+        "proxies",
+        "data availability proxies",
+    )
+    rules, rules_error = _mapping_field(rule_pack, "rules", "rule_pack.rules")
+    failures.extend(error for error in (data_proxies_error, rules_error) if error)
+    if not data_proxies:
+        failures.append("data availability proxies missing")
+    if not rules:
+        failures.append("rule_pack.rules missing")
+    if failures:
+        return False, "central_bank data availability matrix", "; ".join(failures)
+
+    required_proxies: set[str] = set()
+    rule_count = 0
+    for rule_id, raw_rule in rules.items():
+        if not isinstance(raw_rule, Mapping):
+            failures.append(f"rule {rule_id} must be object")
+            continue
+        status = str(raw_rule.get("status") or "").strip().lower()
+        if status not in {"candidate", "paper_trading", "production", "active"}:
+            continue
+        rule_count += 1
+        metric_proxies = raw_rule.get("metric_proxies")
+        if not isinstance(metric_proxies, list | tuple):
+            failures.append(f"rule {rule_id}.metric_proxies must be list")
+            continue
+        for index, proxy in enumerate(metric_proxies, 1):
+            proxy_name = str(proxy or "").strip()
+            if not proxy_name:
+                failures.append(
+                    f"rule {rule_id}.metric_proxies[{index}] must be non-empty"
+                )
+                continue
+            required_proxies.add(proxy_name)
+
+    if not required_proxies:
+        failures.append("no production candidate metric proxies found in rule pack")
+    for proxy_name in sorted(required_proxies):
+        raw_proxy = data_proxies.get(proxy_name)
+        if not isinstance(raw_proxy, Mapping):
+            failures.append(
+                f"data availability proxy missing or malformed: {proxy_name}"
+            )
+            continue
+        for field in _DATA_AVAILABILITY_REQUIRED_FIELDS:
+            if field not in raw_proxy:
+                failures.append(f"{proxy_name}.{field} missing")
+        if raw_proxy.get("metric_proxy") != proxy_name:
+            failures.append(f"{proxy_name}.metric_proxy must equal proxy key")
+        for field in (
+            "data_source",
+            "history_start",
+            "history_end",
+            "vintage_handling",
+            "survivorship_bias_risk",
+            "timestamp_granularity",
+        ):
+            if not str(raw_proxy.get(field) or "").strip():
+                failures.append(f"{proxy_name}.{field} must be non-empty")
+        if raw_proxy.get("point_in_time_available") is not True:
+            failures.append(f"{proxy_name}.point_in_time_available must be true")
+        if raw_proxy.get("allowed_for_validation") is not True:
+            failures.append(f"{proxy_name}.allowed_for_validation must be true")
+        if raw_proxy.get("allowed_for_production") is not True:
+            failures.append(f"{proxy_name}.allowed_for_production must be true")
+        known_biases = raw_proxy.get("known_biases")
+        if known_biases is not None and not isinstance(known_biases, list):
+            failures.append(f"{proxy_name}.known_biases must be list when present")
+        history_start = str(raw_proxy.get("history_start") or "").strip()
+        history_end = str(raw_proxy.get("history_end") or "").strip()
+        if history_start and history_end:
+            try:
+                if history_start > history_end:
+                    failures.append(
+                        f"{proxy_name}.history_start must be <= history_end"
+                    )
+            except TypeError:
+                failures.append(
+                    f"{proxy_name}.history dates must be comparable strings"
+                )
+
+    if failures:
+        return (
+            False,
+            f"{len(required_proxies)} rule-pack proxy/proxies checked",
+            "; ".join(failures),
+        )
+    return (
+        True,
+        (
+            f"{len(required_proxies)} rule-pack proxies PIT/validation/production "
+            f"eligible across {rule_count} candidate rule(s): "
+            + ", ".join(sorted(required_proxies))
+        ),
+        "",
+    )
+
+
 def _audit_trace_gate(root: Path) -> tuple[bool, str, str]:
     trace, trace_error = _optional_mapping(
         root / "registry/audits/central_bank_mvp_audit_trace.json",
@@ -865,6 +998,14 @@ def audit_master_plan_completion(root: str | Path = ".") -> CompletionAudit:
             sector_runtime_error=sector_runtime_error,
         )
     )
+    data_availability_passed, data_availability_evidence, data_availability_blocker = (
+        _data_availability_gate(
+            data_matrix,
+            rule_pack,
+            data_matrix_error=data_matrix_error,
+            rule_pack_error=rule_pack_error,
+        )
+    )
 
     aggregation, aggregation_error = _mapping_field(
         runtime_output,
@@ -886,11 +1027,6 @@ def audit_master_plan_completion(root: str | Path = ".") -> CompletionAudit:
         paper_report,
         "production_monitor",
         "production_monitor",
-    )
-    data_proxies, data_proxies_error = _mapping_field(
-        data_matrix,
-        "proxies",
-        "data availability proxies",
     )
     monitor_diagnostics_passed = (
         not paper_report_error
@@ -937,19 +1073,9 @@ def audit_master_plan_completion(root: str | Path = ".") -> CompletionAudit:
             CompletionCriterion(
                 "C03",
                 "Data availability matrix covers the production candidate proxies.",
-                (
-                    not data_matrix_error
-                    and not data_proxies_error
-                    and bool(
-                        data_matrix
-                        and {"pboc_net_injection_7d", "risk_appetite_proxy"}
-                        <= set(data_proxies)
-                    )
-                ),
-                "central_bank data availability matrix",
-                data_matrix_error
-                or data_proxies_error
-                or ("" if data_matrix else "data availability matrix missing"),
+                data_availability_passed,
+                data_availability_evidence,
+                data_availability_blocker,
             ),
             CompletionCriterion(
                 "C04",
