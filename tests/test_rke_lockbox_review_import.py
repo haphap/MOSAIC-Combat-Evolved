@@ -176,6 +176,24 @@ def test_lockbox_review_import_allows_production_after_manual_gates(tmp_path: Pa
     assert promotion.next_state == "production"
 
 
+def test_apply_lockbox_review_import_rejects_reopening_existing_lockbox(tmp_path: Path):
+    _copy_registry(tmp_path)
+    first_import = tmp_path / "lockbox_review_first.json"
+    second_import = tmp_path / "lockbox_review_second.json"
+    _write_json(first_import, _passed_lockbox_review(tmp_path))
+
+    first_report = apply_lockbox_review_import(tmp_path, first_import)
+    _write_json(second_import, _passed_lockbox_review(tmp_path))
+
+    second_report = apply_lockbox_review_import(tmp_path, second_import)
+
+    assert first_report.accepted
+    assert first_report.applied
+    assert not second_report.accepted
+    assert not second_report.applied
+    assert "lockbox target has already been opened" in second_report.rejected_reasons
+
+
 def test_cli_apply_lockbox_review_import(tmp_path: Path, capsys):
     _copy_registry(tmp_path)
     import_path = tmp_path / "lockbox_review.json"

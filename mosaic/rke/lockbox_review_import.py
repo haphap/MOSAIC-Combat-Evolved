@@ -158,6 +158,16 @@ def _string_type_failures(row: Mapping[str, Any]) -> list[str]:
     return failures
 
 
+def _target_already_opened_failures(target: Mapping[str, Any]) -> list[str]:
+    result = str(target.get("result") or "")
+    open_count = target.get("open_count")
+    opened_at = str(target.get("opened_at") or "").strip()
+    opened_by = str(target.get("opened_by") or "").strip()
+    if result != "not_opened" or open_count not in (0, None) or opened_at or opened_by:
+        return ["lockbox target has already been opened"]
+    return []
+
+
 def _row_failures(row: Mapping[str, Any], target: Mapping[str, Any]) -> list[str]:
     failures: list[str] = []
     for field in LOCKBOX_REQUIRED_FIELDS:
@@ -226,6 +236,7 @@ def apply_lockbox_review_import(
     input_row = _read_json(resolved_input)
     normalized = _normalize_lockbox_row(input_row, target)
     rejected_reasons = _row_failures(normalized, target)
+    rejected_reasons.extend(_target_already_opened_failures(target))
     rejected_reasons.extend(_string_type_failures(input_row))
     rejected_reasons.extend(_unexpected_field_failures(input_row))
     rejected_reasons.extend(_forbidden_field_failures(input_row))
