@@ -99,6 +99,7 @@
       "gold_set_exported_rows": 50,
       "gold_set_full_import_template": "registry/review_batches/gold_set_full_import_template.jsonl",
       "gold_set_pending_rows": 500,
+      "gold_set_review_workbook": "registry/review_batches/gold_set_review_workbook.md",
       "ready_for_manual_review": true,
       "source_license_dry_run_command": "mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_next_import_template.jsonl --dry-run",
       "source_license_exported_rows": 50,
@@ -229,7 +230,7 @@
   },
   "source_text_redaction": {
     "accepted": true,
-    "checked_path_count": 408,
+    "checked_path_count": 409,
     "failure_count": 0,
     "min_match_chars": 80,
     "skipped_allowed_path_count": 6,

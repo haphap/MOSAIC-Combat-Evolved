@@ -183,6 +183,7 @@ def test_write_operator_handoff_outputs_json_markdown_and_lockbox_template(
     assert "prepare-license-policy-review" in markdown
     assert "prepare-gold-review" in markdown
     assert "prepare-lockbox-review" in markdown
+    assert "gold_set_review_workbook.md" in markdown
     assert "gold_set_full_reviewed.jsonl" in markdown
     assert "gold_set_full_import_template.jsonl" in markdown
     assert "lockbox_reviewed.json" in markdown
@@ -203,6 +204,7 @@ def test_cli_operator_handoff_writes_package(tmp_path: Path, capsys):
     assert (
         tmp_path / "registry/review_batches/gold_set_full_import_template.jsonl"
     ).exists()
+    assert (tmp_path / "registry/review_batches/gold_set_review_workbook.md").exists()
     assert (
         tmp_path / "registry/review_batches/lockbox_review_next_import_template.json"
     ).exists()

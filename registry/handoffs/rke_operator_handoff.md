@@ -33,7 +33,7 @@ Dry-run command: `mosaic-rke build-license-review-import --root . --policy regis
 - Exported rows: 500
 - Dry run: `mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl --dry-run`
 - Apply: `mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl`
-- Note: Run prepare-gold-review --full, fill the reviewed scratch JSONL, then dry-run before applying the 500-claim gold set.
+- Note: Run prepare-gold-review --full, fill the reviewed scratch JSONL, use registry/review_batches/gold_set_review_workbook.md as the read-only claim checklist, then dry-run before applying the 500-claim gold set.
 
 ### PG03 source_license
 

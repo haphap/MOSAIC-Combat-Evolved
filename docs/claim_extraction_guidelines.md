@@ -100,6 +100,12 @@ mosaic-rke apply-gold-review --root . \
 
 Use `--dry-run` to validate without mutating the template.
 
+For review triage, run `mosaic-rke review-batches --root .` and inspect
+`registry/review_batches/gold_set_review_workbook.md`. The workbook is a
+read-only checklist: it lists pending claim IDs, row hashes, source offsets,
+variables, risk flags, and short claim previews, but it must not be edited or
+used as an import file.
+
 The import is accepted only when the whole batch passes:
 
 - every `claim_id` exists in the target review template;

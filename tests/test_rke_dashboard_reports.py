@@ -141,6 +141,10 @@ def test_dashboard_report_summarizes_completion_and_monitoring():
         == "registry/review_batches/gold_set_full_import_template.jsonl"
     )
     assert (
+        report["manual_review_gates"]["review_batches"]["gold_set_review_workbook"]
+        == "registry/review_batches/gold_set_review_workbook.md"
+    )
+    assert (
         report["manual_review_gates"]["review_batches"]["source_license_pending_rows"]
         == source_row_count
     )
@@ -228,6 +232,7 @@ def test_dashboard_markdown_renders_blockers():
         "Full gold review import template: registry/review_batches/gold_set_full_import_template.jsonl"
         in markdown
     )
+    assert "Gold review workbook: registry/review_batches/gold_set_review_workbook.md" in markdown
     assert "Next license review batch rows: 50" in markdown
     assert "Operator handoff ready: True" in markdown
     assert "Operator handoff blockers:" in markdown

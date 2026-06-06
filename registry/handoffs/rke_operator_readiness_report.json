@@ -71,7 +71,7 @@
     {
       "blocker": "",
       "check_id": "manual_review_bundle_manifest_current",
-      "evidence": "artifact_count=16, blockers=0, dry_run_accepted=False",
+      "evidence": "artifact_count=17, blockers=0, dry_run_accepted=False",
       "passed": true
     },
     {
@@ -94,6 +94,7 @@
     "registry/handoffs/rke_operator_readiness_report.json",
     "registry/review_batches/gold_set_next_import_template.jsonl",
     "registry/review_batches/gold_set_full_import_template.jsonl",
+    "registry/review_batches/gold_set_review_workbook.md",
     "registry/gold_sets/tushare_research_reports.review_import_report.json",
     "registry/review_batches/source_license_next_import_template.jsonl",
     "registry/review_batches/source_license_policy_template.json",

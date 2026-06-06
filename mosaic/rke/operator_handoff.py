@@ -21,6 +21,7 @@ from .lockbox_review_import import (
 from .manual_review_import import TARGET_ROW_HASH_FIELD, review_row_fingerprint
 from .manual_review_batches import (
     GOLD_FULL_REVIEWED_IMPORT_PATH,
+    GOLD_REVIEW_WORKBOOK_MD_PATH,
     build_manual_review_batch_status,
     write_manual_review_batches,
 )
@@ -257,6 +258,7 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
             ),
             operator_note=(
                 "Run prepare-gold-review --full, fill the reviewed scratch JSONL, "
+                f"use {GOLD_REVIEW_WORKBOOK_MD_PATH} as the read-only claim checklist, "
                 "then dry-run before applying the 500-claim gold set."
             ),
         ),
@@ -335,6 +337,7 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
     generated_paths = (
         gold.import_template_path,
         gold.full_import_template_path,
+        GOLD_REVIEW_WORKBOOK_MD_PATH,
         source_license.import_template_path,
         SOURCE_LICENSE_POLICY_TEMPLATE_PATH,
         LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH,
@@ -436,6 +439,7 @@ def write_operator_handoff(root: str | Path = ".") -> dict[str, Any]:
         "gold_set_full_import_template": review_batches[
             "gold_set_full_import_template"
         ],
+        "gold_set_review_workbook": review_batches["gold_set_review_workbook"],
         "source_license_import_template": review_batches[
             "source_license_import_template"
         ],

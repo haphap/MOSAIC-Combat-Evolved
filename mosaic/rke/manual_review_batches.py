@@ -20,6 +20,7 @@ GOLD_REVIEW_TEMPLATE_PATH = "registry/gold_sets/tushare_research_reports.review_
 GOLD_REVIEW_PACKET_PATH = "registry/gold_sets/tushare_research_reports.review_packet.json"
 GOLD_BATCH_IMPORT_TEMPLATE_PATH = "registry/review_batches/gold_set_next_import_template.jsonl"
 GOLD_FULL_IMPORT_TEMPLATE_PATH = "registry/review_batches/gold_set_full_import_template.jsonl"
+GOLD_REVIEW_WORKBOOK_MD_PATH = "registry/review_batches/gold_set_review_workbook.md"
 GOLD_REVIEWED_IMPORT_PATH = "registry/review_batches/gold_set_reviewed.jsonl"
 GOLD_FULL_REVIEWED_IMPORT_PATH = "registry/review_batches/gold_set_full_reviewed.jsonl"
 LICENSE_REVIEW_TEMPLATE_PATH = "registry/compliance/tushare_license_review_template.jsonl"
@@ -65,6 +66,18 @@ class GoldReviewStarterResult:
     written: bool
     overwritten: bool
     rows: int
+    blockers: Sequence[str]
+
+
+@dataclass(frozen=True)
+class GoldReviewWorkbookSummary:
+    workbook_id: str
+    path: str
+    review_template_path: str
+    full_import_template_path: str
+    review_packet_path: str
+    pending_rows: int
+    row_count: int
     blockers: Sequence[str]
 
 
@@ -149,10 +162,21 @@ def _license_row_complete(row: Mapping[str, Any]) -> bool:
 
 
 def _short_review_preview(value: Any, *, max_chars: int = 72) -> str:
-    text = str(value or "").strip()
+    text = " ".join(str(value or "").split())
     if len(text) <= max_chars:
         return text
     return text[: max_chars - 3].rstrip() + "..."
+
+
+def _markdown_cell(value: Any, *, max_chars: int = 72) -> str:
+    if isinstance(value, (list, tuple, set)):
+        text = ", ".join(str(item) for item in value)
+    elif isinstance(value, Mapping):
+        text = json.dumps(dict(value), ensure_ascii=False, sort_keys=True)
+    else:
+        text = str(value or "")
+    text = _short_review_preview(text, max_chars=max_chars)
+    return text.replace("|", "\\|") or "-"
 
 
 def _gold_template_row(row: Mapping[str, Any]) -> dict[str, Any]:
@@ -194,6 +218,145 @@ def _gold_template_row(row: Mapping[str, Any]) -> dict[str, Any]:
         "review_date": "",
         "review_notes": "",
     }
+
+
+def _gold_workbook_row(index: int, row: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "index": index,
+        "claim_id": str(row.get("claim_id") or ""),
+        TARGET_ROW_HASH_FIELD: review_row_fingerprint(row),
+        "source_id": str(row.get("source_id") or ""),
+        "gold_set_domain": str(row.get("gold_set_domain") or "other"),
+        "proposed_claim_type": str(row.get("proposed_claim_type") or ""),
+        "proposed_direction": str(row.get("proposed_direction") or ""),
+        "proposed_extraction_confidence_bin": str(
+            row.get("proposed_extraction_confidence_bin") or ""
+        ),
+        "proposed_variables": tuple(
+            str(variable)
+            for variable in (
+                *(row.get("proposed_cause_variables") or ()),
+                *(row.get("proposed_target_variables") or ()),
+            )
+            if str(variable).strip()
+        ),
+        "proposed_source_offsets": (
+            f"{row.get('proposed_source_start_char')}-{row.get('proposed_source_end_char')}"
+        ),
+        "proposed_source_text_hash": str(row.get("proposed_source_text_hash") or ""),
+        "proposed_source_span_ref_id": str(row.get("proposed_source_span_ref_id") or ""),
+        "proposed_review_risk_flags": tuple(row.get("proposed_review_risk_flags") or ()),
+        "claim_preview": _short_review_preview(row.get("proposed_claim_text"), max_chars=72),
+    }
+
+
+def build_gold_review_workbook(
+    root: str | Path = ".",
+) -> tuple[GoldReviewWorkbookSummary, tuple[Mapping[str, Any], ...]]:
+    root_path = Path(root)
+    raw_rows, rows, invalid_rows, parse_blockers, total_rows = _load_review_rows(
+        root_path,
+        GOLD_REVIEW_TEMPLATE_PATH,
+        label="gold-set review",
+    )
+    pending_rows = [row for row in rows if not _gold_row_complete(row)]
+    workbook_rows = tuple(
+        _gold_workbook_row(index, row)
+        for index, row in enumerate(pending_rows, 1)
+    )
+    blockers: list[str] = [*parse_blockers]
+    if invalid_rows:
+        blockers.append(
+            "gold-set review row must be object at row(s): "
+            + ", ".join(str(row_number) for row_number in invalid_rows)
+        )
+    if not raw_rows:
+        blockers.append("gold-set review template is missing or empty")
+    elif not rows:
+        blockers.append("gold-set review template has no valid review rows")
+    return (
+        GoldReviewWorkbookSummary(
+            workbook_id="RKE-GOLD-REVIEW-WORKBOOK-20260606",
+            path=GOLD_REVIEW_WORKBOOK_MD_PATH,
+            review_template_path=GOLD_REVIEW_TEMPLATE_PATH,
+            full_import_template_path=GOLD_FULL_IMPORT_TEMPLATE_PATH,
+            review_packet_path=GOLD_REVIEW_PACKET_PATH,
+            pending_rows=len(pending_rows),
+            row_count=total_rows,
+            blockers=tuple(blockers),
+        ),
+        workbook_rows,
+    )
+
+
+def render_gold_review_workbook_markdown(
+    summary: GoldReviewWorkbookSummary,
+    rows: Sequence[Mapping[str, Any]],
+) -> str:
+    lines = [
+        "# RKE Gold Review Workbook",
+        "",
+        f"- Workbook ID: {summary.workbook_id}",
+        f"- Pending rows: {summary.pending_rows}",
+        f"- Review template: `{summary.review_template_path}`",
+        f"- Full import template: `{summary.full_import_template_path}`",
+        f"- Review packet: `{summary.review_packet_path}`",
+        "- Prepare reviewed scratch: `mosaic-rke prepare-gold-review --root . --full`",
+        (
+            "- Dry run reviewed scratch: "
+            "`mosaic-rke apply-gold-review --root . "
+            f"--input {GOLD_FULL_REVIEWED_IMPORT_PATH} --dry-run`"
+        ),
+        "",
+        "This workbook is a read-only checklist. Fill reviewer decisions only in the reviewed JSONL scratch file.",
+        "",
+    ]
+    if summary.blockers:
+        lines.extend(["## Blockers", ""])
+        lines.extend(f"- {blocker}" for blocker in summary.blockers)
+        lines.append("")
+    lines.extend(
+        [
+            "## Pending Claims",
+            "",
+            (
+                "| # | claim_id | target_hash | domain | source_id | offsets | type | "
+                "direction | confidence | variables | risk_flags | claim_preview |"
+            ),
+            "|---|---|---|---|---|---|---|---|---|---|---|---|",
+        ]
+    )
+    for row in rows:
+        lines.append(
+            "| "
+            + " | ".join(
+                (
+                    _markdown_cell(row.get("index"), max_chars=12),
+                    _markdown_cell(row.get("claim_id"), max_chars=48),
+                    _markdown_cell(row.get(TARGET_ROW_HASH_FIELD), max_chars=24),
+                    _markdown_cell(row.get("gold_set_domain"), max_chars=24),
+                    _markdown_cell(row.get("source_id"), max_chars=48),
+                    _markdown_cell(row.get("proposed_source_offsets"), max_chars=24),
+                    _markdown_cell(row.get("proposed_claim_type"), max_chars=32),
+                    _markdown_cell(row.get("proposed_direction"), max_chars=16),
+                    _markdown_cell(row.get("proposed_extraction_confidence_bin"), max_chars=16),
+                    _markdown_cell(row.get("proposed_variables"), max_chars=72),
+                    _markdown_cell(row.get("proposed_review_risk_flags"), max_chars=72),
+                    _markdown_cell(row.get("claim_preview"), max_chars=72),
+                )
+            )
+            + " |"
+        )
+    return "\n".join(lines)
+
+
+def write_gold_review_workbook(root: str | Path = ".") -> dict[str, Any]:
+    root_path = Path(root)
+    summary, rows = build_gold_review_workbook(root_path)
+    path = root_path / GOLD_REVIEW_WORKBOOK_MD_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(render_gold_review_workbook_markdown(summary, rows) + "\n", encoding="utf-8")
+    return {"path": str(path), "rows": len(rows), "blockers": len(summary.blockers)}
 
 
 def _license_template_row(row: Mapping[str, Any]) -> dict[str, Any]:
@@ -363,6 +526,7 @@ def build_manual_review_batch_status(
         generated_paths=(
             GOLD_BATCH_IMPORT_TEMPLATE_PATH,
             GOLD_FULL_IMPORT_TEMPLATE_PATH,
+            GOLD_REVIEW_WORKBOOK_MD_PATH,
             LICENSE_BATCH_IMPORT_TEMPLATE_PATH,
             MANUAL_REVIEW_BATCH_STATUS_PATH,
         ),
@@ -391,15 +555,18 @@ def write_manual_review_batches(
     gold_full = tuple(_gold_template_row(row) for row in gold_rows if not _gold_row_complete(row))
     gold_result = _write_jsonl(root_path / GOLD_BATCH_IMPORT_TEMPLATE_PATH, gold_batch)
     gold_full_result = _write_jsonl(root_path / GOLD_FULL_IMPORT_TEMPLATE_PATH, gold_full)
+    gold_workbook_result = write_gold_review_workbook(root_path)
     license_result = _write_jsonl(root_path / LICENSE_BATCH_IMPORT_TEMPLATE_PATH, license_batch)
     status_result = _write_json(root_path / MANUAL_REVIEW_BATCH_STATUS_PATH, asdict(status))
     return {
         "status": str(status_result["path"]),
         "gold_set_import_template": str(gold_result["path"]),
         "gold_set_full_import_template": str(gold_full_result["path"]),
+        "gold_set_review_workbook": str(gold_workbook_result["path"]),
         "source_license_import_template": str(license_result["path"]),
         "gold_set_rows": int(gold_result["rows"]),
         "gold_set_full_rows": int(gold_full_result["rows"]),
+        "gold_set_review_workbook_rows": int(gold_workbook_result["rows"]),
         "source_license_rows": int(license_result["rows"]),
     }
 

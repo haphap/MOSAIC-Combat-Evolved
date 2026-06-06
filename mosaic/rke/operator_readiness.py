@@ -10,6 +10,7 @@ from typing import Any, Mapping, Sequence
 from .manual_review_batches import (
     GOLD_BATCH_IMPORT_TEMPLATE_PATH,
     GOLD_FULL_IMPORT_TEMPLATE_PATH,
+    GOLD_REVIEW_WORKBOOK_MD_PATH,
     LICENSE_BATCH_IMPORT_TEMPLATE_PATH,
     build_manual_review_batch_status,
 )
@@ -577,6 +578,7 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
         OPERATOR_READINESS_REPORT_PATH,
         GOLD_BATCH_IMPORT_TEMPLATE_PATH,
         GOLD_FULL_IMPORT_TEMPLATE_PATH,
+        GOLD_REVIEW_WORKBOOK_MD_PATH,
         GOLD_REVIEW_IMPORT_REPORT_PATH,
         LICENSE_BATCH_IMPORT_TEMPLATE_PATH,
         SOURCE_LICENSE_POLICY_TEMPLATE_PATH,

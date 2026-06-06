@@ -11,7 +11,7 @@
       "full_import_template_path": "registry/review_batches/gold_set_full_import_template.jsonl",
       "gate_id": "PG02",
       "import_template_path": "registry/review_batches/gold_set_next_import_template.jsonl",
-      "operator_note": "Run prepare-gold-review --full, fill the reviewed scratch JSONL, then dry-run before applying the 500-claim gold set.",
+      "operator_note": "Run prepare-gold-review --full, fill the reviewed scratch JSONL, use registry/review_batches/gold_set_review_workbook.md as the read-only claim checklist, then dry-run before applying the 500-claim gold set.",
       "passed": false,
       "pending_rows": 500,
       "policy_template_path": "",
@@ -89,6 +89,7 @@
   "generated_paths": [
     "registry/review_batches/gold_set_next_import_template.jsonl",
     "registry/review_batches/gold_set_full_import_template.jsonl",
+    "registry/review_batches/gold_set_review_workbook.md",
     "registry/review_batches/source_license_next_import_template.jsonl",
     "registry/review_batches/source_license_policy_template.json",
     "registry/review_batches/lockbox_review_next_import_template.json",

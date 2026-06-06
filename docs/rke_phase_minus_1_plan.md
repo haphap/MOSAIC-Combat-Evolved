@@ -97,6 +97,12 @@ Generate next-batch import templates without copying long source text:
 mosaic-rke review-batches --root .
 ```
 
+This also writes the read-only claim checklist at
+`registry/review_batches/gold_set_review_workbook.md`. Reviewers can use that
+Markdown workbook to scan all 500 pending claim IDs, row fingerprints, domains,
+source offsets, variable hints, risk flags, and short claim previews before
+filling `registry/review_batches/gold_set_full_reviewed.jsonl`.
+
 Import reviewed claim labels:
 
 ```bash
@@ -229,8 +235,10 @@ source, gold-set, license, redaction, dashboard, promotion-gate, coverage, and
 manifest artifacts.
 
 The generated batch templates are review aids. They contain IDs, hashes, source
-refs, and empty manual fields, but not full abstracts or span previews. Reviewers
-may fill a batch file and dry-run it before applying.
+refs, and empty manual fields, but not full abstracts or span previews. The
+Markdown workbook is also read-only; it summarizes the same pending rows without
+writing review decisions. Reviewers may fill a batch file and dry-run it before
+applying.
 The manual review bundle manifest hashes these artifacts and records the latest
 promotion dry-run summary separately; manifest `accepted=true` means bundle
 integrity passed, not that the blank review bundle can promote.

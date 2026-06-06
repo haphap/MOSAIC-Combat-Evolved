@@ -9,7 +9,9 @@ from mosaic.rke import (
     apply_source_license_review_import,
     build_manual_review_bundle_manifest,
     build_manual_review_batch_status,
+    build_gold_review_workbook,
     write_gold_review_starter,
+    write_gold_review_workbook,
     write_manual_review_bundle_manifest,
     write_manual_review_batches,
 )
@@ -80,16 +82,22 @@ def test_manual_review_batches_export_sparse_import_templates(tmp_path: Path):
     gold_rows = _load_jsonl(Path(paths["gold_set_import_template"]))
     gold_full_rows = _load_jsonl(Path(paths["gold_set_full_import_template"]))
     license_rows = _load_jsonl(Path(paths["source_license_import_template"]))
+    workbook = Path(paths["gold_set_review_workbook"]).read_text(encoding="utf-8")
 
     assert status["ready_for_manual_review"] is True
     assert status["gold_set"]["pending_rows"] == 500
     assert status["gold_set"]["exported_rows"] == 12
     assert status["gold_set"]["full_import_template_path"] == "registry/review_batches/gold_set_full_import_template.jsonl"
+    assert "registry/review_batches/gold_set_review_workbook.md" in status["generated_paths"]
     assert status["source_license"]["pending_rows"] == source_count
     assert status["source_license"]["exported_rows"] == 7
     assert len(gold_rows) == 12
     assert len(gold_full_rows) == 500
     assert len(license_rows) == 7
+    assert paths["gold_set_review_workbook_rows"] == 500
+    assert workbook.startswith("# RKE Gold Review Workbook")
+    assert "GOLD-SRC-" in workbook
+    assert "manual_claim_text" not in workbook
     assert "span_preview" not in gold_rows[0]
     assert "abstract" not in gold_rows[0]
     assert "abstract" not in license_rows[0]
@@ -107,6 +115,26 @@ def test_manual_review_batches_export_sparse_import_templates(tmp_path: Path):
     assert license_rows[0]["approved_for_production_runtime"] is None
     assert "apply-gold-review" in status["gold_set"]["dry_run_command"]
     assert "apply-license-review" in status["source_license"]["dry_run_command"]
+
+
+def test_gold_review_workbook_is_read_only_claim_checklist(tmp_path: Path):
+    _copy_registry(tmp_path)
+
+    result = write_gold_review_workbook(tmp_path)
+    summary, rows = build_gold_review_workbook(tmp_path)
+    workbook = Path(result["path"]).read_text(encoding="utf-8")
+
+    assert result["rows"] == 500
+    assert summary.pending_rows == 500
+    assert len(rows) == 500
+    assert summary.blockers == ()
+    assert workbook.startswith("# RKE Gold Review Workbook")
+    assert "mosaic-rke prepare-gold-review --root . --full" in workbook
+    assert "target_hash" in workbook
+    assert rows[0]["target_row_hash"].startswith("sha256:")
+    assert len(rows[0]["claim_preview"]) <= 72
+    assert "span_preview" not in workbook
+    assert "claim_correct" not in workbook
 
 
 def test_write_gold_review_starter_defaults_to_next_batch_and_preserves_existing(tmp_path: Path):
@@ -224,7 +252,7 @@ def test_manual_review_bundle_manifest_hashes_review_artifacts(tmp_path: Path):
 
     assert result["accepted"] is True
     assert payload["accepted"] is True
-    assert payload["artifact_count"] >= 16
+    assert payload["artifact_count"] >= 17
     assert payload["blockers"] == []
     assert "registry/review_batches/manual_review_bundle_manifest.json" not in artifacts
     assert payload["promotion_dry_run"]["accepted"] is False
@@ -233,6 +261,7 @@ def test_manual_review_bundle_manifest_hashes_review_artifacts(tmp_path: Path):
     assert set(payload["promotion_dry_run"]["rejected_steps"]) == {"gold_set", "source_license", "lockbox"}
     assert payload["promotion_dry_run"]["missing_steps"] == []
     assert artifacts["registry/review_batches/gold_set_full_import_template.jsonl"]["row_count"] == 500
+    assert artifacts["registry/review_batches/gold_set_review_workbook.md"]["format"] == "markdown"
     assert artifacts["registry/review_batches/source_license_next_import_template.jsonl"]["row_count"] == 50
     assert artifacts["registry/promotion/rke_promotion_dry_run_report.json"]["format"] == "json"
     assert all(artifact["sha256"].startswith("sha256:") for artifact in payload["artifacts"])

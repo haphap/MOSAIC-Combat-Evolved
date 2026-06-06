@@ -399,10 +399,12 @@ def test_rke_cli_review_batches_writes_next_import_templates(tmp_path: Path, cap
     assert output["status"]["ready_for_manual_review"] is True
     assert output["status"]["gold_set"]["exported_rows"] == 11
     assert output["status"]["gold_set"]["full_import_template_path"] == "registry/review_batches/gold_set_full_import_template.jsonl"
+    assert "registry/review_batches/gold_set_review_workbook.md" in output["status"]["generated_paths"]
     assert output["status"]["source_license"]["exported_rows"] == 9
     assert (tmp_path / "registry/review_batches/manual_review_batch_status.json").exists()
     assert (tmp_path / "registry/review_batches/gold_set_next_import_template.jsonl").exists()
     assert (tmp_path / "registry/review_batches/gold_set_full_import_template.jsonl").exists()
+    assert (tmp_path / "registry/review_batches/gold_set_review_workbook.md").exists()
     assert (tmp_path / "registry/review_batches/source_license_next_import_template.jsonl").exists()
 
 

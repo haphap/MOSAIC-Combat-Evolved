@@ -18,6 +18,7 @@ MANUAL_REVIEW_BUNDLE_ARTIFACTS: tuple[tuple[str, str, BundleArtifactFormat], ...
     ("manual_review_batch_status", "registry/review_batches/manual_review_batch_status.json", "json"),
     ("gold_review_packet_json", "registry/gold_sets/tushare_research_reports.review_packet.json", "json"),
     ("gold_review_packet_markdown", "registry/gold_sets/tushare_research_reports.review_packet.md", "markdown"),
+    ("gold_review_workbook_markdown", "registry/review_batches/gold_set_review_workbook.md", "markdown"),
     ("gold_next_import_template", "registry/review_batches/gold_set_next_import_template.jsonl", "jsonl"),
     ("gold_full_import_template", "registry/review_batches/gold_set_full_import_template.jsonl", "jsonl"),
     ("gold_blank_import_report", "registry/gold_sets/tushare_research_reports.review_import_report.json", "json"),

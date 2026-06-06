@@ -188,10 +188,14 @@ from .manual_review_import import (
 )
 from .manual_review_batches import (
     GoldReviewStarterResult,
+    GoldReviewWorkbookSummary,
     ManualReviewBatchStatus,
     ReviewBatchExportSummary,
+    build_gold_review_workbook,
     build_manual_review_batch_status,
+    render_gold_review_workbook_markdown,
     write_gold_review_starter,
+    write_gold_review_workbook,
     write_manual_review_batches,
 )
 from .manual_review_bundle_manifest import (
@@ -544,10 +548,14 @@ __all__ = [
     "apply_gold_set_review_import",
     "apply_source_license_review_import",
     "GoldReviewStarterResult",
+    "GoldReviewWorkbookSummary",
     "ManualReviewBatchStatus",
     "ReviewBatchExportSummary",
+    "build_gold_review_workbook",
     "build_manual_review_batch_status",
+    "render_gold_review_workbook_markdown",
     "write_gold_review_starter",
+    "write_gold_review_workbook",
     "write_manual_review_batches",
     "ManualReviewBundleArtifact",
     "ManualReviewBundleManifest",

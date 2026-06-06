@@ -36,6 +36,7 @@ def test_operator_readiness_accepts_current_review_bundle():
     assert report.failure_count == 0
     assert report.check_count == 14
     assert "registry/promotion/rke_promotion_dry_run_report.json" in report.generated_paths
+    assert "registry/review_batches/gold_set_review_workbook.md" in report.generated_paths
     assert "registry/review_batches/manual_review_bundle_manifest.json" in report.generated_paths
     assert checks["required_registry_valid"].passed
     assert checks["handoff_ready_for_operator"].passed
@@ -409,6 +410,7 @@ def test_write_operator_readiness_report_outputs_registry_artifact(tmp_path: Pat
     assert payload["accepted"] is True
     assert payload["failure_count"] == 0
     assert "registry/review_batches/gold_set_full_import_template.jsonl" in payload["generated_paths"]
+    assert "registry/review_batches/gold_set_review_workbook.md" in payload["generated_paths"]
     assert "registry/gold_sets/tushare_research_reports.review_import_report.json" in payload["generated_paths"]
     assert "registry/review_batches/source_license_policy_import_report.json" in payload["generated_paths"]
     assert "registry/lockbox/central_bank_lockbox_review_import_report.json" in payload["generated_paths"]
@@ -422,9 +424,10 @@ def test_write_operator_readiness_report_outputs_registry_artifact(tmp_path: Pat
         step["review_kind"] for step in dry_run_payload["steps"] if step["provided"]
     } == {"gold_set", "source_license", "lockbox"}
     assert bundle_payload["accepted"] is True
-    assert bundle_payload["artifact_count"] >= 16
+    assert bundle_payload["artifact_count"] >= 17
     assert (tmp_path / "registry/handoffs/rke_operator_readiness_report.json").exists()
     assert (tmp_path / "registry/review_batches/gold_set_full_import_template.jsonl").exists()
+    assert (tmp_path / "registry/review_batches/gold_set_review_workbook.md").exists()
     assert (tmp_path / "registry/gold_sets/tushare_research_reports.review_import_report.json").exists()
     assert (tmp_path / "registry/review_batches/source_license_policy_import_report.json").exists()
     assert (tmp_path / "registry/lockbox/central_bank_lockbox_review_import_report.json").exists()
