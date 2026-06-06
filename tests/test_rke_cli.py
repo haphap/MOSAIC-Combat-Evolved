@@ -272,6 +272,21 @@ def test_rke_cli_source_text_status_writes_summary(tmp_path: Path, capsys):
     assert output["source_text_count"] == _redaction_source_text_count(tmp_path)
 
 
+def test_rke_cli_source_text_status_reports_malformed_jsonl_rows(tmp_path: Path, capsys):
+    _copy_registry(tmp_path)
+    source_path = tmp_path / "registry/sources/tushare_research_reports.jsonl"
+    source_path.write_text(source_path.read_text(encoding="utf-8") + "{\n", encoding="utf-8")
+
+    code = main(("source-text-status", "--root", str(tmp_path)))
+    output = json.loads(capsys.readouterr().out)
+
+    assert code == 2
+    assert output["accepted"] is False
+    assert output["malformed_source_row_count"] == 1
+    assert any("tushare_research_reports.jsonl row" in blocker for blocker in output["blockers"])
+    assert any("must contain valid JSON" in blocker for blocker in output["blockers"])
+
+
 def test_rke_cli_promotion_status_writes_report(tmp_path: Path, capsys):
     _copy_registry(tmp_path)
 

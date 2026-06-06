@@ -10,7 +10,7 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from .phase_minus1 import load_jsonl
+from .phase_minus1 import load_jsonl_with_errors
 
 
 TUSHARE_SOURCE_PATH = "registry/sources/tushare_research_reports.jsonl"
@@ -139,14 +139,15 @@ def _iter_scanned_paths(root_path: Path) -> tuple[tuple[str, Path], int]:
 
 def _source_text_fingerprints(
     root_path: Path,
-) -> tuple[tuple[tuple[str, Mapping[str, str]], ...], int, tuple[int, ...]]:
+) -> tuple[tuple[tuple[str, Mapping[str, str]], ...], int, tuple[int, ...], tuple[str, ...]]:
     source_path = root_path / TUSHARE_SOURCE_PATH
     if not source_path.exists():
-        return (), 0, ()
+        return (), 0, (), ()
 
     fingerprints: dict[str, Mapping[str, str]] = {}
     source_text_count = 0
-    rows, invalid_rows = _split_mapping_rows(load_jsonl(source_path))
+    loaded_rows, parse_errors = load_jsonl_with_errors(source_path, label=TUSHARE_SOURCE_PATH)
+    rows, invalid_rows = _split_mapping_rows(loaded_rows)
     for row in rows:
         abstract = _normalize_for_match(str(row.get("abstract") or ""))
         if len(abstract) < TEXT_MATCH_MIN_CHARS:
@@ -169,12 +170,13 @@ def _source_text_fingerprints(
         tuple(sorted(fingerprints.items(), key=lambda item: (item[1]["source_id"], item[0]))),
         source_text_count,
         invalid_rows,
+        parse_errors,
     )
 
 
 def build_source_text_redaction_report(root: str | Path = ".") -> SourceTextRedactionReport:
     root_path = Path(root)
-    fingerprints, source_text_count, invalid_source_rows = _source_text_fingerprints(root_path)
+    fingerprints, source_text_count, invalid_source_rows, parse_errors = _source_text_fingerprints(root_path)
     fingerprint_lookup = dict(fingerprints)
     scanned_paths, skipped_allowed = _iter_scanned_paths(root_path)
     records: list[SourceTextExposureRecord] = []
@@ -184,6 +186,7 @@ def build_source_text_redaction_report(root: str | Path = ".") -> SourceTextReda
             "source registry row must be object at row(s): "
             + ", ".join(str(row_number) for row_number in invalid_source_rows)
         )
+    blockers.extend(parse_errors)
 
     for relative, path in scanned_paths:
         try:
@@ -224,7 +227,7 @@ def build_source_text_redaction_report(root: str | Path = ".") -> SourceTextReda
         failure_count=len(records),
         source_path=TUSHARE_SOURCE_PATH,
         source_text_count=source_text_count,
-        malformed_source_row_count=len(invalid_source_rows),
+        malformed_source_row_count=len(invalid_source_rows) + len(parse_errors),
         fingerprint_count=len(fingerprints),
         checked_path_count=len(scanned_paths),
         skipped_allowed_path_count=skipped_allowed,

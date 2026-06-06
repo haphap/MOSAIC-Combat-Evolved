@@ -89,6 +89,25 @@ def test_source_text_redaction_reports_malformed_source_rows(tmp_path: Path):
     assert payload["blockers"] == list(report.blockers)
 
 
+def test_source_text_redaction_reports_malformed_json_source_rows(tmp_path: Path):
+    _copy_registry(tmp_path)
+    source_path = tmp_path / "registry/sources/tushare_research_reports.jsonl"
+    source_path.write_text(source_path.read_text(encoding="utf-8") + "{\n", encoding="utf-8")
+
+    report = build_source_text_redaction_report(tmp_path)
+    result = write_source_text_redaction_report(tmp_path)
+    payload = json.loads(Path(result["path"]).read_text(encoding="utf-8"))
+
+    assert not report.accepted
+    assert report.failure_count == 0
+    assert report.malformed_source_row_count == 1
+    assert any("tushare_research_reports.jsonl row" in blocker for blocker in report.blockers)
+    assert any("must contain valid JSON" in blocker for blocker in report.blockers)
+    assert payload["accepted"] is False
+    assert payload["malformed_source_row_count"] == 1
+    assert payload["blockers"] == list(report.blockers)
+
+
 def test_source_text_redaction_writer_outputs_report(tmp_path: Path):
     _copy_registry(tmp_path)
 
