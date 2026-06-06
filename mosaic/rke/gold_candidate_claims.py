@@ -325,8 +325,13 @@ def _build_gold_candidate_claims_with_blockers(
     candidates, invalid_candidate_rows = _split_mapping_rows(raw_candidates)
     review_rows, invalid_review_rows = _split_mapping_rows(raw_review_rows)
     review_by_source = _review_rows_by_source(review_rows)
-    vocabulary = load_claim_variable_vocabulary(root_path)
-    known_variable_ids = {variable.variable_id for variable in vocabulary.variables}
+    vocabulary_blockers: tuple[str, ...] = ()
+    try:
+        vocabulary = load_claim_variable_vocabulary(root_path)
+        known_variable_ids = {variable.variable_id for variable in vocabulary.variables}
+    except ValueError as exc:
+        known_variable_ids = set()
+        vocabulary_blockers = (str(exc),)
     claims: list[GoldCandidateClaim] = []
     for candidate in candidates:
         source_id = str(candidate.get("source_id") or "")
@@ -341,7 +346,7 @@ def _build_gold_candidate_claims_with_blockers(
                     known_variable_ids,
                 )
             )
-    blockers: list[str] = [*candidate_parse_blockers, *review_parse_blockers]
+    blockers: list[str] = [*candidate_parse_blockers, *review_parse_blockers, *vocabulary_blockers]
     if invalid_candidate_rows:
         blockers.append(_malformed_row_blocker("gold candidate", invalid_candidate_rows))
     if invalid_review_rows:
@@ -358,6 +363,7 @@ def merge_candidate_claims_into_review_template(
     root: str | Path = ".",
     *,
     candidate_claims: Sequence[GoldCandidateClaim] | None = None,
+    pre_merge_blockers: Sequence[str] = (),
 ) -> dict[str, Any]:
     root_path = Path(root)
     review_path = root_path / GOLD_REVIEW_TEMPLATE_PATH
@@ -366,7 +372,11 @@ def merge_candidate_claims_into_review_template(
         label="gold-set review",
     )
     rows, invalid_review_rows = _split_mapping_rows(raw_rows)
-    claims = candidate_claims or build_gold_candidate_claims(root_path)
+    if candidate_claims is None:
+        claims, build_blockers = _build_gold_candidate_claims_with_blockers(root_path)
+        pre_merge_blockers = tuple(dict.fromkeys((*pre_merge_blockers, *build_blockers)))
+    else:
+        claims = tuple(candidate_claims)
     by_claim_id = {claim.claim_id: claim for claim in claims}
     manual_before = {
         str(row.get("claim_id") or ""): {field: row.get(field) for field in MANUAL_REVIEW_FIELDS}
@@ -396,7 +406,7 @@ def merge_candidate_claims_into_review_template(
                 }
             )
         merged.append(out)
-    blockers = [*review_parse_blockers]
+    blockers = [*pre_merge_blockers, *review_parse_blockers]
     if invalid_review_rows:
         blockers.append(_malformed_row_blocker("gold-set review", invalid_review_rows))
     if not blockers:
@@ -422,7 +432,11 @@ def build_gold_candidate_claim_summary(
     review_merge_result: Mapping[str, Any] | None = None,
     blockers: Sequence[str] = (),
 ) -> GoldCandidateClaimSummary:
-    claims = tuple(candidate_claims or build_gold_candidate_claims(root))
+    if candidate_claims is None:
+        claims, build_blockers = _build_gold_candidate_claims_with_blockers(root)
+        blockers = tuple(dict.fromkeys((*build_blockers, *blockers)))
+    else:
+        claims = tuple(candidate_claims)
     risk_counts = Counter(flag for claim in claims for flag in claim.review_risk_flags)
     domain_counts = Counter(claim.gold_set_domain for claim in claims)
     direction_counts = Counter(claim.direction for claim in claims)
@@ -450,7 +464,11 @@ def write_gold_candidate_claims(root: str | Path = ".") -> dict[str, Any]:
     root_path = Path(root)
     claims, build_blockers = _build_gold_candidate_claims_with_blockers(root_path)
     claims_result = _write_jsonl(root_path / GOLD_CANDIDATE_CLAIMS_PATH, [asdict(claim) for claim in claims])
-    merge_result = merge_candidate_claims_into_review_template(root_path, candidate_claims=claims)
+    merge_result = merge_candidate_claims_into_review_template(
+        root_path,
+        candidate_claims=claims,
+        pre_merge_blockers=build_blockers,
+    )
     blockers = tuple(dict.fromkeys((*build_blockers, *(merge_result.get("blockers") or ()))))
     summary = build_gold_candidate_claim_summary(
         root_path,

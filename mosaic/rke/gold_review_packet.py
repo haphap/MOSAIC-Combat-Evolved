@@ -291,8 +291,13 @@ def build_gold_review_packet(root: str | Path = ".") -> GoldReviewPacket:
         root_path / GOLD_CANDIDATE_CLAIMS_SUMMARY_PATH,
         "gold candidate summary",
     )
-    vocabulary = load_claim_variable_vocabulary(root_path)
-    known_variable_ids = {variable.variable_id for variable in vocabulary.variables}
+    vocabulary_blockers: tuple[str, ...] = ()
+    try:
+        vocabulary = load_claim_variable_vocabulary(root_path)
+        known_variable_ids = {variable.variable_id for variable in vocabulary.variables}
+    except ValueError as exc:
+        known_variable_ids = set()
+        vocabulary_blockers = (str(exc),)
     documents = tuple(
         _document_packet(candidate, review_by_source.get(str(candidate.get("source_id") or ""), ()), known_variable_ids)
         for candidate in candidates
@@ -301,7 +306,12 @@ def build_gold_review_packet(root: str | Path = ".") -> GoldReviewPacket:
     domain_counts = Counter(document.gold_set_domain for document in documents)
     query_key_counts = Counter(document.query_key for document in documents)
     report_type_counts = Counter(document.report_type for document in documents)
-    blockers: list[str] = [*candidate_parse_blockers, *review_parse_blockers, *summary_blockers]
+    blockers: list[str] = [
+        *candidate_parse_blockers,
+        *review_parse_blockers,
+        *summary_blockers,
+        *vocabulary_blockers,
+    ]
     if invalid_candidate_rows:
         blockers.append(
             "gold candidate row must be object at row(s): "

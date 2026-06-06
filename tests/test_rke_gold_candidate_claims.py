@@ -65,7 +65,7 @@ def test_gold_candidate_claims_report_malformed_rows_without_rewriting_review_te
     original_review = review_path.read_text(encoding="utf-8")
 
     claims = build_gold_candidate_claims(tmp_path)
-    merge_result = merge_candidate_claims_into_review_template(tmp_path, candidate_claims=claims)
+    merge_result = merge_candidate_claims_into_review_template(tmp_path)
     paths = write_gold_candidate_claims(tmp_path)
     summary = json.loads((tmp_path / paths["summary"]).read_text(encoding="utf-8"))
 
@@ -90,7 +90,7 @@ def test_gold_candidate_claims_report_malformed_jsonl_without_rewriting_review_t
     original_review = review_path.read_text(encoding="utf-8")
 
     claims = build_gold_candidate_claims(tmp_path)
-    merge_result = merge_candidate_claims_into_review_template(tmp_path, candidate_claims=claims)
+    merge_result = merge_candidate_claims_into_review_template(tmp_path)
     paths = write_gold_candidate_claims(tmp_path)
     summary = json.loads((tmp_path / paths["summary"]).read_text(encoding="utf-8"))
 
@@ -111,6 +111,27 @@ def test_gold_candidate_claims_report_malformed_jsonl_without_rewriting_review_t
         f"gold-set review row {review_count + 1} must contain valid JSON" in blocker
         for blocker in summary["blockers"]
     )
+
+
+def test_gold_candidate_claims_report_malformed_vocabulary_without_rewriting_review_template(tmp_path: Path):
+    shutil.copytree(Path("registry"), tmp_path / "registry")
+    vocabulary_path = tmp_path / "registry/vocabularies/claim_variable_vocabulary.json"
+    review_path = tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    vocabulary_path.write_text("{\n", encoding="utf-8")
+    original_review = review_path.read_text(encoding="utf-8")
+
+    claims = build_gold_candidate_claims(tmp_path)
+    merge_result = merge_candidate_claims_into_review_template(tmp_path)
+    paths = write_gold_candidate_claims(tmp_path)
+    summary = json.loads((tmp_path / paths["summary"]).read_text(encoding="utf-8"))
+
+    assert len(claims) == 500
+    assert merge_result["applied"] is False
+    assert any("claim_variable_vocabulary.json must contain valid JSON" in blocker for blocker in merge_result["blockers"])
+    assert review_path.read_text(encoding="utf-8") == original_review
+    assert summary["candidate_claim_count"] == 500
+    assert summary["missing_variable_mapping_count"] == 500
+    assert any("claim_variable_vocabulary.json must contain valid JSON" in blocker for blocker in summary["blockers"])
 
 
 def test_gold_candidate_claim_writer_outputs_claims_summary_and_review_fields(tmp_path: Path):

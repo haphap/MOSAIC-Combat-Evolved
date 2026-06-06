@@ -96,6 +96,21 @@ def test_gold_review_packet_reports_malformed_candidate_summary(tmp_path: Path):
     assert any("gold candidate summary must contain valid JSON" in blocker for blocker in packet.blockers)
 
 
+def test_gold_review_packet_reports_malformed_vocabulary(tmp_path: Path):
+    shutil.copytree(Path("registry"), tmp_path / "registry")
+    vocabulary_path = tmp_path / "registry/vocabularies/claim_variable_vocabulary.json"
+    vocabulary_path.write_text("{\n", encoding="utf-8")
+
+    packet = build_gold_review_packet(tmp_path)
+    paths = write_gold_review_packet(tmp_path)
+    payload = json.loads(Path(paths["json"]).read_text(encoding="utf-8"))
+
+    assert packet.status == "manual_review_blocked"
+    assert packet.document_count == 50
+    assert any("claim_variable_vocabulary.json must contain valid JSON" in blocker for blocker in packet.blockers)
+    assert payload["blockers"] == list(packet.blockers)
+
+
 def test_gold_review_packet_uses_offsets_not_source_text_for_span_refs():
     packet = build_gold_review_packet(".")
     document = next(document for document in packet.documents if document.candidate_span_refs)
