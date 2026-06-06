@@ -349,6 +349,9 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
     claim_grounding_validation_path = (
         root_path / "registry/claim_checks/claim_grounding_validation_report.json"
     )
+    rule_pack_validation_path = (
+        root_path / "registry/rule_checks/rule_pack_validation_report.json"
+    )
     prompt_validation_path = (
         root_path / "registry/prompt_checks/prompt_asset_validation_report.json"
     )
@@ -398,6 +401,11 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
     claim_grounding_validation = (
         load_mapping("registry/claim_checks/claim_grounding_validation_report.json")
         if claim_grounding_validation_path.exists()
+        else {}
+    )
+    rule_pack_validation = (
+        load_mapping("registry/rule_checks/rule_pack_validation_report.json")
+        if rule_pack_validation_path.exists()
         else {}
     )
     prompt_validation = (
@@ -550,6 +558,12 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
         claim_grounding_validation,
         "records",
         label="registry/claim_checks/claim_grounding_validation_report.json",
+        artifact_errors=artifact_errors,
+    )
+    rule_pack_validation_records = _sequence_field(
+        rule_pack_validation,
+        "records",
+        label="registry/rule_checks/rule_pack_validation_report.json",
         artifact_errors=artifact_errors,
     )
     prompt_records = _sequence_field(
@@ -909,6 +923,11 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
             "failure_count": claim_grounding_validation.get("failure_count"),
             "record_count": len(claim_grounding_records),
         },
+        "rule_pack_validation": {
+            "accepted": rule_pack_validation.get("accepted"),
+            "failure_count": rule_pack_validation.get("failure_count"),
+            "record_count": len(rule_pack_validation_records),
+        },
         "prompt_evolution": {
             "rendered_prompt_path": rendered_prompt.get("rendered_prompt_path"),
             "prompt_version": rendered_prompt.get("prompt_version"),
@@ -1007,6 +1026,7 @@ def render_dashboard_markdown(report: Mapping[str, Any]) -> str:
         f"- Schema validation failures: {dict(report.get('schema_validation') or {}).get('failure_count')}",
         f"- Claim variable validation failures: {dict(report.get('claim_variable_validation') or {}).get('failure_count')}",
         f"- Claim grounding validation failures: {dict(report.get('claim_grounding_validation') or {}).get('failure_count')}",
+        f"- Rule pack validation failures: {dict(report.get('rule_pack_validation') or {}).get('failure_count')}",
         f"- Prompt asset validation failures: {dict(report.get('prompt_evolution') or {}).get('asset_validation_failure_count')}",
         f"- Policy doc validation failures: {dict(report.get('prompt_evolution') or {}).get('policy_doc_validation_failure_count')}",
         f"- Prompt mutation validation accepted: {dict(report.get('prompt_evolution') or {}).get('mutation_validation_accepted')}",

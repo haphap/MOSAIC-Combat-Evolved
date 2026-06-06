@@ -486,12 +486,13 @@ def _mvp_deliverable_records(
             completion_error=completion_error,
         ),
         _claim_checker_record(root_path),
-        _record(
+        _rule_pack_checker_record(
             root_path,
             section_id="MVP-D4",
             requirement="One central_bank rule pack.",
             evidence_paths=(
                 "registry/rule_packs/macro.central_bank.liquidity.v1.json",
+                "registry/rule_checks/rule_pack_validation_report.json",
             ),
         ),
         _record(
@@ -709,6 +710,33 @@ def _claim_checker_record(root_path: Path) -> MasterPlanCoverageRecord:
         root_path,
         section_id="MVP-D3",
         requirement="Source-grounded claim schema and verifier.",
+        evidence_paths=evidence_paths,
+        passed=not failures,
+        blocker="; ".join(failures),
+    )
+
+
+def _rule_pack_checker_record(
+    root_path: Path,
+    *,
+    section_id: str,
+    requirement: str,
+    evidence_paths: tuple[str, ...],
+) -> MasterPlanCoverageRecord:
+    failures: list[str] = []
+    report, error = _load_mapping_evidence(
+        root_path,
+        "registry/rule_checks/rule_pack_validation_report.json",
+        "rule pack validation report",
+    )
+    if error:
+        failures.append(error)
+    elif report is not None and report.get("accepted") is not True:
+        failures.append("rule pack validation report accepted must be true")
+    return _content_record(
+        root_path,
+        section_id=section_id,
+        requirement=requirement,
         evidence_paths=evidence_paths,
         passed=not failures,
         blocker="; ".join(failures),
@@ -997,6 +1025,7 @@ def build_master_plan_coverage_report(
                 requirement="Sector semiconductor provenance demo remains sandbox-only with disagreement evidence.",
                 evidence_paths=(
                     "registry/rule_packs/sector.semiconductor.policy_substitution.v1.json",
+                    "registry/rule_checks/rule_pack_validation_report.json",
                     "registry/claims/semiconductor_claims.jsonl",
                     "registry/hypotheses/semiconductor_hypotheses.jsonl",
                     "registry/disagreement/semiconductor_policy_substitution.json",

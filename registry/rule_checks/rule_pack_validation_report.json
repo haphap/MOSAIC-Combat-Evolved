@@ -1,0 +1,76 @@
+{
+  "accepted": true,
+  "failure_count": 0,
+  "records": [
+    {
+      "accepted": true,
+      "artifact_paths": [
+        "registry/rule_packs/macro.central_bank.liquidity.v1.json",
+        "registry/rule_packs/sector.semiconductor.policy_substitution.v1.json",
+        "registry/claims/central_bank_claims.jsonl",
+        "registry/claims/semiconductor_claims.jsonl",
+        "registry/hypotheses/central_bank_hypotheses.jsonl",
+        "registry/hypotheses/semiconductor_hypotheses.jsonl"
+      ],
+      "check_id": "RULE-PACK-CONTRACT",
+      "details": {
+        "checked_rule_count": 2,
+        "rule_pack_count": 2
+      },
+      "failures": []
+    },
+    {
+      "accepted": true,
+      "artifact_paths": [
+        "registry/rule_packs/macro.central_bank.liquidity.v1.json",
+        "registry/rule_packs/sector.semiconductor.policy_substitution.v1.json",
+        "registry/data_availability/central_bank_data_availability.json",
+        "registry/data_availability/semiconductor_sandbox_data_availability.json",
+        "registry/data_availability/macro_expansion_data_availability.json"
+      ],
+      "check_id": "RULE-PACK-DATA-MATRIX",
+      "details": {
+        "checked_proxy_count": 5,
+        "production_proxy_count": 4,
+        "sandbox_only_proxy_count": 1
+      },
+      "failures": []
+    },
+    {
+      "accepted": true,
+      "artifact_paths": [
+        "registry/rule_packs/macro.central_bank.liquidity.v1.json",
+        "registry/rule_packs/sector.semiconductor.policy_substitution.v1.json"
+      ],
+      "check_id": "RULE-PACK-HORIZON-PARAMETERS",
+      "details": {
+        "checked_parameter_count": 3,
+        "horizon_ranges": {
+          "macro.central_bank.soft.001": [
+            20,
+            20
+          ],
+          "sector.semiconductor.soft.014": [
+            20,
+            60
+          ]
+        }
+      },
+      "failures": []
+    },
+    {
+      "accepted": true,
+      "artifact_paths": [
+        "registry/rule_packs/macro.central_bank.liquidity.v1.json",
+        "registry/rule_packs/sector.semiconductor.policy_substitution.v1.json"
+      ],
+      "check_id": "RULE-PACK-PROMOTION-GATES",
+      "details": {
+        "production_rule_count": 0,
+        "validation_required_count": 2
+      },
+      "failures": []
+    }
+  ],
+  "report_id": "RKE-RULE-PACK-VALIDATION-REPORT-20260606"
+}

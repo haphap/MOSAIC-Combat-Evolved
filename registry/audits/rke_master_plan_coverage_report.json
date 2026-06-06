@@ -155,7 +155,8 @@
     {
       "blocker": "",
       "evidence_paths": [
-        "registry/rule_packs/macro.central_bank.liquidity.v1.json"
+        "registry/rule_packs/macro.central_bank.liquidity.v1.json",
+        "registry/rule_checks/rule_pack_validation_report.json"
       ],
       "requirement": "One central_bank rule pack.",
       "section_id": "MVP-D4",
@@ -476,6 +477,7 @@
       "blocker": "",
       "evidence_paths": [
         "registry/rule_packs/sector.semiconductor.policy_substitution.v1.json",
+        "registry/rule_checks/rule_pack_validation_report.json",
         "registry/claims/semiconductor_claims.jsonl",
         "registry/hypotheses/semiconductor_hypotheses.jsonl",
         "registry/disagreement/semiconductor_policy_substitution.json",

@@ -35,6 +35,7 @@ from .review_gates import (
     write_source_license_review_summary,
 )
 from .rollback_readiness import write_rollback_readiness_report
+from .rule_pack_validation import write_rule_pack_validation_report
 from .schema_validation import write_schema_validation_report
 from .sector_demo import write_sector_semiconductor_demo_registry
 from .source_registry_validation import write_source_registry_validation_report
@@ -136,6 +137,7 @@ def run_full_rke_refresh(
     claim_grounding_summary = write_claim_grounding_validation_report(root_path)
     source_validation = write_source_registry_validation_report(root_path)
     schema_summary = write_schema_validation_report(root_path)
+    rule_pack_validation = write_rule_pack_validation_report(root_path)
     validation_hardening = write_validation_hardening_report(root_path)
     statistical_significance = write_statistical_significance_report(root_path)
     monitoring_diagnostics = write_production_monitor_diagnostics(root_path)
@@ -184,6 +186,7 @@ def run_full_rke_refresh(
     outputs["claim_grounding_validation_report"] = str(claim_grounding_summary["path"])
     outputs["source_registry_validation_report"] = str(source_validation["path"])
     outputs["schema_validation_report"] = str(schema_summary["path"])
+    outputs["rule_pack_validation_report"] = str(rule_pack_validation["path"])
     outputs["validation_hardening_report"] = str(validation_hardening["path"])
     outputs["statistical_significance_report"] = str(statistical_significance["path"])
     outputs["production_monitor_diagnostics"] = str(monitoring_diagnostics["path"])

@@ -81,6 +81,10 @@ from .promotion_dry_run import (
     build_promotion_dry_run_report,
     write_promotion_dry_run_report,
 )
+from .rule_pack_validation import (
+    build_rule_pack_validation_report,
+    write_rule_pack_validation_report,
+)
 from .registry_manifest import (
     build_registry_manifest,
     validate_required_registry,
@@ -238,6 +242,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Write and print the Phase 1 schema validation report.",
     )
     schema_status.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
+
+    rule_pack_status = subparsers.add_parser(
+        "rule-pack-status",
+        help="Write and print the rule-pack validation report.",
+    )
+    rule_pack_status.add_argument(
         "--root", default=".", help="Repository root. Defaults to current directory."
     )
 
@@ -673,7 +685,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0 if result.accepted else 2
     if args.command == "schema-status":
         write_schema_validation_report(root)
+        write_rule_pack_validation_report(root)
         result = build_schema_validation_report(root)
+        _print_json(
+            {
+                "accepted": result.accepted,
+                "failure_count": result.failure_count,
+                "records": [asdict(record) for record in result.records],
+            }
+        )
+        return 0 if result.accepted else 2
+    if args.command == "rule-pack-status":
+        write_rule_pack_validation_report(root)
+        result = build_rule_pack_validation_report(root)
         _print_json(
             {
                 "accepted": result.accepted,

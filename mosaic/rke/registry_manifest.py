@@ -67,6 +67,7 @@ REQUIRED_REGISTRY_FILES = (
     "registry/promotion/rke_production_promotion_gate.json",
     "registry/rendered_prompts/macro.central_bank.rke.json",
     "registry/rendered_prompts/macro.central_bank.rke.md",
+    "registry/rule_checks/rule_pack_validation_report.json",
     "registry/rule_packs/macro.central_bank.liquidity.v1.json",
     "registry/rule_packs/sector.semiconductor.policy_substitution.v1.json",
     "registry/runtime_inputs/macro.central_bank.20260605.json",

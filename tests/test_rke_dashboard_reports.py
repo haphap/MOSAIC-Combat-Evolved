@@ -104,6 +104,9 @@ def test_dashboard_report_summarizes_completion_and_monitoring():
     assert report["claim_grounding_validation"]["accepted"] is True
     assert report["claim_grounding_validation"]["failure_count"] == 0
     assert report["claim_grounding_validation"]["record_count"] == 3
+    assert report["rule_pack_validation"]["accepted"] is True
+    assert report["rule_pack_validation"]["failure_count"] == 0
+    assert report["rule_pack_validation"]["record_count"] == 4
     assert report["prompt_evolution"]["asset_validation_accepted"] is True
     assert report["prompt_evolution"]["asset_validation_failure_count"] == 0
     assert report["prompt_evolution"]["policy_doc_validation_accepted"] is True
@@ -302,6 +305,7 @@ def test_dashboard_markdown_renders_blockers():
     assert "Operator readiness failures: 0" in markdown
     assert "Claim variable validation failures: 0" in markdown
     assert "Claim grounding validation failures: 0" in markdown
+    assert "Rule pack validation failures: 0" in markdown
     assert "Prompt asset validation failures: 0" in markdown
     assert "Policy doc validation failures: 0" in markdown
     assert "Prompt mutation validation accepted: True" in markdown
