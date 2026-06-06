@@ -56,6 +56,39 @@ def test_source_registry_validation_rejects_missing_ingest_timestamp(tmp_path: P
     assert "ingest_time or discovered_at required" in record.failures
 
 
+def test_source_registry_validation_rejects_non_object_source_rows(tmp_path: Path):
+    _copy_registry(Path("."), tmp_path)
+    source_path = tmp_path / "registry/sources/central_bank_sources.jsonl"
+    existing = source_path.read_text(encoding="utf-8")
+    source_path.write_text(existing + json.dumps(["not", "an", "object"]) + "\n", encoding="utf-8")
+
+    report = build_source_registry_validation_report(tmp_path)
+    record = next(item for item in report.records if item.source_id.startswith("<non-object-row-"))
+
+    assert not report.accepted_for_sandbox
+    assert "source registry row must be object" in record.failures
+    assert "source registry row must be object" in record.production_blockers
+
+
+def test_source_registry_validation_rejects_non_object_license_review_rows(tmp_path: Path):
+    _copy_registry(Path("."), tmp_path)
+    review_path = tmp_path / "registry/compliance/tushare_license_review_template.jsonl"
+    review_rows = review_path.read_text(encoding="utf-8").splitlines()
+    review_path.write_text(
+        "\n".join([*review_rows, json.dumps("not an object")]) + "\n",
+        encoding="utf-8",
+    )
+
+    report = build_source_registry_validation_report(tmp_path)
+    record = next(
+        item for item in report.records if item.source_id.startswith("<license-review-non-object-row-")
+    )
+
+    assert not report.accepted_for_sandbox
+    assert record.source_paths == ("registry/compliance/tushare_license_review_template.jsonl",)
+    assert "source-license review row must be object" in record.failures
+
+
 def test_source_registry_validation_writer_outputs_report(tmp_path: Path):
     _copy_registry(Path("."), tmp_path)
 

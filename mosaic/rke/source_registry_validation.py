@@ -70,20 +70,61 @@ def _license_row_reviewed(row: Mapping[str, Any]) -> bool:
     )
 
 
-def _load_sources(root_path: Path) -> list[tuple[str, dict[str, Any]]]:
-    rows: list[tuple[str, dict[str, Any]]] = []
+def _invalid_row_record(
+    *,
+    source_id: str,
+    source_path: str,
+    reason: str,
+) -> SourceRegistryValidationRecord:
+    return SourceRegistryValidationRecord(
+        source_id=source_id,
+        source_paths=(source_path,),
+        accepted_for_sandbox=False,
+        accepted_for_production=False,
+        failures=(reason,),
+        production_blockers=(reason,),
+    )
+
+
+def _load_sources(
+    root_path: Path,
+) -> tuple[list[tuple[str, Mapping[str, Any]]], list[SourceRegistryValidationRecord]]:
+    rows: list[tuple[str, Mapping[str, Any]]] = []
+    invalid_records: list[SourceRegistryValidationRecord] = []
     for relative in SOURCE_REGISTRY_PATHS:
         path = root_path / relative
         if not path.exists():
             continue
-        rows.extend((relative, row) for row in load_jsonl(path))
+        for index, row in enumerate(load_jsonl(path), 1):
+            if isinstance(row, Mapping):
+                rows.append((relative, row))
+            else:
+                invalid_records.append(
+                    _invalid_row_record(
+                        source_id=f"<non-object-row-{relative}:{index}>",
+                        source_path=relative,
+                        reason="source registry row must be object",
+                    )
+                )
     review_path = root_path / SOURCE_LICENSE_REVIEW_PATH
     if review_path.exists() and rows:
-        reviews = [row for row in load_jsonl(review_path) if _license_row_reviewed(row)]
+        reviews: list[Mapping[str, Any]] = []
+        for index, row in enumerate(load_jsonl(review_path), 1):
+            if not isinstance(row, Mapping):
+                invalid_records.append(
+                    _invalid_row_record(
+                        source_id=f"<license-review-non-object-row-{index}>",
+                        source_path=SOURCE_LICENSE_REVIEW_PATH,
+                        reason="source-license review row must be object",
+                    )
+                )
+                continue
+            if _license_row_reviewed(row):
+                reviews.append(row)
         if reviews:
             reviewed_rows = apply_source_license_reviews([row for _, row in rows], reviews)
             rows = [(path, dict(reviewed_row)) for (path, _), reviewed_row in zip(rows, reviewed_rows, strict=True)]
-    return rows
+    return rows, invalid_records
 
 
 def _timestamp(row: Mapping[str, Any]) -> str:
@@ -136,22 +177,34 @@ def _validate_source_group(
 
 def build_source_registry_validation_report(root: str | Path = ".") -> SourceRegistryValidationReport:
     root_path = Path(root)
-    entries = _load_sources(root_path)
+    entries, invalid_records = _load_sources(root_path)
     grouped: dict[str, list[tuple[str, Mapping[str, Any]]]] = defaultdict(list)
     for path, row in entries:
         grouped[str(row.get("source_id") or "")].append((path, row))
     records = tuple(
-        _validate_source_group(source_id, grouped[source_id])
-        for source_id in sorted(grouped)
+        [
+            *invalid_records,
+            *[
+                _validate_source_group(source_id, grouped[source_id])
+                for source_id in sorted(grouped)
+            ],
+        ]
     )
+    invalid_source_reference_count = sum(
+        1
+        for record in invalid_records
+        if record.source_paths and record.source_paths[0] in SOURCE_REGISTRY_PATHS
+    )
+    source_reference_count = len(entries) + invalid_source_reference_count
+    unique_source_record_count = len(grouped) + invalid_source_reference_count
     failure_count = sum(len(record.failures) for record in records)
     production_blocker_count = sum(len(record.production_blockers) for record in records)
     return SourceRegistryValidationReport(
         report_id="RKE-SOURCE-REGISTRY-VALIDATION-REPORT-20260606",
         source_paths=SOURCE_REGISTRY_PATHS,
-        source_reference_count=len(entries),
+        source_reference_count=source_reference_count,
         unique_source_count=len(records),
-        duplicate_reference_count=max(len(entries) - len(records), 0),
+        duplicate_reference_count=max(source_reference_count - unique_source_record_count, 0),
         accepted_for_sandbox=bool(records) and failure_count == 0,
         accepted_for_production=bool(records) and failure_count == 0 and production_blocker_count == 0,
         failure_count=failure_count,
