@@ -185,6 +185,32 @@ def test_manual_review_bundle_manifest_detects_malformed_jsonl_rows(tmp_path: Pa
     )
 
 
+def test_manual_review_bundle_manifest_reports_malformed_jsonl_line_numbers(tmp_path: Path):
+    _copy_registry(tmp_path)
+    import_path = tmp_path / "registry/review_batches/source_license_next_import_template.jsonl"
+    existing_lines = len(import_path.read_text(encoding="utf-8").splitlines())
+    import_path.write_text(
+        import_path.read_text(encoding="utf-8") + "{\n" + json.dumps("not an object") + "\n",
+        encoding="utf-8",
+    )
+
+    manifest = build_manual_review_bundle_manifest(tmp_path)
+    artifact = next(item for item in manifest.artifacts if item.path.endswith("source_license_next_import_template.jsonl"))
+
+    assert not manifest.accepted
+    assert artifact.row_count == existing_lines + 2
+    assert (
+        f"registry/review_batches/source_license_next_import_template.jsonl row {existing_lines + 1} "
+        "must contain valid JSON"
+        in manifest.blockers[0]
+    )
+    assert (
+        "registry/review_batches/source_license_next_import_template.jsonl "
+        f"row must be object at row(s): {existing_lines + 2}"
+        in manifest.blockers
+    )
+
+
 def test_manual_review_batch_status_moves_after_partial_import(tmp_path: Path):
     _copy_registry(tmp_path)
     gold_template = _load_jsonl(tmp_path / "registry/review_batches/gold_set_next_import_template.jsonl")

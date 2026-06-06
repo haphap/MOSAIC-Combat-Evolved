@@ -8,9 +8,6 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any, Literal, Mapping, Sequence
 
-from .phase_minus1 import load_jsonl
-
-
 MANUAL_REVIEW_BUNDLE_MANIFEST_PATH = "registry/review_batches/manual_review_bundle_manifest.json"
 
 BundleArtifactFormat = Literal["json", "jsonl", "markdown"]
@@ -78,6 +75,21 @@ def _file_sha256(path: Path) -> str:
     return "sha256:" + sha256(path.read_bytes()).hexdigest()
 
 
+def _load_jsonl_artifact(path: Path, *, label: str) -> tuple[list[tuple[int, Any]], tuple[str, ...]]:
+    rows: list[tuple[int, Any]] = []
+    errors: list[str] = []
+    with path.open("r", encoding="utf-8") as handle:
+        for line_number, line in enumerate(handle, 1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rows.append((line_number, json.loads(line)))
+            except json.JSONDecodeError as exc:
+                errors.append(f"{label} row {line_number} must contain valid JSON: {exc.msg}")
+    return rows, tuple(errors)
+
+
 def _inspect_artifact(
     root_path: Path,
     *,
@@ -112,21 +124,19 @@ def _inspect_artifact(
         except Exception as exc:  # noqa: BLE001 - manifest should report parse failure.
             blockers.append(f"{relative_path} invalid json: {type(exc).__name__}")
     elif artifact_format == "jsonl":
-        try:
-            rows = load_jsonl(path)
-            row_count = len(rows)
-            invalid_rows = [
-                str(index)
-                for index, row in enumerate(rows, 1)
-                if not isinstance(row, Mapping)
-            ]
-            if invalid_rows:
-                blockers.append(
-                    f"{relative_path} row must be object at row(s): "
-                    + ", ".join(invalid_rows)
-                )
-        except Exception as exc:  # noqa: BLE001
-            blockers.append(f"{relative_path} invalid jsonl: {type(exc).__name__}")
+        rows, parse_blockers = _load_jsonl_artifact(path, label=relative_path)
+        row_count = len(rows) + len(parse_blockers)
+        blockers.extend(parse_blockers)
+        invalid_rows = [
+            str(line_number)
+            for line_number, row in rows
+            if not isinstance(row, Mapping)
+        ]
+        if invalid_rows:
+            blockers.append(
+                f"{relative_path} row must be object at row(s): "
+                + ", ".join(invalid_rows)
+            )
 
     return (
         ManualReviewBundleArtifact(
