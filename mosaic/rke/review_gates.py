@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from .compliance import apply_source_license_reviews, evaluate_source_license
-from .phase_minus1 import evaluate_gold_set_reviews, load_jsonl
+from .phase_minus1 import evaluate_gold_set_reviews
 
 
 GOLD_REVIEW_FIELDS = (
@@ -68,6 +68,21 @@ def _split_mapping_rows(rows: Sequence[Any]) -> tuple[list[Mapping[str, Any]], t
     return valid, tuple(invalid)
 
 
+def _load_jsonl_for_gate(path: Path, label: str) -> tuple[list[Any], tuple[str, ...]]:
+    rows: list[Any] = []
+    blockers: list[str] = []
+    with path.open("r", encoding="utf-8") as handle:
+        for index, line in enumerate(handle, 1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rows.append(json.loads(line))
+            except json.JSONDecodeError as exc:
+                blockers.append(f"{label} row {index} must contain valid JSON: {exc.msg}")
+    return rows, tuple(blockers)
+
+
 def _gold_row_reviewed(row: Mapping[str, Any]) -> bool:
     return all(row.get(field) is not None for field in GOLD_REVIEW_FIELDS)
 
@@ -79,18 +94,22 @@ def summarize_gold_set_review(
 ) -> GoldSetReviewSummary:
     root_path = Path(root)
     review_path = root_path / review_relative_path
-    raw_rows = load_jsonl(review_path) if review_path.exists() else []
+    raw_rows, review_parse_blockers = (
+        _load_jsonl_for_gate(review_path, "gold-set review") if review_path.exists() else ([], ())
+    )
     rows, invalid_rows = _split_mapping_rows(raw_rows)
     documents = {str(row.get("document_id") or row.get("source_id") or "") for row in rows}
     documents.discard("")
     reviewed = [row for row in rows if _gold_row_reviewed(row)]
-    pending_claims = len(raw_rows) - len(reviewed)
+    total_claim_rows = len(raw_rows) + len(review_parse_blockers)
+    pending_claims = total_claim_rows - len(reviewed)
     blockers: list[str] = []
     metrics: dict[str, float | int] | None = None
     passed = False
 
-    if not raw_rows:
+    if not raw_rows and not review_parse_blockers:
         blockers.append("gold-set review file missing or empty")
+    blockers.extend(review_parse_blockers)
     if invalid_rows:
         blockers.append(
             "gold-set review row must be object at row(s): "
@@ -118,10 +137,10 @@ def summarize_gold_set_review(
         summary_id="RKE-GOLD-SET-REVIEW-SUMMARY-20260606",
         review_path=review_relative_path,
         total_documents=len(documents),
-        total_claims=len(raw_rows),
+        total_claims=total_claim_rows,
         reviewed_claims=len(reviewed),
         pending_claims=pending_claims,
-        review_complete=bool(raw_rows) and not invalid_rows and pending_claims == 0,
+        review_complete=bool(raw_rows) and not review_parse_blockers and not invalid_rows and pending_claims == 0,
         passed=passed,
         metrics=metrics,
         blockers=tuple(blockers),
@@ -153,8 +172,12 @@ def summarize_source_license_review(
     root_path = Path(root)
     source_path = root_path / source_relative_path
     review_path = root_path / review_relative_path
-    raw_sources = load_jsonl(source_path) if source_path.exists() else []
-    raw_reviews = load_jsonl(review_path) if review_path.exists() else []
+    raw_sources, source_parse_blockers = (
+        _load_jsonl_for_gate(source_path, "source registry") if source_path.exists() else ([], ())
+    )
+    raw_reviews, review_parse_blockers = (
+        _load_jsonl_for_gate(review_path, "source license review") if review_path.exists() else ([], ())
+    )
     sources, invalid_source_rows = _split_mapping_rows(raw_sources)
     reviews, invalid_review_rows = _split_mapping_rows(raw_reviews)
     source_ids = {str(row.get("source_id") or "") for row in sources}
@@ -173,14 +196,16 @@ def summarize_source_license_review(
     pending_sources = len(source_ids - reviewed_ids)
     blockers: list[str] = []
 
-    if not raw_sources:
+    if not raw_sources and not source_parse_blockers:
         blockers.append("source registry missing or empty")
     elif not sources:
         blockers.append("source registry has no valid source rows")
-    if not raw_reviews:
+    if not raw_reviews and not review_parse_blockers:
         blockers.append("license review file missing or empty")
     elif not reviews:
         blockers.append("license review file has no valid review rows")
+    blockers.extend(source_parse_blockers)
+    blockers.extend(review_parse_blockers)
     if invalid_source_rows:
         blockers.append(
             "source registry row must be object at row(s): "
@@ -202,6 +227,8 @@ def summarize_source_license_review(
 
     passed = (
         bool(sources)
+        and not source_parse_blockers
+        and not review_parse_blockers
         and not invalid_source_rows
         and not invalid_review_rows
         and not pending_sources
@@ -213,11 +240,19 @@ def summarize_source_license_review(
         source_path=source_relative_path,
         review_path=review_relative_path,
         total_sources=len(source_ids),
-        total_review_rows=len(raw_reviews),
+        total_review_rows=len(raw_reviews) + len(review_parse_blockers),
         reviewed_sources=len(reviewed_ids & source_ids),
         pending_sources=pending_sources,
         approved_for_production_runtime=int(approved_for_production),
-        review_complete=bool(sources) and not invalid_source_rows and not invalid_review_rows and pending_sources == 0 and not extra_review_ids,
+        review_complete=(
+            bool(sources)
+            and not source_parse_blockers
+            and not review_parse_blockers
+            and not invalid_source_rows
+            and not invalid_review_rows
+            and pending_sources == 0
+            and not extra_review_ids
+        ),
         passed=passed,
         missing_review_source_ids=missing_review_ids,
         extra_review_source_ids=extra_review_ids,

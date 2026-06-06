@@ -106,6 +106,36 @@ def test_gold_set_summary_rejects_non_object_review_rows(tmp_path: Path):
     assert "gold-set review row must be object at row(s): 2" in summary.blockers
 
 
+def test_gold_set_summary_reports_malformed_json_review_rows(tmp_path: Path):
+    review_path = tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    _write_jsonl(
+        review_path,
+        [
+            {
+                "source_id": "SRC-A",
+                "source_span_id": "SRC-A:abstract",
+                "claim_id": "GOLD-SRC-A-001",
+                "document_id": "SRC-A",
+                "claim_correct": True,
+                "source_span_supports_claim": True,
+                "direction_correct": True,
+                "variable_mapping_correct": True,
+                "unsupported_field_false_grounded": False,
+            }
+        ],
+    )
+    review_path.write_text(review_path.read_text(encoding="utf-8") + "{\n", encoding="utf-8")
+
+    summary = summarize_gold_set_review(tmp_path)
+
+    assert not summary.review_complete
+    assert not summary.passed
+    assert summary.total_claims == 2
+    assert summary.reviewed_claims == 1
+    assert summary.pending_claims == 1
+    assert any("gold-set review row 2 must contain valid JSON" in blocker for blocker in summary.blockers)
+
+
 def test_license_summary_passes_when_all_sources_are_approved(tmp_path: Path):
     sources = [
         {
@@ -190,6 +220,42 @@ def test_license_summary_rejects_non_object_review_rows(tmp_path: Path):
     assert "source license review row must be object at row(s): 2" in summary.blockers
 
 
+def test_license_summary_reports_malformed_json_review_rows(tmp_path: Path):
+    sources = [
+        {
+            "source_id": "SRC-A",
+            "source_type": "tushare_research_report",
+            "title": "A",
+            "publish_date": "2026-06-05",
+            "source_hash": "sha256:a",
+            "point_in_time_available": True,
+            "license_status": "pending_review",
+        }
+    ]
+    reviews = [
+        {
+            "source_id": "SRC-A",
+            "approved_for_derived_claim_storage": True,
+            "approved_for_production_runtime": True,
+            "reviewer": "compliance",
+            "review_date": "2026-06-06",
+        }
+    ]
+    review_path = tmp_path / "registry/compliance/tushare_license_review_template.jsonl"
+    _write_jsonl(tmp_path / "registry/sources/tushare_research_reports.jsonl", sources)
+    _write_jsonl(review_path, reviews)
+    review_path.write_text(review_path.read_text(encoding="utf-8") + "{\n", encoding="utf-8")
+
+    summary = summarize_source_license_review(tmp_path)
+
+    assert not summary.review_complete
+    assert not summary.passed
+    assert summary.total_review_rows == 2
+    assert summary.reviewed_sources == 1
+    assert summary.approved_for_production_runtime == 1
+    assert any("source license review row 2 must contain valid JSON" in blocker for blocker in summary.blockers)
+
+
 def test_license_summary_rejects_non_object_source_rows(tmp_path: Path):
     source_path = tmp_path / "registry/sources/tushare_research_reports.jsonl"
     sources = [
@@ -225,3 +291,38 @@ def test_license_summary_rejects_non_object_source_rows(tmp_path: Path):
     assert not summary.passed
     assert summary.total_sources == 1
     assert "source registry row must be object at row(s): 2" in summary.blockers
+
+
+def test_license_summary_reports_malformed_json_source_rows(tmp_path: Path):
+    source_path = tmp_path / "registry/sources/tushare_research_reports.jsonl"
+    sources = [
+        {
+            "source_id": "SRC-A",
+            "source_type": "tushare_research_report",
+            "title": "A",
+            "publish_date": "2026-06-05",
+            "source_hash": "sha256:a",
+            "point_in_time_available": True,
+            "license_status": "pending_review",
+        }
+    ]
+    reviews = [
+        {
+            "source_id": "SRC-A",
+            "approved_for_derived_claim_storage": True,
+            "approved_for_production_runtime": True,
+            "reviewer": "compliance",
+            "review_date": "2026-06-06",
+        }
+    ]
+    _write_jsonl(source_path, sources)
+    source_path.write_text(source_path.read_text(encoding="utf-8") + "{\n", encoding="utf-8")
+    _write_jsonl(tmp_path / "registry/compliance/tushare_license_review_template.jsonl", reviews)
+
+    summary = summarize_source_license_review(tmp_path)
+
+    assert not summary.review_complete
+    assert not summary.passed
+    assert summary.total_sources == 1
+    assert summary.reviewed_sources == 1
+    assert any("source registry row 2 must contain valid JSON" in blocker for blocker in summary.blockers)

@@ -169,6 +169,29 @@ def test_rke_cli_review_status_commands_write_summaries(tmp_path: Path, capsys):
     assert (tmp_path / "registry/compliance/tushare_license_review_packet.md").exists()
 
 
+def test_rke_cli_review_status_commands_report_malformed_jsonl_rows(tmp_path: Path, capsys):
+    _copy_registry(tmp_path)
+    gold_path = tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    license_path = tmp_path / "registry/compliance/tushare_license_review_template.jsonl"
+    gold_path.write_text(gold_path.read_text(encoding="utf-8") + "{\n", encoding="utf-8")
+    license_path.write_text(license_path.read_text(encoding="utf-8") + "{\n", encoding="utf-8")
+
+    gold_code = main(("gold-set-status", "--root", str(tmp_path)))
+    gold_output = json.loads(capsys.readouterr().out)
+    license_code = main(("license-status", "--root", str(tmp_path)))
+    license_output = json.loads(capsys.readouterr().out)
+
+    assert gold_code == 0
+    assert any("gold-set review row 501 must contain valid JSON" in blocker for blocker in gold_output["blockers"])
+    assert gold_output["total_claims"] == 501
+    assert license_code == 0
+    assert any(
+        "source license review row 9813 must contain valid JSON" in blocker
+        for blocker in license_output["blockers"]
+    )
+    assert license_output["total_review_rows"] == 9813
+
+
 def test_rke_cli_prompt_status_writes_summary(tmp_path: Path, capsys):
     _copy_registry(tmp_path)
 
