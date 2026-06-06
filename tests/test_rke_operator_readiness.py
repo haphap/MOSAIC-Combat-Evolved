@@ -164,6 +164,59 @@ def test_operator_readiness_reports_malformed_import_template_rows(tmp_path: Pat
     assert "manual import template row must be object" in provenance.blocker
 
 
+def test_operator_readiness_reports_invalid_lockbox_template_json(tmp_path: Path):
+    _copy_registry(tmp_path)
+    lockbox_path = tmp_path / "registry/review_batches/lockbox_review_next_import_template.json"
+    lockbox_path.write_text("{", encoding="utf-8")
+
+    report = build_operator_readiness_report(tmp_path)
+    sparse = next(check for check in report.checks if check.check_id == "manual_import_templates_are_sparse")
+    provenance = next(
+        check for check in report.checks if check.check_id == "manual_import_templates_have_provenance"
+    )
+    lockbox = next(
+        check for check in report.checks if check.check_id == "lockbox_template_requires_human_decision"
+    )
+
+    assert not report.accepted
+    assert not sparse.passed
+    assert not provenance.passed
+    assert not lockbox.passed
+    assert "lockbox_review_next_import_template.json must contain valid JSON" in sparse.evidence
+    assert "lockbox_review_next_import_template.json must contain valid JSON" in provenance.evidence
+    assert "lockbox_review_next_import_template.json must contain valid JSON" in lockbox.blocker
+
+
+def test_operator_readiness_reports_invalid_source_license_policy_json(tmp_path: Path):
+    _copy_registry(tmp_path)
+    policy_path = tmp_path / "registry/review_batches/source_license_policy_template.json"
+    policy_path.write_text("{", encoding="utf-8")
+
+    report = build_operator_readiness_report(tmp_path)
+    sparse = next(check for check in report.checks if check.check_id == "manual_import_templates_are_sparse")
+    provenance = next(
+        check for check in report.checks if check.check_id == "manual_import_templates_have_provenance"
+    )
+    policy = next(
+        check
+        for check in report.checks
+        if check.check_id == "source_license_policy_template_requires_human_decision"
+    )
+    policy_import = next(
+        check for check in report.checks if check.check_id == "blank_source_license_policy_import_is_rejected"
+    )
+
+    assert not report.accepted
+    assert not sparse.passed
+    assert not provenance.passed
+    assert not policy.passed
+    assert not policy_import.passed
+    assert "source_license_policy_template.json must contain valid JSON" in sparse.evidence
+    assert "source_license_policy_template.json must contain valid JSON" in provenance.evidence
+    assert "source_license_policy_template.json must contain valid JSON" in policy.blocker
+    assert "accepted=False" in policy_import.evidence
+
+
 def test_operator_readiness_reports_malformed_manual_review_rows(tmp_path: Path):
     _copy_registry(tmp_path)
     _append_jsonl_value(
@@ -218,6 +271,19 @@ def test_operator_readiness_detects_filled_policy_template(tmp_path: Path):
     assert not report.accepted
     assert not policy_check.passed
     assert "policy template" in policy_check.blocker
+
+
+def test_operator_readiness_reports_invalid_redaction_artifact_json(tmp_path: Path):
+    _copy_registry(tmp_path)
+    redaction_path = tmp_path / "registry/compliance/source_text_redaction_report.json"
+    redaction_path.write_text("{", encoding="utf-8")
+
+    report = build_operator_readiness_report(tmp_path)
+    redaction = next(check for check in report.checks if check.check_id == "source_text_redaction_clean")
+
+    assert not report.accepted
+    assert not redaction.passed
+    assert "source_text_redaction_report.json must contain valid JSON" in redaction.blocker
 
 
 def test_operator_readiness_rejects_blank_source_license_policy_import(tmp_path: Path):

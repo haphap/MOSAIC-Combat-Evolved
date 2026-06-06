@@ -136,6 +136,36 @@ def _load_policy(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _policy_rejection_report(
+    *,
+    root_path: Path,
+    resolved_policy_path: Path,
+    resolved_output_path: Path,
+    dry_run: bool,
+    blocker: str,
+) -> SourceLicensePolicyImportReport:
+    raw_review_rows = load_jsonl(root_path / LICENSE_REVIEW_TEMPLATE_PATH)
+    report = SourceLicensePolicyImportReport(
+        report_id="RKE-SOURCE-LICENSE-POLICY-IMPORT-REPORT-20260606",
+        policy_path=str(resolved_policy_path),
+        target_review_path=LICENSE_REVIEW_TEMPLATE_PATH,
+        output_path=str(resolved_output_path),
+        dry_run=dry_run,
+        accepted=False,
+        total_review_rows=len(raw_review_rows),
+        matched_rows=0,
+        output_rows=0,
+        reviewer="",
+        review_date="",
+        approved_for_derived_claim_storage=None,
+        approved_for_production_runtime=None,
+        filters=SourceLicensePolicyFilters(),
+        blockers=(blocker,),
+    )
+    _write_json(root_path / LICENSE_POLICY_IMPORT_REPORT_PATH, asdict(report))
+    return report
+
+
 def _forbidden_policy_fields(policy: Mapping[str, Any]) -> tuple[str, ...]:
     return manual_review_forbidden_field_paths(policy)
 
@@ -416,7 +446,16 @@ def build_source_license_policy_import(
     if not resolved_output_path.is_absolute():
         resolved_output_path = root_path / resolved_output_path
 
-    policy_payload = _load_policy(resolved_policy_path)
+    try:
+        policy_payload = _load_policy(resolved_policy_path)
+    except json.JSONDecodeError as exc:
+        return _policy_rejection_report(
+            root_path=root_path,
+            resolved_policy_path=resolved_policy_path,
+            resolved_output_path=resolved_output_path,
+            dry_run=dry_run,
+            blocker=f"source-license policy must contain valid JSON: {exc.msg}",
+        )
     raw_review_rows = load_jsonl(root_path / LICENSE_REVIEW_TEMPLATE_PATH)
     review_rows, invalid_review_rows = _split_mapping_rows(raw_review_rows)
     if not isinstance(policy_payload, Mapping):

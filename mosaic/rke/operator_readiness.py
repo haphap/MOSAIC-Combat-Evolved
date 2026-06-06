@@ -83,8 +83,21 @@ def _jsonable(value: Any) -> Any:
     return value
 
 
-def _read_json(path: Path) -> dict[str, Any]:
+def _read_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _read_mapping_json(root_path: Path, relative_path: str) -> tuple[Mapping[str, Any], tuple[str, ...]]:
+    path = root_path / relative_path
+    if not path.exists():
+        return {}, (f"{relative_path} missing",)
+    try:
+        payload = _read_json(path)
+    except json.JSONDecodeError as exc:
+        return {}, (f"{relative_path} must contain valid JSON: {exc.msg}",)
+    if not isinstance(payload, Mapping):
+        return {}, (f"{relative_path} must be object",)
+    return payload, ()
 
 
 def _write_json(path: Path, payload: Mapping[str, Any]) -> dict[str, Any]:
@@ -151,10 +164,9 @@ def _import_templates_are_sparse(root_path: Path) -> tuple[bool, str, str]:
         LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH,
     )
     for relative_path in json_templates:
-        path = root_path / relative_path
-        if not path.exists():
-            return False, f"{relative_path} missing", f"{relative_path} missing"
-        row = _read_json(path)
+        row, errors = _read_mapping_json(root_path, relative_path)
+        if errors:
+            return False, errors[0], errors[0]
         leaked = manual_review_forbidden_field_paths(row)
         if leaked:
             return (
@@ -208,10 +220,9 @@ def _manual_review_templates_have_provenance(root_path: Path) -> tuple[bool, str
         ),
     }
     for relative_path, required_fields in json_requirements.items():
-        path = root_path / relative_path
-        if not path.exists():
-            return False, f"{relative_path} missing", f"{relative_path} missing"
-        row = _read_json(path)
+        row, errors = _read_mapping_json(root_path, relative_path)
+        if errors:
+            return False, errors[0], errors[0]
         missing = [field for field in required_fields if not str(row.get(field) or "").strip()]
         if missing:
             return (
@@ -324,8 +335,10 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
         )
     )
 
-    lockbox_path = root_path / LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH
-    lockbox_template = _read_json(lockbox_path) if lockbox_path.exists() else {}
+    lockbox_template, lockbox_template_errors = _read_mapping_json(
+        root_path,
+        LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH,
+    )
     expected_lockbox: Mapping[str, Any] = {}
     expected_lockbox_error = ""
     try:
@@ -336,16 +349,23 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
         _check(
             "lockbox_template_requires_human_decision",
             bool(lockbox_template)
-            and isinstance(lockbox_template, Mapping)
+            and not lockbox_template_errors
             and not expected_lockbox_error
             and lockbox_template == expected_lockbox
             and lockbox_template.get("result") == ""
             and lockbox_template.get("open_count") is None,
             (
                 f"lockbox_template_path={LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH}"
+                + (
+                    f", template_error={'; '.join(lockbox_template_errors)}"
+                    if lockbox_template_errors
+                    else ""
+                )
                 + (f", expected_error={expected_lockbox_error}" if expected_lockbox_error else "")
             ),
-            expected_lockbox_error or "lockbox import template is missing or already filled",
+            "; ".join(lockbox_template_errors)
+            or expected_lockbox_error
+            or "lockbox import template is missing or already filled",
         )
     )
 
@@ -381,21 +401,32 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
         )
     )
 
-    policy_path = root_path / SOURCE_LICENSE_POLICY_TEMPLATE_PATH
-    policy_template = _read_json(policy_path) if policy_path.exists() else {}
+    policy_template, policy_template_errors = _read_mapping_json(
+        root_path,
+        SOURCE_LICENSE_POLICY_TEMPLATE_PATH,
+    )
     expected_policy = build_source_license_policy_template(root_path)
     checks.append(
         _check(
             "source_license_policy_template_requires_human_decision",
             bool(policy_template)
+            and not policy_template_errors
             and policy_template == expected_policy
             and policy_template.get("approved_for_derived_claim_storage") is None
             and policy_template.get("approved_for_production_runtime") is None
             and not str(policy_template.get("reviewer") or "").strip()
             and int(policy_template.get("matched_row_count") or 0)
             == batch_status.source_license.pending_rows,
-            f"policy_template_path={SOURCE_LICENSE_POLICY_TEMPLATE_PATH}",
-            "source-license policy template is missing, scoped incorrectly, or already filled",
+            (
+                f"policy_template_path={SOURCE_LICENSE_POLICY_TEMPLATE_PATH}"
+                + (
+                    f", template_error={'; '.join(policy_template_errors)}"
+                    if policy_template_errors
+                    else ""
+                )
+            ),
+            "; ".join(policy_template_errors)
+            or "source-license policy template is missing, scoped incorrectly, or already filled",
         )
     )
 
@@ -485,14 +516,21 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
         )
     )
 
-    redaction_path = root_path / "registry/compliance/source_text_redaction_report.json"
-    redaction = _read_json(redaction_path) if redaction_path.exists() else {}
+    redaction, redaction_errors = _read_mapping_json(
+        root_path,
+        "registry/compliance/source_text_redaction_report.json",
+    )
     checks.append(
         _check(
             "source_text_redaction_clean",
-            redaction.get("accepted") is True and int(redaction.get("failure_count") or 0) == 0,
-            f"failure_count={redaction.get('failure_count')}",
-            "source-text redaction audit is not clean",
+            not redaction_errors
+            and redaction.get("accepted") is True
+            and int(redaction.get("failure_count") or 0) == 0,
+            (
+                f"failure_count={redaction.get('failure_count')}"
+                + (f", artifact_error={'; '.join(redaction_errors)}" if redaction_errors else "")
+            ),
+            "; ".join(redaction_errors) or "source-text redaction audit is not clean",
         )
     )
 

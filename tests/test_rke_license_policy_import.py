@@ -300,6 +300,23 @@ def test_build_source_license_policy_import_rejects_non_object_policy(tmp_path: 
     assert (tmp_path / "registry/review_batches/source_license_policy_import_report.json").exists()
 
 
+def test_build_source_license_policy_import_rejects_invalid_json_policy(tmp_path: Path):
+    _copy_registry(tmp_path)
+    policy_path = tmp_path / "policy.json"
+    output_path = tmp_path / "policy_import.jsonl"
+    policy_path.write_text("{", encoding="utf-8")
+
+    report = build_source_license_policy_import(tmp_path, policy_path, output_path=output_path)
+
+    assert not report.accepted
+    assert report.matched_rows == 0
+    assert report.output_rows == 0
+    assert len(report.blockers) == 1
+    assert "source-license policy must contain valid JSON" in report.blockers[0]
+    assert not output_path.exists()
+    assert (tmp_path / "registry/review_batches/source_license_policy_import_report.json").exists()
+
+
 def test_build_source_license_policy_import_rejects_non_string_filter_values(
     tmp_path: Path,
 ):
@@ -558,4 +575,30 @@ def test_cli_build_license_review_import_rejects_non_object_policy(tmp_path: Pat
     assert code == 2
     assert output["accepted"] is False
     assert output["blockers"] == ["source-license policy must be object"]
+    assert not output_path.exists()
+
+
+def test_cli_build_license_review_import_rejects_invalid_json_policy(tmp_path: Path, capsys):
+    _copy_registry(tmp_path)
+    policy_path = tmp_path / "policy.json"
+    output_path = tmp_path / "policy_import.jsonl"
+    policy_path.write_text("{", encoding="utf-8")
+
+    code = main(
+        (
+            "build-license-review-import",
+            "--root",
+            str(tmp_path),
+            "--policy",
+            str(policy_path),
+            "--output",
+            str(output_path),
+        )
+    )
+    output = json.loads(capsys.readouterr().out)
+
+    assert code == 2
+    assert output["accepted"] is False
+    assert len(output["blockers"]) == 1
+    assert "source-license policy must contain valid JSON" in output["blockers"][0]
     assert not output_path.exists()

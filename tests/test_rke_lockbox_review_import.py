@@ -170,6 +170,33 @@ def test_apply_lockbox_review_import_rejects_non_object_input(tmp_path: Path):
     assert (tmp_path / "registry/lockbox/central_bank_lockbox_review_import_report.json").exists()
 
 
+def test_apply_lockbox_review_import_rejects_invalid_json_input(tmp_path: Path):
+    _copy_registry(tmp_path)
+    import_path = tmp_path / "lockbox_review_bad.json"
+    import_path.write_text("{", encoding="utf-8")
+
+    report = apply_lockbox_review_import(tmp_path, import_path)
+
+    assert not report.accepted
+    assert not report.applied
+    assert any("lockbox review import must contain valid JSON" in reason for reason in report.rejected_reasons)
+    assert (tmp_path / "registry/lockbox/central_bank_lockbox_review_import_report.json").exists()
+
+
+def test_apply_lockbox_review_import_rejects_invalid_json_target(tmp_path: Path):
+    _copy_registry(tmp_path)
+    import_path = tmp_path / "lockbox_review.json"
+    _write_json(import_path, _passed_lockbox_review(tmp_path))
+    (tmp_path / "registry/lockbox/central_bank_lockbox_review.json").write_text("{", encoding="utf-8")
+
+    report = apply_lockbox_review_import(tmp_path, import_path)
+
+    assert not report.accepted
+    assert not report.applied
+    assert any("lockbox target must contain valid JSON" in reason for reason in report.rejected_reasons)
+    assert (tmp_path / "registry/lockbox/central_bank_lockbox_review_import_report.json").exists()
+
+
 def test_lockbox_review_import_allows_production_after_manual_gates(tmp_path: Path):
     _copy_registry(tmp_path)
     gold_import = tmp_path / "gold_import.jsonl"

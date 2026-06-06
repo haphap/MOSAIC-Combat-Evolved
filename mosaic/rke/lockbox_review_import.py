@@ -87,6 +87,13 @@ def _read_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _read_json_or_error(path: Path, label: str) -> tuple[Any, str]:
+    try:
+        return _read_json(path), ""
+    except json.JSONDecodeError as exc:
+        return {}, f"{label} must contain valid JSON: {exc.msg}"
+
+
 def _resolve_path(root_path: Path, input_path: str | Path) -> Path:
     path = Path(input_path)
     return path if path.is_absolute() else root_path / path
@@ -247,10 +254,11 @@ def apply_lockbox_review_import(
     root_path = Path(root)
     resolved_input = _resolve_path(root_path, input_path)
     target_path = root_path / LOCKBOX_REVIEW_PATH
-    target_payload = _read_json(target_path)
-    policy_payload = _read_json(root_path / LOCKBOX_POLICY_PATH)
-    input_payload = _read_json(resolved_input)
     rejected_reasons: list[str] = []
+    target_payload, target_error = _read_json_or_error(target_path, "lockbox target")
+    policy_payload, policy_error = _read_json_or_error(root_path / LOCKBOX_POLICY_PATH, "lockbox policy")
+    input_payload, input_error = _read_json_or_error(resolved_input, "lockbox review import")
+    rejected_reasons.extend(error for error in (target_error, policy_error, input_error) if error)
     if not isinstance(target_payload, Mapping):
         rejected_reasons.append("lockbox target must be object")
     if not isinstance(policy_payload, Mapping):
