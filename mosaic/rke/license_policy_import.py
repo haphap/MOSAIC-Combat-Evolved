@@ -10,8 +10,8 @@ from typing import Any, Mapping, Sequence
 
 from .manual_review_import import (
     LICENSE_REVIEW_TEMPLATE_PATH,
-    MANUAL_REVIEW_IMPORT_FORBIDDEN_FIELDS,
     TARGET_ROW_HASH_FIELD,
+    manual_review_forbidden_field_paths,
     review_row_fingerprint,
 )
 from .phase_minus1 import load_jsonl
@@ -94,7 +94,7 @@ def _load_policy(path: Path) -> Mapping[str, Any]:
 
 
 def _forbidden_policy_fields(policy: Mapping[str, Any]) -> tuple[str, ...]:
-    return tuple(sorted(MANUAL_REVIEW_IMPORT_FORBIDDEN_FIELDS & set(policy)))
+    return manual_review_forbidden_field_paths(policy)
 
 
 def _policy_filters(policy: Mapping[str, Any]) -> SourceLicensePolicyFilters:

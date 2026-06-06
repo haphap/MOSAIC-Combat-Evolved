@@ -52,6 +52,23 @@ MANUAL_REVIEW_IMPORT_FORBIDDEN_FIELDS = frozenset(
 )
 
 
+def manual_review_forbidden_field_paths(value: Any, prefix: str = "") -> tuple[str, ...]:
+    """Return forbidden source-text field paths anywhere in a manual payload."""
+    paths: list[str] = []
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            key_path = str(key)
+            path = f"{prefix}.{key_path}" if prefix else key_path
+            if key_path in MANUAL_REVIEW_IMPORT_FORBIDDEN_FIELDS:
+                paths.append(path)
+            paths.extend(manual_review_forbidden_field_paths(item, path))
+    elif isinstance(value, (list, tuple)):
+        for index, item in enumerate(value):
+            path = f"{prefix}[{index}]" if prefix else f"[{index}]"
+            paths.extend(manual_review_forbidden_field_paths(item, path))
+    return tuple(sorted(paths))
+
+
 @dataclass(frozen=True)
 class ManualReviewImportInvalidRow:
     row_number: int
@@ -134,7 +151,7 @@ def _reviewer_fields_invalid(row: Mapping[str, Any]) -> list[str]:
 def _forbidden_field_failures(row: Mapping[str, Any]) -> list[str]:
     return [
         f"{field} forbidden in manual review import"
-        for field in sorted(MANUAL_REVIEW_IMPORT_FORBIDDEN_FIELDS & set(row))
+        for field in manual_review_forbidden_field_paths(row)
     ]
 
 

@@ -9,8 +9,8 @@ from typing import Any, Mapping, Sequence
 
 from .lockbox import LockboxReview, evaluate_lockbox_review
 from .manual_review_import import (
-    MANUAL_REVIEW_IMPORT_FORBIDDEN_FIELDS,
     TARGET_ROW_HASH_FIELD,
+    manual_review_forbidden_field_paths,
     review_row_fingerprint,
 )
 
@@ -116,7 +116,7 @@ def _provenance_failures(
 def _forbidden_field_failures(row: Mapping[str, Any]) -> list[str]:
     return [
         f"{field} forbidden in lockbox review import"
-        for field in sorted(MANUAL_REVIEW_IMPORT_FORBIDDEN_FIELDS & set(row))
+        for field in manual_review_forbidden_field_paths(row)
     ]
 
 

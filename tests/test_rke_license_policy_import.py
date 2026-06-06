@@ -194,6 +194,25 @@ def test_build_source_license_policy_import_rejects_forbidden_source_text_fields
     assert not output_path.exists()
 
 
+def test_build_source_license_policy_import_rejects_nested_forbidden_source_text_fields(
+    tmp_path: Path,
+):
+    _copy_registry(tmp_path)
+    policy_path = tmp_path / "policy.json"
+    output_path = tmp_path / "policy_import.jsonl"
+    policy = _policy(tmp_path)
+    policy["review_context"] = {
+        "full_text": "nested source text must stay out of source-license policy imports"
+    }
+    _write_json(policy_path, policy)
+
+    report = build_source_license_policy_import(tmp_path, policy_path, output_path=output_path)
+
+    assert not report.accepted
+    assert "review_context.full_text forbidden in source-license policy import" in report.blockers
+    assert not output_path.exists()
+
+
 def test_cli_build_license_review_import(tmp_path: Path, capsys):
     _copy_registry(tmp_path)
     policy_path = tmp_path / "policy.json"

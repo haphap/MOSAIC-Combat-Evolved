@@ -209,6 +209,22 @@ def test_apply_gold_set_review_import_rejects_forbidden_source_text_fields(tmp_p
     assert "abstract forbidden in manual review import" in reasons
 
 
+def test_apply_gold_set_review_import_rejects_nested_forbidden_source_text_fields(tmp_path: Path):
+    _copy_registry(tmp_path)
+    import_path = tmp_path / "gold_import_with_nested_source_text.jsonl"
+    row = _accepted_gold_template_row(
+        _load_jsonl(tmp_path / "registry/review_batches/gold_set_next_import_template.jsonl")[0]
+    )
+    row["review_context"] = {"source_text": "nested source text must stay out of sparse manual imports"}
+    _write_jsonl(import_path, [row])
+
+    report = apply_gold_set_review_import(tmp_path, import_path)
+    reasons = set(report.invalid_rows[0].reasons)
+
+    assert not report.accepted
+    assert "review_context.source_text forbidden in manual review import" in reasons
+
+
 def test_apply_license_review_import_passes_c11_and_source_production_gate(tmp_path: Path):
     _copy_registry(tmp_path)
     import_path = tmp_path / "license_import.jsonl"
@@ -305,6 +321,22 @@ def test_apply_license_review_import_rejects_forbidden_source_text_fields(tmp_pa
 
     assert not report.accepted
     assert "source_text forbidden in manual review import" in reasons
+
+
+def test_apply_license_review_import_rejects_nested_forbidden_source_text_fields(tmp_path: Path):
+    _copy_registry(tmp_path)
+    import_path = tmp_path / "license_import_with_nested_source_text.jsonl"
+    row = _accepted_license_template_row(
+        _load_jsonl(tmp_path / "registry/review_batches/source_license_next_import_template.jsonl")[0]
+    )
+    row["review_context"] = {"full_text": "nested source text must stay out of sparse manual imports"}
+    _write_jsonl(import_path, [row])
+
+    report = apply_source_license_review_import(tmp_path, import_path)
+    reasons = set(report.invalid_rows[0].reasons)
+
+    assert not report.accepted
+    assert "review_context.full_text forbidden in manual review import" in reasons
 
 
 def test_apply_license_review_import_rejects_duplicate_or_invalid_rows(tmp_path: Path):

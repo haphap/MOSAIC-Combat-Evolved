@@ -20,9 +20,9 @@ from .manual_review_bundle_manifest import (
 )
 from .manual_review_import import (
     GOLD_REVIEW_IMPORT_REPORT_PATH,
-    MANUAL_REVIEW_IMPORT_FORBIDDEN_FIELDS,
     TARGET_ROW_HASH_FIELD,
     apply_gold_set_review_import,
+    manual_review_forbidden_field_paths,
 )
 from .license_policy_import import (
     DEFAULT_LICENSE_POLICY_IMPORT_PATH,
@@ -121,7 +121,7 @@ def _import_templates_are_sparse(root_path: Path) -> tuple[bool, str, str]:
         if not path.exists():
             return False, f"{relative_path} missing", f"{relative_path} missing"
         for index, row in enumerate(load_jsonl(path), 1):
-            leaked = sorted(MANUAL_REVIEW_IMPORT_FORBIDDEN_FIELDS & set(row))
+            leaked = manual_review_forbidden_field_paths(row)
             if leaked:
                 return (
                     False,
@@ -146,7 +146,7 @@ def _import_templates_are_sparse(root_path: Path) -> tuple[bool, str, str]:
         if not path.exists():
             return False, f"{relative_path} missing", f"{relative_path} missing"
         row = _read_json(path)
-        leaked = sorted(MANUAL_REVIEW_IMPORT_FORBIDDEN_FIELDS & set(row))
+        leaked = manual_review_forbidden_field_paths(row)
         if leaked:
             return (
                 False,
