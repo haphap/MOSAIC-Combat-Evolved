@@ -67,16 +67,6 @@ def _read_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _read_jsonl(path: Path) -> list[Any]:
-    rows: list[Any] = []
-    with path.open("r", encoding="utf-8") as fh:
-        for line in fh:
-            line = line.strip()
-            if line:
-                rows.append(json.loads(line))
-    return rows
-
-
 def _path_label(root_path: Path, path: Path) -> str:
     try:
         return path.relative_to(root_path).as_posix()
@@ -84,15 +74,79 @@ def _path_label(root_path: Path, path: Path) -> str:
         return path.as_posix()
 
 
+def _read_mapping_json(path: Path, root_path: Path) -> tuple[Mapping[str, Any] | None, tuple[str, ...]]:
+    try:
+        payload = _read_json(path)
+    except FileNotFoundError:
+        return None, (f"{_path_label(root_path, path)} missing",)
+    except json.JSONDecodeError as exc:
+        return None, (f"{_path_label(root_path, path)} must contain valid JSON: {exc.msg}",)
+    if not isinstance(payload, Mapping):
+        return None, (f"{_path_label(root_path, path)} must be object",)
+    return payload, ()
+
+
 def _read_mapping_jsonl(path: Path, root_path: Path) -> tuple[list[Mapping[str, Any]], tuple[str, ...]]:
     rows: list[Mapping[str, Any]] = []
     blockers: list[str] = []
-    for index, row in enumerate(_read_jsonl(path), 1):
+    with path.open("r", encoding="utf-8") as fh:
+        raw_rows = list(enumerate(fh, 1))
+    for index, line in raw_rows:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError as exc:
+            blockers.append(
+                f"{_path_label(root_path, path)} row {index} must contain valid JSON: {exc.msg}"
+            )
+            continue
         if isinstance(row, Mapping):
             rows.append(row)
         else:
             blockers.append(f"{_path_label(root_path, path)} row {index} must be object")
     return rows, tuple(blockers)
+
+
+def _mapping_field(
+    payload: Mapping[str, Any],
+    field_name: str,
+    *,
+    path: Path,
+    root_path: Path,
+    blockers: list[str],
+) -> Mapping[str, Any]:
+    value = payload.get(field_name)
+    if value is None:
+        return {}
+    if isinstance(value, Mapping):
+        return value
+    blockers.append(f"{_path_label(root_path, path)} {field_name} must be object")
+    return {}
+
+
+def _first_mapping_item_field(
+    payload: Mapping[str, Any],
+    field_name: str,
+    *,
+    path: Path,
+    root_path: Path,
+    blockers: list[str],
+) -> Mapping[str, Any]:
+    value = payload.get(field_name)
+    if value is None:
+        return {}
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+        blockers.append(f"{_path_label(root_path, path)} {field_name} must be array")
+        return {}
+    if not value:
+        return {}
+    first = value[0]
+    if isinstance(first, Mapping):
+        return first
+    blockers.append(f"{_path_label(root_path, path)} {field_name}[0] must be object")
+    return {}
 
 
 def _jsonable(value: Any) -> Any:
@@ -221,13 +275,30 @@ def _build_registry_audit_records_with_blockers(
                 },
             )
     for path in (root_path / "registry/rule_packs").glob("*.json"):
-        payload = _read_json(path)
+        payload, payload_blockers = _read_mapping_json(path, root_path)
+        blockers.extend(payload_blockers)
+        if payload is None:
+            continue
         rule_pack_id = str(payload.get("rule_pack_id") or "")
-        for rule_id, rule in dict(payload.get("rules") or {}).items():
+        rules = payload.get("rules") or {}
+        if not isinstance(rules, Mapping):
+            blockers.append(f"{_path_label(root_path, path)} rules must be object")
+            continue
+        for rule_id, rule_value in rules.items():
+            if not isinstance(rule_value, Mapping):
+                blockers.append(f"{_path_label(root_path, path)} rules.{rule_id} must be object")
+                continue
+            rule = rule_value
             resolved_rule_id = str(rule.get("rule_id") or rule_id)
+            learnable_parameters = rule.get("learnable_parameters") or {}
+            if not isinstance(learnable_parameters, Mapping):
+                blockers.append(
+                    f"{_path_label(root_path, path)} rules.{resolved_rule_id}.learnable_parameters must be object"
+                )
+                learnable_parameters = {}
             parameter_paths = tuple(
                 f"/rule_packs/{rule_pack_id}/rules/{resolved_rule_id}/learnable_parameters/{parameter_name}/value"
-                for parameter_name in dict(rule.get("learnable_parameters") or {})
+                for parameter_name in learnable_parameters
             )
             _upsert_record(
                 raw_index,
@@ -278,7 +349,24 @@ def _build_registry_audit_records_with_blockers(
                 },
             )
     for path in (root_path / "registry/experiments").glob("*.json"):
-        payload = _read_json(path)
+        payload, payload_blockers = _read_mapping_json(path, root_path)
+        blockers.extend(payload_blockers)
+        if payload is None:
+            continue
+        sampling_design = _mapping_field(
+            payload,
+            "sampling_design",
+            path=path,
+            root_path=root_path,
+            blockers=blockers,
+        )
+        multiple_testing_control = _mapping_field(
+            payload,
+            "multiple_testing_control",
+            path=path,
+            root_path=root_path,
+            blockers=blockers,
+        )
         _upsert_record(
             raw_index,
             ref_type="experiment",
@@ -291,12 +379,22 @@ def _build_registry_audit_records_with_blockers(
             summary={
                 "experiment_family_id": payload.get("experiment_family_id"),
                 "pre_registered": payload.get("pre_registered"),
-                "effective_n": (payload.get("sampling_design") or {}).get("effective_n"),
-                "adjusted_q_value": (payload.get("multiple_testing_control") or {}).get("adjusted_q_value"),
+                "effective_n": sampling_design.get("effective_n"),
+                "adjusted_q_value": multiple_testing_control.get("adjusted_q_value"),
             },
         )
     for path in (root_path / "registry/patches").glob("*.json"):
-        payload = _read_json(path)
+        payload, payload_blockers = _read_mapping_json(path, root_path)
+        blockers.extend(payload_blockers)
+        if payload is None:
+            continue
+        validation_summary = _mapping_field(
+            payload,
+            "validation_summary",
+            path=path,
+            root_path=root_path,
+            blockers=blockers,
+        )
         _upsert_record(
             raw_index,
             ref_type="patch",
@@ -310,12 +408,35 @@ def _build_registry_audit_records_with_blockers(
                 "operation": payload.get("operation"),
                 "old_value": payload.get("old_value"),
                 "new_value": payload.get("new_value"),
-                "promotion_state": (payload.get("validation_summary") or {}).get("promotion_state"),
+                "promotion_state": validation_summary.get("promotion_state"),
             },
         )
     for path in (root_path / "registry/runtime_outputs").glob("*.json"):
-        payload = _read_json(path)
-        recommendation = (payload.get("recommendations") or [{}])[0]
+        payload, payload_blockers = _read_mapping_json(path, root_path)
+        blockers.extend(payload_blockers)
+        if payload is None:
+            continue
+        recommendation = _first_mapping_item_field(
+            payload,
+            "recommendations",
+            path=path,
+            root_path=root_path,
+            blockers=blockers,
+        )
+        progress_event = _mapping_field(
+            payload,
+            "progress_event",
+            path=path,
+            root_path=root_path,
+            blockers=blockers,
+        )
+        rule_aggregation_summary = _mapping_field(
+            payload,
+            "rule_aggregation_summary",
+            path=path,
+            root_path=root_path,
+            blockers=blockers,
+        )
         _upsert_record(
             raw_index,
             ref_type="agent_output",
@@ -329,8 +450,8 @@ def _build_registry_audit_records_with_blockers(
             summary={
                 "confidence": recommendation.get("confidence"),
                 "actionability": recommendation.get("actionability"),
-                "progress_status": (payload.get("progress_event") or {}).get("status"),
-                "target_signal": (payload.get("rule_aggregation_summary") or {}).get("target_signal"),
+                "progress_status": progress_event.get("status"),
+                "target_signal": rule_aggregation_summary.get("target_signal"),
             },
         )
 
@@ -369,10 +490,21 @@ def build_registry_index(root: str | Path) -> Mapping[tuple[str, str], AuditRefe
         for row in rows:
             _add(index, "hypothesis", row.get("hypothesis_id"), path)
     for path in (root_path / "registry/rule_packs").glob("*.json"):
-        payload = _read_json(path)
-        for rule_id, rule in dict(payload.get("rules") or {}).items():
+        payload, _ = _read_mapping_json(path, root_path)
+        if payload is None:
+            continue
+        rules = payload.get("rules") or {}
+        if not isinstance(rules, Mapping):
+            continue
+        for rule_id, rule_value in rules.items():
+            if not isinstance(rule_value, Mapping):
+                continue
+            rule = rule_value
             _add(index, "rule", rule.get("rule_id") or rule_id, path)
-            for parameter_name in dict(rule.get("learnable_parameters") or {}):
+            learnable_parameters = rule.get("learnable_parameters") or {}
+            if not isinstance(learnable_parameters, Mapping):
+                continue
+            for parameter_name in learnable_parameters:
                 target_path = (
                     f"/rule_packs/{payload.get('rule_pack_id')}/rules/"
                     f"{rule.get('rule_id') or rule_id}/learnable_parameters/{parameter_name}/value"
@@ -383,12 +515,17 @@ def build_registry_index(root: str | Path) -> Mapping[tuple[str, str], AuditRefe
         for row in rows:
             _add(index, "parameter_path", row.get("target_path"), path)
     for path in (root_path / "registry/experiments").glob("*.json"):
-        _add(index, "experiment", _read_json(path).get("experiment_id"), path)
+        payload, _ = _read_mapping_json(path, root_path)
+        if payload is not None:
+            _add(index, "experiment", payload.get("experiment_id"), path)
     for path in (root_path / "registry/patches").glob("*.json"):
-        _add(index, "patch", _read_json(path).get("patch_id"), path)
+        payload, _ = _read_mapping_json(path, root_path)
+        if payload is not None:
+            _add(index, "patch", payload.get("patch_id"), path)
     for path in (root_path / "registry/runtime_outputs").glob("*.json"):
-        payload = _read_json(path)
-        _add(index, "agent_output", payload.get("agent_output_id"), path)
+        payload, _ = _read_mapping_json(path, root_path)
+        if payload is not None:
+            _add(index, "agent_output", payload.get("agent_output_id"), path)
     return index
 
 
@@ -491,18 +628,19 @@ def build_audit_trace_view(
     resolved_trace_path = Path(trace_path)
     if not resolved_trace_path.is_absolute():
         resolved_trace_path = root_path / resolved_trace_path
-    trace = _read_json(resolved_trace_path)
+    trace, trace_blockers = _read_mapping_json(resolved_trace_path, root_path)
     records, registry_blockers = _build_registry_audit_records_with_blockers(root_path)
 
     nodes: list[AuditRecord] = []
     missing: list[str] = []
-    for field_name, ref_type in TRACE_FIELDS.items():
-        for ref_id in trace.get(field_name, ()):
-            record = records.get((ref_type, str(ref_id)))
-            if record is None:
-                missing.append(f"{field_name}:{ref_id}")
-            else:
-                nodes.append(record)
+    if trace is not None:
+        for field_name, ref_type in TRACE_FIELDS.items():
+            for ref_id in trace.get(field_name, ()):
+                record = records.get((ref_type, str(ref_id)))
+                if record is None:
+                    missing.append(f"{field_name}:{ref_id}")
+                else:
+                    nodes.append(record)
 
     node_keys = {(node.ref_type, node.ref_id) for node in nodes}
     edges: list[AuditEdge] = []
@@ -526,7 +664,7 @@ def build_audit_trace_view(
                     )
                 )
 
-    broken_edges: list[str] = list(registry_blockers)
+    broken_edges: list[str] = [*trace_blockers, *registry_blockers]
     for node in nodes:
         for field_name, target_type, label in REQUIRED_LINKS.get(node.ref_type, ()):
             if not _has_trace_link(node, field_name=field_name, target_type=target_type, node_keys=node_keys):

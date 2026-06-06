@@ -281,6 +281,48 @@ def test_audit_trace_view_reports_malformed_jsonl_rows(tmp_path: Path):
     assert "registry/claims/central_bank_claims.jsonl row 2 must be object" in view.broken_edges
 
 
+def test_audit_trace_view_reports_non_object_json_artifacts(tmp_path: Path):
+    outputs = write_central_bank_mvp_registry(tmp_path)
+    runtime_path = Path(outputs["runtime_output"])
+    runtime_path.write_text(json.dumps(["not", "an", "object"]), encoding="utf-8")
+
+    index = build_registry_index(tmp_path)
+    view = build_audit_trace_view(tmp_path)
+
+    assert ("agent_output", "OUT-CB-20260605-0001") not in index
+    assert not view.complete
+    assert "agent_output_ids:OUT-CB-20260605-0001" in view.missing_references
+    assert "registry/runtime_outputs/macro.central_bank.20260605.json must be object" in view.broken_edges
+
+
+def test_audit_trace_view_reports_malformed_nested_json_objects(tmp_path: Path):
+    write_central_bank_mvp_registry(tmp_path)
+    experiment_path = tmp_path / "registry/experiments/central_bank_validation_experiment_v2.json"
+    experiment = json.loads(experiment_path.read_text(encoding="utf-8"))
+    experiment["sampling_design"] = ["not", "an", "object"]
+    experiment_path.write_text(json.dumps(experiment, ensure_ascii=False), encoding="utf-8")
+
+    view = build_audit_trace_view(tmp_path)
+
+    assert not view.complete
+    assert (
+        "registry/experiments/central_bank_validation_experiment_v2.json sampling_design must be object"
+        in view.broken_edges
+    )
+
+
+def test_audit_trace_view_reports_malformed_trace_file(tmp_path: Path):
+    outputs = write_central_bank_mvp_registry(tmp_path)
+    trace_path = Path(outputs["audit"])
+    trace_path.write_text(json.dumps(["not", "an", "object"]), encoding="utf-8")
+
+    view = build_audit_trace_view(tmp_path)
+
+    assert not view.complete
+    assert view.node_count == 0
+    assert "registry/audits/central_bank_mvp_audit_trace.json must be object" in view.broken_edges
+
+
 def test_write_audit_trace_view_outputs_json_and_markdown(tmp_path: Path):
     write_central_bank_mvp_registry(tmp_path)
 
