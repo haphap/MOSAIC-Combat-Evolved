@@ -101,6 +101,7 @@ Import reviewed claim labels:
 
 ```bash
 mosaic-rke prepare-gold-review --root . --full
+mosaic-rke review-progress --root .
 mosaic-rke apply-gold-review --root . \
   --input registry/review_batches/gold_set_full_reviewed.jsonl \
   --dry-run
@@ -118,6 +119,8 @@ mosaic-rke apply-license-review \
   --root . \
   --input registry/review_batches/source_license_policy_import.jsonl \
   --dry-run
+
+mosaic-rke review-progress --root .
 ```
 
 Both import commands support `--dry-run`. They reject duplicate IDs, unknown IDs,
@@ -163,6 +166,7 @@ source-license gates pass:
 
 ```bash
 mosaic-rke prepare-lockbox-review --root .
+mosaic-rke review-progress --root .
 mosaic-rke apply-lockbox-review \
   --root . \
   --input registry/review_batches/lockbox_reviewed.json \

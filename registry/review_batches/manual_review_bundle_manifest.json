@@ -30,13 +30,13 @@
       "sha256": "sha256:0a34545e100bba9d7105c90201d27f794deb5ee44bfcc14da154fd2e79808c8b"
     },
     {
-      "bytes": 186426,
+      "bytes": 186445,
       "exists": true,
       "format": "json",
       "path": "registry/gold_sets/tushare_research_reports.review_packet.json",
       "role": "gold_review_packet_json",
       "row_count": null,
-      "sha256": "sha256:c3ec34300580a43d47a424218b7effacd3fd06e5234454a62c32d1b94d3c2257"
+      "sha256": "sha256:3c38dfb025c18bced32e75553920d5fe7e4f9f78ab02894bddda2981ff8ca0ba"
     },
     {
       "bytes": 17852,

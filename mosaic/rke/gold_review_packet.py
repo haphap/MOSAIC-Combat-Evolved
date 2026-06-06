@@ -342,6 +342,7 @@ def build_gold_review_packet(root: str | Path = ".") -> GoldReviewPacket:
             "variable_mapping_correct",
             "unsupported_field_false_grounded",
             "reviewer",
+            "review_date",
             "review_notes",
         ),
         candidate_path=GOLD_CANDIDATES_PATH,

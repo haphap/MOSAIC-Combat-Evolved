@@ -25,6 +25,7 @@ def test_gold_review_packet_summarizes_current_manual_queue():
     assert packet.candidate_claim_available_count == 500
     assert packet.review_rows_with_candidate_fields == 500
     assert packet.candidate_span_ref_count > 0
+    assert "review_date" in packet.review_field_contract
     assert set(REQUIRED_GOLD_SET_DOMAINS).issubset(packet.domain_counts)
     assert "other" in packet.domain_counts
     assert packet.risk_flag_counts["manual_review_required"] == 50
