@@ -120,9 +120,12 @@ def _inspect_artifact(
     row_count: int | None = None
     if artifact_format == "json":
         try:
-            json.loads(path.read_text(encoding="utf-8"))
-        except Exception as exc:  # noqa: BLE001 - manifest should report parse failure.
-            blockers.append(f"{relative_path} invalid json: {type(exc).__name__}")
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            blockers.append(f"{relative_path} must contain valid JSON: {exc.msg}")
+        else:
+            if not isinstance(payload, Mapping):
+                blockers.append(f"{relative_path} must be object")
     elif artifact_format == "jsonl":
         rows, parse_blockers = _load_jsonl_artifact(path, label=relative_path)
         row_count = len(rows) + len(parse_blockers)

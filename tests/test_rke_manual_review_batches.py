@@ -168,6 +168,35 @@ def test_manual_review_bundle_manifest_detects_missing_artifact(tmp_path: Path):
     assert any("lockbox_review_next_import_template.json missing" in blocker for blocker in manifest.blockers)
 
 
+def test_manual_review_bundle_manifest_reports_malformed_json_artifacts(tmp_path: Path):
+    _copy_registry(tmp_path)
+    artifact_path = tmp_path / "registry/review_batches/lockbox_review_next_import_template.json"
+    artifact_path.write_text("{\n", encoding="utf-8")
+
+    manifest = build_manual_review_bundle_manifest(tmp_path)
+
+    assert not manifest.accepted
+    assert any(
+        "registry/review_batches/lockbox_review_next_import_template.json must contain valid JSON"
+        in blocker
+        for blocker in manifest.blockers
+    )
+
+
+def test_manual_review_bundle_manifest_reports_non_object_json_artifacts(tmp_path: Path):
+    _copy_registry(tmp_path)
+    artifact_path = tmp_path / "registry/review_batches/lockbox_review_next_import_template.json"
+    artifact_path.write_text(json.dumps(["not", "an", "object"]), encoding="utf-8")
+
+    manifest = build_manual_review_bundle_manifest(tmp_path)
+
+    assert not manifest.accepted
+    assert (
+        "registry/review_batches/lockbox_review_next_import_template.json must be object"
+        in manifest.blockers
+    )
+
+
 def test_manual_review_bundle_manifest_detects_malformed_jsonl_rows(tmp_path: Path):
     _copy_registry(tmp_path)
     import_path = tmp_path / "registry/review_batches/source_license_next_import_template.jsonl"
