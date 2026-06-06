@@ -4,6 +4,8 @@ import json
 import shutil
 from pathlib import Path
 
+import pytest
+
 from mosaic.rke import (
     build_registry_manifest,
     run_full_rke_refresh,
@@ -98,3 +100,19 @@ def test_full_refresh_recreates_missing_review_templates(tmp_path: Path):
     assert len(gold_review.read_text(encoding="utf-8").splitlines()) == 500
     source_rows = (tmp_path / "registry/sources/tushare_research_reports.jsonl").read_text(encoding="utf-8").splitlines()
     assert len(license_review.read_text(encoding="utf-8").splitlines()) == len(source_rows)
+
+
+def test_full_refresh_rejects_malformed_gold_candidate_rows(tmp_path: Path):
+    _copy_registry(Path("."), tmp_path)
+    candidates_path = tmp_path / "registry/sources/tushare_research_reports.gold_candidates.jsonl"
+    expected_row = len(candidates_path.read_text(encoding="utf-8").splitlines()) + 1
+    candidates_path.write_text(
+        candidates_path.read_text(encoding="utf-8") + json.dumps("not an object") + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=rf"gold candidate row must be object at row\(s\): {expected_row}",
+    ):
+        run_full_rke_refresh(tmp_path, preserve_review_templates=False)

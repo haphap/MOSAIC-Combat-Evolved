@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Mapping
+from typing import Any, Mapping
 
 from .audit_viewer import write_audit_trace_view
 from .central_bank_mvp import write_central_bank_mvp_registry
@@ -45,6 +45,19 @@ class RkeRefreshResult:
     manifest_valid: bool
 
 
+def _require_mapping_rows(rows: list[Any], *, label: str) -> list[Mapping[str, Any]]:
+    valid_rows: list[Mapping[str, Any]] = []
+    invalid_rows: list[str] = []
+    for index, row in enumerate(rows, 1):
+        if isinstance(row, Mapping):
+            valid_rows.append(row)
+        else:
+            invalid_rows.append(str(index))
+    if invalid_rows:
+        raise ValueError(f"{label} row must be object at row(s): {', '.join(invalid_rows)}")
+    return valid_rows
+
+
 def run_full_rke_refresh(
     root: str | Path = ".",
     *,
@@ -68,13 +81,19 @@ def run_full_rke_refresh(
 
     gold_review_path = root_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
     if not preserve_review_templates or not gold_review_path.exists():
-        gold_rows = load_jsonl(gold_candidates_path)
+        gold_rows = _require_mapping_rows(
+            load_jsonl(gold_candidates_path),
+            label="gold candidate",
+        )
         result = write_gold_set_review_template(gold_rows, gold_review_path, claims_per_document=10)
         outputs["gold_set_review_template"] = str(result["path"])
 
     license_review_path = root_path / "registry/compliance/tushare_license_review_template.jsonl"
     if not preserve_review_templates or not license_review_path.exists():
-        source_rows = load_jsonl(source_path)
+        source_rows = _require_mapping_rows(
+            load_jsonl(source_path),
+            label="source registry",
+        )
         result = write_source_license_review_template(source_rows, license_review_path)
         outputs["license_review_template"] = str(result["path"])
 
