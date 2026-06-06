@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict, dataclass
+from datetime import date
 from hashlib import sha256
 from pathlib import Path
 from typing import Any, Literal, Mapping, Sequence
@@ -151,7 +152,21 @@ def _reviewer_fields_invalid(row: Mapping[str, Any]) -> list[str]:
     failures: list[str] = []
     failures.extend(_required_string_field_failures(row, "reviewer"))
     failures.extend(_required_string_field_failures(row, "review_date"))
+    failures.extend(_iso_date_field_failures(row, "review_date"))
     return failures
+
+
+def _iso_date_field_failures(row: Mapping[str, Any], field: str) -> list[str]:
+    value = row.get(field)
+    if not isinstance(value, str) or not value.strip():
+        return []
+    try:
+        parsed = date.fromisoformat(value)
+    except ValueError:
+        return [f"{field} must be YYYY-MM-DD"]
+    if parsed.isoformat() != value:
+        return [f"{field} must be YYYY-MM-DD"]
+    return []
 
 
 def _required_string_field_failures(row: Mapping[str, Any], field: str) -> list[str]:

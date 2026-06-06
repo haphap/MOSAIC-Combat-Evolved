@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict, dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -158,6 +159,19 @@ def _string_type_failures(row: Mapping[str, Any]) -> list[str]:
     return failures
 
 
+def _opened_at_format_failures(row: Mapping[str, Any]) -> list[str]:
+    value = row.get("opened_at")
+    if not isinstance(value, str) or not value.strip():
+        return []
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return ["opened_at must be ISO-8601 datetime with timezone"]
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        return ["opened_at must be ISO-8601 datetime with timezone"]
+    return []
+
+
 def _target_already_opened_failures(target: Mapping[str, Any]) -> list[str]:
     result = str(target.get("result") or "")
     open_count = target.get("open_count")
@@ -238,6 +252,7 @@ def apply_lockbox_review_import(
     rejected_reasons = _row_failures(normalized, target)
     rejected_reasons.extend(_target_already_opened_failures(target))
     rejected_reasons.extend(_string_type_failures(input_row))
+    rejected_reasons.extend(_opened_at_format_failures(input_row))
     rejected_reasons.extend(_unexpected_field_failures(input_row))
     rejected_reasons.extend(_forbidden_field_failures(input_row))
     rejected_reasons.extend(_provenance_failures(input_row, target, policy))

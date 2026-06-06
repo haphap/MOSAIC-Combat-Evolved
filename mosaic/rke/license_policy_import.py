@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict, dataclass
+from datetime import date
 from hashlib import sha256
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -144,6 +145,19 @@ def _required_policy_string_failures(policy: Mapping[str, Any], field: str) -> l
         return [f"{field} must be string"]
     if not value.strip():
         return [f"{field} required"]
+    return []
+
+
+def _iso_policy_date_failures(policy: Mapping[str, Any], field: str) -> list[str]:
+    value = policy.get(field)
+    if not isinstance(value, str) or not value.strip():
+        return []
+    try:
+        parsed = date.fromisoformat(value)
+    except ValueError:
+        return [f"{field} must be YYYY-MM-DD"]
+    if parsed.isoformat() != value:
+        return [f"{field} must be YYYY-MM-DD"]
     return []
 
 
@@ -327,6 +341,7 @@ def build_source_license_policy_import(
         blockers.append(f"{field} forbidden in source-license policy import")
     for field in ("reviewer", "review_date"):
         blockers.extend(_required_policy_string_failures(policy, field))
+    blockers.extend(_iso_policy_date_failures(policy, "review_date"))
     for field in (
         "notes",
         "review_context_ref",

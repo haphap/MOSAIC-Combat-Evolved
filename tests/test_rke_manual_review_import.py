@@ -259,6 +259,22 @@ def test_apply_gold_set_review_import_rejects_non_string_review_fields(tmp_path:
     assert "review_notes must be string" in reasons
 
 
+def test_apply_gold_set_review_import_rejects_invalid_review_date_format(tmp_path: Path):
+    _copy_registry(tmp_path)
+    import_path = tmp_path / "gold_import_with_bad_review_date.jsonl"
+    row = _accepted_gold_template_row(
+        _load_jsonl(tmp_path / "registry/review_batches/gold_set_next_import_template.jsonl")[0]
+    )
+    row["review_date"] = "2026/06/06"
+    _write_jsonl(import_path, [row])
+
+    report = apply_gold_set_review_import(tmp_path, import_path)
+    reasons = set(report.invalid_rows[0].reasons)
+
+    assert not report.accepted
+    assert "review_date must be YYYY-MM-DD" in reasons
+
+
 def test_apply_license_review_import_passes_c11_and_source_production_gate(tmp_path: Path):
     _copy_registry(tmp_path)
     import_path = tmp_path / "license_import.jsonl"
@@ -405,6 +421,22 @@ def test_apply_license_review_import_rejects_non_string_review_fields(tmp_path: 
     assert not report.accepted
     assert "reviewer must be string" in reasons
     assert "notes must be string" in reasons
+
+
+def test_apply_license_review_import_rejects_invalid_review_date_format(tmp_path: Path):
+    _copy_registry(tmp_path)
+    import_path = tmp_path / "license_import_with_bad_review_date.jsonl"
+    row = _accepted_license_template_row(
+        _load_jsonl(tmp_path / "registry/review_batches/source_license_next_import_template.jsonl")[0]
+    )
+    row["review_date"] = "2026/06/06"
+    _write_jsonl(import_path, [row])
+
+    report = apply_source_license_review_import(tmp_path, import_path)
+    reasons = set(report.invalid_rows[0].reasons)
+
+    assert not report.accepted
+    assert "review_date must be YYYY-MM-DD" in reasons
 
 
 def test_apply_license_review_import_rejects_duplicate_or_invalid_rows(tmp_path: Path):

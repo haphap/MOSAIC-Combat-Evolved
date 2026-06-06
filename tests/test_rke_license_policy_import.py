@@ -247,6 +247,21 @@ def test_build_source_license_policy_import_rejects_non_string_review_fields(tmp
     assert not output_path.exists()
 
 
+def test_build_source_license_policy_import_rejects_invalid_review_date_format(tmp_path: Path):
+    _copy_registry(tmp_path)
+    policy_path = tmp_path / "policy.json"
+    output_path = tmp_path / "policy_import.jsonl"
+    policy = _policy(tmp_path)
+    policy["review_date"] = "2026/06/06"
+    _write_json(policy_path, policy)
+
+    report = build_source_license_policy_import(tmp_path, policy_path, output_path=output_path)
+
+    assert not report.accepted
+    assert "review_date must be YYYY-MM-DD" in report.blockers
+    assert not output_path.exists()
+
+
 def test_cli_build_license_review_import(tmp_path: Path, capsys):
     _copy_registry(tmp_path)
     policy_path = tmp_path / "policy.json"

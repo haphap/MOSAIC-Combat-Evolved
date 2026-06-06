@@ -319,3 +319,31 @@ def test_apply_lockbox_review_import_rejects_non_string_review_fields(tmp_path: 
     assert not report.accepted
     assert "opened_by must be string" in report.rejected_reasons
     assert "notes must be string" in report.rejected_reasons
+
+
+def test_apply_lockbox_review_import_rejects_opened_at_without_time_or_timezone(
+    tmp_path: Path,
+):
+    _copy_registry(tmp_path)
+    import_path = tmp_path / "lockbox_review_with_bad_opened_at.json"
+    row = _passed_lockbox_review(tmp_path)
+    row["opened_at"] = "2026-06-06"
+    _write_json(import_path, row)
+
+    report = apply_lockbox_review_import(tmp_path, import_path)
+
+    assert not report.accepted
+    assert "opened_at must be ISO-8601 datetime with timezone" in report.rejected_reasons
+
+
+def test_apply_lockbox_review_import_rejects_opened_at_without_timezone(tmp_path: Path):
+    _copy_registry(tmp_path)
+    import_path = tmp_path / "lockbox_review_with_timezone_free_opened_at.json"
+    row = _passed_lockbox_review(tmp_path)
+    row["opened_at"] = "2026-06-06T10:00:00"
+    _write_json(import_path, row)
+
+    report = apply_lockbox_review_import(tmp_path, import_path)
+
+    assert not report.accepted
+    assert "opened_at must be ISO-8601 datetime with timezone" in report.rejected_reasons
