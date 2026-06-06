@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from mosaic.rke import (
     SourceLicenseReviewRecord,
     apply_source_license_reviews,
@@ -58,6 +60,30 @@ def test_malformed_source_rows_are_rejected_by_license_gate():
     assert malformed_decision.reasons == ("source row must be object",)
     assert sandbox_sources == (row,)
     assert decisions[-1] == malformed_decision
+
+
+def test_unrecognized_license_status_is_rejected():
+    decision = evaluate_source_license(
+        {
+            "source_id": "SRC-INVALID",
+            "license_status": "invalid",
+            "source_hash": "sha256:invalid",
+            "point_in_time_available": True,
+        }
+    )
+
+    assert not decision.allowed_for_ingest
+    assert not decision.allowed_for_sandbox
+    assert not decision.allowed_for_derived_claim_storage
+    assert not decision.allowed_for_production_runtime
+    assert "license_status is not recognized" in decision.reasons
+
+
+def test_license_review_template_rejects_malformed_source_rows():
+    row = _first_jsonl_row(Path("registry/sources/tushare_research_reports.jsonl"))
+
+    with pytest.raises(ValueError, match=r"source row must be object at row\(s\): 2"):
+        build_source_license_review_template((row, "not an object"))
 
 
 def test_license_review_template_and_approval_gate(tmp_path: Path):
@@ -123,6 +149,25 @@ def test_license_review_application_ignores_malformed_review_rows_conservatively
     assert "allowed_uses" not in updated[0]
     assert not decision.allowed_for_production_runtime
     assert "pending_review source is sandbox-only until compliance approval" in decision.reasons
+
+
+def test_license_review_application_marks_malformed_source_rows_invalid():
+    row = _first_jsonl_row(Path("registry/sources/tushare_research_reports.jsonl"))
+
+    updated = apply_source_license_reviews((row, "not an object"), ())
+    malformed = updated[1]
+    decision = evaluate_source_license(malformed)
+
+    assert malformed["source_id"] == "<malformed-source-row-2>"
+    assert malformed["license_status"] == "invalid"
+    assert malformed["forbidden_uses"] == [
+        "derived_claim_storage",
+        "production_runtime_retrieval",
+    ]
+    assert malformed["review_notes"] == "source row must be object"
+    assert not decision.allowed_for_ingest
+    assert not decision.allowed_for_production_runtime
+    assert "license_status is not recognized" in decision.reasons
 
 
 def test_tushare_license_review_template_is_pending_manual_approval():

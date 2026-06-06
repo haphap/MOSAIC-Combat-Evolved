@@ -59,6 +59,12 @@ def evaluate_source_license(
     source_id = str(source.get("source_id") or "<missing-source-id>")
     license_status = str(source.get("license_status") or "pending_review")
     reasons: list[str] = []
+    known_statuses = (
+        set(policy.approved_statuses_for_production)
+        | set(policy.statuses_allowed_for_sandbox)
+        | set(policy.statuses_allowed_for_derived_claim_storage)
+        | set(policy.prohibited_statuses)
+    )
 
     allowed_for_ingest = license_status not in set(policy.prohibited_statuses)
     allowed_for_sandbox = license_status in set(policy.statuses_allowed_for_sandbox)
@@ -74,6 +80,12 @@ def evaluate_source_license(
     if source.get("point_in_time_available") is not True:
         reasons.append("point_in_time_available must be true")
         allowed_for_production_runtime = False
+    if license_status not in known_statuses:
+        allowed_for_ingest = False
+        allowed_for_sandbox = False
+        allowed_for_derived_claim_storage = False
+        allowed_for_production_runtime = False
+        reasons.append("license_status is not recognized")
     if license_status in set(policy.prohibited_statuses):
         reasons.append("prohibited source cannot be ingested")
     elif license_status == "pending_review":
@@ -119,11 +131,37 @@ def filter_sources_for_runtime(
     return tuple(allowed), tuple(decisions)
 
 
+def _require_source_mapping_rows(sources: Sequence[Any]) -> list[Mapping[str, Any]]:
+    rows: list[Mapping[str, Any]] = []
+    invalid_rows: list[str] = []
+    for index, source in enumerate(sources, 1):
+        if isinstance(source, Mapping):
+            rows.append(source)
+        else:
+            invalid_rows.append(str(index))
+    if invalid_rows:
+        raise ValueError(f"source row must be object at row(s): {', '.join(invalid_rows)}")
+    return rows
+
+
+def _malformed_source_row(index: int) -> dict[str, Any]:
+    return {
+        "source_id": f"<malformed-source-row-{index}>",
+        "license_status": "invalid",
+        "allowed_uses": [],
+        "forbidden_uses": [
+            "derived_claim_storage",
+            "production_runtime_retrieval",
+        ],
+        "review_notes": "source row must be object",
+    }
+
+
 def build_source_license_review_template(
-    sources: Sequence[Mapping[str, Any]],
+    sources: Sequence[Any],
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    for source in sources:
+    for source in _require_source_mapping_rows(sources):
         rows.append(
             {
                 "source_id": str(source.get("source_id") or ""),
@@ -142,7 +180,7 @@ def build_source_license_review_template(
 
 
 def write_source_license_review_template(
-    sources: Sequence[Mapping[str, Any]],
+    sources: Sequence[Any],
     output_path: str | Path,
 ) -> dict[str, Any]:
     path = Path(output_path)
@@ -155,7 +193,7 @@ def write_source_license_review_template(
 
 
 def apply_source_license_reviews(
-    sources: Sequence[Mapping[str, Any]],
+    sources: Sequence[Any],
     reviews: Sequence[Any],
 ) -> tuple[dict[str, Any], ...]:
     review_by_source: dict[str, SourceLicenseReviewRecord | Mapping[str, Any]] = {}
@@ -170,7 +208,10 @@ def apply_source_license_reviews(
             review_by_source[source_id] = review
 
     updated: list[dict[str, Any]] = []
-    for source in sources:
+    for index, source in enumerate(sources, 1):
+        if not isinstance(source, Mapping):
+            updated.append(_malformed_source_row(index))
+            continue
         row = dict(source)
         source_id = str(row.get("source_id") or "")
         review = review_by_source.get(source_id)
