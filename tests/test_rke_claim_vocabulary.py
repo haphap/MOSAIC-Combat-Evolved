@@ -100,6 +100,54 @@ def test_claim_variable_validation_reports_malformed_claim_rows(tmp_path: Path):
     assert mapping.details["claim_count"] > 0
 
 
+def test_claim_variable_validation_reports_malformed_json_claim_rows(tmp_path: Path):
+    _copy_registry(Path("."), tmp_path)
+    claim_path = tmp_path / "registry/claims/central_bank_claims.jsonl"
+    expected_row = len(claim_path.read_text(encoding="utf-8").splitlines()) + 1
+    claim_path.write_text(claim_path.read_text(encoding="utf-8") + "{\n", encoding="utf-8")
+
+    report = build_claim_variable_validation_report(tmp_path)
+    mapping = next(record for record in report.records if record.check_id == "CLAIM-VARIABLE-MAPPING")
+
+    assert not report.accepted
+    assert not mapping.accepted
+    assert any(
+        f"registry/claims/central_bank_claims.jsonl row {expected_row} must contain valid JSON"
+        in failure
+        for failure in mapping.failures
+    )
+    assert mapping.details["malformed_claim_row_count"] == 1
+    assert mapping.details["claim_count"] > 0
+
+
+def test_claim_variable_validation_reports_malformed_vocabulary_json(tmp_path: Path):
+    _copy_registry(Path("."), tmp_path)
+    vocabulary_path = tmp_path / "registry/vocabularies/claim_variable_vocabulary.json"
+    vocabulary_path.write_text("{\n", encoding="utf-8")
+
+    report = build_claim_variable_validation_report(tmp_path)
+    schema = next(record for record in report.records if record.check_id == "CLAIM-VOCABULARY-SCHEMA")
+
+    assert not report.accepted
+    assert not schema.accepted
+    assert any("claim_variable_vocabulary.json must contain valid JSON" in failure for failure in schema.failures)
+    assert schema.details["variable_count"] == 0
+
+
+def test_claim_variable_validation_reports_non_object_vocabulary_json(tmp_path: Path):
+    _copy_registry(Path("."), tmp_path)
+    vocabulary_path = tmp_path / "registry/vocabularies/claim_variable_vocabulary.json"
+    vocabulary_path.write_text(json.dumps(["not", "an", "object"]), encoding="utf-8")
+
+    report = build_claim_variable_validation_report(tmp_path)
+    schema = next(record for record in report.records if record.check_id == "CLAIM-VOCABULARY-SCHEMA")
+
+    assert not report.accepted
+    assert not schema.accepted
+    assert "registry/vocabularies/claim_variable_vocabulary.json must be object" in schema.failures
+    assert schema.details["variable_count"] == 0
+
+
 def test_claim_variable_validation_writer_outputs_report(tmp_path: Path):
     _copy_registry(Path("."), tmp_path)
     write_claim_variable_vocabulary(tmp_path)

@@ -8,7 +8,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Literal, Mapping, Sequence
 
-from .phase_minus1 import load_jsonl
+from .phase_minus1 import load_jsonl_with_errors
 
 
 @dataclass(frozen=True)
@@ -199,20 +199,57 @@ def write_claim_variable_vocabulary(root: str | Path = ".") -> dict[str, Any]:
 
 def load_claim_variable_vocabulary(root: str | Path = ".") -> ClaimVariableVocabulary:
     root_path = Path(root)
-    payload = _read_json(root_path / VOCABULARY_PATH)
-    return ClaimVariableVocabulary(
-        vocabulary_id=str(payload["vocabulary_id"]),
-        variables=tuple(
+    vocabulary, failures = _load_claim_variable_vocabulary_with_failures(root_path)
+    if failures:
+        raise ValueError("; ".join(failures))
+    return vocabulary
+
+
+def _load_claim_variable_vocabulary_with_failures(root_path: Path) -> tuple[ClaimVariableVocabulary, tuple[str, ...]]:
+    failures: list[str] = []
+    path = root_path / VOCABULARY_PATH
+    try:
+        payload = _read_json(path)
+    except json.JSONDecodeError as exc:
+        return (
+            ClaimVariableVocabulary(vocabulary_id="", variables=()),
+            (f"{VOCABULARY_PATH} must contain valid JSON: {exc.msg}",),
+        )
+    if not isinstance(payload, Mapping):
+        return (
+            ClaimVariableVocabulary(vocabulary_id="", variables=()),
+            (f"{VOCABULARY_PATH} must be object",),
+        )
+
+    vocabulary_id = str(payload.get("vocabulary_id") or "")
+    if not vocabulary_id:
+        failures.append(f"{VOCABULARY_PATH}.vocabulary_id required")
+    raw_variables = payload.get("variables", ())
+    if not isinstance(raw_variables, Sequence) or isinstance(raw_variables, (str, bytes)):
+        failures.append(f"{VOCABULARY_PATH}.variables must be array")
+        raw_variables = ()
+
+    variables: list[ClaimVariableDefinition] = []
+    for index, row in enumerate(raw_variables, 1):
+        if not isinstance(row, Mapping):
+            failures.append(f"{VOCABULARY_PATH}.variables[{index}] must be object")
+            continue
+        for field_name in ("variable_id", "domain", "variable_type", "description"):
+            if not row.get(field_name):
+                failures.append(f"{VOCABULARY_PATH}.variables[{index}].{field_name} required")
+        variables.append(
             ClaimVariableDefinition(
-                variable_id=str(row["variable_id"]),
-                domain=str(row["domain"]),
-                variable_type=row["variable_type"],
-                description=str(row["description"]),
-                status=row.get("status", "active"),
+                variable_id=str(row.get("variable_id") or ""),
+                domain=str(row.get("domain") or ""),
+                variable_type=str(row.get("variable_type") or ""),  # type: ignore[arg-type]
+                description=str(row.get("description") or ""),
+                status=str(row.get("status") or "active"),  # type: ignore[arg-type]
             )
-            for row in payload.get("variables", ())
-        ),
-    )
+        )
+    return ClaimVariableVocabulary(
+        vocabulary_id=vocabulary_id,
+        variables=tuple(variables),
+    ), tuple(failures)
 
 
 def _record(
@@ -236,7 +273,9 @@ def _load_claim_rows(root_path: Path) -> tuple[list[Mapping[str, Any]], tuple[st
     for relative in CLAIM_PATHS:
         path = root_path / relative
         if path.exists():
-            for index, row in enumerate(load_jsonl(path), 1):
+            loaded_rows, parse_failures = load_jsonl_with_errors(path, label=relative)
+            failures.extend(parse_failures)
+            for index, row in enumerate(loaded_rows, 1):
                 if isinstance(row, Mapping):
                     rows.append(row)
                 else:
@@ -260,10 +299,10 @@ def build_claim_variable_validation_report(root: str | Path = ".") -> ClaimVaria
             records=tuple(records),
         )
 
-    vocabulary = load_claim_variable_vocabulary(root_path)
+    vocabulary, vocabulary_load_failures = _load_claim_variable_vocabulary_with_failures(root_path)
     variable_ids = [item.variable_id for item in vocabulary.variables]
     duplicate_ids = sorted({variable_id for variable_id in variable_ids if variable_ids.count(variable_id) > 1})
-    vocab_failures: list[str] = []
+    vocab_failures: list[str] = list(vocabulary_load_failures)
     if not vocabulary.variables:
         vocab_failures.append("vocabulary variables: required non-empty")
     if duplicate_ids:
