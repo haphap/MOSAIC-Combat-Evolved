@@ -33,6 +33,17 @@ LOCKBOX_BOOL_FIELDS = (
     "rule_design_after_open",
 )
 LOCKBOX_RESULTS = {"not_opened", "passed", "failed"}
+LOCKBOX_IMPORT_ALLOWED_FIELDS = frozenset(
+    (
+        *LOCKBOX_REQUIRED_FIELDS,
+        *LOCKBOX_BOOL_FIELDS,
+        "notes",
+        "review_context_ref",
+        "target_review_path",
+        TARGET_ROW_HASH_FIELD,
+        LOCKBOX_REVIEW_CONTEXT_HASH_FIELD,
+    )
+)
 
 
 @dataclass(frozen=True)
@@ -120,6 +131,13 @@ def _forbidden_field_failures(row: Mapping[str, Any]) -> list[str]:
     ]
 
 
+def _unexpected_field_failures(row: Mapping[str, Any]) -> list[str]:
+    return [
+        f"{field} unexpected in lockbox review import"
+        for field in sorted(str(field) for field in set(row) - LOCKBOX_IMPORT_ALLOWED_FIELDS)
+    ]
+
+
 def _row_failures(row: Mapping[str, Any], target: Mapping[str, Any]) -> list[str]:
     failures: list[str] = []
     for field in LOCKBOX_REQUIRED_FIELDS:
@@ -188,6 +206,7 @@ def apply_lockbox_review_import(
     input_row = _read_json(resolved_input)
     normalized = _normalize_lockbox_row(input_row, target)
     rejected_reasons = _row_failures(normalized, target)
+    rejected_reasons.extend(_unexpected_field_failures(input_row))
     rejected_reasons.extend(_forbidden_field_failures(input_row))
     rejected_reasons.extend(_provenance_failures(input_row, target, policy))
     decision = (

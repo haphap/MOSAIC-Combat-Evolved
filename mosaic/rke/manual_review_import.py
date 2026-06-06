@@ -40,6 +40,14 @@ LICENSE_IMPORTED_FIELDS = (
     "notes",
 )
 TARGET_ROW_HASH_FIELD = "target_row_hash"
+MANUAL_REVIEW_PROVENANCE_FIELDS = (
+    "review_context_ref",
+    "target_review_path",
+    TARGET_ROW_HASH_FIELD,
+)
+GOLD_IMPORT_TEMPLATE_ONLY_FIELDS = (
+    "proposed_claim_text_truncated",
+)
 MANUAL_REVIEW_IMPORT_FORBIDDEN_FIELDS = frozenset(
     {
         "abstract",
@@ -152,6 +160,27 @@ def _forbidden_field_failures(row: Mapping[str, Any]) -> list[str]:
     return [
         f"{field} forbidden in manual review import"
         for field in manual_review_forbidden_field_paths(row)
+    ]
+
+
+def _allowed_review_import_fields(
+    target_rows: Sequence[Mapping[str, Any]],
+    extra_fields: Sequence[str] = (),
+) -> frozenset[str]:
+    allowed: set[str] = set(MANUAL_REVIEW_PROVENANCE_FIELDS)
+    allowed.update(extra_fields)
+    for row in target_rows:
+        allowed.update(str(field) for field in row)
+    return frozenset(allowed)
+
+
+def _unexpected_field_failures(
+    row: Mapping[str, Any],
+    allowed_fields: frozenset[str],
+) -> list[str]:
+    return [
+        f"{field} unexpected in manual review import"
+        for field in sorted(str(field) for field in set(row) - allowed_fields)
     ]
 
 
@@ -351,6 +380,10 @@ def apply_gold_set_review_import(
     input_rows = load_jsonl(resolved_input_path)
     target_rows = load_jsonl(target_path)
     target_by_id = {str(row.get("claim_id") or ""): row for row in target_rows}
+    allowed_fields = _allowed_review_import_fields(
+        target_rows,
+        (*GOLD_IMPORT_TEMPLATE_ONLY_FIELDS, *GOLD_IMPORTED_FIELDS),
+    )
     input_ids = [str(row.get("claim_id") or "") for row in input_rows]
     duplicate_ids = _duplicates(input_ids)
     missing_target_ids = tuple(sorted({row_id for row_id in input_ids if row_id and row_id not in target_by_id}))
@@ -364,6 +397,7 @@ def apply_gold_set_review_import(
             failures.append("duplicate claim_id in import")
         if row_id in missing_target_ids:
             failures.append("claim_id missing from target review template")
+        failures.extend(_unexpected_field_failures(row, allowed_fields))
         failures.extend(_forbidden_field_failures(row))
         failures.extend(_gold_reference_failures(row, target_by_id.get(row_id)))
         failures.extend(_gold_row_failures(row))
@@ -418,6 +452,7 @@ def apply_source_license_review_import(
     input_rows = load_jsonl(resolved_input_path)
     target_rows = load_jsonl(target_path)
     target_by_id = {str(row.get("source_id") or ""): row for row in target_rows}
+    allowed_fields = _allowed_review_import_fields(target_rows, LICENSE_IMPORTED_FIELDS)
     input_ids = [str(row.get("source_id") or "") for row in input_rows]
     duplicate_ids = _duplicates(input_ids)
     missing_target_ids = tuple(sorted({row_id for row_id in input_ids if row_id and row_id not in target_by_id}))
@@ -431,6 +466,7 @@ def apply_source_license_review_import(
             failures.append("duplicate source_id in import")
         if row_id in missing_target_ids:
             failures.append("source_id missing from target review template")
+        failures.extend(_unexpected_field_failures(row, allowed_fields))
         failures.extend(_forbidden_field_failures(row))
         failures.extend(_license_reference_failures(row, target_by_id.get(row_id)))
         failures.extend(_license_row_failures(row))

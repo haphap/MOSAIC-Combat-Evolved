@@ -273,3 +273,16 @@ def test_apply_lockbox_review_import_rejects_nested_forbidden_source_text_fields
 
     assert not report.accepted
     assert "review_context.source_span_text forbidden in lockbox review import" in report.rejected_reasons
+
+
+def test_apply_lockbox_review_import_rejects_unexpected_fields(tmp_path: Path):
+    _copy_registry(tmp_path)
+    import_path = tmp_path / "lockbox_review_with_unexpected_field.json"
+    row = _passed_lockbox_review(tmp_path)
+    row["extra_context"] = "reviewer accidentally pasted non-template context"
+    _write_json(import_path, row)
+
+    report = apply_lockbox_review_import(tmp_path, import_path)
+
+    assert not report.accepted
+    assert "extra_context unexpected in lockbox review import" in report.rejected_reasons

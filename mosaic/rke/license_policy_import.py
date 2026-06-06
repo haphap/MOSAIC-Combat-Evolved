@@ -21,6 +21,34 @@ DEFAULT_LICENSE_POLICY_IMPORT_PATH = "registry/review_batches/source_license_pol
 LICENSE_POLICY_IMPORT_REPORT_PATH = "registry/review_batches/source_license_policy_import_report.json"
 SOURCE_LICENSE_POLICY_TEMPLATE_PATH = "registry/review_batches/source_license_policy_template.json"
 MATCHED_ROWS_FINGERPRINT_FIELD = "matched_rows_fingerprint"
+SOURCE_LICENSE_POLICY_ALLOWED_FIELDS = frozenset(
+    {
+        "approved_for_derived_claim_storage",
+        "approved_for_production_runtime",
+        "build_command",
+        "dry_run_command",
+        "filters",
+        "matched_row_count",
+        MATCHED_ROWS_FINGERPRINT_FIELD,
+        "notes",
+        "publish_date_max",
+        "publish_date_min",
+        "review_context_ref",
+        "review_date",
+        "reviewer",
+        "target_review_path",
+        "template_note",
+    }
+)
+SOURCE_LICENSE_POLICY_FILTER_ALLOWED_FIELDS = frozenset(
+    {
+        "current_license_status",
+        "publish_date_max",
+        "publish_date_min",
+        "source_id_prefix",
+        "source_type",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -95,6 +123,17 @@ def _load_policy(path: Path) -> Mapping[str, Any]:
 
 def _forbidden_policy_fields(policy: Mapping[str, Any]) -> tuple[str, ...]:
     return manual_review_forbidden_field_paths(policy)
+
+
+def _unexpected_policy_fields(policy: Mapping[str, Any]) -> tuple[str, ...]:
+    fields = [str(field) for field in set(policy) - SOURCE_LICENSE_POLICY_ALLOWED_FIELDS]
+    filters = policy.get("filters") or {}
+    if isinstance(filters, Mapping):
+        fields.extend(
+            f"filters.{field}"
+            for field in sorted(str(field) for field in set(filters) - SOURCE_LICENSE_POLICY_FILTER_ALLOWED_FIELDS)
+        )
+    return tuple(sorted(fields))
 
 
 def _policy_filters(policy: Mapping[str, Any]) -> SourceLicensePolicyFilters:
@@ -260,6 +299,8 @@ def build_source_license_policy_import(
     matched_rows_fingerprint = _matched_rows_fingerprint(matched)
 
     blockers: list[str] = []
+    for field in _unexpected_policy_fields(policy):
+        blockers.append(f"{field} unexpected in source-license policy import")
     for field in _forbidden_policy_fields(policy):
         blockers.append(f"{field} forbidden in source-license policy import")
     if str(policy.get("target_review_path") or "").strip() != LICENSE_REVIEW_TEMPLATE_PATH:
