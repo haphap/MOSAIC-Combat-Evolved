@@ -9,7 +9,7 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any, Literal, Mapping, Sequence
 
-from .phase_minus1 import load_jsonl
+from .phase_minus1 import load_jsonl_with_errors
 
 
 GOLD_REVIEW_TEMPLATE_PATH = "registry/gold_sets/tushare_research_reports.review_template.jsonl"
@@ -447,20 +447,26 @@ def apply_gold_set_review_import(
     root_path = Path(root)
     resolved_input_path = _resolve_input_path(root_path, input_path)
     target_path = root_path / GOLD_REVIEW_TEMPLATE_PATH
-    input_rows = load_jsonl(resolved_input_path)
-    raw_target_rows = load_jsonl(target_path)
+    input_rows, input_parse_blockers = load_jsonl_with_errors(
+        resolved_input_path,
+        label="gold-set review import",
+    )
+    raw_target_rows, target_parse_blockers = load_jsonl_with_errors(
+        target_path,
+        label="gold-set target review",
+    )
     target_rows, invalid_target_rows = _split_mapping_rows(raw_target_rows)
     target_by_id = {str(row.get("claim_id") or ""): row for row in target_rows}
     allowed_fields = _allowed_review_import_fields(
         target_rows,
         (*GOLD_IMPORT_TEMPLATE_ONLY_FIELDS, *GOLD_IMPORTED_FIELDS),
     )
-    target_blockers = (
-        (
+    target_blockers = [*target_parse_blockers]
+    if invalid_target_rows:
+        target_blockers.append(
             "gold-set target review row must be object at row(s): "
             + ", ".join(str(row_number) for row_number in invalid_target_rows)
-        ),
-    ) if invalid_target_rows else ()
+        )
     input_ids = [_row_string_id(row, "claim_id") for row in input_rows if isinstance(row, Mapping)]
     duplicate_ids = _duplicates(input_ids)
     missing_target_ids = tuple(sorted({row_id for row_id in input_ids if row_id and row_id not in target_by_id}))
@@ -494,7 +500,14 @@ def apply_gold_set_review_import(
 
     applied_rows = 0
     downstream_outputs: dict[str, str] = {}
-    accepted = bool(input_rows) and not duplicate_ids and not missing_target_ids and not invalid_rows and not target_blockers
+    parse_blockers = tuple((*input_parse_blockers, *target_blockers))
+    accepted = (
+        bool(input_rows)
+        and not duplicate_ids
+        and not missing_target_ids
+        and not invalid_rows
+        and not parse_blockers
+    )
     if accepted and not dry_run:
         import_by_id = {str(row["claim_id"]): row for row in input_rows if isinstance(row, Mapping)}
         merged: list[dict[str, Any]] = []
@@ -521,7 +534,7 @@ def apply_gold_set_review_import(
         missing_target_ids=missing_target_ids,
         invalid_rows=tuple(invalid_rows),
         downstream_outputs=downstream_outputs,
-        extra_blockers=target_blockers,
+        extra_blockers=parse_blockers,
     )
     _write_json(root_path / GOLD_REVIEW_IMPORT_REPORT_PATH, asdict(report))
     return report
@@ -536,17 +549,23 @@ def apply_source_license_review_import(
     root_path = Path(root)
     resolved_input_path = _resolve_input_path(root_path, input_path)
     target_path = root_path / LICENSE_REVIEW_TEMPLATE_PATH
-    input_rows = load_jsonl(resolved_input_path)
-    raw_target_rows = load_jsonl(target_path)
+    input_rows, input_parse_blockers = load_jsonl_with_errors(
+        resolved_input_path,
+        label="source-license review import",
+    )
+    raw_target_rows, target_parse_blockers = load_jsonl_with_errors(
+        target_path,
+        label="source-license target review",
+    )
     target_rows, invalid_target_rows = _split_mapping_rows(raw_target_rows)
     target_by_id = {str(row.get("source_id") or ""): row for row in target_rows}
     allowed_fields = _allowed_review_import_fields(target_rows, LICENSE_IMPORTED_FIELDS)
-    target_blockers = (
-        (
+    target_blockers = [*target_parse_blockers]
+    if invalid_target_rows:
+        target_blockers.append(
             "source-license target review row must be object at row(s): "
             + ", ".join(str(row_number) for row_number in invalid_target_rows)
-        ),
-    ) if invalid_target_rows else ()
+        )
     input_ids = [_row_string_id(row, "source_id") for row in input_rows if isinstance(row, Mapping)]
     duplicate_ids = _duplicates(input_ids)
     missing_target_ids = tuple(sorted({row_id for row_id in input_ids if row_id and row_id not in target_by_id}))
@@ -580,7 +599,14 @@ def apply_source_license_review_import(
 
     applied_rows = 0
     downstream_outputs: dict[str, str] = {}
-    accepted = bool(input_rows) and not duplicate_ids and not missing_target_ids and not invalid_rows and not target_blockers
+    parse_blockers = tuple((*input_parse_blockers, *target_blockers))
+    accepted = (
+        bool(input_rows)
+        and not duplicate_ids
+        and not missing_target_ids
+        and not invalid_rows
+        and not parse_blockers
+    )
     if accepted and not dry_run:
         import_by_id = {str(row["source_id"]): row for row in input_rows if isinstance(row, Mapping)}
         merged: list[dict[str, Any]] = []
@@ -607,7 +633,7 @@ def apply_source_license_review_import(
         missing_target_ids=missing_target_ids,
         invalid_rows=tuple(invalid_rows),
         downstream_outputs=downstream_outputs,
-        extra_blockers=target_blockers,
+        extra_blockers=parse_blockers,
     )
     _write_json(root_path / LICENSE_REVIEW_IMPORT_REPORT_PATH, asdict(report))
     return report

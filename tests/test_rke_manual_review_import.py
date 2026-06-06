@@ -315,6 +315,18 @@ def test_apply_gold_set_review_import_rejects_non_object_rows(tmp_path: Path):
     assert report.invalid_rows[0].reasons == ("review row must be object",)
 
 
+def test_apply_gold_set_review_import_reports_malformed_jsonl_rows(tmp_path: Path):
+    _copy_registry(tmp_path)
+    import_path = tmp_path / "gold_import_with_bad_json.jsonl"
+    import_path.write_text("{\n", encoding="utf-8")
+
+    report = apply_gold_set_review_import(tmp_path, import_path)
+
+    assert not report.accepted
+    assert report.applied_rows == 0
+    assert any("gold-set review import row 1 must contain valid JSON" in blocker for blocker in report.blockers)
+
+
 def test_apply_gold_set_review_import_rejects_non_object_target_rows(tmp_path: Path):
     _copy_registry(tmp_path)
     import_path = tmp_path / "gold_import.jsonl"
@@ -329,6 +341,26 @@ def test_apply_gold_set_review_import_rejects_non_object_target_rows(tmp_path: P
     assert not report.accepted
     assert report.applied_rows == 0
     assert f"gold-set target review row must be object at row(s): {target_count + 1}" in report.blockers
+
+
+def test_apply_gold_set_review_import_reports_malformed_jsonl_target_rows(tmp_path: Path):
+    _copy_registry(tmp_path)
+    import_path = tmp_path / "gold_import.jsonl"
+    rows = _gold_import_rows(tmp_path)[:1]
+    target_path = tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    original = target_path.read_text(encoding="utf-8")
+    target_count = len(_load_jsonl(target_path))
+    target_path.write_text(original + "{\n", encoding="utf-8")
+    _write_jsonl(import_path, rows)
+
+    report = apply_gold_set_review_import(tmp_path, import_path)
+
+    assert not report.accepted
+    assert report.applied_rows == 0
+    assert any(
+        f"gold-set target review row {target_count + 1} must contain valid JSON" in blocker
+        for blocker in report.blockers
+    )
 
 
 def test_apply_license_review_import_passes_c11_and_source_production_gate(tmp_path: Path):
@@ -532,6 +564,18 @@ def test_apply_license_review_import_rejects_non_object_rows(tmp_path: Path):
     assert report.invalid_rows[0].reasons == ("review row must be object",)
 
 
+def test_apply_license_review_import_reports_malformed_jsonl_rows(tmp_path: Path):
+    _copy_registry(tmp_path)
+    import_path = tmp_path / "license_import_with_bad_json.jsonl"
+    import_path.write_text("{\n", encoding="utf-8")
+
+    report = apply_source_license_review_import(tmp_path, import_path)
+
+    assert not report.accepted
+    assert report.applied_rows == 0
+    assert any("source-license review import row 1 must contain valid JSON" in blocker for blocker in report.blockers)
+
+
 def test_apply_license_review_import_rejects_non_object_target_rows(tmp_path: Path):
     _copy_registry(tmp_path)
     import_path = tmp_path / "license_import.jsonl"
@@ -546,6 +590,26 @@ def test_apply_license_review_import_rejects_non_object_target_rows(tmp_path: Pa
     assert not report.accepted
     assert report.applied_rows == 0
     assert f"source-license target review row must be object at row(s): {target_count + 1}" in report.blockers
+
+
+def test_apply_license_review_import_reports_malformed_jsonl_target_rows(tmp_path: Path):
+    _copy_registry(tmp_path)
+    import_path = tmp_path / "license_import.jsonl"
+    rows = _license_import_rows(tmp_path)[:1]
+    target_path = tmp_path / "registry/compliance/tushare_license_review_template.jsonl"
+    original = target_path.read_text(encoding="utf-8")
+    target_count = len(_load_jsonl(target_path))
+    target_path.write_text(original + "{\n", encoding="utf-8")
+    _write_jsonl(import_path, rows)
+
+    report = apply_source_license_review_import(tmp_path, import_path)
+
+    assert not report.accepted
+    assert report.applied_rows == 0
+    assert any(
+        f"source-license target review row {target_count + 1} must contain valid JSON" in blocker
+        for blocker in report.blockers
+    )
 
 
 def test_apply_license_review_import_rejects_duplicate_or_invalid_rows(tmp_path: Path):
@@ -586,3 +650,28 @@ def test_cli_apply_review_import_commands(tmp_path: Path, capsys):
     assert license_code == 0
     assert license_output["accepted"] is True
     assert license_output["applied_rows"] == len(license_rows)
+
+
+def test_cli_apply_review_import_commands_report_malformed_jsonl(tmp_path: Path, capsys):
+    _copy_registry(tmp_path)
+    gold_import = tmp_path / "gold_import_bad_json.jsonl"
+    license_import = tmp_path / "license_import_bad_json.jsonl"
+    gold_import.write_text("{\n", encoding="utf-8")
+    license_import.write_text("{\n", encoding="utf-8")
+
+    gold_code = main(("apply-gold-review", "--root", str(tmp_path), "--input", str(gold_import)))
+    gold_output = json.loads(capsys.readouterr().out)
+    license_code = main(
+        ("apply-license-review", "--root", str(tmp_path), "--input", str(license_import))
+    )
+    license_output = json.loads(capsys.readouterr().out)
+
+    assert gold_code == 2
+    assert gold_output["accepted"] is False
+    assert any("gold-set review import row 1 must contain valid JSON" in blocker for blocker in gold_output["blockers"])
+    assert license_code == 2
+    assert license_output["accepted"] is False
+    assert any(
+        "source-license review import row 1 must contain valid JSON" in blocker
+        for blocker in license_output["blockers"]
+    )
