@@ -45,7 +45,6 @@ from .operator_handoff import (
     build_operator_handoff,
     write_operator_handoff,
 )
-from .phase_minus1 import load_jsonl
 from .promotion_dry_run import PROMOTION_DRY_RUN_REPORT_PATH, write_promotion_dry_run_report
 from .promotion_gate import build_production_promotion_gate_report
 from .registry_manifest import validate_required_registry, validate_required_registry_content
@@ -118,9 +117,27 @@ def _check(check_id: str, passed: bool, evidence: str, blocker: str = "") -> Ope
     )
 
 
-def _template_row_count(root_path: Path, relative_path: str) -> int:
+def _load_jsonl_template_rows(root_path: Path, relative_path: str) -> tuple[list[tuple[int, Any]], tuple[str, ...]]:
     path = root_path / relative_path
-    return len(load_jsonl(path)) if path.exists() else 0
+    if not path.exists():
+        return [], ()
+    rows: list[tuple[int, Any]] = []
+    errors: list[str] = []
+    with path.open("r", encoding="utf-8") as handle:
+        for line_number, line in enumerate(handle, 1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rows.append((line_number, json.loads(line)))
+            except json.JSONDecodeError as exc:
+                errors.append(f"{relative_path} row {line_number} must contain valid JSON: {exc.msg}")
+    return rows, tuple(errors)
+
+
+def _template_row_count(root_path: Path, relative_path: str) -> tuple[int, tuple[str, ...]]:
+    rows, errors = _load_jsonl_template_rows(root_path, relative_path)
+    return len(rows) + len(errors), errors
 
 
 def _jsonl_row_object_failure(relative_path: str, index: int) -> tuple[str, str]:
@@ -140,7 +157,10 @@ def _import_templates_are_sparse(root_path: Path) -> tuple[bool, str, str]:
         path = root_path / relative_path
         if not path.exists():
             return False, f"{relative_path} missing", f"{relative_path} missing"
-        for index, row in enumerate(load_jsonl(path), 1):
+        rows, row_errors = _load_jsonl_template_rows(root_path, relative_path)
+        if row_errors:
+            return False, row_errors[0], row_errors[0]
+        for index, row in rows:
             if not isinstance(row, Mapping):
                 return (False, *_jsonl_row_object_failure(relative_path, index))
             leaked = manual_review_forbidden_field_paths(row)
@@ -192,17 +212,19 @@ def _manual_review_templates_have_provenance(root_path: Path) -> tuple[bool, str
         path = root_path / relative_path
         if not path.exists():
             return False, f"{relative_path} missing", f"{relative_path} missing"
-        rows = load_jsonl(path)
+        rows, row_errors = _load_jsonl_template_rows(root_path, relative_path)
+        if row_errors:
+            return False, row_errors[0], row_errors[0]
         if not rows:
             return False, f"{relative_path} has 0 rows", "manual import template has no provenance rows"
-        for index, row in enumerate(rows, 1):
+        for line_number, row in rows:
             if not isinstance(row, Mapping):
-                return (False, *_jsonl_row_object_failure(relative_path, index))
+                return (False, *_jsonl_row_object_failure(relative_path, line_number))
             missing = [field for field in required_fields if not str(row.get(field) or "").strip()]
             if missing:
                 return (
                     False,
-                    f"{relative_path} row {index} missing provenance fields {missing}",
+                    f"{relative_path} row {line_number} missing provenance fields {missing}",
                     "manual import template is missing provenance or row fingerprint fields",
                 )
 
@@ -274,10 +296,15 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
     )
 
     batch_status, _, _ = build_manual_review_batch_status(root_path)
-    gold_rows = _template_row_count(root_path, GOLD_BATCH_IMPORT_TEMPLATE_PATH)
-    gold_full_rows = _template_row_count(root_path, GOLD_FULL_IMPORT_TEMPLATE_PATH)
-    license_rows = _template_row_count(root_path, LICENSE_BATCH_IMPORT_TEMPLATE_PATH)
-    batch_shape_blockers = tuple(blocker for blocker in batch_status.blockers if "still pending" not in blocker)
+    gold_rows, gold_row_errors = _template_row_count(root_path, GOLD_BATCH_IMPORT_TEMPLATE_PATH)
+    gold_full_rows, gold_full_row_errors = _template_row_count(root_path, GOLD_FULL_IMPORT_TEMPLATE_PATH)
+    license_rows, license_row_errors = _template_row_count(root_path, LICENSE_BATCH_IMPORT_TEMPLATE_PATH)
+    batch_shape_blockers = (
+        *(blocker for blocker in batch_status.blockers if "still pending" not in blocker),
+        *gold_row_errors,
+        *gold_full_row_errors,
+        *license_row_errors,
+    )
     batch_blocker = "; ".join(batch_shape_blockers)
     checks.append(
         _check(

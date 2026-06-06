@@ -178,6 +178,28 @@ def test_operator_readiness_reports_malformed_import_template_rows(tmp_path: Pat
     assert "manual import template row must be object" in provenance.blocker
 
 
+def test_operator_readiness_reports_malformed_json_import_template_rows(tmp_path: Path):
+    _copy_registry(tmp_path)
+    gold_import = tmp_path / "registry/review_batches/gold_set_next_import_template.jsonl"
+    expected_row = len(gold_import.read_text(encoding="utf-8").splitlines()) + 1
+    gold_import.write_text(gold_import.read_text(encoding="utf-8") + "{\n", encoding="utf-8")
+
+    report = build_operator_readiness_report(tmp_path)
+    batch = next(check for check in report.checks if check.check_id == "manual_batch_templates_match_status")
+    sparse = next(check for check in report.checks if check.check_id == "manual_import_templates_are_sparse")
+    provenance = next(
+        check for check in report.checks if check.check_id == "manual_import_templates_have_provenance"
+    )
+
+    assert not report.accepted
+    assert not batch.passed
+    assert not sparse.passed
+    assert not provenance.passed
+    assert f"gold_set_next_import_template.jsonl row {expected_row} must contain valid JSON" in batch.blocker
+    assert f"gold_set_next_import_template.jsonl row {expected_row} must contain valid JSON" in sparse.blocker
+    assert f"gold_set_next_import_template.jsonl row {expected_row} must contain valid JSON" in provenance.blocker
+
+
 def test_operator_readiness_reports_invalid_lockbox_template_json(tmp_path: Path):
     _copy_registry(tmp_path)
     lockbox_path = tmp_path / "registry/review_batches/lockbox_review_next_import_template.json"
