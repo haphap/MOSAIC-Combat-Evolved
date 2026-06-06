@@ -27,6 +27,7 @@ class MacroExpansionPlan:
     unlocked_by: str
     central_bank_phase4_ready: bool
     candidates: Sequence[MacroExpansionCandidate]
+    blockers: Sequence[str] = ()
     production_allowed: bool = False
 
 
@@ -133,7 +134,11 @@ def build_macro_expansion_data_matrix() -> DataAvailabilityMatrix:
     )
 
 
-def build_macro_expansion_plan(*, central_bank_phase4_ready: bool) -> MacroExpansionPlan:
+def build_macro_expansion_plan(
+    *,
+    central_bank_phase4_ready: bool,
+    blockers: Sequence[str] = (),
+) -> MacroExpansionPlan:
     status: Literal["blocked", "candidate"] = "candidate" if central_bank_phase4_ready else "blocked"
     candidates = (
         MacroExpansionCandidate(
@@ -181,23 +186,42 @@ def build_macro_expansion_plan(*, central_bank_phase4_ready: bool) -> MacroExpan
         unlocked_by="central_bank Phase 4 paper-trading gate",
         central_bank_phase4_ready=central_bank_phase4_ready,
         candidates=candidates,
+        blockers=tuple(blockers),
         production_allowed=False,
     )
 
 
-def central_bank_phase4_ready_from_registry(root: str | Path = ".") -> bool:
+def central_bank_phase4_readiness_from_registry(root: str | Path = ".") -> tuple[bool, tuple[str, ...]]:
+    """Return Phase-4 readiness plus blockers without raising on malformed evidence."""
     path = Path(root) / "registry/monitoring/central_bank_paper_trading_report.json"
     if not path.exists():
-        return False
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    return bool(payload.get("paper_trading_summary", {}).get("ready"))
+        return False, ("central_bank paper-trading report missing",)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        return False, (f"central_bank paper-trading report must contain valid JSON: {exc.msg}",)
+    if not isinstance(payload, Mapping):
+        return False, ("central_bank paper-trading report must be object",)
+    summary = payload.get("paper_trading_summary")
+    if not isinstance(summary, Mapping):
+        return False, ("central_bank paper_trading_summary must be object",)
+    if summary.get("ready") is True:
+        return True, ()
+    return False, ("central_bank Phase 4 paper-trading gate is not ready",)
+
+
+def central_bank_phase4_ready_from_registry(root: str | Path = ".") -> bool:
+    ready, _ = central_bank_phase4_readiness_from_registry(root)
+    return ready
 
 
 def write_macro_expansion_registry(root: str | Path = ".") -> dict[str, str]:
     root_path = Path(root)
     matrix = build_macro_expansion_data_matrix()
+    central_bank_phase4_ready, blockers = central_bank_phase4_readiness_from_registry(root_path)
     plan = build_macro_expansion_plan(
-        central_bank_phase4_ready=central_bank_phase4_ready_from_registry(root_path)
+        central_bank_phase4_ready=central_bank_phase4_ready,
+        blockers=blockers,
     )
     outputs = {
         "data_availability": root_path

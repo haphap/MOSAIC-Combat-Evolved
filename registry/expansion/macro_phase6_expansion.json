@@ -1,4 +1,5 @@
 {
+  "blockers": [],
   "candidates": [
     {
       "agent_id": "macro.volatility",

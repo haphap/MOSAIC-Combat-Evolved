@@ -174,6 +174,7 @@ from .macro_expansion import (
     MacroExpansionPlan,
     build_macro_expansion_data_matrix,
     build_macro_expansion_plan,
+    central_bank_phase4_readiness_from_registry,
     central_bank_phase4_ready_from_registry,
     write_macro_expansion_registry,
 )
@@ -528,6 +529,7 @@ __all__ = [
     "MacroExpansionPlan",
     "build_macro_expansion_data_matrix",
     "build_macro_expansion_plan",
+    "central_bank_phase4_readiness_from_registry",
     "central_bank_phase4_ready_from_registry",
     "write_macro_expansion_registry",
     "ManualReviewImportInvalidRow",
