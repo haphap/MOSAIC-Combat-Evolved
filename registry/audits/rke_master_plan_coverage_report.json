@@ -118,6 +118,253 @@
   "final_acceptance_section": "22",
   "master_plan_path": "docs/master_plan_v1_1.md",
   "missing_count": 0,
+  "mvp_deliverable_records": [
+    {
+      "blocker": "",
+      "evidence_paths": [
+        "registry/data_availability/central_bank_data_availability.json",
+        "registry/data_availability/macro_expansion_data_availability.json"
+      ],
+      "requirement": "Data Availability Matrix for central_bank metrics.",
+      "section_id": "MVP-D1",
+      "status": "passed"
+    },
+    {
+      "blocker": "manual gold-set review still required",
+      "evidence_paths": [
+        "registry/gold_sets/tushare_research_reports.review_template.jsonl",
+        "registry/gold_sets/tushare_research_reports.review_summary.json",
+        "registry/gold_sets/tushare_research_reports.review_import_report.json"
+      ],
+      "requirement": "Claim extraction gold set for 50 documents / 500 claims.",
+      "section_id": "MVP-D2",
+      "status": "blocked"
+    },
+    {
+      "blocker": "",
+      "evidence_paths": [
+        "schemas/source_grounded_claim.schema.json",
+        "registry/schemas/rke_schema_validation_report.json",
+        "registry/claim_checks/claim_variable_validation_report.json"
+      ],
+      "requirement": "Source-grounded claim schema and verifier.",
+      "section_id": "MVP-D3",
+      "status": "passed"
+    },
+    {
+      "blocker": "",
+      "evidence_paths": [
+        "registry/rule_packs/macro.central_bank.liquidity.v1.json"
+      ],
+      "requirement": "One central_bank rule pack.",
+      "section_id": "MVP-D4",
+      "status": "passed"
+    },
+    {
+      "blocker": "",
+      "evidence_paths": [
+        "registry/parameter_priors/central_bank_parameter_priors.jsonl"
+      ],
+      "requirement": "One parameter prior family.",
+      "section_id": "MVP-D5",
+      "status": "passed"
+    },
+    {
+      "blocker": "",
+      "evidence_paths": [
+        "registry/evaluation/experiment_family_registry/central_bank_liquidity_family.json",
+        "registry/evaluation/pre_registration/central_bank_liquidity_preregistration.json",
+        "registry/experiments/central_bank_validation_experiment_v2.json"
+      ],
+      "requirement": "One pre-registered validation experiment family.",
+      "section_id": "MVP-D6",
+      "status": "passed"
+    },
+    {
+      "blocker": "",
+      "evidence_paths": [
+        "registry/experiments/central_bank_validation_experiment_v2.json",
+        "registry/validation_hardening/central_bank_hardening_report.json",
+        "registry/evaluation/statistical_significance/central_bank_after_cost_significance.json"
+      ],
+      "requirement": "Effective N / overlap / multiple testing / cost-aware report.",
+      "section_id": "MVP-D7",
+      "status": "passed"
+    },
+    {
+      "blocker": "",
+      "evidence_paths": [
+        "registry/runtime_outputs/macro.central_bank.20260605.json",
+        "schemas/rule_aggregation_policy.schema.yaml"
+      ],
+      "requirement": "Runtime rule aggregation prototype.",
+      "section_id": "MVP-D8",
+      "status": "passed"
+    },
+    {
+      "blocker": "",
+      "evidence_paths": [
+        "schemas/confidence_policy.schema.yaml",
+        "registry/runtime_outputs/macro.central_bank.20260605.json"
+      ],
+      "requirement": "Confidence function v1 implementation.",
+      "section_id": "MVP-D9",
+      "status": "passed"
+    },
+    {
+      "blocker": "",
+      "evidence_paths": [
+        "registry/monitoring/central_bank_paper_trading_report.json",
+        "registry/audits/central_bank_mvp_audit_view.json",
+        "registry/audits/central_bank_mvp_audit_view.md"
+      ],
+      "requirement": "Paper trading output and audit viewer.",
+      "section_id": "MVP-D10",
+      "status": "passed"
+    }
+  ],
+  "mvp_deliverables_blocked_count": 1,
+  "mvp_deliverables_missing_count": 0,
+  "mvp_deliverables_passed_count": 9,
+  "mvp_deliverables_ready": false,
+  "mvp_deliverables_section": "16.3",
+  "mvp_exit_blocked_count": 1,
+  "mvp_exit_criteria_section": "16.4",
+  "mvp_exit_missing_count": 0,
+  "mvp_exit_passed_count": 12,
+  "mvp_exit_ready": false,
+  "mvp_exit_records": [
+    {
+      "blocker": "manual gold-set review still required",
+      "evidence_paths": [
+        "registry/gold_sets/tushare_research_reports.review_summary.json",
+        "registry/audits/rke_completion_audit.json"
+      ],
+      "requirement": "Claim extraction gold set precision reaches the manual threshold.",
+      "section_id": "MVP-E01",
+      "status": "blocked"
+    },
+    {
+      "blocker": "",
+      "evidence_paths": [
+        "registry/data_availability/central_bank_data_availability.json",
+        "registry/rule_packs/macro.central_bank.liquidity.v1.json"
+      ],
+      "requirement": "All production candidate proxies have PIT data.",
+      "section_id": "MVP-E02",
+      "status": "passed"
+    },
+    {
+      "blocker": "",
+      "evidence_paths": [
+        "registry/evaluation/pre_registration/central_bank_liquidity_preregistration.json",
+        "registry/experiments/central_bank_validation_experiment_v2.json"
+      ],
+      "requirement": "Validation experiment is pre-registered.",
+      "section_id": "MVP-E03",
+      "status": "passed"
+    },
+    {
+      "blocker": "",
+      "evidence_paths": [
+        "registry/evaluation/statistical_significance/central_bank_after_cost_significance.json"
+      ],
+      "requirement": "effective_n >= threshold.",
+      "section_id": "MVP-E04",
+      "status": "passed"
+    },
+    {
+      "blocker": "",
+      "evidence_paths": [
+        "registry/experiments/central_bank_validation_experiment_v2.json",
+        "registry/evaluation/overlap_correction/effective_n_overlap_policy.json"
+      ],
+      "requirement": "Overlapping windows are corrected.",
+      "section_id": "MVP-E05",
+      "status": "passed"
+    },
+    {
+      "blocker": "",
+      "evidence_paths": [
+        "registry/experiments/central_bank_validation_experiment_v2.json",
+        "registry/evaluation/experiment_family_registry/central_bank_liquidity_family.json"
+      ],
+      "requirement": "Multiple testing is corrected.",
+      "section_id": "MVP-E06",
+      "status": "passed"
+    },
+    {
+      "blocker": "",
+      "evidence_paths": [
+        "registry/evaluation/statistical_significance/central_bank_after_cost_significance.json"
+      ],
+      "requirement": "After-cost metric is positive and confidence interval excludes zero.",
+      "section_id": "MVP-E07",
+      "status": "passed"
+    },
+    {
+      "blocker": "",
+      "evidence_paths": [
+        "registry/experiments/central_bank_validation_experiment_v2.json",
+        "registry/patches/central_bank_paper_trading_patch.json"
+      ],
+      "requirement": "Walk-forward validation passed.",
+      "section_id": "MVP-E08",
+      "status": "passed"
+    },
+    {
+      "blocker": "",
+      "evidence_paths": [
+        "registry/evaluation/lockbox/lockbox_policy.json",
+        "registry/lockbox/central_bank_lockbox_review.json"
+      ],
+      "requirement": "No lockbox misuse.",
+      "section_id": "MVP-E09",
+      "status": "passed"
+    },
+    {
+      "blocker": "",
+      "evidence_paths": [
+        "registry/promotion/rke_production_promotion_gate.json",
+        "registry/monitoring/central_bank_paper_trading_report.json"
+      ],
+      "requirement": "Paper trading plan is ready.",
+      "section_id": "MVP-E10",
+      "status": "passed"
+    },
+    {
+      "blocker": "",
+      "evidence_paths": [
+        "registry/promotion/rke_production_promotion_gate.json",
+        "registry/patches/central_bank_paper_trading_patch.json"
+      ],
+      "requirement": "Direct production promotion is forbidden.",
+      "section_id": "MVP-E11",
+      "status": "passed"
+    },
+    {
+      "blocker": "",
+      "evidence_paths": [
+        "schemas/confidence_policy.schema.yaml",
+        "registry/runtime_outputs/macro.central_bank.20260605.json",
+        "registry/monitoring/central_bank_paper_trading_report.json"
+      ],
+      "requirement": "Confidence function and actionability threshold are enforced.",
+      "section_id": "MVP-E12",
+      "status": "passed"
+    },
+    {
+      "blocker": "",
+      "evidence_paths": [
+        "registry/prompt_ir/macro.central_bank.json",
+        "registry/runtime_outputs/sector.semiconductor.demo.20260605.json",
+        "registry/prompt_checks/prompt_asset_validation_report.json"
+      ],
+      "requirement": "Research-only no-trade rule is enforced.",
+      "section_id": "MVP-E13",
+      "status": "passed"
+    }
+  ],
   "passed_count": 10,
   "ready_for_broad_rollout": false,
   "records": [

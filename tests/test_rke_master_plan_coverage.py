@@ -24,6 +24,16 @@ def test_master_plan_coverage_reports_only_manual_blockers():
     assert not report.ready_for_broad_rollout
     assert report.missing_count == 0
     assert report.blocked_count == 2
+    assert report.mvp_deliverables_section == "16.3"
+    assert report.mvp_exit_criteria_section == "16.4"
+    assert report.mvp_deliverables_passed_count == 9
+    assert report.mvp_deliverables_blocked_count == 1
+    assert report.mvp_deliverables_missing_count == 0
+    assert not report.mvp_deliverables_ready
+    assert report.mvp_exit_passed_count == 12
+    assert report.mvp_exit_blocked_count == 1
+    assert report.mvp_exit_missing_count == 0
+    assert not report.mvp_exit_ready
     assert report.final_acceptance_section == "22"
     assert report.final_acceptance_passed_count == 10
     assert report.final_acceptance_blocked_count == 2
@@ -37,6 +47,25 @@ def test_master_plan_coverage_reports_only_manual_blockers():
     assert set(blocked) == {"Phase-1B", "Compliance"}
     assert "manual gold-set review still required" in blocked["Phase-1B"].blocker
     assert "source license review still pending" in blocked["Compliance"].blocker
+    mvp_deliverable_blocked = {
+        record.section_id: record
+        for record in report.mvp_deliverable_records
+        if record.status == "blocked"
+    }
+    assert set(mvp_deliverable_blocked) == {"MVP-D2"}
+    assert (
+        "manual gold-set review still required"
+        in mvp_deliverable_blocked["MVP-D2"].blocker
+    )
+    mvp_exit_blocked = {
+        record.section_id: record
+        for record in report.mvp_exit_records
+        if record.status == "blocked"
+    }
+    assert set(mvp_exit_blocked) == {"MVP-E01"}
+    assert (
+        "manual gold-set review still required" in mvp_exit_blocked["MVP-E01"].blocker
+    )
     final_blocked = {
         record.section_id: record
         for record in report.final_acceptance_records
@@ -386,5 +415,9 @@ def test_master_plan_coverage_writer_and_cli(tmp_path: Path, capsys):
     assert output["coverage_complete"] is True
     assert output["ready_for_broad_rollout"] is False
     assert output["blocked_count"] == 2
+    assert output["mvp_deliverables_section"] == "16.3"
+    assert output["mvp_deliverables_blocked_count"] == 1
+    assert output["mvp_exit_criteria_section"] == "16.4"
+    assert output["mvp_exit_blocked_count"] == 1
     assert output["final_acceptance_section"] == "22"
     assert output["final_acceptance_blocked_count"] == 2

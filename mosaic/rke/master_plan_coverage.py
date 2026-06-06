@@ -18,6 +18,8 @@ from .completion_acceptance import (
 MASTER_PLAN_COVERAGE_REPORT_PATH = (
     "registry/audits/rke_master_plan_coverage_report.json"
 )
+MVP_DELIVERABLES_SECTION = "16.3"
+MVP_EXIT_CRITERIA_SECTION = "16.4"
 
 CoverageStatus = Literal["passed", "blocked", "missing"]
 
@@ -35,6 +37,8 @@ class MasterPlanCoverageRecord:
 class MasterPlanCoverageReport:
     report_id: str
     master_plan_path: str
+    mvp_deliverables_section: str
+    mvp_exit_criteria_section: str
     final_acceptance_section: str
     coverage_complete: bool
     ready_for_broad_rollout: bool
@@ -42,6 +46,16 @@ class MasterPlanCoverageReport:
     blocked_count: int
     missing_count: int
     records: Sequence[MasterPlanCoverageRecord]
+    mvp_deliverables_ready: bool
+    mvp_deliverables_passed_count: int
+    mvp_deliverables_blocked_count: int
+    mvp_deliverables_missing_count: int
+    mvp_deliverable_records: Sequence[MasterPlanCoverageRecord]
+    mvp_exit_ready: bool
+    mvp_exit_passed_count: int
+    mvp_exit_blocked_count: int
+    mvp_exit_missing_count: int
+    mvp_exit_records: Sequence[MasterPlanCoverageRecord]
     final_acceptance_ready: bool
     final_acceptance_passed_count: int
     final_acceptance_blocked_count: int
@@ -71,6 +85,13 @@ def _write_json(path: Path, payload: Mapping[str, Any]) -> dict[str, Any]:
 
 def _read_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _to_float(value: Any) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _exists(root_path: Path, relative: str) -> bool:
@@ -271,6 +292,559 @@ def _completion_record(
     )
 
 
+def _combined_completion_record(
+    root_path: Path,
+    completion: Mapping[str, Mapping[str, Any]],
+    criterion_ids: Sequence[str],
+    *,
+    section_id: str,
+    requirement: str,
+    evidence_paths: Sequence[str],
+    blocked_if_failed: bool = False,
+    completion_error: str = "",
+) -> MasterPlanCoverageRecord:
+    if completion_error:
+        return _record(
+            root_path,
+            section_id=section_id,
+            requirement=requirement,
+            evidence_paths=evidence_paths,
+            status="missing",
+            blocker=completion_error,
+        )
+
+    missing_ids = [
+        criterion_id for criterion_id in criterion_ids if criterion_id not in completion
+    ]
+    rows = [completion.get(criterion_id, {}) for criterion_id in criterion_ids]
+    blockers = [str(row.get("blocker") or "") for row in rows if row.get("blocker")]
+    if missing_ids:
+        blockers.append(f"completion criteria missing: {', '.join(missing_ids)}")
+    passed = not missing_ids and all(row.get("passed") is True for row in rows)
+    if passed:
+        status: CoverageStatus = "passed"
+        blocker = ""
+    elif blocked_if_failed and blockers:
+        status = "blocked"
+        blocker = "; ".join(blockers)
+    else:
+        status = "missing"
+        blocker = "; ".join(blockers) or (
+            "completion criteria not passed: " + ", ".join(criterion_ids)
+        )
+    return _record(
+        root_path,
+        section_id=section_id,
+        requirement=requirement,
+        evidence_paths=evidence_paths,
+        status=status,
+        blocker=blocker,
+    )
+
+
+def _promotion_by_id(root_path: Path) -> tuple[dict[str, Mapping[str, Any]], str]:
+    path = root_path / "registry/promotion/rke_production_promotion_gate.json"
+    if not path.exists():
+        return {}, "production promotion gate missing"
+    try:
+        payload = _read_json(path)
+    except json.JSONDecodeError as exc:
+        return {}, f"production promotion gate must contain valid JSON: {exc.msg}"
+    if not isinstance(payload, Mapping):
+        return {}, "production promotion gate must be object"
+    criteria = payload.get("criteria")
+    if not isinstance(criteria, list | tuple):
+        return {}, "production promotion gate criteria must be list"
+    promotion: dict[str, Mapping[str, Any]] = {}
+    for index, row in enumerate(criteria, 1):
+        if not isinstance(row, Mapping):
+            return (
+                promotion,
+                f"production promotion gate criterion row {index} must be object",
+            )
+        criterion_id = str(row.get("criterion_id"))
+        if criterion_id in promotion:
+            return (
+                promotion,
+                f"production promotion gate criterion_id duplicated: {criterion_id}",
+            )
+        promotion[criterion_id] = row
+    return promotion, ""
+
+
+def _promotion_record(
+    root_path: Path,
+    promotion: Mapping[str, Mapping[str, Any]],
+    criterion_id: str,
+    *,
+    section_id: str,
+    requirement: str,
+    evidence_paths: Sequence[str],
+    blocked_if_failed: bool = False,
+    promotion_error: str = "",
+) -> MasterPlanCoverageRecord:
+    row = promotion.get(criterion_id, {})
+    passed = row.get("passed") is True
+    blocker = promotion_error or str(row.get("blocker") or "")
+    if promotion_error:
+        status: CoverageStatus = "missing"
+    elif passed:
+        status = "passed"
+    elif blocked_if_failed and blocker:
+        status = "blocked"
+    else:
+        status = "missing"
+        if not blocker:
+            blocker = f"promotion criterion {criterion_id} missing or not passed"
+    return _record(
+        root_path,
+        section_id=section_id,
+        requirement=requirement,
+        evidence_paths=evidence_paths,
+        status=status,
+        blocker=blocker,
+    )
+
+
+def _load_mapping_evidence(
+    root_path: Path,
+    relative: str,
+    label: str,
+) -> tuple[Mapping[str, Any] | None, str]:
+    path = root_path / relative
+    if not path.exists():
+        return None, f"{label} missing"
+    try:
+        payload = _read_json(path)
+    except json.JSONDecodeError as exc:
+        return None, f"{label} must contain valid JSON: {exc.msg}"
+    if not isinstance(payload, Mapping):
+        return None, f"{label} must be object"
+    return payload, ""
+
+
+def _content_record(
+    root_path: Path,
+    *,
+    section_id: str,
+    requirement: str,
+    evidence_paths: Sequence[str],
+    passed: bool,
+    blocker: str,
+    blocked_if_failed: bool = False,
+) -> MasterPlanCoverageRecord:
+    if passed:
+        status: CoverageStatus = "passed"
+        final_blocker = ""
+    elif blocked_if_failed and blocker:
+        status = "blocked"
+        final_blocker = blocker
+    else:
+        status = "missing"
+        final_blocker = blocker or "content gate not passed"
+    return _record(
+        root_path,
+        section_id=section_id,
+        requirement=requirement,
+        evidence_paths=evidence_paths,
+        status=status,
+        blocker=final_blocker,
+    )
+
+
+def _mvp_deliverable_records(
+    root_path: Path,
+    completion: Mapping[str, Mapping[str, Any]],
+    *,
+    completion_error: str,
+) -> tuple[MasterPlanCoverageRecord, ...]:
+    return (
+        _completion_record(
+            root_path,
+            completion,
+            "C03",
+            section_id="MVP-D1",
+            requirement="Data Availability Matrix for central_bank metrics.",
+            evidence_paths=(
+                "registry/data_availability/central_bank_data_availability.json",
+                "registry/data_availability/macro_expansion_data_availability.json",
+            ),
+            completion_error=completion_error,
+        ),
+        _completion_record(
+            root_path,
+            completion,
+            "C02",
+            section_id="MVP-D2",
+            requirement="Claim extraction gold set for 50 documents / 500 claims.",
+            evidence_paths=(
+                "registry/gold_sets/tushare_research_reports.review_template.jsonl",
+                "registry/gold_sets/tushare_research_reports.review_summary.json",
+                "registry/gold_sets/tushare_research_reports.review_import_report.json",
+            ),
+            blocked_if_failed=True,
+            completion_error=completion_error,
+        ),
+        _record(
+            root_path,
+            section_id="MVP-D3",
+            requirement="Source-grounded claim schema and verifier.",
+            evidence_paths=(
+                "schemas/source_grounded_claim.schema.json",
+                "registry/schemas/rke_schema_validation_report.json",
+                "registry/claim_checks/claim_variable_validation_report.json",
+            ),
+        ),
+        _record(
+            root_path,
+            section_id="MVP-D4",
+            requirement="One central_bank rule pack.",
+            evidence_paths=(
+                "registry/rule_packs/macro.central_bank.liquidity.v1.json",
+            ),
+        ),
+        _record(
+            root_path,
+            section_id="MVP-D5",
+            requirement="One parameter prior family.",
+            evidence_paths=(
+                "registry/parameter_priors/central_bank_parameter_priors.jsonl",
+            ),
+        ),
+        _record(
+            root_path,
+            section_id="MVP-D6",
+            requirement="One pre-registered validation experiment family.",
+            evidence_paths=(
+                "registry/evaluation/experiment_family_registry/central_bank_liquidity_family.json",
+                "registry/evaluation/pre_registration/central_bank_liquidity_preregistration.json",
+                "registry/experiments/central_bank_validation_experiment_v2.json",
+            ),
+        ),
+        _completion_record(
+            root_path,
+            completion,
+            "C04",
+            section_id="MVP-D7",
+            requirement="Effective N / overlap / multiple testing / cost-aware report.",
+            evidence_paths=(
+                "registry/experiments/central_bank_validation_experiment_v2.json",
+                "registry/validation_hardening/central_bank_hardening_report.json",
+                "registry/evaluation/statistical_significance/central_bank_after_cost_significance.json",
+            ),
+            completion_error=completion_error,
+        ),
+        _completion_record(
+            root_path,
+            completion,
+            "C05",
+            section_id="MVP-D8",
+            requirement="Runtime rule aggregation prototype.",
+            evidence_paths=(
+                "registry/runtime_outputs/macro.central_bank.20260605.json",
+                "schemas/rule_aggregation_policy.schema.yaml",
+            ),
+            completion_error=completion_error,
+        ),
+        _completion_record(
+            root_path,
+            completion,
+            "C06",
+            section_id="MVP-D9",
+            requirement="Confidence function v1 implementation.",
+            evidence_paths=(
+                "schemas/confidence_policy.schema.yaml",
+                "registry/runtime_outputs/macro.central_bank.20260605.json",
+            ),
+            completion_error=completion_error,
+        ),
+        _combined_completion_record(
+            root_path,
+            completion,
+            ("C09", "C12"),
+            section_id="MVP-D10",
+            requirement="Paper trading output and audit viewer.",
+            evidence_paths=(
+                "registry/monitoring/central_bank_paper_trading_report.json",
+                "registry/audits/central_bank_mvp_audit_view.json",
+                "registry/audits/central_bank_mvp_audit_view.md",
+            ),
+            completion_error=completion_error,
+        ),
+    )
+
+
+def _mvp_exit_records(
+    root_path: Path,
+    completion: Mapping[str, Mapping[str, Any]],
+    *,
+    completion_error: str,
+) -> tuple[MasterPlanCoverageRecord, ...]:
+    promotion, promotion_error = _promotion_by_id(root_path)
+    return (
+        _completion_record(
+            root_path,
+            completion,
+            "C02",
+            section_id="MVP-E01",
+            requirement="Claim extraction gold set precision reaches the manual threshold.",
+            evidence_paths=(
+                "registry/gold_sets/tushare_research_reports.review_summary.json",
+                "registry/audits/rke_completion_audit.json",
+            ),
+            blocked_if_failed=True,
+            completion_error=completion_error,
+        ),
+        _completion_record(
+            root_path,
+            completion,
+            "C03",
+            section_id="MVP-E02",
+            requirement="All production candidate proxies have PIT data.",
+            evidence_paths=(
+                "registry/data_availability/central_bank_data_availability.json",
+                "registry/rule_packs/macro.central_bank.liquidity.v1.json",
+            ),
+            completion_error=completion_error,
+        ),
+        _pre_registered_experiment_record(root_path),
+        _effective_n_record(root_path),
+        _overlap_correction_record(root_path),
+        _multiple_testing_record(root_path),
+        _after_cost_significance_record(root_path),
+        _walk_forward_record(root_path),
+        _lockbox_no_misuse_record(root_path),
+        _promotion_record(
+            root_path,
+            promotion,
+            "PG06",
+            section_id="MVP-E10",
+            requirement="Paper trading plan is ready.",
+            evidence_paths=(
+                "registry/promotion/rke_production_promotion_gate.json",
+                "registry/monitoring/central_bank_paper_trading_report.json",
+            ),
+            promotion_error=promotion_error,
+        ),
+        _promotion_record(
+            root_path,
+            promotion,
+            "PG10",
+            section_id="MVP-E11",
+            requirement="Direct production promotion is forbidden.",
+            evidence_paths=(
+                "registry/promotion/rke_production_promotion_gate.json",
+                "registry/patches/central_bank_paper_trading_patch.json",
+            ),
+            promotion_error=promotion_error,
+        ),
+        _combined_completion_record(
+            root_path,
+            completion,
+            ("C06", "C09"),
+            section_id="MVP-E12",
+            requirement="Confidence function and actionability threshold are enforced.",
+            evidence_paths=(
+                "schemas/confidence_policy.schema.yaml",
+                "registry/runtime_outputs/macro.central_bank.20260605.json",
+                "registry/monitoring/central_bank_paper_trading_report.json",
+            ),
+            completion_error=completion_error,
+        ),
+        _completion_record(
+            root_path,
+            completion,
+            "C07",
+            section_id="MVP-E13",
+            requirement="Research-only no-trade rule is enforced.",
+            evidence_paths=(
+                "registry/prompt_ir/macro.central_bank.json",
+                "registry/runtime_outputs/sector.semiconductor.demo.20260605.json",
+                "registry/prompt_checks/prompt_asset_validation_report.json",
+            ),
+            completion_error=completion_error,
+        ),
+    )
+
+
+def _pre_registered_experiment_record(root_path: Path) -> MasterPlanCoverageRecord:
+    relative = "registry/experiments/central_bank_validation_experiment_v2.json"
+    experiment, error = _load_mapping_evidence(
+        root_path, relative, "validation experiment"
+    )
+    passed = not error and bool(experiment and experiment.get("pre_registered") is True)
+    blocker = error or "validation experiment is not marked pre_registered"
+    return _content_record(
+        root_path,
+        section_id="MVP-E03",
+        requirement="Validation experiment is pre-registered.",
+        evidence_paths=(
+            "registry/evaluation/pre_registration/central_bank_liquidity_preregistration.json",
+            relative,
+        ),
+        passed=passed,
+        blocker=blocker,
+    )
+
+
+def _effective_n_record(root_path: Path) -> MasterPlanCoverageRecord:
+    relative = "registry/evaluation/statistical_significance/central_bank_after_cost_significance.json"
+    report, error = _load_mapping_evidence(
+        root_path, relative, "statistical significance report"
+    )
+    passed = False
+    blocker = error
+    if not error and report is not None:
+        effective_n = _to_float(report.get("effective_n"))
+        minimum = _to_float(report.get("minimum_effective_n"))
+        passed = (
+            effective_n is not None and minimum is not None and effective_n >= minimum
+        )
+        if not passed:
+            blocker = f"effective_n below threshold: {effective_n} < {minimum}"
+    return _content_record(
+        root_path,
+        section_id="MVP-E04",
+        requirement="effective_n >= threshold.",
+        evidence_paths=(relative,),
+        passed=passed,
+        blocker=blocker,
+    )
+
+
+def _overlap_correction_record(root_path: Path) -> MasterPlanCoverageRecord:
+    relative = "registry/experiments/central_bank_validation_experiment_v2.json"
+    experiment, error = _load_mapping_evidence(
+        root_path, relative, "validation experiment"
+    )
+    sampling = dict(experiment.get("sampling_design") or {}) if experiment else {}
+    policy = str(sampling.get("overlap_policy") or "")
+    passed = not error and policy in {
+        "block_bootstrap",
+        "stationary_bootstrap",
+        "newey_west",
+        "non_overlapping",
+    }
+    blocker = error or "overlap correction policy missing or unsupported"
+    return _content_record(
+        root_path,
+        section_id="MVP-E05",
+        requirement="Overlapping windows are corrected.",
+        evidence_paths=(
+            relative,
+            "registry/evaluation/overlap_correction/effective_n_overlap_policy.json",
+        ),
+        passed=passed,
+        blocker=blocker,
+    )
+
+
+def _multiple_testing_record(root_path: Path) -> MasterPlanCoverageRecord:
+    relative = "registry/experiments/central_bank_validation_experiment_v2.json"
+    experiment, error = _load_mapping_evidence(
+        root_path, relative, "validation experiment"
+    )
+    mtc = dict(experiment.get("multiple_testing_control") or {}) if experiment else {}
+    adjusted = _to_float(mtc.get("adjusted_q_value"))
+    max_fdr = _to_float(mtc.get("max_fdr"))
+    passed = (
+        not error
+        and mtc.get("method") == "benjamini_hochberg_fdr"
+        and adjusted is not None
+        and max_fdr is not None
+        and adjusted <= max_fdr
+    )
+    blocker = error or "Benjamini-Hochberg FDR correction missing or above threshold"
+    return _content_record(
+        root_path,
+        section_id="MVP-E06",
+        requirement="Multiple testing is corrected.",
+        evidence_paths=(
+            relative,
+            "registry/evaluation/experiment_family_registry/central_bank_liquidity_family.json",
+        ),
+        passed=passed,
+        blocker=blocker,
+    )
+
+
+def _after_cost_significance_record(root_path: Path) -> MasterPlanCoverageRecord:
+    relative = "registry/evaluation/statistical_significance/central_bank_after_cost_significance.json"
+    report, error = _load_mapping_evidence(
+        root_path, relative, "statistical significance report"
+    )
+    ci = dict(report.get("confidence_interval") or {}) if report else {}
+    mean_effect = _to_float(report.get("mean_effect")) if report else None
+    low = _to_float(ci.get("low"))
+    passed = (
+        not error
+        and report is not None
+        and report.get("accepted") is True
+        and mean_effect is not None
+        and mean_effect > 0
+        and low is not None
+        and low > 0
+    )
+    blocker = error or "after-cost metric is not positive with CI excluding zero"
+    return _content_record(
+        root_path,
+        section_id="MVP-E07",
+        requirement="After-cost metric is positive and confidence interval excludes zero.",
+        evidence_paths=(relative,),
+        passed=passed,
+        blocker=blocker,
+    )
+
+
+def _walk_forward_record(root_path: Path) -> MasterPlanCoverageRecord:
+    relative = "registry/patches/central_bank_paper_trading_patch.json"
+    patch, error = _load_mapping_evidence(root_path, relative, "paper-trading patch")
+    validation = dict(patch.get("validation_summary") or {}) if patch else {}
+    passed = not error and validation.get("walk_forward_passed") is True
+    blocker = error or "walk_forward_passed is not true"
+    return _content_record(
+        root_path,
+        section_id="MVP-E08",
+        requirement="Walk-forward validation passed.",
+        evidence_paths=(
+            "registry/experiments/central_bank_validation_experiment_v2.json",
+            relative,
+        ),
+        passed=passed,
+        blocker=blocker,
+    )
+
+
+def _lockbox_no_misuse_record(root_path: Path) -> MasterPlanCoverageRecord:
+    policy_relative = "registry/evaluation/lockbox/lockbox_policy.json"
+    review_relative = "registry/lockbox/central_bank_lockbox_review.json"
+    policy, policy_error = _load_mapping_evidence(
+        root_path, policy_relative, "lockbox policy"
+    )
+    review, review_error = _load_mapping_evidence(
+        root_path, review_relative, "lockbox review"
+    )
+    errors = [error for error in (policy_error, review_error) if error]
+    policy_open_count = _to_float(policy.get("lockbox_open_count")) if policy else None
+    review_open_count = _to_float(review.get("open_count")) if review else None
+    passed = (
+        not errors
+        and policy_open_count is not None
+        and review_open_count is not None
+        and policy_open_count <= 1
+        and review_open_count <= 1
+    )
+    blocker = "; ".join(errors) or "lockbox open_count exceeds one-time-use policy"
+    return _content_record(
+        root_path,
+        section_id="MVP-E09",
+        requirement="No lockbox misuse.",
+        evidence_paths=(policy_relative, review_relative),
+        passed=passed,
+        blocker=blocker,
+    )
+
+
 def build_master_plan_coverage_report(
     root: str | Path = ".",
 ) -> MasterPlanCoverageReport:
@@ -461,6 +1035,38 @@ def build_master_plan_coverage_report(
     passed_count = sum(record.status == "passed" for record in records)
     blocked_count = sum(record.status == "blocked" for record in records)
     missing_count = sum(record.status == "missing" for record in records)
+    mvp_deliverable_records = _mvp_deliverable_records(
+        root_path,
+        completion,
+        completion_error=completion_error,
+    )
+    mvp_deliverable_passed_count = sum(
+        record.status == "passed" for record in mvp_deliverable_records
+    )
+    mvp_deliverable_blocked_count = sum(
+        record.status == "blocked" for record in mvp_deliverable_records
+    )
+    mvp_deliverable_missing_count = sum(
+        record.status == "missing" for record in mvp_deliverable_records
+    )
+    mvp_deliverables_ready = (
+        mvp_deliverable_missing_count == 0 and mvp_deliverable_blocked_count == 0
+    )
+    mvp_exit_records = _mvp_exit_records(
+        root_path,
+        completion,
+        completion_error=completion_error,
+    )
+    mvp_exit_passed_count = sum(
+        record.status == "passed" for record in mvp_exit_records
+    )
+    mvp_exit_blocked_count = sum(
+        record.status == "blocked" for record in mvp_exit_records
+    )
+    mvp_exit_missing_count = sum(
+        record.status == "missing" for record in mvp_exit_records
+    )
+    mvp_exit_ready = mvp_exit_missing_count == 0 and mvp_exit_blocked_count == 0
     final_acceptance_records = _final_acceptance_records(
         root_path,
         completion,
@@ -479,15 +1085,36 @@ def build_master_plan_coverage_report(
     return MasterPlanCoverageReport(
         report_id="RKE-MASTER-PLAN-COVERAGE-REPORT-20260606",
         master_plan_path="docs/master_plan_v1_1.md",
+        mvp_deliverables_section=MVP_DELIVERABLES_SECTION,
+        mvp_exit_criteria_section=MVP_EXIT_CRITERIA_SECTION,
         final_acceptance_section=MASTER_PLAN_ACCEPTANCE_SECTION,
-        coverage_complete=missing_count == 0 and final_missing_count == 0,
+        coverage_complete=(
+            missing_count == 0
+            and mvp_deliverable_missing_count == 0
+            and mvp_exit_missing_count == 0
+            and final_missing_count == 0
+        ),
         ready_for_broad_rollout=(
-            missing_count == 0 and blocked_count == 0 and final_acceptance_ready
+            missing_count == 0
+            and blocked_count == 0
+            and mvp_deliverables_ready
+            and mvp_exit_ready
+            and final_acceptance_ready
         ),
         passed_count=passed_count,
         blocked_count=blocked_count,
         missing_count=missing_count,
         records=tuple(records),
+        mvp_deliverables_ready=mvp_deliverables_ready,
+        mvp_deliverables_passed_count=mvp_deliverable_passed_count,
+        mvp_deliverables_blocked_count=mvp_deliverable_blocked_count,
+        mvp_deliverables_missing_count=mvp_deliverable_missing_count,
+        mvp_deliverable_records=tuple(mvp_deliverable_records),
+        mvp_exit_ready=mvp_exit_ready,
+        mvp_exit_passed_count=mvp_exit_passed_count,
+        mvp_exit_blocked_count=mvp_exit_blocked_count,
+        mvp_exit_missing_count=mvp_exit_missing_count,
+        mvp_exit_records=tuple(mvp_exit_records),
         final_acceptance_ready=final_acceptance_ready,
         final_acceptance_passed_count=final_passed_count,
         final_acceptance_blocked_count=final_blocked_count,
