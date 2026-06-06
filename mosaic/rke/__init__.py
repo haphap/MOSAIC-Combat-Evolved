@@ -209,6 +209,7 @@ from .manual_review_bundle_manifest import (
     write_manual_review_bundle_manifest,
 )
 from .operator_handoff import (
+    OperatorCommandStep,
     OperatorGateHandoff,
     OperatorHandoff,
     build_lockbox_review_import_template,
@@ -579,6 +580,7 @@ __all__ = [
     "ManualReviewBundleManifest",
     "build_manual_review_bundle_manifest",
     "write_manual_review_bundle_manifest",
+    "OperatorCommandStep",
     "OperatorGateHandoff",
     "OperatorHandoff",
     "build_lockbox_review_import_template",

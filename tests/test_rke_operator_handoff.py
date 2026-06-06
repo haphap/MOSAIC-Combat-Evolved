@@ -26,14 +26,32 @@ def test_operator_handoff_summarizes_remaining_manual_gates():
     assert handoff.production_allowed is False
     assert handoff.direct_production_forbidden is True
     assert handoff.ready_for_operator_review is True
-    assert handoff.run_order == (
+    assert handoff.run_order == tuple(step.step_id for step in handoff.command_sequence)
+    assert handoff.run_order[:5] == (
+        "review-progress-preflight",
+        "prepare-gold-review",
+        "fill-gold-review",
+        "dry-run-gold-review",
+        "apply-gold-review",
+    )
+    assert handoff.run_order[-3:] == (
         "promotion-dry-run",
-        "gold_set",
-        "source_license",
-        "promotion-status",
-        "lockbox",
+        "apply-lockbox-review",
+        "promotion-status-final",
     )
     assert "promotion-dry-run" in handoff.promotion_dry_run_command
+    assert handoff.command_sequence[0].command == "mosaic-rke review-progress --root ."
+    assert any(
+        step.step_id == "fill-source-license-policy"
+        and step.manual_input_path == "registry/review_batches/source_license_policy_reviewed.json"
+        and not step.command
+        for step in handoff.command_sequence
+    )
+    assert any(
+        step.step_id == "promotion-status-before-lockbox"
+        and step.command == "mosaic-rke promotion-status --root ."
+        for step in handoff.command_sequence
+    )
     assert {gate.review_kind for gate in handoff.gates} == {
         "gold_set",
         "source_license",
@@ -166,6 +184,9 @@ def test_write_operator_handoff_outputs_json_markdown_and_lockbox_template(
     assert payload["ready_for_operator_review"] is True
     assert payload["production_allowed"] is False
     assert "promotion-dry-run" in payload["promotion_dry_run_command"]
+    assert payload["run_order"] == [step["step_id"] for step in payload["command_sequence"]]
+    assert payload["run_order"][0] == "review-progress-preflight"
+    assert payload["run_order"][-1] == "promotion-status-final"
     assert "gold_set_full_reviewed.jsonl" in payload["promotion_dry_run_command"]
     assert "source_license_policy_import.jsonl" in payload["promotion_dry_run_command"]
     assert "source_license_policy_reviewed.json" in payload["promotion_dry_run_command"]
@@ -209,6 +230,9 @@ def test_write_operator_handoff_outputs_json_markdown_and_lockbox_template(
     assert "source_license_policy_template.json" in markdown
     assert "source_license_review_workbook.md" in markdown
     assert "manual_review_runbook.md" in markdown
+    assert "## Command Sequence" in markdown
+    assert "fill-source-license-policy" in markdown
+    assert "promotion-status-before-lockbox" in markdown
     assert "source_license_policy_reviewed.json" in markdown
     assert "build-license-review-import" in markdown
     assert "prepare-license-policy-review" in markdown

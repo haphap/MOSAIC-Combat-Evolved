@@ -67,6 +67,16 @@ class OperatorGateHandoff:
 
 
 @dataclass(frozen=True)
+class OperatorCommandStep:
+    step_id: str
+    phase: str
+    action: str
+    command: str
+    manual_input_path: str
+    expected_result: str
+
+
+@dataclass(frozen=True)
 class OperatorHandoff:
     handoff_id: str
     production_allowed: bool
@@ -78,6 +88,7 @@ class OperatorHandoff:
     remaining_blockers: Sequence[str]
     gates: Sequence[OperatorGateHandoff]
     generated_paths: Sequence[str]
+    command_sequence: Sequence[OperatorCommandStep]
     run_order: Sequence[str]
     promotion_dry_run_command: str
 
@@ -136,6 +147,147 @@ def _criterion_by_id(criteria: Sequence[Any], criterion_id: str) -> Mapping[str,
         if row.get("criterion_id") == criterion_id:
             return row
     return {}
+
+
+def _operator_command_sequence(
+    gates: Sequence[OperatorGateHandoff],
+    *,
+    promotion_dry_run_command: str,
+) -> tuple[OperatorCommandStep, ...]:
+    gate_by_kind = {gate.review_kind: gate for gate in gates}
+    gold = gate_by_kind["gold_set"]
+    source_license = gate_by_kind["source_license"]
+    lockbox = gate_by_kind["lockbox"]
+    return (
+        OperatorCommandStep(
+            step_id="review-progress-preflight",
+            phase="preflight",
+            action="Inspect current manual-gate status.",
+            command="mosaic-rke review-progress --root .",
+            manual_input_path="",
+            expected_result="Shows current blockers without applying reviewer decisions.",
+        ),
+        OperatorCommandStep(
+            step_id="prepare-gold-review",
+            phase="gold_set",
+            action="Write the full gold-set import starter and workbook.",
+            command=gold.prepare_command,
+            manual_input_path="",
+            expected_result=f"Reviewer scratch target is {GOLD_FULL_REVIEWED_IMPORT_PATH}.",
+        ),
+        OperatorCommandStep(
+            step_id="fill-gold-review",
+            phase="gold_set",
+            action="Fill the gold-set reviewed scratch file.",
+            command="",
+            manual_input_path=GOLD_FULL_REVIEWED_IMPORT_PATH,
+            expected_result="All 500 claim rows have required manual fields and preserved provenance hashes.",
+        ),
+        OperatorCommandStep(
+            step_id="dry-run-gold-review",
+            phase="gold_set",
+            action="Validate the reviewed gold-set scratch file.",
+            command=gold.dry_run_command,
+            manual_input_path=GOLD_FULL_REVIEWED_IMPORT_PATH,
+            expected_result="Import is accepted and gold-set quality thresholds pass.",
+        ),
+        OperatorCommandStep(
+            step_id="apply-gold-review",
+            phase="gold_set",
+            action="Apply accepted gold-set review decisions.",
+            command=gold.apply_command,
+            manual_input_path=GOLD_FULL_REVIEWED_IMPORT_PATH,
+            expected_result="Gold-set summaries and downstream gates are recomputed.",
+        ),
+        OperatorCommandStep(
+            step_id="prepare-source-license-review",
+            phase="source_license",
+            action="Write the reviewed source-license policy starter and workbook.",
+            command=source_license.prepare_command,
+            manual_input_path="",
+            expected_result=f"Reviewed policy target is {SOURCE_LICENSE_REVIEWED_POLICY_PATH}.",
+        ),
+        OperatorCommandStep(
+            step_id="fill-source-license-policy",
+            phase="source_license",
+            action="Fill and sign the reviewed source-license policy.",
+            command="",
+            manual_input_path=SOURCE_LICENSE_REVIEWED_POLICY_PATH,
+            expected_result="Policy fields, matched-row fingerprint, and production approval scope are complete.",
+        ),
+        OperatorCommandStep(
+            step_id="dry-run-source-license-review",
+            phase="source_license",
+            action="Build and validate the source-license import rows.",
+            command=source_license.dry_run_command,
+            manual_input_path=SOURCE_LICENSE_REVIEWED_POLICY_PATH,
+            expected_result="Policy expands to all current source rows and dry-run import is accepted.",
+        ),
+        OperatorCommandStep(
+            step_id="apply-source-license-review",
+            phase="source_license",
+            action="Build and apply accepted source-license decisions.",
+            command=source_license.apply_command,
+            manual_input_path=SOURCE_LICENSE_REVIEWED_POLICY_PATH,
+            expected_result="Source-license summaries and production blockers are recomputed.",
+        ),
+        OperatorCommandStep(
+            step_id="promotion-status-before-lockbox",
+            phase="promotion",
+            action="Confirm only the final lockbox gate remains before opening it.",
+            command="mosaic-rke promotion-status --root .",
+            manual_input_path="",
+            expected_result="Gold-set and source-license criteria pass; lockbox remains not opened.",
+        ),
+        OperatorCommandStep(
+            step_id="prepare-lockbox-review",
+            phase="lockbox",
+            action="Write the one-time lockbox review starter.",
+            command=lockbox.prepare_command,
+            manual_input_path="",
+            expected_result=f"Reviewer scratch target is {LOCKBOX_REVIEWED_IMPORT_PATH}.",
+        ),
+        OperatorCommandStep(
+            step_id="fill-lockbox-review",
+            phase="lockbox",
+            action="Fill the one-time lockbox review scratch file.",
+            command="",
+            manual_input_path=LOCKBOX_REVIEWED_IMPORT_PATH,
+            expected_result="Lockbox result, open count, post-open flags, and hashes are complete.",
+        ),
+        OperatorCommandStep(
+            step_id="dry-run-lockbox-review",
+            phase="lockbox",
+            action="Validate the signed lockbox review.",
+            command=lockbox.dry_run_command,
+            manual_input_path=LOCKBOX_REVIEWED_IMPORT_PATH,
+            expected_result="Lockbox import is accepted and production decision is eligible.",
+        ),
+        OperatorCommandStep(
+            step_id="promotion-dry-run",
+            phase="promotion",
+            action="Simulate the complete reviewed bundle before final apply.",
+            command=promotion_dry_run_command,
+            manual_input_path="",
+            expected_result="Simulation accepts all three reviewed inputs without mutating the original registry.",
+        ),
+        OperatorCommandStep(
+            step_id="apply-lockbox-review",
+            phase="lockbox",
+            action="Apply the accepted one-time lockbox review.",
+            command=lockbox.apply_command,
+            manual_input_path=LOCKBOX_REVIEWED_IMPORT_PATH,
+            expected_result="Lockbox review is recorded and downstream promotion gates are recomputed.",
+        ),
+        OperatorCommandStep(
+            step_id="promotion-status-final",
+            phase="promotion",
+            action="Inspect final staged-promotion state.",
+            command="mosaic-rke promotion-status --root .",
+            manual_input_path="",
+            expected_result="Promotion status reflects the applied manual reviews and lockbox decision.",
+        ),
+    )
 
 
 def build_lockbox_review_import_template(root: str | Path = ".") -> Mapping[str, Any]:
@@ -360,6 +512,19 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
         OPERATOR_HANDOFF_JSON_PATH,
         OPERATOR_HANDOFF_MD_PATH,
     )
+    promotion_dry_run_command = (
+        "mosaic-rke build-license-review-import --root . "
+        f"--policy {SOURCE_LICENSE_REVIEWED_POLICY_PATH} "
+        f"--output {DEFAULT_LICENSE_POLICY_IMPORT_PATH} && "
+        "mosaic-rke promotion-dry-run --root . "
+        f"--gold-input {GOLD_FULL_REVIEWED_IMPORT_PATH} "
+        f"--license-input {DEFAULT_LICENSE_POLICY_IMPORT_PATH} "
+        f"--lockbox-input {LOCKBOX_REVIEWED_IMPORT_PATH}"
+    )
+    command_sequence = _operator_command_sequence(
+        gates,
+        promotion_dry_run_command=promotion_dry_run_command,
+    )
     return OperatorHandoff(
         handoff_id="RKE-OPERATOR-HANDOFF-20260606",
         production_allowed=promotion.production_allowed,
@@ -371,22 +536,9 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
         remaining_blockers=tuple(promotion.blockers),
         gates=gates,
         generated_paths=generated_paths,
-        run_order=(
-            "promotion-dry-run",
-            "gold_set",
-            "source_license",
-            "promotion-status",
-            "lockbox",
-        ),
-        promotion_dry_run_command=(
-            "mosaic-rke build-license-review-import --root . "
-            f"--policy {SOURCE_LICENSE_REVIEWED_POLICY_PATH} "
-            f"--output {DEFAULT_LICENSE_POLICY_IMPORT_PATH} && "
-            "mosaic-rke promotion-dry-run --root . "
-            f"--gold-input {GOLD_FULL_REVIEWED_IMPORT_PATH} "
-            f"--license-input {DEFAULT_LICENSE_POLICY_IMPORT_PATH} "
-            f"--lockbox-input {LOCKBOX_REVIEWED_IMPORT_PATH}"
-        ),
+        command_sequence=command_sequence,
+        run_order=tuple(step.step_id for step in command_sequence),
+        promotion_dry_run_command=promotion_dry_run_command,
     )
 
 
@@ -407,6 +559,21 @@ def render_operator_handoff_markdown(handoff: OperatorHandoff) -> str:
     ]
     lines.extend(f"- {item}" for item in handoff.run_order)
     lines.extend(["", f"Dry-run command: `{handoff.promotion_dry_run_command}`", ""])
+    lines.extend(["## Command Sequence", ""])
+    for step in handoff.command_sequence:
+        command = f"`{step.command}`" if step.command else "manual"
+        lines.extend(
+            [
+                f"### {step.step_id}",
+                "",
+                f"- Phase: {step.phase}",
+                f"- Action: {step.action}",
+                f"- Command: {command}",
+                f"- Manual input: {step.manual_input_path or 'none'}",
+                f"- Expected result: {step.expected_result}",
+                "",
+            ]
+        )
     lines.extend(["## Gates", ""])
     for gate in handoff.gates:
         lines.extend(

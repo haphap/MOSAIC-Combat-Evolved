@@ -1,4 +1,134 @@
 {
+  "command_sequence": [
+    {
+      "action": "Inspect current manual-gate status.",
+      "command": "mosaic-rke review-progress --root .",
+      "expected_result": "Shows current blockers without applying reviewer decisions.",
+      "manual_input_path": "",
+      "phase": "preflight",
+      "step_id": "review-progress-preflight"
+    },
+    {
+      "action": "Write the full gold-set import starter and workbook.",
+      "command": "mosaic-rke prepare-gold-review --root . --full",
+      "expected_result": "Reviewer scratch target is registry/review_batches/gold_set_full_reviewed.jsonl.",
+      "manual_input_path": "",
+      "phase": "gold_set",
+      "step_id": "prepare-gold-review"
+    },
+    {
+      "action": "Fill the gold-set reviewed scratch file.",
+      "command": "",
+      "expected_result": "All 500 claim rows have required manual fields and preserved provenance hashes.",
+      "manual_input_path": "registry/review_batches/gold_set_full_reviewed.jsonl",
+      "phase": "gold_set",
+      "step_id": "fill-gold-review"
+    },
+    {
+      "action": "Validate the reviewed gold-set scratch file.",
+      "command": "mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl --dry-run",
+      "expected_result": "Import is accepted and gold-set quality thresholds pass.",
+      "manual_input_path": "registry/review_batches/gold_set_full_reviewed.jsonl",
+      "phase": "gold_set",
+      "step_id": "dry-run-gold-review"
+    },
+    {
+      "action": "Apply accepted gold-set review decisions.",
+      "command": "mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl",
+      "expected_result": "Gold-set summaries and downstream gates are recomputed.",
+      "manual_input_path": "registry/review_batches/gold_set_full_reviewed.jsonl",
+      "phase": "gold_set",
+      "step_id": "apply-gold-review"
+    },
+    {
+      "action": "Write the reviewed source-license policy starter and workbook.",
+      "command": "mosaic-rke prepare-license-policy-review --root .",
+      "expected_result": "Reviewed policy target is registry/review_batches/source_license_policy_reviewed.json.",
+      "manual_input_path": "",
+      "phase": "source_license",
+      "step_id": "prepare-source-license-review"
+    },
+    {
+      "action": "Fill and sign the reviewed source-license policy.",
+      "command": "",
+      "expected_result": "Policy fields, matched-row fingerprint, and production approval scope are complete.",
+      "manual_input_path": "registry/review_batches/source_license_policy_reviewed.json",
+      "phase": "source_license",
+      "step_id": "fill-source-license-policy"
+    },
+    {
+      "action": "Build and validate the source-license import rows.",
+      "command": "mosaic-rke build-license-review-import --root . --policy registry/review_batches/source_license_policy_reviewed.json --output registry/review_batches/source_license_policy_import.jsonl && mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_policy_import.jsonl --dry-run",
+      "expected_result": "Policy expands to all current source rows and dry-run import is accepted.",
+      "manual_input_path": "registry/review_batches/source_license_policy_reviewed.json",
+      "phase": "source_license",
+      "step_id": "dry-run-source-license-review"
+    },
+    {
+      "action": "Build and apply accepted source-license decisions.",
+      "command": "mosaic-rke build-license-review-import --root . --policy registry/review_batches/source_license_policy_reviewed.json --output registry/review_batches/source_license_policy_import.jsonl && mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_policy_import.jsonl",
+      "expected_result": "Source-license summaries and production blockers are recomputed.",
+      "manual_input_path": "registry/review_batches/source_license_policy_reviewed.json",
+      "phase": "source_license",
+      "step_id": "apply-source-license-review"
+    },
+    {
+      "action": "Confirm only the final lockbox gate remains before opening it.",
+      "command": "mosaic-rke promotion-status --root .",
+      "expected_result": "Gold-set and source-license criteria pass; lockbox remains not opened.",
+      "manual_input_path": "",
+      "phase": "promotion",
+      "step_id": "promotion-status-before-lockbox"
+    },
+    {
+      "action": "Write the one-time lockbox review starter.",
+      "command": "mosaic-rke prepare-lockbox-review --root .",
+      "expected_result": "Reviewer scratch target is registry/review_batches/lockbox_reviewed.json.",
+      "manual_input_path": "",
+      "phase": "lockbox",
+      "step_id": "prepare-lockbox-review"
+    },
+    {
+      "action": "Fill the one-time lockbox review scratch file.",
+      "command": "",
+      "expected_result": "Lockbox result, open count, post-open flags, and hashes are complete.",
+      "manual_input_path": "registry/review_batches/lockbox_reviewed.json",
+      "phase": "lockbox",
+      "step_id": "fill-lockbox-review"
+    },
+    {
+      "action": "Validate the signed lockbox review.",
+      "command": "mosaic-rke apply-lockbox-review --root . --input registry/review_batches/lockbox_reviewed.json --dry-run",
+      "expected_result": "Lockbox import is accepted and production decision is eligible.",
+      "manual_input_path": "registry/review_batches/lockbox_reviewed.json",
+      "phase": "lockbox",
+      "step_id": "dry-run-lockbox-review"
+    },
+    {
+      "action": "Simulate the complete reviewed bundle before final apply.",
+      "command": "mosaic-rke build-license-review-import --root . --policy registry/review_batches/source_license_policy_reviewed.json --output registry/review_batches/source_license_policy_import.jsonl && mosaic-rke promotion-dry-run --root . --gold-input registry/review_batches/gold_set_full_reviewed.jsonl --license-input registry/review_batches/source_license_policy_import.jsonl --lockbox-input registry/review_batches/lockbox_reviewed.json",
+      "expected_result": "Simulation accepts all three reviewed inputs without mutating the original registry.",
+      "manual_input_path": "",
+      "phase": "promotion",
+      "step_id": "promotion-dry-run"
+    },
+    {
+      "action": "Apply the accepted one-time lockbox review.",
+      "command": "mosaic-rke apply-lockbox-review --root . --input registry/review_batches/lockbox_reviewed.json",
+      "expected_result": "Lockbox review is recorded and downstream promotion gates are recomputed.",
+      "manual_input_path": "registry/review_batches/lockbox_reviewed.json",
+      "phase": "lockbox",
+      "step_id": "apply-lockbox-review"
+    },
+    {
+      "action": "Inspect final staged-promotion state.",
+      "command": "mosaic-rke promotion-status --root .",
+      "expected_result": "Promotion status reflects the applied manual reviews and lockbox decision.",
+      "manual_input_path": "",
+      "phase": "promotion",
+      "step_id": "promotion-status-final"
+    }
+  ],
   "direct_production_forbidden": true,
   "gates": [
     {
@@ -116,11 +246,22 @@
     "lockbox has not been opened"
   ],
   "run_order": [
+    "review-progress-preflight",
+    "prepare-gold-review",
+    "fill-gold-review",
+    "dry-run-gold-review",
+    "apply-gold-review",
+    "prepare-source-license-review",
+    "fill-source-license-policy",
+    "dry-run-source-license-review",
+    "apply-source-license-review",
+    "promotion-status-before-lockbox",
+    "prepare-lockbox-review",
+    "fill-lockbox-review",
+    "dry-run-lockbox-review",
     "promotion-dry-run",
-    "gold_set",
-    "source_license",
-    "promotion-status",
-    "lockbox"
+    "apply-lockbox-review",
+    "promotion-status-final"
   ],
   "staged_production_allowed": false
 }

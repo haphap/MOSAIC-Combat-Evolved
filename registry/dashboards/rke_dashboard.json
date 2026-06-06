@@ -133,11 +133,22 @@
     "ready_for_operator_review": true,
     "remaining_blocker_count": 5,
     "run_order": [
+      "review-progress-preflight",
+      "prepare-gold-review",
+      "fill-gold-review",
+      "dry-run-gold-review",
+      "apply-gold-review",
+      "prepare-source-license-review",
+      "fill-source-license-policy",
+      "dry-run-source-license-review",
+      "apply-source-license-review",
+      "promotion-status-before-lockbox",
+      "prepare-lockbox-review",
+      "fill-lockbox-review",
+      "dry-run-lockbox-review",
       "promotion-dry-run",
-      "gold_set",
-      "source_license",
-      "promotion-status",
-      "lockbox"
+      "apply-lockbox-review",
+      "promotion-status-final"
     ]
   },
   "operator_readiness": {
