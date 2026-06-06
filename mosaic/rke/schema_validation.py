@@ -8,9 +8,6 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from .phase_minus1 import load_jsonl
-
-
 @dataclass(frozen=True)
 class SchemaValidationRecord:
     schema_path: str
@@ -75,8 +72,45 @@ RULE_PACK_TARGETS = (
 )
 
 
-def _read_json(path: Path) -> dict[str, Any]:
+def _read_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _read_mapping_json(path: Path, label: str) -> tuple[Mapping[str, Any] | None, tuple[str, ...]]:
+    if not path.exists():
+        return None, (f"{label} missing",)
+    try:
+        payload = _read_json(path)
+    except json.JSONDecodeError as exc:
+        return None, (f"{label} must contain valid JSON: {exc.msg}",)
+    if not isinstance(payload, Mapping):
+        return None, (f"{label} must be object",)
+    return payload, ()
+
+
+def _read_json_value(path: Path, label: str) -> tuple[Any | None, tuple[str, ...]]:
+    if not path.exists():
+        return None, (f"{label} missing",)
+    try:
+        return _read_json(path), ()
+    except json.JSONDecodeError as exc:
+        return None, (f"{label} must contain valid JSON: {exc.msg}",)
+
+
+def _load_jsonl_values(path: Path, label: str) -> tuple[list[Any], tuple[str, ...]]:
+    if not path.exists():
+        return [], (f"{label} missing",)
+    rows: list[Any] = []
+    with path.open("r", encoding="utf-8") as handle:
+        for index, line in enumerate(handle, 1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rows.append(json.loads(line))
+            except json.JSONDecodeError as exc:
+                return rows, (f"{label} row {index} must contain valid JSON: {exc.msg}",)
+    return rows, ()
 
 
 def _schema_file(root_path: Path, schema_path: str) -> Path:
@@ -157,18 +191,21 @@ def validate_json_schema_artifact(
     artifact_kind: str,
 ) -> SchemaValidationRecord:
     root_path = Path(root)
-    schema = _read_json(_schema_file(root_path, schema_path))
-    failures: list[str] = []
+    schema, schema_failures = _read_mapping_json(_schema_file(root_path, schema_path), schema_path)
+    failures: list[str] = list(schema_failures)
     if artifact_kind == "jsonl":
-        items = load_jsonl(root_path / artifact_path)
+        items, item_failures = _load_jsonl_values(root_path / artifact_path, artifact_path)
     elif artifact_kind == "json":
-        items = [_read_json(root_path / artifact_path)]
+        item, item_failures = _read_json_value(root_path / artifact_path, artifact_path)
+        items = [] if item is None else [item]
     else:
         raise ValueError(f"unsupported artifact_kind: {artifact_kind}")
+    failures.extend(item_failures)
     if not items:
         failures.append("artifact has no validation items")
-    for idx, item in enumerate(items):
-        failures.extend(_validate_value(item, schema, f"$[{idx}]"))
+    if schema is not None:
+        for idx, item in enumerate(items):
+            failures.extend(_validate_value(item, schema, f"$[{idx}]"))
     return SchemaValidationRecord(
         schema_path=schema_path,
         artifact_path=artifact_path,
@@ -202,8 +239,16 @@ def validate_rule_pack_schema_artifact(root: str | Path, artifact_path: str) -> 
     schema_text = _schema_file(root_path, "schemas/rule_pack.schema.yaml").read_text(encoding="utf-8")
     required = _extract_yaml_list(schema_text, "required")
     rules_required = _extract_yaml_list(schema_text, "rules_required")
-    rule_pack = _read_json(root_path / artifact_path)
-    failures: list[str] = []
+    rule_pack, artifact_failures = _read_json_value(root_path / artifact_path, artifact_path)
+    failures: list[str] = list(artifact_failures)
+    if artifact_failures:
+        return SchemaValidationRecord(
+            schema_path="schemas/rule_pack.schema.yaml",
+            artifact_path=artifact_path,
+            item_count=0,
+            accepted=False,
+            failures=tuple(failures),
+        )
     if not isinstance(rule_pack, Mapping):
         return SchemaValidationRecord(
             schema_path="schemas/rule_pack.schema.yaml",

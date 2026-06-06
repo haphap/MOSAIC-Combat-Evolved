@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 from mosaic.rke import (
@@ -116,6 +117,81 @@ def test_schema_validation_rejects_missing_required_field(tmp_path: Path):
     assert any("source_hash" in failure for failure in record.failures)
 
 
+def test_schema_validation_reports_malformed_json_schema(tmp_path: Path):
+    schema_dir = tmp_path / "schemas"
+    artifact_dir = tmp_path / "registry/sources"
+    schema_dir.mkdir(parents=True)
+    artifact_dir.mkdir(parents=True)
+    (schema_dir / "source_metadata.schema.json").write_text("{", encoding="utf-8")
+    (artifact_dir / "central_bank_sources.jsonl").write_text(
+        json.dumps({"source_id": "SRC-X"}, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = validate_json_schema_artifact(
+        root=tmp_path,
+        schema_path="schemas/source_metadata.schema.json",
+        artifact_path="registry/sources/central_bank_sources.jsonl",
+        artifact_kind="jsonl",
+    )
+
+    assert not record.accepted
+    assert record.item_count == 1
+    assert any("source_metadata.schema.json must contain valid JSON" in failure for failure in record.failures)
+
+
+def test_schema_validation_reports_malformed_jsonl_artifact(tmp_path: Path):
+    schema_dir = tmp_path / "schemas"
+    artifact_dir = tmp_path / "registry/sources"
+    schema_dir.mkdir(parents=True)
+    artifact_dir.mkdir(parents=True)
+    (schema_dir / "source_metadata.schema.json").write_text(
+        Path("schemas/source_metadata.schema.json").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    (artifact_dir / "central_bank_sources.jsonl").write_text("{\n", encoding="utf-8")
+
+    record = validate_json_schema_artifact(
+        root=tmp_path,
+        schema_path="schemas/source_metadata.schema.json",
+        artifact_path="registry/sources/central_bank_sources.jsonl",
+        artifact_kind="jsonl",
+    )
+
+    assert not record.accepted
+    assert record.item_count == 0
+    assert any(
+        "registry/sources/central_bank_sources.jsonl row 1 must contain valid JSON" in failure
+        for failure in record.failures
+    )
+
+
+def test_schema_validation_reports_malformed_json_artifact(tmp_path: Path):
+    schema_dir = tmp_path / "schemas"
+    artifact_dir = tmp_path / "registry/data_availability"
+    schema_dir.mkdir(parents=True)
+    artifact_dir.mkdir(parents=True)
+    (schema_dir / "data_availability_matrix.schema.json").write_text(
+        Path("schemas/data_availability_matrix.schema.json").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    (artifact_dir / "central_bank_data_availability.json").write_text("{", encoding="utf-8")
+
+    record = validate_json_schema_artifact(
+        root=tmp_path,
+        schema_path="schemas/data_availability_matrix.schema.json",
+        artifact_path="registry/data_availability/central_bank_data_availability.json",
+        artifact_kind="json",
+    )
+
+    assert not record.accepted
+    assert record.item_count == 0
+    assert (
+        "registry/data_availability/central_bank_data_availability.json must contain valid JSON"
+        in record.failures[0]
+    )
+
+
 def test_rule_pack_schema_validation_rejects_non_object_artifact(tmp_path: Path):
     schema_dir = tmp_path / "schemas"
     rule_dir = tmp_path / "registry/rule_packs"
@@ -132,6 +208,25 @@ def test_rule_pack_schema_validation_rejects_non_object_artifact(tmp_path: Path)
 
     assert not record.accepted
     assert record.failures == ("$: expected object",)
+
+
+def test_rule_pack_schema_validation_reports_malformed_json_artifact(tmp_path: Path):
+    schema_dir = tmp_path / "schemas"
+    rule_dir = tmp_path / "registry/rule_packs"
+    schema_dir.mkdir(parents=True)
+    rule_dir.mkdir(parents=True)
+    (schema_dir / "rule_pack.schema.yaml").write_text(
+        Path("schemas/rule_pack.schema.yaml").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    artifact_path = "registry/rule_packs/bad_rule_pack.json"
+    (tmp_path / artifact_path).write_text("{", encoding="utf-8")
+
+    record = validate_rule_pack_schema_artifact(tmp_path, artifact_path)
+
+    assert not record.accepted
+    assert record.item_count == 0
+    assert "registry/rule_packs/bad_rule_pack.json must contain valid JSON" in record.failures[0]
 
 
 def test_rule_pack_schema_validation_rejects_non_object_rule(tmp_path: Path):
@@ -171,3 +266,22 @@ def test_schema_status_cli_writes_report(capsys):
     assert output["accepted"] is True
     assert output["failure_count"] == 0
     assert Path("registry/schemas/rke_schema_validation_report.json").exists()
+
+
+def test_schema_status_cli_reports_malformed_artifact(tmp_path: Path, capsys):
+    schema_dir = tmp_path / "schemas"
+    registry_dir = tmp_path / "registry"
+    schema_dir.mkdir()
+    for path in Path("schemas").iterdir():
+        if path.is_file():
+            (schema_dir / path.name).write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
+
+    shutil.copytree(Path("registry"), registry_dir, dirs_exist_ok=True)
+    (tmp_path / "registry/sources/central_bank_sources.jsonl").write_text("{\n", encoding="utf-8")
+
+    code = main(("schema-status", "--root", str(tmp_path)))
+    output = json.loads(capsys.readouterr().out)
+
+    assert code == 2
+    assert output["accepted"] is False
+    assert output["failure_count"] >= 1
