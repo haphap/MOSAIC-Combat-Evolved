@@ -875,6 +875,197 @@ def _paper_trading_gate(
     )
 
 
+_EXPECTED_MONITOR_SCENARIOS: dict[str, tuple[str, str, tuple[str, ...]]] = {
+    "healthy_production": ("production", "none", ()),
+    "insufficient_live_events": (
+        "insufficient_data",
+        "keep_monitoring",
+        ("not enough live effective events",),
+    ),
+    "alpha_decay": (
+        "monitored_decay",
+        "reduce_weight_and_revalidate",
+        ("alpha effect decayed below threshold",),
+    ),
+    "calibration_drift": (
+        "monitored_decay",
+        "reduce_weight_and_revalidate",
+        ("confidence calibration drift exceeds threshold",),
+    ),
+    "turnover_spike": (
+        "monitored_decay",
+        "reduce_weight_and_revalidate",
+        ("turnover increased beyond threshold",),
+    ),
+    "negative_alpha_with_calibration_drift": (
+        "rollback_required",
+        "rollback",
+        (
+            "confidence calibration drift exceeds threshold",
+            "live net alpha after cost is negative",
+        ),
+    ),
+}
+
+_EXPECTED_ROLLBACK_CHECKS: dict[str, tuple[str, str]] = {
+    "soft_rollback_alpha_decay": ("soft", "reduce_weight_and_revalidate"),
+    "hard_rollback_negative_alpha": ("hard", "rollback"),
+    "patch_has_slow_decay_rollback_rule": ("patch", "apply patch rollback rule"),
+    "compliance_rollback_blocks_runtime_retrieval": (
+        "compliance",
+        "block production runtime retrieval",
+    ),
+    "promotion_gate_respects_rollback_blocks": (
+        "promotion",
+        "keep rule in paper_trading",
+    ),
+}
+
+
+def _monitor_diagnostics_gate(
+    monitor_diagnostics: Mapping[str, Any] | None,
+    rollback_readiness: Mapping[str, Any] | None,
+    *,
+    monitor_diagnostics_error: str = "",
+    rollback_readiness_error: str = "",
+) -> tuple[bool, str, str]:
+    failures: list[str] = []
+    if monitor_diagnostics_error:
+        failures.append(monitor_diagnostics_error)
+    if rollback_readiness_error:
+        failures.append(rollback_readiness_error)
+    if monitor_diagnostics is None:
+        failures.append("production monitor diagnostics missing")
+    if rollback_readiness is None:
+        failures.append("rollback readiness report missing")
+    if failures:
+        return False, "production monitor diagnostics missing", "; ".join(failures)
+
+    if monitor_diagnostics.get("accepted") is not True:
+        failures.append("production monitor diagnostics accepted must be true")
+    if monitor_diagnostics.get("scenario_count") != len(_EXPECTED_MONITOR_SCENARIOS):
+        failures.append("production monitor diagnostics scenario_count mismatch")
+    if monitor_diagnostics.get("passed_count") != len(_EXPECTED_MONITOR_SCENARIOS):
+        failures.append("production monitor diagnostics passed_count mismatch")
+    if monitor_diagnostics.get("failure_count") != 0:
+        failures.append("production monitor diagnostics failure_count must be zero")
+
+    scenario_rows, scenario_errors = _sequence_mapping_rows(
+        monitor_diagnostics,
+        "scenarios",
+        "production monitor diagnostics scenarios",
+    )
+    failures.extend(scenario_errors)
+    scenarios_by_id = {
+        str(row.get("scenario_id") or ""): row
+        for row in scenario_rows
+        if str(row.get("scenario_id") or "").strip()
+    }
+    missing_scenarios = set(_EXPECTED_MONITOR_SCENARIOS) - set(scenarios_by_id)
+    extra_scenarios = set(scenarios_by_id) - set(_EXPECTED_MONITOR_SCENARIOS)
+    if missing_scenarios:
+        failures.append(
+            f"production monitor diagnostics missing scenarios: {sorted(missing_scenarios)}"
+        )
+    if extra_scenarios:
+        failures.append(
+            f"production monitor diagnostics unexpected scenarios: {sorted(extra_scenarios)}"
+        )
+    for scenario_id, (
+        expected_state,
+        expected_action,
+        required_reasons,
+    ) in _EXPECTED_MONITOR_SCENARIOS.items():
+        scenario = scenarios_by_id.get(scenario_id)
+        if not scenario:
+            continue
+        result, result_error = _mapping_field(
+            scenario,
+            "result",
+            f"production monitor diagnostics {scenario_id}.result",
+        )
+        if result_error:
+            failures.append(result_error)
+        if scenario.get("expected_state") != expected_state:
+            failures.append(f"{scenario_id}.expected_state must be {expected_state}")
+        if scenario.get("expected_action") != expected_action:
+            failures.append(f"{scenario_id}.expected_action must be {expected_action}")
+        if scenario.get("passed") is not True:
+            failures.append(f"{scenario_id}.passed must be true")
+        if scenario.get("failure"):
+            failures.append(f"{scenario_id}.failure must be empty")
+        if result.get("state") != expected_state:
+            failures.append(f"{scenario_id}.result.state must be {expected_state}")
+        if result.get("action") != expected_action:
+            failures.append(f"{scenario_id}.result.action must be {expected_action}")
+        reasons = " ".join(str(item) for item in result.get("reasons") or ())
+        for reason in required_reasons:
+            if reason not in reasons:
+                failures.append(f"{scenario_id}.result.reasons missing '{reason}'")
+        metrics, metrics_error = _mapping_field(
+            result,
+            "metrics",
+            f"production monitor diagnostics {scenario_id}.result.metrics",
+        )
+        if metrics_error:
+            failures.append(metrics_error)
+        if not metrics:
+            failures.append(f"{scenario_id}.result.metrics required")
+
+    if rollback_readiness.get("accepted") is not True:
+        failures.append("rollback readiness accepted must be true")
+    if rollback_readiness.get("check_count") != len(_EXPECTED_ROLLBACK_CHECKS):
+        failures.append("rollback readiness check_count mismatch")
+    if rollback_readiness.get("passed_count") != len(_EXPECTED_ROLLBACK_CHECKS):
+        failures.append("rollback readiness passed_count mismatch")
+    if rollback_readiness.get("failure_count") != 0:
+        failures.append("rollback readiness failure_count must be zero")
+    check_rows, check_errors = _sequence_mapping_rows(
+        rollback_readiness,
+        "checks",
+        "rollback readiness checks",
+    )
+    failures.extend(check_errors)
+    checks_by_id = {
+        str(row.get("check_id") or ""): row
+        for row in check_rows
+        if str(row.get("check_id") or "").strip()
+    }
+    missing_checks = set(_EXPECTED_ROLLBACK_CHECKS) - set(checks_by_id)
+    extra_checks = set(checks_by_id) - set(_EXPECTED_ROLLBACK_CHECKS)
+    if missing_checks:
+        failures.append(f"rollback readiness missing checks: {sorted(missing_checks)}")
+    if extra_checks:
+        failures.append(f"rollback readiness unexpected checks: {sorted(extra_checks)}")
+    for check_id, (rollback_type, action) in _EXPECTED_ROLLBACK_CHECKS.items():
+        check = checks_by_id.get(check_id)
+        if not check:
+            continue
+        if check.get("passed") is not True:
+            failures.append(f"{check_id}.passed must be true")
+        if check.get("rollback_type") != rollback_type:
+            failures.append(f"{check_id}.rollback_type must be {rollback_type}")
+        if check.get("action") != action:
+            failures.append(f"{check_id}.action must be {action}")
+        if check.get("blocker"):
+            failures.append(f"{check_id}.blocker must be empty")
+        if not str(check.get("trigger") or "").strip():
+            failures.append(f"{check_id}.trigger required")
+        if not str(check.get("evidence_path") or "").strip():
+            failures.append(f"{check_id}.evidence_path required")
+
+    if failures:
+        return False, "production monitor diagnostics checked", "; ".join(failures)
+    return (
+        True,
+        (
+            f"{len(_EXPECTED_MONITOR_SCENARIOS)} diagnostic scenarios + "
+            f"{len(_EXPECTED_ROLLBACK_CHECKS)} rollback readiness checks accepted"
+        ),
+        "",
+    )
+
+
 def _research_only_no_trade_gate(
     prompt_ir: Mapping[str, Any] | None,
     sector_runtime: Mapping[str, Any] | None,
@@ -1531,6 +1722,10 @@ def audit_master_plan_completion(root: str | Path = ".") -> CompletionAudit:
         root_path / "registry/monitoring/central_bank_monitoring_diagnostics.json",
         "production monitor diagnostics",
     )
+    rollback_readiness, rollback_readiness_error = _optional_mapping(
+        root_path / "registry/monitoring/central_bank_rollback_readiness_report.json",
+        "rollback readiness report",
+    )
     data_matrix, data_matrix_error = _optional_mapping(
         root_path / "registry/data_availability/central_bank_data_availability.json",
         "data availability matrix",
@@ -1609,34 +1804,17 @@ def audit_master_plan_completion(root: str | Path = ".") -> CompletionAudit:
         paper_report,
         paper_report_error=paper_report_error,
     )
+    (
+        monitor_diagnostics_passed,
+        monitor_diagnostics_evidence,
+        monitor_diagnostics_blocker,
+    ) = _monitor_diagnostics_gate(
+        monitor_diagnostics,
+        rollback_readiness,
+        monitor_diagnostics_error=monitor_diagnostics_error,
+        rollback_readiness_error=rollback_readiness_error,
+    )
 
-    production_monitor, production_monitor_error = _mapping_field(
-        paper_report,
-        "production_monitor",
-        "production_monitor",
-    )
-    monitor_diagnostics_passed = (
-        not paper_report_error
-        and not production_monitor_error
-        and bool(production_monitor)
-        and not monitor_diagnostics_error
-        and bool(monitor_diagnostics)
-        and monitor_diagnostics.get("accepted") is True
-    )
-    if paper_report_error:
-        monitor_diagnostics_blocker = paper_report_error
-    elif production_monitor_error:
-        monitor_diagnostics_blocker = production_monitor_error
-    elif not paper_report:
-        monitor_diagnostics_blocker = "production monitor report missing"
-    elif monitor_diagnostics_error:
-        monitor_diagnostics_blocker = monitor_diagnostics_error
-    elif not monitor_diagnostics:
-        monitor_diagnostics_blocker = "production monitor diagnostics missing"
-    elif monitor_diagnostics.get("accepted") is not True:
-        monitor_diagnostics_blocker = "production monitor diagnostics failed"
-    else:
-        monitor_diagnostics_blocker = ""
     completion = CompletionAudit(
         criteria=(
             CompletionCriterion(
@@ -1706,10 +1884,7 @@ def audit_master_plan_completion(root: str | Path = ".") -> CompletionAudit:
                 "C10",
                 "Production monitor can detect alpha decay and calibration drift.",
                 monitor_diagnostics_passed,
-                (
-                    "production monitor report + "
-                    f"{(monitor_diagnostics or {}).get('scenario_count', 0)} diagnostic scenarios"
-                ),
+                monitor_diagnostics_evidence,
                 monitor_diagnostics_blocker,
             ),
             CompletionCriterion(

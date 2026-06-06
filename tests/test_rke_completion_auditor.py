@@ -30,7 +30,9 @@ def test_completion_auditor_recomputes_current_registry_gates():
     assert by_id["C09"].passed
     assert "paper summary recomputed" in by_id["C09"].evidence
     assert by_id["C10"].passed
-    assert "6 diagnostic scenarios" in by_id["C10"].evidence
+    assert (
+        "6 diagnostic scenarios + 5 rollback readiness checks" in by_id["C10"].evidence
+    )
     assert by_id["C12"].passed
     assert not by_id["C02"].passed
     assert not by_id["C11"].passed
@@ -219,10 +221,9 @@ def test_completion_auditor_rejects_malformed_paper_report(tmp_path: Path):
 
     assert not by_id["C01"].passed
     assert not by_id["C09"].passed
-    assert not by_id["C10"].passed
+    assert by_id["C10"].passed
     assert "paper trading report must be object" in by_id["C01"].blocker
     assert "paper trading report must be object" in by_id["C09"].blocker
-    assert "paper trading report must be object" in by_id["C10"].blocker
 
 
 def test_completion_auditor_rejects_invalid_json_paper_report(tmp_path: Path):
@@ -235,10 +236,9 @@ def test_completion_auditor_rejects_invalid_json_paper_report(tmp_path: Path):
 
     assert not by_id["C01"].passed
     assert not by_id["C09"].passed
-    assert not by_id["C10"].passed
+    assert by_id["C10"].passed
     assert "paper trading report must contain valid JSON" in by_id["C01"].blocker
     assert "paper trading report must contain valid JSON" in by_id["C09"].blocker
-    assert "paper trading report must contain valid JSON" in by_id["C10"].blocker
 
 
 def test_completion_auditor_recomputes_paper_summary_from_snapshots(tmp_path: Path):
@@ -314,6 +314,91 @@ def test_completion_auditor_rejects_false_paper_ready_flag(tmp_path: Path):
     assert not by_id["C01"].passed
     assert by_id["C09"].passed
     assert "paper_trading_summary.ready must be true" in by_id["C01"].blocker
+
+
+def test_completion_auditor_requires_monitor_diagnostic_scenarios(tmp_path: Path):
+    shutil.copytree(Path("registry"), tmp_path / "registry")
+    diagnostics_path = (
+        tmp_path / "registry/monitoring/central_bank_monitoring_diagnostics.json"
+    )
+    diagnostics = json.loads(diagnostics_path.read_text(encoding="utf-8"))
+    for scenario in diagnostics["scenarios"]:
+        if scenario["scenario_id"] == "calibration_drift":
+            scenario["result"]["state"] = "production"
+            scenario["result"]["action"] = "none"
+            scenario["result"]["reasons"] = []
+            break
+    diagnostics_path.write_text(
+        json.dumps(diagnostics, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    audit = audit_master_plan_completion(tmp_path)
+    by_id = {criterion.criterion_id: criterion for criterion in audit.criteria}
+
+    assert not by_id["C10"].passed
+    assert (
+        "calibration_drift.result.state must be monitored_decay" in by_id["C10"].blocker
+    )
+    assert "calibration_drift.result.reasons missing" in by_id["C10"].blocker
+
+
+def test_completion_auditor_requires_all_monitor_diagnostic_scenarios(tmp_path: Path):
+    shutil.copytree(Path("registry"), tmp_path / "registry")
+    diagnostics_path = (
+        tmp_path / "registry/monitoring/central_bank_monitoring_diagnostics.json"
+    )
+    diagnostics = json.loads(diagnostics_path.read_text(encoding="utf-8"))
+    diagnostics["scenarios"] = [
+        scenario
+        for scenario in diagnostics["scenarios"]
+        if scenario["scenario_id"] != "alpha_decay"
+    ]
+    diagnostics["scenario_count"] = len(diagnostics["scenarios"])
+    diagnostics["passed_count"] = len(diagnostics["scenarios"])
+    diagnostics_path.write_text(
+        json.dumps(diagnostics, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    audit = audit_master_plan_completion(tmp_path)
+    by_id = {criterion.criterion_id: criterion for criterion in audit.criteria}
+
+    assert not by_id["C10"].passed
+    assert (
+        "production monitor diagnostics scenario_count mismatch" in by_id["C10"].blocker
+    )
+    assert "alpha_decay" in by_id["C10"].blocker
+
+
+def test_completion_auditor_requires_rollback_readiness_checks(tmp_path: Path):
+    shutil.copytree(Path("registry"), tmp_path / "registry")
+    rollback_path = (
+        tmp_path / "registry/monitoring/central_bank_rollback_readiness_report.json"
+    )
+    rollback = json.loads(rollback_path.read_text(encoding="utf-8"))
+    for check in rollback["checks"]:
+        if check["check_id"] == "hard_rollback_negative_alpha":
+            check["passed"] = False
+            check["action"] = "none"
+            check["blocker"] = "unit-test blocker"
+            break
+    rollback["accepted"] = False
+    rollback["failure_count"] = 1
+    rollback_path.write_text(
+        json.dumps(rollback, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    audit = audit_master_plan_completion(tmp_path)
+    by_id = {criterion.criterion_id: criterion for criterion in audit.criteria}
+
+    assert not by_id["C10"].passed
+    assert "rollback readiness accepted must be true" in by_id["C10"].blocker
+    assert "hard_rollback_negative_alpha.passed must be true" in by_id["C10"].blocker
+    assert (
+        "hard_rollback_negative_alpha.action must be rollback" in by_id["C10"].blocker
+    )
 
 
 def test_completion_auditor_rejects_malformed_runtime_output(tmp_path: Path):
