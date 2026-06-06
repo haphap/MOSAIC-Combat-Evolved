@@ -187,6 +187,11 @@ def test_manual_review_bundle_manifest_hashes_review_artifacts(tmp_path: Path):
     assert payload["artifact_count"] >= 16
     assert payload["blockers"] == []
     assert "registry/review_batches/manual_review_bundle_manifest.json" not in artifacts
+    assert payload["promotion_dry_run"]["accepted"] is False
+    assert payload["promotion_dry_run"]["production_allowed_after_simulation"] is False
+    assert set(payload["promotion_dry_run"]["provided_steps"]) == {"gold_set", "source_license", "lockbox"}
+    assert set(payload["promotion_dry_run"]["rejected_steps"]) == {"gold_set", "source_license", "lockbox"}
+    assert payload["promotion_dry_run"]["missing_steps"] == []
     assert artifacts["registry/review_batches/gold_set_full_import_template.jsonl"]["row_count"] == 500
     assert artifacts["registry/review_batches/source_license_next_import_template.jsonl"]["row_count"] == 50
     assert artifacts["registry/promotion/rke_promotion_dry_run_report.json"]["format"] == "json"

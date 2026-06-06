@@ -517,16 +517,24 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
         if artifact.get("exists") is True
     }
     expected_bundle_paths = {path for _, path, _ in MANUAL_REVIEW_BUNDLE_ARTIFACTS}
+    bundle_dry_run = (
+        bundle_manifest.get("promotion_dry_run")
+        if isinstance(bundle_manifest.get("promotion_dry_run"), Mapping)
+        else {}
+    )
     checks.append(
         _check(
             "manual_review_bundle_manifest_current",
             bundle_result["accepted"] is True
             and int(bundle_manifest.get("artifact_count") or 0) == len(MANUAL_REVIEW_BUNDLE_ARTIFACTS)
             and expected_bundle_paths <= bundle_paths
+            and bundle_dry_run.get("accepted") is False
+            and bundle_dry_run.get("production_allowed_after_simulation") is False
             and all(str(artifact.get("sha256") or "").startswith("sha256:") for artifact in bundle_manifest["artifacts"]),
             (
                 f"artifact_count={bundle_manifest.get('artifact_count')}, "
-                f"blockers={len(bundle_manifest.get('blockers') or [])}"
+                f"blockers={len(bundle_manifest.get('blockers') or [])}, "
+                f"dry_run_accepted={bundle_dry_run.get('accepted')}"
             ),
             "manual review bundle manifest is missing, stale, or incomplete",
         )

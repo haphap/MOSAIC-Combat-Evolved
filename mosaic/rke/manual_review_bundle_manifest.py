@@ -49,6 +49,7 @@ class ManualReviewBundleManifest:
     accepted: bool
     artifact_count: int
     artifacts: Sequence[ManualReviewBundleArtifact]
+    promotion_dry_run: Mapping[str, Any] | None
     blockers: Sequence[str]
 
 
@@ -155,6 +156,45 @@ def _inspect_artifact(
     )
 
 
+def _promotion_dry_run_summary(root_path: Path) -> Mapping[str, Any] | None:
+    path = root_path / "registry/promotion/rke_promotion_dry_run_report.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, Mapping):
+        return None
+
+    steps = payload.get("steps") if isinstance(payload.get("steps"), list) else []
+    step_rows = [step for step in steps if isinstance(step, Mapping)]
+    return {
+        "accepted": payload.get("accepted") if isinstance(payload.get("accepted"), bool) else None,
+        "after_next_state": str(payload.get("after_next_state") or ""),
+        "production_allowed_after_simulation": (
+            payload.get("production_allowed_after_simulation")
+            if isinstance(payload.get("production_allowed_after_simulation"), bool)
+            else None
+        ),
+        "staged_production_allowed_after_simulation": (
+            payload.get("staged_production_allowed_after_simulation")
+            if isinstance(payload.get("staged_production_allowed_after_simulation"), bool)
+            else None
+        ),
+        "provided_steps": [
+            str(step.get("review_kind") or "") for step in step_rows if step.get("provided") is True
+        ],
+        "accepted_steps": [
+            str(step.get("review_kind") or "") for step in step_rows if step.get("accepted") is True
+        ],
+        "rejected_steps": [
+            str(step.get("review_kind") or "") for step in step_rows if step.get("accepted") is False
+        ],
+        "missing_steps": [
+            str(step.get("review_kind") or "") for step in step_rows if step.get("provided") is False
+        ],
+    }
+
+
 def build_manual_review_bundle_manifest(root: str | Path = ".") -> ManualReviewBundleManifest:
     root_path = Path(root)
     artifacts: list[ManualReviewBundleArtifact] = []
@@ -174,6 +214,7 @@ def build_manual_review_bundle_manifest(root: str | Path = ".") -> ManualReviewB
         accepted=not blockers,
         artifact_count=len(artifacts),
         artifacts=tuple(artifacts),
+        promotion_dry_run=_promotion_dry_run_summary(root_path),
         blockers=tuple(blockers),
     )
 

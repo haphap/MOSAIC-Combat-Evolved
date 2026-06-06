@@ -148,5 +148,23 @@
     }
   ],
   "blockers": [],
-  "manifest_id": "RKE-MANUAL-REVIEW-BUNDLE-MANIFEST-20260606"
+  "manifest_id": "RKE-MANUAL-REVIEW-BUNDLE-MANIFEST-20260606",
+  "promotion_dry_run": {
+    "accepted": false,
+    "accepted_steps": [],
+    "after_next_state": "paper_trading",
+    "missing_steps": [],
+    "production_allowed_after_simulation": false,
+    "provided_steps": [
+      "gold_set",
+      "source_license",
+      "lockbox"
+    ],
+    "rejected_steps": [
+      "gold_set",
+      "source_license",
+      "lockbox"
+    ],
+    "staged_production_allowed_after_simulation": false
+  }
 }
