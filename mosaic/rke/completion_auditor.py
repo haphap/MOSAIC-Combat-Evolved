@@ -10,7 +10,7 @@ from typing import Any, Mapping
 from .audit_viewer import build_audit_trace_view
 from .central_bank_mvp import CompletionAudit, CompletionCriterion
 from .compliance import apply_source_license_reviews, evaluate_source_license
-from .phase_minus1 import evaluate_gold_set_reviews, load_jsonl
+from .phase_minus1 import evaluate_gold_set_reviews
 
 
 def _read_json(path: Path) -> Any:
@@ -20,7 +20,10 @@ def _read_json(path: Path) -> Any:
 def _optional_mapping(path: Path, label: str) -> tuple[dict[str, Any] | None, str]:
     if not path.exists():
         return None, ""
-    payload = _read_json(path)
+    try:
+        payload = _read_json(path)
+    except json.JSONDecodeError as exc:
+        return None, f"{label} must contain valid JSON: {exc.msg}"
     if isinstance(payload, Mapping):
         return dict(payload), ""
     return None, f"{label} must be object"
@@ -41,10 +44,20 @@ def _mapping_field(
     return {}, f"{label} must be object"
 
 
-def _optional_jsonl(path: Path) -> list[dict[str, Any]]:
+def _optional_jsonl(path: Path, label: str) -> tuple[list[Any], str]:
     if not path.exists():
-        return []
-    return load_jsonl(path)
+        return [], ""
+    rows: list[Any] = []
+    with path.open("r", encoding="utf-8") as fh:
+        for index, line in enumerate(fh, 1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rows.append(json.loads(line))
+            except json.JSONDecodeError as exc:
+                return [], f"{label} row {index} must contain valid JSON: {exc.msg}"
+    return rows, ""
 
 
 def _split_mapping_rows(rows: list[Any]) -> tuple[list[Mapping[str, Any]], tuple[int, ...]]:
@@ -75,7 +88,12 @@ def _runtime_output_passes(runtime_output: Mapping[str, Any]) -> bool:
 
 
 def _gold_set_gate(root: Path) -> tuple[bool, str, str]:
-    raw_rows = _optional_jsonl(root / "registry/gold_sets/tushare_research_reports.review_template.jsonl")
+    raw_rows, raw_error = _optional_jsonl(
+        root / "registry/gold_sets/tushare_research_reports.review_template.jsonl",
+        "gold-set review",
+    )
+    if raw_error:
+        return False, "gold-set review records malformed", raw_error
     if not raw_rows:
         return False, "gold-set review records missing", "gold-set review file missing"
     rows, invalid_rows = _split_mapping_rows(raw_rows)
@@ -111,8 +129,18 @@ def _gold_set_gate(root: Path) -> tuple[bool, str, str]:
 
 
 def _license_gate(root: Path) -> tuple[bool, str, str]:
-    raw_sources = _optional_jsonl(root / "registry/sources/tushare_research_reports.jsonl")
-    raw_reviews = _optional_jsonl(root / "registry/compliance/tushare_license_review_template.jsonl")
+    raw_sources, raw_sources_error = _optional_jsonl(
+        root / "registry/sources/tushare_research_reports.jsonl",
+        "source registry",
+    )
+    raw_reviews, raw_reviews_error = _optional_jsonl(
+        root / "registry/compliance/tushare_license_review_template.jsonl",
+        "source license review",
+    )
+    if raw_sources_error:
+        return False, "Tushare source rows malformed", raw_sources_error
+    if raw_reviews_error:
+        return False, "license review records malformed", raw_reviews_error
     if not raw_sources:
         return False, "Tushare source rows missing", "source registry missing"
     if not raw_reviews:

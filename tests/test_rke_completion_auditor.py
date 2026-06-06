@@ -70,6 +70,20 @@ def test_completion_auditor_rejects_non_object_gold_review_rows(tmp_path: Path):
     assert "gold-set review row must be object" in by_id["C02"].blocker
 
 
+def test_completion_auditor_rejects_invalid_json_gold_review_rows(tmp_path: Path):
+    shutil.copytree(Path("registry"), tmp_path / "registry")
+    review_path = tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    expected_row = len(review_path.read_text(encoding="utf-8").splitlines()) + 1
+    review_path.write_text(review_path.read_text(encoding="utf-8") + "{\n", encoding="utf-8")
+
+    audit = audit_master_plan_completion(tmp_path)
+    by_id = {criterion.criterion_id: criterion for criterion in audit.criteria}
+
+    assert len(audit.criteria) == 12
+    assert not by_id["C02"].passed
+    assert f"gold-set review row {expected_row} must contain valid JSON" in by_id["C02"].blocker
+
+
 def test_completion_auditor_rejects_non_object_license_review_rows(tmp_path: Path):
     shutil.copytree(Path("registry"), tmp_path / "registry")
     review_path = tmp_path / "registry/compliance/tushare_license_review_template.jsonl"
@@ -84,6 +98,20 @@ def test_completion_auditor_rejects_non_object_license_review_rows(tmp_path: Pat
     assert len(audit.criteria) == 12
     assert not by_id["C11"].passed
     assert "source license review row must be object" in by_id["C11"].blocker
+
+
+def test_completion_auditor_rejects_invalid_json_source_registry_rows(tmp_path: Path):
+    shutil.copytree(Path("registry"), tmp_path / "registry")
+    source_path = tmp_path / "registry/sources/tushare_research_reports.jsonl"
+    expected_row = len(source_path.read_text(encoding="utf-8").splitlines()) + 1
+    source_path.write_text(source_path.read_text(encoding="utf-8") + "{\n", encoding="utf-8")
+
+    audit = audit_master_plan_completion(tmp_path)
+    by_id = {criterion.criterion_id: criterion for criterion in audit.criteria}
+
+    assert len(audit.criteria) == 12
+    assert not by_id["C11"].passed
+    assert f"source registry row {expected_row} must contain valid JSON" in by_id["C11"].blocker
 
 
 def test_completion_auditor_rejects_malformed_paper_report(tmp_path: Path):
@@ -102,6 +130,22 @@ def test_completion_auditor_rejects_malformed_paper_report(tmp_path: Path):
     assert "paper trading report must be object" in by_id["C10"].blocker
 
 
+def test_completion_auditor_rejects_invalid_json_paper_report(tmp_path: Path):
+    shutil.copytree(Path("registry"), tmp_path / "registry")
+    paper_path = tmp_path / "registry/monitoring/central_bank_paper_trading_report.json"
+    paper_path.write_text("{", encoding="utf-8")
+
+    audit = audit_master_plan_completion(tmp_path)
+    by_id = {criterion.criterion_id: criterion for criterion in audit.criteria}
+
+    assert not by_id["C01"].passed
+    assert not by_id["C09"].passed
+    assert not by_id["C10"].passed
+    assert "paper trading report must contain valid JSON" in by_id["C01"].blocker
+    assert "paper trading report must contain valid JSON" in by_id["C09"].blocker
+    assert "paper trading report must contain valid JSON" in by_id["C10"].blocker
+
+
 def test_completion_auditor_rejects_malformed_runtime_output(tmp_path: Path):
     shutil.copytree(Path("registry"), tmp_path / "registry")
     runtime_path = tmp_path / "registry/runtime_outputs/macro.central_bank.20260605.json"
@@ -116,6 +160,20 @@ def test_completion_auditor_rejects_malformed_runtime_output(tmp_path: Path):
     assert "runtime output must be object" in by_id["C07"].blocker
 
 
+def test_completion_auditor_rejects_invalid_json_runtime_output(tmp_path: Path):
+    shutil.copytree(Path("registry"), tmp_path / "registry")
+    runtime_path = tmp_path / "registry/runtime_outputs/macro.central_bank.20260605.json"
+    runtime_path.write_text("{", encoding="utf-8")
+
+    audit = audit_master_plan_completion(tmp_path)
+    by_id = {criterion.criterion_id: criterion for criterion in audit.criteria}
+
+    assert not by_id["C05"].passed
+    assert not by_id["C07"].passed
+    assert "runtime output must contain valid JSON" in by_id["C05"].blocker
+    assert "runtime output must contain valid JSON" in by_id["C07"].blocker
+
+
 def test_completion_auditor_rejects_malformed_validation_experiment(tmp_path: Path):
     shutil.copytree(Path("registry"), tmp_path / "registry")
     experiment_path = tmp_path / "registry/experiments/central_bank_validation_experiment_v2.json"
@@ -127,6 +185,19 @@ def test_completion_auditor_rejects_malformed_validation_experiment(tmp_path: Pa
     assert not by_id["C04"].passed
     assert by_id["C04"].evidence == "validation experiment malformed"
     assert "validation experiment must be object" in by_id["C04"].blocker
+
+
+def test_completion_auditor_rejects_invalid_json_validation_experiment(tmp_path: Path):
+    shutil.copytree(Path("registry"), tmp_path / "registry")
+    experiment_path = tmp_path / "registry/experiments/central_bank_validation_experiment_v2.json"
+    experiment_path.write_text("{", encoding="utf-8")
+
+    audit = audit_master_plan_completion(tmp_path)
+    by_id = {criterion.criterion_id: criterion for criterion in audit.criteria}
+
+    assert not by_id["C04"].passed
+    assert by_id["C04"].evidence == "validation experiment malformed"
+    assert "validation experiment must contain valid JSON" in by_id["C04"].blocker
 
 
 def test_completion_auditor_writes_registry_file(tmp_path: Path):
