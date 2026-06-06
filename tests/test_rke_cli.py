@@ -54,7 +54,10 @@ def test_rke_cli_validate_required_rejects_invalid_json(tmp_path: Path, capsys):
     assert output["valid"] is False
     assert output["missing_required"] == []
     assert len(output["invalid_required"]) == 1
-    assert "registry/audits/rke_completion_audit.json must contain valid JSON" in output["invalid_required"][0]
+    assert (
+        "registry/audits/rke_completion_audit.json must contain valid JSON"
+        in output["invalid_required"][0]
+    )
 
 
 def test_rke_cli_manifest_writes_file(tmp_path: Path, capsys):
@@ -111,12 +114,17 @@ def test_rke_cli_audit_view_reports_malformed_jsonl_rows(tmp_path: Path, capsys)
 
     assert code == 2
     assert output["complete"] is False
-    assert "registry/claims/central_bank_claims.jsonl row 2 must be object" in output["broken_edges"]
+    assert (
+        "registry/claims/central_bank_claims.jsonl row 2 must be object"
+        in output["broken_edges"]
+    )
 
 
 def test_rke_cli_refresh_preserves_reviews(tmp_path: Path, capsys):
     _copy_registry(tmp_path)
-    gold_review = tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    gold_review = (
+        tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    )
     original = gold_review.read_text(encoding="utf-8")
 
     code = main(("refresh", "--root", str(tmp_path)))
@@ -143,35 +151,75 @@ def test_rke_cli_review_status_commands_write_summaries(tmp_path: Path, capsys):
 
     assert gold_code == 0
     assert gold_output["pending_claims"] == 500
-    assert (tmp_path / "registry/gold_sets/tushare_research_reports.review_summary.json").exists()
+    assert (
+        tmp_path / "registry/gold_sets/tushare_research_reports.review_summary.json"
+    ).exists()
     assert candidate_code == 0
     assert candidate_output["candidate_claim_count"] == 500
     assert candidate_output["review_rows_with_candidate_fields"] == 500
     assert candidate_output["manual_fields_preserved"] is True
-    assert (tmp_path / "registry/gold_sets/tushare_research_reports.candidate_claims.jsonl").exists()
     assert (
-        tmp_path / "registry/gold_sets/tushare_research_reports.candidate_claims.summary.json"
+        tmp_path / "registry/gold_sets/tushare_research_reports.candidate_claims.jsonl"
+    ).exists()
+    assert (
+        tmp_path
+        / "registry/gold_sets/tushare_research_reports.candidate_claims.summary.json"
     ).exists()
     assert packet_code == 0
     assert packet_output["pending_review_rows"] == 500
     assert packet_output["candidate_claim_count"] == 500
     assert packet_output["review_rows_with_candidate_fields"] == 500
     assert packet_output["candidate_span_ref_count"] > 0
-    assert (tmp_path / "registry/gold_sets/tushare_research_reports.review_packet.json").exists()
-    assert (tmp_path / "registry/gold_sets/tushare_research_reports.review_packet.md").exists()
+    assert (
+        tmp_path / "registry/gold_sets/tushare_research_reports.review_packet.json"
+    ).exists()
+    assert (
+        tmp_path / "registry/gold_sets/tushare_research_reports.review_packet.md"
+    ).exists()
     assert license_code == 0
     assert license_output["pending_sources"] == license_output["total_sources"]
-    assert (tmp_path / "registry/compliance/tushare_license_review_summary.json").exists()
+    assert (
+        license_output["missing_review_source_ids"]["count"]
+        == license_output["total_sources"]
+    )
+    assert len(license_output["missing_review_source_ids"]["sample"]) == 10
+    assert license_output["missing_review_source_ids"]["truncated"] is True
+    assert license_output["extra_review_source_ids"] == {
+        "count": 0,
+        "sample": [],
+        "truncated": False,
+    }
+    assert license_output["full_summary_path"] == (
+        "registry/compliance/tushare_license_review_summary.json"
+    )
+    full_license_summary = json.loads(
+        (
+            tmp_path / "registry/compliance/tushare_license_review_summary.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert (
+        len(full_license_summary["missing_review_source_ids"])
+        == license_output["total_sources"]
+    )
+    assert (
+        tmp_path / "registry/compliance/tushare_license_review_summary.json"
+    ).exists()
     assert license_packet_code == 0
     assert license_packet_output["pending_sources"] == license_output["total_sources"]
     assert license_packet_output["approved_for_production_runtime"] == 0
-    assert (tmp_path / "registry/compliance/tushare_license_review_packet.json").exists()
+    assert (
+        tmp_path / "registry/compliance/tushare_license_review_packet.json"
+    ).exists()
     assert (tmp_path / "registry/compliance/tushare_license_review_packet.md").exists()
 
 
-def test_rke_cli_prepare_license_policy_review_protects_existing_file(tmp_path: Path, capsys):
+def test_rke_cli_prepare_license_policy_review_protects_existing_file(
+    tmp_path: Path, capsys
+):
     _copy_registry(tmp_path)
-    reviewed_path = tmp_path / "registry/review_batches/source_license_policy_reviewed.json"
+    reviewed_path = (
+        tmp_path / "registry/review_batches/source_license_policy_reviewed.json"
+    )
 
     code = main(("prepare-license-policy-review", "--root", str(tmp_path)))
     output = json.loads(capsys.readouterr().out)
@@ -181,16 +229,22 @@ def test_rke_cli_prepare_license_policy_review_protects_existing_file(tmp_path: 
     assert code == 0
     assert output["written"] is True
     assert output["path"] == str(reviewed_path)
-    assert output["workbook_path"].endswith("registry/review_batches/source_license_review_workbook.md")
+    assert output["workbook_path"].endswith(
+        "registry/review_batches/source_license_review_workbook.md"
+    )
     assert output["workbook_rows"] == 50
     assert reviewed_path.exists()
-    assert (tmp_path / "registry/review_batches/source_license_review_workbook.md").exists()
+    assert (
+        tmp_path / "registry/review_batches/source_license_review_workbook.md"
+    ).exists()
     assert second_code == 2
     assert second_output["written"] is False
     assert "already exists" in second_output["blockers"][0]
 
 
-def test_rke_cli_prepare_gold_review_supports_full_and_protects_existing_file(tmp_path: Path, capsys):
+def test_rke_cli_prepare_gold_review_supports_full_and_protects_existing_file(
+    tmp_path: Path, capsys
+):
     _copy_registry(tmp_path)
     reviewed_path = tmp_path / "registry/review_batches/gold_set_full_reviewed.jsonl"
 
@@ -222,7 +276,10 @@ def test_rke_cli_prepare_lockbox_review_protects_existing_file(tmp_path: Path, c
     assert code == 0
     assert output["written"] is True
     assert output["path"] == str(reviewed_path)
-    assert output["template_path"] == "registry/review_batches/lockbox_review_next_import_template.json"
+    assert (
+        output["template_path"]
+        == "registry/review_batches/lockbox_review_next_import_template.json"
+    )
     assert reviewed_path.exists()
     starter = json.loads(reviewed_path.read_text(encoding="utf-8"))
     assert starter["result"] == ""
@@ -232,12 +289,22 @@ def test_rke_cli_prepare_lockbox_review_protects_existing_file(tmp_path: Path, c
     assert "already exists" in second_output["blockers"][0]
 
 
-def test_rke_cli_review_status_commands_report_malformed_jsonl_rows(tmp_path: Path, capsys):
+def test_rke_cli_review_status_commands_report_malformed_jsonl_rows(
+    tmp_path: Path, capsys
+):
     _copy_registry(tmp_path)
-    gold_path = tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
-    license_path = tmp_path / "registry/compliance/tushare_license_review_template.jsonl"
-    gold_path.write_text(gold_path.read_text(encoding="utf-8") + "{\n", encoding="utf-8")
-    license_path.write_text(license_path.read_text(encoding="utf-8") + "{\n", encoding="utf-8")
+    gold_path = (
+        tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    )
+    license_path = (
+        tmp_path / "registry/compliance/tushare_license_review_template.jsonl"
+    )
+    gold_path.write_text(
+        gold_path.read_text(encoding="utf-8") + "{\n", encoding="utf-8"
+    )
+    license_path.write_text(
+        license_path.read_text(encoding="utf-8") + "{\n", encoding="utf-8"
+    )
 
     gold_code = main(("gold-set-status", "--root", str(tmp_path)))
     gold_output = json.loads(capsys.readouterr().out)
@@ -245,7 +312,10 @@ def test_rke_cli_review_status_commands_report_malformed_jsonl_rows(tmp_path: Pa
     license_output = json.loads(capsys.readouterr().out)
 
     assert gold_code == 0
-    assert any("gold-set review row 501 must contain valid JSON" in blocker for blocker in gold_output["blockers"])
+    assert any(
+        "gold-set review row 501 must contain valid JSON" in blocker
+        for blocker in gold_output["blockers"]
+    )
     assert gold_output["total_claims"] == 501
     assert license_code == 0
     assert any(
@@ -255,17 +325,26 @@ def test_rke_cli_review_status_commands_report_malformed_jsonl_rows(tmp_path: Pa
     assert license_output["total_review_rows"] == 9813
 
 
-def test_rke_cli_gold_candidate_claims_reports_malformed_jsonl_rows(tmp_path: Path, capsys):
+def test_rke_cli_gold_candidate_claims_reports_malformed_jsonl_rows(
+    tmp_path: Path, capsys
+):
     _copy_registry(tmp_path)
-    candidates_path = tmp_path / "registry/sources/tushare_research_reports.gold_candidates.jsonl"
-    candidates_path.write_text(candidates_path.read_text(encoding="utf-8") + "{\n", encoding="utf-8")
+    candidates_path = (
+        tmp_path / "registry/sources/tushare_research_reports.gold_candidates.jsonl"
+    )
+    candidates_path.write_text(
+        candidates_path.read_text(encoding="utf-8") + "{\n", encoding="utf-8"
+    )
 
     code = main(("gold-candidate-claims", "--root", str(tmp_path)))
     output = json.loads(capsys.readouterr().out)
 
     assert code == 0
     assert output["candidate_claim_count"] == 500
-    assert any("gold candidate row 51 must contain valid JSON" in blocker for blocker in output["blockers"])
+    assert any(
+        "gold candidate row 51 must contain valid JSON" in blocker
+        for blocker in output["blockers"]
+    )
 
 
 def test_rke_cli_prompt_status_writes_summary(tmp_path: Path, capsys):
@@ -277,7 +356,9 @@ def test_rke_cli_prompt_status_writes_summary(tmp_path: Path, capsys):
     assert code == 0
     assert output["accepted"] is True
     assert output["failure_count"] == 0
-    assert (tmp_path / "registry/prompt_checks/prompt_asset_validation_report.json").exists()
+    assert (
+        tmp_path / "registry/prompt_checks/prompt_asset_validation_report.json"
+    ).exists()
 
 
 def test_rke_cli_claim_status_writes_summary(tmp_path: Path, capsys):
@@ -289,7 +370,9 @@ def test_rke_cli_claim_status_writes_summary(tmp_path: Path, capsys):
     assert code == 0
     assert output["accepted"] is True
     assert output["failure_count"] == 0
-    assert (tmp_path / "registry/claim_checks/claim_variable_validation_report.json").exists()
+    assert (
+        tmp_path / "registry/claim_checks/claim_variable_validation_report.json"
+    ).exists()
     assert (tmp_path / "registry/vocabularies/claim_variable_vocabulary.json").exists()
 
 
@@ -303,11 +386,18 @@ def test_rke_cli_claim_status_reports_malformed_vocabulary_without_overwrite(
 
     code = main(("claim-status", "--root", str(tmp_path)))
     output = json.loads(capsys.readouterr().out)
-    schema = next(record for record in output["records"] if record["check_id"] == "CLAIM-VOCABULARY-SCHEMA")
+    schema = next(
+        record
+        for record in output["records"]
+        if record["check_id"] == "CLAIM-VOCABULARY-SCHEMA"
+    )
 
     assert code == 2
     assert output["accepted"] is False
-    assert any("claim_variable_vocabulary.json must contain valid JSON" in failure for failure in schema["failures"])
+    assert any(
+        "claim_variable_vocabulary.json must contain valid JSON" in failure
+        for failure in schema["failures"]
+    )
     assert vocabulary_path.read_text(encoding="utf-8") == "{\n"
 
 
@@ -320,13 +410,17 @@ def test_rke_cli_source_status_writes_summary(tmp_path: Path, capsys):
     assert code == 0
     assert output["accepted_for_sandbox"] is True
     assert output["accepted_for_production"] is False
-    assert (tmp_path / "registry/source_checks/source_registry_validation_report.json").exists()
+    assert (
+        tmp_path / "registry/source_checks/source_registry_validation_report.json"
+    ).exists()
 
 
 def test_rke_cli_source_status_reports_malformed_jsonl_rows(tmp_path: Path, capsys):
     _copy_registry(tmp_path)
     source_path = tmp_path / "registry/sources/central_bank_sources.jsonl"
-    source_path.write_text(source_path.read_text(encoding="utf-8") + "{\n", encoding="utf-8")
+    source_path.write_text(
+        source_path.read_text(encoding="utf-8") + "{\n", encoding="utf-8"
+    )
 
     code = main(("source-status", "--root", str(tmp_path)))
     output = json.loads(capsys.readouterr().out)
@@ -335,7 +429,11 @@ def test_rke_cli_source_status_reports_malformed_jsonl_rows(tmp_path: Path, caps
     assert output["accepted_for_sandbox"] is False
     assert output["failure_count"] >= 1
     assert any(
-        any("central_bank_sources.jsonl row" in failure and "must contain valid JSON" in failure for failure in record["failures"])
+        any(
+            "central_bank_sources.jsonl row" in failure
+            and "must contain valid JSON" in failure
+            for failure in record["failures"]
+        )
         for record in output["records"]
     )
 
@@ -353,10 +451,14 @@ def test_rke_cli_source_text_status_writes_summary(tmp_path: Path, capsys):
     assert output["source_text_count"] == _redaction_source_text_count(tmp_path)
 
 
-def test_rke_cli_source_text_status_reports_malformed_jsonl_rows(tmp_path: Path, capsys):
+def test_rke_cli_source_text_status_reports_malformed_jsonl_rows(
+    tmp_path: Path, capsys
+):
     _copy_registry(tmp_path)
     source_path = tmp_path / "registry/sources/tushare_research_reports.jsonl"
-    source_path.write_text(source_path.read_text(encoding="utf-8") + "{\n", encoding="utf-8")
+    source_path.write_text(
+        source_path.read_text(encoding="utf-8") + "{\n", encoding="utf-8"
+    )
 
     code = main(("source-text-status", "--root", str(tmp_path)))
     output = json.loads(capsys.readouterr().out)
@@ -364,7 +466,10 @@ def test_rke_cli_source_text_status_reports_malformed_jsonl_rows(tmp_path: Path,
     assert code == 2
     assert output["accepted"] is False
     assert output["malformed_source_row_count"] == 1
-    assert any("tushare_research_reports.jsonl row" in blocker for blocker in output["blockers"])
+    assert any(
+        "tushare_research_reports.jsonl row" in blocker
+        for blocker in output["blockers"]
+    )
     assert any("must contain valid JSON" in blocker for blocker in output["blockers"])
 
 
@@ -401,19 +506,40 @@ def test_rke_cli_review_batches_writes_next_import_templates(tmp_path: Path, cap
     assert code == 0
     assert output["status"]["ready_for_manual_review"] is True
     assert output["status"]["gold_set"]["exported_rows"] == 11
-    assert output["status"]["gold_set"]["full_import_template_path"] == "registry/review_batches/gold_set_full_import_template.jsonl"
-    assert "registry/review_batches/gold_set_review_workbook.md" in output["status"]["generated_paths"]
+    assert (
+        output["status"]["gold_set"]["full_import_template_path"]
+        == "registry/review_batches/gold_set_full_import_template.jsonl"
+    )
+    assert (
+        "registry/review_batches/gold_set_review_workbook.md"
+        in output["status"]["generated_paths"]
+    )
     assert output["status"]["source_license"]["exported_rows"] == 9
-    assert "registry/review_batches/source_license_review_workbook.md" in output["status"]["generated_paths"]
-    assert (tmp_path / "registry/review_batches/manual_review_batch_status.json").exists()
-    assert (tmp_path / "registry/review_batches/gold_set_next_import_template.jsonl").exists()
-    assert (tmp_path / "registry/review_batches/gold_set_full_import_template.jsonl").exists()
+    assert (
+        "registry/review_batches/source_license_review_workbook.md"
+        in output["status"]["generated_paths"]
+    )
+    assert (
+        tmp_path / "registry/review_batches/manual_review_batch_status.json"
+    ).exists()
+    assert (
+        tmp_path / "registry/review_batches/gold_set_next_import_template.jsonl"
+    ).exists()
+    assert (
+        tmp_path / "registry/review_batches/gold_set_full_import_template.jsonl"
+    ).exists()
     assert (tmp_path / "registry/review_batches/gold_set_review_workbook.md").exists()
-    assert (tmp_path / "registry/review_batches/source_license_next_import_template.jsonl").exists()
-    assert (tmp_path / "registry/review_batches/source_license_review_workbook.md").exists()
+    assert (
+        tmp_path / "registry/review_batches/source_license_next_import_template.jsonl"
+    ).exists()
+    assert (
+        tmp_path / "registry/review_batches/source_license_review_workbook.md"
+    ).exists()
 
 
-def test_rke_cli_fetch_tushare_reports_passes_query_args(monkeypatch, tmp_path: Path, capsys):
+def test_rke_cli_fetch_tushare_reports_passes_query_args(
+    monkeypatch, tmp_path: Path, capsys
+):
     captured = {}
 
     def fake_refresh(root, **kwargs):
@@ -436,7 +562,9 @@ def test_rke_cli_fetch_tushare_reports_passes_query_args(monkeypatch, tmp_path: 
             outputs={"source": "registry/sources/tushare_research_reports.jsonl"},
         )
 
-    monkeypatch.setattr("mosaic.rke.cli.refresh_tushare_research_report_registry", fake_refresh)
+    monkeypatch.setattr(
+        "mosaic.rke.cli.refresh_tushare_research_report_registry", fake_refresh
+    )
 
     code = main(
         (
@@ -505,7 +633,9 @@ def test_rke_cli_fetch_tushare_reports_accepts_local_input_path(
             outputs={"source": "registry/sources/tushare_research_reports.jsonl"},
         )
 
-    monkeypatch.setattr("mosaic.rke.cli.refresh_tushare_research_report_registry", fake_refresh)
+    monkeypatch.setattr(
+        "mosaic.rke.cli.refresh_tushare_research_report_registry", fake_refresh
+    )
     local_input = tmp_path / "reports.csv"
     local_input.write_text("trade_date,title,abstr\n20260603,a,b\n", encoding="utf-8")
 

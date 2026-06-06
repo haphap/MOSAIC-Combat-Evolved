@@ -19,7 +19,10 @@ from .gold_candidate_claims import (
     write_gold_candidate_claims,
 )
 from .gold_review_packet import build_gold_review_packet, write_gold_review_packet
-from .license_review_packet import build_license_review_packet, write_license_review_packet
+from .license_review_packet import (
+    build_license_review_packet,
+    write_license_review_packet,
+)
 from .license_policy_import import (
     SOURCE_LICENSE_REVIEWED_POLICY_PATH,
     build_source_license_policy_import,
@@ -55,7 +58,10 @@ from .monitoring_diagnostics import (
     build_production_monitor_diagnostics,
     write_production_monitor_diagnostics,
 )
-from .rollback_readiness import build_rollback_readiness_report, write_rollback_readiness_report
+from .rollback_readiness import (
+    build_rollback_readiness_report,
+    write_rollback_readiness_report,
+)
 from .policy_doc_validation import (
     build_policy_doc_validation_report,
     write_policy_doc_validation_report,
@@ -68,7 +74,10 @@ from .promotion_gate import (
     build_production_promotion_gate_report,
     write_production_promotion_gate_report,
 )
-from .promotion_dry_run import build_promotion_dry_run_report, write_promotion_dry_run_report
+from .promotion_dry_run import (
+    build_promotion_dry_run_report,
+    write_promotion_dry_run_report,
+)
 from .registry_manifest import (
     build_registry_manifest,
     validate_required_registry,
@@ -86,7 +95,10 @@ from .review_gates import (
     write_gold_set_review_summary,
     write_source_license_review_summary,
 )
-from .schema_validation import build_schema_validation_report, write_schema_validation_report
+from .schema_validation import (
+    build_schema_validation_report,
+    write_schema_validation_report,
+)
 from .source_registry_validation import (
     build_source_registry_validation_report,
     write_source_registry_validation_report,
@@ -119,6 +131,29 @@ def _print_json(payload: Any) -> None:
     print(json.dumps(_jsonable(payload), ensure_ascii=False, indent=2, sort_keys=True))
 
 
+def _sampled_sequence(
+    values: Sequence[Any], *, sample_size: int = 10
+) -> dict[str, Any]:
+    items = list(values)
+    return {
+        "count": len(items),
+        "sample": items[:sample_size],
+        "truncated": len(items) > sample_size,
+    }
+
+
+def _source_license_status_stdout(summary: Any) -> dict[str, Any]:
+    payload = asdict(summary)
+    missing = payload.pop("missing_review_source_ids", ())
+    extra = payload.pop("extra_review_source_ids", ())
+    payload["missing_review_source_ids"] = _sampled_sequence(missing)
+    payload["extra_review_source_ids"] = _sampled_sequence(extra)
+    payload["full_summary_path"] = (
+        "registry/compliance/tushare_license_review_summary.json"
+    )
+    return payload
+
+
 def _load_env_file(path: str | None) -> None:
     if not path:
         return
@@ -142,8 +177,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="mosaic-rke")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    refresh = subparsers.add_parser("refresh", help="Regenerate local RKE registry artifacts.")
-    refresh.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
+    refresh = subparsers.add_parser(
+        "refresh", help="Regenerate local RKE registry artifacts."
+    )
+    refresh.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
     refresh.add_argument(
         "--overwrite-review-templates",
         action="store_true",
@@ -151,94 +190,134 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     manifest = subparsers.add_parser("manifest", help="Write the registry manifest.")
-    manifest.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
+    manifest.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
 
     audit = subparsers.add_parser("audit", help="Recompute completion audit.")
-    audit.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
+    audit.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
 
     audit_view = subparsers.add_parser(
         "audit-view",
         help="Write and print the central-bank source-to-output audit trace viewer.",
     )
-    audit_view.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
+    audit_view.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
 
     master_plan_status = subparsers.add_parser(
         "master-plan-status",
         help="Write and print the master-plan coverage audit.",
     )
-    master_plan_status.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
+    master_plan_status.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
 
-    dashboard = subparsers.add_parser("dashboard", help="Write dashboard JSON and Markdown reports.")
-    dashboard.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
+    dashboard = subparsers.add_parser(
+        "dashboard", help="Write dashboard JSON and Markdown reports."
+    )
+    dashboard.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
 
     policy_doc_status = subparsers.add_parser(
         "policy-doc-status",
         help="Write and print the RKE policy documentation validation report.",
     )
-    policy_doc_status.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
+    policy_doc_status.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
 
     schema_status = subparsers.add_parser(
         "schema-status",
         help="Write and print the Phase 1 schema validation report.",
     )
-    schema_status.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
+    schema_status.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
 
     prompt_status = subparsers.add_parser(
         "prompt-status",
         help="Write and print the rendered prompt asset validation report.",
     )
-    prompt_status.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
+    prompt_status.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
 
     claim_status = subparsers.add_parser(
         "claim-status",
         help="Write and print the claim variable vocabulary validation report.",
     )
-    claim_status.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
+    claim_status.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
 
     source_status = subparsers.add_parser(
         "source-status",
         help="Write and print the source registry validation report.",
     )
-    source_status.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
+    source_status.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
 
     source_text_status = subparsers.add_parser(
         "source-text-status",
         help="Write and print the Tushare source-text redaction audit report.",
     )
-    source_text_status.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
+    source_text_status.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
 
     validation_status = subparsers.add_parser(
         "validation-status",
         help="Write and print the validation-hardening and statistical-significance reports.",
     )
-    validation_status.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
+    validation_status.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
 
     monitoring_diagnostics = subparsers.add_parser(
         "monitoring-diagnostics",
         help="Write and print production-monitor diagnostic scenarios.",
     )
-    monitoring_diagnostics.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
+    monitoring_diagnostics.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
 
     rollback_readiness = subparsers.add_parser(
         "rollback-readiness",
         help="Write and print soft/hard/compliance rollback readiness checks.",
     )
-    rollback_readiness.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
+    rollback_readiness.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
 
     promotion_status = subparsers.add_parser(
         "promotion-status",
         help="Write and print the production-promotion gate report.",
     )
-    promotion_status.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
+    promotion_status.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
 
     promotion_dry_run = subparsers.add_parser(
         "promotion-dry-run",
         help="Simulate reviewed gold/license/lockbox inputs without mutating the registry.",
     )
-    promotion_dry_run.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
-    promotion_dry_run.add_argument("--gold-input", help="Reviewed gold-set JSONL input.")
-    promotion_dry_run.add_argument("--license-input", help="Reviewed source-license JSONL input.")
-    promotion_dry_run.add_argument("--lockbox-input", help="Reviewed lockbox JSON input.")
+    promotion_dry_run.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
+    promotion_dry_run.add_argument(
+        "--gold-input", help="Reviewed gold-set JSONL input."
+    )
+    promotion_dry_run.add_argument(
+        "--license-input", help="Reviewed source-license JSONL input."
+    )
+    promotion_dry_run.add_argument(
+        "--lockbox-input", help="Reviewed lockbox JSON input."
+    )
     promotion_dry_run.add_argument(
         "--write-report",
         action="store_true",
@@ -249,45 +328,63 @@ def build_parser() -> argparse.ArgumentParser:
         "gold-set-status",
         help="Write and print the manual gold-set review gate summary.",
     )
-    gold_status.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
+    gold_status.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
 
     gold_packet = subparsers.add_parser(
         "gold-review-packet",
         help="Write and print the Phase -1 gold-set manual review packet summary.",
     )
-    gold_packet.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
+    gold_packet.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
 
     gold_candidate_claims = subparsers.add_parser(
         "gold-candidate-claims",
         help="Write and print deterministic source-bound candidate claims for gold-set review.",
     )
-    gold_candidate_claims.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
+    gold_candidate_claims.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
 
     license_status = subparsers.add_parser(
         "license-status",
         help="Write and print the source license review gate summary.",
     )
-    license_status.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
+    license_status.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
 
     license_packet = subparsers.add_parser(
         "license-review-packet",
         help="Write and print the source license manual review packet summary.",
     )
-    license_packet.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
+    license_packet.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
 
     apply_gold_review = subparsers.add_parser(
         "apply-gold-review",
         help="Validate and apply a JSONL manual gold-set review import.",
     )
-    apply_gold_review.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
-    apply_gold_review.add_argument("--input", required=True, help="JSONL file containing reviewed gold-set rows.")
-    apply_gold_review.add_argument("--dry-run", action="store_true", help="Validate without changing review rows.")
+    apply_gold_review.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
+    apply_gold_review.add_argument(
+        "--input", required=True, help="JSONL file containing reviewed gold-set rows."
+    )
+    apply_gold_review.add_argument(
+        "--dry-run", action="store_true", help="Validate without changing review rows."
+    )
 
     prepare_gold_review = subparsers.add_parser(
         "prepare-gold-review",
         help="Write a reviewer-editable gold-set JSONL starter without overwriting existing reviews.",
     )
-    prepare_gold_review.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
+    prepare_gold_review.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
     prepare_gold_review.add_argument(
         "--output",
         help=(
@@ -316,28 +413,46 @@ def build_parser() -> argparse.ArgumentParser:
         "apply-license-review",
         help="Validate and apply a JSONL source-license review import.",
     )
-    apply_license_review.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
-    apply_license_review.add_argument("--input", required=True, help="JSONL file containing source license decisions.")
-    apply_license_review.add_argument("--dry-run", action="store_true", help="Validate without changing review rows.")
+    apply_license_review.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
+    apply_license_review.add_argument(
+        "--input", required=True, help="JSONL file containing source license decisions."
+    )
+    apply_license_review.add_argument(
+        "--dry-run", action="store_true", help="Validate without changing review rows."
+    )
 
     build_license_import = subparsers.add_parser(
         "build-license-review-import",
         help="Expand a signed source-license policy JSON into an apply-license-review JSONL input.",
     )
-    build_license_import.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
-    build_license_import.add_argument("--policy", required=True, help="JSON policy file with reviewer/date, decisions, and filters.")
+    build_license_import.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
+    build_license_import.add_argument(
+        "--policy",
+        required=True,
+        help="JSON policy file with reviewer/date, decisions, and filters.",
+    )
     build_license_import.add_argument(
         "--output",
         default="registry/review_batches/source_license_policy_import.jsonl",
         help="Output JSONL path. Defaults to registry/review_batches/source_license_policy_import.jsonl.",
     )
-    build_license_import.add_argument("--dry-run", action="store_true", help="Validate and report without writing output JSONL.")
+    build_license_import.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Validate and report without writing output JSONL.",
+    )
 
     prepare_license_policy = subparsers.add_parser(
         "prepare-license-policy-review",
         help="Write a reviewer-editable source-license policy starter without overwriting existing reviews.",
     )
-    prepare_license_policy.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
+    prepare_license_policy.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
     prepare_license_policy.add_argument(
         "--output",
         default=SOURCE_LICENSE_REVIEWED_POLICY_PATH,
@@ -353,15 +468,25 @@ def build_parser() -> argparse.ArgumentParser:
         "apply-lockbox-review",
         help="Validate and apply a JSON lockbox review record.",
     )
-    apply_lockbox_review.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
-    apply_lockbox_review.add_argument("--input", required=True, help="JSON file containing one lockbox review record.")
-    apply_lockbox_review.add_argument("--dry-run", action="store_true", help="Validate without changing the lockbox record.")
+    apply_lockbox_review.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
+    apply_lockbox_review.add_argument(
+        "--input", required=True, help="JSON file containing one lockbox review record."
+    )
+    apply_lockbox_review.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Validate without changing the lockbox record.",
+    )
 
     prepare_lockbox_review = subparsers.add_parser(
         "prepare-lockbox-review",
         help="Write a reviewer-editable lockbox JSON starter without overwriting existing reviews.",
     )
-    prepare_lockbox_review.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
+    prepare_lockbox_review.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
     prepare_lockbox_review.add_argument(
         "--output",
         default=LOCKBOX_REVIEWED_IMPORT_PATH,
@@ -377,7 +502,9 @@ def build_parser() -> argparse.ArgumentParser:
         "review-batches",
         help="Write next-batch import templates for manual gold-set and source-license reviews.",
     )
-    review_batches.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
+    review_batches.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
     review_batches.add_argument(
         "--gold-batch-size",
         type=int,
@@ -395,27 +522,39 @@ def build_parser() -> argparse.ArgumentParser:
         "operator-handoff",
         help="Write and print the remaining manual gate handoff package.",
     )
-    operator_handoff.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
+    operator_handoff.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
 
     operator_readiness = subparsers.add_parser(
         "operator-readiness",
         help="Write and print operator handoff bundle integrity checks.",
     )
-    operator_readiness.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
+    operator_readiness.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
 
     review_progress = subparsers.add_parser(
         "review-progress",
         help="Check reviewer-edited scratch files without mutating the working registry.",
     )
-    review_progress.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
+    review_progress.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
 
     fetch_reports = subparsers.add_parser(
         "fetch-tushare-reports",
         help="Fetch Tushare research reports and refresh dependent Phase -1 registry artifacts.",
     )
-    fetch_reports.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
-    fetch_reports.add_argument("--start-date", help="Inclusive YYYY-MM-DD query start date.")
-    fetch_reports.add_argument("--end-date", help="Inclusive YYYY-MM-DD query end date.")
+    fetch_reports.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
+    fetch_reports.add_argument(
+        "--start-date", help="Inclusive YYYY-MM-DD query start date."
+    )
+    fetch_reports.add_argument(
+        "--end-date", help="Inclusive YYYY-MM-DD query end date."
+    )
     fetch_reports.add_argument(
         "--input-path",
         help=(
@@ -472,8 +611,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional .env file to load before initializing the Tushare client.",
     )
 
-    validate = subparsers.add_parser("validate-required", help="Validate required registry files.")
-    validate.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
+    validate = subparsers.add_parser(
+        "validate-required", help="Validate required registry files."
+    )
+    validate.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
     return parser
 
 
@@ -653,8 +796,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "summary_id": summary["summary_id"],
                 "candidate_claim_count": summary["candidate_claim_count"],
                 "candidate_available_count": summary["candidate_available_count"],
-                "missing_variable_mapping_count": summary["missing_variable_mapping_count"],
-                "review_rows_with_candidate_fields": summary["review_rows_with_candidate_fields"],
+                "missing_variable_mapping_count": summary[
+                    "missing_variable_mapping_count"
+                ],
+                "review_rows_with_candidate_fields": summary[
+                    "review_rows_with_candidate_fields"
+                ],
                 "manual_fields_preserved": summary["manual_fields_preserved"],
                 "direction_counts": summary["direction_counts"],
                 "claim_type_counts": summary["claim_type_counts"],
@@ -664,7 +811,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.command == "license-status":
         write_source_license_review_summary(root)
-        _print_json(asdict(summarize_source_license_review(root)))
+        _print_json(
+            _source_license_status_stdout(summarize_source_license_review(root))
+        )
         return 0
     if args.command == "license-review-packet":
         paths = write_license_review_packet(root)
@@ -699,7 +848,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         _print_json(asdict(result))
         return 0 if result.written else 2
     if args.command == "apply-license-review":
-        report = apply_source_license_review_import(root, args.input, dry_run=args.dry_run)
+        report = apply_source_license_review_import(
+            root, args.input, dry_run=args.dry_run
+        )
         _print_json(asdict(report))
         return 0 if report.accepted else 2
     if args.command == "build-license-review-import":
@@ -758,7 +909,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         result = write_manual_review_progress_report(root)
         runbook = write_manual_review_runbook(root)
         report = build_manual_review_progress(root)
-        _print_json({"path": result["path"], "runbook_path": runbook["path"], **asdict(report)})
+        _print_json(
+            {"path": result["path"], "runbook_path": runbook["path"], **asdict(report)}
+        )
         return 0 if report.ready_for_promotion_dry_run else 2
     if args.command == "fetch-tushare-reports":
         _load_env_file(args.env_file)
