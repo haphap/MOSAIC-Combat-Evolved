@@ -63,7 +63,46 @@ def _all_exist(root_path: Path, evidence_paths: Sequence[str]) -> tuple[bool, st
     missing = [path for path in evidence_paths if not _exists(root_path, path)]
     if missing:
         return False, f"missing evidence: {', '.join(missing)}"
+    malformed = _evidence_content_errors(root_path, evidence_paths)
+    if malformed:
+        return False, "; ".join(malformed)
     return True, ""
+
+
+def _evidence_content_errors(root_path: Path, evidence_paths: Sequence[str]) -> tuple[str, ...]:
+    errors: list[str] = []
+    for relative in evidence_paths:
+        path = root_path / relative
+        if relative.endswith(".json"):
+            errors.extend(_json_object_errors(path, relative))
+        elif relative.endswith(".jsonl"):
+            errors.extend(_jsonl_object_errors(path, relative))
+    return tuple(errors)
+
+
+def _json_object_errors(path: Path, relative: str) -> tuple[str, ...]:
+    try:
+        payload = _read_json(path)
+    except json.JSONDecodeError as exc:
+        return (f"{relative} must contain valid JSON: {exc.msg}",)
+    if not isinstance(payload, Mapping):
+        return (f"{relative} must be object",)
+    return ()
+
+
+def _jsonl_object_errors(path: Path, relative: str) -> tuple[str, ...]:
+    with path.open("r", encoding="utf-8") as handle:
+        for index, line in enumerate(handle, 1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError as exc:
+                return (f"{relative} row {index} must contain valid JSON: {exc.msg}",)
+            if not isinstance(payload, Mapping):
+                return (f"{relative} row {index} must be object",)
+    return ()
 
 
 def _completion_by_id(root_path: Path) -> tuple[dict[str, Mapping[str, Any]], str]:
@@ -103,7 +142,7 @@ def _record(
     evidence_ok, evidence_blocker = _all_exist(root_path, evidence_paths)
     final_status: CoverageStatus = status or ("passed" if evidence_ok else "missing")
     final_blocker = blocker
-    if not evidence_ok and final_status != "blocked":
+    if not evidence_ok:
         final_status = "missing"
         final_blocker = evidence_blocker
     return MasterPlanCoverageRecord(

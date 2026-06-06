@@ -61,6 +61,46 @@ def test_master_plan_coverage_detects_missing_phase_artifact(tmp_path: Path):
     assert "central_bank_validation_experiment_v2.json" in phase_2.blocker
 
 
+def test_master_plan_coverage_reports_invalid_direct_json_evidence(tmp_path: Path):
+    _copy_registry_and_schemas(tmp_path)
+    data_matrix = tmp_path / "registry/data_availability/central_bank_data_availability.json"
+    data_matrix.write_text("{", encoding="utf-8")
+
+    report = build_master_plan_coverage_report(tmp_path)
+    phase_1a = next(record for record in report.records if record.section_id == "Phase-1A")
+
+    assert not report.coverage_complete
+    assert phase_1a.status == "missing"
+    assert "central_bank_data_availability.json must contain valid JSON" in phase_1a.blocker
+
+
+def test_master_plan_coverage_reports_invalid_direct_jsonl_evidence(tmp_path: Path):
+    _copy_registry_and_schemas(tmp_path)
+    claims = tmp_path / "registry/claims/semiconductor_claims.jsonl"
+    expected_row = len(claims.read_text(encoding="utf-8").splitlines()) + 1
+    claims.write_text(claims.read_text(encoding="utf-8") + "{\n", encoding="utf-8")
+
+    report = build_master_plan_coverage_report(tmp_path)
+    phase_5 = next(record for record in report.records if record.section_id == "Phase-5")
+
+    assert not report.coverage_complete
+    assert phase_5.status == "missing"
+    assert f"semiconductor_claims.jsonl row {expected_row} must contain valid JSON" in phase_5.blocker
+
+
+def test_master_plan_coverage_malformed_blocked_evidence_is_missing(tmp_path: Path):
+    _copy_registry_and_schemas(tmp_path)
+    gold_import = tmp_path / "registry/review_batches/gold_set_next_import_template.jsonl"
+    gold_import.write_text("{\n", encoding="utf-8")
+
+    report = build_master_plan_coverage_report(tmp_path)
+    phase_1b = next(record for record in report.records if record.section_id == "Phase-1B")
+
+    assert not report.coverage_complete
+    assert phase_1b.status == "missing"
+    assert "gold_set_next_import_template.jsonl row 1 must contain valid JSON" in phase_1b.blocker
+
+
 def test_master_plan_coverage_reports_invalid_completion_audit_json(tmp_path: Path):
     _copy_registry_and_schemas(tmp_path)
     completion_path = tmp_path / "registry/audits/rke_completion_audit.json"
