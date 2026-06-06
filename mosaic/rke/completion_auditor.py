@@ -13,14 +13,32 @@ from .compliance import apply_source_license_reviews, evaluate_source_license
 from .phase_minus1 import evaluate_gold_set_reviews, load_jsonl
 
 
-def _read_json(path: Path) -> dict[str, Any]:
+def _read_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _optional_json(path: Path) -> dict[str, Any] | None:
+def _optional_mapping(path: Path, label: str) -> tuple[dict[str, Any] | None, str]:
     if not path.exists():
-        return None
-    return _read_json(path)
+        return None, ""
+    payload = _read_json(path)
+    if isinstance(payload, Mapping):
+        return dict(payload), ""
+    return None, f"{label} must be object"
+
+
+def _mapping_field(
+    payload: Mapping[str, Any] | None,
+    field: str,
+    label: str,
+) -> tuple[dict[str, Any], str]:
+    if not payload:
+        return {}, ""
+    value = payload.get(field)
+    if value is None:
+        return {}, ""
+    if isinstance(value, Mapping):
+        return dict(value), ""
+    return {}, f"{label} must be object"
 
 
 def _optional_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -126,7 +144,12 @@ def _license_gate(root: Path) -> tuple[bool, str, str]:
 
 
 def _source_text_redaction_gate(root: Path) -> tuple[bool, str, str]:
-    report = _optional_json(root / "registry/compliance/source_text_redaction_report.json")
+    report, report_error = _optional_mapping(
+        root / "registry/compliance/source_text_redaction_report.json",
+        "source text redaction report",
+    )
+    if report_error:
+        return False, "source text redaction report malformed", report_error
     if report is None:
         return False, "source text redaction report missing", "source text redaction report missing"
     if report.get("accepted") is True:
@@ -146,13 +169,20 @@ def _validation_gate(
     experiment: Mapping[str, Any] | None,
     hardening: Mapping[str, Any] | None,
     statistical: Mapping[str, Any] | None,
+    *,
+    experiment_error: str = "",
+    hardening_error: str = "",
+    statistical_error: str = "",
 ) -> tuple[bool, str, str]:
+    if experiment_error:
+        return False, "validation experiment malformed", experiment_error
     if experiment is None:
         return False, "validation experiment missing", "experiment registry missing"
-    sampling = dict(experiment.get("sampling_design") or {})
-    mtc = dict(experiment.get("multiple_testing_control") or {})
-    acceptance = dict(experiment.get("acceptance_rule") or {})
+    sampling, sampling_error = _mapping_field(experiment, "sampling_design", "sampling_design")
+    mtc, mtc_error = _mapping_field(experiment, "multiple_testing_control", "multiple_testing_control")
+    acceptance, acceptance_error = _mapping_field(experiment, "acceptance_rule", "acceptance_rule")
     failures: list[str] = []
+    failures.extend(error for error in (sampling_error, mtc_error, acceptance_error) if error)
     if sampling.get("effective_n", 0) < sampling.get("minimum_effective_n", 10**9):
         failures.append("effective_n below minimum")
     if not sampling.get("overlap_policy"):
@@ -164,20 +194,29 @@ def _validation_gate(
     if acceptance.get("primary_metric") != "net_alpha_after_cost_20d":
         failures.append("primary after-cost metric missing")
 
-    if hardening is None:
+    if hardening_error:
+        failures.append(hardening_error)
+    elif hardening is None:
         failures.append("validation hardening report missing")
     else:
-        if hardening.get("ablation_checks", {}).get("accepted") is not True:
+        ablation_checks, ablation_error = _mapping_field(hardening, "ablation_checks", "ablation_checks")
+        if ablation_error:
+            failures.append(ablation_error)
+        if ablation_checks.get("accepted") is not True:
             failures.append("ablation checks failed")
         if hardening.get("horizon_metric_failures"):
             failures.append("horizon-metric alignment failed")
         if hardening.get("precision_failures"):
             failures.append("scoring precision check failed")
 
-    if statistical is None:
+    if statistical_error:
+        failures.append(statistical_error)
+    elif statistical is None:
         failures.append("statistical significance report missing")
     else:
-        ci = dict(statistical.get("confidence_interval") or {})
+        ci, ci_error = _mapping_field(statistical, "confidence_interval", "confidence_interval")
+        if ci_error:
+            failures.append(ci_error)
         if statistical.get("accepted") is not True:
             failures.append("statistical significance gate failed")
         if float(ci.get("low") or 0.0) <= 0:
@@ -196,10 +235,18 @@ def _validation_gate(
 
 
 def _audit_trace_gate(root: Path) -> tuple[bool, str, str]:
-    trace = _optional_json(root / "registry/audits/central_bank_mvp_audit_trace.json")
+    trace, trace_error = _optional_mapping(
+        root / "registry/audits/central_bank_mvp_audit_trace.json",
+        "audit trace",
+    )
+    if trace_error:
+        return False, "audit trace malformed", trace_error
     if trace is None:
         return False, "audit trace missing", "audit trace file missing"
-    view = build_audit_trace_view(root, trace_id="central-bank-mvp")
+    try:
+        view = build_audit_trace_view(root, trace_id="central-bank-mvp")
+    except Exception as exc:  # noqa: BLE001 - malformed registry artifacts should block, not crash, the audit
+        return False, "audit trace resolution failed", f"audit trace resolution failed: {exc}"
     if view.complete:
         return True, f"{view.node_count} audit nodes and {view.edge_count} provenance edges resolved", ""
     blockers = tuple(view.missing_references) + tuple(view.broken_edges)
@@ -208,29 +255,42 @@ def _audit_trace_gate(root: Path) -> tuple[bool, str, str]:
 
 def audit_master_plan_completion(root: str | Path = ".") -> CompletionAudit:
     root_path = Path(root)
-    experiment = _optional_json(
-        root_path / "registry/experiments/central_bank_validation_experiment_v2.json"
+    experiment, experiment_error = _optional_mapping(
+        root_path / "registry/experiments/central_bank_validation_experiment_v2.json",
+        "validation experiment",
     )
-    hardening = _optional_json(
-        root_path / "registry/validation_hardening/central_bank_hardening_report.json"
+    hardening, hardening_error = _optional_mapping(
+        root_path / "registry/validation_hardening/central_bank_hardening_report.json",
+        "validation hardening report",
     )
-    statistical = _optional_json(
-        root_path / "registry/evaluation/statistical_significance/central_bank_after_cost_significance.json"
+    statistical, statistical_error = _optional_mapping(
+        root_path / "registry/evaluation/statistical_significance/central_bank_after_cost_significance.json",
+        "statistical significance report",
     )
-    runtime_output = _optional_json(
-        root_path / "registry/runtime_outputs/macro.central_bank.20260605.json"
+    runtime_output, runtime_output_error = _optional_mapping(
+        root_path / "registry/runtime_outputs/macro.central_bank.20260605.json",
+        "runtime output",
     )
-    paper_report = _optional_json(
-        root_path / "registry/monitoring/central_bank_paper_trading_report.json"
+    paper_report, paper_report_error = _optional_mapping(
+        root_path / "registry/monitoring/central_bank_paper_trading_report.json",
+        "paper trading report",
     )
-    monitor_diagnostics = _optional_json(
-        root_path / "registry/monitoring/central_bank_monitoring_diagnostics.json"
+    monitor_diagnostics, monitor_diagnostics_error = _optional_mapping(
+        root_path / "registry/monitoring/central_bank_monitoring_diagnostics.json",
+        "production monitor diagnostics",
     )
-    data_matrix = _optional_json(
-        root_path / "registry/data_availability/central_bank_data_availability.json"
+    data_matrix, data_matrix_error = _optional_mapping(
+        root_path / "registry/data_availability/central_bank_data_availability.json",
+        "data availability matrix",
     )
-    patch = _optional_json(root_path / "registry/patches/central_bank_paper_trading_patch.json")
-    rule_pack = _optional_json(root_path / "registry/rule_packs/macro.central_bank.liquidity.v1.json")
+    patch, patch_error = _optional_mapping(
+        root_path / "registry/patches/central_bank_paper_trading_patch.json",
+        "paper-trading patch",
+    )
+    rule_pack, rule_pack_error = _optional_mapping(
+        root_path / "registry/rule_packs/macro.central_bank.liquidity.v1.json",
+        "central_bank rule pack",
+    )
 
     gold_passed, gold_evidence, gold_blocker = _gold_set_gate(root_path)
     license_passed, license_evidence, license_blocker = _license_gate(root_path)
@@ -239,18 +299,54 @@ def audit_master_plan_completion(root: str | Path = ".") -> CompletionAudit:
         experiment,
         hardening,
         statistical,
+        experiment_error=experiment_error,
+        hardening_error=hardening_error,
+        statistical_error=statistical_error,
     )
     audit_passed, audit_evidence, audit_blocker = _audit_trace_gate(root_path)
 
-    runtime_passed = bool(runtime_output) and _runtime_output_passes(runtime_output)
-    aggregation = dict((runtime_output or {}).get("rule_aggregation_summary") or {})
+    aggregation, aggregation_error = _mapping_field(
+        runtime_output,
+        "rule_aggregation_summary",
+        "rule_aggregation_summary",
+    )
+    runtime_passed = (
+        not runtime_output_error
+        and not aggregation_error
+        and bool(runtime_output)
+        and _runtime_output_passes(runtime_output)
+    )
+    paper_summary, paper_summary_error = _mapping_field(
+        paper_report,
+        "paper_trading_summary",
+        "paper_trading_summary",
+    )
+    production_monitor, production_monitor_error = _mapping_field(
+        paper_report,
+        "production_monitor",
+        "production_monitor",
+    )
+    data_proxies, data_proxies_error = _mapping_field(
+        data_matrix,
+        "proxies",
+        "data availability proxies",
+    )
     monitor_diagnostics_passed = (
-        bool(paper_report and paper_report.get("production_monitor"))
+        not paper_report_error
+        and not production_monitor_error
+        and bool(production_monitor)
+        and not monitor_diagnostics_error
         and bool(monitor_diagnostics)
         and monitor_diagnostics.get("accepted") is True
     )
-    if not paper_report:
+    if paper_report_error:
+        monitor_diagnostics_blocker = paper_report_error
+    elif production_monitor_error:
+        monitor_diagnostics_blocker = production_monitor_error
+    elif not paper_report:
         monitor_diagnostics_blocker = "production monitor report missing"
+    elif monitor_diagnostics_error:
+        monitor_diagnostics_blocker = monitor_diagnostics_error
     elif not monitor_diagnostics:
         monitor_diagnostics_blocker = "production monitor diagnostics missing"
     elif monitor_diagnostics.get("accepted") is not True:
@@ -262,9 +358,11 @@ def audit_master_plan_completion(root: str | Path = ".") -> CompletionAudit:
             CompletionCriterion(
                 "C01",
                 "At least one macro rule family reaches the Phase 4 paper-trading gate.",
-                bool(paper_report and paper_report.get("paper_trading_summary", {}).get("ready")),
+                not paper_report_error and not paper_summary_error and paper_summary.get("ready") is True,
                 "central_bank paper-trading report",
-                "" if paper_report else "paper trading report missing",
+                paper_report_error
+                or paper_summary_error
+                or ("" if paper_report else "paper trading report missing"),
             ),
             CompletionCriterion(
                 "C02",
@@ -276,9 +374,18 @@ def audit_master_plan_completion(root: str | Path = ".") -> CompletionAudit:
             CompletionCriterion(
                 "C03",
                 "Data availability matrix covers the production candidate proxies.",
-                bool(data_matrix and {"pboc_net_injection_7d", "risk_appetite_proxy"} <= set(data_matrix.get("proxies", {}))),
+                (
+                    not data_matrix_error
+                    and not data_proxies_error
+                    and bool(
+                        data_matrix
+                        and {"pboc_net_injection_7d", "risk_appetite_proxy"} <= set(data_proxies)
+                    )
+                ),
                 "central_bank data availability matrix",
-                "" if data_matrix else "data availability matrix missing",
+                data_matrix_error
+                or data_proxies_error
+                or ("" if data_matrix else "data availability matrix missing"),
             ),
             CompletionCriterion(
                 "C04",
@@ -294,7 +401,9 @@ def audit_master_plan_completion(root: str | Path = ".") -> CompletionAudit:
                 and "correlated_rule_duplicate_count" in aggregation
                 and "has_opposing_rules" in aggregation,
                 "runtime output aggregation summary",
-                "" if runtime_passed else "runtime output missing required fields",
+                runtime_output_error
+                or aggregation_error
+                or ("" if runtime_passed else "runtime output missing required fields"),
             ),
             CompletionCriterion(
                 "C06",
@@ -308,24 +417,30 @@ def audit_master_plan_completion(root: str | Path = ".") -> CompletionAudit:
                 "Research-only no-trade rule is enforced by checker.",
                 runtime_passed,
                 "runtime output checker and focused tests",
-                "" if runtime_passed else "runtime output checker evidence missing",
+                runtime_output_error
+                or aggregation_error
+                or ("" if runtime_passed else "runtime output checker evidence missing"),
             ),
             CompletionCriterion(
                 "C08",
                 "Patch validator rejects forbidden paths and mismatched target paths.",
-                bool(patch and patch.get("allowed_by_evolution_targets") is True),
+                not patch_error and bool(patch and patch.get("allowed_by_evolution_targets") is True),
                 "central_bank paper-trading patch + patch checker tests",
-                "" if patch else "patch registry missing",
+                patch_error or ("" if patch else "patch registry missing"),
             ),
             CompletionCriterion(
                 "C09",
                 "Paper trading monitor outputs live-vs-baseline deltas.",
                 bool(
-                    paper_report
-                    and "mean_live_vs_baseline_delta" in paper_report.get("paper_trading_summary", {})
+                    not paper_report_error
+                    and not paper_summary_error
+                    and paper_report
+                    and "mean_live_vs_baseline_delta" in paper_summary
                 ),
                 "central_bank paper-trading summary",
-                "" if paper_report else "paper trading report missing",
+                paper_report_error
+                or paper_summary_error
+                or ("" if paper_report else "paper trading report missing"),
             ),
             CompletionCriterion(
                 "C10",
@@ -353,14 +468,14 @@ def audit_master_plan_completion(root: str | Path = ".") -> CompletionAudit:
             ),
         )
     )
-    if rule_pack is None:
+    if rule_pack is None or rule_pack_error:
         criteria = list(completion.criteria)
         criteria[0] = CompletionCriterion(
             criteria[0].criterion_id,
             criteria[0].description,
             False,
             criteria[0].evidence,
-            "central_bank rule pack missing",
+            rule_pack_error or "central_bank rule pack missing",
         )
         return CompletionAudit(criteria=tuple(criteria))
     return completion
