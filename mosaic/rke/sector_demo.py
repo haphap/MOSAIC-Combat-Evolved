@@ -17,7 +17,7 @@ from .p0 import (
     RulePack,
     SourceGroundedClaim,
 )
-from .phase_minus1 import load_jsonl
+from .phase_minus1 import load_jsonl_with_errors
 from .runtime import (
     EvidenceLedgerItem,
     ProgressEvent,
@@ -139,6 +139,13 @@ def _require_mapping_rows(rows: Sequence[Any], *, label: str) -> list[Mapping[st
     return valid_rows
 
 
+def _load_required_mapping_rows(path: str | Path, *, label: str) -> list[Mapping[str, Any]]:
+    rows, parse_errors = load_jsonl_with_errors(path, label=label)
+    if parse_errors:
+        raise ValueError("; ".join(parse_errors))
+    return _require_mapping_rows(rows, label=label)
+
+
 def _find_report(rows: Sequence[Mapping[str, Any]], *, contains: str) -> Mapping[str, Any]:
     for row in rows:
         if row.get("query_key") == "半导体" and contains in str(row.get("abstract") or ""):
@@ -177,7 +184,10 @@ def build_sector_semiconductor_demo(
     source_rows: Sequence[Any] | None = None,
 ) -> SectorSemiconductorDemoBundle:
     rows = _require_mapping_rows(
-        load_jsonl("registry/sources/tushare_research_reports.jsonl")
+        _load_required_mapping_rows(
+            "registry/sources/tushare_research_reports.jsonl",
+            label="semiconductor source",
+        )
         if source_rows is None
         else source_rows,
         label="semiconductor source",
@@ -457,7 +467,10 @@ def build_sector_semiconductor_demo(
 def write_sector_semiconductor_demo_registry(root: str | Path = ".") -> dict[str, str]:
     root_path = Path(root)
     bundle = build_sector_semiconductor_demo(
-        load_jsonl(root_path / "registry/sources/tushare_research_reports.jsonl")
+        _load_required_mapping_rows(
+            root_path / "registry/sources/tushare_research_reports.jsonl",
+            label="semiconductor source",
+        )
     )
     outputs = {
         "sources": root_path / "registry/sources/semiconductor_demo_sources.jsonl",

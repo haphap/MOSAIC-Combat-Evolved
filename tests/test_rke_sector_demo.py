@@ -105,6 +105,21 @@ def test_sector_semiconductor_demo_rejects_malformed_source_rows(tmp_path: Path)
         write_sector_semiconductor_demo_registry(tmp_path)
 
 
+def test_sector_semiconductor_demo_reports_malformed_json_source_rows(tmp_path: Path):
+    source_dir = tmp_path / "registry/sources"
+    source_dir.mkdir(parents=True, exist_ok=True)
+    source_path = source_dir / "tushare_research_reports.jsonl"
+    source_text = Path("registry/sources/tushare_research_reports.jsonl").read_text(encoding="utf-8")
+    expected_row = len(source_text.splitlines()) + 1
+    source_path.write_text(source_text + "{\n", encoding="utf-8")
+
+    with pytest.raises(
+        ValueError,
+        match=rf"semiconductor source row {expected_row} must contain valid JSON",
+    ):
+        write_sector_semiconductor_demo_registry(tmp_path)
+
+
 def test_sector_semiconductor_repo_registry_is_sandbox_only():
     rule_pack = json.loads(
         Path("registry/rule_packs/sector.semiconductor.policy_substitution.v1.json").read_text(

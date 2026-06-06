@@ -527,7 +527,12 @@ def _filter_reports_with_abstract(
 def _template_has_manual_values(path: Path, fields: Sequence[str]) -> bool:
     if not path.exists():
         return False
-    for row in load_jsonl(path):
+    rows, parse_errors = load_jsonl_with_errors(path, label=str(path))
+    if parse_errors:
+        # Do not overwrite a malformed review template during refresh.
+        # Downstream review gates surface the row-level blocker.
+        return True
+    for row in rows:
         if not isinstance(row, Mapping):
             # Do not overwrite a malformed review template during refresh.
             # Downstream review gates surface the row-level blocker.
@@ -542,7 +547,10 @@ def _existing_discovered_at_by_hash(path: Path) -> dict[str, str]:
     if not path.exists():
         return {}
     discovered: dict[str, str] = {}
-    for row in load_jsonl(path):
+    rows, parse_errors = load_jsonl_with_errors(path, label=str(path))
+    if parse_errors:
+        return discovered
+    for row in rows:
         if not isinstance(row, Mapping):
             continue
         source_hash = str(row.get("source_hash") or "").strip()

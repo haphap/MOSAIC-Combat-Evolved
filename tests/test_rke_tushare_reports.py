@@ -520,6 +520,33 @@ def test_refresh_tushare_research_report_registry_preserves_existing_discovered_
     assert {row["discovered_at"] for row in source_rows} == {"2026-06-01T00:00:00+00:00"}
 
 
+def test_refresh_ignores_malformed_existing_source_when_preserving_discovered_at(
+    tmp_path: Path,
+):
+    shutil.copytree(Path("registry"), tmp_path / "registry")
+    source_path = tmp_path / "registry/sources/tushare_research_reports.jsonl"
+    source_path.write_text(
+        source_path.read_text(encoding="utf-8") + "{\n",
+        encoding="utf-8",
+    )
+
+    result = refresh_tushare_research_report_registry(
+        tmp_path,
+        stock_codes=("600519.SH",),
+        industry_keywords=("银行",),
+        start_date="2026-06-01",
+        end_date="2026-06-05",
+        max_reports_per_query=6000,
+        pro=FakeTusharePro(),
+    )
+
+    source_rows = [json.loads(line) for line in source_path.read_text(encoding="utf-8").splitlines()]
+
+    assert result.source_rows == 2
+    assert len(source_rows) == 2
+    assert {row["query_key"] for row in source_rows} == {"600519.SH", "银行"}
+
+
 def test_refresh_preserves_malformed_review_templates_for_gate_blockers(tmp_path: Path):
     shutil.copytree(Path("registry"), tmp_path / "registry")
     gold_review_path = tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
@@ -562,3 +589,50 @@ def test_refresh_preserves_malformed_review_templates_for_gate_blockers(tmp_path
     assert license_rows[-1] == ["not", "an", "object"]
     assert any("gold-set review row must be object" in blocker for blocker in gold_summary["blockers"])
     assert any("source license review row must be object" in blocker for blocker in license_packet["blockers"])
+
+
+def test_refresh_preserves_malformed_json_review_templates_for_gate_blockers(tmp_path: Path):
+    shutil.copytree(Path("registry"), tmp_path / "registry")
+    gold_review_path = tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    license_review_path = tmp_path / "registry/compliance/tushare_license_review_template.jsonl"
+    gold_expected_row = len(gold_review_path.read_text(encoding="utf-8").splitlines()) + 1
+    license_expected_row = len(license_review_path.read_text(encoding="utf-8").splitlines()) + 1
+    gold_review_path.write_text(gold_review_path.read_text(encoding="utf-8") + "{\n", encoding="utf-8")
+    license_review_path.write_text(
+        license_review_path.read_text(encoding="utf-8") + "{\n",
+        encoding="utf-8",
+    )
+
+    result = refresh_tushare_research_report_registry(
+        tmp_path,
+        stock_codes=("600519.SH",),
+        industry_keywords=("银行",),
+        start_date="2026-06-01",
+        end_date="2026-06-05",
+        max_reports_per_query=6000,
+        discovered_at="2026-06-05T12:00:00+00:00",
+        pro=FakeTusharePro(),
+    )
+    gold_summary = json.loads(
+        (tmp_path / "registry/gold_sets/tushare_research_reports.review_summary.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    license_packet = json.loads(
+        (tmp_path / "registry/compliance/tushare_license_review_packet.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert not result.gold_review_template_updated
+    assert not result.license_review_template_updated
+    assert gold_review_path.read_text(encoding="utf-8").endswith("{\n")
+    assert license_review_path.read_text(encoding="utf-8").endswith("{\n")
+    assert any(
+        f"gold-set review row {gold_expected_row} must contain valid JSON" in blocker
+        for blocker in gold_summary["blockers"]
+    )
+    assert any(
+        f"source license review row {license_expected_row} must contain valid JSON" in blocker
+        for blocker in license_packet["blockers"]
+    )
