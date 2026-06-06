@@ -230,13 +230,18 @@ def _record(
     )
 
 
-def _load_claim_rows(root_path: Path) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
+def _load_claim_rows(root_path: Path) -> tuple[list[Mapping[str, Any]], tuple[str, ...]]:
+    rows: list[Mapping[str, Any]] = []
+    failures: list[str] = []
     for relative in CLAIM_PATHS:
         path = root_path / relative
         if path.exists():
-            rows.extend(load_jsonl(path))
-    return rows
+            for index, row in enumerate(load_jsonl(path), 1):
+                if isinstance(row, Mapping):
+                    rows.append(row)
+                else:
+                    failures.append(f"{relative} row {index} must be object")
+    return rows, tuple(failures)
 
 
 def build_claim_variable_validation_report(root: str | Path = ".") -> ClaimVariableValidationReport:
@@ -282,8 +287,8 @@ def build_claim_variable_validation_report(root: str | Path = ".") -> ClaimVaria
     )
 
     allowed = {variable.variable_id: variable for variable in vocabulary.variables}
-    claims = _load_claim_rows(root_path)
-    claim_failures: list[str] = []
+    claims, malformed_claim_row_failures = _load_claim_rows(root_path)
+    claim_failures: list[str] = list(malformed_claim_row_failures)
     used_variables: set[str] = set()
     for claim in claims:
         claim_id = str(claim.get("claim_id") or "<unknown>")
@@ -320,6 +325,7 @@ def build_claim_variable_validation_report(root: str | Path = ".") -> ClaimVaria
             claim_failures,
             {
                 "claim_count": len(claims),
+                "malformed_claim_row_count": len(malformed_claim_row_failures),
                 "used_variable_count": len(used_variables),
                 "unused_variable_count": len(set(allowed) - used_variables),
             },

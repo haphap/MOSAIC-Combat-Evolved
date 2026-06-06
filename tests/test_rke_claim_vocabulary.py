@@ -81,6 +81,25 @@ def test_claim_variable_validation_rejects_character_leakage(tmp_path: Path):
     assert any("character leakage" in failure for failure in mapping.failures)
 
 
+def test_claim_variable_validation_reports_malformed_claim_rows(tmp_path: Path):
+    _copy_registry(Path("."), tmp_path)
+    claim_path = tmp_path / "registry/claims/central_bank_claims.jsonl"
+    expected_row = len(claim_path.read_text(encoding="utf-8").splitlines()) + 1
+    claim_path.write_text(
+        claim_path.read_text(encoding="utf-8") + json.dumps("not an object") + "\n",
+        encoding="utf-8",
+    )
+
+    report = build_claim_variable_validation_report(tmp_path)
+    mapping = next(record for record in report.records if record.check_id == "CLAIM-VARIABLE-MAPPING")
+
+    assert not report.accepted
+    assert not mapping.accepted
+    assert f"registry/claims/central_bank_claims.jsonl row {expected_row} must be object" in mapping.failures
+    assert mapping.details["malformed_claim_row_count"] == 1
+    assert mapping.details["claim_count"] > 0
+
+
 def test_claim_variable_validation_writer_outputs_report(tmp_path: Path):
     _copy_registry(Path("."), tmp_path)
     write_claim_variable_vocabulary(tmp_path)

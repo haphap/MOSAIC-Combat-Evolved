@@ -22,6 +22,7 @@
       "check_id": "CLAIM-VARIABLE-MAPPING",
       "details": {
         "claim_count": 4,
+        "malformed_claim_row_count": 0,
         "unused_variable_count": 7,
         "used_variable_count": 8
       },
