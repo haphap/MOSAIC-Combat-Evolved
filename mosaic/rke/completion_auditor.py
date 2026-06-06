@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict
+from datetime import date
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -122,6 +123,215 @@ def _split_mapping_rows(
         else:
             invalid.append(index)
     return valid, tuple(invalid)
+
+
+_GOLD_REVIEW_FIELDS = (
+    "claim_correct",
+    "source_span_supports_claim",
+    "direction_correct",
+    "variable_mapping_correct",
+    "unsupported_field_false_grounded",
+)
+
+_LICENSE_APPROVAL_FIELDS = (
+    "approved_for_derived_claim_storage",
+    "approved_for_production_runtime",
+)
+
+
+def _required_string_failure(
+    row: Mapping[str, Any],
+    field: str,
+    *,
+    label: str,
+    row_number: int,
+) -> str:
+    value = row.get(field)
+    if value is None or value == "":
+        return f"{label} row {row_number} {field} required"
+    if not isinstance(value, str):
+        return f"{label} row {row_number} {field} must be string"
+    if not value.strip():
+        return f"{label} row {row_number} {field} required"
+    return ""
+
+
+def _iso_date_failure(
+    row: Mapping[str, Any],
+    field: str,
+    *,
+    label: str,
+    row_number: int,
+) -> str:
+    value = row.get(field)
+    if not isinstance(value, str) or not value.strip():
+        return ""
+    try:
+        parsed = date.fromisoformat(value)
+    except ValueError:
+        return f"{label} row {row_number} {field} must be YYYY-MM-DD"
+    if parsed.isoformat() != value:
+        return f"{label} row {row_number} {field} must be YYYY-MM-DD"
+    return ""
+
+
+def _duplicate_values(values: list[str]) -> tuple[str, ...]:
+    seen: set[str] = set()
+    duplicates: set[str] = set()
+    for value in values:
+        if value in seen:
+            duplicates.add(value)
+        seen.add(value)
+    return tuple(sorted(duplicates))
+
+
+def _gold_review_integrity_failures(rows: list[Mapping[str, Any]]) -> tuple[str, ...]:
+    failures: list[str] = []
+    claim_ids: list[str] = []
+    for index, row in enumerate(rows, 1):
+        for field in ("source_id", "source_span_id", "claim_id", "document_id"):
+            failure = _required_string_failure(
+                row,
+                field,
+                label="gold-set review",
+                row_number=index,
+            )
+            if failure:
+                failures.append(failure)
+        claim_id = str(row.get("claim_id") or "").strip()
+        if claim_id:
+            claim_ids.append(claim_id)
+
+        any_review_started = False
+        all_review_complete = True
+        for field in _GOLD_REVIEW_FIELDS:
+            value = row.get(field)
+            if value is None:
+                all_review_complete = False
+                continue
+            any_review_started = True
+            if not isinstance(value, bool):
+                all_review_complete = False
+                failures.append(f"gold-set review row {index} {field} must be boolean")
+        if any_review_started and all_review_complete:
+            for field in ("manual_claim_text", "reviewer", "review_date"):
+                failure = _required_string_failure(
+                    row,
+                    field,
+                    label="gold-set review",
+                    row_number=index,
+                )
+                if failure:
+                    failures.append(failure)
+            date_failure = _iso_date_failure(
+                row,
+                "review_date",
+                label="gold-set review",
+                row_number=index,
+            )
+            if date_failure:
+                failures.append(date_failure)
+    duplicates = _duplicate_values(claim_ids)
+    if duplicates:
+        failures.append(
+            f"gold-set review claim_id duplicated: {', '.join(duplicates[:10])}"
+        )
+    return tuple(failures)
+
+
+def _license_review_integrity_failures(
+    sources: list[Mapping[str, Any]],
+    reviews: list[Mapping[str, Any]],
+) -> tuple[str, ...]:
+    failures: list[str] = []
+    source_ids: list[str] = []
+    for index, source in enumerate(sources, 1):
+        source_id = str(source.get("source_id") or "").strip()
+        if not source_id:
+            failures.append(f"source registry row {index} source_id required")
+            continue
+        source_ids.append(source_id)
+    duplicate_source_ids = _duplicate_values(source_ids)
+    if duplicate_source_ids:
+        failures.append(
+            "source registry source_id duplicated: "
+            + ", ".join(duplicate_source_ids[:10])
+        )
+
+    review_ids: list[str] = []
+    for index, row in enumerate(reviews, 1):
+        source_id = str(row.get("source_id") or "").strip()
+        if not source_id:
+            failures.append(f"source license review row {index} source_id required")
+        else:
+            review_ids.append(source_id)
+
+        review_started = False
+        approval_values: dict[str, Any] = {}
+        for field in _LICENSE_APPROVAL_FIELDS:
+            value = row.get(field)
+            approval_values[field] = value
+            if value is None:
+                continue
+            review_started = True
+            if not isinstance(value, bool):
+                failures.append(
+                    f"source license review row {index} {field} must be boolean"
+                )
+        if review_started:
+            for field in _LICENSE_APPROVAL_FIELDS:
+                if approval_values[field] is None:
+                    failures.append(
+                        f"source license review row {index} {field} required"
+                    )
+            for field in ("reviewer", "review_date"):
+                failure = _required_string_failure(
+                    row,
+                    field,
+                    label="source license review",
+                    row_number=index,
+                )
+                if failure:
+                    failures.append(failure)
+            date_failure = _iso_date_failure(
+                row,
+                "review_date",
+                label="source license review",
+                row_number=index,
+            )
+            if date_failure:
+                failures.append(date_failure)
+            if (
+                approval_values.get("approved_for_production_runtime") is True
+                and approval_values.get("approved_for_derived_claim_storage")
+                is not True
+            ):
+                failures.append(
+                    "source license review row "
+                    f"{index} production approval requires derived-claim approval"
+                )
+
+    duplicate_review_ids = _duplicate_values(review_ids)
+    if duplicate_review_ids:
+        failures.append(
+            "source license review source_id duplicated: "
+            + ", ".join(duplicate_review_ids[:10])
+        )
+
+    source_id_set = set(source_ids)
+    review_id_set = set(review_ids)
+    missing_review_ids = tuple(sorted(source_id_set - review_id_set))
+    unknown_review_ids = tuple(sorted(review_id_set - source_id_set))
+    if missing_review_ids:
+        failures.append(
+            f"{len(missing_review_ids)} source registry rows missing license review rows"
+        )
+    if unknown_review_ids:
+        failures.append(
+            "source license review rows reference unknown source_id: "
+            + ", ".join(unknown_review_ids[:10])
+        )
+    return tuple(failures)
 
 
 _CONFIDENCE_COMPONENTS = (
@@ -1346,14 +1556,14 @@ def _gold_set_gate(root: Path) -> tuple[bool, str, str]:
             f"gold-set review records malformed: {len(invalid_rows)} non-object row(s) / {len(raw_rows)} rows",
             f"gold-set review row must be object at row(s): {', '.join(str(row) for row in invalid_rows)}",
         )
-    review_fields = (
-        "claim_correct",
-        "source_span_supports_claim",
-        "direction_correct",
-        "variable_mapping_correct",
-        "unsupported_field_false_grounded",
-    )
-    if any(row.get(field) is None for row in rows for field in review_fields):
+    integrity_failures = _gold_review_integrity_failures(rows)
+    if integrity_failures:
+        return (
+            False,
+            f"gold-set review records present: {len({str(row.get('document_id') or row.get('source_id') or '') for row in rows})} documents / {len(rows)} claims",
+            "; ".join(integrity_failures),
+        )
+    if any(row.get(field) is None for row in rows for field in _GOLD_REVIEW_FIELDS):
         return (
             False,
             f"gold-set review records present: {len({str(row.get('document_id') or row.get('source_id') or '') for row in rows})} documents / {len(rows)} claims",
@@ -1401,6 +1611,13 @@ def _license_gate(root: Path) -> tuple[bool, str, str]:
             False,
             f"license review records malformed: {len(invalid_review_rows)} non-object row(s) / {len(raw_reviews)} rows",
             f"source license review row must be object at row(s): {', '.join(str(row) for row in invalid_review_rows)}",
+        )
+    integrity_failures = _license_review_integrity_failures(sources, reviews)
+    if integrity_failures:
+        return (
+            False,
+            f"license review records present: {len(reviews)} reviews / {len(sources)} sources",
+            "; ".join(integrity_failures),
         )
     reviewed_sources = apply_source_license_reviews(sources, reviews)
     decisions = [evaluate_source_license(source) for source in reviewed_sources]

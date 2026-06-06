@@ -15,6 +15,57 @@ from mosaic.rke import (
 )
 
 
+def _read_jsonl(path: Path) -> list[dict]:
+    return [
+        json.loads(line)
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line
+    ]
+
+
+def _write_jsonl(path: Path, rows: list[dict]) -> None:
+    path.write_text(
+        "".join(
+            json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows
+        ),
+        encoding="utf-8",
+    )
+
+
+def _completed_gold_review_rows(path: Path) -> list[dict]:
+    rows = _read_jsonl(path)
+    for row in rows:
+        row.update(
+            {
+                "manual_claim_text": row.get("proposed_claim_text") or "manual claim",
+                "claim_correct": True,
+                "source_span_supports_claim": True,
+                "direction_correct": True,
+                "variable_mapping_correct": True,
+                "unsupported_field_false_grounded": False,
+                "reviewer": "reviewer-a",
+                "review_date": "2026-06-06",
+                "review_notes": "fixture approval",
+            }
+        )
+    return rows
+
+
+def _completed_license_review_rows(path: Path) -> list[dict]:
+    rows = _read_jsonl(path)
+    for row in rows:
+        row.update(
+            {
+                "approved_for_derived_claim_storage": True,
+                "approved_for_production_runtime": True,
+                "reviewer": "compliance",
+                "review_date": "2026-06-06",
+                "notes": "fixture approval",
+            }
+        )
+    return rows
+
+
 def test_completion_auditor_recomputes_current_registry_gates():
     audit = audit_master_plan_completion(".")
     by_id = {criterion.criterion_id: criterion for criterion in audit.criteria}
@@ -176,6 +227,60 @@ def test_completion_auditor_rejects_invalid_json_gold_review_rows(tmp_path: Path
     )
 
 
+def test_completion_auditor_rejects_non_boolean_gold_review_fields(tmp_path: Path):
+    shutil.copytree(Path("registry"), tmp_path / "registry")
+    review_path = (
+        tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    )
+    rows = _completed_gold_review_rows(review_path)
+    rows[0]["claim_correct"] = "yes"
+    _write_jsonl(review_path, rows)
+
+    audit = audit_master_plan_completion(tmp_path)
+    by_id = {criterion.criterion_id: criterion for criterion in audit.criteria}
+
+    assert not by_id["C02"].passed
+    assert "gold-set review row 1 claim_correct must be boolean" in by_id["C02"].blocker
+
+
+def test_completion_auditor_requires_gold_review_provenance(tmp_path: Path):
+    shutil.copytree(Path("registry"), tmp_path / "registry")
+    review_path = (
+        tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    )
+    rows = _completed_gold_review_rows(review_path)
+    rows[0]["reviewer"] = ""
+    rows[1]["review_date"] = "20260606"
+    rows[2]["manual_claim_text"] = ""
+    _write_jsonl(review_path, rows)
+
+    audit = audit_master_plan_completion(tmp_path)
+    by_id = {criterion.criterion_id: criterion for criterion in audit.criteria}
+
+    assert not by_id["C02"].passed
+    assert "gold-set review row 1 reviewer required" in by_id["C02"].blocker
+    assert (
+        "gold-set review row 2 review_date must be YYYY-MM-DD" in by_id["C02"].blocker
+    )
+    assert "gold-set review row 3 manual_claim_text required" in by_id["C02"].blocker
+
+
+def test_completion_auditor_rejects_duplicate_gold_claim_ids(tmp_path: Path):
+    shutil.copytree(Path("registry"), tmp_path / "registry")
+    review_path = (
+        tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    )
+    rows = _read_jsonl(review_path)
+    rows[1]["claim_id"] = rows[0]["claim_id"]
+    _write_jsonl(review_path, rows)
+
+    audit = audit_master_plan_completion(tmp_path)
+    by_id = {criterion.criterion_id: criterion for criterion in audit.criteria}
+
+    assert not by_id["C02"].passed
+    assert "gold-set review claim_id duplicated" in by_id["C02"].blocker
+
+
 def test_completion_auditor_rejects_non_object_license_review_rows(tmp_path: Path):
     shutil.copytree(Path("registry"), tmp_path / "registry")
     review_path = tmp_path / "registry/compliance/tushare_license_review_template.jsonl"
@@ -207,6 +312,70 @@ def test_completion_auditor_rejects_invalid_json_source_registry_rows(tmp_path: 
     assert not by_id["C11"].passed
     assert (
         f"source registry row {expected_row} must contain valid JSON"
+        in by_id["C11"].blocker
+    )
+
+
+def test_completion_auditor_requires_license_review_provenance(tmp_path: Path):
+    shutil.copytree(Path("registry"), tmp_path / "registry")
+    review_path = tmp_path / "registry/compliance/tushare_license_review_template.jsonl"
+    rows = _completed_license_review_rows(review_path)
+    rows[0]["reviewer"] = ""
+    rows[1]["review_date"] = "20260606"
+    _write_jsonl(review_path, rows)
+
+    audit = audit_master_plan_completion(tmp_path)
+    by_id = {criterion.criterion_id: criterion for criterion in audit.criteria}
+
+    assert not by_id["C11"].passed
+    assert "source license review row 1 reviewer required" in by_id["C11"].blocker
+    assert (
+        "source license review row 2 review_date must be YYYY-MM-DD"
+        in by_id["C11"].blocker
+    )
+
+
+def test_completion_auditor_rejects_license_review_identity_mismatch(tmp_path: Path):
+    shutil.copytree(Path("registry"), tmp_path / "registry")
+    review_path = tmp_path / "registry/compliance/tushare_license_review_template.jsonl"
+    rows = _read_jsonl(review_path)
+    rows.append(dict(rows[0]))
+    rows.append(dict(rows[0], source_id="SRC-UNKNOWN"))
+    _write_jsonl(review_path, rows)
+
+    audit = audit_master_plan_completion(tmp_path)
+    by_id = {criterion.criterion_id: criterion for criterion in audit.criteria}
+
+    assert not by_id["C11"].passed
+    assert "source license review source_id duplicated" in by_id["C11"].blocker
+    assert (
+        "source license review rows reference unknown source_id" in by_id["C11"].blocker
+    )
+
+
+def test_completion_auditor_rejects_inconsistent_license_approval(tmp_path: Path):
+    shutil.copytree(Path("registry"), tmp_path / "registry")
+    review_path = tmp_path / "registry/compliance/tushare_license_review_template.jsonl"
+    rows = _completed_license_review_rows(review_path)
+    rows[0]["approved_for_derived_claim_storage"] = False
+    rows[1]["approved_for_production_runtime"] = "true"
+    rows[2]["approved_for_derived_claim_storage"] = None
+    _write_jsonl(review_path, rows)
+
+    audit = audit_master_plan_completion(tmp_path)
+    by_id = {criterion.criterion_id: criterion for criterion in audit.criteria}
+
+    assert not by_id["C11"].passed
+    assert (
+        "source license review row 1 production approval requires derived-claim approval"
+        in by_id["C11"].blocker
+    )
+    assert (
+        "source license review row 2 approved_for_production_runtime must be boolean"
+        in by_id["C11"].blocker
+    )
+    assert (
+        "source license review row 3 approved_for_derived_claim_storage required"
         in by_id["C11"].blocker
     )
 
