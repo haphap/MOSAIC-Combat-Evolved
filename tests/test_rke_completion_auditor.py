@@ -258,6 +258,59 @@ def test_completion_auditor_rejects_research_only_actionability(tmp_path: Path):
     assert "confidence must be <= 0.50" in by_id["C07"].blocker
 
 
+def test_completion_auditor_replays_patch_validator(tmp_path: Path):
+    shutil.copytree(Path("registry"), tmp_path / "registry")
+    patch_path = tmp_path / "registry/patches/central_bank_paper_trading_patch.json"
+    patch = json.loads(patch_path.read_text(encoding="utf-8"))
+    patch["old_value"] = 999
+    patch_path.write_text(
+        json.dumps(patch, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    audit = audit_master_plan_completion(tmp_path)
+    by_id = {criterion.criterion_id: criterion for criterion in audit.criteria}
+
+    assert not by_id["C08"].passed
+    assert "old_value does not match current registry" in by_id["C08"].blocker
+
+
+def test_completion_auditor_rejects_forbidden_patch_target_path(tmp_path: Path):
+    shutil.copytree(Path("registry"), tmp_path / "registry")
+    patch_path = tmp_path / "registry/patches/central_bank_paper_trading_patch.json"
+    patch = json.loads(patch_path.read_text(encoding="utf-8"))
+    patch["target_path"] = "/output_schema_ref"
+    patch_path.write_text(
+        json.dumps(patch, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    audit = audit_master_plan_completion(tmp_path)
+    by_id = {criterion.criterion_id: criterion for criterion in audit.criteria}
+
+    assert not by_id["C08"].passed
+    assert "target_path" in by_id["C08"].blocker
+
+
+def test_completion_auditor_rejects_patch_experiment_mismatch(tmp_path: Path):
+    shutil.copytree(Path("registry"), tmp_path / "registry")
+    patch_path = tmp_path / "registry/patches/central_bank_paper_trading_patch.json"
+    patch = json.loads(patch_path.read_text(encoding="utf-8"))
+    patch["source_experiment_id"] = "EXP-UNKNOWN"
+    patch_path.write_text(
+        json.dumps(patch, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    audit = audit_master_plan_completion(tmp_path)
+    by_id = {criterion.criterion_id: criterion for criterion in audit.criteria}
+
+    assert not by_id["C08"].passed
+    assert (
+        "source_experiment_id must match validation experiment" in by_id["C08"].blocker
+    )
+
+
 def test_completion_auditor_rejects_malformed_validation_experiment(tmp_path: Path):
     shutil.copytree(Path("registry"), tmp_path / "registry")
     experiment_path = (

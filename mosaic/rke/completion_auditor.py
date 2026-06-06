@@ -11,6 +11,8 @@ from .audit_viewer import build_audit_trace_view
 from .central_bank_mvp import CompletionAudit, CompletionCriterion
 from .completion_acceptance import final_acceptance_metadata
 from .compliance import apply_source_license_reviews, evaluate_source_license
+from .governance import ProductionPatch, default_evolution_targets, validate_patch
+from .p0 import LearnableParameter
 from .phase_minus1 import evaluate_gold_set_reviews
 
 
@@ -384,6 +386,176 @@ def _research_only_no_trade_gate(
     )
 
 
+def _patch_target_parameter(
+    rule_pack: Mapping[str, Any] | None,
+    target_path: str,
+) -> tuple[LearnableParameter | None, Any, str]:
+    if not rule_pack:
+        return None, None, "central_bank rule pack missing"
+    parts = target_path.strip("/").split("/")
+    if len(parts) != 7 or parts[0] != "rule_packs" or parts[2] != "rules":
+        return (
+            None,
+            None,
+            "patch target_path is not a rule-pack learnable-parameter path",
+        )
+    if parts[4] != "learnable_parameters" or parts[6] != "value":
+        return (
+            None,
+            None,
+            "patch target_path must end in learnable_parameters/<name>/value",
+        )
+    rule_pack_id = parts[1]
+    rule_id = parts[3]
+    parameter_name = parts[5]
+    if str(rule_pack.get("rule_pack_id") or "") != rule_pack_id:
+        return None, None, "patch target_path rule_pack_id does not match rule pack"
+    rules, rules_error = _mapping_field(rule_pack, "rules", "rule_pack.rules")
+    if rules_error:
+        return None, None, rules_error
+    rule, rule_error = _mapping_field(rules, rule_id, f"rule_pack.rules.{rule_id}")
+    if rule_error or not rule:
+        return None, None, rule_error or "patch target rule missing"
+    params, params_error = _mapping_field(
+        rule,
+        "learnable_parameters",
+        f"rule_pack.rules.{rule_id}.learnable_parameters",
+    )
+    if params_error:
+        return None, None, params_error
+    param, param_error = _mapping_field(
+        params,
+        parameter_name,
+        f"rule_pack.rules.{rule_id}.learnable_parameters.{parameter_name}",
+    )
+    if param_error or not param:
+        return None, None, param_error or "patch target parameter missing"
+    parameter_type = str(param.get("type") or "")
+    if parameter_type not in {"integer", "float", "string", "boolean"}:
+        return None, None, "patch target parameter type is invalid"
+    return (
+        LearnableParameter(
+            value=param.get("value"),
+            type=parameter_type,  # type: ignore[arg-type]
+            unit=param.get("unit"),
+            min=param.get("min"),
+            max=param.get("max"),
+        ),
+        param.get("value"),
+        "",
+    )
+
+
+def _patch_validator_gate(
+    patch: Mapping[str, Any] | None,
+    rule_pack: Mapping[str, Any] | None,
+    experiment: Mapping[str, Any] | None,
+    *,
+    patch_error: str = "",
+    rule_pack_error: str = "",
+    experiment_error: str = "",
+) -> tuple[bool, str, str]:
+    failures: list[str] = []
+    failures.extend(
+        error for error in (patch_error, rule_pack_error, experiment_error) if error
+    )
+    if not patch:
+        failures.append("paper-trading patch missing")
+    if not experiment:
+        failures.append("validation experiment missing")
+    if failures:
+        return False, "patch validator inputs missing", "; ".join(failures)
+
+    required_fields = (
+        "patch_id",
+        "source_experiment_id",
+        "operation",
+        "target_path",
+        "old_value",
+        "new_value",
+        "allowed_by_evolution_targets",
+        "validation_summary",
+        "rollback_rule",
+    )
+    for field in required_fields:
+        if field not in patch:
+            failures.append(f"patch.{field} required")
+    validation_summary, validation_error = _mapping_field(
+        patch,
+        "validation_summary",
+        "patch.validation_summary",
+    )
+    rollback_rule, rollback_error = _mapping_field(
+        patch,
+        "rollback_rule",
+        "patch.rollback_rule",
+    )
+    failures.extend(error for error in (validation_error, rollback_error) if error)
+    if failures:
+        return False, "patch validator inputs malformed", "; ".join(failures)
+
+    target_path = str(patch.get("target_path") or "")
+    parameter, current_value, parameter_error = _patch_target_parameter(
+        rule_pack, target_path
+    )
+    if parameter_error:
+        failures.append(parameter_error)
+    experiment_id = str(experiment.get("experiment_id") or "")
+    if str(patch.get("source_experiment_id") or "") != experiment_id:
+        failures.append("patch source_experiment_id must match validation experiment")
+    if validation_summary.get("promotion_state") != "paper_trading":
+        failures.append(
+            "patch validation_summary.promotion_state must be paper_trading"
+        )
+    for field in (
+        "net_alpha_after_cost",
+        "effective_n",
+        "adjusted_q_value",
+        "walk_forward_passed",
+        "overlap_policy",
+    ):
+        if field not in validation_summary:
+            failures.append(f"patch.validation_summary.{field} required")
+    if rollback_rule.get("metric") != "live_net_alpha_after_cost_20d":
+        failures.append(
+            "patch rollback_rule.metric must be live_net_alpha_after_cost_20d"
+        )
+    if not rollback_rule.get("review_window_trading_days"):
+        failures.append("patch rollback_rule.review_window_trading_days required")
+    if not rollback_rule.get("slow_decay_detection"):
+        failures.append("patch rollback_rule.slow_decay_detection required")
+    if parameter is None:
+        return False, "patch validator inputs malformed", "; ".join(failures)
+
+    patch_obj = ProductionPatch(
+        patch_id=str(patch.get("patch_id") or ""),
+        source_experiment_id=str(patch.get("source_experiment_id") or ""),
+        operation=str(patch.get("operation") or ""),  # type: ignore[arg-type]
+        target_path=target_path,
+        old_value=patch.get("old_value"),
+        new_value=patch.get("new_value"),
+        allowed_by_evolution_targets=bool(patch.get("allowed_by_evolution_targets")),
+        validation_summary=validation_summary,
+        rollback_rule=rollback_rule,
+    )
+    patch_validation = validate_patch(
+        patch_obj,
+        current_registry={target_path: current_value},
+        parameter_types={target_path: parameter},
+        evolution_targets=default_evolution_targets(),
+        valid_experiment_ids={experiment_id},
+        allowed_promotion_states={"paper_trading"},
+    )
+    failures.extend(patch_validation.reasons)
+    if failures:
+        return False, "patch validator replay checked", "; ".join(failures)
+    return (
+        True,
+        f"{patch_obj.patch_id} target_path replay accepted; old={patch_obj.old_value}, new={patch_obj.new_value}, promotion_state=paper_trading",
+        "",
+    )
+
+
 def _gold_set_gate(root: Path) -> tuple[bool, str, str]:
     raw_rows, raw_error = _optional_jsonl(
         root / "registry/gold_sets/tushare_research_reports.review_template.jsonl",
@@ -677,6 +849,14 @@ def audit_master_plan_completion(root: str | Path = ".") -> CompletionAudit:
             runtime_output_error=runtime_output_error,
         )
     )
+    patch_passed, patch_evidence, patch_blocker = _patch_validator_gate(
+        patch,
+        rule_pack,
+        experiment,
+        patch_error=patch_error,
+        rule_pack_error=rule_pack_error,
+        experiment_error=experiment_error,
+    )
     research_only_passed, research_only_evidence, research_only_blocker = (
         _research_only_no_trade_gate(
             prompt_ir,
@@ -806,10 +986,9 @@ def audit_master_plan_completion(root: str | Path = ".") -> CompletionAudit:
             CompletionCriterion(
                 "C08",
                 "Patch validator rejects forbidden paths and mismatched target paths.",
-                not patch_error
-                and bool(patch and patch.get("allowed_by_evolution_targets") is True),
-                "central_bank paper-trading patch + patch checker tests",
-                patch_error or ("" if patch else "patch registry missing"),
+                patch_passed,
+                patch_evidence,
+                patch_blocker,
             ),
             CompletionCriterion(
                 "C09",

@@ -110,7 +110,7 @@
       "blocker": "",
       "criterion_id": "C08",
       "description": "Patch validator rejects forbidden paths and mismatched target paths.",
-      "evidence": "central_bank paper-trading patch + patch checker tests",
+      "evidence": "PATCH-CB-20260605-0001 target_path replay accepted; old=7, new=10, promotion_state=paper_trading",
       "passed": true
     },
     {
