@@ -1,4 +1,5 @@
 {
+  "artifact_errors": [],
   "audit_trace": {
     "agent_output_count": 1,
     "broken_edge_count": 0,

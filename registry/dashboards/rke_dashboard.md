@@ -1,6 +1,7 @@
 # RKE Dashboard
 
 - Broad rollout ready: false
+- Dashboard artifact errors: 0
 - Completion: 10 / 12
 - Master-plan coverage missing: 0
 - Master-plan coverage blocked: 2

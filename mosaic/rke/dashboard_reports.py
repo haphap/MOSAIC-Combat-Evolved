@@ -4,120 +4,601 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 
-def _read_json(path: Path) -> dict[str, Any]:
-    return json.loads(path.read_text(encoding="utf-8"))
+def _path_label(root_path: Path, path: Path) -> str:
+    try:
+        return path.relative_to(root_path).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+
+def _read_mapping_json(
+    path: Path,
+    root_path: Path,
+    *,
+    required: bool = False,
+) -> tuple[dict[str, Any], tuple[str, ...]]:
+    if not path.exists():
+        return {}, (f"{_path_label(root_path, path)} missing",) if required else ()
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        return {}, (
+            f"{_path_label(root_path, path)} must contain valid JSON: {exc.msg}",
+        )
+    if not isinstance(payload, Mapping):
+        return {}, (f"{_path_label(root_path, path)} must be object",)
+    return dict(payload), ()
+
+
+def _mapping_field(
+    payload: Mapping[str, Any],
+    field_name: str,
+    *,
+    label: str,
+    artifact_errors: list[str],
+) -> Mapping[str, Any]:
+    value = payload.get(field_name)
+    if value is None:
+        return {}
+    if isinstance(value, Mapping):
+        return value
+    artifact_errors.append(f"{label}.{field_name} must be object")
+    return {}
+
+
+def _sequence_field(
+    payload: Mapping[str, Any],
+    field_name: str,
+    *,
+    label: str,
+    artifact_errors: list[str],
+) -> tuple[Any, ...]:
+    value = payload.get(field_name)
+    if value is None:
+        return ()
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+        return tuple(value)
+    artifact_errors.append(f"{label}.{field_name} must be array")
+    return ()
+
+
+def _mapping_sequence_field(
+    payload: Mapping[str, Any],
+    field_name: str,
+    *,
+    label: str,
+    artifact_errors: list[str],
+) -> tuple[Mapping[str, Any], ...]:
+    rows: list[Mapping[str, Any]] = []
+    for index, item in enumerate(
+        _sequence_field(
+            payload, field_name, label=label, artifact_errors=artifact_errors
+        ),
+        1,
+    ):
+        if isinstance(item, Mapping):
+            rows.append(item)
+        else:
+            artifact_errors.append(f"{label}.{field_name}[{index}] must be object")
+    return tuple(rows)
+
+
+def _first_mapping_item_field(
+    payload: Mapping[str, Any],
+    field_name: str,
+    *,
+    label: str,
+    artifact_errors: list[str],
+) -> Mapping[str, Any]:
+    values = _sequence_field(
+        payload, field_name, label=label, artifact_errors=artifact_errors
+    )
+    if not values:
+        return {}
+    first = values[0]
+    if isinstance(first, Mapping):
+        return first
+    artifact_errors.append(f"{label}.{field_name}[1] must be object")
+    return {}
 
 
 def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
     root_path = Path(root)
-    completion = _read_json(root_path / "registry/audits/rke_completion_audit.json")
+    artifact_errors: list[str] = []
+
+    def load_mapping(relative_path: str, *, required: bool = False) -> dict[str, Any]:
+        payload, errors = _read_mapping_json(
+            root_path / relative_path, root_path, required=required
+        )
+        artifact_errors.extend(errors)
+        return payload
+
+    completion = load_mapping(
+        "registry/audits/rke_completion_audit.json", required=True
+    )
     coverage_path = root_path / "registry/audits/rke_master_plan_coverage_report.json"
-    coverage = _read_json(coverage_path) if coverage_path.exists() else {}
-    paper = _read_json(root_path / "registry/monitoring/central_bank_paper_trading_report.json")
-    audit_trace = _read_json(root_path / "registry/audits/central_bank_mvp_audit_trace.json")
+    coverage = (
+        load_mapping("registry/audits/rke_master_plan_coverage_report.json")
+        if coverage_path.exists()
+        else {}
+    )
+    paper = load_mapping(
+        "registry/monitoring/central_bank_paper_trading_report.json",
+        required=True,
+    )
+    audit_trace = load_mapping(
+        "registry/audits/central_bank_mvp_audit_trace.json", required=True
+    )
     audit_view_path = root_path / "registry/audits/central_bank_mvp_audit_view.json"
-    audit_view = _read_json(audit_view_path) if audit_view_path.exists() else {}
-    runtime = _read_json(root_path / "registry/runtime_outputs/macro.central_bank.20260605.json")
+    audit_view = (
+        load_mapping("registry/audits/central_bank_mvp_audit_view.json")
+        if audit_view_path.exists()
+        else {}
+    )
+    runtime = load_mapping(
+        "registry/runtime_outputs/macro.central_bank.20260605.json",
+        required=True,
+    )
     lockbox_path = root_path / "registry/lockbox/central_bank_lockbox_review.json"
-    lockbox = _read_json(lockbox_path) if lockbox_path.exists() else {}
-    promotion_gate_path = root_path / "registry/promotion/rke_production_promotion_gate.json"
-    promotion_gate = _read_json(promotion_gate_path) if promotion_gate_path.exists() else {}
-    hardening_path = root_path / "registry/validation_hardening/central_bank_hardening_report.json"
-    hardening = _read_json(hardening_path) if hardening_path.exists() else {}
-    monitor_diagnostics_path = root_path / "registry/monitoring/central_bank_monitoring_diagnostics.json"
+    lockbox = (
+        load_mapping("registry/lockbox/central_bank_lockbox_review.json")
+        if lockbox_path.exists()
+        else {}
+    )
+    promotion_gate_path = (
+        root_path / "registry/promotion/rke_production_promotion_gate.json"
+    )
+    promotion_gate = (
+        load_mapping("registry/promotion/rke_production_promotion_gate.json")
+        if promotion_gate_path.exists()
+        else {}
+    )
+    hardening_path = (
+        root_path / "registry/validation_hardening/central_bank_hardening_report.json"
+    )
+    hardening = (
+        load_mapping("registry/validation_hardening/central_bank_hardening_report.json")
+        if hardening_path.exists()
+        else {}
+    )
+    monitor_diagnostics_path = (
+        root_path / "registry/monitoring/central_bank_monitoring_diagnostics.json"
+    )
     monitor_diagnostics = (
-        _read_json(monitor_diagnostics_path) if monitor_diagnostics_path.exists() else {}
+        load_mapping("registry/monitoring/central_bank_monitoring_diagnostics.json")
+        if monitor_diagnostics_path.exists()
+        else {}
     )
-    rollback_readiness_path = root_path / "registry/monitoring/central_bank_rollback_readiness_report.json"
+    rollback_readiness_path = (
+        root_path / "registry/monitoring/central_bank_rollback_readiness_report.json"
+    )
     rollback_readiness = (
-        _read_json(rollback_readiness_path) if rollback_readiness_path.exists() else {}
+        load_mapping("registry/monitoring/central_bank_rollback_readiness_report.json")
+        if rollback_readiness_path.exists()
+        else {}
     )
-    source_validation_path = root_path / "registry/source_checks/source_registry_validation_report.json"
-    source_validation = _read_json(source_validation_path) if source_validation_path.exists() else {}
-    source_text_redaction_path = root_path / "registry/compliance/source_text_redaction_report.json"
+    source_validation_path = (
+        root_path / "registry/source_checks/source_registry_validation_report.json"
+    )
+    source_validation = (
+        load_mapping("registry/source_checks/source_registry_validation_report.json")
+        if source_validation_path.exists()
+        else {}
+    )
+    source_text_redaction_path = (
+        root_path / "registry/compliance/source_text_redaction_report.json"
+    )
     source_text_redaction = (
-        _read_json(source_text_redaction_path) if source_text_redaction_path.exists() else {}
+        load_mapping("registry/compliance/source_text_redaction_report.json")
+        if source_text_redaction_path.exists()
+        else {}
     )
     statistical_path = (
         root_path
         / "registry/evaluation/statistical_significance/central_bank_after_cost_significance.json"
     )
-    statistical = _read_json(statistical_path) if statistical_path.exists() else {}
-    sector_rule_path = root_path / "registry/rule_packs/sector.semiconductor.policy_substitution.v1.json"
-    sector_disagreement_path = root_path / "registry/disagreement/semiconductor_policy_substitution.json"
-    sector_runtime_path = root_path / "registry/runtime_outputs/sector.semiconductor.demo.20260605.json"
-    sector_rule = _read_json(sector_rule_path) if sector_rule_path.exists() else {}
+    statistical = (
+        load_mapping(
+            "registry/evaluation/statistical_significance/central_bank_after_cost_significance.json"
+        )
+        if statistical_path.exists()
+        else {}
+    )
+    sector_rule_path = (
+        root_path
+        / "registry/rule_packs/sector.semiconductor.policy_substitution.v1.json"
+    )
+    sector_disagreement_path = (
+        root_path / "registry/disagreement/semiconductor_policy_substitution.json"
+    )
+    sector_runtime_path = (
+        root_path / "registry/runtime_outputs/sector.semiconductor.demo.20260605.json"
+    )
+    sector_rule = (
+        load_mapping(
+            "registry/rule_packs/sector.semiconductor.policy_substitution.v1.json"
+        )
+        if sector_rule_path.exists()
+        else {}
+    )
     sector_disagreement = (
-        _read_json(sector_disagreement_path) if sector_disagreement_path.exists() else {}
+        load_mapping("registry/disagreement/semiconductor_policy_substitution.json")
+        if sector_disagreement_path.exists()
+        else {}
     )
-    sector_runtime = _read_json(sector_runtime_path) if sector_runtime_path.exists() else {}
+    sector_runtime = (
+        load_mapping("registry/runtime_outputs/sector.semiconductor.demo.20260605.json")
+        if sector_runtime_path.exists()
+        else {}
+    )
     macro_expansion_path = root_path / "registry/expansion/macro_phase6_expansion.json"
-    macro_expansion = _read_json(macro_expansion_path) if macro_expansion_path.exists() else {}
-    integration_path = root_path / "registry/integration/phase7_layer_integration_contracts.json"
-    integration = _read_json(integration_path) if integration_path.exists() else {}
-    gold_review_path = root_path / "registry/gold_sets/tushare_research_reports.review_summary.json"
-    gold_packet_path = root_path / "registry/gold_sets/tushare_research_reports.review_packet.json"
+    macro_expansion = (
+        load_mapping("registry/expansion/macro_phase6_expansion.json")
+        if macro_expansion_path.exists()
+        else {}
+    )
+    integration_path = (
+        root_path / "registry/integration/phase7_layer_integration_contracts.json"
+    )
+    integration = (
+        load_mapping("registry/integration/phase7_layer_integration_contracts.json")
+        if integration_path.exists()
+        else {}
+    )
+    gold_review_path = (
+        root_path / "registry/gold_sets/tushare_research_reports.review_summary.json"
+    )
+    gold_packet_path = (
+        root_path / "registry/gold_sets/tushare_research_reports.review_packet.json"
+    )
     gold_candidate_claims_path = (
-        root_path / "registry/gold_sets/tushare_research_reports.candidate_claims.summary.json"
+        root_path
+        / "registry/gold_sets/tushare_research_reports.candidate_claims.summary.json"
     )
-    license_review_path = root_path / "registry/compliance/tushare_license_review_summary.json"
-    license_packet_path = root_path / "registry/compliance/tushare_license_review_packet.json"
-    review_batch_status_path = root_path / "registry/review_batches/manual_review_batch_status.json"
+    license_review_path = (
+        root_path / "registry/compliance/tushare_license_review_summary.json"
+    )
+    license_packet_path = (
+        root_path / "registry/compliance/tushare_license_review_packet.json"
+    )
+    review_batch_status_path = (
+        root_path / "registry/review_batches/manual_review_batch_status.json"
+    )
     operator_handoff_path = root_path / "registry/handoffs/rke_operator_handoff.json"
-    operator_readiness_path = root_path / "registry/handoffs/rke_operator_readiness_report.json"
-    gold_review = _read_json(gold_review_path) if gold_review_path.exists() else {}
-    gold_packet = _read_json(gold_packet_path) if gold_packet_path.exists() else {}
+    operator_readiness_path = (
+        root_path / "registry/handoffs/rke_operator_readiness_report.json"
+    )
+    gold_review = (
+        load_mapping("registry/gold_sets/tushare_research_reports.review_summary.json")
+        if gold_review_path.exists()
+        else {}
+    )
+    gold_packet = (
+        load_mapping("registry/gold_sets/tushare_research_reports.review_packet.json")
+        if gold_packet_path.exists()
+        else {}
+    )
     gold_candidate_claims = (
-        _read_json(gold_candidate_claims_path) if gold_candidate_claims_path.exists() else {}
+        load_mapping(
+            "registry/gold_sets/tushare_research_reports.candidate_claims.summary.json"
+        )
+        if gold_candidate_claims_path.exists()
+        else {}
     )
-    license_review = _read_json(license_review_path) if license_review_path.exists() else {}
-    license_packet = _read_json(license_packet_path) if license_packet_path.exists() else {}
+    license_review = (
+        load_mapping("registry/compliance/tushare_license_review_summary.json")
+        if license_review_path.exists()
+        else {}
+    )
+    license_packet = (
+        load_mapping("registry/compliance/tushare_license_review_packet.json")
+        if license_packet_path.exists()
+        else {}
+    )
     review_batch_status = (
-        _read_json(review_batch_status_path) if review_batch_status_path.exists() else {}
+        load_mapping("registry/review_batches/manual_review_batch_status.json")
+        if review_batch_status_path.exists()
+        else {}
     )
-    operator_handoff = _read_json(operator_handoff_path) if operator_handoff_path.exists() else {}
+    operator_handoff = (
+        load_mapping("registry/handoffs/rke_operator_handoff.json")
+        if operator_handoff_path.exists()
+        else {}
+    )
     operator_readiness = (
-        _read_json(operator_readiness_path) if operator_readiness_path.exists() else {}
+        load_mapping("registry/handoffs/rke_operator_readiness_report.json")
+        if operator_readiness_path.exists()
+        else {}
     )
-    family_path = root_path / "registry/evaluation/experiment_family_registry/central_bank_liquidity_family.json"
+    family_path = (
+        root_path
+        / "registry/evaluation/experiment_family_registry/central_bank_liquidity_family.json"
+    )
     cost_model_path = root_path / "registry/evaluation/cost_model/cost_model_v1.json"
-    overlap_path = root_path / "registry/evaluation/overlap_correction/effective_n_overlap_policy.json"
+    overlap_path = (
+        root_path
+        / "registry/evaluation/overlap_correction/effective_n_overlap_policy.json"
+    )
     lockbox_policy_path = root_path / "registry/evaluation/lockbox/lockbox_policy.json"
-    schema_validation_path = root_path / "registry/schemas/rke_schema_validation_report.json"
-    claim_variable_validation_path = root_path / "registry/claim_checks/claim_variable_validation_report.json"
-    prompt_validation_path = root_path / "registry/prompt_checks/prompt_asset_validation_report.json"
-    policy_doc_validation_path = root_path / "registry/docs/rke_policy_doc_validation_report.json"
-    rendered_prompt_path = root_path / "registry/rendered_prompts/macro.central_bank.rke.json"
-    mutation_patch_path = root_path / "registry/mutation_patches/central_bank_parameter_update.json"
-    family = _read_json(family_path) if family_path.exists() else {}
-    cost_model = _read_json(cost_model_path) if cost_model_path.exists() else {}
-    overlap_policy = _read_json(overlap_path) if overlap_path.exists() else {}
-    lockbox_policy = _read_json(lockbox_policy_path) if lockbox_policy_path.exists() else {}
+    schema_validation_path = (
+        root_path / "registry/schemas/rke_schema_validation_report.json"
+    )
+    claim_variable_validation_path = (
+        root_path / "registry/claim_checks/claim_variable_validation_report.json"
+    )
+    prompt_validation_path = (
+        root_path / "registry/prompt_checks/prompt_asset_validation_report.json"
+    )
+    policy_doc_validation_path = (
+        root_path / "registry/docs/rke_policy_doc_validation_report.json"
+    )
+    rendered_prompt_path = (
+        root_path / "registry/rendered_prompts/macro.central_bank.rke.json"
+    )
+    mutation_patch_path = (
+        root_path / "registry/mutation_patches/central_bank_parameter_update.json"
+    )
+    family = (
+        load_mapping(
+            "registry/evaluation/experiment_family_registry/central_bank_liquidity_family.json"
+        )
+        if family_path.exists()
+        else {}
+    )
+    cost_model = (
+        load_mapping("registry/evaluation/cost_model/cost_model_v1.json")
+        if cost_model_path.exists()
+        else {}
+    )
+    overlap_policy = (
+        load_mapping(
+            "registry/evaluation/overlap_correction/effective_n_overlap_policy.json"
+        )
+        if overlap_path.exists()
+        else {}
+    )
+    lockbox_policy = (
+        load_mapping("registry/evaluation/lockbox/lockbox_policy.json")
+        if lockbox_policy_path.exists()
+        else {}
+    )
     schema_validation = (
-        _read_json(schema_validation_path) if schema_validation_path.exists() else {}
+        load_mapping("registry/schemas/rke_schema_validation_report.json")
+        if schema_validation_path.exists()
+        else {}
     )
     claim_variable_validation = (
-        _read_json(claim_variable_validation_path) if claim_variable_validation_path.exists() else {}
+        load_mapping("registry/claim_checks/claim_variable_validation_report.json")
+        if claim_variable_validation_path.exists()
+        else {}
     )
     prompt_validation = (
-        _read_json(prompt_validation_path) if prompt_validation_path.exists() else {}
+        load_mapping("registry/prompt_checks/prompt_asset_validation_report.json")
+        if prompt_validation_path.exists()
+        else {}
     )
     policy_doc_validation = (
-        _read_json(policy_doc_validation_path) if policy_doc_validation_path.exists() else {}
+        load_mapping("registry/docs/rke_policy_doc_validation_report.json")
+        if policy_doc_validation_path.exists()
+        else {}
     )
-    rendered_prompt = _read_json(rendered_prompt_path) if rendered_prompt_path.exists() else {}
-    mutation_patch = _read_json(mutation_patch_path) if mutation_patch_path.exists() else {}
-    criteria = completion.get("criteria", ())
+    rendered_prompt = (
+        load_mapping("registry/rendered_prompts/macro.central_bank.rke.json")
+        if rendered_prompt_path.exists()
+        else {}
+    )
+    mutation_patch = (
+        load_mapping("registry/mutation_patches/central_bank_parameter_update.json")
+        if mutation_patch_path.exists()
+        else {}
+    )
+    criteria = _mapping_sequence_field(
+        completion,
+        "criteria",
+        label="registry/audits/rke_completion_audit.json",
+        artifact_errors=artifact_errors,
+    )
+    paper_summary = _mapping_field(
+        paper,
+        "paper_trading_summary",
+        label="registry/monitoring/central_bank_paper_trading_report.json",
+        artifact_errors=artifact_errors,
+    )
+    production_monitor = _mapping_field(
+        paper,
+        "production_monitor",
+        label="registry/monitoring/central_bank_paper_trading_report.json",
+        artifact_errors=artifact_errors,
+    )
+    promotion_blockers = _sequence_field(
+        promotion_gate,
+        "blockers",
+        label="registry/promotion/rke_production_promotion_gate.json",
+        artifact_errors=artifact_errors,
+    )
+    ablation_checks = _mapping_field(
+        hardening,
+        "ablation_checks",
+        label="registry/validation_hardening/central_bank_hardening_report.json",
+        artifact_errors=artifact_errors,
+    )
+    regime_partial_pooling = _mapping_field(
+        hardening,
+        "regime_partial_pooling",
+        label="registry/validation_hardening/central_bank_hardening_report.json",
+        artifact_errors=artifact_errors,
+    )
+    confidence_interval = _mapping_field(
+        statistical,
+        "confidence_interval",
+        label="registry/evaluation/statistical_significance/central_bank_after_cost_significance.json",
+        artifact_errors=artifact_errors,
+    )
+    sector_cluster = _mapping_field(
+        sector_disagreement,
+        "cluster",
+        label="registry/disagreement/semiconductor_policy_substitution.json",
+        artifact_errors=artifact_errors,
+    )
+    sector_recommendation = _first_mapping_item_field(
+        sector_runtime,
+        "recommendations",
+        label="registry/runtime_outputs/sector.semiconductor.demo.20260605.json",
+        artifact_errors=artifact_errors,
+    )
+    macro_candidates = _sequence_field(
+        macro_expansion,
+        "candidates",
+        label="registry/expansion/macro_phase6_expansion.json",
+        artifact_errors=artifact_errors,
+    )
+    integration_sector = _mapping_field(
+        integration,
+        "sector",
+        label="registry/integration/phase7_layer_integration_contracts.json",
+        artifact_errors=artifact_errors,
+    )
+    integration_superinvestor = _mapping_field(
+        integration,
+        "superinvestor",
+        label="registry/integration/phase7_layer_integration_contracts.json",
+        artifact_errors=artifact_errors,
+    )
+    integration_decision = _mapping_field(
+        integration,
+        "decision",
+        label="registry/integration/phase7_layer_integration_contracts.json",
+        artifact_errors=artifact_errors,
+    )
+    review_batch_gold = _mapping_field(
+        review_batch_status,
+        "gold_set",
+        label="registry/review_batches/manual_review_batch_status.json",
+        artifact_errors=artifact_errors,
+    )
+    review_batch_license = _mapping_field(
+        review_batch_status,
+        "source_license",
+        label="registry/review_batches/manual_review_batch_status.json",
+        artifact_errors=artifact_errors,
+    )
+    operator_remaining_blockers = _sequence_field(
+        operator_handoff,
+        "remaining_blockers",
+        label="registry/handoffs/rke_operator_handoff.json",
+        artifact_errors=artifact_errors,
+    )
+    operator_gates = _sequence_field(
+        operator_handoff,
+        "gates",
+        label="registry/handoffs/rke_operator_handoff.json",
+        artifact_errors=artifact_errors,
+    )
+    schema_records = _sequence_field(
+        schema_validation,
+        "records",
+        label="registry/schemas/rke_schema_validation_report.json",
+        artifact_errors=artifact_errors,
+    )
+    claim_variable_records = _sequence_field(
+        claim_variable_validation,
+        "records",
+        label="registry/claim_checks/claim_variable_validation_report.json",
+        artifact_errors=artifact_errors,
+    )
+    prompt_records = _sequence_field(
+        prompt_validation,
+        "records",
+        label="registry/prompt_checks/prompt_asset_validation_report.json",
+        artifact_errors=artifact_errors,
+    )
+    mutation = _mapping_field(
+        mutation_patch,
+        "mutation",
+        label="registry/mutation_patches/central_bank_parameter_update.json",
+        artifact_errors=artifact_errors,
+    )
+    mutation_validation = _mapping_field(
+        mutation_patch,
+        "validation",
+        label="registry/mutation_patches/central_bank_parameter_update.json",
+        artifact_errors=artifact_errors,
+    )
+    audit_source_ids = _sequence_field(
+        audit_trace,
+        "source_ids",
+        label="registry/audits/central_bank_mvp_audit_trace.json",
+        artifact_errors=artifact_errors,
+    )
+    audit_claim_ids = _sequence_field(
+        audit_trace,
+        "claim_ids",
+        label="registry/audits/central_bank_mvp_audit_trace.json",
+        artifact_errors=artifact_errors,
+    )
+    audit_rule_ids = _sequence_field(
+        audit_trace,
+        "rule_ids",
+        label="registry/audits/central_bank_mvp_audit_trace.json",
+        artifact_errors=artifact_errors,
+    )
+    audit_experiment_ids = _sequence_field(
+        audit_trace,
+        "experiment_ids",
+        label="registry/audits/central_bank_mvp_audit_trace.json",
+        artifact_errors=artifact_errors,
+    )
+    audit_patch_ids = _sequence_field(
+        audit_trace,
+        "patch_ids",
+        label="registry/audits/central_bank_mvp_audit_trace.json",
+        artifact_errors=artifact_errors,
+    )
+    audit_agent_output_ids = _sequence_field(
+        audit_trace,
+        "agent_output_ids",
+        label="registry/audits/central_bank_mvp_audit_trace.json",
+        artifact_errors=artifact_errors,
+    )
+    audit_missing_references = _sequence_field(
+        audit_view,
+        "missing_references",
+        label="registry/audits/central_bank_mvp_audit_view.json",
+        artifact_errors=artifact_errors,
+    )
+    audit_broken_edges = _sequence_field(
+        audit_view,
+        "broken_edges",
+        label="registry/audits/central_bank_mvp_audit_view.json",
+        artifact_errors=artifact_errors,
+    )
+    runtime_progress = _mapping_field(
+        runtime,
+        "progress_event",
+        label="registry/runtime_outputs/macro.central_bank.20260605.json",
+        artifact_errors=artifact_errors,
+    )
+    runtime_recommendations = _sequence_field(
+        runtime,
+        "recommendations",
+        label="registry/runtime_outputs/macro.central_bank.20260605.json",
+        artifact_errors=artifact_errors,
+    )
     return {
         "dashboard_id": "RKE-DASHBOARD-20260605",
-        "ready_for_broad_rollout": all(item.get("passed") is True for item in criteria),
+        "artifact_errors": tuple(artifact_errors),
+        "ready_for_broad_rollout": bool(criteria)
+        and not artifact_errors
+        and all(item.get("passed") is True for item in criteria),
         "completion": {
             "passed": sum(item.get("passed") is True for item in criteria),
             "total": len(criteria),
-            "blockers": [item.get("blocker") for item in criteria if item.get("blocker")],
+            "blockers": [
+                item.get("blocker") for item in criteria if item.get("blocker")
+            ],
         },
         "master_plan_coverage": {
             "coverage_complete": coverage.get("coverage_complete"),
@@ -126,8 +607,8 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
             "blocked_count": coverage.get("blocked_count"),
             "missing_count": coverage.get("missing_count"),
         },
-        "paper_trading": paper.get("paper_trading_summary", {}),
-        "production_monitor": paper.get("production_monitor", {}),
+        "paper_trading": paper_summary,
+        "production_monitor": production_monitor,
         "production_monitor_diagnostics": {
             "accepted": monitor_diagnostics.get("accepted"),
             "scenario_count": monitor_diagnostics.get("scenario_count"),
@@ -146,35 +627,45 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
         },
         "promotion_gate": {
             "paper_trading_allowed": promotion_gate.get("paper_trading_allowed"),
-            "staged_production_allowed": promotion_gate.get("staged_production_allowed"),
+            "staged_production_allowed": promotion_gate.get(
+                "staged_production_allowed"
+            ),
             "production_allowed": promotion_gate.get("production_allowed"),
             "next_state": promotion_gate.get("next_state"),
-            "direct_production_forbidden": promotion_gate.get("direct_production_forbidden"),
-            "blocker_count": len(promotion_gate.get("blockers") or ()),
+            "direct_production_forbidden": promotion_gate.get(
+                "direct_production_forbidden"
+            ),
+            "blocker_count": len(promotion_blockers),
         },
         "validation_hardening": {
-            "ablation_accepted": hardening.get("ablation_checks", {}).get("accepted"),
+            "ablation_accepted": ablation_checks.get("accepted"),
             "horizon_metric_failures": hardening.get("horizon_metric_failures", ()),
             "precision_failures": hardening.get("precision_failures", ()),
-            "regime_failures": hardening.get("regime_partial_pooling", {}).get("failures", ()),
+            "regime_failures": regime_partial_pooling.get("failures", ()),
             "statistical_significance_accepted": statistical.get("accepted"),
-            "after_cost_ci_low": (statistical.get("confidence_interval") or {}).get("low"),
+            "after_cost_ci_low": confidence_interval.get("low"),
             "deflated_sharpe_ratio": statistical.get("deflated_sharpe_ratio"),
         },
         "source_validation": {
             "accepted_for_sandbox": source_validation.get("accepted_for_sandbox"),
             "accepted_for_production": source_validation.get("accepted_for_production"),
             "failure_count": source_validation.get("failure_count"),
-            "production_blocker_count": source_validation.get("production_blocker_count"),
+            "production_blocker_count": source_validation.get(
+                "production_blocker_count"
+            ),
             "unique_source_count": source_validation.get("unique_source_count"),
-            "duplicate_reference_count": source_validation.get("duplicate_reference_count"),
+            "duplicate_reference_count": source_validation.get(
+                "duplicate_reference_count"
+            ),
         },
         "source_text_redaction": {
             "accepted": source_text_redaction.get("accepted"),
             "failure_count": source_text_redaction.get("failure_count"),
             "source_text_count": source_text_redaction.get("source_text_count"),
             "checked_path_count": source_text_redaction.get("checked_path_count"),
-            "skipped_allowed_path_count": source_text_redaction.get("skipped_allowed_path_count"),
+            "skipped_allowed_path_count": source_text_redaction.get(
+                "skipped_allowed_path_count"
+            ),
             "min_match_chars": source_text_redaction.get("min_match_chars"),
         },
         "sector_demo": {
@@ -182,25 +673,23 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
             "demo_status": sector_rule.get("demo_status"),
             "production_allowed": sector_rule.get("production_allowed"),
             "empirical_confidence_bin": sector_rule.get("empirical_confidence_bin"),
-            "disagreement_cluster_id": sector_disagreement.get("cluster", {}).get("cluster_id"),
-            "recommendation_actionability": (
-                (sector_runtime.get("recommendations") or [{}])[0].get("actionability")
-                if sector_runtime
-                else None
-            ),
+            "disagreement_cluster_id": sector_cluster.get("cluster_id"),
+            "recommendation_actionability": sector_recommendation.get("actionability"),
         },
         "macro_expansion": {
             "phase": macro_expansion.get("phase"),
-            "central_bank_phase4_ready": macro_expansion.get("central_bank_phase4_ready"),
-            "candidate_count": len(macro_expansion.get("candidates") or ()),
+            "central_bank_phase4_ready": macro_expansion.get(
+                "central_bank_phase4_ready"
+            ),
+            "candidate_count": len(macro_candidates),
             "production_allowed": macro_expansion.get("production_allowed"),
         },
         "layer_integration": {
-            "sector_agent": integration.get("sector", {}).get("agent_id"),
-            "sector_actionability": integration.get("sector", {}).get("actionability"),
-            "superinvestor_agent": integration.get("superinvestor", {}).get("agent_id"),
-            "decision_agent": integration.get("decision", {}).get("agent_id"),
-            "decision_cash_floor": integration.get("decision", {}).get("cash_floor"),
+            "sector_agent": integration_sector.get("agent_id"),
+            "sector_actionability": integration_sector.get("actionability"),
+            "superinvestor_agent": integration_superinvestor.get("agent_id"),
+            "decision_agent": integration_decision.get("agent_id"),
+            "decision_cash_floor": integration_decision.get("cash_floor"),
         },
         "manual_review_gates": {
             "gold_set": {
@@ -217,15 +706,21 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
                 "risk_flag_counts": gold_packet.get("risk_flag_counts"),
             },
             "gold_candidate_claims": {
-                "candidate_claim_count": gold_candidate_claims.get("candidate_claim_count"),
-                "candidate_available_count": gold_candidate_claims.get("candidate_available_count"),
+                "candidate_claim_count": gold_candidate_claims.get(
+                    "candidate_claim_count"
+                ),
+                "candidate_available_count": gold_candidate_claims.get(
+                    "candidate_available_count"
+                ),
                 "missing_variable_mapping_count": gold_candidate_claims.get(
                     "missing_variable_mapping_count"
                 ),
                 "review_rows_with_candidate_fields": gold_candidate_claims.get(
                     "review_rows_with_candidate_fields"
                 ),
-                "manual_fields_preserved": gold_candidate_claims.get("manual_fields_preserved"),
+                "manual_fields_preserved": gold_candidate_claims.get(
+                    "manual_fields_preserved"
+                ),
             },
             "source_license": {
                 "reviewed_sources": license_review.get("reviewed_sources"),
@@ -249,35 +744,31 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
                 "policy_reason_counts": license_packet.get("policy_reason_counts"),
             },
             "review_batches": {
-                "ready_for_manual_review": review_batch_status.get("ready_for_manual_review"),
-                "gold_set_pending_rows": (review_batch_status.get("gold_set") or {}).get(
-                    "pending_rows"
+                "ready_for_manual_review": review_batch_status.get(
+                    "ready_for_manual_review"
                 ),
-                "gold_set_exported_rows": (review_batch_status.get("gold_set") or {}).get(
-                    "exported_rows"
-                ),
-                "gold_set_full_import_template": (review_batch_status.get("gold_set") or {}).get(
+                "gold_set_pending_rows": review_batch_gold.get("pending_rows"),
+                "gold_set_exported_rows": review_batch_gold.get("exported_rows"),
+                "gold_set_full_import_template": review_batch_gold.get(
                     "full_import_template_path"
                 ),
-                "gold_set_dry_run_command": (review_batch_status.get("gold_set") or {}).get(
+                "gold_set_dry_run_command": review_batch_gold.get("dry_run_command"),
+                "source_license_pending_rows": review_batch_license.get("pending_rows"),
+                "source_license_exported_rows": review_batch_license.get(
+                    "exported_rows"
+                ),
+                "source_license_dry_run_command": review_batch_license.get(
                     "dry_run_command"
                 ),
-                "source_license_pending_rows": (
-                    review_batch_status.get("source_license") or {}
-                ).get("pending_rows"),
-                "source_license_exported_rows": (
-                    review_batch_status.get("source_license") or {}
-                ).get("exported_rows"),
-                "source_license_dry_run_command": (
-                    review_batch_status.get("source_license") or {}
-                ).get("dry_run_command"),
             },
         },
         "operator_handoff": {
-            "ready_for_operator_review": operator_handoff.get("ready_for_operator_review"),
+            "ready_for_operator_review": operator_handoff.get(
+                "ready_for_operator_review"
+            ),
             "next_state": operator_handoff.get("next_state"),
-            "remaining_blocker_count": len(operator_handoff.get("remaining_blockers") or ()),
-            "gate_count": len(operator_handoff.get("gates") or ()),
+            "remaining_blocker_count": len(operator_remaining_blockers),
+            "gate_count": len(operator_gates),
             "run_order": operator_handoff.get("run_order"),
         },
         "operator_readiness": {
@@ -300,41 +791,43 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
         "schema_validation": {
             "accepted": schema_validation.get("accepted"),
             "failure_count": schema_validation.get("failure_count"),
-            "record_count": len(schema_validation.get("records") or ()),
+            "record_count": len(schema_records),
         },
         "claim_variable_validation": {
             "accepted": claim_variable_validation.get("accepted"),
             "failure_count": claim_variable_validation.get("failure_count"),
-            "record_count": len(claim_variable_validation.get("records") or ()),
+            "record_count": len(claim_variable_records),
         },
         "prompt_evolution": {
             "rendered_prompt_path": rendered_prompt.get("rendered_prompt_path"),
             "prompt_version": rendered_prompt.get("prompt_version"),
             "asset_validation_accepted": prompt_validation.get("accepted"),
             "asset_validation_failure_count": prompt_validation.get("failure_count"),
-            "asset_validation_record_count": len(prompt_validation.get("records") or ()),
+            "asset_validation_record_count": len(prompt_records),
             "policy_doc_validation_accepted": policy_doc_validation.get("accepted"),
-            "policy_doc_validation_failure_count": policy_doc_validation.get("failure_count"),
-            "mutation_id": (mutation_patch.get("mutation") or {}).get("mutation_id"),
-            "mutation_target_path": (mutation_patch.get("mutation") or {}).get("target_path"),
-            "mutation_validation_accepted": (mutation_patch.get("validation") or {}).get("accepted"),
+            "policy_doc_validation_failure_count": policy_doc_validation.get(
+                "failure_count"
+            ),
+            "mutation_id": mutation.get("mutation_id"),
+            "mutation_target_path": mutation.get("target_path"),
+            "mutation_validation_accepted": mutation_validation.get("accepted"),
             "production_allowed": mutation_patch.get("production_allowed"),
         },
         "audit_trace": {
             "complete": audit_view.get("complete"),
             "node_count": audit_view.get("node_count"),
             "edge_count": audit_view.get("edge_count"),
-            "missing_reference_count": len(audit_view.get("missing_references") or ()),
-            "broken_edge_count": len(audit_view.get("broken_edges") or ()),
-            "source_count": len(audit_trace.get("source_ids", ())),
-            "claim_count": len(audit_trace.get("claim_ids", ())),
-            "rule_count": len(audit_trace.get("rule_ids", ())),
-            "experiment_count": len(audit_trace.get("experiment_ids", ())),
-            "patch_count": len(audit_trace.get("patch_ids", ())),
-            "agent_output_count": len(audit_trace.get("agent_output_ids", ())),
+            "missing_reference_count": len(audit_missing_references),
+            "broken_edge_count": len(audit_broken_edges),
+            "source_count": len(audit_source_ids),
+            "claim_count": len(audit_claim_ids),
+            "rule_count": len(audit_rule_ids),
+            "experiment_count": len(audit_experiment_ids),
+            "patch_count": len(audit_patch_ids),
+            "agent_output_count": len(audit_agent_output_ids),
         },
-        "runtime_progress": runtime.get("progress_event", {}),
-        "runtime_recommendations": runtime.get("recommendations", ()),
+        "runtime_progress": runtime_progress,
+        "runtime_recommendations": runtime_recommendations,
     }
 
 
@@ -347,6 +840,7 @@ def render_dashboard_markdown(report: Mapping[str, Any]) -> str:
         "# RKE Dashboard",
         "",
         f"- Broad rollout ready: {str(report.get('ready_for_broad_rollout')).lower()}",
+        f"- Dashboard artifact errors: {len(report.get('artifact_errors') or ())}",
         f"- Completion: {completion.get('passed', 0)} / {completion.get('total', 0)}",
         f"- Master-plan coverage missing: {dict(report.get('master_plan_coverage') or {}).get('missing_count')}",
         f"- Master-plan coverage blocked: {dict(report.get('master_plan_coverage') or {}).get('blocked_count')}",
