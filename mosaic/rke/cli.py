@@ -20,7 +20,11 @@ from .gold_candidate_claims import (
 )
 from .gold_review_packet import build_gold_review_packet, write_gold_review_packet
 from .license_review_packet import build_license_review_packet, write_license_review_packet
-from .license_policy_import import build_source_license_policy_import
+from .license_policy_import import (
+    SOURCE_LICENSE_REVIEWED_POLICY_PATH,
+    build_source_license_policy_import,
+    write_source_license_reviewed_policy_starter,
+)
 from .lockbox_review_import import apply_lockbox_review_import
 from .manual_review_import import (
     apply_gold_set_review_import,
@@ -286,6 +290,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="Output JSONL path. Defaults to registry/review_batches/source_license_policy_import.jsonl.",
     )
     build_license_import.add_argument("--dry-run", action="store_true", help="Validate and report without writing output JSONL.")
+
+    prepare_license_policy = subparsers.add_parser(
+        "prepare-license-policy-review",
+        help="Write a reviewer-editable source-license policy starter without overwriting existing reviews.",
+    )
+    prepare_license_policy.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
+    prepare_license_policy.add_argument(
+        "--output",
+        default=SOURCE_LICENSE_REVIEWED_POLICY_PATH,
+        help=f"Reviewed policy output path. Defaults to {SOURCE_LICENSE_REVIEWED_POLICY_PATH}.",
+    )
+    prepare_license_policy.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite an existing reviewed policy starter.",
+    )
 
     apply_lockbox_review = subparsers.add_parser(
         "apply-lockbox-review",
@@ -617,6 +637,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         _print_json(asdict(report))
         return 0 if report.accepted else 2
+    if args.command == "prepare-license-policy-review":
+        result = write_source_license_reviewed_policy_starter(
+            root,
+            output_path=args.output,
+            force=args.force,
+        )
+        _print_json(asdict(result))
+        return 0 if result.written else 2
     if args.command == "apply-lockbox-review":
         report = apply_lockbox_review_import(root, args.input, dry_run=args.dry_run)
         _print_json(asdict(report))

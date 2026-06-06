@@ -169,6 +169,24 @@ def test_rke_cli_review_status_commands_write_summaries(tmp_path: Path, capsys):
     assert (tmp_path / "registry/compliance/tushare_license_review_packet.md").exists()
 
 
+def test_rke_cli_prepare_license_policy_review_protects_existing_file(tmp_path: Path, capsys):
+    _copy_registry(tmp_path)
+    reviewed_path = tmp_path / "registry/review_batches/source_license_policy_reviewed.json"
+
+    code = main(("prepare-license-policy-review", "--root", str(tmp_path)))
+    output = json.loads(capsys.readouterr().out)
+    second_code = main(("prepare-license-policy-review", "--root", str(tmp_path)))
+    second_output = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert output["written"] is True
+    assert output["path"] == str(reviewed_path)
+    assert reviewed_path.exists()
+    assert second_code == 2
+    assert second_output["written"] is False
+    assert "already exists" in second_output["blockers"][0]
+
+
 def test_rke_cli_review_status_commands_report_malformed_jsonl_rows(tmp_path: Path, capsys):
     _copy_registry(tmp_path)
     gold_path = tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"

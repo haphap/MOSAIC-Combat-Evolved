@@ -131,6 +131,8 @@ fill the approval booleans, reviewer, review date, and notes in the reviewed
 file before expanding it:
 
 ```bash
+mosaic-rke prepare-license-policy-review --root .
+
 mosaic-rke build-license-review-import \
   --root . \
   --policy registry/review_batches/source_license_policy_reviewed.json \

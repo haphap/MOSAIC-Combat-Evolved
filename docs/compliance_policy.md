@@ -72,6 +72,10 @@ incomplete and should remain a regeneratable template. Copy it to
 `reviewer`, `review_date`, and both approval booleans in that reviewed file
 before it can be expanded.
 
+```bash
+mosaic-rke prepare-license-policy-review --root .
+```
+
 ```json
 {
   "approved_for_derived_claim_storage": true,

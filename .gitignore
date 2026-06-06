@@ -49,6 +49,11 @@ mosaic/dataflows/collectors/**/tmp/
 results/
 logs/
 
+# RKE manual-review scratch inputs. Reviewed decisions are applied through
+# controlled import commands; these transient files should not be committed.
+registry/review_batches/source_license_policy_reviewed.json
+registry/review_batches/source_license_policy_import.jsonl
+
 # TypeScript workspace (Phase 1+)
 mosaic-ts/node_modules/
 mosaic-ts/dist/

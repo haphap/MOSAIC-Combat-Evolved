@@ -28,6 +28,7 @@ Dry-run command: `mosaic-rke build-license-review-import --root . --policy regis
 - Full import template: registry/review_batches/gold_set_full_import_template.jsonl
 - Policy template: none
 - Reviewed policy: none
+- Prepare: none
 - Pending rows: 500
 - Exported rows: 50
 - Dry run: `mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_next_import_template.jsonl --dry-run`
@@ -44,6 +45,7 @@ Dry-run command: `mosaic-rke build-license-review-import --root . --policy regis
 - Full import template: registry/review_batches/source_license_policy_import.jsonl
 - Policy template: registry/review_batches/source_license_policy_template.json
 - Reviewed policy: registry/review_batches/source_license_policy_reviewed.json
+- Prepare: `mosaic-rke prepare-license-policy-review --root .`
 - Pending rows: 9812
 - Exported rows: 50
 - Dry run: `mosaic-rke build-license-review-import --root . --policy registry/review_batches/source_license_policy_reviewed.json --output registry/review_batches/source_license_policy_import.jsonl && mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_policy_import.jsonl --dry-run`
@@ -60,6 +62,7 @@ Dry-run command: `mosaic-rke build-license-review-import --root . --policy regis
 - Full import template: none
 - Policy template: none
 - Reviewed policy: none
+- Prepare: none
 - Pending rows: None
 - Exported rows: 1
 - Dry run: `mosaic-rke apply-lockbox-review --root . --input registry/review_batches/lockbox_review_next_import_template.json --dry-run`

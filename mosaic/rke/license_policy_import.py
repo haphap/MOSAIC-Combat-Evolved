@@ -80,6 +80,16 @@ class SourceLicensePolicyImportReport:
     blockers: Sequence[str]
 
 
+@dataclass(frozen=True)
+class SourceLicenseReviewedPolicyStarterResult:
+    path: str
+    template_path: str
+    force: bool
+    written: bool
+    overwritten: bool
+    blockers: Sequence[str]
+
+
 def _jsonable(value: Any) -> Any:
     if hasattr(value, "__dataclass_fields__"):
         return _jsonable(asdict(value))
@@ -443,6 +453,34 @@ def write_source_license_policy_template(root: str | Path = ".") -> dict[str, An
     return _write_json(
         root_path / SOURCE_LICENSE_POLICY_TEMPLATE_PATH,
         build_source_license_policy_template(root_path),
+    )
+
+
+def write_source_license_reviewed_policy_starter(
+    root: str | Path = ".",
+    *,
+    output_path: str | Path = SOURCE_LICENSE_REVIEWED_POLICY_PATH,
+    force: bool = False,
+) -> SourceLicenseReviewedPolicyStarterResult:
+    """Write a reviewer-editable policy starter without clobbering reviews."""
+    root_path = Path(root)
+    resolved_output_path = Path(output_path)
+    if not resolved_output_path.is_absolute():
+        resolved_output_path = root_path / resolved_output_path
+    template = build_source_license_policy_template(root_path)
+    exists = resolved_output_path.exists()
+    blockers: list[str] = []
+    if exists and not force:
+        blockers.append(f"{resolved_output_path} already exists; pass --force to overwrite")
+    if not blockers:
+        _write_json(resolved_output_path, template)
+    return SourceLicenseReviewedPolicyStarterResult(
+        path=str(resolved_output_path),
+        template_path=SOURCE_LICENSE_POLICY_TEMPLATE_PATH,
+        force=force,
+        written=not blockers,
+        overwritten=exists and force and not blockers,
+        blockers=tuple(blockers),
     )
 
 

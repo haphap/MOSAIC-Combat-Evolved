@@ -15,6 +15,7 @@
       "passed": false,
       "pending_rows": 500,
       "policy_template_path": "",
+      "prepare_command": "",
       "required_manual_fields": [
         "manual_claim_text",
         "claim_correct",
@@ -44,6 +45,7 @@
       "passed": false,
       "pending_rows": 9812,
       "policy_template_path": "registry/review_batches/source_license_policy_template.json",
+      "prepare_command": "mosaic-rke prepare-license-policy-review --root .",
       "required_manual_fields": [
         "approved_for_derived_claim_storage",
         "approved_for_production_runtime",
@@ -69,6 +71,7 @@
       "passed": false,
       "pending_rows": null,
       "policy_template_path": "",
+      "prepare_command": "",
       "required_manual_fields": [
         "opened_at",
         "opened_by",

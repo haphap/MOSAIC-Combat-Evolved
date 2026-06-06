@@ -49,6 +49,7 @@ class OperatorGateHandoff:
     full_import_template_path: str
     policy_template_path: str
     reviewed_policy_path: str
+    prepare_command: str
     pending_rows: int | None
     exported_rows: int | None
     required_manual_fields: Sequence[str]
@@ -202,6 +203,7 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
             full_import_template_path=gold.full_import_template_path,
             policy_template_path="",
             reviewed_policy_path="",
+            prepare_command="",
             pending_rows=gold.pending_rows,
             exported_rows=gold.exported_rows,
             required_manual_fields=tuple(gold.required_manual_fields),
@@ -241,6 +243,7 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
                 "policy, then expand it instead of editing every source row manually."
             ),
             reviewed_policy_path=SOURCE_LICENSE_REVIEWED_POLICY_PATH,
+            prepare_command="mosaic-rke prepare-license-policy-review --root .",
         ),
         OperatorGateHandoff(
             gate_id="PG09",
@@ -254,6 +257,7 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
             full_import_template_path="",
             policy_template_path="",
             reviewed_policy_path="",
+            prepare_command="",
             pending_rows=None,
             exported_rows=1,
             required_manual_fields=(
@@ -344,6 +348,7 @@ def render_operator_handoff_markdown(handoff: OperatorHandoff) -> str:
                 f"- Full import template: {gate.full_import_template_path or 'none'}",
                 f"- Policy template: {gate.policy_template_path or 'none'}",
                 f"- Reviewed policy: {gate.reviewed_policy_path or 'none'}",
+                f"- Prepare: `{gate.prepare_command}`" if gate.prepare_command else "- Prepare: none",
                 f"- Pending rows: {gate.pending_rows}",
                 f"- Exported rows: {gate.exported_rows}",
                 f"- Dry run: `{gate.dry_run_command}`",

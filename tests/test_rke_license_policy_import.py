@@ -7,6 +7,7 @@ from mosaic.rke import (
     apply_source_license_review_import,
     build_source_license_policy_import,
     build_source_license_policy_template,
+    write_source_license_reviewed_policy_starter,
     write_source_license_policy_template,
 )
 from mosaic.rke.cli import main
@@ -117,6 +118,40 @@ def test_write_source_license_policy_template_outputs_registry_artifact(tmp_path
     assert payload["matched_row_count"] == 3
     assert payload["matched_rows_fingerprint"].startswith("sha256:")
     assert (tmp_path / "registry/review_batches/source_license_policy_template.json").exists()
+
+
+def test_write_source_license_reviewed_policy_starter_does_not_overwrite(tmp_path: Path):
+    _copy_registry(tmp_path)
+
+    first = write_source_license_reviewed_policy_starter(tmp_path)
+    reviewed_path = tmp_path / "registry/review_batches/source_license_policy_reviewed.json"
+    payload = json.loads(reviewed_path.read_text(encoding="utf-8"))
+    payload["reviewer"] = "manual reviewer"
+    _write_json(reviewed_path, payload)
+
+    second = write_source_license_reviewed_policy_starter(tmp_path)
+    preserved = json.loads(reviewed_path.read_text(encoding="utf-8"))
+
+    assert first.written
+    assert not second.written
+    assert not second.overwritten
+    assert "already exists" in second.blockers[0]
+    assert preserved["reviewer"] == "manual reviewer"
+
+
+def test_write_source_license_reviewed_policy_starter_force_overwrites(tmp_path: Path):
+    _copy_registry(tmp_path)
+    reviewed_path = tmp_path / "registry/review_batches/source_license_policy_reviewed.json"
+    _write_json(reviewed_path, {"reviewer": "stale"})
+
+    result = write_source_license_reviewed_policy_starter(tmp_path, force=True)
+    payload = json.loads(reviewed_path.read_text(encoding="utf-8"))
+
+    assert result.written
+    assert result.overwritten
+    assert payload["reviewer"] == ""
+    assert payload["approved_for_production_runtime"] is None
+    assert payload["build_command"].endswith("source_license_policy_import.jsonl")
 
 
 def test_source_license_policy_template_ignores_malformed_review_rows(tmp_path: Path):
