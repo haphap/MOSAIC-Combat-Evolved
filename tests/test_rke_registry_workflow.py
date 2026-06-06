@@ -147,3 +147,16 @@ def test_full_refresh_rejects_malformed_gold_candidate_rows(tmp_path: Path):
         match=rf"gold candidate row must be object at row\(s\): {expected_row}",
     ):
         run_full_rke_refresh(tmp_path, preserve_review_templates=False)
+
+
+def test_full_refresh_rejects_malformed_json_gold_candidate_rows(tmp_path: Path):
+    _copy_registry(Path("."), tmp_path)
+    candidates_path = tmp_path / "registry/sources/tushare_research_reports.gold_candidates.jsonl"
+    expected_row = len(candidates_path.read_text(encoding="utf-8").splitlines()) + 1
+    candidates_path.write_text(candidates_path.read_text(encoding="utf-8") + "{\n", encoding="utf-8")
+
+    with pytest.raises(
+        ValueError,
+        match=rf"gold candidate row {expected_row} must contain valid JSON",
+    ):
+        run_full_rke_refresh(tmp_path, preserve_review_templates=False)

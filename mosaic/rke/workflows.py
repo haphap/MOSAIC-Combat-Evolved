@@ -21,7 +21,7 @@ from .operator_handoff import write_operator_handoff
 from .operator_readiness import write_operator_readiness_report
 from .master_plan_coverage import write_master_plan_coverage_report
 from .monitoring_diagnostics import write_production_monitor_diagnostics
-from .phase_minus1 import load_jsonl, write_gold_set_review_template
+from .phase_minus1 import load_jsonl_with_errors, write_gold_set_review_template
 from .policy_doc_validation import write_policy_doc_validation_report
 from .prompt_asset_validation import write_prompt_asset_validation_report
 from .promotion_gate import write_production_promotion_gate_report
@@ -58,6 +58,19 @@ def _require_mapping_rows(rows: list[Any], *, label: str) -> list[Mapping[str, A
     return valid_rows
 
 
+def _load_required_mapping_rows(path: Path, *, label: str) -> list[Mapping[str, Any]]:
+    rows, parse_errors = load_jsonl_with_errors(path, label=label)
+    blockers = list(parse_errors)
+    try:
+        valid_rows = _require_mapping_rows(rows, label=label)
+    except ValueError as exc:
+        valid_rows = []
+        blockers.append(str(exc))
+    if blockers:
+        raise ValueError("; ".join(blockers))
+    return valid_rows
+
+
 def run_full_rke_refresh(
     root: str | Path = ".",
     *,
@@ -81,19 +94,13 @@ def run_full_rke_refresh(
 
     gold_review_path = root_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
     if not preserve_review_templates or not gold_review_path.exists():
-        gold_rows = _require_mapping_rows(
-            load_jsonl(gold_candidates_path),
-            label="gold candidate",
-        )
+        gold_rows = _load_required_mapping_rows(gold_candidates_path, label="gold candidate")
         result = write_gold_set_review_template(gold_rows, gold_review_path, claims_per_document=10)
         outputs["gold_set_review_template"] = str(result["path"])
 
     license_review_path = root_path / "registry/compliance/tushare_license_review_template.jsonl"
     if not preserve_review_templates or not license_review_path.exists():
-        source_rows = _require_mapping_rows(
-            load_jsonl(source_path),
-            label="source registry",
-        )
+        source_rows = _load_required_mapping_rows(source_path, label="source registry")
         result = write_source_license_review_template(source_rows, license_review_path)
         outputs["license_review_template"] = str(result["path"])
 
