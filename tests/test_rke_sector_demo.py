@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from mosaic.rke import (
     build_sector_semiconductor_demo,
     check_runtime_output,
@@ -83,6 +85,24 @@ def test_sector_semiconductor_demo_registry_writer(tmp_path: Path):
     assert rule_pack["empirical_confidence_bin"] == "low"
     assert disagreement["cluster"]["cluster_id"] == "DISAGREE-SEMI-POLICY-SUB-20260605"
     assert runtime["agent_output_id"] == "OUT-SEMI-20260605-0001"
+
+
+def test_sector_semiconductor_demo_rejects_malformed_source_rows(tmp_path: Path):
+    source_dir = tmp_path / "registry/sources"
+    source_dir.mkdir(parents=True, exist_ok=True)
+    source_path = source_dir / "tushare_research_reports.jsonl"
+    source_text = Path("registry/sources/tushare_research_reports.jsonl").read_text(encoding="utf-8")
+    expected_row = len(source_text.splitlines()) + 1
+    source_path.write_text(
+        source_text + json.dumps("not an object") + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=rf"semiconductor source row\(s\) must be object: {expected_row}",
+    ):
+        write_sector_semiconductor_demo_registry(tmp_path)
 
 
 def test_sector_semiconductor_repo_registry_is_sandbox_only():

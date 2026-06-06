@@ -126,6 +126,19 @@ def _redacted_source_rows(bundle: SectorSemiconductorDemoBundle) -> tuple[dict[s
     return tuple(rows)
 
 
+def _require_mapping_rows(rows: Sequence[Any], *, label: str) -> list[Mapping[str, Any]]:
+    valid_rows: list[Mapping[str, Any]] = []
+    invalid_rows: list[str] = []
+    for index, row in enumerate(rows, 1):
+        if isinstance(row, Mapping):
+            valid_rows.append(row)
+        else:
+            invalid_rows.append(str(index))
+    if invalid_rows:
+        raise ValueError(f"{label} row(s) must be object: {', '.join(invalid_rows)}")
+    return valid_rows
+
+
 def _find_report(rows: Sequence[Mapping[str, Any]], *, contains: str) -> Mapping[str, Any]:
     for row in rows:
         if row.get("query_key") == "半导体" and contains in str(row.get("abstract") or ""):
@@ -161,9 +174,14 @@ def _claim(
 
 
 def build_sector_semiconductor_demo(
-    source_rows: Sequence[Mapping[str, Any]] | None = None,
+    source_rows: Sequence[Any] | None = None,
 ) -> SectorSemiconductorDemoBundle:
-    rows = list(source_rows or load_jsonl("registry/sources/tushare_research_reports.jsonl"))
+    rows = _require_mapping_rows(
+        load_jsonl("registry/sources/tushare_research_reports.jsonl")
+        if source_rows is None
+        else source_rows,
+        label="semiconductor source",
+    )
     cycle_row = _find_report(rows, contains="存储市场仍保持较高景气度")
     valuation_row = _find_report(rows, contains="行业估值高于近年中枢水平")
     trade_risk_row = _find_report(rows, contains="中美科技摩擦加剧")
