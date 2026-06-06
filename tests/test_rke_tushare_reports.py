@@ -8,6 +8,7 @@ import pandas as pd
 
 from mosaic.rke.tushare_reports import (
     fetch_tushare_research_reports,
+    load_tushare_research_reports_from_file,
     normalize_research_report_row,
     refresh_tushare_research_report_registry,
     write_research_reports_jsonl,
@@ -167,6 +168,25 @@ class PaginatedFullMarketFakeTusharePro:
         )
 
 
+class RaisingTusharePro:
+    def research_report(self, **kwargs):
+        raise AssertionError(f"Tushare should not be called for local import: {kwargs}")
+
+
+def _write_local_tushare_csv(path: Path) -> None:
+    path.write_text(
+        "\n".join(
+            [
+                "trade_date,report_type,name,title,abstr,author,inst_csname,ts_code,ind_name,url,fetched_at,query_value",
+                "20260603,个股研报,平安银行,Local stock report,Local stock thesis.,Analyst A,Broker A,000001.SZ,银行,https://example.invalid/a,2026-06-06T00:00:00+00:00,all",
+                "20260602,行业研报,半导体,Local industry report,Local industry thesis.,Analyst B,Broker B,,半导体,https://example.invalid/b,2026-06-06T00:00:00+00:00,all",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
 def test_fetch_tushare_research_reports_uses_stock_and_industry_queries():
     fake = FakeTusharePro()
 
@@ -310,6 +330,19 @@ def test_write_research_reports_jsonl(tmp_path):
     assert row["source_span_id"].endswith(":abstract")
 
 
+def test_load_tushare_research_reports_from_local_csv(tmp_path: Path):
+    path = tmp_path / "reports.csv"
+    _write_local_tushare_csv(path)
+
+    reports = load_tushare_research_reports_from_file(path)
+
+    assert len(reports) == 2
+    assert {report.report_type for report in reports} == {"个股研报", "行业研报"}
+    assert {report.query_key for report in reports} == {"000001.SZ", "半导体"}
+    assert {report.discovered_at for report in reports} == {"2026-06-06T00:00:00+00:00"}
+    assert all(report.source_type == "tushare_research_report" for report in reports)
+
+
 def test_refresh_tushare_research_report_registry_updates_dependent_artifacts(tmp_path: Path):
     shutil.copytree(Path("registry"), tmp_path / "registry")
     fake = FakeTusharePro()
@@ -345,6 +378,7 @@ def test_refresh_tushare_research_report_registry_updates_dependent_artifacts(tm
 
     assert result.source_rows == 2
     assert result.rows_with_abstract == 2
+    assert result.skipped_empty_abstract_rows == 0
     assert result.gold_candidate_rows == 2
     assert result.gold_review_template_updated
     assert result.license_review_template_updated
@@ -372,6 +406,84 @@ def test_refresh_tushare_research_report_registry_updates_dependent_artifacts(tm
     assert manifest["query_set"]["report_types"] == []
     assert manifest["query_key_counts"] == {"600519.SH": 1, "银行": 1}
     assert manifest["rows_with_abstract"] == 2
+    assert manifest["skipped_empty_abstract_rows"] == 0
+
+
+def test_refresh_tushare_research_report_registry_imports_local_file_without_tushare(
+    tmp_path: Path,
+):
+    shutil.copytree(Path("registry"), tmp_path / "registry")
+    local_input = tmp_path / "reports.csv"
+    _write_local_tushare_csv(local_input)
+
+    result = refresh_tushare_research_report_registry(
+        tmp_path,
+        stock_codes=(),
+        industry_keywords=(),
+        input_path=local_input,
+        max_reports_per_query=6000,
+        pro=RaisingTusharePro(),
+    )
+
+    source_rows = [
+        json.loads(line)
+        for line in (tmp_path / "registry/sources/tushare_research_reports.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+    manifest = json.loads(
+        (tmp_path / "registry/sources/tushare_research_reports.manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert result.source_rows == 2
+    assert result.rows_with_abstract == 2
+    assert result.skipped_empty_abstract_rows == 0
+    assert result.manifest_valid
+    assert len(source_rows) == 2
+    assert manifest["source"] == "local_file"
+    assert manifest["input_path"] == str(local_input)
+    assert manifest["query_window"] == {"start_date": "2026-06-02", "end_date": "2026-06-03"}
+    assert manifest["report_type_counts"] == {"个股研报": 1, "行业研报": 1}
+    assert manifest["skipped_empty_abstract_rows"] == 0
+
+
+def test_refresh_tushare_research_report_registry_skips_empty_abstract_rows(
+    tmp_path: Path,
+):
+    shutil.copytree(Path("registry"), tmp_path / "registry")
+    local_input = tmp_path / "reports.csv"
+    local_input.write_text(
+        "\n".join(
+            [
+                "trade_date,report_type,name,title,abstr,author,inst_csname,ts_code,ind_name,url,fetched_at,query_value",
+                "20260603,个股研报,平安银行,Local stock report,Local stock thesis.,Analyst A,Broker A,000001.SZ,银行,https://example.invalid/a,2026-06-06T00:00:00+00:00,all",
+                "20260602,行业研报,半导体,No abstract report,,Analyst B,Broker B,,半导体,https://example.invalid/b,2026-06-06T00:00:00+00:00,all",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = refresh_tushare_research_report_registry(
+        tmp_path,
+        stock_codes=(),
+        industry_keywords=(),
+        input_path=local_input,
+        max_reports_per_query=6000,
+        pro=RaisingTusharePro(),
+    )
+    manifest = json.loads(
+        (tmp_path / "registry/sources/tushare_research_reports.manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert result.source_rows == 1
+    assert result.rows_with_abstract == 1
+    assert result.skipped_empty_abstract_rows == 1
+    assert manifest["skipped_empty_abstract_rows"] == 1
 
 
 def test_refresh_tushare_research_report_registry_preserves_existing_discovered_at(

@@ -8,6 +8,7 @@ with source IDs, span IDs, hashes, publication dates, and discovery timestamps.
 
 from __future__ import annotations
 
+import csv
 import json
 from collections import Counter
 from dataclasses import asdict, dataclass, replace
@@ -34,6 +35,7 @@ from .monitoring_diagnostics import write_production_monitor_diagnostics
 from .phase_minus1 import (
     audit_research_report_corpus,
     load_jsonl,
+    load_jsonl_with_errors,
     select_gold_set_candidates,
     write_gold_set_candidates,
     write_gold_set_review_template,
@@ -110,6 +112,7 @@ class TushareResearchReportRefreshResult:
     root: str
     source_rows: int
     rows_with_abstract: int
+    skipped_empty_abstract_rows: int
     gold_candidate_rows: int
     gold_review_template_updated: bool
     license_review_template_updated: bool
@@ -174,6 +177,90 @@ def _df_to_records(df: Any) -> list[dict[str, Any]]:
     if df is None or getattr(df, "empty", True):
         return []
     return list(df.to_dict("records"))
+
+
+def _local_row_to_tushare_row(row: Mapping[str, Any]) -> dict[str, Any]:
+    publish_date = str(row.get("publish_date") or "").strip()
+    trade_date = str(row.get("trade_date") or "").strip()
+    if not trade_date and publish_date:
+        trade_date = publish_date.replace("-", "")
+    return {
+        "trade_date": trade_date,
+        "title": row.get("title") or "",
+        "abstr": row.get("abstr") or row.get("abstract") or "",
+        "author": row.get("author") or "",
+        "inst_csname": row.get("inst_csname") or row.get("institution") or "",
+        "ts_code": row.get("ts_code") or "",
+        "ind_name": row.get("ind_name") or row.get("industry") or "",
+        "url": row.get("url") or "",
+    }
+
+
+def _local_row_report_type(row: Mapping[str, Any]) -> str:
+    report_type = str(row.get("report_type") or row.get("query_report_type") or "").strip()
+    if report_type:
+        return report_type
+    if str(row.get("ts_code") or "").strip():
+        return "个股研报"
+    if str(row.get("ind_name") or row.get("industry") or "").strip():
+        return "行业研报"
+    return "research_report"
+
+
+def _local_row_query_key(row: Mapping[str, Any], report_type: str) -> str:
+    query_key = str(row.get("query_key") or row.get("query_value") or "").strip()
+    if query_key and query_key.lower() not in {"all", "nan", "none"}:
+        return query_key
+    return _broad_query_key(_local_row_to_tushare_row(row), report_type)
+
+
+def _load_local_research_report_rows(input_path: str | Path) -> list[Mapping[str, Any]]:
+    path = Path(input_path)
+    if not path.is_file():
+        raise FileNotFoundError(f"Tushare research-report input file does not exist: {path}")
+    if path.suffix.lower() == ".csv":
+        with path.open("r", encoding="utf-8", newline="") as fh:
+            return [dict(row) for row in csv.DictReader(fh)]
+
+    raw_rows, parse_errors = load_jsonl_with_errors(path, label=str(path))
+    if parse_errors:
+        raise ValueError("; ".join(parse_errors))
+    rows: list[Mapping[str, Any]] = []
+    invalid_rows: list[str] = []
+    for index, row in enumerate(raw_rows, 1):
+        if isinstance(row, Mapping):
+            rows.append(row)
+        else:
+            invalid_rows.append(str(index))
+    if invalid_rows:
+        raise ValueError(f"{path} row(s) must be object: {', '.join(invalid_rows)}")
+    return rows
+
+
+def load_tushare_research_reports_from_file(
+    input_path: str | Path,
+    *,
+    discovered_at: str | None = None,
+) -> list[RkeResearchReport]:
+    """Load local Tushare research_report CSV/JSONL rows as RKE source reports."""
+    stamp = discovered_at or _utc_now()
+    reports: list[RkeResearchReport] = []
+    for row in _load_local_research_report_rows(input_path):
+        report_type = _local_row_report_type(row)
+        row_discovered_at = str(row.get("discovered_at") or row.get("fetched_at") or "").strip()
+        reports.append(
+            normalize_research_report_row(
+                _local_row_to_tushare_row(row),
+                report_type=report_type,
+                query_key=_local_row_query_key(row, report_type),
+                discovered_at=discovered_at or row_discovered_at or stamp,
+            )
+        )
+
+    deduped: dict[str, RkeResearchReport] = {}
+    for report in reports:
+        deduped.setdefault(report.source_hash, report)
+    return sorted(deduped.values(), key=lambda item: (item.publish_date, item.source_id), reverse=True)
 
 
 def _fetch_research_report_pages(
@@ -430,6 +517,13 @@ def write_research_reports_jsonl(
     return {"path": str(path), "rows": len(rows)}
 
 
+def _filter_reports_with_abstract(
+    reports: Sequence[RkeResearchReport],
+) -> tuple[list[RkeResearchReport], int]:
+    filtered = [report for report in reports if report.abstract.strip()]
+    return filtered, len(reports) - len(filtered)
+
+
 def _template_has_manual_values(path: Path, fields: Sequence[str]) -> bool:
     if not path.exists():
         return False
@@ -481,6 +575,8 @@ def _write_research_report_manifest(
     max_reports_per_query: int,
     stock_query_batch_size: int,
     date_chunk_days: int,
+    input_path: str | None,
+    skipped_empty_abstract_rows: int,
     row_count: int,
     rows_with_abstract: int,
     publish_date_min: str | None,
@@ -496,6 +592,7 @@ def _write_research_report_manifest(
         "max_reports_per_query": max_reports_per_query,
         "stock_query_batch_size": stock_query_batch_size,
         "date_chunk_days": date_chunk_days,
+        "input_path": input_path,
         "not_yet": [
             "not a passed gold set",
             "not production runtime input",
@@ -526,7 +623,8 @@ def _write_research_report_manifest(
         "report_type_counts": dict(report_type_counts),
         "row_count": row_count,
         "rows_with_abstract": rows_with_abstract,
-        "source": "tushare.pro.research_report",
+        "skipped_empty_abstract_rows": skipped_empty_abstract_rows,
+        "source": "local_file" if input_path else "tushare.pro.research_report",
     }
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(
@@ -542,8 +640,9 @@ def refresh_tushare_research_report_registry(
     stock_codes: Sequence[str],
     industry_keywords: Sequence[str],
     report_types: Sequence[str] = (),
-    start_date: str,
-    end_date: str,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    input_path: str | Path | None = None,
     max_reports_per_query: int = 6000,
     stock_query_batch_size: int = 50,
     date_chunk_days: int = 31,
@@ -552,7 +651,9 @@ def refresh_tushare_research_report_registry(
     pro: Any | None = None,
 ) -> TushareResearchReportRefreshResult:
     """Fetch Tushare reports and refresh dependent Phase -1 registry artifacts."""
-    if not stock_codes and not industry_keywords and not report_types:
+    if input_path is None and (not start_date or not end_date):
+        raise ValueError("start_date and end_date are required when fetching from Tushare")
+    if input_path is None and not stock_codes and not industry_keywords and not report_types:
         raise ValueError("at least one stock code, industry keyword, or report type is required")
     if max_reports_per_query <= 0:
         raise ValueError("max_reports_per_query must be positive")
@@ -563,20 +664,31 @@ def refresh_tushare_research_report_registry(
 
     root_path = Path(root)
     ingested_at = discovered_at or _utc_now()
-    reports = fetch_tushare_research_reports(
-        stock_codes=stock_codes,
-        industry_keywords=industry_keywords,
-        report_types=report_types,
-        start_date=start_date,
-        end_date=end_date,
-        max_reports_per_query=max_reports_per_query,
-        stock_query_batch_size=stock_query_batch_size,
-        date_chunk_days=date_chunk_days,
-        discovered_at=ingested_at,
-        pro=pro,
-    )
+    if input_path is not None:
+        reports = load_tushare_research_reports_from_file(
+            input_path,
+            discovered_at=discovered_at,
+        )
+    else:
+        reports = fetch_tushare_research_reports(
+            stock_codes=stock_codes,
+            industry_keywords=industry_keywords,
+            report_types=report_types,
+            start_date=start_date or "",
+            end_date=end_date or "",
+            max_reports_per_query=max_reports_per_query,
+            stock_query_batch_size=stock_query_batch_size,
+            date_chunk_days=date_chunk_days,
+            discovered_at=ingested_at,
+            pro=pro,
+        )
     if not reports:
-        raise RuntimeError("Tushare research_report returned zero rows; registry was not refreshed")
+        raise RuntimeError("research_report source returned zero rows; registry was not refreshed")
+    reports, skipped_empty_abstract_rows = _filter_reports_with_abstract(reports)
+    if not reports:
+        raise RuntimeError(
+            "research_report source returned no rows with non-empty abstracts; registry was not refreshed"
+        )
 
     outputs: dict[str, str] = {}
     source_path = root_path / "registry/sources/tushare_research_reports.jsonl"
@@ -590,6 +702,8 @@ def refresh_tushare_research_report_registry(
 
     source_rows = load_jsonl(source_path)
     audit = audit_research_report_corpus(source_rows)
+    query_start_date = start_date or audit.publish_date_min or ""
+    query_end_date = end_date or audit.publish_date_max or ""
     report_type_counts = Counter(str(row.get("report_type") or "") for row in source_rows)
     query_key_counts = Counter(str(row.get("query_key") or "") for row in source_rows)
 
@@ -642,14 +756,16 @@ def refresh_tushare_research_report_registry(
     manifest_result = _write_research_report_manifest(
         output_path=root_path / "registry/sources/tushare_research_reports.manifest.json",
         source_path=Path("registry/sources/tushare_research_reports.jsonl"),
-        start_date=start_date,
-        end_date=end_date,
+        start_date=query_start_date,
+        end_date=query_end_date,
         stock_codes=stock_codes,
         industry_keywords=industry_keywords,
         report_types=report_types,
         max_reports_per_query=max_reports_per_query,
         stock_query_batch_size=stock_query_batch_size,
         date_chunk_days=date_chunk_days,
+        input_path=str(input_path) if input_path is not None else None,
+        skipped_empty_abstract_rows=skipped_empty_abstract_rows,
         row_count=audit.row_count,
         rows_with_abstract=audit.rows_with_abstract,
         publish_date_min=audit.publish_date_min,
@@ -741,6 +857,7 @@ def refresh_tushare_research_report_registry(
         root=str(root_path),
         source_rows=audit.row_count,
         rows_with_abstract=audit.rows_with_abstract,
+        skipped_empty_abstract_rows=skipped_empty_abstract_rows,
         gold_candidate_rows=int(gold_candidates_result["rows"]),
         gold_review_template_updated=gold_review_updated,
         license_review_template_updated=license_review_updated,

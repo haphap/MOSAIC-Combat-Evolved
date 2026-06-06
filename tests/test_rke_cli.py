@@ -356,6 +356,7 @@ def test_rke_cli_fetch_tushare_reports_passes_query_args(monkeypatch, tmp_path: 
             root=str(root),
             source_rows=3,
             rows_with_abstract=3,
+            skipped_empty_abstract_rows=0,
             gold_candidate_rows=3,
             gold_review_template_updated=True,
             license_review_template_updated=True,
@@ -403,10 +404,64 @@ def test_rke_cli_fetch_tushare_reports_passes_query_args(monkeypatch, tmp_path: 
     assert captured["report_types"] == ("个股研报", "行业研报")
     assert captured["start_date"] == "2026-06-01"
     assert captured["end_date"] == "2026-06-05"
+    assert captured["input_path"] is None
     assert captured["max_reports_per_query"] == 42
     assert captured["stock_query_batch_size"] == 2
     assert captured["date_chunk_days"] == 7
     assert captured["preserve_review_templates"] is True
+
+
+def test_rke_cli_fetch_tushare_reports_accepts_local_input_path(
+    tmp_path: Path,
+    capsys,
+    monkeypatch,
+):
+    captured = {}
+
+    def fake_refresh(root, **kwargs):
+        captured["root"] = str(root)
+        captured.update(kwargs)
+        return TushareResearchReportRefreshResult(
+            root=str(root),
+            source_rows=2,
+            rows_with_abstract=2,
+            skipped_empty_abstract_rows=0,
+            gold_candidate_rows=2,
+            gold_review_template_updated=True,
+            license_review_template_updated=True,
+            publish_date_min="2026-06-02",
+            publish_date_max="2026-06-03",
+            report_type_counts={"个股研报": 1, "行业研报": 1},
+            query_key_counts={"000001.SZ": 1, "半导体": 1},
+            completion_ready_for_broad_rollout=False,
+            manifest_valid=True,
+            outputs={"source": "registry/sources/tushare_research_reports.jsonl"},
+        )
+
+    monkeypatch.setattr("mosaic.rke.cli.refresh_tushare_research_report_registry", fake_refresh)
+    local_input = tmp_path / "reports.csv"
+    local_input.write_text("trade_date,title,abstr\n20260603,a,b\n", encoding="utf-8")
+
+    code = main(
+        (
+            "fetch-tushare-reports",
+            "--root",
+            str(tmp_path),
+            "--input-path",
+            str(local_input),
+        )
+    )
+    output = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert output["source_rows"] == 2
+    assert captured["root"] == str(tmp_path)
+    assert captured["input_path"] == str(local_input)
+    assert captured["start_date"] is None
+    assert captured["end_date"] is None
+    assert captured["stock_codes"] == ()
+    assert captured["industry_keywords"] == ()
+    assert captured["report_types"] == ()
 
 
 def test_pyproject_exposes_mosaic_rke_console_script():

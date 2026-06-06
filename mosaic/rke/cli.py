@@ -330,8 +330,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Fetch Tushare research reports and refresh dependent Phase -1 registry artifacts.",
     )
     fetch_reports.add_argument("--root", default=".", help="Repository root. Defaults to current directory.")
-    fetch_reports.add_argument("--start-date", required=True, help="Inclusive YYYY-MM-DD query start date.")
-    fetch_reports.add_argument("--end-date", required=True, help="Inclusive YYYY-MM-DD query end date.")
+    fetch_reports.add_argument("--start-date", help="Inclusive YYYY-MM-DD query start date.")
+    fetch_reports.add_argument("--end-date", help="Inclusive YYYY-MM-DD query end date.")
+    fetch_reports.add_argument(
+        "--input-path",
+        help=(
+            "Local Tushare research_report CSV/JSONL to import instead of calling Tushare. "
+            "When omitted, --start-date/--end-date and a query target are required."
+        ),
+    )
     fetch_reports.add_argument(
         "--stock-code",
         action="append",
@@ -646,6 +653,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             report_types=_split_repeated_csv(args.report_types),
             start_date=args.start_date,
             end_date=args.end_date,
+            input_path=args.input_path,
             max_reports_per_query=args.max_reports_per_query,
             stock_query_batch_size=args.stock_query_batch_size,
             date_chunk_days=args.date_chunk_days,

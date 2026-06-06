@@ -157,6 +157,22 @@ mosaic-rke fetch-tushare-reports \
   --max-reports-per-query 6000
 ```
 
+If the Tushare corpus was already fetched into a local CSV/JSONL cache, import
+that file directly and skip network calls:
+
+```bash
+mosaic-rke fetch-tushare-reports \
+  --root . \
+  --input-path ~/.mosaic/cache/research_reports/all_market_2017_20260606/tushare_research_reports_corrected_2017-01-01_2026-06-06_20260606_0853410000.csv
+```
+
+The import path accepts raw Tushare-style fields (`trade_date`, `abstr`,
+`inst_csname`, `ind_name`) and RKE-style fields (`publish_date`, `abstract`,
+`institution`, `industry`). The refresh still rewrites the same source registry,
+manifest, review packets, redaction report, dashboard, promotion gate, and
+operator handoff artifacts. Rows without a non-empty abstract are skipped before
+writing the RKE source registry, and the skip count is recorded in the manifest.
+
 The recommended corpus refresh queries full-market Tushare `research_report`
 rows by `report_type` and date windows. This avoids hand-maintaining a large
 stock or industry keyword list and makes the manifest reproducible via
