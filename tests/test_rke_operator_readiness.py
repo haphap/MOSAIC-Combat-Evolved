@@ -180,6 +180,22 @@ def test_operator_readiness_reports_malformed_manual_review_rows(tmp_path: Path)
     assert "gold-set review row must be object" in batch.blocker
 
 
+def test_operator_readiness_reports_malformed_lockbox_target(tmp_path: Path):
+    _copy_registry(tmp_path)
+    target_path = tmp_path / "registry/lockbox/central_bank_lockbox_review.json"
+    target_path.write_text(json.dumps(["not", "an", "object"]), encoding="utf-8")
+
+    report = build_operator_readiness_report(tmp_path)
+    lockbox = next(
+        check for check in report.checks if check.check_id == "lockbox_template_requires_human_decision"
+    )
+
+    assert not report.accepted
+    assert not lockbox.passed
+    assert "lockbox target must be object" in lockbox.blocker
+    assert "expected_error=lockbox target must be object" in lockbox.evidence
+
+
 def test_operator_readiness_detects_filled_policy_template(tmp_path: Path):
     _copy_registry(tmp_path)
     result = write_operator_readiness_report(tmp_path)

@@ -75,7 +75,7 @@
       "blocker": "lockbox has not been opened",
       "criterion_id": "PG09",
       "description": "Lockbox is passed before final production.",
-      "evidence": "lockbox_state=not_ready, next_state=paper_trading",
+      "evidence": "lockbox_state=not_ready, next_state=paper_trading, payload_errors=0",
       "evidence_path": "registry/lockbox/central_bank_lockbox_review.json",
       "passed": false
     },

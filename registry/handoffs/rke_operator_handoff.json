@@ -57,7 +57,7 @@
       "apply_command": "mosaic-rke apply-lockbox-review --root . --input registry/review_batches/lockbox_review_next_import_template.json",
       "blocker": "lockbox has not been opened",
       "dry_run_command": "mosaic-rke apply-lockbox-review --root . --input registry/review_batches/lockbox_review_next_import_template.json --dry-run",
-      "evidence": "lockbox_state=not_ready, next_state=paper_trading",
+      "evidence": "lockbox_state=not_ready, next_state=paper_trading, payload_errors=0",
       "evidence_path": "registry/lockbox/central_bank_lockbox_review.json",
       "exported_rows": 1,
       "full_import_template_path": "",

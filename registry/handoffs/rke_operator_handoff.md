@@ -52,7 +52,7 @@ Dry-run command: `mosaic-rke build-license-review-import --root . --policy regis
 
 - Passed: false
 - Blocker: lockbox has not been opened
-- Evidence: lockbox_state=not_ready, next_state=paper_trading
+- Evidence: lockbox_state=not_ready, next_state=paper_trading, payload_errors=0
 - Review packet: registry/evaluation/lockbox/lockbox_policy.json
 - Import template: registry/review_batches/lockbox_review_next_import_template.json
 - Full import template: none

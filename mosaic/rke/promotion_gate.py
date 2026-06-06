@@ -45,11 +45,11 @@ def _jsonable(value: Any) -> Any:
     return value
 
 
-def _read_json(path: Path) -> dict[str, Any]:
+def _read_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _optional_json(path: Path) -> dict[str, Any]:
+def _optional_json(path: Path) -> Any:
     if not path.exists():
         return {}
     return _read_json(path)
@@ -89,6 +89,17 @@ def _completion_criterion(payload: Mapping[str, Any], criterion_id: str) -> Mapp
     return {}
 
 
+def _lockbox_decision_from_payload(payload: Any) -> tuple[Any, tuple[str, ...]]:
+    if not payload:
+        return evaluate_lockbox_review(None), ()
+    if not isinstance(payload, Mapping):
+        return evaluate_lockbox_review(None), ("lockbox review must be object",)
+    try:
+        return evaluate_lockbox_review(LockboxReview(**payload)), ()
+    except TypeError as exc:
+        return evaluate_lockbox_review(None), (f"lockbox review schema invalid: {exc}",)
+
+
 def build_production_promotion_gate_report(root: str | Path = ".") -> ProductionPromotionGateReport:
     root_path = Path(root)
     completion_path = "registry/audits/rke_completion_audit.json"
@@ -109,9 +120,7 @@ def build_production_promotion_gate_report(root: str | Path = ".") -> Production
     lockbox_payload = _optional_json(root_path / lockbox_path)
     patch = _optional_json(root_path / patch_path)
 
-    lockbox_decision = (
-        evaluate_lockbox_review(LockboxReview(**lockbox_payload)) if lockbox_payload else evaluate_lockbox_review(None)
-    )
+    lockbox_decision, lockbox_payload_reasons = _lockbox_decision_from_payload(lockbox_payload)
     paper_summary = dict(paper.get("paper_trading_summary") or {})
     production_monitor = dict(paper.get("production_monitor") or {})
     patch_validation = dict(patch.get("validation_summary") or {})
@@ -189,8 +198,13 @@ def build_production_promotion_gate_report(root: str | Path = ".") -> Production
             "Lockbox is passed before final production.",
             lockbox_decision.production_allowed,
             lockbox_path,
-            f"lockbox_state={lockbox_decision.state}, next_state={lockbox_decision.next_state}",
-            "; ".join(lockbox_decision.reasons) or "lockbox has not passed",
+            (
+                f"lockbox_state={lockbox_decision.state}, "
+                f"next_state={lockbox_decision.next_state}, "
+                f"payload_errors={len(lockbox_payload_reasons)}"
+            ),
+            "; ".join((*lockbox_payload_reasons, *lockbox_decision.reasons))
+            or "lockbox has not passed",
         ),
         _criterion(
             "PG10",

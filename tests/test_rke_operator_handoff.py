@@ -4,6 +4,8 @@ import json
 import shutil
 from pathlib import Path
 
+import pytest
+
 from mosaic.rke import (
     build_lockbox_review_import_template,
     build_operator_handoff,
@@ -65,6 +67,15 @@ def test_lockbox_review_import_template_requires_human_decision():
     assert template["open_count"] is None
     assert template["parameter_search_after_open"] is False
     assert template["rule_design_after_open"] is False
+
+
+def test_lockbox_review_import_template_rejects_non_object_target(tmp_path: Path):
+    _copy_registry(tmp_path)
+    target_path = tmp_path / "registry/lockbox/central_bank_lockbox_review.json"
+    target_path.write_text(json.dumps(["not", "an", "object"]), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="lockbox target must be object"):
+        build_lockbox_review_import_template(tmp_path)
 
 
 def test_write_operator_handoff_outputs_json_markdown_and_lockbox_template(tmp_path: Path):

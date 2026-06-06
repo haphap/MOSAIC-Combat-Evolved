@@ -326,16 +326,26 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
 
     lockbox_path = root_path / LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH
     lockbox_template = _read_json(lockbox_path) if lockbox_path.exists() else {}
-    expected_lockbox = build_lockbox_review_import_template(root_path)
+    expected_lockbox: Mapping[str, Any] = {}
+    expected_lockbox_error = ""
+    try:
+        expected_lockbox = build_lockbox_review_import_template(root_path)
+    except ValueError as exc:
+        expected_lockbox_error = str(exc)
     checks.append(
         _check(
             "lockbox_template_requires_human_decision",
             bool(lockbox_template)
+            and isinstance(lockbox_template, Mapping)
+            and not expected_lockbox_error
             and lockbox_template == expected_lockbox
             and lockbox_template.get("result") == ""
             and lockbox_template.get("open_count") is None,
-            f"lockbox_template_path={LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH}",
-            "lockbox import template is missing or already filled",
+            (
+                f"lockbox_template_path={LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH}"
+                + (f", expected_error={expected_lockbox_error}" if expected_lockbox_error else "")
+            ),
+            expected_lockbox_error or "lockbox import template is missing or already filled",
         )
     )
 

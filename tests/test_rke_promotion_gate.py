@@ -88,6 +88,20 @@ def test_production_promotion_gate_blocks_current_registry():
     assert "lockbox" in blockers
 
 
+def test_production_promotion_gate_rejects_malformed_lockbox_payload(tmp_path: Path):
+    _copy_registry(tmp_path)
+    lockbox_path = tmp_path / "registry/lockbox/central_bank_lockbox_review.json"
+    lockbox_path.write_text(json.dumps(["not", "an", "object"]), encoding="utf-8")
+
+    report = build_production_promotion_gate_report(tmp_path)
+    pg09 = next(criterion for criterion in report.criteria if criterion.criterion_id == "PG09")
+
+    assert not report.production_allowed
+    assert not pg09.passed
+    assert "payload_errors=1" in pg09.evidence
+    assert "lockbox review must be object" in pg09.blocker
+
+
 def test_production_promotion_gate_allows_production_after_manual_and_lockbox_gates(tmp_path: Path):
     _copy_registry(tmp_path)
     gold_import = tmp_path / "gold_import.jsonl"

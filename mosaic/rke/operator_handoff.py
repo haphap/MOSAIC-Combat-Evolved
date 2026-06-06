@@ -82,7 +82,7 @@ def _write_json(path: Path, payload: Mapping[str, Any]) -> dict[str, Any]:
     return {"path": str(path), "rows": 1}
 
 
-def _read_json(path: Path) -> dict[str, Any]:
+def _read_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
@@ -98,6 +98,10 @@ def build_lockbox_review_import_template(root: str | Path = ".") -> Mapping[str,
     root_path = Path(root)
     target = _read_json(root_path / LOCKBOX_REVIEW_PATH)
     policy = _read_json(root_path / LOCKBOX_POLICY_PATH)
+    if not isinstance(target, Mapping):
+        raise ValueError("lockbox target must be object")
+    if not isinstance(policy, Mapping):
+        raise ValueError("lockbox policy must be object")
     return {
         "experiment_family_id": str(target.get("experiment_family_id") or ""),
         "experiment_id": str(target.get("experiment_id") or ""),
