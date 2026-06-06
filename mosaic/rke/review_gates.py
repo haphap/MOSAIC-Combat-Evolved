@@ -9,14 +9,11 @@ from typing import Any, Mapping, Sequence
 
 from .compliance import apply_source_license_reviews, evaluate_source_license
 from .phase_minus1 import evaluate_gold_set_reviews, load_jsonl_with_errors
-
-
-GOLD_REVIEW_FIELDS = (
-    "claim_correct",
-    "source_span_supports_claim",
-    "direction_correct",
-    "variable_mapping_correct",
-    "unsupported_field_false_grounded",
+from .review_integrity import (
+    gold_review_integrity_failures,
+    gold_review_row_complete,
+    license_review_integrity_failures,
+    license_review_row_complete,
 )
 
 
@@ -53,11 +50,16 @@ class SourceLicenseReviewSummary:
 
 def _write_json(path: Path, payload: Mapping[str, Any]) -> dict[str, Any]:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
     return {"path": str(path), "rows": 1}
 
 
-def _split_mapping_rows(rows: Sequence[Any]) -> tuple[list[Mapping[str, Any]], tuple[int, ...]]:
+def _split_mapping_rows(
+    rows: Sequence[Any],
+) -> tuple[list[Mapping[str, Any]], tuple[int, ...]]:
     valid: list[Mapping[str, Any]] = []
     invalid: list[int] = []
     for index, row in enumerate(rows, 1):
@@ -69,7 +71,7 @@ def _split_mapping_rows(rows: Sequence[Any]) -> tuple[list[Mapping[str, Any]], t
 
 
 def _gold_row_reviewed(row: Mapping[str, Any]) -> bool:
-    return all(row.get(field) is not None for field in GOLD_REVIEW_FIELDS)
+    return gold_review_row_complete(row)
 
 
 def summarize_gold_set_review(
@@ -80,10 +82,14 @@ def summarize_gold_set_review(
     root_path = Path(root)
     review_path = root_path / review_relative_path
     raw_rows, review_parse_blockers = (
-        load_jsonl_with_errors(review_path, label="gold-set review") if review_path.exists() else ([], ())
+        load_jsonl_with_errors(review_path, label="gold-set review")
+        if review_path.exists()
+        else ([], ())
     )
     rows, invalid_rows = _split_mapping_rows(raw_rows)
-    documents = {str(row.get("document_id") or row.get("source_id") or "") for row in rows}
+    documents = {
+        str(row.get("document_id") or row.get("source_id") or "") for row in rows
+    }
     documents.discard("")
     reviewed = [row for row in rows if _gold_row_reviewed(row)]
     total_claim_rows = len(raw_rows) + len(review_parse_blockers)
@@ -100,10 +106,12 @@ def summarize_gold_set_review(
             "gold-set review row must be object at row(s): "
             + ", ".join(str(row_number) for row_number in invalid_rows)
         )
+    integrity_failures = gold_review_integrity_failures(rows) if rows else ()
+    blockers.extend(integrity_failures)
     if pending_claims:
         blockers.append(f"{pending_claims} gold-set claim review rows still pending")
 
-    if rows and not invalid_rows and pending_claims == 0:
+    if rows and not invalid_rows and not integrity_failures and pending_claims == 0:
         gold_set = evaluate_gold_set_reviews(rows, gold_set_id="GOLD-CLAIM-2026Q2")
         metrics = {
             "sample_size_documents": gold_set.sample_size_documents,
@@ -125,7 +133,13 @@ def summarize_gold_set_review(
         total_claims=total_claim_rows,
         reviewed_claims=len(reviewed),
         pending_claims=pending_claims,
-        review_complete=bool(raw_rows) and not review_parse_blockers and not invalid_rows and pending_claims == 0,
+        review_complete=(
+            bool(raw_rows)
+            and not review_parse_blockers
+            and not invalid_rows
+            and not integrity_failures
+            and pending_claims == 0
+        ),
         passed=passed,
         metrics=metrics,
         blockers=tuple(blockers),
@@ -135,17 +149,14 @@ def summarize_gold_set_review(
 def write_gold_set_review_summary(root: str | Path = ".") -> dict[str, Any]:
     root_path = Path(root)
     summary = summarize_gold_set_review(root_path)
-    output_path = root_path / "registry/gold_sets/tushare_research_reports.review_summary.json"
+    output_path = (
+        root_path / "registry/gold_sets/tushare_research_reports.review_summary.json"
+    )
     return _write_json(output_path, asdict(summary))
 
 
 def _license_row_reviewed(row: Mapping[str, Any]) -> bool:
-    return (
-        isinstance(row.get("approved_for_derived_claim_storage"), bool)
-        and isinstance(row.get("approved_for_production_runtime"), bool)
-        and bool(str(row.get("reviewer") or "").strip())
-        and bool(str(row.get("review_date") or "").strip())
-    )
+    return license_review_row_complete(row)
 
 
 def summarize_source_license_review(
@@ -158,10 +169,14 @@ def summarize_source_license_review(
     source_path = root_path / source_relative_path
     review_path = root_path / review_relative_path
     raw_sources, source_parse_blockers = (
-        load_jsonl_with_errors(source_path, label="source registry") if source_path.exists() else ([], ())
+        load_jsonl_with_errors(source_path, label="source registry")
+        if source_path.exists()
+        else ([], ())
     )
     raw_reviews, review_parse_blockers = (
-        load_jsonl_with_errors(review_path, label="source license review") if review_path.exists() else ([], ())
+        load_jsonl_with_errors(review_path, label="source license review")
+        if review_path.exists()
+        else ([], ())
     )
     sources, invalid_source_rows = _split_mapping_rows(raw_sources)
     reviews, invalid_review_rows = _split_mapping_rows(raw_reviews)
@@ -177,7 +192,9 @@ def summarize_source_license_review(
 
     reviewed_sources = apply_source_license_reviews(sources, reviewed_rows)
     decisions = [evaluate_source_license(source) for source in reviewed_sources]
-    approved_for_production = sum(decision.allowed_for_production_runtime for decision in decisions)
+    approved_for_production = sum(
+        decision.allowed_for_production_runtime for decision in decisions
+    )
     pending_sources = len(source_ids - reviewed_ids)
     blockers: list[str] = []
 
@@ -201,10 +218,18 @@ def summarize_source_license_review(
             "source license review row must be object at row(s): "
             + ", ".join(str(row_number) for row_number in invalid_review_rows)
         )
+    integrity_failures = (
+        license_review_integrity_failures(sources, reviews)
+        if sources or reviews
+        else ()
+    )
+    blockers.extend(integrity_failures)
     if pending_sources:
         blockers.append(f"{pending_sources} source license review rows still pending")
     if extra_review_ids:
-        blockers.append(f"{len(extra_review_ids)} review rows do not match current source registry")
+        blockers.append(
+            f"{len(extra_review_ids)} review rows do not match current source registry"
+        )
     if sources and approved_for_production < len(source_ids):
         blockers.append(
             f"{approved_for_production} / {len(source_ids)} sources approved for production runtime"
@@ -216,6 +241,7 @@ def summarize_source_license_review(
         and not review_parse_blockers
         and not invalid_source_rows
         and not invalid_review_rows
+        and not integrity_failures
         and not pending_sources
         and not extra_review_ids
         and approved_for_production == len(source_ids)
@@ -235,6 +261,7 @@ def summarize_source_license_review(
             and not review_parse_blockers
             and not invalid_source_rows
             and not invalid_review_rows
+            and not integrity_failures
             and pending_sources == 0
             and not extra_review_ids
         ),
