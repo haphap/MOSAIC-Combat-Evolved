@@ -112,7 +112,7 @@ def test_gold_review_packet_reports_malformed_vocabulary(tmp_path: Path):
     assert payload["blockers"] == list(packet.blockers)
 
 
-def test_gold_review_packet_uses_offsets_not_source_text_for_span_refs():
+def test_gold_review_packet_uses_short_previews_not_full_source_text_for_span_refs():
     packet = build_gold_review_packet(".")
     document = next(document for document in packet.documents if document.candidate_span_refs)
     span = document.candidate_span_refs[0]
@@ -120,6 +120,8 @@ def test_gold_review_packet_uses_offsets_not_source_text_for_span_refs():
     assert span.source_span_id == document.source_span_id
     assert span.start_char < span.end_char
     assert span.text_hash.startswith("sha256:")
+    assert span.text_preview
+    assert len(span.text_preview) <= 180
     assert not hasattr(span, "text")
 
 
@@ -132,6 +134,7 @@ def test_gold_review_packet_markdown_renders_review_queue_summary():
     assert "Candidate claims: 500" in markdown
     assert "Domains:" in markdown
     assert "domain_hits=" in markdown
+    assert "preview=" in markdown
     assert "Review Queue" in markdown
 
 

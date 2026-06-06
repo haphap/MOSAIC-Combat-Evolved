@@ -44,7 +44,7 @@
     {
       "bytes": 1081,
       "path": "registry/compliance/source_text_redaction_report.json",
-      "sha256": "sha256:ffd32466587fa07da189599c4b473abddf76571331343915b02ba9a1c8f83d58"
+      "sha256": "sha256:2a8ee90b2d4893c8fcf3204aa224afe20e5f7b63564f9c78e22fafa9b3d25512"
     },
     {
       "bytes": 7499723,
@@ -69,7 +69,7 @@
     {
       "bytes": 7613,
       "path": "registry/dashboards/rke_dashboard.json",
-      "sha256": "sha256:585c59948e065df0b10eec722c774085cc37df9ea9e76ece78f70a1140439b31"
+      "sha256": "sha256:4d3a96b5d3f8fa68156102c393d4254385a29e77fc87f32003111ff9a6703058"
     },
     {
       "bytes": 1894,
@@ -162,14 +162,14 @@
       "sha256": "sha256:1695a413b9ed694f22289f5fefba03ec5ad84617b937d27b4b2e6af510eca9a1"
     },
     {
-      "bytes": 186445,
+      "bytes": 222962,
       "path": "registry/gold_sets/tushare_research_reports.review_packet.json",
-      "sha256": "sha256:3c38dfb025c18bced32e75553920d5fe7e4f9f78ab02894bddda2981ff8ca0ba"
+      "sha256": "sha256:45aa7c6904182467b20dfd275cc0c4f409270d3465d1f8b674a7ea0936df1fb0"
     },
     {
-      "bytes": 17852,
+      "bytes": 38606,
       "path": "registry/gold_sets/tushare_research_reports.review_packet.md",
-      "sha256": "sha256:b905a7956255ebee4434f38a7a92a5c5e9719cc4b1a2fa57cda45c8d68975d39"
+      "sha256": "sha256:ea32650a9610d1d69e98df1e00124e51a19487b1427665c87586ff7ae04fb485"
     },
     {
       "bytes": 380,
@@ -304,7 +304,7 @@
     {
       "bytes": 5634,
       "path": "registry/review_batches/manual_review_bundle_manifest.json",
-      "sha256": "sha256:d5746ae4b3c2803e40b6a1de91a6d218b1db515afd8b36f78b582e416edf23bf"
+      "sha256": "sha256:284e916fb764c18ec245c0260c9be054239034b35267766d13dabcecede2c09b"
     },
     {
       "bytes": 33256,

@@ -10,7 +10,7 @@
     "registry/gold_sets/tushare_research_reports.candidate_claims.jsonl"
   ],
   "blockers": [],
-  "checked_path_count": 407,
+  "checked_path_count": 408,
   "failure_count": 0,
   "fingerprint_count": 282538,
   "malformed_source_row_count": 0,

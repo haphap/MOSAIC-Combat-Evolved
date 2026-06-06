@@ -30,22 +30,22 @@
       "sha256": "sha256:0a34545e100bba9d7105c90201d27f794deb5ee44bfcc14da154fd2e79808c8b"
     },
     {
-      "bytes": 186445,
+      "bytes": 222962,
       "exists": true,
       "format": "json",
       "path": "registry/gold_sets/tushare_research_reports.review_packet.json",
       "role": "gold_review_packet_json",
       "row_count": null,
-      "sha256": "sha256:3c38dfb025c18bced32e75553920d5fe7e4f9f78ab02894bddda2981ff8ca0ba"
+      "sha256": "sha256:45aa7c6904182467b20dfd275cc0c4f409270d3465d1f8b674a7ea0936df1fb0"
     },
     {
-      "bytes": 17852,
+      "bytes": 38606,
       "exists": true,
       "format": "markdown",
       "path": "registry/gold_sets/tushare_research_reports.review_packet.md",
       "role": "gold_review_packet_markdown",
       "row_count": null,
-      "sha256": "sha256:b905a7956255ebee4434f38a7a92a5c5e9719cc4b1a2fa57cda45c8d68975d39"
+      "sha256": "sha256:ea32650a9610d1d69e98df1e00124e51a19487b1427665c87586ff7ae04fb485"
     },
     {
       "bytes": 98079,

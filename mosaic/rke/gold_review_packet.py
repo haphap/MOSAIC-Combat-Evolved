@@ -64,6 +64,7 @@ class CandidateSpanRef:
     suggested_claim_type: str
     contains_numeric_evidence: bool
     text_hash: str
+    text_preview: str
 
 
 @dataclass(frozen=True)
@@ -157,6 +158,13 @@ def _short_hash(text: str) -> str:
     return "sha256:" + sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
+def _span_preview(text: str, *, max_chars: int = 180) -> str:
+    normalized = re.sub(r"\s+", " ", text).strip()
+    if len(normalized) <= max_chars:
+        return normalized
+    return normalized[: max_chars - 3].rstrip() + "..."
+
+
 def _candidate_span_refs(text: str, source_span_id: str, *, limit: int = 5) -> tuple[CandidateSpanRef, ...]:
     refs: list[CandidateSpanRef] = []
     for idx, match in enumerate(SENTENCE_RE.finditer(text), 1):
@@ -179,6 +187,7 @@ def _candidate_span_refs(text: str, source_span_id: str, *, limit: int = 5) -> t
                 suggested_claim_type=claim_type,
                 contains_numeric_evidence=bool(re.search(r"\d", sentence)),
                 text_hash=_short_hash(sentence),
+                text_preview=_span_preview(sentence),
             )
         )
         if len(refs) >= limit:
@@ -396,8 +405,11 @@ def render_gold_review_packet_markdown(packet: GoldReviewPacket) -> str:
     lines.append(f"- Risk flags: {json.dumps(dict(packet.risk_flag_counts), ensure_ascii=False, sort_keys=True)}")
     lines.extend(["", "## Review Queue", ""])
     for document in packet.documents:
-        span_refs = ", ".join(
-            f"{span.start_char}-{span.end_char}:{'/'.join(span.reason_keywords[:3])}"
+        span_refs = "; ".join(
+            (
+                f"{span.start_char}-{span.end_char}:{'/'.join(span.reason_keywords[:3])} "
+                f"preview={json.dumps(span.text_preview, ensure_ascii=False)}"
+            )
             for span in document.candidate_span_refs[:3]
         )
         hints = ", ".join(document.canonical_variable_hints) or "needs reviewer mapping"

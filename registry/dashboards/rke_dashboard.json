@@ -229,7 +229,7 @@
   },
   "source_text_redaction": {
     "accepted": true,
-    "checked_path_count": 407,
+    "checked_path_count": 408,
     "failure_count": 0,
     "min_match_chars": 80,
     "skipped_allowed_path_count": 6,
