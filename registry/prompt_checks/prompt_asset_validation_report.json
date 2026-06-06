@@ -9,11 +9,13 @@
         "registry/rendered_prompts/macro.central_bank.rke.md",
         "registry/prompt_ir/macro.central_bank.json",
         "registry/runtime_inputs/macro.central_bank.20260605.json",
-        "registry/mutation_patches/central_bank_parameter_update.json"
+        "registry/mutation_patches/central_bank_parameter_update.json",
+        "registry/rule_packs/macro.central_bank.liquidity.v1.json",
+        "registry/experiments/central_bank_validation_experiment_v2.json"
       ],
       "check_id": "PROMPT-ASSET-FILES",
       "details": {
-        "required_count": 5
+        "required_count": 7
       },
       "failures": []
     },
@@ -65,11 +67,15 @@
       "accepted": true,
       "artifact_paths": [
         "registry/mutation_patches/central_bank_parameter_update.json",
-        "registry/prompt_ir/macro.central_bank.json"
+        "registry/prompt_ir/macro.central_bank.json",
+        "registry/rule_packs/macro.central_bank.liquidity.v1.json",
+        "registry/experiments/central_bank_validation_experiment_v2.json"
       ],
       "check_id": "PROMPT-MUTATION-GATE",
       "details": {
+        "current_value": 7,
         "mutation_id": "MUT-CB-20260605-0001",
+        "source_experiment_id": "EXP-CB-20260605-0001",
         "target_path": "/rule_packs/macro.central_bank.liquidity.v1/rules/macro.central_bank.soft.001/learnable_parameters/net_injection_window_days/value"
       },
       "failures": []
