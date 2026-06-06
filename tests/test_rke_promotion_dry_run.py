@@ -133,6 +133,22 @@ def test_promotion_dry_run_reports_missing_inputs():
     assert all(step.result == "not_provided" for step in report.steps)
 
 
+def test_promotion_dry_run_rejects_partial_valid_bundle(tmp_path: Path):
+    _copy_registry(tmp_path)
+    gold_input = tmp_path / "gold_import.jsonl"
+    _write_jsonl(gold_input, _gold_import_rows(tmp_path))
+
+    report = build_promotion_dry_run_report(tmp_path, gold_input=gold_input)
+    steps = {step.review_kind: step for step in report.steps}
+
+    assert not report.accepted
+    assert steps["gold_set"].provided
+    assert steps["gold_set"].accepted
+    assert not steps["source_license"].provided
+    assert not steps["lockbox"].provided
+    assert not report.production_allowed_after_simulation
+
+
 def test_write_promotion_dry_run_report_outputs_file(tmp_path: Path):
     _copy_registry(tmp_path)
 

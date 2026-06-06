@@ -160,8 +160,7 @@ def build_promotion_dry_run_report(
             )
         after = build_production_promotion_gate_report(temp_root)
 
-    provided_steps = tuple(step for step in steps if step.provided)
-    accepted = bool(provided_steps) and all(step.accepted for step in provided_steps)
+    accepted = all(step.provided and step.accepted for step in steps)
     return PromotionDryRunReport(
         report_id="RKE-PROMOTION-DRY-RUN-REPORT-20260606",
         simulated=True,
