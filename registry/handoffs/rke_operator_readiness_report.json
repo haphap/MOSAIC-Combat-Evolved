@@ -23,7 +23,7 @@
     {
       "blocker": "",
       "check_id": "manual_import_templates_are_sparse",
-      "evidence": "gold/license import templates omit long source text",
+      "evidence": "manual import templates omit long source text",
       "passed": true
     },
     {

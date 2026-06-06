@@ -63,6 +63,44 @@ def test_operator_readiness_detects_long_source_text_in_import_template(tmp_path
     assert "long source-text field" in sparse.blocker
 
 
+def test_operator_readiness_detects_long_source_text_in_policy_template(tmp_path: Path):
+    _copy_registry(tmp_path)
+    write_operator_readiness_report(tmp_path)
+    policy_path = tmp_path / "registry/review_batches/source_license_policy_template.json"
+    policy = json.loads(policy_path.read_text(encoding="utf-8"))
+    policy["source_text"] = "long source text must not appear in sparse policy templates"
+    policy_path.write_text(
+        json.dumps(policy, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    report = build_operator_readiness_report(tmp_path)
+    sparse = next(check for check in report.checks if check.check_id == "manual_import_templates_are_sparse")
+
+    assert not report.accepted
+    assert not sparse.passed
+    assert "long source-text field" in sparse.blocker
+
+
+def test_operator_readiness_detects_long_source_text_in_lockbox_template(tmp_path: Path):
+    _copy_registry(tmp_path)
+    write_operator_readiness_report(tmp_path)
+    lockbox_path = tmp_path / "registry/review_batches/lockbox_review_next_import_template.json"
+    lockbox = json.loads(lockbox_path.read_text(encoding="utf-8"))
+    lockbox["abstract"] = "long source text must not appear in sparse lockbox templates"
+    lockbox_path.write_text(
+        json.dumps(lockbox, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    report = build_operator_readiness_report(tmp_path)
+    sparse = next(check for check in report.checks if check.check_id == "manual_import_templates_are_sparse")
+
+    assert not report.accepted
+    assert not sparse.passed
+    assert "long source-text field" in sparse.blocker
+
+
 def test_operator_readiness_detects_missing_manual_template_provenance(tmp_path: Path):
     _copy_registry(tmp_path)
     gold_import = tmp_path / "registry/review_batches/gold_set_next_import_template.jsonl"

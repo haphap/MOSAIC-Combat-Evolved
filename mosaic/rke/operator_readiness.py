@@ -111,11 +111,12 @@ def _template_row_count(root_path: Path, relative_path: str) -> int:
 
 
 def _import_templates_are_sparse(root_path: Path) -> tuple[bool, str, str]:
-    for relative_path in (
+    jsonl_templates = (
         GOLD_BATCH_IMPORT_TEMPLATE_PATH,
         GOLD_FULL_IMPORT_TEMPLATE_PATH,
         LICENSE_BATCH_IMPORT_TEMPLATE_PATH,
-    ):
+    )
+    for relative_path in jsonl_templates:
         path = root_path / relative_path
         if not path.exists():
             return False, f"{relative_path} missing", f"{relative_path} missing"
@@ -135,7 +136,25 @@ def _import_templates_are_sparse(root_path: Path) -> tuple[bool, str, str]:
                         f"{relative_path} row {index} proposed_claim_text length={len(preview)}",
                         "gold-set import preview is not truncated",
                     )
-    return True, "gold/license import templates omit long source text", ""
+
+    json_templates = (
+        SOURCE_LICENSE_POLICY_TEMPLATE_PATH,
+        LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH,
+    )
+    for relative_path in json_templates:
+        path = root_path / relative_path
+        if not path.exists():
+            return False, f"{relative_path} missing", f"{relative_path} missing"
+        row = _read_json(path)
+        leaked = sorted(MANUAL_REVIEW_IMPORT_FORBIDDEN_FIELDS & set(row))
+        if leaked:
+            return (
+                False,
+                f"{relative_path} has forbidden fields {leaked}",
+                "manual import template includes long source-text field",
+            )
+
+    return True, "manual import templates omit long source text", ""
 
 
 def _manual_review_templates_have_provenance(root_path: Path) -> tuple[bool, str, str]:
