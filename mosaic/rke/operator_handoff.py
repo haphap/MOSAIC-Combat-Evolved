@@ -291,6 +291,9 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
                 f"--input {DEFAULT_LICENSE_POLICY_IMPORT_PATH} --dry-run"
             ),
             apply_command=(
+                "mosaic-rke build-license-review-import --root . "
+                f"--policy {SOURCE_LICENSE_REVIEWED_POLICY_PATH} "
+                f"--output {DEFAULT_LICENSE_POLICY_IMPORT_PATH} && "
                 "mosaic-rke apply-license-review --root . "
                 f"--input {DEFAULT_LICENSE_POLICY_IMPORT_PATH}"
             ),

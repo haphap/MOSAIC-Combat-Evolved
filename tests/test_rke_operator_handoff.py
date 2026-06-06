@@ -70,6 +70,8 @@ def test_operator_handoff_summarizes_remaining_manual_gates():
     )
     assert license_gate.prepare_command == "mosaic-rke prepare-license-policy-review --root ."
     assert "source_license_policy_reviewed.json" in license_gate.dry_run_command
+    assert "build-license-review-import" in license_gate.apply_command
+    assert "source_license_policy_reviewed.json" in license_gate.apply_command
     assert "source_license_policy_reviewed.json" in handoff.promotion_dry_run_command
     assert (
         lockbox.import_template_path
@@ -174,6 +176,8 @@ def test_write_operator_handoff_outputs_json_markdown_and_lockbox_template(
     assert gold_gate["prepare_command"] == "mosaic-rke prepare-gold-review --root . --full"
     assert gold_gate["reviewed_policy_path"] == "registry/review_batches/gold_set_full_reviewed.jsonl"
     assert license_gate["prepare_command"] == "mosaic-rke prepare-license-policy-review --root ."
+    assert "build-license-review-import" in license_gate["apply_command"]
+    assert "source_license_policy_reviewed.json" in license_gate["apply_command"]
     assert lockbox_gate["prepare_command"] == "mosaic-rke prepare-lockbox-review --root ."
     assert lockbox_gate["reviewed_policy_path"] == "registry/review_batches/lockbox_reviewed.json"
     assert len(payload["gates"]) == 3
@@ -206,6 +210,7 @@ def test_write_operator_handoff_outputs_json_markdown_and_lockbox_template(
     assert "source_license_review_workbook.md" in markdown
     assert "manual_review_runbook.md" in markdown
     assert "source_license_policy_reviewed.json" in markdown
+    assert "build-license-review-import" in markdown
     assert "prepare-license-policy-review" in markdown
     assert "prepare-gold-review" in markdown
     assert "prepare-lockbox-review" in markdown
