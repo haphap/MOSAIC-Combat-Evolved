@@ -22,10 +22,13 @@ def test_completion_auditor_recomputes_current_registry_gates():
     assert len(audit.criteria) == 12
     assert not audit.ready_for_broad_rollout
     assert by_id["C01"].passed
+    assert "paper trading ready" in by_id["C01"].evidence
     assert by_id["C04"].passed
     assert "hardening/statistical" in by_id["C04"].evidence
     assert by_id["C05"].passed
     assert "runtime checker accepted aggregation summary" in by_id["C05"].evidence
+    assert by_id["C09"].passed
+    assert "paper summary recomputed" in by_id["C09"].evidence
     assert by_id["C10"].passed
     assert "6 diagnostic scenarios" in by_id["C10"].evidence
     assert by_id["C12"].passed
@@ -236,6 +239,81 @@ def test_completion_auditor_rejects_invalid_json_paper_report(tmp_path: Path):
     assert "paper trading report must contain valid JSON" in by_id["C01"].blocker
     assert "paper trading report must contain valid JSON" in by_id["C09"].blocker
     assert "paper trading report must contain valid JSON" in by_id["C10"].blocker
+
+
+def test_completion_auditor_recomputes_paper_summary_from_snapshots(tmp_path: Path):
+    shutil.copytree(Path("registry"), tmp_path / "registry")
+    paper_path = tmp_path / "registry/monitoring/central_bank_paper_trading_report.json"
+    paper = json.loads(paper_path.read_text(encoding="utf-8"))
+    paper["paper_trading_summary"]["mean_live_vs_baseline_delta"] = 0.99
+    paper_path.write_text(
+        json.dumps(paper, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    audit = audit_master_plan_completion(tmp_path)
+    by_id = {criterion.criterion_id: criterion for criterion in audit.criteria}
+
+    assert not by_id["C01"].passed
+    assert not by_id["C09"].passed
+    assert "must equal recomputed snapshot mean" in by_id["C09"].blocker
+
+
+def test_completion_auditor_requires_positive_paper_after_cost_alpha(tmp_path: Path):
+    shutil.copytree(Path("registry"), tmp_path / "registry")
+    paper_path = tmp_path / "registry/monitoring/central_bank_paper_trading_report.json"
+    paper = json.loads(paper_path.read_text(encoding="utf-8"))
+    for snapshot in paper["paper_trading_report"]["snapshots"]:
+        snapshot["live_net_alpha_after_cost"] = -0.004
+    paper["paper_trading_summary"]["mean_live_net_alpha_after_cost"] = -0.004
+    paper_path.write_text(
+        json.dumps(paper, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    audit = audit_master_plan_completion(tmp_path)
+    by_id = {criterion.criterion_id: criterion for criterion in audit.criteria}
+
+    assert not by_id["C01"].passed
+    assert by_id["C09"].passed
+    assert "mean_live_net_alpha_after_cost must be positive" in by_id["C01"].blocker
+
+
+def test_completion_auditor_requires_clean_paper_production_monitor(tmp_path: Path):
+    shutil.copytree(Path("registry"), tmp_path / "registry")
+    paper_path = tmp_path / "registry/monitoring/central_bank_paper_trading_report.json"
+    paper = json.loads(paper_path.read_text(encoding="utf-8"))
+    paper["production_monitor"]["state"] = "rollback_required"
+    paper["production_monitor"]["action"] = "rollback"
+    paper_path.write_text(
+        json.dumps(paper, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    audit = audit_master_plan_completion(tmp_path)
+    by_id = {criterion.criterion_id: criterion for criterion in audit.criteria}
+
+    assert not by_id["C01"].passed
+    assert "production_monitor.state must be production" in by_id["C01"].blocker
+    assert "production_monitor.action must be none" in by_id["C01"].blocker
+
+
+def test_completion_auditor_rejects_false_paper_ready_flag(tmp_path: Path):
+    shutil.copytree(Path("registry"), tmp_path / "registry")
+    paper_path = tmp_path / "registry/monitoring/central_bank_paper_trading_report.json"
+    paper = json.loads(paper_path.read_text(encoding="utf-8"))
+    paper["paper_trading_summary"]["ready"] = False
+    paper_path.write_text(
+        json.dumps(paper, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    audit = audit_master_plan_completion(tmp_path)
+    by_id = {criterion.criterion_id: criterion for criterion in audit.criteria}
+
+    assert not by_id["C01"].passed
+    assert by_id["C09"].passed
+    assert "paper_trading_summary.ready must be true" in by_id["C01"].blocker
 
 
 def test_completion_auditor_rejects_malformed_runtime_output(tmp_path: Path):

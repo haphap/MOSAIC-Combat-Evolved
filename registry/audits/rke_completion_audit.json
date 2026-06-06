@@ -61,7 +61,7 @@
       "blocker": "",
       "criterion_id": "C01",
       "description": "At least one macro rule family reaches the Phase 4 paper-trading gate.",
-      "evidence": "central_bank paper-trading report",
+      "evidence": "paper trading ready: rule=macro.central_bank.soft.001, snapshots=2, mean_net_alpha_after_cost=0.0055, monitor_state=production",
       "passed": true
     },
     {
@@ -117,7 +117,7 @@
       "blocker": "",
       "criterion_id": "C09",
       "description": "Paper trading monitor outputs live-vs-baseline deltas.",
-      "evidence": "central_bank paper-trading summary",
+      "evidence": "paper summary recomputed from 2 snapshot(s): delta=0.035, net_alpha_after_cost=0.0055, turnover=0.075, calibration=0.025",
       "passed": true
     },
     {

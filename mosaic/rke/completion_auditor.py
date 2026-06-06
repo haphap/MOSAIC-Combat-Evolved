@@ -12,6 +12,7 @@ from .central_bank_mvp import CompletionAudit, CompletionCriterion
 from .completion_acceptance import final_acceptance_metadata
 from .compliance import apply_source_license_reviews, evaluate_source_license
 from .governance import ProductionPatch, default_evolution_targets, validate_patch
+from .monitoring import ProductionMonitorPolicy
 from .p0 import LearnableParameter
 from .phase_minus1 import evaluate_gold_set_reviews
 from .runtime import (
@@ -96,6 +97,17 @@ def _float_field(
         return None, f"{label}.{field} must be numeric"
     if number < 0.0 or number > 1.0:
         return None, f"{label}.{field} must be between 0 and 1"
+    return number, ""
+
+
+def _numeric_field(
+    payload: Mapping[str, Any], field: str, label: str
+) -> tuple[float | None, str]:
+    value = payload.get(field)
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None, f"{label}.{field} must be numeric"
     return number, ""
 
 
@@ -580,6 +592,286 @@ def _runtime_aggregation_gate(
             f"delta={final_delta:.2f}"
         ),
         "",
+    )
+
+
+_PAPER_SNAPSHOT_REQUIRED_NUMERIC_FIELDS = (
+    "live_shadow_signal",
+    "baseline_signal",
+    "live_net_alpha_after_cost",
+    "turnover",
+    "calibration_error",
+)
+_PAPER_SNAPSHOT_REQUIRED_RATE_FIELDS = (
+    "conflict_rate",
+    "fallback_rate",
+    "missing_data_rate",
+)
+_PAPER_SUMMARY_RECOMPUTED_FIELDS = (
+    "mean_live_vs_baseline_delta",
+    "mean_live_net_alpha_after_cost",
+    "mean_turnover",
+    "mean_calibration_error",
+)
+
+
+def _mean(values: list[float]) -> float:
+    return round(sum(values) / len(values), 12) if values else 0.0
+
+
+def _paper_trading_gate(
+    paper_report: Mapping[str, Any] | None,
+    *,
+    paper_report_error: str = "",
+) -> tuple[bool, str, str, bool, str, str]:
+    common_failures: list[str] = []
+    if paper_report_error:
+        common_failures.append(paper_report_error)
+    if paper_report is None:
+        common_failures.append("paper trading report missing")
+        blocker = "; ".join(common_failures)
+        return (
+            False,
+            "paper-trading report missing",
+            blocker,
+            False,
+            "paper-trading summary missing",
+            blocker,
+        )
+
+    report_payload, report_error = _mapping_field(
+        paper_report,
+        "paper_trading_report",
+        "paper_trading_report",
+    )
+    summary, summary_error = _mapping_field(
+        paper_report,
+        "paper_trading_summary",
+        "paper_trading_summary",
+    )
+    production_monitor, monitor_error = _mapping_field(
+        paper_report,
+        "production_monitor",
+        "production_monitor",
+    )
+    common_failures.extend(
+        error for error in (report_error, summary_error, monitor_error) if error
+    )
+
+    snapshots, snapshot_failures = _sequence_mapping_rows(
+        report_payload,
+        "snapshots",
+        "paper_trading_report.snapshots",
+    )
+    common_failures.extend(snapshot_failures)
+    report_rule_id = str(report_payload.get("rule_id") or "").strip()
+    if not report_rule_id:
+        common_failures.append("paper_trading_report.rule_id required")
+    elif not report_rule_id.startswith("macro."):
+        common_failures.append("paper_trading_report.rule_id must be a macro rule")
+    if not snapshots:
+        common_failures.append("paper_trading_report.snapshots required")
+
+    live_vs_baseline: list[float] = []
+    net_alpha_after_cost: list[float] = []
+    turnover_values: list[float] = []
+    calibration_values: list[float] = []
+    conflict_rates: list[float] = []
+    fallback_rates: list[float] = []
+    missing_data_rates: list[float] = []
+    seen_dates: set[str] = set()
+    for index, snapshot in enumerate(snapshots, 1):
+        label = f"paper_trading_report.snapshots[{index}]"
+        snapshot_rule_id = str(snapshot.get("rule_id") or "").strip()
+        if snapshot_rule_id != report_rule_id:
+            common_failures.append(
+                f"{label}.rule_id must match paper_trading_report.rule_id"
+            )
+        date = str(snapshot.get("date") or "").strip()
+        if not date:
+            common_failures.append(f"{label}.date required")
+        elif date in seen_dates:
+            common_failures.append(f"{label}.date duplicated")
+        seen_dates.add(date)
+
+        parsed: dict[str, float] = {}
+        for field in _PAPER_SNAPSHOT_REQUIRED_NUMERIC_FIELDS:
+            number, error = _numeric_field(snapshot, field, label)
+            if error:
+                common_failures.append(error)
+            elif number is not None:
+                parsed[field] = number
+        for field in _PAPER_SNAPSHOT_REQUIRED_RATE_FIELDS:
+            number, error = _float_field(snapshot, field, label)
+            if error:
+                common_failures.append(error)
+            elif number is not None:
+                if field == "conflict_rate":
+                    conflict_rates.append(number)
+                elif field == "fallback_rate":
+                    fallback_rates.append(number)
+                elif field == "missing_data_rate":
+                    missing_data_rates.append(number)
+        if set(parsed) == set(_PAPER_SNAPSHOT_REQUIRED_NUMERIC_FIELDS):
+            live_vs_baseline.append(
+                parsed["live_shadow_signal"] - parsed["baseline_signal"]
+            )
+            net_alpha_after_cost.append(parsed["live_net_alpha_after_cost"])
+            turnover_values.append(parsed["turnover"])
+            calibration_values.append(parsed["calibration_error"])
+            if parsed["turnover"] < 0:
+                common_failures.append(f"{label}.turnover must be non-negative")
+            if parsed["calibration_error"] < 0:
+                common_failures.append(
+                    f"{label}.calibration_error must be non-negative"
+                )
+
+    recomputed = {
+        "mean_live_vs_baseline_delta": _mean(live_vs_baseline),
+        "mean_live_net_alpha_after_cost": _mean(net_alpha_after_cost),
+        "mean_turnover": _mean(turnover_values),
+        "mean_calibration_error": _mean(calibration_values),
+    }
+    summary_failures = list(common_failures)
+    if summary.get("rule_id") != report_rule_id:
+        summary_failures.append(
+            "paper_trading_summary.rule_id must match report rule_id"
+        )
+    if summary.get("n") != len(snapshots):
+        summary_failures.append("paper_trading_summary.n must equal snapshot count")
+    for field in _PAPER_SUMMARY_RECOMPUTED_FIELDS:
+        value, error = _numeric_field(summary, field, "paper_trading_summary")
+        if error:
+            summary_failures.append(error)
+            continue
+        if value is not None and not _nearly_equal(value, recomputed[field]):
+            summary_failures.append(
+                f"paper_trading_summary.{field} must equal recomputed snapshot mean"
+            )
+
+    policy = ProductionMonitorPolicy()
+    readiness_failures = list(summary_failures)
+    if summary.get("ready") is not True:
+        readiness_failures.append("paper_trading_summary.ready must be true")
+    if len(snapshots) <= 0:
+        readiness_failures.append("paper trading requires at least one snapshot")
+    if recomputed["mean_live_net_alpha_after_cost"] <= 0:
+        readiness_failures.append("mean_live_net_alpha_after_cost must be positive")
+    if recomputed["mean_turnover"] > policy.turnover_increase_threshold:
+        readiness_failures.append(
+            "mean_turnover exceeds production monitor turnover threshold"
+        )
+    if recomputed["mean_calibration_error"] > policy.calibration_error_threshold:
+        readiness_failures.append(
+            "mean_calibration_error exceeds production monitor calibration threshold"
+        )
+    if max(conflict_rates or [0.0]) > 0.05:
+        readiness_failures.append(
+            "snapshot conflict_rate exceeds paper-trading tolerance"
+        )
+    if max(fallback_rates or [0.0]) > 0.05:
+        readiness_failures.append(
+            "snapshot fallback_rate exceeds paper-trading tolerance"
+        )
+    if max(missing_data_rates or [0.0]) > 0.05:
+        readiness_failures.append(
+            "snapshot missing_data_rate exceeds paper-trading tolerance"
+        )
+
+    monitor_metrics, monitor_metrics_error = _mapping_field(
+        production_monitor,
+        "metrics",
+        "production_monitor.metrics",
+    )
+    if monitor_metrics_error:
+        readiness_failures.append(monitor_metrics_error)
+    monitor_state = str(production_monitor.get("state") or "").strip()
+    monitor_action = str(production_monitor.get("action") or "").strip()
+    if monitor_state != "production":
+        readiness_failures.append("production_monitor.state must be production")
+    if monitor_action != "none":
+        readiness_failures.append("production_monitor.action must be none")
+    effective_events, effective_events_error = _numeric_field(
+        monitor_metrics,
+        "effective_events",
+        "production_monitor.metrics",
+    )
+    if effective_events_error:
+        readiness_failures.append(effective_events_error)
+    elif (
+        effective_events is not None and effective_events < policy.min_effective_events
+    ):
+        readiness_failures.append(
+            "production_monitor effective_events below policy minimum"
+        )
+    effect_ratio, effect_ratio_error = _numeric_field(
+        monitor_metrics,
+        "effect_ratio",
+        "production_monitor.metrics",
+    )
+    if effect_ratio_error:
+        readiness_failures.append(effect_ratio_error)
+    elif effect_ratio is not None and effect_ratio < policy.effect_decay_threshold:
+        readiness_failures.append(
+            "production_monitor effect_ratio below decay threshold"
+        )
+    rolling_alpha, rolling_alpha_error = _numeric_field(
+        monitor_metrics,
+        "rolling_net_alpha_after_cost",
+        "production_monitor.metrics",
+    )
+    if rolling_alpha_error:
+        readiness_failures.append(rolling_alpha_error)
+    elif rolling_alpha is not None and rolling_alpha <= 0:
+        readiness_failures.append(
+            "production_monitor rolling_net_alpha_after_cost must be positive"
+        )
+    monitor_calibration, monitor_calibration_error = _numeric_field(
+        monitor_metrics,
+        "calibration_error",
+        "production_monitor.metrics",
+    )
+    if monitor_calibration_error:
+        readiness_failures.append(monitor_calibration_error)
+    elif (
+        monitor_calibration is not None
+        and abs(monitor_calibration) > policy.calibration_error_threshold
+    ):
+        readiness_failures.append(
+            "production_monitor calibration_error exceeds threshold"
+        )
+    monitor_turnover, monitor_turnover_error = _numeric_field(
+        monitor_metrics,
+        "turnover_delta",
+        "production_monitor.metrics",
+    )
+    if monitor_turnover_error:
+        readiness_failures.append(monitor_turnover_error)
+    elif (
+        monitor_turnover is not None
+        and monitor_turnover > policy.turnover_increase_threshold
+    ):
+        readiness_failures.append("production_monitor turnover_delta exceeds threshold")
+
+    summary_evidence = (
+        f"paper summary recomputed from {len(snapshots)} snapshot(s): "
+        f"delta={recomputed['mean_live_vs_baseline_delta']:.3f}, "
+        f"net_alpha_after_cost={recomputed['mean_live_net_alpha_after_cost']:.4f}, "
+        f"turnover={recomputed['mean_turnover']:.3f}, "
+        f"calibration={recomputed['mean_calibration_error']:.3f}"
+    )
+    readiness_evidence = (
+        f"paper trading ready: rule={report_rule_id}, snapshots={len(snapshots)}, "
+        f"mean_net_alpha_after_cost={recomputed['mean_live_net_alpha_after_cost']:.4f}, "
+        f"monitor_state={monitor_state or 'missing'}"
+    )
+    return (
+        not readiness_failures,
+        readiness_evidence,
+        "; ".join(readiness_failures),
+        not summary_failures,
+        summary_evidence,
+        "; ".join(summary_failures),
     )
 
 
@@ -1306,12 +1598,18 @@ def audit_master_plan_completion(root: str | Path = ".") -> CompletionAudit:
         runtime_output,
         runtime_output_error=runtime_output_error,
     )
-
-    paper_summary, paper_summary_error = _mapping_field(
+    (
+        paper_ready_passed,
+        paper_ready_evidence,
+        paper_ready_blocker,
+        paper_summary_passed,
+        paper_summary_evidence,
+        paper_summary_blocker,
+    ) = _paper_trading_gate(
         paper_report,
-        "paper_trading_summary",
-        "paper_trading_summary",
+        paper_report_error=paper_report_error,
     )
+
     production_monitor, production_monitor_error = _mapping_field(
         paper_report,
         "production_monitor",
@@ -1344,13 +1642,9 @@ def audit_master_plan_completion(root: str | Path = ".") -> CompletionAudit:
             CompletionCriterion(
                 "C01",
                 "At least one macro rule family reaches the Phase 4 paper-trading gate.",
-                not paper_report_error
-                and not paper_summary_error
-                and paper_summary.get("ready") is True,
-                "central_bank paper-trading report",
-                paper_report_error
-                or paper_summary_error
-                or ("" if paper_report else "paper trading report missing"),
+                paper_ready_passed,
+                paper_ready_evidence,
+                paper_ready_blocker,
             ),
             CompletionCriterion(
                 "C02",
@@ -1404,16 +1698,9 @@ def audit_master_plan_completion(root: str | Path = ".") -> CompletionAudit:
             CompletionCriterion(
                 "C09",
                 "Paper trading monitor outputs live-vs-baseline deltas.",
-                bool(
-                    not paper_report_error
-                    and not paper_summary_error
-                    and paper_report
-                    and "mean_live_vs_baseline_delta" in paper_summary
-                ),
-                "central_bank paper-trading summary",
-                paper_report_error
-                or paper_summary_error
-                or ("" if paper_report else "paper trading report missing"),
+                paper_summary_passed,
+                paper_summary_evidence,
+                paper_summary_blocker,
             ),
             CompletionCriterion(
                 "C10",
