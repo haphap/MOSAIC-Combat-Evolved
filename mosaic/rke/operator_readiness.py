@@ -254,6 +254,8 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
     gold_rows = _template_row_count(root_path, GOLD_BATCH_IMPORT_TEMPLATE_PATH)
     gold_full_rows = _template_row_count(root_path, GOLD_FULL_IMPORT_TEMPLATE_PATH)
     license_rows = _template_row_count(root_path, LICENSE_BATCH_IMPORT_TEMPLATE_PATH)
+    batch_shape_blockers = tuple(blocker for blocker in batch_status.blockers if "still pending" not in blocker)
+    batch_blocker = "; ".join(batch_shape_blockers)
     checks.append(
         _check(
             "manual_batch_templates_match_status",
@@ -266,9 +268,10 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
             (
                 f"gold_exported={batch_status.gold_set.exported_rows}/{gold_rows}, "
                 f"gold_full={batch_status.gold_set.pending_rows}/{gold_full_rows}, "
-                f"license_exported={batch_status.source_license.exported_rows}/{license_rows}"
+                f"license_exported={batch_status.source_license.exported_rows}/{license_rows}, "
+                f"batch_blockers={len(batch_shape_blockers)}"
             ),
-            "manual batch templates do not match batch status",
+            batch_blocker or "manual batch templates do not match batch status",
         )
     )
 

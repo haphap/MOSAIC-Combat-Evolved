@@ -23,6 +23,11 @@ def _write_jsonl(path: Path, rows: list[dict]) -> None:
     )
 
 
+def _append_jsonl_value(path: Path, value) -> None:
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(value, ensure_ascii=False, sort_keys=True) + "\n")
+
+
 def test_operator_readiness_accepts_current_review_bundle():
     report = build_operator_readiness_report(".")
     checks = {check.check_id: check for check in report.checks}
@@ -137,6 +142,22 @@ def test_operator_readiness_detects_missing_manual_template_provenance(tmp_path:
     assert not report.accepted
     assert not provenance.passed
     assert "provenance" in provenance.blocker
+
+
+def test_operator_readiness_reports_malformed_manual_review_rows(tmp_path: Path):
+    _copy_registry(tmp_path)
+    _append_jsonl_value(
+        tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl",
+        "not an object",
+    )
+
+    report = build_operator_readiness_report(tmp_path)
+    batch = next(check for check in report.checks if check.check_id == "manual_batch_templates_match_status")
+
+    assert not report.accepted
+    assert not batch.passed
+    assert "batch_blockers=" in batch.evidence
+    assert "gold-set review row must be object" in batch.blocker
 
 
 def test_operator_readiness_detects_filled_policy_template(tmp_path: Path):

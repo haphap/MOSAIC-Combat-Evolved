@@ -29,6 +29,11 @@ def _write_jsonl(path: Path, rows: list[dict]) -> None:
     )
 
 
+def _append_jsonl_value(path: Path, value) -> None:
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(value, ensure_ascii=False, sort_keys=True) + "\n")
+
+
 def _accepted_gold_row(row: dict) -> dict:
     out = dict(row)
     out.update(
@@ -101,6 +106,38 @@ def test_manual_review_batches_export_sparse_import_templates(tmp_path: Path):
     assert license_rows[0]["approved_for_production_runtime"] is None
     assert "apply-gold-review" in status["gold_set"]["dry_run_command"]
     assert "apply-license-review" in status["source_license"]["dry_run_command"]
+
+
+def test_manual_review_batches_reject_malformed_review_rows_without_crashing(tmp_path: Path):
+    _copy_registry(tmp_path)
+    gold_review = tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    license_review = tmp_path / "registry/compliance/tushare_license_review_template.jsonl"
+    gold_count = len(_load_jsonl(gold_review))
+    source_count = _license_review_source_count(tmp_path)
+    _append_jsonl_value(gold_review, "not an object")
+    _append_jsonl_value(license_review, ["not", "an", "object"])
+
+    status, gold_batch, license_batch = build_manual_review_batch_status(
+        tmp_path,
+        gold_batch_size=3,
+        license_batch_size=4,
+    )
+    paths = write_manual_review_batches(tmp_path, gold_batch_size=3, license_batch_size=4)
+    payload = json.loads(Path(paths["status"]).read_text(encoding="utf-8"))
+
+    assert status.ready_for_manual_review is False
+    assert f"gold-set review row must be object at row(s): {gold_count + 1}" in status.blockers
+    assert f"source license review row must be object at row(s): {source_count + 1}" in status.blockers
+    assert status.gold_set.total_rows == gold_count + 1
+    assert status.gold_set.pending_rows == gold_count
+    assert status.source_license.total_rows == source_count + 1
+    assert status.source_license.pending_rows == source_count
+    assert len(gold_batch) == 3
+    assert len(license_batch) == 4
+    assert payload["ready_for_manual_review"] is False
+    assert paths["gold_set_rows"] == 3
+    assert paths["gold_set_full_rows"] == gold_count
+    assert paths["source_license_rows"] == 4
 
 
 def test_manual_review_bundle_manifest_hashes_review_artifacts(tmp_path: Path):

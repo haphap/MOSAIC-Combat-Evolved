@@ -37,6 +37,11 @@ def _write_jsonl(path: Path, rows: list[dict]) -> None:
     )
 
 
+def _append_jsonl_value(path: Path, value) -> None:
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(value, ensure_ascii=False, sort_keys=True) + "\n")
+
+
 def _accepted_gold_template_row(row: dict) -> dict:
     out = dict(row)
     out.update(
@@ -310,6 +315,22 @@ def test_apply_gold_set_review_import_rejects_non_object_rows(tmp_path: Path):
     assert report.invalid_rows[0].reasons == ("review row must be object",)
 
 
+def test_apply_gold_set_review_import_rejects_non_object_target_rows(tmp_path: Path):
+    _copy_registry(tmp_path)
+    import_path = tmp_path / "gold_import.jsonl"
+    rows = _gold_import_rows(tmp_path)[:1]
+    target_path = tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    target_count = len(_load_jsonl(target_path))
+    _append_jsonl_value(target_path, "not an object")
+    _write_jsonl(import_path, rows)
+
+    report = apply_gold_set_review_import(tmp_path, import_path)
+
+    assert not report.accepted
+    assert report.applied_rows == 0
+    assert f"gold-set target review row must be object at row(s): {target_count + 1}" in report.blockers
+
+
 def test_apply_license_review_import_passes_c11_and_source_production_gate(tmp_path: Path):
     _copy_registry(tmp_path)
     import_path = tmp_path / "license_import.jsonl"
@@ -509,6 +530,22 @@ def test_apply_license_review_import_rejects_non_object_rows(tmp_path: Path):
     assert report.invalid_rows[0].row_number == 1
     assert report.invalid_rows[0].row_id == "<non-object-row-1>"
     assert report.invalid_rows[0].reasons == ("review row must be object",)
+
+
+def test_apply_license_review_import_rejects_non_object_target_rows(tmp_path: Path):
+    _copy_registry(tmp_path)
+    import_path = tmp_path / "license_import.jsonl"
+    rows = _license_import_rows(tmp_path)[:1]
+    target_path = tmp_path / "registry/compliance/tushare_license_review_template.jsonl"
+    target_count = len(_load_jsonl(target_path))
+    _append_jsonl_value(target_path, ["not", "an", "object"])
+    _write_jsonl(import_path, rows)
+
+    report = apply_source_license_review_import(tmp_path, import_path)
+
+    assert not report.accepted
+    assert report.applied_rows == 0
+    assert f"source-license target review row must be object at row(s): {target_count + 1}" in report.blockers
 
 
 def test_apply_license_review_import_rejects_duplicate_or_invalid_rows(tmp_path: Path):

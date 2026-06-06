@@ -17,7 +17,7 @@
     {
       "blocker": "",
       "check_id": "manual_batch_templates_match_status",
-      "evidence": "gold_exported=50/50, gold_full=500/500, license_exported=50/50",
+      "evidence": "gold_exported=50/50, gold_full=500/500, license_exported=50/50, batch_blockers=0",
       "passed": true
     },
     {
