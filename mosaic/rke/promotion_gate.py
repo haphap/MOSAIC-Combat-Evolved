@@ -49,16 +49,24 @@ def _read_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _optional_json(path: Path) -> Any:
-    if not path.exists():
-        return {}
-    return _read_json(path)
-
-
-def _optional_mapping(path: Path, label: str) -> tuple[Mapping[str, Any], tuple[str, ...]]:
+def _optional_json(path: Path, label: str) -> tuple[Any, tuple[str, ...]]:
     if not path.exists():
         return {}, ()
-    payload = _read_json(path)
+    try:
+        return _read_json(path), ()
+    except json.JSONDecodeError as exc:
+        return {}, (f"{label} must contain valid JSON: {exc.msg}",)
+
+
+def _optional_mapping(
+    path: Path, label: str
+) -> tuple[Mapping[str, Any], tuple[str, ...]]:
+    if not path.exists():
+        return {}, ()
+    try:
+        payload = _read_json(path)
+    except json.JSONDecodeError as exc:
+        return {}, (f"{label} must contain valid JSON: {exc.msg}",)
     if isinstance(payload, Mapping):
         return payload, ()
     return {}, (f"{label} must be object",)
@@ -84,7 +92,8 @@ def _payload_blocker(errors: Sequence[str], fallback: str) -> str:
 def _write_json(path: Path, payload: Mapping[str, Any]) -> dict[str, Any]:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        json.dumps(_jsonable(payload), ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        json.dumps(_jsonable(payload), ensure_ascii=False, indent=2, sort_keys=True)
+        + "\n",
         encoding="utf-8",
     )
     return {"path": str(path), "rows": 1}
@@ -108,7 +117,9 @@ def _criterion(
     )
 
 
-def _completion_criterion(payload: Mapping[str, Any], criterion_id: str) -> Mapping[str, Any]:
+def _completion_criterion(
+    payload: Mapping[str, Any], criterion_id: str
+) -> Mapping[str, Any]:
     for row in payload.get("criteria") or ():
         if isinstance(row, Mapping) and row.get("criterion_id") == criterion_id:
             return row
@@ -126,18 +137,24 @@ def _lockbox_decision_from_payload(payload: Any) -> tuple[Any, tuple[str, ...]]:
         return evaluate_lockbox_review(None), (f"lockbox review schema invalid: {exc}",)
 
 
-def build_production_promotion_gate_report(root: str | Path = ".") -> ProductionPromotionGateReport:
+def build_production_promotion_gate_report(
+    root: str | Path = ".",
+) -> ProductionPromotionGateReport:
     root_path = Path(root)
     completion_path = "registry/audits/rke_completion_audit.json"
     gold_path = "registry/gold_sets/tushare_research_reports.review_summary.json"
     license_path = "registry/compliance/tushare_license_review_summary.json"
-    source_validation_path = "registry/source_checks/source_registry_validation_report.json"
+    source_validation_path = (
+        "registry/source_checks/source_registry_validation_report.json"
+    )
     redaction_path = "registry/compliance/source_text_redaction_report.json"
     paper_path = "registry/monitoring/central_bank_paper_trading_report.json"
     lockbox_path = "registry/lockbox/central_bank_lockbox_review.json"
     patch_path = "registry/patches/central_bank_paper_trading_patch.json"
 
-    completion, completion_errors = _optional_mapping(root_path / completion_path, "completion audit")
+    completion, completion_errors = _optional_mapping(
+        root_path / completion_path, "completion audit"
+    )
     gold, gold_errors = _optional_mapping(root_path / gold_path, "gold review summary")
     license_review, license_errors = _optional_mapping(
         root_path / license_path,
@@ -151,11 +168,19 @@ def build_production_promotion_gate_report(root: str | Path = ".") -> Production
         root_path / redaction_path,
         "source text redaction report",
     )
-    paper, paper_errors = _optional_mapping(root_path / paper_path, "paper-trading report")
-    lockbox_payload = _optional_json(root_path / lockbox_path)
+    paper, paper_errors = _optional_mapping(
+        root_path / paper_path, "paper-trading report"
+    )
+    lockbox_payload, lockbox_json_errors = _optional_json(
+        root_path / lockbox_path,
+        "lockbox review",
+    )
     patch, patch_errors = _optional_mapping(root_path / patch_path, "promotion patch")
 
-    lockbox_decision, lockbox_payload_reasons = _lockbox_decision_from_payload(lockbox_payload)
+    lockbox_decision, lockbox_payload_reasons = _lockbox_decision_from_payload(
+        lockbox_payload
+    )
+    lockbox_payload_reasons = (*lockbox_json_errors, *lockbox_payload_reasons)
     paper_summary, paper_summary_errors = _child_mapping(
         paper,
         "paper_trading_summary",
@@ -185,7 +210,11 @@ def build_production_promotion_gate_report(root: str | Path = ".") -> Production
     redaction_payload_errors = (*redaction_errors,)
     paper_summary_payload_errors = (*paper_errors, *paper_summary_errors)
     production_monitor_payload_errors = (*paper_errors, *production_monitor_errors)
-    patch_validation_payload_errors = (*patch_errors, *patch_validation_errors, *rollback_rule_errors)
+    patch_validation_payload_errors = (
+        *patch_errors,
+        *patch_validation_errors,
+        *rollback_rule_errors,
+    )
     patch_direct_payload_errors = (*patch_errors, *patch_validation_errors)
 
     criteria = (
@@ -212,7 +241,9 @@ def build_production_promotion_gate_report(root: str | Path = ".") -> Production
         _criterion(
             "PG02",
             "Manual gold-set review passed before staged production.",
-            not gold_payload_errors and gold.get("passed") is True and c02.get("passed") is True,
+            not gold_payload_errors
+            and gold.get("passed") is True
+            and c02.get("passed") is True,
             gold_path,
             f"{gold.get('reviewed_claims')} / {gold.get('total_claims')} gold-set claims reviewed",
             _payload_blocker(
@@ -232,7 +263,10 @@ def build_production_promotion_gate_report(root: str | Path = ".") -> Production
             f"{license_review.get('approved_for_production_runtime')} / {license_review.get('total_sources')} sources approved for production runtime",
             _payload_blocker(
                 license_payload_errors,
-                str(c11.get("blocker") or "source license review still pending or restricted"),
+                str(
+                    c11.get("blocker")
+                    or "source license review still pending or restricted"
+                ),
             ),
         ),
         _criterion(
@@ -255,7 +289,9 @@ def build_production_promotion_gate_report(root: str | Path = ".") -> Production
             not redaction_payload_errors and redaction.get("accepted") is True,
             redaction_path,
             f"{redaction.get('failure_count')} source-text redaction failures",
-            _payload_blocker(redaction_payload_errors, "source text redaction audit failed"),
+            _payload_blocker(
+                redaction_payload_errors, "source text redaction audit failed"
+            ),
         ),
         _criterion(
             "PG06",
@@ -263,7 +299,9 @@ def build_production_promotion_gate_report(root: str | Path = ".") -> Production
             not paper_summary_payload_errors and paper_summary.get("ready") is True,
             paper_path,
             f"paper_trading_ready={paper_summary.get('ready')}, n={paper_summary.get('n')}",
-            _payload_blocker(paper_summary_payload_errors, "paper-trading report is not ready"),
+            _payload_blocker(
+                paper_summary_payload_errors, "paper-trading report is not ready"
+            ),
         ),
         _criterion(
             "PG07",
@@ -311,16 +349,21 @@ def build_production_promotion_gate_report(root: str | Path = ".") -> Production
         _criterion(
             "PG10",
             "Direct production remains forbidden until all staged gates and lockbox pass.",
-            not patch_direct_payload_errors and patch_validation.get("promotion_state") != "production",
+            not patch_direct_payload_errors
+            and patch_validation.get("promotion_state") != "production",
             patch_path,
             f"promotion_state={patch_validation.get('promotion_state')}",
-            _payload_blocker(patch_direct_payload_errors, "direct production is not blocked"),
+            _payload_blocker(
+                patch_direct_payload_errors, "direct production is not blocked"
+            ),
         ),
     )
 
     staged_required = {f"PG{idx:02d}" for idx in range(1, 9)}
     staged_allowed = all(
-        criterion.passed for criterion in criteria if criterion.criterion_id in staged_required
+        criterion.passed
+        for criterion in criteria
+        if criterion.criterion_id in staged_required
     )
     production_allowed = staged_allowed and lockbox_decision.production_allowed
     paper_trading_allowed = paper_summary.get("ready") is True and bool(rollback_rule)

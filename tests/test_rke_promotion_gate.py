@@ -24,12 +24,18 @@ def _copy_registry(dst_root: Path) -> None:
 
 
 def _load_jsonl(path: Path) -> list[dict]:
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
+    return [
+        json.loads(line)
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line
+    ]
 
 
 def _write_jsonl(path: Path, rows: list[dict]) -> None:
     path.write_text(
-        "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
+        "".join(
+            json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows
+        ),
         encoding="utf-8",
     )
 
@@ -49,7 +55,9 @@ def _gold_import_rows(root: Path) -> list[dict]:
             "review_date": "2026-06-06",
             "review_notes": "fixture approval",
         }
-        for row in _load_jsonl(root / "registry/review_batches/gold_set_full_import_template.jsonl")
+        for row in _load_jsonl(
+            root / "registry/review_batches/gold_set_full_import_template.jsonl"
+        )
     ]
 
 
@@ -70,7 +78,9 @@ def _license_import_rows(root: Path) -> list[dict]:
             "review_date": "2026-06-06",
             "notes": "fixture approval",
         }
-        for row in _load_jsonl(root / "registry/compliance/tushare_license_review_template.jsonl")
+        for row in _load_jsonl(
+            root / "registry/compliance/tushare_license_review_template.jsonl"
+        )
     ]
 
 
@@ -94,12 +104,36 @@ def test_production_promotion_gate_rejects_malformed_lockbox_payload(tmp_path: P
     lockbox_path.write_text(json.dumps(["not", "an", "object"]), encoding="utf-8")
 
     report = build_production_promotion_gate_report(tmp_path)
-    pg09 = next(criterion for criterion in report.criteria if criterion.criterion_id == "PG09")
+    pg09 = next(
+        criterion for criterion in report.criteria if criterion.criterion_id == "PG09"
+    )
 
     assert not report.production_allowed
     assert not pg09.passed
     assert "payload_errors=1" in pg09.evidence
     assert "lockbox review must be object" in pg09.blocker
+
+
+def test_production_promotion_gate_rejects_invalid_json_payload(tmp_path: Path):
+    _copy_registry(tmp_path)
+    completion_path = tmp_path / "registry/audits/rke_completion_audit.json"
+    lockbox_path = tmp_path / "registry/lockbox/central_bank_lockbox_review.json"
+    completion_path.write_text("{not valid json", encoding="utf-8")
+    lockbox_path.write_text("{not valid json", encoding="utf-8")
+
+    report = build_production_promotion_gate_report(tmp_path)
+    pg01 = next(
+        criterion for criterion in report.criteria if criterion.criterion_id == "PG01"
+    )
+    pg09 = next(
+        criterion for criterion in report.criteria if criterion.criterion_id == "PG09"
+    )
+
+    assert not report.production_allowed
+    assert not pg01.passed
+    assert not pg09.passed
+    assert "completion audit must contain valid JSON" in pg01.blocker
+    assert "lockbox review must contain valid JSON" in pg09.blocker
 
 
 def test_production_promotion_gate_rejects_malformed_completion_payload(tmp_path: Path):
@@ -108,7 +142,9 @@ def test_production_promotion_gate_rejects_malformed_completion_payload(tmp_path
     completion_path.write_text(json.dumps(["not", "an", "object"]), encoding="utf-8")
 
     report = build_production_promotion_gate_report(tmp_path)
-    pg01 = next(criterion for criterion in report.criteria if criterion.criterion_id == "PG01")
+    pg01 = next(
+        criterion for criterion in report.criteria if criterion.criterion_id == "PG01"
+    )
 
     assert not report.production_allowed
     assert not pg01.passed
@@ -121,7 +157,9 @@ def test_production_promotion_gate_rejects_malformed_paper_payload(tmp_path: Pat
     paper_path.write_text(json.dumps(["not", "an", "object"]), encoding="utf-8")
 
     report = build_production_promotion_gate_report(tmp_path)
-    pg06 = next(criterion for criterion in report.criteria if criterion.criterion_id == "PG06")
+    pg06 = next(
+        criterion for criterion in report.criteria if criterion.criterion_id == "PG06"
+    )
 
     assert not report.paper_trading_allowed
     assert not pg06.passed
@@ -134,8 +172,12 @@ def test_production_promotion_gate_rejects_malformed_patch_payload(tmp_path: Pat
     patch_path.write_text(json.dumps(["not", "an", "object"]), encoding="utf-8")
 
     report = build_production_promotion_gate_report(tmp_path)
-    pg08 = next(criterion for criterion in report.criteria if criterion.criterion_id == "PG08")
-    pg10 = next(criterion for criterion in report.criteria if criterion.criterion_id == "PG10")
+    pg08 = next(
+        criterion for criterion in report.criteria if criterion.criterion_id == "PG08"
+    )
+    pg10 = next(
+        criterion for criterion in report.criteria if criterion.criterion_id == "PG10"
+    )
 
     assert not report.paper_trading_allowed
     assert not pg08.passed
@@ -144,7 +186,9 @@ def test_production_promotion_gate_rejects_malformed_patch_payload(tmp_path: Pat
     assert "promotion patch must be object" in pg10.blocker
 
 
-def test_production_promotion_gate_allows_production_after_manual_and_lockbox_gates(tmp_path: Path):
+def test_production_promotion_gate_allows_production_after_manual_and_lockbox_gates(
+    tmp_path: Path,
+):
     _copy_registry(tmp_path)
     gold_import = tmp_path / "gold_import.jsonl"
     license_import = tmp_path / "license_import.jsonl"
@@ -162,7 +206,10 @@ def test_production_promotion_gate_allows_production_after_manual_and_lockbox_ga
             "result": "passed",
         }
     )
-    lockbox_path.write_text(json.dumps(lockbox, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    lockbox_path.write_text(
+        json.dumps(lockbox, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
 
     result = write_production_promotion_gate_report(tmp_path)
     report = build_production_promotion_gate_report(tmp_path)

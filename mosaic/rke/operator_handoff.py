@@ -18,13 +18,21 @@ from .lockbox_review_import import (
     LOCKBOX_REVIEW_PATH,
 )
 from .manual_review_import import TARGET_ROW_HASH_FIELD, review_row_fingerprint
-from .manual_review_batches import build_manual_review_batch_status, write_manual_review_batches
-from .promotion_gate import build_production_promotion_gate_report, write_production_promotion_gate_report
+from .manual_review_batches import (
+    build_manual_review_batch_status,
+    write_manual_review_batches,
+)
+from .promotion_gate import (
+    build_production_promotion_gate_report,
+    write_production_promotion_gate_report,
+)
 
 
 OPERATOR_HANDOFF_JSON_PATH = "registry/handoffs/rke_operator_handoff.json"
 OPERATOR_HANDOFF_MD_PATH = "registry/handoffs/rke_operator_handoff.md"
-LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH = "registry/review_batches/lockbox_review_next_import_template.json"
+LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH = (
+    "registry/review_batches/lockbox_review_next_import_template.json"
+)
 
 
 @dataclass(frozen=True)
@@ -76,7 +84,8 @@ def _jsonable(value: Any) -> Any:
 def _write_json(path: Path, payload: Mapping[str, Any]) -> dict[str, Any]:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        json.dumps(_jsonable(payload), ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        json.dumps(_jsonable(payload), ensure_ascii=False, indent=2, sort_keys=True)
+        + "\n",
         encoding="utf-8",
     )
     return {"path": str(path), "rows": 1}
@@ -86,9 +95,23 @@ def _read_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _read_mapping_json(path: Path, label: str) -> Mapping[str, Any]:
+    try:
+        payload = _read_json(path)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{label} must contain valid JSON: {exc.msg}") from exc
+    if not isinstance(payload, Mapping):
+        raise ValueError(f"{label} must be object")
+    return payload
+
+
 def _criterion_by_id(criteria: Sequence[Any], criterion_id: str) -> Mapping[str, Any]:
     for criterion in criteria:
-        row = asdict(criterion) if hasattr(criterion, "__dataclass_fields__") else dict(criterion)
+        row = (
+            asdict(criterion)
+            if hasattr(criterion, "__dataclass_fields__")
+            else dict(criterion)
+        )
         if row.get("criterion_id") == criterion_id:
             return row
     return {}
@@ -96,12 +119,8 @@ def _criterion_by_id(criteria: Sequence[Any], criterion_id: str) -> Mapping[str,
 
 def build_lockbox_review_import_template(root: str | Path = ".") -> Mapping[str, Any]:
     root_path = Path(root)
-    target = _read_json(root_path / LOCKBOX_REVIEW_PATH)
-    policy = _read_json(root_path / LOCKBOX_POLICY_PATH)
-    if not isinstance(target, Mapping):
-        raise ValueError("lockbox target must be object")
-    if not isinstance(policy, Mapping):
-        raise ValueError("lockbox policy must be object")
+    target = _read_mapping_json(root_path / LOCKBOX_REVIEW_PATH, "lockbox target")
+    policy = _read_mapping_json(root_path / LOCKBOX_POLICY_PATH, "lockbox policy")
     return {
         "experiment_family_id": str(target.get("experiment_family_id") or ""),
         "experiment_id": str(target.get("experiment_id") or ""),
@@ -125,6 +144,36 @@ def write_lockbox_review_import_template(root: str | Path = ".") -> dict[str, An
         root_path / LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH,
         build_lockbox_review_import_template(root_path),
     )
+
+
+def _invalid_lockbox_review_import_template(reason: str) -> Mapping[str, Any]:
+    return {
+        "template_status": "invalid",
+        "template_blocker": reason,
+        "experiment_family_id": "",
+        "experiment_id": "",
+        "opened_at": "",
+        "opened_by": "",
+        "open_count": None,
+        "result": "",
+        "parameter_search_after_open": False,
+        "rule_design_after_open": False,
+        "notes": "",
+        "review_context_ref": LOCKBOX_POLICY_PATH,
+        LOCKBOX_REVIEW_CONTEXT_HASH_FIELD: "",
+        TARGET_ROW_HASH_FIELD: "",
+        "target_review_path": LOCKBOX_REVIEW_PATH,
+    }
+
+
+def _write_lockbox_review_import_template_or_error(root_path: Path) -> dict[str, Any]:
+    try:
+        return write_lockbox_review_import_template(root_path)
+    except ValueError as exc:
+        return _write_json(
+            root_path / LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH,
+            _invalid_lockbox_review_import_template(str(exc)),
+        )
 
 
 def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
@@ -241,7 +290,13 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
         remaining_blockers=tuple(promotion.blockers),
         gates=gates,
         generated_paths=generated_paths,
-        run_order=("promotion-dry-run", "gold_set", "source_license", "promotion-status", "lockbox"),
+        run_order=(
+            "promotion-dry-run",
+            "gold_set",
+            "source_license",
+            "promotion-status",
+            "lockbox",
+        ),
         promotion_dry_run_command=(
             "mosaic-rke build-license-review-import --root . "
             f"--policy {SOURCE_LICENSE_POLICY_TEMPLATE_PATH} "
@@ -300,19 +355,25 @@ def write_operator_handoff(root: str | Path = ".") -> dict[str, Any]:
     root_path = Path(root)
     review_batches = write_manual_review_batches(root_path)
     policy_template = write_source_license_policy_template(root_path)
-    lockbox_template = write_lockbox_review_import_template(root_path)
+    lockbox_template = _write_lockbox_review_import_template_or_error(root_path)
     write_production_promotion_gate_report(root_path)
     handoff = build_operator_handoff(root_path)
     json_result = _write_json(root_path / OPERATOR_HANDOFF_JSON_PATH, asdict(handoff))
     md_path = root_path / OPERATOR_HANDOFF_MD_PATH
     md_path.parent.mkdir(parents=True, exist_ok=True)
-    md_path.write_text(render_operator_handoff_markdown(handoff) + "\n", encoding="utf-8")
+    md_path.write_text(
+        render_operator_handoff_markdown(handoff) + "\n", encoding="utf-8"
+    )
     return {
         "json": str(json_result["path"]),
         "markdown": str(md_path),
         "lockbox_import_template": str(lockbox_template["path"]),
         "gold_set_import_template": review_batches["gold_set_import_template"],
-        "gold_set_full_import_template": review_batches["gold_set_full_import_template"],
-        "source_license_import_template": review_batches["source_license_import_template"],
+        "gold_set_full_import_template": review_batches[
+            "gold_set_full_import_template"
+        ],
+        "source_license_import_template": review_batches[
+            "source_license_import_template"
+        ],
         "source_license_policy_template": str(policy_template["path"]),
     }

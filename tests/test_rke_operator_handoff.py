@@ -40,15 +40,26 @@ def test_operator_handoff_summarizes_remaining_manual_gates():
         "lockbox",
     }
     gold = next(gate for gate in handoff.gates if gate.review_kind == "gold_set")
-    license_gate = next(gate for gate in handoff.gates if gate.review_kind == "source_license")
+    license_gate = next(
+        gate for gate in handoff.gates if gate.review_kind == "source_license"
+    )
     lockbox = next(gate for gate in handoff.gates if gate.review_kind == "lockbox")
     assert gold.pending_rows == 500
-    assert gold.full_import_template_path == "registry/review_batches/gold_set_full_import_template.jsonl"
+    assert (
+        gold.full_import_template_path
+        == "registry/review_batches/gold_set_full_import_template.jsonl"
+    )
     assert "gold_set_full_import_template.jsonl" in handoff.promotion_dry_run_command
     assert license_gate.pending_rows == 9812
-    assert license_gate.policy_template_path == "registry/review_batches/source_license_policy_template.json"
+    assert (
+        license_gate.policy_template_path
+        == "registry/review_batches/source_license_policy_template.json"
+    )
     assert "source_license_policy_template.json" in license_gate.dry_run_command
-    assert lockbox.import_template_path == "registry/review_batches/lockbox_review_next_import_template.json"
+    assert (
+        lockbox.import_template_path
+        == "registry/review_batches/lockbox_review_next_import_template.json"
+    )
     assert "apply-lockbox-review" in lockbox.dry_run_command
 
 
@@ -57,8 +68,14 @@ def test_lockbox_review_import_template_requires_human_decision():
 
     assert template["experiment_family_id"] == "FAM-CB-LIQUIDITY-2026Q2"
     assert template["experiment_id"] == "EXP-CB-20260605-0001"
-    assert template["target_review_path"] == "registry/lockbox/central_bank_lockbox_review.json"
-    assert template["review_context_ref"] == "registry/evaluation/lockbox/lockbox_policy.json"
+    assert (
+        template["target_review_path"]
+        == "registry/lockbox/central_bank_lockbox_review.json"
+    )
+    assert (
+        template["review_context_ref"]
+        == "registry/evaluation/lockbox/lockbox_policy.json"
+    )
     assert template["target_row_hash"].startswith("sha256:")
     assert template["review_context_hash"].startswith("sha256:")
     assert template["result"] == ""
@@ -78,7 +95,40 @@ def test_lockbox_review_import_template_rejects_non_object_target(tmp_path: Path
         build_lockbox_review_import_template(tmp_path)
 
 
-def test_write_operator_handoff_outputs_json_markdown_and_lockbox_template(tmp_path: Path):
+def test_lockbox_review_import_template_rejects_invalid_json_target(tmp_path: Path):
+    _copy_registry(tmp_path)
+    target_path = tmp_path / "registry/lockbox/central_bank_lockbox_review.json"
+    target_path.write_text("{not valid json", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="lockbox target must contain valid JSON"):
+        build_lockbox_review_import_template(tmp_path)
+
+
+def test_write_operator_handoff_surfaces_bad_lockbox_template_inputs(tmp_path: Path):
+    _copy_registry(tmp_path)
+    target_path = tmp_path / "registry/lockbox/central_bank_lockbox_review.json"
+    target_path.write_text("{not valid json", encoding="utf-8")
+
+    paths = write_operator_handoff(tmp_path)
+    payload = json.loads(Path(paths["json"]).read_text(encoding="utf-8"))
+    lockbox_template = json.loads(
+        Path(paths["lockbox_import_template"]).read_text(encoding="utf-8")
+    )
+    lockbox_gate = next(
+        gate for gate in payload["gates"] if gate["review_kind"] == "lockbox"
+    )
+
+    assert payload["ready_for_operator_review"] is True
+    assert lockbox_template["template_status"] == "invalid"
+    assert (
+        "lockbox target must contain valid JSON" in lockbox_template["template_blocker"]
+    )
+    assert "lockbox review must contain valid JSON" in lockbox_gate["blocker"]
+
+
+def test_write_operator_handoff_outputs_json_markdown_and_lockbox_template(
+    tmp_path: Path,
+):
     _copy_registry(tmp_path)
 
     paths = write_operator_handoff(tmp_path)
@@ -117,6 +167,12 @@ def test_cli_operator_handoff_writes_package(tmp_path: Path, capsys):
     assert output["handoff"]["production_allowed"] is False
     assert (tmp_path / "registry/handoffs/rke_operator_handoff.json").exists()
     assert (tmp_path / "registry/handoffs/rke_operator_handoff.md").exists()
-    assert (tmp_path / "registry/review_batches/gold_set_full_import_template.jsonl").exists()
-    assert (tmp_path / "registry/review_batches/lockbox_review_next_import_template.json").exists()
-    assert (tmp_path / "registry/review_batches/source_license_policy_template.json").exists()
+    assert (
+        tmp_path / "registry/review_batches/gold_set_full_import_template.jsonl"
+    ).exists()
+    assert (
+        tmp_path / "registry/review_batches/lockbox_review_next_import_template.json"
+    ).exists()
+    assert (
+        tmp_path / "registry/review_batches/source_license_policy_template.json"
+    ).exists()
