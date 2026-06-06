@@ -197,6 +197,8 @@ def _row_failures(row: Mapping[str, Any], target: Mapping[str, Any]) -> list[str
         failures.append("experiment_id must match current lockbox target")
     if row.get("result") not in LOCKBOX_RESULTS:
         failures.append("result must be one of not_opened, passed, failed")
+    elif row.get("result") == "not_opened":
+        failures.append("lockbox review import result must be passed or failed")
     if type(row.get("open_count")) is not int:
         failures.append("open_count must be integer")
     elif int(row.get("open_count") or 0) < 0:

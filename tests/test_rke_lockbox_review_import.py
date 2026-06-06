@@ -347,3 +347,21 @@ def test_apply_lockbox_review_import_rejects_opened_at_without_timezone(tmp_path
 
     assert not report.accepted
     assert "opened_at must be ISO-8601 datetime with timezone" in report.rejected_reasons
+
+
+def test_apply_lockbox_review_import_rejects_not_opened_result(tmp_path: Path):
+    _copy_registry(tmp_path)
+    target = tmp_path / "registry/lockbox/central_bank_lockbox_review.json"
+    original = target.read_text(encoding="utf-8")
+    import_path = tmp_path / "lockbox_review_not_opened.json"
+    row = _passed_lockbox_review(tmp_path)
+    row["result"] = "not_opened"
+    row["open_count"] = 0
+    _write_json(import_path, row)
+
+    report = apply_lockbox_review_import(tmp_path, import_path)
+
+    assert not report.accepted
+    assert not report.applied
+    assert "lockbox review import result must be passed or failed" in report.rejected_reasons
+    assert target.read_text(encoding="utf-8") == original
