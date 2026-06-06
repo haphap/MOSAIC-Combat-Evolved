@@ -32,6 +32,12 @@ from .claim_vocabulary import (
     write_claim_variable_validation_report,
     write_claim_variable_vocabulary,
 )
+from .claim_grounding_validation import (
+    ClaimGroundingValidationRecord,
+    ClaimGroundingValidationReport,
+    build_claim_grounding_validation_report,
+    write_claim_grounding_validation_report,
+)
 from .checkers import (
     CheckerResult,
     check_agent_runtime_output,
@@ -435,9 +441,13 @@ __all__ = [
     "ClaimVariableValidationRecord",
     "ClaimVariableValidationReport",
     "ClaimVariableVocabulary",
+    "ClaimGroundingValidationRecord",
+    "ClaimGroundingValidationReport",
     "build_claim_variable_validation_report",
+    "build_claim_grounding_validation_report",
     "build_default_claim_variable_vocabulary",
     "load_claim_variable_vocabulary",
+    "write_claim_grounding_validation_report",
     "write_claim_variable_validation_report",
     "write_claim_variable_vocabulary",
     "CheckerResult",

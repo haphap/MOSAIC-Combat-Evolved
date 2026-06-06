@@ -373,6 +373,9 @@ def test_rke_cli_claim_status_writes_summary(tmp_path: Path, capsys):
     assert (
         tmp_path / "registry/claim_checks/claim_variable_validation_report.json"
     ).exists()
+    assert (
+        tmp_path / "registry/claim_checks/claim_grounding_validation_report.json"
+    ).exists()
     assert (tmp_path / "registry/vocabularies/claim_variable_vocabulary.json").exists()
 
 

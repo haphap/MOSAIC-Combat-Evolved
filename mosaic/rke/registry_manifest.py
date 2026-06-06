@@ -15,6 +15,7 @@ REQUIRED_REGISTRY_FILES = (
     "registry/audits/central_bank_mvp_audit_view.md",
     "registry/audits/rke_completion_audit.json",
     "registry/audits/rke_master_plan_coverage_report.json",
+    "registry/claim_checks/claim_grounding_validation_report.json",
     "registry/claim_checks/claim_variable_validation_report.json",
     "registry/claims/central_bank_claims.jsonl",
     "registry/claims/semiconductor_claims.jsonl",
@@ -112,14 +113,20 @@ class RegistryManifest:
 
     @property
     def valid(self) -> bool:
-        return not self.missing_required and not self.empty_required and not self.invalid_required
+        return (
+            not self.missing_required
+            and not self.empty_required
+            and not self.invalid_required
+        )
 
 
 def file_sha256(path: Path) -> str:
     return "sha256:" + sha256(path.read_bytes()).hexdigest()
 
 
-def validate_required_registry(root: str | Path = ".") -> tuple[tuple[str, ...], tuple[str, ...]]:
+def validate_required_registry(
+    root: str | Path = ".",
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
     root_path = Path(root)
     missing: list[str] = []
     empty: list[str] = []
@@ -165,7 +172,9 @@ def _validate_jsonl_objects(path: Path, relative: str, invalid: list[str]) -> No
             try:
                 payload = json.loads(line)
             except json.JSONDecodeError as exc:
-                invalid.append(f"{relative} row {index} must contain valid JSON: {exc.msg}")
+                invalid.append(
+                    f"{relative} row {index} must contain valid JSON: {exc.msg}"
+                )
                 return
             if not isinstance(payload, dict):
                 invalid.append(f"{relative} row {index} must be object")
@@ -206,7 +215,8 @@ def write_registry_manifest(root: str | Path = ".") -> dict[str, Any]:
     output_path = root_path / "registry/manifests/rke_registry_manifest.json"
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(
-        json.dumps(asdict(manifest), ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        json.dumps(asdict(manifest), ensure_ascii=False, indent=2, sort_keys=True)
+        + "\n",
         encoding="utf-8",
     )
     return {

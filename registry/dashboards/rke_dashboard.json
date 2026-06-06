@@ -13,6 +13,11 @@
     "rule_count": 1,
     "source_count": 1
   },
+  "claim_grounding_validation": {
+    "accepted": true,
+    "failure_count": 0,
+    "record_count": 3
+  },
   "claim_variable_validation": {
     "accepted": true,
     "failure_count": 0,

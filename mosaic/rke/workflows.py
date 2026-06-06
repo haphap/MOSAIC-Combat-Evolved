@@ -8,7 +8,11 @@ from typing import Any, Mapping
 
 from .audit_viewer import write_audit_trace_view
 from .central_bank_mvp import write_central_bank_mvp_registry
-from .claim_vocabulary import write_claim_variable_validation_report, write_claim_variable_vocabulary
+from .claim_grounding_validation import write_claim_grounding_validation_report
+from .claim_vocabulary import (
+    write_claim_variable_validation_report,
+    write_claim_variable_vocabulary,
+)
 from .completion_auditor import write_completion_audit
 from .compliance import write_source_license_review_template
 from .dashboard_reports import write_dashboard_reports
@@ -26,7 +30,10 @@ from .policy_doc_validation import write_policy_doc_validation_report
 from .prompt_asset_validation import write_prompt_asset_validation_report
 from .promotion_gate import write_production_promotion_gate_report
 from .registry_manifest import write_registry_manifest
-from .review_gates import write_gold_set_review_summary, write_source_license_review_summary
+from .review_gates import (
+    write_gold_set_review_summary,
+    write_source_license_review_summary,
+)
 from .rollback_readiness import write_rollback_readiness_report
 from .schema_validation import write_schema_validation_report
 from .sector_demo import write_sector_semiconductor_demo_registry
@@ -54,7 +61,9 @@ def _require_mapping_rows(rows: list[Any], *, label: str) -> list[Mapping[str, A
         else:
             invalid_rows.append(str(index))
     if invalid_rows:
-        raise ValueError(f"{label} row must be object at row(s): {', '.join(invalid_rows)}")
+        raise ValueError(
+            f"{label} row must be object at row(s): {', '.join(invalid_rows)}"
+        )
     return valid_rows
 
 
@@ -78,7 +87,9 @@ def run_full_rke_refresh(
 ) -> RkeRefreshResult:
     root_path = Path(root)
     source_path = root_path / "registry/sources/tushare_research_reports.jsonl"
-    gold_candidates_path = root_path / "registry/sources/tushare_research_reports.gold_candidates.jsonl"
+    gold_candidates_path = (
+        root_path / "registry/sources/tushare_research_reports.gold_candidates.jsonl"
+    )
     if not source_path.exists():
         raise FileNotFoundError(source_path)
     if not gold_candidates_path.exists():
@@ -90,15 +101,25 @@ def run_full_rke_refresh(
         ("sector_semiconductor", write_sector_semiconductor_demo_registry(root_path)),
         ("macro_expansion", write_macro_expansion_registry(root_path)),
     ):
-        outputs.update({f"{prefix}.{key}": value for key, value in writer_outputs.items()})
+        outputs.update(
+            {f"{prefix}.{key}": value for key, value in writer_outputs.items()}
+        )
 
-    gold_review_path = root_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    gold_review_path = (
+        root_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    )
     if not preserve_review_templates or not gold_review_path.exists():
-        gold_rows = _load_required_mapping_rows(gold_candidates_path, label="gold candidate")
-        result = write_gold_set_review_template(gold_rows, gold_review_path, claims_per_document=10)
+        gold_rows = _load_required_mapping_rows(
+            gold_candidates_path, label="gold candidate"
+        )
+        result = write_gold_set_review_template(
+            gold_rows, gold_review_path, claims_per_document=10
+        )
         outputs["gold_set_review_template"] = str(result["path"])
 
-    license_review_path = root_path / "registry/compliance/tushare_license_review_template.jsonl"
+    license_review_path = (
+        root_path / "registry/compliance/tushare_license_review_template.jsonl"
+    )
     if not preserve_review_templates or not license_review_path.exists():
         source_rows = _load_required_mapping_rows(source_path, label="source registry")
         result = write_source_license_review_template(source_rows, license_review_path)
@@ -112,6 +133,7 @@ def run_full_rke_refresh(
     gold_candidate_claims = write_gold_candidate_claims(root_path)
     gold_packet = write_gold_review_packet(root_path)
     claim_variable_summary = write_claim_variable_validation_report(root_path)
+    claim_grounding_summary = write_claim_grounding_validation_report(root_path)
     source_validation = write_source_registry_validation_report(root_path)
     schema_summary = write_schema_validation_report(root_path)
     validation_hardening = write_validation_hardening_report(root_path)
@@ -136,17 +158,30 @@ def run_full_rke_refresh(
     outputs["license_review_packet.json"] = license_packet["json"]
     outputs["license_review_packet.markdown"] = license_packet["markdown"]
     outputs["manual_review_batch_status"] = review_batches["status"]
-    outputs["manual_review_gold_set_import_template"] = review_batches["gold_set_import_template"]
-    outputs["manual_review_gold_set_full_import_template"] = review_batches["gold_set_full_import_template"]
-    outputs["manual_review_gold_set_workbook"] = review_batches["gold_set_review_workbook"]
-    outputs["manual_review_source_license_import_template"] = review_batches["source_license_import_template"]
-    outputs["manual_review_source_license_workbook"] = review_batches["source_license_review_workbook"]
-    outputs["manual_review_progress_report"] = operator_handoff["manual_review_progress_report"]
+    outputs["manual_review_gold_set_import_template"] = review_batches[
+        "gold_set_import_template"
+    ]
+    outputs["manual_review_gold_set_full_import_template"] = review_batches[
+        "gold_set_full_import_template"
+    ]
+    outputs["manual_review_gold_set_workbook"] = review_batches[
+        "gold_set_review_workbook"
+    ]
+    outputs["manual_review_source_license_import_template"] = review_batches[
+        "source_license_import_template"
+    ]
+    outputs["manual_review_source_license_workbook"] = review_batches[
+        "source_license_review_workbook"
+    ]
+    outputs["manual_review_progress_report"] = operator_handoff[
+        "manual_review_progress_report"
+    ]
     outputs["manual_review_runbook"] = operator_handoff["manual_review_runbook"]
     outputs["claim_variable_vocabulary"] = str(claim_vocabulary["path"])
     outputs["gold_candidate_claims"] = gold_candidate_claims["candidate_claims"]
     outputs["gold_candidate_claims_summary"] = gold_candidate_claims["summary"]
     outputs["claim_variable_validation_report"] = str(claim_variable_summary["path"])
+    outputs["claim_grounding_validation_report"] = str(claim_grounding_summary["path"])
     outputs["source_registry_validation_report"] = str(source_validation["path"])
     outputs["schema_validation_report"] = str(schema_summary["path"])
     outputs["validation_hardening_report"] = str(validation_hardening["path"])
@@ -161,16 +196,24 @@ def run_full_rke_refresh(
     outputs["production_promotion_gate"] = str(promotion_gate["path"])
     outputs["operator_handoff.json"] = operator_handoff["json"]
     outputs["operator_handoff.markdown"] = operator_handoff["markdown"]
-    outputs["lockbox_review_import_template"] = operator_handoff["lockbox_import_template"]
+    outputs["lockbox_review_import_template"] = operator_handoff[
+        "lockbox_import_template"
+    ]
     outputs["lockbox_review_import_report"] = (
         "registry/lockbox/central_bank_lockbox_review_import_report.json"
     )
-    outputs["gold_set_full_import_template"] = operator_handoff["gold_set_full_import_template"]
+    outputs["gold_set_full_import_template"] = operator_handoff[
+        "gold_set_full_import_template"
+    ]
     outputs["gold_review_import_report"] = (
         "registry/gold_sets/tushare_research_reports.review_import_report.json"
     )
-    outputs["source_license_policy_template"] = operator_handoff["source_license_policy_template"]
-    outputs["source_license_review_workbook"] = operator_handoff["source_license_review_workbook"]
+    outputs["source_license_policy_template"] = operator_handoff[
+        "source_license_policy_template"
+    ]
+    outputs["source_license_review_workbook"] = operator_handoff[
+        "source_license_review_workbook"
+    ]
     outputs["rollback_readiness_report"] = str(rollback_readiness["path"])
     outputs["operator_readiness_report"] = str(operator_readiness["path"])
     outputs["source_license_policy_import_report"] = (
@@ -183,7 +226,9 @@ def run_full_rke_refresh(
         "registry/promotion/rke_promotion_dry_run_report.json"
     )
     outputs["master_plan_coverage_report"] = str(master_plan_coverage["path"])
-    outputs.update({f"dashboard.{key}": value for key, value in dashboard_outputs.items()})
+    outputs.update(
+        {f"dashboard.{key}": value for key, value in dashboard_outputs.items()}
+    )
     outputs["registry_manifest"] = str(manifest_result["path"])
     return RkeRefreshResult(
         root=str(root_path),

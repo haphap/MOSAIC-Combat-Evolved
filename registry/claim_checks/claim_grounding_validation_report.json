@@ -1,0 +1,49 @@
+{
+  "accepted": true,
+  "failure_count": 0,
+  "records": [
+    {
+      "accepted": true,
+      "artifact_paths": [
+        "registry/claims/central_bank_claims.jsonl",
+        "registry/claims/semiconductor_claims.jsonl",
+        "registry/sources/central_bank_sources.jsonl",
+        "registry/sources/semiconductor_demo_sources.jsonl",
+        "registry/sources/tushare_research_reports.jsonl"
+      ],
+      "check_id": "CLAIM-GROUNDING-CONTRACT",
+      "details": {
+        "claim_count": 4,
+        "source_count": 9813,
+        "span_checked_count": 3,
+        "verifier_passed_count": 4
+      },
+      "failures": []
+    },
+    {
+      "accepted": true,
+      "artifact_paths": [
+        "registry/hypotheses/central_bank_hypotheses.jsonl",
+        "registry/hypotheses/semiconductor_hypotheses.jsonl"
+      ],
+      "check_id": "CLAIM-HYPOTHESIS-SEPARATION",
+      "details": {
+        "hypothesis_count": 3
+      },
+      "failures": []
+    },
+    {
+      "accepted": true,
+      "artifact_paths": [
+        "registry/rule_packs/macro.central_bank.liquidity.v1.json",
+        "registry/rule_packs/sector.semiconductor.policy_substitution.v1.json"
+      ],
+      "check_id": "CLAIM-RULE-COMPILER-ELIGIBILITY",
+      "details": {
+        "checked_rule_count": 2
+      },
+      "failures": []
+    }
+  ],
+  "report_id": "RKE-CLAIM-GROUNDING-VALIDATION-REPORT-20260606"
+}

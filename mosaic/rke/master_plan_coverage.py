@@ -485,16 +485,7 @@ def _mvp_deliverable_records(
             blocked_if_failed=True,
             completion_error=completion_error,
         ),
-        _record(
-            root_path,
-            section_id="MVP-D3",
-            requirement="Source-grounded claim schema and verifier.",
-            evidence_paths=(
-                "schemas/source_grounded_claim.schema.json",
-                "registry/schemas/rke_schema_validation_report.json",
-                "registry/claim_checks/claim_variable_validation_report.json",
-            ),
-        ),
+        _claim_checker_record(root_path),
         _record(
             root_path,
             section_id="MVP-D4",
@@ -684,6 +675,43 @@ def _pre_registered_experiment_record(root_path: Path) -> MasterPlanCoverageReco
         ),
         passed=passed,
         blocker=blocker,
+    )
+
+
+def _claim_checker_record(root_path: Path) -> MasterPlanCoverageRecord:
+    evidence_paths = (
+        "schemas/source_grounded_claim.schema.json",
+        "registry/schemas/rke_schema_validation_report.json",
+        "registry/claim_checks/claim_variable_validation_report.json",
+        "registry/claim_checks/claim_grounding_validation_report.json",
+    )
+    failures: list[str] = []
+    for relative, label in (
+        (
+            "registry/schemas/rke_schema_validation_report.json",
+            "schema validation report",
+        ),
+        (
+            "registry/claim_checks/claim_variable_validation_report.json",
+            "claim variable validation report",
+        ),
+        (
+            "registry/claim_checks/claim_grounding_validation_report.json",
+            "claim grounding validation report",
+        ),
+    ):
+        report, error = _load_mapping_evidence(root_path, relative, label)
+        if error:
+            failures.append(error)
+        elif report is not None and report.get("accepted") is not True:
+            failures.append(f"{label} accepted must be true")
+    return _content_record(
+        root_path,
+        section_id="MVP-D3",
+        requirement="Source-grounded claim schema and verifier.",
+        evidence_paths=evidence_paths,
+        passed=not failures,
+        blocker="; ".join(failures),
     )
 
 

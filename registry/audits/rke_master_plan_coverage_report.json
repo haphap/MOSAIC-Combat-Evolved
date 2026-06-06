@@ -145,7 +145,8 @@
       "evidence_paths": [
         "schemas/source_grounded_claim.schema.json",
         "registry/schemas/rke_schema_validation_report.json",
-        "registry/claim_checks/claim_variable_validation_report.json"
+        "registry/claim_checks/claim_variable_validation_report.json",
+        "registry/claim_checks/claim_grounding_validation_report.json"
       ],
       "requirement": "Source-grounded claim schema and verifier.",
       "section_id": "MVP-D3",

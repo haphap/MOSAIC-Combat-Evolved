@@ -1,5 +1,5 @@
 {
-  "artifact_count": 82,
+  "artifact_count": 83,
   "artifacts": [
     {
       "bytes": 539,
@@ -22,9 +22,14 @@
       "sha256": "sha256:04c9ea3e0881ff12e006e5e83a6002df88f1afa5d7d4bcd79e8d7adc24318eb1"
     },
     {
-      "bytes": 8061,
+      "bytes": 20139,
       "path": "registry/audits/rke_master_plan_coverage_report.json",
-      "sha256": "sha256:06e7f1477fa5979ec1d412663cc02248c48557844cfa8b7312089cd4679e1e6e"
+      "sha256": "sha256:6aefc5ff35233be723e87931d40b26d3fe39257a451ddb03d7b321df6c20aaa4"
+    },
+    {
+      "bytes": 1376,
+      "path": "registry/claim_checks/claim_grounding_validation_report.json",
+      "sha256": "sha256:8ae4919c46443ff812ab6d2215162c8bb55f39a4683e61a98ddbc3d22084651c"
     },
     {
       "bytes": 792,
@@ -67,14 +72,14 @@
       "sha256": "sha256:b07a0175603d46122f147d6b2e9de7ff96df4b3dacbee21f631f20c2a7118603"
     },
     {
-      "bytes": 8409,
+      "bytes": 9155,
       "path": "registry/dashboards/rke_dashboard.json",
-      "sha256": "sha256:5f48741da03ca8ac8d93d8112598a7369667964d08b86eb4a29e9d401e20a5f5"
+      "sha256": "sha256:6afd5a53e1cc0d97a6da18273378cb1b3207c3f22cea473c626f175d6aa8b3e9"
     },
     {
-      "bytes": 2220,
+      "bytes": 2522,
       "path": "registry/dashboards/rke_dashboard.md",
-      "sha256": "sha256:c0d7a70b3af02311578e5b78121fbf78fe308b06156a23f1f08e5924fca9bce8"
+      "sha256": "sha256:d6c01195e8e089987b0cd7a25f3da17d665aa3670ba710f965abe9f213b65569"
     },
     {
       "bytes": 1233,
@@ -262,9 +267,9 @@
       "sha256": "sha256:9b211d2df59dd99abed7399cd3efe4bc533422fdc480d09a083576e6f0c28536"
     },
     {
-      "bytes": 2825,
+      "bytes": 3195,
       "path": "registry/prompt_checks/prompt_asset_validation_report.json",
-      "sha256": "sha256:254c4fbadc2ff2e6cb9b6158cec67522da8c9bd4054b694175db618ebf1011fb"
+      "sha256": "sha256:23212d105028d28949fe93ebfe2890e020a6cf20b38d2ebda5ea4171772fe564"
     },
     {
       "bytes": 1587,
