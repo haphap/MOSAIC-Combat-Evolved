@@ -242,6 +242,23 @@ def test_rke_cli_source_status_writes_summary(tmp_path: Path, capsys):
     assert (tmp_path / "registry/source_checks/source_registry_validation_report.json").exists()
 
 
+def test_rke_cli_source_status_reports_malformed_jsonl_rows(tmp_path: Path, capsys):
+    _copy_registry(tmp_path)
+    source_path = tmp_path / "registry/sources/central_bank_sources.jsonl"
+    source_path.write_text(source_path.read_text(encoding="utf-8") + "{\n", encoding="utf-8")
+
+    code = main(("source-status", "--root", str(tmp_path)))
+    output = json.loads(capsys.readouterr().out)
+
+    assert code == 2
+    assert output["accepted_for_sandbox"] is False
+    assert output["failure_count"] >= 1
+    assert any(
+        any("central_bank_sources.jsonl row" in failure and "must contain valid JSON" in failure for failure in record["failures"])
+        for record in output["records"]
+    )
+
+
 def test_rke_cli_source_text_status_writes_summary(tmp_path: Path, capsys):
     _copy_registry(tmp_path)
 

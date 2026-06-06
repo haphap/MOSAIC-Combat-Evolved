@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from .compliance import apply_source_license_reviews, evaluate_source_license
-from .phase_minus1 import load_jsonl
+from .phase_minus1 import load_jsonl_with_errors
 
 
 SOURCE_REGISTRY_PATHS = (
@@ -95,7 +95,16 @@ def _load_sources(
         path = root_path / relative
         if not path.exists():
             continue
-        for index, row in enumerate(load_jsonl(path), 1):
+        loaded_rows, parse_errors = load_jsonl_with_errors(path, label=relative)
+        for index, reason in enumerate(parse_errors, 1):
+            invalid_records.append(
+                _invalid_row_record(
+                    source_id=f"<malformed-json-row-{relative}:{index}>",
+                    source_path=relative,
+                    reason=reason,
+                )
+            )
+        for index, row in enumerate(loaded_rows, 1):
             if isinstance(row, Mapping):
                 rows.append((relative, row))
             else:
@@ -109,7 +118,19 @@ def _load_sources(
     review_path = root_path / SOURCE_LICENSE_REVIEW_PATH
     if review_path.exists() and rows:
         reviews: list[Mapping[str, Any]] = []
-        for index, row in enumerate(load_jsonl(review_path), 1):
+        loaded_reviews, review_parse_errors = load_jsonl_with_errors(
+            review_path,
+            label=SOURCE_LICENSE_REVIEW_PATH,
+        )
+        for index, reason in enumerate(review_parse_errors, 1):
+            invalid_records.append(
+                _invalid_row_record(
+                    source_id=f"<license-review-malformed-json-row-{index}>",
+                    source_path=SOURCE_LICENSE_REVIEW_PATH,
+                    reason=reason,
+                )
+            )
+        for index, row in enumerate(loaded_reviews, 1):
             if not isinstance(row, Mapping):
                 invalid_records.append(
                     _invalid_row_record(

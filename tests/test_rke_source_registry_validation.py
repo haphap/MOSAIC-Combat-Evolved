@@ -70,6 +70,22 @@ def test_source_registry_validation_rejects_non_object_source_rows(tmp_path: Pat
     assert "source registry row must be object" in record.production_blockers
 
 
+def test_source_registry_validation_reports_malformed_json_source_rows(tmp_path: Path):
+    _copy_registry(Path("."), tmp_path)
+    source_path = tmp_path / "registry/sources/central_bank_sources.jsonl"
+    reference_count, _, _ = _expected_source_counts(tmp_path)
+    source_path.write_text(source_path.read_text(encoding="utf-8") + "{\n", encoding="utf-8")
+
+    report = build_source_registry_validation_report(tmp_path)
+    record = next(item for item in report.records if item.source_id.startswith("<malformed-json-row-"))
+
+    assert not report.accepted_for_sandbox
+    assert report.source_reference_count == reference_count + 1
+    assert record.source_paths == ("registry/sources/central_bank_sources.jsonl",)
+    assert any("central_bank_sources.jsonl row" in failure for failure in record.failures)
+    assert any("must contain valid JSON" in failure for failure in record.production_blockers)
+
+
 def test_source_registry_validation_rejects_non_object_license_review_rows(tmp_path: Path):
     _copy_registry(Path("."), tmp_path)
     review_path = tmp_path / "registry/compliance/tushare_license_review_template.jsonl"
@@ -87,6 +103,22 @@ def test_source_registry_validation_rejects_non_object_license_review_rows(tmp_p
     assert not report.accepted_for_sandbox
     assert record.source_paths == ("registry/compliance/tushare_license_review_template.jsonl",)
     assert "source-license review row must be object" in record.failures
+
+
+def test_source_registry_validation_reports_malformed_json_license_review_rows(tmp_path: Path):
+    _copy_registry(Path("."), tmp_path)
+    review_path = tmp_path / "registry/compliance/tushare_license_review_template.jsonl"
+    review_path.write_text(review_path.read_text(encoding="utf-8") + "{\n", encoding="utf-8")
+
+    report = build_source_registry_validation_report(tmp_path)
+    record = next(
+        item for item in report.records if item.source_id.startswith("<license-review-malformed-json-row-")
+    )
+
+    assert not report.accepted_for_sandbox
+    assert record.source_paths == ("registry/compliance/tushare_license_review_template.jsonl",)
+    assert any("tushare_license_review_template.jsonl row" in failure for failure in record.failures)
+    assert any("must contain valid JSON" in failure for failure in record.production_blockers)
 
 
 def test_source_registry_validation_writer_outputs_report(tmp_path: Path):
