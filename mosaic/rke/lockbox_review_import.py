@@ -8,7 +8,11 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from .lockbox import LockboxReview, evaluate_lockbox_review
-from .manual_review_import import TARGET_ROW_HASH_FIELD, review_row_fingerprint
+from .manual_review_import import (
+    MANUAL_REVIEW_IMPORT_FORBIDDEN_FIELDS,
+    TARGET_ROW_HASH_FIELD,
+    review_row_fingerprint,
+)
 
 
 LOCKBOX_POLICY_PATH = "registry/evaluation/lockbox/lockbox_policy.json"
@@ -109,6 +113,13 @@ def _provenance_failures(
     return failures
 
 
+def _forbidden_field_failures(row: Mapping[str, Any]) -> list[str]:
+    return [
+        f"{field} forbidden in lockbox review import"
+        for field in sorted(MANUAL_REVIEW_IMPORT_FORBIDDEN_FIELDS & set(row))
+    ]
+
+
 def _row_failures(row: Mapping[str, Any], target: Mapping[str, Any]) -> list[str]:
     failures: list[str] = []
     for field in LOCKBOX_REQUIRED_FIELDS:
@@ -177,6 +188,7 @@ def apply_lockbox_review_import(
     input_row = _read_json(resolved_input)
     normalized = _normalize_lockbox_row(input_row, target)
     rejected_reasons = _row_failures(normalized, target)
+    rejected_reasons.extend(_forbidden_field_failures(input_row))
     rejected_reasons.extend(_provenance_failures(input_row, target, policy))
     decision = (
         evaluate_lockbox_review(LockboxReview(**normalized))

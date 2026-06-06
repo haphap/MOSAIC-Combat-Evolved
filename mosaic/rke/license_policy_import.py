@@ -8,7 +8,12 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from .manual_review_import import LICENSE_REVIEW_TEMPLATE_PATH, TARGET_ROW_HASH_FIELD, review_row_fingerprint
+from .manual_review_import import (
+    LICENSE_REVIEW_TEMPLATE_PATH,
+    MANUAL_REVIEW_IMPORT_FORBIDDEN_FIELDS,
+    TARGET_ROW_HASH_FIELD,
+    review_row_fingerprint,
+)
 from .phase_minus1 import load_jsonl
 
 
@@ -86,6 +91,10 @@ def _load_policy(path: Path) -> Mapping[str, Any]:
     if not isinstance(payload, Mapping):
         raise ValueError("source-license policy must be a JSON object")
     return payload
+
+
+def _forbidden_policy_fields(policy: Mapping[str, Any]) -> tuple[str, ...]:
+    return tuple(sorted(MANUAL_REVIEW_IMPORT_FORBIDDEN_FIELDS & set(policy)))
 
 
 def _policy_filters(policy: Mapping[str, Any]) -> SourceLicensePolicyFilters:
@@ -251,6 +260,8 @@ def build_source_license_policy_import(
     matched_rows_fingerprint = _matched_rows_fingerprint(matched)
 
     blockers: list[str] = []
+    for field in _forbidden_policy_fields(policy):
+        blockers.append(f"{field} forbidden in source-license policy import")
     if str(policy.get("target_review_path") or "").strip() != LICENSE_REVIEW_TEMPLATE_PATH:
         blockers.append(f"target_review_path must match {LICENSE_REVIEW_TEMPLATE_PATH}")
     if str(policy.get(MATCHED_ROWS_FINGERPRINT_FIELD) or "").strip() != matched_rows_fingerprint:

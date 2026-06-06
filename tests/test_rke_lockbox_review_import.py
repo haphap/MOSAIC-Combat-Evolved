@@ -245,3 +245,16 @@ def test_apply_lockbox_review_import_rejects_legacy_import_without_provenance(tm
     assert not report.accepted
     assert "target_review_path must match registry/lockbox/central_bank_lockbox_review.json" in report.rejected_reasons
     assert "target_row_hash does not match current lockbox review target" in report.rejected_reasons
+
+
+def test_apply_lockbox_review_import_rejects_forbidden_source_text_fields(tmp_path: Path):
+    _copy_registry(tmp_path)
+    import_path = tmp_path / "lockbox_review_with_source_text.json"
+    row = _passed_lockbox_review(tmp_path)
+    row["abstract"] = "long source text must stay out of lockbox review imports"
+    _write_json(import_path, row)
+
+    report = apply_lockbox_review_import(tmp_path, import_path)
+
+    assert not report.accepted
+    assert "abstract forbidden in lockbox review import" in report.rejected_reasons
