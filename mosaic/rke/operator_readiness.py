@@ -51,6 +51,7 @@ from .operator_handoff import (
 from .promotion_dry_run import PROMOTION_DRY_RUN_REPORT_PATH, write_promotion_dry_run_report
 from .promotion_gate import build_production_promotion_gate_report
 from .registry_manifest import validate_required_registry, validate_required_registry_content
+from .review_progress import MANUAL_REVIEW_PROGRESS_REPORT_PATH, write_manual_review_progress_report
 
 
 OPERATOR_READINESS_REPORT_PATH = "registry/handoffs/rke_operator_readiness_report.json"
@@ -262,6 +263,7 @@ def _manual_review_templates_have_provenance(root_path: Path) -> tuple[bool, str
 def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadinessReport:
     root_path = Path(root)
     write_source_license_review_workbook(root_path)
+    write_manual_review_progress_report(root_path)
     checks: list[OperatorReadinessCheck] = []
 
     missing, empty = validate_required_registry(root_path)
@@ -587,6 +589,7 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
         SOURCE_LICENSE_REVIEW_WORKBOOK_MD_PATH,
         SOURCE_LICENSE_POLICY_TEMPLATE_PATH,
         LICENSE_POLICY_IMPORT_REPORT_PATH,
+        MANUAL_REVIEW_PROGRESS_REPORT_PATH,
         LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH,
         LOCKBOX_REVIEW_IMPORT_REPORT_PATH,
         PROMOTION_DRY_RUN_REPORT_PATH,

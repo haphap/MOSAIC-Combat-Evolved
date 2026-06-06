@@ -35,6 +35,8 @@
 - Gold review workbook: registry/review_batches/gold_set_review_workbook.md
 - Next license review batch rows: 50
 - Source license review workbook: registry/review_batches/source_license_review_workbook.md
+- Manual review promotion dry-run ready: False
+- Manual review progress blockers: 6
 - Operator handoff ready: True
 - Operator handoff blockers: 5
 - Operator readiness accepted: True

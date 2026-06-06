@@ -1,0 +1,65 @@
+{
+  "blockers": [
+    "gold_set: 0/500 ready",
+    "gold_set: registry/review_batches/gold_set_full_reviewed.jsonl missing; run mosaic-rke prepare-gold-review --root . --full",
+    "source_license: 0/9812 ready",
+    "source_license: registry/review_batches/source_license_policy_reviewed.json missing; run mosaic-rke prepare-license-policy-review --root .",
+    "lockbox: 0/1 ready",
+    "lockbox: registry/review_batches/lockbox_reviewed.json missing; run mosaic-rke prepare-lockbox-review --root ."
+  ],
+  "gates": [
+    {
+      "apply_command": "mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl",
+      "blockers": [
+        "registry/review_batches/gold_set_full_reviewed.jsonl missing; run mosaic-rke prepare-gold-review --root . --full"
+      ],
+      "complete_rows": 0,
+      "dry_run_command": "mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl --dry-run",
+      "input_exists": false,
+      "input_path": "registry/review_batches/gold_set_full_reviewed.jsonl",
+      "input_rows": 0,
+      "pending_rows": 500,
+      "prepare_command": "mosaic-rke prepare-gold-review --root . --full",
+      "ready_for_promotion": false,
+      "review_kind": "gold_set",
+      "simulation_accepted": false,
+      "target_rows": 500
+    },
+    {
+      "apply_command": "mosaic-rke build-license-review-import --root . --policy registry/review_batches/source_license_policy_reviewed.json --output registry/review_batches/source_license_policy_import.jsonl && mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_policy_import.jsonl",
+      "blockers": [
+        "registry/review_batches/source_license_policy_reviewed.json missing; run mosaic-rke prepare-license-policy-review --root ."
+      ],
+      "complete_rows": 0,
+      "dry_run_command": "mosaic-rke build-license-review-import --root . --policy registry/review_batches/source_license_policy_reviewed.json --output registry/review_batches/source_license_policy_import.jsonl && mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_policy_import.jsonl --dry-run",
+      "input_exists": false,
+      "input_path": "registry/review_batches/source_license_policy_reviewed.json",
+      "input_rows": 0,
+      "pending_rows": 9812,
+      "prepare_command": "mosaic-rke prepare-license-policy-review --root .",
+      "ready_for_promotion": false,
+      "review_kind": "source_license",
+      "simulation_accepted": false,
+      "target_rows": 9812
+    },
+    {
+      "apply_command": "mosaic-rke apply-lockbox-review --root . --input registry/review_batches/lockbox_reviewed.json",
+      "blockers": [
+        "registry/review_batches/lockbox_reviewed.json missing; run mosaic-rke prepare-lockbox-review --root ."
+      ],
+      "complete_rows": 0,
+      "dry_run_command": "mosaic-rke apply-lockbox-review --root . --input registry/review_batches/lockbox_reviewed.json --dry-run",
+      "input_exists": false,
+      "input_path": "registry/review_batches/lockbox_reviewed.json",
+      "input_rows": 0,
+      "pending_rows": 1,
+      "prepare_command": "mosaic-rke prepare-lockbox-review --root .",
+      "ready_for_promotion": false,
+      "review_kind": "lockbox",
+      "simulation_accepted": false,
+      "target_rows": 1
+    }
+  ],
+  "ready_for_promotion_dry_run": false,
+  "report_id": "RKE-MANUAL-REVIEW-PROGRESS-20260606"
+}

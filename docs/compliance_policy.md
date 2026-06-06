@@ -119,6 +119,11 @@ the policy can be expanded. `filters` must be an object, and `source_type`,
 `current_license_status`, and `source_id_prefix` must be strings or arrays of
 strings.
 
+Run `mosaic-rke review-progress --root .` after editing the reviewed policy. It
+writes `registry/review_batches/manual_review_progress_report.json`, a read-only
+status report that shows whether the policy expands cleanly and how many
+source-license rows would become complete. It does not apply approvals.
+
 ## Allowed Uses
 
 When a review row approves derived claim storage, the source may be used for

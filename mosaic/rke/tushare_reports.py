@@ -823,6 +823,9 @@ def refresh_tushare_research_report_registry(
     outputs["manual_review_source_license_workbook"] = review_batches_result[
         "source_license_review_workbook"
     ]
+    outputs["manual_review_progress_report"] = operator_handoff_result[
+        "manual_review_progress_report"
+    ]
     outputs["claim_variable_vocabulary"] = str(claim_vocabulary_result["path"])
     outputs["gold_candidate_claims"] = gold_candidate_claims_result["candidate_claims"]
     outputs["gold_candidate_claims_summary"] = gold_candidate_claims_result["summary"]

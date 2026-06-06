@@ -267,6 +267,9 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
     review_batch_status_path = (
         root_path / "registry/review_batches/manual_review_batch_status.json"
     )
+    review_progress_path = (
+        root_path / "registry/review_batches/manual_review_progress_report.json"
+    )
     operator_handoff_path = root_path / "registry/handoffs/rke_operator_handoff.json"
     operator_readiness_path = (
         root_path / "registry/handoffs/rke_operator_readiness_report.json"
@@ -301,6 +304,11 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
     review_batch_status = (
         load_mapping("registry/review_batches/manual_review_batch_status.json")
         if review_batch_status_path.exists()
+        else {}
+    )
+    review_progress = (
+        load_mapping("registry/review_batches/manual_review_progress_report.json")
+        if review_progress_path.exists()
         else {}
     )
     operator_handoff = (
@@ -495,6 +503,18 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
         operator_handoff,
         "gates",
         label="registry/handoffs/rke_operator_handoff.json",
+        artifact_errors=artifact_errors,
+    )
+    review_progress_gates = _sequence_field(
+        review_progress,
+        "gates",
+        label="registry/review_batches/manual_review_progress_report.json",
+        artifact_errors=artifact_errors,
+    )
+    review_progress_blockers = _sequence_field(
+        review_progress,
+        "blockers",
+        label="registry/review_batches/manual_review_progress_report.json",
         artifact_errors=artifact_errors,
     )
     schema_records = _sequence_field(
@@ -763,6 +783,13 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
                     "dry_run_command"
                 ),
             },
+            "review_progress": {
+                "ready_for_promotion_dry_run": review_progress.get(
+                    "ready_for_promotion_dry_run"
+                ),
+                "gate_count": len(review_progress_gates),
+                "blocker_count": len(review_progress_blockers),
+            },
         },
         "operator_handoff": {
             "ready_for_operator_review": operator_handoff.get(
@@ -876,6 +903,8 @@ def render_dashboard_markdown(report: Mapping[str, Any]) -> str:
         f"- Gold review workbook: {dict(dict(report.get('manual_review_gates') or {}).get('review_batches') or {}).get('gold_set_review_workbook')}",
         f"- Next license review batch rows: {dict(dict(report.get('manual_review_gates') or {}).get('review_batches') or {}).get('source_license_exported_rows')}",
         f"- Source license review workbook: {dict(dict(report.get('manual_review_gates') or {}).get('review_batches') or {}).get('source_license_review_workbook')}",
+        f"- Manual review promotion dry-run ready: {dict(dict(report.get('manual_review_gates') or {}).get('review_progress') or {}).get('ready_for_promotion_dry_run')}",
+        f"- Manual review progress blockers: {dict(dict(report.get('manual_review_gates') or {}).get('review_progress') or {}).get('blocker_count')}",
         f"- Operator handoff ready: {dict(report.get('operator_handoff') or {}).get('ready_for_operator_review')}",
         f"- Operator handoff blockers: {dict(report.get('operator_handoff') or {}).get('remaining_blocker_count')}",
         f"- Operator readiness accepted: {dict(report.get('operator_readiness') or {}).get('accepted')}",

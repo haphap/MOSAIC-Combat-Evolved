@@ -39,6 +39,7 @@ LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH = (
     "registry/review_batches/lockbox_review_next_import_template.json"
 )
 LOCKBOX_REVIEWED_IMPORT_PATH = "registry/review_batches/lockbox_reviewed.json"
+MANUAL_REVIEW_PROGRESS_REPORT_PATH = "registry/review_batches/manual_review_progress_report.json"
 
 
 @dataclass(frozen=True)
@@ -349,6 +350,7 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
         source_license.import_template_path,
         SOURCE_LICENSE_REVIEW_WORKBOOK_MD_PATH,
         SOURCE_LICENSE_POLICY_TEMPLATE_PATH,
+        MANUAL_REVIEW_PROGRESS_REPORT_PATH,
         LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH,
         OPERATOR_HANDOFF_JSON_PATH,
         OPERATOR_HANDOFF_MD_PATH,
@@ -429,10 +431,13 @@ def render_operator_handoff_markdown(handoff: OperatorHandoff) -> str:
 
 
 def write_operator_handoff(root: str | Path = ".") -> dict[str, Any]:
+    from .review_progress import write_manual_review_progress_report
+
     root_path = Path(root)
     review_batches = write_manual_review_batches(root_path)
     policy_template = write_source_license_policy_template(root_path)
     license_workbook = write_source_license_review_workbook(root_path)
+    progress = write_manual_review_progress_report(root_path)
     lockbox_template = _write_lockbox_review_import_template_or_error(root_path)
     write_production_promotion_gate_report(root_path)
     handoff = build_operator_handoff(root_path)
@@ -456,4 +461,5 @@ def write_operator_handoff(root: str | Path = ".") -> dict[str, Any]:
         ],
         "source_license_review_workbook": str(license_workbook["path"]),
         "source_license_policy_template": str(policy_template["path"]),
+        "manual_review_progress_report": str(progress["path"]),
     }

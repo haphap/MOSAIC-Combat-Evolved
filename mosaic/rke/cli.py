@@ -75,7 +75,7 @@ from .registry_manifest import (
     validate_required_registry_content,
     write_registry_manifest,
 )
-from .review_progress import build_manual_review_progress
+from .review_progress import build_manual_review_progress, write_manual_review_progress_report
 from .review_gates import (
     summarize_gold_set_review,
     summarize_source_license_review,
@@ -751,8 +751,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         _print_json({"path": result["path"], **asdict(report)})
         return 0 if report.accepted else 2
     if args.command == "review-progress":
+        result = write_manual_review_progress_report(root)
         report = build_manual_review_progress(root)
-        _print_json(asdict(report))
+        _print_json({"path": result["path"], **asdict(report)})
         return 0 if report.ready_for_promotion_dry_run else 2
     if args.command == "fetch-tushare-reports":
         _load_env_file(args.env_file)

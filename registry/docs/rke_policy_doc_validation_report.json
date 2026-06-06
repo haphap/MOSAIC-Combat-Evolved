@@ -10,7 +10,7 @@
     },
     {
       "accepted": true,
-      "bytes": 9411,
+      "bytes": 9733,
       "missing_markers": [],
       "path": "docs/rke_phase_minus_1_plan.md"
     },
@@ -34,7 +34,7 @@
     },
     {
       "accepted": true,
-      "bytes": 5522,
+      "bytes": 5829,
       "missing_markers": [],
       "path": "docs/compliance_policy.md"
     }

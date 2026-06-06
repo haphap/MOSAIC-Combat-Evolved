@@ -28,6 +28,7 @@ from .review_gates import summarize_gold_set_review, summarize_source_license_re
 
 
 MANUAL_REVIEW_PROGRESS_REPORT_ID = "RKE-MANUAL-REVIEW-PROGRESS-20260606"
+MANUAL_REVIEW_PROGRESS_REPORT_PATH = "registry/review_batches/manual_review_progress_report.json"
 
 ReviewProgressKind = Literal["gold_set", "source_license", "lockbox"]
 
@@ -96,6 +97,15 @@ def _json_object_exists(path: Path) -> int:
 
 def _dedupe(items: Sequence[str]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(str(item) for item in items if str(item).strip()))
+
+
+def _write_json(path: Path, payload: Mapping[str, Any]) -> dict[str, Any]:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(_jsonable(payload), ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return {"path": str(path), "rows": 1}
 
 
 def _missing_gate(
@@ -284,3 +294,14 @@ def build_manual_review_progress(root: str | Path = ".") -> ManualReviewProgress
         gates=gates,
         blockers=_dedupe(blockers),
     )
+
+
+def write_manual_review_progress_report(root: str | Path = ".") -> dict[str, Any]:
+    root_path = Path(root)
+    report = build_manual_review_progress(root_path)
+    result = _write_json(root_path / MANUAL_REVIEW_PROGRESS_REPORT_PATH, asdict(report))
+    return {
+        "path": str(result["path"]),
+        "ready_for_promotion_dry_run": report.ready_for_promotion_dry_run,
+        "blocker_count": len(report.blockers),
+    }

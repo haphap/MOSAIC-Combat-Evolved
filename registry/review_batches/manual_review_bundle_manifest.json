@@ -1,15 +1,15 @@
 {
   "accepted": true,
-  "artifact_count": 18,
+  "artifact_count": 19,
   "artifacts": [
     {
-      "bytes": 6980,
+      "bytes": 7046,
       "exists": true,
       "format": "json",
       "path": "registry/handoffs/rke_operator_handoff.json",
       "role": "operator_handoff_json",
       "row_count": null,
-      "sha256": "sha256:394a95ff30a7f3a6365478054935b31feafb6fd71a79194f55d5b1bcec7b7de6"
+      "sha256": "sha256:7590c988369fb98ab8c76cee829f3fe963e9c4c2a5422ecde1cfc656c50896e8"
     },
     {
       "bytes": 4602,
@@ -28,6 +28,15 @@
       "role": "manual_review_batch_status",
       "row_count": null,
       "sha256": "sha256:e72acaf6347d5969dd0e46ecf6fb0538538914a70a2808eae8a37640dd4d4873"
+    },
+    {
+      "bytes": 3445,
+      "exists": true,
+      "format": "json",
+      "path": "registry/review_batches/manual_review_progress_report.json",
+      "role": "manual_review_progress_report",
+      "row_count": null,
+      "sha256": "sha256:e9d49f5fd2a88d381acf0e0e7a8f7d5817fcf27d6ebe0d1b51136c3cf88e8b8a"
     },
     {
       "bytes": 222962,

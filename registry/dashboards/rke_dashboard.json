@@ -106,6 +106,11 @@
       "source_license_pending_rows": 9812,
       "source_license_review_workbook": "registry/review_batches/source_license_review_workbook.md"
     },
+    "review_progress": {
+      "blocker_count": 6,
+      "gate_count": 3,
+      "ready_for_promotion_dry_run": false
+    },
     "source_license": {
       "approved_for_production_runtime": 0,
       "passed": false,
@@ -231,7 +236,7 @@
   },
   "source_text_redaction": {
     "accepted": true,
-    "checked_path_count": 410,
+    "checked_path_count": 411,
     "failure_count": 0,
     "min_match_chars": 80,
     "skipped_allowed_path_count": 6,

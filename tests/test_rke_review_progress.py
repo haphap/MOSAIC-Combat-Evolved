@@ -7,7 +7,7 @@ from pathlib import Path
 from mosaic.rke.cli import main
 from mosaic.rke.license_policy_import import build_source_license_policy_template
 from mosaic.rke.operator_handoff import build_lockbox_review_import_template
-from mosaic.rke.review_progress import build_manual_review_progress
+from mosaic.rke.review_progress import build_manual_review_progress, write_manual_review_progress_report
 
 
 def _copy_registry(dst_root: Path) -> None:
@@ -92,6 +92,7 @@ def test_review_progress_reports_missing_scratch_files(tmp_path: Path, capsys):
 
     assert not report.ready_for_promotion_dry_run
     assert code == 2
+    assert output["path"].endswith("registry/review_batches/manual_review_progress_report.json")
     assert output["ready_for_promotion_dry_run"] is False
     assert {gate["review_kind"] for gate in output["gates"]} == {
         "gold_set",
@@ -102,6 +103,20 @@ def test_review_progress_reports_missing_scratch_files(tmp_path: Path, capsys):
     assert any("prepare-gold-review" in blocker for blocker in output["blockers"])
     assert any("prepare-license-policy-review" in blocker for blocker in output["blockers"])
     assert any("prepare-lockbox-review" in blocker for blocker in output["blockers"])
+    assert (tmp_path / "registry/review_batches/manual_review_progress_report.json").exists()
+
+
+def test_write_manual_review_progress_report_outputs_registry_artifact(tmp_path: Path):
+    _copy_registry(tmp_path)
+
+    result = write_manual_review_progress_report(tmp_path)
+    payload = json.loads(Path(result["path"]).read_text(encoding="utf-8"))
+
+    assert result["ready_for_promotion_dry_run"] is False
+    assert result["blocker_count"] >= 3
+    assert payload["ready_for_promotion_dry_run"] is False
+    assert len(payload["gates"]) == 3
+    assert payload["gates"][0]["review_kind"] == "gold_set"
 
 
 def test_review_progress_accepts_complete_reviewed_scratch_files(tmp_path: Path, capsys):
@@ -124,6 +139,7 @@ def test_review_progress_accepts_complete_reviewed_scratch_files(tmp_path: Path,
     gates = {gate["review_kind"]: gate for gate in output["gates"]}
 
     assert code == 0
+    assert output["path"].endswith("registry/review_batches/manual_review_progress_report.json")
     assert output["ready_for_promotion_dry_run"] is True
     assert output["blockers"] == []
     assert gates["gold_set"]["complete_rows"] == 500
@@ -132,6 +148,7 @@ def test_review_progress_accepts_complete_reviewed_scratch_files(tmp_path: Path,
     assert gates["source_license"]["ready_for_promotion"] is True
     assert gates["lockbox"]["complete_rows"] == 1
     assert gates["lockbox"]["ready_for_promotion"] is True
+    assert (tmp_path / "registry/review_batches/manual_review_progress_report.json").exists()
 
 
 def test_review_progress_reports_partial_gold_scratch(tmp_path: Path):

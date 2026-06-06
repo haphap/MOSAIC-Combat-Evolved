@@ -113,6 +113,12 @@ mosaic-rke apply-gold-review --root . \
   --dry-run
 ```
 
+`mosaic-rke review-progress --root .` writes
+`registry/review_batches/manual_review_progress_report.json`. The report is
+read-only status evidence: it records whether each reviewed scratch file exists,
+how many rows are complete, and whether the simulated import is promotion-ready.
+It does not apply reviewer decisions.
+
 Import source license approvals:
 
 ```bash
