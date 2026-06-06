@@ -230,6 +230,24 @@ def test_rke_cli_claim_status_writes_summary(tmp_path: Path, capsys):
     assert (tmp_path / "registry/vocabularies/claim_variable_vocabulary.json").exists()
 
 
+def test_rke_cli_claim_status_reports_malformed_vocabulary_without_overwrite(
+    tmp_path: Path,
+    capsys,
+):
+    _copy_registry(tmp_path)
+    vocabulary_path = tmp_path / "registry/vocabularies/claim_variable_vocabulary.json"
+    vocabulary_path.write_text("{\n", encoding="utf-8")
+
+    code = main(("claim-status", "--root", str(tmp_path)))
+    output = json.loads(capsys.readouterr().out)
+    schema = next(record for record in output["records"] if record["check_id"] == "CLAIM-VOCABULARY-SCHEMA")
+
+    assert code == 2
+    assert output["accepted"] is False
+    assert any("claim_variable_vocabulary.json must contain valid JSON" in failure for failure in schema["failures"])
+    assert vocabulary_path.read_text(encoding="utf-8") == "{\n"
+
+
 def test_rke_cli_source_status_writes_summary(tmp_path: Path, capsys):
     _copy_registry(tmp_path)
 

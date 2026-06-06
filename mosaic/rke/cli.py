@@ -12,7 +12,6 @@ from .audit_viewer import build_audit_trace_view, write_audit_trace_view
 from .claim_vocabulary import (
     build_claim_variable_validation_report,
     write_claim_variable_validation_report,
-    write_claim_variable_vocabulary,
 )
 from .completion_auditor import write_completion_audit
 from .dashboard_reports import write_dashboard_reports
@@ -458,7 +457,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 0 if result.accepted else 2
     if args.command == "claim-status":
-        write_claim_variable_vocabulary(root)
         write_claim_variable_validation_report(root)
         result = build_claim_variable_validation_report(root)
         _print_json(
