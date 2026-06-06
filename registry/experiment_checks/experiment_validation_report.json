@@ -1,0 +1,90 @@
+{
+  "accepted": true,
+  "failure_count": 0,
+  "records": [
+    {
+      "accepted": true,
+      "artifact_paths": [
+        "registry/experiments/central_bank_validation_experiment_v2.json",
+        "registry/evaluation/pre_registration/central_bank_liquidity_preregistration.json",
+        "registry/evaluation/experiment_family_registry/central_bank_liquidity_family.json"
+      ],
+      "check_id": "EXPERIMENT-REGISTRATION-CONTRACT",
+      "details": {
+        "experiment_family_id": "FAM-CB-LIQUIDITY-2026Q2",
+        "experiment_id": "EXP-CB-20260605-0001",
+        "frozen_spec_hash": "sha256:80dccd96fde1f0670861d2e3007b01a573afd1daa5fb3482cc3bff4302768734",
+        "protocol_status": "frozen",
+        "selected_experiment_id": "EXP-CB-20260605-0001"
+      },
+      "failures": []
+    },
+    {
+      "accepted": true,
+      "artifact_paths": [
+        "registry/experiments/central_bank_validation_experiment_v2.json",
+        "registry/evaluation/experiment_family_registry/central_bank_liquidity_family.json",
+        "registry/evaluation/overlap_correction/effective_n_overlap_policy.json",
+        "registry/evaluation/cost_model/cost_model_v1.json",
+        "registry/evaluation/lockbox/lockbox_policy.json"
+      ],
+      "check_id": "EXPERIMENT-GOVERNANCE-POLICIES",
+      "details": {
+        "adjusted_q_value": 0.012,
+        "effective_n": 80,
+        "horizon_days": 20,
+        "lockbox_policy_status": "paper_trading_only",
+        "max_fdr": 0.1,
+        "min_net_alpha": 0.005,
+        "minimum_effective_n": 60,
+        "multiple_testing_method": "benjamini_hochberg_fdr",
+        "net_alpha_after_cost": 0.013,
+        "overlap_policy": "block_bootstrap",
+        "primary_metric": "net_alpha_after_cost_20d"
+      },
+      "failures": []
+    },
+    {
+      "accepted": true,
+      "artifact_paths": [
+        "registry/experiments/central_bank_validation_experiment_v2.json",
+        "registry/evaluation/statistical_significance/central_bank_after_cost_significance.json",
+        "registry/validation_hardening/central_bank_hardening_report.json"
+      ],
+      "check_id": "EXPERIMENT-VALIDATION-RESULTS",
+      "details": {
+        "ablation_accepted": true,
+        "confidence_interval_low": 0.00516,
+        "deflated_sharpe_ratio": 1.92,
+        "experiment_id": "EXP-CB-20260605-0001",
+        "primary_metric": "net_alpha_after_cost_20d",
+        "statistical_accepted": true
+      },
+      "failures": []
+    },
+    {
+      "accepted": true,
+      "artifact_paths": [
+        "registry/experiments/central_bank_validation_experiment_v2.json",
+        "registry/validation_hardening/central_bank_hardening_report.json"
+      ],
+      "check_id": "EXPERIMENT-REGIME-BUCKET-RULES",
+      "details": {
+        "allowed_gate_statuses": [
+          "auxiliary_evidence",
+          "insufficient_data",
+          "regime_specific_gate"
+        ],
+        "diagnostic_failure_count": 1,
+        "diagnostic_failures": [
+          "risk_off: bucket_effective_n below diagnostic threshold"
+        ],
+        "insufficient_bucket_count": 1,
+        "partial_pooling_required": true,
+        "regime_count": 3
+      },
+      "failures": []
+    }
+  ],
+  "report_id": "RKE-EXPERIMENT-VALIDATION-REPORT-20260606"
+}

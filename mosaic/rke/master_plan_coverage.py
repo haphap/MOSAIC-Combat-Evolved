@@ -18,6 +18,9 @@ from .completion_acceptance import (
 MASTER_PLAN_COVERAGE_REPORT_PATH = (
     "registry/audits/rke_master_plan_coverage_report.json"
 )
+EXPERIMENT_VALIDATION_REPORT_PATH = (
+    "registry/experiment_checks/experiment_validation_report.json"
+)
 MVP_DELIVERABLES_SECTION = "16.3"
 MVP_EXIT_CRITERIA_SECTION = "16.4"
 
@@ -503,7 +506,7 @@ def _mvp_deliverable_records(
                 "registry/parameter_priors/central_bank_parameter_priors.jsonl",
             ),
         ),
-        _record(
+        _experiment_validation_checker_record(
             root_path,
             section_id="MVP-D6",
             requirement="One pre-registered validation experiment family.",
@@ -511,6 +514,7 @@ def _mvp_deliverable_records(
                 "registry/evaluation/experiment_family_registry/central_bank_liquidity_family.json",
                 "registry/evaluation/pre_registration/central_bank_liquidity_preregistration.json",
                 "registry/experiments/central_bank_validation_experiment_v2.json",
+                EXPERIMENT_VALIDATION_REPORT_PATH,
             ),
         ),
         _completion_record(
@@ -523,6 +527,7 @@ def _mvp_deliverable_records(
                 "registry/experiments/central_bank_validation_experiment_v2.json",
                 "registry/validation_hardening/central_bank_hardening_report.json",
                 "registry/evaluation/statistical_significance/central_bank_after_cost_significance.json",
+                EXPERIMENT_VALIDATION_REPORT_PATH,
             ),
             completion_error=completion_error,
         ),
@@ -673,6 +678,7 @@ def _pre_registered_experiment_record(root_path: Path) -> MasterPlanCoverageReco
         evidence_paths=(
             "registry/evaluation/pre_registration/central_bank_liquidity_preregistration.json",
             relative,
+            EXPERIMENT_VALIDATION_REPORT_PATH,
         ),
         passed=passed,
         blocker=blocker,
@@ -743,6 +749,37 @@ def _rule_pack_checker_record(
     )
 
 
+def _experiment_validation_checker_record(
+    root_path: Path,
+    *,
+    section_id: str,
+    requirement: str,
+    evidence_paths: tuple[str, ...],
+) -> MasterPlanCoverageRecord:
+    failures: list[str] = []
+    report, error = _load_mapping_evidence(
+        root_path,
+        EXPERIMENT_VALIDATION_REPORT_PATH,
+        "experiment validation report",
+    )
+    if error:
+        failures.append(error)
+    elif report is not None:
+        records = report.get("records") or ()
+        if report.get("accepted") is not True:
+            failures.append("experiment validation report accepted must be true")
+        if not isinstance(records, list | tuple) or len(records) < 4:
+            failures.append("experiment validation report must include all four checks")
+    return _content_record(
+        root_path,
+        section_id=section_id,
+        requirement=requirement,
+        evidence_paths=evidence_paths,
+        passed=not failures,
+        blocker="; ".join(failures),
+    )
+
+
 def _effective_n_record(root_path: Path) -> MasterPlanCoverageRecord:
     relative = "registry/evaluation/statistical_significance/central_bank_after_cost_significance.json"
     report, error = _load_mapping_evidence(
@@ -762,7 +799,7 @@ def _effective_n_record(root_path: Path) -> MasterPlanCoverageRecord:
         root_path,
         section_id="MVP-E04",
         requirement="effective_n >= threshold.",
-        evidence_paths=(relative,),
+        evidence_paths=(relative, EXPERIMENT_VALIDATION_REPORT_PATH),
         passed=passed,
         blocker=blocker,
     )
@@ -789,6 +826,7 @@ def _overlap_correction_record(root_path: Path) -> MasterPlanCoverageRecord:
         evidence_paths=(
             relative,
             "registry/evaluation/overlap_correction/effective_n_overlap_policy.json",
+            EXPERIMENT_VALIDATION_REPORT_PATH,
         ),
         passed=passed,
         blocker=blocker,
@@ -818,6 +856,7 @@ def _multiple_testing_record(root_path: Path) -> MasterPlanCoverageRecord:
         evidence_paths=(
             relative,
             "registry/evaluation/experiment_family_registry/central_bank_liquidity_family.json",
+            EXPERIMENT_VALIDATION_REPORT_PATH,
         ),
         passed=passed,
         blocker=blocker,
@@ -846,7 +885,7 @@ def _after_cost_significance_record(root_path: Path) -> MasterPlanCoverageRecord
         root_path,
         section_id="MVP-E07",
         requirement="After-cost metric is positive and confidence interval excludes zero.",
-        evidence_paths=(relative,),
+        evidence_paths=(relative, EXPERIMENT_VALIDATION_REPORT_PATH),
         passed=passed,
         blocker=blocker,
     )
@@ -865,6 +904,7 @@ def _walk_forward_record(root_path: Path) -> MasterPlanCoverageRecord:
         evidence_paths=(
             "registry/experiments/central_bank_validation_experiment_v2.json",
             relative,
+            EXPERIMENT_VALIDATION_REPORT_PATH,
         ),
         passed=passed,
         blocker=blocker,
@@ -895,7 +935,11 @@ def _lockbox_no_misuse_record(root_path: Path) -> MasterPlanCoverageRecord:
         root_path,
         section_id="MVP-E09",
         requirement="No lockbox misuse.",
-        evidence_paths=(policy_relative, review_relative),
+        evidence_paths=(
+            policy_relative,
+            review_relative,
+            EXPERIMENT_VALIDATION_REPORT_PATH,
+        ),
         passed=passed,
         blocker=blocker,
     )
@@ -952,6 +996,7 @@ def build_master_plan_coverage_report(
                     "registry/evaluation/cost_model/cost_model_v1.json",
                     "registry/evaluation/lockbox/lockbox_policy.json",
                     "registry/evaluation/overlap_correction/effective_n_overlap_policy.json",
+                    EXPERIMENT_VALIDATION_REPORT_PATH,
                     "registry/promotion/rke_promotion_dry_run_report.json",
                     "registry/promotion/rke_production_promotion_gate.json",
                     "registry/lockbox/central_bank_lockbox_review_import_report.json",
@@ -988,6 +1033,7 @@ def build_master_plan_coverage_report(
                     "registry/experiments/central_bank_validation_experiment_v2.json",
                     "registry/validation_hardening/central_bank_hardening_report.json",
                     "registry/evaluation/statistical_significance/central_bank_after_cost_significance.json",
+                    EXPERIMENT_VALIDATION_REPORT_PATH,
                 ),
                 completion_error=completion_error,
             ),

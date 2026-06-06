@@ -391,6 +391,21 @@ def test_rke_cli_claim_status_writes_summary(tmp_path: Path, capsys):
     assert (tmp_path / "registry/vocabularies/claim_variable_vocabulary.json").exists()
 
 
+def test_rke_cli_experiment_status_writes_summary(tmp_path: Path, capsys):
+    _copy_registry(tmp_path)
+
+    code = main(("experiment-status", "--root", str(tmp_path)))
+    output = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert output["accepted"] is True
+    assert output["failure_count"] == 0
+    assert len(output["records"]) == 4
+    assert (
+        tmp_path / "registry/experiment_checks/experiment_validation_report.json"
+    ).exists()
+
+
 def test_rke_cli_claim_status_reports_malformed_vocabulary_without_overwrite(
     tmp_path: Path,
     capsys,

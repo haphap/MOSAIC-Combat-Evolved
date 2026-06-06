@@ -86,6 +86,11 @@ def test_dashboard_report_summarizes_completion_and_monitoring():
     assert report["validation_hardening"]["horizon_metric_failures"] == []
     assert report["validation_hardening"]["statistical_significance_accepted"] is True
     assert report["validation_hardening"]["after_cost_ci_low"] > 0
+    assert report["experiment_validation"]["accepted"] is True
+    assert report["experiment_validation"]["failure_count"] == 0
+    assert report["experiment_validation"]["record_count"] == 4
+    assert report["experiment_validation"]["diagnostic_failure_count"] == 1
+    assert report["experiment_validation"]["insufficient_bucket_count"] == 1
     assert report["source_validation"]["accepted_for_sandbox"] is True
     assert report["source_validation"]["accepted_for_production"] is False
     assert report["source_validation"]["production_blocker_count"] == source_row_count
@@ -265,6 +270,7 @@ def test_dashboard_markdown_renders_blockers():
     assert "Promotion production allowed: False" in markdown
     assert "Validation ablations accepted: True" in markdown
     assert "Validation statistical significance accepted: True" in markdown
+    assert "Experiment validation failures: 0" in markdown
     assert "Source validation sandbox accepted: True" in markdown
     assert f"Source validation production blockers: {source_row_count}" in markdown
     assert "Production monitor diagnostics accepted: True" in markdown

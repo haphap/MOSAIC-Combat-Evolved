@@ -215,6 +215,14 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
         if statistical_path.exists()
         else {}
     )
+    experiment_validation_path = (
+        root_path / "registry/experiment_checks/experiment_validation_report.json"
+    )
+    experiment_validation = (
+        load_mapping("registry/experiment_checks/experiment_validation_report.json")
+        if experiment_validation_path.exists()
+        else {}
+    )
     sector_rule_path = (
         root_path
         / "registry/rule_packs/sector.semiconductor.policy_substitution.v1.json"
@@ -566,6 +574,26 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
         label="registry/rule_checks/rule_pack_validation_report.json",
         artifact_errors=artifact_errors,
     )
+    experiment_validation_records = _mapping_sequence_field(
+        experiment_validation,
+        "records",
+        label="registry/experiment_checks/experiment_validation_report.json",
+        artifact_errors=artifact_errors,
+    )
+    experiment_regime_record = next(
+        (
+            record
+            for record in experiment_validation_records
+            if record.get("check_id") == "EXPERIMENT-REGIME-BUCKET-RULES"
+        ),
+        {},
+    )
+    experiment_regime_details = _mapping_field(
+        experiment_regime_record,
+        "details",
+        label="registry/experiment_checks/experiment_validation_report.json.records.EXPERIMENT-REGIME-BUCKET-RULES",
+        artifact_errors=artifact_errors,
+    )
     prompt_records = _sequence_field(
         prompt_validation,
         "records",
@@ -755,6 +783,17 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
             "statistical_significance_accepted": statistical.get("accepted"),
             "after_cost_ci_low": confidence_interval.get("low"),
             "deflated_sharpe_ratio": statistical.get("deflated_sharpe_ratio"),
+        },
+        "experiment_validation": {
+            "accepted": experiment_validation.get("accepted"),
+            "failure_count": experiment_validation.get("failure_count"),
+            "record_count": len(experiment_validation_records),
+            "diagnostic_failure_count": experiment_regime_details.get(
+                "diagnostic_failure_count"
+            ),
+            "insufficient_bucket_count": experiment_regime_details.get(
+                "insufficient_bucket_count"
+            ),
         },
         "source_validation": {
             "accepted_for_sandbox": source_validation.get("accepted_for_sandbox"),
@@ -998,6 +1037,7 @@ def render_dashboard_markdown(report: Mapping[str, Any]) -> str:
         f"- Promotion production allowed: {dict(report.get('promotion_gate') or {}).get('production_allowed')}",
         f"- Validation ablations accepted: {dict(report.get('validation_hardening') or {}).get('ablation_accepted')}",
         f"- Validation statistical significance accepted: {dict(report.get('validation_hardening') or {}).get('statistical_significance_accepted')}",
+        f"- Experiment validation failures: {dict(report.get('experiment_validation') or {}).get('failure_count')}",
         f"- Source validation sandbox accepted: {dict(report.get('source_validation') or {}).get('accepted_for_sandbox')}",
         f"- Source validation production blockers: {dict(report.get('source_validation') or {}).get('production_blocker_count')}",
         f"- Source text redaction accepted: {dict(report.get('source_text_redaction') or {}).get('accepted')}",

@@ -44,6 +44,13 @@
     "primary_metric": "net_alpha_after_cost_20d",
     "selected_experiment_id": "EXP-CB-20260605-0001"
   },
+  "experiment_validation": {
+    "accepted": true,
+    "diagnostic_failure_count": 1,
+    "failure_count": 0,
+    "insufficient_bucket_count": 1,
+    "record_count": 4
+  },
   "layer_integration": {
     "decision_agent": "decision.cio",
     "decision_cash_floor": 0.05,

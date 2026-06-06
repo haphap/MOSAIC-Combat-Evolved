@@ -16,6 +16,7 @@ from .claim_vocabulary import (
 from .completion_auditor import write_completion_audit
 from .compliance import write_source_license_review_template
 from .dashboard_reports import write_dashboard_reports
+from .experiment_validation import write_experiment_validation_report
 from .gold_candidate_claims import write_gold_candidate_claims
 from .gold_review_packet import write_gold_review_packet
 from .license_review_packet import write_license_review_packet
@@ -140,6 +141,7 @@ def run_full_rke_refresh(
     rule_pack_validation = write_rule_pack_validation_report(root_path)
     validation_hardening = write_validation_hardening_report(root_path)
     statistical_significance = write_statistical_significance_report(root_path)
+    experiment_validation = write_experiment_validation_report(root_path)
     monitoring_diagnostics = write_production_monitor_diagnostics(root_path)
     prompt_asset_summary = write_prompt_asset_validation_report(root_path)
     policy_doc_summary = write_policy_doc_validation_report(root_path)
@@ -189,6 +191,7 @@ def run_full_rke_refresh(
     outputs["rule_pack_validation_report"] = str(rule_pack_validation["path"])
     outputs["validation_hardening_report"] = str(validation_hardening["path"])
     outputs["statistical_significance_report"] = str(statistical_significance["path"])
+    outputs["experiment_validation_report"] = str(experiment_validation["path"])
     outputs["production_monitor_diagnostics"] = str(monitoring_diagnostics["path"])
     outputs["prompt_asset_validation_report"] = str(prompt_asset_summary["path"])
     outputs["policy_doc_validation_report"] = str(policy_doc_summary["path"])

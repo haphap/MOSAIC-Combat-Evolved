@@ -40,6 +40,7 @@ REQUIRED_REGISTRY_FILES = (
     "registry/evaluation/pre_registration/central_bank_liquidity_preregistration.json",
     "registry/evaluation/statistical_significance/central_bank_after_cost_significance.json",
     "registry/experiments/central_bank_validation_experiment_v2.json",
+    "registry/experiment_checks/experiment_validation_report.json",
     "registry/gold_sets/tushare_research_reports.review_summary.json",
     "registry/gold_sets/tushare_research_reports.review_packet.json",
     "registry/gold_sets/tushare_research_reports.review_packet.md",

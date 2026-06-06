@@ -18,6 +18,10 @@ from .claim_grounding_validation import (
 )
 from .completion_auditor import write_completion_audit
 from .dashboard_reports import write_dashboard_reports
+from .experiment_validation import (
+    build_experiment_validation_report,
+    write_experiment_validation_report,
+)
 from .gold_candidate_claims import (
     write_gold_candidate_claims,
 )
@@ -290,6 +294,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Write and print the validation-hardening and statistical-significance reports.",
     )
     validation_status.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
+
+    experiment_status = subparsers.add_parser(
+        "experiment-status",
+        help="Write and print the hardened experiment-governance validation report.",
+    )
+    experiment_status.add_argument(
         "--root", default=".", help="Repository root. Defaults to current directory."
     )
 
@@ -742,23 +754,44 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "validation-status":
         write_validation_hardening_report(root)
         write_statistical_significance_report(root)
+        write_experiment_validation_report(root)
         hardening = build_central_bank_validation_hardening_report()
         significance = build_central_bank_statistical_significance_report()
+        experiment_validation = build_experiment_validation_report(root)
         accepted = (
             not hardening["horizon_metric_failures"]
             and not hardening["precision_failures"]
             and hardening["ablation_checks"]["accepted"] is True
             and significance.accepted
+            and experiment_validation.accepted
         )
         _print_json(
             {
                 "accepted": accepted,
                 "experiment_id": significance.experiment_id,
+                "experiment_validation": {
+                    "accepted": experiment_validation.accepted,
+                    "failure_count": experiment_validation.failure_count,
+                    "records": [
+                        asdict(record) for record in experiment_validation.records
+                    ],
+                },
                 "statistical_significance": asdict(significance),
                 "validation_hardening": hardening,
             }
         )
         return 0 if accepted else 2
+    if args.command == "experiment-status":
+        write_experiment_validation_report(root)
+        result = build_experiment_validation_report(root)
+        _print_json(
+            {
+                "accepted": result.accepted,
+                "failure_count": result.failure_count,
+                "records": [asdict(record) for record in result.records],
+            }
+        )
+        return 0 if result.accepted else 2
     if args.command == "monitoring-diagnostics":
         write_production_monitor_diagnostics(root)
         result = build_production_monitor_diagnostics()

@@ -25,6 +25,7 @@
 - Promotion production allowed: False
 - Validation ablations accepted: True
 - Validation statistical significance accepted: True
+- Experiment validation failures: 0
 - Source validation sandbox accepted: True
 - Source validation production blockers: 9812
 - Source text redaction accepted: True

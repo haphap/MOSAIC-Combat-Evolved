@@ -176,7 +176,8 @@
       "evidence_paths": [
         "registry/evaluation/experiment_family_registry/central_bank_liquidity_family.json",
         "registry/evaluation/pre_registration/central_bank_liquidity_preregistration.json",
-        "registry/experiments/central_bank_validation_experiment_v2.json"
+        "registry/experiments/central_bank_validation_experiment_v2.json",
+        "registry/experiment_checks/experiment_validation_report.json"
       ],
       "requirement": "One pre-registered validation experiment family.",
       "section_id": "MVP-D6",
@@ -187,7 +188,8 @@
       "evidence_paths": [
         "registry/experiments/central_bank_validation_experiment_v2.json",
         "registry/validation_hardening/central_bank_hardening_report.json",
-        "registry/evaluation/statistical_significance/central_bank_after_cost_significance.json"
+        "registry/evaluation/statistical_significance/central_bank_after_cost_significance.json",
+        "registry/experiment_checks/experiment_validation_report.json"
       ],
       "requirement": "Effective N / overlap / multiple testing / cost-aware report.",
       "section_id": "MVP-D7",
@@ -260,7 +262,8 @@
       "blocker": "",
       "evidence_paths": [
         "registry/evaluation/pre_registration/central_bank_liquidity_preregistration.json",
-        "registry/experiments/central_bank_validation_experiment_v2.json"
+        "registry/experiments/central_bank_validation_experiment_v2.json",
+        "registry/experiment_checks/experiment_validation_report.json"
       ],
       "requirement": "Validation experiment is pre-registered.",
       "section_id": "MVP-E03",
@@ -269,7 +272,8 @@
     {
       "blocker": "",
       "evidence_paths": [
-        "registry/evaluation/statistical_significance/central_bank_after_cost_significance.json"
+        "registry/evaluation/statistical_significance/central_bank_after_cost_significance.json",
+        "registry/experiment_checks/experiment_validation_report.json"
       ],
       "requirement": "effective_n >= threshold.",
       "section_id": "MVP-E04",
@@ -279,7 +283,8 @@
       "blocker": "",
       "evidence_paths": [
         "registry/experiments/central_bank_validation_experiment_v2.json",
-        "registry/evaluation/overlap_correction/effective_n_overlap_policy.json"
+        "registry/evaluation/overlap_correction/effective_n_overlap_policy.json",
+        "registry/experiment_checks/experiment_validation_report.json"
       ],
       "requirement": "Overlapping windows are corrected.",
       "section_id": "MVP-E05",
@@ -289,7 +294,8 @@
       "blocker": "",
       "evidence_paths": [
         "registry/experiments/central_bank_validation_experiment_v2.json",
-        "registry/evaluation/experiment_family_registry/central_bank_liquidity_family.json"
+        "registry/evaluation/experiment_family_registry/central_bank_liquidity_family.json",
+        "registry/experiment_checks/experiment_validation_report.json"
       ],
       "requirement": "Multiple testing is corrected.",
       "section_id": "MVP-E06",
@@ -298,7 +304,8 @@
     {
       "blocker": "",
       "evidence_paths": [
-        "registry/evaluation/statistical_significance/central_bank_after_cost_significance.json"
+        "registry/evaluation/statistical_significance/central_bank_after_cost_significance.json",
+        "registry/experiment_checks/experiment_validation_report.json"
       ],
       "requirement": "After-cost metric is positive and confidence interval excludes zero.",
       "section_id": "MVP-E07",
@@ -308,7 +315,8 @@
       "blocker": "",
       "evidence_paths": [
         "registry/experiments/central_bank_validation_experiment_v2.json",
-        "registry/patches/central_bank_paper_trading_patch.json"
+        "registry/patches/central_bank_paper_trading_patch.json",
+        "registry/experiment_checks/experiment_validation_report.json"
       ],
       "requirement": "Walk-forward validation passed.",
       "section_id": "MVP-E08",
@@ -318,7 +326,8 @@
       "blocker": "",
       "evidence_paths": [
         "registry/evaluation/lockbox/lockbox_policy.json",
-        "registry/lockbox/central_bank_lockbox_review.json"
+        "registry/lockbox/central_bank_lockbox_review.json",
+        "registry/experiment_checks/experiment_validation_report.json"
       ],
       "requirement": "No lockbox misuse.",
       "section_id": "MVP-E09",
@@ -408,6 +417,7 @@
         "registry/evaluation/cost_model/cost_model_v1.json",
         "registry/evaluation/lockbox/lockbox_policy.json",
         "registry/evaluation/overlap_correction/effective_n_overlap_policy.json",
+        "registry/experiment_checks/experiment_validation_report.json",
         "registry/promotion/rke_promotion_dry_run_report.json",
         "registry/promotion/rke_production_promotion_gate.json",
         "registry/lockbox/central_bank_lockbox_review_import_report.json"
@@ -443,7 +453,8 @@
         "registry/parameter_priors/central_bank_parameter_priors.jsonl",
         "registry/experiments/central_bank_validation_experiment_v2.json",
         "registry/validation_hardening/central_bank_hardening_report.json",
-        "registry/evaluation/statistical_significance/central_bank_after_cost_significance.json"
+        "registry/evaluation/statistical_significance/central_bank_after_cost_significance.json",
+        "registry/experiment_checks/experiment_validation_report.json"
       ],
       "requirement": "Central-bank validation MVP includes hardened validation, effective N, FDR, costs, CI, and DSR.",
       "section_id": "Phase-2",

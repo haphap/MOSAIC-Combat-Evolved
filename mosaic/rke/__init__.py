@@ -79,6 +79,12 @@ from .experiment_governance import (
     validate_experiment_governance_bundle,
     write_experiment_governance_registry,
 )
+from .experiment_validation import (
+    ExperimentValidationRecord,
+    ExperimentValidationReport,
+    build_experiment_validation_report,
+    write_experiment_validation_report,
+)
 from .p0 import (
     AggregationResult,
     ClaimCheckResult,
@@ -487,6 +493,10 @@ __all__ = [
     "build_experiment_governance_bundle",
     "validate_experiment_governance_bundle",
     "write_experiment_governance_registry",
+    "ExperimentValidationRecord",
+    "ExperimentValidationReport",
+    "build_experiment_validation_report",
+    "write_experiment_validation_report",
     "AggregationResult",
     "ClaimCheckResult",
     "ClaimExtractionGoldSet",
