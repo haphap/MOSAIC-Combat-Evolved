@@ -144,6 +144,26 @@ def test_operator_readiness_detects_missing_manual_template_provenance(tmp_path:
     assert "provenance" in provenance.blocker
 
 
+def test_operator_readiness_reports_malformed_import_template_rows(tmp_path: Path):
+    _copy_registry(tmp_path)
+    gold_import = tmp_path / "registry/review_batches/gold_set_next_import_template.jsonl"
+    expected_row = len(gold_import.read_text(encoding="utf-8").splitlines()) + 1
+    _append_jsonl_value(gold_import, "not an object")
+
+    report = build_operator_readiness_report(tmp_path)
+    sparse = next(check for check in report.checks if check.check_id == "manual_import_templates_are_sparse")
+    provenance = next(
+        check for check in report.checks if check.check_id == "manual_import_templates_have_provenance"
+    )
+
+    assert not report.accepted
+    assert not sparse.passed
+    assert not provenance.passed
+    assert f"gold_set_next_import_template.jsonl row {expected_row} must be object" in sparse.evidence
+    assert "manual import template row must be object" in sparse.blocker
+    assert "manual import template row must be object" in provenance.blocker
+
+
 def test_operator_readiness_reports_malformed_manual_review_rows(tmp_path: Path):
     _copy_registry(tmp_path)
     _append_jsonl_value(

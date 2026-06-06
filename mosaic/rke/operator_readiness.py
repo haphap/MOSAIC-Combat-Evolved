@@ -110,6 +110,13 @@ def _template_row_count(root_path: Path, relative_path: str) -> int:
     return len(load_jsonl(path)) if path.exists() else 0
 
 
+def _jsonl_row_object_failure(relative_path: str, index: int) -> tuple[str, str]:
+    return (
+        f"{relative_path} row {index} must be object",
+        "manual import template row must be object",
+    )
+
+
 def _import_templates_are_sparse(root_path: Path) -> tuple[bool, str, str]:
     jsonl_templates = (
         GOLD_BATCH_IMPORT_TEMPLATE_PATH,
@@ -121,6 +128,8 @@ def _import_templates_are_sparse(root_path: Path) -> tuple[bool, str, str]:
         if not path.exists():
             return False, f"{relative_path} missing", f"{relative_path} missing"
         for index, row in enumerate(load_jsonl(path), 1):
+            if not isinstance(row, Mapping):
+                return (False, *_jsonl_row_object_failure(relative_path, index))
             leaked = manual_review_forbidden_field_paths(row)
             if leaked:
                 return (
@@ -175,6 +184,8 @@ def _manual_review_templates_have_provenance(root_path: Path) -> tuple[bool, str
         if not rows:
             return False, f"{relative_path} has 0 rows", "manual import template has no provenance rows"
         for index, row in enumerate(rows, 1):
+            if not isinstance(row, Mapping):
+                return (False, *_jsonl_row_object_failure(relative_path, index))
             missing = [field for field in required_fields if not str(row.get(field) or "").strip()]
             if missing:
                 return (
