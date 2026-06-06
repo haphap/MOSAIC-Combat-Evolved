@@ -108,6 +108,7 @@ class GoldCandidateClaimSummary:
     risk_flag_counts: Mapping[str, int]
     review_rows_with_candidate_fields: int
     manual_fields_preserved: bool
+    blockers: Sequence[str]
 
 
 def _jsonable(value: Any) -> Any:
@@ -133,6 +134,21 @@ def _write_jsonl(path: Path, rows: Sequence[Mapping[str, Any]]) -> dict[str, Any
         encoding="utf-8",
     )
     return {"path": str(path), "rows": len(rows)}
+
+
+def _split_mapping_rows(rows: Sequence[Any]) -> tuple[list[Mapping[str, Any]], tuple[int, ...]]:
+    valid_rows: list[Mapping[str, Any]] = []
+    invalid_row_numbers: list[int] = []
+    for index, row in enumerate(rows, 1):
+        if isinstance(row, Mapping):
+            valid_rows.append(row)
+        else:
+            invalid_row_numbers.append(index)
+    return valid_rows, tuple(invalid_row_numbers)
+
+
+def _malformed_row_blocker(label: str, row_numbers: Sequence[int]) -> str:
+    return f"{label} row must be object at row(s): " + ", ".join(str(row_number) for row_number in row_numbers)
 
 
 def _short_hash(text: str) -> str:
@@ -294,10 +310,14 @@ def _candidate_claim_for_review_row(
     )
 
 
-def build_gold_candidate_claims(root: str | Path = ".") -> tuple[GoldCandidateClaim, ...]:
+def _build_gold_candidate_claims_with_blockers(
+    root: str | Path = ".",
+) -> tuple[tuple[GoldCandidateClaim, ...], tuple[str, ...]]:
     root_path = Path(root)
-    candidates = load_jsonl(root_path / GOLD_CANDIDATES_PATH)
-    review_rows = load_jsonl(root_path / GOLD_REVIEW_TEMPLATE_PATH)
+    raw_candidates = load_jsonl(root_path / GOLD_CANDIDATES_PATH)
+    raw_review_rows = load_jsonl(root_path / GOLD_REVIEW_TEMPLATE_PATH)
+    candidates, invalid_candidate_rows = _split_mapping_rows(raw_candidates)
+    review_rows, invalid_review_rows = _split_mapping_rows(raw_review_rows)
     review_by_source = _review_rows_by_source(review_rows)
     vocabulary = load_claim_variable_vocabulary(root_path)
     known_variable_ids = {variable.variable_id for variable in vocabulary.variables}
@@ -315,7 +335,17 @@ def build_gold_candidate_claims(root: str | Path = ".") -> tuple[GoldCandidateCl
                     known_variable_ids,
                 )
             )
-    return tuple(claims)
+    blockers: list[str] = []
+    if invalid_candidate_rows:
+        blockers.append(_malformed_row_blocker("gold candidate", invalid_candidate_rows))
+    if invalid_review_rows:
+        blockers.append(_malformed_row_blocker("gold-set review", invalid_review_rows))
+    return tuple(claims), tuple(blockers)
+
+
+def build_gold_candidate_claims(root: str | Path = ".") -> tuple[GoldCandidateClaim, ...]:
+    claims, _ = _build_gold_candidate_claims_with_blockers(root)
+    return claims
 
 
 def merge_candidate_claims_into_review_template(
@@ -325,7 +355,8 @@ def merge_candidate_claims_into_review_template(
 ) -> dict[str, Any]:
     root_path = Path(root)
     review_path = root_path / GOLD_REVIEW_TEMPLATE_PATH
-    rows = load_jsonl(review_path)
+    raw_rows = load_jsonl(review_path)
+    rows, invalid_review_rows = _split_mapping_rows(raw_rows)
     claims = candidate_claims or build_gold_candidate_claims(root_path)
     by_claim_id = {claim.claim_id: claim for claim in claims}
     manual_before = {
@@ -356,16 +387,24 @@ def merge_candidate_claims_into_review_template(
                 }
             )
         merged.append(out)
-    _write_jsonl(review_path, merged)
+    blockers = (
+        (_malformed_row_blocker("gold-set review", invalid_review_rows),)
+        if invalid_review_rows
+        else ()
+    )
+    if not blockers:
+        _write_jsonl(review_path, merged)
     manual_after = {
         str(row.get("claim_id") or ""): {field: row.get(field) for field in MANUAL_REVIEW_FIELDS}
         for row in merged
     }
     return {
         "path": str(review_path),
-        "rows": len(merged),
+        "rows": len(raw_rows),
         "rows_with_candidate_fields": sum("proposed_claim_text" in row for row in merged),
         "manual_fields_preserved": manual_before == manual_after,
+        "applied": not blockers,
+        "blockers": blockers,
     }
 
 
@@ -374,6 +413,7 @@ def build_gold_candidate_claim_summary(
     *,
     candidate_claims: Sequence[GoldCandidateClaim] | None = None,
     review_merge_result: Mapping[str, Any] | None = None,
+    blockers: Sequence[str] = (),
 ) -> GoldCandidateClaimSummary:
     claims = tuple(candidate_claims or build_gold_candidate_claims(root))
     risk_counts = Counter(flag for claim in claims for flag in claim.review_risk_flags)
@@ -395,18 +435,21 @@ def build_gold_candidate_claim_summary(
         risk_flag_counts=dict(risk_counts),
         review_rows_with_candidate_fields=int((review_merge_result or {}).get("rows_with_candidate_fields") or 0),
         manual_fields_preserved=bool((review_merge_result or {}).get("manual_fields_preserved")),
+        blockers=tuple(blockers),
     )
 
 
 def write_gold_candidate_claims(root: str | Path = ".") -> dict[str, Any]:
     root_path = Path(root)
-    claims = build_gold_candidate_claims(root_path)
+    claims, build_blockers = _build_gold_candidate_claims_with_blockers(root_path)
     claims_result = _write_jsonl(root_path / GOLD_CANDIDATE_CLAIMS_PATH, [asdict(claim) for claim in claims])
     merge_result = merge_candidate_claims_into_review_template(root_path, candidate_claims=claims)
+    blockers = tuple(dict.fromkeys((*build_blockers, *(merge_result.get("blockers") or ()))))
     summary = build_gold_candidate_claim_summary(
         root_path,
         candidate_claims=claims,
         review_merge_result=merge_result,
+        blockers=blockers,
     )
     summary_result = _write_json(root_path / GOLD_CANDIDATE_CLAIMS_SUMMARY_PATH, asdict(summary))
     return {

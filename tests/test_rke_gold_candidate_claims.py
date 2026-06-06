@@ -48,6 +48,37 @@ def test_gold_candidate_claims_merge_preserves_manual_fields(tmp_path: Path):
     assert merged[0]["proposed_verifier_status"] == "requires_review"
 
 
+def test_gold_candidate_claims_report_malformed_rows_without_rewriting_review_template(tmp_path: Path):
+    shutil.copytree(Path("registry"), tmp_path / "registry")
+    candidates_path = tmp_path / "registry/sources/tushare_research_reports.gold_candidates.jsonl"
+    review_path = tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    candidate_count = sum(1 for line in candidates_path.read_text(encoding="utf-8").splitlines() if line.strip())
+    review_count = sum(1 for line in review_path.read_text(encoding="utf-8").splitlines() if line.strip())
+    candidates_path.write_text(
+        candidates_path.read_text(encoding="utf-8") + json.dumps("not an object") + "\n",
+        encoding="utf-8",
+    )
+    review_path.write_text(
+        review_path.read_text(encoding="utf-8") + json.dumps(["not", "an", "object"]) + "\n",
+        encoding="utf-8",
+    )
+    original_review = review_path.read_text(encoding="utf-8")
+
+    claims = build_gold_candidate_claims(tmp_path)
+    merge_result = merge_candidate_claims_into_review_template(tmp_path, candidate_claims=claims)
+    paths = write_gold_candidate_claims(tmp_path)
+    summary = json.loads((tmp_path / paths["summary"]).read_text(encoding="utf-8"))
+
+    assert len(claims) == review_count
+    assert merge_result["applied"] is False
+    assert merge_result["rows"] == review_count + 1
+    assert f"gold-set review row must be object at row(s): {review_count + 1}" in merge_result["blockers"]
+    assert review_path.read_text(encoding="utf-8") == original_review
+    assert summary["candidate_claim_count"] == review_count
+    assert f"gold candidate row must be object at row(s): {candidate_count + 1}" in summary["blockers"]
+    assert f"gold-set review row must be object at row(s): {review_count + 1}" in summary["blockers"]
+
+
 def test_gold_candidate_claim_writer_outputs_claims_summary_and_review_fields(tmp_path: Path):
     shutil.copytree(Path("registry"), tmp_path / "registry")
 

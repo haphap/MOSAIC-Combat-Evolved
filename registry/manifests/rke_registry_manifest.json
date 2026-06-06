@@ -152,9 +152,9 @@
       "sha256": "sha256:009bdbe334a37d7e3d4974a77a4878397761dcdc0b84a182335805f505f7c0ce"
     },
     {
-      "bytes": 1035,
+      "bytes": 1053,
       "path": "registry/gold_sets/tushare_research_reports.candidate_claims.summary.json",
-      "sha256": "sha256:881f2c297f0d1d6799ccc340384fb4c005497838bf1a19f72db3bae7ee0c3dae"
+      "sha256": "sha256:d81b5864608f7954b75e0a274c237fd7492c469e2ad29905e2e4cd6418397d33"
     },
     {
       "bytes": 239420,
