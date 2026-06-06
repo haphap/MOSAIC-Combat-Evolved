@@ -55,6 +55,18 @@ def test_phase_minus1_detects_missing_fields_and_duplicate_hashes():
     assert audit.missing_required_fields["SRC-2"] == ("abstract",)
 
 
+def test_phase_minus1_audit_reports_malformed_source_rows():
+    rows = [_row("SRC-1", "600519.SH"), "not an object"]
+
+    audit = audit_research_report_corpus(rows)
+
+    assert audit.row_count == 2
+    assert audit.rows_with_abstract == 1
+    assert not audit.ready_for_gold_set_sampling
+    assert "<non-object-row-2>" in audit.missing_required_fields
+    assert "<non-object-row-2>: source row must be object" in audit.production_blockers
+
+
 def test_phase_minus1_selects_and_writes_gold_set_candidates(tmp_path):
     rows = [
         _row("SRC-1", "600519.SH"),

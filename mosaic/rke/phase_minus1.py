@@ -168,16 +168,28 @@ def load_jsonl(path: str | Path) -> list[dict[str, Any]]:
     return rows
 
 
-def audit_research_report_corpus(rows: Sequence[Mapping[str, Any]]) -> CorpusAudit:
-    report_type_counts = Counter(str(row.get("report_type") or "") for row in rows)
-    query_key_counts = Counter(str(row.get("query_key") or "") for row in rows)
-    publish_dates = sorted(str(row.get("publish_date") or "") for row in rows if row.get("publish_date"))
-    hash_counts = Counter(str(row.get("source_hash") or "") for row in rows)
+def audit_research_report_corpus(rows: Sequence[Any]) -> CorpusAudit:
+    valid_rows: list[Mapping[str, Any]] = []
+    invalid_row_numbers: list[int] = []
+    for index, row in enumerate(rows, 1):
+        if isinstance(row, Mapping):
+            valid_rows.append(row)
+        else:
+            invalid_row_numbers.append(index)
+
+    report_type_counts = Counter(str(row.get("report_type") or "") for row in valid_rows)
+    query_key_counts = Counter(str(row.get("query_key") or "") for row in valid_rows)
+    publish_dates = sorted(str(row.get("publish_date") or "") for row in valid_rows if row.get("publish_date"))
+    hash_counts = Counter(str(row.get("source_hash") or "") for row in valid_rows)
     duplicate_hashes = tuple(sorted(hash_value for hash_value, count in hash_counts.items() if hash_value and count > 1))
 
     missing: dict[str, tuple[str, ...]] = {}
     blockers: list[str] = []
-    for row in rows:
+    for row_number in invalid_row_numbers:
+        row_id = f"<non-object-row-{row_number}>"
+        missing[row_id] = tuple(sorted(REQUIRED_SOURCE_ROW_FIELDS))
+        blockers.append(f"{row_id}: source row must be object")
+    for row in valid_rows:
         source_id = str(row.get("source_id") or f"row-{len(missing)}")
         row_missing = tuple(sorted(field for field in REQUIRED_SOURCE_ROW_FIELDS if row.get(field) in (None, "")))
         if row_missing:
@@ -189,7 +201,7 @@ def audit_research_report_corpus(rows: Sequence[Mapping[str, Any]]) -> CorpusAud
 
     return CorpusAudit(
         row_count=len(rows),
-        rows_with_abstract=sum(bool(str(row.get("abstract") or "").strip()) for row in rows),
+        rows_with_abstract=sum(bool(str(row.get("abstract") or "").strip()) for row in valid_rows),
         report_type_counts=dict(report_type_counts),
         query_key_counts=dict(query_key_counts),
         publish_date_min=publish_dates[0] if publish_dates else None,
