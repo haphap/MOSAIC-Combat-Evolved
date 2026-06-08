@@ -725,6 +725,12 @@ STOCK_PROXY_REQUIRED_LABEL_FIELDS = (
     "evaluation_policy",
     "target_resolution_source",
     "survivorship_check",
+    "entry_tradable",
+    "exit_tradable",
+    "entry_limit_locked",
+    "exit_limit_locked",
+    "entry_liquidity_check",
+    "exit_liquidity_check",
 )
 
 INDUSTRY_PROXY_REQUIRED_LABEL_FIELDS = (
@@ -756,6 +762,14 @@ INDUSTRY_PROXY_REQUIRED_LABEL_FIELDS = (
     "claim_window_alignment",
     "evaluation_policy",
 )
+
+STOCK_PROXY_SURVIVORSHIP_UNVERIFIED_CHECK = "survivorship_unverified_qlib_cn_data"
+STOCK_PROXY_SURVIVORSHIP_AUDITED_CHECK = "delisted_inclusive_universe_audit_passed"
+STOCK_PROXY_SURVIVORSHIP_CHECKS = {
+    STOCK_PROXY_SURVIVORSHIP_UNVERIFIED_CHECK,
+    STOCK_PROXY_SURVIVORSHIP_AUDITED_CHECK,
+}
+STOCK_PROXY_TRADABILITY_CHECK = "positive_volume_and_limit_lock_screen"
 
 
 def _required_field_failures(
@@ -976,6 +990,35 @@ def _validate_proxy_outcome_label_contract(row: Mapping[str, Any], row_label: st
         }:
             failures.append(
                 f"{row_label}.target_resolution_source: unsupported stock target resolution"
+            )
+        survivorship_check = str(row.get("survivorship_check") or "").strip()
+        if survivorship_check not in STOCK_PROXY_SURVIVORSHIP_CHECKS:
+            failures.append(
+                f"{row_label}.survivorship_check: unsupported stock survivorship check"
+            )
+        elif (
+            row.get("survivorship_safe") is True
+            and survivorship_check != STOCK_PROXY_SURVIVORSHIP_AUDITED_CHECK
+        ):
+            failures.append(
+                f"{row_label}.survivorship_check: survivorship_safe=true requires "
+                f"{STOCK_PROXY_SURVIVORSHIP_AUDITED_CHECK}"
+            )
+        if row.get("entry_tradable") is not True:
+            failures.append(f"{row_label}.entry_tradable: must be true")
+        if row.get("exit_tradable") is not True:
+            failures.append(f"{row_label}.exit_tradable: must be true")
+        if row.get("entry_limit_locked") is not False:
+            failures.append(f"{row_label}.entry_limit_locked: must be false")
+        if row.get("exit_limit_locked") is not False:
+            failures.append(f"{row_label}.exit_limit_locked: must be false")
+        if row.get("entry_liquidity_check") != STOCK_PROXY_TRADABILITY_CHECK:
+            failures.append(
+                f"{row_label}.entry_liquidity_check: must be {STOCK_PROXY_TRADABILITY_CHECK}"
+            )
+        if row.get("exit_liquidity_check") != STOCK_PROXY_TRADABILITY_CHECK:
+            failures.append(
+                f"{row_label}.exit_liquidity_check: must be {STOCK_PROXY_TRADABILITY_CHECK}"
             )
     elif label_type == "industry_etf_proxy":
         if row.get("outcome_label_source") != "pit_industry_etf_price_window":

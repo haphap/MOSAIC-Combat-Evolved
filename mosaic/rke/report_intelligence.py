@@ -372,6 +372,14 @@ STOCK_PRICE_PROXY_EVALUATION_POLICY = (
     "stock_t_plus_1_multi_window_proxy_retains_long_horizon_evidence"
 )
 STOCK_PRICE_PROXY_SURVIVORSHIP_CHECK = "survivorship_unverified_qlib_cn_data"
+STOCK_PRICE_PROXY_SURVIVORSHIP_AUDITED_CHECK = (
+    "delisted_inclusive_universe_audit_passed"
+)
+STOCK_PRICE_PROXY_SURVIVORSHIP_CHECKS = {
+    STOCK_PRICE_PROXY_SURVIVORSHIP_CHECK,
+    STOCK_PRICE_PROXY_SURVIVORSHIP_AUDITED_CHECK,
+}
+STOCK_PRICE_PROXY_TRADABILITY_CHECK = "positive_volume_and_limit_lock_screen"
 MARKDOWN_COVERAGE_MIN_SELECTED_REPORTS = 300
 MARKDOWN_COVERAGE_MIN_MARKDOWN_READY = 300
 MARKDOWN_COVERAGE_MIN_QUALITY_PASS = 300
@@ -5826,6 +5834,12 @@ def build_stock_price_proxy_outcome_labels(
                 "llm_target_id": resolution["llm_target_id"],
                 "source_metadata_id": source_id,
                 "survivorship_check": STOCK_PRICE_PROXY_SURVIVORSHIP_CHECK,
+                "entry_tradable": True,
+                "exit_tradable": True,
+                "entry_limit_locked": False,
+                "exit_limit_locked": False,
+                "entry_liquidity_check": STOCK_PRICE_PROXY_TRADABILITY_CHECK,
+                "exit_liquidity_check": STOCK_PRICE_PROXY_TRADABILITY_CHECK,
             }
             record.update(
                 _stock_target_price_hit_fields(
@@ -7854,6 +7868,39 @@ def _append_evolution_history_record(
     return deduped[-EVOLUTION_REFRESH_HISTORY_MAX_ROWS:]
 
 
+PUBLIC_ARTIFACT_PRIVATE_TEXT_KEYS = {
+    "abstract",
+    "claim_text",
+    "manual_claim_text",
+    "markdown_path",
+    "original_markdown",
+    "pdf_path",
+    "pdf_url",
+    "retrieval_locator",
+    "source_span_ids",
+    "source_span_text",
+    "source_text",
+    "title",
+    "url",
+}
+
+
+def _public_payload_private_text_included(value: Any) -> bool:
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            normalized_key = str(key).strip().lower()
+            if normalized_key == "private_text_included":
+                continue
+            if normalized_key in PUBLIC_ARTIFACT_PRIVATE_TEXT_KEYS and bool(item):
+                return True
+            if _public_payload_private_text_included(item):
+                return True
+        return False
+    if isinstance(value, Sequence) and not isinstance(value, str):
+        return any(_public_payload_private_text_included(item) for item in value)
+    return False
+
+
 def _monitor_refresh_history_record(
     *,
     run_id: str,
@@ -7861,7 +7908,7 @@ def _monitor_refresh_history_record(
     confidence_impact_monitor: Mapping[str, Any],
 ) -> dict[str, Any]:
     monitor = _ensure_mapping(confidence_impact_monitor)
-    return {
+    record = {
         "history_id": _stable_id(
             "MONHIST",
             {"data_vintage_hash": data_vintage_hash or run_id},
@@ -7881,8 +7928,9 @@ def _monitor_refresh_history_record(
         "blocker_counts": _count_mapping_values(
             _ensure_mapping(monitor.get("blocker_counts"))
         ),
-        "private_text_included": False,
     }
+    record["private_text_included"] = _public_payload_private_text_included(record)
+    return record
 
 
 def _audit_refresh_history_record(
@@ -7892,7 +7940,7 @@ def _audit_refresh_history_record(
     audit_record: Mapping[str, Any],
 ) -> dict[str, Any]:
     audit = _ensure_mapping(audit_record)
-    return {
+    record = {
         "history_id": _stable_id(
             "AUDHIST",
             {"data_vintage_hash": data_vintage_hash or run_id},
@@ -7906,8 +7954,9 @@ def _audit_refresh_history_record(
         "pit_accepted": audit.get("pit_accepted") is True,
         "provenance_accepted": audit.get("provenance_accepted") is True,
         "statistical_accepted": audit.get("statistical_accepted") is True,
-        "private_text_included": False,
     }
+    record["private_text_included"] = _public_payload_private_text_included(record)
+    return record
 
 
 def _gap_distribution_history_record(
@@ -7928,7 +7977,7 @@ def _gap_distribution_history_record(
         max_gap_name, max_gap_count = max(gap_counts.items(), key=lambda item: item[1])
         max_gap_share = max_gap_count / total_gap_count
     stable = total_gap_count == 0 or max_gap_share <= 0.80
-    return {
+    record = {
         "history_id": _stable_id(
             "GAPHIST",
             {"data_vintage_hash": data_vintage_hash or run_id},
@@ -7943,8 +7992,9 @@ def _gap_distribution_history_record(
         "total_gap_count": total_gap_count,
         "max_gap_name": max_gap_name,
         "max_gap_share": round(max_gap_share, 6),
-        "private_text_included": False,
     }
+    record["private_text_included"] = _public_payload_private_text_included(record)
+    return record
 
 
 def _prepare_evolution_refresh_history(
@@ -8325,7 +8375,7 @@ def build_report_intelligence_evolution_readiness_gate(
         for check in checks
         for blocker in _ensure_list(check.get("blockers"))
     ]
-    return {
+    gate = {
         "gate_id": "RKE-REPORT-INTELLIGENCE-EVOLUTION-READINESS-GATE",
         "run_id": run_id,
         "data_vintage_hash": data_vintage_hash,
@@ -8355,7 +8405,6 @@ def build_report_intelligence_evolution_readiness_gate(
         "checks": checks,
         "blockers": sorted(set(blockers)),
         "blocker_count": len(set(blockers)),
-        "private_text_included": False,
         "policy": (
             "Prompt and agent evolution remains blocked until governed aggregate "
             "PIT outcome coverage, paper-trading, monitor stability, audit history, "
@@ -8363,6 +8412,8 @@ def build_report_intelligence_evolution_readiness_gate(
             "artifact stores aggregate evidence only and cannot change production prompts."
         ),
     }
+    gate["private_text_included"] = _public_payload_private_text_included(gate)
+    return gate
 
 
 PROMPT_MUTATION_CANDIDATE_SCHEMA_VERSION = "prompt_mutation_candidate_v1"
@@ -8403,40 +8454,39 @@ def _add_prompt_mutation_candidate(
     candidate_id = _stable_id("PMUT", payload)
     if any(row.get("mutation_candidate_id") == candidate_id for row in candidates):
         return
-    candidates.append(
-        {
-            "mutation_candidate_id": candidate_id,
-            "run_id": run_id,
-            "schema_version": PROMPT_MUTATION_CANDIDATE_SCHEMA_VERSION,
-            "candidate_type": candidate_type,
-            "target_scope": target_scope,
-            "target_component": target_component,
-            "proposed_change": proposed_change,
-            "trigger_sources": list(dict.fromkeys(str(item) for item in trigger_sources)),
-            "evidence_refs": evidence,
-            "severity": severity,
-            "validation_requirements": [
-                "gold_set_review_pass",
-                "pit_outcome_replay_pass",
-                "schema_validation_pass",
-                "provenance_audit_pass",
-                "statistical_robustness_audit_pass",
-                "shadow_paper_trading_pass",
-            ],
-            "blocked_by": list(dict.fromkeys(str(item) for item in blocked_by))
-            or ["gold_set_gate_pending", "paper_trading_gate_pending"],
-            "promotion_state": "shadow_candidate_only",
-            "manual_review_required": True,
-            "production_prompt_change_allowed": False,
-            "private_text_included": False,
-            "policy": (
-                "Prompt mutation candidates are derived from governed aggregate "
-                "evidence only; they do not modify production prompts and cannot "
-                "include private source content, retrieval locators, or private "
-                "prompt content."
-            ),
-        }
-    )
+    candidate = {
+        "mutation_candidate_id": candidate_id,
+        "run_id": run_id,
+        "schema_version": PROMPT_MUTATION_CANDIDATE_SCHEMA_VERSION,
+        "candidate_type": candidate_type,
+        "target_scope": target_scope,
+        "target_component": target_component,
+        "proposed_change": proposed_change,
+        "trigger_sources": list(dict.fromkeys(str(item) for item in trigger_sources)),
+        "evidence_refs": evidence,
+        "severity": severity,
+        "validation_requirements": [
+            "gold_set_review_pass",
+            "pit_outcome_replay_pass",
+            "schema_validation_pass",
+            "provenance_audit_pass",
+            "statistical_robustness_audit_pass",
+            "shadow_paper_trading_pass",
+        ],
+        "blocked_by": list(dict.fromkeys(str(item) for item in blocked_by))
+        or ["gold_set_gate_pending", "paper_trading_gate_pending"],
+        "promotion_state": "shadow_candidate_only",
+        "manual_review_required": True,
+        "production_prompt_change_allowed": False,
+        "policy": (
+            "Prompt mutation candidates are derived from governed aggregate "
+            "evidence only; they do not modify production prompts and cannot "
+            "include private source content, retrieval locators, or private "
+            "prompt content."
+        ),
+    }
+    candidate["private_text_included"] = _public_payload_private_text_included(candidate)
+    candidates.append(candidate)
 
 
 def _paper_trading_blocker_counts(
@@ -10201,6 +10251,21 @@ def build_report_intelligence_pit_leakage_audit(
                     f"{INDUSTRY_ETF_ENTRY_LAG_TRADING_DAYS}"
                 )
         if label_type == "stock_price_proxy":
+            survivorship_check = str(label.get("survivorship_check") or "").strip()
+            if survivorship_check not in STOCK_PRICE_PROXY_SURVIVORSHIP_CHECKS:
+                outcome_failures.append(
+                    f"{label_id}: stock survivorship_check must be one of "
+                    f"{sorted(STOCK_PRICE_PROXY_SURVIVORSHIP_CHECKS)}"
+                )
+            elif (
+                label.get("survivorship_safe") is True
+                and survivorship_check
+                != STOCK_PRICE_PROXY_SURVIVORSHIP_AUDITED_CHECK
+            ):
+                outcome_failures.append(
+                    f"{label_id}: stock survivorship_safe=true requires "
+                    f"{STOCK_PRICE_PROXY_SURVIVORSHIP_AUDITED_CHECK}"
+                )
             signal_date = _date_key(claim.get("signal_datetime"))
             entry_date = _date_key(label.get("entry_datetime"))
             exit_date = _date_key(label.get("exit_datetime"))
@@ -10226,6 +10291,32 @@ def build_report_intelligence_pit_leakage_audit(
             if latest_calendar_date and exit_date and exit_date > latest_calendar_date:
                 outcome_failures.append(
                     f"{label_id}: stock exit_datetime exceeds latest qlib stock calendar"
+                )
+            if label.get("entry_tradable") is not True:
+                outcome_failures.append(
+                    f"{label_id}: stock entry_tradable must be true for generated labels"
+                )
+            if label.get("exit_tradable") is not True:
+                outcome_failures.append(
+                    f"{label_id}: stock exit_tradable must be true for generated labels"
+                )
+            if label.get("entry_limit_locked") is not False:
+                outcome_failures.append(
+                    f"{label_id}: stock entry_limit_locked must be false for generated labels"
+                )
+            if label.get("exit_limit_locked") is not False:
+                outcome_failures.append(
+                    f"{label_id}: stock exit_limit_locked must be false for generated labels"
+                )
+            if label.get("entry_liquidity_check") != STOCK_PRICE_PROXY_TRADABILITY_CHECK:
+                outcome_failures.append(
+                    f"{label_id}: stock entry_liquidity_check must be "
+                    f"{STOCK_PRICE_PROXY_TRADABILITY_CHECK}"
+                )
+            if label.get("exit_liquidity_check") != STOCK_PRICE_PROXY_TRADABILITY_CHECK:
+                outcome_failures.append(
+                    f"{label_id}: stock exit_liquidity_check must be "
+                    f"{STOCK_PRICE_PROXY_TRADABILITY_CHECK}"
                 )
             forbidden_stock_gaps = {
                 "stock_entry_suspended",

@@ -262,6 +262,12 @@ def _base_outcome_label(label_type: str) -> dict[str, object]:
                 "stock_return": 0.02,
                 "target_resolution_source": "metadata_ts_code",
                 "survivorship_check": "survivorship_unverified_qlib_cn_data",
+                "entry_tradable": True,
+                "exit_tradable": True,
+                "entry_limit_locked": False,
+                "exit_limit_locked": False,
+                "entry_liquidity_check": "positive_volume_and_limit_lock_screen",
+                "exit_liquidity_check": "positive_volume_and_limit_lock_screen",
             }
         )
     else:
@@ -333,6 +339,34 @@ def test_report_outcome_label_semantics_reject_proxy_math_mismatch(
     assert any(
         "directional_after_cost_return" in failure for failure in record.failures
     )
+
+
+def test_report_outcome_label_semantics_reject_invalid_stock_survivorship_check(
+    tmp_path: Path,
+):
+    stock_label = _base_outcome_label("stock_price_proxy")
+    stock_label["survivorship_check"] = "unchecked"
+    _write_proxy_outcome_labels(tmp_path, [stock_label])
+
+    record = _proxy_outcome_contract_record(tmp_path)
+
+    assert not record.accepted
+    assert any("survivorship_check" in failure for failure in record.failures)
+
+
+def test_report_outcome_label_semantics_reject_untradable_stock_label(
+    tmp_path: Path,
+):
+    stock_label = _base_outcome_label("stock_price_proxy")
+    stock_label["entry_tradable"] = False
+    stock_label["entry_limit_locked"] = True
+    _write_proxy_outcome_labels(tmp_path, [stock_label])
+
+    record = _proxy_outcome_contract_record(tmp_path)
+
+    assert not record.accepted
+    assert any("entry_tradable" in failure for failure in record.failures)
+    assert any("entry_limit_locked" in failure for failure in record.failures)
 
 
 def test_industry_etf_mapping_contract_accepts_current_public_artifacts(

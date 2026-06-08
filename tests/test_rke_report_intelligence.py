@@ -3086,6 +3086,16 @@ def test_report_intelligence_labels_stock_claims_with_qlib_price_windows(
     assert {row["survivorship_check"] for row in outcome_labels} == {
         "survivorship_unverified_qlib_cn_data"
     }
+    assert {row["entry_tradable"] for row in outcome_labels} == {True}
+    assert {row["exit_tradable"] for row in outcome_labels} == {True}
+    assert {row["entry_limit_locked"] for row in outcome_labels} == {False}
+    assert {row["exit_limit_locked"] for row in outcome_labels} == {False}
+    assert {row["entry_liquidity_check"] for row in outcome_labels} == {
+        "positive_volume_and_limit_lock_screen"
+    }
+    assert {row["exit_liquidity_check"] for row in outcome_labels} == {
+        "positive_volume_and_limit_lock_screen"
+    }
     assert outcome_labels[0]["stock_return"] < 0
     assert outcome_labels[0]["directional_hit"] is False
     assert outcome_labels[0]["target_price_hit"] is False
@@ -4011,6 +4021,12 @@ def test_report_intelligence_pit_audit_rejects_stock_exit_limit_locked_label():
                 "benchmark_alignment": "date_key_cross_qlib_dir",
                 "latest_calendar_date": "2026-05-31",
                 "readiness_gaps": ["exit_limit_locked"],
+                "entry_tradable": True,
+                "exit_tradable": False,
+                "entry_limit_locked": False,
+                "exit_limit_locked": True,
+                "entry_liquidity_check": "positive_volume_and_limit_lock_screen",
+                "exit_liquidity_check": "positive_volume_and_limit_lock_screen",
             }
         ],
         source_performance_profile_rows=[],
@@ -4063,6 +4079,12 @@ def test_report_intelligence_pit_audit_allows_shadow_stock_survivorship_unverifi
                 "benchmark_source": "cn_etf",
                 "benchmark_alignment": "date_key_cross_qlib_dir",
                 "latest_calendar_date": "2026-05-31",
+                "entry_tradable": True,
+                "exit_tradable": True,
+                "entry_limit_locked": False,
+                "exit_limit_locked": False,
+                "entry_liquidity_check": "positive_volume_and_limit_lock_screen",
+                "exit_liquidity_check": "positive_volume_and_limit_lock_screen",
             }
         ],
         source_performance_profile_rows=[],
@@ -4118,6 +4140,12 @@ def test_report_intelligence_pit_audit_blocks_promoted_stock_survivorship_unveri
                 "benchmark_source": "cn_etf",
                 "benchmark_alignment": "date_key_cross_qlib_dir",
                 "latest_calendar_date": "2026-05-31",
+                "entry_tradable": True,
+                "exit_tradable": True,
+                "entry_limit_locked": False,
+                "exit_limit_locked": False,
+                "entry_liquidity_check": "positive_volume_and_limit_lock_screen",
+                "exit_liquidity_check": "positive_volume_and_limit_lock_screen",
             }
         ],
         source_performance_profile_rows=[],

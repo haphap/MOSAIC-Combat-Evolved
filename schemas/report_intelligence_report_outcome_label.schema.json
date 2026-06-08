@@ -52,7 +52,22 @@
     "target_price_provenance": {"type": "string"},
     "target_price_hit_policy": {"type": "string"},
     "latest_calendar_date": {"type": "string"},
-    "survivorship_check": {"type": "string"},
+    "survivorship_check": {
+      "enum": [
+        "survivorship_unverified_qlib_cn_data",
+        "delisted_inclusive_universe_audit_passed"
+      ]
+    },
+    "entry_tradable": {"type": "boolean"},
+    "exit_tradable": {"type": "boolean"},
+    "entry_limit_locked": {"type": "boolean"},
+    "exit_limit_locked": {"type": "boolean"},
+    "entry_liquidity_check": {
+      "enum": ["positive_volume_and_limit_lock_screen"]
+    },
+    "exit_liquidity_check": {
+      "enum": ["positive_volume_and_limit_lock_screen"]
+    },
     "window_role": {"enum": ["short", "medium", "long"]},
     "source_horizon_days": {"type": ["integer", "null"]},
     "source_horizon_bucket": {"type": "string"},
