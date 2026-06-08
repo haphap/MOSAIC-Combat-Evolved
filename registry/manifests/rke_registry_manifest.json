@@ -1,5 +1,5 @@
 {
-  "artifact_count": 110,
+  "artifact_count": 111,
   "artifacts": [
     {
       "bytes": 539,
@@ -272,6 +272,11 @@
       "sha256": "sha256:c7562bd014ce5c99061da24b7068d69755987b41108d29fecb8f0f4c0caccb97"
     },
     {
+      "bytes": 5673,
+      "path": "registry/report_intelligence/evolution_readiness_gate.json",
+      "sha256": "sha256:f5c3fc48a650ba1ccc1ae041d5239e9a16f5aede4a564a238f754c7c8688e450"
+    },
+    {
       "bytes": 2938,
       "path": "registry/report_intelligence/extraction_provenance_audit.json",
       "sha256": "sha256:02d338e12fc6427b44ae80dbafdb68f253998324ff4ee952eaad85524b987420"
@@ -527,9 +532,9 @@
       "sha256": "sha256:2002369921dcddb680beb2dd6c380954c254b2f328c1a2e8d8f22f32a570bc3e"
     },
     {
-      "bytes": 15429,
+      "bytes": 15684,
       "path": "registry/schemas/rke_schema_validation_report.json",
-      "sha256": "sha256:3fc439254c2eca6fe6a773dc74eb489108da86925b88e61553639da5d8b4d2d1"
+      "sha256": "sha256:62a0b7156481eff4129a0d6c21360c792bfc94ba51306957cb3ae429b0f060ac"
     },
     {
       "bytes": 316,

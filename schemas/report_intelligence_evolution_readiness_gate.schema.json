@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RKE Report Intelligence Evolution Readiness Gate",
+  "type": "object",
+  "required": [
+    "gate_id",
+    "run_id",
+    "as_of_datetime",
+    "gate_status",
+    "promotion_state",
+    "production_prompt_change_allowed",
+    "thresholds",
+    "checks",
+    "blockers",
+    "blocker_count",
+    "private_text_included",
+    "policy"
+  ],
+  "properties": {
+    "gate_id": {"type": "string", "minLength": 1},
+    "run_id": {"type": "string", "minLength": 1},
+    "as_of_datetime": {"type": "string", "minLength": 1},
+    "gate_status": {"enum": ["passed", "blocked"]},
+    "promotion_state": {"type": "string", "minLength": 1},
+    "production_prompt_change_allowed": {"type": "boolean", "const": false},
+    "thresholds": {
+      "type": "object",
+      "required": [
+        "min_unique_outcome_claims",
+        "min_stock_proxy_claims",
+        "min_industry_proxy_claims",
+        "min_paper_trading_recipes",
+        "min_consecutive_monitor_refreshes",
+        "min_consecutive_audit_refreshes",
+        "min_gap_distribution_refreshes"
+      ],
+      "properties": {
+        "min_unique_outcome_claims": {"type": "integer", "minimum": 1},
+        "min_stock_proxy_claims": {"type": "integer", "minimum": 1},
+        "min_industry_proxy_claims": {"type": "integer", "minimum": 1},
+        "min_paper_trading_recipes": {"type": "integer", "minimum": 1},
+        "min_consecutive_monitor_refreshes": {"type": "integer", "minimum": 1},
+        "min_consecutive_audit_refreshes": {"type": "integer", "minimum": 1},
+        "min_gap_distribution_refreshes": {"type": "integer", "minimum": 1}
+      },
+      "additionalProperties": true
+    },
+    "checks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "check_id",
+          "requirement",
+          "passed",
+          "evidence",
+          "blockers"
+        ],
+        "properties": {
+          "check_id": {"type": "string", "minLength": 1},
+          "requirement": {"type": "string", "minLength": 1},
+          "passed": {"type": "boolean"},
+          "evidence": {"type": "object"},
+          "blockers": {"type": "array", "items": {"type": "string"}}
+        },
+        "additionalProperties": true
+      }
+    },
+    "blockers": {"type": "array", "items": {"type": "string"}},
+    "blocker_count": {"type": "integer", "minimum": 0},
+    "private_text_included": {"type": "boolean", "const": false},
+    "policy": {"type": "string", "minLength": 1}
+  },
+  "additionalProperties": true
+}

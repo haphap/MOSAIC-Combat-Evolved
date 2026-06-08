@@ -53,6 +53,7 @@ REQUIRED_SCHEMA_FILES = {
     "report_intelligence_recipe_paper_trading_summary.schema.json",
     "report_intelligence_confidence_impact_observation.schema.json",
     "report_intelligence_confidence_impact_monitor.schema.json",
+    "report_intelligence_evolution_readiness_gate.schema.json",
     "report_intelligence_prompt_mutation_candidate.schema.json",
     "report_intelligence_weighted_research_context.schema.json",
     "report_intelligence_runtime_tool_gap_observation.schema.json",

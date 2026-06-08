@@ -89,6 +89,9 @@ REPORT_INTELLIGENCE_CONFIDENCE_IMPACT_MONITOR_PATH = (
 REPORT_INTELLIGENCE_PROMPT_MUTATION_CANDIDATES_PATH = (
     "registry/report_intelligence/prompt_mutation_candidates.jsonl"
 )
+REPORT_INTELLIGENCE_EVOLUTION_READINESS_GATE_PATH = (
+    "registry/report_intelligence/evolution_readiness_gate.json"
+)
 REPORT_INTELLIGENCE_PRIVATE_OUTPUT_PATHS = frozenset(
     {
         ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH,
@@ -134,6 +137,7 @@ REPORT_INTELLIGENCE_PUBLIC_DERIVED_OUTPUT_PATHS = frozenset(
         "registry/report_intelligence/outcome_labeling_readiness.json",
         REPORT_INTELLIGENCE_CONFIDENCE_IMPACT_MONITOR_PATH,
         REPORT_INTELLIGENCE_CONFIDENCE_IMPACT_OBSERVATIONS_PATH,
+        REPORT_INTELLIGENCE_EVOLUTION_READINESS_GATE_PATH,
         REPORT_INTELLIGENCE_PROMPT_MUTATION_CANDIDATES_PATH,
         REPORT_INTELLIGENCE_RECIPE_PAPER_TRADING_RUNS_PATH,
         REPORT_INTELLIGENCE_RECIPE_PAPER_TRADING_SUMMARY_PATH,
@@ -371,6 +375,13 @@ MARKDOWN_COVERAGE_MIN_SELECTED_REPORTS = 300
 MARKDOWN_COVERAGE_MIN_MARKDOWN_READY = 300
 MARKDOWN_COVERAGE_MIN_QUALITY_PASS = 300
 MARKDOWN_COVERAGE_MIN_LLM_EXTRACTION_PROCESSED = 100
+EVOLUTION_GATE_MIN_UNIQUE_OUTCOME_CLAIMS = 100
+EVOLUTION_GATE_MIN_STOCK_PROXY_CLAIMS = 30
+EVOLUTION_GATE_MIN_INDUSTRY_PROXY_CLAIMS = 30
+EVOLUTION_GATE_MIN_PAPER_TRADING_RECIPES = 20
+EVOLUTION_GATE_MIN_CONSECUTIVE_MONITOR_REFRESHES = 3
+EVOLUTION_GATE_MIN_CONSECUTIVE_AUDIT_REFRESHES = 3
+EVOLUTION_GATE_MIN_GAP_DISTRIBUTION_REFRESHES = 3
 REPORT_INTELLIGENCE_PROXY_LABEL_TYPES = frozenset(
     {"industry_etf_proxy", "stock_price_proxy"}
 )
@@ -6831,6 +6842,384 @@ def write_report_intelligence_recipe_paper_trading_artifacts(
     }
 
 
+def _evolution_gate_check(
+    *,
+    check_id: str,
+    requirement: str,
+    passed: bool,
+    evidence: Mapping[str, Any],
+    blockers: Sequence[str],
+) -> dict[str, Any]:
+    return {
+        "check_id": check_id,
+        "requirement": requirement,
+        "passed": bool(passed),
+        "evidence": dict(evidence),
+        "blockers": [str(item) for item in blockers if str(item).strip()],
+    }
+
+
+def _monitor_refresh_record_passed(row: Mapping[str, Any]) -> bool:
+    if "accepted" in row:
+        return row.get("accepted") is True
+    blocker_counts = _count_mapping_values(_ensure_mapping(row.get("blocker_counts")))
+    return (
+        int(row.get("blocked_recipe_count") or 0) == 0
+        and int(row.get("unvalidated_confidence_impact_count") or 0) == 0
+        and int(row.get("alpha_decay_fail_count") or 0) == 0
+        and int(row.get("calibration_drift_count") or 0) == 0
+        and not blocker_counts
+    )
+
+
+def _audit_refresh_record_passed(row: Mapping[str, Any]) -> bool:
+    if "accepted" in row:
+        return row.get("accepted") is True
+    return all(
+        row.get(field) is True
+        for field in (
+            "schema_accepted",
+            "pit_accepted",
+            "provenance_accepted",
+            "statistical_accepted",
+        )
+    )
+
+
+def _trailing_pass_count(rows: Sequence[Mapping[str, Any]], *, kind: str) -> int:
+    count = 0
+    for row in reversed(list(rows)):
+        passed = (
+            _monitor_refresh_record_passed(row)
+            if kind == "monitor"
+            else _audit_refresh_record_passed(row)
+        )
+        if not passed:
+            break
+        count += 1
+    return count
+
+
+def _gap_distribution_record_stable(row: Mapping[str, Any]) -> bool:
+    if "stable" in row:
+        return row.get("stable") is True
+    if "accepted" in row:
+        return row.get("accepted") is True
+    max_gap_share = _float_or_none(row.get("max_gap_share"))
+    return max_gap_share is not None and max_gap_share <= 0.80
+
+
+def _trailing_gap_distribution_stable_count(
+    rows: Sequence[Mapping[str, Any]],
+) -> int:
+    count = 0
+    for row in reversed(list(rows)):
+        if not _gap_distribution_record_stable(row):
+            break
+        count += 1
+    return count
+
+
+def _audit_current_record(
+    *,
+    schema_validation_report: Mapping[str, Any] | None,
+    pit_leakage_audit: Mapping[str, Any],
+    extraction_provenance_audit: Mapping[str, Any],
+    statistical_robustness_audit: Mapping[str, Any],
+) -> dict[str, Any]:
+    schema = _ensure_mapping(schema_validation_report)
+    return {
+        "schema_accepted": schema.get("accepted") is True,
+        "pit_accepted": _ensure_mapping(pit_leakage_audit).get("accepted") is True,
+        "provenance_accepted": (
+            _ensure_mapping(extraction_provenance_audit).get("accepted") is True
+        ),
+        "statistical_accepted": (
+            _ensure_mapping(statistical_robustness_audit).get("accepted") is True
+        ),
+    }
+
+
+def build_report_intelligence_evolution_readiness_gate(
+    *,
+    run_id: str,
+    forecast_rows: Sequence[Mapping[str, Any]],
+    outcome_label_rows: Sequence[Mapping[str, Any]],
+    recipe_paper_trading_summary: Mapping[str, Any],
+    confidence_impact_monitor: Mapping[str, Any],
+    markdown_coverage_summary: Mapping[str, Any],
+    pit_leakage_audit: Mapping[str, Any],
+    extraction_provenance_audit: Mapping[str, Any],
+    statistical_robustness_audit: Mapping[str, Any],
+    gold_review_summary: Mapping[str, Any],
+    outcome_labeling_readiness: Mapping[str, Any] | None = None,
+    schema_validation_report: Mapping[str, Any] | None = None,
+    monitor_refresh_history_rows: Sequence[Mapping[str, Any]] = (),
+    audit_refresh_history_rows: Sequence[Mapping[str, Any]] = (),
+    gap_distribution_history_rows: Sequence[Mapping[str, Any]] = (),
+) -> dict[str, Any]:
+    outcome_claim_ids = {
+        str(row.get("forecast_claim_id") or "")
+        for row in outcome_label_rows
+        if str(row.get("forecast_claim_id") or "").strip()
+    }
+    stock_claim_ids = {
+        str(row.get("forecast_claim_id") or "")
+        for row in outcome_label_rows
+        if str(row.get("label_type") or "") == "stock_price_proxy"
+        and str(row.get("forecast_claim_id") or "").strip()
+    }
+    industry_claim_ids = {
+        str(row.get("forecast_claim_id") or "")
+        for row in outcome_label_rows
+        if str(row.get("label_type") or "") == "industry_etf_proxy"
+        and str(row.get("forecast_claim_id") or "").strip()
+    }
+    checks: list[dict[str, Any]] = []
+
+    outcome_blockers: list[str] = []
+    if len(outcome_claim_ids) < EVOLUTION_GATE_MIN_UNIQUE_OUTCOME_CLAIMS:
+        outcome_blockers.append("unique_outcome_claim_count_below_threshold")
+    if len(stock_claim_ids) < EVOLUTION_GATE_MIN_STOCK_PROXY_CLAIMS:
+        outcome_blockers.append("stock_proxy_claim_count_below_threshold")
+    if len(industry_claim_ids) < EVOLUTION_GATE_MIN_INDUSTRY_PROXY_CLAIMS:
+        outcome_blockers.append("industry_proxy_claim_count_below_threshold")
+    checks.append(
+        _evolution_gate_check(
+            check_id="RI-EVOL-01",
+            requirement=(
+                "Evolution requires enough stock and industry PIT outcome "
+                "coverage before prompt mutation candidates can influence prompts."
+            ),
+            passed=not outcome_blockers,
+            evidence={
+                "forecast_claim_count": len(forecast_rows),
+                "unique_outcome_claim_count": len(outcome_claim_ids),
+                "stock_proxy_unique_claim_count": len(stock_claim_ids),
+                "industry_proxy_unique_claim_count": len(industry_claim_ids),
+            },
+            blockers=outcome_blockers,
+        )
+    )
+
+    paper_summary = _ensure_mapping(recipe_paper_trading_summary)
+    paper_blockers: list[str] = []
+    if int(paper_summary.get("validation_pass_count") or 0) < (
+        EVOLUTION_GATE_MIN_PAPER_TRADING_RECIPES
+    ):
+        paper_blockers.append("paper_trading_validated_recipe_count_below_threshold")
+    if int(paper_summary.get("paper_trading_run_count") or 0) < (
+        EVOLUTION_GATE_MIN_PAPER_TRADING_RECIPES
+    ):
+        paper_blockers.append("paper_trading_run_count_below_threshold")
+    if _float_or_none(paper_summary.get("mean_cost_adjusted_alpha")) is None:
+        paper_blockers.append("after_cost_paper_trading_summary_missing")
+    checks.append(
+        _evolution_gate_check(
+            check_id="RI-EVOL-02",
+            requirement=(
+                "At least 20 pre-registered recipes need passed after-cost "
+                "paper-trading before evolution can use recipe evidence."
+            ),
+            passed=not paper_blockers,
+            evidence={
+                "paper_trading_run_count": int(
+                    paper_summary.get("paper_trading_run_count") or 0
+                ),
+                "validation_pass_count": int(
+                    paper_summary.get("validation_pass_count") or 0
+                ),
+                "mean_cost_adjusted_alpha": paper_summary.get(
+                    "mean_cost_adjusted_alpha"
+                ),
+            },
+            blockers=paper_blockers,
+        )
+    )
+
+    monitor = _ensure_mapping(confidence_impact_monitor)
+    monitor_records = [
+        *[dict(row) for row in monitor_refresh_history_rows],
+        dict(monitor),
+    ]
+    monitor_trailing_pass_count = _trailing_pass_count(
+        monitor_records,
+        kind="monitor",
+    )
+    monitor_blockers: list[str] = []
+    if not _monitor_refresh_record_passed(monitor):
+        monitor_blockers.append("confidence_impact_monitor_current_blocked")
+    if monitor_trailing_pass_count < EVOLUTION_GATE_MIN_CONSECUTIVE_MONITOR_REFRESHES:
+        monitor_blockers.append("confidence_impact_monitor_history_below_threshold")
+    checks.append(
+        _evolution_gate_check(
+            check_id="RI-EVOL-03",
+            requirement=(
+                "Confidence impact monitor must be blocker-free for three "
+                "consecutive refreshes before evolution can change prompts."
+            ),
+            passed=not monitor_blockers,
+            evidence={
+                "monitor_observation_count": int(
+                    monitor.get("observation_count") or 0
+                ),
+                "blocked_recipe_count": int(monitor.get("blocked_recipe_count") or 0),
+                "unvalidated_confidence_impact_count": int(
+                    monitor.get("unvalidated_confidence_impact_count") or 0
+                ),
+                "trailing_monitor_pass_count": monitor_trailing_pass_count,
+            },
+            blockers=monitor_blockers,
+        )
+    )
+
+    current_audit_record = _audit_current_record(
+        schema_validation_report=schema_validation_report,
+        pit_leakage_audit=pit_leakage_audit,
+        extraction_provenance_audit=extraction_provenance_audit,
+        statistical_robustness_audit=statistical_robustness_audit,
+    )
+    audit_records = [
+        *[dict(row) for row in audit_refresh_history_rows],
+        current_audit_record,
+    ]
+    audit_trailing_pass_count = _trailing_pass_count(audit_records, kind="audit")
+    audit_blockers: list[str] = []
+    if not _audit_refresh_record_passed(current_audit_record):
+        audit_blockers.append("current_schema_or_audit_gate_blocked")
+    if audit_trailing_pass_count < EVOLUTION_GATE_MIN_CONSECUTIVE_AUDIT_REFRESHES:
+        audit_blockers.append("audit_refresh_history_below_threshold")
+    checks.append(
+        _evolution_gate_check(
+            check_id="RI-EVOL-04",
+            requirement=(
+                "The last three derived refreshes must pass schema, PIT, "
+                "provenance, and statistical robustness gates."
+            ),
+            passed=not audit_blockers,
+            evidence={
+                **current_audit_record,
+                "trailing_audit_pass_count": audit_trailing_pass_count,
+            },
+            blockers=audit_blockers,
+        )
+    )
+
+    gold = _ensure_mapping(gold_review_summary)
+    gold_passed = gold.get("passed") is True or gold.get("accepted") is True
+    gold_blockers = [] if gold_passed else ["forecast_gold_set_gate_not_passed"]
+    checks.append(
+        _evolution_gate_check(
+            check_id="RI-EVOL-05",
+            requirement=(
+                "Manual forecast gold-set review must pass before prompt "
+                "evolution uses extracted target, direction, or horizon signals."
+            ),
+            passed=gold_passed,
+            evidence={
+                "gold_set_passed": gold_passed,
+                "reviewed_claims": int(gold.get("reviewed_claims") or 0),
+                "pending_claims": int(gold.get("pending_claims") or 0),
+            },
+            blockers=gold_blockers,
+        )
+    )
+
+    gap_records = [dict(row) for row in gap_distribution_history_rows]
+    gap_trailing_stable_count = _trailing_gap_distribution_stable_count(gap_records)
+    readiness = _ensure_mapping(outcome_labeling_readiness)
+    current_gap_counts = _count_mapping_values(
+        _ensure_mapping(readiness.get("mapping_gap_counts"))
+    )
+    gap_blockers: list[str] = []
+    if gap_trailing_stable_count < EVOLUTION_GATE_MIN_GAP_DISTRIBUTION_REFRESHES:
+        gap_blockers.append("gap_distribution_history_below_threshold")
+    checks.append(
+        _evolution_gate_check(
+            check_id="RI-EVOL-06",
+            requirement=(
+                "Outcome and missing-gap distributions must be stable across "
+                "recent refreshes before evolution changes prompts."
+            ),
+            passed=not gap_blockers,
+            evidence={
+                "trailing_gap_distribution_stable_count": gap_trailing_stable_count,
+                "current_mapping_gap_counts": current_gap_counts,
+            },
+            blockers=gap_blockers,
+        )
+    )
+
+    markdown = _ensure_mapping(markdown_coverage_summary)
+    coverage_blockers = [
+        str(item)
+        for item in _ensure_list(markdown.get("coverage_gate_blockers"))
+        if str(item).strip()
+    ]
+    coverage_passed = str(markdown.get("coverage_gate_status") or "") == "passed"
+    checks.append(
+        _evolution_gate_check(
+            check_id="RI-EVOL-07",
+            requirement=(
+                "Markdown coverage must pass P9 corpus thresholds before "
+                "evolution depends on report-derived Markdown evidence."
+            ),
+            passed=str(markdown.get("coverage_gate_status") or "") == "passed",
+            evidence={
+                "coverage_gate_status": str(markdown.get("coverage_gate_status") or ""),
+                "coverage_gate_blockers": coverage_blockers,
+                "coverage_targets": _ensure_mapping(markdown.get("coverage_targets")),
+            },
+            blockers=[] if coverage_passed else (
+                coverage_blockers or ["markdown_coverage_gate_not_passed"]
+            ),
+        )
+    )
+
+    blockers = [
+        blocker
+        for check in checks
+        for blocker in _ensure_list(check.get("blockers"))
+    ]
+    return {
+        "gate_id": "RKE-REPORT-INTELLIGENCE-EVOLUTION-READINESS-GATE",
+        "run_id": run_id,
+        "as_of_datetime": _utc_now(),
+        "gate_status": "passed" if not blockers else "blocked",
+        "promotion_state": (
+            "ready_for_shadow_evolution_candidate"
+            if not blockers
+            else "blocked_before_prompt_evolution"
+        ),
+        "production_prompt_change_allowed": False,
+        "thresholds": {
+            "min_unique_outcome_claims": EVOLUTION_GATE_MIN_UNIQUE_OUTCOME_CLAIMS,
+            "min_stock_proxy_claims": EVOLUTION_GATE_MIN_STOCK_PROXY_CLAIMS,
+            "min_industry_proxy_claims": EVOLUTION_GATE_MIN_INDUSTRY_PROXY_CLAIMS,
+            "min_paper_trading_recipes": EVOLUTION_GATE_MIN_PAPER_TRADING_RECIPES,
+            "min_consecutive_monitor_refreshes": (
+                EVOLUTION_GATE_MIN_CONSECUTIVE_MONITOR_REFRESHES
+            ),
+            "min_consecutive_audit_refreshes": (
+                EVOLUTION_GATE_MIN_CONSECUTIVE_AUDIT_REFRESHES
+            ),
+            "min_gap_distribution_refreshes": (
+                EVOLUTION_GATE_MIN_GAP_DISTRIBUTION_REFRESHES
+            ),
+        },
+        "checks": checks,
+        "blockers": sorted(set(blockers)),
+        "blocker_count": len(set(blockers)),
+        "private_text_included": False,
+        "policy": (
+            "Prompt and agent evolution remains blocked until governed aggregate "
+            "PIT outcome coverage, paper-trading, monitor stability, audit history, "
+            "gold-set quality, gap stability, and Markdown coverage gates pass; this "
+            "artifact stores aggregate evidence only and cannot change production prompts."
+        ),
+    }
+
+
 PROMPT_MUTATION_CANDIDATE_SCHEMA_VERSION = "prompt_mutation_candidate_v1"
 
 
@@ -12868,6 +13257,19 @@ def run_report_intelligence_derived_refresh(
             gold_review_summary=gold_review_summary,
         )
     )
+    evolution_readiness_gate = build_report_intelligence_evolution_readiness_gate(
+        run_id=run_id,
+        forecast_rows=forecast_rows,
+        outcome_label_rows=outcome_label_rows,
+        recipe_paper_trading_summary=recipe_paper_trading_summary,
+        confidence_impact_monitor=confidence_impact_monitor,
+        markdown_coverage_summary=markdown_coverage_summary,
+        pit_leakage_audit=pit_leakage_audit,
+        extraction_provenance_audit=extraction_provenance_audit,
+        statistical_robustness_audit=statistical_robustness_audit,
+        gold_review_summary=gold_review_summary,
+        outcome_labeling_readiness=outcome_labeling_readiness,
+    )
 
     outputs = {
         "feature_flags": str(
@@ -13000,6 +13402,12 @@ def run_report_intelligence_derived_refresh(
             _write_jsonl(
                 registry_dir / "prompt_mutation_candidates.jsonl",
                 prompt_mutation_candidate_rows,
+            )["path"]
+        ),
+        "evolution_readiness_gate": str(
+            _write_json(
+                registry_dir / "evolution_readiness_gate.json",
+                evolution_readiness_gate,
             )["path"]
         ),
         "weighted_research_contexts": str(
@@ -13675,6 +14083,19 @@ def run_report_intelligence_refresh(
             gold_review_summary=gold_review_summary,
         )
     )
+    evolution_readiness_gate = build_report_intelligence_evolution_readiness_gate(
+        run_id=run_id,
+        forecast_rows=forecast_rows,
+        outcome_label_rows=outcome_label_rows,
+        recipe_paper_trading_summary=recipe_paper_trading_summary,
+        confidence_impact_monitor=confidence_impact_monitor,
+        markdown_coverage_summary=markdown_coverage_summary,
+        pit_leakage_audit=pit_leakage_audit,
+        extraction_provenance_audit=extraction_provenance_audit,
+        statistical_robustness_audit=statistical_robustness_audit,
+        gold_review_summary=gold_review_summary,
+        outcome_labeling_readiness=outcome_labeling_readiness,
+    )
 
     outputs = {
         "feature_flags": str(
@@ -13811,6 +14232,12 @@ def run_report_intelligence_refresh(
             _write_jsonl(
                 registry_dir / "prompt_mutation_candidates.jsonl",
                 prompt_mutation_candidate_rows,
+            )["path"]
+        ),
+        "evolution_readiness_gate": str(
+            _write_json(
+                registry_dir / "evolution_readiness_gate.json",
+                evolution_readiness_gate,
             )["path"]
         ),
         "weighted_research_contexts": str(

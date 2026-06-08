@@ -1,0 +1,151 @@
+{
+  "as_of_datetime": "2026-06-08T07:48:21+00:00",
+  "blocker_count": 14,
+  "blockers": [
+    "after_cost_paper_trading_summary_missing",
+    "audit_refresh_history_below_threshold",
+    "confidence_impact_monitor_current_blocked",
+    "confidence_impact_monitor_history_below_threshold",
+    "gap_distribution_history_below_threshold",
+    "industry_proxy_claim_count_below_threshold",
+    "llm_extraction_processed_count_below_p9_target",
+    "markdown_quality_pass_count_below_p9_target",
+    "markdown_ready_count_below_p9_target",
+    "paper_trading_run_count_below_threshold",
+    "paper_trading_validated_recipe_count_below_threshold",
+    "selected_report_count_below_p9_target",
+    "stock_proxy_claim_count_below_threshold",
+    "unique_outcome_claim_count_below_threshold"
+  ],
+  "checks": [
+    {
+      "blockers": [
+        "unique_outcome_claim_count_below_threshold",
+        "stock_proxy_claim_count_below_threshold",
+        "industry_proxy_claim_count_below_threshold"
+      ],
+      "check_id": "RI-EVOL-01",
+      "evidence": {
+        "forecast_claim_count": 12,
+        "industry_proxy_unique_claim_count": 0,
+        "stock_proxy_unique_claim_count": 0,
+        "unique_outcome_claim_count": 0
+      },
+      "passed": false,
+      "requirement": "Evolution requires enough stock and industry PIT outcome coverage before prompt mutation candidates can influence prompts."
+    },
+    {
+      "blockers": [
+        "paper_trading_validated_recipe_count_below_threshold",
+        "paper_trading_run_count_below_threshold",
+        "after_cost_paper_trading_summary_missing"
+      ],
+      "check_id": "RI-EVOL-02",
+      "evidence": {
+        "mean_cost_adjusted_alpha": null,
+        "paper_trading_run_count": 5,
+        "validation_pass_count": 0
+      },
+      "passed": false,
+      "requirement": "At least 20 pre-registered recipes need passed after-cost paper-trading before evolution can use recipe evidence."
+    },
+    {
+      "blockers": [
+        "confidence_impact_monitor_current_blocked",
+        "confidence_impact_monitor_history_below_threshold"
+      ],
+      "check_id": "RI-EVOL-03",
+      "evidence": {
+        "blocked_recipe_count": 5,
+        "monitor_observation_count": 5,
+        "trailing_monitor_pass_count": 0,
+        "unvalidated_confidence_impact_count": 0
+      },
+      "passed": false,
+      "requirement": "Confidence impact monitor must be blocker-free for three consecutive refreshes before evolution can change prompts."
+    },
+    {
+      "blockers": [
+        "audit_refresh_history_below_threshold"
+      ],
+      "check_id": "RI-EVOL-04",
+      "evidence": {
+        "pit_accepted": true,
+        "provenance_accepted": true,
+        "schema_accepted": true,
+        "statistical_accepted": true,
+        "trailing_audit_pass_count": 1
+      },
+      "passed": false,
+      "requirement": "The last three derived refreshes must pass schema, PIT, provenance, and statistical robustness gates."
+    },
+    {
+      "blockers": [],
+      "check_id": "RI-EVOL-05",
+      "evidence": {
+        "gold_set_passed": true,
+        "pending_claims": 0,
+        "reviewed_claims": 500
+      },
+      "passed": true,
+      "requirement": "Manual forecast gold-set review must pass before prompt evolution uses extracted target, direction, or horizon signals."
+    },
+    {
+      "blockers": [
+        "gap_distribution_history_below_threshold"
+      ],
+      "check_id": "RI-EVOL-06",
+      "evidence": {
+        "current_mapping_gap_counts": {
+          "benchmark": 10,
+          "horizon": 12
+        },
+        "trailing_gap_distribution_stable_count": 0
+      },
+      "passed": false,
+      "requirement": "Outcome and missing-gap distributions must be stable across recent refreshes before evolution changes prompts."
+    },
+    {
+      "blockers": [
+        "selected_report_count_below_p9_target",
+        "markdown_ready_count_below_p9_target",
+        "markdown_quality_pass_count_below_p9_target",
+        "llm_extraction_processed_count_below_p9_target"
+      ],
+      "check_id": "RI-EVOL-07",
+      "evidence": {
+        "coverage_gate_blockers": [
+          "selected_report_count_below_p9_target",
+          "markdown_ready_count_below_p9_target",
+          "markdown_quality_pass_count_below_p9_target",
+          "llm_extraction_processed_count_below_p9_target"
+        ],
+        "coverage_gate_status": "blocked",
+        "coverage_targets": {
+          "llm_extraction_processed_count_min": 100,
+          "markdown_quality_pass_count_min": 300,
+          "markdown_ready_count_min": 300,
+          "selected_report_count_min": 300
+        }
+      },
+      "passed": false,
+      "requirement": "Markdown coverage must pass P9 corpus thresholds before evolution depends on report-derived Markdown evidence."
+    }
+  ],
+  "gate_id": "RKE-REPORT-INTELLIGENCE-EVOLUTION-READINESS-GATE",
+  "gate_status": "blocked",
+  "policy": "Prompt and agent evolution remains blocked until governed aggregate PIT outcome coverage, paper-trading, monitor stability, audit history, gold-set quality, gap stability, and Markdown coverage gates pass; this artifact stores aggregate evidence only and cannot change production prompts.",
+  "private_text_included": false,
+  "production_prompt_change_allowed": false,
+  "promotion_state": "blocked_before_prompt_evolution",
+  "run_id": "RIR-PUBLIC-EVOLUTION-READINESS-GATE",
+  "thresholds": {
+    "min_consecutive_audit_refreshes": 3,
+    "min_consecutive_monitor_refreshes": 3,
+    "min_gap_distribution_refreshes": 3,
+    "min_industry_proxy_claims": 30,
+    "min_paper_trading_recipes": 20,
+    "min_stock_proxy_claims": 30,
+    "min_unique_outcome_claims": 100
+  }
+}

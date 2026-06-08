@@ -464,6 +464,12 @@ REPORT_INTELLIGENCE_JSON_SCHEMA_TARGETS = (
         False,
     ),
     (
+        "schemas/report_intelligence_evolution_readiness_gate.schema.json",
+        "registry/report_intelligence/evolution_readiness_gate.json",
+        "json",
+        False,
+    ),
+    (
         "schemas/report_intelligence_prompt_mutation_candidate.schema.json",
         "registry/report_intelligence/prompt_mutation_candidates.jsonl",
         "jsonl",

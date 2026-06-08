@@ -21,6 +21,7 @@ from mosaic.rke.report_intelligence import (
     build_confidence_impact_monitor,
     build_confidence_impact_observations,
     build_prompt_mutation_candidates,
+    build_report_intelligence_evolution_readiness_gate,
     build_recipe_paper_trading_runs,
     build_recipe_paper_trading_summary,
     build_report_intelligence_extraction_provenance_audit,
@@ -1154,6 +1155,140 @@ def test_report_intelligence_recipe_paper_trading_flags_alpha_decay_fail():
     assert monitor["alpha_decay_fail_count"] == 1
     assert monitor["alpha_decay_recipe_ids"] == ["RECIPE-DECAY-FAIL"]
     assert monitor["freeze_recipe_ids"] == ["RECIPE-DECAY-FAIL"]
+
+
+def test_report_intelligence_evolution_gate_blocks_until_objective_thresholds_pass():
+    gate = build_report_intelligence_evolution_readiness_gate(
+        run_id="RIR-TEST-EVOLUTION",
+        forecast_rows=[{"forecast_claim_id": "FC-1"}],
+        outcome_label_rows=[],
+        recipe_paper_trading_summary={
+            "paper_trading_run_count": 5,
+            "validation_pass_count": 0,
+            "mean_cost_adjusted_alpha": None,
+        },
+        confidence_impact_monitor={
+            "observation_count": 5,
+            "blocked_recipe_count": 5,
+            "unvalidated_confidence_impact_count": 0,
+            "alpha_decay_fail_count": 0,
+            "calibration_drift_count": 0,
+            "blocker_counts": {"no_direct_recipe_outcome_binding": 5},
+        },
+        markdown_coverage_summary={
+            "coverage_gate_status": "blocked",
+            "coverage_gate_blockers": ["selected_report_count_below_p9_target"],
+            "coverage_targets": {"selected_report_count_min": 300},
+        },
+        pit_leakage_audit={"accepted": True},
+        extraction_provenance_audit={"accepted": True},
+        statistical_robustness_audit={"accepted": True},
+        schema_validation_report={"accepted": True},
+        gold_review_summary={"passed": True, "reviewed_claims": 500},
+        outcome_labeling_readiness={"mapping_gap_counts": {"horizon": 3}},
+    )
+
+    assert gate["gate_status"] == "blocked"
+    assert gate["production_prompt_change_allowed"] is False
+    assert gate["private_text_included"] is False
+    assert {
+        "unique_outcome_claim_count_below_threshold",
+        "stock_proxy_claim_count_below_threshold",
+        "industry_proxy_claim_count_below_threshold",
+        "paper_trading_validated_recipe_count_below_threshold",
+        "confidence_impact_monitor_current_blocked",
+        "audit_refresh_history_below_threshold",
+        "gap_distribution_history_below_threshold",
+        "selected_report_count_below_p9_target",
+    } <= set(gate["blockers"])
+    gate_dump = json.dumps(gate, ensure_ascii=False)
+    assert "claim_text" not in gate_dump
+    assert "source_span_ids" not in gate_dump
+
+
+def test_report_intelligence_evolution_gate_passes_with_full_objective_evidence():
+    outcome_rows = []
+    forecast_rows = []
+    for index in range(100):
+        if index < 30:
+            label_type = "stock_price_proxy"
+            prefix = "STOCK"
+        elif index < 60:
+            label_type = "industry_etf_proxy"
+            prefix = "IND"
+        else:
+            label_type = "standard_outcome"
+            prefix = "STD"
+        claim_id = f"FC-{prefix}-{index:03d}"
+        forecast_rows.append({"forecast_claim_id": claim_id})
+        outcome_rows.append(
+            {
+                "forecast_claim_id": claim_id,
+                "label_type": label_type,
+                "horizon_days": 20,
+                "effective_n_weight": 1.0,
+            }
+        )
+
+    clean_monitor = {
+        "observation_count": 20,
+        "blocked_recipe_count": 0,
+        "unvalidated_confidence_impact_count": 0,
+        "alpha_decay_fail_count": 0,
+        "calibration_drift_count": 0,
+        "blocker_counts": {},
+    }
+    accepted_audit = {
+        "schema_accepted": True,
+        "pit_accepted": True,
+        "provenance_accepted": True,
+        "statistical_accepted": True,
+    }
+    gate = build_report_intelligence_evolution_readiness_gate(
+        run_id="RIR-TEST-EVOLUTION",
+        forecast_rows=forecast_rows,
+        outcome_label_rows=outcome_rows,
+        recipe_paper_trading_summary={
+            "paper_trading_run_count": 20,
+            "validation_pass_count": 20,
+            "mean_cost_adjusted_alpha": 0.012,
+        },
+        confidence_impact_monitor=clean_monitor,
+        markdown_coverage_summary={
+            "coverage_gate_status": "passed",
+            "coverage_gate_blockers": [],
+            "coverage_targets": {
+                "selected_report_count_min": 300,
+                "markdown_ready_count_min": 300,
+            },
+        },
+        pit_leakage_audit={"accepted": True},
+        extraction_provenance_audit={"accepted": True},
+        statistical_robustness_audit={"accepted": True},
+        schema_validation_report={"accepted": True},
+        gold_review_summary={
+            "passed": True,
+            "reviewed_claims": 500,
+            "pending_claims": 0,
+        },
+        outcome_labeling_readiness={"mapping_gap_counts": {}},
+        monitor_refresh_history_rows=[clean_monitor, clean_monitor],
+        audit_refresh_history_rows=[accepted_audit, accepted_audit],
+        gap_distribution_history_rows=[
+            {"stable": True},
+            {"stable": True},
+            {"stable": True},
+        ],
+    )
+
+    assert gate["gate_status"] == "passed"
+    assert gate["blocker_count"] == 0
+    assert gate["promotion_state"] == "ready_for_shadow_evolution_candidate"
+    assert all(row["passed"] is True for row in gate["checks"])
+    outcome_check = next(row for row in gate["checks"] if row["check_id"] == "RI-EVOL-01")
+    assert outcome_check["evidence"]["unique_outcome_claim_count"] == 100
+    assert outcome_check["evidence"]["stock_proxy_unique_claim_count"] == 30
+    assert outcome_check["evidence"]["industry_proxy_unique_claim_count"] == 30
 
 
 def test_report_intelligence_prompt_mutation_candidates_track_markdown_coverage_gate():
