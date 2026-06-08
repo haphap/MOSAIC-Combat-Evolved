@@ -1323,6 +1323,10 @@ def test_report_intelligence_labels_stock_claims_with_qlib_price_windows(
                             "target_type": "stock",
                             "target_id": "000001.SZ",
                             "target_name": "平安银行",
+                            "target_price": {
+                                "value": "1.02 CNY",
+                                "provenance": "source_grounded",
+                            },
                         },
                         "benchmark": {},
                         "direction": "positive",
@@ -1391,8 +1395,15 @@ def test_report_intelligence_labels_stock_claims_with_qlib_price_windows(
     }
     assert outcome_labels[0]["stock_return"] < 0
     assert outcome_labels[0]["directional_hit"] is False
+    assert outcome_labels[0]["target_price_hit"] is False
     assert outcome_labels[-1]["stock_return"] > 0
     assert outcome_labels[-1]["directional_hit"] is True
+    assert outcome_labels[-1]["target_price_hit"] is True
+    assert {row["target_price"] for row in outcome_labels} == {1.02}
+    assert {row["target_price_source_grounded"] for row in outcome_labels} == {True}
+    assert {row["target_price_provenance"] for row in outcome_labels} == {
+        "source_grounded"
+    }
     assert outcome_labels[-1]["directional_after_cost_return"] > 0
     assert outcome_labels[0]["temporal_validation_summary"][
         "temporal_validation_bucket"

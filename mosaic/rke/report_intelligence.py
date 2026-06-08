@@ -3422,6 +3422,139 @@ def _target_id(target: Mapping[str, Any]) -> str:
     return str(target.get("target_id") or target.get("target_name") or "unknown")
 
 
+STOCK_TARGET_PRICE_VALUE_KEYS = (
+    "target_price",
+    "price_target",
+    "target_price_value",
+    "price_target_value",
+    "target_price_rmb",
+    "target_price_cny",
+    "target_price_yuan",
+    "target_price_per_share",
+)
+
+STOCK_TARGET_PRICE_NUMERIC_KEYS = (
+    "value",
+    "amount",
+    "price",
+    "target",
+    "target_price",
+    "price_target",
+)
+
+STOCK_TARGET_PRICE_PROVENANCE_KEYS = (
+    "target_price_provenance",
+    "price_target_provenance",
+    "provenance",
+    "source",
+    "grounding",
+)
+
+STOCK_TARGET_PRICE_HIT_POLICY = (
+    "auxiliary_source_grounded_target_price_hit_v1:"
+    " positive uses exit_price>=target_price; negative uses exit_price<=target_price;"
+    " does not affect directional_hit"
+)
+
+
+def _structured_float_or_none(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    parsed = _float_or_none(value)
+    if parsed is not None:
+        return parsed
+    if isinstance(value, str):
+        matches = re.findall(r"[-+]?\d+(?:\.\d+)?", value.replace(",", ""))
+        if len(matches) == 1:
+            return _float_or_none(matches[0])
+    return None
+
+
+def _structured_target_price_from_value(value: Any) -> float | None:
+    if isinstance(value, Mapping):
+        for key in STOCK_TARGET_PRICE_NUMERIC_KEYS:
+            parsed = _structured_float_or_none(value.get(key))
+            if parsed is not None:
+                return parsed
+        return None
+    return _structured_float_or_none(value)
+
+
+def _mapping_target_price(mapping: Mapping[str, Any]) -> float | None:
+    for key in STOCK_TARGET_PRICE_VALUE_KEYS:
+        parsed = _structured_target_price_from_value(mapping.get(key))
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def _target_price_provenance_from_mapping(mapping: Mapping[str, Any]) -> str:
+    for key in ("target_price_source_grounded", "price_target_source_grounded"):
+        if mapping.get(key) is True:
+            return "source_grounded"
+        if mapping.get(key) is False:
+            return "not_source_grounded"
+    for key in STOCK_TARGET_PRICE_VALUE_KEYS:
+        nested = _ensure_mapping(mapping.get(key))
+        for provenance_key in STOCK_TARGET_PRICE_PROVENANCE_KEYS:
+            provenance = str(nested.get(provenance_key) or "").strip().lower()
+            if provenance:
+                return provenance
+    for key in STOCK_TARGET_PRICE_PROVENANCE_KEYS:
+        provenance = str(mapping.get(key) or "").strip().lower()
+        if provenance:
+            return provenance
+    return ""
+
+
+def _stock_target_price_info(claim: Mapping[str, Any]) -> dict[str, Any]:
+    target = _ensure_mapping(claim.get("target"))
+    target_price = _mapping_target_price(target)
+    if target_price is None:
+        target_price = _mapping_target_price(claim)
+    if target_price is None or target_price <= 0:
+        return {}
+
+    provenance = (
+        _target_price_provenance_from_mapping(target)
+        or _target_price_provenance_from_mapping(claim)
+    )
+    claim_provenance = str(claim.get("claim_provenance") or "").strip().lower()
+    if provenance == "not_source_grounded":
+        return {}
+    if provenance != "source_grounded" and claim_provenance != "source_grounded":
+        return {}
+    if not provenance:
+        provenance = "claim_source_grounded"
+    return {
+        "target_price": round(target_price, 8),
+        "target_price_provenance": provenance,
+        "target_price_source_grounded": True,
+    }
+
+
+def _stock_target_price_hit_fields(
+    *,
+    target_price_info: Mapping[str, Any],
+    direction: str,
+    entry_price: float,
+    exit_price: float,
+) -> dict[str, Any]:
+    target_price = _float_or_none(target_price_info.get("target_price"))
+    if target_price is None:
+        return {}
+    target_price_hit = (
+        exit_price >= target_price if direction == "positive" else exit_price <= target_price
+    )
+    return {
+        **target_price_info,
+        "target_price_hit": bool(target_price_hit),
+        "target_price_entry_price": round(entry_price, 8),
+        "target_price_eval_price": round(exit_price, 8),
+        "target_price_hit_policy": STOCK_TARGET_PRICE_HIT_POLICY,
+    }
+
+
 def build_forecast_ledger_records(
     forecast_rows: Sequence[Mapping[str, Any]],
 ) -> list[dict[str, Any]]:
@@ -5105,6 +5238,7 @@ def build_stock_price_proxy_outcome_labels(
         source_horizon_days = _horizon_preferred_days(claim_horizon)
         source_horizon_bucket = _horizon_bucket(claim_horizon)
         target = _ensure_mapping(claim.get("target"))
+        target_price_info = _stock_target_price_info(claim)
         available_dates = _series_available_dates(
             calendar=stock_calendar,
             start_index=stock_start,
@@ -5154,89 +5288,94 @@ def build_stock_price_proxy_outcome_labels(
                 relative_directional_hit = relative_alpha < 0
                 directional_stock_return = -stock_return
             window_role = _stock_price_proxy_window_role(horizon_days)
-            claim_records.append(
-                {
-                    "outcome_id": _stable_id(
-                        "OUT",
-                        {
-                            "forecast_claim_id": claim.get("forecast_claim_id"),
-                            "label_type": "stock_price_proxy",
-                            "stock_symbol": ts_code,
-                            "horizon_days": horizon_days,
-                        },
-                    ),
-                    "forecast_claim_id": str(claim.get("forecast_claim_id") or ""),
-                    "forecast_family_id": forecast_family_id,
-                    "claim_window_set_id": claim_window_set_id,
-                    "entry_datetime": f"{entry_date}T00:00:00+08:00",
-                    "exit_datetime": f"{exit_date}T00:00:00+08:00",
-                    "horizon_days": horizon_days,
-                    "relative_alpha": round(relative_alpha, 8),
-                    "directional_hit": bool(directional_hit),
-                    "after_cost_alpha": round(
-                        relative_alpha - STOCK_PRICE_PROXY_ROUND_TRIP_COST,
-                        8,
-                    ),
-                    "overlap_group_id": _stable_id(
-                        "OVL",
-                        {
-                            "label_type": "stock_price_proxy",
-                            "proxy_symbol": ts_code,
-                            "entry_date": entry_date,
-                            "horizon_days": horizon_days,
-                        },
-                    ),
-                    "effective_n_weight": round(
-                        _stock_price_proxy_window_effective_weight(horizon_days),
-                        6,
-                    ),
-                    "pit_valid": True,
-                    "survivorship_safe": True,
-                    "label_type": "stock_price_proxy",
-                    "proxy_symbol": ts_code,
-                    "proxy_label": str(target.get("target_name") or ts_code),
-                    "proxy_return": round(stock_return, 8),
-                    "stock_return": round(stock_return, 8),
-                    "benchmark_symbol": benchmark_symbol,
-                    "benchmark_source": STOCK_PRICE_PROXY_BENCHMARK_SOURCE,
-                    "benchmark_family": STOCK_PRICE_PROXY_BENCHMARK_FAMILY,
-                    "benchmark_return": round(benchmark_return, 8),
-                    "benchmark_alignment": "date_key_cross_qlib_dir",
-                    "benchmark_calendar_source": str(qlib_etf_dir),
-                    "stock_calendar_source": str(qlib_stock_dir),
-                    "latest_calendar_date": stock_calendar[-1],
-                    "cost_model_id": STOCK_PRICE_PROXY_COST_MODEL_ID,
-                    "round_trip_cost": STOCK_PRICE_PROXY_ROUND_TRIP_COST,
-                    "directional_proxy_return": round(directional_stock_return, 8),
-                    "directional_stock_return": round(directional_stock_return, 8),
-                    "directional_after_cost_return": round(
-                        directional_stock_return - STOCK_PRICE_PROXY_ROUND_TRIP_COST,
-                        8,
-                    ),
-                    "relative_directional_hit": bool(relative_directional_hit),
-                    "direction_evaluated": direction,
-                    "decision_basis": STOCK_PRICE_PROXY_DECISION_BASIS,
-                    "outcome_label_source": STOCK_PRICE_PROXY_OUTCOME_LABEL_SOURCE,
-                    "llm_outcome_labeling_allowed": False,
-                    "performance_value_basis": "directional_after_cost_return",
-                    "window_role": window_role,
-                    "source_horizon_days": source_horizon_days,
-                    "source_horizon_bucket": source_horizon_bucket,
-                    "claim_window_alignment": _stock_price_claim_window_alignment(
-                        claim_horizon=claim_horizon,
-                        horizon_days=horizon_days,
-                    ),
-                    "evaluation_policy": STOCK_PRICE_PROXY_EVALUATION_POLICY,
-                    "entry_lag_trading_days": STOCK_PRICE_PROXY_ENTRY_LAG_TRADING_DAYS,
-                    "target_resolution_source": resolution[
-                        "target_resolution_source"
-                    ],
-                    "metadata_ts_code": resolution["metadata_ts_code"],
-                    "llm_target_id": resolution["llm_target_id"],
-                    "source_metadata_id": source_id,
-                    "survivorship_check": "entry_and_exit_prices_observed",
-                }
+            record = {
+                "outcome_id": _stable_id(
+                    "OUT",
+                    {
+                        "forecast_claim_id": claim.get("forecast_claim_id"),
+                        "label_type": "stock_price_proxy",
+                        "stock_symbol": ts_code,
+                        "horizon_days": horizon_days,
+                    },
+                ),
+                "forecast_claim_id": str(claim.get("forecast_claim_id") or ""),
+                "forecast_family_id": forecast_family_id,
+                "claim_window_set_id": claim_window_set_id,
+                "entry_datetime": f"{entry_date}T00:00:00+08:00",
+                "exit_datetime": f"{exit_date}T00:00:00+08:00",
+                "horizon_days": horizon_days,
+                "relative_alpha": round(relative_alpha, 8),
+                "directional_hit": bool(directional_hit),
+                "after_cost_alpha": round(
+                    relative_alpha - STOCK_PRICE_PROXY_ROUND_TRIP_COST,
+                    8,
+                ),
+                "overlap_group_id": _stable_id(
+                    "OVL",
+                    {
+                        "label_type": "stock_price_proxy",
+                        "proxy_symbol": ts_code,
+                        "entry_date": entry_date,
+                        "horizon_days": horizon_days,
+                    },
+                ),
+                "effective_n_weight": round(
+                    _stock_price_proxy_window_effective_weight(horizon_days),
+                    6,
+                ),
+                "pit_valid": True,
+                "survivorship_safe": True,
+                "label_type": "stock_price_proxy",
+                "proxy_symbol": ts_code,
+                "proxy_label": str(target.get("target_name") or ts_code),
+                "proxy_return": round(stock_return, 8),
+                "stock_return": round(stock_return, 8),
+                "benchmark_symbol": benchmark_symbol,
+                "benchmark_source": STOCK_PRICE_PROXY_BENCHMARK_SOURCE,
+                "benchmark_family": STOCK_PRICE_PROXY_BENCHMARK_FAMILY,
+                "benchmark_return": round(benchmark_return, 8),
+                "benchmark_alignment": "date_key_cross_qlib_dir",
+                "benchmark_calendar_source": str(qlib_etf_dir),
+                "stock_calendar_source": str(qlib_stock_dir),
+                "latest_calendar_date": stock_calendar[-1],
+                "cost_model_id": STOCK_PRICE_PROXY_COST_MODEL_ID,
+                "round_trip_cost": STOCK_PRICE_PROXY_ROUND_TRIP_COST,
+                "directional_proxy_return": round(directional_stock_return, 8),
+                "directional_stock_return": round(directional_stock_return, 8),
+                "directional_after_cost_return": round(
+                    directional_stock_return - STOCK_PRICE_PROXY_ROUND_TRIP_COST,
+                    8,
+                ),
+                "relative_directional_hit": bool(relative_directional_hit),
+                "direction_evaluated": direction,
+                "decision_basis": STOCK_PRICE_PROXY_DECISION_BASIS,
+                "outcome_label_source": STOCK_PRICE_PROXY_OUTCOME_LABEL_SOURCE,
+                "llm_outcome_labeling_allowed": False,
+                "performance_value_basis": "directional_after_cost_return",
+                "window_role": window_role,
+                "source_horizon_days": source_horizon_days,
+                "source_horizon_bucket": source_horizon_bucket,
+                "claim_window_alignment": _stock_price_claim_window_alignment(
+                    claim_horizon=claim_horizon,
+                    horizon_days=horizon_days,
+                ),
+                "evaluation_policy": STOCK_PRICE_PROXY_EVALUATION_POLICY,
+                "entry_lag_trading_days": STOCK_PRICE_PROXY_ENTRY_LAG_TRADING_DAYS,
+                "target_resolution_source": resolution["target_resolution_source"],
+                "metadata_ts_code": resolution["metadata_ts_code"],
+                "llm_target_id": resolution["llm_target_id"],
+                "source_metadata_id": source_id,
+                "survivorship_check": "entry_and_exit_prices_observed",
+            }
+            record.update(
+                _stock_target_price_hit_fields(
+                    target_price_info=target_price_info,
+                    direction=direction,
+                    entry_price=entry_price,
+                    exit_price=exit_price,
+                )
             )
+            claim_records.append(record)
         if claim_records:
             temporal_summary = _stock_price_temporal_validation_summary(claim_records)
             for record in claim_records:
