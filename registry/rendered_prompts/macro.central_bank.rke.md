@@ -19,6 +19,7 @@ Generate central-bank and liquidity regime signals.
 ## Tools
 
 Required: get_pboc_ops
+- get_pboc_ops: metrics=['pboc_net_injection_7d'], metric_candidate_ids=['METRIC-CB-PBOC-NET-INJECTION-7D'], analysis_recipe_ids=['RECIPE-CB-LIQUIDITY-IMPULSE'], pit_required_for_backtest=true, fallback_confidence_cap=0.6, lineage={"report_footprint_ids": ["AFP-CB-LIQUIDITY-IMPULSE"], "tool_proposal_id": "TDP-CB-PBOC-OMO"}
 Fallback: liquidity_proxy_from_rates(cap=0.60)
 
 ## Runtime Evidence
@@ -41,3 +42,4 @@ Rule packs: macro.central_bank.liquidity.v1
 - research_reports_are_prior_not_signal
 - research_only_no_trade
 - no_direct_production_promotion
+- production_blocked_until_manual_gold_license_and_lockbox_gates_pass

@@ -95,6 +95,11 @@ from .registry_manifest import (
     validate_required_registry_content,
     write_registry_manifest,
 )
+from .report_intelligence import (
+    ReportIntelligenceConfig,
+    apply_analytical_footprint_review_import,
+    run_report_intelligence_refresh,
+)
 from .review_progress import (
     build_manual_review_progress,
     write_manual_review_progress_report,
@@ -629,6 +634,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Days per full-market report_type query window. Defaults to 31.",
     )
     fetch_reports.add_argument(
+        "--merge-existing-source",
+        action="store_true",
+        help=(
+            "Merge fetched reports into the existing local research-report source "
+            "instead of replacing it."
+        ),
+    )
+    fetch_reports.add_argument(
         "--overwrite-review-templates",
         action="store_true",
         help="Regenerate gold-set and license review templates even when they contain manual values.",
@@ -636,6 +649,179 @@ def build_parser() -> argparse.ArgumentParser:
     fetch_reports.add_argument(
         "--env-file",
         help="Optional .env file to load before initializing the Tushare client.",
+    )
+
+    report_intelligence = subparsers.add_parser(
+        "report-intelligence",
+        help=(
+            "Materialize Tushare report PDFs, convert with MinerU, and extract "
+            "Report Intelligence Loop objects with local vLLM."
+        ),
+    )
+    report_intelligence.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
+    report_intelligence.add_argument(
+        "--source-path",
+        default="registry/sources/tushare_research_reports.jsonl",
+        help="Source JSONL path. Defaults to registry/sources/tushare_research_reports.jsonl.",
+    )
+    report_intelligence.add_argument(
+        "--cache-dir",
+        default=".mosaic/rke/report_intelligence",
+        help="Local PDF/Markdown cache directory. Defaults to .mosaic/rke/report_intelligence.",
+    )
+    report_intelligence.add_argument(
+        "--source-id",
+        action="append",
+        dest="source_ids",
+        help="Source id to process. May be repeated or comma-separated.",
+    )
+    report_intelligence.add_argument(
+        "--limit",
+        type=int,
+        help="Maximum selected source rows to process.",
+    )
+    report_intelligence.add_argument(
+        "--min-publish-date",
+        help="Only process reports with publish_date >= this YYYY-MM-DD date.",
+    )
+    report_intelligence.add_argument(
+        "--max-publish-date",
+        help="Only process reports with publish_date <= this YYYY-MM-DD date.",
+    )
+    report_intelligence.add_argument(
+        "--selection-order",
+        choices=("latest", "oldest"),
+        default="latest",
+        help="Order source selection before applying --limit. Defaults to latest.",
+    )
+    report_intelligence.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Re-download/re-convert existing local artifacts.",
+    )
+    report_intelligence.add_argument(
+        "--skip-download",
+        action="store_true",
+        help="Do not download PDFs; use existing local cache only.",
+    )
+    report_intelligence.add_argument(
+        "--skip-convert",
+        action="store_true",
+        help="Do not run MinerU; use existing Markdown cache only.",
+    )
+    report_intelligence.add_argument(
+        "--skip-llm",
+        action="store_true",
+        help="Do not call local vLLM; only materialize PDF/Markdown status.",
+    )
+    report_intelligence.add_argument(
+        "--refresh-derived-only",
+        action="store_true",
+        help=(
+            "Recompute derived report-intelligence artifacts from existing "
+            "registry extraction outputs without downloading, converting, or "
+            "calling local vLLM."
+        ),
+    )
+    report_intelligence.add_argument(
+        "--download-timeout-seconds",
+        type=int,
+        default=60,
+        help="PDF download timeout in seconds. Defaults to 60.",
+    )
+    report_intelligence.add_argument(
+        "--mineru-command",
+        default="mineru",
+        help="MinerU command. Defaults to mineru.",
+    )
+    report_intelligence.add_argument(
+        "--mineru-backend",
+        default="hybrid-auto-engine",
+        choices=(
+            "hybrid-auto-engine",
+            "vlm-auto-engine",
+            "pipeline",
+            "vlm-http-client",
+            "hybrid-http-client",
+        ),
+        help="MinerU backend. Defaults to hybrid-auto-engine.",
+    )
+    report_intelligence.add_argument(
+        "--mineru-server-url",
+        help="MinerU VLM/hybrid HTTP backend server URL, passed as -u/--url.",
+    )
+    report_intelligence.add_argument(
+        "--mineru-args-template",
+        default="-p {pdf} -o {output_dir} -b {backend} -m auto",
+        help=(
+            "MinerU args template. Supports {pdf}, {output_dir}, and {backend}. "
+            "Defaults to '-p {pdf} -o {output_dir} -b {backend} -m auto'."
+        ),
+    )
+    report_intelligence.add_argument(
+        "--mineru-batch-size",
+        type=int,
+        default=4,
+        help="PDF files per MinerU directory batch. Defaults to 4.",
+    )
+    report_intelligence.add_argument(
+        "--mineru-timeout-seconds",
+        type=int,
+        default=900,
+        help="MinerU timeout per batch in seconds. Defaults to 900.",
+    )
+    report_intelligence.add_argument(
+        "--mineru-batch-max-bytes",
+        type=int,
+        default=5_000_000,
+        help=(
+            "Maximum total PDF bytes per MinerU batch; <=0 disables byte bucketing. "
+            "Defaults to 5000000."
+        ),
+    )
+    report_intelligence.add_argument(
+        "--vllm-base-url",
+        default="http://127.0.0.1:8020/v1",
+        help="OpenAI-compatible local vLLM base URL.",
+    )
+    report_intelligence.add_argument(
+        "--vllm-model",
+        help="vLLM model id. When omitted, /models first result is used.",
+    )
+    report_intelligence.add_argument(
+        "--qlib-etf-dir",
+        default="~/.qlib/qlib_data/cn_etf",
+        help="Local qlib ETF data directory for proxy outcome labels.",
+    )
+    report_intelligence.add_argument(
+        "--chunk-chars",
+        type=int,
+        default=60000,
+        help="Characters per Markdown chunk sent to vLLM. Defaults to 60000.",
+    )
+    report_intelligence.add_argument(
+        "--max-chunks",
+        type=int,
+        default=8,
+        help="Maximum Markdown chunks per report. Defaults to 8.",
+    )
+
+    apply_footprint_review = subparsers.add_parser(
+        "apply-footprint-review",
+        help="Validate and apply an analytical-footprint manual review JSONL import.",
+    )
+    apply_footprint_review.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
+    apply_footprint_review.add_argument(
+        "--input",
+        required=True,
+        help="JSONL file containing analytical-footprint review decisions.",
+    )
+    apply_footprint_review.add_argument(
+        "--dry-run", action="store_true", help="Validate without mutating the registry."
     )
 
     validate = subparsers.add_parser(
@@ -682,6 +868,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0 if view.complete else 2
     if args.command == "master-plan-status":
         write_audit_trace_view(root)
+        write_completion_audit(root)
         write_master_plan_coverage_report(root)
         result = build_master_plan_coverage_report(root)
         _print_json(asdict(result))
@@ -987,10 +1174,52 @@ def main(argv: Sequence[str] | None = None) -> int:
             max_reports_per_query=args.max_reports_per_query,
             stock_query_batch_size=args.stock_query_batch_size,
             date_chunk_days=args.date_chunk_days,
+            merge_existing_source=args.merge_existing_source,
             preserve_review_templates=not args.overwrite_review_templates,
         )
         _print_json(asdict(result))
         return 0 if result.manifest_valid else 2
+    if args.command == "report-intelligence":
+        result = run_report_intelligence_refresh(
+            ReportIntelligenceConfig(
+                root=root,
+                source_path=args.source_path,
+                cache_dir=args.cache_dir,
+                source_ids=_split_repeated_csv(args.source_ids),
+                limit=args.limit,
+                min_publish_date=args.min_publish_date,
+                max_publish_date=args.max_publish_date,
+                selection_order=args.selection_order,
+                overwrite=args.overwrite,
+                skip_download=args.skip_download,
+                skip_convert=args.skip_convert,
+                skip_llm=args.skip_llm,
+                refresh_derived_only=args.refresh_derived_only,
+                download_timeout_seconds=args.download_timeout_seconds,
+                mineru_command=args.mineru_command,
+                mineru_backend=args.mineru_backend,
+                mineru_server_url=args.mineru_server_url,
+                mineru_args_template=args.mineru_args_template,
+                mineru_timeout_seconds=args.mineru_timeout_seconds,
+                mineru_batch_size=args.mineru_batch_size,
+                mineru_batch_max_bytes=args.mineru_batch_max_bytes,
+                vllm_base_url=args.vllm_base_url,
+                vllm_model=args.vllm_model,
+                qlib_etf_dir=args.qlib_etf_dir,
+                chunk_chars=args.chunk_chars,
+                max_chunks=args.max_chunks,
+            )
+        )
+        _print_json(asdict(result))
+        return 0 if result.blocker_count == 0 else 2
+    if args.command == "apply-footprint-review":
+        report = apply_analytical_footprint_review_import(
+            root,
+            args.input,
+            dry_run=args.dry_run,
+        )
+        _print_json(asdict(report))
+        return 0 if report.accepted else 2
     if args.command == "validate-required":
         missing, empty = validate_required_registry(root)
         invalid = validate_required_registry_content(root)

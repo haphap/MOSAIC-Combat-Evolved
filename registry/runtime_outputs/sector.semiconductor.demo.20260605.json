@@ -3,8 +3,9 @@
   "confidence_components": {
     "data_confidence": 0.5,
     "empirical_validation_confidence": 0.3,
+    "method_tool_confidence": 0.4,
     "regime_match_confidence": 0.5,
-    "research_confidence": 0.55
+    "research_weight_confidence": 0.55
   },
   "confidence_policy_trace": {},
   "downstream_handoff": {
@@ -13,13 +14,17 @@
   },
   "evidence_ledger": [
     {
+      "analysis_recipe_id": "",
       "as_of": "2026-06-05",
       "confidence_impact": "capped",
       "direction": "mixed",
       "evidence_id": "E-SEMI-20260605-0001",
+      "evidence_type": "",
       "fallback": false,
       "freshness_days": 0,
       "metric": "semiconductor_policy_theme_mentions_20d",
+      "metric_candidate_id": "",
+      "report_footprint_ids": [],
       "source_claim_ids": [
         "CLAIM-SEMI-20260605-0001",
         "CLAIM-SEMI-20260605-0002",
@@ -27,6 +32,7 @@
       ],
       "source_tool": "tushare_research_report_sandbox",
       "source_type": "source_grounded_claim",
+      "tool_proposal_id": "",
       "unit": "theme",
       "value": "storage_cycle_support_with_risks"
     }
@@ -41,6 +47,7 @@
         "E-SEMI-20260605-0001"
       ],
       "inference_id": "I-SEMI-20260605-0001",
+      "research_support_ids": [],
       "rule_ids": [
         "sector.semiconductor.soft.014"
       ],
@@ -54,7 +61,7 @@
   ],
   "progress_event": {
     "agent_id": "sector.semiconductor",
-    "confidence": 0.5,
+    "confidence": 0.3,
     "evidence_count": 1,
     "fallback_count": 0,
     "layer": "sector",
@@ -68,7 +75,7 @@
   "recommendations": [
     {
       "actionability": "monitor_only",
-      "confidence": 0.5,
+      "confidence": 0.3,
       "inference_ids": [
         "I-SEMI-20260605-0001"
       ],
@@ -79,6 +86,7 @@
   "research_rule_ids_used": [
     "sector.semiconductor.soft.014"
   ],
+  "research_support_ledger": [],
   "rule_aggregation_summary": {
     "confidence_cap": 0.6,
     "correlated_rule_duplicate_count": 0,

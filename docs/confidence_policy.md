@@ -5,8 +5,11 @@ Confidence is capped by the weakest part of the evidence chain.
 ## Components
 
 - `data_confidence`: freshness, completeness, fallback use, and tool quality.
-- `research_confidence`: source-grounded claim quality and disagreement risk.
+- `research_weight_confidence`: source/viewpoint reliability, extraction quality,
+  disagreement, and independent-source support.
 - `empirical_validation_confidence`: validation, walk-forward, and paper-trading evidence.
+- `method_tool_confidence`: tool coverage, point-in-time availability, tool
+  correctness, recipe validation, and shadow-runtime status.
 - `regime_match_confidence`: whether current regime matches the rule conditions.
 
 ## Conservative Function
@@ -14,8 +17,9 @@ Confidence is capped by the weakest part of the evidence chain.
 ```text
 pre_cap_confidence = min(
   data_confidence,
-  research_confidence,
+  research_weight_confidence,
   empirical_validation_confidence,
+  method_tool_confidence,
   regime_match_confidence
 )
 

@@ -14,7 +14,9 @@ from pathlib import Path
 from typing import Any, Literal, Mapping, Sequence
 
 from .license_policy_import import (
+    SOURCE_LICENSE_POLICY_TEMPLATE_PATH,
     SOURCE_LICENSE_REVIEW_WORKBOOK_MD_PATH,
+    write_source_license_policy_template,
     write_source_license_review_workbook,
 )
 from .manual_review_import import GOLD_BOOL_FIELDS, TARGET_ROW_HASH_FIELD, review_row_fingerprint
@@ -25,6 +27,8 @@ GOLD_REVIEW_PACKET_PATH = "registry/gold_sets/tushare_research_reports.review_pa
 GOLD_BATCH_IMPORT_TEMPLATE_PATH = "registry/review_batches/gold_set_next_import_template.jsonl"
 GOLD_FULL_IMPORT_TEMPLATE_PATH = "registry/review_batches/gold_set_full_import_template.jsonl"
 GOLD_REVIEW_WORKBOOK_MD_PATH = "registry/review_batches/gold_set_review_workbook.md"
+GOLD_REVIEW_ASSIST_JSONL_PATH = "registry/review_batches/gold_set_review_assist.jsonl"
+GOLD_REVIEW_ASSIST_MD_PATH = "registry/review_batches/gold_set_review_assist.md"
 GOLD_REVIEWED_IMPORT_PATH = "registry/review_batches/gold_set_reviewed.jsonl"
 GOLD_FULL_REVIEWED_IMPORT_PATH = "registry/review_batches/gold_set_full_reviewed.jsonl"
 LICENSE_REVIEW_TEMPLATE_PATH = "registry/compliance/tushare_license_review_template.jsonl"
@@ -82,6 +86,18 @@ class GoldReviewWorkbookSummary:
     review_packet_path: str
     pending_rows: int
     row_count: int
+    blockers: Sequence[str]
+
+
+@dataclass(frozen=True)
+class GoldReviewAssistSummary:
+    assist_id: str
+    jsonl_path: str
+    markdown_path: str
+    review_template_path: str
+    reviewed_import_path: str
+    row_count: int
+    pending_rows: int
     blockers: Sequence[str]
 
 
@@ -254,6 +270,68 @@ def _gold_workbook_row(index: int, row: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _gold_assist_row(index: int, row: Mapping[str, Any]) -> dict[str, Any]:
+    proposed_claim_text = str(row.get("proposed_claim_text") or "").strip()
+    proposed_variables = tuple(
+        str(variable)
+        for variable in (
+            *(row.get("proposed_cause_variables") or ()),
+            *(row.get("proposed_target_variables") or ()),
+        )
+        if str(variable).strip()
+    )
+    return {
+        "assist_kind": "gold_review_assist_not_import",
+        "not_apply_gold_review_input": True,
+        "index": index,
+        "claim_id": str(row.get("claim_id") or ""),
+        TARGET_ROW_HASH_FIELD: review_row_fingerprint(row),
+        "source_id": str(row.get("source_id") or ""),
+        "source_span_id": str(row.get("source_span_id") or ""),
+        "document_id": str(row.get("document_id") or row.get("source_id") or ""),
+        "gold_set_domain": str(row.get("gold_set_domain") or "other"),
+        "review_context_ref": GOLD_REVIEW_PACKET_PATH,
+        "target_review_path": GOLD_REVIEW_TEMPLATE_PATH,
+        "reviewed_import_path": GOLD_FULL_REVIEWED_IMPORT_PATH,
+        "proposed_claim_text_preview": _short_review_preview(
+            proposed_claim_text,
+            max_chars=72,
+        ),
+        "proposed_claim_text_truncated": len(proposed_claim_text) > 72,
+        "suggested_manual_claim_text_preview": _short_review_preview(
+            proposed_claim_text,
+            max_chars=72,
+        ),
+        "suggested_manual_claim_text_hash": review_row_fingerprint(
+            {"manual_claim_text": proposed_claim_text}
+        ),
+        "proposed_claim_type": row.get("proposed_claim_type"),
+        "proposed_direction": row.get("proposed_direction"),
+        "proposed_extraction_confidence_bin": row.get(
+            "proposed_extraction_confidence_bin"
+        ),
+        "proposed_variables": proposed_variables,
+        "proposed_source_offsets": (
+            f"{row.get('proposed_source_start_char')}-{row.get('proposed_source_end_char')}"
+        ),
+        "proposed_source_text_hash": str(row.get("proposed_source_text_hash") or ""),
+        "proposed_source_span_ref_id": str(
+            row.get("proposed_source_span_ref_id") or ""
+        ),
+        "proposed_review_risk_flags": tuple(
+            row.get("proposed_review_risk_flags") or ()
+        ),
+        "human_required_fields": (
+            "manual_claim_text",
+            *GOLD_BOOL_FIELDS,
+            "reviewer",
+            "review_date",
+            "review_notes",
+        ),
+        "human_review_required": True,
+    }
+
+
 def build_gold_review_workbook(
     root: str | Path = ".",
 ) -> tuple[GoldReviewWorkbookSummary, tuple[Mapping[str, Any], ...]]:
@@ -361,6 +439,118 @@ def write_gold_review_workbook(root: str | Path = ".") -> dict[str, Any]:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(render_gold_review_workbook_markdown(summary, rows) + "\n", encoding="utf-8")
     return {"path": str(path), "rows": len(rows), "blockers": len(summary.blockers)}
+
+
+def build_gold_review_assist(
+    root: str | Path = ".",
+) -> tuple[GoldReviewAssistSummary, tuple[Mapping[str, Any], ...]]:
+    root_path = Path(root)
+    raw_rows, rows, invalid_rows, parse_blockers, _ = _load_review_rows(
+        root_path,
+        GOLD_REVIEW_TEMPLATE_PATH,
+        label="gold-set review",
+    )
+    pending_rows = [row for row in rows if not _gold_row_complete(row)]
+    assist_rows = tuple(
+        _gold_assist_row(index, row) for index, row in enumerate(pending_rows, 1)
+    )
+    blockers: list[str] = [*parse_blockers]
+    if invalid_rows:
+        blockers.append(
+            "gold-set review row must be object at row(s): "
+            + ", ".join(str(row_number) for row_number in invalid_rows)
+        )
+    if not raw_rows:
+        blockers.append("gold-set review template is missing or empty")
+    elif not rows:
+        blockers.append("gold-set review template has no valid review rows")
+    return (
+        GoldReviewAssistSummary(
+            assist_id="RKE-GOLD-REVIEW-ASSIST-20260606",
+            jsonl_path=GOLD_REVIEW_ASSIST_JSONL_PATH,
+            markdown_path=GOLD_REVIEW_ASSIST_MD_PATH,
+            review_template_path=GOLD_REVIEW_TEMPLATE_PATH,
+            reviewed_import_path=GOLD_FULL_REVIEWED_IMPORT_PATH,
+            row_count=len(assist_rows),
+            pending_rows=len(pending_rows),
+            blockers=tuple(blockers),
+        ),
+        assist_rows,
+    )
+
+
+def render_gold_review_assist_markdown(
+    summary: GoldReviewAssistSummary,
+    rows: Sequence[Mapping[str, Any]],
+) -> str:
+    lines = [
+        "# RKE Gold Review Assist",
+        "",
+        f"- Assist ID: {summary.assist_id}",
+        f"- Pending rows: {summary.pending_rows}",
+        f"- Review template: `{summary.review_template_path}`",
+        f"- Reviewed import target: `{summary.reviewed_import_path}`",
+        f"- JSONL assist: `{summary.jsonl_path}`",
+        "",
+        "This file is machine-generated review assistance only. It is not an import file and does not satisfy the manual gold-set gate.",
+        "Use it to copy short claim previews and hashes while filling the reviewed JSONL scratch file by hand.",
+        "",
+    ]
+    if summary.blockers:
+        lines.extend(["## Blockers", ""])
+        lines.extend(f"- {blocker}" for blocker in summary.blockers)
+        lines.append("")
+    lines.extend(
+        [
+            "## Assist Rows",
+            "",
+            (
+                "| # | claim_id | target_hash | domain | type | direction | "
+                "variables | risk_flags | manual_claim_preview |"
+            ),
+            "|---|---|---|---|---|---|---|---|---|",
+        ]
+    )
+    for row in rows:
+        lines.append(
+            "| "
+            + " | ".join(
+                (
+                    _markdown_cell(row.get("index"), max_chars=12),
+                    _markdown_cell(row.get("claim_id"), max_chars=48),
+                    _markdown_cell(row.get(TARGET_ROW_HASH_FIELD), max_chars=24),
+                    _markdown_cell(row.get("gold_set_domain"), max_chars=24),
+                    _markdown_cell(row.get("proposed_claim_type"), max_chars=32),
+                    _markdown_cell(row.get("proposed_direction"), max_chars=16),
+                    _markdown_cell(row.get("proposed_variables"), max_chars=72),
+                    _markdown_cell(row.get("proposed_review_risk_flags"), max_chars=72),
+                    _markdown_cell(
+                        row.get("suggested_manual_claim_text_preview"),
+                        max_chars=72,
+                    ),
+                )
+            )
+            + " |"
+        )
+    return "\n".join(lines)
+
+
+def write_gold_review_assist(root: str | Path = ".") -> dict[str, Any]:
+    root_path = Path(root)
+    summary, rows = build_gold_review_assist(root_path)
+    jsonl_result = _write_jsonl(root_path / GOLD_REVIEW_ASSIST_JSONL_PATH, rows)
+    md_path = root_path / GOLD_REVIEW_ASSIST_MD_PATH
+    md_path.parent.mkdir(parents=True, exist_ok=True)
+    md_path.write_text(
+        render_gold_review_assist_markdown(summary, rows) + "\n",
+        encoding="utf-8",
+    )
+    return {
+        "jsonl": str(jsonl_result["path"]),
+        "markdown": str(md_path),
+        "rows": len(rows),
+        "blockers": len(summary.blockers),
+    }
 
 
 def _license_template_row(row: Mapping[str, Any]) -> dict[str, Any]:
@@ -531,7 +721,10 @@ def build_manual_review_batch_status(
             GOLD_BATCH_IMPORT_TEMPLATE_PATH,
             GOLD_FULL_IMPORT_TEMPLATE_PATH,
             GOLD_REVIEW_WORKBOOK_MD_PATH,
+            GOLD_REVIEW_ASSIST_JSONL_PATH,
+            GOLD_REVIEW_ASSIST_MD_PATH,
             LICENSE_BATCH_IMPORT_TEMPLATE_PATH,
+            SOURCE_LICENSE_POLICY_TEMPLATE_PATH,
             SOURCE_LICENSE_REVIEW_WORKBOOK_MD_PATH,
             MANUAL_REVIEW_BATCH_STATUS_PATH,
         ),
@@ -561,7 +754,9 @@ def write_manual_review_batches(
     gold_result = _write_jsonl(root_path / GOLD_BATCH_IMPORT_TEMPLATE_PATH, gold_batch)
     gold_full_result = _write_jsonl(root_path / GOLD_FULL_IMPORT_TEMPLATE_PATH, gold_full)
     gold_workbook_result = write_gold_review_workbook(root_path)
+    gold_assist_result = write_gold_review_assist(root_path)
     license_result = _write_jsonl(root_path / LICENSE_BATCH_IMPORT_TEMPLATE_PATH, license_batch)
+    license_policy_template_result = write_source_license_policy_template(root_path)
     license_workbook_result = write_source_license_review_workbook(root_path)
     status_result = _write_json(root_path / MANUAL_REVIEW_BATCH_STATUS_PATH, asdict(status))
     return {
@@ -569,11 +764,15 @@ def write_manual_review_batches(
         "gold_set_import_template": str(gold_result["path"]),
         "gold_set_full_import_template": str(gold_full_result["path"]),
         "gold_set_review_workbook": str(gold_workbook_result["path"]),
+        "gold_set_review_assist_jsonl": str(gold_assist_result["jsonl"]),
+        "gold_set_review_assist_markdown": str(gold_assist_result["markdown"]),
         "source_license_import_template": str(license_result["path"]),
+        "source_license_policy_template": str(license_policy_template_result["path"]),
         "source_license_review_workbook": str(license_workbook_result["path"]),
         "gold_set_rows": int(gold_result["rows"]),
         "gold_set_full_rows": int(gold_full_result["rows"]),
         "gold_set_review_workbook_rows": int(gold_workbook_result["rows"]),
+        "gold_set_review_assist_rows": int(gold_assist_result["rows"]),
         "source_license_rows": int(license_result["rows"]),
         "source_license_review_workbook_rows": int(license_workbook_result["rows"]),
     }

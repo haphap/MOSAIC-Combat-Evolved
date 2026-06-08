@@ -10,9 +10,12 @@ from typing import Any, Mapping, Sequence
 from .manual_review_batches import (
     GOLD_BATCH_IMPORT_TEMPLATE_PATH,
     GOLD_FULL_IMPORT_TEMPLATE_PATH,
+    GOLD_REVIEW_ASSIST_JSONL_PATH,
+    GOLD_REVIEW_ASSIST_MD_PATH,
     GOLD_REVIEW_WORKBOOK_MD_PATH,
     LICENSE_BATCH_IMPORT_TEMPLATE_PATH,
     build_manual_review_batch_status,
+    write_gold_review_assist,
 )
 from .manual_review_bundle_manifest import (
     MANUAL_REVIEW_BUNDLE_ARTIFACTS,
@@ -48,7 +51,9 @@ from .operator_handoff import (
     build_operator_handoff,
     write_operator_handoff,
 )
-from .promotion_dry_run import PROMOTION_DRY_RUN_REPORT_PATH, write_promotion_dry_run_report
+from .promotion_dry_run import (
+    build_promotion_dry_run_report,
+)
 from .promotion_gate import build_production_promotion_gate_report
 from .registry_manifest import validate_required_registry, validate_required_registry_content
 from .review_progress import (
@@ -207,7 +212,11 @@ def _import_templates_are_sparse(root_path: Path) -> tuple[bool, str, str]:
     return True, "manual import templates omit long source text", ""
 
 
-def _manual_review_templates_have_provenance(root_path: Path) -> tuple[bool, str, str]:
+def _manual_review_templates_have_provenance(
+    root_path: Path,
+    *,
+    allow_empty_jsonl: frozenset[str] = frozenset(),
+) -> tuple[bool, str, str]:
     jsonl_requirements = {
         GOLD_BATCH_IMPORT_TEMPLATE_PATH: ("target_review_path", "review_context_ref", TARGET_ROW_HASH_FIELD),
         GOLD_FULL_IMPORT_TEMPLATE_PATH: ("target_review_path", "review_context_ref", TARGET_ROW_HASH_FIELD),
@@ -224,6 +233,8 @@ def _manual_review_templates_have_provenance(root_path: Path) -> tuple[bool, str
         rows, row_errors = _load_jsonl_template_rows(root_path, relative_path)
         if row_errors:
             return False, row_errors[0], row_errors[0]
+        if not rows and relative_path in allow_empty_jsonl:
+            continue
         if not rows:
             return False, f"{relative_path} has 0 rows", "manual import template has no provenance rows"
         for line_number, row in rows:
@@ -266,16 +277,35 @@ def _manual_review_templates_have_provenance(root_path: Path) -> tuple[bool, str
 
 
 def _handoff_command_sequence_complete(handoff: Any) -> tuple[bool, str, str]:
+    gates = tuple(getattr(handoff, "gates", ()) or ())
+    source_license_gate = next(
+        (
+            gate
+            for gate in gates
+            if str(getattr(gate, "review_kind", "") or "") == "source_license"
+        ),
+        None,
+    )
+    source_license_already_passed = bool(
+        getattr(source_license_gate, "passed", False)
+    )
+    source_license_steps = (
+        ()
+        if source_license_already_passed
+        else (
+            "prepare-source-license-review",
+            "fill-source-license-policy",
+            "dry-run-source-license-review",
+            "apply-source-license-review",
+        )
+    )
     expected_steps = (
         "review-progress-preflight",
         "prepare-gold-review",
         "fill-gold-review",
         "dry-run-gold-review",
         "apply-gold-review",
-        "prepare-source-license-review",
-        "fill-source-license-policy",
-        "dry-run-source-license-review",
-        "apply-source-license-review",
+        *source_license_steps,
         "promotion-status-before-lockbox",
         "prepare-lockbox-review",
         "fill-lockbox-review",
@@ -296,9 +326,12 @@ def _handoff_command_sequence_complete(handoff: Any) -> tuple[bool, str, str]:
 
     fill_expectations = {
         "fill-gold-review": "registry/review_batches/gold_set_full_reviewed.jsonl",
-        "fill-source-license-policy": "registry/review_batches/source_license_policy_reviewed.json",
         "fill-lockbox-review": "registry/review_batches/lockbox_reviewed.json",
     }
+    if not source_license_already_passed:
+        fill_expectations[
+            "fill-source-license-policy"
+        ] = "registry/review_batches/source_license_policy_reviewed.json"
     for step_id, expected_input in fill_expectations.items():
         step = by_id.get(step_id)
         if step is None:
@@ -309,30 +342,49 @@ def _handoff_command_sequence_complete(handoff: Any) -> tuple[bool, str, str]:
         if str(getattr(step, "manual_input_path", "") or "") != expected_input:
             failures.append(f"{step_id} manual input path mismatch")
 
-    source_apply = by_id.get("apply-source-license-review")
-    source_apply_command = str(getattr(source_apply, "command", "") or "")
-    if (
-        "build-license-review-import" not in source_apply_command
-        or "source_license_policy_reviewed.json" not in source_apply_command
-        or "apply-license-review" not in source_apply_command
-    ):
-        failures.append("source-license apply step must build the import before applying it")
+    if not source_license_already_passed:
+        source_apply = by_id.get("apply-source-license-review")
+        source_apply_command = str(getattr(source_apply, "command", "") or "")
+        if (
+            "build-license-review-import" not in source_apply_command
+            or "source_license_policy_reviewed.json" not in source_apply_command
+            or "apply-license-review" not in source_apply_command
+        ):
+            failures.append(
+                "source-license apply step must build the import before applying it"
+            )
 
     promotion_dry_run = by_id.get("promotion-dry-run")
     promotion_dry_run_command = str(getattr(promotion_dry_run, "command", "") or "")
     if (
         "promotion-dry-run" not in promotion_dry_run_command
         or "gold_set_full_reviewed.jsonl" not in promotion_dry_run_command
-        or "source_license_policy_import.jsonl" not in promotion_dry_run_command
         or "lockbox_reviewed.json" not in promotion_dry_run_command
     ):
-        failures.append("promotion dry-run must use all three reviewed inputs")
+        failures.append("promotion dry-run must use all required reviewed inputs")
+    if (
+        not source_license_already_passed
+        and "source_license_policy_import.jsonl" not in promotion_dry_run_command
+    ):
+        failures.append("promotion dry-run must include source-license input")
+    if (
+        source_license_already_passed
+        and "--license-input" in promotion_dry_run_command
+    ):
+        failures.append(
+            "promotion dry-run must not rebuild source-license input after the gate already passed"
+        )
 
     expected_before_promotion = (
         "dry-run-gold-review",
-        "dry-run-source-license-review",
         "dry-run-lockbox-review",
     )
+    if not source_license_already_passed:
+        expected_before_promotion = (
+            "dry-run-gold-review",
+            "dry-run-source-license-review",
+            "dry-run-lockbox-review",
+        )
     if step_ids == expected_steps:
         promotion_index = step_ids.index("promotion-dry-run")
         for step_id in expected_before_promotion:
@@ -348,6 +400,10 @@ def _handoff_command_sequence_complete(handoff: Any) -> tuple[bool, str, str]:
 
 def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadinessReport:
     root_path = Path(root)
+    if not (root_path / GOLD_REVIEW_ASSIST_JSONL_PATH).exists() or not (
+        root_path / GOLD_REVIEW_ASSIST_MD_PATH
+    ).exists():
+        write_gold_review_assist(root_path)
     write_source_license_review_workbook(root_path)
     write_manual_review_progress_report(root_path)
     write_manual_review_runbook(root_path)
@@ -361,7 +417,6 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
         LOCKBOX_REVIEW_IMPORT_REPORT_PATH,
         LICENSE_POLICY_IMPORT_REPORT_PATH,
         MANUAL_REVIEW_BUNDLE_MANIFEST_PATH,
-        PROMOTION_DRY_RUN_REPORT_PATH,
     }
     missing = tuple(path for path in missing if path not in self_generated_paths)
     empty = tuple(path for path in empty if path not in self_generated_paths)
@@ -415,8 +470,14 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
             and gold_rows == batch_status.gold_set.exported_rows
             and gold_full_rows == batch_status.gold_set.pending_rows
             and license_rows == batch_status.source_license.exported_rows
-            and batch_status.gold_set.exported_rows > 0
-            and batch_status.source_license.exported_rows > 0,
+            and (
+                batch_status.gold_set.pending_rows == 0
+                or batch_status.gold_set.exported_rows > 0
+            )
+            and (
+                batch_status.source_license.pending_rows == 0
+                or batch_status.source_license.exported_rows > 0
+            ),
             (
                 f"gold_exported={batch_status.gold_set.exported_rows}/{gold_rows}, "
                 f"gold_full={batch_status.gold_set.pending_rows}/{gold_full_rows}, "
@@ -430,7 +491,22 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
     sparse_ok, sparse_evidence, sparse_blocker = _import_templates_are_sparse(root_path)
     checks.append(_check("manual_import_templates_are_sparse", sparse_ok, sparse_evidence, sparse_blocker))
 
-    provenance_ok, provenance_evidence, provenance_blocker = _manual_review_templates_have_provenance(root_path)
+    empty_provenance_allowed = set()
+    if batch_status.gold_set.pending_rows == 0:
+        empty_provenance_allowed.update(
+            {
+                GOLD_BATCH_IMPORT_TEMPLATE_PATH,
+                GOLD_FULL_IMPORT_TEMPLATE_PATH,
+            }
+        )
+    if batch_status.source_license.pending_rows == 0:
+        empty_provenance_allowed.add(LICENSE_BATCH_IMPORT_TEMPLATE_PATH)
+    provenance_ok, provenance_evidence, provenance_blocker = (
+        _manual_review_templates_have_provenance(
+            root_path,
+            allow_empty_jsonl=frozenset(empty_provenance_allowed),
+        )
+    )
     checks.append(
         _check(
             "manual_import_templates_have_provenance",
@@ -445,6 +521,11 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
         GOLD_FULL_IMPORT_TEMPLATE_PATH,
         dry_run=True,
     )
+    expected_blank_gold_blocker = (
+        "manual review import file is empty"
+        if batch_status.gold_set.pending_rows == 0
+        else f"{batch_status.gold_set.pending_rows} review rows failed validation"
+    )
     checks.append(
         _check(
             "blank_full_gold_set_import_is_rejected",
@@ -453,8 +534,7 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
             and blank_gold_full.input_rows == batch_status.gold_set.pending_rows
             and blank_gold_full.applied_rows == 0
             and blank_gold_full.rejected_rows == batch_status.gold_set.pending_rows
-            and f"{batch_status.gold_set.pending_rows} review rows failed validation"
-            in set(blank_gold_full.blockers),
+            and expected_blank_gold_blocker in set(blank_gold_full.blockers),
             (
                 f"accepted={blank_gold_full.accepted}, "
                 f"input_rows={blank_gold_full.input_rows}, "
@@ -589,23 +669,21 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
         )
     )
 
-    write_promotion_dry_run_report(
+    blank_dry_run = build_promotion_dry_run_report(
         root_path,
         gold_input=GOLD_FULL_IMPORT_TEMPLATE_PATH,
         license_input=LICENSE_BATCH_IMPORT_TEMPLATE_PATH,
         lockbox_input=LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH,
     )
-    blank_dry_run = _read_json(root_path / PROMOTION_DRY_RUN_REPORT_PATH)
     checks.append(
         _check(
             "blank_bundle_dry_run_does_not_promote",
-            blank_dry_run.get("mutated_original_registry") is False
-            and blank_dry_run.get("accepted") is False
-            and blank_dry_run.get("production_allowed_after_simulation") is False,
+            blank_dry_run.mutated_original_registry is False
+            and blank_dry_run.accepted is False
+            and blank_dry_run.production_allowed_after_simulation is False,
             (
-                f"accepted={blank_dry_run.get('accepted')}, "
-                f"after_next_state={blank_dry_run.get('after_next_state')}, "
-                f"path={PROMOTION_DRY_RUN_REPORT_PATH}"
+                f"accepted={blank_dry_run.accepted}, "
+                f"after_next_state={blank_dry_run.after_next_state}"
             ),
             "blank manual templates unexpectedly pass promotion dry-run",
         )
@@ -680,6 +758,8 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
         GOLD_BATCH_IMPORT_TEMPLATE_PATH,
         GOLD_FULL_IMPORT_TEMPLATE_PATH,
         GOLD_REVIEW_WORKBOOK_MD_PATH,
+        GOLD_REVIEW_ASSIST_JSONL_PATH,
+        GOLD_REVIEW_ASSIST_MD_PATH,
         GOLD_REVIEW_IMPORT_REPORT_PATH,
         LICENSE_BATCH_IMPORT_TEMPLATE_PATH,
         SOURCE_LICENSE_REVIEW_WORKBOOK_MD_PATH,
@@ -689,7 +769,6 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
         MANUAL_REVIEW_RUNBOOK_MD_PATH,
         LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH,
         LOCKBOX_REVIEW_IMPORT_REPORT_PATH,
-        PROMOTION_DRY_RUN_REPORT_PATH,
         MANUAL_REVIEW_BUNDLE_MANIFEST_PATH,
     )
     return OperatorReadinessReport(

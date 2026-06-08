@@ -1,0 +1,243 @@
+{
+  "alpha_decay_monitoring": {
+    "alpha_decay_monitor_ready": true,
+    "blocked_reason": "no_live_production_recipe_current_rollout",
+    "decay_monitored_recipe_ids": [],
+    "limited_production_recipe_count": 0,
+    "live_alpha_decay_monitor_active": false,
+    "monitoring_scope": "report_intelligence_recipes_at_paper_trading_or_beyond",
+    "monitoring_spec_ready": true,
+    "paper_trading_recipe_count": 0,
+    "production_recipe_count": 0,
+    "required_decay_metrics": [
+      "rolling_after_cost_alpha",
+      "rolling_hit_rate",
+      "calibration_drift",
+      "turnover_impact",
+      "drawdown_after_signal",
+      "half_life_estimate",
+      "current_vs_backtest_performance_divergence"
+    ],
+    "required_rollback_modes": [
+      "soft_rollback",
+      "hard_rollback",
+      "compliance_rollback"
+    ],
+    "unmonitored_paper_trading_recipe_ids": [],
+    "unmonitored_production_recipe_ids": []
+  },
+  "as_of_datetime": "2026-06-07T17:18:15+00:00",
+  "monitoring_id": "RKE-REPORT-INTELLIGENCE-MONITORING",
+  "policy": "monitoring metrics are diagnostic only; report-derived weights and recipes remain research priors until validation, paper trading, and promotion gates pass",
+  "report_corpus": {
+    "forecast_claim_rows": 12,
+    "metadata_rows": 3,
+    "outcome_label_rows": 15
+  },
+  "report_weighting_monitoring": {
+    "consensus_crowding_concentration": null,
+    "effective_n_by_method": {
+      "max_effective_n": 0.0,
+      "nonzero_effective_n_count": 0,
+      "profile_count": 5,
+      "top_profiles": [
+        {
+          "bucket": "",
+          "id": "MPP-97a328e964f973d4",
+          "insufficient_data": true,
+          "n_effective": 0.0
+        },
+        {
+          "bucket": "",
+          "id": "MPP-b8ee217dbe374ffb",
+          "insufficient_data": true,
+          "n_effective": 0.0
+        },
+        {
+          "bucket": "",
+          "id": "MPP-06f48d5a725b5b4e",
+          "insufficient_data": true,
+          "n_effective": 0.0
+        },
+        {
+          "bucket": "",
+          "id": "MPP-21c2b0c93edbc457",
+          "insufficient_data": true,
+          "n_effective": 0.0
+        },
+        {
+          "bucket": "",
+          "id": "MPP-f7c95b83c13d5589",
+          "insufficient_data": true,
+          "n_effective": 0.0
+        }
+      ]
+    },
+    "effective_n_by_source": {
+      "max_effective_n": 5.0,
+      "nonzero_effective_n_count": 2,
+      "profile_count": 16,
+      "top_profiles": [
+        {
+          "bucket": "neutral_low_effective_n",
+          "id": "SPP-b31ca7f98107a49d",
+          "insufficient_data": false,
+          "n_effective": 5.0
+        },
+        {
+          "bucket": "neutral_low_effective_n",
+          "id": "SPP-ad7ea0121646f95e",
+          "insufficient_data": false,
+          "n_effective": 5.0
+        },
+        {
+          "bucket": "insufficient_data",
+          "id": "SPP-7b013474d3914d28",
+          "insufficient_data": true,
+          "n_effective": 0.0
+        },
+        {
+          "bucket": "insufficient_data",
+          "id": "SPP-9e8330c4b191c862",
+          "insufficient_data": true,
+          "n_effective": 0.0
+        },
+        {
+          "bucket": "insufficient_data",
+          "id": "SPP-4aebeb3c0ba01257",
+          "insufficient_data": true,
+          "n_effective": 0.0
+        },
+        {
+          "bucket": "insufficient_data",
+          "id": "SPP-9cc12b45a5d1b354",
+          "insufficient_data": true,
+          "n_effective": 0.0
+        },
+        {
+          "bucket": "insufficient_data",
+          "id": "SPP-411771dc48d27e3e",
+          "insufficient_data": true,
+          "n_effective": 0.0
+        },
+        {
+          "bucket": "insufficient_data",
+          "id": "SPP-47810f8f461e2fdb",
+          "insufficient_data": true,
+          "n_effective": 0.0
+        },
+        {
+          "bucket": "insufficient_data",
+          "id": "SPP-3bb790fe1ea4fcff",
+          "insufficient_data": true,
+          "n_effective": 0.0
+        },
+        {
+          "bucket": "insufficient_data",
+          "id": "SPP-d93584013cc76702",
+          "insufficient_data": true,
+          "n_effective": 0.0
+        }
+      ]
+    },
+    "effective_n_by_viewpoint": {
+      "max_effective_n": 1.0,
+      "nonzero_effective_n_count": 5,
+      "profile_count": 10,
+      "top_profiles": [
+        {
+          "bucket": "insufficient_data",
+          "id": "VPP-1944c2dbbbbefcba",
+          "insufficient_data": true,
+          "n_effective": 1.0
+        },
+        {
+          "bucket": "insufficient_data",
+          "id": "VPP-c0ed639ba16bd623",
+          "insufficient_data": true,
+          "n_effective": 1.0
+        },
+        {
+          "bucket": "insufficient_data",
+          "id": "VPP-3eeea5e32ce8e019",
+          "insufficient_data": true,
+          "n_effective": 1.0
+        },
+        {
+          "bucket": "insufficient_data",
+          "id": "VPP-6cecd4a312a6cc89",
+          "insufficient_data": true,
+          "n_effective": 1.0
+        },
+        {
+          "bucket": "insufficient_data",
+          "id": "VPP-e9344a77a2636169",
+          "insufficient_data": true,
+          "n_effective": 1.0
+        },
+        {
+          "bucket": "insufficient_data",
+          "id": "VPP-17192163ff504a53",
+          "insufficient_data": true,
+          "n_effective": 0.0
+        },
+        {
+          "bucket": "insufficient_data",
+          "id": "VPP-b16e6ceb854a4b6e",
+          "insufficient_data": true,
+          "n_effective": 0.0
+        },
+        {
+          "bucket": "insufficient_data",
+          "id": "VPP-58b1e1c72138ce63",
+          "insufficient_data": true,
+          "n_effective": 0.0
+        },
+        {
+          "bucket": "insufficient_data",
+          "id": "VPP-d94b4bb874974ee1",
+          "insufficient_data": true,
+          "n_effective": 0.0
+        },
+        {
+          "bucket": "insufficient_data",
+          "id": "VPP-e6feee22114ec041",
+          "insufficient_data": true,
+          "n_effective": 0.0
+        }
+      ]
+    },
+    "high_weight_source_decay_count": 0,
+    "low_weight_source_false_negative_rate": null,
+    "source_weight_drift": {
+      "max_effective_n": 5.0,
+      "non_neutral_profile_count": 0
+    },
+    "weighted_research_calibration_error": null,
+    "weighted_vs_unweighted_retrieval_difference": 0.0
+  },
+  "rollout_mode": "shadow_tooling",
+  "run_id": "RIR-DERIVED-20260607T171815+0000",
+  "tooling_loop_monitoring": {
+    "data_proposal_open_count": 46,
+    "evidence_coverage": {
+      "exact_or_partial_coverage_rate": 0.0,
+      "metric_candidate_count": 32,
+      "tool_coverage_status_counts": {
+        "missing": 32
+      }
+    },
+    "high_priority_gap_aging_count": 0,
+    "missing_data_reduction": null,
+    "recipe_validation_pass_rate": 0.0,
+    "runtime_fallback_observation_count": 46,
+    "shadow_recipe_count": 5,
+    "shadow_tool_correctness_failure_rate": null,
+    "tool_gap_open_count": 46,
+    "tool_gap_priority_counts": {
+      "low": 3,
+      "medium": 43
+    },
+    "tool_proposal_acceptance_rate": 0.0
+  }
+}

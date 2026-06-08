@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RKE Report Intelligence Feature Flags",
+  "type": "object",
+  "required": ["rollout_mode", "allowed_rollout_modes", "flags", "runtime_behavior"],
+  "properties": {
+    "rollout_mode": {
+      "enum": [
+        "off",
+        "extraction_only",
+        "shadow_retrieval",
+        "shadow_tooling",
+        "paper_trading",
+        "limited_production",
+        "production"
+      ]
+    },
+    "allowed_rollout_modes": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+    "flags": {
+      "type": "object",
+      "required": [
+        "report_weighting_enabled",
+        "analytical_footprint_enabled",
+        "weighted_research_retriever_enabled",
+        "method_pattern_registry_enabled",
+        "tool_design_loop_enabled",
+        "shadow_tool_runtime_enabled",
+        "production_use_of_weighted_reports"
+      ],
+      "properties": {
+        "report_weighting_enabled": {"type": "boolean"},
+        "analytical_footprint_enabled": {"type": "boolean"},
+        "weighted_research_retriever_enabled": {"type": "boolean"},
+        "method_pattern_registry_enabled": {"type": "boolean"},
+        "tool_design_loop_enabled": {"type": "boolean"},
+        "shadow_tool_runtime_enabled": {"type": "boolean"},
+        "production_use_of_weighted_reports": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    },
+    "runtime_behavior": {"type": "string", "minLength": 1}
+  },
+  "additionalProperties": true
+}

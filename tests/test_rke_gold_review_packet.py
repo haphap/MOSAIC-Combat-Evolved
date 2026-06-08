@@ -16,11 +16,11 @@ def test_gold_review_packet_summarizes_current_manual_queue():
     packet = build_gold_review_packet(".")
 
     assert packet.packet_id == "RKE-GOLD-REVIEW-PACKET-20260606"
-    assert packet.status == "manual_review_pending"
-    assert packet.manual_review_required
+    assert packet.status == "manual_review_passed"
+    assert not packet.manual_review_required
     assert packet.document_count == 50
     assert packet.review_row_count == 500
-    assert packet.pending_review_rows == 500
+    assert packet.pending_review_rows == 0
     assert packet.candidate_claim_count == 500
     assert packet.candidate_claim_available_count == 500
     assert packet.review_rows_with_candidate_fields == 500
@@ -29,8 +29,8 @@ def test_gold_review_packet_summarizes_current_manual_queue():
     assert set(REQUIRED_GOLD_SET_DOMAINS).issubset(packet.domain_counts)
     assert "other" in packet.domain_counts
     assert packet.risk_flag_counts["manual_review_required"] == 50
-    assert packet.risk_flag_counts["license_pending"] == 50
-    assert all(document.pending_claim_rows == 10 for document in packet.documents)
+    assert "license_pending" not in packet.risk_flag_counts
+    assert all(document.pending_claim_rows == 0 for document in packet.documents)
     assert any(document.gold_set_domain_matches for document in packet.documents)
 
 
@@ -56,7 +56,7 @@ def test_gold_review_packet_reports_malformed_candidate_and_review_rows(tmp_path
     assert packet.status == "manual_review_blocked"
     assert packet.document_count == candidate_count
     assert packet.review_row_count == review_count + 1
-    assert packet.pending_review_rows == review_count
+    assert packet.pending_review_rows == 0
     assert f"gold candidate row must be object at row(s): {candidate_count + 1}" in packet.blockers
     assert f"gold-set review row must be object at row(s): {review_count + 1}" in packet.blockers
     assert payload["blockers"] == list(packet.blockers)
@@ -129,8 +129,8 @@ def test_gold_review_packet_markdown_renders_review_queue_summary():
     markdown = render_gold_review_packet_markdown(build_gold_review_packet("."))
 
     assert markdown.startswith("# RKE Gold Review Packet")
-    assert "Status: manual_review_pending" in markdown
-    assert "Pending review rows: 500" in markdown
+    assert "Status: manual_review_passed" in markdown
+    assert "Pending review rows: 0" in markdown
     assert "Candidate claims: 500" in markdown
     assert "Domains:" in markdown
     assert "domain_hits=" in markdown
@@ -147,5 +147,6 @@ def test_gold_review_packet_writer_outputs_json_and_markdown(tmp_path: Path):
 
     assert payload["document_count"] == 50
     assert payload["candidate_claim_count"] == 500
-    assert payload["manual_review_required"] is True
+    assert payload["manual_review_required"] is False
+    assert payload["pending_review_rows"] == 0
     assert markdown.startswith("# RKE Gold Review Packet")

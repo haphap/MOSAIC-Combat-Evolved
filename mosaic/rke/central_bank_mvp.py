@@ -44,6 +44,7 @@ from .prompt_ir import (
 from .runtime import (
     EvidenceLedgerItem,
     ProgressEvent,
+    ResearchSupportItem,
     RuntimeAgentOutput,
     RuntimeInference,
     RuntimeRecommendation,
@@ -182,8 +183,9 @@ def build_central_bank_runtime_output() -> RuntimeAgentOutput:
     claim = mvp["claim"]
     confidence_components = ConfidenceComponents(
         data_confidence=0.72,
-        research_confidence=0.68,
+        research_weight_confidence=0.68,
         empirical_validation_confidence=0.66,
+        method_tool_confidence=0.65,
         regime_match_confidence=0.70,
     )
     confidence = compute_confidence_v1(
@@ -196,8 +198,9 @@ def build_central_bank_runtime_output() -> RuntimeAgentOutput:
         "safe_default_function": "min_components_then_cap",
         "component_order": (
             "data_confidence",
-            "research_confidence",
+            "research_weight_confidence",
             "empirical_validation_confidence",
+            "method_tool_confidence",
             "regime_match_confidence",
         ),
         "components": asdict(confidence_components),
@@ -240,11 +243,27 @@ def build_central_bank_runtime_output() -> RuntimeAgentOutput:
         fallback=False,
         confidence_impact="positive",
         source_claim_ids=(claim.claim_id,),
+        evidence_type="current_tool_data",
+        metric_candidate_id="METRIC-CB-PBOC-NET-INJECTION-7D",
+        analysis_recipe_id="RECIPE-CB-LIQUIDITY-IMPULSE",
+        report_footprint_ids=("AFP-CB-LIQUIDITY-IMPULSE",),
+        tool_proposal_id="TDP-CB-PBOC-OMO",
+    )
+    research_support = ResearchSupportItem(
+        research_support_id="RS-CB-20260605-0001",
+        evidence_type="research_prior_not_current_data",
+        source_claim_ids=(claim.claim_id,),
+        viewpoint_cluster_ids=("VIEW-LIQUIDITY-IMPULSE-HIGH-BETA",),
+        source_weight_bucket="neutral",
+        method_pattern_ids=("METHOD-CB-LIQUIDITY-IMPULSE",),
+        allowed_use="prior_and_explanation_only",
+        cannot_support_action_without_current_data=True,
     )
     inference = RuntimeInference(
         inference_id="I-CB-20260605-0001",
         statement="PBOC liquidity data confirms the candidate liquidity impulse rule.",
         evidence_ids=(evidence.evidence_id,),
+        research_support_ids=(research_support.research_support_id,),
         rule_ids=(rule_fire.rule_id,),
         source_claim_ids=(claim.claim_id,),
     )
@@ -257,6 +276,7 @@ def build_central_bank_runtime_output() -> RuntimeAgentOutput:
     )
     return RuntimeAgentOutput(
         evidence_ledger=(evidence,),
+        research_support_ledger=(research_support,),
         research_rule_ids_used=(rule_fire.rule_id,),
         source_claim_ids_used=(claim.claim_id,),
         hypothesis_ids_used=(mvp["hypothesis"].hypothesis_id,),
@@ -438,6 +458,7 @@ def build_central_bank_mvp_bundle() -> CentralBankMvpBundle:
             "hard_trigger_delta_lt": -0.02,
             "review_window_trading_days": 60,
         },
+        patch_type="parameter_update",
     )
     patch_validation = validate_patch(
         patch,

@@ -1,8 +1,8 @@
 # RKE Operator Handoff
 
-- Next state: paper_trading
+- Next state: staged_production
 - Paper trading allowed: true
-- Staged production allowed: false
+- Staged production allowed: true
 - Production allowed: false
 - Direct production forbidden: true
 
@@ -15,10 +15,6 @@
 - fill-gold-review
 - dry-run-gold-review
 - apply-gold-review
-- prepare-source-license-review
-- fill-source-license-policy
-- dry-run-source-license-review
-- apply-source-license-review
 - promotion-status-before-lockbox
 - prepare-lockbox-review
 - fill-lockbox-review
@@ -27,7 +23,7 @@
 - apply-lockbox-review
 - promotion-status-final
 
-Dry-run command: `mosaic-rke build-license-review-import --root . --policy registry/review_batches/source_license_policy_reviewed.json --output registry/review_batches/source_license_policy_import.jsonl && mosaic-rke promotion-dry-run --root . --gold-input registry/review_batches/gold_set_full_reviewed.jsonl --license-input registry/review_batches/source_license_policy_import.jsonl --lockbox-input registry/review_batches/lockbox_reviewed.json`
+Dry-run command: `mosaic-rke promotion-dry-run --root . --gold-input registry/review_batches/gold_set_full_reviewed.jsonl --lockbox-input registry/review_batches/lockbox_reviewed.json`
 
 ## Command Sequence
 
@@ -71,38 +67,6 @@ Dry-run command: `mosaic-rke build-license-review-import --root . --policy regis
 - Manual input: registry/review_batches/gold_set_full_reviewed.jsonl
 - Expected result: Gold-set summaries and downstream gates are recomputed.
 
-### prepare-source-license-review
-
-- Phase: source_license
-- Action: Write the reviewed source-license policy starter and workbook.
-- Command: `mosaic-rke prepare-license-policy-review --root .`
-- Manual input: none
-- Expected result: Reviewed policy target is registry/review_batches/source_license_policy_reviewed.json.
-
-### fill-source-license-policy
-
-- Phase: source_license
-- Action: Fill and sign the reviewed source-license policy.
-- Command: manual
-- Manual input: registry/review_batches/source_license_policy_reviewed.json
-- Expected result: Policy fields, matched-row fingerprint, and production approval scope are complete.
-
-### dry-run-source-license-review
-
-- Phase: source_license
-- Action: Build and validate the source-license import rows.
-- Command: `mosaic-rke build-license-review-import --root . --policy registry/review_batches/source_license_policy_reviewed.json --output registry/review_batches/source_license_policy_import.jsonl && mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_policy_import.jsonl --dry-run`
-- Manual input: registry/review_batches/source_license_policy_reviewed.json
-- Expected result: Policy expands to all current source rows and dry-run import is accepted.
-
-### apply-source-license-review
-
-- Phase: source_license
-- Action: Build and apply accepted source-license decisions.
-- Command: `mosaic-rke build-license-review-import --root . --policy registry/review_batches/source_license_policy_reviewed.json --output registry/review_batches/source_license_policy_import.jsonl && mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_policy_import.jsonl`
-- Manual input: registry/review_batches/source_license_policy_reviewed.json
-- Expected result: Source-license summaries and production blockers are recomputed.
-
 ### promotion-status-before-lockbox
 
 - Phase: promotion
@@ -139,9 +103,9 @@ Dry-run command: `mosaic-rke build-license-review-import --root . --policy regis
 
 - Phase: promotion
 - Action: Simulate the complete reviewed bundle before final apply.
-- Command: `mosaic-rke build-license-review-import --root . --policy registry/review_batches/source_license_policy_reviewed.json --output registry/review_batches/source_license_policy_import.jsonl && mosaic-rke promotion-dry-run --root . --gold-input registry/review_batches/gold_set_full_reviewed.jsonl --license-input registry/review_batches/source_license_policy_import.jsonl --lockbox-input registry/review_batches/lockbox_reviewed.json`
+- Command: `mosaic-rke promotion-dry-run --root . --gold-input registry/review_batches/gold_set_full_reviewed.jsonl --lockbox-input registry/review_batches/lockbox_reviewed.json`
 - Manual input: none
-- Expected result: Simulation accepts all three reviewed inputs without mutating the original registry.
+- Expected result: Simulation accepts all required reviewed inputs without mutating the original registry.
 
 ### apply-lockbox-review
 
@@ -163,9 +127,9 @@ Dry-run command: `mosaic-rke build-license-review-import --root . --policy regis
 
 ### PG02 gold_set
 
-- Passed: false
-- Blocker: manual gold-set review still required
-- Evidence: 0 / 500 gold-set claims reviewed
+- Passed: true
+- Blocker: none
+- Evidence: 500 / 500 gold-set claims reviewed
 - Review packet: registry/gold_sets/tushare_research_reports.review_packet.json
 - Review workbook: registry/review_batches/gold_set_review_workbook.md
 - Import template: registry/review_batches/gold_set_next_import_template.jsonl
@@ -173,17 +137,17 @@ Dry-run command: `mosaic-rke build-license-review-import --root . --policy regis
 - Policy template: none
 - Reviewed policy/input: registry/review_batches/gold_set_full_reviewed.jsonl
 - Prepare: `mosaic-rke prepare-gold-review --root . --full`
-- Pending rows: 500
-- Exported rows: 500
+- Pending rows: 0
+- Exported rows: 0
 - Dry run: `mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl --dry-run`
 - Apply: `mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl`
-- Note: Run prepare-gold-review --full, fill the reviewed scratch JSONL, use registry/review_batches/gold_set_review_workbook.md as the read-only claim checklist, then dry-run before applying the 500-claim gold set.
+- Note: Run prepare-gold-review --full, fill the reviewed scratch JSONL, use registry/review_batches/gold_set_review_workbook.md as the read-only claim checklist, and use registry/review_batches/gold_set_review_assist.md as non-import machine assistance, then dry-run before applying the 500-claim gold set.
 
 ### PG03 source_license
 
-- Passed: false
-- Blocker: source license review still pending or restricted
-- Evidence: 0 / 9812 sources approved for production runtime
+- Passed: true
+- Blocker: none
+- Evidence: 17529 / 17529 sources approved for production runtime
 - Review packet: registry/compliance/tushare_license_review_packet.json
 - Review workbook: registry/review_batches/source_license_review_workbook.md
 - Import template: registry/review_batches/source_license_next_import_template.jsonl
@@ -191,8 +155,8 @@ Dry-run command: `mosaic-rke build-license-review-import --root . --policy regis
 - Policy template: registry/review_batches/source_license_policy_template.json
 - Reviewed policy/input: registry/review_batches/source_license_policy_reviewed.json
 - Prepare: `mosaic-rke prepare-license-policy-review --root .`
-- Pending rows: 9812
-- Exported rows: 50
+- Pending rows: 0
+- Exported rows: 0
 - Dry run: `mosaic-rke build-license-review-import --root . --policy registry/review_batches/source_license_policy_reviewed.json --output registry/review_batches/source_license_policy_import.jsonl && mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_policy_import.jsonl --dry-run`
 - Apply: `mosaic-rke build-license-review-import --root . --policy registry/review_batches/source_license_policy_reviewed.json --output registry/review_batches/source_license_policy_import.jsonl && mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_policy_import.jsonl`
 - Note: Compliance approval is required before production runtime retrieval. Use registry/review_batches/source_license_review_workbook.md as the read-only source-class checklist. Copy registry/review_batches/source_license_policy_template.json to registry/review_batches/source_license_policy_reviewed.json, fill and sign the reviewed policy, then expand it instead of editing every source row manually.
@@ -217,8 +181,4 @@ Dry-run command: `mosaic-rke build-license-review-import --root . --policy regis
 
 ## Remaining Blockers
 
-- broad-rollout completion audit still has blockers
-- manual gold-set review still required
-- source license review still pending or restricted
-- source registry has production blockers
 - lockbox has not been opened

@@ -801,15 +801,17 @@ def aggregate_rule_outputs(
 @dataclass(frozen=True)
 class ConfidenceComponents:
     data_confidence: float
-    research_confidence: float
+    research_weight_confidence: float
     empirical_validation_confidence: float
+    method_tool_confidence: float
     regime_match_confidence: float
 
     def __post_init__(self) -> None:
         for name in (
             "data_confidence",
-            "research_confidence",
+            "research_weight_confidence",
             "empirical_validation_confidence",
+            "method_tool_confidence",
             "regime_match_confidence",
         ):
             _ensure_unit_interval(float(getattr(self, name)), name)
@@ -853,8 +855,9 @@ def compute_confidence_v1(
         reasons.append("current data confirmation absent")
     pre_cap = min(
         data_confidence,
-        components.research_confidence,
+        components.research_weight_confidence,
         components.empirical_validation_confidence,
+        components.method_tool_confidence,
         components.regime_match_confidence,
     )
     final = min(pre_cap, cap)

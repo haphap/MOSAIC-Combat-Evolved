@@ -1,17 +1,17 @@
 # RKE Dashboard
 
-- Broad rollout ready: false
+- Broad rollout ready: true
 - Dashboard artifact errors: 0
-- Completion: 10 / 12
+- Completion: 12 / 12
 - Master-plan coverage missing: 0
-- Master-plan coverage blocked: 2
-- Master-plan blocked sections: Phase-1B, Compliance
-- MVP deliverables blocked: 1
-- MVP deliverable blocked sections: MVP-D2
-- MVP exit criteria blocked: 1
-- MVP exit blocked sections: MVP-E01
-- Final acceptance blocked: 2
-- Final acceptance blocked sections: FinalAcceptance-C02, FinalAcceptance-C11
+- Master-plan coverage blocked: 0
+- Master-plan blocked sections: none
+- MVP deliverables blocked: 0
+- MVP deliverable blocked sections: none
+- MVP exit criteria blocked: 0
+- MVP exit blocked sections: none
+- Final acceptance blocked: 0
+- Final acceptance blocked sections: none
 - Paper trading ready: true
 - Mean live vs baseline delta: 0.035
 - Production monitor state: production
@@ -21,33 +21,34 @@
 - Rollback readiness accepted: True
 - Rollback readiness failures: 0
 - Lockbox result: not_opened
-- Promotion next state: paper_trading
+- Promotion next state: staged_production
 - Promotion production allowed: False
 - Validation ablations accepted: True
 - Validation statistical significance accepted: True
 - Experiment validation failures: 0
 - Source validation sandbox accepted: True
-- Source validation production blockers: 9812
+- Source validation production blockers: 0
 - Source text redaction accepted: True
 - Source text redaction failures: 0
 - Sector demo: sandbox
 - Macro expansion candidates: 3
 - Phase 7 sector actionability: monitor_only
-- Gold-set review pending claims: 500
+- Gold-set review pending claims: 0
 - Gold review packet spans: 216
 - Gold candidate claims: 500
-- License review pending sources: 9812
-- License review packet pending sources: 9812
-- Next gold review batch rows: 50
+- License review pending sources: 0
+- License review packet pending sources: 0
+- Next gold review batch rows: 0
 - Full gold review import template: registry/review_batches/gold_set_full_import_template.jsonl
 - Gold review workbook: registry/review_batches/gold_set_review_workbook.md
-- Next license review batch rows: 50
+- Gold review assist: registry/review_batches/gold_set_review_assist.md
+- Next license review batch rows: 0
 - Source license review workbook: registry/review_batches/source_license_review_workbook.md
 - Manual review promotion dry-run ready: False
-- Manual review progress blockers: 6
+- Manual review progress blockers: 8
 - Manual review runbook: registry/review_batches/manual_review_runbook.md
 - Operator handoff ready: True
-- Operator handoff blockers: 5
+- Operator handoff blockers: 1
 - Operator readiness accepted: True
 - Operator readiness failures: 0
 - Experiment governance family: FAM-CB-LIQUIDITY-2026Q2
@@ -63,8 +64,7 @@
 
 ## Blockers
 
-- manual gold-set review still required
-- source license review still pending or restricted
+- none
 
 ## Runtime
 

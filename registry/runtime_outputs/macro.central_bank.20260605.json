@@ -3,30 +3,33 @@
   "confidence_components": {
     "data_confidence": 0.72,
     "empirical_validation_confidence": 0.66,
+    "method_tool_confidence": 0.65,
     "regime_match_confidence": 0.7,
-    "research_confidence": 0.68
+    "research_weight_confidence": 0.68
   },
   "confidence_policy_trace": {
     "actionability": "watchlist_or_tiny_tilt",
     "cap_reasons": [],
     "component_order": [
       "data_confidence",
-      "research_confidence",
+      "research_weight_confidence",
       "empirical_validation_confidence",
+      "method_tool_confidence",
       "regime_match_confidence"
     ],
     "components": {
       "data_confidence": 0.72,
       "empirical_validation_confidence": 0.66,
+      "method_tool_confidence": 0.65,
       "regime_match_confidence": 0.7,
-      "research_confidence": 0.68
+      "research_weight_confidence": 0.68
     },
     "confidence_bucket": "medium_low",
     "confidence_cap": 0.64,
     "current_data_confirmed": true,
     "final_confidence": 0.64,
     "policy_ref": "confidence_policy.v1",
-    "pre_cap_confidence": 0.66,
+    "pre_cap_confidence": 0.65,
     "safe_default_function": "min_components_then_cap"
   },
   "downstream_handoff": {
@@ -36,18 +39,25 @@
   },
   "evidence_ledger": [
     {
+      "analysis_recipe_id": "RECIPE-CB-LIQUIDITY-IMPULSE",
       "as_of": "2026-06-05",
       "confidence_impact": "positive",
       "direction": "liquidity_supportive",
       "evidence_id": "E-CB-20260605-0001",
+      "evidence_type": "current_tool_data",
       "fallback": false,
       "freshness_days": 0,
       "metric": "pboc_net_injection_7d",
+      "metric_candidate_id": "METRIC-CB-PBOC-NET-INJECTION-7D",
+      "report_footprint_ids": [
+        "AFP-CB-LIQUIDITY-IMPULSE"
+      ],
       "source_claim_ids": [
         "CLAIM-CB-20260605-0001"
       ],
       "source_tool": "get_pboc_ops",
       "source_type": "tool_output",
+      "tool_proposal_id": "TDP-CB-PBOC-OMO",
       "unit": "CNY 100mn",
       "value": 12500
     }
@@ -61,6 +71,9 @@
         "E-CB-20260605-0001"
       ],
       "inference_id": "I-CB-20260605-0001",
+      "research_support_ids": [
+        "RS-CB-20260605-0001"
+      ],
       "rule_ids": [
         "macro.central_bank.soft.001"
       ],
@@ -96,6 +109,24 @@
   ],
   "research_rule_ids_used": [
     "macro.central_bank.soft.001"
+  ],
+  "research_support_ledger": [
+    {
+      "allowed_use": "prior_and_explanation_only",
+      "cannot_support_action_without_current_data": true,
+      "evidence_type": "research_prior_not_current_data",
+      "method_pattern_ids": [
+        "METHOD-CB-LIQUIDITY-IMPULSE"
+      ],
+      "research_support_id": "RS-CB-20260605-0001",
+      "source_claim_ids": [
+        "CLAIM-CB-20260605-0001"
+      ],
+      "source_weight_bucket": "neutral",
+      "viewpoint_cluster_ids": [
+        "VIEW-LIQUIDITY-IMPULSE-HIGH-BETA"
+      ]
+    }
   ],
   "rule_aggregation_summary": {
     "correlated_rule_duplicate_count": 0,

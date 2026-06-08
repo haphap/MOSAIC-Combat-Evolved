@@ -57,6 +57,39 @@ registry/review_batches/source_license_policy_reviewed.json
 registry/review_batches/source_license_policy_import.jsonl
 registry/review_batches/lockbox_reviewed.json
 
+# RKE report intelligence keeps original PDFs / MinerU Markdown in local cache.
+# The registry stores derived metadata, hashes, paths, and extraction status.
+registry/report_intelligence/pdfs/
+registry/report_intelligence/markdown/
+registry/report_intelligence/mineru/
+
+# RKE Tushare research-report corpus and source-derived review artifacts are
+# private/local data. Keep them in the local registry or cache, not in Git.
+registry/sources/tushare_research_reports.jsonl
+registry/sources/tushare_research_reports.gold_candidates.jsonl
+registry/sources/tushare_research_reports.manifest.json
+registry/compliance/tushare_license_review_template.jsonl
+registry/compliance/tushare_license_review_packet.json
+registry/compliance/tushare_license_review_packet.md
+registry/compliance/tushare_license_review_summary.json
+registry/compliance/tushare_license_review_import_report.json
+registry/gold_sets/tushare_research_reports.candidate_claims.jsonl
+registry/gold_sets/tushare_research_reports.candidate_claims.summary.json
+registry/gold_sets/tushare_research_reports.review_import_report.json
+registry/gold_sets/tushare_research_reports.review_packet.json
+registry/gold_sets/tushare_research_reports.review_packet.md
+registry/gold_sets/tushare_research_reports.review_summary.json
+registry/gold_sets/tushare_research_reports.review_template.jsonl
+registry/source_checks/source_registry_validation_report.json
+registry/report_intelligence/analytical_footprint_review_template.jsonl
+registry/report_intelligence/analytical_footprint_reviewed.jsonl
+registry/report_intelligence/analytical_footprints.jsonl
+registry/report_intelligence/forecast_claims.jsonl
+registry/report_intelligence/processing_status.jsonl
+registry/report_intelligence/report_metadata.jsonl
+registry/report_intelligence/report_outcome_labels.jsonl
+registry/report_intelligence/weighted_research_contexts.jsonl
+
 # TypeScript workspace (Phase 1+)
 mosaic-ts/node_modules/
 mosaic-ts/dist/

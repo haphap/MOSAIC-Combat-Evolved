@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RKE Report Intelligence Patch v1.5 Coverage Report",
+  "type": "object",
+  "required": [
+    "coverage_report_id",
+    "run_id",
+    "as_of_datetime",
+    "source_plan_path",
+    "current_rollout_mode",
+    "current_completion_scope",
+    "accepted",
+    "blocker_count",
+    "blockers",
+    "phase_count",
+    "passed_phase_ids",
+    "deferred_phase_ids",
+    "blocked_phase_ids",
+    "phase_records",
+    "corpus_counts",
+    "policy"
+  ],
+  "properties": {
+    "coverage_report_id": {"type": "string", "minLength": 1},
+    "run_id": {"type": "string", "minLength": 1},
+    "as_of_datetime": {"type": "string", "minLength": 1},
+    "source_plan_path": {"type": "string", "minLength": 1},
+    "current_rollout_mode": {
+      "enum": [
+        "off",
+        "extraction_only",
+        "shadow_retrieval",
+        "shadow_tooling",
+        "paper_trading",
+        "limited_production",
+        "production"
+      ]
+    },
+    "current_completion_scope": {"type": "string", "minLength": 1},
+    "accepted": {"type": "boolean"},
+    "blocker_count": {"type": "integer", "minimum": 0},
+    "blockers": {"type": "array", "items": {"type": "string"}},
+    "phase_count": {"type": "integer", "minimum": 8},
+    "passed_phase_ids": {"type": "array", "items": {"type": "string"}},
+    "deferred_phase_ids": {"type": "array", "items": {"type": "string"}},
+    "blocked_phase_ids": {"type": "array", "items": {"type": "string"}},
+    "phase_records": {
+      "type": "array",
+      "minItems": 8,
+      "items": {
+        "type": "object",
+        "required": [
+          "phase_id",
+          "phase_name",
+          "requirement",
+          "status",
+          "accepted",
+          "deferred_reason",
+          "failure_count",
+          "failures",
+          "evidence_artifacts",
+          "evidence_counts"
+        ],
+        "properties": {
+          "phase_id": {"type": "string", "minLength": 1},
+          "phase_name": {"type": "string", "minLength": 1},
+          "requirement": {"type": "string", "minLength": 1},
+          "status": {
+            "enum": ["passed", "deferred_by_rollout", "blocked"]
+          },
+          "accepted": {"type": "boolean"},
+          "deferred_reason": {"type": "string"},
+          "failure_count": {"type": "integer", "minimum": 0},
+          "failures": {"type": "array", "items": {"type": "string"}},
+          "evidence_artifacts": {
+            "type": "array",
+            "minItems": 1,
+            "items": {"type": "string"}
+          },
+          "evidence_counts": {"type": "object"}
+        },
+        "additionalProperties": true
+      }
+    },
+    "corpus_counts": {"type": "object"},
+    "policy": {"type": "string", "minLength": 1}
+  },
+  "additionalProperties": true
+}

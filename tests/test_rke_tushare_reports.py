@@ -13,6 +13,7 @@ from mosaic.rke.tushare_reports import (
     refresh_tushare_research_report_registry,
     write_research_reports_jsonl,
 )
+from mosaic.rke.registry_manifest import PRIVATE_LOCAL_REGISTRY_FILES
 
 
 class FakeTusharePro:
@@ -354,6 +355,7 @@ def test_refresh_tushare_research_report_registry_updates_dependent_artifacts(tm
         start_date="2026-06-01",
         end_date="2026-06-05",
         max_reports_per_query=6000,
+        preserve_review_templates=False,
         discovered_at="2026-06-05T12:00:00+00:00",
         pro=fake,
     )
@@ -437,11 +439,20 @@ def test_refresh_tushare_research_report_registry_imports_local_file_without_tus
             encoding="utf-8"
         )
     )
+    registry_manifest = json.loads(
+        (tmp_path / "registry/manifests/rke_registry_manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    artifact_paths = {
+        str(artifact["path"]) for artifact in registry_manifest["artifacts"]
+    }
 
     assert result.source_rows == 2
     assert result.rows_with_abstract == 2
     assert result.skipped_empty_abstract_rows == 0
     assert result.manifest_valid
+    assert artifact_paths.isdisjoint(PRIVATE_LOCAL_REGISTRY_FILES)
     assert len(source_rows) == 2
     assert manifest["source"] == "local_file"
     assert manifest["input_path"] == str(local_input)
@@ -546,6 +557,57 @@ def test_refresh_ignores_malformed_existing_source_when_preserving_discovered_at
     assert result.source_rows == 2
     assert len(source_rows) == 2
     assert {row["query_key"] for row in source_rows} == {"600519.SH", "银行"}
+
+
+def test_refresh_can_merge_existing_research_report_source(tmp_path: Path):
+    shutil.copytree(Path("registry"), tmp_path / "registry")
+    source_path = tmp_path / "registry/sources/tushare_research_reports.jsonl"
+    existing_report = normalize_research_report_row(
+        {
+            "trade_date": "20250115",
+            "title": "Historical copper sector report",
+            "abstr": "Copper supply discipline may support sector ETF performance.",
+            "author": "Analyst C",
+            "inst_csname": "Broker C",
+            "ts_code": "",
+            "ind_name": "有色金属",
+            "url": "https://example.invalid/c",
+        },
+        report_type="行业研报",
+        query_key="有色金属",
+        discovered_at="2025-01-15T00:00:00+00:00",
+    )
+    write_research_reports_jsonl([existing_report], source_path)
+
+    result = refresh_tushare_research_report_registry(
+        tmp_path,
+        stock_codes=("600519.SH",),
+        industry_keywords=("银行",),
+        start_date="2026-06-01",
+        end_date="2026-06-05",
+        max_reports_per_query=6000,
+        merge_existing_source=True,
+        pro=FakeTusharePro(),
+    )
+
+    source_rows = [
+        json.loads(line) for line in source_path.read_text(encoding="utf-8").splitlines()
+    ]
+    manifest = json.loads(
+        (tmp_path / "registry/sources/tushare_research_reports.manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert result.source_rows == 3
+    assert {row["query_key"] for row in source_rows} == {"600519.SH", "银行", "有色金属"}
+    assert {row["publish_date"] for row in source_rows} == {
+        "2025-01-15",
+        "2026-06-02",
+        "2026-06-03",
+    }
+    assert manifest["merge_existing_source"] is True
+    assert manifest["publish_date_min"] == "2025-01-15"
 
 
 def test_refresh_preserves_malformed_review_templates_for_gate_blockers(tmp_path: Path):

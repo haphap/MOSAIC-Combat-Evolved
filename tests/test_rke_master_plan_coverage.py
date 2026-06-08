@@ -13,77 +13,37 @@ from mosaic.rke.cli import main
 
 def _copy_registry_and_schemas(tmp_path: Path) -> None:
     shutil.copytree(Path("registry"), tmp_path / "registry")
+    shutil.copytree(Path("docs"), tmp_path / "docs")
     shutil.copytree(Path("schemas"), tmp_path / "schemas")
 
 
-def test_master_plan_coverage_reports_only_manual_blockers():
+def test_master_plan_coverage_reports_current_registry_ready():
     report = build_master_plan_coverage_report(".")
 
     assert report.report_id == "RKE-MASTER-PLAN-COVERAGE-REPORT-20260606"
     assert report.coverage_complete
-    assert not report.ready_for_broad_rollout
+    assert report.ready_for_broad_rollout
     assert report.missing_count == 0
-    assert report.blocked_count == 2
+    assert report.blocked_count == 0
     assert report.mvp_deliverables_section == "16.3"
     assert report.mvp_exit_criteria_section == "16.4"
-    assert report.mvp_deliverables_passed_count == 9
-    assert report.mvp_deliverables_blocked_count == 1
+    assert report.mvp_deliverables_passed_count == 10
+    assert report.mvp_deliverables_blocked_count == 0
     assert report.mvp_deliverables_missing_count == 0
-    assert not report.mvp_deliverables_ready
-    assert report.mvp_exit_passed_count == 12
-    assert report.mvp_exit_blocked_count == 1
+    assert report.mvp_deliverables_ready
+    assert report.mvp_exit_passed_count == 13
+    assert report.mvp_exit_blocked_count == 0
     assert report.mvp_exit_missing_count == 0
-    assert not report.mvp_exit_ready
+    assert report.mvp_exit_ready
     assert report.final_acceptance_section == "22"
-    assert report.final_acceptance_passed_count == 10
-    assert report.final_acceptance_blocked_count == 2
+    assert report.final_acceptance_passed_count == 12
+    assert report.final_acceptance_blocked_count == 0
     assert report.final_acceptance_missing_count == 0
-    assert not report.final_acceptance_ready
-    blocked = {
-        record.section_id: record
-        for record in report.records
-        if record.status == "blocked"
-    }
-    assert set(blocked) == {"Phase-1B", "Compliance"}
-    assert "manual gold-set review still required" in blocked["Phase-1B"].blocker
-    assert "source license review still pending" in blocked["Compliance"].blocker
-    mvp_deliverable_blocked = {
-        record.section_id: record
-        for record in report.mvp_deliverable_records
-        if record.status == "blocked"
-    }
-    assert set(mvp_deliverable_blocked) == {"MVP-D2"}
-    assert (
-        "manual gold-set review still required"
-        in mvp_deliverable_blocked["MVP-D2"].blocker
-    )
-    mvp_exit_blocked = {
-        record.section_id: record
-        for record in report.mvp_exit_records
-        if record.status == "blocked"
-    }
-    assert set(mvp_exit_blocked) == {"MVP-E01"}
-    assert (
-        "manual gold-set review still required" in mvp_exit_blocked["MVP-E01"].blocker
-    )
-    final_blocked = {
-        record.section_id: record
-        for record in report.final_acceptance_records
-        if record.status == "blocked"
-    }
-    assert set(final_blocked) == {"FinalAcceptance-C02", "FinalAcceptance-C11"}
-    assert (
-        final_blocked["FinalAcceptance-C02"].requirement
-        == "Claim extraction gold set passes the manual gate."
-    )
-    assert (
-        "manual gold-set review still required"
-        in final_blocked["FinalAcceptance-C02"].blocker
-    )
-    assert (
-        "source license review still pending"
-        in final_blocked["FinalAcceptance-C11"].blocker
-    )
+    assert report.final_acceptance_ready
+    assert all(record.status == "passed" for record in report.records)
+    assert all(record.status == "passed" for record in report.mvp_deliverable_records)
+    assert all(record.status == "passed" for record in report.mvp_exit_records)
+    assert all(record.status == "passed" for record in report.final_acceptance_records)
     assert all(
         record.evidence_paths == ("registry/audits/rke_completion_audit.json",)
         for record in report.final_acceptance_records
@@ -127,6 +87,15 @@ def test_master_plan_coverage_reports_only_manual_blockers():
     assert (
         "registry/gold_sets/tushare_research_reports.review_import_report.json"
         in phase_1b.evidence_paths
+    )
+    assert (
+        "registry/report_intelligence/patch_v1_5_coverage_report.json"
+        in phase_1b.evidence_paths
+    )
+    phase_1 = next(record for record in report.records if record.section_id == "Phase-1")
+    assert (
+        "schemas/report_intelligence_patch_v1_5_coverage_report.schema.json"
+        in phase_1.evidence_paths
     )
     compliance = next(
         record for record in report.records if record.section_id == "Compliance"
@@ -187,6 +156,34 @@ def test_master_plan_coverage_reports_invalid_direct_json_evidence(tmp_path: Pat
         "central_bank_data_availability.json must contain valid JSON"
         in phase_1a.blocker
     )
+
+
+def test_master_plan_coverage_rejects_blocked_report_intelligence_patch(
+    tmp_path: Path,
+):
+    _copy_registry_and_schemas(tmp_path)
+    coverage_path = (
+        tmp_path / "registry/report_intelligence/patch_v1_5_coverage_report.json"
+    )
+    coverage = json.loads(coverage_path.read_text(encoding="utf-8"))
+    coverage["accepted"] = False
+    coverage["blocker_count"] = 1
+    coverage["blocked_phase_ids"] = ["B"]
+    coverage["phase_records"][1]["status"] = "blocked"
+    coverage_path.write_text(
+        json.dumps(coverage, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    report = build_master_plan_coverage_report(tmp_path)
+    phase_1b = next(
+        record for record in report.records if record.section_id == "Phase-1B"
+    )
+
+    assert not report.coverage_complete
+    assert phase_1b.status == "missing"
+    assert "patch_v1_5_coverage_report.json accepted must be true" in phase_1b.blocker
+    assert "blocked phases: B" in phase_1b.blocker
 
 
 def test_master_plan_coverage_reports_invalid_direct_jsonl_evidence(tmp_path: Path):
@@ -413,11 +410,11 @@ def test_master_plan_coverage_writer_and_cli(tmp_path: Path, capsys):
     assert Path(result["path"]).exists()
     assert code == 0
     assert output["coverage_complete"] is True
-    assert output["ready_for_broad_rollout"] is False
-    assert output["blocked_count"] == 2
+    assert output["ready_for_broad_rollout"] is True
+    assert output["blocked_count"] == 0
     assert output["mvp_deliverables_section"] == "16.3"
-    assert output["mvp_deliverables_blocked_count"] == 1
+    assert output["mvp_deliverables_blocked_count"] == 0
     assert output["mvp_exit_criteria_section"] == "16.4"
-    assert output["mvp_exit_blocked_count"] == 1
+    assert output["mvp_exit_blocked_count"] == 0
     assert output["final_acceptance_section"] == "22"
-    assert output["final_acceptance_blocked_count"] == 2
+    assert output["final_acceptance_blocked_count"] == 0

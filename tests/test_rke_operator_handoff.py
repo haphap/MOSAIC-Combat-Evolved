@@ -41,11 +41,8 @@ def test_operator_handoff_summarizes_remaining_manual_gates():
     )
     assert "promotion-dry-run" in handoff.promotion_dry_run_command
     assert handoff.command_sequence[0].command == "mosaic-rke review-progress --root ."
-    assert any(
-        step.step_id == "fill-source-license-policy"
-        and step.manual_input_path == "registry/review_batches/source_license_policy_reviewed.json"
-        and not step.command
-        for step in handoff.command_sequence
+    assert not any(
+        step.phase == "source_license" for step in handoff.command_sequence
     )
     assert any(
         step.step_id == "promotion-status-before-lockbox"
@@ -62,18 +59,20 @@ def test_operator_handoff_summarizes_remaining_manual_gates():
         gate for gate in handoff.gates if gate.review_kind == "source_license"
     )
     lockbox = next(gate for gate in handoff.gates if gate.review_kind == "lockbox")
-    assert gold.pending_rows == 500
+    assert gold.pending_rows == 0
+    assert gold.passed
     assert (
         gold.full_import_template_path
         == "registry/review_batches/gold_set_full_import_template.jsonl"
     )
     assert gold.prepare_command == "mosaic-rke prepare-gold-review --root . --full"
     assert gold.reviewed_policy_path == "registry/review_batches/gold_set_full_reviewed.jsonl"
-    assert gold.exported_rows == 500
+    assert gold.exported_rows == 0
     assert "gold_set_full_reviewed.jsonl" in gold.dry_run_command
     assert "gold_set_full_reviewed.jsonl" in handoff.promotion_dry_run_command
     assert "gold_set_full_import_template.jsonl" not in handoff.promotion_dry_run_command
-    assert license_gate.pending_rows == 9812
+    assert license_gate.pending_rows == 0
+    assert license_gate.passed
     assert (
         license_gate.workbook_path
         == "registry/review_batches/source_license_review_workbook.md"
@@ -90,7 +89,8 @@ def test_operator_handoff_summarizes_remaining_manual_gates():
     assert "source_license_policy_reviewed.json" in license_gate.dry_run_command
     assert "build-license-review-import" in license_gate.apply_command
     assert "source_license_policy_reviewed.json" in license_gate.apply_command
-    assert "source_license_policy_reviewed.json" in handoff.promotion_dry_run_command
+    assert "source_license_policy_reviewed.json" not in handoff.promotion_dry_run_command
+    assert "--license-input" not in handoff.promotion_dry_run_command
     assert (
         lockbox.import_template_path
         == "registry/review_batches/lockbox_review_next_import_template.json"
@@ -188,8 +188,8 @@ def test_write_operator_handoff_outputs_json_markdown_and_lockbox_template(
     assert payload["run_order"][0] == "review-progress-preflight"
     assert payload["run_order"][-1] == "promotion-status-final"
     assert "gold_set_full_reviewed.jsonl" in payload["promotion_dry_run_command"]
-    assert "source_license_policy_import.jsonl" in payload["promotion_dry_run_command"]
-    assert "source_license_policy_reviewed.json" in payload["promotion_dry_run_command"]
+    assert "source_license_policy_import.jsonl" not in payload["promotion_dry_run_command"]
+    assert "source_license_policy_reviewed.json" not in payload["promotion_dry_run_command"]
     assert "lockbox_reviewed.json" in payload["promotion_dry_run_command"]
     license_gate = next(gate for gate in payload["gates"] if gate["review_kind"] == "source_license")
     gold_gate = next(gate for gate in payload["gates"] if gate["review_kind"] == "gold_set")
@@ -206,7 +206,7 @@ def test_write_operator_handoff_outputs_json_markdown_and_lockbox_template(
     assert lockbox_template["target_row_hash"].startswith("sha256:")
     assert lockbox_template["review_context_hash"].startswith("sha256:")
     assert policy_template["approved_for_production_runtime"] is None
-    assert policy_template["matched_row_count"] == 9812
+    assert policy_template["matched_row_count"] == 0
     assert paths["source_license_review_workbook"].endswith(
         "registry/review_batches/source_license_review_workbook.md"
     )
@@ -220,6 +220,8 @@ def test_write_operator_handoff_outputs_json_markdown_and_lockbox_template(
         tmp_path / "registry/review_batches/manual_review_progress_report.json"
     ).exists()
     assert license_gate["workbook_path"] == "registry/review_batches/source_license_review_workbook.md"
+    assert "registry/review_batches/gold_set_review_assist.jsonl" in payload["generated_paths"]
+    assert "registry/review_batches/gold_set_review_assist.md" in payload["generated_paths"]
     assert "registry/review_batches/source_license_review_workbook.md" in payload["generated_paths"]
     assert "registry/review_batches/manual_review_progress_report.json" in payload["generated_paths"]
     assert "registry/review_batches/manual_review_runbook.md" in payload["generated_paths"]
@@ -231,7 +233,7 @@ def test_write_operator_handoff_outputs_json_markdown_and_lockbox_template(
     assert "source_license_review_workbook.md" in markdown
     assert "manual_review_runbook.md" in markdown
     assert "## Command Sequence" in markdown
-    assert "fill-source-license-policy" in markdown
+    assert "fill-source-license-policy" not in markdown
     assert "promotion-status-before-lockbox" in markdown
     assert "source_license_policy_reviewed.json" in markdown
     assert "build-license-review-import" in markdown
@@ -239,6 +241,7 @@ def test_write_operator_handoff_outputs_json_markdown_and_lockbox_template(
     assert "prepare-gold-review" in markdown
     assert "prepare-lockbox-review" in markdown
     assert "gold_set_review_workbook.md" in markdown
+    assert "gold_set_review_assist.md" in markdown
     assert "gold_set_full_reviewed.jsonl" in markdown
     assert "gold_set_full_import_template.jsonl" in markdown
     assert "lockbox_reviewed.json" in markdown
@@ -260,6 +263,8 @@ def test_cli_operator_handoff_writes_package(tmp_path: Path, capsys):
         tmp_path / "registry/review_batches/gold_set_full_import_template.jsonl"
     ).exists()
     assert (tmp_path / "registry/review_batches/gold_set_review_workbook.md").exists()
+    assert (tmp_path / "registry/review_batches/gold_set_review_assist.jsonl").exists()
+    assert (tmp_path / "registry/review_batches/gold_set_review_assist.md").exists()
     assert (
         tmp_path / "registry/review_batches/lockbox_review_next_import_template.json"
     ).exists()

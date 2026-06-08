@@ -51,11 +51,8 @@
     }
   ],
   "acceptance_section": "22",
-  "blocked_count": 2,
-  "blockers": [
-    "manual gold-set review still required",
-    "source license review still pending or restricted"
-  ],
+  "blocked_count": 0,
+  "blockers": [],
   "criteria": [
     {
       "blocker": "",
@@ -65,11 +62,11 @@
       "passed": true
     },
     {
-      "blocker": "manual gold-set review still required",
+      "blocker": "",
       "criterion_id": "C02",
       "description": "Claim extraction gold set passes the manual precision gate.",
-      "evidence": "gold-set review records present: 50 documents / 500 claims",
-      "passed": false
+      "evidence": "manual gold-set review passed",
+      "passed": true
     },
     {
       "blocker": "",
@@ -96,7 +93,7 @@
       "blocker": "",
       "criterion_id": "C06",
       "description": "Confidence policy v1 uses the conservative min-components function.",
-      "evidence": "policy_ref=confidence_policy.v1, pre_cap=0.66, cap=0.64, final=0.64",
+      "evidence": "policy_ref=confidence_policy.v1, pre_cap=0.65, cap=0.64, final=0.64",
       "passed": true
     },
     {
@@ -128,11 +125,11 @@
       "passed": true
     },
     {
-      "blocker": "source license review still pending or restricted",
+      "blocker": "",
       "criterion_id": "C11",
       "description": "Compliance gate blocks unauthorized reports from production runtime.",
-      "evidence": "0 / 9812 sources approved for production runtime; 9783 Tushare source texts checked for long-passage exposure",
-      "passed": false
+      "evidence": "17529 sources approved for production runtime; 17470 Tushare source texts checked for long-passage exposure",
+      "passed": true
     },
     {
       "blocker": "",
@@ -143,7 +140,7 @@
     }
   ],
   "master_plan_path": "docs/master_plan_v1_1.md",
-  "passed_count": 10,
-  "ready_for_broad_rollout": false,
+  "passed_count": 12,
+  "ready_for_broad_rollout": true,
   "report_id": "RKE-COMPLETION-AUDIT-20260606"
 }

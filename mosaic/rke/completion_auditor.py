@@ -23,6 +23,7 @@ from .review_integrity import (
 from .runtime import (
     EvidenceLedgerItem,
     ProgressEvent,
+    ResearchSupportItem,
     RuntimeAgentOutput,
     RuntimeInference,
     RuntimeRecommendation,
@@ -131,8 +132,9 @@ def _split_mapping_rows(
 
 _CONFIDENCE_COMPONENTS = (
     "data_confidence",
-    "research_confidence",
+    "research_weight_confidence",
     "empirical_validation_confidence",
+    "method_tool_confidence",
     "regime_match_confidence",
 )
 
@@ -203,6 +205,10 @@ def _confidence_policy_gate(
         failures.append(
             "confidence_policy_trace.component_order must match confidence policy components"
         )
+    if "research_confidence" in components:
+        failures.append(
+            "confidence_components.research_confidence is legacy; use research_weight_confidence"
+        )
 
     parsed_components: dict[str, float] = {}
     for component in _CONFIDENCE_COMPONENTS:
@@ -220,8 +226,9 @@ def _confidence_policy_gate(
         data_confidence = min(data_confidence, 0.50)
     expected_pre_cap = min(
         data_confidence,
-        parsed_components["research_confidence"],
+        parsed_components["research_weight_confidence"],
         parsed_components["empirical_validation_confidence"],
+        parsed_components["method_tool_confidence"],
         parsed_components["regime_match_confidence"],
     )
     pre_cap, pre_cap_error = _float_field(
@@ -332,6 +339,14 @@ def _runtime_agent_output_from_mapping(
         "evidence_ledger",
         "evidence_ledger",
     )
+    if "research_support_ledger" in runtime_output:
+        research_support_rows, research_support_failures = _sequence_mapping_rows(
+            runtime_output,
+            "research_support_ledger",
+            "research_support_ledger",
+        )
+    else:
+        research_support_rows, research_support_failures = [], []
     inference_rows, inference_failures = _sequence_mapping_rows(
         runtime_output,
         "inferences",
@@ -365,6 +380,7 @@ def _runtime_agent_output_from_mapping(
     failures.extend(
         [
             *evidence_failures,
+            *research_support_failures,
             *inference_failures,
             *recommendation_failures,
             *[
@@ -397,8 +413,30 @@ def _runtime_agent_output_from_mapping(
                 fallback=bool(row.get("fallback")),
                 confidence_impact=str(row.get("confidence_impact") or ""),
                 source_claim_ids=_string_sequence(row.get("source_claim_ids")),
+                evidence_type=str(row.get("evidence_type") or ""),
+                metric_candidate_id=str(row.get("metric_candidate_id") or ""),
+                analysis_recipe_id=str(row.get("analysis_recipe_id") or ""),
+                report_footprint_ids=_string_sequence(row.get("report_footprint_ids")),
+                tool_proposal_id=str(row.get("tool_proposal_id") or ""),
             )
             for row in evidence_rows
+        )
+        research_support = tuple(
+            ResearchSupportItem(
+                research_support_id=str(row.get("research_support_id") or ""),
+                evidence_type=str(row.get("evidence_type") or ""),
+                source_claim_ids=_string_sequence(row.get("source_claim_ids")),
+                viewpoint_cluster_ids=_string_sequence(
+                    row.get("viewpoint_cluster_ids")
+                ),
+                source_weight_bucket=str(row.get("source_weight_bucket") or ""),
+                method_pattern_ids=_string_sequence(row.get("method_pattern_ids")),
+                allowed_use=str(row.get("allowed_use") or ""),
+                cannot_support_action_without_current_data=bool(
+                    row.get("cannot_support_action_without_current_data")
+                ),
+            )
+            for row in research_support_rows
         )
         inferences = tuple(
             RuntimeInference(
@@ -407,6 +445,9 @@ def _runtime_agent_output_from_mapping(
                 evidence_ids=_string_sequence(row.get("evidence_ids")),
                 rule_ids=_string_sequence(row.get("rule_ids")),
                 source_claim_ids=_string_sequence(row.get("source_claim_ids")),
+                research_support_ids=_string_sequence(
+                    row.get("research_support_ids")
+                ),
             )
             for row in inference_rows
         )
@@ -437,6 +478,7 @@ def _runtime_agent_output_from_mapping(
         return (
             RuntimeAgentOutput(
                 evidence_ledger=evidence,
+                research_support_ledger=research_support,
                 research_rule_ids_used=_string_sequence(
                     runtime_output.get("research_rule_ids_used")
                 ),
@@ -1316,6 +1358,7 @@ def _patch_validator_gate(
         allowed_by_evolution_targets=bool(patch.get("allowed_by_evolution_targets")),
         validation_summary=validation_summary,
         rollback_rule=rollback_rule,
+        patch_type=str(patch.get("patch_type") or ""),
     )
     patch_validation = validate_patch(
         patch_obj,

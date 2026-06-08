@@ -3,7 +3,8 @@
   "guardrails": [
     "research_reports_are_prior_not_signal",
     "research_only_no_trade",
-    "no_direct_production_promotion"
+    "no_direct_production_promotion",
+    "production_blocked_until_manual_gold_license_and_lockbox_gates_pass"
   ],
   "handoff_schema_ref": "downstream_handoff.v1",
   "output_schema_ref": "agent_output_schema.v2",

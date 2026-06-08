@@ -11,6 +11,9 @@ from mosaic.rke import (
     build_source_registry_validation_report,
     summarize_gold_set_review,
     summarize_source_license_review,
+    write_gold_set_review_summary,
+    write_manual_review_batches,
+    write_source_license_review_summary,
 )
 from mosaic.rke.cli import main
 from mosaic.rke.manual_review_import import (
@@ -23,6 +26,20 @@ from mosaic.rke.manual_review_import import (
 
 def _copy_registry(dst_root: Path) -> None:
     shutil.copytree(Path("registry"), dst_root / "registry")
+    gold_review_path = dst_root / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    _reset_gold_review_rows(gold_review_path)
+    review_path = dst_root / "registry/compliance/tushare_license_review_template.jsonl"
+    rows = _load_jsonl(review_path)
+    for row in rows:
+        row["approved_for_derived_claim_storage"] = None
+        row["approved_for_production_runtime"] = None
+        row["reviewer"] = ""
+        row["review_date"] = ""
+        row["notes"] = ""
+    _write_jsonl(review_path, rows)
+    write_gold_set_review_summary(dst_root)
+    write_source_license_review_summary(dst_root)
+    write_manual_review_batches(dst_root)
 
 
 def _load_jsonl(path: Path) -> list[dict]:
@@ -35,6 +52,21 @@ def _write_jsonl(path: Path, rows: list[dict]) -> None:
         "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
         encoding="utf-8",
     )
+
+
+def _reset_gold_review_rows(path: Path) -> None:
+    rows = _load_jsonl(path)
+    for row in rows:
+        row["manual_claim_text"] = ""
+        row["claim_correct"] = None
+        row["source_span_supports_claim"] = None
+        row["direction_correct"] = None
+        row["variable_mapping_correct"] = None
+        row["unsupported_field_false_grounded"] = None
+        row["reviewer"] = ""
+        row["review_date"] = ""
+        row["review_notes"] = ""
+    _write_jsonl(path, rows)
 
 
 def _append_jsonl_value(path: Path, value) -> None:
@@ -170,6 +202,8 @@ def test_apply_gold_set_review_import_rejects_stale_target_row_hash(tmp_path: Pa
 
     assert not report.accepted
     assert "target_row_hash does not match target review row" in set(report.invalid_rows[0].reasons)
+    assert any("stale target_row_hash" in blocker for blocker in report.blockers)
+    assert any("prepare-gold-review --root . --full --force" in blocker for blocker in report.blockers)
 
 
 def test_apply_gold_set_review_import_rejects_legacy_import_without_provenance(tmp_path: Path):

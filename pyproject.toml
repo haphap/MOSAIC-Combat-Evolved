@@ -62,6 +62,11 @@ test = [
 docs = [
     "mkdocs-material>=9.5",
 ]
+# RKE original-report intelligence: PDF -> MinerU Markdown -> local LLM extraction.
+# Kept separate because MinerU pulls large Torch/CUDA wheels.
+report-intelligence = [
+    "mineru[core]>=3.2.3",
+]
 # Data-ingest collector subprocess deps (vendored qlib + tushare collectors).
 # These run in a child process spawned by mosaic.dataflows.qlib_ingest; the
 # parent doesn't import them. tushare is in `data`; pyqlib (for qlib.utils,

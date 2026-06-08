@@ -11,19 +11,19 @@
     {
       "blocker": "",
       "check_id": "handoff_ready_for_operator",
-      "evidence": "gates=['gold_set', 'lockbox', 'source_license'], next_state=paper_trading",
+      "evidence": "gates=['gold_set', 'lockbox', 'source_license'], next_state=staged_production",
       "passed": true
     },
     {
       "blocker": "",
       "check_id": "handoff_command_sequence_complete",
-      "evidence": "steps=16, first=review-progress-preflight, last=promotion-status-final",
+      "evidence": "steps=12, first=review-progress-preflight, last=promotion-status-final",
       "passed": true
     },
     {
       "blocker": "",
       "check_id": "manual_batch_templates_match_status",
-      "evidence": "gold_exported=50/50, gold_full=500/500, license_exported=50/50, batch_blockers=0",
+      "evidence": "gold_exported=0/0, gold_full=0/0, license_exported=0/0, batch_blockers=0",
       "passed": true
     },
     {
@@ -41,7 +41,7 @@
     {
       "blocker": "",
       "check_id": "blank_full_gold_set_import_is_rejected",
-      "evidence": "accepted=False, input_rows=500, applied_rows=0, rejected_rows=500",
+      "evidence": "accepted=False, input_rows=0, applied_rows=0, rejected_rows=0",
       "passed": true
     },
     {
@@ -65,25 +65,25 @@
     {
       "blocker": "",
       "check_id": "blank_source_license_policy_import_is_rejected",
-      "evidence": "accepted=False, matched_rows=9812, output_rows=0, blockers=4",
+      "evidence": "accepted=False, matched_rows=0, output_rows=0, blockers=5",
       "passed": true
     },
     {
       "blocker": "",
       "check_id": "blank_bundle_dry_run_does_not_promote",
-      "evidence": "accepted=False, after_next_state=paper_trading, path=registry/promotion/rke_promotion_dry_run_report.json",
+      "evidence": "accepted=False, after_next_state=staged_production",
       "passed": true
     },
     {
       "blocker": "",
       "check_id": "manual_review_bundle_manifest_current",
-      "evidence": "artifact_count=20, blockers=0, dry_run_accepted=False",
+      "evidence": "artifact_count=22, blockers=0, dry_run_accepted=False",
       "passed": true
     },
     {
       "blocker": "",
       "check_id": "promotion_gate_still_blocks_production",
-      "evidence": "next_state=paper_trading, blockers=5",
+      "evidence": "next_state=staged_production, blockers=1",
       "passed": true
     },
     {
@@ -101,6 +101,8 @@
     "registry/review_batches/gold_set_next_import_template.jsonl",
     "registry/review_batches/gold_set_full_import_template.jsonl",
     "registry/review_batches/gold_set_review_workbook.md",
+    "registry/review_batches/gold_set_review_assist.jsonl",
+    "registry/review_batches/gold_set_review_assist.md",
     "registry/gold_sets/tushare_research_reports.review_import_report.json",
     "registry/review_batches/source_license_next_import_template.jsonl",
     "registry/review_batches/source_license_review_workbook.md",
@@ -110,7 +112,6 @@
     "registry/review_batches/manual_review_runbook.md",
     "registry/review_batches/lockbox_review_next_import_template.json",
     "registry/lockbox/central_bank_lockbox_review_import_report.json",
-    "registry/promotion/rke_promotion_dry_run_report.json",
     "registry/review_batches/manual_review_bundle_manifest.json"
   ],
   "passed_count": 15,

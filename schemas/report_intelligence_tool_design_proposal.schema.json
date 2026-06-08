@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RKE Report Intelligence Tool Design Proposal",
+  "type": "object",
+  "required": ["tool_proposal_id", "tool_gap_id", "owner", "tool_name_candidate", "target_agents", "source_tool_gap_priority", "license_status", "pit_feasibility_status", "engineering_estimate", "input_parameters", "output_schema", "fallback_policy", "validation_plan", "status"],
+  "properties": {
+    "tool_proposal_id": {"type": "string", "minLength": 1},
+    "tool_gap_id": {"type": "string", "minLength": 1},
+    "owner": {"type": "string", "minLength": 1},
+    "tool_name_candidate": {"type": "string", "minLength": 1},
+    "target_agents": {"type": "array", "items": {"type": "string"}},
+    "source_tool_gap_priority": {"type": "string", "minLength": 1},
+    "license_status": {"enum": ["approved", "pending_review", "restricted", "prohibited"]},
+    "pit_feasibility_status": {"enum": ["pit_feasible_pending_vendor_review", "requires_pit_backfill_review", "pit_blocked"]},
+    "engineering_estimate": {"enum": ["low", "medium", "high"]},
+    "input_parameters": {"type": "object"},
+    "output_schema": {"type": "object"},
+    "fallback_policy": {"type": "object"},
+    "validation_plan": {"type": "object"},
+    "status": {"type": "string", "minLength": 1}
+  },
+  "additionalProperties": true
+}

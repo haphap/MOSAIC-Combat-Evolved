@@ -7,6 +7,7 @@ from pathlib import Path
 from mosaic.rke import (
     build_lockbox_review_import_template,
     build_promotion_dry_run_report,
+    write_manual_review_batches,
     write_promotion_dry_run_report,
 )
 from mosaic.rke.cli import main
@@ -22,6 +23,10 @@ def _copy_registry(dst_root: Path) -> None:
     shutil.copytree(Path("registry"), dst_root / "registry")
     shutil.copytree(Path("schemas"), dst_root / "schemas")
     shutil.copytree(Path("docs"), dst_root / "docs")
+    _reset_gold_review_rows(
+        dst_root / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    )
+    write_manual_review_batches(dst_root)
 
 
 def _load_jsonl(path: Path) -> list[dict]:
@@ -39,6 +44,21 @@ def _write_jsonl(path: Path, rows: list[dict]) -> None:
         ),
         encoding="utf-8",
     )
+
+
+def _reset_gold_review_rows(path: Path) -> None:
+    rows = _load_jsonl(path)
+    for row in rows:
+        row["manual_claim_text"] = ""
+        row["claim_correct"] = None
+        row["source_span_supports_claim"] = None
+        row["direction_correct"] = None
+        row["variable_mapping_correct"] = None
+        row["unsupported_field_false_grounded"] = None
+        row["reviewer"] = ""
+        row["review_date"] = ""
+        row["review_notes"] = ""
+    _write_jsonl(path, rows)
 
 
 def _write_json(path: Path, row: dict) -> None:
@@ -127,7 +147,7 @@ def test_promotion_dry_run_simulates_full_manual_gate_pass_without_mutating_root
 
     assert report.accepted
     assert report.mutated_original_registry is False
-    assert report.before_next_state == "paper_trading"
+    assert report.before_next_state == "staged_production"
     assert report.after_next_state == "production"
     assert report.staged_production_allowed_after_simulation is True
     assert report.production_allowed_after_simulation is True
@@ -142,16 +162,17 @@ def test_promotion_dry_run_simulates_full_manual_gate_pass_without_mutating_root
 
 def test_promotion_dry_run_reports_missing_inputs():
     report = build_promotion_dry_run_report(".")
+    steps = {step.review_kind: step for step in report.steps}
 
     assert not report.accepted
     assert not report.production_allowed_after_simulation
-    assert {step.review_kind for step in report.steps} == {
-        "gold_set",
-        "source_license",
-        "lockbox",
-    }
+    assert set(steps) == {"gold_set", "source_license", "lockbox"}
     assert all(not step.provided for step in report.steps)
-    assert all(step.result == "not_provided" for step in report.steps)
+    assert steps["gold_set"].result == "already_applied"
+    assert steps["gold_set"].accepted
+    assert steps["source_license"].result == "already_applied"
+    assert steps["source_license"].accepted
+    assert steps["lockbox"].result == "not_provided"
 
 
 def test_promotion_dry_run_rejects_partial_valid_bundle(tmp_path: Path):
@@ -166,8 +187,32 @@ def test_promotion_dry_run_rejects_partial_valid_bundle(tmp_path: Path):
     assert steps["gold_set"].provided
     assert steps["gold_set"].accepted
     assert not steps["source_license"].provided
+    assert steps["source_license"].accepted
+    assert steps["source_license"].result == "already_applied"
     assert not steps["lockbox"].provided
     assert not report.production_allowed_after_simulation
+
+
+def test_promotion_dry_run_uses_already_applied_source_license_gate(tmp_path: Path):
+    _copy_registry(tmp_path)
+    gold_input = tmp_path / "gold_import.jsonl"
+    lockbox_input = tmp_path / "lockbox_import.json"
+    _write_jsonl(gold_input, _gold_import_rows(tmp_path))
+    _write_json(lockbox_input, _passed_lockbox_review(tmp_path))
+
+    report = build_promotion_dry_run_report(
+        tmp_path,
+        gold_input=gold_input,
+        lockbox_input=lockbox_input,
+    )
+    steps = {step.review_kind: step for step in report.steps}
+
+    assert report.accepted
+    assert report.after_next_state == "production"
+    assert report.production_allowed_after_simulation is True
+    assert steps["source_license"].result == "already_applied"
+    assert not steps["source_license"].provided
+    assert steps["source_license"].accepted
 
 
 def test_write_promotion_dry_run_report_outputs_file(tmp_path: Path):

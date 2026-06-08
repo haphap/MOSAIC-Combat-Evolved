@@ -1,0 +1,133 @@
+{
+  "accepted": true,
+  "as_of_datetime": "2026-06-07T17:18:15+00:00",
+  "audit_id": "RKE-REPORT-INTELLIGENCE-RUNTIME-SAFETY-AUDIT",
+  "blocker_count": 0,
+  "blockers": [],
+  "checked_item_count": 127,
+  "checks": [
+    {
+      "accepted": true,
+      "check_id": "RI-SAFE-00",
+      "evidence": {
+        "load_blocker_count": 0
+      },
+      "failure_count": 0,
+      "failures": [],
+      "requirement": "Required report-intelligence safety inputs load successfully."
+    },
+    {
+      "accepted": true,
+      "check_id": "RI-SAFE-01",
+      "evidence": {
+        "production_use_of_weighted_reports": false,
+        "rollout_mode": "shadow_tooling"
+      },
+      "failure_count": 0,
+      "failures": [],
+      "requirement": "Report intelligence rollout remains at or below shadow tooling."
+    },
+    {
+      "accepted": true,
+      "check_id": "RI-SAFE-02",
+      "evidence": {
+        "runtime_gap_observation_rows": 46,
+        "safe_actionability": "no_trade_without_current_data_confirmation",
+        "weighted_context_rows": 1
+      },
+      "failure_count": 0,
+      "failures": [],
+      "requirement": "Research-only support cannot produce actionable recommendations."
+    },
+    {
+      "accepted": true,
+      "check_id": "RI-SAFE-03",
+      "evidence": {
+        "checked_rows": 47,
+        "forbidden_fields": [
+          "sector_score",
+          "sizing",
+          "position_size",
+          "portfolio_weight",
+          "portfolio_action",
+          "trade_recommendation",
+          "executable_order"
+        ]
+      },
+      "failure_count": 0,
+      "failures": [],
+      "requirement": "Shadow report-intelligence outputs do not change sector score, sizing, or orders."
+    },
+    {
+      "accepted": true,
+      "check_id": "RI-SAFE-04",
+      "evidence": {
+        "retrieved_footprint_rows": 8
+      },
+      "failure_count": 0,
+      "failures": [],
+      "requirement": "Analytical footprints remain metadata/tool hints, not current data evidence."
+    },
+    {
+      "accepted": true,
+      "check_id": "RI-SAFE-05",
+      "evidence": {
+        "forecast_claim_count": 12,
+        "low_weight_retained_count": 0,
+        "sample_low_weight_retained_ids": [],
+        "unique_retrieved_claim_count": 12
+      },
+      "failure_count": 0,
+      "failures": [],
+      "requirement": "Low-weight or disagreeing research is downweighted but not erased."
+    },
+    {
+      "accepted": true,
+      "check_id": "RI-SAFE-06",
+      "evidence": {
+        "max_allowed_weight": 1.2,
+        "min_allowed_weight": 0.0,
+        "retrieved_claim_rows": 12
+      },
+      "failure_count": 0,
+      "failures": [],
+      "requirement": "Historically weak sources are not automatically inverted into contrarian signals."
+    },
+    {
+      "accepted": true,
+      "check_id": "RI-SAFE-07",
+      "evidence": {
+        "consensus_cluster_count": 12,
+        "forecast_ledger_rows": 12,
+        "retrieved_claim_rows": 12
+      },
+      "failure_count": 0,
+      "failures": [],
+      "requirement": "Correlated or copied sources are tracked by consensus/dedup clusters, not counted as independent confirmations."
+    },
+    {
+      "accepted": true,
+      "check_id": "RI-SAFE-08",
+      "evidence": {
+        "runtime_gap_observation_rows": 46,
+        "tool_gap_rows": 46
+      },
+      "failure_count": 0,
+      "failures": [],
+      "requirement": "Runtime tool gaps feed back into the tool gap registry without affecting decisions."
+    },
+    {
+      "accepted": true,
+      "check_id": "RI-SAFE-09",
+      "evidence": {
+        "analysis_recipe_rows": 5,
+        "method_pattern_rows": 5
+      },
+      "failure_count": 0,
+      "failures": [],
+      "requirement": "Method patterns and recipes cannot jump beyond shadow mode without validation gates."
+    }
+  ],
+  "policy": "report intelligence may rank research priors, recipes, and tool gaps in shadow mode only; it cannot create current market evidence, actionable recommendations, sector scores, sizing, orders, or contrarian signals without current tool data, validation, paper trading, and promotion gates",
+  "run_id": "RIR-DERIVED-20260607T171815+0000"
+}

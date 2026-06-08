@@ -5,6 +5,7 @@ import shutil
 from pathlib import Path
 
 from mosaic.rke.cli import main
+from mosaic.rke.manual_review_batches import write_manual_review_batches
 from mosaic.rke.license_policy_import import build_source_license_policy_template
 from mosaic.rke.operator_handoff import build_lockbox_review_import_template
 from mosaic.rke.review_progress import (
@@ -16,6 +17,33 @@ from mosaic.rke.review_progress import (
 
 
 def _copy_registry(dst_root: Path) -> None:
+    shutil.copytree(Path("registry"), dst_root / "registry")
+    gold_path = dst_root / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    gold_rows = _load_jsonl(gold_path)
+    for row in gold_rows:
+        row["manual_claim_text"] = ""
+        row["claim_correct"] = None
+        row["source_span_supports_claim"] = None
+        row["direction_correct"] = None
+        row["variable_mapping_correct"] = None
+        row["unsupported_field_false_grounded"] = None
+        row["reviewer"] = ""
+        row["review_date"] = ""
+        row["review_notes"] = ""
+    _write_jsonl(gold_path, gold_rows)
+    review_path = dst_root / "registry/compliance/tushare_license_review_template.jsonl"
+    rows = _load_jsonl(review_path)
+    for row in rows:
+        row["approved_for_derived_claim_storage"] = None
+        row["approved_for_production_runtime"] = None
+        row["reviewer"] = ""
+        row["review_date"] = ""
+        row["notes"] = ""
+    _write_jsonl(review_path, rows)
+    write_manual_review_batches(dst_root)
+
+
+def _copy_registry_without_license_reset(dst_root: Path) -> None:
     shutil.copytree(Path("registry"), dst_root / "registry")
 
 
@@ -37,6 +65,10 @@ def _write_json(path: Path, payload: dict) -> None:
         json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+
+
+def _license_review_source_count(root: Path) -> int:
+    return len(_load_jsonl(root / "registry/compliance/tushare_license_review_template.jsonl"))
 
 
 def _accepted_gold_rows(root: Path) -> list[dict]:
@@ -187,11 +219,58 @@ def test_review_progress_accepts_complete_reviewed_scratch_files(tmp_path: Path,
     assert output["blockers"] == []
     assert gates["gold_set"]["complete_rows"] == 500
     assert gates["gold_set"]["ready_for_promotion"] is True
-    assert gates["source_license"]["complete_rows"] == 9812
+    assert gates["source_license"]["complete_rows"] == _license_review_source_count(tmp_path)
     assert gates["source_license"]["ready_for_promotion"] is True
     assert gates["lockbox"]["complete_rows"] == 1
     assert gates["lockbox"]["ready_for_promotion"] is True
     assert (tmp_path / "registry/review_batches/manual_review_progress_report.json").exists()
+
+
+def test_review_progress_accepts_already_applied_source_license_with_stale_scratch(
+    tmp_path: Path,
+):
+    _copy_registry_without_license_reset(tmp_path)
+    stale_policy = _accepted_license_policy(tmp_path)
+    stale_policy["matched_rows_fingerprint"] = "sha256:stale"
+    _write_json(
+        tmp_path / "registry/review_batches/source_license_policy_reviewed.json",
+        stale_policy,
+    )
+
+    report = build_manual_review_progress(tmp_path)
+    source_license = next(
+        gate for gate in report.gates if gate.review_kind == "source_license"
+    )
+
+    assert source_license.ready_for_promotion is True
+    assert source_license.simulation_accepted is True
+    assert source_license.complete_rows == source_license.target_rows
+    assert source_license.pending_rows == 0
+    assert source_license.blockers == ()
+
+
+def test_review_progress_accepts_already_applied_gold_with_stale_scratch(
+    tmp_path: Path,
+):
+    _copy_registry_without_license_reset(tmp_path)
+    target_row = _load_jsonl(
+        tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    )[0]
+    stale_row = dict(target_row)
+    stale_row["target_row_hash"] = "sha256:stale"
+    _write_jsonl(
+        tmp_path / "registry/review_batches/gold_set_full_reviewed.jsonl",
+        [stale_row],
+    )
+
+    report = build_manual_review_progress(tmp_path)
+    gold = next(gate for gate in report.gates if gate.review_kind == "gold_set")
+
+    assert gold.ready_for_promotion is True
+    assert gold.simulation_accepted is True
+    assert gold.complete_rows == gold.target_rows
+    assert gold.pending_rows == 0
+    assert gold.blockers == ()
 
 
 def test_review_progress_reports_partial_gold_scratch(tmp_path: Path):
@@ -212,3 +291,30 @@ def test_review_progress_reports_partial_gold_scratch(tmp_path: Path):
     assert gold.pending_rows == 450
     assert not gold.ready_for_promotion
     assert any("450 gold-set claim review rows still pending" in blocker for blocker in gold.blockers)
+
+
+def test_review_progress_reports_stale_gold_scratch_hashes(tmp_path: Path):
+    _copy_registry(tmp_path)
+    rows = _load_jsonl(
+        tmp_path / "registry/review_batches/gold_set_full_import_template.jsonl"
+    )
+    _write_jsonl(
+        tmp_path / "registry/review_batches/gold_set_full_reviewed.jsonl",
+        rows,
+    )
+    target_path = (
+        tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    )
+    target_rows = _load_jsonl(target_path)
+    target_rows[0]["proposed_claim_text"] = "changed after reviewed scratch export"
+    _write_jsonl(target_path, target_rows)
+
+    report = build_manual_review_progress(tmp_path)
+    gold = next(gate for gate in report.gates if gate.review_kind == "gold_set")
+
+    assert not gold.ready_for_promotion
+    assert any("stale target_row_hash" in blocker for blocker in gold.blockers)
+    assert any(
+        "prepare-gold-review --root . --full --force" in blocker
+        for blocker in gold.blockers
+    )

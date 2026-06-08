@@ -1,10 +1,10 @@
 {
-  "blocked_count": 2,
+  "blocked_count": 0,
   "coverage_complete": true,
-  "final_acceptance_blocked_count": 2,
+  "final_acceptance_blocked_count": 0,
   "final_acceptance_missing_count": 0,
-  "final_acceptance_passed_count": 10,
-  "final_acceptance_ready": false,
+  "final_acceptance_passed_count": 12,
+  "final_acceptance_ready": true,
   "final_acceptance_records": [
     {
       "blocker": "",
@@ -16,13 +16,13 @@
       "status": "passed"
     },
     {
-      "blocker": "manual gold-set review still required",
+      "blocker": "",
       "evidence_paths": [
         "registry/audits/rke_completion_audit.json"
       ],
       "requirement": "Claim extraction gold set passes the manual gate.",
       "section_id": "FinalAcceptance-C02",
-      "status": "blocked"
+      "status": "passed"
     },
     {
       "blocker": "",
@@ -97,13 +97,13 @@
       "status": "passed"
     },
     {
-      "blocker": "source license review still pending or restricted",
+      "blocker": "",
       "evidence_paths": [
         "registry/audits/rke_completion_audit.json"
       ],
       "requirement": "Compliance gate blocks unauthorized reports from production runtime.",
       "section_id": "FinalAcceptance-C11",
-      "status": "blocked"
+      "status": "passed"
     },
     {
       "blocker": "",
@@ -130,7 +130,7 @@
       "status": "passed"
     },
     {
-      "blocker": "manual gold-set review still required",
+      "blocker": "",
       "evidence_paths": [
         "registry/gold_sets/tushare_research_reports.review_template.jsonl",
         "registry/gold_sets/tushare_research_reports.review_summary.json",
@@ -138,7 +138,7 @@
       ],
       "requirement": "Claim extraction gold set for 50 documents / 500 claims.",
       "section_id": "MVP-D2",
-      "status": "blocked"
+      "status": "passed"
     },
     {
       "blocker": "",
@@ -227,26 +227,26 @@
       "status": "passed"
     }
   ],
-  "mvp_deliverables_blocked_count": 1,
+  "mvp_deliverables_blocked_count": 0,
   "mvp_deliverables_missing_count": 0,
-  "mvp_deliverables_passed_count": 9,
-  "mvp_deliverables_ready": false,
+  "mvp_deliverables_passed_count": 10,
+  "mvp_deliverables_ready": true,
   "mvp_deliverables_section": "16.3",
-  "mvp_exit_blocked_count": 1,
+  "mvp_exit_blocked_count": 0,
   "mvp_exit_criteria_section": "16.4",
   "mvp_exit_missing_count": 0,
-  "mvp_exit_passed_count": 12,
-  "mvp_exit_ready": false,
+  "mvp_exit_passed_count": 13,
+  "mvp_exit_ready": true,
   "mvp_exit_records": [
     {
-      "blocker": "manual gold-set review still required",
+      "blocker": "",
       "evidence_paths": [
         "registry/gold_sets/tushare_research_reports.review_summary.json",
         "registry/audits/rke_completion_audit.json"
       ],
       "requirement": "Claim extraction gold set precision reaches the manual threshold.",
       "section_id": "MVP-E01",
-      "status": "blocked"
+      "status": "passed"
     },
     {
       "blocker": "",
@@ -376,8 +376,8 @@
       "status": "passed"
     }
   ],
-  "passed_count": 10,
-  "ready_for_broad_rollout": false,
+  "passed_count": 12,
+  "ready_for_broad_rollout": true,
   "records": [
     {
       "blocker": "",
@@ -390,7 +390,7 @@
       "status": "passed"
     },
     {
-      "blocker": "manual gold-set review still required",
+      "blocker": "",
       "evidence_paths": [
         "registry/gold_sets/tushare_research_reports.review_template.jsonl",
         "registry/gold_sets/tushare_research_reports.candidate_claims.jsonl",
@@ -402,11 +402,12 @@
         "registry/review_batches/manual_review_runbook.md",
         "registry/review_batches/gold_set_next_import_template.jsonl",
         "registry/review_batches/gold_set_full_import_template.jsonl",
-        "registry/gold_sets/tushare_research_reports.review_import_report.json"
+        "registry/gold_sets/tushare_research_reports.review_import_report.json",
+        "registry/report_intelligence/patch_v1_5_coverage_report.json"
       ],
       "requirement": "Claim extraction reliability has 50-document / 500-claim manual gold-set gate.",
       "section_id": "Phase-1B",
-      "status": "blocked"
+      "status": "passed"
     },
     {
       "blocker": "",
@@ -440,7 +441,8 @@
         "schemas/validation_experiment_v2.schema.json",
         "schemas/production_patch.schema.json",
         "schemas/confidence_policy.schema.yaml",
-        "schemas/rule_aggregation_policy.schema.yaml"
+        "schemas/rule_aggregation_policy.schema.yaml",
+        "schemas/report_intelligence_patch_v1_5_coverage_report.schema.json"
       ],
       "requirement": "Hardened schemas and policy docs are validated.",
       "section_id": "Phase-1",
@@ -518,7 +520,7 @@
       "status": "passed"
     },
     {
-      "blocker": "source license review still pending or restricted",
+      "blocker": "",
       "evidence_paths": [
         "registry/compliance/tushare_license_review_template.jsonl",
         "registry/compliance/tushare_license_review_packet.json",
@@ -536,7 +538,7 @@
       ],
       "requirement": "Compliance gate blocks unauthorized reports from production runtime and can apply reviewed license decisions.",
       "section_id": "Compliance",
-      "status": "blocked"
+      "status": "passed"
     },
     {
       "blocker": "",

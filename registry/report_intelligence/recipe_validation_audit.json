@@ -1,0 +1,112 @@
+{
+  "accepted": true,
+  "as_of_datetime": "2026-06-07T17:18:15+00:00",
+  "audit_id": "RKE-REPORT-INTELLIGENCE-RECIPE-VALIDATION-AUDIT",
+  "blocker_count": 0,
+  "blockers": [],
+  "checked_item_count": 57,
+  "checks": [
+    {
+      "accepted": true,
+      "check_id": "RI-RECIPE-00",
+      "evidence": {
+        "load_blocker_count": 0
+      },
+      "failure_count": 0,
+      "failures": [],
+      "requirement": "Required report-intelligence recipe validation inputs load successfully."
+    },
+    {
+      "accepted": true,
+      "check_id": "RI-RECIPE-01",
+      "evidence": {
+        "analysis_recipe_rows": 5,
+        "method_pattern_rows": 5
+      },
+      "failure_count": 0,
+      "failures": [],
+      "requirement": "Candidate recipes must be schema-valid, method-linked, step-ordered, tool-explicit, and bounded to a checker-validatable output signal."
+    },
+    {
+      "accepted": true,
+      "check_id": "RI-RECIPE-02",
+      "evidence": {
+        "allowed_runtime_modes": [
+          "shadow_only",
+          "validation_candidate",
+          "paper_trading",
+          "limited_production",
+          "production",
+          "deprecated"
+        ],
+        "runtime_mode_counts": {
+          "shadow_only": 5
+        },
+        "validation_status_counts": {
+          "candidate": 5
+        }
+      },
+      "failure_count": 0,
+      "failures": [],
+      "requirement": "Recipe lifecycle states cannot skip gates: candidate/shadow remain shadow-only, and promoted runtime modes require explicit validation evidence."
+    },
+    {
+      "accepted": true,
+      "check_id": "RI-RECIPE-03",
+      "evidence": {
+        "runtime_tool_gap_observation_rows": 46,
+        "weighted_context_rows": 1
+      },
+      "failure_count": 0,
+      "failures": [],
+      "requirement": "Shadow recipes may appear in weighted research contexts only as research-only, no-trade, as-of registry references."
+    },
+    {
+      "accepted": true,
+      "check_id": "RI-RECIPE-04",
+      "evidence": {
+        "minimum_effective_n": 30,
+        "minimum_pit_history_years": 5,
+        "tool_feasibility_audit_accepted": true,
+        "validation_candidate_recipe_count": 0
+      },
+      "failure_count": 0,
+      "failures": [],
+      "requirement": "Validation-candidate recipes require accepted tool feasibility, PIT history, enough effective samples, and concrete tools rather than requested placeholders."
+    },
+    {
+      "accepted": true,
+      "check_id": "RI-RECIPE-05",
+      "evidence": {
+        "paper_or_beyond_recipe_count": 0
+      },
+      "failure_count": 0,
+      "failures": [],
+      "requirement": "Paper-trading recipes require hardened validation, after-cost metrics, calibration measurement, and no production sizing."
+    },
+    {
+      "accepted": true,
+      "check_id": "RI-RECIPE-06",
+      "evidence": {
+        "limited_or_production_recipe_count": 0
+      },
+      "failure_count": 0,
+      "failures": [],
+      "requirement": "Limited production and production recipes require paper-trading after-cost/calibration improvement plus staged rollout, monitoring, and rollback."
+    },
+    {
+      "accepted": true,
+      "check_id": "RI-RECIPE-07",
+      "evidence": {
+        "checked_recipe_rows": 5,
+        "production_use_of_weighted_reports": false,
+        "rollout_mode": "shadow_tooling"
+      },
+      "failure_count": 0,
+      "failures": [],
+      "requirement": "Recipe validation outputs cannot alter decisions, sizing, or actionability while report intelligence remains shadow-only."
+    }
+  ],
+  "policy": "report-intelligence analysis recipes must move through candidate, shadow_only, validation_candidate, paper_trading, limited_production, and production gates without skipping evidence; report-derived recipes remain research-only until current data, tool correctness, PIT validation, paper trading, monitoring, and rollback are proven",
+  "run_id": "RIR-DERIVED-20260607T171815+0000"
+}

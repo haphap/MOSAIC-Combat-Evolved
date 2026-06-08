@@ -24,6 +24,12 @@ def _copy_registry(dst_root: Path) -> None:
     dst = dst_root / "registry/compliance/tushare_license_review_template.jsonl"
     dst.parent.mkdir(parents=True, exist_ok=True)
     rows = _load_jsonl(Path("registry/compliance/tushare_license_review_template.jsonl"))[:3]
+    for row in rows:
+        row["approved_for_derived_claim_storage"] = None
+        row["approved_for_production_runtime"] = None
+        row["reviewer"] = ""
+        row["review_date"] = ""
+        row["notes"] = ""
     dst.write_text(
         "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
         encoding="utf-8",
@@ -93,17 +99,59 @@ def test_build_source_license_policy_import_expands_signed_policy(tmp_path: Path
     assert dry_run.applied_rows == 0
 
 
-def test_source_license_policy_template_requires_reviewer_decision():
-    template = build_source_license_policy_template(".")
+def test_source_license_policy_import_only_matches_pending_review_rows(tmp_path: Path):
+    _copy_registry(tmp_path)
+    review_path = tmp_path / "registry/compliance/tushare_license_review_template.jsonl"
+    rows = _load_jsonl(review_path)
+    rows[0]["approved_for_derived_claim_storage"] = True
+    rows[0]["approved_for_production_runtime"] = True
+    rows[0]["reviewer"] = "previous reviewer"
+    rows[0]["review_date"] = "2026-06-06"
+    rows[0]["notes"] = "previously reviewed"
+    review_path.write_text(
+        "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
+        encoding="utf-8",
+    )
+    policy_path = tmp_path / "policy.json"
+    output_path = tmp_path / "policy_import.jsonl"
+    _write_json(policy_path, _policy(tmp_path))
+
+    report = build_source_license_policy_import(tmp_path, policy_path, output_path=output_path)
+    imported = _load_jsonl(output_path)
+
+    assert report.accepted
+    assert report.matched_rows == 2
+    assert {row["source_id"] for row in imported} == {rows[1]["source_id"], rows[2]["source_id"]}
+    assert all(row["source_id"] != rows[0]["source_id"] for row in imported)
+
+
+def test_source_license_policy_template_requires_reviewer_decision(tmp_path: Path):
+    _copy_registry(tmp_path)
+    review_path = tmp_path / "registry/compliance/tushare_license_review_template.jsonl"
+    rows = _load_jsonl(review_path)
+    for row in rows:
+        row["approved_for_derived_claim_storage"] = True
+        row["approved_for_production_runtime"] = True
+        row["reviewer"] = "previous reviewer"
+        row["review_date"] = "2026-06-06"
+    review_path.write_text(
+        "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
+        encoding="utf-8",
+    )
+    template = build_source_license_policy_template(tmp_path)
 
     assert template["approved_for_derived_claim_storage"] is None
     assert template["approved_for_production_runtime"] is None
     assert template["reviewer"] == ""
     assert template["review_date"] == ""
-    assert template["matched_row_count"] == 9812
+    assert template["matched_row_count"] == 0
     assert template["matched_rows_fingerprint"].startswith("sha256:")
-    assert template["filters"]["source_type"] == ["tushare_research_report"]
-    assert template["filters"]["current_license_status"] == ["pending_review"]
+    assert template["filters"]["source_type"] == []
+    assert template["filters"]["current_license_status"] == []
+    assert template["filters"]["review_status"] == []
+    assert template["filters"]["source_id_prefix"] == [
+        "__NO_PENDING_SOURCE_LICENSE_ROWS__"
+    ]
     assert "build-license-review-import" in template["build_command"]
     assert SOURCE_LICENSE_REVIEWED_POLICY_PATH in template["build_command"]
     assert "source_license_policy_template.json" not in template["build_command"]
@@ -142,6 +190,9 @@ def test_write_source_license_policy_template_outputs_registry_artifact(tmp_path
     assert payload["approved_for_production_runtime"] is None
     assert payload["matched_row_count"] == 3
     assert payload["matched_rows_fingerprint"].startswith("sha256:")
+    assert payload["filters"]["review_status"] == ["pending"]
+    assert payload["filters"]["publish_date_min"] == payload["publish_date_min"]
+    assert payload["filters"]["publish_date_max"] == payload["publish_date_max"]
     assert (tmp_path / "registry/review_batches/source_license_policy_template.json").exists()
 
 

@@ -36,7 +36,7 @@
       "evidence_path": "registry/source_checks/source_registry_validation_report.json",
       "passed": true,
       "rollback_type": "compliance",
-      "trigger": "source production blockers=9812"
+      "trigger": "source production blockers=0"
     },
     {
       "action": "keep rule in paper_trading",

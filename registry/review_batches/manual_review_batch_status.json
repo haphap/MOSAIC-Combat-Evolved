@@ -1,13 +1,13 @@
 {
-  "blockers": [
-    "500 gold-set review rows still pending",
-    "9812 source-license review rows still pending"
-  ],
+  "blockers": [],
   "generated_paths": [
     "registry/review_batches/gold_set_next_import_template.jsonl",
     "registry/review_batches/gold_set_full_import_template.jsonl",
     "registry/review_batches/gold_set_review_workbook.md",
+    "registry/review_batches/gold_set_review_assist.jsonl",
+    "registry/review_batches/gold_set_review_assist.md",
     "registry/review_batches/source_license_next_import_template.jsonl",
+    "registry/review_batches/source_license_policy_template.json",
     "registry/review_batches/source_license_review_workbook.md",
     "registry/review_batches/manual_review_batch_status.json"
   ],
@@ -15,12 +15,12 @@
     "apply_command": "mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_next_import_template.jsonl",
     "batch_size": 50,
     "dry_run_command": "mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_next_import_template.jsonl --dry-run",
-    "exported_rows": 50,
-    "first_pending_id": "GOLD-SRC-TSRR-20260605-566dea13371dfb10-001",
+    "exported_rows": 0,
+    "first_pending_id": null,
     "full_import_template_path": "registry/review_batches/gold_set_full_import_template.jsonl",
     "import_template_path": "registry/review_batches/gold_set_next_import_template.jsonl",
-    "last_pending_id": "GOLD-SRC-TSRR-20260505-bcbf31964055f067-010",
-    "pending_rows": 500,
+    "last_pending_id": null,
+    "pending_rows": 0,
     "required_manual_fields": [
       "manual_claim_text",
       "claim_correct",
@@ -42,12 +42,12 @@
     "apply_command": "mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_next_import_template.jsonl",
     "batch_size": 50,
     "dry_run_command": "mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_next_import_template.jsonl --dry-run",
-    "exported_rows": 50,
-    "first_pending_id": "SRC-TSRR-20260605-ffdcd6ee4b92e50d",
+    "exported_rows": 0,
+    "first_pending_id": null,
     "full_import_template_path": "",
     "import_template_path": "registry/review_batches/source_license_next_import_template.jsonl",
-    "last_pending_id": "SRC-TSRR-20260205-000e063f936c12e4",
-    "pending_rows": 9812,
+    "last_pending_id": null,
+    "pending_rows": 0,
     "required_manual_fields": [
       "approved_for_derived_claim_storage",
       "approved_for_production_runtime",
@@ -58,7 +58,7 @@
     "review_kind": "source_license",
     "review_packet_path": "registry/compliance/tushare_license_review_packet.json",
     "target_path": "registry/compliance/tushare_license_review_template.jsonl",
-    "total_rows": 9812
+    "total_rows": 17529
   },
   "status_id": "RKE-MANUAL-REVIEW-BATCH-STATUS-20260606"
 }

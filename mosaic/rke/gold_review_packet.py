@@ -17,6 +17,7 @@ from typing import Any, Mapping, Sequence
 
 from .claim_vocabulary import load_claim_variable_vocabulary
 from .phase_minus1 import load_jsonl_with_errors
+from .review_integrity import license_review_row_complete
 
 
 GOLD_REVIEW_PACKET_JSON_PATH = "registry/gold_sets/tushare_research_reports.review_packet.json"
@@ -24,6 +25,7 @@ GOLD_REVIEW_PACKET_MD_PATH = "registry/gold_sets/tushare_research_reports.review
 GOLD_CANDIDATE_CLAIMS_SUMMARY_PATH = "registry/gold_sets/tushare_research_reports.candidate_claims.summary.json"
 GOLD_CANDIDATES_PATH = "registry/sources/tushare_research_reports.gold_candidates.jsonl"
 GOLD_REVIEW_TEMPLATE_PATH = "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+SOURCE_LICENSE_REVIEW_TEMPLATE_PATH = "registry/compliance/tushare_license_review_template.jsonl"
 
 MECHANISM_KEYWORDS = (
     "政策",
@@ -154,6 +156,35 @@ def _split_mapping_rows(rows: Sequence[Any]) -> tuple[list[Mapping[str, Any]], t
     return valid_rows, tuple(invalid_row_numbers)
 
 
+def _malformed_row_blocker(label: str, row_numbers: Sequence[int]) -> str:
+    return f"{label} row must be object at row(s): " + ", ".join(str(row_number) for row_number in row_numbers)
+
+
+def _approved_license_source_ids(root_path: Path) -> tuple[set[str], tuple[str, ...]]:
+    path = root_path / SOURCE_LICENSE_REVIEW_TEMPLATE_PATH
+    if not path.exists():
+        return set(), ()
+    raw_rows, parse_blockers = load_jsonl_with_errors(
+        path,
+        label="source license review",
+    )
+    rows, invalid_rows = _split_mapping_rows(raw_rows)
+    approved = {
+        source_id
+        for row in rows
+        if (
+            (source_id := str(row.get("source_id") or "").strip())
+            and license_review_row_complete(row)
+            and row.get("approved_for_derived_claim_storage") is True
+            and row.get("approved_for_production_runtime") is True
+        )
+    }
+    blockers = list(parse_blockers)
+    if invalid_rows:
+        blockers.append(_malformed_row_blocker("source license review", invalid_rows))
+    return approved, tuple(blockers)
+
+
 def _short_hash(text: str) -> str:
     return "sha256:" + sha256(text.encode("utf-8")).hexdigest()[:16]
 
@@ -239,6 +270,7 @@ def _document_packet(
     candidate: Mapping[str, Any],
     review_rows: Sequence[Mapping[str, Any]],
     known_variable_ids: set[str],
+    approved_license_source_ids: set[str],
 ) -> GoldReviewDocumentPacket:
     source_id = str(candidate.get("source_id") or "")
     source_span_id = str(candidate.get("source_span_id") or f"{source_id}:abstract")
@@ -248,7 +280,7 @@ def _document_packet(
     hints = tuple(variable for variable in _canonical_variable_hints(text, query_key, report_type) if variable in known_variable_ids)
     source_terms = _source_terms(text)
     risk_flags: list[str] = ["manual_review_required"]
-    if str(candidate.get("license_status") or "") != "approved":
+    if source_id not in approved_license_source_ids and str(candidate.get("license_status") or "") != "approved":
         risk_flags.append("license_pending")
     if len(text) > 600:
         risk_flags.append("span_preview_truncated")
@@ -300,6 +332,7 @@ def build_gold_review_packet(root: str | Path = ".") -> GoldReviewPacket:
         root_path / GOLD_CANDIDATE_CLAIMS_SUMMARY_PATH,
         "gold candidate summary",
     )
+    approved_license_source_ids, license_review_blockers = _approved_license_source_ids(root_path)
     vocabulary_blockers: tuple[str, ...] = ()
     try:
         vocabulary = load_claim_variable_vocabulary(root_path)
@@ -308,7 +341,12 @@ def build_gold_review_packet(root: str | Path = ".") -> GoldReviewPacket:
         known_variable_ids = set()
         vocabulary_blockers = (str(exc),)
     documents = tuple(
-        _document_packet(candidate, review_by_source.get(str(candidate.get("source_id") or ""), ()), known_variable_ids)
+        _document_packet(
+            candidate,
+            review_by_source.get(str(candidate.get("source_id") or ""), ()),
+            known_variable_ids,
+            approved_license_source_ids,
+        )
         for candidate in candidates
     )
     risk_counts = Counter(flag for document in documents for flag in document.risk_flags)
@@ -319,6 +357,7 @@ def build_gold_review_packet(root: str | Path = ".") -> GoldReviewPacket:
         *candidate_parse_blockers,
         *review_parse_blockers,
         *summary_blockers,
+        *license_review_blockers,
         *vocabulary_blockers,
     ]
     if invalid_candidate_rows:
@@ -331,9 +370,17 @@ def build_gold_review_packet(root: str | Path = ".") -> GoldReviewPacket:
             "gold-set review row must be object at row(s): "
             + ", ".join(str(row_number) for row_number in invalid_review_rows)
         )
+    pending_review_rows = sum(_row_pending(row) for row in review_rows)
+    status = (
+        "manual_review_blocked"
+        if blockers
+        else "manual_review_pending"
+        if pending_review_rows
+        else "manual_review_passed"
+    )
     return GoldReviewPacket(
         packet_id="RKE-GOLD-REVIEW-PACKET-20260606",
-        status="manual_review_blocked" if blockers else "manual_review_pending",
+        status=status,
         review_gate={
             "gold_set_id": "GOLD-CLAIM-2026Q2",
             "claim_precision_min": 0.85,
@@ -358,7 +405,7 @@ def build_gold_review_packet(root: str | Path = ".") -> GoldReviewPacket:
         review_path=GOLD_REVIEW_TEMPLATE_PATH,
         document_count=len(documents),
         review_row_count=len(raw_review_rows) + len(review_parse_blockers),
-        pending_review_rows=sum(_row_pending(row) for row in review_rows),
+        pending_review_rows=pending_review_rows,
         candidate_claim_count=int(candidate_claim_summary.get("candidate_claim_count") or 0),
         candidate_claim_available_count=int(
             candidate_claim_summary.get("candidate_available_count") or 0

@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RKE Report Intelligence Forecast Claim",
+  "type": "object",
+  "required": ["forecast_claim_id", "claim_id", "report_id", "source_id", "source_span_ids", "claim_text", "claim_provenance", "forecast_testability", "forecast_type", "target", "benchmark", "direction", "horizon", "signal_datetime", "failure_modes", "extraction_quality", "extractor"],
+  "properties": {
+    "forecast_claim_id": {"type": "string", "minLength": 1},
+    "claim_id": {"type": "string", "minLength": 1},
+    "report_id": {"type": "string", "minLength": 1},
+    "source_id": {"type": "string", "minLength": 1},
+    "source_span_ids": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+    "claim_text": {"type": "string", "minLength": 1},
+    "claim_provenance": {"enum": ["source_grounded", "analyst_or_llm_hypothesis", "unknown"]},
+    "forecast_testability": {"enum": ["testable", "non_testable", "insufficient_mapping"]},
+    "forecast_type": {"type": "string", "minLength": 1},
+    "target": {"type": "object"},
+    "benchmark": {"type": "object"},
+    "direction": {"enum": ["positive", "negative", "neutral", "ambiguous", "unknown"]},
+    "horizon": {"type": "object"},
+    "signal_datetime": {"type": "string", "minLength": 1},
+    "metric_proxy_mapping": {"type": "array", "items": {"type": "string"}},
+    "failure_modes": {"type": "array", "items": {"type": "object"}},
+    "extraction_quality": {"type": "object"},
+    "extractor": {"type": "object"}
+  },
+  "additionalProperties": true
+}

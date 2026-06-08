@@ -319,11 +319,21 @@ def build_rollback_readiness_report(root: str | Path = ".") -> RollbackReadiness
     try:
         promotion = build_production_promotion_gate_report(root_path)
         blockers = " ".join(promotion.blockers)
+        blocker_text = blockers.lower()
+        rollback_blocker_present = any(
+            marker in blocker_text
+            for marker in (
+                "manual gold-set",
+                "source license",
+                "source registry",
+                "source text",
+                "lockbox",
+            )
+        )
         promotion_passed = (
             not promotion.production_allowed
             and promotion.direct_production_forbidden
-            and "source license" in blockers
-            and "source registry" in blockers
+            and rollback_blocker_present
         )
     except Exception as exc:  # noqa: BLE001 - rollback readiness should report bad inputs, not crash
         blockers = ""

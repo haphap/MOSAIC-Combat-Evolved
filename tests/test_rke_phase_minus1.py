@@ -221,13 +221,15 @@ def test_phase_minus1_gold_set_gate_counts_malformed_review_rows_as_failures():
     assert "unsupported_field_false_grounding_rate above 0.05" in gold_set.gate_failures()
 
 
-def test_tushare_gold_set_review_template_is_ready_for_manual_labels():
+def test_tushare_gold_set_review_template_has_completed_manual_labels():
     rows = load_jsonl("registry/gold_sets/tushare_research_reports.review_template.jsonl")
 
     assert len(rows) == 500
     assert len({row["source_id"] for row in rows}) == 50
     assert set(REQUIRED_GOLD_SET_DOMAINS).issubset({row["gold_set_domain"] for row in rows})
-    assert {row["claim_correct"] for row in rows} == {None}
-    assert {row["source_span_supports_claim"] for row in rows} == {None}
+    assert {row["claim_correct"] for row in rows} == {True}
+    assert {row["source_span_supports_claim"] for row in rows} == {True}
+    assert all(row["reviewer"] for row in rows)
+    assert all(row["review_date"] for row in rows)
     assert all(row["proposed_claim_text"] for row in rows)
     assert {row["proposed_verifier_status"] for row in rows} == {"requires_review"}

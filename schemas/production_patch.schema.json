@@ -5,9 +5,19 @@
   "required": ["patch_id", "source_experiment_id", "operation", "target_path", "old_value", "new_value", "allowed_by_evolution_targets", "validation_summary", "rollback_rule"],
   "properties": {
     "patch_id": {"type": "string"},
+    "patch_type": {
+      "enum": [
+        "parameter_update",
+        "source_weight_policy_update",
+        "method_pattern_runtime_promotion",
+        "metric_candidate_alias_merge",
+        "registry_status_update",
+        "research_prior_update"
+      ]
+    },
     "source_experiment_id": {"type": "string"},
-    "operation": {"enum": ["replace", "append", "tighten", "relax"]},
-    "target_path": {"type": "string", "pattern": "^/rule_packs/"},
+    "operation": {"enum": ["replace", "append", "tighten", "relax", "merge_alias"]},
+    "target_path": {"type": "string", "pattern": "^/"},
     "allowed_by_evolution_targets": {"type": "boolean"},
     "validation_summary": {"type": "object"},
     "rollback_rule": {"type": "object"}

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RKE Report Intelligence Source Performance Profile",
+  "type": "object",
+  "required": ["profile_id", "entity_type", "entity_id", "context", "as_of_datetime", "n_nominal", "n_effective", "stability_bucket", "statistical_reliability_bucket", "shrunk_performance_bucket", "weight_multiplier", "insufficient_data", "methodology_notes"],
+  "properties": {
+    "profile_id": {"type": "string", "minLength": 1},
+    "entity_type": {"type": "string", "minLength": 1},
+    "entity_id": {"type": "string", "minLength": 1},
+    "context": {"type": "object"},
+    "as_of_datetime": {"type": "string", "minLength": 1},
+    "n_nominal": {"type": "integer"},
+    "n_effective": {"type": "number"},
+    "stability_bucket": {"type": "string", "minLength": 1},
+    "statistical_reliability_bucket": {"type": "string", "minLength": 1},
+    "shrunk_performance_bucket": {"type": "string", "minLength": 1},
+    "weight_multiplier": {"type": "number"},
+    "insufficient_data": {"type": "boolean"},
+    "methodology_notes": {"type": "array", "items": {"type": "string"}}
+  },
+  "additionalProperties": true
+}

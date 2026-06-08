@@ -265,8 +265,9 @@ def test_p0_06_confidence_uses_min_component_and_research_only_no_trade():
     result = compute_confidence_v1(
         ConfidenceComponents(
             data_confidence=0.90,
-            research_confidence=0.80,
+            research_weight_confidence=0.80,
             empirical_validation_confidence=0.70,
+            method_tool_confidence=0.72,
             regime_match_confidence=0.75,
         ),
         confidence_cap=0.85,
@@ -276,7 +277,7 @@ def test_p0_06_confidence_uses_min_component_and_research_only_no_trade():
     assert result.actionability == "modest_tilt"
 
     research_only = compute_confidence_v1(
-        ConfidenceComponents(0.90, 0.90, 0.90, 0.90),
+        ConfidenceComponents(0.90, 0.90, 0.90, 0.90, 0.90),
         current_data_confirmed=False,
     )
     assert research_only.final_confidence == 0.50

@@ -1,159 +1,177 @@
 {
   "accepted": true,
-  "artifact_count": 20,
+  "artifact_count": 22,
   "artifacts": [
     {
-      "bytes": 14694,
+      "bytes": 11823,
       "exists": true,
       "format": "json",
       "path": "registry/handoffs/rke_operator_handoff.json",
       "role": "operator_handoff_json",
       "row_count": null,
-      "sha256": "sha256:c05a433325c995cab3e3ef596a1f358f0e630e28e6887e93d874183c495a9fbb"
+      "sha256": "sha256:171097fd338e3d08a828c8b1985bca5418f4b6f6bd88355e1da928b0a4ee9854"
     },
     {
-      "bytes": 11063,
+      "bytes": 8411,
       "exists": true,
       "format": "markdown",
       "path": "registry/handoffs/rke_operator_handoff.md",
       "role": "operator_handoff_markdown",
       "row_count": null,
-      "sha256": "sha256:1847dfc99c1f441e162ae4c65458768d632caf331c4e552b85d36868fec6f833"
+      "sha256": "sha256:2f2e8fc004df425e39acef43cd48afcc33c70afad70d383c60736d8b0e75f95a"
     },
     {
-      "bytes": 2898,
+      "bytes": 2829,
       "exists": true,
       "format": "json",
       "path": "registry/review_batches/manual_review_batch_status.json",
       "role": "manual_review_batch_status",
       "row_count": null,
-      "sha256": "sha256:e72acaf6347d5969dd0e46ecf6fb0538538914a70a2808eae8a37640dd4d4873"
+      "sha256": "sha256:c015e299666ebf58b40ea3b41ce7bd3a8d93ab2e77255a025c280681cebc06f5"
     },
     {
-      "bytes": 3445,
+      "bytes": 3145,
       "exists": true,
       "format": "json",
       "path": "registry/review_batches/manual_review_progress_report.json",
       "role": "manual_review_progress_report",
       "row_count": null,
-      "sha256": "sha256:e9d49f5fd2a88d381acf0e0e7a8f7d5817fcf27d6ebe0d1b51136c3cf88e8b8a"
+      "sha256": "sha256:6ce6328a3616082e6f156a709d6be3344a99475a5cab7aa8a9f3062cd7494600"
     },
     {
-      "bytes": 6539,
+      "bytes": 6362,
       "exists": true,
       "format": "markdown",
       "path": "registry/review_batches/manual_review_runbook.md",
       "role": "manual_review_runbook_markdown",
       "row_count": null,
-      "sha256": "sha256:966b5a489772ac291c2651a63c1777b98ad572da8adb278afc2531a6d116e0e5"
+      "sha256": "sha256:40f1d9220c9a6b1d2e08509c3098d51e828190d6c965ee1c77b7675a76083855"
     },
     {
-      "bytes": 222962,
+      "bytes": 221629,
       "exists": true,
       "format": "json",
       "path": "registry/gold_sets/tushare_research_reports.review_packet.json",
       "role": "gold_review_packet_json",
       "row_count": null,
-      "sha256": "sha256:45aa7c6904182467b20dfd275cc0c4f409270d3465d1f8b674a7ea0936df1fb0"
+      "sha256": "sha256:be38eb126c6e9331d6335d66ee0eba598d27bae26b659d76b8fc46d4b0eaef10"
     },
     {
-      "bytes": 38606,
+      "bytes": 38062,
       "exists": true,
       "format": "markdown",
       "path": "registry/gold_sets/tushare_research_reports.review_packet.md",
       "role": "gold_review_packet_markdown",
       "row_count": null,
-      "sha256": "sha256:ea32650a9610d1d69e98df1e00124e51a19487b1427665c87586ff7ae04fb485"
+      "sha256": "sha256:df0a7d1bf68510c3fb332415cb36f1394a603eeec5da168a3b8497cf16842536"
     },
     {
-      "bytes": 196547,
+      "bytes": 877,
       "exists": true,
       "format": "markdown",
       "path": "registry/review_batches/gold_set_review_workbook.md",
       "role": "gold_review_workbook_markdown",
       "row_count": null,
-      "sha256": "sha256:b0014b887d0b6432f39ad884b84290dba32264e5f6116fae299becab3df49da5"
+      "sha256": "sha256:0ee2521171d0877b7905d5e39fc46b6c859584703925bbf953848b50804b84b3"
     },
     {
-      "bytes": 98079,
+      "bytes": 0,
+      "exists": true,
+      "format": "jsonl",
+      "path": "registry/review_batches/gold_set_review_assist.jsonl",
+      "role": "gold_review_assist_jsonl",
+      "row_count": 0,
+      "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "bytes": 720,
+      "exists": true,
+      "format": "markdown",
+      "path": "registry/review_batches/gold_set_review_assist.md",
+      "role": "gold_review_assist_markdown",
+      "row_count": null,
+      "sha256": "sha256:ac4af2ae6f27cb831be4371b004e6448948605364e801edf3c76ac686e36f67f"
+    },
+    {
+      "bytes": 0,
       "exists": true,
       "format": "jsonl",
       "path": "registry/review_batches/gold_set_next_import_template.jsonl",
       "role": "gold_next_import_template",
-      "row_count": 50,
-      "sha256": "sha256:efb9c574706dfb159df5a62ace8037fefa25812bf11fa55218a0dddd23d0315a"
+      "row_count": 0,
+      "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
     {
-      "bytes": 916065,
+      "bytes": 0,
       "exists": true,
       "format": "jsonl",
       "path": "registry/review_batches/gold_set_full_import_template.jsonl",
       "role": "gold_full_import_template",
-      "row_count": 500,
-      "sha256": "sha256:3c9cb9feddf48e7a2f2b257406bb34362b4ac9634800d915a271e4ba34231cb3"
+      "row_count": 0,
+      "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
     {
-      "bytes": 239420,
+      "bytes": 523,
       "exists": true,
       "format": "json",
       "path": "registry/gold_sets/tushare_research_reports.review_import_report.json",
       "role": "gold_blank_import_report",
       "row_count": null,
-      "sha256": "sha256:1695a413b9ed694f22289f5fefba03ec5ad84617b937d27b4b2e6af510eca9a1"
+      "sha256": "sha256:d937d5fc6aeada1b3ac632573b2423cc5dfbe296f21b8e2fa88d36ae4a8785cc"
     },
     {
-      "bytes": 7499723,
+      "bytes": 9531813,
       "exists": true,
       "format": "json",
       "path": "registry/compliance/tushare_license_review_packet.json",
       "role": "license_review_packet_json",
       "row_count": null,
-      "sha256": "sha256:d167f8e16e7fb9bd029a27451b589d3bcaba26d62f4f0aaf71c337c5749431e3"
+      "sha256": "sha256:aedb5841e47758a7108691501e114661ad689073e30665f391be646f3d2ba52c"
     },
     {
-      "bytes": 2649703,
+      "bytes": 2156470,
       "exists": true,
       "format": "markdown",
       "path": "registry/compliance/tushare_license_review_packet.md",
       "role": "license_review_packet_markdown",
       "row_count": null,
-      "sha256": "sha256:9ef592d66165656a9222d6f554ecffc22c099dc81840e176f268b0780749b154"
+      "sha256": "sha256:3c59d5e07c5bfd6057ed2d630ff0a35fee46e1328c282a66b7eecb1dbc87b914"
     },
     {
-      "bytes": 13009,
+      "bytes": 1796,
       "exists": true,
       "format": "markdown",
       "path": "registry/review_batches/source_license_review_workbook.md",
       "role": "license_review_workbook_markdown",
       "row_count": null,
-      "sha256": "sha256:df0e7b61ec56b6a32550e1dddb660224bec2a8d05165a4070cc5075170343ebf"
+      "sha256": "sha256:85b6d3970ddb17795e44fe27728c74bb229b286668cf1962995dd7fabf5b3509"
     },
     {
-      "bytes": 33256,
+      "bytes": 0,
       "exists": true,
       "format": "jsonl",
       "path": "registry/review_batches/source_license_next_import_template.jsonl",
       "role": "license_next_import_template",
-      "row_count": 50,
-      "sha256": "sha256:822e6e9710632ea4d920932a5024ac24d78f90d16b10c3c2285bf2c36f1efb07"
+      "row_count": 0,
+      "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
     {
-      "bytes": 1262,
+      "bytes": 1339,
       "exists": true,
       "format": "json",
       "path": "registry/review_batches/source_license_policy_template.json",
       "role": "license_policy_template",
       "row_count": null,
-      "sha256": "sha256:358bc9fae89e72073b2d24dd32b3daa5160f90483bbaf3a1061e3cfc52d6303e"
+      "sha256": "sha256:38aa037911f748474d4b850db106c9c485e556cb6ca4892043abd2263433ced5"
     },
     {
-      "bytes": 970,
+      "bytes": 1031,
       "exists": true,
       "format": "json",
       "path": "registry/review_batches/source_license_policy_import_report.json",
       "role": "license_policy_blank_import_report",
       "row_count": null,
-      "sha256": "sha256:ae67b29400b62728f48ed8fccbc2781b4ec8c20ae093500851979c697a1883df"
+      "sha256": "sha256:41cd02824912d25f633a9b5c54eccfc4e4bf0a2417fe6eac0d16edcb89335dc3"
     },
     {
       "bytes": 613,
@@ -174,33 +192,36 @@
       "sha256": "sha256:ccd4ec73bfdf2da39a4689070f5fb6605702ac379e21d44cdf6551bc898af7c8"
     },
     {
-      "bytes": 2055,
+      "bytes": 1205,
       "exists": true,
       "format": "json",
       "path": "registry/promotion/rke_promotion_dry_run_report.json",
-      "role": "promotion_blank_dry_run_report",
+      "role": "promotion_dry_run_report",
       "row_count": null,
-      "sha256": "sha256:9b211d2df59dd99abed7399cd3efe4bc533422fdc480d09a083576e6f0c28536"
+      "sha256": "sha256:41322009b8674141158755f962215f6f0480b245616b7e1efdb5d9616f029e5c"
     }
   ],
   "blockers": [],
   "manifest_id": "RKE-MANUAL-REVIEW-BUNDLE-MANIFEST-20260606",
   "promotion_dry_run": {
     "accepted": false,
-    "accepted_steps": [],
-    "after_next_state": "paper_trading",
-    "missing_steps": [],
+    "accepted_steps": [
+      "gold_set",
+      "source_license"
+    ],
+    "after_next_state": "staged_production",
+    "already_applied_steps": [
+      "gold_set",
+      "source_license"
+    ],
+    "missing_steps": [
+      "lockbox"
+    ],
     "production_allowed_after_simulation": false,
-    "provided_steps": [
-      "gold_set",
-      "source_license",
-      "lockbox"
-    ],
+    "provided_steps": [],
     "rejected_steps": [
-      "gold_set",
-      "source_license",
       "lockbox"
     ],
-    "staged_production_allowed_after_simulation": false
+    "staged_production_allowed_after_simulation": true
   }
 }

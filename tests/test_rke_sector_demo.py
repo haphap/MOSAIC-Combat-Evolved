@@ -56,7 +56,7 @@ def test_sector_semiconductor_runtime_is_monitor_only_under_research_only_gate()
 
     assert result.accepted
     assert bundle.runtime_output.recommendations[0].actionability == "monitor_only"
-    assert bundle.runtime_output.recommendations[0].confidence == 0.50
+    assert bundle.runtime_output.recommendations[0].confidence == 0.30
     assert bundle.runtime_output.rule_aggregation_summary["research_only"] is True
 
 

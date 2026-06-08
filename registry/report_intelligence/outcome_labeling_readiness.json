@@ -1,0 +1,105 @@
+{
+  "blocked_count": 7,
+  "blocked_forecast_claim_ids": [
+    "FC-d439329dc8c3cee4",
+    "FC-4ba22d03f41e7202",
+    "FC-9bab7296fb16680b",
+    "FC-d9074f5bcdc42e4b",
+    "FC-222b2ed577cad501",
+    "FC-6a9459dd4fd655c2",
+    "FC-bd09a21901988890"
+  ],
+  "blocked_reason": "forecast_mapping_insufficient_for_unlabelable_claims",
+  "forecast_claim_count": 12,
+  "forecast_ledger_count": 12,
+  "industry_etf_proxy_readiness": {
+    "benchmark_symbol": "SH510300",
+    "data_gap_counts": {},
+    "eligible_claim_count": 5,
+    "eligible_forecast_claim_ids": [
+      "FC-ff7da2af7911f07d",
+      "FC-f71d7fdce37427f1",
+      "FC-97a05ba07bbf8e40",
+      "FC-31829036250ae5b0",
+      "FC-699df73c9a9c1384"
+    ],
+    "labelable_forecast_claim_count": 5,
+    "labelable_forecast_claim_ids": [
+      "FC-ff7da2af7911f07d",
+      "FC-f71d7fdce37427f1",
+      "FC-97a05ba07bbf8e40",
+      "FC-31829036250ae5b0",
+      "FC-699df73c9a9c1384"
+    ],
+    "labelable_window_count": 15,
+    "latest_calendar_date": "2026-06-05",
+    "llm_outcome_labeling_allowed": false,
+    "outcome_label_source": "pit_industry_etf_price_window",
+    "pending_future_window_count": 0,
+    "policy": "sector-direction industry claims can be evaluated with mapped industry ETF returns on fixed PIT windows; each window is a separate evidence point; LLM output extracts the claim direction but cannot assign outcome labels",
+    "qlib_etf_dir_configured": "~/.qlib/qlib_data/cn_etf",
+    "windows_days": [
+      20,
+      60,
+      120
+    ]
+  },
+  "mapping_gap_counts": {
+    "benchmark": 10,
+    "horizon": 12
+  },
+  "minimum_required_mapping": [
+    "target",
+    "benchmark",
+    "direction",
+    "horizon"
+  ],
+  "next_actions": [
+    "improve extractor prompt to bind ts_code/title entities into target when source text supports it",
+    "route unmapped claims through manual gold-set review instead of fabricating labels",
+    "evaluate industry research with ETF proxy windows when sector mapping and PIT data are available",
+    "run PIT outcome labeler only after ready_for_outcome_labeling_count is positive"
+  ],
+  "policy": "outcome labels are generated only for source-grounded testable forecasts with target, benchmark, direction, horizon, and PIT data; industry ETF proxy labels may additionally evaluate sector-direction claims on fixed PIT windows without promoting them to production use",
+  "proxy_label_only_ready_count": 5,
+  "proxy_label_only_ready_forecast_claim_ids": [
+    "FC-ff7da2af7911f07d",
+    "FC-f71d7fdce37427f1",
+    "FC-97a05ba07bbf8e40",
+    "FC-31829036250ae5b0",
+    "FC-699df73c9a9c1384"
+  ],
+  "proxy_label_ready_count": 5,
+  "proxy_label_ready_forecast_claim_ids": [
+    "FC-ff7da2af7911f07d",
+    "FC-f71d7fdce37427f1",
+    "FC-97a05ba07bbf8e40",
+    "FC-31829036250ae5b0",
+    "FC-699df73c9a9c1384"
+  ],
+  "readiness_id": "RKE-REPORT-OUTCOME-LABELING-READINESS",
+  "ready_for_outcome_labeling_count": 0,
+  "ready_forecast_claim_ids": [],
+  "standard_blocked_count": 12,
+  "standard_blocked_forecast_claim_ids": [
+    "FC-d439329dc8c3cee4",
+    "FC-4ba22d03f41e7202",
+    "FC-9bab7296fb16680b",
+    "FC-d9074f5bcdc42e4b",
+    "FC-222b2ed577cad501",
+    "FC-6a9459dd4fd655c2",
+    "FC-bd09a21901988890",
+    "FC-ff7da2af7911f07d",
+    "FC-f71d7fdce37427f1",
+    "FC-97a05ba07bbf8e40",
+    "FC-31829036250ae5b0",
+    "FC-699df73c9a9c1384"
+  ],
+  "test_status_counts": {
+    "not_ready_insufficient_mapping": 12
+  },
+  "unlabelable_mapping_gap_counts": {
+    "benchmark": 6,
+    "horizon": 7
+  }
+}

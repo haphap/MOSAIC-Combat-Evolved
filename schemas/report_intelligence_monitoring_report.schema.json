@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RKE Report Intelligence Monitoring Report",
+  "type": "object",
+  "required": [
+    "monitoring_id",
+    "run_id",
+    "as_of_datetime",
+    "report_corpus",
+    "report_weighting_monitoring",
+    "tooling_loop_monitoring",
+    "alpha_decay_monitoring",
+    "policy"
+  ],
+  "properties": {
+    "monitoring_id": {"type": "string", "minLength": 1},
+    "run_id": {"type": "string", "minLength": 1},
+    "as_of_datetime": {"type": "string", "minLength": 1},
+    "report_corpus": {"type": "object"},
+    "report_weighting_monitoring": {"type": "object"},
+    "tooling_loop_monitoring": {"type": "object"},
+    "alpha_decay_monitoring": {"type": "object"},
+    "policy": {"type": "string", "minLength": 1}
+  },
+  "additionalProperties": true
+}

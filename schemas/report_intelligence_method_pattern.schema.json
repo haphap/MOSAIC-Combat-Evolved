@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RKE Report Intelligence Method Pattern",
+  "type": "object",
+  "required": ["method_pattern_id", "name", "source_footprint_ids", "steps", "required_current_data", "optional_confirmation_data", "failure_modes", "target_agents", "validation_status", "allowed_runtime_mode"],
+  "properties": {
+    "method_pattern_id": {"type": "string", "minLength": 1},
+    "name": {"type": "string", "minLength": 1},
+    "description": {"type": "string"},
+    "source_footprint_ids": {"type": "array", "items": {"type": "string"}},
+    "steps": {"type": "array"},
+    "required_current_data": {"type": "array"},
+    "optional_confirmation_data": {"type": "array"},
+    "failure_modes": {"type": "array"},
+    "target_agents": {"type": "array", "items": {"type": "string"}},
+    "validation_status": {"type": "string", "minLength": 1},
+    "allowed_runtime_mode": {"type": "string", "minLength": 1}
+  },
+  "additionalProperties": true
+}

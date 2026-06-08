@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RKE Report Intelligence PIT Leakage Audit",
+  "type": "object",
+  "required": [
+    "audit_id",
+    "run_id",
+    "as_of_datetime",
+    "accepted",
+    "blocker_count",
+    "blockers",
+    "checked_item_count",
+    "checks",
+    "policy"
+  ],
+  "properties": {
+    "audit_id": {"type": "string", "minLength": 1},
+    "run_id": {"type": "string", "minLength": 1},
+    "as_of_datetime": {"type": "string", "minLength": 1},
+    "accepted": {"type": "boolean"},
+    "blocker_count": {"type": "integer", "minimum": 0},
+    "blockers": {"type": "array", "items": {"type": "string"}},
+    "checked_item_count": {"type": "integer", "minimum": 0},
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "check_id",
+          "requirement",
+          "accepted",
+          "failure_count",
+          "failures",
+          "evidence"
+        ],
+        "properties": {
+          "check_id": {"type": "string", "minLength": 1},
+          "requirement": {"type": "string", "minLength": 1},
+          "accepted": {"type": "boolean"},
+          "failure_count": {"type": "integer", "minimum": 0},
+          "failures": {"type": "array", "items": {"type": "string"}},
+          "evidence": {"type": "object"}
+        },
+        "additionalProperties": true
+      }
+    },
+    "policy": {"type": "string", "minLength": 1}
+  },
+  "additionalProperties": true
+}

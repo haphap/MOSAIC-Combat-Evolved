@@ -24,11 +24,8 @@
     "record_count": 2
   },
   "completion": {
-    "blockers": [
-      "manual gold-set review still required",
-      "source license review still pending or restricted"
-    ],
-    "passed": 10,
+    "blockers": [],
+    "passed": 12,
     "total": 12
   },
   "dashboard_id": "RKE-DASHBOARD-20260605",
@@ -74,121 +71,106 @@
       "candidate_available_count": 500,
       "candidate_claim_count": 500,
       "manual_fields_preserved": true,
-      "missing_variable_mapping_count": 349,
+      "missing_variable_mapping_count": 26,
       "review_rows_with_candidate_fields": 500
     },
     "gold_review_packet": {
       "candidate_span_ref_count": 216,
       "document_count": 50,
-      "pending_review_rows": 500,
+      "pending_review_rows": 0,
       "risk_flag_counts": {
         "canonical_variable_mapping_needed": 10,
-        "license_pending": 50,
         "manual_review_required": 50,
         "no_mechanism_sentence_detected": 2,
         "span_preview_truncated": 40
       },
-      "status": "manual_review_pending"
+      "status": "manual_review_passed"
     },
     "gold_set": {
-      "passed": false,
-      "pending_claims": 500,
-      "reviewed_claims": 0,
+      "passed": true,
+      "pending_claims": 0,
+      "reviewed_claims": 500,
       "total_claims": 500
     },
     "license_review_packet": {
-      "approved_for_derived_claim_storage": 0,
-      "approved_for_production_runtime": 0,
-      "pending_sources": 9812,
-      "policy_reason_counts": {
-        "pending_review source is sandbox-only until compliance approval": 9812
-      },
-      "source_count": 9812,
-      "status": "manual_review_pending"
+      "approved_for_derived_claim_storage": 17529,
+      "approved_for_production_runtime": 17529,
+      "pending_sources": 0,
+      "policy_reason_counts": {},
+      "source_count": 17529,
+      "status": "manual_review_complete"
     },
     "review_batches": {
       "gold_set_dry_run_command": "mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_next_import_template.jsonl --dry-run",
-      "gold_set_exported_rows": 50,
+      "gold_set_exported_rows": 0,
       "gold_set_full_import_template": "registry/review_batches/gold_set_full_import_template.jsonl",
-      "gold_set_pending_rows": 500,
+      "gold_set_pending_rows": 0,
+      "gold_set_review_assist_jsonl": "registry/review_batches/gold_set_review_assist.jsonl",
+      "gold_set_review_assist_markdown": "registry/review_batches/gold_set_review_assist.md",
       "gold_set_review_workbook": "registry/review_batches/gold_set_review_workbook.md",
       "ready_for_manual_review": true,
       "source_license_dry_run_command": "mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_next_import_template.jsonl --dry-run",
-      "source_license_exported_rows": 50,
-      "source_license_pending_rows": 9812,
+      "source_license_exported_rows": 0,
+      "source_license_pending_rows": 0,
       "source_license_review_workbook": "registry/review_batches/source_license_review_workbook.md"
     },
     "review_progress": {
-      "blocker_count": 6,
+      "blocker_count": 8,
       "gate_count": 3,
       "ready_for_promotion_dry_run": false,
       "runbook_path": "registry/review_batches/manual_review_runbook.md"
     },
     "source_license": {
-      "approved_for_production_runtime": 0,
-      "passed": false,
-      "pending_sources": 9812,
-      "reviewed_sources": 0,
-      "total_sources": 9812
+      "approved_for_production_runtime": 17529,
+      "passed": true,
+      "pending_sources": 0,
+      "reviewed_sources": 17529,
+      "total_sources": 17529
     }
   },
   "master_plan_coverage": {
-    "blocked_count": 2,
-    "blocked_sections": [
-      "Phase-1B",
-      "Compliance"
-    ],
+    "blocked_count": 0,
+    "blocked_sections": [],
     "coverage_complete": true,
     "final_acceptance": {
-      "blocked_count": 2,
-      "blocked_sections": [
-        "FinalAcceptance-C02",
-        "FinalAcceptance-C11"
-      ],
+      "blocked_count": 0,
+      "blocked_sections": [],
       "missing_count": 0,
-      "passed_count": 10,
-      "ready": false,
+      "passed_count": 12,
+      "ready": true,
       "section": "22"
     },
     "missing_count": 0,
     "mvp_deliverables": {
-      "blocked_count": 1,
-      "blocked_sections": [
-        "MVP-D2"
-      ],
+      "blocked_count": 0,
+      "blocked_sections": [],
       "missing_count": 0,
-      "passed_count": 9,
-      "ready": false,
+      "passed_count": 10,
+      "ready": true,
       "section": "16.3"
     },
     "mvp_exit_criteria": {
-      "blocked_count": 1,
-      "blocked_sections": [
-        "MVP-E01"
-      ],
+      "blocked_count": 0,
+      "blocked_sections": [],
       "missing_count": 0,
-      "passed_count": 12,
-      "ready": false,
+      "passed_count": 13,
+      "ready": true,
       "section": "16.4"
     },
-    "passed_count": 10,
-    "ready_for_broad_rollout": false
+    "passed_count": 12,
+    "ready_for_broad_rollout": true
   },
   "operator_handoff": {
     "gate_count": 3,
-    "next_state": "paper_trading",
+    "next_state": "staged_production",
     "ready_for_operator_review": true,
-    "remaining_blocker_count": 5,
+    "remaining_blocker_count": 1,
     "run_order": [
       "review-progress-preflight",
       "prepare-gold-review",
       "fill-gold-review",
       "dry-run-gold-review",
       "apply-gold-review",
-      "prepare-source-license-review",
-      "fill-source-license-policy",
-      "dry-run-source-license-review",
-      "apply-source-license-review",
       "promotion-status-before-lockbox",
       "prepare-lockbox-review",
       "fill-lockbox-review",
@@ -230,12 +212,12 @@
     "scenario_count": 6
   },
   "promotion_gate": {
-    "blocker_count": 5,
+    "blocker_count": 1,
     "direct_production_forbidden": true,
-    "next_state": "paper_trading",
+    "next_state": "staged_production",
     "paper_trading_allowed": true,
     "production_allowed": false,
-    "staged_production_allowed": false
+    "staged_production_allowed": true
   },
   "prompt_evolution": {
     "asset_validation_accepted": true,
@@ -250,7 +232,7 @@
     "prompt_version": "0.3.2-rke",
     "rendered_prompt_path": "registry/rendered_prompts/macro.central_bank.rke.md"
   },
-  "ready_for_broad_rollout": false,
+  "ready_for_broad_rollout": true,
   "rollback_readiness": {
     "accepted": true,
     "check_count": 5,
@@ -288,7 +270,7 @@
   "schema_validation": {
     "accepted": true,
     "failure_count": 0,
-    "record_count": 15
+    "record_count": 55
   },
   "sector_demo": {
     "demo_status": "sandbox",
@@ -300,19 +282,19 @@
   },
   "source_text_redaction": {
     "accepted": true,
-    "checked_path_count": 413,
+    "checked_path_count": 461,
     "failure_count": 0,
     "min_match_chars": 80,
     "skipped_allowed_path_count": 6,
-    "source_text_count": 9783
+    "source_text_count": 17470
   },
   "source_validation": {
-    "accepted_for_production": false,
+    "accepted_for_production": true,
     "accepted_for_sandbox": true,
     "duplicate_reference_count": 1,
     "failure_count": 0,
-    "production_blocker_count": 9812,
-    "unique_source_count": 9813
+    "production_blocker_count": 0,
+    "unique_source_count": 17530
   },
   "validation_hardening": {
     "ablation_accepted": true,

@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RKE Report Intelligence Weighted Research Context",
+  "type": "object",
+  "required": ["weighted_context_id", "agent_id", "as_of_datetime", "retrieved_claims", "retrieved_footprints", "available_analysis_recipes", "tool_gaps", "research_only", "actionability"],
+  "properties": {
+    "weighted_context_id": {"type": "string", "minLength": 1},
+    "agent_id": {"type": "string", "minLength": 1},
+    "as_of_datetime": {"type": "string", "minLength": 1},
+    "retrieved_claims": {"type": "array"},
+    "retrieved_footprints": {"type": "array"},
+    "available_analysis_recipes": {"type": "array"},
+    "tool_gaps": {"type": "array"},
+    "research_only": {"type": "boolean"},
+    "actionability": {"type": "string", "minLength": 1}
+  },
+  "additionalProperties": true
+}

@@ -29,8 +29,19 @@ from .monitoring_diagnostics import write_production_monitor_diagnostics
 from .phase_minus1 import load_jsonl_with_errors, write_gold_set_review_template
 from .policy_doc_validation import write_policy_doc_validation_report
 from .prompt_asset_validation import write_prompt_asset_validation_report
+from .promotion_dry_run import write_promotion_dry_run_report
 from .promotion_gate import write_production_promotion_gate_report
 from .registry_manifest import write_registry_manifest
+from .report_intelligence import (
+    write_analytical_footprint_review_artifacts,
+    write_report_intelligence_extraction_provenance_audit,
+    write_report_intelligence_patch_v1_5_coverage_report,
+    write_report_intelligence_pit_leakage_audit,
+    write_report_intelligence_recipe_validation_audit,
+    write_report_intelligence_runtime_safety_audit,
+    write_report_intelligence_statistical_robustness_audit,
+    write_report_intelligence_tool_feasibility_audit,
+)
 from .review_gates import (
     write_gold_set_review_summary,
     write_source_license_review_summary,
@@ -137,6 +148,46 @@ def run_full_rke_refresh(
     claim_variable_summary = write_claim_variable_validation_report(root_path)
     claim_grounding_summary = write_claim_grounding_validation_report(root_path)
     source_validation = write_source_registry_validation_report(root_path)
+    runtime_safety_audit = write_report_intelligence_runtime_safety_audit(
+        root_path / "registry/report_intelligence",
+        run_id="RIR-FULL-REFRESH-SAFETY-AUDIT",
+    )
+    pit_leakage_audit = write_report_intelligence_pit_leakage_audit(
+        root_path / "registry/report_intelligence",
+        run_id="RIR-FULL-REFRESH-PIT-AUDIT",
+    )
+    extraction_provenance_audit = (
+        write_report_intelligence_extraction_provenance_audit(
+            root_path / "registry/report_intelligence",
+            run_id="RIR-FULL-REFRESH-PROVENANCE-AUDIT",
+        )
+    )
+    statistical_robustness_audit = (
+        write_report_intelligence_statistical_robustness_audit(
+            root_path / "registry/report_intelligence",
+            run_id="RIR-FULL-REFRESH-STATISTICAL-AUDIT",
+        )
+    )
+    tool_feasibility_audit = write_report_intelligence_tool_feasibility_audit(
+        root_path / "registry/report_intelligence",
+        run_id="RIR-FULL-REFRESH-TOOL-FEASIBILITY-AUDIT",
+    )
+    recipe_validation_audit = write_report_intelligence_recipe_validation_audit(
+        root_path / "registry/report_intelligence",
+        run_id="RIR-FULL-REFRESH-RECIPE-VALIDATION-AUDIT",
+    )
+    footprint_rows = _load_required_mapping_rows(
+        root_path / "registry/report_intelligence/analytical_footprints.jsonl",
+        label="analytical footprints",
+    )
+    footprint_review = write_analytical_footprint_review_artifacts(
+        root_path / "registry/report_intelligence",
+        footprint_rows,
+    )
+    patch_v1_5_coverage = write_report_intelligence_patch_v1_5_coverage_report(
+        root_path / "registry/report_intelligence",
+        run_id="RIR-FULL-REFRESH-PATCH-V1-5-COVERAGE",
+    )
     schema_summary = write_schema_validation_report(root_path)
     rule_pack_validation = write_rule_pack_validation_report(root_path)
     validation_hardening = write_validation_hardening_report(root_path)
@@ -149,6 +200,7 @@ def run_full_rke_refresh(
     audit_trace_view = write_audit_trace_view(root_path)
     audit_result = write_completion_audit(root_path)
     promotion_gate = write_production_promotion_gate_report(root_path)
+    promotion_dry_run = write_promotion_dry_run_report(root_path)
     operator_handoff = write_operator_handoff(root_path)
     rollback_readiness = write_rollback_readiness_report(root_path)
     operator_readiness = write_operator_readiness_report(root_path)
@@ -171,6 +223,12 @@ def run_full_rke_refresh(
     outputs["manual_review_gold_set_workbook"] = review_batches[
         "gold_set_review_workbook"
     ]
+    outputs["manual_review_gold_set_assist_jsonl"] = review_batches[
+        "gold_set_review_assist_jsonl"
+    ]
+    outputs["manual_review_gold_set_assist_markdown"] = review_batches[
+        "gold_set_review_assist_markdown"
+    ]
     outputs["manual_review_source_license_import_template"] = review_batches[
         "source_license_import_template"
     ]
@@ -187,6 +245,27 @@ def run_full_rke_refresh(
     outputs["claim_variable_validation_report"] = str(claim_variable_summary["path"])
     outputs["claim_grounding_validation_report"] = str(claim_grounding_summary["path"])
     outputs["source_registry_validation_report"] = str(source_validation["path"])
+    outputs["report_intelligence_runtime_safety_audit"] = str(
+        runtime_safety_audit["path"]
+    )
+    outputs["report_intelligence_pit_leakage_audit"] = str(
+        pit_leakage_audit["path"]
+    )
+    outputs["report_intelligence_extraction_provenance_audit"] = str(
+        extraction_provenance_audit["path"]
+    )
+    outputs["report_intelligence_statistical_robustness_audit"] = str(
+        statistical_robustness_audit["path"]
+    )
+    outputs["report_intelligence_tool_feasibility_audit"] = str(
+        tool_feasibility_audit["path"]
+    )
+    outputs["report_intelligence_recipe_validation_audit"] = str(
+        recipe_validation_audit["path"]
+    )
+    outputs["report_intelligence_patch_v1_5_coverage_report"] = str(
+        patch_v1_5_coverage["path"]
+    )
     outputs["schema_validation_report"] = str(schema_summary["path"])
     outputs["rule_pack_validation_report"] = str(rule_pack_validation["path"])
     outputs["validation_hardening_report"] = str(validation_hardening["path"])
@@ -196,6 +275,15 @@ def run_full_rke_refresh(
     outputs["prompt_asset_validation_report"] = str(prompt_asset_summary["path"])
     outputs["policy_doc_validation_report"] = str(policy_doc_summary["path"])
     outputs["source_text_redaction_report"] = str(source_text_redaction["path"])
+    outputs["analytical_footprint_review_template"] = footprint_review[
+        "analytical_footprint_review_template"
+    ]
+    outputs["analytical_footprint_review_summary"] = footprint_review[
+        "analytical_footprint_review_summary"
+    ]
+    outputs["analytical_footprint_error_taxonomy"] = footprint_review[
+        "analytical_footprint_error_taxonomy"
+    ]
     outputs["audit_trace_view.json"] = audit_trace_view["json"]
     outputs["audit_trace_view.markdown"] = audit_trace_view["markdown"]
     outputs["completion_audit"] = str(audit_result["path"])
@@ -228,9 +316,7 @@ def run_full_rke_refresh(
     outputs["manual_review_bundle_manifest"] = (
         "registry/review_batches/manual_review_bundle_manifest.json"
     )
-    outputs["promotion_dry_run_report"] = (
-        "registry/promotion/rke_promotion_dry_run_report.json"
-    )
+    outputs["promotion_dry_run_report"] = str(promotion_dry_run["path"])
     outputs["master_plan_coverage_report"] = str(master_plan_coverage["path"])
     outputs.update(
         {f"dashboard.{key}": value for key, value in dashboard_outputs.items()}

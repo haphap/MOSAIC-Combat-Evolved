@@ -48,6 +48,134 @@ def test_gold_candidate_claims_merge_preserves_manual_fields(tmp_path: Path):
     assert merged[0]["proposed_verifier_status"] == "requires_review"
 
 
+def test_gold_candidate_claims_prefer_original_markdown_forecast_claims(tmp_path: Path):
+    shutil.copytree(Path("registry"), tmp_path / "registry")
+    review_path = tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    review_rows = [json.loads(line) for line in review_path.read_text(encoding="utf-8").splitlines()]
+    first_review = review_rows[0]
+    source_id = first_review["source_id"]
+    original_claim_text = "原文Markdown预测：未来两个季度流动性改善将推升短端资金利率下行。"
+    report_claim_path = tmp_path / "registry/report_intelligence/forecast_claims.jsonl"
+    report_claim_path.parent.mkdir(parents=True, exist_ok=True)
+    report_claim_path.write_text(
+        json.dumps(
+            {
+                "claim_provenance": "source_grounded",
+                "claim_text": original_claim_text,
+                "direction": "positive",
+                "extraction_quality": {"mapping_gaps": []},
+                "forecast_claim_id": "FC-ORIGINAL-MARKDOWN-001",
+                "forecast_testability": "testable",
+                "forecast_type": "liquidity_forecast",
+                "metric_proxy_mapping": ["pboc_net_injection"],
+                "source_id": source_id,
+                "source_span_ids": [f"{source_id}:original_markdown:chunk-001"],
+                "target": {"target_id": "short_term_liquidity_pressure"},
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    claims = build_gold_candidate_claims(tmp_path)
+    first_claim = next(claim for claim in claims if claim.claim_id == first_review["claim_id"])
+    paths = write_gold_candidate_claims(tmp_path)
+    merged_review = json.loads(
+        (tmp_path / paths["review_template"])
+        .read_text(encoding="utf-8")
+        .splitlines()[0]
+    )
+
+    assert first_claim.claim_text == original_claim_text
+    assert first_claim.cause_variables == ("pboc_net_injection",)
+    assert first_claim.target_variables == ("short_term_liquidity_pressure",)
+    assert first_claim.source_span_ref_id == f"{source_id}:original_markdown:chunk-001:forecast-FC-ORIGINAL-MARKDOWN-001"
+    assert "original_markdown_forecast_claim" in first_claim.review_risk_flags
+    assert "canonical_variable_mapping_needed" not in first_claim.review_risk_flags
+    assert "forecast_not_testable" not in first_claim.review_risk_flags
+    assert merged_review["proposed_claim_text"] == original_claim_text
+    assert merged_review["proposed_cause_variables"] == ["pboc_net_injection"]
+    assert merged_review["proposed_target_variables"] == ["short_term_liquidity_pressure"]
+
+
+def test_gold_candidate_claims_map_report_claims_with_local_vocabulary_fallback(tmp_path: Path):
+    shutil.copytree(Path("registry"), tmp_path / "registry")
+    review_path = tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    review_rows = [json.loads(line) for line in review_path.read_text(encoding="utf-8").splitlines()]
+    first_review = review_rows[0]
+    source_id = first_review["source_id"]
+    original_claim_text = "看好风电行业，政策催化叠加装机需求增长，预期未来6个月内行业指数优于市场。"
+    report_claim_path = tmp_path / "registry/report_intelligence/forecast_claims.jsonl"
+    report_claim_path.parent.mkdir(parents=True, exist_ok=True)
+    report_claim_path.write_text(
+        json.dumps(
+            {
+                "claim_provenance": "source_grounded",
+                "claim_text": original_claim_text,
+                "direction": "positive",
+                "extraction_quality": {"mapping_gaps": ["horizon"]},
+                "forecast_claim_id": "FC-LOCAL-VOCAB-FALLBACK-001",
+                "forecast_testability": "insufficient_mapping",
+                "forecast_type": "industry_outlook",
+                "metric_proxy_mapping": [],
+                "source_id": source_id,
+                "source_span_ids": [f"{source_id}:original_markdown:chunk-001"],
+                "target": {"target_id": "wind_power", "target_type": "industry"},
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    claims = build_gold_candidate_claims(tmp_path)
+    first_claim = next(claim for claim in claims if claim.claim_id == first_review["claim_id"])
+
+    assert first_claim.claim_text == original_claim_text
+    assert "industry_policy_catalyst" in first_claim.cause_variables
+    assert "industry_demand_cycle" in first_claim.cause_variables
+    assert "industry_etf_forward_return" in first_claim.target_variables
+    assert "canonical_variable_mapping_needed" not in first_claim.review_risk_flags
+    assert "forecast_mapping_insufficient" in first_claim.review_risk_flags
+
+
+def test_gold_candidate_claims_fallback_to_original_markdown_sentences(tmp_path: Path):
+    shutil.copytree(Path("registry"), tmp_path / "registry")
+    review_path = tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    review_rows = [json.loads(line) for line in review_path.read_text(encoding="utf-8").splitlines()]
+    first_review = review_rows[0]
+    source_id = first_review["source_id"]
+    markdown_text = "原文Markdown句子显示，政策支持与流动性改善将推动行业景气提升。"
+    markdown_path = tmp_path / ".mosaic/rke/report_intelligence/markdown" / f"{source_id}.md"
+    markdown_path.parent.mkdir(parents=True, exist_ok=True)
+    markdown_path.write_text(markdown_text, encoding="utf-8")
+    report_dir = tmp_path / "registry/report_intelligence"
+    report_dir.mkdir(parents=True, exist_ok=True)
+    (report_dir / "forecast_claims.jsonl").write_text("", encoding="utf-8")
+    (report_dir / "report_metadata.jsonl").write_text(
+        json.dumps(
+            {
+                "markdown": {"path": f".mosaic/rke/report_intelligence/markdown/{source_id}.md"},
+                "source_id": source_id,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    claims = build_gold_candidate_claims(tmp_path)
+    first_claim = next(claim for claim in claims if claim.claim_id == first_review["claim_id"])
+
+    assert first_claim.claim_text == markdown_text
+    assert first_claim.source_span_id == f"{source_id}:original_markdown"
+    assert "original_markdown_sentence_fallback" in first_claim.review_risk_flags
+
+
 def test_gold_candidate_claims_report_malformed_rows_without_rewriting_review_template(tmp_path: Path):
     shutil.copytree(Path("registry"), tmp_path / "registry")
     candidates_path = tmp_path / "registry/sources/tushare_research_reports.gold_candidates.jsonl"
@@ -136,6 +264,22 @@ def test_gold_candidate_claims_report_malformed_vocabulary_without_rewriting_rev
 
 def test_gold_candidate_claim_writer_outputs_claims_summary_and_review_fields(tmp_path: Path):
     shutil.copytree(Path("registry"), tmp_path / "registry")
+    review_path = tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    review_rows = [json.loads(line) for line in review_path.read_text(encoding="utf-8").splitlines()]
+    for row in review_rows:
+        row["manual_claim_text"] = ""
+        row["claim_correct"] = None
+        row["source_span_supports_claim"] = None
+        row["direction_correct"] = None
+        row["variable_mapping_correct"] = None
+        row["unsupported_field_false_grounded"] = None
+        row["reviewer"] = ""
+        row["review_date"] = ""
+        row["review_notes"] = ""
+    review_path.write_text(
+        "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in review_rows),
+        encoding="utf-8",
+    )
 
     paths = write_gold_candidate_claims(tmp_path)
     claims = (tmp_path / paths["candidate_claims"]).read_text(encoding="utf-8").splitlines()

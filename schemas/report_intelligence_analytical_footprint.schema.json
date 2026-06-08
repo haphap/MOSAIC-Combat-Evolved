@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RKE Report Intelligence Analytical Footprint",
+  "type": "object",
+  "required": ["footprint_id", "report_id", "source_id", "source_span_ids", "extraction_type", "market", "sector", "topic", "indicator_mentions", "analysis_patterns", "target_agent_candidates", "license_class", "storage_policy", "extractor"],
+  "properties": {
+    "footprint_id": {"type": "string", "minLength": 1},
+    "report_id": {"type": "string", "minLength": 1},
+    "source_id": {"type": "string", "minLength": 1},
+    "source_span_ids": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+    "extraction_type": {"type": "string", "minLength": 1},
+    "market": {"type": "string", "minLength": 1},
+    "sector": {"type": "string", "minLength": 1},
+    "topic": {"type": "string", "minLength": 1},
+    "indicator_mentions": {"type": "array"},
+    "analysis_patterns": {"type": "array"},
+    "target_agent_candidates": {"type": "array", "items": {"type": "string"}},
+    "target_entity_candidates": {"type": "array", "items": {"type": "string"}},
+    "license_class": {"type": "string", "minLength": 1},
+    "storage_policy": {"type": "string", "minLength": 1},
+    "extractor": {"type": "object"}
+  },
+  "additionalProperties": true
+}

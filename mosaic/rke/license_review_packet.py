@@ -163,17 +163,32 @@ def build_license_review_packet(root: str | Path = ".") -> LicenseReviewPacket:
             "source license review row must be object at row(s): "
             + ", ".join(str(row_number) for row_number in invalid_review_rows)
         )
+    reviewed_count = sum(record.reviewed for record in records)
+    pending_count = sum(not record.reviewed for record in records)
+    approved_for_derived = sum(
+        record.allowed_for_derived_claim_storage for record in records
+    )
+    approved_for_production = sum(
+        record.allowed_for_production_runtime for record in records
+    )
+    if blockers:
+        status = "manual_review_blocked"
+    elif records and pending_count == 0 and approved_for_production == len(records):
+        status = "manual_review_complete"
+    else:
+        status = "manual_review_pending"
+
     return LicenseReviewPacket(
         packet_id="RKE-SOURCE-LICENSE-REVIEW-PACKET-20260606",
-        status="manual_review_blocked" if blockers else "manual_review_pending",
+        status=status,
         source_path=SOURCE_PATH,
         review_path=LICENSE_REVIEW_TEMPLATE_PATH,
         source_count=len(raw_sources) + len(source_parse_blockers),
         review_row_count=len(raw_reviews) + len(review_parse_blockers),
-        reviewed_sources=sum(record.reviewed for record in records),
-        pending_sources=sum(not record.reviewed for record in records),
-        approved_for_derived_claim_storage=sum(record.allowed_for_derived_claim_storage for record in records),
-        approved_for_production_runtime=sum(record.allowed_for_production_runtime for record in records),
+        reviewed_sources=reviewed_count,
+        pending_sources=pending_count,
+        approved_for_derived_claim_storage=approved_for_derived,
+        approved_for_production_runtime=approved_for_production,
         current_license_status_counts=dict(Counter(record.current_license_status for record in records)),
         source_type_counts=dict(Counter(record.source_type for record in records)),
         policy_reason_counts=dict(reason_counts),
