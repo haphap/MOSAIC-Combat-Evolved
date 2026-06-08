@@ -1002,6 +1002,62 @@ def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
     assert source_id not in candidate_dump
 
 
+def test_report_intelligence_blocks_llm_on_low_quality_markdown(tmp_path: Path):
+    source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
+
+    def low_quality_converter(
+        pdf: Path,
+        output_dir: Path,
+        markdown: Path,
+        overwrite: bool,
+    ):
+        assert pdf.exists()
+        output_dir.mkdir(parents=True)
+        markdown.parent.mkdir(parents=True)
+        markdown.write_text("免责声明\n投资有风险", encoding="utf-8")
+        return {
+            "status": "converted",
+            "path": str(markdown),
+            "bytes": markdown.stat().st_size,
+            "sha256": _sha(markdown),
+        }
+
+    def llm_should_not_run(*args, **kwargs):
+        raise AssertionError("LLM extraction must not run on low-quality Markdown")
+
+    result = run_report_intelligence_refresh(
+        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        downloader=_fake_downloader,
+        converter=low_quality_converter,
+        llm_extractor=llm_should_not_run,
+    )
+
+    assert result.forecast_claim_rows == 0
+    assert result.llm_processed_reports == 0
+    assert result.blocker_count == 1
+    assert "markdown_disclaimer_only" in result.blockers[0]
+
+    metadata = _read_jsonl(tmp_path / "registry/report_intelligence/report_metadata.jsonl")
+    markdown = metadata[0]["markdown"]
+    assert markdown["quality_gate_status"] == "blocked"
+    assert markdown["quality_gap"] == "markdown_disclaimer_only"
+    assert metadata[0]["extraction"]["llm_status"] == "blocked"
+
+    status = _read_jsonl(tmp_path / "registry/report_intelligence/processing_status.jsonl")
+    assert status[0]["markdown_quality_gate_status"] == "blocked"
+    assert status[0]["markdown_quality_gap"] == "markdown_disclaimer_only"
+
+    coverage = json.loads(
+        (
+            tmp_path / "registry/report_intelligence/markdown_coverage_summary.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert coverage["markdown_ready_count"] == 1
+    assert coverage["markdown_quality_pass_count"] == 0
+    assert coverage["llm_extraction_processed_count"] == 0
+    assert coverage["markdown_quality_gap_counts"] == {"markdown_disclaimer_only": 1}
+
+
 def test_report_intelligence_analysis_recipes_pin_required_data():
     recipes = build_analysis_recipes(
         [

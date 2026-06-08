@@ -375,6 +375,19 @@ MARKDOWN_COVERAGE_MIN_SELECTED_REPORTS = 300
 MARKDOWN_COVERAGE_MIN_MARKDOWN_READY = 300
 MARKDOWN_COVERAGE_MIN_QUALITY_PASS = 300
 MARKDOWN_COVERAGE_MIN_LLM_EXTRACTION_PROCESSED = 100
+MARKDOWN_QUALITY_MIN_BYTES = 80
+MARKDOWN_STRUCTURE_MARKERS = (
+    "#",
+    "##",
+    "报告",
+    "摘要",
+    "投资",
+    "评级",
+    "行业",
+    "公司",
+    "表",
+    "|",
+)
 EVOLUTION_GATE_MIN_UNIQUE_OUTCOME_CLAIMS = 100
 EVOLUTION_GATE_MIN_STOCK_PROXY_CLAIMS = 30
 EVOLUTION_GATE_MIN_INDUSTRY_PROXY_CLAIMS = 30
@@ -1495,6 +1508,8 @@ def _metadata_record(
             "blocker": markdown_result.get("blocker") or "",
             "returncode": markdown_result.get("returncode"),
             "timed_out": bool(markdown_result.get("timed_out")),
+            "quality_gate_status": markdown_result.get("quality_gate_status") or "",
+            "quality_gap": markdown_result.get("quality_gap") or "",
             "stderr_tail": _redact_runtime_text(
                 markdown_result.get("stderr_tail"),
                 root_path,
@@ -4279,16 +4294,52 @@ def _is_markdown_ready(markdown: Mapping[str, Any]) -> bool:
     }
 
 
-def _markdown_quality_gap(markdown: Mapping[str, Any]) -> str:
+def _markdown_quality_gap(markdown: Mapping[str, Any], text: str | None = None) -> str:
+    stored_gap = str(markdown.get("quality_gap") or "").strip()
+    if stored_gap:
+        return stored_gap
     status = str(markdown.get("status") or "not_attempted")
     if not _is_markdown_ready(markdown):
         blocker = str(markdown.get("blocker") or "").strip()
         return blocker or f"markdown_status_{status}"
-    if int(markdown.get("bytes") or 0) <= 0:
+    byte_count = int(markdown.get("bytes") or 0)
+    if byte_count <= 0:
         return "markdown_empty"
     if bool(markdown.get("timed_out")):
         return "markdown_timed_out"
+    if text is not None:
+        normalized = re.sub(r"\s+", "", text)
+        if not normalized:
+            return "markdown_empty"
+        replacement_ratio = normalized.count("\ufffd") / max(len(normalized), 1)
+        if replacement_ratio > 0.05:
+            return "markdown_garbled_text"
+        disclaimer_stripped = re.sub(
+            r"(免责声明|风险提示|重要声明|法律声明|投资有风险)",
+            "",
+            normalized,
+        )
+        if "免责声明" in normalized and len(disclaimer_stripped) < MARKDOWN_QUALITY_MIN_BYTES:
+            return "markdown_disclaimer_only"
+        if not any(marker in text for marker in MARKDOWN_STRUCTURE_MARKERS):
+            return "markdown_structure_signal_missing"
+    if byte_count < MARKDOWN_QUALITY_MIN_BYTES:
+        return "markdown_too_short"
     return ""
+
+
+def _annotate_markdown_quality(
+    markdown: Mapping[str, Any],
+    markdown_path: Path,
+) -> dict[str, Any]:
+    annotated = dict(markdown)
+    text: str | None = None
+    if markdown_path.exists() and markdown_path.stat().st_size > 0:
+        text = markdown_path.read_text(encoding="utf-8", errors="replace")
+    gap = _markdown_quality_gap(annotated, text)
+    annotated["quality_gate_status"] = "blocked" if gap else "passed"
+    annotated["quality_gap"] = gap
+    return annotated
 
 
 def build_markdown_coverage_summary(
@@ -14509,44 +14560,50 @@ def run_report_intelligence_refresh(
         llm_model: str | None = None
         chunk_count = 0
         truncated_chunks = False
+        markdown_result = _annotate_markdown_quality(markdown_result, markdown_path)
+        prepared["markdown_result"] = markdown_result
         if not cfg.skip_llm:
             if markdown_path.exists() and markdown_path.stat().st_size > 0:
-                extraction, llm_status, llm_model, llm_blockers, chunk_count, truncated_chunks = (
-                    _extract_for_markdown(
-                        row,
-                        markdown_path.read_text(encoding="utf-8", errors="replace"),
-                        run_id=run_id,
-                        extractor=llm_extractor,
-                        chunk_chars=cfg.chunk_chars,
-                        max_chunks=cfg.max_chunks,
+                quality_gap = _markdown_quality_gap(markdown_result)
+                if quality_gap:
+                    row_blockers.append(f"{source_id}: {quality_gap}")
+                else:
+                    extraction, llm_status, llm_model, llm_blockers, chunk_count, truncated_chunks = (
+                        _extract_for_markdown(
+                            row,
+                            markdown_path.read_text(encoding="utf-8", errors="replace"),
+                            run_id=run_id,
+                            extractor=llm_extractor,
+                            chunk_chars=cfg.chunk_chars,
+                            max_chunks=cfg.max_chunks,
+                        )
                     )
-                )
-                row_blockers.extend(llm_blockers)
-                _append_unique_records(
-                    forecast_rows,
-                    extraction["forecast_claims"],
-                    key="forecast_claim_id",
-                )
-                _append_unique_records(
-                    footprint_rows,
-                    extraction["analytical_footprints"],
-                    key="footprint_id",
-                )
-                _append_unique_records(
-                    metric_rows,
-                    extraction["metric_candidates"],
-                    key="metric_candidate_id",
-                )
-                _append_unique_records(
-                    method_rows,
-                    extraction["method_patterns"],
-                    key="method_pattern_id",
-                )
-                _append_unique_records(
-                    tool_gap_rows,
-                    extraction["tool_gaps"],
-                    key="tool_gap_id",
-                )
+                    row_blockers.extend(llm_blockers)
+                    _append_unique_records(
+                        forecast_rows,
+                        extraction["forecast_claims"],
+                        key="forecast_claim_id",
+                    )
+                    _append_unique_records(
+                        footprint_rows,
+                        extraction["analytical_footprints"],
+                        key="footprint_id",
+                    )
+                    _append_unique_records(
+                        metric_rows,
+                        extraction["metric_candidates"],
+                        key="metric_candidate_id",
+                    )
+                    _append_unique_records(
+                        method_rows,
+                        extraction["method_patterns"],
+                        key="method_pattern_id",
+                    )
+                    _append_unique_records(
+                        tool_gap_rows,
+                        extraction["tool_gaps"],
+                        key="tool_gap_id",
+                    )
             else:
                 row_blockers.append(f"{source_id}: original_markdown_missing")
 
@@ -14577,6 +14634,11 @@ def run_report_intelligence_refresh(
                 "markdown_blocker": markdown_result.get("blocker") or "",
                 "markdown_returncode": markdown_result.get("returncode"),
                 "markdown_timed_out": bool(markdown_result.get("timed_out")),
+                "markdown_quality_gate_status": markdown_result.get(
+                    "quality_gate_status"
+                )
+                or "",
+                "markdown_quality_gap": markdown_result.get("quality_gap") or "",
                 "markdown_stderr_tail": _redact_runtime_text(
                     markdown_result.get("stderr_tail"),
                     root_path,
