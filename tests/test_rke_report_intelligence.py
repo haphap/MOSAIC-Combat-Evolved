@@ -593,6 +593,20 @@ def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
     assert markdown_coverage["selected_report_count"] == 1
     assert markdown_coverage["markdown_ready_count"] == 1
     assert markdown_coverage["markdown_quality_pass_count"] == 1
+    assert markdown_coverage["llm_extraction_processed_count"] == 1
+    assert markdown_coverage["coverage_targets"] == {
+        "llm_extraction_processed_count_min": 100,
+        "markdown_quality_pass_count_min": 300,
+        "markdown_ready_count_min": 300,
+        "selected_report_count_min": 300,
+    }
+    assert markdown_coverage["coverage_gate_status"] == "blocked"
+    assert set(markdown_coverage["coverage_gate_blockers"]) == {
+        "llm_extraction_processed_count_below_p9_target",
+        "markdown_quality_pass_count_below_p9_target",
+        "markdown_ready_count_below_p9_target",
+        "selected_report_count_below_p9_target",
+    }
     assert markdown_coverage["report_type_counts"] == {"宏观研报": 1}
     coverage_dump = json.dumps(markdown_coverage, ensure_ascii=False)
     assert source_id not in coverage_dump

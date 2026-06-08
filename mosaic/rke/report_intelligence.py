@@ -367,6 +367,10 @@ STOCK_PRICE_PROXY_EVALUATION_POLICY = (
     "stock_t_plus_1_multi_window_proxy_retains_long_horizon_evidence"
 )
 STOCK_PRICE_PROXY_SURVIVORSHIP_CHECK = "survivorship_unverified_qlib_cn_data"
+MARKDOWN_COVERAGE_MIN_SELECTED_REPORTS = 300
+MARKDOWN_COVERAGE_MIN_MARKDOWN_READY = 300
+MARKDOWN_COVERAGE_MIN_QUALITY_PASS = 300
+MARKDOWN_COVERAGE_MIN_LLM_EXTRACTION_PROCESSED = 100
 REPORT_INTELLIGENCE_PROXY_LABEL_TYPES = frozenset(
     {"industry_etf_proxy", "stock_price_proxy"}
 )
@@ -4278,6 +4282,7 @@ def build_markdown_coverage_summary(
     pdf_ready_count = 0
     markdown_ready_count = 0
     markdown_quality_pass_count = 0
+    llm_extraction_processed_count = 0
     retry_queue_count = 0
     for row in metadata_rows:
         _increment_count(report_type_counts, row.get("report_type"))
@@ -4298,6 +4303,31 @@ def build_markdown_coverage_summary(
                 retry_queue_count += 1
         else:
             markdown_quality_pass_count += 1
+        extraction = _ensure_mapping(row.get("extraction"))
+        if str(extraction.get("llm_status") or "") == "processed":
+            llm_extraction_processed_count += 1
+    coverage_targets = {
+        "selected_report_count_min": MARKDOWN_COVERAGE_MIN_SELECTED_REPORTS,
+        "markdown_ready_count_min": MARKDOWN_COVERAGE_MIN_MARKDOWN_READY,
+        "markdown_quality_pass_count_min": MARKDOWN_COVERAGE_MIN_QUALITY_PASS,
+        "llm_extraction_processed_count_min": (
+            MARKDOWN_COVERAGE_MIN_LLM_EXTRACTION_PROCESSED
+        ),
+    }
+    coverage_gate_blockers: list[str] = []
+    if len(metadata_rows) < MARKDOWN_COVERAGE_MIN_SELECTED_REPORTS:
+        coverage_gate_blockers.append("selected_report_count_below_p9_target")
+    if markdown_ready_count < MARKDOWN_COVERAGE_MIN_MARKDOWN_READY:
+        coverage_gate_blockers.append("markdown_ready_count_below_p9_target")
+    if markdown_quality_pass_count < MARKDOWN_COVERAGE_MIN_QUALITY_PASS:
+        coverage_gate_blockers.append("markdown_quality_pass_count_below_p9_target")
+    if (
+        llm_extraction_processed_count
+        < MARKDOWN_COVERAGE_MIN_LLM_EXTRACTION_PROCESSED
+    ):
+        coverage_gate_blockers.append(
+            "llm_extraction_processed_count_below_p9_target"
+        )
     return {
         "coverage_id": "RKE-REPORT-MARKDOWN-COVERAGE-SUMMARY",
         "run_id": run_id,
@@ -4305,6 +4335,12 @@ def build_markdown_coverage_summary(
         "pdf_download_ready_count": pdf_ready_count,
         "markdown_ready_count": markdown_ready_count,
         "markdown_quality_pass_count": markdown_quality_pass_count,
+        "llm_extraction_processed_count": llm_extraction_processed_count,
+        "coverage_targets": coverage_targets,
+        "coverage_gate_status": (
+            "passed" if not coverage_gate_blockers else "blocked"
+        ),
+        "coverage_gate_blockers": coverage_gate_blockers,
         "markdown_quality_gap_counts": dict(sorted(quality_gap_counts.items())),
         "report_type_counts": dict(sorted(report_type_counts.items())),
         "sector_bucket_counts": dict(sorted(sector_bucket_counts.items())),
