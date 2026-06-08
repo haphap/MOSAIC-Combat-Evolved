@@ -257,9 +257,9 @@
       "sha256": "sha256:6068cf396311f45bea4a6b356e13b46e5073a777836ee2e19373b15c81f60c31"
     },
     {
-      "bytes": 999,
+      "bytes": 1342,
       "path": "registry/report_intelligence/confidence_impact_monitor.json",
-      "sha256": "sha256:74eeb945bb1b2d917da96a90df4561efc27e0ce2d0af3d4adcf4284f42304476"
+      "sha256": "sha256:89c175aa96db93a271c1f2862a43892acee56386b7c8452666b94af66e419b7b"
     },
     {
       "bytes": 4100,
@@ -342,14 +342,14 @@
       "sha256": "sha256:2fa7cf0be98dcb07df237e3082829f7eb879b452d254f58b8dd8f114163ef776"
     },
     {
-      "bytes": 9737,
+      "bytes": 12412,
       "path": "registry/report_intelligence/recipe_paper_trading_runs.jsonl",
-      "sha256": "sha256:5854b64ac1dbcca657ed47adfddf7d51a76743ba0e882c04ab12e73abac6a890"
+      "sha256": "sha256:b440b3b739edd2d18bf8e5b4a2313489adeaa6febb0053e385fccd0022ac25dd"
     },
     {
       "bytes": 1440,
       "path": "registry/report_intelligence/recipe_paper_trading_summary.json",
-      "sha256": "sha256:6d3de85462f9215749c5e33be9334594c7bd1216235dac0c81618b5b457da935"
+      "sha256": "sha256:56bb4e096a65eafd5744e72988246316d83da9323ed78b0c4d35f0cfccf3b65f"
     },
     {
       "bytes": 3933,
@@ -529,7 +529,7 @@
     {
       "bytes": 15429,
       "path": "registry/schemas/rke_schema_validation_report.json",
-      "sha256": "sha256:862cac503cdc07aa96b7b05a059b272834795a1aceb497c105dcdb67e1ef3972"
+      "sha256": "sha256:3fc439254c2eca6fe6a773dc74eb489108da86925b88e61553639da5d8b4d2d1"
     },
     {
       "bytes": 316,

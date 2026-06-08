@@ -1,7 +1,8 @@
 {
   "alpha_decay_fail_count": 0,
+  "alpha_decay_recipe_ids": [],
   "alpha_decay_watch_count": 0,
-  "as_of_datetime": "2026-06-08T06:09:08+00:00",
+  "as_of_datetime": "2026-06-08T07:39:29+00:00",
   "blocked_recipe_count": 5,
   "blocker_counts": {
     "insufficient_effective_n": 5,
@@ -9,10 +10,13 @@
     "required_tools_not_shadow_implemented": 5
   },
   "calibration_drift_count": 0,
+  "calibration_drift_recipe_ids": [],
   "drift_status_counts": {
     "paper_trading_blocked": 5
   },
+  "freeze_recipe_ids": [],
   "lockbox_required_before_production_impact": true,
+  "manual_review_recipe_ids": [],
   "monitor_id": "RKE-REPORT-INTELLIGENCE-CONFIDENCE-IMPACT-MONITOR",
   "observation_count": 5,
   "paper_trading_validated_recipe_count": 0,
@@ -22,6 +26,14 @@
   "recommended_action_counts": {
     "keep_shadow": 5
   },
+  "retire_recipe_ids": [],
   "run_id": "RIR-PUBLIC-RECIPE-PAPER-TRADING",
+  "tracked_recipe_ids": [
+    "RECIPE-06f48d5a725b5b4e",
+    "RECIPE-21c2b0c93edbc457",
+    "RECIPE-97a328e964f973d4",
+    "RECIPE-b8ee217dbe374ffb",
+    "RECIPE-f7c95b83c13d5589"
+  ],
   "unvalidated_confidence_impact_count": 0
 }

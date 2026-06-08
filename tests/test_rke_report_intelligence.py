@@ -1050,10 +1050,19 @@ def test_report_intelligence_recipe_paper_trading_requires_direct_pit_evidence()
     assert runs[0]["paper_trading_status"] == "passed"
     assert runs[0]["blocked_reasons"] == []
     assert runs[0]["profile_weight_support"]["profile_only_validation_allowed"] is False
+    assert runs[0]["pre_registered_protocol"][
+        "parameter_tuning_after_results_allowed"
+    ] is False
+    assert runs[0]["pre_registered_protocol"]["alpha_decay_fail_streak"] == 2
+    assert runs[0]["metrics"]["brier_score"] == 0.01
+    assert runs[0]["metrics"]["non_positive_after_cost_window_streak"] == 0
     assert summary["validation_pass_count"] == 1
     assert observations[0]["confidence_delta"] > 0
     assert observations[0]["drift_status"] == "stable_shadow"
+    assert observations[0]["brier_score"] == 0.01
     assert monitor["paper_trading_validated_recipe_count"] == 1
+    assert monitor["tracked_recipe_ids"] == ["RECIPE-DIRECT-PIT"]
+    assert monitor["alpha_decay_recipe_ids"] == []
     assert monitor["production_decision_impact_allowed"] is False
 
     blocked_runs = build_recipe_paper_trading_runs(
@@ -1083,6 +1092,68 @@ def test_report_intelligence_recipe_paper_trading_requires_direct_pit_evidence()
     )
     assert blocked_observations[0]["confidence_delta"] == 0.0
     assert blocked_observations[0]["drift_status"] == "paper_trading_blocked"
+
+
+def test_report_intelligence_recipe_paper_trading_flags_alpha_decay_fail():
+    recipe = {
+        "analysis_recipe_id": "RECIPE-DECAY-FAIL",
+        "method_pattern_id": "METHOD-DECAY-FAIL",
+        "version": "0.1.0",
+        "runtime_mode": "shadow_only",
+        "required_tools": ["market.price_proxy"],
+        "steps": [{"step": 1, "tool": "market.price_proxy"}],
+        "output_signal": {"name": "decay_sensitive_score"},
+    }
+    labels = []
+    for day, value in (
+        (10, 0.04),
+        (11, -0.01),
+        (12, -0.02),
+        (13, 0.04),
+    ):
+        labels.append(
+            {
+                "analysis_recipe_id": "RECIPE-DECAY-FAIL",
+                "method_pattern_id": "METHOD-DECAY-FAIL",
+                "exit_datetime": f"2026-01-{day:02d}",
+                "directional_after_cost_return": value,
+                "benchmark_return": 0.001,
+                "directional_hit": True,
+                "horizon_days": 20,
+                "effective_n_weight": 1.0,
+            }
+        )
+
+    runs = build_recipe_paper_trading_runs(
+        run_id="RIR-TEST-DECAY",
+        analysis_recipe_rows=[recipe],
+        outcome_label_rows=labels,
+        method_performance_profile_rows=[],
+    )
+    summary = build_recipe_paper_trading_summary(
+        run_id="RIR-TEST-DECAY",
+        recipe_paper_trading_runs=runs,
+    )
+    observations = build_confidence_impact_observations(
+        run_id="RIR-TEST-DECAY",
+        recipe_paper_trading_runs=runs,
+    )
+    monitor = build_confidence_impact_monitor(
+        run_id="RIR-TEST-DECAY",
+        confidence_observation_rows=observations,
+        recipe_paper_trading_summary=summary,
+    )
+
+    assert runs[0]["paper_trading_status"] == "blocked"
+    assert runs[0]["metrics"]["cost_adjusted_alpha"] > 0
+    assert runs[0]["metrics"]["non_positive_after_cost_window_streak"] == 2
+    assert "consecutive_non_positive_after_cost_windows" in runs[0]["blocked_reasons"]
+    assert observations[0]["drift_status"] == "alpha_decay_fail"
+    assert observations[0]["recommended_action"] == "freeze_recipe"
+    assert observations[0]["confidence_delta"] == 0.0
+    assert monitor["alpha_decay_fail_count"] == 1
+    assert monitor["alpha_decay_recipe_ids"] == ["RECIPE-DECAY-FAIL"]
+    assert monitor["freeze_recipe_ids"] == ["RECIPE-DECAY-FAIL"]
 
 
 def test_report_intelligence_prompt_mutation_candidates_track_markdown_coverage_gate():

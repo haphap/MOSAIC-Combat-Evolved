@@ -19,6 +19,7 @@
     "benchmark_symbol",
     "benchmark_source",
     "cost_model_id",
+    "pre_registered_protocol",
     "metrics",
     "blocked_reasons",
     "profile_weight_support",
@@ -45,6 +46,34 @@
     "benchmark_symbol": {"type": "string", "minLength": 1},
     "benchmark_source": {"type": "string", "minLength": 1},
     "cost_model_id": {"type": "string", "minLength": 1},
+    "pre_registered_protocol": {
+      "type": "object",
+      "required": [
+        "entry_semantics",
+        "exit_semantics",
+        "cost_model_id",
+        "benchmark_symbol",
+        "minimum_effective_n",
+        "max_drawdown",
+        "alpha_decay_fail_streak",
+        "profile_weight_is_sufficient",
+        "parameter_tuning_after_results_allowed",
+        "production_decision_impact_allowed"
+      ],
+      "properties": {
+        "entry_semantics": {"type": "string", "minLength": 1},
+        "exit_semantics": {"type": "string", "minLength": 1},
+        "cost_model_id": {"type": "string", "minLength": 1},
+        "benchmark_symbol": {"type": "string", "minLength": 1},
+        "minimum_effective_n": {"type": "number", "minimum": 0},
+        "max_drawdown": {"type": "number", "minimum": 0},
+        "alpha_decay_fail_streak": {"type": "integer", "minimum": 1},
+        "profile_weight_is_sufficient": {"type": "boolean", "const": false},
+        "parameter_tuning_after_results_allowed": {"type": "boolean", "const": false},
+        "production_decision_impact_allowed": {"type": "boolean", "const": false}
+      },
+      "additionalProperties": true
+    },
     "metrics": {"type": "object"},
     "blocked_reasons": {"type": "array", "items": {"type": "string"}},
     "profile_weight_support": {"type": "object"},

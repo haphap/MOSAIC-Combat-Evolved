@@ -6253,6 +6253,7 @@ def build_analysis_recipes(
 RECIPE_PAPER_TRADING_PROTOCOL_VERSION = "recipe_shadow_paper_trading_v1"
 RECIPE_PAPER_TRADING_MIN_EFFECTIVE_N = 3.0
 RECIPE_PAPER_TRADING_MAX_DRAWDOWN = 0.20
+RECIPE_PAPER_TRADING_ALPHA_DECAY_FAIL_STREAK = 2
 RECIPE_PAPER_TRADING_BENCHMARK_SYMBOL = STOCK_PRICE_PROXY_BENCHMARK_SYMBOL
 RECIPE_PAPER_TRADING_COST_MODEL_ID = STOCK_PRICE_PROXY_COST_MODEL_ID
 
@@ -6325,6 +6326,17 @@ def _paper_trading_metric_summary(
         else None
     )
     alpha_values = [value for value, _weight in weighted_after_cost]
+    max_non_positive_streak = 0
+    current_non_positive_streak = 0
+    for value in alpha_values:
+        if value <= 0:
+            current_non_positive_streak += 1
+            max_non_positive_streak = max(
+                max_non_positive_streak,
+                current_non_positive_streak,
+            )
+        else:
+            current_non_positive_streak = 0
     if len(alpha_values) >= 2:
         midpoint = max(1, len(alpha_values) // 2)
         first = sum(alpha_values[:midpoint]) / len(alpha_values[:midpoint])
@@ -6365,6 +6377,10 @@ def _paper_trading_metric_summary(
         "calibration_error": round(abs((hit_rate or 0.5) - 0.5), 6)
         if hit_rate is not None
         else None,
+        "brier_score": round((0.5 - hit_rate) ** 2, 6)
+        if hit_rate is not None
+        else None,
+        "non_positive_after_cost_window_streak": max_non_positive_streak,
         "drawdown_breach_count": sum(
             1
             for value in alpha_values
@@ -6415,6 +6431,11 @@ def build_recipe_paper_trading_runs(
         if not blockers:
             if cost_adjusted_alpha is None or cost_adjusted_alpha <= 0:
                 blockers.append("after_cost_alpha_non_positive")
+            if (
+                int(metrics.get("non_positive_after_cost_window_streak") or 0)
+                >= RECIPE_PAPER_TRADING_ALPHA_DECAY_FAIL_STREAK
+            ):
+                blockers.append("consecutive_non_positive_after_cost_windows")
             if hit_rate is None or hit_rate < 0.50:
                 blockers.append("hit_rate_below_threshold")
             if max_drawdown is not None and max_drawdown < -RECIPE_PAPER_TRADING_MAX_DRAWDOWN:
@@ -6462,12 +6483,27 @@ def build_recipe_paper_trading_runs(
                     "no_production_order",
                     "no_position_sizing",
                     "after_cost_alpha_required",
+                    "consecutive_after_cost_decay_blocks_validation",
                     "drawdown_threshold_pre_registered",
                 ],
                 "expected_horizon_days": 60,
                 "benchmark_symbol": RECIPE_PAPER_TRADING_BENCHMARK_SYMBOL,
                 "benchmark_source": STOCK_PRICE_PROXY_BENCHMARK_SOURCE,
                 "cost_model_id": RECIPE_PAPER_TRADING_COST_MODEL_ID,
+                "pre_registered_protocol": {
+                    "entry_semantics": "T+1_or_more_conservative",
+                    "exit_semantics": "fixed_horizon_shadow_exit",
+                    "cost_model_id": RECIPE_PAPER_TRADING_COST_MODEL_ID,
+                    "benchmark_symbol": RECIPE_PAPER_TRADING_BENCHMARK_SYMBOL,
+                    "minimum_effective_n": RECIPE_PAPER_TRADING_MIN_EFFECTIVE_N,
+                    "max_drawdown": RECIPE_PAPER_TRADING_MAX_DRAWDOWN,
+                    "alpha_decay_fail_streak": (
+                        RECIPE_PAPER_TRADING_ALPHA_DECAY_FAIL_STREAK
+                    ),
+                    "profile_weight_is_sufficient": False,
+                    "parameter_tuning_after_results_allowed": False,
+                    "production_decision_impact_allowed": False,
+                },
                 "metrics": metrics,
                 "blocked_reasons": sorted(set(blockers)),
                 "profile_weight_support": {
@@ -6569,8 +6605,21 @@ def build_confidence_impact_observations(
         realized_alpha = _float_or_none(metrics.get("alpha"))
         alpha_decay_slope = _float_or_none(metrics.get("alpha_decay_slope"))
         calibration_error = _float_or_none(metrics.get("calibration_error"))
+        brier_score = _float_or_none(metrics.get("brier_score"))
         hit_rate = _float_or_none(metrics.get("hit_rate"))
-        if paper_status != "passed":
+        blocker_reasons = _ensure_list(run.get("blocked_reasons"))
+        alpha_decay_blockers = {
+            "after_cost_alpha_non_positive",
+            "consecutive_non_positive_after_cost_windows",
+            "max_drawdown_breach",
+        }
+        if paper_status != "passed" and any(
+            str(reason) in alpha_decay_blockers for reason in blocker_reasons
+        ):
+            drift_status = "alpha_decay_fail"
+            recommended_action = "freeze_recipe"
+            confidence_delta = 0.0
+        elif paper_status != "passed":
             drift_status = "paper_trading_blocked"
             recommended_action = "keep_shadow"
             confidence_delta = 0.0
@@ -6609,7 +6658,7 @@ def build_confidence_impact_observations(
                 "after_cost_realized_alpha": after_cost_alpha,
                 "alpha_decay_slope": alpha_decay_slope,
                 "calibration_error": calibration_error,
-                "brier_score": None,
+                "brier_score": brier_score,
                 "hit_rate_recent": hit_rate,
                 "hit_rate_baseline": 0.5,
                 "drawdown_since_activation": metrics.get("max_drawdown"),
@@ -6617,7 +6666,7 @@ def build_confidence_impact_observations(
                 "paper_trading_status": paper_status,
                 "drift_status": drift_status,
                 "recommended_action": recommended_action,
-                "blocker_reasons": _ensure_list(run.get("blocked_reasons")),
+                "blocker_reasons": blocker_reasons,
                 "production_decision_impact_allowed": False,
             }
         )
@@ -6633,10 +6682,33 @@ def build_confidence_impact_monitor(
     drift_status_counts: dict[str, int] = {}
     action_counts: dict[str, int] = {}
     blocker_counts: dict[str, int] = {}
+    tracked_recipe_ids: list[str] = []
+    alpha_decay_recipe_ids: list[str] = []
+    calibration_drift_recipe_ids: list[str] = []
+    manual_review_recipe_ids: list[str] = []
+    freeze_recipe_ids: list[str] = []
+    retire_recipe_ids: list[str] = []
     unvalidated_impact_count = 0
     for row in confidence_observation_rows:
         _increment_count(drift_status_counts, row.get("drift_status"))
         _increment_count(action_counts, row.get("recommended_action"))
+        recipe_id = str(row.get("recipe_id") or "")
+        if recipe_id:
+            tracked_recipe_ids.append(recipe_id)
+        if str(row.get("drift_status") or "") in {
+            "alpha_decay_watch",
+            "alpha_decay_fail",
+        } and recipe_id:
+            alpha_decay_recipe_ids.append(recipe_id)
+        if str(row.get("drift_status") or "") == "calibration_drift_watch" and recipe_id:
+            calibration_drift_recipe_ids.append(recipe_id)
+        action = str(row.get("recommended_action") or "")
+        if action == "send_to_manual_review" and recipe_id:
+            manual_review_recipe_ids.append(recipe_id)
+        if action == "freeze_recipe" and recipe_id:
+            freeze_recipe_ids.append(recipe_id)
+        if action == "retire_recipe" and recipe_id:
+            retire_recipe_ids.append(recipe_id)
         if (
             row.get("paper_trading_status") != "passed"
             and (_float_or_none(row.get("confidence_delta")) or 0.0) != 0.0
@@ -6666,6 +6738,12 @@ def build_confidence_impact_monitor(
         "drift_status_counts": dict(sorted(drift_status_counts.items())),
         "recommended_action_counts": dict(sorted(action_counts.items())),
         "blocker_counts": dict(sorted(blocker_counts.items())),
+        "tracked_recipe_ids": sorted(set(tracked_recipe_ids)),
+        "alpha_decay_recipe_ids": sorted(set(alpha_decay_recipe_ids)),
+        "calibration_drift_recipe_ids": sorted(set(calibration_drift_recipe_ids)),
+        "manual_review_recipe_ids": sorted(set(manual_review_recipe_ids)),
+        "freeze_recipe_ids": sorted(set(freeze_recipe_ids)),
+        "retire_recipe_ids": sorted(set(retire_recipe_ids)),
         "production_decision_impact_allowed": False,
         "lockbox_required_before_production_impact": True,
         "policy": (
