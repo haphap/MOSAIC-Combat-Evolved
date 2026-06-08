@@ -145,6 +145,73 @@ def test_schema_validation_report_accepts_current_registry():
     } <= {record.schema_path for record in report.records}
 
 
+def test_schema_validation_allows_missing_optional_private_jsonl(tmp_path: Path):
+    schema_dir = tmp_path / "schemas"
+    schema_dir.mkdir(parents=True)
+    (schema_dir / "report_intelligence_report_outcome_label.schema.json").write_text(
+        Path("schemas/report_intelligence_report_outcome_label.schema.json").read_text(
+            encoding="utf-8"
+        ),
+        encoding="utf-8",
+    )
+
+    record = validate_json_schema_artifact(
+        root=tmp_path,
+        schema_path="schemas/report_intelligence_report_outcome_label.schema.json",
+        artifact_path="registry/report_intelligence/report_outcome_labels.jsonl",
+        artifact_kind="jsonl",
+        allow_empty=True,
+    )
+
+    assert record.accepted
+    assert record.item_count == 0
+    assert record.failures == ()
+
+
+def test_schema_validation_accepts_public_registry_without_private_report_inputs(
+    tmp_path: Path,
+):
+    shutil.copytree("schemas", tmp_path / "schemas")
+    shutil.copytree(
+        "registry",
+        tmp_path / "registry",
+        ignore=shutil.ignore_patterns(
+            "tushare_research_reports*",
+            "tushare_license_review*",
+            "source_registry_validation_report.json",
+            "report_metadata.jsonl",
+            "forecast_claims.jsonl",
+            "analytical_footprints.jsonl",
+            "report_outcome_labels.jsonl",
+            "weighted_research_contexts.jsonl",
+            "processing_status.jsonl",
+            "analytical_footprint_review_template.jsonl",
+            "analytical_footprint_reviewed.jsonl",
+            "pdfs",
+            "markdown",
+            "mineru",
+        ),
+    )
+
+    report = build_schema_validation_report(tmp_path)
+
+    assert report.accepted
+    assert report.failure_count == 0
+    private_artifacts = {
+        "registry/report_intelligence/report_metadata.jsonl",
+        "registry/report_intelligence/forecast_claims.jsonl",
+        "registry/report_intelligence/analytical_footprints.jsonl",
+        "registry/report_intelligence/report_outcome_labels.jsonl",
+        "registry/report_intelligence/weighted_research_contexts.jsonl",
+    }
+    private_records = {
+        record.artifact_path: record for record in report.records
+        if record.artifact_path in private_artifacts
+    }
+    assert set(private_records) == private_artifacts
+    assert all(record.item_count == 0 for record in private_records.values())
+
+
 def test_report_intelligence_tooling_readiness_requires_reviewable_proposals(
     tmp_path: Path,
 ):

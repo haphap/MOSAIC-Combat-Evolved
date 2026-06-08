@@ -294,12 +294,19 @@ def validate_json_schema_artifact(
     allow_empty: bool = False,
 ) -> SchemaValidationRecord:
     root_path = Path(root)
-    schema, schema_failures = _read_mapping_json(_schema_file(root_path, schema_path), schema_path)
+    schema, schema_failures = _read_mapping_json(
+        _schema_file(root_path, schema_path),
+        schema_path,
+    )
     failures: list[str] = list(schema_failures)
-    if artifact_kind == "jsonl":
-        items, item_failures = _load_jsonl_values(root_path / artifact_path, artifact_path)
+    artifact_file = root_path / artifact_path
+    if allow_empty and not artifact_file.exists():
+        items: list[Any] = []
+        item_failures: tuple[str, ...] = ()
+    elif artifact_kind == "jsonl":
+        items, item_failures = _load_jsonl_values(artifact_file, artifact_path)
     elif artifact_kind == "json":
-        item, item_failures = _read_json_value(root_path / artifact_path, artifact_path)
+        item, item_failures = _read_json_value(artifact_file, artifact_path)
         items = [] if item is None else [item]
     else:
         raise ValueError(f"unsupported artifact_kind: {artifact_kind}")
@@ -329,19 +336,19 @@ REPORT_INTELLIGENCE_JSON_SCHEMA_TARGETS = (
         "schemas/report_intelligence_report_metadata.schema.json",
         "registry/report_intelligence/report_metadata.jsonl",
         "jsonl",
-        False,
+        True,
     ),
     (
         "schemas/report_intelligence_forecast_claim.schema.json",
         "registry/report_intelligence/forecast_claims.jsonl",
         "jsonl",
-        False,
+        True,
     ),
     (
         "schemas/report_intelligence_analytical_footprint.schema.json",
         "registry/report_intelligence/analytical_footprints.jsonl",
         "jsonl",
-        False,
+        True,
     ),
     (
         "schemas/report_intelligence_report_forecast_ledger.schema.json",
@@ -479,7 +486,7 @@ REPORT_INTELLIGENCE_JSON_SCHEMA_TARGETS = (
         "schemas/report_intelligence_weighted_research_context.schema.json",
         "registry/report_intelligence/weighted_research_contexts.jsonl",
         "jsonl",
-        False,
+        True,
     ),
     (
         "schemas/report_intelligence_runtime_tool_gap_observation.schema.json",
@@ -650,6 +657,16 @@ def _load_mapping_jsonl(
     return rows, failures
 
 
+def _load_optional_mapping_jsonl(
+    root_path: Path,
+    artifact_path: str,
+) -> tuple[list[Mapping[str, Any]], list[str], bool]:
+    if not (root_path / artifact_path).exists():
+        return [], [], False
+    rows, failures = _load_mapping_jsonl(root_path, artifact_path)
+    return rows, failures, True
+
+
 def _has_mapping_gap(row: Mapping[str, Any]) -> bool:
     target = row.get("target")
     benchmark = row.get("benchmark")
@@ -670,11 +687,19 @@ def validate_report_intelligence_semantics(
     root_path = Path(root)
     records: list[SchemaValidationRecord] = []
 
-    forecast_rows, forecast_failures = _load_mapping_jsonl(
+    (
+        forecast_rows,
+        forecast_failures,
+        forecast_rows_present,
+    ) = _load_optional_mapping_jsonl(
         root_path,
         "registry/report_intelligence/forecast_claims.jsonl",
     )
-    footprint_rows, footprint_failures = _load_mapping_jsonl(
+    (
+        footprint_rows,
+        footprint_failures,
+        _footprint_rows_present,
+    ) = _load_optional_mapping_jsonl(
         root_path,
         "registry/report_intelligence/analytical_footprints.jsonl",
     )
@@ -682,9 +707,16 @@ def validate_report_intelligence_semantics(
     for index, row in enumerate(forecast_rows, 1):
         row_label = f"forecast_claims row {index}"
         span_ids = row.get("source_span_ids")
-        has_spans = isinstance(span_ids, list) and any(str(item).strip() for item in span_ids)
-        if str(row.get("claim_provenance") or "") == "source_grounded" and not has_spans:
-            provenance_failures.append(f"{row_label}: source_grounded claim must cite source_span_ids")
+        has_spans = isinstance(span_ids, list) and any(
+            str(item).strip() for item in span_ids
+        )
+        if (
+            str(row.get("claim_provenance") or "") == "source_grounded"
+            and not has_spans
+        ):
+            provenance_failures.append(
+                f"{row_label}: source_grounded claim must cite source_span_ids"
+            )
         for mode_index, mode in enumerate(row.get("failure_modes") or (), 1):
             if not isinstance(mode, Mapping):
                 provenance_failures.append(
@@ -692,7 +724,9 @@ def validate_report_intelligence_semantics(
                 )
                 continue
             if not str(mode.get("text") or "").strip():
-                provenance_failures.append(f"{row_label}.failure_modes[{mode_index}].text: required")
+                provenance_failures.append(
+                    f"{row_label}.failure_modes[{mode_index}].text: required"
+                )
             if not str(mode.get("provenance") or "").strip():
                 provenance_failures.append(
                     f"{row_label}.failure_modes[{mode_index}].provenance: required"
@@ -701,7 +735,10 @@ def validate_report_intelligence_semantics(
                 provenance_failures.append(
                     f"{row_label}.failure_modes[{mode_index}]: source_grounded requires claim spans"
                 )
-        if _has_mapping_gap(row) and str(row.get("forecast_testability") or "") == "testable":
+        if (
+            _has_mapping_gap(row)
+            and str(row.get("forecast_testability") or "") == "testable"
+        ):
             provenance_failures.append(
                 f"{row_label}: forecast with target/benchmark/direction/horizon gap cannot be testable"
             )
@@ -709,12 +746,17 @@ def validate_report_intelligence_semantics(
         row_label = f"analytical_footprints row {index}"
         extraction_type = str(row.get("extraction_type") or "")
         span_ids = row.get("source_span_ids")
-        has_spans = isinstance(span_ids, list) and any(str(item).strip() for item in span_ids)
+        has_spans = isinstance(span_ids, list) and any(
+            str(item).strip() for item in span_ids
+        )
         if extraction_type in {"source_grounded", "mixed"} and not has_spans:
             provenance_failures.append(
                 f"{row_label}: source-grounded analytical footprint must cite source_span_ids"
             )
-        for mention_index, mention in enumerate(row.get("indicator_mentions") or (), 1):
+        for mention_index, mention in enumerate(
+            row.get("indicator_mentions") or (),
+            1,
+        ):
             if not isinstance(mention, Mapping):
                 provenance_failures.append(
                     f"{row_label}.indicator_mentions[{mention_index}]: expected object"
@@ -972,7 +1014,7 @@ def validate_report_intelligence_semantics(
     )
     readiness_failures.extend(readiness_report_failures)
     forecasts_by_id = {str(row.get("forecast_claim_id") or ""): row for row in forecast_rows}
-    if len(forecasts_by_id) != len(forecast_rows):
+    if forecast_rows_present and len(forecasts_by_id) != len(forecast_rows):
         readiness_failures.append("forecast_claim_id values must be unique")
     ready_count = 0
     standard_blocked_count = 0
@@ -988,6 +1030,10 @@ def validate_report_intelligence_semantics(
     }
     for index, row in enumerate(ledger_rows, 1):
         row_label = f"report_forecast_ledger row {index}"
+        if row.get("immutable") is not True:
+            readiness_failures.append(f"{row_label}: immutable must be true")
+        if not forecast_rows_present:
+            continue
         claim_id = str(row.get("forecast_claim_id") or "")
         claim = forecasts_by_id.get(claim_id)
         if claim is None:
@@ -1005,26 +1051,33 @@ def validate_report_intelligence_semantics(
             if claim_id not in proxy_label_ready_ids:
                 unlabelable_count += 1
         if ready and test_status != "ready_for_outcome_labeling":
-            readiness_failures.append(f"{row_label}: testable claim must be ready_for_outcome_labeling")
+            readiness_failures.append(
+                f"{row_label}: testable claim must be ready_for_outcome_labeling"
+            )
         if not ready and test_status == "ready_for_outcome_labeling":
-            readiness_failures.append(f"{row_label}: unmapped or non-testable claim cannot be outcome-ready")
-        if row.get("immutable") is not True:
-            readiness_failures.append(f"{row_label}: immutable must be true")
+            readiness_failures.append(
+                f"{row_label}: unmapped or non-testable claim cannot be outcome-ready"
+            )
     if readiness_report:
-        if readiness_report.get("forecast_claim_count") != len(forecast_rows):
-            readiness_failures.append("outcome_labeling_readiness forecast_claim_count mismatch")
         if readiness_report.get("forecast_ledger_count") != len(ledger_rows):
-            readiness_failures.append("outcome_labeling_readiness forecast_ledger_count mismatch")
-        if readiness_report.get("ready_for_outcome_labeling_count") != ready_count:
             readiness_failures.append(
-                "outcome_labeling_readiness ready_for_outcome_labeling_count mismatch"
+                "outcome_labeling_readiness forecast_ledger_count mismatch"
             )
-        if readiness_report.get("standard_blocked_count") != standard_blocked_count:
-            readiness_failures.append(
-                "outcome_labeling_readiness standard_blocked_count mismatch"
-            )
-        if readiness_report.get("blocked_count") != unlabelable_count:
-            readiness_failures.append("outcome_labeling_readiness blocked_count mismatch")
+        if forecast_rows_present:
+            if readiness_report.get("forecast_claim_count") != len(forecast_rows):
+                readiness_failures.append(
+                    "outcome_labeling_readiness forecast_claim_count mismatch"
+                )
+            if readiness_report.get("ready_for_outcome_labeling_count") != ready_count:
+                readiness_failures.append(
+                    "outcome_labeling_readiness ready_for_outcome_labeling_count mismatch"
+                )
+            if readiness_report.get("standard_blocked_count") != standard_blocked_count:
+                readiness_failures.append(
+                    "outcome_labeling_readiness standard_blocked_count mismatch"
+                )
+            if readiness_report.get("blocked_count") != unlabelable_count:
+                readiness_failures.append("outcome_labeling_readiness blocked_count mismatch")
     records.append(
         SchemaValidationRecord(
             schema_path="schemas/report_intelligence_forecast_readiness_rules",
@@ -1117,7 +1170,11 @@ def validate_report_intelligence_semantics(
         root_path,
         "registry/report_intelligence/analysis_recipes.jsonl",
     )
-    context_rows, context_failures = _load_mapping_jsonl(
+    (
+        context_rows,
+        context_failures,
+        _context_rows_present,
+    ) = _load_optional_mapping_jsonl(
         root_path,
         "registry/report_intelligence/weighted_research_contexts.jsonl",
     )
