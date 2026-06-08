@@ -382,6 +382,7 @@ EVOLUTION_GATE_MIN_PAPER_TRADING_RECIPES = 20
 EVOLUTION_GATE_MIN_CONSECUTIVE_MONITOR_REFRESHES = 3
 EVOLUTION_GATE_MIN_CONSECUTIVE_AUDIT_REFRESHES = 3
 EVOLUTION_GATE_MIN_GAP_DISTRIBUTION_REFRESHES = 3
+EVOLUTION_REFRESH_HISTORY_MAX_ROWS = 50
 REPORT_INTELLIGENCE_PROXY_LABEL_TYPES = frozenset(
     {"industry_etf_proxy", "stock_price_proxy"}
 )
@@ -7411,6 +7412,161 @@ def _trailing_gap_distribution_stable_count(
     return count
 
 
+def _read_evolution_history_rows(path: Path) -> list[Mapping[str, Any]]:
+    if not path.exists():
+        return []
+    rows, parse_blockers = load_jsonl_with_errors(path, label=str(path))
+    if parse_blockers:
+        return []
+    return [row for row in rows if isinstance(row, Mapping)]
+
+
+def _append_evolution_history_record(
+    rows: Sequence[Mapping[str, Any]],
+    record: Mapping[str, Any],
+) -> list[Mapping[str, Any]]:
+    run_id = str(record.get("run_id") or "")
+    deduped = [
+        dict(row)
+        for row in rows
+        if str(row.get("run_id") or "") != run_id
+    ]
+    deduped.append(dict(record))
+    return deduped[-EVOLUTION_REFRESH_HISTORY_MAX_ROWS:]
+
+
+def _monitor_refresh_history_record(
+    *,
+    run_id: str,
+    confidence_impact_monitor: Mapping[str, Any],
+) -> dict[str, Any]:
+    monitor = _ensure_mapping(confidence_impact_monitor)
+    return {
+        "history_id": _stable_id("MONHIST", {"run_id": run_id}),
+        "history_type": "confidence_impact_monitor",
+        "run_id": run_id,
+        "as_of_datetime": _utc_now(),
+        "accepted": _monitor_refresh_record_passed(monitor),
+        "observation_count": int(monitor.get("observation_count") or 0),
+        "blocked_recipe_count": int(monitor.get("blocked_recipe_count") or 0),
+        "unvalidated_confidence_impact_count": int(
+            monitor.get("unvalidated_confidence_impact_count") or 0
+        ),
+        "alpha_decay_fail_count": int(monitor.get("alpha_decay_fail_count") or 0),
+        "calibration_drift_count": int(monitor.get("calibration_drift_count") or 0),
+        "blocker_counts": _count_mapping_values(
+            _ensure_mapping(monitor.get("blocker_counts"))
+        ),
+        "private_text_included": False,
+    }
+
+
+def _audit_refresh_history_record(
+    *,
+    run_id: str,
+    audit_record: Mapping[str, Any],
+) -> dict[str, Any]:
+    audit = _ensure_mapping(audit_record)
+    return {
+        "history_id": _stable_id("AUDHIST", {"run_id": run_id}),
+        "history_type": "schema_pit_provenance_statistical_audit",
+        "run_id": run_id,
+        "as_of_datetime": _utc_now(),
+        "accepted": _audit_refresh_record_passed(audit),
+        "schema_accepted": audit.get("schema_accepted") is True,
+        "pit_accepted": audit.get("pit_accepted") is True,
+        "provenance_accepted": audit.get("provenance_accepted") is True,
+        "statistical_accepted": audit.get("statistical_accepted") is True,
+        "private_text_included": False,
+    }
+
+
+def _gap_distribution_history_record(
+    *,
+    run_id: str,
+    outcome_labeling_readiness: Mapping[str, Any],
+) -> dict[str, Any]:
+    gap_counts = _count_mapping_values(
+        _ensure_mapping(
+            _ensure_mapping(outcome_labeling_readiness).get("mapping_gap_counts")
+        )
+    )
+    total_gap_count = sum(gap_counts.values())
+    max_gap_name = ""
+    max_gap_share = 0.0
+    if total_gap_count:
+        max_gap_name, max_gap_count = max(gap_counts.items(), key=lambda item: item[1])
+        max_gap_share = max_gap_count / total_gap_count
+    stable = total_gap_count == 0 or max_gap_share <= 0.80
+    return {
+        "history_id": _stable_id("GAPHIST", {"run_id": run_id}),
+        "history_type": "mapping_gap_distribution",
+        "run_id": run_id,
+        "as_of_datetime": _utc_now(),
+        "accepted": stable,
+        "stable": stable,
+        "gap_counts": gap_counts,
+        "total_gap_count": total_gap_count,
+        "max_gap_name": max_gap_name,
+        "max_gap_share": round(max_gap_share, 6),
+        "private_text_included": False,
+    }
+
+
+def _prepare_evolution_refresh_history(
+    *,
+    registry_dir: Path,
+    run_id: str,
+    confidence_impact_monitor: Mapping[str, Any],
+    schema_validation_report: Mapping[str, Any],
+    pit_leakage_audit: Mapping[str, Any],
+    extraction_provenance_audit: Mapping[str, Any],
+    statistical_robustness_audit: Mapping[str, Any],
+    outcome_labeling_readiness: Mapping[str, Any],
+) -> dict[str, list[Mapping[str, Any]]]:
+    monitor_history_rows = _read_evolution_history_rows(
+        registry_dir / "monitor_refresh_history.jsonl"
+    )
+    audit_history_rows = _read_evolution_history_rows(
+        registry_dir / "audit_refresh_history.jsonl"
+    )
+    gap_distribution_history_rows = _read_evolution_history_rows(
+        registry_dir / "gap_distribution_history.jsonl"
+    )
+    audit_record = _audit_current_record(
+        schema_validation_report=schema_validation_report,
+        pit_leakage_audit=pit_leakage_audit,
+        extraction_provenance_audit=extraction_provenance_audit,
+        statistical_robustness_audit=statistical_robustness_audit,
+    )
+    return {
+        "monitor_previous": monitor_history_rows,
+        "audit_previous": audit_history_rows,
+        "gap_previous": gap_distribution_history_rows,
+        "monitor_updated": _append_evolution_history_record(
+            monitor_history_rows,
+            _monitor_refresh_history_record(
+                run_id=run_id,
+                confidence_impact_monitor=confidence_impact_monitor,
+            ),
+        ),
+        "audit_updated": _append_evolution_history_record(
+            audit_history_rows,
+            _audit_refresh_history_record(
+                run_id=run_id,
+                audit_record=audit_record,
+            ),
+        ),
+        "gap_updated": _append_evolution_history_record(
+            gap_distribution_history_rows,
+            _gap_distribution_history_record(
+                run_id=run_id,
+                outcome_labeling_readiness=outcome_labeling_readiness,
+            ),
+        ),
+    }
+
+
 def _audit_current_record(
     *,
     schema_validation_report: Mapping[str, Any] | None,
@@ -7616,12 +7772,19 @@ def build_report_intelligence_evolution_readiness_gate(
         )
     )
 
-    gap_records = [dict(row) for row in gap_distribution_history_rows]
-    gap_trailing_stable_count = _trailing_gap_distribution_stable_count(gap_records)
     readiness = _ensure_mapping(outcome_labeling_readiness)
     current_gap_counts = _count_mapping_values(
         _ensure_mapping(readiness.get("mapping_gap_counts"))
     )
+    current_gap_record = _gap_distribution_history_record(
+        run_id=run_id,
+        outcome_labeling_readiness=readiness,
+    )
+    gap_records = [
+        *[dict(row) for row in gap_distribution_history_rows],
+        current_gap_record,
+    ]
+    gap_trailing_stable_count = _trailing_gap_distribution_stable_count(gap_records)
     gap_blockers: list[str] = []
     if gap_trailing_stable_count < EVOLUTION_GATE_MIN_GAP_DISTRIBUTION_REFRESHES:
         gap_blockers.append("gap_distribution_history_below_threshold")
@@ -13783,6 +13946,17 @@ def run_report_intelligence_derived_refresh(
             gold_review_summary=gold_review_summary,
         )
     )
+    schema_validation_report = _read_schema_validation_report(root_path)
+    evolution_history = _prepare_evolution_refresh_history(
+        registry_dir=registry_dir,
+        run_id=run_id,
+        confidence_impact_monitor=confidence_impact_monitor,
+        schema_validation_report=schema_validation_report,
+        pit_leakage_audit=pit_leakage_audit,
+        extraction_provenance_audit=extraction_provenance_audit,
+        statistical_robustness_audit=statistical_robustness_audit,
+        outcome_labeling_readiness=outcome_labeling_readiness,
+    )
     evolution_readiness_gate = build_report_intelligence_evolution_readiness_gate(
         run_id=run_id,
         forecast_rows=forecast_rows,
@@ -13795,7 +13969,10 @@ def run_report_intelligence_derived_refresh(
         statistical_robustness_audit=statistical_robustness_audit,
         gold_review_summary=gold_review_summary,
         outcome_labeling_readiness=outcome_labeling_readiness,
-        schema_validation_report=_read_schema_validation_report(root_path),
+        schema_validation_report=schema_validation_report,
+        monitor_refresh_history_rows=evolution_history["monitor_previous"],
+        audit_refresh_history_rows=evolution_history["audit_previous"],
+        gap_distribution_history_rows=evolution_history["gap_previous"],
     )
 
     outputs = {
@@ -13923,6 +14100,24 @@ def run_report_intelligence_derived_refresh(
             _write_json(
                 registry_dir / "confidence_impact_monitor.json",
                 confidence_impact_monitor,
+            )["path"]
+        ),
+        "monitor_refresh_history": str(
+            _write_jsonl(
+                registry_dir / "monitor_refresh_history.jsonl",
+                evolution_history["monitor_updated"],
+            )["path"]
+        ),
+        "audit_refresh_history": str(
+            _write_jsonl(
+                registry_dir / "audit_refresh_history.jsonl",
+                evolution_history["audit_updated"],
+            )["path"]
+        ),
+        "gap_distribution_history": str(
+            _write_jsonl(
+                registry_dir / "gap_distribution_history.jsonl",
+                evolution_history["gap_updated"],
             )["path"]
         ),
         "prompt_mutation_candidates": str(
@@ -14611,6 +14806,17 @@ def run_report_intelligence_refresh(
             gold_review_summary=gold_review_summary,
         )
     )
+    schema_validation_report = _read_schema_validation_report(root_path)
+    evolution_history = _prepare_evolution_refresh_history(
+        registry_dir=registry_dir,
+        run_id=run_id,
+        confidence_impact_monitor=confidence_impact_monitor,
+        schema_validation_report=schema_validation_report,
+        pit_leakage_audit=pit_leakage_audit,
+        extraction_provenance_audit=extraction_provenance_audit,
+        statistical_robustness_audit=statistical_robustness_audit,
+        outcome_labeling_readiness=outcome_labeling_readiness,
+    )
     evolution_readiness_gate = build_report_intelligence_evolution_readiness_gate(
         run_id=run_id,
         forecast_rows=forecast_rows,
@@ -14623,7 +14829,10 @@ def run_report_intelligence_refresh(
         statistical_robustness_audit=statistical_robustness_audit,
         gold_review_summary=gold_review_summary,
         outcome_labeling_readiness=outcome_labeling_readiness,
-        schema_validation_report=_read_schema_validation_report(root_path),
+        schema_validation_report=schema_validation_report,
+        monitor_refresh_history_rows=evolution_history["monitor_previous"],
+        audit_refresh_history_rows=evolution_history["audit_previous"],
+        gap_distribution_history_rows=evolution_history["gap_previous"],
     )
 
     outputs = {
@@ -14755,6 +14964,24 @@ def run_report_intelligence_refresh(
             _write_json(
                 registry_dir / "confidence_impact_monitor.json",
                 confidence_impact_monitor,
+            )["path"]
+        ),
+        "monitor_refresh_history": str(
+            _write_jsonl(
+                registry_dir / "monitor_refresh_history.jsonl",
+                evolution_history["monitor_updated"],
+            )["path"]
+        ),
+        "audit_refresh_history": str(
+            _write_jsonl(
+                registry_dir / "audit_refresh_history.jsonl",
+                evolution_history["audit_updated"],
+            )["path"]
+        ),
+        "gap_distribution_history": str(
+            _write_jsonl(
+                registry_dir / "gap_distribution_history.jsonl",
+                evolution_history["gap_updated"],
             )["path"]
         ),
         "prompt_mutation_candidates": str(

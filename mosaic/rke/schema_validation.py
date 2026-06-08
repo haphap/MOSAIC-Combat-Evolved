@@ -471,6 +471,24 @@ REPORT_INTELLIGENCE_JSON_SCHEMA_TARGETS = (
         False,
     ),
     (
+        "schemas/report_intelligence_evolution_refresh_history.schema.json",
+        "registry/report_intelligence/monitor_refresh_history.jsonl",
+        "jsonl",
+        False,
+    ),
+    (
+        "schemas/report_intelligence_evolution_refresh_history.schema.json",
+        "registry/report_intelligence/audit_refresh_history.jsonl",
+        "jsonl",
+        False,
+    ),
+    (
+        "schemas/report_intelligence_evolution_refresh_history.schema.json",
+        "registry/report_intelligence/gap_distribution_history.jsonl",
+        "jsonl",
+        False,
+    ),
+    (
         "schemas/report_intelligence_evolution_readiness_gate.schema.json",
         "registry/report_intelligence/evolution_readiness_gate.json",
         "json",

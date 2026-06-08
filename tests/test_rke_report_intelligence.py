@@ -587,6 +587,9 @@ def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
     assert "recipe_paper_trading_summary" in result.outputs
     assert "confidence_impact_observations" in result.outputs
     assert "confidence_impact_monitor" in result.outputs
+    assert "monitor_refresh_history" in result.outputs
+    assert "audit_refresh_history" in result.outputs
+    assert "gap_distribution_history" in result.outputs
     assert "prompt_mutation_candidates" in result.outputs
     assert "markdown_coverage_summary" in result.outputs
     assert "industry_etf_proxy_map" in result.outputs
@@ -3880,6 +3883,9 @@ def test_report_intelligence_derived_refresh_backfills_explicit_horizon(
 
     assert result.outcome_labeling_ready_count == 1
     assert "patch_v1_5_coverage_report" in result.outputs
+    assert "monitor_refresh_history" in result.outputs
+    assert "audit_refresh_history" in result.outputs
+    assert "gap_distribution_history" in result.outputs
     refreshed = _read_jsonl(forecast_path)
     assert refreshed[0]["forecast_testability"] == "testable"
     assert refreshed[0]["horizon"]["max_days"] == 183
@@ -3901,6 +3907,20 @@ def test_report_intelligence_derived_refresh_backfills_explicit_horizon(
         row for row in evolution_gate["checks"] if row["check_id"] == "RI-EVOL-04"
     )
     assert audit_gate["evidence"]["schema_accepted"] is True
+    assert audit_gate["evidence"]["trailing_audit_pass_count"] == 1
+    audit_history = _read_jsonl(
+        tmp_path / "registry/report_intelligence/audit_refresh_history.jsonl"
+    )
+    assert audit_history[-1]["history_type"] == (
+        "schema_pit_provenance_statistical_audit"
+    )
+    assert audit_history[-1]["schema_accepted"] is True
+    assert audit_history[-1]["private_text_included"] is False
+    gap_history = _read_jsonl(
+        tmp_path / "registry/report_intelligence/gap_distribution_history.jsonl"
+    )
+    assert gap_history[-1]["history_type"] == "mapping_gap_distribution"
+    assert gap_history[-1]["private_text_included"] is False
 
 
 def test_report_intelligence_keeps_long_window_industry_etf_hits(

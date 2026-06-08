@@ -1,0 +1,1 @@
+{"accepted": true, "as_of_datetime": "2026-06-08T10:23:08+00:00", "gap_counts": {"benchmark": 10, "horizon": 12}, "history_id": "GAPHIST-6ef794c3d1a387ef", "history_type": "mapping_gap_distribution", "max_gap_name": "horizon", "max_gap_share": 0.545455, "private_text_included": false, "run_id": "RIR-PUBLIC-EVOLUTION-HISTORY", "stable": true, "total_gap_count": 22}

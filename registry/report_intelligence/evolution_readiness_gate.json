@@ -1,12 +1,11 @@
 {
-  "as_of_datetime": "2026-06-08T08:57:24+00:00",
-  "blocker_count": 16,
+  "as_of_datetime": "2026-06-08T10:23:08+00:00",
+  "blocker_count": 15,
   "blockers": [
     "after_cost_paper_trading_summary_missing",
     "audit_refresh_history_below_threshold",
     "confidence_impact_monitor_current_blocked",
     "confidence_impact_monitor_history_below_threshold",
-    "current_schema_or_audit_gate_blocked",
     "forecast_gold_set_gate_not_passed",
     "gap_distribution_history_below_threshold",
     "industry_proxy_claim_count_below_threshold",
@@ -68,16 +67,15 @@
     },
     {
       "blockers": [
-        "current_schema_or_audit_gate_blocked",
         "audit_refresh_history_below_threshold"
       ],
       "check_id": "RI-EVOL-04",
       "evidence": {
         "pit_accepted": true,
         "provenance_accepted": true,
-        "schema_accepted": false,
+        "schema_accepted": true,
         "statistical_accepted": true,
-        "trailing_audit_pass_count": 0
+        "trailing_audit_pass_count": 1
       },
       "passed": false,
       "requirement": "The last three derived refreshes must pass schema, PIT, provenance, and statistical robustness gates."
@@ -105,7 +103,7 @@
           "benchmark": 10,
           "horizon": 12
         },
-        "trailing_gap_distribution_stable_count": 0
+        "trailing_gap_distribution_stable_count": 1
       },
       "passed": false,
       "requirement": "Outcome and missing-gap distributions must be stable across recent refreshes before evolution changes prompts."
@@ -143,7 +141,7 @@
   "private_text_included": false,
   "production_prompt_change_allowed": false,
   "promotion_state": "blocked_before_prompt_evolution",
-  "run_id": "RIR-PUBLIC-RECIPE-REQUIRED-DATA",
+  "run_id": "RIR-PUBLIC-EVOLUTION-HISTORY",
   "thresholds": {
     "min_consecutive_audit_refreshes": 3,
     "min_consecutive_monitor_refreshes": 3,

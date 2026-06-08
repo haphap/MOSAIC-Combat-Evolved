@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RKE Report Intelligence Evolution Refresh History",
+  "type": "object",
+  "required": [
+    "history_id",
+    "history_type",
+    "run_id",
+    "as_of_datetime",
+    "accepted",
+    "private_text_included"
+  ],
+  "properties": {
+    "history_id": {"type": "string", "minLength": 1},
+    "history_type": {
+      "enum": [
+        "confidence_impact_monitor",
+        "schema_pit_provenance_statistical_audit",
+        "mapping_gap_distribution"
+      ]
+    },
+    "run_id": {"type": "string", "minLength": 1},
+    "as_of_datetime": {"type": "string", "minLength": 1},
+    "accepted": {"type": "boolean"},
+    "stable": {"type": "boolean"},
+    "observation_count": {"type": "integer", "minimum": 0},
+    "blocked_recipe_count": {"type": "integer", "minimum": 0},
+    "unvalidated_confidence_impact_count": {"type": "integer", "minimum": 0},
+    "alpha_decay_fail_count": {"type": "integer", "minimum": 0},
+    "calibration_drift_count": {"type": "integer", "minimum": 0},
+    "blocker_counts": {"type": "object"},
+    "schema_accepted": {"type": "boolean"},
+    "pit_accepted": {"type": "boolean"},
+    "provenance_accepted": {"type": "boolean"},
+    "statistical_accepted": {"type": "boolean"},
+    "gap_counts": {"type": "object"},
+    "total_gap_count": {"type": "integer", "minimum": 0},
+    "max_gap_name": {"type": "string"},
+    "max_gap_share": {"type": "number", "minimum": 0, "maximum": 1},
+    "private_text_included": {"type": "boolean", "const": false}
+  },
+  "additionalProperties": true
+}

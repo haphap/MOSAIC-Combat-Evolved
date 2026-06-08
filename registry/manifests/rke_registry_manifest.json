@@ -1,5 +1,5 @@
 {
-  "artifact_count": 111,
+  "artifact_count": 114,
   "artifacts": [
     {
       "bytes": 539,
@@ -257,6 +257,11 @@
       "sha256": "sha256:6068cf396311f45bea4a6b356e13b46e5073a777836ee2e19373b15c81f60c31"
     },
     {
+      "bytes": 347,
+      "path": "registry/report_intelligence/audit_refresh_history.jsonl",
+      "sha256": "sha256:5848f235dc5fde2d61eb061eec87e1d352b56c4335d9507b6b4ef35493f0bc2c"
+    },
+    {
       "bytes": 1896,
       "path": "registry/report_intelligence/confidence_impact_monitor.json",
       "sha256": "sha256:ace2ee98b4697bc1108db65ef002e70d54aae2d7ec36ad7e8b57bba43bfb6464"
@@ -272,9 +277,9 @@
       "sha256": "sha256:c7562bd014ce5c99061da24b7068d69755987b41108d29fecb8f0f4c0caccb97"
     },
     {
-      "bytes": 5854,
+      "bytes": 5758,
       "path": "registry/report_intelligence/evolution_readiness_gate.json",
-      "sha256": "sha256:5b56fd46848edd1b5fd40ea01451179cb524b0d412535b454a9c24e3909f3b50"
+      "sha256": "sha256:31b696e32a09652dca913be38769fad19e619853a445386e45cf486b2fa71076"
     },
     {
       "bytes": 2938,
@@ -290,6 +295,11 @@
       "bytes": 747,
       "path": "registry/report_intelligence/feature_flags.json",
       "sha256": "sha256:7797365bc4fff62c42f7e43f1be143db0ca6b325796b9dee43a7aa28cd16a961"
+    },
+    {
+      "bytes": 367,
+      "path": "registry/report_intelligence/gap_distribution_history.jsonl",
+      "sha256": "sha256:400ce631e683c6f0fe1bbc91b839d46afcb86dccab6123c594b9bc18493ec428"
     },
     {
       "bytes": 11430,
@@ -320,6 +330,11 @@
       "bytes": 23126,
       "path": "registry/report_intelligence/metric_candidates.jsonl",
       "sha256": "sha256:614d25ce2e9123ef4a1627d566ffa9f5cd9391695680934af8cc21bf7732e029"
+    },
+    {
+      "bytes": 514,
+      "path": "registry/report_intelligence/monitor_refresh_history.jsonl",
+      "sha256": "sha256:e6eeb036312ece9758654ad105c0184f99da8dccaf5172000957800e7fecbcf6"
     },
     {
       "bytes": 7714,
