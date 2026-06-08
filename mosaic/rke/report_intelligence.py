@@ -5760,6 +5760,59 @@ def _shrunk_performance_summary(
     }
 
 
+def _outcome_layer_key(label: Mapping[str, Any]) -> tuple[str, str, str]:
+    return (
+        str(label.get("label_type") or "standard"),
+        str(label.get("benchmark_family") or "unknown_benchmark_family"),
+        str(label.get("cost_model_id") or "unknown_cost_model"),
+    )
+
+
+def _outcome_layer_support(
+    labels: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    grouped: dict[tuple[str, str, str], list[Mapping[str, Any]]] = {}
+    for label in labels:
+        grouped.setdefault(_outcome_layer_key(label), []).append(label)
+    layer_summaries: list[dict[str, Any]] = []
+    for (label_type, benchmark_family, cost_model_id), rows in sorted(grouped.items()):
+        summary = _shrunk_performance_summary(rows)
+        layer_summaries.append(
+            {
+                "label_type": label_type,
+                "benchmark_family": benchmark_family,
+                "cost_model_id": cost_model_id,
+                "n_nominal": summary["n_nominal"],
+                "n_effective": summary["n_effective"],
+                "mean_after_cost_alpha": summary["mean_after_cost_alpha"],
+                "hit_rate": summary["hit_rate"],
+                "shrunk_after_cost_alpha": summary["shrunk_after_cost_alpha"],
+                "shrunk_hit_rate": summary["shrunk_hit_rate"],
+                "statistical_reliability_bucket": summary[
+                    "statistical_reliability_bucket"
+                ],
+            }
+        )
+    return {
+        "layer_count": len(layer_summaries),
+        "mixed_layer_profile": len(layer_summaries) > 1,
+        "layer_keys": [
+            {
+                "label_type": row["label_type"],
+                "benchmark_family": row["benchmark_family"],
+                "cost_model_id": row["cost_model_id"],
+            }
+            for row in layer_summaries
+        ],
+        "layer_summaries": layer_summaries,
+        "layering_policy": (
+            "overall profile metrics are diagnostic only; compare performance by "
+            "label_type, benchmark_family, and cost_model_id before interpreting "
+            "alpha or hit-rate across heterogeneous proxy channels"
+        ),
+    }
+
+
 def _labels_by_claim(
     outcome_label_rows: Sequence[Mapping[str, Any]],
 ) -> dict[str, list[Mapping[str, Any]]]:
@@ -5868,6 +5921,7 @@ def build_source_performance_profiles(
                     "shrunk_performance_bucket": "insufficient_data",
                     "weight_multiplier": 1.0,
                     "parent_prior_used": "global_neutral_prior",
+                    "outcome_layer_support": _outcome_layer_support(()),
                     "insufficient_data": True,
                     "methodology_notes": [
                         "no_outcome_labels_yet",
@@ -5893,6 +5947,7 @@ def build_source_performance_profiles(
                 "shrunk_after_cost_alpha": summary["shrunk_after_cost_alpha"],
                 "shrunk_hit_rate": summary["shrunk_hit_rate"],
                 "calibration_error": None,
+                "outcome_layer_support": _outcome_layer_support(labels),
                 "stability_bucket": "stable_enough_for_shadow_prior"
                 if not summary["insufficient_data"]
                 else "insufficient_data",
@@ -5937,6 +5992,7 @@ def build_viewpoint_performance_profiles(
                     "horizon_bucket": _horizon_bucket(_ensure_mapping(claim.get("horizon"))),
                     "regime_bucket": "unknown",
                 },
+                "outcome_layer_support": _outcome_layer_support(()),
                 "n_effective": 0.0,
                 "statistical_reliability_bucket": "insufficient_data",
                 "shrunk_performance_bucket": "insufficient_data",
@@ -5970,6 +6026,7 @@ def build_viewpoint_performance_profiles(
                 "mean_after_cost_alpha": summary["mean_after_cost_alpha"],
                 "shrunk_after_cost_alpha": summary["shrunk_after_cost_alpha"],
                 "shrunk_hit_rate": summary["shrunk_hit_rate"],
+                "outcome_layer_support": _outcome_layer_support(labels),
                 "statistical_reliability_bucket": summary[
                     "statistical_reliability_bucket"
                 ],

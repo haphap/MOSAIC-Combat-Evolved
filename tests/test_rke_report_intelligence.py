@@ -4186,6 +4186,10 @@ def test_report_intelligence_performance_profiles_use_shrunk_outcomes():
     assert institution["weight_multiplier"] == 1.03
     assert institution["insufficient_data"] is False
     assert institution["as_of_datetime"] == "2026-03-02T00:00:00+00:00"
+    assert institution["outcome_layer_support"]["layer_count"] == 1
+    assert institution["outcome_layer_support"]["layer_summaries"][0][
+        "label_type"
+    ] == "standard"
     assert "performance_as_of_after_outcome_exit" in institution["methodology_notes"]
     assert author["shrunk_performance_bucket"] == institution["shrunk_performance_bucket"]
 
@@ -4219,6 +4223,113 @@ def test_report_intelligence_performance_profiles_use_shrunk_outcomes():
     assert weighted_claim["current_data_required"] is True
     assert contexts[0]["research_only"] is True
     assert contexts[0]["actionability"] == "no_trade_without_current_data_confirmation"
+
+
+def test_report_intelligence_performance_profiles_keep_outcome_layers_separate():
+    metadata_rows = [
+        {
+            "source_id": "SRC-LAYERED",
+            "institution_id": "INST-LAYERED",
+            "institution": "Layered Broker",
+            "author_ids": ["AUTH-LAYERED"],
+            "author": "Layered Analyst",
+            "sector": "有色金属",
+            "accessible_datetime": "2026-01-01T00:00:00+08:00",
+        }
+    ]
+    forecast_rows = [
+        {
+            "forecast_claim_id": "FC-LAYERED",
+            "source_id": "SRC-LAYERED",
+            "forecast_type": "stock_and_industry_outlook",
+            "direction": "positive",
+            "metric_proxy_mapping": ["inventory_to_sales"],
+            "horizon": {"min_days": 20, "max_days": 120},
+        }
+    ]
+    outcome_rows = [
+        {
+            "forecast_claim_id": "FC-LAYERED",
+            "label_type": "stock_price_proxy",
+            "benchmark_family": "CSI300_ETF_PROXY",
+            "cost_model_id": "single_stock_round_trip_20bps_v1",
+            "entry_datetime": "2026-01-03",
+            "exit_datetime": "2026-01-30",
+            "directional_hit": True,
+            "directional_after_cost_return": 0.02,
+            "performance_value_basis": "directional_after_cost_return",
+            "effective_n_weight": 0.5,
+            "pit_valid": True,
+        },
+        {
+            "forecast_claim_id": "FC-LAYERED",
+            "label_type": "industry_etf_proxy",
+            "benchmark_family": "CSI500_ETF_PROXY",
+            "cost_model_id": "industry_etf_round_trip_10bps_v1",
+            "entry_datetime": "2026-01-03",
+            "exit_datetime": "2026-02-28",
+            "directional_hit": False,
+            "directional_after_cost_return": -0.01,
+            "performance_value_basis": "directional_after_cost_return",
+            "effective_n_weight": 0.5,
+            "pit_valid": True,
+        },
+    ]
+
+    source_profiles = build_source_performance_profiles(
+        metadata_rows,
+        forecast_rows=forecast_rows,
+        outcome_label_rows=outcome_rows,
+    )
+    institution = next(row for row in source_profiles if row["entity_type"] == "institution")
+    layer_support = institution["outcome_layer_support"]
+    assert layer_support["mixed_layer_profile"] is True
+    assert layer_support["layer_count"] == 2
+    layer_keys = {
+        (
+            row["label_type"],
+            row["benchmark_family"],
+            row["cost_model_id"],
+        )
+        for row in layer_support["layer_summaries"]
+    }
+    assert layer_keys == {
+        (
+            "stock_price_proxy",
+            "CSI300_ETF_PROXY",
+            "single_stock_round_trip_20bps_v1",
+        ),
+        (
+            "industry_etf_proxy",
+            "CSI500_ETF_PROXY",
+            "industry_etf_round_trip_10bps_v1",
+        ),
+    }
+    stock_layer = next(
+        row
+        for row in layer_support["layer_summaries"]
+        if row["label_type"] == "stock_price_proxy"
+    )
+    industry_layer = next(
+        row
+        for row in layer_support["layer_summaries"]
+        if row["label_type"] == "industry_etf_proxy"
+    )
+    assert stock_layer["n_effective"] == 0.5
+    assert stock_layer["mean_after_cost_alpha"] == 0.02
+    assert industry_layer["n_effective"] == 0.5
+    assert industry_layer["mean_after_cost_alpha"] == -0.01
+
+    viewpoint_profiles = build_viewpoint_performance_profiles(
+        forecast_rows,
+        outcome_label_rows=outcome_rows,
+    )
+    viewpoint_support = viewpoint_profiles[0]["outcome_layer_support"]
+    assert viewpoint_support["mixed_layer_profile"] is True
+    assert viewpoint_support["layer_count"] == 2
+    assert "label_type, benchmark_family, and cost_model_id" in viewpoint_support[
+        "layering_policy"
+    ]
 
 
 def test_report_intelligence_does_not_fallback_to_abstract_when_markdown_missing(
