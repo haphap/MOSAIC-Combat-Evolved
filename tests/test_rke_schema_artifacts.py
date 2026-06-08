@@ -243,6 +243,32 @@ def test_outcome_labeling_readiness_requires_proxy_channel_fields(tmp_path: Path
     )
 
 
+def test_recipe_paper_trading_summary_rejects_profile_weight_promotion(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    summary_path = registry / "recipe_paper_trading_summary.json"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    summary["validation_protocol"]["profile_weight_is_sufficient"] = True
+    summary_path.write_text(
+        json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = validate_json_schema_artifact(
+        root=tmp_path,
+        schema_path="schemas/report_intelligence_recipe_paper_trading_summary.schema.json",
+        artifact_path="registry/report_intelligence/recipe_paper_trading_summary.json",
+        artifact_kind="json",
+    )
+
+    assert not record.accepted
+    assert any(
+        "validation_protocol.profile_weight_is_sufficient" in failure
+        for failure in record.failures
+    )
+
+
 def _proxy_outcome_contract_record(tmp_path: Path):
     records = validate_report_intelligence_semantics(tmp_path)
     return next(

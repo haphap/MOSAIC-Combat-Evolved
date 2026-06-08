@@ -25,20 +25,43 @@
     "summary_id": {"type": "string", "minLength": 1},
     "run_id": {"type": "string", "minLength": 1},
     "as_of_datetime": {"type": "string", "minLength": 1},
-    "protocol_version": {"type": "string", "minLength": 1},
+    "protocol_version": {"const": "recipe_shadow_paper_trading_v1"},
     "recipe_count": {"type": "integer", "minimum": 0},
     "paper_trading_run_count": {"type": "integer", "minimum": 0},
     "validation_pass_count": {"type": "integer", "minimum": 0},
     "blocked_count": {"type": "integer", "minimum": 0},
-    "status_counts": {"type": "object"},
-    "blocker_counts": {"type": "object"},
+    "status_counts": {
+      "type": "object",
+      "additionalProperties": {"type": "integer", "minimum": 0}
+    },
+    "blocker_counts": {
+      "type": "object",
+      "additionalProperties": {"type": "integer", "minimum": 0}
+    },
     "passed_recipe_ids": {"type": "array", "items": {"type": "string"}},
     "blocked_recipe_ids": {"type": "array", "items": {"type": "string"}},
     "profile_paper_trade_disagreement_count": {"type": "integer", "minimum": 0},
     "mean_cost_adjusted_alpha": {"type": ["number", "null"]},
     "minimum_effective_n": {"type": "number", "minimum": 0},
     "pre_registration_policy": {"type": "string", "minLength": 1},
-    "validation_protocol": {"type": "object"},
+    "validation_protocol": {
+      "type": "object",
+      "required": [
+        "entry_semantics",
+        "cost_model_id",
+        "benchmark_symbol",
+        "profile_weight_is_sufficient",
+        "production_decision_impact_allowed"
+      ],
+      "properties": {
+        "entry_semantics": {"enum": ["T+1_or_more_conservative"]},
+        "cost_model_id": {"const": "single_stock_round_trip_20bps_v1"},
+        "benchmark_symbol": {"const": "SH510300"},
+        "profile_weight_is_sufficient": {"type": "boolean", "const": false},
+        "production_decision_impact_allowed": {"type": "boolean", "const": false}
+      },
+      "additionalProperties": true
+    },
     "policy": {"type": "string", "minLength": 1}
   },
   "additionalProperties": true
