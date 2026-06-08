@@ -770,6 +770,21 @@ STOCK_PROXY_SURVIVORSHIP_CHECKS = {
     STOCK_PROXY_SURVIVORSHIP_AUDITED_CHECK,
 }
 STOCK_PROXY_TRADABILITY_CHECK = "positive_volume_and_limit_lock_screen"
+REPORT_INTELLIGENCE_PUBLIC_FORBIDDEN_TEXT_KEYS = {
+    "abstract",
+    "claim_text",
+    "manual_claim_text",
+    "markdown_path",
+    "original_markdown",
+    "pdf_path",
+    "pdf_url",
+    "retrieval_locator",
+    "source_span_ids",
+    "source_span_text",
+    "source_text",
+    "title",
+    "url",
+}
 
 
 def _required_field_failures(
@@ -833,6 +848,30 @@ def _count_mapping(
         except (TypeError, ValueError):
             failures.append(f"{row_label}.{key}: expected integer count")
     return counts
+
+
+def _public_forbidden_text_failures(
+    value: Any,
+    *,
+    path: str,
+) -> list[str]:
+    failures: list[str] = []
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            normalized_key = str(key).strip().lower()
+            child_path = f"{path}.{key}"
+            if normalized_key in REPORT_INTELLIGENCE_PUBLIC_FORBIDDEN_TEXT_KEYS and bool(
+                item
+            ):
+                failures.append(f"{child_path}: private/source text field forbidden")
+                continue
+            failures.extend(_public_forbidden_text_failures(item, path=child_path))
+    elif isinstance(value, Sequence) and not isinstance(value, str):
+        for index, item in enumerate(value):
+            failures.extend(
+                _public_forbidden_text_failures(item, path=f"{path}[{index}]")
+            )
+    return failures
 
 
 def _int_or_none(value: Any) -> int | None:
@@ -1596,6 +1635,77 @@ def validate_report_intelligence_semantics(
             item_count=industry_etf_mapping_contract_item_count,
             accepted=not industry_etf_mapping_contract_failures,
             failures=tuple(industry_etf_mapping_contract_failures),
+        )
+    )
+
+    markdown_coverage_failures: list[str] = []
+    markdown_coverage, markdown_coverage_errors = _read_mapping_json(
+        root_path / "registry/report_intelligence/markdown_coverage_summary.json",
+        "registry/report_intelligence/markdown_coverage_summary.json",
+    )
+    markdown_coverage_failures.extend(markdown_coverage_errors)
+    if markdown_coverage:
+        markdown_coverage_failures.extend(
+            _public_forbidden_text_failures(
+                markdown_coverage,
+                path="markdown_coverage_summary",
+            )
+        )
+        if markdown_coverage.get("private_text_included") is not False:
+            markdown_coverage_failures.append(
+                "markdown_coverage_summary.private_text_included: must be false"
+            )
+        false_positive_counts = _count_mapping(
+            markdown_coverage.get("markdown_false_positive_risk_gap_counts"),
+            row_label="markdown_coverage_summary.markdown_false_positive_risk_gap_counts",
+            failures=markdown_coverage_failures,
+        )
+        expected_false_positive_queue = sum(false_positive_counts.values())
+        if (
+            markdown_coverage.get("markdown_false_positive_review_queue_count")
+            != expected_false_positive_queue
+        ):
+            markdown_coverage_failures.append(
+                "markdown_coverage_summary.markdown_false_positive_review_queue_count mismatch"
+            )
+        quality_review_queue_count = _int_or_none(
+            markdown_coverage.get("markdown_quality_review_queue_count")
+        )
+        if quality_review_queue_count is None:
+            markdown_coverage_failures.append(
+                "markdown_coverage_summary.markdown_quality_review_queue_count: expected integer"
+            )
+        else:
+            if quality_review_queue_count < expected_false_positive_queue:
+                markdown_coverage_failures.append(
+                    "markdown_coverage_summary.markdown_quality_review_queue_count "
+                    "must cover false-positive risk queue"
+                )
+            expected_spot_check = quality_review_queue_count > 0
+            if (
+                markdown_coverage.get("markdown_quality_spot_check_required")
+                is not expected_spot_check
+            ):
+                markdown_coverage_failures.append(
+                    "markdown_coverage_summary.markdown_quality_spot_check_required mismatch"
+                )
+        if (
+            int(markdown_coverage.get("llm_extraction_without_quality_pass_count") or 0)
+            > 0
+            and "llm_extraction_without_quality_pass"
+            not in _string_items(markdown_coverage.get("coverage_gate_blockers"))
+        ):
+            markdown_coverage_failures.append(
+                "markdown_coverage_summary.coverage_gate_blockers must include "
+                "llm_extraction_without_quality_pass"
+            )
+    records.append(
+        SchemaValidationRecord(
+            schema_path="schemas/report_intelligence_markdown_coverage_privacy_rules",
+            artifact_path="registry/report_intelligence/markdown_coverage_summary.json",
+            item_count=1 if markdown_coverage else 0,
+            accepted=not markdown_coverage_failures,
+            failures=tuple(markdown_coverage_failures),
         )
     )
 

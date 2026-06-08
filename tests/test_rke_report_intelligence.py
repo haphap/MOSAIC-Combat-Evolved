@@ -1143,7 +1143,10 @@ def test_report_intelligence_blocks_llm_on_low_quality_markdown(tmp_path: Path):
     assert coverage["markdown_quality_review_gap_counts"] == {
         "markdown_disclaimer_only": 1
     }
+    assert coverage["markdown_false_positive_review_queue_count"] == 0
     assert coverage["markdown_false_positive_risk_gap_counts"] == {}
+    assert coverage["markdown_quality_spot_check_required"] is True
+    assert coverage["private_text_included"] is False
 
 
 def test_markdown_coverage_flags_llm_processed_without_quality_pass():
@@ -1174,7 +1177,10 @@ def test_markdown_coverage_flags_llm_processed_without_quality_pass():
     assert summary["markdown_quality_review_gap_counts"] == {
         "markdown_disclaimer_only": 1
     }
+    assert summary["markdown_false_positive_review_queue_count"] == 0
     assert summary["markdown_false_positive_risk_gap_counts"] == {}
+    assert summary["markdown_quality_spot_check_required"] is True
+    assert summary["private_text_included"] is False
     assert "llm_extraction_without_quality_pass" in summary["coverage_gate_blockers"]
     dump = json.dumps(summary, ensure_ascii=False)
     assert "claim_text" not in dump
@@ -1217,9 +1223,12 @@ def test_markdown_coverage_tracks_quality_review_false_positive_risk():
     assert summary["markdown_quality_review_gap_counts"] == {
         "markdown_repeated_line_noise": 1
     }
+    assert summary["markdown_false_positive_review_queue_count"] == 1
     assert summary["markdown_false_positive_risk_gap_counts"] == {
         "markdown_repeated_line_noise": 1
     }
+    assert summary["markdown_quality_spot_check_required"] is True
+    assert summary["private_text_included"] is False
 
 
 def test_report_intelligence_analysis_recipes_pin_required_data():

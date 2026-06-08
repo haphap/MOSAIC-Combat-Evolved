@@ -141,6 +141,7 @@ def test_schema_validation_report_accepts_current_registry():
         "schemas/report_intelligence_forecast_claim.schema.json",
         "schemas/report_intelligence_runtime_guard_rules",
         "schemas/report_intelligence_industry_etf_mapping_contract_rules",
+        "schemas/report_intelligence_markdown_coverage_privacy_rules",
         "schemas/report_intelligence_recipe_paper_trading_contract_rules",
         "schemas/report_intelligence_alpha_decay_monitoring_rules",
         "schemas/report_intelligence_tooling_readiness_rules",
@@ -577,6 +578,29 @@ def test_industry_etf_mapping_contract_rejects_unavailable_mapping_label(
     assert not record.accepted
     assert any("cannot label PIT-unavailable mapping" in item for item in record.failures)
     assert any("pit_availability_status" in item for item in record.failures)
+
+
+def test_markdown_coverage_privacy_rules_reject_public_pdf_url(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    coverage_path = registry / "markdown_coverage_summary.json"
+    coverage = json.loads(coverage_path.read_text(encoding="utf-8"))
+    coverage["pdf_url"] = "https://example.invalid/private-report.pdf"
+    coverage_path.write_text(
+        json.dumps(coverage, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = next(
+        item
+        for item in validate_report_intelligence_semantics(tmp_path)
+        if item.schema_path
+        == "schemas/report_intelligence_markdown_coverage_privacy_rules"
+    )
+
+    assert not record.accepted
+    assert any("pdf_url" in failure for failure in record.failures)
 
 
 def test_recipe_paper_trading_contract_accepts_current_public_artifacts(

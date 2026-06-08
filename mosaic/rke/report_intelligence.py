@@ -4530,6 +4530,7 @@ def build_markdown_coverage_summary(
     llm_extraction_without_quality_pass_count = 0
     retry_queue_count = 0
     quality_review_queue_count = 0
+    false_positive_review_queue_count = 0
     for row in metadata_rows:
         _increment_count(report_type_counts, row.get("report_type"))
         _increment_count(sector_bucket_counts, row.get("sector"))
@@ -4551,6 +4552,7 @@ def build_markdown_coverage_summary(
                 quality_review_queue_count += 1
                 _increment_count(quality_review_gap_counts, gap)
                 if _markdown_gap_false_positive_risk(gap):
+                    false_positive_review_queue_count += 1
                     _increment_count(false_positive_risk_gap_counts, gap)
         else:
             markdown_quality_pass_count += 1
@@ -4583,7 +4585,7 @@ def build_markdown_coverage_summary(
         )
     if llm_extraction_without_quality_pass_count:
         coverage_gate_blockers.append("llm_extraction_without_quality_pass")
-    return {
+    summary = {
         "coverage_id": "RKE-REPORT-MARKDOWN-COVERAGE-SUMMARY",
         "run_id": run_id,
         "selected_report_count": len(metadata_rows),
@@ -4604,9 +4606,13 @@ def build_markdown_coverage_summary(
         "markdown_quality_review_gap_counts": dict(
             sorted(quality_review_gap_counts.items())
         ),
+        "markdown_false_positive_review_queue_count": (
+            false_positive_review_queue_count
+        ),
         "markdown_false_positive_risk_gap_counts": dict(
             sorted(false_positive_risk_gap_counts.items())
         ),
+        "markdown_quality_spot_check_required": quality_review_queue_count > 0,
         "report_type_counts": dict(sorted(report_type_counts.items())),
         "sector_bucket_counts": dict(sorted(sector_bucket_counts.items())),
         "conversion_backend_counts": dict(sorted(conversion_backend_counts.items())),
@@ -4623,6 +4629,8 @@ def build_markdown_coverage_summary(
             "or report prose is allowed"
         ),
     }
+    summary["private_text_included"] = _public_payload_private_text_included(summary)
+    return summary
 
 
 def build_default_industry_etf_proxy_map_rows() -> list[dict[str, Any]]:

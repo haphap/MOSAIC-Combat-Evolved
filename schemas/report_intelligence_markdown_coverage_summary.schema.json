@@ -17,13 +17,16 @@
     "markdown_quality_gap_counts",
     "markdown_quality_review_queue_count",
     "markdown_quality_review_gap_counts",
+    "markdown_false_positive_review_queue_count",
     "markdown_false_positive_risk_gap_counts",
+    "markdown_quality_spot_check_required",
     "report_type_counts",
     "sector_bucket_counts",
     "conversion_backend_counts",
     "retry_queue_count",
     "markdown_quality_review_policy",
-    "private_artifact_redaction_policy"
+    "private_artifact_redaction_policy",
+    "private_text_included"
   ],
   "properties": {
     "coverage_id": {"type": "string", "minLength": 1},
@@ -34,19 +37,58 @@
     "markdown_quality_pass_count": {"type": "integer", "minimum": 0},
     "llm_extraction_processed_count": {"type": "integer", "minimum": 0},
     "llm_extraction_without_quality_pass_count": {"type": "integer", "minimum": 0},
-    "coverage_targets": {"type": "object"},
+    "coverage_targets": {
+      "type": "object",
+      "required": [
+        "selected_report_count_min",
+        "markdown_ready_count_min",
+        "markdown_quality_pass_count_min",
+        "llm_extraction_processed_count_min"
+      ],
+      "properties": {
+        "selected_report_count_min": {"const": 300},
+        "markdown_ready_count_min": {"const": 300},
+        "markdown_quality_pass_count_min": {"const": 300},
+        "llm_extraction_processed_count_min": {"const": 100}
+      },
+      "additionalProperties": {"type": "integer", "minimum": 0}
+    },
     "coverage_gate_status": {"enum": ["passed", "blocked"]},
     "coverage_gate_blockers": {"type": "array", "items": {"type": "string"}},
-    "markdown_quality_gap_counts": {"type": "object"},
+    "markdown_quality_gap_counts": {
+      "type": "object",
+      "additionalProperties": {"type": "integer", "minimum": 0}
+    },
     "markdown_quality_review_queue_count": {"type": "integer", "minimum": 0},
-    "markdown_quality_review_gap_counts": {"type": "object"},
-    "markdown_false_positive_risk_gap_counts": {"type": "object"},
-    "report_type_counts": {"type": "object"},
-    "sector_bucket_counts": {"type": "object"},
-    "conversion_backend_counts": {"type": "object"},
+    "markdown_quality_review_gap_counts": {
+      "type": "object",
+      "additionalProperties": {"type": "integer", "minimum": 0}
+    },
+    "markdown_false_positive_review_queue_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "markdown_false_positive_risk_gap_counts": {
+      "type": "object",
+      "additionalProperties": {"type": "integer", "minimum": 0}
+    },
+    "markdown_quality_spot_check_required": {"type": "boolean"},
+    "report_type_counts": {
+      "type": "object",
+      "additionalProperties": {"type": "integer", "minimum": 0}
+    },
+    "sector_bucket_counts": {
+      "type": "object",
+      "additionalProperties": {"type": "integer", "minimum": 0}
+    },
+    "conversion_backend_counts": {
+      "type": "object",
+      "additionalProperties": {"type": "integer", "minimum": 0}
+    },
     "retry_queue_count": {"type": "integer", "minimum": 0},
     "markdown_quality_review_policy": {"type": "string", "minLength": 1},
-    "private_artifact_redaction_policy": {"type": "string", "minLength": 1}
+    "private_artifact_redaction_policy": {"type": "string", "minLength": 1},
+    "private_text_included": {"type": "boolean", "const": false}
   },
   "additionalProperties": true
 }
