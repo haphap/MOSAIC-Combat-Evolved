@@ -17,6 +17,7 @@ import shlex
 import shutil
 import struct
 import subprocess
+import time
 import urllib.error
 import urllib.request
 from dataclasses import asdict, dataclass
@@ -376,6 +377,9 @@ MARKDOWN_COVERAGE_MIN_MARKDOWN_READY = 300
 MARKDOWN_COVERAGE_MIN_QUALITY_PASS = 300
 MARKDOWN_COVERAGE_MIN_LLM_EXTRACTION_PROCESSED = 100
 MARKDOWN_QUALITY_MIN_BYTES = 80
+MARKDOWN_QUALITY_EMPTY_TABLE_RATIO_MAX = 0.60
+MARKDOWN_QUALITY_REPEATED_LINE_RATIO_MAX = 0.45
+MARKDOWN_QUALITY_REPEATED_LINE_MIN_COUNT = 4
 MARKDOWN_STRUCTURE_MARKERS = (
     "#",
     "##",
@@ -1057,6 +1061,7 @@ def _terminate_process_tree(pid: int) -> None:
 
 def _run_mineru(args: Sequence[str], *, cwd: Path, timeout_seconds: int) -> Mapping[str, Any]:
     command = " ".join(shlex.quote(part) for part in args)
+    started_at = time.monotonic()
     try:
         process = subprocess.Popen(
             list(args),
@@ -1073,6 +1078,7 @@ def _run_mineru(args: Sequence[str], *, cwd: Path, timeout_seconds: int) -> Mapp
             stdout, stderr = process.communicate(timeout=5)
         except subprocess.TimeoutExpired:
             stdout, stderr = "", ""
+        duration_seconds = round(time.monotonic() - started_at, 3)
         return {
             "status": "blocked",
             "blocker": "mineru_timeout",
@@ -1081,9 +1087,11 @@ def _run_mineru(args: Sequence[str], *, cwd: Path, timeout_seconds: int) -> Mapp
             "returncode": process.returncode,
             "stderr_tail": stderr.strip()[-1000:],
             "stdout_tail": stdout.strip()[-1000:],
+            "duration_seconds": duration_seconds,
         }
+    duration_seconds = round(time.monotonic() - started_at, 3)
     if process.returncode == 0:
-        return {"status": "ok"}
+        return {"status": "ok", "duration_seconds": duration_seconds}
     return {
         "status": "blocked",
         "blocker": "mineru_failed",
@@ -1091,6 +1099,7 @@ def _run_mineru(args: Sequence[str], *, cwd: Path, timeout_seconds: int) -> Mapp
         "returncode": process.returncode,
         "stderr_tail": stderr.strip()[-1000:],
         "stdout_tail": stdout.strip()[-1000:],
+        "duration_seconds": duration_seconds,
     }
 
 
@@ -1150,6 +1159,7 @@ def convert_pdf_with_mineru(
         "backend": backend,
         "bytes": markdown_path.stat().st_size,
         "sha256": _file_sha256(markdown_path),
+        "duration_seconds": run_result.get("duration_seconds"),
     }
 
 
@@ -1229,13 +1239,20 @@ def _copy_batch_markdown_result(
             "blocker": "mineru_markdown_not_found",
             "backend": backend,
         }
-        for field in ("command", "returncode", "timed_out", "stderr_tail", "stdout_tail"):
+        for field in (
+            "command",
+            "returncode",
+            "timed_out",
+            "stderr_tail",
+            "stdout_tail",
+            "duration_seconds",
+        ):
             if run_result.get(field) not in (None, ""):
                 result[field] = run_result[field]
         return result
     task.markdown_path.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(produced, task.markdown_path)
-    return {
+    result = {
         "status": "converted",
         "path": str(task.markdown_path),
         "mineru_output_path": str(produced),
@@ -1243,6 +1260,9 @@ def _copy_batch_markdown_result(
         "bytes": task.markdown_path.stat().st_size,
         "sha256": _file_sha256(task.markdown_path),
     }
+    if run_result.get("duration_seconds") not in (None, ""):
+        result["duration_seconds"] = run_result["duration_seconds"]
+    return result
 
 
 def convert_pdfs_with_mineru_batch(
@@ -1508,6 +1528,7 @@ def _metadata_record(
             "blocker": markdown_result.get("blocker") or "",
             "returncode": markdown_result.get("returncode"),
             "timed_out": bool(markdown_result.get("timed_out")),
+            "duration_seconds": markdown_result.get("duration_seconds"),
             "quality_gate_status": markdown_result.get("quality_gate_status") or "",
             "quality_gap": markdown_result.get("quality_gap") or "",
             "stderr_tail": _redact_runtime_text(
@@ -4294,6 +4315,122 @@ def _is_markdown_ready(markdown: Mapping[str, Any]) -> bool:
     }
 
 
+def _markdown_non_empty_lines(text: str) -> list[str]:
+    return [line.strip() for line in text.splitlines() if line.strip()]
+
+
+def _markdown_line_key(line: str) -> str:
+    return re.sub(r"\s+", "", line).strip()
+
+
+def _markdown_has_conversion_instability(markdown: Mapping[str, Any]) -> bool:
+    if bool(markdown.get("conversion_instability")):
+        return True
+    stability_status = str(markdown.get("conversion_stability_status") or "").strip()
+    return stability_status in {"unstable", "inconsistent", "failed"}
+
+
+def _markdown_is_toc_line(line: str) -> bool:
+    stripped = line.strip().strip("#").strip()
+    lowered = stripped.lower()
+    if lowered in {"目录", "目 录", "contents", "table of contents"}:
+        return True
+    if re.search(r"(\.{2,}|…{1,}|-{2,})\s*\d+\s*$", stripped):
+        return True
+    if re.match(
+        r"^(第?[一二三四五六七八九十\d]+[章节\.、\s]).{1,40}\s+\d+\s*$",
+        stripped,
+    ):
+        return True
+    return False
+
+
+def _markdown_is_toc_only(text: str) -> bool:
+    lines = _markdown_non_empty_lines(text)
+    if len(lines) < 3:
+        return False
+    has_toc_heading = any(
+        _markdown_line_key(line).lower()
+        in {"#目录", "##目录", "目录", "目錄", "contents", "tableofcontents"}
+        for line in lines[:5]
+    )
+    if not has_toc_heading:
+        return False
+    toc_line_count = sum(1 for line in lines if _markdown_is_toc_line(line))
+    return toc_line_count / max(len(lines), 1) >= 0.70
+
+
+def _markdown_empty_table_dominant(text: str) -> bool:
+    table_lines = [
+        line.strip()
+        for line in text.splitlines()
+        if line.strip().startswith("|") and line.strip().endswith("|")
+    ]
+    if len(table_lines) < 3:
+        return False
+    empty_or_separator_count = 0
+    for line in table_lines:
+        cells = [cell.strip() for cell in line.strip("|").split("|")]
+        if not cells:
+            continue
+        if all(not cell or re.fullmatch(r"[:\-\s]+", cell) for cell in cells):
+            empty_or_separator_count += 1
+    return (
+        empty_or_separator_count / max(len(table_lines), 1)
+        > MARKDOWN_QUALITY_EMPTY_TABLE_RATIO_MAX
+    )
+
+
+def _markdown_image_only(text: str) -> bool:
+    lines = _markdown_non_empty_lines(text)
+    if not lines:
+        return False
+    image_line_count = sum(
+        1
+        for line in lines
+        if re.search(
+            (
+                r"!\[[^\]]*\]\([^)]+\)|<img\b|\[图片\]|图片未识别|"
+                r"image\s+not\s+recognized"
+            ),
+            line,
+            re.I,
+        )
+    )
+    if image_line_count == 0:
+        return False
+    without_images = re.sub(
+        r"!\[[^\]]*\]\([^)]+\)|<img[^>]*>|\[图片\]|图片未识别",
+        "",
+        text,
+        flags=re.I,
+    )
+    prose = re.sub(r"[\W_]+", "", without_images, flags=re.UNICODE)
+    return (
+        image_line_count / max(len(lines), 1) >= 0.50
+        and len(prose) < MARKDOWN_QUALITY_MIN_BYTES
+    )
+
+
+def _markdown_repeated_line_noise(text: str) -> bool:
+    keys: list[str] = []
+    for line in _markdown_non_empty_lines(text):
+        key = _markdown_line_key(line)
+        if len(key) >= 4:
+            keys.append(key)
+    if len(keys) < 8:
+        return False
+    counts: dict[str, int] = {}
+    for key in keys:
+        counts[key] = counts.get(key, 0) + 1
+    max_count = max(counts.values(), default=0)
+    repeated_count = sum(count for count in counts.values() if count > 1)
+    return (
+        max_count >= MARKDOWN_QUALITY_REPEATED_LINE_MIN_COUNT
+        and repeated_count / max(len(keys), 1) > MARKDOWN_QUALITY_REPEATED_LINE_RATIO_MAX
+    )
+
+
 def _markdown_quality_gap(markdown: Mapping[str, Any], text: str | None = None) -> str:
     stored_gap = str(markdown.get("quality_gap") or "").strip()
     if stored_gap:
@@ -4307,6 +4444,8 @@ def _markdown_quality_gap(markdown: Mapping[str, Any], text: str | None = None) 
         return "markdown_empty"
     if bool(markdown.get("timed_out")):
         return "markdown_timed_out"
+    if _markdown_has_conversion_instability(markdown):
+        return "markdown_conversion_instability"
     if text is not None:
         normalized = re.sub(r"\s+", "", text)
         if not normalized:
@@ -4321,6 +4460,14 @@ def _markdown_quality_gap(markdown: Mapping[str, Any], text: str | None = None) 
         )
         if "免责声明" in normalized and len(disclaimer_stripped) < MARKDOWN_QUALITY_MIN_BYTES:
             return "markdown_disclaimer_only"
+        if _markdown_is_toc_only(text):
+            return "markdown_toc_only"
+        if _markdown_empty_table_dominant(text):
+            return "markdown_empty_table_dominant"
+        if _markdown_image_only(text):
+            return "markdown_image_only"
+        if _markdown_repeated_line_noise(text):
+            return "markdown_repeated_line_noise"
         if not any(marker in text for marker in MARKDOWN_STRUCTURE_MARKERS):
             return "markdown_structure_signal_missing"
     if byte_count < MARKDOWN_QUALITY_MIN_BYTES:
@@ -14642,6 +14789,7 @@ def run_report_intelligence_refresh(
                 "markdown_blocker": markdown_result.get("blocker") or "",
                 "markdown_returncode": markdown_result.get("returncode"),
                 "markdown_timed_out": bool(markdown_result.get("timed_out")),
+                "markdown_duration_seconds": markdown_result.get("duration_seconds"),
                 "markdown_quality_gate_status": markdown_result.get(
                     "quality_gate_status"
                 )

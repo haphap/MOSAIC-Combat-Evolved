@@ -35,6 +35,7 @@ from mosaic.rke.report_intelligence import (
     convert_pdfs_with_mineru_batch,
     run_report_intelligence_refresh,
     run_report_intelligence_derived_refresh,
+    _markdown_quality_gap,
 )
 
 
@@ -1004,6 +1005,82 @@ def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
     assert source_id not in candidate_dump
 
 
+@pytest.mark.parametrize(
+    ("markdown_text", "expected_gap"),
+    [
+        (
+            "\n".join(
+                [
+                    "# 目录",
+                    "宏观概览 ................ 1",
+                    "行业观点 ................ 2",
+                    "公司研究 ................ 3",
+                    "投资建议 ................ 4",
+                    "风险提示 ................ 5",
+                ]
+            ),
+            "markdown_toc_only",
+        ),
+        (
+            "\n".join(
+                [
+                    "# 行业报告",
+                    "| 指标 | 数值 | 备注 |",
+                    "| --- | --- | --- |",
+                    "|  |  |  |",
+                    "|  |  |  |",
+                    "|  |  |  |",
+                    "|  |  |  |",
+                ]
+            ),
+            "markdown_empty_table_dominant",
+        ),
+        (
+            "\n".join(
+                [
+                    "# 公司报告",
+                    "![page-1](page-1.png)",
+                    "![page-2](page-2.png)",
+                    "图片未识别",
+                ]
+            ),
+            "markdown_image_only",
+        ),
+        (
+            "\n".join(
+                ["证券研究报告"] * 8
+                + ["# 行业观点", "投资建议需要结合更多正文验证。"]
+            ),
+            "markdown_repeated_line_noise",
+        ),
+    ],
+)
+def test_markdown_quality_gate_flags_p9_quality_gaps(
+    markdown_text: str,
+    expected_gap: str,
+):
+    markdown = {
+        "status": "converted",
+        "bytes": len(markdown_text.encode("utf-8")),
+        "backend": "hybrid-auto-engine",
+    }
+
+    assert _markdown_quality_gap(markdown, markdown_text) == expected_gap
+
+
+def test_markdown_quality_gate_flags_conversion_instability():
+    markdown = {
+        "status": "converted",
+        "bytes": 200,
+        "backend": "hybrid-auto-engine",
+        "conversion_instability": True,
+    }
+
+    assert _markdown_quality_gap(markdown, "# 行业报告\n投资建议和正文结构存在。") == (
+        "markdown_conversion_instability"
+    )
+
+
 def test_report_intelligence_blocks_llm_on_low_quality_markdown(tmp_path: Path):
     source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
 
@@ -1022,6 +1099,7 @@ def test_report_intelligence_blocks_llm_on_low_quality_markdown(tmp_path: Path):
             "path": str(markdown),
             "bytes": markdown.stat().st_size,
             "sha256": _sha(markdown),
+            "duration_seconds": 1.25,
         }
 
     def llm_should_not_run(*args, **kwargs):
@@ -1043,11 +1121,13 @@ def test_report_intelligence_blocks_llm_on_low_quality_markdown(tmp_path: Path):
     markdown = metadata[0]["markdown"]
     assert markdown["quality_gate_status"] == "blocked"
     assert markdown["quality_gap"] == "markdown_disclaimer_only"
+    assert markdown["duration_seconds"] == 1.25
     assert metadata[0]["extraction"]["llm_status"] == "blocked"
 
     status = _read_jsonl(tmp_path / "registry/report_intelligence/processing_status.jsonl")
     assert status[0]["markdown_quality_gate_status"] == "blocked"
     assert status[0]["markdown_quality_gap"] == "markdown_disclaimer_only"
+    assert status[0]["markdown_duration_seconds"] == 1.25
 
     coverage = json.loads(
         (
@@ -5218,5 +5298,7 @@ def test_mineru_batch_conversion_uses_directory_input(tmp_path: Path):
     assert results["SRC-A"]["status"] == "converted"
     assert results["SRC-B"]["status"] == "converted"
     assert results["SRC-A"]["backend"] == "vlm-auto-engine"
+    assert results["SRC-A"]["duration_seconds"] >= 0
+    assert results["SRC-B"]["duration_seconds"] >= 0
     assert (tmp_path / "mineru_batch" / "input-002").exists()
     assert (tmp_path / "markdown" / "SRC-A.md").read_text(encoding="utf-8").startswith("# SRC-A")
