@@ -44,6 +44,14 @@
       120
     ]
   },
+  "industry_proxy_label_ready_count": 5,
+  "industry_proxy_label_ready_forecast_claim_ids": [
+    "FC-ff7da2af7911f07d",
+    "FC-f71d7fdce37427f1",
+    "FC-97a05ba07bbf8e40",
+    "FC-31829036250ae5b0",
+    "FC-699df73c9a9c1384"
+  ],
   "mapping_gap_counts": {
     "benchmark": 10,
     "horizon": 12
@@ -58,9 +66,10 @@
     "improve extractor prompt to bind ts_code/title entities into target when source text supports it",
     "route unmapped claims through manual gold-set review instead of fabricating labels",
     "evaluate industry research with ETF proxy windows when sector mapping and PIT data are available",
+    "evaluate stock research with qlib cn_data windows when ts_code mapping and PIT data are available",
     "run PIT outcome labeler only after ready_for_outcome_labeling_count is positive"
   ],
-  "policy": "outcome labels are generated only for source-grounded testable forecasts with target, benchmark, direction, horizon, and PIT data; industry ETF proxy labels may additionally evaluate sector-direction claims on fixed PIT windows without promoting them to production use",
+  "policy": "outcome labels are generated only for source-grounded testable forecasts with target, benchmark, direction, horizon, and PIT data; industry ETF and stock price proxy labels may additionally evaluate governed target-direction claims on fixed PIT windows without promoting them to production use",
   "proxy_label_only_ready_count": 5,
   "proxy_label_only_ready_forecast_claim_ids": [
     "FC-ff7da2af7911f07d",
@@ -95,6 +104,44 @@
     "FC-31829036250ae5b0",
     "FC-699df73c9a9c1384"
   ],
+  "stock_price_proxy_readiness": {
+    "benchmark_family": "CSI300_ETF_PROXY",
+    "benchmark_source": "cn_etf",
+    "benchmark_symbol": "SH510300",
+    "cost_model_id": "single_stock_round_trip_20bps_v1",
+    "data_gap_counts": {},
+    "eligible_claim_count": 0,
+    "eligible_forecast_claim_ids": [],
+    "entry_lag_trading_days": 1,
+    "labelable_forecast_claim_count": 0,
+    "labelable_forecast_claim_ids": [],
+    "labelable_window_count": 0,
+    "latest_calendar_date": "2026-06-03",
+    "llm_outcome_labeling_allowed": false,
+    "outcome_label_source": "pit_stock_price_window",
+    "pending_future_window_count": 0,
+    "pit_realism_policy": {
+      "benchmark_alignment": "date_key_cross_qlib_dir",
+      "company_name_fuzzy_mapping_enabled": false,
+      "entry_limit_locked_blocks_label": true,
+      "entry_suspension_blocks_label": true,
+      "exit_missing_or_delisted_blocks_label": true,
+      "survivorship_basis": "qlib cn_data price windows observe entry and exit prices, but the local universe may exclude delisted stocks; stock proxy labels remain shadow-only until a delisted-inclusive universe audit passes",
+      "survivorship_status": "survivorship_unverified",
+      "survivorship_unverified": true
+    },
+    "policy": "stock claims can be evaluated with qlib cn_data adjusted close returns on T+1 fixed PIT windows; LLM output extracts target and direction but cannot assign outcome labels",
+    "qlib_benchmark_dir_configured": "~/.qlib/qlib_data/cn_etf",
+    "qlib_stock_dir_configured": "~/.qlib/qlib_data/cn_data",
+    "windows_days": [
+      5,
+      20,
+      60,
+      120
+    ]
+  },
+  "stock_proxy_label_ready_count": 0,
+  "stock_proxy_label_ready_forecast_claim_ids": [],
   "test_status_counts": {
     "not_ready_insufficient_mapping": 12
   },

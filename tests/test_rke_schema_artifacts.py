@@ -219,6 +219,30 @@ def test_analysis_recipe_required_data_requires_metric_prefix(tmp_path: Path):
     assert any("required_data[0]" in failure for failure in record.failures)
 
 
+def test_outcome_labeling_readiness_requires_proxy_channel_fields(tmp_path: Path):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    readiness_path = registry / "outcome_labeling_readiness.json"
+    readiness = json.loads(readiness_path.read_text(encoding="utf-8"))
+    readiness.pop("stock_proxy_label_ready_count")
+    readiness_path.write_text(
+        json.dumps(readiness, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = validate_json_schema_artifact(
+        root=tmp_path,
+        schema_path="schemas/report_intelligence_outcome_labeling_readiness.schema.json",
+        artifact_path="registry/report_intelligence/outcome_labeling_readiness.json",
+        artifact_kind="json",
+    )
+
+    assert not record.accepted
+    assert any(
+        "stock_proxy_label_ready_count: required" in failure
+        for failure in record.failures
+    )
+
+
 def _proxy_outcome_contract_record(tmp_path: Path):
     records = validate_report_intelligence_semantics(tmp_path)
     return next(
@@ -638,13 +662,31 @@ def test_report_intelligence_tooling_readiness_requires_reviewable_proposals(
                 "ready_for_outcome_labeling_count": 0,
                 "standard_blocked_count": 0,
                 "proxy_label_ready_count": 0,
+                "industry_proxy_label_ready_count": 0,
+                "stock_proxy_label_ready_count": 0,
                 "proxy_label_only_ready_count": 0,
                 "blocked_count": 0,
+                "test_status_counts": {},
+                "mapping_gap_counts": {},
+                "unlabelable_mapping_gap_counts": {},
                 "ready_forecast_claim_ids": [],
                 "standard_blocked_forecast_claim_ids": [],
                 "proxy_label_ready_forecast_claim_ids": [],
+                "industry_proxy_label_ready_forecast_claim_ids": [],
+                "stock_proxy_label_ready_forecast_claim_ids": [],
                 "proxy_label_only_ready_forecast_claim_ids": [],
                 "blocked_forecast_claim_ids": [],
+                "blocked_reason": "",
+                "minimum_required_mapping": [
+                    "target",
+                    "benchmark",
+                    "direction",
+                    "horizon",
+                ],
+                "policy": "test readiness fixture",
+                "industry_etf_proxy_readiness": {},
+                "stock_price_proxy_readiness": {},
+                "next_actions": [],
             },
             sort_keys=True,
         )
