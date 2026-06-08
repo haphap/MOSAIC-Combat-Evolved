@@ -788,6 +788,39 @@ def _nearly_equal(left: float, right: float, *, tolerance: float = 1e-6) -> bool
     return abs(left - right) <= tolerance
 
 
+def _float_or_none(value: Any) -> float | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _string_items(value: Any) -> list[str]:
+    if not isinstance(value, Sequence) or isinstance(value, str):
+        return []
+    return [str(item).strip() for item in value if str(item).strip()]
+
+
+def _count_mapping(
+    value: Any,
+    *,
+    row_label: str,
+    failures: list[str],
+) -> dict[str, int]:
+    if not isinstance(value, Mapping):
+        failures.append(f"{row_label}: expected object")
+        return {}
+    counts: dict[str, int] = {}
+    for key, raw_count in value.items():
+        try:
+            counts[str(key)] = int(raw_count)
+        except (TypeError, ValueError):
+            failures.append(f"{row_label}.{key}: expected integer count")
+    return counts
+
+
 def _validate_proxy_outcome_label_contract(row: Mapping[str, Any], row_label: str) -> list[str]:
     label_type = str(row.get("label_type") or "")
     if label_type not in {"stock_price_proxy", "industry_etf_proxy"}:
@@ -939,6 +972,252 @@ def _validate_proxy_outcome_label_contract(row: Mapping[str, Any], row_label: st
             if mapping_version < 1:
                 failures.append(f"{row_label}.mapping_version: must be >= 1")
     return failures
+
+
+def _validate_recipe_paper_trading_contract(
+    root_path: Path,
+) -> tuple[int, list[str]]:
+    run_rows, run_failures = _load_mapping_jsonl(
+        root_path,
+        "registry/report_intelligence/recipe_paper_trading_runs.jsonl",
+    )
+    confidence_rows, confidence_failures = _load_mapping_jsonl(
+        root_path,
+        "registry/report_intelligence/confidence_impact_observations.jsonl",
+    )
+    summary, summary_failures = _read_mapping_json(
+        root_path / "registry/report_intelligence/recipe_paper_trading_summary.json",
+        "registry/report_intelligence/recipe_paper_trading_summary.json",
+    )
+    failures = [*run_failures, *confidence_failures, *summary_failures]
+    item_count = len(run_rows) + len(confidence_rows) + (1 if summary else 0)
+
+    runs_by_recipe_id: dict[str, Mapping[str, Any]] = {}
+    passed_recipe_ids: list[str] = []
+    blocked_recipe_ids: list[str] = []
+    status_counts: dict[str, int] = {}
+    blocker_counts: dict[str, int] = {}
+    disagreement_count = 0
+    cost_adjusted_values: list[float] = []
+
+    for index, row in enumerate(run_rows, 1):
+        row_label = f"recipe_paper_trading_runs row {index}"
+        recipe_id = str(row.get("analysis_recipe_id") or "").strip()
+        if not recipe_id:
+            failures.append(f"{row_label}.analysis_recipe_id: required")
+        elif recipe_id in runs_by_recipe_id:
+            failures.append(f"{row_label}.analysis_recipe_id: duplicate {recipe_id}")
+        else:
+            runs_by_recipe_id[recipe_id] = row
+
+        status = str(row.get("paper_trading_status") or "")
+        validation_status = str(row.get("validation_status") or "")
+        if status not in {"passed", "blocked"}:
+            failures.append(
+                f"{row_label}.paper_trading_status: must be passed or blocked"
+            )
+        else:
+            status_counts[status] = status_counts.get(status, 0) + 1
+            if recipe_id:
+                if status == "passed":
+                    passed_recipe_ids.append(recipe_id)
+                else:
+                    blocked_recipe_ids.append(recipe_id)
+        if validation_status != status:
+            failures.append(
+                f"{row_label}.validation_status: must match paper_trading_status"
+            )
+        if row.get("production_decision_impact_allowed") is not False:
+            failures.append(
+                f"{row_label}.production_decision_impact_allowed: must be false"
+            )
+        preregistration_hash = str(row.get("pre_registration_hash") or "")
+        if not re.fullmatch(r"sha256:[0-9a-f]{64}", preregistration_hash):
+            failures.append(
+                f"{row_label}.pre_registration_hash: expected sha256 digest"
+            )
+
+        protocol = row.get("pre_registered_protocol")
+        if not isinstance(protocol, Mapping):
+            failures.append(f"{row_label}.pre_registered_protocol: expected object")
+            protocol = {}
+        for protocol_field in (
+            "profile_weight_is_sufficient",
+            "parameter_tuning_after_results_allowed",
+            "production_decision_impact_allowed",
+        ):
+            if protocol.get(protocol_field) is not False:
+                failures.append(
+                    f"{row_label}.pre_registered_protocol.{protocol_field}: must be false"
+                )
+
+        metrics = row.get("metrics")
+        if not isinstance(metrics, Mapping):
+            failures.append(f"{row_label}.metrics: expected object")
+            metrics = {}
+        effective_n = _float_or_none(metrics.get("effective_n"))
+        minimum_effective_n = _float_or_none(protocol.get("minimum_effective_n"))
+        cost_adjusted_alpha = _float_or_none(metrics.get("cost_adjusted_alpha"))
+        if cost_adjusted_alpha is not None:
+            cost_adjusted_values.append(cost_adjusted_alpha)
+        blocked_reasons = _string_items(row.get("blocked_reasons"))
+        for reason in blocked_reasons:
+            blocker_counts[reason] = blocker_counts.get(reason, 0) + 1
+
+        if status == "passed":
+            if blocked_reasons:
+                failures.append(
+                    f"{row_label}.blocked_reasons: passed run must have no blockers"
+                )
+            if cost_adjusted_alpha is None or cost_adjusted_alpha <= 0:
+                failures.append(
+                    f"{row_label}.metrics.cost_adjusted_alpha: passed run requires positive after-cost alpha"
+                )
+            if (
+                minimum_effective_n is not None
+                and (effective_n is None or effective_n < minimum_effective_n)
+            ):
+                failures.append(
+                    f"{row_label}.metrics.effective_n: passed run must meet pre-registered minimum"
+                )
+        elif status == "blocked" and not blocked_reasons:
+            failures.append(
+                f"{row_label}.blocked_reasons: blocked run requires at least one blocker"
+            )
+
+        profile_support = row.get("profile_weight_support")
+        if isinstance(profile_support, Mapping):
+            if profile_support.get("profile_only_validation_allowed") is not False:
+                failures.append(
+                    f"{row_label}.profile_weight_support.profile_only_validation_allowed: must be false"
+                )
+            if profile_support.get("profile_paper_trade_disagreement") is True:
+                disagreement_count += 1
+
+    if summary:
+        expected_count_fields = {
+            "recipe_count": len(run_rows),
+            "paper_trading_run_count": len(run_rows),
+            "validation_pass_count": len(passed_recipe_ids),
+            "blocked_count": len(blocked_recipe_ids),
+            "profile_paper_trade_disagreement_count": disagreement_count,
+        }
+        for field, expected in expected_count_fields.items():
+            if summary.get(field) != expected:
+                failures.append(
+                    f"recipe_paper_trading_summary.{field}: expected {expected}"
+                )
+        expected_status_counts = dict(sorted(status_counts.items()))
+        observed_status_counts = _count_mapping(
+            summary.get("status_counts"),
+            row_label="recipe_paper_trading_summary.status_counts",
+            failures=failures,
+        )
+        if observed_status_counts != expected_status_counts:
+            failures.append("recipe_paper_trading_summary.status_counts mismatch")
+        expected_blocker_counts = dict(sorted(blocker_counts.items()))
+        observed_blocker_counts = _count_mapping(
+            summary.get("blocker_counts"),
+            row_label="recipe_paper_trading_summary.blocker_counts",
+            failures=failures,
+        )
+        if observed_blocker_counts != expected_blocker_counts:
+            failures.append("recipe_paper_trading_summary.blocker_counts mismatch")
+        if _string_items(summary.get("passed_recipe_ids")) != sorted(
+            passed_recipe_ids
+        ):
+            failures.append("recipe_paper_trading_summary.passed_recipe_ids mismatch")
+        if _string_items(summary.get("blocked_recipe_ids")) != sorted(
+            blocked_recipe_ids
+        ):
+            failures.append("recipe_paper_trading_summary.blocked_recipe_ids mismatch")
+        expected_mean = (
+            round(sum(cost_adjusted_values) / len(cost_adjusted_values), 8)
+            if cost_adjusted_values
+            else None
+        )
+        observed_mean = _float_or_none(summary.get("mean_cost_adjusted_alpha"))
+        if expected_mean is None:
+            if summary.get("mean_cost_adjusted_alpha") is not None:
+                failures.append(
+                    "recipe_paper_trading_summary.mean_cost_adjusted_alpha: expected null"
+                )
+        elif observed_mean is None or not _nearly_equal(
+            observed_mean,
+            expected_mean,
+            tolerance=1e-8,
+        ):
+            failures.append(
+                "recipe_paper_trading_summary.mean_cost_adjusted_alpha mismatch"
+            )
+        validation_protocol = summary.get("validation_protocol")
+        if not isinstance(validation_protocol, Mapping):
+            failures.append(
+                "recipe_paper_trading_summary.validation_protocol: expected object"
+            )
+            validation_protocol = {}
+        for field in ("profile_weight_is_sufficient", "production_decision_impact_allowed"):
+            if validation_protocol.get(field) is not False:
+                failures.append(
+                    f"recipe_paper_trading_summary.validation_protocol.{field}: must be false"
+                )
+
+    confidence_by_recipe_id: dict[str, Mapping[str, Any]] = {}
+    for index, row in enumerate(confidence_rows, 1):
+        row_label = f"confidence_impact_observations row {index}"
+        recipe_id = str(row.get("recipe_id") or "").strip()
+        if not recipe_id:
+            failures.append(f"{row_label}.recipe_id: required")
+            continue
+        if recipe_id in confidence_by_recipe_id:
+            failures.append(f"{row_label}.recipe_id: duplicate {recipe_id}")
+        else:
+            confidence_by_recipe_id[recipe_id] = row
+        run = runs_by_recipe_id.get(recipe_id)
+        if run is None:
+            failures.append(f"{row_label}.recipe_id: no matching paper-trading run")
+            continue
+        run_status = str(run.get("paper_trading_status") or "")
+        observation_status = str(row.get("paper_trading_status") or "")
+        if observation_status != run_status:
+            failures.append(
+                f"{row_label}.paper_trading_status: mismatch with paper-trading run"
+            )
+        if row.get("confidence_delta_source") != "recipe_paper_trading_validation":
+            failures.append(
+                f"{row_label}.confidence_delta_source: must be recipe_paper_trading_validation"
+            )
+        if row.get("production_decision_impact_allowed") is not False:
+            failures.append(
+                f"{row_label}.production_decision_impact_allowed: must be false"
+            )
+        confidence_delta = _float_or_none(row.get("confidence_delta"))
+        if confidence_delta is None:
+            failures.append(f"{row_label}.confidence_delta: expected number")
+        elif run_status != "passed" and not _nearly_equal(confidence_delta, 0.0):
+            failures.append(
+                f"{row_label}.confidence_delta: blocked or unvalidated recipe must stay zero"
+            )
+        if run_status != "passed" and row.get("drift_status") == "stable_shadow":
+            failures.append(
+                f"{row_label}.drift_status: blocked recipe cannot be stable_shadow"
+            )
+        if sorted(_string_items(row.get("blocker_reasons"))) != sorted(
+            _string_items(run.get("blocked_reasons"))
+        ):
+            failures.append(
+                f"{row_label}.blocker_reasons: mismatch with paper-trading run"
+            )
+
+    missing_confidence_ids = sorted(
+        set(runs_by_recipe_id) - set(confidence_by_recipe_id)
+    )
+    if missing_confidence_ids:
+        failures.append(
+            "confidence_impact_observations missing recipe_ids: "
+            + ", ".join(missing_confidence_ids[:20])
+        )
+    return item_count, failures
 
 
 def validate_report_intelligence_semantics(
@@ -1285,6 +1564,20 @@ def validate_report_intelligence_semantics(
             item_count=len(recipe_validation_checks),
             accepted=not recipe_validation_audit_failures,
             failures=tuple(recipe_validation_audit_failures),
+        )
+    )
+
+    (
+        recipe_paper_trading_contract_item_count,
+        recipe_paper_trading_contract_failures,
+    ) = _validate_recipe_paper_trading_contract(root_path)
+    records.append(
+        SchemaValidationRecord(
+            schema_path="schemas/report_intelligence_recipe_paper_trading_contract_rules",
+            artifact_path="registry/report_intelligence",
+            item_count=recipe_paper_trading_contract_item_count,
+            accepted=not recipe_paper_trading_contract_failures,
+            failures=tuple(recipe_paper_trading_contract_failures),
         )
     )
 

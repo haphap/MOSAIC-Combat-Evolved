@@ -140,6 +140,7 @@ def test_schema_validation_report_accepts_current_registry():
         "schemas/confidence_policy.schema.yaml",
         "schemas/report_intelligence_forecast_claim.schema.json",
         "schemas/report_intelligence_runtime_guard_rules",
+        "schemas/report_intelligence_recipe_paper_trading_contract_rules",
         "schemas/report_intelligence_alpha_decay_monitoring_rules",
         "schemas/report_intelligence_tooling_readiness_rules",
         "schemas/report_intelligence_patch_v1_5_coverage_rules",
@@ -176,6 +177,16 @@ def _proxy_outcome_contract_record(tmp_path: Path):
         for record in records
         if record.schema_path
         == "schemas/report_intelligence_proxy_outcome_label_contract_rules"
+    )
+
+
+def _recipe_paper_trading_contract_record(tmp_path: Path):
+    records = validate_report_intelligence_semantics(tmp_path)
+    return next(
+        record
+        for record in records
+        if record.schema_path
+        == "schemas/report_intelligence_recipe_paper_trading_contract_rules"
     )
 
 
@@ -311,6 +322,76 @@ def test_report_outcome_label_semantics_reject_proxy_math_mismatch(
     assert any(
         "directional_after_cost_return" in failure for failure in record.failures
     )
+
+
+def test_recipe_paper_trading_contract_accepts_current_public_artifacts(
+    tmp_path: Path,
+):
+    _copy_report_intelligence_registry(tmp_path)
+
+    record = _recipe_paper_trading_contract_record(tmp_path)
+
+    assert record.accepted
+    assert record.item_count == 11
+    assert record.failures == ()
+
+
+def test_recipe_paper_trading_contract_rejects_confidence_bypass(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    observations_path = registry / "confidence_impact_observations.jsonl"
+    observations = [
+        json.loads(line)
+        for line in observations_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    observations[0]["paper_trading_status"] = "passed"
+    observations[0]["confidence_delta"] = 0.02
+    observations[0]["production_decision_impact_allowed"] = True
+    observations_path.write_text(
+        "\n".join(
+            json.dumps(row, ensure_ascii=False, sort_keys=True)
+            for row in observations
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    record = _recipe_paper_trading_contract_record(tmp_path)
+
+    assert not record.accepted
+    assert any("paper_trading_status: mismatch" in item for item in record.failures)
+    assert any("confidence_delta" in item for item in record.failures)
+    assert any(
+        "production_decision_impact_allowed" in item for item in record.failures
+    )
+
+
+def test_recipe_paper_trading_contract_rejects_run_summary_mismatch(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    runs_path = registry / "recipe_paper_trading_runs.jsonl"
+    runs = [
+        json.loads(line)
+        for line in runs_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    runs[0]["paper_trading_status"] = "passed"
+    runs[0]["validation_status"] = "blocked"
+    runs_path.write_text(
+        "\n".join(json.dumps(row, ensure_ascii=False, sort_keys=True) for row in runs)
+        + "\n",
+        encoding="utf-8",
+    )
+
+    record = _recipe_paper_trading_contract_record(tmp_path)
+
+    assert not record.accepted
+    assert any("validation_status" in item for item in record.failures)
+    assert any("passed run must have no blockers" in item for item in record.failures)
+    assert any("validation_pass_count" in item for item in record.failures)
 
 
 def test_schema_validation_accepts_public_registry_without_private_report_inputs(
