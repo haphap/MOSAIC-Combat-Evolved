@@ -169,6 +169,121 @@ def test_schema_validation_allows_missing_optional_private_jsonl(tmp_path: Path)
     assert record.failures == ()
 
 
+def _proxy_outcome_contract_record(tmp_path: Path):
+    records = validate_report_intelligence_semantics(tmp_path)
+    return next(
+        record
+        for record in records
+        if record.schema_path
+        == "schemas/report_intelligence_proxy_outcome_label_contract_rules"
+    )
+
+
+def _write_proxy_outcome_labels(tmp_path: Path, rows: list[dict[str, object]]) -> None:
+    registry = tmp_path / "registry/report_intelligence"
+    registry.mkdir(parents=True)
+    (registry / "report_outcome_labels.jsonl").write_text(
+        "\n".join(json.dumps(row, sort_keys=True) for row in rows) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _base_outcome_label(label_type: str) -> dict[str, object]:
+    row: dict[str, object] = {
+        "outcome_id": f"OUT-{label_type}",
+        "forecast_claim_id": "FC-PROXY-CONTRACT",
+        "forecast_family_id": "FF-PROXY-CONTRACT",
+        "entry_datetime": "2026-01-03T00:00:00+08:00",
+        "exit_datetime": "2026-01-08T00:00:00+08:00",
+        "horizon_days": 5,
+        "relative_alpha": 0.01,
+        "directional_hit": True,
+        "after_cost_alpha": 0.008,
+        "overlap_group_id": f"OVL-{label_type}",
+        "effective_n_weight": 0.2,
+        "pit_valid": True,
+        "survivorship_safe": label_type != "stock_price_proxy",
+        "label_type": label_type,
+        "proxy_symbol": "000001.SZ"
+        if label_type == "stock_price_proxy"
+        else "SH512400",
+        "benchmark_symbol": "SH510300",
+        "benchmark_source": "cn_etf",
+        "benchmark_family": "csi300_etf_proxy",
+        "benchmark_return": 0.01,
+        "cost_model_id": "single_stock_round_trip_20bps_v1"
+        if label_type == "stock_price_proxy"
+        else "industry_etf_round_trip_10bps_v1",
+        "entry_lag_trading_days": 1,
+        "round_trip_cost": 0.002 if label_type == "stock_price_proxy" else 0.001,
+        "directional_after_cost_return": 0.018,
+        "relative_directional_hit": True,
+        "outcome_label_source": "pit_stock_price_window"
+        if label_type == "stock_price_proxy"
+        else "pit_industry_etf_price_window",
+        "llm_outcome_labeling_allowed": False,
+        "decision_basis": "market_price_proxy",
+        "source_horizon_bucket": "short",
+        "claim_window_alignment": "within_source_horizon",
+        "evaluation_policy": "stock_t_plus_1_multi_window_proxy_retains_long_horizon_evidence"
+        if label_type == "stock_price_proxy"
+        else "industry_etf_t_plus_1_multi_window_proxy_retains_long_horizon_evidence",
+    }
+    if label_type == "stock_price_proxy":
+        row.update(
+            {
+                "benchmark_alignment": "date_key_cross_qlib_dir",
+                "stock_return": 0.02,
+                "target_resolution_source": "metadata_ts_code",
+                "survivorship_check": "survivorship_unverified_qlib_cn_data",
+            }
+        )
+    else:
+        row.update(
+            {
+                "proxy_sector": "有色金属",
+                "mapping_id": "IETF-PROXY-TEST",
+                "mapping_version": 1,
+                "mapping_confidence": "operator_seeded_exact_sector",
+                "pit_availability_status": "available",
+                "proxy_return": 0.02,
+            }
+        )
+    return row
+
+
+def test_report_outcome_label_semantics_require_proxy_contract_fields(
+    tmp_path: Path,
+):
+    stock_label = _base_outcome_label("stock_price_proxy")
+    stock_label.pop("target_resolution_source")
+    _write_proxy_outcome_labels(tmp_path, [stock_label])
+
+    record = _proxy_outcome_contract_record(tmp_path)
+
+    assert record.accepted is False
+    assert record.item_count == 1
+    assert any("target_resolution_source" in failure for failure in record.failures)
+
+
+def test_report_outcome_label_semantics_accept_complete_proxy_contracts(
+    tmp_path: Path,
+):
+    _write_proxy_outcome_labels(
+        tmp_path,
+        [
+            _base_outcome_label("stock_price_proxy"),
+            _base_outcome_label("industry_etf_proxy"),
+        ],
+    )
+
+    record = _proxy_outcome_contract_record(tmp_path)
+
+    assert record.accepted
+    assert record.item_count == 2
+    assert record.failures == ()
+
+
 def test_schema_validation_accepts_public_registry_without_private_report_inputs(
     tmp_path: Path,
 ):

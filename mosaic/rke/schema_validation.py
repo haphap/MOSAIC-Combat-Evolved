@@ -699,6 +699,137 @@ def _has_mapping_gap(row: Mapping[str, Any]) -> bool:
     return target_missing or benchmark_missing or horizon_missing or direction_missing
 
 
+STOCK_PROXY_REQUIRED_LABEL_FIELDS = (
+    "proxy_symbol",
+    "benchmark_symbol",
+    "benchmark_source",
+    "benchmark_family",
+    "benchmark_alignment",
+    "cost_model_id",
+    "entry_lag_trading_days",
+    "round_trip_cost",
+    "stock_return",
+    "benchmark_return",
+    "relative_alpha",
+    "after_cost_alpha",
+    "directional_after_cost_return",
+    "directional_hit",
+    "relative_directional_hit",
+    "outcome_label_source",
+    "llm_outcome_labeling_allowed",
+    "decision_basis",
+    "source_horizon_bucket",
+    "claim_window_alignment",
+    "evaluation_policy",
+    "target_resolution_source",
+    "survivorship_check",
+)
+
+INDUSTRY_PROXY_REQUIRED_LABEL_FIELDS = (
+    "proxy_symbol",
+    "proxy_sector",
+    "mapping_id",
+    "mapping_version",
+    "mapping_confidence",
+    "pit_availability_status",
+    "benchmark_symbol",
+    "benchmark_source",
+    "benchmark_family",
+    "cost_model_id",
+    "entry_lag_trading_days",
+    "round_trip_cost",
+    "proxy_return",
+    "benchmark_return",
+    "relative_alpha",
+    "after_cost_alpha",
+    "directional_after_cost_return",
+    "directional_hit",
+    "relative_directional_hit",
+    "outcome_label_source",
+    "llm_outcome_labeling_allowed",
+    "decision_basis",
+    "source_horizon_bucket",
+    "claim_window_alignment",
+    "evaluation_policy",
+)
+
+
+def _required_field_failures(
+    row: Mapping[str, Any],
+    *,
+    row_label: str,
+    required_fields: Sequence[str],
+) -> list[str]:
+    failures: list[str] = []
+    for field in required_fields:
+        if field not in row:
+            failures.append(f"{row_label}.{field}: required")
+    return failures
+
+
+def _validate_proxy_outcome_label_contract(row: Mapping[str, Any], row_label: str) -> list[str]:
+    label_type = str(row.get("label_type") or "")
+    if label_type not in {"stock_price_proxy", "industry_etf_proxy"}:
+        return []
+    failures = _required_field_failures(
+        row,
+        row_label=row_label,
+        required_fields=(
+            STOCK_PROXY_REQUIRED_LABEL_FIELDS
+            if label_type == "stock_price_proxy"
+            else INDUSTRY_PROXY_REQUIRED_LABEL_FIELDS
+        ),
+    )
+    if row.get("llm_outcome_labeling_allowed") is not False:
+        failures.append(f"{row_label}.llm_outcome_labeling_allowed: must be false")
+    try:
+        entry_lag = int(row.get("entry_lag_trading_days"))
+    except (TypeError, ValueError):
+        failures.append(f"{row_label}.entry_lag_trading_days: expected integer")
+    else:
+        if entry_lag < 1:
+            failures.append(f"{row_label}.entry_lag_trading_days: must be >= 1")
+    try:
+        round_trip_cost = float(row.get("round_trip_cost"))
+    except (TypeError, ValueError):
+        failures.append(f"{row_label}.round_trip_cost: expected number")
+    else:
+        if round_trip_cost < 0:
+            failures.append(f"{row_label}.round_trip_cost: must be >= 0")
+    if label_type == "stock_price_proxy":
+        if row.get("outcome_label_source") != "pit_stock_price_window":
+            failures.append(
+                f"{row_label}.outcome_label_source: must be pit_stock_price_window"
+            )
+        if row.get("benchmark_alignment") != "date_key_cross_qlib_dir":
+            failures.append(
+                f"{row_label}.benchmark_alignment: must be date_key_cross_qlib_dir"
+            )
+        if str(row.get("target_resolution_source") or "") not in {
+            "metadata_and_llm_target_id",
+            "metadata_ts_code",
+            "llm_target_id",
+        }:
+            failures.append(
+                f"{row_label}.target_resolution_source: unsupported stock target resolution"
+            )
+    elif label_type == "industry_etf_proxy":
+        if row.get("outcome_label_source") != "pit_industry_etf_price_window":
+            failures.append(
+                f"{row_label}.outcome_label_source: must be pit_industry_etf_price_window"
+            )
+        if not str(row.get("mapping_id") or "").strip():
+            failures.append(f"{row_label}.mapping_id: required")
+        try:
+            mapping_version = int(row.get("mapping_version"))
+        except (TypeError, ValueError):
+            failures.append(f"{row_label}.mapping_version: expected integer")
+        else:
+            if mapping_version < 1:
+                failures.append(f"{row_label}.mapping_version: must be >= 1")
+    return failures
+
+
 def validate_report_intelligence_semantics(
     root: str | Path,
 ) -> tuple[SchemaValidationRecord, ...]:
@@ -791,6 +922,31 @@ def validate_report_intelligence_semantics(
             item_count=len(forecast_rows) + len(footprint_rows),
             accepted=not provenance_failures,
             failures=tuple(provenance_failures),
+        )
+    )
+
+    (
+        outcome_label_rows,
+        outcome_label_failures,
+        _outcome_label_rows_present,
+    ) = _load_optional_mapping_jsonl(
+        root_path,
+        "registry/report_intelligence/report_outcome_labels.jsonl",
+    )
+    for index, row in enumerate(outcome_label_rows, 1):
+        outcome_label_failures.extend(
+            _validate_proxy_outcome_label_contract(
+                row,
+                f"report_outcome_labels row {index}",
+            )
+        )
+    records.append(
+        SchemaValidationRecord(
+            schema_path="schemas/report_intelligence_proxy_outcome_label_contract_rules",
+            artifact_path="registry/report_intelligence/report_outcome_labels.jsonl",
+            item_count=len(outcome_label_rows),
+            accepted=not outcome_label_failures,
+            failures=tuple(outcome_label_failures),
         )
     )
 

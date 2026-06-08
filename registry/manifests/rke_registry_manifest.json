@@ -547,9 +547,9 @@
       "sha256": "sha256:2002369921dcddb680beb2dd6c380954c254b2f328c1a2e8d8f22f32a570bc3e"
     },
     {
-      "bytes": 16451,
+      "bytes": 16702,
       "path": "registry/schemas/rke_schema_validation_report.json",
-      "sha256": "sha256:bc0a176a8a8fec4b4c9ace907b8197b98533a0f1711d1fa4640e4be1a6f774d0"
+      "sha256": "sha256:46c1bf7991c6d724cfda3e4c97cbb664111170860f6fa48d84ee88a945569008"
     },
     {
       "bytes": 316,

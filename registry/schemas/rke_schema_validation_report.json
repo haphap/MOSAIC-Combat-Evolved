@@ -389,6 +389,13 @@
     },
     {
       "accepted": true,
+      "artifact_path": "registry/report_intelligence/report_outcome_labels.jsonl",
+      "failures": [],
+      "item_count": 0,
+      "schema_path": "schemas/report_intelligence_proxy_outcome_label_contract_rules"
+    },
+    {
+      "accepted": true,
       "artifact_path": "registry/report_intelligence/analytical_footprint_review_summary.json",
       "failures": [],
       "item_count": 1,
