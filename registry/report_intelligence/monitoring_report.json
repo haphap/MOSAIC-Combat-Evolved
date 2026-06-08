@@ -27,6 +27,19 @@
     "unmonitored_production_recipe_ids": []
   },
   "as_of_datetime": "2026-06-07T17:18:15+00:00",
+  "confidence_impact_monitoring": {
+    "alpha_decay_fail_count": 0,
+    "alpha_decay_watch_count": 0,
+    "calibration_drift_count": 0,
+    "monitor_id": "RKE-REPORT-INTELLIGENCE-CONFIDENCE-IMPACT-MONITOR",
+    "observation_count": 5,
+    "paper_trading_validated_recipe_count": 0,
+    "production_decision_impact_allowed": false,
+    "recommended_action_counts": {
+      "keep_shadow": 5
+    },
+    "unvalidated_confidence_impact_count": 0
+  },
   "monitoring_id": "RKE-REPORT-INTELLIGENCE-MONITORING",
   "policy": "monitoring metrics are diagnostic only; report-derived weights and recipes remain research priors until validation, paper trading, and promotion gates pass",
   "report_corpus": {

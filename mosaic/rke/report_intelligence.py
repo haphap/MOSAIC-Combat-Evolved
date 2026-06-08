@@ -74,6 +74,18 @@ REPORT_INTELLIGENCE_INDUSTRY_ETF_PROXY_MAP_PATH = (
 REPORT_INTELLIGENCE_INDUSTRY_ETF_PROXY_PIT_AVAILABILITY_PATH = (
     "registry/report_intelligence/industry_etf_proxy_pit_availability.json"
 )
+REPORT_INTELLIGENCE_RECIPE_PAPER_TRADING_RUNS_PATH = (
+    "registry/report_intelligence/recipe_paper_trading_runs.jsonl"
+)
+REPORT_INTELLIGENCE_RECIPE_PAPER_TRADING_SUMMARY_PATH = (
+    "registry/report_intelligence/recipe_paper_trading_summary.json"
+)
+REPORT_INTELLIGENCE_CONFIDENCE_IMPACT_OBSERVATIONS_PATH = (
+    "registry/report_intelligence/confidence_impact_observations.jsonl"
+)
+REPORT_INTELLIGENCE_CONFIDENCE_IMPACT_MONITOR_PATH = (
+    "registry/report_intelligence/confidence_impact_monitor.json"
+)
 REPORT_INTELLIGENCE_PRIVATE_OUTPUT_PATHS = frozenset(
     {
         ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH,
@@ -117,6 +129,10 @@ REPORT_INTELLIGENCE_PUBLIC_DERIVED_OUTPUT_PATHS = frozenset(
         "registry/report_intelligence/metric_candidates.jsonl",
         "registry/report_intelligence/monitoring_report.json",
         "registry/report_intelligence/outcome_labeling_readiness.json",
+        REPORT_INTELLIGENCE_CONFIDENCE_IMPACT_MONITOR_PATH,
+        REPORT_INTELLIGENCE_CONFIDENCE_IMPACT_OBSERVATIONS_PATH,
+        REPORT_INTELLIGENCE_RECIPE_PAPER_TRADING_RUNS_PATH,
+        REPORT_INTELLIGENCE_RECIPE_PAPER_TRADING_SUMMARY_PATH,
         "registry/report_intelligence/report_forecast_ledger.jsonl",
         "registry/report_intelligence/runtime_tool_gap_observations.jsonl",
         "registry/report_intelligence/source_performance_profiles.jsonl",
@@ -128,6 +144,7 @@ REPORT_INTELLIGENCE_PUBLIC_DERIVED_OUTPUT_PATHS = frozenset(
 )
 DEFAULT_VLLM_BASE_URL = "http://127.0.0.1:8020/v1"
 DEFAULT_Q_LIB_ETF_PATH = "~/.qlib/qlib_data/cn_etf"
+DEFAULT_Q_LIB_STOCK_PATH = "~/.qlib/qlib_data/cn_data"
 DEFAULT_MINERU_BACKEND = "hybrid-auto-engine"
 DEFAULT_MINERU_ARGS_TEMPLATE = "-p {pdf} -o {output_dir} -b {backend} -m auto"
 MINERU_BACKENDS = (
@@ -327,6 +344,27 @@ INDUSTRY_ETF_PROXY_MAPPING: Mapping[str, Mapping[str, str]] = {
     "光伏设备": {"etf_symbol": "SH516160", "mapping_label": "新能源ETF"},
 }
 INDUSTRY_ETF_BENCHMARK_SYMBOL = "SH510300"
+STOCK_PRICE_PROXY_WINDOWS_DAYS = (5, 20, 60, 120)
+STOCK_PRICE_PROXY_WINDOW_EFFECTIVE_WEIGHTS: Mapping[int, float] = {
+    5: 0.20,
+    20: 0.25,
+    60: 0.25,
+    120: 0.30,
+}
+STOCK_PRICE_PROXY_ENTRY_LAG_TRADING_DAYS = 1
+STOCK_PRICE_PROXY_ROUND_TRIP_COST = 0.002
+STOCK_PRICE_PROXY_OUTCOME_LABEL_SOURCE = "pit_stock_price_window"
+STOCK_PRICE_PROXY_BENCHMARK_SYMBOL = INDUSTRY_ETF_BENCHMARK_SYMBOL
+STOCK_PRICE_PROXY_BENCHMARK_SOURCE = INDUSTRY_ETF_BENCHMARK_SOURCE
+STOCK_PRICE_PROXY_BENCHMARK_FAMILY = INDUSTRY_ETF_BENCHMARK_FAMILY
+STOCK_PRICE_PROXY_COST_MODEL_ID = "single_stock_round_trip_20bps_v1"
+STOCK_PRICE_PROXY_DECISION_BASIS = "directional_stock_return_and_relative_alpha"
+STOCK_PRICE_PROXY_EVALUATION_POLICY = (
+    "stock_t_plus_1_multi_window_proxy_retains_long_horizon_evidence"
+)
+REPORT_INTELLIGENCE_PROXY_LABEL_TYPES = frozenset(
+    {"industry_etf_proxy", "stock_price_proxy"}
+)
 
 JsonMapping = Mapping[str, Any]
 PdfDownloader = Callable[[str, Path, bool], Mapping[str, Any]]
@@ -361,6 +399,7 @@ class ReportIntelligenceConfig:
     vllm_base_url: str = DEFAULT_VLLM_BASE_URL
     vllm_model: str | None = None
     qlib_etf_dir: str | Path = DEFAULT_Q_LIB_ETF_PATH
+    qlib_stock_dir: str | Path = DEFAULT_Q_LIB_STOCK_PATH
     vllm_timeout_seconds: int = 120
     chunk_chars: int = 60_000
     max_chunks: int = 8
@@ -384,6 +423,10 @@ class ReportIntelligenceRunResult:
     industry_etf_proxy_eligible_claim_rows: int
     industry_etf_proxy_labelable_window_rows: int
     industry_etf_proxy_pending_window_rows: int
+    stock_price_proxy_outcome_label_rows: int
+    stock_price_proxy_eligible_claim_rows: int
+    stock_price_proxy_labelable_window_rows: int
+    stock_price_proxy_pending_window_rows: int
     source_performance_profile_rows: int
     viewpoint_performance_profile_rows: int
     method_performance_profile_rows: int
@@ -663,6 +706,10 @@ def _blocked_report_intelligence_derived_refresh_result(
         industry_etf_proxy_eligible_claim_rows=0,
         industry_etf_proxy_labelable_window_rows=0,
         industry_etf_proxy_pending_window_rows=0,
+        stock_price_proxy_outcome_label_rows=0,
+        stock_price_proxy_eligible_claim_rows=0,
+        stock_price_proxy_labelable_window_rows=0,
+        stock_price_proxy_pending_window_rows=0,
         source_performance_profile_rows=0,
         viewpoint_performance_profile_rows=0,
         method_performance_profile_rows=0,
@@ -1378,6 +1425,7 @@ def _metadata_record(
         "market": "CN_A_SHARE",
         "asset_class": "equity",
         "sector": str(row.get("industry") or row.get("query_key") or "unknown"),
+        "ts_code": str(row.get("ts_code") or ""),
         "subsectors": [],
         "title": str(row.get("title") or ""),
         "publish_datetime": f"{publish_date}T00:00:00+08:00"
@@ -3431,6 +3479,7 @@ def build_outcome_labeling_readiness_report(
     forecast_rows: Sequence[Mapping[str, Any]],
     forecast_ledger_rows: Sequence[Mapping[str, Any]],
     industry_etf_proxy_readiness: Mapping[str, Any] | None = None,
+    stock_price_proxy_readiness: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     gap_counts: dict[str, int] = {}
     unlabelable_gap_counts: dict[str, int] = {}
@@ -3439,13 +3488,22 @@ def build_outcome_labeling_readiness_report(
     standard_blocked_ids: list[str] = []
     blocked_ids: list[str] = []
     industry_proxy = dict(industry_etf_proxy_readiness or {})
-    proxy_label_ready_ids = [
+    stock_proxy = dict(stock_price_proxy_readiness or {})
+    industry_proxy_label_ready_ids = [
         str(claim_id)
         for claim_id in _ensure_list(
             industry_proxy.get("labelable_forecast_claim_ids")
         )
         if str(claim_id).strip()
     ]
+    stock_proxy_label_ready_ids = [
+        str(claim_id)
+        for claim_id in _ensure_list(stock_proxy.get("labelable_forecast_claim_ids"))
+        if str(claim_id).strip()
+    ]
+    proxy_label_ready_ids = sorted(
+        set(industry_proxy_label_ready_ids) | set(stock_proxy_label_ready_ids)
+    )
     proxy_label_ready_id_set = set(proxy_label_ready_ids)
     proxy_label_only_ids: list[str] = []
     forecast_by_id = {
@@ -3491,6 +3549,8 @@ def build_outcome_labeling_readiness_report(
         "blocked_count": len(blocked_ids),
         "standard_blocked_count": len(standard_blocked_ids),
         "proxy_label_ready_count": len(proxy_label_ready_ids),
+        "industry_proxy_label_ready_count": len(industry_proxy_label_ready_ids),
+        "stock_proxy_label_ready_count": len(stock_proxy_label_ready_ids),
         "proxy_label_only_ready_count": len(proxy_label_only_ids),
         "test_status_counts": dict(sorted(test_status_counts.items())),
         "mapping_gap_counts": dict(sorted(gap_counts.items())),
@@ -3498,6 +3558,8 @@ def build_outcome_labeling_readiness_report(
         "ready_forecast_claim_ids": ready_ids,
         "standard_blocked_forecast_claim_ids": standard_blocked_ids,
         "proxy_label_ready_forecast_claim_ids": proxy_label_ready_ids,
+        "industry_proxy_label_ready_forecast_claim_ids": industry_proxy_label_ready_ids,
+        "stock_proxy_label_ready_forecast_claim_ids": stock_proxy_label_ready_ids,
         "proxy_label_only_ready_forecast_claim_ids": proxy_label_only_ids,
         "blocked_forecast_claim_ids": blocked_ids,
         "blocked_reason": blocked_reason,
@@ -3510,22 +3572,33 @@ def build_outcome_labeling_readiness_report(
         "policy": (
             "outcome labels are generated only for source-grounded testable "
             "forecasts with target, benchmark, direction, horizon, and PIT data; "
-            "industry ETF proxy labels may additionally evaluate sector-direction "
-            "claims on fixed PIT windows without promoting them to production use"
+            "industry ETF and stock price proxy labels may additionally evaluate "
+            "governed target-direction claims on fixed PIT windows without "
+            "promoting them to production use"
         ),
         "industry_etf_proxy_readiness": industry_proxy,
+        "stock_price_proxy_readiness": stock_proxy,
         "next_actions": [
             "improve extractor prompt to bind ts_code/title entities into target when source text supports it",
             "route unmapped claims through manual gold-set review instead of fabricating labels",
             "evaluate industry research with ETF proxy windows when sector mapping and PIT data are available",
+            "evaluate stock research with qlib cn_data windows when ts_code mapping and PIT data are available",
             "run PIT outcome labeler only after ready_for_outcome_labeling_count is positive",
         ],
     }
 
 
-def _resolve_qlib_etf_dir(root_path: Path, qlib_etf_dir: str | Path) -> Path:
-    raw = Path(os.path.expanduser(str(qlib_etf_dir)))
+def _resolve_qlib_data_dir(root_path: Path, qlib_dir: str | Path) -> Path:
+    raw = Path(os.path.expanduser(str(qlib_dir)))
     return raw if raw.is_absolute() else root_path / raw
+
+
+def _resolve_qlib_etf_dir(root_path: Path, qlib_etf_dir: str | Path) -> Path:
+    return _resolve_qlib_data_dir(root_path, qlib_etf_dir)
+
+
+def _resolve_qlib_stock_dir(root_path: Path, qlib_stock_dir: str | Path) -> Path:
+    return _resolve_qlib_data_dir(root_path, qlib_stock_dir)
 
 
 def _qlib_symbol(symbol: str) -> str:
@@ -3577,6 +3650,48 @@ def _series_value_at_calendar_index(
     return value
 
 
+def _series_raw_value_at_calendar_index(
+    *,
+    start_index: int,
+    values: Sequence[float],
+    calendar_index: int,
+) -> float | None:
+    offset = calendar_index - start_index
+    if offset < 0 or offset >= len(values):
+        return None
+    value = values[offset]
+    if value != value:
+        return None
+    return value
+
+
+def _calendar_index_for_date(calendar: Sequence[str], date_value: str) -> int | None:
+    date_key = _date_key(date_value)
+    if not date_key:
+        return None
+    for index, item in enumerate(calendar):
+        if item == date_key:
+            return index
+    return None
+
+
+def _series_value_at_date(
+    *,
+    calendar: Sequence[str],
+    start_index: int,
+    values: Sequence[float],
+    date_value: str,
+) -> float | None:
+    calendar_index = _calendar_index_for_date(calendar, date_value)
+    if calendar_index is None:
+        return None
+    return _series_value_at_calendar_index(
+        start_index=start_index,
+        values=values,
+        calendar_index=calendar_index,
+    )
+
+
 def _next_calendar_index(calendar: Sequence[str], date_value: str) -> int | None:
     date_key = _date_key(date_value)
     if not date_key:
@@ -3607,6 +3722,22 @@ def _entry_calendar_index(calendar: Sequence[str], signal_datetime: str) -> int 
     return entry_index
 
 
+def _entry_calendar_date(calendar: Sequence[str], signal_datetime: str) -> str:
+    entry_index = _entry_calendar_index(calendar, signal_datetime)
+    return calendar[entry_index] if entry_index is not None else ""
+
+
+def _exit_calendar_date(
+    calendar: Sequence[str],
+    entry_index: int,
+    horizon_days: int,
+) -> str:
+    exit_index = entry_index + int(horizon_days)
+    if exit_index < 0 or exit_index >= len(calendar):
+        return ""
+    return calendar[exit_index]
+
+
 def _date_key(value: Any) -> str:
     text = str(value or "").strip()
     if not text:
@@ -3621,6 +3752,95 @@ def _is_industry_research_report(report_type: Any) -> bool:
     return "行业" in str(report_type or "")
 
 
+def _is_potential_stock_report(metadata: Mapping[str, Any]) -> bool:
+    report_type = str(metadata.get("report_type") or "")
+    return bool(str(metadata.get("ts_code") or "").strip()) or any(
+        marker in report_type for marker in ("公司", "个股")
+    )
+
+
+def _normalize_ts_code(value: Any) -> str:
+    text = str(value or "").strip().upper()
+    if not text:
+        return ""
+    match = re.fullmatch(r"(\d{6})\.(SH|SZ|BJ)", text)
+    if not match:
+        return ""
+    code, market = match.groups()
+    if market == "BJ" and not code.startswith("920"):
+        return ""
+    return f"{code}.{market}"
+
+
+def _is_stock_forecast_claim(
+    claim: Mapping[str, Any],
+    metadata: Mapping[str, Any],
+) -> bool:
+    target = _ensure_mapping(claim.get("target"))
+    target_type = str(target.get("target_type") or "").strip().lower()
+    if target_type == "stock":
+        return True
+    return _is_potential_stock_report(metadata)
+
+
+def _stock_target_resolution(
+    claim: Mapping[str, Any],
+    metadata: Mapping[str, Any],
+) -> dict[str, str]:
+    target = _ensure_mapping(claim.get("target"))
+    target_type = str(target.get("target_type") or "").strip().lower()
+    metadata_ts_code = _normalize_ts_code(metadata.get("ts_code"))
+    llm_ts_code = _normalize_ts_code(target.get("target_id"))
+    raw_target = str(target.get("target_id") or target.get("target_name") or "").strip()
+    if target_type != "stock":
+        return {
+            "ts_code": "",
+            "target_resolution_source": "",
+            "gap": "stock_target_mapping_missing",
+            "metadata_ts_code": metadata_ts_code,
+            "llm_target_id": raw_target,
+        }
+    if metadata_ts_code and llm_ts_code and metadata_ts_code != llm_ts_code:
+        return {
+            "ts_code": "",
+            "target_resolution_source": "",
+            "gap": "stock_target_conflict",
+            "metadata_ts_code": metadata_ts_code,
+            "llm_target_id": llm_ts_code,
+        }
+    if metadata_ts_code and llm_ts_code:
+        return {
+            "ts_code": metadata_ts_code,
+            "target_resolution_source": "metadata_and_llm_target_id",
+            "gap": "",
+            "metadata_ts_code": metadata_ts_code,
+            "llm_target_id": llm_ts_code,
+        }
+    if metadata_ts_code:
+        return {
+            "ts_code": metadata_ts_code,
+            "target_resolution_source": "metadata_ts_code",
+            "gap": "",
+            "metadata_ts_code": metadata_ts_code,
+            "llm_target_id": raw_target,
+        }
+    if llm_ts_code:
+        return {
+            "ts_code": llm_ts_code,
+            "target_resolution_source": "llm_target_id",
+            "gap": "",
+            "metadata_ts_code": "",
+            "llm_target_id": llm_ts_code,
+        }
+    return {
+        "ts_code": "",
+        "target_resolution_source": "",
+        "gap": "stock_target_missing" if not raw_target else "stock_target_mapping_missing",
+        "metadata_ts_code": metadata_ts_code,
+        "llm_target_id": raw_target,
+    }
+
+
 def _industry_etf_window_role(horizon_days: int) -> str:
     if horizon_days <= 20:
         return "short"
@@ -3632,6 +3852,18 @@ def _industry_etf_window_role(horizon_days: int) -> str:
 def _industry_etf_window_effective_weight(horizon_days: int) -> float:
     role = _industry_etf_window_role(horizon_days)
     return INDUSTRY_ETF_PROXY_WINDOW_EFFECTIVE_WEIGHTS[role]
+
+
+def _stock_price_proxy_window_role(horizon_days: int) -> str:
+    if horizon_days <= 20:
+        return "short"
+    if horizon_days <= 60:
+        return "medium"
+    return "long"
+
+
+def _stock_price_proxy_window_effective_weight(horizon_days: int) -> float:
+    return STOCK_PRICE_PROXY_WINDOW_EFFECTIVE_WEIGHTS.get(int(horizon_days), 0.0)
 
 
 def _industry_etf_claim_window_alignment(
@@ -3650,6 +3882,17 @@ def _industry_etf_claim_window_alignment(
     if max_days is not None and horizon_days > max_days:
         return "beyond_source_horizon"
     return "within_source_horizon"
+
+
+def _stock_price_claim_window_alignment(
+    *,
+    claim_horizon: Mapping[str, Any],
+    horizon_days: int,
+) -> str:
+    return _industry_etf_claim_window_alignment(
+        claim_horizon=claim_horizon,
+        horizon_days=horizon_days,
+    )
 
 
 def _industry_etf_temporal_validation_summary(
@@ -3711,6 +3954,116 @@ def _industry_etf_temporal_validation_summary(
             "do_not_collapse_multi_window_outcome_to_single_label"
         ),
     }
+
+
+def _stock_price_temporal_validation_summary(
+    records: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    ordered = sorted(records, key=lambda row: int(row.get("horizon_days") or 0))
+    hit_days = [
+        int(row.get("horizon_days") or 0)
+        for row in ordered
+        if row.get("directional_hit") is True
+    ]
+    miss_days = [
+        int(row.get("horizon_days") or 0)
+        for row in ordered
+        if row.get("directional_hit") is not True
+    ]
+    short_record = next(
+        (row for row in ordered if str(row.get("window_role") or "") == "short"),
+        None,
+    )
+    long_record = next(
+        (row for row in reversed(ordered) if str(row.get("window_role") or "") == "long"),
+        ordered[-1] if ordered else None,
+    )
+    short_hit = (
+        bool(short_record.get("directional_hit"))
+        if short_record is not None
+        else None
+    )
+    long_hit = (
+        bool(long_record.get("directional_hit"))
+        if long_record is not None
+        else None
+    )
+    if ordered and len(hit_days) == len(ordered):
+        bucket = "consistent_hit"
+    elif ordered and not hit_days:
+        bucket = "consistent_miss"
+    elif short_hit is False and long_hit is True:
+        bucket = "short_miss_long_hit"
+    elif short_hit is True and long_hit is False:
+        bucket = "short_hit_long_miss"
+    else:
+        bucket = "mixed_windows"
+    return {
+        "policy": (
+            "stock research is validated on fixed PIT stock price windows; "
+            "short, medium, and long windows are retained as separate evidence"
+        ),
+        "available_window_days": [
+            int(row.get("horizon_days") or 0) for row in ordered
+        ],
+        "hit_window_days": hit_days,
+        "miss_window_days": miss_days,
+        "short_window_directional_hit": short_hit,
+        "long_window_directional_hit": long_hit,
+        "long_window_hit_retained": long_hit is True,
+        "temporal_validation_bucket": bucket,
+        "window_evidence_policy": (
+            "do_not_collapse_multi_window_outcome_to_single_label"
+        ),
+    }
+
+
+def _has_positive_volume_at(
+    *,
+    start_index: int,
+    values: Sequence[float],
+    calendar_index: int,
+) -> bool | None:
+    if not values:
+        return None
+    volume = _series_raw_value_at_calendar_index(
+        start_index=start_index,
+        values=values,
+        calendar_index=calendar_index,
+    )
+    if volume is None:
+        return None
+    return volume > 0
+
+
+def _entry_limit_locked(
+    *,
+    direction: str,
+    previous_close: float | None,
+    open_price: float | None,
+    high_price: float | None,
+    low_price: float | None,
+    close_price: float | None,
+) -> bool | None:
+    if None in {previous_close, open_price, high_price, low_price, close_price}:
+        return None
+    if previous_close is None or previous_close <= 0:
+        return None
+    assert open_price is not None
+    assert high_price is not None
+    assert low_price is not None
+    assert close_price is not None
+    one_price_locked = (
+        abs(open_price - high_price) < 1e-9
+        and abs(open_price - low_price) < 1e-9
+        and abs(open_price - close_price) < 1e-9
+    )
+    pct = close_price / previous_close - 1.0
+    if direction == "positive":
+        return one_price_locked and pct >= 0.095
+    if direction == "negative":
+        return one_price_locked and pct <= -0.095
+    return None
 
 
 def _source_report_metadata(
@@ -4179,6 +4532,223 @@ def build_industry_etf_proxy_readiness(
     }
 
 
+def build_stock_price_proxy_readiness(
+    *,
+    root_path: Path,
+    qlib_stock_dir: str | Path,
+    qlib_etf_dir: str | Path,
+    forecast_rows: Sequence[Mapping[str, Any]],
+    metadata_rows: Sequence[Mapping[str, Any]],
+    benchmark_symbol: str = STOCK_PRICE_PROXY_BENCHMARK_SYMBOL,
+    windows_days: Sequence[int] = STOCK_PRICE_PROXY_WINDOWS_DAYS,
+) -> dict[str, Any]:
+    stock_dir = _resolve_qlib_stock_dir(root_path, qlib_stock_dir)
+    benchmark_dir = _resolve_qlib_etf_dir(root_path, qlib_etf_dir)
+    stock_calendar = _read_trading_calendar(stock_dir)
+    benchmark_calendar = _read_trading_calendar(benchmark_dir)
+    benchmark_start, benchmark_values = _read_qlib_series(
+        benchmark_dir,
+        benchmark_symbol,
+    )
+    metadata_by_source = _source_report_metadata(metadata_rows)
+    eligible_claim_ids: list[str] = []
+    labelable_claim_ids: list[str] = []
+    data_gap_counts: dict[str, int] = {}
+    labelable_window_count = 0
+    pending_future_window_count = 0
+
+    def add_gap(name: str) -> None:
+        data_gap_counts[name] = data_gap_counts.get(name, 0) + 1
+
+    for claim in forecast_rows:
+        metadata = metadata_by_source.get(str(claim.get("source_id") or "")) or {}
+        if not _is_stock_forecast_claim(claim, metadata):
+            continue
+        forecast_claim_id = str(claim.get("forecast_claim_id") or "")
+        target = _ensure_mapping(claim.get("target"))
+        if str(target.get("target_type") or "").strip().lower() != "stock":
+            add_gap("stock_target_mapping_missing")
+            continue
+        direction = str(claim.get("direction") or "unknown").lower()
+        if direction not in {"positive", "negative"}:
+            add_gap("direction_missing_or_unsupported")
+            continue
+        resolution = _stock_target_resolution(claim, metadata)
+        if resolution["gap"]:
+            add_gap(resolution["gap"])
+            continue
+        eligible_claim_ids.append(forecast_claim_id)
+        ts_code = resolution["ts_code"]
+        if not stock_calendar:
+            add_gap("calendar_missing")
+            continue
+        if not benchmark_calendar or not benchmark_values:
+            add_gap("benchmark_series_missing")
+            continue
+        stock_start, stock_values = _read_qlib_series(stock_dir, ts_code)
+        if not stock_values:
+            add_gap("stock_series_missing")
+            continue
+        volume_start, volume_values = _read_qlib_series(stock_dir, ts_code, "volume")
+        open_start, open_values = _read_qlib_series(stock_dir, ts_code, "open")
+        high_start, high_values = _read_qlib_series(stock_dir, ts_code, "high")
+        low_start, low_values = _read_qlib_series(stock_dir, ts_code, "low")
+        close_start, close_values = _read_qlib_series(stock_dir, ts_code, "close")
+        if not all((volume_values, open_values, high_values, low_values, close_values)):
+            add_gap("entry_liquidity_unverified")
+            continue
+        entry_index = _entry_calendar_index(
+            stock_calendar,
+            str(claim.get("signal_datetime") or ""),
+        )
+        if entry_index is None:
+            add_gap("entry_date_after_latest_calendar")
+            continue
+        entry_date = stock_calendar[entry_index]
+        entry_price = _series_value_at_calendar_index(
+            start_index=stock_start,
+            values=stock_values,
+            calendar_index=entry_index,
+        )
+        if entry_price is None:
+            add_gap("entry_price_missing")
+            continue
+        entry_volume_ok = _has_positive_volume_at(
+            start_index=volume_start,
+            values=volume_values,
+            calendar_index=entry_index,
+        )
+        if entry_volume_ok is False:
+            add_gap("stock_entry_suspended")
+            continue
+        if entry_volume_ok is None:
+            add_gap("entry_liquidity_unverified")
+            continue
+        previous_close = _series_value_at_calendar_index(
+            start_index=close_start,
+            values=close_values,
+            calendar_index=entry_index - 1,
+        )
+        entry_locked = _entry_limit_locked(
+            direction=direction,
+            previous_close=previous_close,
+            open_price=_series_value_at_calendar_index(
+                start_index=open_start,
+                values=open_values,
+                calendar_index=entry_index,
+            ),
+            high_price=_series_value_at_calendar_index(
+                start_index=high_start,
+                values=high_values,
+                calendar_index=entry_index,
+            ),
+            low_price=_series_value_at_calendar_index(
+                start_index=low_start,
+                values=low_values,
+                calendar_index=entry_index,
+            ),
+            close_price=_series_value_at_calendar_index(
+                start_index=close_start,
+                values=close_values,
+                calendar_index=entry_index,
+            ),
+        )
+        if entry_locked is True:
+            add_gap("entry_limit_locked")
+            continue
+        if entry_locked is None:
+            add_gap("entry_liquidity_unverified")
+            continue
+        if _series_value_at_date(
+            calendar=benchmark_calendar,
+            start_index=benchmark_start,
+            values=benchmark_values,
+            date_value=entry_date,
+        ) is None:
+            add_gap("benchmark_series_missing")
+            continue
+        available_dates = _series_available_dates(
+            calendar=stock_calendar,
+            start_index=stock_start,
+            values=stock_values,
+        )
+        latest_stock_price_date = available_dates[-1] if available_dates else ""
+        claim_labelable_window_count = 0
+        for horizon_days in windows_days:
+            exit_index = entry_index + int(horizon_days)
+            if exit_index >= len(stock_calendar):
+                pending_future_window_count += 1
+                continue
+            exit_date = stock_calendar[exit_index]
+            exit_price = _series_value_at_calendar_index(
+                start_index=stock_start,
+                values=stock_values,
+                calendar_index=exit_index,
+            )
+            if exit_price is None:
+                add_gap(
+                    "stock_delisted_before_exit"
+                    if latest_stock_price_date and exit_date > latest_stock_price_date
+                    else "exit_price_missing"
+                )
+                continue
+            exit_volume_ok = _has_positive_volume_at(
+                start_index=volume_start,
+                values=volume_values,
+                calendar_index=exit_index,
+            )
+            if exit_volume_ok is False:
+                add_gap("stock_long_suspension_window")
+                continue
+            if exit_volume_ok is None:
+                add_gap("entry_liquidity_unverified")
+                continue
+            if _series_value_at_date(
+                calendar=benchmark_calendar,
+                start_index=benchmark_start,
+                values=benchmark_values,
+                date_value=exit_date,
+            ) is None:
+                add_gap("benchmark_series_missing")
+                continue
+            labelable_window_count += 1
+            claim_labelable_window_count += 1
+        if claim_labelable_window_count:
+            labelable_claim_ids.append(forecast_claim_id)
+    return {
+        "policy": (
+            "stock claims can be evaluated with qlib cn_data adjusted close "
+            "returns on T+1 fixed PIT windows; LLM output extracts target and "
+            "direction but cannot assign outcome labels"
+        ),
+        "outcome_label_source": STOCK_PRICE_PROXY_OUTCOME_LABEL_SOURCE,
+        "llm_outcome_labeling_allowed": False,
+        "windows_days": [int(value) for value in windows_days],
+        "entry_lag_trading_days": STOCK_PRICE_PROXY_ENTRY_LAG_TRADING_DAYS,
+        "benchmark_symbol": benchmark_symbol,
+        "benchmark_source": STOCK_PRICE_PROXY_BENCHMARK_SOURCE,
+        "benchmark_family": STOCK_PRICE_PROXY_BENCHMARK_FAMILY,
+        "cost_model_id": STOCK_PRICE_PROXY_COST_MODEL_ID,
+        "qlib_stock_dir_configured": str(qlib_stock_dir),
+        "qlib_benchmark_dir_configured": str(qlib_etf_dir),
+        "latest_calendar_date": stock_calendar[-1] if stock_calendar else "",
+        "eligible_claim_count": len(eligible_claim_ids),
+        "eligible_forecast_claim_ids": eligible_claim_ids,
+        "labelable_forecast_claim_count": len(labelable_claim_ids),
+        "labelable_forecast_claim_ids": labelable_claim_ids,
+        "labelable_window_count": labelable_window_count,
+        "pending_future_window_count": pending_future_window_count,
+        "data_gap_counts": dict(sorted(data_gap_counts.items())),
+        "pit_realism_policy": {
+            "entry_suspension_blocks_label": True,
+            "entry_limit_locked_blocks_label": True,
+            "exit_missing_or_delisted_blocks_label": True,
+            "benchmark_alignment": "date_key_cross_qlib_dir",
+            "company_name_fuzzy_mapping_enabled": False,
+        },
+    }
+
+
 def build_industry_etf_proxy_outcome_labels(
     *,
     root_path: Path,
@@ -4400,26 +4970,306 @@ def build_industry_etf_proxy_outcome_labels(
     return records
 
 
+def build_stock_price_proxy_outcome_labels(
+    *,
+    root_path: Path,
+    qlib_stock_dir: str | Path,
+    qlib_etf_dir: str | Path,
+    forecast_rows: Sequence[Mapping[str, Any]],
+    forecast_ledger_rows: Sequence[Mapping[str, Any]],
+    metadata_rows: Sequence[Mapping[str, Any]],
+    benchmark_symbol: str = STOCK_PRICE_PROXY_BENCHMARK_SYMBOL,
+    windows_days: Sequence[int] = STOCK_PRICE_PROXY_WINDOWS_DAYS,
+) -> list[dict[str, Any]]:
+    stock_dir = _resolve_qlib_stock_dir(root_path, qlib_stock_dir)
+    benchmark_dir = _resolve_qlib_etf_dir(root_path, qlib_etf_dir)
+    stock_calendar = _read_trading_calendar(stock_dir)
+    benchmark_calendar = _read_trading_calendar(benchmark_dir)
+    if not stock_calendar or not benchmark_calendar:
+        return []
+    benchmark_start, benchmark_values = _read_qlib_series(
+        benchmark_dir,
+        benchmark_symbol,
+    )
+    if not benchmark_values:
+        return []
+    ledger_by_claim = {
+        str(row.get("forecast_claim_id") or ""): row for row in forecast_ledger_rows
+    }
+    metadata_by_source = _source_report_metadata(metadata_rows)
+    records: list[dict[str, Any]] = []
+    for claim in forecast_rows:
+        source_id = str(claim.get("source_id") or "")
+        metadata = metadata_by_source.get(source_id) or {}
+        if not _is_stock_forecast_claim(claim, metadata):
+            continue
+        direction = str(claim.get("direction") or "unknown").lower()
+        if direction not in {"positive", "negative"}:
+            continue
+        resolution = _stock_target_resolution(claim, metadata)
+        if resolution["gap"]:
+            continue
+        ts_code = resolution["ts_code"]
+        stock_start, stock_values = _read_qlib_series(stock_dir, ts_code)
+        if not stock_values:
+            continue
+        volume_start, volume_values = _read_qlib_series(stock_dir, ts_code, "volume")
+        open_start, open_values = _read_qlib_series(stock_dir, ts_code, "open")
+        high_start, high_values = _read_qlib_series(stock_dir, ts_code, "high")
+        low_start, low_values = _read_qlib_series(stock_dir, ts_code, "low")
+        close_start, close_values = _read_qlib_series(stock_dir, ts_code, "close")
+        if not all((volume_values, open_values, high_values, low_values, close_values)):
+            continue
+        entry_index = _entry_calendar_index(
+            stock_calendar,
+            str(claim.get("signal_datetime") or ""),
+        )
+        if entry_index is None:
+            continue
+        entry_date = stock_calendar[entry_index]
+        entry_price = _series_value_at_calendar_index(
+            start_index=stock_start,
+            values=stock_values,
+            calendar_index=entry_index,
+        )
+        benchmark_entry_price = _series_value_at_date(
+            calendar=benchmark_calendar,
+            start_index=benchmark_start,
+            values=benchmark_values,
+            date_value=entry_date,
+        )
+        if entry_price is None or benchmark_entry_price is None:
+            continue
+        entry_volume_ok = _has_positive_volume_at(
+            start_index=volume_start,
+            values=volume_values,
+            calendar_index=entry_index,
+        )
+        if entry_volume_ok is not True:
+            continue
+        previous_close = _series_value_at_calendar_index(
+            start_index=close_start,
+            values=close_values,
+            calendar_index=entry_index - 1,
+        )
+        entry_locked = _entry_limit_locked(
+            direction=direction,
+            previous_close=previous_close,
+            open_price=_series_value_at_calendar_index(
+                start_index=open_start,
+                values=open_values,
+                calendar_index=entry_index,
+            ),
+            high_price=_series_value_at_calendar_index(
+                start_index=high_start,
+                values=high_values,
+                calendar_index=entry_index,
+            ),
+            low_price=_series_value_at_calendar_index(
+                start_index=low_start,
+                values=low_values,
+                calendar_index=entry_index,
+            ),
+            close_price=_series_value_at_calendar_index(
+                start_index=close_start,
+                values=close_values,
+                calendar_index=entry_index,
+            ),
+        )
+        if entry_locked is not False:
+            continue
+        ledger = ledger_by_claim.get(str(claim.get("forecast_claim_id") or "")) or {}
+        forecast_family_id = str(ledger.get("forecast_family_id") or "") or _stable_id(
+            "FF",
+            {
+                "forecast_type": claim.get("forecast_type") or "unknown",
+                "stock_target": ts_code,
+                "benchmark": benchmark_symbol,
+            },
+        )
+        claim_window_set_id = _stable_id(
+            "WSET",
+            {
+                "forecast_claim_id": claim.get("forecast_claim_id"),
+                "label_type": "stock_price_proxy",
+                "stock_symbol": ts_code,
+            },
+        )
+        claim_horizon = _ensure_mapping(claim.get("horizon"))
+        source_horizon_days = _horizon_preferred_days(claim_horizon)
+        source_horizon_bucket = _horizon_bucket(claim_horizon)
+        target = _ensure_mapping(claim.get("target"))
+        available_dates = _series_available_dates(
+            calendar=stock_calendar,
+            start_index=stock_start,
+            values=stock_values,
+        )
+        latest_stock_price_date = available_dates[-1] if available_dates else ""
+        claim_records: list[dict[str, Any]] = []
+        for horizon_days in windows_days:
+            horizon_days = int(horizon_days)
+            exit_index = entry_index + horizon_days
+            if exit_index >= len(stock_calendar):
+                continue
+            exit_date = stock_calendar[exit_index]
+            exit_price = _series_value_at_calendar_index(
+                start_index=stock_start,
+                values=stock_values,
+                calendar_index=exit_index,
+            )
+            if exit_price is None:
+                continue
+            if latest_stock_price_date and exit_date > latest_stock_price_date:
+                continue
+            exit_volume_ok = _has_positive_volume_at(
+                start_index=volume_start,
+                values=volume_values,
+                calendar_index=exit_index,
+            )
+            if exit_volume_ok is not True:
+                continue
+            benchmark_exit_price = _series_value_at_date(
+                calendar=benchmark_calendar,
+                start_index=benchmark_start,
+                values=benchmark_values,
+                date_value=exit_date,
+            )
+            if benchmark_exit_price is None:
+                continue
+            stock_return = exit_price / entry_price - 1.0
+            benchmark_return = benchmark_exit_price / benchmark_entry_price - 1.0
+            relative_alpha = stock_return - benchmark_return
+            if direction == "positive":
+                directional_hit = stock_return > 0
+                relative_directional_hit = relative_alpha > 0
+                directional_stock_return = stock_return
+            else:
+                directional_hit = stock_return < 0
+                relative_directional_hit = relative_alpha < 0
+                directional_stock_return = -stock_return
+            window_role = _stock_price_proxy_window_role(horizon_days)
+            claim_records.append(
+                {
+                    "outcome_id": _stable_id(
+                        "OUT",
+                        {
+                            "forecast_claim_id": claim.get("forecast_claim_id"),
+                            "label_type": "stock_price_proxy",
+                            "stock_symbol": ts_code,
+                            "horizon_days": horizon_days,
+                        },
+                    ),
+                    "forecast_claim_id": str(claim.get("forecast_claim_id") or ""),
+                    "forecast_family_id": forecast_family_id,
+                    "claim_window_set_id": claim_window_set_id,
+                    "entry_datetime": f"{entry_date}T00:00:00+08:00",
+                    "exit_datetime": f"{exit_date}T00:00:00+08:00",
+                    "horizon_days": horizon_days,
+                    "relative_alpha": round(relative_alpha, 8),
+                    "directional_hit": bool(directional_hit),
+                    "after_cost_alpha": round(
+                        relative_alpha - STOCK_PRICE_PROXY_ROUND_TRIP_COST,
+                        8,
+                    ),
+                    "overlap_group_id": _stable_id(
+                        "OVL",
+                        {
+                            "label_type": "stock_price_proxy",
+                            "proxy_symbol": ts_code,
+                            "entry_date": entry_date,
+                            "horizon_days": horizon_days,
+                        },
+                    ),
+                    "effective_n_weight": round(
+                        _stock_price_proxy_window_effective_weight(horizon_days),
+                        6,
+                    ),
+                    "pit_valid": True,
+                    "survivorship_safe": True,
+                    "label_type": "stock_price_proxy",
+                    "proxy_symbol": ts_code,
+                    "proxy_label": str(target.get("target_name") or ts_code),
+                    "proxy_return": round(stock_return, 8),
+                    "stock_return": round(stock_return, 8),
+                    "benchmark_symbol": benchmark_symbol,
+                    "benchmark_source": STOCK_PRICE_PROXY_BENCHMARK_SOURCE,
+                    "benchmark_family": STOCK_PRICE_PROXY_BENCHMARK_FAMILY,
+                    "benchmark_return": round(benchmark_return, 8),
+                    "benchmark_alignment": "date_key_cross_qlib_dir",
+                    "benchmark_calendar_source": str(qlib_etf_dir),
+                    "stock_calendar_source": str(qlib_stock_dir),
+                    "latest_calendar_date": stock_calendar[-1],
+                    "cost_model_id": STOCK_PRICE_PROXY_COST_MODEL_ID,
+                    "round_trip_cost": STOCK_PRICE_PROXY_ROUND_TRIP_COST,
+                    "directional_proxy_return": round(directional_stock_return, 8),
+                    "directional_stock_return": round(directional_stock_return, 8),
+                    "directional_after_cost_return": round(
+                        directional_stock_return - STOCK_PRICE_PROXY_ROUND_TRIP_COST,
+                        8,
+                    ),
+                    "relative_directional_hit": bool(relative_directional_hit),
+                    "direction_evaluated": direction,
+                    "decision_basis": STOCK_PRICE_PROXY_DECISION_BASIS,
+                    "outcome_label_source": STOCK_PRICE_PROXY_OUTCOME_LABEL_SOURCE,
+                    "llm_outcome_labeling_allowed": False,
+                    "performance_value_basis": "directional_after_cost_return",
+                    "window_role": window_role,
+                    "source_horizon_days": source_horizon_days,
+                    "source_horizon_bucket": source_horizon_bucket,
+                    "claim_window_alignment": _stock_price_claim_window_alignment(
+                        claim_horizon=claim_horizon,
+                        horizon_days=horizon_days,
+                    ),
+                    "evaluation_policy": STOCK_PRICE_PROXY_EVALUATION_POLICY,
+                    "entry_lag_trading_days": STOCK_PRICE_PROXY_ENTRY_LAG_TRADING_DAYS,
+                    "target_resolution_source": resolution[
+                        "target_resolution_source"
+                    ],
+                    "metadata_ts_code": resolution["metadata_ts_code"],
+                    "llm_target_id": resolution["llm_target_id"],
+                    "source_metadata_id": source_id,
+                    "survivorship_check": "entry_and_exit_prices_observed",
+                }
+            )
+        if claim_records:
+            temporal_summary = _stock_price_temporal_validation_summary(claim_records)
+            for record in claim_records:
+                record["temporal_validation_summary"] = temporal_summary
+            records.extend(claim_records)
+    return records
+
+
 def build_outcome_label_records(
     *,
     root_path: Path,
     qlib_etf_dir: str | Path,
+    qlib_stock_dir: str | Path,
     forecast_rows: Sequence[Mapping[str, Any]],
     forecast_ledger_rows: Sequence[Mapping[str, Any]],
     metadata_rows: Sequence[Mapping[str, Any]],
     industry_etf_proxy_map_rows: Sequence[Mapping[str, Any]] | None = None,
     industry_etf_proxy_pit_availability: Mapping[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
-    """Build PIT outcome labels. Phase C starts with conservative ETF proxies."""
-    return build_industry_etf_proxy_outcome_labels(
-        root_path=root_path,
-        qlib_etf_dir=qlib_etf_dir,
-        forecast_rows=forecast_rows,
-        forecast_ledger_rows=forecast_ledger_rows,
-        metadata_rows=metadata_rows,
-        mapping_rows=industry_etf_proxy_map_rows,
-        pit_availability=industry_etf_proxy_pit_availability,
-    )
+    """Build governed PIT outcome labels for industry and stock proxy channels."""
+    return [
+        *build_industry_etf_proxy_outcome_labels(
+            root_path=root_path,
+            qlib_etf_dir=qlib_etf_dir,
+            forecast_rows=forecast_rows,
+            forecast_ledger_rows=forecast_ledger_rows,
+            metadata_rows=metadata_rows,
+            mapping_rows=industry_etf_proxy_map_rows,
+            pit_availability=industry_etf_proxy_pit_availability,
+        ),
+        *build_stock_price_proxy_outcome_labels(
+            root_path=root_path,
+            qlib_stock_dir=qlib_stock_dir,
+            qlib_etf_dir=qlib_etf_dir,
+            forecast_rows=forecast_rows,
+            forecast_ledger_rows=forecast_ledger_rows,
+            metadata_rows=metadata_rows,
+        ),
+    ]
 
 
 def _weighted_mean(
@@ -5020,6 +5870,509 @@ def build_analysis_recipes(
             }
         )
     return recipes
+
+
+RECIPE_PAPER_TRADING_PROTOCOL_VERSION = "recipe_shadow_paper_trading_v1"
+RECIPE_PAPER_TRADING_MIN_EFFECTIVE_N = 3.0
+RECIPE_PAPER_TRADING_MAX_DRAWDOWN = 0.20
+RECIPE_PAPER_TRADING_BENCHMARK_SYMBOL = STOCK_PRICE_PROXY_BENCHMARK_SYMBOL
+RECIPE_PAPER_TRADING_COST_MODEL_ID = STOCK_PRICE_PROXY_COST_MODEL_ID
+
+
+def _recipe_preregistration_hash(recipe: Mapping[str, Any]) -> str:
+    payload = {
+        "analysis_recipe_id": recipe.get("analysis_recipe_id"),
+        "method_pattern_id": recipe.get("method_pattern_id"),
+        "version": recipe.get("version"),
+        "required_tools": _ensure_list(recipe.get("required_tools")),
+        "steps": _ensure_list(recipe.get("steps")),
+        "protocol_version": RECIPE_PAPER_TRADING_PROTOCOL_VERSION,
+        "entry_rule": "T+1_or_more_conservative_shadow_entry",
+        "exit_rule": "fixed_horizon_shadow_exit",
+        "cost_model_id": RECIPE_PAPER_TRADING_COST_MODEL_ID,
+    }
+    return "sha256:" + sha256(
+        json.dumps(_jsonable(payload), ensure_ascii=False, sort_keys=True).encode(
+            "utf-8"
+        )
+    ).hexdigest()
+
+
+def _labels_for_recipe(
+    recipe: Mapping[str, Any],
+    outcome_label_rows: Sequence[Mapping[str, Any]],
+) -> list[Mapping[str, Any]]:
+    recipe_id = str(recipe.get("analysis_recipe_id") or "")
+    method_id = str(recipe.get("method_pattern_id") or "")
+    labels: list[Mapping[str, Any]] = []
+    for label in outcome_label_rows:
+        if str(label.get("analysis_recipe_id") or "") == recipe_id:
+            labels.append(label)
+            continue
+        if method_id and str(label.get("method_pattern_id") or "") == method_id:
+            labels.append(label)
+    return labels
+
+
+def _paper_trading_metric_summary(
+    labels: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    weighted_after_cost: list[tuple[float, float]] = []
+    weighted_benchmark: list[tuple[float, float]] = []
+    weighted_hit: list[tuple[float, float]] = []
+    horizons: list[int] = []
+    ordered = sorted(labels, key=lambda row: str(row.get("exit_datetime") or ""))
+    for label in ordered:
+        weight = _label_weight(label)
+        after_cost = _float_or_none(label.get("directional_after_cost_return"))
+        if after_cost is None:
+            after_cost = _float_or_none(label.get("after_cost_alpha"))
+        benchmark = _float_or_none(label.get("benchmark_return"))
+        if after_cost is not None:
+            weighted_after_cost.append((after_cost, weight))
+        if benchmark is not None:
+            weighted_benchmark.append((benchmark, weight))
+        weighted_hit.append((1.0 if label.get("directional_hit") is True else 0.0, weight))
+        horizon = _int_or_none(label.get("horizon_days"))
+        if horizon:
+            horizons.append(horizon)
+    effective_n = sum(_label_weight(label) for label in labels)
+    cost_adjusted_alpha = _weighted_mean(weighted_after_cost, default=None)
+    benchmark_return = _weighted_mean(weighted_benchmark, default=None)
+    hit_rate = _weighted_mean(weighted_hit, default=None)
+    average_horizon = sum(horizons) / len(horizons) if horizons else None
+    annualized_return = (
+        cost_adjusted_alpha * (252.0 / average_horizon)
+        if cost_adjusted_alpha is not None and average_horizon
+        else None
+    )
+    alpha_values = [value for value, _weight in weighted_after_cost]
+    if len(alpha_values) >= 2:
+        midpoint = max(1, len(alpha_values) // 2)
+        first = sum(alpha_values[:midpoint]) / len(alpha_values[:midpoint])
+        second = sum(alpha_values[midpoint:]) / len(alpha_values[midpoint:])
+        alpha_decay_slope = second - first
+    else:
+        alpha_decay_slope = None
+    max_drawdown = min(alpha_values) if alpha_values else None
+    sharpe = None
+    if len(alpha_values) >= 2:
+        mean_alpha = sum(alpha_values) / len(alpha_values)
+        variance = sum((value - mean_alpha) ** 2 for value in alpha_values) / (
+            len(alpha_values) - 1
+        )
+        if variance > 0:
+            sharpe = mean_alpha / (variance**0.5)
+    return {
+        "annualized_return": round(annualized_return, 8)
+        if annualized_return is not None
+        else None,
+        "benchmark_return": round(benchmark_return, 8)
+        if benchmark_return is not None
+        else None,
+        "alpha": round(cost_adjusted_alpha, 8)
+        if cost_adjusted_alpha is not None
+        else None,
+        "sharpe": round(sharpe, 8) if sharpe is not None else None,
+        "max_drawdown": round(max_drawdown, 8) if max_drawdown is not None else None,
+        "turnover": round(252.0 / average_horizon, 8) if average_horizon else None,
+        "hit_rate": round(hit_rate, 6) if hit_rate is not None else None,
+        "effective_n": round(effective_n, 6),
+        "cost_adjusted_alpha": round(cost_adjusted_alpha, 8)
+        if cost_adjusted_alpha is not None
+        else None,
+        "alpha_decay_slope": round(alpha_decay_slope, 8)
+        if alpha_decay_slope is not None
+        else None,
+        "calibration_error": round(abs((hit_rate or 0.5) - 0.5), 6)
+        if hit_rate is not None
+        else None,
+        "drawdown_breach_count": sum(
+            1
+            for value in alpha_values
+            if value <= -RECIPE_PAPER_TRADING_MAX_DRAWDOWN
+        ),
+    }
+
+
+def _method_profile_by_method_id(
+    method_performance_profile_rows: Sequence[Mapping[str, Any]],
+) -> dict[str, Mapping[str, Any]]:
+    return {
+        str(row.get("method_pattern_id") or ""): row
+        for row in method_performance_profile_rows
+        if str(row.get("method_pattern_id") or "").strip()
+    }
+
+
+def build_recipe_paper_trading_runs(
+    *,
+    run_id: str,
+    analysis_recipe_rows: Sequence[Mapping[str, Any]],
+    outcome_label_rows: Sequence[Mapping[str, Any]],
+    method_performance_profile_rows: Sequence[Mapping[str, Any]] = (),
+) -> list[dict[str, Any]]:
+    method_profiles = _method_profile_by_method_id(method_performance_profile_rows)
+    runs: list[dict[str, Any]] = []
+    for index, recipe in enumerate(analysis_recipe_rows, 1):
+        recipe_id = _recipe_id(recipe, index)
+        method_id = str(recipe.get("method_pattern_id") or "")
+        labels = _labels_for_recipe(recipe, outcome_label_rows)
+        metrics = _paper_trading_metric_summary(labels)
+        blockers: list[str] = []
+        if not labels:
+            blockers.append("no_direct_recipe_outcome_binding")
+        if float(metrics.get("effective_n") or 0.0) < RECIPE_PAPER_TRADING_MIN_EFFECTIVE_N:
+            blockers.append("insufficient_effective_n")
+        if any(
+            str(tool).startswith("tool.requested.")
+            for tool in _ensure_list(recipe.get("required_tools"))
+        ):
+            blockers.append("required_tools_not_shadow_implemented")
+        if str(recipe.get("runtime_mode") or "") != "shadow_only":
+            blockers.append("unsupported_runtime_mode")
+        cost_adjusted_alpha = _float_or_none(metrics.get("cost_adjusted_alpha"))
+        hit_rate = _float_or_none(metrics.get("hit_rate"))
+        max_drawdown = _float_or_none(metrics.get("max_drawdown"))
+        if not blockers:
+            if cost_adjusted_alpha is None or cost_adjusted_alpha <= 0:
+                blockers.append("after_cost_alpha_non_positive")
+            if hit_rate is None or hit_rate < 0.50:
+                blockers.append("hit_rate_below_threshold")
+            if max_drawdown is not None and max_drawdown < -RECIPE_PAPER_TRADING_MAX_DRAWDOWN:
+                blockers.append("max_drawdown_breach")
+        method_profile = method_profiles.get(method_id) or {}
+        profile_n = _float_or_none(
+            _ensure_mapping(method_profile.get("source_support")).get(
+                "n_effective_reports"
+            )
+        )
+        profile_support_only = (profile_n or 0.0) > 0 and bool(blockers)
+        status = "passed" if not blockers else "blocked"
+        runs.append(
+            {
+                "paper_trading_run_id": _stable_id(
+                    "RIPT",
+                    {
+                        "analysis_recipe_id": recipe_id,
+                        "protocol_version": RECIPE_PAPER_TRADING_PROTOCOL_VERSION,
+                    },
+                ),
+                "analysis_recipe_id": recipe_id,
+                "experiment_id": _stable_id(
+                    "RIEXP",
+                    {
+                        "analysis_recipe_id": recipe_id,
+                        "protocol_version": RECIPE_PAPER_TRADING_PROTOCOL_VERSION,
+                    },
+                ),
+                "pre_registration_hash": _recipe_preregistration_hash(recipe),
+                "protocol_version": RECIPE_PAPER_TRADING_PROTOCOL_VERSION,
+                "promotion_state": "shadow_candidate",
+                "validation_status": status,
+                "paper_trading_status": status,
+                "source_method_pattern_ids": [method_id] if method_id else [],
+                "required_tools": _ensure_list(recipe.get("required_tools")),
+                "required_data": [],
+                "decision_scope": _ensure_mapping(recipe.get("output_signal")).get(
+                    "name",
+                    "",
+                ),
+                "entry_condition": "T+1_or_more_conservative_shadow_entry",
+                "exit_condition": "fixed_horizon_shadow_exit",
+                "risk_controls": [
+                    "no_production_order",
+                    "no_position_sizing",
+                    "after_cost_alpha_required",
+                    "drawdown_threshold_pre_registered",
+                ],
+                "expected_horizon_days": 60,
+                "benchmark_symbol": RECIPE_PAPER_TRADING_BENCHMARK_SYMBOL,
+                "benchmark_source": STOCK_PRICE_PROXY_BENCHMARK_SOURCE,
+                "cost_model_id": RECIPE_PAPER_TRADING_COST_MODEL_ID,
+                "metrics": metrics,
+                "blocked_reasons": sorted(set(blockers)),
+                "profile_weight_support": {
+                    "method_profile_id": method_profile.get("method_profile_id") or "",
+                    "n_effective_reports": profile_n,
+                    "profile_only_validation_allowed": False,
+                    "profile_paper_trade_disagreement": profile_support_only,
+                },
+                "production_decision_impact_allowed": False,
+                "policy": (
+                    "analysis recipes cannot promote from profile weights alone; "
+                    "paper-trading requires direct PIT outcome binding, pre-registered "
+                    "T+1 protocol, after-cost alpha, effective N, and no requested-tool placeholders"
+                ),
+            }
+        )
+    return runs
+
+
+def build_recipe_paper_trading_summary(
+    *,
+    run_id: str,
+    recipe_paper_trading_runs: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    status_counts: dict[str, int] = {}
+    blocker_counts: dict[str, int] = {}
+    passed_ids: list[str] = []
+    blocked_ids: list[str] = []
+    disagreement_count = 0
+    cost_adjusted_values: list[float] = []
+    for run in recipe_paper_trading_runs:
+        status = str(run.get("paper_trading_status") or "unknown")
+        status_counts[status] = status_counts.get(status, 0) + 1
+        recipe_id = str(run.get("analysis_recipe_id") or "")
+        if status == "passed":
+            passed_ids.append(recipe_id)
+        else:
+            blocked_ids.append(recipe_id)
+        for reason in _ensure_list(run.get("blocked_reasons")):
+            _increment_count(blocker_counts, reason)
+        profile_support = _ensure_mapping(run.get("profile_weight_support"))
+        if profile_support.get("profile_paper_trade_disagreement") is True:
+            disagreement_count += 1
+        cost_adjusted = _float_or_none(
+            _ensure_mapping(run.get("metrics")).get("cost_adjusted_alpha")
+        )
+        if cost_adjusted is not None:
+            cost_adjusted_values.append(cost_adjusted)
+    return {
+        "summary_id": "RKE-REPORT-INTELLIGENCE-RECIPE-PAPER-TRADING-SUMMARY",
+        "run_id": run_id,
+        "as_of_datetime": _utc_now(),
+        "protocol_version": RECIPE_PAPER_TRADING_PROTOCOL_VERSION,
+        "recipe_count": len(recipe_paper_trading_runs),
+        "paper_trading_run_count": len(recipe_paper_trading_runs),
+        "validation_pass_count": len(passed_ids),
+        "blocked_count": len(blocked_ids),
+        "status_counts": dict(sorted(status_counts.items())),
+        "blocker_counts": dict(sorted(blocker_counts.items())),
+        "passed_recipe_ids": sorted(passed_ids),
+        "blocked_recipe_ids": sorted(blocked_ids),
+        "profile_paper_trade_disagreement_count": disagreement_count,
+        "mean_cost_adjusted_alpha": round(
+            sum(cost_adjusted_values) / len(cost_adjusted_values),
+            8,
+        )
+        if cost_adjusted_values
+        else None,
+        "minimum_effective_n": RECIPE_PAPER_TRADING_MIN_EFFECTIVE_N,
+        "pre_registration_policy": (
+            "each recipe has a deterministic experiment id and pre-registration hash "
+            "before any outcome metrics are evaluated"
+        ),
+        "validation_protocol": {
+            "entry_semantics": "T+1_or_more_conservative",
+            "cost_model_id": RECIPE_PAPER_TRADING_COST_MODEL_ID,
+            "benchmark_symbol": RECIPE_PAPER_TRADING_BENCHMARK_SYMBOL,
+            "profile_weight_is_sufficient": False,
+            "production_decision_impact_allowed": False,
+        },
+        "policy": (
+            "paper-trading validation is a shadow gate; profile support can prioritize "
+            "recipes but cannot promote confidence impact without direct PIT paper-trading evidence"
+        ),
+    }
+
+
+def build_confidence_impact_observations(
+    *,
+    run_id: str,
+    recipe_paper_trading_runs: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    observations: list[dict[str, Any]] = []
+    for run in recipe_paper_trading_runs:
+        recipe_id = str(run.get("analysis_recipe_id") or "")
+        metrics = _ensure_mapping(run.get("metrics"))
+        paper_status = str(run.get("paper_trading_status") or "unknown")
+        after_cost_alpha = _float_or_none(metrics.get("cost_adjusted_alpha"))
+        realized_alpha = _float_or_none(metrics.get("alpha"))
+        alpha_decay_slope = _float_or_none(metrics.get("alpha_decay_slope"))
+        calibration_error = _float_or_none(metrics.get("calibration_error"))
+        hit_rate = _float_or_none(metrics.get("hit_rate"))
+        if paper_status != "passed":
+            drift_status = "paper_trading_blocked"
+            recommended_action = "keep_shadow"
+            confidence_delta = 0.0
+        elif after_cost_alpha is not None and after_cost_alpha <= 0:
+            drift_status = "alpha_decay_fail"
+            recommended_action = "freeze_recipe"
+            confidence_delta = 0.0
+        elif alpha_decay_slope is not None and alpha_decay_slope < 0:
+            drift_status = "alpha_decay_watch"
+            recommended_action = "reduce_confidence_impact"
+            confidence_delta = 0.0
+        elif calibration_error is not None and calibration_error > 0.20:
+            drift_status = "calibration_drift_watch"
+            recommended_action = "send_to_manual_review"
+            confidence_delta = 0.0
+        else:
+            drift_status = "stable_shadow"
+            recommended_action = "keep_shadow"
+            confidence_delta = min(0.03, max(0.0, after_cost_alpha or 0.0))
+        observations.append(
+            {
+                "confidence_observation_id": _stable_id(
+                    "CIMOBS",
+                    {
+                        "run_id": run_id,
+                        "analysis_recipe_id": recipe_id,
+                    },
+                ),
+                "run_id": run_id,
+                "recipe_id": recipe_id,
+                "agent_id": "report_intelligence.shadow",
+                "confidence_delta": round(confidence_delta, 6),
+                "confidence_delta_source": "recipe_paper_trading_validation",
+                "expected_alpha": after_cost_alpha,
+                "realized_alpha": realized_alpha,
+                "after_cost_realized_alpha": after_cost_alpha,
+                "alpha_decay_slope": alpha_decay_slope,
+                "calibration_error": calibration_error,
+                "brier_score": None,
+                "hit_rate_recent": hit_rate,
+                "hit_rate_baseline": 0.5,
+                "drawdown_since_activation": metrics.get("max_drawdown"),
+                "regime": "unknown",
+                "paper_trading_status": paper_status,
+                "drift_status": drift_status,
+                "recommended_action": recommended_action,
+                "blocker_reasons": _ensure_list(run.get("blocked_reasons")),
+                "production_decision_impact_allowed": False,
+            }
+        )
+    return observations
+
+
+def build_confidence_impact_monitor(
+    *,
+    run_id: str,
+    confidence_observation_rows: Sequence[Mapping[str, Any]],
+    recipe_paper_trading_summary: Mapping[str, Any],
+) -> dict[str, Any]:
+    drift_status_counts: dict[str, int] = {}
+    action_counts: dict[str, int] = {}
+    blocker_counts: dict[str, int] = {}
+    unvalidated_impact_count = 0
+    for row in confidence_observation_rows:
+        _increment_count(drift_status_counts, row.get("drift_status"))
+        _increment_count(action_counts, row.get("recommended_action"))
+        if (
+            row.get("paper_trading_status") != "passed"
+            and (_float_or_none(row.get("confidence_delta")) or 0.0) != 0.0
+        ):
+            unvalidated_impact_count += 1
+        for reason in _ensure_list(row.get("blocker_reasons")):
+            _increment_count(blocker_counts, reason)
+    return {
+        "monitor_id": "RKE-REPORT-INTELLIGENCE-CONFIDENCE-IMPACT-MONITOR",
+        "run_id": run_id,
+        "as_of_datetime": _utc_now(),
+        "recipe_count": int(recipe_paper_trading_summary.get("recipe_count") or 0),
+        "observation_count": len(confidence_observation_rows),
+        "paper_trading_validated_recipe_count": int(
+            recipe_paper_trading_summary.get("validation_pass_count") or 0
+        ),
+        "blocked_recipe_count": int(
+            recipe_paper_trading_summary.get("blocked_count") or 0
+        ),
+        "unvalidated_confidence_impact_count": unvalidated_impact_count,
+        "alpha_decay_watch_count": drift_status_counts.get("alpha_decay_watch", 0),
+        "alpha_decay_fail_count": drift_status_counts.get("alpha_decay_fail", 0),
+        "calibration_drift_count": drift_status_counts.get(
+            "calibration_drift_watch",
+            0,
+        ),
+        "drift_status_counts": dict(sorted(drift_status_counts.items())),
+        "recommended_action_counts": dict(sorted(action_counts.items())),
+        "blocker_counts": dict(sorted(blocker_counts.items())),
+        "production_decision_impact_allowed": False,
+        "lockbox_required_before_production_impact": True,
+        "policy": (
+            "confidence impact remains shadow-only; paper-trading validation, "
+            "alpha-decay checks, calibration drift checks, and lockbox gates are "
+            "required before any production confidence change"
+        ),
+    }
+
+
+def write_report_intelligence_recipe_paper_trading_artifacts(
+    registry_dir: str | Path,
+    *,
+    run_id: str = "RIR-RECIPE-PAPER-TRADING",
+) -> dict[str, str]:
+    registry_path = Path(registry_dir)
+    blockers: list[str] = []
+    analysis_recipe_rows = _read_registry_jsonl(
+        registry_path / "analysis_recipes.jsonl",
+        label="analysis_recipes",
+        blockers=blockers,
+    )
+    method_performance_profile_rows = _read_registry_jsonl(
+        registry_path / "method_performance_profiles.jsonl",
+        label="method_performance_profiles",
+        blockers=blockers,
+    )
+    outcome_label_path = registry_path / "report_outcome_labels.jsonl"
+    outcome_label_rows: list[Mapping[str, Any]] = []
+    if outcome_label_path.exists():
+        outcome_label_rows = _read_registry_jsonl(
+            outcome_label_path,
+            label="report_outcome_labels",
+            blockers=blockers,
+        )
+    recipe_paper_trading_run_rows = build_recipe_paper_trading_runs(
+        run_id=run_id,
+        analysis_recipe_rows=analysis_recipe_rows,
+        outcome_label_rows=outcome_label_rows,
+        method_performance_profile_rows=method_performance_profile_rows,
+    )
+    recipe_paper_trading_summary = build_recipe_paper_trading_summary(
+        run_id=run_id,
+        recipe_paper_trading_runs=recipe_paper_trading_run_rows,
+    )
+    confidence_impact_observation_rows = build_confidence_impact_observations(
+        run_id=run_id,
+        recipe_paper_trading_runs=recipe_paper_trading_run_rows,
+    )
+    confidence_impact_monitor = build_confidence_impact_monitor(
+        run_id=run_id,
+        confidence_observation_rows=confidence_impact_observation_rows,
+        recipe_paper_trading_summary=recipe_paper_trading_summary,
+    )
+    if blockers:
+        recipe_paper_trading_summary = dict(recipe_paper_trading_summary)
+        recipe_paper_trading_summary["load_blockers"] = blockers
+        confidence_impact_monitor = dict(confidence_impact_monitor)
+        confidence_impact_monitor["load_blockers"] = blockers
+    return {
+        "recipe_paper_trading_runs": str(
+            _write_jsonl(
+                registry_path / "recipe_paper_trading_runs.jsonl",
+                recipe_paper_trading_run_rows,
+            )["path"]
+        ),
+        "recipe_paper_trading_summary": str(
+            _write_json(
+                registry_path / "recipe_paper_trading_summary.json",
+                recipe_paper_trading_summary,
+            )["path"]
+        ),
+        "confidence_impact_observations": str(
+            _write_jsonl(
+                registry_path / "confidence_impact_observations.jsonl",
+                confidence_impact_observation_rows,
+            )["path"]
+        ),
+        "confidence_impact_monitor": str(
+            _write_json(
+                registry_path / "confidence_impact_monitor.json",
+                confidence_impact_monitor,
+            )["path"]
+        ),
+    }
 
 
 def _bounded_prior_weight(value: float) -> float:
@@ -5972,6 +7325,44 @@ def build_report_intelligence_pit_leakage_audit(
                     f"{label_id}: industry ETF entry_lag_trading_days must be >= "
                     f"{INDUSTRY_ETF_ENTRY_LAG_TRADING_DAYS}"
                 )
+        if str(label.get("label_type") or "") == "stock_price_proxy":
+            signal_date = _date_key(claim.get("signal_datetime"))
+            entry_date = _date_key(label.get("entry_datetime"))
+            exit_date = _date_key(label.get("exit_datetime"))
+            latest_calendar_date = _date_key(label.get("latest_calendar_date"))
+            if signal_date and entry_date and entry_date <= signal_date:
+                outcome_failures.append(
+                    f"{label_id}: stock entry_datetime must be after signal date"
+                )
+            entry_lag = _int_or_none(label.get("entry_lag_trading_days"))
+            if entry_lag is None or entry_lag < STOCK_PRICE_PROXY_ENTRY_LAG_TRADING_DAYS:
+                outcome_failures.append(
+                    f"{label_id}: stock entry_lag_trading_days must be >= "
+                    f"{STOCK_PRICE_PROXY_ENTRY_LAG_TRADING_DAYS}"
+                )
+            if (
+                str(label.get("benchmark_source") or "")
+                == STOCK_PRICE_PROXY_BENCHMARK_SOURCE
+                and label.get("benchmark_alignment") != "date_key_cross_qlib_dir"
+            ):
+                outcome_failures.append(
+                    f"{label_id}: stock benchmark must align by date across qlib dirs"
+                )
+            if latest_calendar_date and exit_date and exit_date > latest_calendar_date:
+                outcome_failures.append(
+                    f"{label_id}: stock exit_datetime exceeds latest qlib stock calendar"
+                )
+            forbidden_stock_gaps = {
+                "stock_entry_suspended",
+                "entry_limit_locked",
+                "stock_delisted_before_exit",
+            }
+            label_gaps = set(str(item) for item in _ensure_list(label.get("readiness_gaps")))
+            leaked_gaps = sorted(forbidden_stock_gaps & label_gaps)
+            if leaked_gaps:
+                outcome_failures.append(
+                    f"{label_id}: blocked stock readiness gaps cannot generate labels: {leaked_gaps}"
+                )
         vintage_text = (
             label.get("data_vintage_datetime")
             or label.get("data_as_of_datetime")
@@ -6501,29 +7892,63 @@ def build_report_intelligence_extraction_provenance_audit(
         str(row.get("forecast_claim_id") or "")
         for row in outcome_label_rows
         if str(row.get("forecast_claim_id") or "").strip()
-        and row.get("label_type") != "industry_etf_proxy"
+        and row.get("label_type") not in REPORT_INTELLIGENCE_PROXY_LABEL_TYPES
     }
     invalid_industry_proxy_labels: list[str] = []
+    invalid_stock_proxy_labels: list[str] = []
     industry_proxy_outcome_claim_ids: set[str] = set()
+    stock_proxy_outcome_claim_ids: set[str] = set()
     for index, row in enumerate(outcome_label_rows, 1):
-        if row.get("label_type") != "industry_etf_proxy":
-            continue
         claim_id = str(row.get("forecast_claim_id") or "")
-        if claim_id:
-            industry_proxy_outcome_claim_ids.add(claim_id)
-        if row.get("outcome_label_source") != INDUSTRY_ETF_OUTCOME_LABEL_SOURCE:
-            invalid_industry_proxy_labels.append(
-                f"report_outcome_labels row {index}: industry ETF proxy label must use {INDUSTRY_ETF_OUTCOME_LABEL_SOURCE}"
-            )
-        if row.get("llm_outcome_labeling_allowed") is not False:
-            invalid_industry_proxy_labels.append(
-                f"report_outcome_labels row {index}: industry ETF proxy label must set llm_outcome_labeling_allowed=false"
-            )
-        if row.get("decision_basis") != INDUSTRY_ETF_DECISION_BASIS:
-            invalid_industry_proxy_labels.append(
-                f"report_outcome_labels row {index}: industry ETF proxy label must use {INDUSTRY_ETF_DECISION_BASIS}"
-            )
+        if row.get("label_type") == "industry_etf_proxy":
+            if claim_id:
+                industry_proxy_outcome_claim_ids.add(claim_id)
+            if row.get("outcome_label_source") != INDUSTRY_ETF_OUTCOME_LABEL_SOURCE:
+                invalid_industry_proxy_labels.append(
+                    f"report_outcome_labels row {index}: industry ETF proxy label must use {INDUSTRY_ETF_OUTCOME_LABEL_SOURCE}"
+                )
+            if row.get("llm_outcome_labeling_allowed") is not False:
+                invalid_industry_proxy_labels.append(
+                    f"report_outcome_labels row {index}: industry ETF proxy label must set llm_outcome_labeling_allowed=false"
+                )
+            if row.get("decision_basis") != INDUSTRY_ETF_DECISION_BASIS:
+                invalid_industry_proxy_labels.append(
+                    f"report_outcome_labels row {index}: industry ETF proxy label must use {INDUSTRY_ETF_DECISION_BASIS}"
+                )
+        if row.get("label_type") == "stock_price_proxy":
+            if claim_id:
+                stock_proxy_outcome_claim_ids.add(claim_id)
+            if row.get("outcome_label_source") != STOCK_PRICE_PROXY_OUTCOME_LABEL_SOURCE:
+                invalid_stock_proxy_labels.append(
+                    f"report_outcome_labels row {index}: stock proxy label must use {STOCK_PRICE_PROXY_OUTCOME_LABEL_SOURCE}"
+                )
+            if row.get("llm_outcome_labeling_allowed") is not False:
+                invalid_stock_proxy_labels.append(
+                    f"report_outcome_labels row {index}: stock proxy label must set llm_outcome_labeling_allowed=false"
+                )
+            if row.get("decision_basis") != STOCK_PRICE_PROXY_DECISION_BASIS:
+                invalid_stock_proxy_labels.append(
+                    f"report_outcome_labels row {index}: stock proxy label must use {STOCK_PRICE_PROXY_DECISION_BASIS}"
+                )
+            if str(row.get("target_resolution_source") or "") not in {
+                "metadata_ts_code",
+                "metadata_and_llm_target_id",
+                "llm_target_id",
+            }:
+                invalid_stock_proxy_labels.append(
+                    f"report_outcome_labels row {index}: stock proxy label must record target_resolution_source"
+                )
+            claim = claim_by_id.get(claim_id)
+            if claim is None:
+                invalid_stock_proxy_labels.append(
+                    f"report_outcome_labels row {index}: stock proxy forecast claim missing"
+                )
+            elif not _ensure_list(claim.get("source_span_ids")):
+                invalid_stock_proxy_labels.append(
+                    f"report_outcome_labels row {index}: stock proxy claim must have source spans"
+                )
     scoring_failures.extend(invalid_industry_proxy_labels)
+    scoring_failures.extend(invalid_stock_proxy_labels)
     ready_count = 0
     standard_blocked_count = 0
     unlabelable_count = 0
@@ -6556,7 +7981,10 @@ def build_report_intelligence_extraction_provenance_audit(
                 scoring_failures.append(
                     f"{claim_id}: unmapped or non-testable forecast entered outcome scoring"
                 )
-            if claim_id not in industry_proxy_outcome_claim_ids:
+            if (
+                claim_id not in industry_proxy_outcome_claim_ids
+                and claim_id not in stock_proxy_outcome_claim_ids
+            ):
                 unlabelable_count += 1
     if outcome_labeling_readiness:
         if outcome_labeling_readiness.get("ready_for_outcome_labeling_count") != ready_count:
@@ -6586,6 +8014,9 @@ def build_report_intelligence_extraction_provenance_audit(
                 "outcome_label_rows": len(outcome_label_rows),
                 "industry_etf_proxy_outcome_claim_count": len(
                     industry_proxy_outcome_claim_ids
+                ),
+                "stock_price_proxy_outcome_claim_count": len(
+                    stock_proxy_outcome_claim_ids
                 ),
             },
             failures=scoring_failures,
@@ -6773,8 +8204,12 @@ def build_report_intelligence_statistical_robustness_audit(
 
     label_failures: list[str] = []
     industry_proxy_label_count = 0
+    stock_proxy_label_count = 0
+    label_type_counts: dict[str, int] = {}
     for index, label in enumerate(outcome_label_rows, 1):
         label_id = str(label.get("outcome_id") or f"row-{index}")
+        label_type = str(label.get("label_type") or "standard")
+        label_type_counts[label_type] = label_type_counts.get(label_type, 0) + 1
         weight = _float_or_none(label.get("effective_n_weight"))
         if weight is None or weight <= 0.0 or weight > 1.0:
             label_failures.append(
@@ -6787,75 +8222,124 @@ def build_report_intelligence_statistical_robustness_audit(
                 label_failures.append(f"{label_id}: {required_field} required")
 
         if label.get("label_type") != "industry_etf_proxy":
-            continue
-        industry_proxy_label_count += 1
-        for required_field in (
-            "proxy_symbol",
-            "benchmark_symbol",
-            "proxy_return",
-            "benchmark_return",
-            "relative_alpha",
-            "directional_proxy_return",
-            "directional_after_cost_return",
-            "decision_basis",
-            "outcome_label_source",
-            "llm_outcome_labeling_allowed",
-            "evaluation_policy",
-            "window_role",
-        ):
-            if required_field not in label:
+            if label.get("label_type") != "stock_price_proxy":
+                continue
+        if label.get("label_type") == "industry_etf_proxy":
+            industry_proxy_label_count += 1
+            for required_field in (
+                "proxy_symbol",
+                "benchmark_symbol",
+                "proxy_return",
+                "benchmark_return",
+                "relative_alpha",
+                "directional_proxy_return",
+                "directional_after_cost_return",
+                "decision_basis",
+                "outcome_label_source",
+                "llm_outcome_labeling_allowed",
+                "evaluation_policy",
+                "window_role",
+            ):
+                if required_field not in label:
+                    label_failures.append(
+                        f"{label_id}: industry ETF proxy label missing {required_field}"
+                    )
+            if label.get("decision_basis") != INDUSTRY_ETF_DECISION_BASIS:
                 label_failures.append(
-                    f"{label_id}: industry ETF proxy label missing {required_field}"
+                    f"{label_id}: decision_basis must be {INDUSTRY_ETF_DECISION_BASIS}"
                 )
-        if label.get("decision_basis") != INDUSTRY_ETF_DECISION_BASIS:
-            label_failures.append(
-                f"{label_id}: decision_basis must be {INDUSTRY_ETF_DECISION_BASIS}"
-            )
-        if label.get("outcome_label_source") != INDUSTRY_ETF_OUTCOME_LABEL_SOURCE:
-            label_failures.append(
-                f"{label_id}: outcome_label_source must be {INDUSTRY_ETF_OUTCOME_LABEL_SOURCE}"
-            )
-        if label.get("llm_outcome_labeling_allowed") is not False:
-            label_failures.append(
-                f"{label_id}: LLM outcome labeling must be explicitly disabled"
-            )
-        if label.get("evaluation_policy") != INDUSTRY_ETF_EVALUATION_POLICY:
-            label_failures.append(
-                f"{label_id}: evaluation_policy must retain long-horizon evidence"
-            )
-        if label.get("performance_value_basis") != "directional_after_cost_return":
-            label_failures.append(
-                f"{label_id}: performance_value_basis must use directional after-cost return"
-            )
-        proxy_return = _float_or_none(label.get("proxy_return"))
-        relative_alpha = _float_or_none(label.get("relative_alpha"))
-        direction = str(label.get("direction_evaluated") or "")
-        if direction == "positive" and proxy_return is not None:
-            if label.get("directional_hit") is not bool(proxy_return > 0.0):
+            if label.get("outcome_label_source") != INDUSTRY_ETF_OUTCOME_LABEL_SOURCE:
                 label_failures.append(
-                    f"{label_id}: positive claim directional_hit must follow proxy_return"
+                    f"{label_id}: outcome_label_source must be {INDUSTRY_ETF_OUTCOME_LABEL_SOURCE}"
                 )
-            if relative_alpha is not None and label.get(
-                "relative_directional_hit"
-            ) is not bool(relative_alpha > 0.0):
+            if label.get("llm_outcome_labeling_allowed") is not False:
                 label_failures.append(
-                    f"{label_id}: positive claim relative_directional_hit must follow relative_alpha"
+                    f"{label_id}: LLM outcome labeling must be explicitly disabled"
                 )
-        elif direction == "negative" and proxy_return is not None:
-            if label.get("directional_hit") is not bool(proxy_return < 0.0):
+            if label.get("evaluation_policy") != INDUSTRY_ETF_EVALUATION_POLICY:
                 label_failures.append(
-                    f"{label_id}: negative claim directional_hit must follow proxy_return"
+                    f"{label_id}: evaluation_policy must retain long-horizon evidence"
                 )
-            if relative_alpha is not None and label.get(
-                "relative_directional_hit"
-            ) is not bool(relative_alpha < 0.0):
+        if label.get("label_type") == "stock_price_proxy":
+            stock_proxy_label_count += 1
+            for required_field in (
+                "proxy_symbol",
+                "benchmark_symbol",
+                "stock_return",
+                "benchmark_return",
+                "relative_alpha",
+                "directional_stock_return",
+                "directional_after_cost_return",
+                "target_resolution_source",
+                "benchmark_alignment",
+                "decision_basis",
+                "outcome_label_source",
+                "llm_outcome_labeling_allowed",
+                "evaluation_policy",
+                "window_role",
+            ):
+                if required_field not in label:
+                    label_failures.append(
+                        f"{label_id}: stock proxy label missing {required_field}"
+                    )
+            if label.get("decision_basis") != STOCK_PRICE_PROXY_DECISION_BASIS:
                 label_failures.append(
-                    f"{label_id}: negative claim relative_directional_hit must follow relative_alpha"
+                    f"{label_id}: decision_basis must be {STOCK_PRICE_PROXY_DECISION_BASIS}"
                 )
-        else:
-            label_failures.append(
-                f"{label_id}: direction_evaluated must be positive or negative"
+            if label.get("outcome_label_source") != STOCK_PRICE_PROXY_OUTCOME_LABEL_SOURCE:
+                label_failures.append(
+                    f"{label_id}: outcome_label_source must be {STOCK_PRICE_PROXY_OUTCOME_LABEL_SOURCE}"
+                )
+            if label.get("benchmark_alignment") != "date_key_cross_qlib_dir":
+                label_failures.append(
+                    f"{label_id}: stock benchmark must align by date across qlib dirs"
+                )
+            if label.get("evaluation_policy") != STOCK_PRICE_PROXY_EVALUATION_POLICY:
+                label_failures.append(
+                    f"{label_id}: evaluation_policy must retain long-horizon evidence"
+                )
+        if label.get("label_type") in REPORT_INTELLIGENCE_PROXY_LABEL_TYPES:
+            if label.get("llm_outcome_labeling_allowed") is not False:
+                label_failures.append(
+                    f"{label_id}: LLM outcome labeling must be explicitly disabled"
+                )
+            if label.get("performance_value_basis") != "directional_after_cost_return":
+                label_failures.append(
+                    f"{label_id}: performance_value_basis must use directional after-cost return"
+                )
+            proxy_return = _float_or_none(
+                label.get("stock_return")
+                if label.get("label_type") == "stock_price_proxy"
+                else label.get("proxy_return")
             )
+            relative_alpha = _float_or_none(label.get("relative_alpha"))
+            direction = str(label.get("direction_evaluated") or "")
+            if direction == "positive" and proxy_return is not None:
+                if label.get("directional_hit") is not bool(proxy_return > 0.0):
+                    label_failures.append(
+                        f"{label_id}: positive claim directional_hit must follow proxy return"
+                    )
+                if relative_alpha is not None and label.get(
+                    "relative_directional_hit"
+                ) is not bool(relative_alpha > 0.0):
+                    label_failures.append(
+                        f"{label_id}: positive claim relative_directional_hit must follow relative_alpha"
+                    )
+            elif direction == "negative" and proxy_return is not None:
+                if label.get("directional_hit") is not bool(proxy_return < 0.0):
+                    label_failures.append(
+                        f"{label_id}: negative claim directional_hit must follow proxy return"
+                    )
+                if relative_alpha is not None and label.get(
+                    "relative_directional_hit"
+                ) is not bool(relative_alpha < 0.0):
+                    label_failures.append(
+                        f"{label_id}: negative claim relative_directional_hit must follow relative_alpha"
+                    )
+            else:
+                label_failures.append(
+                    f"{label_id}: direction_evaluated must be positive or negative"
+                )
     checks.append(
         _audit_check(
             check_id="RI-STAT-01",
@@ -6866,8 +8350,11 @@ def build_report_intelligence_statistical_robustness_audit(
             evidence={
                 "outcome_label_rows": len(outcome_label_rows),
                 "industry_etf_proxy_label_rows": industry_proxy_label_count,
+                "stock_price_proxy_label_rows": stock_proxy_label_count,
+                "label_type_counts": dict(sorted(label_type_counts.items())),
                 "decision_basis": INDUSTRY_ETF_DECISION_BASIS,
                 "outcome_label_source": INDUSTRY_ETF_OUTCOME_LABEL_SOURCE,
+                "stock_outcome_label_source": STOCK_PRICE_PROXY_OUTCOME_LABEL_SOURCE,
                 "llm_outcome_labeling_allowed": False,
             },
             failures=label_failures,
@@ -6979,30 +8466,50 @@ def build_report_intelligence_statistical_robustness_audit(
         )
         grouped_labels.setdefault(group_id, []).append(label)
     complete_window_set_count = 0
+    complete_stock_window_set_count = 0
     for group_id, labels in grouped_labels.items():
         total_weight = sum(_float_or_none(label.get("effective_n_weight")) or 0.0 for label in labels)
         if total_weight > 1.000001:
             overlap_failures.append(
                 f"{group_id}: overlapping horizon effective_n_weight sum exceeds 1"
             )
-        if not any(label.get("label_type") == "industry_etf_proxy" for label in labels):
-            continue
+        label_types = {str(label.get("label_type") or "") for label in labels}
         roles = {str(label.get("window_role") or "") for label in labels}
-        if roles == {"short", "medium", "long"}:
+        if "industry_etf_proxy" in label_types and roles == {"short", "medium", "long"}:
             complete_window_set_count += 1
             if abs(total_weight - 1.0) > 0.000001:
                 overlap_failures.append(
                     f"{group_id}: complete ETF proxy window set must sum to effective N 1"
                 )
+        stock_window_days = {
+            int(label.get("horizon_days") or 0)
+            for label in labels
+            if label.get("label_type") == "stock_price_proxy"
+        }
+        if stock_window_days == set(STOCK_PRICE_PROXY_WINDOWS_DAYS):
+            complete_stock_window_set_count += 1
+            if abs(total_weight - 1.0) > 0.000001:
+                overlap_failures.append(
+                    f"{group_id}: complete stock proxy window set must sum to effective N 1"
+                )
         for label in labels:
             role = str(label.get("window_role") or "")
-            if role not in INDUSTRY_ETF_PROXY_WINDOW_EFFECTIVE_WEIGHTS:
+            if label.get("label_type") == "industry_etf_proxy":
+                if role not in INDUSTRY_ETF_PROXY_WINDOW_EFFECTIVE_WEIGHTS:
+                    continue
+                expected_weight = INDUSTRY_ETF_PROXY_WINDOW_EFFECTIVE_WEIGHTS[role]
+            elif label.get("label_type") == "stock_price_proxy":
+                expected_weight = STOCK_PRICE_PROXY_WINDOW_EFFECTIVE_WEIGHTS.get(
+                    int(label.get("horizon_days") or 0)
+                )
+                if expected_weight is None:
+                    continue
+            else:
                 continue
-            expected_weight = INDUSTRY_ETF_PROXY_WINDOW_EFFECTIVE_WEIGHTS[role]
             actual_weight = _float_or_none(label.get("effective_n_weight"))
             if actual_weight is None or abs(actual_weight - expected_weight) > 0.000001:
                 overlap_failures.append(
-                    f"{label.get('outcome_id')}: {role} window effective_n_weight must be {expected_weight}"
+                    f"{label.get('outcome_id')}: {label.get('label_type')} {role} window effective_n_weight must be {expected_weight}"
                 )
     checks.append(
         _audit_check(
@@ -7014,9 +8521,14 @@ def build_report_intelligence_statistical_robustness_audit(
             evidence={
                 "outcome_window_set_count": len(grouped_labels),
                 "complete_industry_etf_window_set_count": complete_window_set_count,
+                "complete_stock_price_window_set_count": complete_stock_window_set_count,
                 "window_effective_weights": dict(
                     INDUSTRY_ETF_PROXY_WINDOW_EFFECTIVE_WEIGHTS
                 ),
+                "stock_window_effective_weights": {
+                    str(key): value
+                    for key, value in STOCK_PRICE_PROXY_WINDOW_EFFECTIVE_WEIGHTS.items()
+                },
             },
             failures=overlap_failures,
         )
@@ -7150,7 +8662,10 @@ def build_report_intelligence_statistical_robustness_audit(
     temporal_summary_count = 0
     short_miss_long_hit_count = 0
     for group_id, labels in grouped_labels.items():
-        if not any(label.get("label_type") == "industry_etf_proxy" for label in labels):
+        if not any(
+            label.get("label_type") in REPORT_INTELLIGENCE_PROXY_LABEL_TYPES
+            for label in labels
+        ):
             continue
         summaries = [
             _ensure_mapping(label.get("temporal_validation_summary"))
@@ -7192,14 +8707,19 @@ def build_report_intelligence_statistical_robustness_audit(
         _audit_check(
             check_id="RI-STAT-06",
             requirement=(
-                "Industry ETF proxy validation preserves temporal evidence: a long-horizon "
-                "correct report is retained even if shorter windows miss."
+                "Industry ETF and stock proxy validation preserves temporal evidence: "
+                "a long-horizon correct report is retained even if shorter windows miss."
             ),
             evidence={
                 "industry_etf_window_set_count": sum(
                     1
                     for labels in grouped_labels.values()
                     if any(label.get("label_type") == "industry_etf_proxy" for label in labels)
+                ),
+                "stock_price_window_set_count": sum(
+                    1
+                    for labels in grouped_labels.values()
+                    if any(label.get("label_type") == "stock_price_proxy" for label in labels)
                 ),
                 "temporal_summary_count": temporal_summary_count,
                 "short_miss_long_hit_window_set_count": short_miss_long_hit_count,
@@ -8484,6 +10004,7 @@ def build_report_intelligence_monitoring_report(
     analysis_recipe_rows: Sequence[Mapping[str, Any]],
     weighted_research_context_rows: Sequence[Mapping[str, Any]],
     runtime_tool_gap_observation_rows: Sequence[Mapping[str, Any]],
+    confidence_impact_monitor: Mapping[str, Any] | None = None,
     rollout_mode: str = REPORT_INTELLIGENCE_ROLLOUT_MODE,
 ) -> dict[str, Any]:
     weighted_claims = [
@@ -8563,6 +10084,7 @@ def build_report_intelligence_monitoring_report(
         len(unmonitored_paper_recipe_ids) + len(unmonitored_production_recipe_ids)
     )
     alpha_decay_monitor_ready = unmonitored_recipe_count == 0
+    confidence_monitor = _ensure_mapping(confidence_impact_monitor)
     return {
         "monitoring_id": "RKE-REPORT-INTELLIGENCE-MONITORING",
         "run_id": run_id,
@@ -8658,6 +10180,29 @@ def build_report_intelligence_monitoring_report(
             "unmonitored_production_recipe_ids": sorted(
                 unmonitored_production_recipe_ids
             ),
+        },
+        "confidence_impact_monitoring": {
+            "monitor_id": confidence_monitor.get("monitor_id") or "",
+            "observation_count": int(confidence_monitor.get("observation_count") or 0),
+            "paper_trading_validated_recipe_count": int(
+                confidence_monitor.get("paper_trading_validated_recipe_count") or 0
+            ),
+            "unvalidated_confidence_impact_count": int(
+                confidence_monitor.get("unvalidated_confidence_impact_count") or 0
+            ),
+            "alpha_decay_watch_count": int(
+                confidence_monitor.get("alpha_decay_watch_count") or 0
+            ),
+            "alpha_decay_fail_count": int(
+                confidence_monitor.get("alpha_decay_fail_count") or 0
+            ),
+            "calibration_drift_count": int(
+                confidence_monitor.get("calibration_drift_count") or 0
+            ),
+            "recommended_action_counts": _ensure_mapping(
+                confidence_monitor.get("recommended_action_counts")
+            ),
+            "production_decision_impact_allowed": False,
         },
         "policy": (
             "monitoring metrics are diagnostic only; report-derived weights and "
@@ -10083,6 +11628,7 @@ def run_report_intelligence_derived_refresh(
     outcome_label_rows = build_outcome_label_records(
         root_path=root_path,
         qlib_etf_dir=cfg.qlib_etf_dir,
+        qlib_stock_dir=cfg.qlib_stock_dir,
         forecast_rows=forecast_rows,
         forecast_ledger_rows=forecast_ledger_rows,
         metadata_rows=metadata_rows,
@@ -10097,10 +11643,18 @@ def run_report_intelligence_derived_refresh(
         mapping_rows=industry_etf_proxy_map_rows,
         pit_availability=industry_etf_proxy_pit_availability,
     )
+    stock_price_proxy_readiness = build_stock_price_proxy_readiness(
+        root_path=root_path,
+        qlib_stock_dir=cfg.qlib_stock_dir,
+        qlib_etf_dir=cfg.qlib_etf_dir,
+        forecast_rows=forecast_rows,
+        metadata_rows=metadata_rows,
+    )
     outcome_labeling_readiness = build_outcome_labeling_readiness_report(
         forecast_rows=forecast_rows,
         forecast_ledger_rows=forecast_ledger_rows,
         industry_etf_proxy_readiness=industry_etf_proxy_readiness,
+        stock_price_proxy_readiness=stock_price_proxy_readiness,
     )
     source_performance_profile_rows = build_source_performance_profiles(
         metadata_rows,
@@ -10120,6 +11674,25 @@ def run_report_intelligence_derived_refresh(
     )
     tool_design_proposal_rows = build_tool_design_proposals(tool_gap_rows)
     analysis_recipe_rows = build_analysis_recipes(method_rows)
+    recipe_paper_trading_run_rows = build_recipe_paper_trading_runs(
+        run_id=run_id,
+        analysis_recipe_rows=analysis_recipe_rows,
+        outcome_label_rows=outcome_label_rows,
+        method_performance_profile_rows=method_performance_profile_rows,
+    )
+    recipe_paper_trading_summary = build_recipe_paper_trading_summary(
+        run_id=run_id,
+        recipe_paper_trading_runs=recipe_paper_trading_run_rows,
+    )
+    confidence_impact_observation_rows = build_confidence_impact_observations(
+        run_id=run_id,
+        recipe_paper_trading_runs=recipe_paper_trading_run_rows,
+    )
+    confidence_impact_monitor = build_confidence_impact_monitor(
+        run_id=run_id,
+        confidence_observation_rows=confidence_impact_observation_rows,
+        recipe_paper_trading_summary=recipe_paper_trading_summary,
+    )
     weighted_research_context_rows = build_weighted_research_contexts(
         forecast_rows=forecast_rows,
         forecast_ledger_rows=forecast_ledger_rows,
@@ -10151,6 +11724,7 @@ def run_report_intelligence_derived_refresh(
         analysis_recipe_rows=analysis_recipe_rows,
         weighted_research_context_rows=weighted_research_context_rows,
         runtime_tool_gap_observation_rows=runtime_tool_gap_observation_rows,
+        confidence_impact_monitor=confidence_impact_monitor,
     )
     feature_flag_payload = _report_intelligence_feature_flag_payload()
     runtime_safety_audit = build_report_intelligence_runtime_safety_audit(
@@ -10375,6 +11949,30 @@ def run_report_intelligence_derived_refresh(
                 analysis_recipe_rows,
             )["path"]
         ),
+        "recipe_paper_trading_runs": str(
+            _write_jsonl(
+                registry_dir / "recipe_paper_trading_runs.jsonl",
+                recipe_paper_trading_run_rows,
+            )["path"]
+        ),
+        "recipe_paper_trading_summary": str(
+            _write_json(
+                registry_dir / "recipe_paper_trading_summary.json",
+                recipe_paper_trading_summary,
+            )["path"]
+        ),
+        "confidence_impact_observations": str(
+            _write_jsonl(
+                registry_dir / "confidence_impact_observations.jsonl",
+                confidence_impact_observation_rows,
+            )["path"]
+        ),
+        "confidence_impact_monitor": str(
+            _write_json(
+                registry_dir / "confidence_impact_monitor.json",
+                confidence_impact_monitor,
+            )["path"]
+        ),
         "weighted_research_contexts": str(
             _write_jsonl(
                 registry_dir / "weighted_research_contexts.jsonl",
@@ -10468,6 +12066,20 @@ def run_report_intelligence_derived_refresh(
         ),
         industry_etf_proxy_pending_window_rows=int(
             industry_etf_proxy_readiness["pending_future_window_count"]
+        ),
+        stock_price_proxy_outcome_label_rows=sum(
+            1
+            for row in outcome_label_rows
+            if row.get("label_type") == "stock_price_proxy"
+        ),
+        stock_price_proxy_eligible_claim_rows=int(
+            stock_price_proxy_readiness["eligible_claim_count"]
+        ),
+        stock_price_proxy_labelable_window_rows=int(
+            stock_price_proxy_readiness["labelable_window_count"]
+        ),
+        stock_price_proxy_pending_window_rows=int(
+            stock_price_proxy_readiness["pending_future_window_count"]
         ),
         source_performance_profile_rows=len(source_performance_profile_rows),
         viewpoint_performance_profile_rows=len(viewpoint_performance_profile_rows),
@@ -10806,6 +12418,7 @@ def run_report_intelligence_refresh(
     outcome_label_rows = build_outcome_label_records(
         root_path=root_path,
         qlib_etf_dir=cfg.qlib_etf_dir,
+        qlib_stock_dir=cfg.qlib_stock_dir,
         forecast_rows=forecast_rows,
         forecast_ledger_rows=forecast_ledger_rows,
         metadata_rows=metadata_rows,
@@ -10820,10 +12433,18 @@ def run_report_intelligence_refresh(
         mapping_rows=industry_etf_proxy_map_rows,
         pit_availability=industry_etf_proxy_pit_availability,
     )
+    stock_price_proxy_readiness = build_stock_price_proxy_readiness(
+        root_path=root_path,
+        qlib_stock_dir=cfg.qlib_stock_dir,
+        qlib_etf_dir=cfg.qlib_etf_dir,
+        forecast_rows=forecast_rows,
+        metadata_rows=metadata_rows,
+    )
     outcome_labeling_readiness = build_outcome_labeling_readiness_report(
         forecast_rows=forecast_rows,
         forecast_ledger_rows=forecast_ledger_rows,
         industry_etf_proxy_readiness=industry_etf_proxy_readiness,
+        stock_price_proxy_readiness=stock_price_proxy_readiness,
     )
     source_performance_profile_rows = build_source_performance_profiles(
         metadata_rows,
@@ -10843,6 +12464,25 @@ def run_report_intelligence_refresh(
     )
     tool_design_proposal_rows = build_tool_design_proposals(tool_gap_rows)
     analysis_recipe_rows = build_analysis_recipes(method_rows)
+    recipe_paper_trading_run_rows = build_recipe_paper_trading_runs(
+        run_id=run_id,
+        analysis_recipe_rows=analysis_recipe_rows,
+        outcome_label_rows=outcome_label_rows,
+        method_performance_profile_rows=method_performance_profile_rows,
+    )
+    recipe_paper_trading_summary = build_recipe_paper_trading_summary(
+        run_id=run_id,
+        recipe_paper_trading_runs=recipe_paper_trading_run_rows,
+    )
+    confidence_impact_observation_rows = build_confidence_impact_observations(
+        run_id=run_id,
+        recipe_paper_trading_runs=recipe_paper_trading_run_rows,
+    )
+    confidence_impact_monitor = build_confidence_impact_monitor(
+        run_id=run_id,
+        confidence_observation_rows=confidence_impact_observation_rows,
+        recipe_paper_trading_summary=recipe_paper_trading_summary,
+    )
     weighted_research_context_rows = build_weighted_research_contexts(
         forecast_rows=forecast_rows,
         forecast_ledger_rows=forecast_ledger_rows,
@@ -10874,6 +12514,7 @@ def run_report_intelligence_refresh(
         analysis_recipe_rows=analysis_recipe_rows,
         weighted_research_context_rows=weighted_research_context_rows,
         runtime_tool_gap_observation_rows=runtime_tool_gap_observation_rows,
+        confidence_impact_monitor=confidence_impact_monitor,
     )
     feature_flag_payload = _report_intelligence_feature_flag_payload()
     runtime_safety_audit = build_report_intelligence_runtime_safety_audit(
@@ -11102,6 +12743,30 @@ def run_report_intelligence_refresh(
                 analysis_recipe_rows,
             )["path"]
         ),
+        "recipe_paper_trading_runs": str(
+            _write_jsonl(
+                registry_dir / "recipe_paper_trading_runs.jsonl",
+                recipe_paper_trading_run_rows,
+            )["path"]
+        ),
+        "recipe_paper_trading_summary": str(
+            _write_json(
+                registry_dir / "recipe_paper_trading_summary.json",
+                recipe_paper_trading_summary,
+            )["path"]
+        ),
+        "confidence_impact_observations": str(
+            _write_jsonl(
+                registry_dir / "confidence_impact_observations.jsonl",
+                confidence_impact_observation_rows,
+            )["path"]
+        ),
+        "confidence_impact_monitor": str(
+            _write_json(
+                registry_dir / "confidence_impact_monitor.json",
+                confidence_impact_monitor,
+            )["path"]
+        ),
         "weighted_research_contexts": str(
             _write_jsonl(
                 registry_dir / "weighted_research_contexts.jsonl",
@@ -11197,6 +12862,20 @@ def run_report_intelligence_refresh(
         ),
         industry_etf_proxy_pending_window_rows=int(
             industry_etf_proxy_readiness["pending_future_window_count"]
+        ),
+        stock_price_proxy_outcome_label_rows=sum(
+            1
+            for row in outcome_label_rows
+            if row.get("label_type") == "stock_price_proxy"
+        ),
+        stock_price_proxy_eligible_claim_rows=int(
+            stock_price_proxy_readiness["eligible_claim_count"]
+        ),
+        stock_price_proxy_labelable_window_rows=int(
+            stock_price_proxy_readiness["labelable_window_count"]
+        ),
+        stock_price_proxy_pending_window_rows=int(
+            stock_price_proxy_readiness["pending_future_window_count"]
         ),
         source_performance_profile_rows=len(source_performance_profile_rows),
         viewpoint_performance_profile_rows=len(viewpoint_performance_profile_rows),

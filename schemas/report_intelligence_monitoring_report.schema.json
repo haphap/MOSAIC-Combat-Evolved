@@ -10,6 +10,7 @@
     "report_weighting_monitoring",
     "tooling_loop_monitoring",
     "alpha_decay_monitoring",
+    "confidence_impact_monitoring",
     "policy"
   ],
   "properties": {
@@ -20,6 +21,7 @@
     "report_weighting_monitoring": {"type": "object"},
     "tooling_loop_monitoring": {"type": "object"},
     "alpha_decay_monitoring": {"type": "object"},
+    "confidence_impact_monitoring": {"type": "object"},
     "policy": {"type": "string", "minLength": 1}
   },
   "additionalProperties": true

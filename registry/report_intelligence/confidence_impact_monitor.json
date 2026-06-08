@@ -1,0 +1,27 @@
+{
+  "alpha_decay_fail_count": 0,
+  "alpha_decay_watch_count": 0,
+  "as_of_datetime": "2026-06-08T06:09:08+00:00",
+  "blocked_recipe_count": 5,
+  "blocker_counts": {
+    "insufficient_effective_n": 5,
+    "no_direct_recipe_outcome_binding": 5,
+    "required_tools_not_shadow_implemented": 5
+  },
+  "calibration_drift_count": 0,
+  "drift_status_counts": {
+    "paper_trading_blocked": 5
+  },
+  "lockbox_required_before_production_impact": true,
+  "monitor_id": "RKE-REPORT-INTELLIGENCE-CONFIDENCE-IMPACT-MONITOR",
+  "observation_count": 5,
+  "paper_trading_validated_recipe_count": 0,
+  "policy": "confidence impact remains shadow-only; paper-trading validation, alpha-decay checks, calibration drift checks, and lockbox gates are required before any production confidence change",
+  "production_decision_impact_allowed": false,
+  "recipe_count": 5,
+  "recommended_action_counts": {
+    "keep_shadow": 5
+  },
+  "run_id": "RIR-PUBLIC-RECIPE-PAPER-TRADING",
+  "unvalidated_confidence_impact_count": 0
+}

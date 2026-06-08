@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RKE Report Intelligence Confidence Impact Observation",
+  "type": "object",
+  "required": [
+    "confidence_observation_id",
+    "run_id",
+    "recipe_id",
+    "agent_id",
+    "confidence_delta",
+    "confidence_delta_source",
+    "paper_trading_status",
+    "drift_status",
+    "recommended_action",
+    "blocker_reasons",
+    "production_decision_impact_allowed"
+  ],
+  "properties": {
+    "confidence_observation_id": {"type": "string", "minLength": 1},
+    "run_id": {"type": "string", "minLength": 1},
+    "recipe_id": {"type": "string", "minLength": 1},
+    "agent_id": {"type": "string", "minLength": 1},
+    "confidence_delta": {"type": "number"},
+    "confidence_delta_source": {"type": "string", "minLength": 1},
+    "expected_alpha": {"type": ["number", "null"]},
+    "realized_alpha": {"type": ["number", "null"]},
+    "after_cost_realized_alpha": {"type": ["number", "null"]},
+    "alpha_decay_slope": {"type": ["number", "null"]},
+    "calibration_error": {"type": ["number", "null"]},
+    "brier_score": {"type": ["number", "null"]},
+    "hit_rate_recent": {"type": ["number", "null"]},
+    "hit_rate_baseline": {"type": "number"},
+    "drawdown_since_activation": {"type": ["number", "null"]},
+    "regime": {"type": "string"},
+    "paper_trading_status": {"enum": ["passed", "blocked"]},
+    "drift_status": {"type": "string", "minLength": 1},
+    "recommended_action": {"type": "string", "minLength": 1},
+    "blocker_reasons": {"type": "array", "items": {"type": "string"}},
+    "production_decision_impact_allowed": {"type": "boolean", "const": false}
+  },
+  "additionalProperties": true
+}

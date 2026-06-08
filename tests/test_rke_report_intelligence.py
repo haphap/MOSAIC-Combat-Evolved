@@ -7,6 +7,8 @@ import struct
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from mosaic.rke.cli import main
 from mosaic.rke.registry_manifest import PRIVATE_LOCAL_REGISTRY_FILES
 from mosaic.rke.report_intelligence import (
@@ -16,6 +18,10 @@ from mosaic.rke.report_intelligence import (
     REPORT_INTELLIGENCE_PRIVATE_OUTPUT_PATHS,
     build_report_intelligence_pit_leakage_audit,
     apply_analytical_footprint_review_import,
+    build_confidence_impact_monitor,
+    build_confidence_impact_observations,
+    build_recipe_paper_trading_runs,
+    build_recipe_paper_trading_summary,
     build_report_intelligence_extraction_provenance_audit,
     build_source_performance_profiles,
     build_viewpoint_performance_profiles,
@@ -38,6 +44,7 @@ def _write_source(
     industry: str = "宏观",
     report_type: str = "宏观研报",
     publish_date: str = "2026-06-05",
+    ts_code: str = "",
 ) -> str:
     source_id = "SRC-TSRR-20260605-LIQUIDITY"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -59,7 +66,7 @@ def _write_source(
                 "source_span_id": f"{source_id}:abstract",
                 "source_type": "tushare_research_report",
                 "title": "Liquidity report",
-                "ts_code": "",
+                "ts_code": ts_code,
                 "url": url,
             },
             ensure_ascii=False,
@@ -71,15 +78,74 @@ def _write_source(
     return source_id
 
 
-def _write_qlib_series(root: Path, symbol: str, values: list[float]) -> None:
+def _write_qlib_series(
+    root: Path,
+    symbol: str,
+    values: list[float],
+    *,
+    field: str = "adjclose",
+    start_index: float = 0.0,
+) -> None:
     if "." in symbol:
         code, market = symbol.split(".", 1)
         qlib_symbol = market.lower() + code
     else:
         qlib_symbol = symbol.lower()
-    path = root / "features" / qlib_symbol / "adjclose.day.bin"
+    path = root / "features" / qlib_symbol / f"{field}.day.bin"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(struct.pack(f"<{len(values) + 1}f", 0.0, *values))
+    path.write_bytes(struct.pack(f"<{len(values) + 1}f", start_index, *values))
+
+
+def _write_qlib_calendar(root: Path, dates: list[str]) -> None:
+    (root / "calendars").mkdir(parents=True, exist_ok=True)
+    (root / "calendars/day.txt").write_text("\n".join(dates) + "\n", encoding="utf-8")
+
+
+def _stock_fixture_dates() -> list[str]:
+    dates = [f"2026-01-{day:02d}" for day in range(1, 32)]
+    dates += [f"2026-02-{day:02d}" for day in range(1, 29)]
+    dates += [f"2026-03-{day:02d}" for day in range(1, 32)]
+    dates += [f"2026-04-{day:02d}" for day in range(1, 31)]
+    dates += [f"2026-05-{day:02d}" for day in range(1, 32)]
+    return dates
+
+
+def _write_qlib_stock_fixture(
+    root: Path,
+    *,
+    symbol: str = "000001.SZ",
+    values: list[float] | None = None,
+    volume: list[float] | None = None,
+) -> None:
+    dates = _stock_fixture_dates()
+    _write_qlib_calendar(root, dates)
+    if values is None:
+        values = []
+        for index in range(len(dates)):
+            if index <= 2:
+                values.append(1.0)
+            elif index <= 7:
+                values.append(1.0 - (index - 2) * 0.005)
+            else:
+                values.append(0.975 + (index - 7) * 0.004)
+    volume_values = volume or [100.0 for _ in dates]
+    for field, field_values in {
+        "adjclose": values,
+        "close": values,
+        "open": values,
+        "high": [value * 1.001 for value in values],
+        "low": [value * 0.999 for value in values],
+        "volume": volume_values,
+    }.items():
+        _write_qlib_series(root, symbol, field_values, field=field)
+
+
+def _write_qlib_stock_benchmark_fixture(root: Path) -> None:
+    stock_dates = _stock_fixture_dates()
+    dates = ["2025-12-31", *stock_dates]
+    _write_qlib_calendar(root, dates)
+    values = [1.0 + index * 0.001 for index in range(len(dates))]
+    _write_qlib_series(root, "SH510300", values)
 
 
 def _write_qlib_etf_fixture(root: Path) -> None:
@@ -405,6 +471,10 @@ def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
     assert "tool_feasibility_audit" in result.outputs
     assert "recipe_validation_audit" in result.outputs
     assert "patch_v1_5_coverage_report" in result.outputs
+    assert "recipe_paper_trading_runs" in result.outputs
+    assert "recipe_paper_trading_summary" in result.outputs
+    assert "confidence_impact_observations" in result.outputs
+    assert "confidence_impact_monitor" in result.outputs
     assert "markdown_coverage_summary" in result.outputs
     assert "industry_etf_proxy_map" in result.outputs
     assert "industry_etf_proxy_pit_availability" in result.outputs
@@ -755,6 +825,119 @@ def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
         if row["phase_id"] in {"G", "H"}
     } == {"G": "deferred_by_rollout", "H": "deferred_by_rollout"}
     assert alpha_decay["unmonitored_production_recipe_ids"] == []
+    confidence_monitoring = monitoring["confidence_impact_monitoring"]
+    assert confidence_monitoring["observation_count"] == 1
+    assert confidence_monitoring["paper_trading_validated_recipe_count"] == 0
+    assert confidence_monitoring["production_decision_impact_allowed"] is False
+
+    paper_trading_runs = _read_jsonl(
+        tmp_path
+        / "registry/report_intelligence/recipe_paper_trading_runs.jsonl"
+    )
+    assert len(paper_trading_runs) == 1
+    assert paper_trading_runs[0]["paper_trading_status"] == "blocked"
+    assert paper_trading_runs[0]["production_decision_impact_allowed"] is False
+    assert {
+        "no_direct_recipe_outcome_binding",
+        "insufficient_effective_n",
+    } <= set(paper_trading_runs[0]["blocked_reasons"])
+
+    confidence_observations = _read_jsonl(
+        tmp_path
+        / "registry/report_intelligence/confidence_impact_observations.jsonl"
+    )
+    assert confidence_observations[0]["confidence_delta"] == 0.0
+    assert confidence_observations[0]["drift_status"] == "paper_trading_blocked"
+    assert confidence_observations[0]["recommended_action"] == "keep_shadow"
+
+
+def test_report_intelligence_recipe_paper_trading_requires_direct_pit_evidence():
+    recipe = {
+        "analysis_recipe_id": "RECIPE-DIRECT-PIT",
+        "method_pattern_id": "METHOD-DIRECT-PIT",
+        "version": "0.1.0",
+        "runtime_mode": "shadow_only",
+        "required_tools": ["market.price_proxy"],
+        "steps": [{"step": 1, "tool": "market.price_proxy"}],
+        "output_signal": {"name": "direct_pit_score"},
+    }
+    labels = []
+    for day, value, hit in (
+        (10, 0.01, True),
+        (11, 0.02, False),
+        (12, 0.015, True),
+        (13, 0.018, False),
+        (14, 0.02, True),
+    ):
+        labels.append(
+            {
+                "analysis_recipe_id": "RECIPE-DIRECT-PIT",
+                "method_pattern_id": "METHOD-DIRECT-PIT",
+                "exit_datetime": f"2026-01-{day:02d}",
+                "directional_after_cost_return": value,
+                "benchmark_return": 0.005,
+                "directional_hit": hit,
+                "horizon_days": 20,
+                "effective_n_weight": 1.0,
+            }
+        )
+
+    runs = build_recipe_paper_trading_runs(
+        run_id="RIR-TEST-PAPER",
+        analysis_recipe_rows=[recipe],
+        outcome_label_rows=labels,
+        method_performance_profile_rows=[],
+    )
+    summary = build_recipe_paper_trading_summary(
+        run_id="RIR-TEST-PAPER",
+        recipe_paper_trading_runs=runs,
+    )
+    observations = build_confidence_impact_observations(
+        run_id="RIR-TEST-PAPER",
+        recipe_paper_trading_runs=runs,
+    )
+    monitor = build_confidence_impact_monitor(
+        run_id="RIR-TEST-PAPER",
+        confidence_observation_rows=observations,
+        recipe_paper_trading_summary=summary,
+    )
+
+    assert runs[0]["paper_trading_status"] == "passed"
+    assert runs[0]["blocked_reasons"] == []
+    assert runs[0]["profile_weight_support"]["profile_only_validation_allowed"] is False
+    assert summary["validation_pass_count"] == 1
+    assert observations[0]["confidence_delta"] > 0
+    assert observations[0]["drift_status"] == "stable_shadow"
+    assert monitor["paper_trading_validated_recipe_count"] == 1
+    assert monitor["production_decision_impact_allowed"] is False
+
+    blocked_runs = build_recipe_paper_trading_runs(
+        run_id="RIR-TEST-PAPER",
+        analysis_recipe_rows=[recipe],
+        outcome_label_rows=[],
+        method_performance_profile_rows=[
+            {
+                "method_pattern_id": "METHOD-DIRECT-PIT",
+                "method_profile_id": "MPP-DIRECT-PIT",
+                "source_support": {"n_effective_reports": 5.0},
+            }
+        ],
+    )
+    blocked_observations = build_confidence_impact_observations(
+        run_id="RIR-TEST-PAPER",
+        recipe_paper_trading_runs=blocked_runs,
+    )
+
+    assert blocked_runs[0]["paper_trading_status"] == "blocked"
+    assert "no_direct_recipe_outcome_binding" in blocked_runs[0]["blocked_reasons"]
+    assert (
+        blocked_runs[0]["profile_weight_support"][
+            "profile_paper_trade_disagreement"
+        ]
+        is True
+    )
+    assert blocked_observations[0]["confidence_delta"] == 0.0
+    assert blocked_observations[0]["drift_status"] == "paper_trading_blocked"
 
 
 def test_report_intelligence_can_select_historical_sources_by_date(
@@ -1052,6 +1235,458 @@ def test_report_intelligence_pit_audit_rejects_t0_industry_etf_entry():
     assert audit["accepted"] is False
     assert any("entry_datetime must be after signal date" in item for item in audit["blockers"])
     assert any("entry_lag_trading_days" in item for item in audit["blockers"])
+
+
+def test_report_intelligence_labels_stock_claims_with_qlib_price_windows(
+    tmp_path: Path,
+):
+    source_id = _write_source(
+        tmp_path / "registry/sources/tushare_research_reports.jsonl",
+        industry="银行",
+        report_type="公司研报",
+        publish_date="2026-01-02",
+        ts_code="000001.SZ",
+    )
+    qlib_stock_dir = tmp_path / "qlib_stock"
+    qlib_etf_dir = tmp_path / "qlib_etf"
+    _write_qlib_stock_fixture(qlib_stock_dir)
+    _write_qlib_stock_benchmark_fixture(qlib_etf_dir)
+
+    def llm(row, chunk: str, span_id: str, chunk_index: int, chunk_count: int):
+        return {
+            "status": "ok",
+            "model": "fake-vllm",
+            "payload": {
+                "forecast_claims": [
+                    {
+                        "claim_text": "平安银行基本面改善，未来一个季度股价有望上涨。",
+                        "claim_provenance": "source_grounded",
+                        "forecast_testability": "testable",
+                        "forecast_type": "stock_outlook",
+                        "target": {
+                            "target_type": "stock",
+                            "target_id": "000001.SZ",
+                            "target_name": "平安银行",
+                        },
+                        "benchmark": {},
+                        "direction": "positive",
+                        "horizon": {
+                            "min_days": 5,
+                            "max_days": 120,
+                            "unit": "trading_day",
+                        },
+                    }
+                ],
+                "analytical_footprints": [],
+                "metric_candidates": [],
+                "method_patterns": [],
+                "tool_gaps": [],
+            },
+        }
+
+    result = run_report_intelligence_refresh(
+        ReportIntelligenceConfig(
+            root=tmp_path,
+            source_ids=(source_id,),
+            qlib_stock_dir=qlib_stock_dir,
+            qlib_etf_dir=qlib_etf_dir,
+        ),
+        downloader=_fake_downloader,
+        converter=_fake_converter,
+        llm_extractor=llm,
+    )
+
+    assert result.stock_price_proxy_outcome_label_rows == 4
+    assert result.stock_price_proxy_eligible_claim_rows == 1
+    assert result.stock_price_proxy_labelable_window_rows == 4
+
+    outcome_labels = sorted(
+        _read_jsonl(tmp_path / "registry/report_intelligence/report_outcome_labels.jsonl"),
+        key=lambda row: row["horizon_days"],
+    )
+    assert {row["label_type"] for row in outcome_labels} == {"stock_price_proxy"}
+    assert [row["horizon_days"] for row in outcome_labels] == [5, 20, 60, 120]
+    assert [row["effective_n_weight"] for row in outcome_labels] == [
+        0.2,
+        0.25,
+        0.25,
+        0.3,
+    ]
+    assert {row["proxy_symbol"] for row in outcome_labels} == {"000001.SZ"}
+    assert {row["benchmark_symbol"] for row in outcome_labels} == {"SH510300"}
+    assert {row["benchmark_source"] for row in outcome_labels} == {"cn_etf"}
+    assert {row["benchmark_alignment"] for row in outcome_labels} == {
+        "date_key_cross_qlib_dir"
+    }
+    assert {row["cost_model_id"] for row in outcome_labels} == {
+        "single_stock_round_trip_20bps_v1"
+    }
+    assert {row["outcome_label_source"] for row in outcome_labels} == {
+        "pit_stock_price_window"
+    }
+    assert {row["llm_outcome_labeling_allowed"] for row in outcome_labels} == {False}
+    assert {row["entry_datetime"] for row in outcome_labels} == {
+        "2026-01-03T00:00:00+08:00"
+    }
+    assert {row["entry_lag_trading_days"] for row in outcome_labels} == {1}
+    assert {row["round_trip_cost"] for row in outcome_labels} == {0.002}
+    assert {row["target_resolution_source"] for row in outcome_labels} == {
+        "metadata_and_llm_target_id"
+    }
+    assert outcome_labels[0]["stock_return"] < 0
+    assert outcome_labels[0]["directional_hit"] is False
+    assert outcome_labels[-1]["stock_return"] > 0
+    assert outcome_labels[-1]["directional_hit"] is True
+    assert outcome_labels[-1]["directional_after_cost_return"] > 0
+    assert outcome_labels[0]["temporal_validation_summary"][
+        "temporal_validation_bucket"
+    ] == "short_miss_long_hit"
+
+    readiness = json.loads(
+        (tmp_path / "registry/report_intelligence/outcome_labeling_readiness.json")
+        .read_text(encoding="utf-8")
+    )
+    stock_readiness = readiness["stock_price_proxy_readiness"]
+    assert stock_readiness["eligible_claim_count"] == 1
+    assert stock_readiness["labelable_forecast_claim_count"] == 1
+    assert stock_readiness["labelable_window_count"] == 4
+    assert stock_readiness["data_gap_counts"] == {}
+    assert readiness["stock_proxy_label_ready_count"] == 1
+    assert readiness["proxy_label_ready_count"] == 1
+    assert readiness["blocked_count"] == 0
+
+    statistical_audit = json.loads(
+        (
+            tmp_path
+            / "registry/report_intelligence/statistical_robustness_audit.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert statistical_audit["accepted"] is True
+    assert statistical_audit["checks"][1]["evidence"][
+        "stock_price_proxy_label_rows"
+    ] == 4
+    assert statistical_audit["checks"][3]["evidence"][
+        "complete_stock_price_window_set_count"
+    ] == 1
+    assert statistical_audit["checks"][6]["evidence"][
+        "short_miss_long_hit_window_set_count"
+    ] == 1
+
+
+def test_report_intelligence_labels_bearish_stock_claims(
+    tmp_path: Path,
+):
+    source_id = _write_source(
+        tmp_path / "registry/sources/tushare_research_reports.jsonl",
+        industry="银行",
+        report_type="公司研报",
+        publish_date="2026-01-02",
+        ts_code="000001.SZ",
+    )
+    qlib_stock_dir = tmp_path / "qlib_stock"
+    qlib_etf_dir = tmp_path / "qlib_etf"
+    dates = _stock_fixture_dates()
+    _write_qlib_stock_fixture(
+        qlib_stock_dir,
+        values=[1.0 - index * 0.002 for index in range(len(dates))],
+    )
+    _write_qlib_stock_benchmark_fixture(qlib_etf_dir)
+
+    def llm(row, chunk: str, span_id: str, chunk_index: int, chunk_count: int):
+        return {
+            "status": "ok",
+            "model": "fake-vllm",
+            "payload": {
+                "forecast_claims": [
+                    {
+                        "claim_text": "平安银行盈利承压，未来一个季度股价可能下跌。",
+                        "claim_provenance": "source_grounded",
+                        "forecast_testability": "testable",
+                        "forecast_type": "stock_outlook",
+                        "target": {"target_type": "stock", "target_id": "000001.SZ"},
+                        "benchmark": {},
+                        "direction": "negative",
+                        "horizon": {"max_days": 120, "unit": "trading_day"},
+                    }
+                ],
+                "analytical_footprints": [],
+                "metric_candidates": [],
+                "method_patterns": [],
+                "tool_gaps": [],
+            },
+        }
+
+    result = run_report_intelligence_refresh(
+        ReportIntelligenceConfig(
+            root=tmp_path,
+            source_ids=(source_id,),
+            qlib_stock_dir=qlib_stock_dir,
+            qlib_etf_dir=qlib_etf_dir,
+        ),
+        downloader=_fake_downloader,
+        converter=_fake_converter,
+        llm_extractor=llm,
+    )
+
+    assert result.stock_price_proxy_outcome_label_rows == 4
+    outcome_labels = _read_jsonl(
+        tmp_path / "registry/report_intelligence/report_outcome_labels.jsonl"
+    )
+    assert {row["direction_evaluated"] for row in outcome_labels} == {"negative"}
+    assert all(row["stock_return"] < 0 for row in outcome_labels)
+    assert all(row["directional_stock_return"] > 0 for row in outcome_labels)
+    assert all(row["directional_hit"] is True for row in outcome_labels)
+    assert all(row["relative_directional_hit"] is True for row in outcome_labels)
+
+
+def test_report_intelligence_stock_readiness_records_price_gaps(
+    tmp_path: Path,
+):
+    source_id = _write_source(
+        tmp_path / "registry/sources/tushare_research_reports.jsonl",
+        industry="银行",
+        report_type="公司研报",
+        publish_date="2026-01-02",
+        ts_code="000001.SZ",
+    )
+    qlib_stock_dir = tmp_path / "qlib_stock"
+    qlib_etf_dir = tmp_path / "qlib_etf"
+    _write_qlib_calendar(qlib_stock_dir, _stock_fixture_dates())
+    _write_qlib_stock_benchmark_fixture(qlib_etf_dir)
+
+    def llm(row, chunk: str, span_id: str, chunk_index: int, chunk_count: int):
+        return {
+            "status": "ok",
+            "model": "fake-vllm",
+            "payload": {
+                "forecast_claims": [
+                    {
+                        "claim_text": "平安银行基本面改善，未来股价有望上涨。",
+                        "claim_provenance": "source_grounded",
+                        "forecast_testability": "testable",
+                        "forecast_type": "stock_outlook",
+                        "target": {"target_type": "stock", "target_id": "000001.SZ"},
+                        "benchmark": {},
+                        "direction": "positive",
+                        "horizon": {},
+                    }
+                ],
+                "analytical_footprints": [],
+                "metric_candidates": [],
+                "method_patterns": [],
+                "tool_gaps": [],
+            },
+        }
+
+    result = run_report_intelligence_refresh(
+        ReportIntelligenceConfig(
+            root=tmp_path,
+            source_ids=(source_id,),
+            qlib_stock_dir=qlib_stock_dir,
+            qlib_etf_dir=qlib_etf_dir,
+        ),
+        downloader=_fake_downloader,
+        converter=_fake_converter,
+        llm_extractor=llm,
+    )
+
+    assert result.stock_price_proxy_outcome_label_rows == 0
+    readiness = json.loads(
+        (tmp_path / "registry/report_intelligence/outcome_labeling_readiness.json")
+        .read_text(encoding="utf-8")
+    )
+    assert readiness["stock_price_proxy_readiness"]["data_gap_counts"] == {
+        "stock_series_missing": 1
+    }
+    assert readiness["blocked_count"] == 1
+
+
+def test_report_intelligence_stock_target_conflict_blocks_labeling(
+    tmp_path: Path,
+):
+    source_id = _write_source(
+        tmp_path / "registry/sources/tushare_research_reports.jsonl",
+        industry="银行",
+        report_type="公司研报",
+        publish_date="2026-01-02",
+        ts_code="000001.SZ",
+    )
+    qlib_stock_dir = tmp_path / "qlib_stock"
+    qlib_etf_dir = tmp_path / "qlib_etf"
+    _write_qlib_stock_fixture(qlib_stock_dir)
+    _write_qlib_stock_benchmark_fixture(qlib_etf_dir)
+
+    def llm(row, chunk: str, span_id: str, chunk_index: int, chunk_count: int):
+        return {
+            "status": "ok",
+            "model": "fake-vllm",
+            "payload": {
+                "forecast_claims": [
+                    {
+                        "claim_text": "平安银行基本面改善，未来股价有望上涨。",
+                        "claim_provenance": "source_grounded",
+                        "forecast_testability": "testable",
+                        "forecast_type": "stock_outlook",
+                        "target": {"target_type": "stock", "target_id": "000002.SZ"},
+                        "benchmark": {},
+                        "direction": "positive",
+                        "horizon": {},
+                    }
+                ],
+                "analytical_footprints": [],
+                "metric_candidates": [],
+                "method_patterns": [],
+                "tool_gaps": [],
+            },
+        }
+
+    result = run_report_intelligence_refresh(
+        ReportIntelligenceConfig(
+            root=tmp_path,
+            source_ids=(source_id,),
+            qlib_stock_dir=qlib_stock_dir,
+            qlib_etf_dir=qlib_etf_dir,
+        ),
+        downloader=_fake_downloader,
+        converter=_fake_converter,
+        llm_extractor=llm,
+    )
+
+    assert result.stock_price_proxy_outcome_label_rows == 0
+    readiness = json.loads(
+        (tmp_path / "registry/report_intelligence/outcome_labeling_readiness.json")
+        .read_text(encoding="utf-8")
+    )
+    assert readiness["stock_price_proxy_readiness"]["data_gap_counts"] == {
+        "stock_target_conflict": 1
+    }
+
+
+def test_report_intelligence_stock_entry_suspension_blocks_labeling(
+    tmp_path: Path,
+):
+    source_id = _write_source(
+        tmp_path / "registry/sources/tushare_research_reports.jsonl",
+        industry="银行",
+        report_type="公司研报",
+        publish_date="2026-01-02",
+        ts_code="000001.SZ",
+    )
+    qlib_stock_dir = tmp_path / "qlib_stock"
+    qlib_etf_dir = tmp_path / "qlib_etf"
+    dates = _stock_fixture_dates()
+    volume = [100.0 for _ in dates]
+    volume[2] = 0.0
+    _write_qlib_stock_fixture(qlib_stock_dir, volume=volume)
+    _write_qlib_stock_benchmark_fixture(qlib_etf_dir)
+
+    def llm(row, chunk: str, span_id: str, chunk_index: int, chunk_count: int):
+        return {
+            "status": "ok",
+            "model": "fake-vllm",
+            "payload": {
+                "forecast_claims": [
+                    {
+                        "claim_text": "平安银行基本面改善，未来股价有望上涨。",
+                        "claim_provenance": "source_grounded",
+                        "forecast_testability": "testable",
+                        "forecast_type": "stock_outlook",
+                        "target": {"target_type": "stock", "target_id": "000001.SZ"},
+                        "benchmark": {},
+                        "direction": "positive",
+                        "horizon": {},
+                    }
+                ],
+                "analytical_footprints": [],
+                "metric_candidates": [],
+                "method_patterns": [],
+                "tool_gaps": [],
+            },
+        }
+
+    result = run_report_intelligence_refresh(
+        ReportIntelligenceConfig(
+            root=tmp_path,
+            source_ids=(source_id,),
+            qlib_stock_dir=qlib_stock_dir,
+            qlib_etf_dir=qlib_etf_dir,
+        ),
+        downloader=_fake_downloader,
+        converter=_fake_converter,
+        llm_extractor=llm,
+    )
+
+    assert result.stock_price_proxy_outcome_label_rows == 0
+    readiness = json.loads(
+        (tmp_path / "registry/report_intelligence/outcome_labeling_readiness.json")
+        .read_text(encoding="utf-8")
+    )
+    assert readiness["stock_price_proxy_readiness"]["data_gap_counts"] == {
+        "stock_entry_suspended": 1
+    }
+
+
+def test_report_intelligence_pit_audit_rejects_t0_stock_entry():
+    audit = build_report_intelligence_pit_leakage_audit(
+        run_id="RIR-PIT-STOCK-T0-TEST",
+        feature_flags={
+            "rollout_mode": "shadow_tooling",
+            "flags": {"production_use_of_weighted_reports": False},
+        },
+        metadata_rows=[
+            {
+                "source_id": "SRC-STOCK-T0",
+                "accessible_datetime": "2026-01-02T00:00:00+08:00",
+            }
+        ],
+        forecast_rows=[
+            {
+                "forecast_claim_id": "FC-STOCK-T0",
+                "source_id": "SRC-STOCK-T0",
+                "signal_datetime": "2026-01-02T00:00:00+08:00",
+            }
+        ],
+        forecast_ledger_rows=[
+            {
+                "forecast_claim_id": "FC-STOCK-T0",
+                "as_of_datetime": "2026-01-02T00:00:00+08:00",
+            }
+        ],
+        outcome_label_rows=[
+            {
+                "outcome_id": "OUT-STOCK-T0",
+                "forecast_claim_id": "FC-STOCK-T0",
+                "entry_datetime": "2026-01-02T00:00:00+08:00",
+                "exit_datetime": "2026-01-22T00:00:00+08:00",
+                "pit_valid": True,
+                "survivorship_safe": True,
+                "label_type": "stock_price_proxy",
+                "entry_lag_trading_days": 0,
+                "benchmark_source": "cn_etf",
+                "benchmark_alignment": "stock_calendar_index",
+                "latest_calendar_date": "2026-05-31",
+            }
+        ],
+        source_performance_profile_rows=[],
+        tool_coverage_match_rows=[],
+        analysis_recipe_rows=[],
+        weighted_research_context_rows=[],
+    )
+
+    assert audit["accepted"] is False
+    assert any("stock entry_datetime must be after signal date" in item for item in audit["blockers"])
+    assert any("stock entry_lag_trading_days" in item for item in audit["blockers"])
+    assert any("stock benchmark must align by date" in item for item in audit["blockers"])
+
+
+def test_report_intelligence_cli_help_exposes_stock_qlib_dir(capsys):
+    with pytest.raises(SystemExit) as exc:
+        main(("report-intelligence", "--help"))
+
+    assert exc.value.code == 0
+    help_text = capsys.readouterr().out
+    assert "--qlib-stock-dir" in help_text
+    assert ReportIntelligenceConfig().qlib_stock_dir == "~/.qlib/qlib_data/cn_data"
 
 
 def test_report_intelligence_counts_industry_etf_proxy_as_labelable_channel(

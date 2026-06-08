@@ -221,6 +221,34 @@
     },
     {
       "accepted": true,
+      "artifact_path": "registry/report_intelligence/recipe_paper_trading_runs.jsonl",
+      "failures": [],
+      "item_count": 5,
+      "schema_path": "schemas/report_intelligence_recipe_paper_trading_run.schema.json"
+    },
+    {
+      "accepted": true,
+      "artifact_path": "registry/report_intelligence/recipe_paper_trading_summary.json",
+      "failures": [],
+      "item_count": 1,
+      "schema_path": "schemas/report_intelligence_recipe_paper_trading_summary.schema.json"
+    },
+    {
+      "accepted": true,
+      "artifact_path": "registry/report_intelligence/confidence_impact_observations.jsonl",
+      "failures": [],
+      "item_count": 5,
+      "schema_path": "schemas/report_intelligence_confidence_impact_observation.schema.json"
+    },
+    {
+      "accepted": true,
+      "artifact_path": "registry/report_intelligence/confidence_impact_monitor.json",
+      "failures": [],
+      "item_count": 1,
+      "schema_path": "schemas/report_intelligence_confidence_impact_monitor.schema.json"
+    },
+    {
+      "accepted": true,
       "artifact_path": "registry/report_intelligence/weighted_research_contexts.jsonl",
       "failures": [],
       "item_count": 1,

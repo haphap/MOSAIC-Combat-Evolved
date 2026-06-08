@@ -1,0 +1,38 @@
+{
+  "as_of_datetime": "2026-06-08T06:09:08+00:00",
+  "blocked_count": 5,
+  "blocked_recipe_ids": [
+    "RECIPE-06f48d5a725b5b4e",
+    "RECIPE-21c2b0c93edbc457",
+    "RECIPE-97a328e964f973d4",
+    "RECIPE-b8ee217dbe374ffb",
+    "RECIPE-f7c95b83c13d5589"
+  ],
+  "blocker_counts": {
+    "insufficient_effective_n": 5,
+    "no_direct_recipe_outcome_binding": 5,
+    "required_tools_not_shadow_implemented": 5
+  },
+  "mean_cost_adjusted_alpha": null,
+  "minimum_effective_n": 3.0,
+  "paper_trading_run_count": 5,
+  "passed_recipe_ids": [],
+  "policy": "paper-trading validation is a shadow gate; profile support can prioritize recipes but cannot promote confidence impact without direct PIT paper-trading evidence",
+  "pre_registration_policy": "each recipe has a deterministic experiment id and pre-registration hash before any outcome metrics are evaluated",
+  "profile_paper_trade_disagreement_count": 0,
+  "protocol_version": "recipe_shadow_paper_trading_v1",
+  "recipe_count": 5,
+  "run_id": "RIR-PUBLIC-RECIPE-PAPER-TRADING",
+  "status_counts": {
+    "blocked": 5
+  },
+  "summary_id": "RKE-REPORT-INTELLIGENCE-RECIPE-PAPER-TRADING-SUMMARY",
+  "validation_pass_count": 0,
+  "validation_protocol": {
+    "benchmark_symbol": "SH510300",
+    "cost_model_id": "single_stock_round_trip_20bps_v1",
+    "entry_semantics": "T+1_or_more_conservative",
+    "production_decision_impact_allowed": false,
+    "profile_weight_is_sufficient": false
+  }
+}

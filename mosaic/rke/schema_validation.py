@@ -440,6 +440,30 @@ REPORT_INTELLIGENCE_JSON_SCHEMA_TARGETS = (
         False,
     ),
     (
+        "schemas/report_intelligence_recipe_paper_trading_run.schema.json",
+        "registry/report_intelligence/recipe_paper_trading_runs.jsonl",
+        "jsonl",
+        False,
+    ),
+    (
+        "schemas/report_intelligence_recipe_paper_trading_summary.schema.json",
+        "registry/report_intelligence/recipe_paper_trading_summary.json",
+        "json",
+        False,
+    ),
+    (
+        "schemas/report_intelligence_confidence_impact_observation.schema.json",
+        "registry/report_intelligence/confidence_impact_observations.jsonl",
+        "jsonl",
+        False,
+    ),
+    (
+        "schemas/report_intelligence_confidence_impact_monitor.schema.json",
+        "registry/report_intelligence/confidence_impact_monitor.json",
+        "json",
+        False,
+    ),
+    (
         "schemas/report_intelligence_weighted_research_context.schema.json",
         "registry/report_intelligence/weighted_research_contexts.jsonl",
         "jsonl",

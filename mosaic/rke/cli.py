@@ -796,6 +796,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Local qlib ETF data directory for proxy outcome labels.",
     )
     report_intelligence.add_argument(
+        "--qlib-stock-dir",
+        default="~/.qlib/qlib_data/cn_data",
+        help="Local qlib stock data directory for stock proxy outcome labels.",
+    )
+    report_intelligence.add_argument(
         "--chunk-chars",
         type=int,
         default=60000,
@@ -1206,6 +1211,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 vllm_base_url=args.vllm_base_url,
                 vllm_model=args.vllm_model,
                 qlib_etf_dir=args.qlib_etf_dir,
+                qlib_stock_dir=args.qlib_stock_dir,
                 chunk_chars=args.chunk_chars,
                 max_chunks=args.max_chunks,
             )

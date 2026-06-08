@@ -28,6 +28,18 @@
     "blocked_reason": {"type": "string"},
     "minimum_required_mapping": {"type": "array", "items": {"type": "string"}},
     "policy": {"type": "string", "minLength": 1},
+    "industry_etf_proxy_readiness": {"type": "object"},
+    "stock_price_proxy_readiness": {"type": "object"},
+    "industry_proxy_label_ready_count": {"type": "integer", "minimum": 0},
+    "stock_proxy_label_ready_count": {"type": "integer", "minimum": 0},
+    "industry_proxy_label_ready_forecast_claim_ids": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "stock_proxy_label_ready_forecast_claim_ids": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
     "next_actions": {"type": "array", "items": {"type": "string"}}
   },
   "additionalProperties": true
