@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RKE Report Intelligence Industry ETF Proxy PIT Availability",
+  "type": "object",
+  "required": [
+    "availability_id",
+    "policy",
+    "qlib_etf_dir_configured",
+    "windows_days",
+    "mapping_count",
+    "mapping_records",
+    "pit_available_mapping_count",
+    "pit_gap_counts",
+    "labelability_summary"
+  ],
+  "properties": {
+    "availability_id": {"type": "string", "minLength": 1},
+    "policy": {"type": "string", "minLength": 1},
+    "qlib_etf_dir_configured": {"type": "string", "minLength": 1},
+    "windows_days": {"type": "array", "items": {"type": "integer"}, "minItems": 1},
+    "mapping_count": {"type": "integer", "minimum": 0},
+    "mapping_records": {"type": "array", "items": {"type": "object"}},
+    "pit_available_mapping_count": {"type": "integer", "minimum": 0},
+    "pit_gap_counts": {"type": "object"},
+    "labelability_summary": {"type": "object"}
+  },
+  "additionalProperties": true
+}

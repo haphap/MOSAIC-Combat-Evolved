@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RKE Report Intelligence Industry ETF Proxy Map",
+  "type": "object",
+  "required": [
+    "mapping_id",
+    "mapping_version",
+    "sector_name",
+    "sector_aliases",
+    "taxonomy",
+    "etf_symbol",
+    "etf_name",
+    "benchmark_symbol",
+    "benchmark_source",
+    "benchmark_family",
+    "cost_model_id",
+    "mapping_confidence",
+    "mapping_rationale",
+    "status",
+    "review_required"
+  ],
+  "properties": {
+    "mapping_id": {"type": "string", "minLength": 1},
+    "mapping_version": {"type": "integer", "minimum": 1},
+    "sector_name": {"type": "string", "minLength": 1},
+    "sector_aliases": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+    "taxonomy": {"type": "string", "minLength": 1},
+    "etf_symbol": {"type": "string", "minLength": 1},
+    "etf_name": {"type": "string", "minLength": 1},
+    "mapping_label": {"type": "string"},
+    "benchmark_symbol": {"type": "string", "minLength": 1},
+    "benchmark_source": {"type": "string", "minLength": 1},
+    "benchmark_family": {"type": "string", "minLength": 1},
+    "cost_model_id": {"type": "string", "minLength": 1},
+    "mapping_confidence": {"type": "string", "minLength": 1},
+    "mapping_rationale": {"type": "string", "minLength": 1},
+    "effective_from": {"type": "string"},
+    "effective_to": {"type": "string"},
+    "status": {"enum": ["primary", "candidate", "retired", "blocked"]},
+    "review_required": {"type": "boolean"}
+  },
+  "additionalProperties": true
+}

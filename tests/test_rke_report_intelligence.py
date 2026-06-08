@@ -405,6 +405,9 @@ def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
     assert "tool_feasibility_audit" in result.outputs
     assert "recipe_validation_audit" in result.outputs
     assert "patch_v1_5_coverage_report" in result.outputs
+    assert "markdown_coverage_summary" in result.outputs
+    assert "industry_etf_proxy_map" in result.outputs
+    assert "industry_etf_proxy_pit_availability" in result.outputs
 
     metadata = _read_jsonl(tmp_path / "registry/report_intelligence/report_metadata.jsonl")
     assert metadata[0]["source_id"] == source_id
@@ -413,6 +416,20 @@ def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
     assert metadata[0]["extraction"]["llm_model"] == "fake-vllm"
     assert metadata[0]["source_row_license_status"] == "pending_review"
     assert metadata[0]["license_class"] == "operator_approved_internal_research_use"
+
+    markdown_coverage = json.loads(
+        (
+            tmp_path / "registry/report_intelligence/markdown_coverage_summary.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert markdown_coverage["selected_report_count"] == 1
+    assert markdown_coverage["markdown_ready_count"] == 1
+    assert markdown_coverage["markdown_quality_pass_count"] == 1
+    assert markdown_coverage["report_type_counts"] == {"宏观研报": 1}
+    coverage_dump = json.dumps(markdown_coverage, ensure_ascii=False)
+    assert source_id not in coverage_dump
+    assert "Liquidity report" not in coverage_dump
+    assert "https://example.invalid/report.pdf" not in coverage_dump
 
     forecasts = _read_jsonl(tmp_path / "registry/report_intelligence/forecast_claims.jsonl")
     assert forecasts[0]["source_span_ids"] == [
@@ -910,6 +927,16 @@ def test_report_intelligence_labels_industry_claims_with_etf_proxy_windows(
     assert {row["label_type"] for row in outcome_labels} == {"industry_etf_proxy"}
     assert {row["proxy_symbol"] for row in outcome_labels} == {"SH512400"}
     assert {row["benchmark_symbol"] for row in outcome_labels} == {"SH510300"}
+    assert {row["benchmark_source"] for row in outcome_labels} == {"cn_etf"}
+    assert {row["benchmark_family"] for row in outcome_labels} == {
+        "CSI300_ETF_PROXY"
+    }
+    assert {row["cost_model_id"] for row in outcome_labels} == {
+        "industry_etf_round_trip_10bps_v1"
+    }
+    assert all(str(row["mapping_id"]).startswith("IETF-MAP-") for row in outcome_labels)
+    assert {row["mapping_version"] for row in outcome_labels} == {1}
+    assert {row["pit_availability_status"] for row in outcome_labels} == {"available"}
     assert {row["decision_basis"] for row in outcome_labels} == {
         "absolute_proxy_return_direction"
     }
@@ -953,6 +980,28 @@ def test_report_intelligence_labels_industry_claims_with_etf_proxy_windows(
     assert readiness["standard_blocked_count"] == 0
     assert readiness["proxy_label_ready_count"] == 1
     assert readiness["proxy_label_only_ready_count"] == 0
+
+    mapping_rows = _read_jsonl(
+        tmp_path / "registry/report_intelligence/industry_etf_proxy_map.jsonl"
+    )
+    assert any(row["sector_name"] == "工业金属" for row in mapping_rows)
+    assert {row["status"] for row in mapping_rows} == {"primary"}
+
+    pit_availability = json.loads(
+        (
+            tmp_path
+            / "registry/report_intelligence/industry_etf_proxy_pit_availability.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert pit_availability["mapping_count"] == len(mapping_rows)
+    industrial_metals = next(
+        row for row in pit_availability["mapping_records"] if row["sector_name"] == "工业金属"
+    )
+    assert industrial_metals["pit_available"] is True
+    assert industrial_metals["available_window_days"] == [20, 60, 120]
+    availability_dump = json.dumps(pit_availability, ensure_ascii=False)
+    assert source_id not in availability_dump
+    assert "Liquidity report" not in availability_dump
     assert readiness["blocked_count"] == 0
 
 

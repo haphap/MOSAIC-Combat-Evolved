@@ -90,7 +90,7 @@
       "accepted": true,
       "artifact_path": "registry/report_intelligence/report_metadata.jsonl",
       "failures": [],
-      "item_count": 3,
+      "item_count": 2,
       "schema_path": "schemas/report_intelligence_report_metadata.schema.json"
     },
     {
@@ -104,7 +104,7 @@
       "accepted": true,
       "artifact_path": "registry/report_intelligence/analytical_footprints.jsonl",
       "failures": [],
-      "item_count": 8,
+      "item_count": 1,
       "schema_path": "schemas/report_intelligence_analytical_footprint.schema.json"
     },
     {
@@ -116,9 +116,30 @@
     },
     {
       "accepted": true,
+      "artifact_path": "registry/report_intelligence/markdown_coverage_summary.json",
+      "failures": [],
+      "item_count": 1,
+      "schema_path": "schemas/report_intelligence_markdown_coverage_summary.schema.json"
+    },
+    {
+      "accepted": true,
+      "artifact_path": "registry/report_intelligence/industry_etf_proxy_map.jsonl",
+      "failures": [],
+      "item_count": 17,
+      "schema_path": "schemas/report_intelligence_industry_etf_proxy_map.schema.json"
+    },
+    {
+      "accepted": true,
+      "artifact_path": "registry/report_intelligence/industry_etf_proxy_pit_availability.json",
+      "failures": [],
+      "item_count": 1,
+      "schema_path": "schemas/report_intelligence_industry_etf_proxy_pit_availability.schema.json"
+    },
+    {
+      "accepted": true,
       "artifact_path": "registry/report_intelligence/report_outcome_labels.jsonl",
       "failures": [],
-      "item_count": 15,
+      "item_count": 0,
       "schema_path": "schemas/report_intelligence_report_outcome_label.schema.json"
     },
     {
@@ -300,7 +321,7 @@
       "accepted": true,
       "artifact_path": "registry/report_intelligence",
       "failures": [],
-      "item_count": 20,
+      "item_count": 13,
       "schema_path": "schemas/report_intelligence_provenance_rules"
     },
     {

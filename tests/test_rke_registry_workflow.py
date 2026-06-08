@@ -86,6 +86,18 @@ def test_required_registry_files_are_present_in_repo():
         "registry/report_intelligence/analytical_footprint_error_taxonomy.json"
         in REQUIRED_REGISTRY_FILES
     )
+    assert (
+        "registry/report_intelligence/markdown_coverage_summary.json"
+        in REQUIRED_REGISTRY_FILES
+    )
+    assert (
+        "registry/report_intelligence/industry_etf_proxy_map.jsonl"
+        in REQUIRED_REGISTRY_FILES
+    )
+    assert (
+        "registry/report_intelligence/industry_etf_proxy_pit_availability.json"
+        in REQUIRED_REGISTRY_FILES
+    )
 
 
 def test_registry_manifest_tracks_hashes_and_required_artifacts(tmp_path: Path):

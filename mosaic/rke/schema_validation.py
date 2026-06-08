@@ -350,6 +350,24 @@ REPORT_INTELLIGENCE_JSON_SCHEMA_TARGETS = (
         False,
     ),
     (
+        "schemas/report_intelligence_markdown_coverage_summary.schema.json",
+        "registry/report_intelligence/markdown_coverage_summary.json",
+        "json",
+        False,
+    ),
+    (
+        "schemas/report_intelligence_industry_etf_proxy_map.schema.json",
+        "registry/report_intelligence/industry_etf_proxy_map.jsonl",
+        "jsonl",
+        False,
+    ),
+    (
+        "schemas/report_intelligence_industry_etf_proxy_pit_availability.schema.json",
+        "registry/report_intelligence/industry_etf_proxy_pit_availability.json",
+        "json",
+        False,
+    ),
+    (
         "schemas/report_intelligence_report_outcome_label.schema.json",
         "registry/report_intelligence/report_outcome_labels.jsonl",
         "jsonl",

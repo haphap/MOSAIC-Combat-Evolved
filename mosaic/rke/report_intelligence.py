@@ -65,6 +65,15 @@ REPORT_INTELLIGENCE_RECIPE_VALIDATION_AUDIT_PATH = (
 REPORT_INTELLIGENCE_PATCH_V1_5_COVERAGE_REPORT_PATH = (
     "registry/report_intelligence/patch_v1_5_coverage_report.json"
 )
+REPORT_INTELLIGENCE_MARKDOWN_COVERAGE_SUMMARY_PATH = (
+    "registry/report_intelligence/markdown_coverage_summary.json"
+)
+REPORT_INTELLIGENCE_INDUSTRY_ETF_PROXY_MAP_PATH = (
+    "registry/report_intelligence/industry_etf_proxy_map.jsonl"
+)
+REPORT_INTELLIGENCE_INDUSTRY_ETF_PROXY_PIT_AVAILABILITY_PATH = (
+    "registry/report_intelligence/industry_etf_proxy_pit_availability.json"
+)
 REPORT_INTELLIGENCE_PRIVATE_OUTPUT_PATHS = frozenset(
     {
         ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH,
@@ -100,6 +109,9 @@ REPORT_INTELLIGENCE_PUBLIC_DERIVED_OUTPUT_PATHS = frozenset(
         "registry/report_intelligence/data_acquisition_proposals.jsonl",
         "registry/report_intelligence/extraction_report.json",
         "registry/report_intelligence/feature_flags.json",
+        REPORT_INTELLIGENCE_INDUSTRY_ETF_PROXY_MAP_PATH,
+        REPORT_INTELLIGENCE_INDUSTRY_ETF_PROXY_PIT_AVAILABILITY_PATH,
+        REPORT_INTELLIGENCE_MARKDOWN_COVERAGE_SUMMARY_PATH,
         "registry/report_intelligence/method_patterns.jsonl",
         "registry/report_intelligence/method_performance_profiles.jsonl",
         "registry/report_intelligence/metric_candidates.jsonl",
@@ -291,6 +303,10 @@ INDUSTRY_ETF_ROUND_TRIP_COST = 0.001
 INDUSTRY_ETF_EVALUATION_POLICY = (
     "industry_etf_t_plus_1_multi_window_proxy_retains_long_horizon_evidence"
 )
+INDUSTRY_ETF_MAPPING_VERSION = 1
+INDUSTRY_ETF_BENCHMARK_SOURCE = "cn_etf"
+INDUSTRY_ETF_BENCHMARK_FAMILY = "CSI300_ETF_PROXY"
+INDUSTRY_ETF_COST_MODEL_ID = "industry_etf_round_trip_10bps_v1"
 INDUSTRY_ETF_PROXY_MAPPING: Mapping[str, Mapping[str, str]] = {
     "工业金属": {"etf_symbol": "SH512400", "mapping_label": "有色ETF"},
     "有色金属": {"etf_symbol": "SH512400", "mapping_label": "有色ETF"},
@@ -3605,16 +3621,6 @@ def _is_industry_research_report(report_type: Any) -> bool:
     return "行业" in str(report_type or "")
 
 
-def _industry_etf_proxy_for_sector(sector: str) -> Mapping[str, str] | None:
-    normalized = str(sector or "").strip()
-    if normalized in INDUSTRY_ETF_PROXY_MAPPING:
-        return INDUSTRY_ETF_PROXY_MAPPING[normalized]
-    for key, value in INDUSTRY_ETF_PROXY_MAPPING.items():
-        if key and key in normalized:
-            return value
-    return None
-
-
 def _industry_etf_window_role(horizon_days: int) -> str:
     if horizon_days <= 20:
         return "short"
@@ -3713,14 +3719,346 @@ def _source_report_metadata(
     return {str(row.get("source_id") or ""): row for row in metadata_rows}
 
 
+def _increment_count(counts: dict[str, int], key: Any, *, default: str = "unknown") -> None:
+    normalized = str(key or "").strip() or default
+    counts[normalized] = counts.get(normalized, 0) + 1
+
+
+def _is_pdf_ready(pdf: Mapping[str, Any]) -> bool:
+    return str(pdf.get("status") or "") in {"cached", "downloaded"}
+
+
+def _is_markdown_ready(markdown: Mapping[str, Any]) -> bool:
+    return str(markdown.get("status") or "") in {
+        "cached",
+        "converted",
+        "converted_text_source",
+    }
+
+
+def _markdown_quality_gap(markdown: Mapping[str, Any]) -> str:
+    status = str(markdown.get("status") or "not_attempted")
+    if not _is_markdown_ready(markdown):
+        blocker = str(markdown.get("blocker") or "").strip()
+        return blocker or f"markdown_status_{status}"
+    if int(markdown.get("bytes") or 0) <= 0:
+        return "markdown_empty"
+    if bool(markdown.get("timed_out")):
+        return "markdown_timed_out"
+    return ""
+
+
+def build_markdown_coverage_summary(
+    *,
+    run_id: str,
+    metadata_rows: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    report_type_counts: dict[str, int] = {}
+    sector_bucket_counts: dict[str, int] = {}
+    conversion_backend_counts: dict[str, int] = {}
+    quality_gap_counts: dict[str, int] = {}
+    pdf_ready_count = 0
+    markdown_ready_count = 0
+    markdown_quality_pass_count = 0
+    retry_queue_count = 0
+    for row in metadata_rows:
+        _increment_count(report_type_counts, row.get("report_type"))
+        _increment_count(sector_bucket_counts, row.get("sector"))
+        pdf = _ensure_mapping(row.get("pdf"))
+        markdown = _ensure_mapping(row.get("markdown"))
+        if _is_pdf_ready(pdf):
+            pdf_ready_count += 1
+        backend = str(markdown.get("backend") or "").strip()
+        if backend:
+            _increment_count(conversion_backend_counts, backend)
+        if _is_markdown_ready(markdown):
+            markdown_ready_count += 1
+        gap = _markdown_quality_gap(markdown)
+        if gap:
+            _increment_count(quality_gap_counts, gap)
+            if any(marker in gap for marker in ("mineru", "timeout", "failed", "not_found")):
+                retry_queue_count += 1
+        else:
+            markdown_quality_pass_count += 1
+    return {
+        "coverage_id": "RKE-REPORT-MARKDOWN-COVERAGE-SUMMARY",
+        "run_id": run_id,
+        "selected_report_count": len(metadata_rows),
+        "pdf_download_ready_count": pdf_ready_count,
+        "markdown_ready_count": markdown_ready_count,
+        "markdown_quality_pass_count": markdown_quality_pass_count,
+        "markdown_quality_gap_counts": dict(sorted(quality_gap_counts.items())),
+        "report_type_counts": dict(sorted(report_type_counts.items())),
+        "sector_bucket_counts": dict(sorted(sector_bucket_counts.items())),
+        "conversion_backend_counts": dict(sorted(conversion_backend_counts.items())),
+        "retry_queue_count": retry_queue_count,
+        "private_artifact_redaction_policy": (
+            "public coverage summary stores aggregate counts only; no "
+            "source-specific content, retrieval locator, local file reference, "
+            "or report prose is allowed"
+        ),
+    }
+
+
+def build_default_industry_etf_proxy_map_rows() -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for sector_name, mapping in sorted(INDUSTRY_ETF_PROXY_MAPPING.items()):
+        etf_symbol = str(mapping.get("etf_symbol") or "")
+        etf_name = str(mapping.get("mapping_label") or "")
+        rows.append(
+            {
+                "mapping_id": _stable_id(
+                    "IETF-MAP",
+                    {
+                        "sector_name": sector_name,
+                        "etf_symbol": etf_symbol,
+                        "version": INDUSTRY_ETF_MAPPING_VERSION,
+                    },
+                ),
+                "mapping_version": INDUSTRY_ETF_MAPPING_VERSION,
+                "sector_name": sector_name,
+                "sector_aliases": [sector_name],
+                "taxonomy": "operator_seeded_tushare_industry",
+                "etf_symbol": etf_symbol,
+                "etf_name": etf_name,
+                "mapping_label": etf_name,
+                "benchmark_symbol": INDUSTRY_ETF_BENCHMARK_SYMBOL,
+                "benchmark_source": INDUSTRY_ETF_BENCHMARK_SOURCE,
+                "benchmark_family": INDUSTRY_ETF_BENCHMARK_FAMILY,
+                "cost_model_id": INDUSTRY_ETF_COST_MODEL_ID,
+                "mapping_confidence": "operator_seeded_exact_sector",
+                "mapping_rationale": (
+                    "Operator-seeded sector-to-ETF proxy used for governed "
+                    "industry research outcome labels."
+                ),
+                "effective_from": "",
+                "effective_to": "",
+                "status": "primary",
+                "review_required": False,
+            }
+        )
+    return rows
+
+
+def _read_industry_etf_proxy_map_rows(registry_dir: Path) -> list[Mapping[str, Any]]:
+    map_path = registry_dir / "industry_etf_proxy_map.jsonl"
+    if not map_path.exists():
+        return build_default_industry_etf_proxy_map_rows()
+    rows, _errors = load_jsonl_with_errors(map_path, label="industry_etf_proxy_map")
+    mapping_rows = [row for row in rows if isinstance(row, Mapping)]
+    return mapping_rows or build_default_industry_etf_proxy_map_rows()
+
+
+def _industry_etf_proxy_for_sector(
+    sector: str,
+    mapping_rows: Sequence[Mapping[str, Any]] | None = None,
+) -> Mapping[str, Any] | None:
+    rows = list(mapping_rows or build_default_industry_etf_proxy_map_rows())
+    normalized = str(sector or "").strip()
+    primary_rows = [
+        row for row in rows if str(row.get("status") or "primary") == "primary"
+    ]
+    for row in primary_rows:
+        names = [
+            str(row.get("sector_name") or ""),
+            *[str(item) for item in _ensure_list(row.get("sector_aliases"))],
+        ]
+        for name in names:
+            if not name:
+                continue
+            if normalized == name or name in normalized:
+                return row
+    return None
+
+
+def _series_available_dates(
+    *,
+    calendar: Sequence[str],
+    start_index: int,
+    values: Sequence[float],
+) -> list[str]:
+    dates: list[str] = []
+    for offset, value in enumerate(values):
+        calendar_index = start_index + offset
+        if calendar_index >= len(calendar):
+            break
+        if value == value and value > 0:
+            dates.append(calendar[calendar_index])
+    return dates
+
+
+def build_industry_etf_proxy_pit_availability(
+    *,
+    root_path: Path,
+    qlib_etf_dir: str | Path,
+    mapping_rows: Sequence[Mapping[str, Any]],
+    forecast_rows: Sequence[Mapping[str, Any]] = (),
+    metadata_rows: Sequence[Mapping[str, Any]] = (),
+    windows_days: Sequence[int] = INDUSTRY_ETF_PROXY_WINDOWS_DAYS,
+) -> dict[str, Any]:
+    qlib_dir = _resolve_qlib_etf_dir(root_path, qlib_etf_dir)
+    calendar = _read_trading_calendar(qlib_dir)
+    benchmark_start, benchmark_values = _read_qlib_series(
+        qlib_dir,
+        INDUSTRY_ETF_BENCHMARK_SYMBOL,
+    )
+    benchmark_available = bool(calendar and benchmark_values)
+    metadata_by_source = _source_report_metadata(metadata_rows)
+    mapping_records: list[dict[str, Any]] = []
+    aggregate_gap_counts: dict[str, int] = {}
+    for row in mapping_rows:
+        etf_symbol = str(row.get("etf_symbol") or "")
+        start_index, values = _read_qlib_series(qlib_dir, etf_symbol)
+        available_dates = _series_available_dates(
+            calendar=calendar,
+            start_index=start_index,
+            values=values,
+        )
+        missing_price_count = sum(
+            1 for value in values if value != value or value <= 0
+        )
+        available_window_days = [
+            int(window)
+            for window in windows_days
+            if available_dates and len(available_dates) > int(window)
+        ]
+        pit_gap_reasons: list[str] = []
+        if not calendar:
+            pit_gap_reasons.append("calendar_missing")
+        if not values:
+            pit_gap_reasons.append("proxy_series_missing")
+        if not benchmark_available:
+            pit_gap_reasons.append("benchmark_series_missing")
+        if len(available_window_days) < len(windows_days):
+            pit_gap_reasons.append("insufficient_window_history")
+        for reason in pit_gap_reasons:
+            _increment_count(aggregate_gap_counts, reason)
+        mapping_records.append(
+            {
+                "mapping_id": str(row.get("mapping_id") or ""),
+                "mapping_version": int(row.get("mapping_version") or 1),
+                "sector_name": str(row.get("sector_name") or ""),
+                "etf_symbol": etf_symbol,
+                "benchmark_symbol": str(
+                    row.get("benchmark_symbol") or INDUSTRY_ETF_BENCHMARK_SYMBOL
+                ),
+                "benchmark_source": str(
+                    row.get("benchmark_source") or INDUSTRY_ETF_BENCHMARK_SOURCE
+                ),
+                "benchmark_family": str(
+                    row.get("benchmark_family") or INDUSTRY_ETF_BENCHMARK_FAMILY
+                ),
+                "calendar_source": str(qlib_etf_dir),
+                "earliest_price_date": available_dates[0] if available_dates else "",
+                "latest_price_date": available_dates[-1] if available_dates else "",
+                "latest_calendar_date": calendar[-1] if calendar else "",
+                "has_20d_window": 20 in available_window_days,
+                "has_60d_window": 60 in available_window_days,
+                "has_120d_window": 120 in available_window_days,
+                "available_window_days": available_window_days,
+                "missing_price_count": missing_price_count,
+                "stale_price_gap_count": missing_price_count,
+                "benchmark_available": benchmark_available,
+                "pit_available": not pit_gap_reasons,
+                "pit_gap_reasons": pit_gap_reasons,
+            }
+        )
+    eligible_claim_count = 0
+    labelable_claim_count = 0
+    labelable_window_count = 0
+    pending_future_window_count = 0
+    label_gap_counts: dict[str, int] = {}
+    for claim in forecast_rows:
+        metadata = metadata_by_source.get(str(claim.get("source_id") or "")) or {}
+        if not _is_industry_research_report(metadata.get("report_type")):
+            continue
+        direction = str(claim.get("direction") or "unknown").lower()
+        if direction not in {"positive", "negative"}:
+            _increment_count(label_gap_counts, "direction_missing_or_unsupported")
+            continue
+        proxy = _industry_etf_proxy_for_sector(
+            str(metadata.get("sector") or ""),
+            mapping_rows,
+        )
+        if proxy is None:
+            _increment_count(label_gap_counts, "sector_etf_mapping_missing")
+            continue
+        eligible_claim_count += 1
+        if not calendar:
+            _increment_count(label_gap_counts, "calendar_missing")
+            continue
+        entry_index = _entry_calendar_index(
+            calendar,
+            str(claim.get("signal_datetime") or ""),
+        )
+        if entry_index is None:
+            _increment_count(label_gap_counts, "entry_date_after_latest_calendar")
+            continue
+        etf_start, etf_values = _read_qlib_series(qlib_dir, str(proxy.get("etf_symbol") or ""))
+        claim_window_count = 0
+        for window in windows_days:
+            exit_index = entry_index + int(window)
+            if exit_index >= len(calendar):
+                pending_future_window_count += 1
+                continue
+            if _series_value_at_calendar_index(
+                start_index=etf_start,
+                values=etf_values,
+                calendar_index=exit_index,
+            ) is None:
+                _increment_count(label_gap_counts, "proxy_series_missing")
+                continue
+            claim_window_count += 1
+            labelable_window_count += 1
+        if claim_window_count:
+            labelable_claim_count += 1
+    return {
+        "availability_id": "RKE-REPORT-INDUSTRY-ETF-PROXY-PIT-AVAILABILITY",
+        "policy": (
+            "Each sector-to-ETF mapping records PIT price availability and "
+            "labelability gaps before industry outcome labels are generated."
+        ),
+        "qlib_etf_dir_configured": str(qlib_etf_dir),
+        "windows_days": [int(value) for value in windows_days],
+        "mapping_count": len(mapping_records),
+        "mapping_records": mapping_records,
+        "pit_available_mapping_count": sum(
+            1 for record in mapping_records if record["pit_available"]
+        ),
+        "pit_gap_counts": dict(sorted(aggregate_gap_counts.items())),
+        "labelability_summary": {
+            "eligible_claim_count": eligible_claim_count,
+            "labelable_claim_count": labelable_claim_count,
+            "labelable_window_count": labelable_window_count,
+            "pending_future_window_count": pending_future_window_count,
+            "sector_etf_mapping_missing_count": label_gap_counts.get(
+                "sector_etf_mapping_missing",
+                0,
+            ),
+            "proxy_series_missing_count": label_gap_counts.get(
+                "proxy_series_missing",
+                0,
+            ),
+            "benchmark_series_missing_count": label_gap_counts.get(
+                "benchmark_series_missing",
+                0,
+            ),
+            "data_gap_counts": dict(sorted(label_gap_counts.items())),
+        },
+    }
+
+
 def build_industry_etf_proxy_readiness(
     *,
     root_path: Path,
     qlib_etf_dir: str | Path,
     forecast_rows: Sequence[Mapping[str, Any]],
     metadata_rows: Sequence[Mapping[str, Any]],
+    mapping_rows: Sequence[Mapping[str, Any]] | None = None,
+    pit_availability: Mapping[str, Any] | None = None,
     windows_days: Sequence[int] = INDUSTRY_ETF_PROXY_WINDOWS_DAYS,
 ) -> dict[str, Any]:
+    mapping_rows = tuple(mapping_rows or build_default_industry_etf_proxy_map_rows())
     qlib_dir = _resolve_qlib_etf_dir(root_path, qlib_etf_dir)
     calendar = _read_trading_calendar(qlib_dir)
     benchmark_start, benchmark_values = _read_qlib_series(
@@ -3746,7 +4084,7 @@ def build_industry_etf_proxy_readiness(
             add_gap("direction_missing_or_unsupported")
             continue
         sector = str(metadata.get("sector") or "")
-        proxy = _industry_etf_proxy_for_sector(sector)
+        proxy = _industry_etf_proxy_for_sector(sector, mapping_rows)
         if proxy is None:
             add_gap("sector_etf_mapping_missing")
             continue
@@ -3813,8 +4151,12 @@ def build_industry_etf_proxy_readiness(
         "windows_days": [int(value) for value in windows_days],
         "entry_lag_trading_days": INDUSTRY_ETF_ENTRY_LAG_TRADING_DAYS,
         "benchmark_symbol": INDUSTRY_ETF_BENCHMARK_SYMBOL,
+        "benchmark_source": INDUSTRY_ETF_BENCHMARK_SOURCE,
+        "benchmark_family": INDUSTRY_ETF_BENCHMARK_FAMILY,
+        "cost_model_id": INDUSTRY_ETF_COST_MODEL_ID,
         "qlib_etf_dir_configured": str(qlib_etf_dir),
         "latest_calendar_date": calendar[-1] if calendar else "",
+        "mapping_count": len(mapping_rows),
         "eligible_claim_count": len(eligible_claim_ids),
         "eligible_forecast_claim_ids": eligible_claim_ids,
         "labelable_forecast_claim_count": len(labelable_claim_ids),
@@ -3822,6 +4164,18 @@ def build_industry_etf_proxy_readiness(
         "labelable_window_count": labelable_window_count,
         "pending_future_window_count": pending_future_window_count,
         "data_gap_counts": dict(sorted(data_gap_counts.items())),
+        "pit_availability_status": {
+            "availability_id": str(
+                _ensure_mapping(pit_availability).get("availability_id") or ""
+            ),
+            "pit_available_mapping_count": int(
+                _ensure_mapping(pit_availability).get("pit_available_mapping_count")
+                or 0
+            ),
+            "pit_gap_counts": _ensure_mapping(
+                _ensure_mapping(pit_availability).get("pit_gap_counts")
+            ),
+        },
     }
 
 
@@ -3832,8 +4186,18 @@ def build_industry_etf_proxy_outcome_labels(
     forecast_rows: Sequence[Mapping[str, Any]],
     forecast_ledger_rows: Sequence[Mapping[str, Any]],
     metadata_rows: Sequence[Mapping[str, Any]],
+    mapping_rows: Sequence[Mapping[str, Any]] | None = None,
+    pit_availability: Mapping[str, Any] | None = None,
     windows_days: Sequence[int] = INDUSTRY_ETF_PROXY_WINDOWS_DAYS,
 ) -> list[dict[str, Any]]:
+    mapping_rows = tuple(mapping_rows or build_default_industry_etf_proxy_map_rows())
+    availability_by_mapping_id = {
+        str(row.get("mapping_id") or ""): row
+        for row in _ensure_list(
+            _ensure_mapping(pit_availability).get("mapping_records")
+        )
+        if isinstance(row, Mapping)
+    }
     qlib_dir = _resolve_qlib_etf_dir(root_path, qlib_etf_dir)
     calendar = _read_trading_calendar(qlib_dir)
     if not calendar:
@@ -3858,10 +4222,12 @@ def build_industry_etf_proxy_outcome_labels(
         if not _is_industry_research_report(metadata.get("report_type")):
             continue
         sector = str(metadata.get("sector") or "")
-        proxy = _industry_etf_proxy_for_sector(sector)
+        proxy = _industry_etf_proxy_for_sector(sector, mapping_rows)
         if proxy is None:
             continue
         etf_symbol = str(proxy["etf_symbol"])
+        mapping_id = str(proxy.get("mapping_id") or "")
+        mapping_availability = availability_by_mapping_id.get(mapping_id) or {}
         etf_start, etf_values = _read_qlib_series(qlib_dir, etf_symbol)
         if not etf_values:
             continue
@@ -3976,10 +4342,35 @@ def build_industry_etf_proxy_outcome_labels(
                     "survivorship_safe": True,
                     "label_type": "industry_etf_proxy",
                     "proxy_symbol": etf_symbol,
-                    "proxy_label": proxy.get("mapping_label") or "",
+                    "proxy_label": proxy.get("mapping_label")
+                    or proxy.get("etf_name")
+                    or "",
                     "proxy_sector": sector,
-                    "proxy_mapping_confidence": "operator_seeded_exact_sector",
-                    "benchmark_symbol": INDUSTRY_ETF_BENCHMARK_SYMBOL,
+                    "mapping_id": mapping_id,
+                    "mapping_version": int(proxy.get("mapping_version") or 1),
+                    "mapping_confidence": str(
+                        proxy.get("mapping_confidence")
+                        or "operator_seeded_exact_sector"
+                    ),
+                    "proxy_mapping_confidence": str(
+                        proxy.get("mapping_confidence")
+                        or "operator_seeded_exact_sector"
+                    ),
+                    "pit_availability_status": "available"
+                    if mapping_availability.get("pit_available") is True
+                    else "unverified",
+                    "benchmark_symbol": str(
+                        proxy.get("benchmark_symbol") or INDUSTRY_ETF_BENCHMARK_SYMBOL
+                    ),
+                    "benchmark_source": str(
+                        proxy.get("benchmark_source") or INDUSTRY_ETF_BENCHMARK_SOURCE
+                    ),
+                    "benchmark_family": str(
+                        proxy.get("benchmark_family") or INDUSTRY_ETF_BENCHMARK_FAMILY
+                    ),
+                    "cost_model_id": str(
+                        proxy.get("cost_model_id") or INDUSTRY_ETF_COST_MODEL_ID
+                    ),
                     "proxy_return": round(proxy_return, 8),
                     "benchmark_return": round(benchmark_return, 8),
                     "relative_directional_hit": bool(relative_directional_hit),
@@ -4016,6 +4407,8 @@ def build_outcome_label_records(
     forecast_rows: Sequence[Mapping[str, Any]],
     forecast_ledger_rows: Sequence[Mapping[str, Any]],
     metadata_rows: Sequence[Mapping[str, Any]],
+    industry_etf_proxy_map_rows: Sequence[Mapping[str, Any]] | None = None,
+    industry_etf_proxy_pit_availability: Mapping[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Build PIT outcome labels. Phase C starts with conservative ETF proxies."""
     return build_industry_etf_proxy_outcome_labels(
@@ -4024,6 +4417,8 @@ def build_outcome_label_records(
         forecast_rows=forecast_rows,
         forecast_ledger_rows=forecast_ledger_rows,
         metadata_rows=metadata_rows,
+        mapping_rows=industry_etf_proxy_map_rows,
+        pit_availability=industry_etf_proxy_pit_availability,
     )
 
 
@@ -9673,18 +10068,34 @@ def run_report_intelligence_derived_refresh(
     )
 
     forecast_ledger_rows = build_forecast_ledger_records(forecast_rows)
+    markdown_coverage_summary = build_markdown_coverage_summary(
+        run_id=run_id,
+        metadata_rows=metadata_rows,
+    )
+    industry_etf_proxy_map_rows = _read_industry_etf_proxy_map_rows(registry_dir)
+    industry_etf_proxy_pit_availability = build_industry_etf_proxy_pit_availability(
+        root_path=root_path,
+        qlib_etf_dir=cfg.qlib_etf_dir,
+        mapping_rows=industry_etf_proxy_map_rows,
+        forecast_rows=forecast_rows,
+        metadata_rows=metadata_rows,
+    )
     outcome_label_rows = build_outcome_label_records(
         root_path=root_path,
         qlib_etf_dir=cfg.qlib_etf_dir,
         forecast_rows=forecast_rows,
         forecast_ledger_rows=forecast_ledger_rows,
         metadata_rows=metadata_rows,
+        industry_etf_proxy_map_rows=industry_etf_proxy_map_rows,
+        industry_etf_proxy_pit_availability=industry_etf_proxy_pit_availability,
     )
     industry_etf_proxy_readiness = build_industry_etf_proxy_readiness(
         root_path=root_path,
         qlib_etf_dir=cfg.qlib_etf_dir,
         forecast_rows=forecast_rows,
         metadata_rows=metadata_rows,
+        mapping_rows=industry_etf_proxy_map_rows,
+        pit_availability=industry_etf_proxy_pit_availability,
     )
     outcome_labeling_readiness = build_outcome_labeling_readiness_report(
         forecast_rows=forecast_rows,
@@ -9890,6 +10301,24 @@ def run_report_intelligence_derived_refresh(
             _write_jsonl(
                 registry_dir / "report_forecast_ledger.jsonl",
                 forecast_ledger_rows,
+            )["path"]
+        ),
+        "markdown_coverage_summary": str(
+            _write_json(
+                registry_dir / "markdown_coverage_summary.json",
+                markdown_coverage_summary,
+            )["path"]
+        ),
+        "industry_etf_proxy_map": str(
+            _write_jsonl(
+                registry_dir / "industry_etf_proxy_map.jsonl",
+                industry_etf_proxy_map_rows,
+            )["path"]
+        ),
+        "industry_etf_proxy_pit_availability": str(
+            _write_json(
+                registry_dir / "industry_etf_proxy_pit_availability.json",
+                industry_etf_proxy_pit_availability,
             )["path"]
         ),
         "outcome_labeling_readiness": str(
@@ -10362,18 +10791,34 @@ def run_report_intelligence_refresh(
         run_id=run_id,
     )
     forecast_ledger_rows = build_forecast_ledger_records(forecast_rows)
+    markdown_coverage_summary = build_markdown_coverage_summary(
+        run_id=run_id,
+        metadata_rows=metadata_rows,
+    )
+    industry_etf_proxy_map_rows = _read_industry_etf_proxy_map_rows(registry_dir)
+    industry_etf_proxy_pit_availability = build_industry_etf_proxy_pit_availability(
+        root_path=root_path,
+        qlib_etf_dir=cfg.qlib_etf_dir,
+        mapping_rows=industry_etf_proxy_map_rows,
+        forecast_rows=forecast_rows,
+        metadata_rows=metadata_rows,
+    )
     outcome_label_rows = build_outcome_label_records(
         root_path=root_path,
         qlib_etf_dir=cfg.qlib_etf_dir,
         forecast_rows=forecast_rows,
         forecast_ledger_rows=forecast_ledger_rows,
         metadata_rows=metadata_rows,
+        industry_etf_proxy_map_rows=industry_etf_proxy_map_rows,
+        industry_etf_proxy_pit_availability=industry_etf_proxy_pit_availability,
     )
     industry_etf_proxy_readiness = build_industry_etf_proxy_readiness(
         root_path=root_path,
         qlib_etf_dir=cfg.qlib_etf_dir,
         forecast_rows=forecast_rows,
         metadata_rows=metadata_rows,
+        mapping_rows=industry_etf_proxy_map_rows,
+        pit_availability=industry_etf_proxy_pit_availability,
     )
     outcome_labeling_readiness = build_outcome_labeling_readiness_report(
         forecast_rows=forecast_rows,
@@ -10583,6 +11028,24 @@ def run_report_intelligence_refresh(
             _write_jsonl(
                 registry_dir / "report_forecast_ledger.jsonl",
                 forecast_ledger_rows,
+            )["path"]
+        ),
+        "markdown_coverage_summary": str(
+            _write_json(
+                registry_dir / "markdown_coverage_summary.json",
+                markdown_coverage_summary,
+            )["path"]
+        ),
+        "industry_etf_proxy_map": str(
+            _write_jsonl(
+                registry_dir / "industry_etf_proxy_map.jsonl",
+                industry_etf_proxy_map_rows,
+            )["path"]
+        ),
+        "industry_etf_proxy_pit_availability": str(
+            _write_json(
+                registry_dir / "industry_etf_proxy_pit_availability.json",
+                industry_etf_proxy_pit_availability,
             )["path"]
         ),
         "outcome_labeling_readiness": str(
