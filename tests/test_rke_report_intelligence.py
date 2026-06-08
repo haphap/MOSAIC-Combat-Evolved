@@ -1834,6 +1834,71 @@ def test_report_intelligence_prompt_mutation_candidates_track_markdown_coverage_
     assert "source_span_ids" not in candidate_dump
 
 
+def test_report_intelligence_prompt_mutation_candidates_track_evolution_thresholds():
+    forecast_rows = [{"forecast_claim_id": f"FC-TEST-{index:03d}"} for index in range(10)]
+    outcome_rows = [
+        {
+            "forecast_claim_id": f"FC-STOCK-{index:03d}",
+            "label_type": "stock_price_proxy",
+        }
+        for index in range(5)
+    ]
+    paper_runs = [
+        {
+            "analysis_recipe_id": f"RECIPE-THRESHOLD-{index:03d}",
+            "paper_trading_status": "passed",
+            "blocked_reasons": [],
+        }
+        for index in range(4)
+    ]
+
+    candidates = build_prompt_mutation_candidates(
+        run_id="RIR-TEST-MUTATION",
+        outcome_labeling_readiness={
+            "mapping_gap_counts": {},
+            "stock_price_proxy_readiness": {"data_gap_counts": {}},
+            "industry_etf_proxy_readiness": {"data_gap_counts": {}},
+        },
+        tool_gap_rows=[],
+        recipe_paper_trading_runs=paper_runs,
+        confidence_impact_observation_rows=[],
+        confidence_impact_monitor={"drift_status_counts": {}},
+        markdown_coverage_summary={"markdown_quality_gap_counts": {}},
+        industry_etf_proxy_pit_availability={"pit_gap_counts": {}},
+        forecast_rows=forecast_rows,
+        outcome_label_rows=outcome_rows,
+    )
+
+    by_type = {row["candidate_type"]: row for row in candidates}
+    outcome = by_type["outcome_coverage_expansion_rule"]
+    outcome_evidence = outcome["evidence_refs"][0]
+    assert outcome["severity"] == "high"
+    assert outcome["target_component"] == "report_selection_and_outcome_labeling"
+    assert outcome_evidence["unique_outcome_claim_count"] == 5
+    assert outcome_evidence["stock_proxy_unique_claim_count"] == 5
+    assert outcome_evidence["industry_proxy_unique_claim_count"] == 0
+    assert outcome_evidence["threshold_gaps"] == {
+        "industry_proxy_unique_claim_count": 30,
+        "stock_proxy_unique_claim_count": 25,
+        "unique_outcome_claim_count": 95,
+    }
+
+    paper = by_type["recipe_paper_trading_expansion_rule"]
+    paper_evidence = paper["evidence_refs"][0]
+    assert paper["target_component"] == "pre_registered_recipe_paper_trading_queue"
+    assert paper_evidence["paper_trading_run_count"] == 4
+    assert paper_evidence["validation_pass_count"] == 4
+    assert paper_evidence["threshold_gaps"] == {
+        "paper_trading_run_count": 16,
+        "validation_pass_count": 16,
+    }
+    dump = json.dumps(candidates, ensure_ascii=False)
+    assert "claim_text" not in dump
+    assert "source_span_ids" not in dump
+    assert all(row["production_prompt_change_allowed"] is False for row in candidates)
+    assert all(row["private_text_included"] is False for row in candidates)
+
+
 def test_report_intelligence_prompt_mutation_candidates_track_calibration_drift():
     candidates = build_prompt_mutation_candidates(
         run_id="RIR-TEST-MUTATION",

@@ -8209,6 +8209,29 @@ def _paper_trading_blocker_counts(
     return counts
 
 
+def _outcome_coverage_counts(
+    outcome_label_rows: Sequence[Mapping[str, Any]],
+) -> dict[str, int]:
+    unique_claim_ids: set[str] = set()
+    stock_claim_ids: set[str] = set()
+    industry_claim_ids: set[str] = set()
+    for row in outcome_label_rows:
+        claim_id = str(row.get("forecast_claim_id") or "").strip()
+        if not claim_id:
+            continue
+        unique_claim_ids.add(claim_id)
+        label_type = str(row.get("label_type") or "")
+        if label_type == "stock_price_proxy":
+            stock_claim_ids.add(claim_id)
+        elif label_type == "industry_etf_proxy":
+            industry_claim_ids.add(claim_id)
+    return {
+        "unique_outcome_claim_count": len(unique_claim_ids),
+        "stock_proxy_unique_claim_count": len(stock_claim_ids),
+        "industry_proxy_unique_claim_count": len(industry_claim_ids),
+    }
+
+
 def _top_tool_gap_ids(
     tool_gap_rows: Sequence[Mapping[str, Any]],
     *,
@@ -8239,6 +8262,8 @@ def build_prompt_mutation_candidates(
     confidence_impact_monitor: Mapping[str, Any],
     markdown_coverage_summary: Mapping[str, Any],
     industry_etf_proxy_pit_availability: Mapping[str, Any],
+    forecast_rows: Sequence[Mapping[str, Any]] = (),
+    outcome_label_rows: Sequence[Mapping[str, Any]] = (),
 ) -> list[dict[str, Any]]:
     candidates: list[dict[str, Any]] = []
     readiness = _ensure_mapping(outcome_labeling_readiness)
@@ -8255,6 +8280,69 @@ def build_prompt_mutation_candidates(
     mapping_gap_counts = _count_mapping_values(
         _ensure_mapping(readiness.get("mapping_gap_counts"))
     )
+    outcome_counts = _outcome_coverage_counts(outcome_label_rows)
+    outcome_threshold_gaps = {
+        "unique_outcome_claim_count": max(
+            EVOLUTION_GATE_MIN_UNIQUE_OUTCOME_CLAIMS
+            - outcome_counts["unique_outcome_claim_count"],
+            0,
+        ),
+        "stock_proxy_unique_claim_count": max(
+            EVOLUTION_GATE_MIN_STOCK_PROXY_CLAIMS
+            - outcome_counts["stock_proxy_unique_claim_count"],
+            0,
+        ),
+        "industry_proxy_unique_claim_count": max(
+            EVOLUTION_GATE_MIN_INDUSTRY_PROXY_CLAIMS
+            - outcome_counts["industry_proxy_unique_claim_count"],
+            0,
+        ),
+    }
+    if any(outcome_threshold_gaps.values()):
+        _add_prompt_mutation_candidate(
+            candidates,
+            run_id=run_id,
+            candidate_type="outcome_coverage_expansion_rule",
+            target_scope="report_intelligence.pit_outcome_coverage",
+            target_component="report_selection_and_outcome_labeling",
+            proposed_change=(
+                "Expand private report selection, stock proxy evaluation, and "
+                "industry ETF proxy evaluation until the evolution gate has at "
+                "least 100 unique outcome claims with 30 stock and 30 industry "
+                "proxy claims."
+            ),
+            trigger_sources=[
+                "evolution_readiness_gate",
+                "outcome_labeling_readiness",
+                "report_outcome_labels",
+            ],
+            evidence_refs=[
+                {
+                    "artifact_path": "registry/report_intelligence/evolution_readiness_gate.json",
+                    "field": "checks.RI-EVOL-01.evidence",
+                    "forecast_claim_count": len(forecast_rows),
+                    **outcome_counts,
+                    "thresholds": {
+                        "min_unique_outcome_claims": (
+                            EVOLUTION_GATE_MIN_UNIQUE_OUTCOME_CLAIMS
+                        ),
+                        "min_stock_proxy_claims": (
+                            EVOLUTION_GATE_MIN_STOCK_PROXY_CLAIMS
+                        ),
+                        "min_industry_proxy_claims": (
+                            EVOLUTION_GATE_MIN_INDUSTRY_PROXY_CLAIMS
+                        ),
+                    },
+                    "threshold_gaps": outcome_threshold_gaps,
+                }
+            ],
+            severity="high",
+            blocked_by=[
+                "p9_markdown_coverage_target_pending",
+                "stock_and_industry_outcome_replay_required",
+                "manual_gold_set_gate_pending",
+            ],
+        )
     target_gap_keys = (
         "stock_target_mapping_missing",
         "stock_target_missing",
@@ -8420,6 +8508,63 @@ def build_prompt_mutation_candidates(
             if paper_blocker_counts.get("required_tools_not_shadow_implemented", 0)
             else "medium",
             blocked_by=["paper_trading_validation_required"],
+        )
+    paper_run_count = len(recipe_paper_trading_runs)
+    paper_pass_count = sum(
+        1
+        for run in recipe_paper_trading_runs
+        if str(run.get("paper_trading_status") or "") == "passed"
+    )
+    if (
+        paper_run_count < EVOLUTION_GATE_MIN_PAPER_TRADING_RECIPES
+        or paper_pass_count < EVOLUTION_GATE_MIN_PAPER_TRADING_RECIPES
+    ):
+        _add_prompt_mutation_candidate(
+            candidates,
+            run_id=run_id,
+            candidate_type="recipe_paper_trading_expansion_rule",
+            target_scope="report_intelligence.analysis_recipe_validation",
+            target_component="pre_registered_recipe_paper_trading_queue",
+            proposed_change=(
+                "Increase the pre-registered recipe paper-trading queue until "
+                "at least 20 recipes have direct PIT evidence, after-cost "
+                "summaries, and passed validation."
+            ),
+            trigger_sources=[
+                "recipe_paper_trading_runs",
+                "recipe_paper_trading_summary",
+                "evolution_readiness_gate",
+            ],
+            evidence_refs=[
+                {
+                    "artifact_path": "registry/report_intelligence/recipe_paper_trading_summary.json",
+                    "field": "paper_trading_run_count.validation_pass_count",
+                    "paper_trading_run_count": paper_run_count,
+                    "validation_pass_count": paper_pass_count,
+                    "thresholds": {
+                        "min_paper_trading_recipes": (
+                            EVOLUTION_GATE_MIN_PAPER_TRADING_RECIPES
+                        )
+                    },
+                    "threshold_gaps": {
+                        "paper_trading_run_count": max(
+                            EVOLUTION_GATE_MIN_PAPER_TRADING_RECIPES
+                            - paper_run_count,
+                            0,
+                        ),
+                        "validation_pass_count": max(
+                            EVOLUTION_GATE_MIN_PAPER_TRADING_RECIPES
+                            - paper_pass_count,
+                            0,
+                        ),
+                    },
+                }
+            ],
+            severity="high",
+            blocked_by=[
+                "direct_pit_outcome_binding_required",
+                "paper_trading_validation_required",
+            ],
         )
     drift_counts = _count_mapping_values(
         _ensure_mapping(confidence_impact_monitor.get("drift_status_counts"))
@@ -8627,6 +8772,21 @@ def write_report_intelligence_prompt_mutation_candidates(
         label="industry_etf_proxy_pit_availability",
         blockers=blockers,
     )
+    forecast_rows = _read_registry_jsonl(
+        registry_path / "report_forecast_ledger.jsonl",
+        label="report_forecast_ledger",
+        blockers=blockers,
+    )
+    outcome_label_path = registry_path / "report_outcome_labels.jsonl"
+    outcome_label_rows = (
+        _read_registry_jsonl(
+            outcome_label_path,
+            label="report_outcome_labels",
+            blockers=blockers,
+        )
+        if outcome_label_path.exists()
+        else []
+    )
     rows = build_prompt_mutation_candidates(
         run_id=run_id,
         outcome_labeling_readiness=outcome_labeling_readiness,
@@ -8636,6 +8796,8 @@ def write_report_intelligence_prompt_mutation_candidates(
         confidence_impact_monitor=confidence_impact_monitor,
         markdown_coverage_summary=markdown_coverage_summary,
         industry_etf_proxy_pit_availability=industry_etf_proxy_pit_availability,
+        forecast_rows=forecast_rows,
+        outcome_label_rows=outcome_label_rows,
     )
     if blockers and not rows:
         _add_prompt_mutation_candidate(
@@ -14044,6 +14206,8 @@ def run_report_intelligence_derived_refresh(
         confidence_impact_monitor=confidence_impact_monitor,
         markdown_coverage_summary=markdown_coverage_summary,
         industry_etf_proxy_pit_availability=industry_etf_proxy_pit_availability,
+        forecast_rows=forecast_rows,
+        outcome_label_rows=outcome_label_rows,
     )
     weighted_research_context_rows = build_weighted_research_contexts(
         forecast_rows=forecast_rows,
