@@ -366,6 +366,7 @@ STOCK_PRICE_PROXY_DECISION_BASIS = "directional_stock_return_and_relative_alpha"
 STOCK_PRICE_PROXY_EVALUATION_POLICY = (
     "stock_t_plus_1_multi_window_proxy_retains_long_horizon_evidence"
 )
+STOCK_PRICE_PROXY_SURVIVORSHIP_CHECK = "survivorship_unverified_qlib_cn_data"
 REPORT_INTELLIGENCE_PROXY_LABEL_TYPES = frozenset(
     {"industry_etf_proxy", "stock_price_proxy"}
 )
@@ -4911,6 +4912,13 @@ def build_stock_price_proxy_readiness(
             "exit_missing_or_delisted_blocks_label": True,
             "benchmark_alignment": "date_key_cross_qlib_dir",
             "company_name_fuzzy_mapping_enabled": False,
+            "survivorship_status": "survivorship_unverified",
+            "survivorship_unverified": True,
+            "survivorship_basis": (
+                "qlib cn_data price windows observe entry and exit prices, but the "
+                "local universe may exclude delisted stocks; stock proxy labels remain "
+                "shadow-only until a delisted-inclusive universe audit passes"
+            ),
         },
     }
 
@@ -5351,7 +5359,7 @@ def build_stock_price_proxy_outcome_labels(
                     6,
                 ),
                 "pit_valid": True,
-                "survivorship_safe": True,
+                "survivorship_safe": False,
                 "label_type": "stock_price_proxy",
                 "proxy_symbol": ts_code,
                 "proxy_label": str(target.get("target_name") or ts_code),
@@ -5392,7 +5400,7 @@ def build_stock_price_proxy_outcome_labels(
                 "metadata_ts_code": resolution["metadata_ts_code"],
                 "llm_target_id": resolution["llm_target_id"],
                 "source_metadata_id": source_id,
-                "survivorship_check": "entry_and_exit_prices_observed",
+                "survivorship_check": STOCK_PRICE_PROXY_SURVIVORSHIP_CHECK,
             }
             record.update(
                 _stock_target_price_hit_fields(
@@ -7876,6 +7884,20 @@ def build_report_intelligence_pit_leakage_audit(
         for row in forecast_ledger_rows
         if str(row.get("forecast_claim_id") or "").strip()
     }
+    flags = _ensure_mapping(feature_flags.get("flags"))
+    rollout_mode = str(feature_flags.get("rollout_mode") or "")
+    rollout_index = (
+        REPORT_INTELLIGENCE_ROLLOUT_MODES.index(rollout_mode)
+        if rollout_mode in REPORT_INTELLIGENCE_ROLLOUT_MODES
+        else -1
+    )
+    max_safe_index = REPORT_INTELLIGENCE_ROLLOUT_MODES.index(
+        REPORT_INTELLIGENCE_MAX_SAFE_ROLLOUT_MODE
+    )
+    promoted_runtime = (
+        flags.get("production_use_of_weighted_reports") is True
+        or rollout_index > max_safe_index
+    )
     context_datetimes = [
         parsed
         for parsed in (
@@ -7929,8 +7951,10 @@ def build_report_intelligence_pit_leakage_audit(
 
     outcome_failures: list[str] = []
     missing_vintage_count = 0
+    stock_survivorship_unverified_count = 0
     for index, label in enumerate(outcome_label_rows, 1):
         label_id = str(label.get("outcome_id") or f"row-{index}")
+        label_type = str(label.get("label_type") or "")
         claim = claim_by_id.get(str(label.get("forecast_claim_id") or ""))
         if claim is None:
             outcome_failures.append(f"{label_id}: forecast claim missing")
@@ -7943,7 +7967,19 @@ def build_report_intelligence_pit_leakage_audit(
         if label.get("pit_valid") is not True:
             outcome_failures.append(f"{label_id}: pit_valid must be true")
         if label.get("survivorship_safe") is not True:
-            outcome_failures.append(f"{label_id}: survivorship_safe must be true")
+            if (
+                label_type == "stock_price_proxy"
+                and label.get("survivorship_check")
+                == STOCK_PRICE_PROXY_SURVIVORSHIP_CHECK
+            ):
+                stock_survivorship_unverified_count += 1
+                if promoted_runtime:
+                    outcome_failures.append(
+                        f"{label_id}: stock survivorship_unverified cannot support "
+                        "paper trading or production rollout"
+                    )
+            else:
+                outcome_failures.append(f"{label_id}: survivorship_safe must be true")
         if entry is None:
             outcome_failures.append(f"{label_id}: entry_datetime missing or invalid")
         if exit_dt is None:
@@ -7958,7 +7994,7 @@ def build_report_intelligence_pit_leakage_audit(
             outcome_failures.append(
                 f"{label_id}: claim signal_datetime is after outcome entry_datetime"
             )
-        if str(label.get("label_type") or "") == "industry_etf_proxy":
+        if label_type == "industry_etf_proxy":
             signal_date = _date_key(claim.get("signal_datetime"))
             entry_date = _date_key(label.get("entry_datetime"))
             if signal_date and entry_date and entry_date <= signal_date:
@@ -7971,7 +8007,7 @@ def build_report_intelligence_pit_leakage_audit(
                     f"{label_id}: industry ETF entry_lag_trading_days must be >= "
                     f"{INDUSTRY_ETF_ENTRY_LAG_TRADING_DAYS}"
                 )
-        if str(label.get("label_type") or "") == "stock_price_proxy":
+        if label_type == "stock_price_proxy":
             signal_date = _date_key(claim.get("signal_datetime"))
             entry_date = _date_key(label.get("entry_datetime"))
             exit_date = _date_key(label.get("exit_datetime"))
@@ -8031,6 +8067,13 @@ def build_report_intelligence_pit_leakage_audit(
             evidence={
                 "outcome_label_rows": len(outcome_label_rows),
                 "missing_data_vintage_count": missing_vintage_count,
+                "stock_survivorship_unverified_count": (
+                    stock_survivorship_unverified_count
+                ),
+                "stock_survivorship_policy": (
+                    "allowed only for shadow stock proxy labels; promoted runtime "
+                    "requires a delisted-inclusive survivorship audit"
+                ),
                 "missing_data_vintage_policy": (
                     "allowed in shadow labels only; labels cannot become current "
                     "tool evidence or production inputs without vintage fields"
@@ -8211,8 +8254,6 @@ def build_report_intelligence_pit_leakage_audit(
         )
     )
 
-    flags = _ensure_mapping(feature_flags.get("flags"))
-    rollout_mode = str(feature_flags.get("rollout_mode") or "")
     flag_failures: list[str] = []
     if flags.get("production_use_of_weighted_reports") is True:
         flag_failures.append("production_use_of_weighted_reports must remain false")

@@ -1687,6 +1687,10 @@ def test_report_intelligence_labels_stock_claims_with_qlib_price_windows(
     assert {row["target_resolution_source"] for row in outcome_labels} == {
         "metadata_and_llm_target_id"
     }
+    assert {row["survivorship_safe"] for row in outcome_labels} == {False}
+    assert {row["survivorship_check"] for row in outcome_labels} == {
+        "survivorship_unverified_qlib_cn_data"
+    }
     assert outcome_labels[0]["stock_return"] < 0
     assert outcome_labels[0]["directional_hit"] is False
     assert outcome_labels[0]["target_price_hit"] is False
@@ -1712,6 +1716,11 @@ def test_report_intelligence_labels_stock_claims_with_qlib_price_windows(
     assert stock_readiness["labelable_forecast_claim_count"] == 1
     assert stock_readiness["labelable_window_count"] == 4
     assert stock_readiness["data_gap_counts"] == {}
+    assert stock_readiness["pit_realism_policy"]["survivorship_unverified"] is True
+    assert (
+        stock_readiness["pit_realism_policy"]["survivorship_status"]
+        == "survivorship_unverified"
+    )
     assert readiness["stock_proxy_label_ready_count"] == 1
     assert readiness["proxy_label_ready_count"] == 1
     assert readiness["blocked_count"] == 0
@@ -2186,6 +2195,113 @@ def test_report_intelligence_pit_audit_rejects_t0_stock_entry():
     assert any("stock entry_datetime must be after signal date" in item for item in audit["blockers"])
     assert any("stock entry_lag_trading_days" in item for item in audit["blockers"])
     assert any("stock benchmark must align by date" in item for item in audit["blockers"])
+
+
+def test_report_intelligence_pit_audit_allows_shadow_stock_survivorship_unverified():
+    audit = build_report_intelligence_pit_leakage_audit(
+        run_id="RIR-PIT-STOCK-SURVIVORSHIP-SHADOW-TEST",
+        feature_flags={
+            "rollout_mode": "shadow_tooling",
+            "flags": {"production_use_of_weighted_reports": False},
+        },
+        metadata_rows=[
+            {
+                "source_id": "SRC-STOCK-SURVIVORSHIP",
+                "accessible_datetime": "2026-01-02T00:00:00+08:00",
+            }
+        ],
+        forecast_rows=[
+            {
+                "forecast_claim_id": "FC-STOCK-SURVIVORSHIP",
+                "source_id": "SRC-STOCK-SURVIVORSHIP",
+                "signal_datetime": "2026-01-02T00:00:00+08:00",
+            }
+        ],
+        forecast_ledger_rows=[
+            {
+                "forecast_claim_id": "FC-STOCK-SURVIVORSHIP",
+                "as_of_datetime": "2026-01-02T00:00:00+08:00",
+            }
+        ],
+        outcome_label_rows=[
+            {
+                "outcome_id": "OUT-STOCK-SURVIVORSHIP",
+                "forecast_claim_id": "FC-STOCK-SURVIVORSHIP",
+                "entry_datetime": "2026-01-03T00:00:00+08:00",
+                "exit_datetime": "2026-01-08T00:00:00+08:00",
+                "pit_valid": True,
+                "survivorship_safe": False,
+                "survivorship_check": "survivorship_unverified_qlib_cn_data",
+                "label_type": "stock_price_proxy",
+                "entry_lag_trading_days": 1,
+                "benchmark_source": "cn_etf",
+                "benchmark_alignment": "date_key_cross_qlib_dir",
+                "latest_calendar_date": "2026-05-31",
+            }
+        ],
+        source_performance_profile_rows=[],
+        tool_coverage_match_rows=[],
+        analysis_recipe_rows=[],
+        weighted_research_context_rows=[],
+    )
+
+    assert audit["accepted"] is True
+    by_id = {row["check_id"]: row for row in audit["checks"]}
+    assert by_id["RI-PIT-02"]["evidence"][
+        "stock_survivorship_unverified_count"
+    ] == 1
+
+
+def test_report_intelligence_pit_audit_blocks_promoted_stock_survivorship_unverified():
+    audit = build_report_intelligence_pit_leakage_audit(
+        run_id="RIR-PIT-STOCK-SURVIVORSHIP-PROMOTED-TEST",
+        feature_flags={
+            "rollout_mode": "paper_trading",
+            "flags": {"production_use_of_weighted_reports": False},
+        },
+        metadata_rows=[
+            {
+                "source_id": "SRC-STOCK-SURVIVORSHIP",
+                "accessible_datetime": "2026-01-02T00:00:00+08:00",
+            }
+        ],
+        forecast_rows=[
+            {
+                "forecast_claim_id": "FC-STOCK-SURVIVORSHIP",
+                "source_id": "SRC-STOCK-SURVIVORSHIP",
+                "signal_datetime": "2026-01-02T00:00:00+08:00",
+            }
+        ],
+        forecast_ledger_rows=[
+            {
+                "forecast_claim_id": "FC-STOCK-SURVIVORSHIP",
+                "as_of_datetime": "2026-01-02T00:00:00+08:00",
+            }
+        ],
+        outcome_label_rows=[
+            {
+                "outcome_id": "OUT-STOCK-SURVIVORSHIP",
+                "forecast_claim_id": "FC-STOCK-SURVIVORSHIP",
+                "entry_datetime": "2026-01-03T00:00:00+08:00",
+                "exit_datetime": "2026-01-08T00:00:00+08:00",
+                "pit_valid": True,
+                "survivorship_safe": False,
+                "survivorship_check": "survivorship_unverified_qlib_cn_data",
+                "label_type": "stock_price_proxy",
+                "entry_lag_trading_days": 1,
+                "benchmark_source": "cn_etf",
+                "benchmark_alignment": "date_key_cross_qlib_dir",
+                "latest_calendar_date": "2026-05-31",
+            }
+        ],
+        source_performance_profile_rows=[],
+        tool_coverage_match_rows=[],
+        analysis_recipe_rows=[],
+        weighted_research_context_rows=[],
+    )
+
+    assert audit["accepted"] is False
+    assert any("survivorship_unverified cannot support" in item for item in audit["blockers"])
 
 
 def test_report_intelligence_cli_help_exposes_stock_qlib_dir(capsys):
