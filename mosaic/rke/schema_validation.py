@@ -717,6 +717,8 @@ STOCK_PROXY_REQUIRED_LABEL_FIELDS = (
     "relative_directional_hit",
     "outcome_label_source",
     "llm_outcome_labeling_allowed",
+    "performance_value_basis",
+    "direction_evaluated",
     "decision_basis",
     "source_horizon_bucket",
     "claim_window_alignment",
@@ -747,6 +749,8 @@ INDUSTRY_PROXY_REQUIRED_LABEL_FIELDS = (
     "relative_directional_hit",
     "outcome_label_source",
     "llm_outcome_labeling_allowed",
+    "performance_value_basis",
+    "direction_evaluated",
     "decision_basis",
     "source_horizon_bucket",
     "claim_window_alignment",
@@ -767,6 +771,23 @@ def _required_field_failures(
     return failures
 
 
+def _numeric_contract_value(
+    row: Mapping[str, Any],
+    field: str,
+    row_label: str,
+    failures: list[str],
+) -> float | None:
+    try:
+        return float(row.get(field))
+    except (TypeError, ValueError):
+        failures.append(f"{row_label}.{field}: expected number")
+        return None
+
+
+def _nearly_equal(left: float, right: float, *, tolerance: float = 1e-6) -> bool:
+    return abs(left - right) <= tolerance
+
+
 def _validate_proxy_outcome_label_contract(row: Mapping[str, Any], row_label: str) -> list[str]:
     label_type = str(row.get("label_type") or "")
     if label_type not in {"stock_price_proxy", "industry_etf_proxy"}:
@@ -782,6 +803,10 @@ def _validate_proxy_outcome_label_contract(row: Mapping[str, Any], row_label: st
     )
     if row.get("llm_outcome_labeling_allowed") is not False:
         failures.append(f"{row_label}.llm_outcome_labeling_allowed: must be false")
+    if row.get("performance_value_basis") != "directional_after_cost_return":
+        failures.append(
+            f"{row_label}.performance_value_basis: must be directional_after_cost_return"
+        )
     try:
         entry_lag = int(row.get("entry_lag_trading_days"))
     except (TypeError, ValueError):
@@ -789,13 +814,99 @@ def _validate_proxy_outcome_label_contract(row: Mapping[str, Any], row_label: st
     else:
         if entry_lag < 1:
             failures.append(f"{row_label}.entry_lag_trading_days: must be >= 1")
+    round_trip_cost: float | None
     try:
         round_trip_cost = float(row.get("round_trip_cost"))
     except (TypeError, ValueError):
+        round_trip_cost = None
         failures.append(f"{row_label}.round_trip_cost: expected number")
     else:
         if round_trip_cost < 0:
             failures.append(f"{row_label}.round_trip_cost: must be >= 0")
+    proxy_return_field = "stock_return" if label_type == "stock_price_proxy" else "proxy_return"
+    proxy_return = _numeric_contract_value(
+        row,
+        proxy_return_field,
+        row_label,
+        failures,
+    )
+    benchmark_return = _numeric_contract_value(
+        row,
+        "benchmark_return",
+        row_label,
+        failures,
+    )
+    relative_alpha = _numeric_contract_value(
+        row,
+        "relative_alpha",
+        row_label,
+        failures,
+    )
+    after_cost_alpha = _numeric_contract_value(
+        row,
+        "after_cost_alpha",
+        row_label,
+        failures,
+    )
+    directional_after_cost_return = _numeric_contract_value(
+        row,
+        "directional_after_cost_return",
+        row_label,
+        failures,
+    )
+    direction = str(row.get("direction_evaluated") or "").strip().lower()
+    if direction not in {"positive", "negative"}:
+        failures.append(f"{row_label}.direction_evaluated: must be positive or negative")
+    if (
+        proxy_return is not None
+        and benchmark_return is not None
+        and relative_alpha is not None
+        and not _nearly_equal(relative_alpha, proxy_return - benchmark_return)
+    ):
+        failures.append(
+            f"{row_label}.relative_alpha: must equal {proxy_return_field} - benchmark_return"
+        )
+    if (
+        relative_alpha is not None
+        and after_cost_alpha is not None
+        and round_trip_cost is not None
+        and round_trip_cost >= 0
+        and not _nearly_equal(after_cost_alpha, relative_alpha - round_trip_cost)
+    ):
+        failures.append(
+            f"{row_label}.after_cost_alpha: must equal relative_alpha - round_trip_cost"
+        )
+    if proxy_return is not None and direction in {"positive", "negative"}:
+        expected_directional_hit = (
+            proxy_return > 0 if direction == "positive" else proxy_return < 0
+        )
+        if row.get("directional_hit") is not expected_directional_hit:
+            failures.append(
+                f"{row_label}.directional_hit: must match direction_evaluated and {proxy_return_field}"
+            )
+        if (
+            directional_after_cost_return is not None
+            and round_trip_cost is not None
+            and round_trip_cost >= 0
+        ):
+            directional_return = (
+                proxy_return if direction == "positive" else -proxy_return
+            )
+            if not _nearly_equal(
+                directional_after_cost_return,
+                directional_return - round_trip_cost,
+            ):
+                failures.append(
+                    f"{row_label}.directional_after_cost_return: must equal directional return - round_trip_cost"
+                )
+    if relative_alpha is not None and direction in {"positive", "negative"}:
+        expected_relative_hit = (
+            relative_alpha > 0 if direction == "positive" else relative_alpha < 0
+        )
+        if row.get("relative_directional_hit") is not expected_relative_hit:
+            failures.append(
+                f"{row_label}.relative_directional_hit: must match direction_evaluated and relative_alpha"
+            )
     if label_type == "stock_price_proxy":
         if row.get("outcome_label_source") != "pit_stock_price_window":
             failures.append(

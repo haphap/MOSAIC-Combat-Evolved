@@ -198,7 +198,7 @@ def _base_outcome_label(label_type: str) -> dict[str, object]:
         "horizon_days": 5,
         "relative_alpha": 0.01,
         "directional_hit": True,
-        "after_cost_alpha": 0.008,
+        "after_cost_alpha": 0.008 if label_type == "stock_price_proxy" else 0.009,
         "overlap_group_id": f"OVL-{label_type}",
         "effective_n_weight": 0.2,
         "pit_valid": True,
@@ -216,12 +216,16 @@ def _base_outcome_label(label_type: str) -> dict[str, object]:
         else "industry_etf_round_trip_10bps_v1",
         "entry_lag_trading_days": 1,
         "round_trip_cost": 0.002 if label_type == "stock_price_proxy" else 0.001,
-        "directional_after_cost_return": 0.018,
+        "directional_after_cost_return": 0.018
+        if label_type == "stock_price_proxy"
+        else 0.019,
         "relative_directional_hit": True,
         "outcome_label_source": "pit_stock_price_window"
         if label_type == "stock_price_proxy"
         else "pit_industry_etf_price_window",
         "llm_outcome_labeling_allowed": False,
+        "performance_value_basis": "directional_after_cost_return",
+        "direction_evaluated": "positive",
         "decision_basis": "market_price_proxy",
         "source_horizon_bucket": "short",
         "claim_window_alignment": "within_source_horizon",
@@ -282,6 +286,31 @@ def test_report_outcome_label_semantics_accept_complete_proxy_contracts(
     assert record.accepted
     assert record.item_count == 2
     assert record.failures == ()
+
+
+def test_report_outcome_label_semantics_reject_proxy_math_mismatch(
+    tmp_path: Path,
+):
+    stock_label = _base_outcome_label("stock_price_proxy")
+    stock_label["relative_alpha"] = 0.03
+    stock_label["after_cost_alpha"] = 0.03
+    stock_label["directional_hit"] = False
+    stock_label["relative_directional_hit"] = False
+    stock_label["directional_after_cost_return"] = 0.03
+    stock_label["performance_value_basis"] = "relative_alpha"
+    _write_proxy_outcome_labels(tmp_path, [stock_label])
+
+    record = _proxy_outcome_contract_record(tmp_path)
+
+    assert record.accepted is False
+    assert any("performance_value_basis" in failure for failure in record.failures)
+    assert any("relative_alpha" in failure for failure in record.failures)
+    assert any("after_cost_alpha" in failure for failure in record.failures)
+    assert any("directional_hit" in failure for failure in record.failures)
+    assert any("relative_directional_hit" in failure for failure in record.failures)
+    assert any(
+        "directional_after_cost_return" in failure for failure in record.failures
+    )
 
 
 def test_schema_validation_accepts_public_registry_without_private_report_inputs(
