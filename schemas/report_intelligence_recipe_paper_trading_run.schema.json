@@ -60,6 +60,7 @@
         "max_regime_contribution_share",
         "minimum_horizon_count",
         "minimum_regime_count",
+        "cost_decay_turnover_threshold",
         "profile_weight_is_sufficient",
         "parameter_tuning_after_results_allowed",
         "production_decision_impact_allowed"
@@ -76,6 +77,7 @@
         "max_regime_contribution_share": {"type": "number", "minimum": 0, "maximum": 1},
         "minimum_horizon_count": {"type": "integer", "minimum": 1},
         "minimum_regime_count": {"type": "integer", "minimum": 1},
+        "cost_decay_turnover_threshold": {"type": "number", "minimum": 0},
         "profile_weight_is_sufficient": {"type": "boolean", "const": false},
         "parameter_tuning_after_results_allowed": {"type": "boolean", "const": false},
         "production_decision_impact_allowed": {"type": "boolean", "const": false}

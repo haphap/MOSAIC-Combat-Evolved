@@ -2,7 +2,7 @@
   "alpha_decay_fail_count": 0,
   "alpha_decay_recipe_ids": [],
   "alpha_decay_watch_count": 0,
-  "as_of_datetime": "2026-06-08T08:02:02+00:00",
+  "as_of_datetime": "2026-06-08T08:11:39+00:00",
   "blocked_recipe_count": 5,
   "blocker_counts": {
     "insufficient_effective_n": 5,
@@ -11,6 +11,8 @@
   },
   "calibration_drift_count": 0,
   "calibration_drift_recipe_ids": [],
+  "cost_decay_fail_count": 0,
+  "cost_decay_recipe_ids": [],
   "drift_status_counts": {
     "paper_trading_blocked": 5
   },

@@ -25,6 +25,8 @@
     "expected_alpha": {"type": ["number", "null"]},
     "realized_alpha": {"type": ["number", "null"]},
     "after_cost_realized_alpha": {"type": ["number", "null"]},
+    "pre_cost_realized_alpha": {"type": ["number", "null"]},
+    "estimated_cost_drag": {"type": ["number", "null"]},
     "alpha_decay_slope": {"type": ["number", "null"]},
     "calibration_error": {"type": ["number", "null"]},
     "brier_score": {"type": ["number", "null"]},

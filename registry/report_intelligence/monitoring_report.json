@@ -31,6 +31,7 @@
     "alpha_decay_fail_count": 0,
     "alpha_decay_watch_count": 0,
     "calibration_drift_count": 0,
+    "cost_decay_fail_count": 0,
     "monitor_id": "RKE-REPORT-INTELLIGENCE-CONFIDENCE-IMPACT-MONITOR",
     "observation_count": 5,
     "paper_trading_validated_recipe_count": 0,

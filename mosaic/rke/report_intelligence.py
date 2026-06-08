@@ -6269,6 +6269,7 @@ RECIPE_PAPER_TRADING_MAX_HORIZON_CONCENTRATION = 0.70
 RECIPE_PAPER_TRADING_MAX_REGIME_CONCENTRATION = 0.80
 RECIPE_PAPER_TRADING_MIN_HORIZON_COUNT = 2
 RECIPE_PAPER_TRADING_MIN_REGIME_COUNT = 2
+RECIPE_PAPER_TRADING_COST_DECAY_TURNOVER_THRESHOLD = 6.0
 RECIPE_PAPER_TRADING_BENCHMARK_SYMBOL = STOCK_PRICE_PROXY_BENCHMARK_SYMBOL
 RECIPE_PAPER_TRADING_COST_MODEL_ID = STOCK_PRICE_PROXY_COST_MODEL_ID
 
@@ -6284,6 +6285,20 @@ def _recipe_preregistration_hash(recipe: Mapping[str, Any]) -> str:
         "entry_rule": "T+1_or_more_conservative_shadow_entry",
         "exit_rule": "fixed_horizon_shadow_exit",
         "cost_model_id": RECIPE_PAPER_TRADING_COST_MODEL_ID,
+        "minimum_effective_n": RECIPE_PAPER_TRADING_MIN_EFFECTIVE_N,
+        "max_drawdown": RECIPE_PAPER_TRADING_MAX_DRAWDOWN,
+        "alpha_decay_fail_streak": RECIPE_PAPER_TRADING_ALPHA_DECAY_FAIL_STREAK,
+        "max_horizon_contribution_share": (
+            RECIPE_PAPER_TRADING_MAX_HORIZON_CONCENTRATION
+        ),
+        "max_regime_contribution_share": (
+            RECIPE_PAPER_TRADING_MAX_REGIME_CONCENTRATION
+        ),
+        "minimum_horizon_count": RECIPE_PAPER_TRADING_MIN_HORIZON_COUNT,
+        "minimum_regime_count": RECIPE_PAPER_TRADING_MIN_REGIME_COUNT,
+        "cost_decay_turnover_threshold": (
+            RECIPE_PAPER_TRADING_COST_DECAY_TURNOVER_THRESHOLD
+        ),
     }
     return "sha256:" + sha256(
         json.dumps(_jsonable(payload), ensure_ascii=False, sort_keys=True).encode(
@@ -6323,10 +6338,26 @@ def _weighted_contribution_shares(
     }
 
 
+def _directional_pre_cost_alpha(label: Mapping[str, Any]) -> float | None:
+    relative_alpha = _float_or_none(label.get("relative_alpha"))
+    if relative_alpha is None:
+        return None
+    direction = str(
+        label.get("direction_evaluated") or label.get("direction") or ""
+    ).strip().lower()
+    if direction == "positive":
+        return relative_alpha
+    if direction == "negative":
+        return -relative_alpha
+    return None
+
+
 def _paper_trading_metric_summary(
     labels: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
     weighted_after_cost: list[tuple[float, float]] = []
+    weighted_pre_cost: list[tuple[float, float]] = []
+    weighted_cost_drag: list[tuple[float, float]] = []
     weighted_benchmark: list[tuple[float, float]] = []
     weighted_hit: list[tuple[float, float]] = []
     horizons: list[int] = []
@@ -6341,8 +6372,13 @@ def _paper_trading_metric_summary(
         if after_cost is None:
             after_cost = _float_or_none(label.get("after_cost_alpha"))
         benchmark = _float_or_none(label.get("benchmark_return"))
+        pre_cost = _directional_pre_cost_alpha(label)
         if after_cost is not None:
             weighted_after_cost.append((after_cost, weight))
+        if pre_cost is not None:
+            weighted_pre_cost.append((pre_cost, weight))
+            if after_cost is not None:
+                weighted_cost_drag.append((pre_cost - after_cost, weight))
         if benchmark is not None:
             weighted_benchmark.append((benchmark, weight))
         weighted_hit.append((1.0 if label.get("directional_hit") is True else 0.0, weight))
@@ -6372,6 +6408,8 @@ def _paper_trading_metric_summary(
         denominator=effective_n,
     )
     cost_adjusted_alpha = _weighted_mean(weighted_after_cost, default=None)
+    pre_cost_alpha = _weighted_mean(weighted_pre_cost, default=None)
+    estimated_cost_drag = _weighted_mean(weighted_cost_drag, default=None)
     benchmark_return = _weighted_mean(weighted_benchmark, default=None)
     hit_rate = _weighted_mean(weighted_hit, default=None)
     average_horizon = sum(horizons) / len(horizons) if horizons else None
@@ -6425,6 +6463,12 @@ def _paper_trading_metric_summary(
         "effective_n": round(effective_n, 6),
         "cost_adjusted_alpha": round(cost_adjusted_alpha, 8)
         if cost_adjusted_alpha is not None
+        else None,
+        "pre_cost_alpha": round(pre_cost_alpha, 8)
+        if pre_cost_alpha is not None
+        else None,
+        "estimated_cost_drag": round(estimated_cost_drag, 8)
+        if estimated_cost_drag is not None
         else None,
         "alpha_decay_slope": round(alpha_decay_slope, 8)
         if alpha_decay_slope is not None
@@ -6493,6 +6537,7 @@ def build_recipe_paper_trading_runs(
         if str(recipe.get("runtime_mode") or "") != "shadow_only":
             blockers.append("unsupported_runtime_mode")
         cost_adjusted_alpha = _float_or_none(metrics.get("cost_adjusted_alpha"))
+        pre_cost_alpha = _float_or_none(metrics.get("pre_cost_alpha"))
         hit_rate = _float_or_none(metrics.get("hit_rate"))
         max_drawdown = _float_or_none(metrics.get("max_drawdown"))
         if not blockers:
@@ -6502,6 +6547,7 @@ def build_recipe_paper_trading_runs(
             max_regime_share = _float_or_none(
                 metrics.get("max_regime_contribution_share")
             )
+            turnover = _float_or_none(metrics.get("turnover"))
             observed_horizon_count = int(metrics.get("observed_horizon_count") or 0)
             horizon_missing_count = int(metrics.get("horizon_missing_count") or 0)
             observed_regime_count = int(metrics.get("observed_regime_count") or 0)
@@ -6526,6 +6572,15 @@ def build_recipe_paper_trading_runs(
                 blockers.append("single_regime_concentration")
             if cost_adjusted_alpha is None or cost_adjusted_alpha <= 0:
                 blockers.append("after_cost_alpha_non_positive")
+            if (
+                pre_cost_alpha is not None
+                and pre_cost_alpha > 0
+                and cost_adjusted_alpha is not None
+                and cost_adjusted_alpha <= 0
+                and turnover is not None
+                and turnover >= RECIPE_PAPER_TRADING_COST_DECAY_TURNOVER_THRESHOLD
+            ):
+                blockers.append("cost_decay_fail")
             if (
                 int(metrics.get("non_positive_after_cost_window_streak") or 0)
                 >= RECIPE_PAPER_TRADING_ALPHA_DECAY_FAIL_STREAK
@@ -6579,6 +6634,7 @@ def build_recipe_paper_trading_runs(
                     "no_position_sizing",
                     "after_cost_alpha_required",
                     "consecutive_after_cost_decay_blocks_validation",
+                    "turnover_cost_decay_blocks_validation",
                     "drawdown_threshold_pre_registered",
                 ],
                 "expected_horizon_days": 60,
@@ -6603,6 +6659,9 @@ def build_recipe_paper_trading_runs(
                     ),
                     "minimum_horizon_count": RECIPE_PAPER_TRADING_MIN_HORIZON_COUNT,
                     "minimum_regime_count": RECIPE_PAPER_TRADING_MIN_REGIME_COUNT,
+                    "cost_decay_turnover_threshold": (
+                        RECIPE_PAPER_TRADING_COST_DECAY_TURNOVER_THRESHOLD
+                    ),
                     "profile_weight_is_sufficient": False,
                     "parameter_tuning_after_results_allowed": False,
                     "production_decision_impact_allowed": False,
@@ -6716,6 +6775,7 @@ def build_confidence_impact_observations(
             "consecutive_non_positive_after_cost_windows",
             "max_drawdown_breach",
         }
+        cost_decay_blockers = {"cost_decay_fail"}
         regime_fragile_blockers = {
             "single_window_concentration",
             "single_regime_concentration",
@@ -6723,6 +6783,12 @@ def build_confidence_impact_observations(
             "window_horizon_missing",
         }
         if paper_status != "passed" and any(
+            str(reason) in cost_decay_blockers for reason in blocker_reasons
+        ):
+            drift_status = "cost_decay_fail"
+            recommended_action = "freeze_recipe"
+            confidence_delta = 0.0
+        elif paper_status != "passed" and any(
             str(reason) in alpha_decay_blockers for reason in blocker_reasons
         ):
             drift_status = "alpha_decay_fail"
@@ -6771,6 +6837,8 @@ def build_confidence_impact_observations(
                 "expected_alpha": after_cost_alpha,
                 "realized_alpha": realized_alpha,
                 "after_cost_realized_alpha": after_cost_alpha,
+                "pre_cost_realized_alpha": metrics.get("pre_cost_alpha"),
+                "estimated_cost_drag": metrics.get("estimated_cost_drag"),
                 "alpha_decay_slope": alpha_decay_slope,
                 "calibration_error": calibration_error,
                 "brier_score": brier_score,
@@ -6799,6 +6867,7 @@ def build_confidence_impact_monitor(
     blocker_counts: dict[str, int] = {}
     tracked_recipe_ids: list[str] = []
     alpha_decay_recipe_ids: list[str] = []
+    cost_decay_recipe_ids: list[str] = []
     calibration_drift_recipe_ids: list[str] = []
     regime_fragile_recipe_ids: list[str] = []
     manual_review_recipe_ids: list[str] = []
@@ -6816,6 +6885,8 @@ def build_confidence_impact_monitor(
             "alpha_decay_fail",
         } and recipe_id:
             alpha_decay_recipe_ids.append(recipe_id)
+        if str(row.get("drift_status") or "") == "cost_decay_fail" and recipe_id:
+            cost_decay_recipe_ids.append(recipe_id)
         if str(row.get("drift_status") or "") == "calibration_drift_watch" and recipe_id:
             calibration_drift_recipe_ids.append(recipe_id)
         if str(row.get("drift_status") or "") == "regime_fragile_alpha" and recipe_id:
@@ -6849,6 +6920,7 @@ def build_confidence_impact_monitor(
         "unvalidated_confidence_impact_count": unvalidated_impact_count,
         "alpha_decay_watch_count": drift_status_counts.get("alpha_decay_watch", 0),
         "alpha_decay_fail_count": drift_status_counts.get("alpha_decay_fail", 0),
+        "cost_decay_fail_count": drift_status_counts.get("cost_decay_fail", 0),
         "calibration_drift_count": drift_status_counts.get(
             "calibration_drift_watch",
             0,
@@ -6862,6 +6934,7 @@ def build_confidence_impact_monitor(
         "blocker_counts": dict(sorted(blocker_counts.items())),
         "tracked_recipe_ids": sorted(set(tracked_recipe_ids)),
         "alpha_decay_recipe_ids": sorted(set(alpha_decay_recipe_ids)),
+        "cost_decay_recipe_ids": sorted(set(cost_decay_recipe_ids)),
         "calibration_drift_recipe_ids": sorted(set(calibration_drift_recipe_ids)),
         "regime_fragile_recipe_ids": sorted(set(regime_fragile_recipe_ids)),
         "manual_review_recipe_ids": sorted(set(manual_review_recipe_ids)),
@@ -7637,6 +7710,8 @@ def build_prompt_mutation_candidates(
             "alpha_decay_watch",
             "alpha_decay_fail",
             "calibration_drift_watch",
+            "cost_decay_fail",
+            "regime_fragile_alpha",
         )
     )
     if drift_gap_count:
@@ -7647,8 +7722,9 @@ def build_prompt_mutation_candidates(
             target_scope="report_intelligence.confidence_impact",
             target_component="confidence_calibration_policy",
             proposed_change=(
-                "Reduce or freeze confidence impact for recipes with alpha decay "
-                "or calibration drift until new shadow evidence and manual review pass."
+                "Reduce or freeze confidence impact for recipes with alpha decay, "
+                "cost decay, calibration drift, or single-regime fragility until "
+                "new shadow evidence and manual review pass."
             ),
             trigger_sources=["confidence_impact_observations"],
             evidence_refs=[
@@ -7659,7 +7735,10 @@ def build_prompt_mutation_candidates(
                 }
             ],
             severity="high",
-            blocked_by=["manual_calibration_review_required"],
+            blocked_by=[
+                "manual_calibration_review_required",
+                "shadow_regime_and_cost_replay_required",
+            ],
         )
     blocked_confidence_count = sum(
         1
@@ -11712,6 +11791,9 @@ def build_report_intelligence_monitoring_report(
             ),
             "alpha_decay_fail_count": int(
                 confidence_monitor.get("alpha_decay_fail_count") or 0
+            ),
+            "cost_decay_fail_count": int(
+                confidence_monitor.get("cost_decay_fail_count") or 0
             ),
             "calibration_drift_count": int(
                 confidence_monitor.get("calibration_drift_count") or 0

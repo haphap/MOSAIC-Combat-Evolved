@@ -257,14 +257,14 @@
       "sha256": "sha256:6068cf396311f45bea4a6b356e13b46e5073a777836ee2e19373b15c81f60c31"
     },
     {
-      "bytes": 1412,
+      "bytes": 1473,
       "path": "registry/report_intelligence/confidence_impact_monitor.json",
-      "sha256": "sha256:5efb92fd2fd9165edacac2743d00ffa3ddf8170b1bdca3c290ded7956d3541b7"
+      "sha256": "sha256:4b28e9b0eab654ae8e32ec7264a8467149e145fcf852c3cb8bddbb768f3482e8"
     },
     {
-      "bytes": 4100,
+      "bytes": 4410,
       "path": "registry/report_intelligence/confidence_impact_observations.jsonl",
-      "sha256": "sha256:91baba04f31cc0827c60e80d57112cf1bd6b7c7db41ab4f1fb70846f10c28252"
+      "sha256": "sha256:2a937763ff607499e168db92b359f8f77e6d9c954db023e03cc0a7d040db7daa"
     },
     {
       "bytes": 39285,
@@ -322,9 +322,9 @@
       "sha256": "sha256:614d25ce2e9123ef4a1627d566ffa9f5cd9391695680934af8cc21bf7732e029"
     },
     {
-      "bytes": 7534,
+      "bytes": 7566,
       "path": "registry/report_intelligence/monitoring_report.json",
-      "sha256": "sha256:64f89f331cd6ab4ea8adbfcccb3b6e9a330c3dd08b4baba46b20c4ce8a69c426"
+      "sha256": "sha256:a1dab9792216a4118bc454882d42effa1f0457b5504ee50934e37ba962487ea8"
     },
     {
       "bytes": 3505,
@@ -347,14 +347,14 @@
       "sha256": "sha256:2fa7cf0be98dcb07df237e3082829f7eb879b452d254f58b8dd8f114163ef776"
     },
     {
-      "bytes": 14407,
+      "bytes": 15067,
       "path": "registry/report_intelligence/recipe_paper_trading_runs.jsonl",
-      "sha256": "sha256:ed6194be22de1a7254a5352e72915414e222453da06ecfabedc56786ef85ad96"
+      "sha256": "sha256:a744fc99d662717e7de392a2552059a65daf51bb4804715864ab4af980d7559f"
     },
     {
       "bytes": 1440,
       "path": "registry/report_intelligence/recipe_paper_trading_summary.json",
-      "sha256": "sha256:6b51efcea66804530c2a70f878de9cb5e83de291a000ae09b6426382333ba436"
+      "sha256": "sha256:f2abc51276fa7e605e21dce1aa28825d92cb770f2f2bd79b7963f0a2c3eb9bfa"
     },
     {
       "bytes": 3933,

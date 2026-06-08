@@ -1056,6 +1056,8 @@ def test_report_intelligence_recipe_paper_trading_requires_direct_pit_evidence()
         "parameter_tuning_after_results_allowed"
     ] is False
     assert runs[0]["pre_registered_protocol"]["alpha_decay_fail_streak"] == 2
+    assert runs[0]["pre_registered_protocol"]["cost_decay_turnover_threshold"] == 6.0
+    assert "turnover_cost_decay_blocks_validation" in runs[0]["risk_controls"]
     assert runs[0]["metrics"]["brier_score"] == 0.01
     assert runs[0]["metrics"]["non_positive_after_cost_window_streak"] == 0
     assert runs[0]["metrics"]["max_horizon_contribution_share"] == 0.4
@@ -1249,6 +1251,74 @@ def test_report_intelligence_recipe_paper_trading_flags_regime_fragile_alpha():
     )
     assert "window_horizon_missing" in missing_horizon_runs[0]["blocked_reasons"]
     assert missing_horizon_observations[0]["drift_status"] == "regime_fragile_alpha"
+
+
+def test_report_intelligence_recipe_paper_trading_flags_cost_decay_fail():
+    recipe = {
+        "analysis_recipe_id": "RECIPE-COST-DECAY",
+        "method_pattern_id": "METHOD-COST-DECAY",
+        "version": "0.1.0",
+        "runtime_mode": "shadow_only",
+        "required_tools": ["market.price_proxy"],
+        "steps": [{"step": 1, "tool": "market.price_proxy"}],
+        "output_signal": {"name": "turnover_sensitive_score"},
+    }
+    labels = []
+    for day, horizon, regime in (
+        (10, 20, "base"),
+        (11, 20, "stress"),
+        (12, 30, "recovery"),
+        (13, 30, "base"),
+    ):
+        labels.append(
+            {
+                "analysis_recipe_id": "RECIPE-COST-DECAY",
+                "method_pattern_id": "METHOD-COST-DECAY",
+                "exit_datetime": f"2026-01-{day:02d}",
+                "relative_alpha": 0.001,
+                "direction_evaluated": "positive",
+                "directional_after_cost_return": -0.001,
+                "benchmark_return": 0.001,
+                "directional_hit": False,
+                "horizon_days": horizon,
+                "market_regime": regime,
+                "effective_n_weight": 1.0,
+            }
+        )
+
+    runs = build_recipe_paper_trading_runs(
+        run_id="RIR-TEST-COST-DECAY",
+        analysis_recipe_rows=[recipe],
+        outcome_label_rows=labels,
+        method_performance_profile_rows=[],
+    )
+    summary = build_recipe_paper_trading_summary(
+        run_id="RIR-TEST-COST-DECAY",
+        recipe_paper_trading_runs=runs,
+    )
+    observations = build_confidence_impact_observations(
+        run_id="RIR-TEST-COST-DECAY",
+        recipe_paper_trading_runs=runs,
+    )
+    monitor = build_confidence_impact_monitor(
+        run_id="RIR-TEST-COST-DECAY",
+        confidence_observation_rows=observations,
+        recipe_paper_trading_summary=summary,
+    )
+
+    assert runs[0]["paper_trading_status"] == "blocked"
+    assert runs[0]["metrics"]["pre_cost_alpha"] == 0.001
+    assert runs[0]["metrics"]["cost_adjusted_alpha"] == -0.001
+    assert runs[0]["metrics"]["estimated_cost_drag"] == 0.002
+    assert runs[0]["metrics"]["turnover"] > 6.0
+    assert "cost_decay_fail" in runs[0]["blocked_reasons"]
+    assert observations[0]["drift_status"] == "cost_decay_fail"
+    assert observations[0]["recommended_action"] == "freeze_recipe"
+    assert observations[0]["pre_cost_realized_alpha"] == 0.001
+    assert observations[0]["estimated_cost_drag"] == 0.002
+    assert monitor["cost_decay_fail_count"] == 1
+    assert monitor["cost_decay_recipe_ids"] == ["RECIPE-COST-DECAY"]
+    assert monitor["freeze_recipe_ids"] == ["RECIPE-COST-DECAY"]
 
 
 def test_report_intelligence_evolution_gate_blocks_until_objective_thresholds_pass():
@@ -1460,7 +1530,11 @@ def test_report_intelligence_prompt_mutation_candidates_track_calibration_drift(
             }
         ],
         confidence_impact_monitor={
-            "drift_status_counts": {"alpha_decay_watch": 1},
+            "drift_status_counts": {
+                "alpha_decay_watch": 1,
+                "cost_decay_fail": 1,
+                "regime_fragile_alpha": 1,
+            },
             "recommended_action_counts": {"reduce_confidence_impact": 1},
         },
         markdown_coverage_summary={"markdown_quality_gap_counts": {}},
@@ -1472,6 +1546,11 @@ def test_report_intelligence_prompt_mutation_candidates_track_calibration_drift(
     ]
     assert len(calibration) == 1
     assert calibration[0]["target_component"] == "confidence_calibration_policy"
+    drift_counts = calibration[0]["evidence_refs"][0]["drift_status_counts"]
+    assert drift_counts["alpha_decay_watch"] == 1
+    assert drift_counts["cost_decay_fail"] == 1
+    assert drift_counts["regime_fragile_alpha"] == 1
+    assert "shadow_regime_and_cost_replay_required" in calibration[0]["blocked_by"]
     assert calibration[0]["production_prompt_change_allowed"] is False
     assert calibration[0]["private_text_included"] is False
 
