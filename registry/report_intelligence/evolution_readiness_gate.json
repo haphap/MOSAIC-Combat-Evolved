@@ -1,13 +1,19 @@
 {
   "as_of_datetime": "2026-06-08T10:23:08+00:00",
-  "blocker_count": 15,
+  "blocker_count": 25,
   "blockers": [
     "after_cost_paper_trading_summary_missing",
     "audit_refresh_history_below_threshold",
+    "claim_precision_missing",
     "confidence_impact_monitor_current_blocked",
     "confidence_impact_monitor_history_below_threshold",
+    "direction_accuracy_missing",
     "forecast_gold_set_gate_not_passed",
+    "forecast_gold_set_review_incomplete",
     "gap_distribution_history_below_threshold",
+    "gold_reviewed_claims_below_threshold",
+    "gold_reviewed_documents_below_threshold",
+    "horizon_accuracy_missing",
     "industry_proxy_claim_count_below_threshold",
     "llm_extraction_processed_count_below_p9_target",
     "markdown_quality_pass_count_below_p9_target",
@@ -15,8 +21,12 @@
     "paper_trading_run_count_below_threshold",
     "paper_trading_validated_recipe_count_below_threshold",
     "selected_report_count_below_p9_target",
+    "source_span_support_precision_missing",
     "stock_proxy_claim_count_below_threshold",
-    "unique_outcome_claim_count_below_threshold"
+    "target_accuracy_missing",
+    "unsupported_field_false_grounding_rate_missing",
+    "unique_outcome_claim_count_below_threshold",
+    "variable_mapping_accuracy_missing"
   ],
   "checks": [
     {
@@ -82,13 +92,48 @@
     },
     {
       "blockers": [
-        "forecast_gold_set_gate_not_passed"
+        "forecast_gold_set_gate_not_passed",
+        "forecast_gold_set_review_incomplete",
+        "gold_reviewed_claims_below_threshold",
+        "gold_reviewed_documents_below_threshold",
+        "claim_precision_missing",
+        "source_span_support_precision_missing",
+        "target_accuracy_missing",
+        "direction_accuracy_missing",
+        "horizon_accuracy_missing",
+        "variable_mapping_accuracy_missing",
+        "unsupported_field_false_grounding_rate_missing"
       ],
       "check_id": "RI-EVOL-05",
       "evidence": {
         "gold_set_passed": false,
+        "metrics": {
+          "claim_precision": null,
+          "direction_accuracy": null,
+          "horizon_accuracy": null,
+          "source_span_support_precision": null,
+          "target_accuracy": null,
+          "unsupported_field_false_grounding_rate": null,
+          "variable_mapping_accuracy": null
+        },
         "pending_claims": 0,
-        "reviewed_claims": 0
+        "review_complete": false,
+        "reviewed_claims": 0,
+        "stock_target_conflict_count": 0,
+        "stock_target_conflict_explained": false,
+        "stock_target_conflict_reviewed_count": 0,
+        "thresholds": {
+          "claim_precision_min": 0.85,
+          "direction_accuracy_min": 0.85,
+          "horizon_accuracy_min": 0.85,
+          "min_documents": 50,
+          "min_reviewed_claims": 500,
+          "source_span_support_precision_min": 0.9,
+          "target_accuracy_min": 0.85,
+          "unsupported_field_false_grounding_rate_max": 0.05,
+          "variable_mapping_accuracy_min": 0.8
+        },
+        "total_documents": 0
       },
       "passed": false,
       "requirement": "Manual forecast gold-set review must pass before prompt evolution uses extracted target, direction, or horizon signals."

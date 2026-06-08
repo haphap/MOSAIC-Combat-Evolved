@@ -267,6 +267,19 @@ REPORT_INTELLIGENCE_PATCH_V1_5_SCHEMA_ARTIFACTS = (
     "report_intelligence_tool_design_proposal.schema.json",
     "report_intelligence_analysis_recipe.schema.json",
 )
+FORECAST_GOLD_MIN_REVIEWED_CLAIMS = 500
+FORECAST_GOLD_MIN_DOCUMENTS = 50
+FORECAST_GOLD_REVIEW_MIN_METRICS: Mapping[str, float] = {
+    "claim_precision": 0.85,
+    "source_span_support_precision": 0.90,
+    "target_accuracy": 0.85,
+    "direction_accuracy": 0.85,
+    "horizon_accuracy": 0.85,
+    "variable_mapping_accuracy": 0.80,
+}
+FORECAST_GOLD_REVIEW_MAX_METRICS: Mapping[str, float] = {
+    "unsupported_field_false_grounding_rate": 0.05,
+}
 MAX_STORED_CLAIM_TEXT_CHARS = 72
 ANALYTICAL_FOOTPRINT_REVIEW_BOOLEAN_FIELDS = (
     "footprint_correct",
@@ -7671,6 +7684,102 @@ def _evolution_gate_check(
     }
 
 
+def _gold_review_metric(
+    gold: Mapping[str, Any],
+    metrics: Mapping[str, Any],
+    field: str,
+) -> float | None:
+    value = metrics.get(field)
+    if value is None:
+        value = gold.get(field)
+    return _float_or_none(value)
+
+
+def _forecast_gold_review_gate(
+    *,
+    gold_review_summary: Mapping[str, Any],
+    outcome_labeling_readiness: Mapping[str, Any] | None,
+) -> tuple[bool, dict[str, Any], list[str]]:
+    gold = _ensure_mapping(gold_review_summary)
+    metrics = _ensure_mapping(gold.get("metrics"))
+    readiness = _ensure_mapping(outcome_labeling_readiness)
+    stock_readiness = _ensure_mapping(readiness.get("stock_price_proxy_readiness"))
+    stock_gap_counts = _count_mapping_values(
+        _ensure_mapping(stock_readiness.get("data_gap_counts"))
+    )
+    blockers: list[str] = []
+    summary_passed = gold.get("passed") is True or gold.get("accepted") is True
+    review_complete = gold.get("review_complete") is True
+    reviewed_claims = int(gold.get("reviewed_claims") or 0)
+    total_documents = int(gold.get("total_documents") or 0)
+    pending_claims = int(gold.get("pending_claims") or 0)
+    if not summary_passed:
+        blockers.append("forecast_gold_set_gate_not_passed")
+    if not review_complete:
+        blockers.append("forecast_gold_set_review_incomplete")
+    if reviewed_claims < FORECAST_GOLD_MIN_REVIEWED_CLAIMS:
+        blockers.append("gold_reviewed_claims_below_threshold")
+    if total_documents < FORECAST_GOLD_MIN_DOCUMENTS:
+        blockers.append("gold_reviewed_documents_below_threshold")
+    if pending_claims:
+        blockers.append("gold_pending_claims_remaining")
+    metric_values: dict[str, float | None] = {}
+    for field, threshold in FORECAST_GOLD_REVIEW_MIN_METRICS.items():
+        value = _gold_review_metric(gold, metrics, field)
+        metric_values[field] = value
+        if value is None:
+            blockers.append(f"{field}_missing")
+        elif value < threshold:
+            blockers.append(f"{field}_below_threshold")
+    for field, threshold in FORECAST_GOLD_REVIEW_MAX_METRICS.items():
+        value = _gold_review_metric(gold, metrics, field)
+        metric_values[field] = value
+        if value is None:
+            blockers.append(f"{field}_missing")
+        elif value > threshold:
+            blockers.append(f"{field}_above_threshold")
+    stock_target_conflict_count = int(stock_gap_counts.get("stock_target_conflict") or 0)
+    conflict_reviewed_count = int(
+        gold.get("stock_target_conflict_reviewed_count")
+        or metrics.get("stock_target_conflict_reviewed_count")
+        or 0
+    )
+    stock_target_conflict_explained = (
+        gold.get("stock_target_conflict_explained") is True
+        or metrics.get("stock_target_conflict_explained") is True
+        or (
+            stock_target_conflict_count > 0
+            and conflict_reviewed_count >= stock_target_conflict_count
+        )
+    )
+    if stock_target_conflict_count and not stock_target_conflict_explained:
+        blockers.append("stock_target_conflict_unexplained")
+    evidence = {
+        "gold_set_passed": not blockers,
+        "review_complete": review_complete,
+        "reviewed_claims": reviewed_claims,
+        "pending_claims": pending_claims,
+        "total_documents": total_documents,
+        "metrics": metric_values,
+        "thresholds": {
+            "min_reviewed_claims": FORECAST_GOLD_MIN_REVIEWED_CLAIMS,
+            "min_documents": FORECAST_GOLD_MIN_DOCUMENTS,
+            **{
+                f"{field}_min": threshold
+                for field, threshold in FORECAST_GOLD_REVIEW_MIN_METRICS.items()
+            },
+            **{
+                f"{field}_max": threshold
+                for field, threshold in FORECAST_GOLD_REVIEW_MAX_METRICS.items()
+            },
+        },
+        "stock_target_conflict_count": stock_target_conflict_count,
+        "stock_target_conflict_reviewed_count": conflict_reviewed_count,
+        "stock_target_conflict_explained": stock_target_conflict_explained,
+    }
+    return not blockers, evidence, blockers
+
+
 def _history_vintage_key(row: Mapping[str, Any]) -> str:
     data_vintage_hash = str(row.get("data_vintage_hash") or "").strip()
     if data_vintage_hash.startswith("sha256:"):
@@ -7780,6 +7889,22 @@ def _evolution_data_vintage_hash(
             "passed": gold.get("passed") is True,
             "reviewed_claims": int(gold.get("reviewed_claims") or 0),
             "pending_claims": int(gold.get("pending_claims") or 0),
+            "total_documents": int(gold.get("total_documents") or 0),
+            "metrics": {
+                field: _gold_review_metric(gold, _ensure_mapping(gold.get("metrics")), field)
+                for field in (
+                    *FORECAST_GOLD_REVIEW_MIN_METRICS.keys(),
+                    *FORECAST_GOLD_REVIEW_MAX_METRICS.keys(),
+                    "stock_target_conflict_reviewed_count",
+                )
+            },
+            "stock_target_conflict_explained": (
+                gold.get("stock_target_conflict_explained") is True
+                or _ensure_mapping(gold.get("metrics")).get(
+                    "stock_target_conflict_explained"
+                )
+                is True
+            ),
         },
         "readiness": {
             "forecast_claim_count": int(readiness.get("forecast_claim_count") or 0),
@@ -8350,9 +8475,10 @@ def build_report_intelligence_evolution_readiness_gate(
         )
     )
 
-    gold = _ensure_mapping(gold_review_summary)
-    gold_passed = gold.get("passed") is True or gold.get("accepted") is True
-    gold_blockers = [] if gold_passed else ["forecast_gold_set_gate_not_passed"]
+    gold_passed, gold_evidence, gold_blockers = _forecast_gold_review_gate(
+        gold_review_summary=gold_review_summary,
+        outcome_labeling_readiness=outcome_labeling_readiness,
+    )
     checks.append(
         _evolution_gate_check(
             check_id="RI-EVOL-05",
@@ -8361,11 +8487,7 @@ def build_report_intelligence_evolution_readiness_gate(
                 "evolution uses extracted target, direction, or horizon signals."
             ),
             passed=gold_passed,
-            evidence={
-                "gold_set_passed": gold_passed,
-                "reviewed_claims": int(gold.get("reviewed_claims") or 0),
-                "pending_claims": int(gold.get("pending_claims") or 0),
-            },
+            evidence=gold_evidence,
             blockers=gold_blockers,
         )
     )
@@ -8745,13 +8867,18 @@ def build_prompt_mutation_candidates(
         for item in _ensure_list(gold_check.get("blockers"))
         if str(item).strip()
     ]
-    gold_passed = (
-        gold_check.get("passed") is True
-        if gold_check
-        else gold.get("passed") is True or gold.get("accepted") is True
+    fallback_gold_passed, fallback_gold_evidence, fallback_gold_blockers = (
+        _forecast_gold_review_gate(
+            gold_review_summary=gold,
+            outcome_labeling_readiness=outcome_labeling_readiness,
+        )
     )
+    gold_passed = gold_check.get("passed") is True if gold_check else fallback_gold_passed
     if gold_check_blockers or (gold and not gold_passed):
-        gold_evidence_source = gold_check_evidence if gold_check else gold
+        gold_evidence_source = (
+            gold_check_evidence if gold_check else fallback_gold_evidence
+        )
+        gold_evidence_blockers = gold_check_blockers or fallback_gold_blockers
         _add_prompt_mutation_candidate(
             candidates,
             run_id=run_id,
@@ -8783,10 +8910,30 @@ def build_prompt_mutation_candidates(
                     "reviewed_claims": int(
                         gold_evidence_source.get("reviewed_claims") or 0
                     ),
+                    "total_documents": int(
+                        gold_evidence_source.get("total_documents") or 0
+                    ),
                     "pending_claims": int(
                         gold_evidence_source.get("pending_claims") or 0
                     ),
-                    "blockers": gold_check_blockers,
+                    "metrics": _ensure_mapping(gold_evidence_source.get("metrics")),
+                    "thresholds": _ensure_mapping(
+                        gold_evidence_source.get("thresholds")
+                    ),
+                    "stock_target_conflict_count": int(
+                        gold_evidence_source.get("stock_target_conflict_count") or 0
+                    ),
+                    "stock_target_conflict_reviewed_count": int(
+                        gold_evidence_source.get(
+                            "stock_target_conflict_reviewed_count"
+                        )
+                        or 0
+                    ),
+                    "stock_target_conflict_explained": (
+                        gold_evidence_source.get("stock_target_conflict_explained")
+                        is True
+                    ),
+                    "blockers": gold_evidence_blockers,
                 }
             ],
             severity="high",

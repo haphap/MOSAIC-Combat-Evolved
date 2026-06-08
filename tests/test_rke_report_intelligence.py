@@ -43,6 +43,27 @@ def _sha(path: Path) -> str:
     return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _passing_forecast_gold_review_summary(**overrides):
+    summary = {
+        "passed": True,
+        "review_complete": True,
+        "reviewed_claims": 500,
+        "pending_claims": 0,
+        "total_documents": 50,
+        "metrics": {
+            "claim_precision": 0.90,
+            "source_span_support_precision": 0.92,
+            "target_accuracy": 0.88,
+            "direction_accuracy": 0.89,
+            "horizon_accuracy": 0.87,
+            "variable_mapping_accuracy": 0.82,
+            "unsupported_field_false_grounding_rate": 0.02,
+        },
+    }
+    summary.update(overrides)
+    return summary
+
+
 def _write_source(
     path: Path,
     *,
@@ -1735,7 +1756,7 @@ def test_report_intelligence_evolution_gate_blocks_until_objective_thresholds_pa
         extraction_provenance_audit={"accepted": True},
         statistical_robustness_audit={"accepted": True},
         schema_validation_report={"accepted": True},
-        gold_review_summary={"passed": True, "reviewed_claims": 500},
+        gold_review_summary=_passing_forecast_gold_review_summary(),
         outcome_labeling_readiness={"mapping_gap_counts": {"horizon": 3}},
     )
 
@@ -1755,6 +1776,68 @@ def test_report_intelligence_evolution_gate_blocks_until_objective_thresholds_pa
     gate_dump = json.dumps(gate, ensure_ascii=False)
     assert "claim_text" not in gate_dump
     assert "source_span_ids" not in gate_dump
+
+
+def test_report_intelligence_evolution_gate_requires_gold_precision_and_conflict_review():
+    gate = build_report_intelligence_evolution_readiness_gate(
+        run_id="RIR-TEST-EVOLUTION-GOLD-GATE",
+        forecast_rows=[{"forecast_claim_id": "FC-1"}],
+        outcome_label_rows=[],
+        recipe_paper_trading_summary={
+            "paper_trading_run_count": 20,
+            "validation_pass_count": 20,
+            "mean_cost_adjusted_alpha": 0.012,
+        },
+        confidence_impact_monitor={
+            "observation_count": 20,
+            "blocked_recipe_count": 0,
+            "unvalidated_confidence_impact_count": 0,
+            "alpha_decay_fail_count": 0,
+            "calibration_drift_count": 0,
+            "blocker_counts": {},
+        },
+        markdown_coverage_summary={
+            "coverage_gate_status": "passed",
+            "coverage_gate_blockers": [],
+            "coverage_targets": {
+                "selected_report_count_min": 300,
+                "markdown_ready_count_min": 300,
+                "markdown_quality_pass_count_min": 300,
+                "llm_extraction_processed_count_min": 100,
+            },
+        },
+        pit_leakage_audit={"accepted": True},
+        extraction_provenance_audit={"accepted": True},
+        statistical_robustness_audit={"accepted": True},
+        schema_validation_report={"accepted": True},
+        gold_review_summary=_passing_forecast_gold_review_summary(
+            metrics={
+                "claim_precision": 0.84,
+                "source_span_support_precision": 0.92,
+                "direction_accuracy": 0.89,
+                "variable_mapping_accuracy": 0.82,
+                "unsupported_field_false_grounding_rate": 0.02,
+            },
+        ),
+        outcome_labeling_readiness={
+            "mapping_gap_counts": {},
+            "stock_price_proxy_readiness": {
+                "data_gap_counts": {"stock_target_conflict": 2},
+            },
+        },
+    )
+
+    gold_check = next(row for row in gate["checks"] if row["check_id"] == "RI-EVOL-05")
+    assert gold_check["passed"] is False
+    assert {
+        "claim_precision_below_threshold",
+        "target_accuracy_missing",
+        "horizon_accuracy_missing",
+        "stock_target_conflict_unexplained",
+    } <= set(gold_check["blockers"])
+    assert gold_check["evidence"]["metrics"]["claim_precision"] == 0.84
+    assert gold_check["evidence"]["stock_target_conflict_count"] == 2
+    assert gold_check["evidence"]["stock_target_conflict_explained"] is False
 
 
 def test_report_intelligence_evolution_gate_blocks_markdown_spot_check_queue():
@@ -1824,11 +1907,7 @@ def test_report_intelligence_evolution_gate_blocks_markdown_spot_check_queue():
         extraction_provenance_audit={"accepted": True},
         statistical_robustness_audit={"accepted": True},
         schema_validation_report={"accepted": True},
-        gold_review_summary={
-            "passed": True,
-            "reviewed_claims": 500,
-            "pending_claims": 0,
-        },
+        gold_review_summary=_passing_forecast_gold_review_summary(),
         outcome_labeling_readiness={"mapping_gap_counts": {}},
         monitor_refresh_history_rows=[
             {**clean_monitor, "data_vintage_hash": previous_vintage_1},
@@ -1923,11 +2002,7 @@ def test_report_intelligence_evolution_gate_passes_with_full_objective_evidence(
         extraction_provenance_audit={"accepted": True},
         statistical_robustness_audit={"accepted": True},
         schema_validation_report={"accepted": True},
-        gold_review_summary={
-            "passed": True,
-            "reviewed_claims": 500,
-            "pending_claims": 0,
-        },
+        gold_review_summary=_passing_forecast_gold_review_summary(),
         outcome_labeling_readiness={"mapping_gap_counts": {}},
         monitor_refresh_history_rows=[
             {**clean_monitor, "data_vintage_hash": previous_vintage_1},
@@ -2013,11 +2088,7 @@ def test_report_intelligence_evolution_gate_requires_distinct_data_vintages():
         "extraction_provenance_audit": {"accepted": True},
         "statistical_robustness_audit": {"accepted": True},
         "schema_validation_report": {"accepted": True},
-        "gold_review_summary": {
-            "passed": True,
-            "reviewed_claims": 500,
-            "pending_claims": 0,
-        },
+        "gold_review_summary": _passing_forecast_gold_review_summary(),
         "outcome_labeling_readiness": {"mapping_gap_counts": {}},
     }
     current_hash = build_report_intelligence_evolution_readiness_gate(
