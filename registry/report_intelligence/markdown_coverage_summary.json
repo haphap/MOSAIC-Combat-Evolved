@@ -1,17 +1,17 @@
 {
-  "conversion_backend_counts": {},
   "coverage_id": "RKE-REPORT-MARKDOWN-COVERAGE-SUMMARY",
-  "markdown_quality_gap_counts": {
-    "markdown_status_not_attempted": 2
-  },
-  "markdown_quality_pass_count": 0,
+  "run_id": "RIR-COMMITTED-SNAPSHOT",
+  "selected_report_count": 2,
+  "pdf_download_ready_count": 0,
   "markdown_ready_count": 0,
+  "markdown_quality_pass_count": 0,
   "llm_extraction_processed_count": 0,
+  "llm_extraction_without_quality_pass_count": 0,
   "coverage_targets": {
-    "llm_extraction_processed_count_min": 100,
-    "markdown_quality_pass_count_min": 300,
+    "selected_report_count_min": 300,
     "markdown_ready_count_min": 300,
-    "selected_report_count_min": 300
+    "markdown_quality_pass_count_min": 300,
+    "llm_extraction_processed_count_min": 100
   },
   "coverage_gate_status": "blocked",
   "coverage_gate_blockers": [
@@ -20,15 +20,16 @@
     "markdown_quality_pass_count_below_p9_target",
     "llm_extraction_processed_count_below_p9_target"
   ],
-  "pdf_download_ready_count": 0,
-  "private_artifact_redaction_policy": "public coverage summary stores aggregate counts only; no source-specific content, retrieval locator, local file reference, or report prose is allowed",
+  "markdown_quality_gap_counts": {
+    "markdown_status_not_attempted": 2
+  },
   "report_type_counts": {
     "行业研报": 2
   },
-  "retry_queue_count": 0,
-  "run_id": "RIR-COMMITTED-SNAPSHOT",
   "sector_bucket_counts": {
     "semiconductor": 2
   },
-  "selected_report_count": 2
+  "conversion_backend_counts": {},
+  "retry_queue_count": 0,
+  "private_artifact_redaction_policy": "public coverage summary stores aggregate counts only; no source-specific content, retrieval locator, local file reference, or report prose is allowed"
 }

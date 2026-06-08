@@ -21,6 +21,7 @@ from mosaic.rke.report_intelligence import (
     apply_analytical_footprint_review_import,
     build_confidence_impact_monitor,
     build_confidence_impact_observations,
+    build_markdown_coverage_summary,
     build_prompt_mutation_candidates,
     build_report_intelligence_evolution_readiness_gate,
     build_method_performance_profiles,
@@ -612,6 +613,7 @@ def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
     assert markdown_coverage["markdown_ready_count"] == 1
     assert markdown_coverage["markdown_quality_pass_count"] == 1
     assert markdown_coverage["llm_extraction_processed_count"] == 1
+    assert markdown_coverage["llm_extraction_without_quality_pass_count"] == 0
     assert markdown_coverage["coverage_targets"] == {
         "llm_extraction_processed_count_min": 100,
         "markdown_quality_pass_count_min": 300,
@@ -1055,7 +1057,38 @@ def test_report_intelligence_blocks_llm_on_low_quality_markdown(tmp_path: Path):
     assert coverage["markdown_ready_count"] == 1
     assert coverage["markdown_quality_pass_count"] == 0
     assert coverage["llm_extraction_processed_count"] == 0
+    assert coverage["llm_extraction_without_quality_pass_count"] == 0
     assert coverage["markdown_quality_gap_counts"] == {"markdown_disclaimer_only": 1}
+
+
+def test_markdown_coverage_flags_llm_processed_without_quality_pass():
+    summary = build_markdown_coverage_summary(
+        run_id="RIR-MARKDOWN-QUALITY-VIOLATION-TEST",
+        metadata_rows=[
+            {
+                "report_type": "公司研报",
+                "sector": "bank",
+                "pdf": {"status": "downloaded"},
+                "markdown": {
+                    "status": "converted",
+                    "bytes": 200,
+                    "backend": "hybrid-auto-engine",
+                    "quality_gap": "markdown_disclaimer_only",
+                },
+                "extraction": {"llm_status": "processed"},
+            }
+        ],
+    )
+
+    assert summary["markdown_ready_count"] == 1
+    assert summary["markdown_quality_pass_count"] == 0
+    assert summary["llm_extraction_processed_count"] == 1
+    assert summary["llm_extraction_without_quality_pass_count"] == 1
+    assert summary["markdown_quality_gap_counts"] == {"markdown_disclaimer_only": 1}
+    assert "llm_extraction_without_quality_pass" in summary["coverage_gate_blockers"]
+    dump = json.dumps(summary, ensure_ascii=False)
+    assert "claim_text" not in dump
+    assert "source_span_ids" not in dump
 
 
 def test_report_intelligence_analysis_recipes_pin_required_data():

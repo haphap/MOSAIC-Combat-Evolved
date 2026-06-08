@@ -4355,6 +4355,7 @@ def build_markdown_coverage_summary(
     markdown_ready_count = 0
     markdown_quality_pass_count = 0
     llm_extraction_processed_count = 0
+    llm_extraction_without_quality_pass_count = 0
     retry_queue_count = 0
     for row in metadata_rows:
         _increment_count(report_type_counts, row.get("report_type"))
@@ -4378,6 +4379,8 @@ def build_markdown_coverage_summary(
         extraction = _ensure_mapping(row.get("extraction"))
         if str(extraction.get("llm_status") or "") == "processed":
             llm_extraction_processed_count += 1
+            if gap:
+                llm_extraction_without_quality_pass_count += 1
     coverage_targets = {
         "selected_report_count_min": MARKDOWN_COVERAGE_MIN_SELECTED_REPORTS,
         "markdown_ready_count_min": MARKDOWN_COVERAGE_MIN_MARKDOWN_READY,
@@ -4400,6 +4403,8 @@ def build_markdown_coverage_summary(
         coverage_gate_blockers.append(
             "llm_extraction_processed_count_below_p9_target"
         )
+    if llm_extraction_without_quality_pass_count:
+        coverage_gate_blockers.append("llm_extraction_without_quality_pass")
     return {
         "coverage_id": "RKE-REPORT-MARKDOWN-COVERAGE-SUMMARY",
         "run_id": run_id,
@@ -4408,6 +4413,9 @@ def build_markdown_coverage_summary(
         "markdown_ready_count": markdown_ready_count,
         "markdown_quality_pass_count": markdown_quality_pass_count,
         "llm_extraction_processed_count": llm_extraction_processed_count,
+        "llm_extraction_without_quality_pass_count": (
+            llm_extraction_without_quality_pass_count
+        ),
         "coverage_targets": coverage_targets,
         "coverage_gate_status": (
             "passed" if not coverage_gate_blockers else "blocked"
