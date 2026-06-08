@@ -4,12 +4,23 @@ import json
 import shutil
 from pathlib import Path
 
-from mosaic.rke import build_operator_readiness_report, write_operator_readiness_report
+from mosaic.rke import (
+    build_operator_readiness_report,
+    write_manual_review_batches,
+    write_operator_readiness_report,
+)
 from mosaic.rke.cli import main
 
 
 def _copy_registry(dst_root: Path) -> None:
     shutil.copytree(Path("registry"), dst_root / "registry")
+    _reset_gold_review_rows(
+        dst_root / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    )
+    _reset_source_license_review_rows(
+        dst_root / "registry/compliance/tushare_license_review_template.jsonl"
+    )
+    write_manual_review_batches(dst_root)
 
 
 def _load_jsonl(path: Path) -> list[dict]:
@@ -21,6 +32,32 @@ def _write_jsonl(path: Path, rows: list[dict]) -> None:
         "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
         encoding="utf-8",
     )
+
+
+def _reset_gold_review_rows(path: Path) -> None:
+    rows = _load_jsonl(path)
+    for row in rows:
+        row["manual_claim_text"] = ""
+        row["claim_correct"] = None
+        row["source_span_supports_claim"] = None
+        row["direction_correct"] = None
+        row["variable_mapping_correct"] = None
+        row["unsupported_field_false_grounded"] = None
+        row["reviewer"] = ""
+        row["review_date"] = ""
+        row["review_notes"] = ""
+    _write_jsonl(path, rows)
+
+
+def _reset_source_license_review_rows(path: Path) -> None:
+    rows = _load_jsonl(path)
+    for row in rows:
+        row["approved_for_derived_claim_storage"] = None
+        row["approved_for_production_runtime"] = None
+        row["reviewer"] = ""
+        row["review_date"] = ""
+        row["notes"] = ""
+    _write_jsonl(path, rows)
 
 
 def _append_jsonl_value(path: Path, value) -> None:
@@ -35,8 +72,9 @@ def test_operator_readiness_accepts_current_review_bundle():
     assert report.accepted
     assert report.failure_count == 0
     assert report.check_count == 15
-    assert "registry/promotion/rke_promotion_dry_run_report.json" in report.generated_paths
     assert "registry/review_batches/gold_set_review_workbook.md" in report.generated_paths
+    assert "registry/review_batches/gold_set_review_assist.jsonl" in report.generated_paths
+    assert "registry/review_batches/gold_set_review_assist.md" in report.generated_paths
     assert "registry/review_batches/source_license_review_workbook.md" in report.generated_paths
     assert "registry/review_batches/manual_review_progress_report.json" in report.generated_paths
     assert "registry/review_batches/manual_review_runbook.md" in report.generated_paths
@@ -44,7 +82,7 @@ def test_operator_readiness_accepts_current_review_bundle():
     assert checks["required_registry_valid"].passed
     assert checks["handoff_ready_for_operator"].passed
     assert checks["handoff_command_sequence_complete"].passed
-    assert "steps=16" in checks["handoff_command_sequence_complete"].evidence
+    assert "steps=12" in checks["handoff_command_sequence_complete"].evidence
     assert checks["manual_batch_templates_match_status"].passed
     assert checks["manual_import_templates_are_sparse"].passed
     assert checks["manual_import_templates_have_provenance"].passed
@@ -416,26 +454,30 @@ def test_write_operator_readiness_report_outputs_registry_artifact(tmp_path: Pat
     assert payload["failure_count"] == 0
     assert "registry/review_batches/gold_set_full_import_template.jsonl" in payload["generated_paths"]
     assert "registry/review_batches/gold_set_review_workbook.md" in payload["generated_paths"]
+    assert "registry/review_batches/gold_set_review_assist.jsonl" in payload["generated_paths"]
+    assert "registry/review_batches/gold_set_review_assist.md" in payload["generated_paths"]
     assert "registry/review_batches/source_license_review_workbook.md" in payload["generated_paths"]
     assert "registry/review_batches/manual_review_progress_report.json" in payload["generated_paths"]
     assert "registry/review_batches/manual_review_runbook.md" in payload["generated_paths"]
     assert "registry/gold_sets/tushare_research_reports.review_import_report.json" in payload["generated_paths"]
     assert "registry/review_batches/source_license_policy_import_report.json" in payload["generated_paths"]
     assert "registry/lockbox/central_bank_lockbox_review_import_report.json" in payload["generated_paths"]
-    assert "registry/promotion/rke_promotion_dry_run_report.json" in payload["generated_paths"]
     assert "registry/review_batches/manual_review_bundle_manifest.json" in payload["generated_paths"]
     assert dry_run_payload["accepted"] is False
     assert dry_run_payload["mutated_original_registry"] is False
     assert dry_run_payload["production_allowed_after_simulation"] is False
-    assert dry_run_payload["after_next_state"] == "paper_trading"
-    assert {
-        step["review_kind"] for step in dry_run_payload["steps"] if step["provided"]
-    } == {"gold_set", "source_license", "lockbox"}
+    assert dry_run_payload["after_next_state"] == "staged_production"
+    steps = {step["review_kind"]: step for step in dry_run_payload["steps"]}
+    assert steps["gold_set"]["result"] == "already_applied"
+    assert steps["source_license"]["result"] == "already_applied"
+    assert steps["lockbox"]["result"] == "not_provided"
     assert bundle_payload["accepted"] is True
     assert bundle_payload["artifact_count"] >= 20
     assert (tmp_path / "registry/handoffs/rke_operator_readiness_report.json").exists()
     assert (tmp_path / "registry/review_batches/gold_set_full_import_template.jsonl").exists()
     assert (tmp_path / "registry/review_batches/gold_set_review_workbook.md").exists()
+    assert (tmp_path / "registry/review_batches/gold_set_review_assist.jsonl").exists()
+    assert (tmp_path / "registry/review_batches/gold_set_review_assist.md").exists()
     assert (tmp_path / "registry/review_batches/source_license_review_workbook.md").exists()
     assert (tmp_path / "registry/review_batches/manual_review_progress_report.json").exists()
     assert (tmp_path / "registry/review_batches/manual_review_runbook.md").exists()

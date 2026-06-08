@@ -104,6 +104,83 @@
       "status": "sandbox",
       "variable_id": "bank_net_interest_margin_pressure",
       "variable_type": "target"
+    },
+    {
+      "description": "Policy, regulatory, infrastructure, or fiscal catalyst affecting an industry view.",
+      "domain": "sector.cross_industry",
+      "status": "sandbox",
+      "variable_id": "industry_policy_catalyst",
+      "variable_type": "cause"
+    },
+    {
+      "description": "Demand, order, utilization, and market-size cycle impulse behind an industry view.",
+      "domain": "sector.cross_industry",
+      "status": "sandbox",
+      "variable_id": "industry_demand_cycle",
+      "variable_type": "cause"
+    },
+    {
+      "description": "Supply, capacity, inventory, or bottleneck constraint behind an industry view.",
+      "domain": "sector.cross_industry",
+      "status": "sandbox",
+      "variable_id": "industry_supply_constraint",
+      "variable_type": "cause"
+    },
+    {
+      "description": "Commodity price or supply-demand cycle affecting commodity-linked industries.",
+      "domain": "sector.commodity",
+      "status": "sandbox",
+      "variable_id": "commodity_price_cycle",
+      "variable_type": "cause"
+    },
+    {
+      "description": "Dollar, Fed-rate, FX, and global liquidity pressure affecting non-CNY assets.",
+      "domain": "macro.global_liquidity",
+      "status": "sandbox",
+      "variable_id": "global_dollar_liquidity_pressure",
+      "variable_type": "cause"
+    },
+    {
+      "description": "Recent stock, sector, or index price momentum used as report context.",
+      "domain": "market.microstructure",
+      "status": "sandbox",
+      "variable_id": "recent_price_momentum",
+      "variable_type": "cause"
+    },
+    {
+      "description": "Product, model, process, or technology innovation cycle behind a research view.",
+      "domain": "sector.cross_industry",
+      "status": "sandbox",
+      "variable_id": "technology_innovation_cycle",
+      "variable_type": "cause"
+    },
+    {
+      "description": "Revenue, profit, margin, cash-flow, utilization, or balance-sheet momentum.",
+      "domain": "equity.single_name",
+      "status": "sandbox",
+      "variable_id": "company_fundamental_momentum",
+      "variable_type": "cause"
+    },
+    {
+      "description": "Competition, price pressure, risk event, or below-expectation operating pressure.",
+      "domain": "sector.cross_industry",
+      "status": "sandbox",
+      "variable_id": "competitive_intensity_pressure",
+      "variable_type": "cause"
+    },
+    {
+      "description": "PIT industry ETF forward return used to label industry research report outcomes.",
+      "domain": "sector.cross_industry",
+      "status": "sandbox",
+      "variable_id": "industry_etf_forward_return",
+      "variable_type": "target"
+    },
+    {
+      "description": "Single-name forward excess return used to label stock research report outcomes.",
+      "domain": "equity.single_name",
+      "status": "sandbox",
+      "variable_id": "stock_forward_excess_return",
+      "variable_type": "target"
     }
   ],
   "vocabulary_id": "CLAIM-VARIABLE-VOCABULARY-20260606"

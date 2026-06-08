@@ -1,0 +1,87 @@
+{
+  "accepted": true,
+  "as_of_datetime": "2026-06-07T17:18:15+00:00",
+  "audit_id": "RKE-REPORT-INTELLIGENCE-EXTRACTION-PROVENANCE-AUDIT",
+  "blocker_count": 0,
+  "blockers": [],
+  "checked_item_count": 79,
+  "checks": [
+    {
+      "accepted": true,
+      "check_id": "RI-PROV-00",
+      "evidence": {
+        "load_blocker_count": 0
+      },
+      "failure_count": 0,
+      "failures": [],
+      "requirement": "Required report-intelligence provenance inputs load successfully."
+    },
+    {
+      "accepted": true,
+      "check_id": "RI-PROV-01",
+      "evidence": {
+        "forecast_claim_rows": 12,
+        "source_grounded_claim_count": 12
+      },
+      "failure_count": 0,
+      "failures": [],
+      "requirement": "Source-grounded forecast claims must cite source span IDs."
+    },
+    {
+      "accepted": true,
+      "check_id": "RI-PROV-02",
+      "evidence": {
+        "analytical_footprint_rows": 8,
+        "source_grounded_indicator_count": 31,
+        "source_grounded_or_mixed_footprint_count": 8
+      },
+      "failure_count": 0,
+      "failures": [],
+      "requirement": "Source-grounded analytical footprints and indicators must cite spans, tables, or charts."
+    },
+    {
+      "accepted": true,
+      "check_id": "RI-PROV-03",
+      "evidence": {
+        "accepted_inferred_tags": [
+          "analyst_or_llm_hypothesis",
+          "inferred_hypothesis"
+        ],
+        "inferred_failure_mode_count": 13,
+        "inferred_indicator_count": 0
+      },
+      "failure_count": 0,
+      "failures": [],
+      "requirement": "LLM-inferred claims, failure modes, and indicator steps must be explicitly tagged as inferred or hypothesis."
+    },
+    {
+      "accepted": true,
+      "check_id": "RI-PROV-04",
+      "evidence": {
+        "forecast_ledger_rows": 12,
+        "industry_etf_proxy_outcome_claim_count": 5,
+        "outcome_label_rows": 15,
+        "ready_for_outcome_labeling_count": 0,
+        "standard_blocked_forecast_count": 12,
+        "unlabelable_forecast_count": 7
+      },
+      "failure_count": 0,
+      "failures": [],
+      "requirement": "Forecasts missing target, benchmark, direction, or horizon cannot enter standard outcome scoring; governed industry ETF proxy labels remain a separate evidence channel."
+    },
+    {
+      "accepted": true,
+      "check_id": "RI-PROV-05",
+      "evidence": {
+        "metric_candidate_rows": 32,
+        "promoted_unknown_raw_source_metric_count": 0,
+        "unknown_raw_source_metric_count": 17
+      },
+      "failure_count": 0,
+      "failures": [],
+      "requirement": "Footprint-derived metrics with unknown raw data source cannot be promoted to production candidates."
+    }
+  ],
+  "policy": "source-grounded forecast claims and analytical footprints must cite spans; inferred fields must stay tagged as hypotheses; unmapped forecasts and unknown-source metrics cannot be scored or promoted",
+  "run_id": "RIR-DERIVED-20260607T171815+0000"
+}

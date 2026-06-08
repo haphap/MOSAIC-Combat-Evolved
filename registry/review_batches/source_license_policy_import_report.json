@@ -1,0 +1,32 @@
+{
+  "accepted": false,
+  "approved_for_derived_claim_storage": null,
+  "approved_for_production_runtime": null,
+  "blockers": [
+    "reviewer required",
+    "review_date required",
+    "approved_for_derived_claim_storage must be boolean",
+    "approved_for_production_runtime must be boolean",
+    "policy filters matched zero source-license rows"
+  ],
+  "dry_run": true,
+  "filters": {
+    "current_license_status": [],
+    "publish_date_max": null,
+    "publish_date_min": null,
+    "review_status": [],
+    "source_id_prefix": [
+      "__NO_PENDING_SOURCE_LICENSE_ROWS__"
+    ],
+    "source_type": []
+  },
+  "matched_rows": 0,
+  "output_path": "registry/review_batches/source_license_policy_import.jsonl",
+  "output_rows": 0,
+  "policy_path": "registry/review_batches/source_license_policy_template.json",
+  "report_id": "RKE-SOURCE-LICENSE-POLICY-IMPORT-REPORT-20260606",
+  "review_date": "",
+  "reviewer": "",
+  "target_review_path": "registry/compliance/tushare_license_review_template.jsonl",
+  "total_review_rows": 17529
+}

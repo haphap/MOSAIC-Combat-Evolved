@@ -4,6 +4,7 @@
   "old_value": 7,
   "operation": "replace",
   "patch_id": "PATCH-CB-20260605-0001",
+  "patch_type": "parameter_update",
   "rollback_rule": {
     "hard_trigger_delta_lt": -0.02,
     "metric": "live_net_alpha_after_cost_20d",

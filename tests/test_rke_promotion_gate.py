@@ -90,12 +90,12 @@ def test_production_promotion_gate_blocks_current_registry():
     blockers = " ".join(report.blockers)
 
     assert report.paper_trading_allowed
-    assert not report.staged_production_allowed
+    assert report.staged_production_allowed
     assert not report.production_allowed
-    assert report.next_state == "paper_trading"
+    assert report.next_state == "staged_production"
     assert report.direct_production_forbidden
-    assert "manual gold-set review" in blockers
-    assert "source license review" in blockers
+    assert "manual gold-set review" not in blockers
+    assert "source license review" not in blockers
     assert "lockbox" in blockers
 
 

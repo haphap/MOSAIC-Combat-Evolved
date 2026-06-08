@@ -7,12 +7,14 @@ from pathlib import Path
 import pytest
 
 from mosaic.rke import (
+    REQUIRED_REGISTRY_FILES,
     build_registry_manifest,
     run_full_rke_refresh,
     validate_required_registry,
     validate_required_registry_content,
     write_registry_manifest,
 )
+from mosaic.rke.registry_manifest import PRIVATE_LOCAL_REGISTRY_FILES
 
 
 def _copy_registry(src_root: Path, dst_root: Path) -> None:
@@ -26,6 +28,64 @@ def test_required_registry_files_are_present_in_repo():
     assert missing == ()
     assert empty == ()
     assert invalid == ()
+    assert "registry/report_intelligence/extraction_report.json" in REQUIRED_REGISTRY_FILES
+    assert (
+        "registry/report_intelligence/weighted_research_contexts.jsonl"
+        not in REQUIRED_REGISTRY_FILES
+    )
+    assert (
+        "registry/report_intelligence/runtime_tool_gap_observations.jsonl"
+        in REQUIRED_REGISTRY_FILES
+    )
+    assert (
+        "registry/report_intelligence/outcome_labeling_readiness.json"
+        in REQUIRED_REGISTRY_FILES
+    )
+    assert (
+        "registry/report_intelligence/monitoring_report.json"
+        in REQUIRED_REGISTRY_FILES
+    )
+    assert (
+        "registry/report_intelligence/runtime_safety_audit.json"
+        in REQUIRED_REGISTRY_FILES
+    )
+    assert (
+        "registry/report_intelligence/pit_leakage_audit.json"
+        in REQUIRED_REGISTRY_FILES
+    )
+    assert (
+        "registry/report_intelligence/extraction_provenance_audit.json"
+        in REQUIRED_REGISTRY_FILES
+    )
+    assert (
+        "registry/report_intelligence/statistical_robustness_audit.json"
+        in REQUIRED_REGISTRY_FILES
+    )
+    assert (
+        "registry/report_intelligence/tool_feasibility_audit.json"
+        in REQUIRED_REGISTRY_FILES
+    )
+    assert (
+        "registry/report_intelligence/recipe_validation_audit.json"
+        in REQUIRED_REGISTRY_FILES
+    )
+    assert (
+        "registry/report_intelligence/patch_v1_5_coverage_report.json"
+        in REQUIRED_REGISTRY_FILES
+    )
+    assert (
+        "registry/report_intelligence/analytical_footprint_review_template.jsonl"
+        not in REQUIRED_REGISTRY_FILES
+    )
+    assert (
+        "registry/report_intelligence/analytical_footprint_review_summary.json"
+        in REQUIRED_REGISTRY_FILES
+    )
+    assert set(REQUIRED_REGISTRY_FILES).isdisjoint(PRIVATE_LOCAL_REGISTRY_FILES)
+    assert (
+        "registry/report_intelligence/analytical_footprint_error_taxonomy.json"
+        in REQUIRED_REGISTRY_FILES
+    )
 
 
 def test_registry_manifest_tracks_hashes_and_required_artifacts(tmp_path: Path):
@@ -115,7 +175,19 @@ def test_full_refresh_preserves_existing_review_templates(tmp_path: Path):
     assert "manual_review_batch_status" in result.outputs
     assert "manual_review_gold_set_import_template" in result.outputs
     assert "manual_review_gold_set_full_import_template" in result.outputs
+    assert "manual_review_gold_set_assist_jsonl" in result.outputs
+    assert "manual_review_gold_set_assist_markdown" in result.outputs
     assert "manual_review_source_license_import_template" in result.outputs
+    assert "analytical_footprint_review_template" in result.outputs
+    assert "analytical_footprint_review_summary" in result.outputs
+    assert "analytical_footprint_error_taxonomy" in result.outputs
+    assert "report_intelligence_runtime_safety_audit" in result.outputs
+    assert "report_intelligence_pit_leakage_audit" in result.outputs
+    assert "report_intelligence_extraction_provenance_audit" in result.outputs
+    assert "report_intelligence_statistical_robustness_audit" in result.outputs
+    assert "report_intelligence_tool_feasibility_audit" in result.outputs
+    assert "report_intelligence_recipe_validation_audit" in result.outputs
+    assert "report_intelligence_patch_v1_5_coverage_report" in result.outputs
     assert "audit_trace_view.json" in result.outputs
     assert "audit_trace_view.markdown" in result.outputs
     assert "operator_handoff.json" in result.outputs

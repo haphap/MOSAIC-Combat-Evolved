@@ -199,13 +199,23 @@ def _claim(
 def build_sector_semiconductor_demo(
     source_rows: Sequence[Any] | None = None,
 ) -> SectorSemiconductorDemoBundle:
-    rows = _require_mapping_rows(
-        _load_required_mapping_rows(
+    if source_rows is None:
+        loaded_rows = _load_required_mapping_rows(
             "registry/sources/tushare_research_reports.jsonl",
             label="semiconductor source",
         )
-        if source_rows is None
-        else source_rows,
+        demo_source_path = Path("registry/sources/semiconductor_demo_sources.jsonl")
+        if demo_source_path.exists():
+            loaded_rows.extend(
+                _load_required_mapping_rows(
+                    demo_source_path,
+                    label="semiconductor demo source",
+                )
+            )
+    else:
+        loaded_rows = list(source_rows)
+    rows = _require_mapping_rows(
+        loaded_rows,
         label="semiconductor source",
     )
     cycle_row = _find_report(rows, contains="存储市场仍保持较高景气度")
@@ -436,7 +446,7 @@ def build_sector_semiconductor_demo(
                 recommendation_id="R-SEMI-20260605-0001",
                 statement="Monitor only until current flow or price confirmation exists.",
                 inference_ids=("I-SEMI-20260605-0001",),
-                confidence=0.50,
+                confidence=0.30,
                 actionability="monitor_only",
             ),
         ),
@@ -446,8 +456,9 @@ def build_sector_semiconductor_demo(
         ),
         confidence_components={
             "data_confidence": 0.50,
-            "research_confidence": 0.55,
+            "research_weight_confidence": 0.55,
             "empirical_validation_confidence": 0.30,
+            "method_tool_confidence": 0.40,
             "regime_match_confidence": 0.50,
         },
         rule_aggregation_summary={
@@ -469,7 +480,7 @@ def build_sector_semiconductor_demo(
             fallback_count=0,
             missing_count=0,
             schema_valid=True,
-            confidence=0.50,
+            confidence=0.30,
         ),
     )
     unique_sources = {
@@ -489,12 +500,19 @@ def build_sector_semiconductor_demo(
 
 def write_sector_semiconductor_demo_registry(root: str | Path = ".") -> dict[str, str]:
     root_path = Path(root)
-    bundle = build_sector_semiconductor_demo(
-        _load_required_mapping_rows(
-            root_path / "registry/sources/tushare_research_reports.jsonl",
-            label="semiconductor source",
-        )
+    source_rows = _load_required_mapping_rows(
+        root_path / "registry/sources/tushare_research_reports.jsonl",
+        label="semiconductor source",
     )
+    demo_source_path = root_path / "registry/sources/semiconductor_demo_sources.jsonl"
+    if demo_source_path.exists():
+        source_rows.extend(
+            _load_required_mapping_rows(
+                demo_source_path,
+                label="semiconductor demo source",
+            )
+        )
+    bundle = build_sector_semiconductor_demo(source_rows)
     outputs = {
         "sources": root_path / "registry/sources/semiconductor_demo_sources.jsonl",
         "claims": root_path / "registry/claims/semiconductor_claims.jsonl",

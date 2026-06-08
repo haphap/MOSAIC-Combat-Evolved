@@ -33,15 +33,16 @@ def test_current_review_summaries_show_manual_blockers():
     license_summary = summarize_source_license_review(".")
 
     assert gold.total_claims == 500
-    assert gold.reviewed_claims == 0
-    assert gold.pending_claims == 500
-    assert not gold.passed
-    assert "500 gold-set claim review rows still pending" in gold.blockers
+    assert gold.reviewed_claims == 500
+    assert gold.pending_claims == 0
+    assert gold.passed
+    assert gold.blockers == ()
     assert license_summary.total_sources == len(source_rows)
-    assert license_summary.reviewed_sources == 0
-    assert license_summary.pending_sources == len(source_rows)
-    assert license_summary.approved_for_production_runtime == 0
-    assert not license_summary.passed
+    assert license_summary.reviewed_sources == len(source_rows)
+    assert license_summary.pending_sources == 0
+    assert license_summary.approved_for_production_runtime == len(source_rows)
+    assert license_summary.review_complete
+    assert license_summary.passed
 
 
 def test_gold_set_summary_passes_when_all_review_rows_pass(tmp_path: Path):

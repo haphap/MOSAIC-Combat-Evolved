@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal, Mapping, Sequence
 
-from .governance import EvolutionTargets
+from .governance import EvolutionTargets, default_evolution_targets
 
 
 @dataclass(frozen=True)
@@ -13,6 +13,12 @@ class ToolRequirement:
     name: str
     freshness_max_days: int
     required: bool = True
+    metric_ids: Sequence[str] = field(default_factory=tuple)
+    metric_candidate_ids: Sequence[str] = field(default_factory=tuple)
+    analysis_recipe_ids: Sequence[str] = field(default_factory=tuple)
+    pit_required_for_backtest: bool = False
+    fallback_confidence_cap: float | None = None
+    lineage: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -91,7 +97,20 @@ def build_central_bank_prompt_ir() -> PromptIRContract:
             ),
         ),
         required_tools=(
-            ToolRequirement(name="get_pboc_ops", freshness_max_days=1, required=True),
+            ToolRequirement(
+                name="get_pboc_ops",
+                freshness_max_days=1,
+                required=True,
+                metric_ids=("pboc_net_injection_7d",),
+                metric_candidate_ids=("METRIC-CB-PBOC-NET-INJECTION-7D",),
+                analysis_recipe_ids=("RECIPE-CB-LIQUIDITY-IMPULSE",),
+                pit_required_for_backtest=True,
+                fallback_confidence_cap=0.60,
+                lineage={
+                    "report_footprint_ids": ("AFP-CB-LIQUIDITY-IMPULSE",),
+                    "tool_proposal_id": "TDP-CB-PBOC-OMO",
+                },
+            ),
         ),
         fallback_tools=(
             FallbackTool(name="liquidity_proxy_from_rates", confidence_cap=0.60),
@@ -102,26 +121,12 @@ def build_central_bank_prompt_ir() -> PromptIRContract:
         output_schema_ref="agent_output_schema.v2",
         progress_event_schema_ref="progress_event.v1",
         handoff_schema_ref="downstream_handoff.v1",
-        evolution_targets=EvolutionTargets(
-            allowed_paths=(
-                "/rule_packs/*/rules/*/learnable_parameters/*/value",
-                "/rule_packs/*/rules/*/confidence_policy/*",
-                "/rule_packs/*/rules/*/predicate/*",
-            ),
-            forbidden_paths=(
-                "/role_contract",
-                "/tool_contract/required_tools",
-                "/output_schema_ref",
-                "/evidence_schema",
-                "/guardrails",
-                "/compliance_gates",
-                "/validation_acceptance_standards",
-            ),
-        ),
+        evolution_targets=default_evolution_targets(),
         guardrails=(
             "research_reports_are_prior_not_signal",
             "research_only_no_trade",
             "no_direct_production_promotion",
+            "production_blocked_until_manual_gold_license_and_lockbox_gates_pass",
         ),
     )
 
@@ -178,6 +183,31 @@ def validate_prompt_ir_contract(contract: PromptIRContract) -> tuple[str, ...]:
     for tool in contract.required_tools:
         if tool.freshness_max_days < 0:
             failures.append(f"{tool.name}: freshness_max_days cannot be negative")
+        if tool.fallback_confidence_cap is not None and tool.fallback_confidence_cap > 0.60:
+            failures.append(f"{tool.name}: fallback_confidence_cap must be <= 0.60")
+        if tool.pit_required_for_backtest and not tool.metric_candidate_ids:
+            failures.append(
+                f"{tool.name}: pit_required_for_backtest requires metric_candidate_ids"
+            )
+        if tool.metric_candidate_ids and not tool.metric_ids:
+            failures.append(f"{tool.name}: metric_candidate_ids require metric_ids")
+        if tool.analysis_recipe_ids and not tool.metric_candidate_ids:
+            failures.append(
+                f"{tool.name}: analysis_recipe_ids require metric_candidate_ids"
+            )
+        if tool.lineage:
+            report_footprint_ids = tool.lineage.get("report_footprint_ids")
+            if report_footprint_ids is not None and not isinstance(
+                report_footprint_ids,
+                (list, tuple),
+            ):
+                failures.append(
+                    f"{tool.name}: lineage.report_footprint_ids must be a sequence"
+                )
+            if tool.lineage.get("tool_proposal_id") and not tool.metric_candidate_ids:
+                failures.append(
+                    f"{tool.name}: lineage.tool_proposal_id requires metric_candidate_ids"
+                )
     for fallback in contract.fallback_tools:
         if fallback.confidence_cap > 0.60:
             failures.append(f"{fallback.name}: fallback confidence_cap must be <= 0.60")

@@ -21,6 +21,8 @@ MANUAL_REVIEW_BUNDLE_ARTIFACTS: tuple[tuple[str, str, BundleArtifactFormat], ...
     ("gold_review_packet_json", "registry/gold_sets/tushare_research_reports.review_packet.json", "json"),
     ("gold_review_packet_markdown", "registry/gold_sets/tushare_research_reports.review_packet.md", "markdown"),
     ("gold_review_workbook_markdown", "registry/review_batches/gold_set_review_workbook.md", "markdown"),
+    ("gold_review_assist_jsonl", "registry/review_batches/gold_set_review_assist.jsonl", "jsonl"),
+    ("gold_review_assist_markdown", "registry/review_batches/gold_set_review_assist.md", "markdown"),
     ("gold_next_import_template", "registry/review_batches/gold_set_next_import_template.jsonl", "jsonl"),
     ("gold_full_import_template", "registry/review_batches/gold_set_full_import_template.jsonl", "jsonl"),
     ("gold_blank_import_report", "registry/gold_sets/tushare_research_reports.review_import_report.json", "json"),
@@ -32,7 +34,7 @@ MANUAL_REVIEW_BUNDLE_ARTIFACTS: tuple[tuple[str, str, BundleArtifactFormat], ...
     ("license_policy_blank_import_report", "registry/review_batches/source_license_policy_import_report.json", "json"),
     ("lockbox_import_template", "registry/review_batches/lockbox_review_next_import_template.json", "json"),
     ("lockbox_blank_import_report", "registry/lockbox/central_bank_lockbox_review_import_report.json", "json"),
-    ("promotion_blank_dry_run_report", "registry/promotion/rke_promotion_dry_run_report.json", "json"),
+    ("promotion_dry_run_report", "registry/promotion/rke_promotion_dry_run_report.json", "json"),
 )
 
 
@@ -119,7 +121,13 @@ def _inspect_artifact(
         )
 
     byte_count = path.stat().st_size
-    if byte_count <= 0:
+    allow_empty = role in {
+        "gold_review_assist_jsonl",
+        "gold_next_import_template",
+        "gold_full_import_template",
+        "license_next_import_template",
+    }
+    if byte_count <= 0 and not allow_empty:
         blockers.append(f"{relative_path} empty")
 
     row_count: int | None = None
@@ -153,7 +161,7 @@ def _inspect_artifact(
             format=artifact_format,
             exists=True,
             bytes=byte_count,
-            sha256=_file_sha256(path) if byte_count > 0 else "",
+            sha256=_file_sha256(path),
             row_count=row_count,
         ),
         tuple(blockers),
@@ -193,8 +201,15 @@ def _promotion_dry_run_summary(root_path: Path) -> Mapping[str, Any] | None:
         "rejected_steps": [
             str(step.get("review_kind") or "") for step in step_rows if step.get("accepted") is False
         ],
+        "already_applied_steps": [
+            str(step.get("review_kind") or "")
+            for step in step_rows
+            if step.get("result") == "already_applied"
+        ],
         "missing_steps": [
-            str(step.get("review_kind") or "") for step in step_rows if step.get("provided") is False
+            str(step.get("review_kind") or "")
+            for step in step_rows
+            if step.get("result") == "not_provided"
         ],
     }
 

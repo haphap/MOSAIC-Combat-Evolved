@@ -1,0 +1,26 @@
+{
+  "approved_for_derived_claim_storage": null,
+  "approved_for_production_runtime": null,
+  "build_command": "mosaic-rke build-license-review-import --root . --policy registry/review_batches/source_license_policy_reviewed.json --output registry/review_batches/source_license_policy_import.jsonl",
+  "dry_run_command": "mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_policy_import.jsonl --dry-run",
+  "filters": {
+    "current_license_status": [],
+    "publish_date_max": null,
+    "publish_date_min": null,
+    "review_status": [],
+    "source_id_prefix": [
+      "__NO_PENDING_SOURCE_LICENSE_ROWS__"
+    ],
+    "source_type": []
+  },
+  "matched_row_count": 0,
+  "matched_rows_fingerprint": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+  "notes": "",
+  "publish_date_max": null,
+  "publish_date_min": null,
+  "review_context_ref": "registry/compliance/tushare_license_review_packet.json",
+  "review_date": "",
+  "reviewer": "",
+  "target_review_path": "registry/compliance/tushare_license_review_template.jsonl",
+  "template_note": "Copy this template to registry/review_batches/source_license_policy_reviewed.json; reviewer must fill reviewer, review_date, notes, and both approval booleans in the reviewed policy before expanding it into per-source import rows."
+}

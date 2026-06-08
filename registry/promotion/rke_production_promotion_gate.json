@@ -1,43 +1,39 @@
 {
   "blockers": [
-    "broad-rollout completion audit still has blockers",
-    "manual gold-set review still required",
-    "source license review still pending or restricted",
-    "source registry has production blockers",
     "lockbox has not been opened"
   ],
   "criteria": [
     {
-      "blocker": "broad-rollout completion audit still has blockers",
+      "blocker": "",
       "criterion_id": "PG01",
       "description": "Broad-rollout completion audit is green.",
-      "evidence": "10 / 12 completion criteria passed",
+      "evidence": "12 / 12 completion criteria passed",
       "evidence_path": "registry/audits/rke_completion_audit.json",
-      "passed": false
+      "passed": true
     },
     {
-      "blocker": "manual gold-set review still required",
+      "blocker": "",
       "criterion_id": "PG02",
       "description": "Manual gold-set review passed before staged production.",
-      "evidence": "0 / 500 gold-set claims reviewed",
+      "evidence": "500 / 500 gold-set claims reviewed",
       "evidence_path": "registry/gold_sets/tushare_research_reports.review_summary.json",
-      "passed": false
+      "passed": true
     },
     {
-      "blocker": "source license review still pending or restricted",
+      "blocker": "",
       "criterion_id": "PG03",
       "description": "Source-license review approves production runtime retrieval.",
-      "evidence": "0 / 9812 sources approved for production runtime",
+      "evidence": "17529 / 17529 sources approved for production runtime",
       "evidence_path": "registry/compliance/tushare_license_review_summary.json",
-      "passed": false
+      "passed": true
     },
     {
-      "blocker": "source registry has production blockers",
+      "blocker": "",
       "criterion_id": "PG04",
       "description": "Source registry accepts production runtime use.",
-      "evidence": "9812 source production blockers",
+      "evidence": "0 source production blockers",
       "evidence_path": "registry/source_checks/source_registry_validation_report.json",
-      "passed": false
+      "passed": true
     },
     {
       "blocker": "",
@@ -89,9 +85,9 @@
     }
   ],
   "direct_production_forbidden": true,
-  "next_state": "paper_trading",
+  "next_state": "staged_production",
   "paper_trading_allowed": true,
   "production_allowed": false,
   "report_id": "RKE-PRODUCTION-PROMOTION-GATE-20260606",
-  "staged_production_allowed": false
+  "staged_production_allowed": true
 }

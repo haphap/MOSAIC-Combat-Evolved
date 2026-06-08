@@ -6,16 +6,40 @@
     "allowed_paths": [
       "/rule_packs/*/rules/*/learnable_parameters/*/value",
       "/rule_packs/*/rules/*/confidence_policy/*",
-      "/rule_packs/*/rules/*/predicate/*"
+      "/rule_packs/*/rules/*/predicate/*",
+      "/research_weighting/source_profiles/*/weight_policy",
+      "/research_weighting/viewpoint_profiles/*/weight_policy",
+      "/research_weighting/method_profiles/*/priority_policy",
+      "/weighted_research_retriever/ranking_weights/*",
+      "/weighted_research_retriever/diversity_policy/*",
+      "/metric_candidate_registry/*/aliases",
+      "/metric_candidate_registry/*/priority_bucket",
+      "/method_pattern_registry/*/status",
+      "/tool_gap_registry/*/priority_bucket",
+      "/data_acquisition_proposals/*/status",
+      "/tool_design_proposals/*/status",
+      "/analysis_recipe_registry/*/runtime_mode",
+      "/analysis_recipe_registry/*/validation_status",
+      "/prompt_ir/tool_contracts/candidate_tools/*",
+      "/rule_packs/*/research_prior"
     ],
     "forbidden_paths": [
       "/role_contract",
       "/tool_contract/required_tools",
+      "/prompt_ir/tool_contracts/required_tools",
       "/output_schema_ref",
       "/evidence_schema",
       "/guardrails",
       "/compliance_gates",
-      "/validation_acceptance_standards"
+      "/validation_acceptance_standards",
+      "/sector_score",
+      "/portfolio_sizing",
+      "/action_policy",
+      "/prompt_ir/action_policy",
+      "/report_intelligence/forecast_claims/*/claim_provenance",
+      "/report_intelligence/analytical_footprints/*/source_grounded",
+      "/source_claims/*/claim_provenance",
+      "/evidence_ledger/current_tool_data"
     ]
   },
   "fallback_tools": [
@@ -27,7 +51,8 @@
   "guardrails": [
     "research_reports_are_prior_not_signal",
     "research_only_no_trade",
-    "no_direct_production_promotion"
+    "no_direct_production_promotion",
+    "production_blocked_until_manual_gold_license_and_lockbox_gates_pass"
   ],
   "handoff_schema_ref": "downstream_handoff.v1",
   "layer": "macro",
@@ -36,8 +61,25 @@
   "prompt_version": "0.3.2-rke",
   "required_tools": [
     {
+      "analysis_recipe_ids": [
+        "RECIPE-CB-LIQUIDITY-IMPULSE"
+      ],
+      "fallback_confidence_cap": 0.6,
       "freshness_max_days": 1,
+      "lineage": {
+        "report_footprint_ids": [
+          "AFP-CB-LIQUIDITY-IMPULSE"
+        ],
+        "tool_proposal_id": "TDP-CB-PBOC-OMO"
+      },
+      "metric_candidate_ids": [
+        "METRIC-CB-PBOC-NET-INJECTION-7D"
+      ],
+      "metric_ids": [
+        "pboc_net_injection_7d"
+      ],
       "name": "get_pboc_ops",
+      "pit_required_for_backtest": true,
       "required": true
     }
   ],

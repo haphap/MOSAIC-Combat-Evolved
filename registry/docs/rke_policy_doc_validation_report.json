@@ -4,7 +4,7 @@
   "records": [
     {
       "accepted": true,
-      "bytes": 52326,
+      "bytes": 52504,
       "missing_markers": [],
       "path": "docs/master_plan_v1_1.md"
     },
@@ -28,7 +28,7 @@
     },
     {
       "accepted": true,
-      "bytes": 2059,
+      "bytes": 2281,
       "missing_markers": [],
       "path": "docs/confidence_policy.md"
     },

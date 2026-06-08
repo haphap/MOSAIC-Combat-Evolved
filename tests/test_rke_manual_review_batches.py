@@ -7,10 +7,13 @@ from pathlib import Path
 from mosaic.rke import (
     apply_gold_set_review_import,
     apply_source_license_review_import,
+    build_gold_review_assist,
     build_manual_review_bundle_manifest,
     build_manual_review_batch_status,
     build_gold_review_workbook,
+    render_gold_review_assist_markdown,
     build_source_license_review_workbook,
+    write_gold_review_assist,
     write_gold_review_starter,
     write_gold_review_workbook,
     write_manual_review_bundle_manifest,
@@ -21,6 +24,11 @@ from mosaic.rke import (
 
 def _copy_registry(dst_root: Path) -> None:
     shutil.copytree(Path("registry"), dst_root / "registry")
+    gold_review = dst_root / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    _reset_gold_review_rows(gold_review)
+    license_review = dst_root / "registry/compliance/tushare_license_review_template.jsonl"
+    _reset_source_license_review_rows(license_review)
+    write_manual_review_batches(dst_root)
 
 
 def _load_jsonl(path: Path) -> list[dict]:
@@ -32,6 +40,32 @@ def _write_jsonl(path: Path, rows: list[dict]) -> None:
         "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
         encoding="utf-8",
     )
+
+
+def _reset_gold_review_rows(path: Path) -> None:
+    rows = _load_jsonl(path)
+    for row in rows:
+        row["manual_claim_text"] = ""
+        row["claim_correct"] = None
+        row["source_span_supports_claim"] = None
+        row["direction_correct"] = None
+        row["variable_mapping_correct"] = None
+        row["unsupported_field_false_grounded"] = None
+        row["reviewer"] = ""
+        row["review_date"] = ""
+        row["review_notes"] = ""
+    _write_jsonl(path, rows)
+
+
+def _reset_source_license_review_rows(path: Path) -> None:
+    rows = _load_jsonl(path)
+    for row in rows:
+        row["approved_for_derived_claim_storage"] = None
+        row["approved_for_production_runtime"] = None
+        row["reviewer"] = ""
+        row["review_date"] = ""
+        row["notes"] = ""
+    _write_jsonl(path, rows)
 
 
 def _append_jsonl_value(path: Path, value) -> None:
@@ -92,6 +126,8 @@ def test_manual_review_batches_export_sparse_import_templates(tmp_path: Path):
     assert status["gold_set"]["exported_rows"] == 12
     assert status["gold_set"]["full_import_template_path"] == "registry/review_batches/gold_set_full_import_template.jsonl"
     assert "registry/review_batches/gold_set_review_workbook.md" in status["generated_paths"]
+    assert "registry/review_batches/gold_set_review_assist.jsonl" in status["generated_paths"]
+    assert "registry/review_batches/gold_set_review_assist.md" in status["generated_paths"]
     assert "registry/review_batches/source_license_review_workbook.md" in status["generated_paths"]
     assert status["source_license"]["pending_rows"] == source_count
     assert status["source_license"]["exported_rows"] == 7
@@ -99,6 +135,7 @@ def test_manual_review_batches_export_sparse_import_templates(tmp_path: Path):
     assert len(gold_full_rows) == 500
     assert len(license_rows) == 7
     assert paths["gold_set_review_workbook_rows"] == 500
+    assert paths["gold_set_review_assist_rows"] == 500
     assert paths["source_license_review_workbook_rows"] == 50
     assert workbook.startswith("# RKE Gold Review Workbook")
     assert license_workbook.startswith("# RKE Source-License Review Workbook")
@@ -123,6 +160,46 @@ def test_manual_review_batches_export_sparse_import_templates(tmp_path: Path):
     assert license_rows[0]["approved_for_production_runtime"] is None
     assert "apply-gold-review" in status["gold_set"]["dry_run_command"]
     assert "apply-license-review" in status["source_license"]["dry_run_command"]
+
+
+def test_gold_review_assist_is_non_import_review_aid(tmp_path: Path):
+    _copy_registry(tmp_path)
+
+    result = write_gold_review_assist(tmp_path)
+    summary, rows = build_gold_review_assist(tmp_path)
+    markdown = render_gold_review_assist_markdown(summary, rows)
+    written_rows = _load_jsonl(
+        tmp_path / "registry/review_batches/gold_set_review_assist.jsonl"
+    )
+
+    assert result["rows"] == 500
+    assert summary.row_count == 500
+    assert summary.pending_rows == 500
+    assert summary.blockers == ()
+    assert len(rows) == 500
+    assert len(written_rows) == 500
+    assert rows[0]["assist_kind"] == "gold_review_assist_not_import"
+    assert rows[0]["not_apply_gold_review_input"] is True
+    assert rows[0]["human_review_required"] is True
+    assert "manual_claim_text" in rows[0]["human_required_fields"]
+    assert rows[0]["suggested_manual_claim_text_hash"].startswith("sha256:")
+    assert len(rows[0]["suggested_manual_claim_text_preview"]) <= 72
+    assert markdown.startswith("# RKE Gold Review Assist")
+    assert "not an import file" in markdown
+    assert (tmp_path / "registry/review_batches/gold_set_review_assist.md").exists()
+
+    import_report = apply_gold_set_review_import(
+        tmp_path,
+        tmp_path / "registry/review_batches/gold_set_review_assist.jsonl",
+        dry_run=True,
+    )
+
+    assert not import_report.accepted
+    assert import_report.rejected_rows == 500
+    assert any(
+        "assist_kind unexpected in manual review import" in reason
+        for reason in import_report.invalid_rows[0].reasons
+    )
 
 
 def test_gold_review_workbook_is_read_only_claim_checklist(tmp_path: Path):
@@ -287,13 +364,17 @@ def test_manual_review_bundle_manifest_hashes_review_artifacts(tmp_path: Path):
     assert "registry/review_batches/manual_review_bundle_manifest.json" not in artifacts
     assert payload["promotion_dry_run"]["accepted"] is False
     assert payload["promotion_dry_run"]["production_allowed_after_simulation"] is False
-    assert set(payload["promotion_dry_run"]["provided_steps"]) == {"gold_set", "source_license", "lockbox"}
-    assert set(payload["promotion_dry_run"]["rejected_steps"]) == {"gold_set", "source_license", "lockbox"}
-    assert payload["promotion_dry_run"]["missing_steps"] == []
+    assert payload["promotion_dry_run"]["provided_steps"] == []
+    assert set(payload["promotion_dry_run"]["accepted_steps"]) == {"gold_set", "source_license"}
+    assert payload["promotion_dry_run"]["rejected_steps"] == ["lockbox"]
+    assert set(payload["promotion_dry_run"]["already_applied_steps"]) == {"gold_set", "source_license"}
+    assert payload["promotion_dry_run"]["missing_steps"] == ["lockbox"]
     assert artifacts["registry/review_batches/gold_set_full_import_template.jsonl"]["row_count"] == 500
     assert artifacts["registry/review_batches/manual_review_progress_report.json"]["format"] == "json"
     assert artifacts["registry/review_batches/manual_review_runbook.md"]["format"] == "markdown"
     assert artifacts["registry/review_batches/gold_set_review_workbook.md"]["format"] == "markdown"
+    assert artifacts["registry/review_batches/gold_set_review_assist.jsonl"]["row_count"] == 500
+    assert artifacts["registry/review_batches/gold_set_review_assist.md"]["format"] == "markdown"
     assert artifacts["registry/review_batches/source_license_review_workbook.md"]["format"] == "markdown"
     assert artifacts["registry/review_batches/source_license_next_import_template.jsonl"]["row_count"] == 50
     assert artifacts["registry/promotion/rke_promotion_dry_run_report.json"]["format"] == "json"

@@ -466,8 +466,8 @@ class DumpDataUpdate(DumpDataBase):
 
         def _read_df(file_path: Path):
             _df = read_as_df(file_path)
-            if self.date_field_name in _df.columns and not np.issubdtype(
-                _df[self.date_field_name].dtype, np.datetime64
+            if self.date_field_name in _df.columns and not pd.api.types.is_datetime64_any_dtype(
+                _df[self.date_field_name].dtype
             ):
                 _df[self.date_field_name] = pd.to_datetime(_df[self.date_field_name])
             if self.symbol_field_name not in _df.columns:

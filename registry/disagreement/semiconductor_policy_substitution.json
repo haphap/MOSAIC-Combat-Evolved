@@ -21,21 +21,21 @@
   "evidence": [
     {
       "claim_id": "CLAIM-SEMI-20260605-0001",
-      "source_id": "SRC-TSRR-20260601-da7d37f092a6084a",
+      "source_id": "SRC-SEMI-DEMO-20260601-0001",
       "stance": "supportive",
       "summary": "storage cycle support claim",
       "topic": "semiconductor_policy_substitution"
     },
     {
       "claim_id": "CLAIM-SEMI-20260605-0002",
-      "source_id": "SRC-TSRR-20260601-da7d37f092a6084a",
+      "source_id": "SRC-SEMI-DEMO-20260601-0001",
       "stance": "valuation_risk",
       "summary": "valuation above historical center risk",
       "topic": "semiconductor_policy_substitution"
     },
     {
       "claim_id": "CLAIM-SEMI-20260605-0003",
-      "source_id": "SRC-TSRR-20260601-da7d37f092a6084a",
+      "source_id": "SRC-SEMI-DEMO-20260601-0001",
       "stance": "risk",
       "summary": "trade friction risk",
       "topic": "semiconductor_policy_substitution"

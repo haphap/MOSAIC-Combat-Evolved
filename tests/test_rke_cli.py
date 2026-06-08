@@ -4,12 +4,69 @@ import json
 import shutil
 from pathlib import Path
 
-from mosaic.rke import TushareResearchReportRefreshResult
+from mosaic.rke import (
+    TushareResearchReportRefreshResult,
+    write_completion_audit,
+    write_gold_set_review_summary,
+    write_manual_review_batches,
+)
 from mosaic.rke.cli import main
+from mosaic.rke.registry_manifest import PRIVATE_LOCAL_REGISTRY_FILES
+
+
+GOLD_MANUAL_FIELDS = (
+    "manual_claim_text",
+    "claim_correct",
+    "source_span_supports_claim",
+    "direction_correct",
+    "variable_mapping_correct",
+    "unsupported_field_false_grounded",
+    "reviewer",
+    "review_notes",
+)
 
 
 def _copy_registry(dst_root: Path) -> None:
     shutil.copytree(Path("registry"), dst_root / "registry")
+    _reset_gold_review_rows(
+        dst_root / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    )
+    write_gold_set_review_summary(dst_root)
+    write_manual_review_batches(dst_root)
+    write_completion_audit(dst_root)
+
+
+def _load_jsonl(path: Path) -> list[dict]:
+    return [
+        json.loads(line)
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line
+    ]
+
+
+def _write_jsonl(path: Path, rows: list[dict]) -> None:
+    path.write_text(
+        "".join(
+            json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n"
+            for row in rows
+        ),
+        encoding="utf-8",
+    )
+
+
+def _reset_gold_review_rows(path: Path) -> None:
+    rows = _load_jsonl(path)
+    for row in rows:
+        row["manual_claim_text"] = ""
+        row["claim_correct"] = None
+        row["source_span_supports_claim"] = None
+        row["direction_correct"] = None
+        row["variable_mapping_correct"] = None
+        row["unsupported_field_false_grounded"] = None
+        row["reviewer"] = ""
+        row["review_date"] = ""
+        row["review_notes"] = ""
+    _write_jsonl(path, rows)
 
 
 def _redaction_source_text_count(root: Path) -> int:
@@ -65,14 +122,18 @@ def test_rke_cli_manifest_writes_file(tmp_path: Path, capsys):
 
     code = main(("manifest", "--root", str(tmp_path)))
     output = json.loads(capsys.readouterr().out)
+    manifest = json.loads(Path(output["path"]).read_text(encoding="utf-8"))
+    artifact_paths = {str(artifact["path"]) for artifact in manifest["artifacts"]}
 
     assert code == 0
     assert output["valid"] is True
     assert Path(output["path"]).exists()
+    assert artifact_paths.isdisjoint(PRIVATE_LOCAL_REGISTRY_FILES)
 
 
 def test_rke_cli_master_plan_status_writes_coverage(tmp_path: Path, capsys):
     _copy_registry(tmp_path)
+    shutil.copytree(Path("docs"), tmp_path / "docs")
     shutil.copytree(Path("schemas"), tmp_path / "schemas")
 
     code = main(("master-plan-status", "--root", str(tmp_path)))
@@ -81,7 +142,7 @@ def test_rke_cli_master_plan_status_writes_coverage(tmp_path: Path, capsys):
     assert code == 0
     assert output["coverage_complete"] is True
     assert output["ready_for_broad_rollout"] is False
-    assert output["blocked_count"] == 2
+    assert output["blocked_count"] == 1
     assert (tmp_path / "registry/audits/rke_master_plan_coverage_report.json").exists()
 
 
@@ -125,14 +186,35 @@ def test_rke_cli_refresh_preserves_reviews(tmp_path: Path, capsys):
     gold_review = (
         tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
     )
-    original = gold_review.read_text(encoding="utf-8")
+    rows = [json.loads(line) for line in gold_review.read_text(encoding="utf-8").splitlines()]
+    rows[0]["manual_claim_text"] = "manual label"
+    rows[0]["claim_correct"] = True
+    rows[0]["source_span_supports_claim"] = True
+    rows[0]["direction_correct"] = True
+    rows[0]["variable_mapping_correct"] = True
+    rows[0]["unsupported_field_false_grounded"] = True
+    rows[0]["reviewer"] = "tester"
+    rows[0]["review_notes"] = "preserve manual review fields"
+    gold_review.write_text(
+        "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
+        encoding="utf-8",
+    )
+    original_manual = {
+        str(row.get("claim_id") or ""): {field: row.get(field) for field in GOLD_MANUAL_FIELDS}
+        for row in rows
+    }
 
     code = main(("refresh", "--root", str(tmp_path)))
     output = json.loads(capsys.readouterr().out)
+    refreshed_rows = [json.loads(line) for line in gold_review.read_text(encoding="utf-8").splitlines()]
+    refreshed_manual = {
+        str(row.get("claim_id") or ""): {field: row.get(field) for field in GOLD_MANUAL_FIELDS}
+        for row in refreshed_rows
+    }
 
     assert code == 0
     assert output["manifest_valid"] is True
-    assert gold_review.read_text(encoding="utf-8") == original
+    assert refreshed_manual == original_manual
 
 
 def test_rke_cli_review_status_commands_write_summaries(tmp_path: Path, capsys):
@@ -177,13 +259,16 @@ def test_rke_cli_review_status_commands_write_summaries(tmp_path: Path, capsys):
         tmp_path / "registry/gold_sets/tushare_research_reports.review_packet.md"
     ).exists()
     assert license_code == 0
-    assert license_output["pending_sources"] == license_output["total_sources"]
+    assert license_output["pending_sources"] == 0
     assert (
-        license_output["missing_review_source_ids"]["count"]
+        license_output["approved_for_production_runtime"]
         == license_output["total_sources"]
     )
-    assert len(license_output["missing_review_source_ids"]["sample"]) == 10
-    assert license_output["missing_review_source_ids"]["truncated"] is True
+    assert license_output["missing_review_source_ids"] == {
+        "count": 0,
+        "sample": [],
+        "truncated": False,
+    }
     assert license_output["extra_review_source_ids"] == {
         "count": 0,
         "sample": [],
@@ -197,16 +282,16 @@ def test_rke_cli_review_status_commands_write_summaries(tmp_path: Path, capsys):
             tmp_path / "registry/compliance/tushare_license_review_summary.json"
         ).read_text(encoding="utf-8")
     )
-    assert (
-        len(full_license_summary["missing_review_source_ids"])
-        == license_output["total_sources"]
-    )
+    assert full_license_summary["missing_review_source_ids"] == []
     assert (
         tmp_path / "registry/compliance/tushare_license_review_summary.json"
     ).exists()
     assert license_packet_code == 0
-    assert license_packet_output["pending_sources"] == license_output["total_sources"]
-    assert license_packet_output["approved_for_production_runtime"] == 0
+    assert license_packet_output["pending_sources"] == 0
+    assert (
+        license_packet_output["approved_for_production_runtime"]
+        == license_output["total_sources"]
+    )
     assert (
         tmp_path / "registry/compliance/tushare_license_review_packet.json"
     ).exists()
@@ -232,7 +317,7 @@ def test_rke_cli_prepare_license_policy_review_protects_existing_file(
     assert output["workbook_path"].endswith(
         "registry/review_batches/source_license_review_workbook.md"
     )
-    assert output["workbook_rows"] == 50
+    assert output["workbook_rows"] == 0
     assert reviewed_path.exists()
     assert (
         tmp_path / "registry/review_batches/source_license_review_workbook.md"
@@ -299,6 +384,7 @@ def test_rke_cli_review_status_commands_report_malformed_jsonl_rows(
     license_path = (
         tmp_path / "registry/compliance/tushare_license_review_template.jsonl"
     )
+    license_bad_row = len(license_path.read_text(encoding="utf-8").splitlines()) + 1
     gold_path.write_text(
         gold_path.read_text(encoding="utf-8") + "{\n", encoding="utf-8"
     )
@@ -319,10 +405,11 @@ def test_rke_cli_review_status_commands_report_malformed_jsonl_rows(
     assert gold_output["total_claims"] == 501
     assert license_code == 0
     assert any(
-        "source license review row 9813 must contain valid JSON" in blocker
+        f"source license review row {license_bad_row} must contain valid JSON"
+        in blocker
         for blocker in license_output["blockers"]
     )
-    assert license_output["total_review_rows"] == 9813
+    assert license_output["total_review_rows"] == license_bad_row
 
 
 def test_rke_cli_gold_candidate_claims_reports_malformed_jsonl_rows(
@@ -439,7 +526,7 @@ def test_rke_cli_source_status_writes_summary(tmp_path: Path, capsys):
 
     assert code == 0
     assert output["accepted_for_sandbox"] is True
-    assert output["accepted_for_production"] is False
+    assert output["accepted_for_production"] is True
     assert (
         tmp_path / "registry/source_checks/source_registry_validation_report.json"
     ).exists()
@@ -544,7 +631,7 @@ def test_rke_cli_review_batches_writes_next_import_templates(tmp_path: Path, cap
         "registry/review_batches/gold_set_review_workbook.md"
         in output["status"]["generated_paths"]
     )
-    assert output["status"]["source_license"]["exported_rows"] == 9
+    assert output["status"]["source_license"]["exported_rows"] == 0
     assert (
         "registry/review_batches/source_license_review_workbook.md"
         in output["status"]["generated_paths"]

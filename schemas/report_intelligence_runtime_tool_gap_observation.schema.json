@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RKE Report Intelligence Runtime Tool Gap Observation",
+  "type": "object",
+  "required": [
+    "runtime_gap_id",
+    "agent_id",
+    "run_id",
+    "missing_metric_candidate_id",
+    "blocked_rule_ids",
+    "blocked_recipe_ids",
+    "impact_on_output",
+    "fallback_used",
+    "suggested_tool_gap_id",
+    "runtime_role",
+    "research_only",
+    "actionability",
+    "allowed_runtime_mode",
+    "current_data_confirmation"
+  ],
+  "properties": {
+    "runtime_gap_id": {"type": "string", "minLength": 1},
+    "agent_id": {"type": "string", "minLength": 1},
+    "run_id": {"type": "string", "minLength": 1},
+    "missing_metric_candidate_id": {"type": "string"},
+    "missing_metric": {"type": "string"},
+    "blocked_rule_ids": {"type": "array", "items": {"type": "string"}},
+    "blocked_recipe_ids": {"type": "array", "items": {"type": "string"}},
+    "impact_on_output": {"type": "string", "minLength": 1},
+    "fallback_used": {"type": "boolean"},
+    "suggested_tool_gap_id": {"type": "string", "minLength": 1},
+    "runtime_role": {"type": "string", "minLength": 1},
+    "research_only": {"type": "boolean"},
+    "actionability": {"type": "string", "minLength": 1},
+    "allowed_runtime_mode": {"type": "string", "minLength": 1},
+    "current_data_confirmation": {"type": "string", "minLength": 1}
+  },
+  "additionalProperties": true
+}

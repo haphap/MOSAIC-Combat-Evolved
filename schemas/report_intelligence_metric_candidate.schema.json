@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RKE Report Intelligence Metric Candidate",
+  "type": "object",
+  "required": ["metric_candidate_id", "canonical_name", "aliases", "metric_family", "market", "raw_data_requirements", "default_transformation", "mentioned_by", "target_agents", "current_tool_coverage", "existing_tool_ids", "priority_bucket", "status"],
+  "properties": {
+    "metric_candidate_id": {"type": "string", "minLength": 1},
+    "canonical_name": {"type": "string", "minLength": 1},
+    "aliases": {"type": "array", "items": {"type": "string"}},
+    "metric_family": {"type": "string", "minLength": 1},
+    "market": {"type": "string", "minLength": 1},
+    "raw_data_requirements": {"type": "array"},
+    "default_transformation": {"type": "object"},
+    "mentioned_by": {"type": "object"},
+    "target_agents": {"type": "array", "items": {"type": "string"}},
+    "current_tool_coverage": {"type": "string", "minLength": 1},
+    "existing_tool_ids": {"type": "array", "items": {"type": "string"}},
+    "priority_bucket": {"type": "string", "minLength": 1},
+    "status": {"type": "string", "minLength": 1}
+  },
+  "additionalProperties": true
+}

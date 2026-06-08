@@ -154,16 +154,7 @@ def run_backtest(
     if run is None:
         raise ValueError(f"backtest run {run_id} not found")
 
-    qlib_data_path = qlib_data_path or _resolve_qlib_data_path()
-    _ensure_qlib_initialised(qlib_data_path)
-
-    # Lazy-import qlib backtest pieces (only available after qlib.init).
-    from qlib.backtest import backtest as qlib_backtest
-
-    from mosaic.backtest.qlib_strategy import (
-        MosaicCachedStrategy,
-        load_weights_from_store,
-    )
+    from mosaic.backtest.qlib_strategy import load_weights_from_store
 
     weights_by_date = load_weights_from_store(store, run_id)
     if not weights_by_date:
@@ -171,6 +162,14 @@ def run_backtest(
             f"backtest run {run_id} has no cached actions; "
             f"run stage-1 fill via 'pnpm dev backtest-fill' first."
         )
+
+    qlib_data_path = qlib_data_path or _resolve_qlib_data_path()
+    _ensure_qlib_initialised(qlib_data_path)
+
+    # Lazy-import qlib backtest pieces (only available after qlib.init).
+    from qlib.backtest import backtest as qlib_backtest
+
+    from mosaic.backtest.qlib_strategy import MosaicCachedStrategy
 
     strategy = MosaicCachedStrategy.from_actions_dict(weights_by_date)
 

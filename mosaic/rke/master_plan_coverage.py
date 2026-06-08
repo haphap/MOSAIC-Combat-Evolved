@@ -13,16 +13,29 @@ from .completion_acceptance import (
     MASTER_PLAN_ACCEPTANCE_SECTION,
     MASTER_PLAN_PATH,
 )
+from .registry_manifest import is_public_registry_artifact
 
 
 MASTER_PLAN_COVERAGE_REPORT_PATH = (
     "registry/audits/rke_master_plan_coverage_report.json"
+)
+REPORT_INTELLIGENCE_PATCH_COVERAGE_REPORT_PATH = (
+    "registry/report_intelligence/patch_v1_5_coverage_report.json"
 )
 EXPERIMENT_VALIDATION_REPORT_PATH = (
     "registry/experiment_checks/experiment_validation_report.json"
 )
 MVP_DELIVERABLES_SECTION = "16.3"
 MVP_EXIT_CRITERIA_SECTION = "16.4"
+EMPTY_EVIDENCE_ALLOWED_PATHS = frozenset(
+    {
+        # Empty means all gold-set reviews are complete.
+        "registry/review_batches/gold_set_next_import_template.jsonl",
+        "registry/review_batches/gold_set_full_import_template.jsonl",
+        # Empty means all source-license reviews are complete.
+        "registry/review_batches/source_license_next_import_template.jsonl",
+    }
+)
 
 CoverageStatus = Literal["passed", "blocked", "missing"]
 
@@ -99,14 +112,19 @@ def _to_float(value: Any) -> float | None:
 
 def _exists(root_path: Path, relative: str) -> bool:
     path = root_path / relative
-    return path.exists() and path.stat().st_size > 0
+    return path.exists() and (
+        path.stat().st_size > 0 or relative in EMPTY_EVIDENCE_ALLOWED_PATHS
+    )
 
 
 def _all_exist(root_path: Path, evidence_paths: Sequence[str]) -> tuple[bool, str]:
-    missing = [path for path in evidence_paths if not _exists(root_path, path)]
+    public_evidence_paths = [
+        path for path in evidence_paths if is_public_registry_artifact(path)
+    ]
+    missing = [path for path in public_evidence_paths if not _exists(root_path, path)]
     if missing:
         return False, f"missing evidence: {', '.join(missing)}"
-    malformed = _evidence_content_errors(root_path, evidence_paths)
+    malformed = _evidence_content_errors(root_path, public_evidence_paths)
     if malformed:
         return False, "; ".join(malformed)
     return True, ""
@@ -132,7 +150,58 @@ def _json_object_errors(path: Path, relative: str) -> tuple[str, ...]:
         return (f"{relative} must contain valid JSON: {exc.msg}",)
     if not isinstance(payload, Mapping):
         return (f"{relative} must be object",)
+    if relative == REPORT_INTELLIGENCE_PATCH_COVERAGE_REPORT_PATH:
+        return _report_intelligence_patch_coverage_errors(payload, relative)
     return ()
+
+
+def _report_intelligence_patch_coverage_errors(
+    payload: Mapping[str, Any],
+    relative: str,
+) -> tuple[str, ...]:
+    errors: list[str] = []
+    if payload.get("accepted") is not True:
+        errors.append(f"{relative} accepted must be true")
+    try:
+        blocker_count = int(payload.get("blocker_count") or 0)
+    except (TypeError, ValueError):
+        blocker_count = 1
+    if blocker_count != 0:
+        errors.append(f"{relative} blocker_count must be zero")
+    phase_records = payload.get("phase_records")
+    if not isinstance(phase_records, list | tuple):
+        errors.append(f"{relative} phase_records must be list")
+        return tuple(errors)
+    valid_phase_records = [
+        item for item in phase_records if isinstance(item, Mapping)
+    ]
+    if len(valid_phase_records) != len(phase_records):
+        errors.append(f"{relative} phase_records rows must be objects")
+    expected_phase_ids = set("ABCDEFGH")
+    observed_phase_ids = {
+        str(item.get("phase_id") or "") for item in valid_phase_records
+    }
+    if observed_phase_ids != expected_phase_ids:
+        errors.append(f"{relative} phase_records must cover Phase A-H")
+    blocked_ids = [
+        str(item.get("phase_id") or "")
+        for item in valid_phase_records
+        if str(item.get("status") or "") == "blocked"
+    ]
+    if blocked_ids:
+        errors.append(f"{relative} blocked phases: {', '.join(blocked_ids)}")
+    rollout_mode = str(payload.get("current_rollout_mode") or "")
+    if rollout_mode == "shadow_tooling":
+        statuses = {
+            str(item.get("phase_id") or ""): str(item.get("status") or "")
+            for item in valid_phase_records
+        }
+        for phase_id in ("G", "H"):
+            if statuses.get(phase_id) != "deferred_by_rollout":
+                errors.append(
+                    f"{relative} Phase {phase_id} must be deferred_by_rollout in shadow_tooling"
+                )
+    return tuple(errors)
 
 
 def _jsonl_object_errors(path: Path, relative: str) -> tuple[str, ...]:
@@ -981,6 +1050,7 @@ def build_master_plan_coverage_report(
                     "registry/review_batches/gold_set_next_import_template.jsonl",
                     "registry/review_batches/gold_set_full_import_template.jsonl",
                     "registry/gold_sets/tushare_research_reports.review_import_report.json",
+                    REPORT_INTELLIGENCE_PATCH_COVERAGE_REPORT_PATH,
                 ),
                 blocked_if_failed=True,
                 completion_error=completion_error,
@@ -1019,6 +1089,7 @@ def build_master_plan_coverage_report(
                     "schemas/production_patch.schema.json",
                     "schemas/confidence_policy.schema.yaml",
                     "schemas/rule_aggregation_policy.schema.yaml",
+                    "schemas/report_intelligence_patch_v1_5_coverage_report.schema.json",
                 ),
             ),
             _completion_record(

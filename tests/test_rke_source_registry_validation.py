@@ -28,18 +28,17 @@ def _expected_source_counts(root: Path) -> tuple[int, int, int]:
     return len(rows), len(unique_source_ids), len(rows) - len(unique_source_ids)
 
 
-def test_source_registry_validation_accepts_sandbox_but_reports_production_blockers():
+def test_source_registry_validation_accepts_current_registry_for_production():
     report = build_source_registry_validation_report(".")
     reference_count, unique_count, duplicate_count = _expected_source_counts(Path("."))
-    tushare_count = len(_source_rows(Path("."), "registry/sources/tushare_research_reports.jsonl"))
 
     assert report.accepted_for_sandbox
-    assert not report.accepted_for_production
+    assert report.accepted_for_production
     assert report.failure_count == 0
     assert report.source_reference_count == reference_count
     assert report.unique_source_count == unique_count
     assert report.duplicate_reference_count == duplicate_count
-    assert report.production_blocker_count == tushare_count
+    assert report.production_blocker_count == 0
 
 
 def test_source_registry_validation_rejects_missing_ingest_timestamp(tmp_path: Path):
@@ -128,5 +127,5 @@ def test_source_registry_validation_writer_outputs_report(tmp_path: Path):
     payload = json.loads(Path(result["path"]).read_text(encoding="utf-8"))
 
     assert payload["accepted_for_sandbox"] is True
-    assert payload["accepted_for_production"] is False
+    assert payload["accepted_for_production"] is True
     assert payload["failure_count"] == 0

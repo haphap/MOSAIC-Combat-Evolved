@@ -42,6 +42,7 @@ from .phase_minus1 import (
 )
 from .policy_doc_validation import write_policy_doc_validation_report
 from .prompt_asset_validation import write_prompt_asset_validation_report
+from .promotion_dry_run import write_promotion_dry_run_report
 from .promotion_gate import write_production_promotion_gate_report
 from .registry_manifest import write_registry_manifest
 from .review_gates import write_gold_set_review_summary, write_source_license_review_summary
@@ -571,6 +572,31 @@ def _preserve_existing_discovery_times(
     return preserved
 
 
+def _load_existing_research_reports(source_path: Path) -> list[RkeResearchReport]:
+    if not source_path.exists():
+        return []
+    try:
+        return load_tushare_research_reports_from_file(source_path)
+    except (FileNotFoundError, ValueError):
+        return []
+
+
+def _merge_research_reports(
+    existing_reports: Sequence[RkeResearchReport],
+    new_reports: Sequence[RkeResearchReport],
+) -> list[RkeResearchReport]:
+    deduped: dict[str, RkeResearchReport] = {
+        report.source_hash: report for report in existing_reports
+    }
+    for report in new_reports:
+        deduped[report.source_hash] = report
+    return sorted(
+        deduped.values(),
+        key=lambda item: (item.publish_date, item.source_id),
+        reverse=True,
+    )
+
+
 def _write_research_report_manifest(
     *,
     output_path: Path,
@@ -583,6 +609,7 @@ def _write_research_report_manifest(
     max_reports_per_query: int,
     stock_query_batch_size: int,
     date_chunk_days: int,
+    merge_existing_source: bool,
     input_path: str | None,
     skipped_empty_abstract_rows: int,
     row_count: int,
@@ -598,6 +625,7 @@ def _write_research_report_manifest(
         "ingested_at": ingested_at,
         "license_status": "pending_review",
         "max_reports_per_query": max_reports_per_query,
+        "merge_existing_source": merge_existing_source,
         "stock_query_batch_size": stock_query_batch_size,
         "date_chunk_days": date_chunk_days,
         "input_path": input_path,
@@ -654,6 +682,7 @@ def refresh_tushare_research_report_registry(
     max_reports_per_query: int = 6000,
     stock_query_batch_size: int = 50,
     date_chunk_days: int = 31,
+    merge_existing_source: bool = False,
     preserve_review_templates: bool = True,
     discovered_at: str | None = None,
     pro: Any | None = None,
@@ -704,6 +733,11 @@ def refresh_tushare_research_report_registry(
         reports = _preserve_existing_discovery_times(
             reports,
             _existing_discovered_at_by_hash(source_path),
+        )
+    if merge_existing_source:
+        reports = _merge_research_reports(
+            _load_existing_research_reports(source_path),
+            reports,
         )
     source_result = write_research_reports_jsonl(reports, source_path)
     outputs["source"] = str(source_result["path"])
@@ -772,6 +806,7 @@ def refresh_tushare_research_report_registry(
         max_reports_per_query=max_reports_per_query,
         stock_query_batch_size=stock_query_batch_size,
         date_chunk_days=date_chunk_days,
+        merge_existing_source=merge_existing_source,
         input_path=str(input_path) if input_path is not None else None,
         skipped_empty_abstract_rows=skipped_empty_abstract_rows,
         row_count=audit.row_count,
@@ -803,6 +838,7 @@ def refresh_tushare_research_report_registry(
     audit_trace_view_result = write_audit_trace_view(root_path)
     completion_result = write_completion_audit(root_path)
     promotion_gate_result = write_production_promotion_gate_report(root_path)
+    promotion_dry_run_result = write_promotion_dry_run_report(root_path)
     operator_handoff_result = write_operator_handoff(root_path)
     rollback_readiness_result = write_rollback_readiness_report(root_path)
     operator_readiness_result = write_operator_readiness_report(root_path)
@@ -819,6 +855,12 @@ def refresh_tushare_research_report_registry(
     outputs["manual_review_gold_set_import_template"] = review_batches_result["gold_set_import_template"]
     outputs["manual_review_gold_set_full_import_template"] = review_batches_result["gold_set_full_import_template"]
     outputs["manual_review_gold_set_workbook"] = review_batches_result["gold_set_review_workbook"]
+    outputs["manual_review_gold_set_assist_jsonl"] = review_batches_result[
+        "gold_set_review_assist_jsonl"
+    ]
+    outputs["manual_review_gold_set_assist_markdown"] = review_batches_result[
+        "gold_set_review_assist_markdown"
+    ]
     outputs["manual_review_source_license_import_template"] = review_batches_result["source_license_import_template"]
     outputs["manual_review_source_license_workbook"] = review_batches_result[
         "source_license_review_workbook"
@@ -867,9 +909,7 @@ def refresh_tushare_research_report_registry(
     outputs["manual_review_bundle_manifest"] = (
         "registry/review_batches/manual_review_bundle_manifest.json"
     )
-    outputs["promotion_dry_run_report"] = (
-        "registry/promotion/rke_promotion_dry_run_report.json"
-    )
+    outputs["promotion_dry_run_report"] = str(promotion_dry_run_result["path"])
     outputs["master_plan_coverage_report"] = str(master_plan_coverage_result["path"])
     outputs.update({f"dashboard.{key}": value for key, value in dashboard_result.items()})
     outputs["registry_manifest"] = str(registry_manifest_result["path"])

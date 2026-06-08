@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RKE Report Intelligence Forecast Ledger Record",
+  "type": "object",
+  "required": ["ledger_id", "forecast_claim_id", "report_id", "as_of_datetime", "forecast_family_id", "dedup_cluster_id", "consensus_cluster_id", "copying_risk_bucket", "test_status", "version", "immutable"],
+  "properties": {
+    "ledger_id": {"type": "string", "minLength": 1},
+    "forecast_claim_id": {"type": "string", "minLength": 1},
+    "report_id": {"type": "string", "minLength": 1},
+    "as_of_datetime": {"type": "string", "minLength": 1},
+    "forecast_family_id": {"type": "string", "minLength": 1},
+    "dedup_cluster_id": {"type": "string", "minLength": 1},
+    "consensus_cluster_id": {"type": "string", "minLength": 1},
+    "copying_risk_bucket": {"type": "string", "minLength": 1},
+    "test_status": {"enum": ["ready_for_outcome_labeling", "not_ready_insufficient_mapping"]},
+    "version": {"type": "integer"},
+    "immutable": {"type": "boolean"}
+  },
+  "additionalProperties": true
+}

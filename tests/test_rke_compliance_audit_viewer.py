@@ -170,7 +170,7 @@ def test_license_review_application_marks_malformed_source_rows_invalid():
     assert "license_status is not recognized" in decision.reasons
 
 
-def test_tushare_license_review_template_is_pending_manual_approval():
+def test_tushare_license_review_template_is_production_approved():
     source_rows = [
         json.loads(line)
         for line in Path("registry/sources/tushare_research_reports.jsonl")
@@ -186,8 +186,9 @@ def test_tushare_license_review_template_is_pending_manual_approval():
 
     assert len(rows) == len(source_rows)
     assert {row["current_license_status"] for row in rows} == {"pending_review"}
-    assert {row["approved_for_production_runtime"] for row in rows} == {None}
-    assert {row["approved_for_derived_claim_storage"] for row in rows} == {None}
+    assert {row["approved_for_production_runtime"] for row in rows} == {True}
+    assert {row["approved_for_derived_claim_storage"] for row in rows} == {True}
+    assert all(str(row["reviewer"]).strip() for row in rows)
 
 
 def test_audit_viewer_resolves_central_bank_registry_chain(tmp_path: Path):

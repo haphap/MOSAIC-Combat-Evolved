@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RKE Report Intelligence Data Acquisition Proposal",
+  "type": "object",
+  "required": ["data_proposal_id", "tool_gap_id", "owner", "requested_dataset", "required_fields", "pit_requirements", "license_requirements", "license_status", "pit_feasibility_status", "expected_use_cases", "estimated_engineering_effort", "estimated_vendor_cost_bucket", "business_priority", "source_tool_gap_priority", "decision_status"],
+  "properties": {
+    "data_proposal_id": {"type": "string", "minLength": 1},
+    "tool_gap_id": {"type": "string", "minLength": 1},
+    "owner": {"type": "string", "minLength": 1},
+    "requested_dataset": {"type": "string", "minLength": 1},
+    "required_fields": {"type": "array", "items": {"type": "string"}},
+    "pit_requirements": {"type": "object"},
+    "license_requirements": {"type": "object"},
+    "license_status": {"enum": ["approved", "pending_review", "restricted", "prohibited"]},
+    "pit_feasibility_status": {"enum": ["pit_feasible_pending_vendor_review", "requires_pit_backfill_review", "pit_blocked"]},
+    "expected_use_cases": {"type": "array", "items": {"type": "string"}},
+    "estimated_engineering_effort": {"enum": ["low", "medium", "high"]},
+    "estimated_vendor_cost_bucket": {"type": "string", "minLength": 1},
+    "business_priority": {"type": "string", "minLength": 1},
+    "source_tool_gap_priority": {"type": "string", "minLength": 1},
+    "decision_status": {"type": "string", "minLength": 1}
+  },
+  "additionalProperties": true
+}

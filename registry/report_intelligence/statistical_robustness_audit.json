@@ -1,0 +1,117 @@
+{
+  "accepted": true,
+  "as_of_datetime": "2026-06-07T17:18:15+00:00",
+  "audit_id": "RKE-REPORT-INTELLIGENCE-STATISTICAL-ROBUSTNESS-AUDIT",
+  "blocker_count": 0,
+  "blockers": [],
+  "checked_item_count": 59,
+  "checks": [
+    {
+      "accepted": true,
+      "check_id": "RI-STAT-00",
+      "evidence": {
+        "load_blocker_count": 0
+      },
+      "failure_count": 0,
+      "failures": [],
+      "requirement": "Required report-intelligence statistical inputs load successfully."
+    },
+    {
+      "accepted": true,
+      "check_id": "RI-STAT-01",
+      "evidence": {
+        "decision_basis": "absolute_proxy_return_direction",
+        "industry_etf_proxy_label_rows": 15,
+        "llm_outcome_labeling_allowed": false,
+        "outcome_label_rows": 15,
+        "outcome_label_source": "pit_industry_etf_price_window"
+      },
+      "failure_count": 0,
+      "failures": [],
+      "requirement": "Outcome labels must be rule-based after-cost observations; industry research labels are judged from mapped industry ETF returns, not LLM opinion."
+    },
+    {
+      "accepted": true,
+      "check_id": "RI-STAT-02",
+      "evidence": {
+        "insufficient_profile_count": 24,
+        "method_profile_rows": 5,
+        "minimum_non_neutral_effective_n": 3,
+        "non_neutral_profile_count": 0,
+        "source_profile_rows": 16,
+        "viewpoint_profile_rows": 10
+      },
+      "failure_count": 0,
+      "failures": [],
+      "requirement": "Source, viewpoint, and method weights require minimum effective N; insufficient samples stay neutral and shrink toward the parent prior."
+    },
+    {
+      "accepted": true,
+      "check_id": "RI-STAT-03",
+      "evidence": {
+        "complete_industry_etf_window_set_count": 5,
+        "outcome_window_set_count": 5,
+        "window_effective_weights": {
+          "long": 0.4,
+          "medium": 0.35,
+          "short": 0.25
+        }
+      },
+      "failure_count": 0,
+      "failures": [],
+      "requirement": "Overlapping 20/60/120 day ETF windows are retained as separate evidence but downweighted so one report cannot count as three independent samples."
+    },
+    {
+      "accepted": true,
+      "check_id": "RI-STAT-04",
+      "evidence": {
+        "consensus_cluster_count": 12,
+        "forecast_ledger_rows": 12,
+        "multiple_testing_family_count": 11,
+        "retrieved_claim_rows": 12
+      },
+      "failure_count": 0,
+      "failures": [],
+      "requirement": "Forecast family IDs define multiple-testing families and consensus/dedup clusters prevent copied or correlated research from inflating evidence."
+    },
+    {
+      "accepted": true,
+      "check_id": "RI-STAT-05",
+      "evidence": {
+        "calibration_unavailable_profile_count": 26,
+        "outcome_label_rows": 15,
+        "production_use_of_weighted_reports": false,
+        "rollout_mode": "shadow_tooling"
+      },
+      "failure_count": 0,
+      "failures": [],
+      "requirement": "Scored outcomes and profile weights use after-cost metrics; missing calibration metrics are allowed only while report intelligence remains shadow-only."
+    },
+    {
+      "accepted": true,
+      "check_id": "RI-STAT-06",
+      "evidence": {
+        "industry_etf_window_set_count": 5,
+        "short_miss_long_hit_window_set_count": 5,
+        "temporal_summary_count": 15
+      },
+      "failure_count": 0,
+      "failures": [],
+      "requirement": "Industry ETF proxy validation preserves temporal evidence: a long-horizon correct report is retained even if shorter windows miss."
+    },
+    {
+      "accepted": true,
+      "check_id": "RI-STAT-07",
+      "evidence": {
+        "fdr_or_reality_check_status": "deferred_until_paper_trading_or_production_candidate",
+        "non_neutral_retrieved_claim_count": 0,
+        "rollout_mode": "shadow_tooling"
+      },
+      "failure_count": 0,
+      "failures": [],
+      "requirement": "Non-neutral report-derived priors remain shadow research context and cannot be promoted without FDR/reality-check, calibration, current data, paper trading, and promotion gates."
+    }
+  ],
+  "policy": "report intelligence statistical evidence must be PIT, after-cost, overlap-adjusted, grouped by forecast family, deduplicated by consensus clusters, and kept shadow-only until effective-N, multiple-testing, calibration, paper-trading, and promotion gates pass",
+  "run_id": "RIR-DERIVED-20260607T171815+0000"
+}

@@ -36,7 +36,45 @@ jobs:
             uv run python scripts/check_prompt_leaks.py
           fi
       - name: Test (pytest; qlib-only tests skip without the backtest extra)
-        run: uv run python -m pytest tests/ -q
+        env:
+          PYTEST_BASETEMP_ROOT: ${{ runner.temp }}/pytest
+        run: |
+          set -euo pipefail
+
+          run_pytest() {
+            label="$1"
+            shift
+            basetemp="$PYTEST_BASETEMP_ROOT/$label"
+            rm -rf "$basetemp"
+            mkdir -p "$basetemp"
+            echo "::group::pytest $label"
+            df -h .
+            (
+              while true; do
+                echo "pytest heartbeat $label $(date -u +%H:%M:%S)"
+                sleep 60
+              done
+            ) &
+            heartbeat_pid=$!
+            set +e
+            uv run python -m pytest "$@" --basetemp "$basetemp" -vv --durations=20
+            status=$?
+            kill "$heartbeat_pid" 2>/dev/null || true
+            wait "$heartbeat_pid" 2>/dev/null || true
+            set -e
+            rm -rf "$basetemp"
+            echo "::endgroup::"
+            df -h .
+            return "$status"
+          }
+
+          du -sh registry tests
+          find registry -type f -size +20M -printf '%s %p\n'
+          run_pytest non-rke tests --ignore-glob 'tests/test_rke_*.py'
+          run_pytest rke-report-intelligence tests/test_rke_report_intelligence.py
+          while IFS= read -r file; do
+            run_pytest "$(basename "$file" .py)" "$file"
+          done < <(find tests -maxdepth 1 -name 'test_rke_*.py' ! -name 'test_rke_report_intelligence.py' | sort)
 
   typescript:
     name: TypeScript (typecheck / lint / test)

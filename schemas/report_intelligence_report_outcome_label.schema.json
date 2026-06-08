@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RKE Report Intelligence Outcome Label",
+  "type": "object",
+  "required": ["outcome_id", "forecast_claim_id", "forecast_family_id", "entry_datetime", "exit_datetime", "horizon_days", "relative_alpha", "directional_hit", "after_cost_alpha", "overlap_group_id", "effective_n_weight", "pit_valid", "survivorship_safe"],
+  "properties": {
+    "outcome_id": {"type": "string", "minLength": 1},
+    "forecast_claim_id": {"type": "string", "minLength": 1},
+    "forecast_family_id": {"type": "string", "minLength": 1},
+    "entry_datetime": {"type": "string", "minLength": 1},
+    "exit_datetime": {"type": "string", "minLength": 1},
+    "horizon_days": {"type": "integer"},
+    "relative_alpha": {"type": "number"},
+    "directional_hit": {"type": "boolean"},
+    "after_cost_alpha": {"type": "number"},
+    "overlap_group_id": {"type": "string", "minLength": 1},
+    "effective_n_weight": {"type": "number"},
+    "pit_valid": {"type": "boolean"},
+    "survivorship_safe": {"type": "boolean"},
+    "claim_window_set_id": {"type": "string"},
+    "label_type": {"type": "string"},
+    "proxy_symbol": {"type": "string"},
+    "proxy_label": {"type": "string"},
+    "proxy_sector": {"type": "string"},
+    "benchmark_symbol": {"type": "string"},
+    "proxy_return": {"type": "number"},
+    "benchmark_return": {"type": "number"},
+    "directional_proxy_return": {"type": "number"},
+    "directional_after_cost_return": {"type": "number"},
+    "performance_value_basis": {"type": "string"},
+    "relative_directional_hit": {"type": "boolean"},
+    "direction_evaluated": {"type": "string"},
+    "decision_basis": {"type": "string"},
+    "outcome_label_source": {"type": "string"},
+    "llm_outcome_labeling_allowed": {"type": "boolean"},
+    "window_role": {"enum": ["short", "medium", "long"]},
+    "source_horizon_days": {"type": ["integer", "null"]},
+    "source_horizon_bucket": {"type": "string"},
+    "claim_window_alignment": {
+      "enum": [
+        "within_source_horizon",
+        "shorter_than_source_horizon",
+        "beyond_source_horizon",
+        "fixed_window_no_source_horizon"
+      ]
+    },
+    "evaluation_policy": {"type": "string"},
+    "temporal_validation_summary": {"type": "object"}
+  },
+  "additionalProperties": true
+}

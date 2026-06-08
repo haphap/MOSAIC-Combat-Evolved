@@ -21,8 +21,24 @@ def test_central_bank_prompt_ir_contract_enforces_runtime_boundaries():
     assert contract.agent_id == "macro.central_bank"
     assert "final_portfolio_sizing" in contract.role_contract.must_not_decide
     assert {tool.name for tool in contract.required_tools} == {"get_pboc_ops"}
+    tool = contract.required_tools[0]
+    assert tool.metric_ids == ("pboc_net_injection_7d",)
+    assert tool.metric_candidate_ids == ("METRIC-CB-PBOC-NET-INJECTION-7D",)
+    assert tool.analysis_recipe_ids == ("RECIPE-CB-LIQUIDITY-IMPULSE",)
+    assert tool.pit_required_for_backtest is True
+    assert tool.fallback_confidence_cap == 0.60
+    assert tool.lineage["tool_proposal_id"] == "TDP-CB-PBOC-OMO"
     assert contract.output_schema_ref == "agent_output_schema.v2"
     assert "/role_contract" in contract.evolution_targets.forbidden_paths
+    assert (
+        "/analysis_recipe_registry/*/runtime_mode"
+        in contract.evolution_targets.allowed_paths
+    )
+    assert "/sector_score" in contract.evolution_targets.forbidden_paths
+    assert (
+        "production_blocked_until_manual_gold_license_and_lockbox_gates_pass"
+        in contract.guardrails
+    )
 
 
 def test_central_bank_mvp_bundle_reaches_paper_trading_but_blocks_broad_rollout():
@@ -70,6 +86,7 @@ def test_central_bank_registry_writer_emits_schema_aligned_artifacts(tmp_path: P
 
     rendered_prompt = Path(outputs["rendered_prompt_markdown"]).read_text(encoding="utf-8")
     rendered_metadata = json.loads(Path(outputs["rendered_prompt_metadata"]).read_text(encoding="utf-8"))
+    prompt_ir = json.loads(Path(outputs["prompt_ir"]).read_text(encoding="utf-8"))
     runtime_input = json.loads(Path(outputs["runtime_input"]).read_text(encoding="utf-8"))
     mutation_patch = json.loads(Path(outputs["mutation_patch"]).read_text(encoding="utf-8"))
     prompt_asset_validation = json.loads(
@@ -88,10 +105,18 @@ def test_central_bank_registry_writer_emits_schema_aligned_artifacts(tmp_path: P
     assert "## Output Schema" in rendered_prompt
     assert "research_only_no_trade" in rendered_prompt
     assert rendered_metadata["output_schema_ref"] == "agent_output_schema.v2"
+    assert prompt_ir["required_tools"][0]["metric_ids"] == [
+        "pboc_net_injection_7d"
+    ]
+    assert prompt_ir["required_tools"][0]["metric_candidate_ids"] == [
+        "METRIC-CB-PBOC-NET-INJECTION-7D"
+    ]
     assert runtime_input["active_rule_packs"] == ["macro.central_bank.liquidity.v1"]
     assert mutation_patch["mutation"]["mutation_id"] == "MUT-CB-20260605-0001"
     assert mutation_patch["validation"]["accepted"] is True
     assert mutation_patch["production_allowed"] is False
+    production_patch = json.loads(Path(outputs["patch"]).read_text(encoding="utf-8"))
+    assert production_patch["patch_type"] == "parameter_update"
     assert prompt_asset_validation["accepted"] is True
     assert claim_variable_validation["accepted"] is True
     assert source_registry_validation["accepted_for_sandbox"] is True
@@ -104,5 +129,10 @@ def test_render_prompt_markdown_keeps_schema_and_guardrails():
 
     assert "# macro.central_bank RKE Runtime Prompt" in text
     assert "get_pboc_ops" in text
+    assert "METRIC-CB-PBOC-NET-INJECTION-7D" in text
+    assert "RECIPE-CB-LIQUIDITY-IMPULSE" in text
+    assert "AFP-CB-LIQUIDITY-IMPULSE" in text
+    assert "TDP-CB-PBOC-OMO" in text
     assert "output_schema_ref: agent_output_schema.v2" in text
     assert "research_reports_are_prior_not_signal" in text
+    assert "production_blocked_until_manual_gold_license_and_lockbox_gates_pass" in text

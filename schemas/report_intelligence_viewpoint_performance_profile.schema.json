@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RKE Report Intelligence Viewpoint Performance Profile",
+  "type": "object",
+  "required": ["viewpoint_profile_id", "viewpoint_cluster_id", "mechanism_chain", "context", "n_effective", "shrunk_performance_bucket", "viewpoint_weight_multiplier", "known_failure_modes", "insufficient_data", "methodology_notes"],
+  "properties": {
+    "viewpoint_profile_id": {"type": "string", "minLength": 1},
+    "viewpoint_cluster_id": {"type": "string", "minLength": 1},
+    "mechanism_chain": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+    "context": {"type": "object"},
+    "n_effective": {"type": "number"},
+    "shrunk_performance_bucket": {"type": "string", "minLength": 1},
+    "viewpoint_weight_multiplier": {"type": "number"},
+    "known_failure_modes": {"type": "array", "items": {"type": "string"}},
+    "insufficient_data": {"type": "boolean"},
+    "methodology_notes": {"type": "array", "items": {"type": "string"}}
+  },
+  "additionalProperties": true
+}

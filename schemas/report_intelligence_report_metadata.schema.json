@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RKE Report Intelligence Metadata",
+  "type": "object",
+  "required": ["report_id", "source_id", "institution_id", "author_ids", "report_type", "market", "asset_class", "sector", "publish_datetime", "accessible_datetime", "license_class", "redistribution_allowed", "derived_claim_storage_allowed", "point_in_time_available", "extraction"],
+  "properties": {
+    "report_id": {"type": "string", "minLength": 1},
+    "source_id": {"type": "string", "minLength": 1},
+    "institution_id": {"type": "string", "minLength": 1},
+    "author_ids": {"type": "array", "items": {"type": "string"}},
+    "report_type": {"type": "string", "minLength": 1},
+    "market": {"type": "string", "minLength": 1},
+    "asset_class": {"type": "string", "minLength": 1},
+    "sector": {"type": "string", "minLength": 1},
+    "publish_datetime": {"type": "string", "minLength": 1},
+    "accessible_datetime": {"type": "string", "minLength": 1},
+    "language": {"type": "string"},
+    "version": {"type": "string", "minLength": 1},
+    "license_class": {"type": "string", "minLength": 1},
+    "redistribution_allowed": {"type": "boolean"},
+    "derived_claim_storage_allowed": {"type": "string", "minLength": 1},
+    "point_in_time_available": {"type": "boolean"},
+    "extraction": {"type": "object"}
+  },
+  "additionalProperties": true
+}

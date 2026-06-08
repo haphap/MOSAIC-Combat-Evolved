@@ -6,9 +6,9 @@ It records paths, commands, row counts, acceptance criteria, and current blocker
 ## Current Progress
 
 - Promotion dry-run ready: false
-- Gold-set review: 0/500 complete; scratch exists: false; simulation accepted: false
-- Source-license review: 0/9812 complete; scratch exists: false; simulation accepted: false
-- Lockbox review: 0/1 complete; scratch exists: false; simulation accepted: false
+- Gold-set review: 500/500 complete; scratch exists: true; simulation accepted: true
+- Source-license review: 17529/17529 complete; scratch exists: true; simulation accepted: true
+- Lockbox review: 0/1 complete; scratch exists: true; simulation accepted: false
 
 ## Prepare Commands
 
@@ -78,9 +78,11 @@ A promotion dry run is ready only when all three gates above report ready for pr
 
 ## Current Blockers
 
-- gold_set: 0/500 ready
-- gold_set: registry/review_batches/gold_set_full_reviewed.jsonl missing; run mosaic-rke prepare-gold-review --root . --full
-- source_license: 0/9812 ready
-- source_license: registry/review_batches/source_license_policy_reviewed.json missing; run mosaic-rke prepare-license-policy-review --root .
 - lockbox: 0/1 ready
-- lockbox: registry/review_batches/lockbox_reviewed.json missing; run mosaic-rke prepare-lockbox-review --root .
+- lockbox: opened_at required
+- lockbox: opened_by required
+- lockbox: open_count required
+- lockbox: result required
+- lockbox: result must be one of not_opened, passed, failed
+- lockbox: open_count must be integer
+- lockbox: lockbox has not been opened

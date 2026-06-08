@@ -1,0 +1,10773 @@
+"""Local-first report intelligence pipeline for RKE.
+
+This module materializes Tushare research-report PDFs, converts them to
+Markdown through MinerU, and extracts forecast claims plus analytical
+footprints with a local OpenAI-compatible vLLM endpoint. The old Phase -1
+abstract corpus remains intact; this pipeline makes original report text the
+auditable input for the v1.5 Report Intelligence Loop.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import signal
+import shlex
+import shutil
+import struct
+import subprocess
+import urllib.error
+import urllib.request
+from dataclasses import asdict, dataclass
+from datetime import date, datetime, timezone
+from hashlib import sha256
+from pathlib import Path
+from typing import Any, Callable, Literal, Mapping, Sequence
+
+from .manual_review_import import manual_review_forbidden_field_paths
+from .phase_minus1 import load_jsonl_with_errors
+
+
+TUSHARE_REPORT_SOURCE_PATH = "registry/sources/tushare_research_reports.jsonl"
+REPORT_INTELLIGENCE_REGISTRY_DIR = "registry/report_intelligence"
+REPORT_INTELLIGENCE_CACHE_DIR = ".mosaic/rke/report_intelligence"
+ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH = (
+    "registry/report_intelligence/analytical_footprint_review_template.jsonl"
+)
+ANALYTICAL_FOOTPRINT_REVIEW_SUMMARY_PATH = (
+    "registry/report_intelligence/analytical_footprint_review_summary.json"
+)
+ANALYTICAL_FOOTPRINT_REVIEW_IMPORT_REPORT_PATH = (
+    "registry/report_intelligence/analytical_footprint_review_import_report.json"
+)
+ANALYTICAL_FOOTPRINT_ERROR_TAXONOMY_PATH = (
+    "registry/report_intelligence/analytical_footprint_error_taxonomy.json"
+)
+REPORT_INTELLIGENCE_RUNTIME_SAFETY_AUDIT_PATH = (
+    "registry/report_intelligence/runtime_safety_audit.json"
+)
+REPORT_INTELLIGENCE_PIT_LEAKAGE_AUDIT_PATH = (
+    "registry/report_intelligence/pit_leakage_audit.json"
+)
+REPORT_INTELLIGENCE_EXTRACTION_PROVENANCE_AUDIT_PATH = (
+    "registry/report_intelligence/extraction_provenance_audit.json"
+)
+REPORT_INTELLIGENCE_STATISTICAL_ROBUSTNESS_AUDIT_PATH = (
+    "registry/report_intelligence/statistical_robustness_audit.json"
+)
+REPORT_INTELLIGENCE_TOOL_FEASIBILITY_AUDIT_PATH = (
+    "registry/report_intelligence/tool_feasibility_audit.json"
+)
+REPORT_INTELLIGENCE_RECIPE_VALIDATION_AUDIT_PATH = (
+    "registry/report_intelligence/recipe_validation_audit.json"
+)
+REPORT_INTELLIGENCE_PATCH_V1_5_COVERAGE_REPORT_PATH = (
+    "registry/report_intelligence/patch_v1_5_coverage_report.json"
+)
+REPORT_INTELLIGENCE_PRIVATE_OUTPUT_PATHS = frozenset(
+    {
+        ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH,
+        "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+        "registry/report_intelligence/analytical_footprints.jsonl",
+        "registry/report_intelligence/forecast_claims.jsonl",
+        "registry/report_intelligence/processing_status.jsonl",
+        "registry/report_intelligence/report_metadata.jsonl",
+        "registry/report_intelligence/report_outcome_labels.jsonl",
+        "registry/report_intelligence/weighted_research_contexts.jsonl",
+    }
+)
+REPORT_INTELLIGENCE_REQUIRED_PRIVATE_DERIVED_INPUT_PATHS = frozenset(
+    {
+        "registry/report_intelligence/analytical_footprints.jsonl",
+        "registry/report_intelligence/forecast_claims.jsonl",
+        "registry/report_intelligence/report_metadata.jsonl",
+    }
+)
+REPORT_INTELLIGENCE_PUBLIC_DERIVED_OUTPUT_PATHS = frozenset(
+    {
+        ANALYTICAL_FOOTPRINT_ERROR_TAXONOMY_PATH,
+        ANALYTICAL_FOOTPRINT_REVIEW_IMPORT_REPORT_PATH,
+        ANALYTICAL_FOOTPRINT_REVIEW_SUMMARY_PATH,
+        REPORT_INTELLIGENCE_EXTRACTION_PROVENANCE_AUDIT_PATH,
+        REPORT_INTELLIGENCE_PATCH_V1_5_COVERAGE_REPORT_PATH,
+        REPORT_INTELLIGENCE_PIT_LEAKAGE_AUDIT_PATH,
+        REPORT_INTELLIGENCE_RECIPE_VALIDATION_AUDIT_PATH,
+        REPORT_INTELLIGENCE_RUNTIME_SAFETY_AUDIT_PATH,
+        REPORT_INTELLIGENCE_STATISTICAL_ROBUSTNESS_AUDIT_PATH,
+        REPORT_INTELLIGENCE_TOOL_FEASIBILITY_AUDIT_PATH,
+        "registry/report_intelligence/analysis_recipes.jsonl",
+        "registry/report_intelligence/data_acquisition_proposals.jsonl",
+        "registry/report_intelligence/extraction_report.json",
+        "registry/report_intelligence/feature_flags.json",
+        "registry/report_intelligence/method_patterns.jsonl",
+        "registry/report_intelligence/method_performance_profiles.jsonl",
+        "registry/report_intelligence/metric_candidates.jsonl",
+        "registry/report_intelligence/monitoring_report.json",
+        "registry/report_intelligence/outcome_labeling_readiness.json",
+        "registry/report_intelligence/report_forecast_ledger.jsonl",
+        "registry/report_intelligence/runtime_tool_gap_observations.jsonl",
+        "registry/report_intelligence/source_performance_profiles.jsonl",
+        "registry/report_intelligence/tool_coverage_matches.jsonl",
+        "registry/report_intelligence/tool_design_proposals.jsonl",
+        "registry/report_intelligence/tool_gaps.jsonl",
+        "registry/report_intelligence/viewpoint_performance_profiles.jsonl",
+    }
+)
+DEFAULT_VLLM_BASE_URL = "http://127.0.0.1:8020/v1"
+DEFAULT_Q_LIB_ETF_PATH = "~/.qlib/qlib_data/cn_etf"
+DEFAULT_MINERU_BACKEND = "hybrid-auto-engine"
+DEFAULT_MINERU_ARGS_TEMPLATE = "-p {pdf} -o {output_dir} -b {backend} -m auto"
+MINERU_BACKENDS = (
+    "hybrid-auto-engine",
+    "vlm-auto-engine",
+    "pipeline",
+    "vlm-http-client",
+    "hybrid-http-client",
+)
+
+REPORT_INTELLIGENCE_FEATURE_FLAGS: Mapping[str, bool] = {
+    "report_weighting_enabled": True,
+    "analytical_footprint_enabled": True,
+    "weighted_research_retriever_enabled": True,
+    "method_pattern_registry_enabled": True,
+    "tool_design_loop_enabled": True,
+    "shadow_tool_runtime_enabled": True,
+    "production_use_of_weighted_reports": False,
+}
+REPORT_INTELLIGENCE_ROLLOUT_MODE = "shadow_tooling"
+REPORT_INTELLIGENCE_ROLLOUT_MODES = (
+    "off",
+    "extraction_only",
+    "shadow_retrieval",
+    "shadow_tooling",
+    "paper_trading",
+    "limited_production",
+    "production",
+)
+REPORT_INTELLIGENCE_SAFE_ACTIONABILITY = "no_trade_without_current_data_confirmation"
+REPORT_INTELLIGENCE_MAX_SAFE_ROLLOUT_MODE = "shadow_tooling"
+REPORT_INTELLIGENCE_FORBIDDEN_SHADOW_OUTPUT_FIELDS = (
+    "sector_score",
+    "sizing",
+    "position_size",
+    "portfolio_weight",
+    "portfolio_action",
+    "trade_recommendation",
+    "executable_order",
+)
+REPORT_INTELLIGENCE_TOOL_COVERAGE_STATUSES = (
+    "exact_match",
+    "partial_match",
+    "proxy_available",
+    "missing",
+    "no_pit_history",
+    "license_blocked",
+    "engineering_blocked",
+    "retired",
+)
+REPORT_INTELLIGENCE_TOOL_GAP_PRIORITY_BUCKETS = (
+    "blocked",
+    "low",
+    "medium",
+    "high",
+    "urgent",
+)
+REPORT_INTELLIGENCE_COVERAGE_DETAIL_FIELDS = (
+    "raw_source_match",
+    "frequency_match",
+    "pit_available",
+    "lookback_supported",
+    "unit_supported",
+    "license_ok",
+)
+REPORT_INTELLIGENCE_RECIPE_RUNTIME_MODES = (
+    "shadow_only",
+    "validation_candidate",
+    "paper_trading",
+    "limited_production",
+    "production",
+    "deprecated",
+)
+REPORT_INTELLIGENCE_RECIPE_VALIDATION_STATUSES = (
+    "candidate",
+    "shadow_validated",
+    "validation_candidate",
+    "paper_trading_ready",
+    "limited_production_ready",
+    "production_ready",
+    "deprecated",
+)
+REPORT_INTELLIGENCE_REQUIRED_DECAY_METRICS = (
+    "rolling_after_cost_alpha",
+    "rolling_hit_rate",
+    "calibration_drift",
+    "turnover_impact",
+    "drawdown_after_signal",
+    "half_life_estimate",
+    "current_vs_backtest_performance_divergence",
+)
+REPORT_INTELLIGENCE_REQUIRED_ROLLBACK_MODES = (
+    "soft_rollback",
+    "hard_rollback",
+    "compliance_rollback",
+)
+REPORT_INTELLIGENCE_PATCH_V1_5_SCHEMA_ARTIFACTS = (
+    "report_intelligence_feature_flags.schema.json",
+    "report_intelligence_report_metadata.schema.json",
+    "report_intelligence_forecast_claim.schema.json",
+    "report_intelligence_analytical_footprint.schema.json",
+    "report_intelligence_report_forecast_ledger.schema.json",
+    "report_intelligence_report_outcome_label.schema.json",
+    "report_intelligence_source_performance_profile.schema.json",
+    "report_intelligence_viewpoint_performance_profile.schema.json",
+    "report_intelligence_method_performance_profile.schema.json",
+    "report_intelligence_metric_candidate.schema.json",
+    "report_intelligence_method_pattern.schema.json",
+    "report_intelligence_tool_gap.schema.json",
+    "report_intelligence_data_acquisition_proposal.schema.json",
+    "report_intelligence_tool_design_proposal.schema.json",
+    "report_intelligence_analysis_recipe.schema.json",
+)
+MAX_STORED_CLAIM_TEXT_CHARS = 72
+ANALYTICAL_FOOTPRINT_REVIEW_BOOLEAN_FIELDS = (
+    "footprint_correct",
+    "source_span_supports_footprint",
+    "metric_mapping_correct",
+    "inferred_steps_tagged_correctly",
+    "unknowns_used_when_uncertain",
+    "no_proprietary_text_leakage",
+)
+ANALYTICAL_FOOTPRINT_REVIEW_REQUIRED_FIELDS = (
+    *ANALYTICAL_FOOTPRINT_REVIEW_BOOLEAN_FIELDS,
+    "reviewer",
+    "review_date",
+    "review_notes",
+)
+ANALYTICAL_FOOTPRINT_REVIEW_QUALITY_THRESHOLDS: Mapping[str, float] = {
+    "footprint_precision": 0.80,
+    "span_support_precision": 0.90,
+    "metric_mapping_accuracy": 0.80,
+    "inferred_step_tagging_accuracy": 0.80,
+    "unknown_on_ambiguity_rate": 0.80,
+    "proprietary_leakage_free_rate": 1.00,
+}
+KNOWN_AGENT_ID_PREFIXES = {
+    "macro",
+    "sector",
+    "style",
+    "portfolio",
+    "risk",
+    "policy",
+    "market",
+    "fund",
+    "etf",
+    "industry",
+    "stock",
+}
+
+
+def _report_intelligence_feature_flag_payload() -> dict[str, Any]:
+    return {
+        "rollout_mode": REPORT_INTELLIGENCE_ROLLOUT_MODE,
+        "allowed_rollout_modes": list(REPORT_INTELLIGENCE_ROLLOUT_MODES),
+        "flags": dict(REPORT_INTELLIGENCE_FEATURE_FLAGS),
+        "runtime_behavior": (
+            "shadow retrieval and shadow tooling only; no agent decision impact; "
+            "no trade without current data confirmation, validated recipes, paper "
+            "trading gates, and production promotion approval"
+        ),
+    }
+INDUSTRY_ETF_PROXY_WINDOWS_DAYS = (20, 60, 120)
+INDUSTRY_ETF_PROXY_WINDOW_EFFECTIVE_WEIGHTS: Mapping[str, float] = {
+    "short": 0.25,
+    "medium": 0.35,
+    "long": 0.40,
+}
+INDUSTRY_ETF_OUTCOME_LABEL_SOURCE = "pit_industry_etf_price_window"
+INDUSTRY_ETF_DECISION_BASIS = "absolute_proxy_return_direction"
+INDUSTRY_ETF_ENTRY_LAG_TRADING_DAYS = 1
+INDUSTRY_ETF_ROUND_TRIP_COST = 0.001
+INDUSTRY_ETF_EVALUATION_POLICY = (
+    "industry_etf_t_plus_1_multi_window_proxy_retains_long_horizon_evidence"
+)
+INDUSTRY_ETF_PROXY_MAPPING: Mapping[str, Mapping[str, str]] = {
+    "工业金属": {"etf_symbol": "SH512400", "mapping_label": "有色ETF"},
+    "有色金属": {"etf_symbol": "SH512400", "mapping_label": "有色ETF"},
+    "贵金属": {"etf_symbol": "SH512400", "mapping_label": "有色ETF"},
+    "银行": {"etf_symbol": "SH512800", "mapping_label": "银行ETF"},
+    "银行Ⅱ": {"etf_symbol": "SH512800", "mapping_label": "银行ETF"},
+    "证券": {"etf_symbol": "SH512880", "mapping_label": "证券ETF"},
+    "证券Ⅱ": {"etf_symbol": "SH512880", "mapping_label": "证券ETF"},
+    "多元金融": {"etf_symbol": "SH512880", "mapping_label": "证券ETF"},
+    "半导体": {"etf_symbol": "SH512480", "mapping_label": "半导体ETF"},
+    "电池": {"etf_symbol": "SH515700", "mapping_label": "新能源车ETF"},
+    "汽车零部件": {"etf_symbol": "SH515700", "mapping_label": "新能源车ETF"},
+    "医药商业": {"etf_symbol": "SH512170", "mapping_label": "医疗ETF"},
+    "化学制药": {"etf_symbol": "SH512170", "mapping_label": "医疗ETF"},
+    "房地产开发": {"etf_symbol": "SH512200", "mapping_label": "房地产ETF"},
+    "航天装备Ⅱ": {"etf_symbol": "SH512660", "mapping_label": "军工ETF"},
+    "风电设备": {"etf_symbol": "SH516160", "mapping_label": "新能源ETF"},
+    "光伏设备": {"etf_symbol": "SH516160", "mapping_label": "新能源ETF"},
+}
+INDUSTRY_ETF_BENCHMARK_SYMBOL = "SH510300"
+
+JsonMapping = Mapping[str, Any]
+PdfDownloader = Callable[[str, Path, bool], Mapping[str, Any]]
+PdfConverter = Callable[[Path, Path, Path, bool], Mapping[str, Any]]
+LlmExtractor = Callable[[Mapping[str, Any], str, str, int, int], Mapping[str, Any]]
+
+
+@dataclass(frozen=True)
+class ReportIntelligenceConfig:
+    root: str | Path = "."
+    source_path: str | Path = TUSHARE_REPORT_SOURCE_PATH
+    registry_dir: str | Path = REPORT_INTELLIGENCE_REGISTRY_DIR
+    cache_dir: str | Path = REPORT_INTELLIGENCE_CACHE_DIR
+    source_ids: Sequence[str] = ()
+    limit: int | None = None
+    min_publish_date: str | None = None
+    max_publish_date: str | None = None
+    selection_order: Literal["latest", "oldest"] = "latest"
+    overwrite: bool = False
+    skip_download: bool = False
+    skip_convert: bool = False
+    skip_llm: bool = False
+    refresh_derived_only: bool = False
+    download_timeout_seconds: int = 60
+    mineru_command: str = "mineru"
+    mineru_backend: str = DEFAULT_MINERU_BACKEND
+    mineru_server_url: str | None = None
+    mineru_args_template: str = DEFAULT_MINERU_ARGS_TEMPLATE
+    mineru_timeout_seconds: int = 900
+    mineru_batch_size: int = 4
+    mineru_batch_max_bytes: int = 5_000_000
+    vllm_base_url: str = DEFAULT_VLLM_BASE_URL
+    vllm_model: str | None = None
+    qlib_etf_dir: str | Path = DEFAULT_Q_LIB_ETF_PATH
+    vllm_timeout_seconds: int = 120
+    chunk_chars: int = 60_000
+    max_chunks: int = 8
+    max_llm_output_tokens: int = 4096
+
+
+@dataclass(frozen=True)
+class ReportIntelligenceRunResult:
+    run_id: str
+    root: str
+    selected_reports: int
+    metadata_rows: int
+    forecast_claim_rows: int
+    analytical_footprint_rows: int
+    metric_candidate_rows: int
+    method_pattern_rows: int
+    tool_gap_rows: int
+    forecast_ledger_rows: int
+    outcome_label_rows: int
+    industry_etf_proxy_outcome_label_rows: int
+    industry_etf_proxy_eligible_claim_rows: int
+    industry_etf_proxy_labelable_window_rows: int
+    industry_etf_proxy_pending_window_rows: int
+    source_performance_profile_rows: int
+    viewpoint_performance_profile_rows: int
+    method_performance_profile_rows: int
+    tool_coverage_match_rows: int
+    data_acquisition_proposal_rows: int
+    tool_design_proposal_rows: int
+    analysis_recipe_rows: int
+    weighted_research_context_rows: int
+    runtime_tool_gap_observation_rows: int
+    outcome_labeling_ready_count: int
+    outcome_labeling_blocked_count: int
+    pdf_ready_count: int
+    markdown_ready_count: int
+    llm_processed_reports: int
+    blocker_count: int
+    blockers: Sequence[str]
+    outputs: Mapping[str, str]
+
+
+@dataclass(frozen=True)
+class AnalyticalFootprintReviewImportInvalidRow:
+    row_number: int
+    row_id: str
+    reasons: Sequence[str]
+
+
+@dataclass(frozen=True)
+class AnalyticalFootprintReviewImportReport:
+    report_id: str
+    input_path: str
+    target_path: str
+    dry_run: bool
+    accepted: bool
+    input_rows: int
+    applied_rows: int
+    rejected_rows: int
+    duplicate_ids: Sequence[str]
+    missing_target_ids: Sequence[str]
+    invalid_rows: Sequence[AnalyticalFootprintReviewImportInvalidRow]
+    summary_path: str
+    blockers: Sequence[str]
+
+
+@dataclass(frozen=True)
+class MineruBatchConversionTask:
+    source_id: str
+    pdf_path: Path
+    markdown_path: Path
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def _parse_pit_datetime(value: Any) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    normalized = text.replace("Z", "+00:00")
+    try:
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", normalized):
+            parsed = datetime.fromisoformat(normalized).replace(tzinfo=timezone.utc)
+        else:
+            parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _format_pit_datetime(value: datetime | None) -> str:
+    if value is None:
+        return ""
+    return value.astimezone(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def _max_pit_datetime(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    fields: Sequence[str],
+) -> datetime | None:
+    values: list[datetime] = []
+    for row in rows:
+        for field in fields:
+            parsed = _parse_pit_datetime(row.get(field))
+            if parsed is not None:
+                values.append(parsed)
+                break
+    return max(values) if values else None
+
+
+def _jsonable(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {str(key): _jsonable(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_jsonable(item) for item in value]
+    if hasattr(value, "__dataclass_fields__"):
+        return _jsonable(asdict(value))
+    return value
+
+
+def _write_json(path: Path, payload: Mapping[str, Any]) -> dict[str, Any]:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(_jsonable(payload), ensure_ascii=False, indent=2, sort_keys=True)
+        + "\n",
+        encoding="utf-8",
+    )
+    return {"path": str(path), "rows": 1}
+
+
+def _write_jsonl(path: Path, rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "".join(
+            json.dumps(_jsonable(row), ensure_ascii=False, sort_keys=True) + "\n"
+            for row in rows
+        ),
+        encoding="utf-8",
+    )
+    return {"path": str(path), "rows": len(rows)}
+
+
+def _read_registry_jsonl(
+    path: Path,
+    *,
+    label: str,
+    blockers: list[str],
+) -> list[Mapping[str, Any]]:
+    if not path.exists():
+        blockers.append(f"{label}: missing")
+        return []
+    rows, parse_blockers = load_jsonl_with_errors(path, label=label)
+    blockers.extend(parse_blockers)
+    valid_rows: list[Mapping[str, Any]] = []
+    for index, row in enumerate(rows, 1):
+        if isinstance(row, Mapping):
+            valid_rows.append(row)
+        else:
+            blockers.append(f"{label} row {index}: expected object")
+    return valid_rows
+
+
+def _read_registry_json(
+    path: Path,
+    *,
+    label: str,
+    blockers: list[str],
+) -> Mapping[str, Any]:
+    if not path.exists():
+        blockers.append(f"{label}: missing")
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        blockers.append(f"{label}: invalid json: {exc.msg}")
+        return {}
+    if not isinstance(payload, Mapping):
+        blockers.append(f"{label}: expected object")
+        return {}
+    return payload
+
+
+def _safe_file_id(value: object) -> str:
+    safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(value or "").strip())
+    return safe[:180] or "unknown"
+
+
+def _stable_digest(payload: Mapping[str, Any], *, length: int = 16) -> str:
+    encoded = json.dumps(
+        payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    return sha256(encoded).hexdigest()[:length]
+
+
+def _stable_id(prefix: str, payload: Mapping[str, Any]) -> str:
+    return f"{prefix}-{_stable_digest(payload)}"
+
+
+def _file_sha256(path: Path) -> str:
+    digest = sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return "sha256:" + digest.hexdigest()
+
+
+def _relative_or_absolute(path: Path, root_path: Path) -> str:
+    try:
+        return str(path.relative_to(root_path))
+    except ValueError:
+        return str(path)
+
+
+def _report_intelligence_registry_path(
+    *,
+    root_path: Path,
+    registry_dir: Path,
+    relative_path: str,
+) -> Path:
+    path = Path(relative_path)
+    default_registry = Path(REPORT_INTELLIGENCE_REGISTRY_DIR)
+    if path.parts[: len(default_registry.parts)] == default_registry.parts:
+        return registry_dir / path.relative_to(default_registry)
+    return root_path / path
+
+
+def _report_intelligence_paths_exist(
+    *,
+    root_path: Path,
+    registry_dir: Path,
+    paths: Sequence[str],
+) -> tuple[str, ...]:
+    return tuple(
+        sorted(
+            relative
+            for relative in paths
+            if _report_intelligence_registry_path(
+                root_path=root_path,
+                registry_dir=registry_dir,
+                relative_path=relative,
+            ).exists()
+        )
+    )
+
+
+def _missing_report_intelligence_private_inputs(
+    *,
+    root_path: Path,
+    registry_dir: Path,
+) -> tuple[str, ...]:
+    return tuple(
+        sorted(
+            relative
+            for relative in REPORT_INTELLIGENCE_REQUIRED_PRIVATE_DERIVED_INPUT_PATHS
+            if not _report_intelligence_registry_path(
+                root_path=root_path,
+                registry_dir=registry_dir,
+                relative_path=relative,
+            ).exists()
+        )
+    )
+
+
+def _blocked_report_intelligence_derived_refresh_result(
+    *,
+    root_path: Path,
+    registry_dir: Path,
+    run_id: str,
+    blockers: Sequence[str],
+) -> ReportIntelligenceRunResult:
+    outputs = {
+        Path(relative).stem: _relative_or_absolute(
+            _report_intelligence_registry_path(
+                root_path=root_path,
+                registry_dir=registry_dir,
+                relative_path=relative,
+            ),
+            root_path,
+        )
+        for relative in sorted(REPORT_INTELLIGENCE_PUBLIC_DERIVED_OUTPUT_PATHS)
+    }
+    return ReportIntelligenceRunResult(
+        run_id=run_id,
+        root=str(root_path),
+        selected_reports=0,
+        metadata_rows=0,
+        forecast_claim_rows=0,
+        analytical_footprint_rows=0,
+        metric_candidate_rows=0,
+        method_pattern_rows=0,
+        tool_gap_rows=0,
+        forecast_ledger_rows=0,
+        outcome_label_rows=0,
+        industry_etf_proxy_outcome_label_rows=0,
+        industry_etf_proxy_eligible_claim_rows=0,
+        industry_etf_proxy_labelable_window_rows=0,
+        industry_etf_proxy_pending_window_rows=0,
+        source_performance_profile_rows=0,
+        viewpoint_performance_profile_rows=0,
+        method_performance_profile_rows=0,
+        tool_coverage_match_rows=0,
+        data_acquisition_proposal_rows=0,
+        tool_design_proposal_rows=0,
+        analysis_recipe_rows=0,
+        weighted_research_context_rows=0,
+        runtime_tool_gap_observation_rows=0,
+        outcome_labeling_ready_count=0,
+        outcome_labeling_blocked_count=0,
+        pdf_ready_count=0,
+        markdown_ready_count=0,
+        llm_processed_reports=0,
+        blocker_count=len(blockers),
+        blockers=tuple(blockers),
+        outputs=outputs,
+    )
+
+
+def _redact_runtime_text(value: Any, root_path: Path) -> str:
+    text = str(value or "")
+    if not text:
+        return ""
+    replacements = {
+        str(root_path): "<repo_root>",
+        str(root_path.home()): "<home>",
+    }
+    for needle, replacement in replacements.items():
+        if needle:
+            text = text.replace(needle, replacement)
+    text = re.sub(r"\b(?:sk|tp)-[A-Za-z0-9_-]{16,}\b", "<redacted-token>", text)
+    text = re.sub(
+        r"(?i)\b([A-Z0-9_]*(?:token|api[_-]?key|key|secret|password)[A-Z0-9_]*)"
+        r"\s*[:=]\s*[^,\s]+",
+        r"\1=<redacted>",
+        text,
+    )
+    return text
+
+
+def _mapping_rows(rows: Sequence[Any], blockers: list[str]) -> list[Mapping[str, Any]]:
+    valid: list[Mapping[str, Any]] = []
+    for index, row in enumerate(rows, 1):
+        if isinstance(row, Mapping):
+            valid.append(row)
+        else:
+            blockers.append(f"source row {index} must be object")
+    return valid
+
+
+def _source_file(root_path: Path, source_path: str | Path) -> Path:
+    path = Path(source_path)
+    return path if path.is_absolute() else root_path / path
+
+
+def _selected_source_rows(
+    root_path: Path,
+    *,
+    source_path: str | Path,
+    source_ids: Sequence[str],
+    limit: int | None,
+    min_publish_date: str | None = None,
+    max_publish_date: str | None = None,
+    selection_order: Literal["latest", "oldest"] = "latest",
+) -> tuple[list[Mapping[str, Any]], list[str]]:
+    raw_rows, parse_blockers = load_jsonl_with_errors(
+        _source_file(root_path, source_path),
+        label="report source",
+    )
+    blockers = list(parse_blockers)
+    rows = _mapping_rows(raw_rows, blockers)
+    wanted = {str(source_id) for source_id in source_ids if str(source_id).strip()}
+    if wanted:
+        rows = [row for row in rows if str(row.get("source_id") or "") in wanted]
+    if min_publish_date:
+        rows = [
+            row
+            for row in rows
+            if str(row.get("publish_date") or "") >= min_publish_date
+        ]
+    if max_publish_date:
+        rows = [
+            row
+            for row in rows
+            if str(row.get("publish_date") or "") <= max_publish_date
+        ]
+    if selection_order not in {"latest", "oldest"}:
+        blockers.append("selection_order must be latest or oldest")
+        selection_order = "latest"
+    rows = sorted(
+        rows,
+        key=lambda row: (
+            str(row.get("publish_date") or ""),
+            str(row.get("source_id") or ""),
+        ),
+        reverse=selection_order == "latest",
+    )
+    if limit is not None:
+        rows = rows[: max(limit, 0)]
+    return rows, blockers
+
+
+def download_pdf(
+    url: str,
+    pdf_path: Path,
+    overwrite: bool,
+    *,
+    timeout_seconds: int = 60,
+) -> Mapping[str, Any]:
+    if pdf_path.exists() and pdf_path.stat().st_size > 0 and not overwrite:
+        return {
+            "status": "cached",
+            "path": str(pdf_path),
+            "bytes": pdf_path.stat().st_size,
+            "sha256": _file_sha256(pdf_path),
+        }
+    request = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": (
+                "MOSAIC-RKE/0.1 local report intelligence "
+                "(PDF original text materialization)"
+            )
+        },
+    )
+    pdf_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+            content = response.read()
+    except (urllib.error.URLError, TimeoutError) as exc:
+        return {"status": "blocked", "blocker": f"pdf_download_failed: {exc}"}
+    if not content:
+        return {"status": "blocked", "blocker": "pdf_download_failed: empty body"}
+    pdf_path.write_bytes(content)
+    return {
+        "status": "downloaded",
+        "path": str(pdf_path),
+        "bytes": len(content),
+        "sha256": _file_sha256(pdf_path),
+    }
+
+
+def _format_mineru_args(
+    args_template: str,
+    *,
+    pdf_path: Path,
+    output_dir: Path,
+    backend: str,
+    server_url: str | None,
+) -> list[str]:
+    formatted = args_template.format(
+        pdf=str(pdf_path),
+        output_dir=str(output_dir),
+        output=str(output_dir),
+        backend=backend,
+    )
+    args = shlex.split(formatted)
+    if server_url and "-u" not in args and "--url" not in args:
+        args.extend(["-u", server_url])
+    return args
+
+
+def _largest_markdown_file(output_dir: Path) -> Path | None:
+    markdowns = [
+        path
+        for path in output_dir.rglob("*.md")
+        if path.is_file() and path.stat().st_size > 0
+    ]
+    if not markdowns:
+        return None
+    return max(markdowns, key=lambda path: (path.stat().st_size, path.stat().st_mtime))
+
+
+def _markdown_file_for_stem(output_dir: Path, stem: str) -> Path | None:
+    markdowns = [
+        path
+        for path in output_dir.rglob("*.md")
+        if path.is_file() and path.stat().st_size > 0 and path.stem == stem
+    ]
+    if not markdowns:
+        return None
+    return max(markdowns, key=lambda path: (path.stat().st_size, path.stat().st_mtime))
+
+
+def _decode_non_pdf_text_source(path: Path) -> str | None:
+    payload = path.read_bytes()
+    if payload.lstrip().startswith(b"%PDF"):
+        return None
+    for encoding in ("utf-8-sig", "utf-8", "gb18030", "gbk"):
+        try:
+            text = payload.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+        normalized = text.replace("\r\n", "\n").replace("\r", "\n").strip()
+        if not normalized:
+            return None
+        control_count = sum(
+            1
+            for char in normalized
+            if ord(char) < 32 and char not in {"\n", "\t", "\f"}
+        )
+        if control_count > max(20, int(len(normalized) * 0.02)):
+            return None
+        return normalized
+    return None
+
+
+def _convert_text_source_to_markdown(
+    source_path: Path,
+    markdown_path: Path,
+    *,
+    backend: str,
+) -> Mapping[str, Any] | None:
+    text = _decode_non_pdf_text_source(source_path)
+    if text is None:
+        return None
+    markdown_path.parent.mkdir(parents=True, exist_ok=True)
+    markdown_path.write_text(text + "\n", encoding="utf-8")
+    return {
+        "status": "converted_text_source",
+        "path": str(markdown_path),
+        "mineru_output_path": "",
+        "source_format": "text",
+        "backend": backend,
+        "bytes": markdown_path.stat().st_size,
+        "sha256": _file_sha256(markdown_path),
+    }
+
+
+def _mineru_executable(command: str) -> tuple[list[str], str | None]:
+    command_parts = shlex.split(command)
+    if not command_parts:
+        return (), "mineru_command_empty"
+    executable = shutil.which(command_parts[0])
+    if executable is None:
+        return (), f"mineru_command_not_found: {command_parts[0]}"
+    return [executable, *command_parts[1:]], None
+
+
+def _mineru_args(
+    command: str,
+    *,
+    input_path: Path,
+    output_dir: Path,
+    backend: str,
+    server_url: str | None,
+    args_template: str,
+) -> tuple[list[str], str | None]:
+    command_parts, blocker = _mineru_executable(command)
+    if blocker:
+        return (), blocker
+    backend = backend.strip() or DEFAULT_MINERU_BACKEND
+    if backend not in MINERU_BACKENDS:
+        return (), f"mineru_backend_invalid: {backend}"
+    return [
+        *command_parts,
+        *_format_mineru_args(
+            args_template,
+            pdf_path=input_path,
+            output_dir=output_dir,
+            backend=backend,
+            server_url=server_url,
+        ),
+    ], None
+
+
+def _terminate_process_tree(pid: int) -> None:
+    try:
+        import psutil
+    except ImportError:
+        try:
+            os.killpg(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            return
+        except OSError:
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except ProcessLookupError:
+                return
+        return
+    try:
+        parent = psutil.Process(pid)
+    except psutil.NoSuchProcess:
+        return
+    processes = parent.children(recursive=True)
+    processes.append(parent)
+    for process in processes:
+        try:
+            process.terminate()
+        except psutil.NoSuchProcess:
+            continue
+    _, alive = psutil.wait_procs(processes, timeout=5)
+    for process in alive:
+        try:
+            process.kill()
+        except psutil.NoSuchProcess:
+            continue
+
+
+def _run_mineru(args: Sequence[str], *, cwd: Path, timeout_seconds: int) -> Mapping[str, Any]:
+    command = " ".join(shlex.quote(part) for part in args)
+    try:
+        process = subprocess.Popen(
+            list(args),
+            cwd=str(cwd),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            start_new_session=True,
+        )
+        stdout, stderr = process.communicate(timeout=timeout_seconds)
+    except subprocess.TimeoutExpired:
+        _terminate_process_tree(process.pid)
+        try:
+            stdout, stderr = process.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            stdout, stderr = "", ""
+        return {
+            "status": "blocked",
+            "blocker": "mineru_timeout",
+            "timed_out": True,
+            "command": command,
+            "returncode": process.returncode,
+            "stderr_tail": stderr.strip()[-1000:],
+            "stdout_tail": stdout.strip()[-1000:],
+        }
+    if process.returncode == 0:
+        return {"status": "ok"}
+    return {
+        "status": "blocked",
+        "blocker": "mineru_failed",
+        "command": command,
+        "returncode": process.returncode,
+        "stderr_tail": stderr.strip()[-1000:],
+        "stdout_tail": stdout.strip()[-1000:],
+    }
+
+
+def convert_pdf_with_mineru(
+    pdf_path: Path,
+    output_dir: Path,
+    markdown_path: Path,
+    overwrite: bool,
+    *,
+    command: str = "mineru",
+    backend: str = DEFAULT_MINERU_BACKEND,
+    server_url: str | None = None,
+    args_template: str = DEFAULT_MINERU_ARGS_TEMPLATE,
+    timeout_seconds: int = 900,
+) -> Mapping[str, Any]:
+    backend = backend.strip() or DEFAULT_MINERU_BACKEND
+    if markdown_path.exists() and markdown_path.stat().st_size > 0 and not overwrite:
+        return {
+            "status": "cached",
+            "path": str(markdown_path),
+            "backend": backend,
+            "bytes": markdown_path.stat().st_size,
+            "sha256": _file_sha256(markdown_path),
+        }
+    if not pdf_path.exists() or pdf_path.stat().st_size <= 0:
+        return {"status": "blocked", "blocker": "mineru_input_pdf_missing"}
+    text_result = _convert_text_source_to_markdown(
+        pdf_path,
+        markdown_path,
+        backend=backend,
+    )
+    if text_result is not None:
+        return text_result
+    output_dir.mkdir(parents=True, exist_ok=True)
+    markdown_path.parent.mkdir(parents=True, exist_ok=True)
+    args, blocker = _mineru_args(
+        command,
+        input_path=pdf_path,
+        output_dir=output_dir,
+        backend=backend,
+        server_url=server_url,
+        args_template=args_template,
+    )
+    if blocker:
+        return {"status": "blocked", "blocker": blocker}
+    run_result = _run_mineru(args, cwd=output_dir, timeout_seconds=timeout_seconds)
+    if run_result["status"] == "blocked":
+        return run_result
+    produced = _largest_markdown_file(output_dir)
+    if produced is None:
+        return {"status": "blocked", "blocker": "mineru_markdown_not_found"}
+    shutil.copyfile(produced, markdown_path)
+    return {
+        "status": "converted",
+        "path": str(markdown_path),
+        "mineru_output_path": str(produced),
+        "backend": backend,
+        "bytes": markdown_path.stat().st_size,
+        "sha256": _file_sha256(markdown_path),
+    }
+
+
+def _link_or_copy(src: Path, dst: Path) -> None:
+    if dst.exists() or dst.is_symlink():
+        dst.unlink()
+    try:
+        dst.symlink_to(src)
+        return
+    except OSError:
+        pass
+    try:
+        dst.hardlink_to(src)
+        return
+    except OSError:
+        pass
+    shutil.copyfile(src, dst)
+
+
+def _batched(values: Sequence[Any], batch_size: int) -> list[Sequence[Any]]:
+    size = max(int(batch_size), 1)
+    return [values[index : index + size] for index in range(0, len(values), size)]
+
+
+def _batched_conversion_tasks(
+    tasks: Sequence[MineruBatchConversionTask],
+    *,
+    batch_size: int,
+    max_batch_bytes: int,
+) -> list[Sequence[MineruBatchConversionTask]]:
+    if max_batch_bytes <= 0:
+        return _batched(tuple(tasks), batch_size)
+    size = max(int(batch_size), 1)
+    ordered = sorted(
+        tasks,
+        key=lambda task: (
+            task.pdf_path.stat().st_size if task.pdf_path.exists() else 0,
+            task.source_id,
+        ),
+    )
+    batches: list[list[MineruBatchConversionTask]] = []
+    current: list[MineruBatchConversionTask] = []
+    current_bytes = 0
+    for task in ordered:
+        task_bytes = task.pdf_path.stat().st_size if task.pdf_path.exists() else 0
+        would_exceed_count = len(current) >= size
+        would_exceed_bytes = (
+            current
+            and current_bytes + task_bytes > max_batch_bytes
+        )
+        if would_exceed_count or would_exceed_bytes:
+            batches.append(current)
+            current = []
+            current_bytes = 0
+        current.append(task)
+        current_bytes += task_bytes
+    if current:
+        batches.append(current)
+    return batches
+
+
+def _blocked_mineru_result(blocker: str, *, backend: str) -> dict[str, Any]:
+    return {"status": "blocked", "blocker": blocker, "backend": backend}
+
+
+def _copy_batch_markdown_result(
+    *,
+    task: MineruBatchConversionTask,
+    batch_output_dir: Path,
+    backend: str,
+    run_result: Mapping[str, Any],
+) -> Mapping[str, Any]:
+    produced = _markdown_file_for_stem(batch_output_dir, task.pdf_path.stem)
+    if produced is None:
+        result: dict[str, Any] = {
+            "status": "blocked",
+            "blocker": "mineru_markdown_not_found",
+            "backend": backend,
+        }
+        for field in ("command", "returncode", "timed_out", "stderr_tail", "stdout_tail"):
+            if run_result.get(field) not in (None, ""):
+                result[field] = run_result[field]
+        return result
+    task.markdown_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(produced, task.markdown_path)
+    return {
+        "status": "converted",
+        "path": str(task.markdown_path),
+        "mineru_output_path": str(produced),
+        "backend": backend,
+        "bytes": task.markdown_path.stat().st_size,
+        "sha256": _file_sha256(task.markdown_path),
+    }
+
+
+def convert_pdfs_with_mineru_batch(
+    tasks: Sequence[MineruBatchConversionTask],
+    work_dir: Path,
+    overwrite: bool,
+    *,
+    command: str = "mineru",
+    backend: str = DEFAULT_MINERU_BACKEND,
+    server_url: str | None = None,
+    args_template: str = DEFAULT_MINERU_ARGS_TEMPLATE,
+    timeout_seconds: int = 900,
+    batch_size: int = 4,
+    max_batch_bytes: int = 5_000_000,
+) -> dict[str, Mapping[str, Any]]:
+    backend = backend.strip() or DEFAULT_MINERU_BACKEND
+    results: dict[str, Mapping[str, Any]] = {}
+    pending: list[MineruBatchConversionTask] = []
+    for task in tasks:
+        if task.markdown_path.exists() and task.markdown_path.stat().st_size > 0 and not overwrite:
+            results[task.source_id] = {
+                "status": "cached",
+                "path": str(task.markdown_path),
+                "backend": backend,
+                "bytes": task.markdown_path.stat().st_size,
+                "sha256": _file_sha256(task.markdown_path),
+            }
+        elif not task.pdf_path.exists() or task.pdf_path.stat().st_size <= 0:
+            results[task.source_id] = _blocked_mineru_result(
+                "mineru_input_pdf_missing",
+                backend=backend,
+            )
+        else:
+            text_result = _convert_text_source_to_markdown(
+                task.pdf_path,
+                task.markdown_path,
+                backend=backend,
+            )
+            if text_result is not None:
+                results[task.source_id] = text_result
+            else:
+                pending.append(task)
+    if not pending:
+        return results
+    if backend not in MINERU_BACKENDS:
+        for task in pending:
+            results[task.source_id] = _blocked_mineru_result(
+                f"mineru_backend_invalid: {backend}",
+                backend=backend,
+            )
+        return results
+    work_dir.mkdir(parents=True, exist_ok=True)
+    batches = _batched_conversion_tasks(
+        pending,
+        batch_size=batch_size,
+        max_batch_bytes=max_batch_bytes,
+    )
+    for batch_index, batch in enumerate(batches, 1):
+        batch_input_dir = work_dir / f"input-{batch_index:03d}"
+        batch_output_dir = work_dir / f"output-{batch_index:03d}"
+        batch_input_dir.mkdir(parents=True, exist_ok=True)
+        batch_output_dir.mkdir(parents=True, exist_ok=True)
+        for task in batch:
+            _link_or_copy(task.pdf_path, batch_input_dir / task.pdf_path.name)
+        args, blocker = _mineru_args(
+            command,
+            input_path=batch_input_dir,
+            output_dir=batch_output_dir,
+            backend=backend,
+            server_url=server_url,
+            args_template=args_template,
+        )
+        if blocker:
+            for task in batch:
+                results[task.source_id] = _blocked_mineru_result(
+                    blocker,
+                    backend=backend,
+                )
+            continue
+        run_result = _run_mineru(
+            args,
+            cwd=batch_output_dir,
+            timeout_seconds=timeout_seconds,
+        )
+        for task in batch:
+            converted = _copy_batch_markdown_result(
+                task=task,
+                batch_output_dir=batch_output_dir,
+                backend=backend,
+                run_result=run_result,
+            )
+            if converted["status"] == "blocked" and run_result.get("status") == "blocked":
+                converted = {**run_result, "backend": backend}
+            results[task.source_id] = converted
+    return results
+
+
+def _url(base_url: str, suffix: str) -> str:
+    return f"{base_url.rstrip('/')}/{suffix.lstrip('/')}"
+
+
+def resolve_vllm_model(
+    base_url: str = DEFAULT_VLLM_BASE_URL,
+    *,
+    explicit_model: str | None = None,
+    timeout_seconds: int = 10,
+) -> str:
+    if explicit_model:
+        return explicit_model
+    try:
+        with urllib.request.urlopen(
+            _url(base_url, "models"),
+            timeout=timeout_seconds,
+        ) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (OSError, urllib.error.URLError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"vllm_model_discovery_failed: {exc}") from exc
+    data = payload.get("data") if isinstance(payload, Mapping) else None
+    if not isinstance(data, list) or not data:
+        raise RuntimeError("vllm_model_discovery_failed: no models returned")
+    model_id = data[0].get("id") if isinstance(data[0], Mapping) else None
+    if not str(model_id or "").strip():
+        raise RuntimeError("vllm_model_discovery_failed: first model id missing")
+    return str(model_id)
+
+
+def _extract_json_object(text: str) -> Mapping[str, Any]:
+    cleaned = text.strip()
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
+        cleaned = re.sub(r"\s*```$", "", cleaned)
+    decoder = json.JSONDecoder()
+    for index, char in enumerate(cleaned):
+        if char != "{":
+            continue
+        try:
+            value, _ = decoder.raw_decode(cleaned[index:])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, Mapping):
+            return value
+    raise ValueError("llm_output_json_object_not_found")
+
+
+def _chunk_text(text: str, *, chunk_chars: int, max_chunks: int) -> list[str]:
+    if chunk_chars <= 0:
+        raise ValueError("chunk_chars must be positive")
+    if max_chunks <= 0:
+        raise ValueError("max_chunks must be positive")
+    chunks: list[str] = []
+    start = 0
+    text_length = len(text)
+    while start < text_length and len(chunks) < max_chunks:
+        end = min(start + chunk_chars, text_length)
+        if end < text_length:
+            boundary = max(
+                text.rfind("\n\n", start, end),
+                text.rfind("\n#", start, end),
+                text.rfind("。", start, end),
+            )
+            if boundary > start + int(chunk_chars * 0.5):
+                end = boundary + 1
+        chunks.append(text[start:end].strip())
+        start = end
+    return [chunk for chunk in chunks if chunk]
+
+
+def _report_id(row: Mapping[str, Any]) -> str:
+    source_id = str(row.get("source_id") or "")
+    publish = str(row.get("publish_date") or "UNKNOWN").replace("-", "")
+    digest = _stable_digest(
+        {
+            "source_id": source_id,
+            "title": row.get("title"),
+            "url": row.get("url"),
+        }
+    )
+    return f"RPT-TSRR-{publish}-{digest}"
+
+
+def _author_ids(author: object) -> list[str]:
+    raw = str(author or "").strip()
+    if not raw:
+        return []
+    parts = [part.strip() for part in re.split(r"[,，;/、\s]+", raw) if part.strip()]
+    return [
+        "AUTH-" + _stable_digest({"author": part}, length=12).upper()
+        for part in dict.fromkeys(parts)
+    ]
+
+
+def _metadata_record(
+    row: Mapping[str, Any],
+    *,
+    run_id: str,
+    root_path: Path,
+    pdf_result: Mapping[str, Any],
+    markdown_result: Mapping[str, Any],
+    llm_status: str,
+    llm_model: str | None,
+    chunk_count: int,
+    truncated_chunks: bool,
+    blockers: Sequence[str],
+) -> dict[str, Any]:
+    source_id = str(row.get("source_id") or "")
+    publish_date = str(row.get("publish_date") or "")
+    report_id = _report_id(row)
+    pdf_path = Path(str(pdf_result.get("path") or "")) if pdf_result.get("path") else None
+    markdown_path = (
+        Path(str(markdown_result.get("path") or ""))
+        if markdown_result.get("path")
+        else None
+    )
+    return {
+        "report_id": report_id,
+        "source_id": source_id,
+        "source_type": str(row.get("source_type") or "tushare_research_report"),
+        "source_span_id": f"{source_id}:original_markdown",
+        "institution_id": "INST-"
+        + _stable_digest({"institution": row.get("institution")}, length=12).upper(),
+        "institution": str(row.get("institution") or ""),
+        "author_ids": _author_ids(row.get("author")),
+        "author": str(row.get("author") or ""),
+        "report_type": str(row.get("report_type") or ""),
+        "market": "CN_A_SHARE",
+        "asset_class": "equity",
+        "sector": str(row.get("industry") or row.get("query_key") or "unknown"),
+        "subsectors": [],
+        "title": str(row.get("title") or ""),
+        "publish_datetime": f"{publish_date}T00:00:00+08:00"
+        if publish_date
+        else "",
+        "accessible_datetime": f"{publish_date}T00:00:00+08:00"
+        if publish_date
+        else "",
+        "language": "zh",
+        "version": "original_pdf_markdown",
+        "supersedes_report_id": None,
+        "license_class": "operator_approved_internal_research_use",
+        "redistribution_allowed": False,
+        "derived_claim_storage_allowed": "operator_approved_internal_use",
+        "storage_policy": "local_full_text_cache_registry_derived_metadata",
+        "point_in_time_available": bool(row.get("point_in_time_available", True)),
+        "source_row_license_status": str(row.get("license_status") or ""),
+        "url": str(row.get("url") or ""),
+        "pdf": {
+            "status": pdf_result.get("status") or "not_attempted",
+            "path": _relative_or_absolute(pdf_path, root_path) if pdf_path else "",
+            "sha256": pdf_result.get("sha256") or "",
+            "bytes": int(pdf_result.get("bytes") or 0),
+        },
+        "markdown": {
+            "status": markdown_result.get("status") or "not_attempted",
+            "path": (
+                _relative_or_absolute(markdown_path, root_path)
+                if markdown_path
+                else ""
+            ),
+            "sha256": markdown_result.get("sha256") or "",
+            "bytes": int(markdown_result.get("bytes") or 0),
+            "backend": markdown_result.get("backend") or "",
+            "blocker": markdown_result.get("blocker") or "",
+            "returncode": markdown_result.get("returncode"),
+            "timed_out": bool(markdown_result.get("timed_out")),
+            "stderr_tail": _redact_runtime_text(
+                markdown_result.get("stderr_tail"),
+                root_path,
+            ),
+            "stdout_tail": _redact_runtime_text(
+                markdown_result.get("stdout_tail"),
+                root_path,
+            ),
+            "command": _redact_runtime_text(markdown_result.get("command"), root_path),
+        },
+        "extraction": {
+            "run_id": run_id,
+            "input_mode": "original_markdown",
+            "abstract_only_fallback_used": False,
+            "llm_status": llm_status,
+            "llm_model": llm_model or "",
+            "chunk_count": chunk_count,
+            "truncated_after_max_chunks": truncated_chunks,
+            "blockers": list(blockers),
+        },
+    }
+
+
+def _system_prompt() -> str:
+    return (
+        "You are an RKE report-intelligence extractor. Use only the supplied "
+        "original report Markdown chunk. Separate source-grounded facts from "
+        "inferred hypotheses. Do not rely on any abstract. Do not invent exact "
+        "targets, horizons, windows, formulas, or data sources when the text is "
+        "ambiguous; use unknown or insufficient_mapping instead. Return only a "
+        "single JSON object. Do not include thinking text, commentary, Markdown, "
+        "or code fences. Metadata may identify the report entity, but source text "
+        "must still support each forecast. /no_think"
+    )
+
+
+def _user_prompt(
+    row: Mapping[str, Any],
+    markdown_chunk: str,
+    chunk_span_id: str,
+    chunk_index: int,
+    chunk_count: int,
+) -> str:
+    metadata = {
+        "source_id": row.get("source_id"),
+        "title": row.get("title"),
+        "institution": row.get("institution"),
+        "author": row.get("author"),
+        "publish_date": row.get("publish_date"),
+        "report_type": row.get("report_type"),
+        "query_key": row.get("query_key"),
+        "industry": row.get("industry"),
+        "ts_code": row.get("ts_code"),
+        "chunk_span_id": chunk_span_id,
+        "chunk_index": chunk_index,
+        "chunk_count": chunk_count,
+    }
+    return (
+        "Extract Report Intelligence Loop objects for this Markdown chunk.\n"
+        "Return JSON with exactly these top-level array keys: "
+        "forecast_claims, analytical_footprints, metric_candidates, "
+        "method_patterns, tool_gaps.\n\n"
+        "forecast_claim fields: claim_text, claim_provenance "
+        "(source_grounded|analyst_or_llm_hypothesis), forecast_testability "
+        "(testable|non_testable|insufficient_mapping), forecast_type, target, "
+        "benchmark, direction (positive|negative|neutral|ambiguous|unknown), "
+        "horizon, explicitness (explicit|inferred|unknown), source_conviction, "
+        "metric_proxy_mapping, failure_modes, extraction_quality.\n"
+        "For stock reports, if Report metadata.ts_code is present and the chunk "
+        "contains a forecast, rating, or investment view for that same company, "
+        "set target.target_type='stock' and target.target_id to metadata.ts_code. "
+        "If the text names a benchmark, include benchmark_id; otherwise use "
+        "benchmark_type='broad_market' only when the text frames a relative call "
+        "against the market. Never invent a horizon; keep horizon unknown when "
+        "the source text has no explicit or clearly implied time window.\n"
+        "analytical_footprints fields: topic, indicator_mentions, "
+        "analysis_patterns, target_agent_candidates. Mark each mention/step "
+        "with source_grounded true/false when possible.\n"
+        "metric_candidates fields: canonical_name, aliases, metric_family, "
+        "raw_data_requirements, default_transformation, target_agents.\n"
+        "method_patterns fields: name, steps, required_current_data, "
+        "optional_confirmation_data, failure_modes, target_agents.\n"
+        "tool_gaps fields: gap_type, metric_name, method_name, target_agents, "
+        "priority_reasons, blocking_issues.\n\n"
+        "Use this chunk span id for source-grounded records: "
+        f"{chunk_span_id}\n\n"
+        "Report metadata:\n"
+        f"{json.dumps(metadata, ensure_ascii=False, sort_keys=True)}\n\n"
+        "Original Markdown chunk:\n"
+        f"{markdown_chunk}"
+    )
+
+
+def call_vllm_extractor(
+    row: Mapping[str, Any],
+    markdown_chunk: str,
+    chunk_span_id: str,
+    chunk_index: int,
+    chunk_count: int,
+    *,
+    base_url: str = DEFAULT_VLLM_BASE_URL,
+    model: str | None = None,
+    timeout_seconds: int = 120,
+    max_output_tokens: int = 4096,
+) -> Mapping[str, Any]:
+    resolved_model = resolve_vllm_model(
+        base_url,
+        explicit_model=model,
+        timeout_seconds=min(timeout_seconds, 30),
+    )
+    payload = {
+        "model": resolved_model,
+        "messages": [
+            {"role": "system", "content": _system_prompt()},
+            {
+                "role": "user",
+                "content": _user_prompt(
+                    row,
+                    markdown_chunk,
+                    chunk_span_id,
+                    chunk_index,
+                    chunk_count,
+                ),
+            },
+        ],
+        "temperature": 0,
+        "max_tokens": max_output_tokens,
+        "response_format": {"type": "json_object"},
+        "chat_template_kwargs": {"enable_thinking": False},
+    }
+    request = urllib.request.Request(
+        _url(base_url, "chat/completions"),
+        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+            response_payload = json.loads(response.read().decode("utf-8"))
+    except (OSError, urllib.error.URLError, json.JSONDecodeError) as exc:
+        return {
+            "status": "blocked",
+            "blocker": f"vllm_request_failed: {exc}",
+            "model": resolved_model,
+        }
+    choices = response_payload.get("choices") if isinstance(response_payload, Mapping) else None
+    if not isinstance(choices, list) or not choices:
+        return {
+            "status": "blocked",
+            "blocker": "vllm_response_choices_missing",
+            "model": resolved_model,
+        }
+    first = choices[0] if isinstance(choices[0], Mapping) else {}
+    message = first.get("message") if isinstance(first, Mapping) else {}
+    content = message.get("content") if isinstance(message, Mapping) else ""
+    try:
+        extracted = _extract_json_object(str(content or ""))
+    except ValueError as exc:
+        return {
+            "status": "blocked",
+            "blocker": str(exc),
+            "model": resolved_model,
+            "content_tail": str(content or "")[-1000:],
+        }
+    return {"status": "ok", "model": resolved_model, "payload": extracted}
+
+
+def _ensure_list(value: Any) -> list[Any]:
+    if isinstance(value, list):
+        return value
+    if isinstance(value, tuple):
+        return list(value)
+    return []
+
+
+def _ensure_mapping(value: Any) -> dict[str, Any]:
+    return dict(value) if isinstance(value, Mapping) else {}
+
+
+def _stable_item_key(value: Any) -> str:
+    return json.dumps(_jsonable(value), ensure_ascii=False, sort_keys=True)
+
+
+def _merge_unique_values(existing: list[Any], additions: Sequence[Any]) -> list[Any]:
+    out = list(existing)
+    seen = {_stable_item_key(item) for item in out}
+    for item in additions:
+        key = _stable_item_key(item)
+        if key not in seen:
+            out.append(item)
+            seen.add(key)
+    return out
+
+
+def _record_text(value: Any, *fields: str) -> str:
+    mapping = _ensure_mapping(value)
+    for field in fields:
+        text = str(mapping.get(field) or "").strip()
+        if text:
+            return text
+    return ""
+
+
+def _bounded_claim_text(text: str) -> tuple[str, bool]:
+    normalized = re.sub(r"\s+", " ", text).strip()
+    if len(normalized) <= MAX_STORED_CLAIM_TEXT_CHARS:
+        return normalized, False
+    return normalized[: MAX_STORED_CLAIM_TEXT_CHARS - 3].rstrip() + "...", True
+
+
+def _normalize_failure_modes(value: Any) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for item in _ensure_list(value):
+        if isinstance(item, Mapping):
+            text = _record_text(item, "text", "failure_mode", "name")
+            if not text:
+                continue
+            provenance = str(item.get("provenance") or "analyst_or_llm_hypothesis")
+            requires_independent_validation = item.get(
+                "requires_independent_validation"
+            )
+        else:
+            text = str(item or "").strip()
+            if not text:
+                continue
+            provenance = "analyst_or_llm_hypothesis"
+            requires_independent_validation = True
+        records.append(
+            {
+                "text": text,
+                "provenance": provenance,
+                "requires_independent_validation": bool(
+                    True
+                    if requires_independent_validation is None
+                    else requires_independent_validation
+                ),
+            }
+        )
+    return records
+
+
+def _indicator_value_unknown(value: Any) -> bool:
+    text = str(value or "").strip().lower()
+    return text in {"", "unknown", "n/a", "na", "none", "null"}
+
+
+INDICATOR_METADATA_RULES: tuple[tuple[str, Mapping[str, Any]], ...] = (
+    (
+        r"\bdr\s*007\b|dr007|policy[_\s-]*rate|政策利率",
+        {
+            "canonical_metric_candidate": "dr007_policy_rate_spread",
+            "data_source_mentioned": "interbank_repo_rate_and_policy_rate",
+            "frequency": "daily",
+            "transformation": "spread",
+            "role_in_argument": "funding_stress_proxy",
+        },
+    ),
+    (
+        r"\bphase\s*(i|ii|iii|1|2|3)\b|clinical|trial|registration|asco",
+        {
+            "canonical_metric_candidate": "clinical_trial_milestone_status",
+            "data_source_mentioned": "company_disclosure_or_clinical_trial_registry",
+            "frequency": "event_driven",
+            "transformation": "milestone_event",
+            "role_in_argument": "clinical_development_milestone",
+        },
+    ),
+    (
+        r"\bdcf\b|discounted[_\s-]*cash[_\s-]*flow",
+        {
+            "canonical_metric_candidate": "dcf_valuation_model",
+            "data_source_mentioned": "report_valuation_model",
+            "frequency": "point_in_time",
+            "transformation": "valuation_model",
+            "role_in_argument": "valuation_method",
+        },
+    ),
+    (
+        r"\bwacc\b|weighted[_\s-]*average[_\s-]*cost[_\s-]*of[_\s-]*capital",
+        {
+            "canonical_metric_candidate": "weighted_average_cost_of_capital",
+            "data_source_mentioned": "report_valuation_assumption",
+            "frequency": "point_in_time",
+            "transformation": "extract_assumption",
+            "role_in_argument": "discount_rate_assumption",
+        },
+    ),
+    (
+        r"target[_\s-]*price|price[_\s-]*target|目标价",
+        {
+            "canonical_metric_candidate": "target_price",
+            "data_source_mentioned": "report_valuation_output",
+            "frequency": "point_in_time",
+            "transformation": "extract_forecast",
+            "role_in_argument": "valuation_output",
+        },
+    ),
+    (
+        r"net[_\s-]*profit|归母净利润|净利润",
+        {
+            "canonical_metric_candidate": "forecast_net_profit",
+            "data_source_mentioned": "report_financial_forecast",
+            "frequency": "annual",
+            "transformation": "extract_forecast",
+            "role_in_argument": "earnings_forecast_metric",
+        },
+    ),
+    (
+        r"\beps\b|earnings[_\s-]*per[_\s-]*share",
+        {
+            "canonical_metric_candidate": "forecast_eps",
+            "data_source_mentioned": "report_financial_forecast",
+            "frequency": "annual",
+            "transformation": "extract_forecast",
+            "role_in_argument": "earnings_forecast_metric",
+        },
+    ),
+    (
+        r"gross[_\s-]*margin|毛利率",
+        {
+            "canonical_metric_candidate": "forecast_gross_margin",
+            "data_source_mentioned": "report_financial_forecast",
+            "frequency": "annual",
+            "transformation": "extract_forecast",
+            "role_in_argument": "profitability_forecast_metric",
+        },
+    ),
+    (
+        r"non[_\s-]*banking[_\s-]*financial[_\s-]*index",
+        {
+            "canonical_metric_candidate": "non_banking_financial_index_return",
+            "data_source_mentioned": "exchange_index_price",
+            "frequency": "daily",
+            "transformation": "return",
+            "role_in_argument": "sector_relative_performance_proxy",
+        },
+    ),
+    (
+        r"brokerage[_\s-]*index|insurance[_\s-]*index|shanghai[_\s-]*composite[_\s-]*index|shenzhen[_\s-]*component[_\s-]*index|gem[_\s-]*index",
+        {
+            "canonical_metric_candidate": "market_or_sector_index_return",
+            "data_source_mentioned": "exchange_index_price",
+            "frequency": "daily",
+            "transformation": "return",
+            "role_in_argument": "relative_performance_proxy",
+        },
+    ),
+    (
+        r"\bpb[_\s-]*valuation\b|\bpb\b|price[_\s-]*to[_\s-]*book",
+        {
+            "canonical_metric_candidate": "price_to_book_ratio",
+            "data_source_mentioned": "market_valuation_data",
+            "frequency": "daily",
+            "transformation": "valuation_ratio",
+            "role_in_argument": "valuation_proxy",
+        },
+    ),
+    (
+        r"\bm[_\s-]*a[_\s-]*deals\b|merger|acquisition",
+        {
+            "canonical_metric_candidate": "brokerage_m_and_a_deal_activity",
+            "data_source_mentioned": "corporate_action_or_exchange_disclosure",
+            "frequency": "event_driven",
+            "transformation": "event_count",
+            "role_in_argument": "industry_consolidation_proxy",
+        },
+    ),
+    (
+        r"regulatory[_\s-]*approval",
+        {
+            "canonical_metric_candidate": "regulatory_approval_status",
+            "data_source_mentioned": "regulatory_disclosure",
+            "frequency": "event_driven",
+            "transformation": "status_event",
+            "role_in_argument": "policy_or_transaction_catalyst",
+        },
+    ),
+    (
+        r"premium[_\s-]*income|life[_\s-]*insurance[_\s-]*premiums|property[_\s-]*insurance[_\s-]*premiums",
+        {
+            "canonical_metric_candidate": "insurance_premium_income",
+            "data_source_mentioned": "insurance_company_or_regulatory_disclosure",
+            "frequency": "monthly",
+            "transformation": "growth_rate",
+            "role_in_argument": "insurance_business_growth_metric",
+        },
+    ),
+    (
+        r"claim[_\s-]*payout",
+        {
+            "canonical_metric_candidate": "insurance_claim_payouts",
+            "data_source_mentioned": "insurance_company_or_regulatory_disclosure",
+            "frequency": "monthly",
+            "transformation": "growth_rate",
+            "role_in_argument": "insurance_loss_ratio_proxy",
+        },
+    ),
+    (
+        r"insurance[_\s-]*assets",
+        {
+            "canonical_metric_candidate": "insurance_total_assets",
+            "data_source_mentioned": "insurance_company_or_regulatory_disclosure",
+            "frequency": "quarterly",
+            "transformation": "level_or_growth",
+            "role_in_argument": "insurance_balance_sheet_metric",
+        },
+    ),
+    (
+        r"equity[_\s-]*financing[_\s-]*scale|ipo[_\s-]*amount|refinancing[_\s-]*amount",
+        {
+            "canonical_metric_candidate": "equity_financing_scale",
+            "data_source_mentioned": "exchange_or_wind_financing_data",
+            "frequency": "monthly",
+            "transformation": "sum",
+            "role_in_argument": "capital_market_activity_metric",
+        },
+    ),
+    (
+        r"bond[_\s-]*underwriting[_\s-]*scale",
+        {
+            "canonical_metric_candidate": "bond_underwriting_scale",
+            "data_source_mentioned": "bond_market_issuance_data",
+            "frequency": "monthly",
+            "transformation": "sum",
+            "role_in_argument": "capital_market_activity_metric",
+        },
+    ),
+    (
+        r"asset[_\s-]*management[_\s-]*issuance",
+        {
+            "canonical_metric_candidate": "asset_management_product_issuance",
+            "data_source_mentioned": "asset_management_product_disclosure",
+            "frequency": "monthly",
+            "transformation": "sum",
+            "role_in_argument": "wealth_management_activity_metric",
+        },
+    ),
+    (
+        r"margin[_\s-]*trading[_\s-]*balance",
+        {
+            "canonical_metric_candidate": "margin_trading_balance",
+            "data_source_mentioned": "exchange_margin_financing_data",
+            "frequency": "daily",
+            "transformation": "level_or_change",
+            "role_in_argument": "market_risk_appetite_metric",
+        },
+    ),
+    (
+        r"pledge[_\s-]*share[_\s-]*count",
+        {
+            "canonical_metric_candidate": "pledged_share_count",
+            "data_source_mentioned": "share_pledge_disclosure",
+            "frequency": "daily",
+            "transformation": "level_or_change",
+            "role_in_argument": "equity_pledge_risk_metric",
+        },
+    ),
+)
+
+
+def _infer_indicator_metadata(indicator_text: str) -> dict[str, Any]:
+    for pattern, metadata in INDICATOR_METADATA_RULES:
+        if re.search(pattern, indicator_text, flags=re.IGNORECASE):
+            inferred = dict(metadata)
+            inferred["source_grounded"] = True
+            return inferred
+    return {}
+
+
+def _apply_indicator_metadata_inference(mention: Mapping[str, Any]) -> dict[str, Any]:
+    normalized = dict(mention)
+    indicator_text = _record_text(
+        normalized,
+        "indicator_text",
+        "canonical_metric_candidate",
+        "canonical_name",
+    )
+    inferred = _infer_indicator_metadata(indicator_text)
+    for field in (
+        "canonical_metric_candidate",
+        "data_source_mentioned",
+        "frequency",
+        "transformation",
+        "role_in_argument",
+    ):
+        if _indicator_value_unknown(normalized.get(field)) and field in inferred:
+            normalized[field] = inferred[field]
+    if inferred and normalized.get("source_grounded") is not True:
+        normalized["source_grounded"] = True
+    return normalized
+
+
+def _normalize_indicator_mentions(value: Any) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for item in _ensure_list(value):
+        if isinstance(item, Mapping):
+            mention = dict(item)
+            indicator_text = _record_text(
+                mention,
+                "indicator_text",
+                "canonical_metric_candidate",
+                "canonical_name",
+            )
+            if not indicator_text:
+                continue
+            mention.setdefault("indicator_text", indicator_text)
+            mention.setdefault("canonical_metric_candidate", "unknown")
+            mention.setdefault("data_source_mentioned", "unknown")
+            mention.setdefault("frequency", "unknown")
+            mention.setdefault("lookback_window", {})
+            mention.setdefault("transformation", "unknown")
+            mention.setdefault("role_in_argument", "unknown")
+            mention.setdefault("source_grounded", False)
+            mention = _apply_indicator_metadata_inference(mention)
+            records.append(mention)
+            continue
+        indicator_text = str(item or "").strip()
+        if not indicator_text:
+            continue
+        records.append(
+            _apply_indicator_metadata_inference(
+                {
+                    "indicator_text": indicator_text,
+                    "canonical_metric_candidate": "unknown",
+                    "data_source_mentioned": "unknown",
+                    "frequency": "unknown",
+                    "lookback_window": {},
+                    "transformation": "unknown",
+                    "role_in_argument": "unknown",
+                    "source_grounded": False,
+                }
+            )
+        )
+    return records
+
+
+def _source_span_ids(value: Mapping[str, Any], fallback_span_id: str) -> list[str]:
+    span_ids = [
+        str(item)
+        for item in _ensure_list(value.get("source_span_ids"))
+        if str(item).strip()
+    ]
+    if not span_ids and str(value.get("source_span_id") or "").strip():
+        span_ids = [str(value["source_span_id"])]
+    return span_ids or [fallback_span_id]
+
+
+def _known_agent_id(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    lowered = text.lower().replace("-", "_")
+    lowered = re.sub(r"[^a-z0-9_.]+", "_", lowered)
+    lowered = re.sub(r"_+", "_", lowered).strip("_.")
+    if (
+        re.fullmatch(r"[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+", lowered)
+        and lowered.split(".", 1)[0] in KNOWN_AGENT_ID_PREFIXES
+    ):
+        return lowered
+    return ""
+
+
+def _split_agent_and_entity_candidates(values: Any) -> tuple[list[str], list[str]]:
+    agents: list[str] = []
+    entities: list[str] = []
+    for value in _ensure_list(values):
+        raw = str(value or "").strip()
+        if not raw:
+            continue
+        agent_id = _known_agent_id(raw)
+        if agent_id:
+            agents.append(agent_id)
+        else:
+            entities.append(raw)
+    return list(dict.fromkeys(agents)), list(dict.fromkeys(entities))
+
+
+def _normalize_forecast_direction(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    aliases = {
+        "bullish": "positive",
+        "bearish": "negative",
+        "down": "negative",
+        "mixed": "ambiguous",
+        "up": "positive",
+        "多": "positive",
+        "多头": "positive",
+        "看多": "positive",
+        "看空": "negative",
+        "空": "negative",
+        "空头": "negative",
+        "中性": "neutral",
+        "不确定": "ambiguous",
+    }
+    normalized = aliases.get(text, text)
+    if normalized in {"positive", "negative", "neutral", "ambiguous", "unknown"}:
+        return normalized
+    return "unknown"
+
+
+def _duration_to_days(value: float, unit: str) -> int | None:
+    normalized = unit.strip()
+    if normalized in {"交易日"}:
+        return max(1, int(round(value)))
+    if normalized in {"天", "日"}:
+        return max(1, int(round(value)))
+    if normalized in {"周"}:
+        return max(1, int(round(value * 7)))
+    if normalized in {"个月", "月"}:
+        return max(1, int(round(value * 30.4375)))
+    if normalized in {"年"}:
+        return max(1, int(round(value * 365.25)))
+    return None
+
+
+def _parse_float_text(value: str) -> float | None:
+    try:
+        return float(value)
+    except ValueError:
+        return None
+
+
+def _infer_horizon_from_claim_text(
+    claim_text: str,
+    publish_date: str,
+) -> dict[str, Any]:
+    text = str(claim_text or "")
+    relative_patterns = (
+        r"未来\s*(?P<value>\d+(?:\.\d+)?)\s*(?:个)?(?P<unit>交易日|天|日|周|个月|月|年)(?:内|以内|左右|附近)?",
+        r"(?P<value>\d+(?:\.\d+)?)\s*(?:个)?(?P<unit>交易日|天|日|周|个月|月|年)(?:内|以内)",
+    )
+    for pattern in relative_patterns:
+        match = re.search(pattern, text)
+        if not match:
+            continue
+        value = _parse_float_text(match.group("value"))
+        if value is None:
+            continue
+        days = _duration_to_days(value, match.group("unit"))
+        if days is None:
+            continue
+        return {
+            "max_days": days,
+            "unit": "calendar_day",
+            "source": "explicit_claim_text",
+            "source_text": match.group(0),
+        }
+
+    absolute_match = re.search(r"(?:预计|预期|有望|计划|将)?\s*(?:到|至|截至)\s*(20\d{2})\s*年", text)
+    if absolute_match:
+        try:
+            publish_dt = datetime.strptime(str(publish_date or ""), "%Y-%m-%d")
+        except ValueError:
+            publish_dt = None
+        if publish_dt is not None:
+            target_year = int(absolute_match.group(1))
+            target_dt = datetime(target_year, 12, 31)
+            days = (target_dt - publish_dt).days
+            if days > 0:
+                return {
+                    "max_days": days,
+                    "unit": "calendar_day",
+                    "source": "explicit_claim_text",
+                    "source_text": absolute_match.group(0).strip(),
+                }
+    return {}
+
+
+def _normalize_or_infer_horizon(
+    horizon: Any,
+    *,
+    claim_text: str,
+    publish_date: str,
+) -> tuple[dict[str, Any], bool]:
+    normalized = _ensure_mapping(horizon)
+    if _horizon_bucket(normalized) != "unknown":
+        return normalized, False
+    inferred = _infer_horizon_from_claim_text(claim_text, publish_date)
+    if inferred:
+        return inferred, True
+    return normalized, False
+
+
+def _forecast_mapping_gaps(record: Mapping[str, Any]) -> list[str]:
+    gaps: list[str] = []
+    target = _ensure_mapping(record.get("target"))
+    benchmark = _ensure_mapping(record.get("benchmark"))
+    horizon = _ensure_mapping(record.get("horizon"))
+    direction = _normalize_forecast_direction(record.get("direction"))
+    if _target_id(target) == "unknown":
+        gaps.append("target")
+    if not benchmark:
+        gaps.append("benchmark")
+    if direction in {"", "unknown", "ambiguous"}:
+        gaps.append("direction")
+    if _horizon_bucket(horizon) == "unknown":
+        gaps.append("horizon")
+    return gaps
+
+
+def _normalize_forecast_claims(
+    payload: Mapping[str, Any],
+    row: Mapping[str, Any],
+    *,
+    run_id: str,
+    model: str,
+    report_id: str,
+    chunk_span_id: str,
+) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for item in _ensure_list(payload.get("forecast_claims")):
+        claim = _ensure_mapping(item)
+        raw_claim_text = _record_text(claim, "claim_text", "text")
+        if not raw_claim_text:
+            continue
+        claim_text, claim_text_truncated = _bounded_claim_text(raw_claim_text)
+        horizon, horizon_inferred = _normalize_or_infer_horizon(
+            claim.get("horizon"),
+            claim_text=raw_claim_text,
+            publish_date=str(row.get("publish_date") or ""),
+        )
+        record = {
+            "forecast_claim_id": _stable_id(
+                "FC",
+                {
+                    "report_id": report_id,
+                    "chunk_span_id": chunk_span_id,
+                    "claim_text": claim_text,
+                },
+            ),
+            "claim_id": _stable_id(
+                "CLAIM",
+                {
+                    "report_id": report_id,
+                    "claim_text": claim_text,
+                },
+            ),
+            "report_id": report_id,
+            "source_id": str(row.get("source_id") or ""),
+            "source_span_ids": _source_span_ids(claim, chunk_span_id),
+            "claim_text": claim_text,
+            "claim_provenance": str(claim.get("claim_provenance") or "unknown"),
+            "forecast_testability": str(
+                claim.get("forecast_testability") or "insufficient_mapping"
+            ),
+            "forecast_type": str(claim.get("forecast_type") or "unknown"),
+            "target": _ensure_mapping(claim.get("target")),
+            "benchmark": _ensure_mapping(claim.get("benchmark")),
+            "direction": _normalize_forecast_direction(claim.get("direction")),
+            "horizon": horizon,
+            "signal_datetime": str(row.get("publish_date") or ""),
+            "entry_rule": _ensure_mapping(claim.get("entry_rule")),
+            "explicitness": str(claim.get("explicitness") or "unknown"),
+            "source_conviction": str(claim.get("source_conviction") or "unknown"),
+            "metric_proxy_mapping": _ensure_list(claim.get("metric_proxy_mapping")),
+            "failure_modes": _normalize_failure_modes(claim.get("failure_modes")),
+            "extraction_quality": _ensure_mapping(claim.get("extraction_quality")),
+            "extractor": {
+                "run_id": run_id,
+                "model": model,
+                "input_mode": "original_markdown",
+            },
+        }
+        record["extraction_quality"][
+            "claim_text_truncated_for_redaction"
+        ] = claim_text_truncated
+        if record["claim_provenance"] == "source_grounded":
+            record["extraction_quality"].setdefault("span_grounded", True)
+        if horizon_inferred:
+            record["extraction_quality"]["horizon_inferred_from_claim_text"] = True
+            record["extraction_quality"]["horizon_inference_source_text"] = horizon.get(
+                "source_text",
+                "",
+            )
+        mapping_gaps = _forecast_mapping_gaps(record)
+        if mapping_gaps:
+            record["forecast_testability"] = "insufficient_mapping"
+            record["extraction_quality"]["mapping_gaps"] = mapping_gaps
+            record["extraction_quality"]["needs_human_review"] = True
+        records.append(record)
+    return records
+
+
+def _refresh_forecast_mapping_governance(
+    forecast_rows: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    refreshed_rows: list[dict[str, Any]] = []
+    for row in forecast_rows:
+        refreshed = dict(row)
+        horizon, horizon_inferred = _normalize_or_infer_horizon(
+            refreshed.get("horizon"),
+            claim_text=str(refreshed.get("claim_text") or ""),
+            publish_date=str(
+                refreshed.get("signal_datetime")
+                or refreshed.get("publish_date")
+                or "",
+            ),
+        )
+        refreshed["horizon"] = horizon
+        extraction_quality = dict(_ensure_mapping(refreshed.get("extraction_quality")))
+        if horizon_inferred:
+            extraction_quality["horizon_inferred_from_claim_text"] = True
+            extraction_quality["horizon_inference_source_text"] = horizon.get(
+                "source_text",
+                "",
+            )
+        mapping_gaps = _forecast_mapping_gaps(refreshed)
+        if mapping_gaps:
+            refreshed["forecast_testability"] = "insufficient_mapping"
+            extraction_quality["mapping_gaps"] = mapping_gaps
+            extraction_quality["needs_human_review"] = True
+        else:
+            extraction_quality.pop("mapping_gaps", None)
+            if refreshed.get("forecast_testability") == "insufficient_mapping":
+                refreshed["forecast_testability"] = "testable"
+                extraction_quality["needs_human_review"] = False
+        refreshed["extraction_quality"] = extraction_quality
+        refreshed_rows.append(refreshed)
+    return refreshed_rows
+
+
+def _refresh_analytical_footprint_indicator_governance(
+    footprint_rows: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    refreshed_rows: list[dict[str, Any]] = []
+    for row in footprint_rows:
+        refreshed = dict(row)
+        refreshed["indicator_mentions"] = _normalize_indicator_mentions(
+            refreshed.get("indicator_mentions")
+        )
+        refreshed_rows.append(refreshed)
+    return refreshed_rows
+
+
+def _normalize_footprints(
+    payload: Mapping[str, Any],
+    row: Mapping[str, Any],
+    *,
+    run_id: str,
+    model: str,
+    report_id: str,
+    chunk_span_id: str,
+) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for item in _ensure_list(payload.get("analytical_footprints")):
+        footprint = _ensure_mapping(item)
+        topic = _record_text(footprint, "topic", "name") or "unknown"
+        target_agents, target_entities = _split_agent_and_entity_candidates(
+            footprint.get("target_agent_candidates")
+        )
+        record = {
+            "footprint_id": _stable_id(
+                "AFP",
+                {
+                    "report_id": report_id,
+                    "chunk_span_id": chunk_span_id,
+                    "topic": topic,
+                    "indicator_mentions": footprint.get("indicator_mentions"),
+                },
+            ),
+            "report_id": report_id,
+            "source_id": str(row.get("source_id") or ""),
+            "source_span_ids": _source_span_ids(footprint, chunk_span_id),
+            "extraction_type": str(footprint.get("extraction_type") or "mixed"),
+            "market": "CN_A_SHARE",
+            "sector": str(row.get("industry") or row.get("query_key") or "unknown"),
+            "topic": topic,
+            "indicator_mentions": _normalize_indicator_mentions(
+                footprint.get("indicator_mentions")
+            ),
+            "analysis_patterns": _ensure_list(footprint.get("analysis_patterns")),
+            "target_agent_candidates": target_agents,
+            "target_entity_candidates": target_entities,
+            "license_class": "operator_approved_internal_research_use",
+            "storage_policy": "derived_metadata_only_full_text_cached_locally",
+            "extractor": {
+                "run_id": run_id,
+                "model": model,
+                "input_mode": "original_markdown",
+            },
+        }
+        records.append(record)
+    return records
+
+
+def _bounded_metadata_text(value: Any, *, max_chars: int = MAX_STORED_CLAIM_TEXT_CHARS) -> str:
+    normalized = re.sub(r"\s+", " ", str(value or "")).strip()
+    if len(normalized) <= max_chars:
+        return normalized
+    return normalized[: max_chars - 3].rstrip() + "..."
+
+
+def _footprint_review_target_hash(row: Mapping[str, Any]) -> str:
+    payload = {
+        "footprint_id": row.get("footprint_id"),
+        "report_id": row.get("report_id"),
+        "source_id": row.get("source_id"),
+        "source_span_ids": _ensure_list(row.get("source_span_ids")),
+        "extraction_type": row.get("extraction_type"),
+        "topic": row.get("topic"),
+        "indicator_mentions": row.get("indicator_mentions"),
+        "analysis_patterns": row.get("analysis_patterns"),
+    }
+    encoded = json.dumps(
+        _jsonable(payload),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return "sha256:" + sha256(encoded).hexdigest()
+
+
+def _indicator_review_preview(mentions: Any) -> list[dict[str, Any]]:
+    preview: list[dict[str, Any]] = []
+    for mention in _ensure_list(mentions)[:5]:
+        mention_map = _ensure_mapping(mention)
+        preview.append(
+            {
+                "indicator_text": _bounded_metadata_text(
+                    mention_map.get("indicator_text")
+                ),
+                "canonical_metric_candidate": _bounded_metadata_text(
+                    mention_map.get("canonical_metric_candidate")
+                ),
+                "data_source_mentioned": _bounded_metadata_text(
+                    mention_map.get("data_source_mentioned")
+                ),
+                "frequency": _bounded_metadata_text(mention_map.get("frequency")),
+                "transformation": _bounded_metadata_text(
+                    mention_map.get("transformation")
+                ),
+                "source_grounded": bool(mention_map.get("source_grounded")),
+            }
+        )
+    return preview
+
+
+def _analysis_pattern_review_preview(patterns: Any) -> list[str]:
+    out: list[str] = []
+    for pattern in _ensure_list(patterns)[:5]:
+        if isinstance(pattern, Mapping):
+            text = _record_text(pattern, "pattern_candidate", "name", "description")
+            if not text:
+                text = json.dumps(_jsonable(pattern), ensure_ascii=False, sort_keys=True)
+        else:
+            text = str(pattern or "")
+        out.append(_bounded_metadata_text(text))
+    return out
+
+
+def _existing_footprint_review_rows(path: Path) -> dict[str, Mapping[str, Any]]:
+    if not path.exists():
+        return {}
+    rows, _ = load_jsonl_with_errors(path, label="analytical footprint review")
+    return {
+        str(row.get("footprint_id") or ""): row
+        for row in rows
+        if isinstance(row, Mapping) and str(row.get("footprint_id") or "").strip()
+    }
+
+
+def _footprint_review_template_row(
+    row: Mapping[str, Any],
+    *,
+    existing_row: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    target_hash = _footprint_review_target_hash(row)
+    review_row = {
+        "review_kind": "analytical_footprint_gold_set",
+        "footprint_id": str(row.get("footprint_id") or ""),
+        "report_id": str(row.get("report_id") or ""),
+        "source_id": str(row.get("source_id") or ""),
+        "source_span_ids": _ensure_list(row.get("source_span_ids")),
+        "target_row_hash": target_hash,
+        "target_review_path": ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH,
+        "review_context_ref": "registry/report_intelligence/analytical_footprints.jsonl",
+        "manual_review_required": True,
+        "topic_preview": _bounded_metadata_text(row.get("topic")),
+        "extraction_type": str(row.get("extraction_type") or "unknown"),
+        "sector": str(row.get("sector") or "unknown"),
+        "indicator_mentions_review_preview": _indicator_review_preview(
+            row.get("indicator_mentions")
+        ),
+        "analysis_patterns_review_preview": _analysis_pattern_review_preview(
+            row.get("analysis_patterns")
+        ),
+        "target_agent_candidates": _ensure_list(row.get("target_agent_candidates")),
+        "target_entity_candidates": _ensure_list(row.get("target_entity_candidates")),
+        "footprint_correct": None,
+        "source_span_supports_footprint": None,
+        "metric_mapping_correct": None,
+        "inferred_steps_tagged_correctly": None,
+        "unknowns_used_when_uncertain": None,
+        "no_proprietary_text_leakage": None,
+        "manual_error_tags": [],
+        "reviewer": "",
+        "review_date": "",
+        "review_notes": "",
+    }
+    if (
+        existing_row
+        and existing_row.get("target_row_hash") == target_hash
+        and str(existing_row.get("review_kind") or "")
+        == "analytical_footprint_gold_set"
+    ):
+        for field in (
+            *ANALYTICAL_FOOTPRINT_REVIEW_REQUIRED_FIELDS,
+            "manual_error_tags",
+        ):
+            if field in existing_row:
+                review_row[field] = existing_row[field]
+    return review_row
+
+
+def build_analytical_footprint_review_rows(
+    footprint_rows: Sequence[Mapping[str, Any]],
+    *,
+    existing_template_path: Path | None = None,
+) -> list[dict[str, Any]]:
+    existing_rows = (
+        _existing_footprint_review_rows(existing_template_path)
+        if existing_template_path is not None
+        else {}
+    )
+    return [
+        _footprint_review_template_row(
+            row,
+            existing_row=existing_rows.get(str(row.get("footprint_id") or "")),
+        )
+        for row in footprint_rows
+        if str(row.get("footprint_id") or "").strip()
+    ]
+
+
+def _footprint_review_row_complete(row: Mapping[str, Any]) -> bool:
+    if not str(row.get("reviewer") or "").strip():
+        return False
+    if not str(row.get("review_date") or "").strip():
+        return False
+    if not str(row.get("review_notes") or "").strip():
+        return False
+    return all(
+        isinstance(row.get(field), bool)
+        for field in ANALYTICAL_FOOTPRINT_REVIEW_BOOLEAN_FIELDS
+    )
+
+
+def build_analytical_footprint_review_summary(
+    review_rows: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    complete_rows = [row for row in review_rows if _footprint_review_row_complete(row)]
+    pending_rows = len(review_rows) - len(complete_rows)
+
+    def rate(field: str) -> float | None:
+        if not complete_rows:
+            return None
+        return round(
+            sum(1 for row in complete_rows if row.get(field) is True)
+            / len(complete_rows),
+            6,
+        )
+
+    error_counts: dict[str, int] = {}
+    for row in complete_rows:
+        for tag in _ensure_list(row.get("manual_error_tags")):
+            tag_text = str(tag or "").strip()
+            if tag_text:
+                error_counts[tag_text] = error_counts.get(tag_text, 0) + 1
+    blockers: list[str] = []
+    if not review_rows:
+        blockers.append("analytical footprint review template has no rows")
+    if pending_rows:
+        blockers.append(
+            f"{pending_rows} analytical footprint review rows still pending"
+        )
+    precision_recall_report = {
+        "footprint_precision": rate("footprint_correct"),
+        "span_support_precision": rate("source_span_supports_footprint"),
+        "metric_mapping_accuracy": rate("metric_mapping_correct"),
+        "inferred_step_tagging_accuracy": rate(
+            "inferred_steps_tagged_correctly"
+        ),
+        "unknown_on_ambiguity_rate": rate("unknowns_used_when_uncertain"),
+        "proprietary_leakage_free_rate": rate(
+            "no_proprietary_text_leakage"
+        ),
+        "recall_estimate": None,
+        "recall_status": "requires_human_negative_examples",
+    }
+    quality_gate_blockers: list[str] = []
+    for field, threshold in ANALYTICAL_FOOTPRINT_REVIEW_QUALITY_THRESHOLDS.items():
+        value = precision_recall_report.get(field)
+        if value is None:
+            quality_gate_blockers.append(f"{field} unavailable")
+        elif float(value) < threshold:
+            quality_gate_blockers.append(
+                f"{field} {value:.6f} below threshold {threshold:.2f}"
+            )
+    review_complete = bool(review_rows) and pending_rows == 0
+    quality_gate_passed = review_complete and not quality_gate_blockers
+    return {
+        "summary_id": "RKE-REPORT-INTELLIGENCE-FOOTPRINT-REVIEW-SUMMARY",
+        "review_kind": "analytical_footprint_gold_set",
+        "accepted": quality_gate_passed,
+        "review_complete": review_complete,
+        "quality_gate_passed": quality_gate_passed,
+        "quality_gate_thresholds": dict(
+            sorted(ANALYTICAL_FOOTPRINT_REVIEW_QUALITY_THRESHOLDS.items())
+        ),
+        "quality_gate_blockers": quality_gate_blockers,
+        "manual_review_required": True,
+        "review_template_path": ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH,
+        "error_taxonomy_path": ANALYTICAL_FOOTPRINT_ERROR_TAXONOMY_PATH,
+        "total_rows": len(review_rows),
+        "complete_rows": len(complete_rows),
+        "pending_rows": pending_rows,
+        "precision_recall_report": precision_recall_report,
+        "error_counts": dict(sorted(error_counts.items())),
+        "blockers": [*blockers, *quality_gate_blockers],
+        "policy": (
+            "analytical footprint review is a manual gold-set gate for source "
+            "grounding, metric mapping, inferred-step tagging, ambiguity handling, "
+            "and proprietary text leakage; no rows are accepted until reviewers fill "
+            "all required fields and quality thresholds pass"
+        ),
+    }
+
+
+def build_analytical_footprint_error_taxonomy() -> dict[str, Any]:
+    return {
+        "taxonomy_id": "RKE-REPORT-INTELLIGENCE-FOOTPRINT-ERROR-TAXONOMY",
+        "review_kind": "analytical_footprint_gold_set",
+        "required_manual_fields": list(
+            ANALYTICAL_FOOTPRINT_REVIEW_REQUIRED_FIELDS
+        )
+        + ["manual_error_tags"],
+        "error_tags": [
+            {
+                "tag": "unsupported_footprint",
+                "description": "The extracted topic or method is not supported by the cited span.",
+            },
+            {
+                "tag": "metric_mapping_error",
+                "description": "The canonical metric, unit, source, frequency, or transformation is wrong.",
+            },
+            {
+                "tag": "hallucinated_metric",
+                "description": "The extractor invented a metric not present in the report or cited span.",
+            },
+            {
+                "tag": "inferred_step_mislabeled_source_grounded",
+                "description": "A derived or LLM-inferred step was stored as source-grounded.",
+            },
+            {
+                "tag": "ambiguous_metric_not_unknown",
+                "description": "An uncertain metric/source/window should have been marked unknown.",
+            },
+            {
+                "tag": "proprietary_text_leakage",
+                "description": "The review row includes long proprietary report text instead of metadata.",
+            },
+        ],
+    }
+
+
+def write_analytical_footprint_review_artifacts(
+    registry_dir: Path,
+    footprint_rows: Sequence[Mapping[str, Any]],
+) -> dict[str, str]:
+    template_path = registry_dir / "analytical_footprint_review_template.jsonl"
+    review_rows = build_analytical_footprint_review_rows(
+        footprint_rows,
+        existing_template_path=template_path,
+    )
+    summary = build_analytical_footprint_review_summary(review_rows)
+    taxonomy = build_analytical_footprint_error_taxonomy()
+    return {
+        "analytical_footprint_review_template": str(
+            _write_jsonl(template_path, review_rows)["path"]
+        ),
+        "analytical_footprint_review_summary": str(
+            _write_json(
+                registry_dir / "analytical_footprint_review_summary.json",
+                summary,
+            )["path"]
+        ),
+        "analytical_footprint_error_taxonomy": str(
+            _write_json(
+                registry_dir / "analytical_footprint_error_taxonomy.json",
+                taxonomy,
+            )["path"]
+        ),
+    }
+
+
+def _split_mapping_rows(rows: Sequence[Any]) -> tuple[list[Mapping[str, Any]], tuple[int, ...]]:
+    valid_rows: list[Mapping[str, Any]] = []
+    invalid_row_numbers: list[int] = []
+    for index, row in enumerate(rows, 1):
+        if isinstance(row, Mapping):
+            valid_rows.append(row)
+        else:
+            invalid_row_numbers.append(index)
+    return valid_rows, tuple(invalid_row_numbers)
+
+
+def _duplicate_ids(ids: Sequence[str]) -> tuple[str, ...]:
+    seen: set[str] = set()
+    duplicates: set[str] = set()
+    for row_id in ids:
+        if row_id in seen:
+            duplicates.add(row_id)
+        seen.add(row_id)
+    return tuple(sorted(duplicates))
+
+
+def _required_review_string_failures(row: Mapping[str, Any], field: str) -> list[str]:
+    value = row.get(field)
+    if value is None or value == "":
+        return [f"{field} required"]
+    if not isinstance(value, str):
+        return [f"{field} must be string"]
+    if not value.strip():
+        return [f"{field} required"]
+    return []
+
+
+def _optional_review_string_failures(row: Mapping[str, Any], field: str) -> list[str]:
+    value = row.get(field)
+    if value is None:
+        return []
+    if not isinstance(value, str):
+        return [f"{field} must be string"]
+    return []
+
+
+def _review_date_failures(row: Mapping[str, Any], field: str) -> list[str]:
+    value = row.get(field)
+    if not isinstance(value, str) or not value.strip():
+        return []
+    try:
+        parsed = date.fromisoformat(value)
+    except ValueError:
+        return [f"{field} must be YYYY-MM-DD"]
+    if parsed.isoformat() != value:
+        return [f"{field} must be YYYY-MM-DD"]
+    return []
+
+
+def _footprint_review_import_allowed_fields(
+    target_rows: Sequence[Mapping[str, Any]],
+) -> frozenset[str]:
+    allowed: set[str] = set()
+    for row in target_rows:
+        allowed.update(str(field) for field in row)
+    allowed.update(ANALYTICAL_FOOTPRINT_REVIEW_REQUIRED_FIELDS)
+    allowed.add("manual_error_tags")
+    return frozenset(allowed)
+
+
+def _footprint_review_import_unexpected_fields(
+    row: Mapping[str, Any],
+    allowed_fields: frozenset[str],
+) -> tuple[str, ...]:
+    return tuple(sorted(str(field) for field in set(row) - allowed_fields))
+
+
+def _footprint_review_import_row_failures(
+    row: Mapping[str, Any],
+    *,
+    target_row: Mapping[str, Any] | None,
+    duplicate_ids: Sequence[str],
+    missing_target_ids: Sequence[str],
+    allowed_fields: frozenset[str],
+) -> list[str]:
+    failures: list[str] = []
+    failures.extend(_required_review_string_failures(row, "footprint_id"))
+    footprint_id = str(row.get("footprint_id") or "").strip()
+    if footprint_id in set(duplicate_ids):
+        failures.append("duplicate footprint_id in import")
+    if footprint_id in set(missing_target_ids):
+        failures.append("footprint_id missing from target review template")
+    for field in _footprint_review_import_unexpected_fields(row, allowed_fields):
+        failures.append(f"{field} unexpected in analytical footprint review import")
+    for field in manual_review_forbidden_field_paths(row):
+        failures.append(f"{field} forbidden in analytical footprint review import")
+    failures.extend(_required_review_string_failures(row, "target_row_hash"))
+    failures.extend(_required_review_string_failures(row, "target_review_path"))
+    failures.extend(_required_review_string_failures(row, "review_context_ref"))
+    if str(row.get("target_review_path") or "").strip() != ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH:
+        failures.append(
+            f"target_review_path must match {ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH}"
+        )
+    if str(row.get("review_context_ref") or "").strip() != "registry/report_intelligence/analytical_footprints.jsonl":
+        failures.append(
+            "review_context_ref must match registry/report_intelligence/analytical_footprints.jsonl"
+        )
+    if target_row is not None:
+        expected_hash = str(target_row.get("target_row_hash") or "").strip()
+        actual_hash = str(row.get("target_row_hash") or "").strip()
+        if actual_hash and expected_hash and actual_hash != expected_hash:
+            failures.append("target_row_hash does not match target review row")
+    for field in ANALYTICAL_FOOTPRINT_REVIEW_BOOLEAN_FIELDS:
+        if not isinstance(row.get(field), bool):
+            failures.append(f"{field} must be boolean")
+    for field in ("reviewer", "review_date", "review_notes"):
+        failures.extend(_required_review_string_failures(row, field))
+    failures.extend(_review_date_failures(row, "review_date"))
+    failures.extend(_optional_review_string_failures(row, "review_notes"))
+    manual_error_tags = row.get("manual_error_tags")
+    if manual_error_tags is not None:
+        if not isinstance(manual_error_tags, list):
+            failures.append("manual_error_tags must be list")
+        else:
+            for index, tag in enumerate(manual_error_tags):
+                if not isinstance(tag, str):
+                    failures.append(f"manual_error_tags[{index}] must be string")
+    return failures
+
+
+def apply_analytical_footprint_review_import(
+    root: str | Path,
+    input_path: str | Path,
+    *,
+    dry_run: bool = False,
+) -> AnalyticalFootprintReviewImportReport:
+    root_path = Path(root)
+    resolved_input_path = Path(input_path)
+    if not resolved_input_path.is_absolute():
+        resolved_input_path = root_path / resolved_input_path
+    target_path = root_path / ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH
+    summary_path = root_path / ANALYTICAL_FOOTPRINT_REVIEW_SUMMARY_PATH
+    report_path = root_path / ANALYTICAL_FOOTPRINT_REVIEW_IMPORT_REPORT_PATH
+    input_rows_raw, input_parse_blockers = load_jsonl_with_errors(
+        resolved_input_path,
+        label="analytical footprint review import",
+    )
+    target_rows_raw, target_parse_blockers = load_jsonl_with_errors(
+        target_path,
+        label="analytical footprint target review",
+    )
+    input_rows, invalid_input_rows = _split_mapping_rows(input_rows_raw)
+    target_rows, invalid_target_rows = _split_mapping_rows(target_rows_raw)
+    target_by_id = {
+        str(row.get("footprint_id") or ""): row
+        for row in target_rows
+        if str(row.get("footprint_id") or "").strip()
+    }
+    input_ids = [
+        str(row.get("footprint_id") or "").strip()
+        for row in input_rows
+        if str(row.get("footprint_id") or "").strip()
+    ]
+    duplicate_ids = _duplicate_ids(input_ids)
+    missing_target_ids = tuple(
+        sorted(row_id for row_id in set(input_ids) if row_id not in target_by_id)
+    )
+    allowed_fields = _footprint_review_import_allowed_fields(target_rows)
+    invalid_rows: list[AnalyticalFootprintReviewImportInvalidRow] = []
+    for index, raw_row in enumerate(input_rows_raw, 1):
+        if not isinstance(raw_row, Mapping):
+            invalid_rows.append(
+                AnalyticalFootprintReviewImportInvalidRow(
+                    row_number=index,
+                    row_id=f"<non-object-row-{index}>",
+                    reasons=("review row must be object",),
+                )
+            )
+            continue
+        row_id = str(raw_row.get("footprint_id") or "").strip()
+        failures = _footprint_review_import_row_failures(
+            raw_row,
+            target_row=target_by_id.get(row_id),
+            duplicate_ids=duplicate_ids,
+            missing_target_ids=missing_target_ids,
+            allowed_fields=allowed_fields,
+        )
+        if failures:
+            invalid_rows.append(
+                AnalyticalFootprintReviewImportInvalidRow(
+                    row_number=index,
+                    row_id=row_id or "<missing-footprint-id>",
+                    reasons=tuple(failures),
+                )
+            )
+
+    blockers: list[str] = []
+    if not input_rows_raw:
+        blockers.append("analytical footprint review import file is empty")
+    if invalid_input_rows:
+        blockers.append(
+            "analytical footprint review import row must be object at row(s): "
+            + ", ".join(str(row_number) for row_number in invalid_input_rows)
+        )
+    if invalid_target_rows:
+        blockers.append(
+            "analytical footprint target review row must be object at row(s): "
+            + ", ".join(str(row_number) for row_number in invalid_target_rows)
+        )
+    if duplicate_ids:
+        blockers.append(f"{len(duplicate_ids)} duplicate footprint ids")
+    if missing_target_ids:
+        blockers.append(f"{len(missing_target_ids)} footprint ids are missing from target")
+    if invalid_rows:
+        blockers.append(f"{len(invalid_rows)} analytical footprint review rows failed validation")
+    blockers.extend(input_parse_blockers)
+    blockers.extend(target_parse_blockers)
+    accepted = not blockers
+
+    applied_rows = 0
+    if accepted and not dry_run:
+        import_by_id = {str(row.get("footprint_id") or ""): row for row in input_rows}
+        merged: list[dict[str, Any]] = []
+        for target_row in target_rows:
+            row = dict(target_row)
+            imported = import_by_id.get(str(row.get("footprint_id") or ""))
+            if imported is not None:
+                for field in (
+                    *ANALYTICAL_FOOTPRINT_REVIEW_REQUIRED_FIELDS,
+                    "manual_error_tags",
+                ):
+                    if field in imported:
+                        row[field] = imported[field]
+                applied_rows += 1
+            merged.append(row)
+        _write_jsonl(target_path, merged)
+        _write_json(summary_path, build_analytical_footprint_review_summary(merged))
+
+    report = AnalyticalFootprintReviewImportReport(
+        report_id="RKE-REPORT-INTELLIGENCE-FOOTPRINT-REVIEW-IMPORT-REPORT",
+        input_path=str(resolved_input_path),
+        target_path=ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH,
+        dry_run=dry_run,
+        accepted=accepted,
+        input_rows=len(input_rows_raw),
+        applied_rows=applied_rows,
+        rejected_rows=len(invalid_rows),
+        duplicate_ids=duplicate_ids,
+        missing_target_ids=missing_target_ids,
+        invalid_rows=tuple(invalid_rows),
+        summary_path=ANALYTICAL_FOOTPRINT_REVIEW_SUMMARY_PATH,
+        blockers=tuple(blockers),
+    )
+    _write_json(report_path, asdict(report))
+    return report
+
+
+def _canonical_metric_name(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    lowered = text.lower()
+    lowered = re.sub(r"[^0-9a-zA-Z\u4e00-\u9fff]+", "_", lowered)
+    lowered = re.sub(r"_+", "_", lowered).strip("_")
+    return lowered[:120]
+
+
+def _normalize_metric_candidates(
+    payload: Mapping[str, Any],
+    footprints: Sequence[Mapping[str, Any]],
+    *,
+    run_id: str,
+    model: str,
+) -> list[dict[str, Any]]:
+    raw_metrics = [_ensure_mapping(item) for item in _ensure_list(payload.get("metric_candidates"))]
+    for footprint in footprints:
+        for mention in _ensure_list(footprint.get("indicator_mentions")):
+            mention_map = _ensure_mapping(mention)
+            canonical = _record_text(
+                mention_map,
+                "canonical_metric_candidate",
+                "canonical_name",
+                "indicator_text",
+            )
+            if canonical:
+                raw_metrics.append(
+                    {
+                        "canonical_name": canonical,
+                        "aliases": [mention_map.get("indicator_text") or canonical],
+                        "metric_family": mention_map.get("role_in_argument")
+                        or mention_map.get("metric_family")
+                        or "unknown",
+                        "raw_data_requirements": [
+                            {
+                                "raw_source": mention_map.get("data_source_mentioned")
+                                or "unknown",
+                                "frequency": mention_map.get("frequency") or "unknown",
+                                "pit_required": True,
+                            }
+                        ],
+                        "default_transformation": {
+                            "type": mention_map.get("transformation") or "unknown",
+                            "window": mention_map.get("lookback_window") or {},
+                        },
+                        "target_agents": footprint.get("target_agent_candidates")
+                        or [],
+                    }
+                )
+    deduped: dict[str, dict[str, Any]] = {}
+    for item in raw_metrics:
+        canonical = _canonical_metric_name(
+            item.get("canonical_name")
+            or item.get("metric_name")
+            or item.get("name")
+        )
+        if not canonical:
+            continue
+        existing = deduped.setdefault(
+            canonical,
+            {
+                "metric_candidate_id": _stable_id(
+                    "METRIC",
+                    {"canonical_name": canonical},
+                ),
+                "canonical_name": canonical,
+                "aliases": [],
+                "metric_family": str(item.get("metric_family") or "unknown"),
+                "market": "CN_A_SHARE",
+                "raw_data_requirements": [],
+                "default_transformation": _ensure_mapping(
+                    item.get("default_transformation")
+                ),
+                "mentioned_by": {
+                    "report_count": 0,
+                    "high_weight_report_count": 0,
+                    "source_weighted_count": 0,
+                },
+                "target_agents": [],
+                "current_tool_coverage": "unknown",
+                "existing_tool_ids": [],
+                "priority_bucket": "candidate",
+                "status": "candidate_metric",
+                "extractor": {"run_id": run_id, "model": model},
+            },
+        )
+        aliases = [
+            str(alias)
+            for alias in _ensure_list(item.get("aliases"))
+            if str(alias).strip()
+        ]
+        if not aliases and item.get("canonical_name"):
+            aliases = [str(item["canonical_name"])]
+        existing["aliases"] = list(dict.fromkeys([*existing["aliases"], *aliases]))
+        existing["raw_data_requirements"] = [
+            *existing["raw_data_requirements"],
+            *_ensure_list(item.get("raw_data_requirements")),
+        ]
+        target_agents, _ = _split_agent_and_entity_candidates(item.get("target_agents"))
+        existing["target_agents"] = list(
+            dict.fromkeys(
+                [
+                    *existing["target_agents"],
+                    *target_agents,
+                ]
+            )
+        )
+        existing["mentioned_by"]["report_count"] += 1
+    records = list(deduped.values())
+    for record in records:
+        coverage = classify_tool_coverage(str(record["canonical_name"]))
+        record["current_tool_coverage"] = coverage["coverage_status"]
+        record["existing_tool_ids"] = coverage["existing_tool_ids"]
+    return records
+
+
+def _normalize_method_patterns(
+    payload: Mapping[str, Any],
+    footprints: Sequence[Mapping[str, Any]],
+    *,
+    run_id: str,
+    model: str,
+) -> list[dict[str, Any]]:
+    raw_methods = [_ensure_mapping(item) for item in _ensure_list(payload.get("method_patterns"))]
+    for footprint in footprints:
+        for pattern in _ensure_list(footprint.get("analysis_patterns")):
+            pattern_map = _ensure_mapping(pattern)
+            name = _record_text(pattern_map, "pattern_candidate", "name")
+            if name:
+                raw_methods.append(
+                    {
+                        "name": name,
+                        "steps": pattern_map.get("steps") or [],
+                        "required_current_data": pattern_map.get(
+                            "required_current_data"
+                        )
+                        or [],
+                        "optional_confirmation_data": pattern_map.get(
+                            "optional_confirmation_data"
+                        )
+                        or [],
+                        "failure_modes": pattern_map.get("failure_modes") or [],
+                        "target_agents": footprint.get("target_agent_candidates")
+                        or [],
+                    }
+                )
+    deduped: dict[str, dict[str, Any]] = {}
+    for item in raw_methods:
+        name = _record_text(item, "name", "pattern_candidate")
+        if not name:
+            continue
+        key = _canonical_metric_name(name)
+        existing = deduped.setdefault(
+            key,
+            {
+                "method_pattern_id": _stable_id("METHOD", {"name": name}),
+                "name": name,
+                "description": str(item.get("description") or ""),
+                "source_footprint_ids": [],
+                "steps": [],
+                "required_current_data": [],
+                "optional_confirmation_data": [],
+                "failure_modes": [],
+                "target_agents": [],
+                "validation_status": "candidate",
+                "allowed_runtime_mode": "shadow_only",
+                "extractor": {"run_id": run_id, "model": model},
+            },
+        )
+        for field in (
+            "source_footprint_ids",
+            "steps",
+            "required_current_data",
+            "optional_confirmation_data",
+            "failure_modes",
+            "target_agents",
+        ):
+            additions = _ensure_list(item.get(field))
+            if field == "target_agents":
+                additions, _ = _split_agent_and_entity_candidates(additions)
+            existing[field] = _merge_unique_values(
+                existing[field],
+                additions,
+            )
+    return list(deduped.values())
+
+
+def classify_tool_coverage(canonical_name: str) -> dict[str, Any]:
+    name = canonical_name.lower()
+    checks = (
+        (
+            ("pboc", "omo", "公开市场", "逆回购", "央行"),
+            "exact_match",
+            ("tool.get_pboc_ops",),
+        ),
+        (
+            ("policy_uncertainty", "epu", "政策不确定性"),
+            "exact_match",
+            ("tool.get_policy_uncertainty_index",),
+        ),
+        (
+            ("realized_volatility", "rk_th2", "波动率"),
+            "exact_match",
+            ("tool.get_realized_volatility",),
+        ),
+        (
+            ("dr007", "r007", "repo", "回购", "资金利率"),
+            "partial_match",
+            ("tool.get_money_market_rate_proxy",),
+        ),
+        (
+            ("northbound", "北向", "陆股通"),
+            "partial_match",
+            ("tool.get_cross_border_flow_proxy",),
+        ),
+    )
+    for keywords, status, tool_ids in checks:
+        if any(keyword in name for keyword in keywords):
+            return {"coverage_status": status, "existing_tool_ids": list(tool_ids)}
+    return {"coverage_status": "missing", "existing_tool_ids": []}
+
+
+def _is_gap_missing_or_data_blocked(gap_type: str) -> bool:
+    normalized = gap_type.lower().replace(" ", "_")
+    return any(
+        token in normalized
+        for token in (
+            "missing_metric",
+            "partial_metric_coverage",
+            "data_availability",
+            "data_source",
+            "data_granularity",
+            "market_data",
+            "no_pit",
+        )
+    )
+
+
+def _tool_gap_priority_metadata(
+    *,
+    gap_type: str,
+    metric_name: str,
+    method_name: str,
+    target_agents: Sequence[str],
+    priority_reasons: Sequence[Any],
+    blocking_issues: Sequence[Any],
+) -> tuple[str, list[str], list[str]]:
+    reasons = [str(item) for item in priority_reasons if str(item).strip()]
+    issues = [str(item) for item in blocking_issues if str(item).strip()]
+    has_agent = any(str(agent).strip() for agent in target_agents)
+    has_method_support = bool(method_name.strip())
+    missing_or_blocked = _is_gap_missing_or_data_blocked(gap_type)
+    if missing_or_blocked and has_agent and (issues or reasons):
+        bucket = "high"
+        reasons.append("missing_or_partial_data_blocks_named_agent")
+    elif missing_or_blocked and (has_method_support or issues or reasons):
+        bucket = "medium"
+        reasons.append("missing_or_partial_data_blocks_extracted_method")
+    elif has_agent and (issues or reasons):
+        bucket = "medium"
+        reasons.append("tool_gap_has_named_agent_support")
+    else:
+        bucket = "low"
+        reasons.append("insufficient_agent_or_method_support_for_prioritization")
+    if bucket in {"high", "medium"} and not issues:
+        issues.append("requires_engineering_review")
+    if metric_name and not any("metric" in reason.lower() for reason in reasons):
+        reasons.append("metric_candidate_extracted_from_original_report")
+    return bucket, list(dict.fromkeys(reasons)), list(dict.fromkeys(issues))
+
+
+def _normalize_tool_gaps(
+    payload: Mapping[str, Any],
+    metrics: Sequence[Mapping[str, Any]],
+    methods: Sequence[Mapping[str, Any]],
+    *,
+    run_id: str,
+    model: str,
+) -> list[dict[str, Any]]:
+    raw_gaps = [_ensure_mapping(item) for item in _ensure_list(payload.get("tool_gaps"))]
+    method_names = [
+        str(method.get("name") or "")
+        for method in methods
+        if str(method.get("name") or "").strip()
+    ]
+    for metric in metrics:
+        coverage = str(metric.get("current_tool_coverage") or "unknown")
+        if coverage in {"missing", "partial_match", "proxy_available", "no_pit_history"}:
+            raw_gaps.append(
+                {
+                    "gap_type": "missing_metric"
+                    if coverage == "missing"
+                    else "partial_metric_coverage",
+                    "metric_name": metric.get("canonical_name"),
+                    "method_name": method_names[0] if method_names else "",
+                    "target_agents": metric.get("target_agents") or [],
+                    "priority_reasons": [
+                        f"tool coverage is {coverage} for extracted metric"
+                    ],
+                    "blocking_issues": ["requires_engineering_review"],
+                }
+            )
+    records: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in raw_gaps:
+        metric_name = _record_text(item, "metric_name", "metric_candidate_id")
+        method_name = _record_text(item, "method_name", "method_pattern_id")
+        gap_type = str(item.get("gap_type") or "unknown")
+        key = "|".join((gap_type, metric_name, method_name))
+        if key in seen or not (metric_name or method_name):
+            continue
+        seen.add(key)
+        target_agents, _target_entities = _split_agent_and_entity_candidates(
+            item.get("target_agents")
+        )
+        priority_bucket, priority_reasons, blocking_issues = _tool_gap_priority_metadata(
+            gap_type=gap_type,
+            metric_name=metric_name,
+            method_name=method_name,
+            target_agents=target_agents,
+            priority_reasons=_ensure_list(item.get("priority_reasons")),
+            blocking_issues=_ensure_list(item.get("blocking_issues")),
+        )
+        records.append(
+            {
+                "tool_gap_id": _stable_id(
+                    "TG",
+                    {
+                        "gap_type": gap_type,
+                        "metric_name": metric_name,
+                        "method_name": method_name,
+                    },
+                ),
+                "gap_type": gap_type,
+                "metric_candidate_id": _stable_id(
+                    "METRIC",
+                    {"canonical_name": _canonical_metric_name(metric_name)},
+                )
+                if metric_name
+                else "",
+                "metric_name": metric_name,
+                "method_pattern_ids": [
+                    _stable_id("METHOD", {"name": method_name})
+                ]
+                if method_name
+                else [],
+                "method_name": method_name,
+                "target_agents": target_agents,
+                "research_origin": {
+                    "source_footprint_ids": _ensure_list(
+                        item.get("source_footprint_ids")
+                    ),
+                    "source_weighted_support": "unknown",
+                },
+                "priority_bucket": priority_bucket,
+                "priority_reasons": priority_reasons,
+                "blocking_issues": blocking_issues,
+                "owner": str(item.get("owner") or "data_engineering"),
+                "status": str(item.get("status") or "proposal_pending"),
+                "extractor": {"run_id": run_id, "model": model},
+            }
+        )
+    return records
+
+
+def _refresh_tool_gap_governance(
+    rows: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    governed_rows: list[dict[str, Any]] = []
+    for row in rows:
+        metric_name = str(row.get("metric_name") or row.get("metric_candidate_id") or "")
+        method_name = str(row.get("method_name") or "")
+        target_agents, _target_entities = _split_agent_and_entity_candidates(
+            row.get("target_agents")
+        )
+        priority_bucket, priority_reasons, blocking_issues = _tool_gap_priority_metadata(
+            gap_type=str(row.get("gap_type") or "unknown"),
+            metric_name=metric_name,
+            method_name=method_name,
+            target_agents=target_agents,
+            priority_reasons=_ensure_list(row.get("priority_reasons")),
+            blocking_issues=_ensure_list(row.get("blocking_issues")),
+        )
+        governed = dict(row)
+        governed.update(
+            {
+                "target_agents": target_agents,
+                "priority_bucket": priority_bucket,
+                "priority_reasons": priority_reasons,
+                "blocking_issues": blocking_issues,
+                "owner": str(row.get("owner") or "data_engineering"),
+                "status": str(row.get("status") or "proposal_pending"),
+            }
+        )
+        governed_rows.append(governed)
+    return governed_rows
+
+
+def _backfill_tool_gaps_from_metric_candidates(
+    tool_gap_rows: Sequence[Mapping[str, Any]],
+    metric_rows: Sequence[Mapping[str, Any]],
+    method_rows: Sequence[Mapping[str, Any]],
+    *,
+    run_id: str,
+    model: str,
+) -> list[dict[str, Any]]:
+    records = [dict(row) for row in tool_gap_rows]
+    _append_unique_records(
+        records,
+        _normalize_tool_gaps(
+            {},
+            metric_rows,
+            method_rows,
+            run_id=run_id,
+            model=model,
+        ),
+        key="tool_gap_id",
+    )
+    return _refresh_tool_gap_governance(records)
+
+
+def _backfill_metric_candidates_from_tool_gaps(
+    metric_rows: Sequence[Mapping[str, Any]],
+    tool_gap_rows: Sequence[Mapping[str, Any]],
+    *,
+    run_id: str,
+) -> list[dict[str, Any]]:
+    records = [dict(row) for row in metric_rows]
+    existing_ids = {
+        str(row.get("metric_candidate_id") or "")
+        for row in records
+        if str(row.get("metric_candidate_id") or "").strip()
+    }
+    for gap in tool_gap_rows:
+        metric_id = str(gap.get("metric_candidate_id") or "").strip()
+        if not metric_id or metric_id in existing_ids:
+            continue
+        metric_name = str(gap.get("metric_name") or metric_id)
+        records.append(
+            {
+                "metric_candidate_id": metric_id,
+                "canonical_name": metric_name,
+                "aliases": [],
+                "metric_family": _canonical_metric_name(metric_name)
+                or "tool_gap_backfill",
+                "market": "CN_A_SHARE",
+                "raw_data_requirements": ["unknown_raw_data_source"],
+                "default_transformation": {},
+                "mentioned_by": {
+                    "report_count": 0,
+                    "high_weight_report_count": 0,
+                    "source_weighted_count": 0,
+                },
+                "target_agents": _ensure_list(gap.get("target_agents")),
+                "current_tool_coverage": "missing",
+                "existing_tool_ids": [],
+                "priority_bucket": "low",
+                "status": "backfilled_from_tool_gap",
+                "backfill_source": {
+                    "tool_gap_id": gap.get("tool_gap_id") or "",
+                    "run_id": run_id,
+                    "policy": "preserve_tool_gap_metric_lineage_without_promotion",
+                },
+            }
+        )
+        existing_ids.add(metric_id)
+    return records
+
+
+def _horizon_bucket(horizon: Mapping[str, Any]) -> str:
+    preferred = horizon.get("preferred_days") or horizon.get("max_days") or horizon.get("min_days")
+    try:
+        days = int(preferred)
+    except (TypeError, ValueError):
+        return "unknown"
+    if days <= 5:
+        return "5d"
+    if days <= 20:
+        return "20d"
+    if days <= 60:
+        return "60d"
+    return "long_horizon"
+
+
+def _horizon_preferred_days(horizon: Mapping[str, Any]) -> int | None:
+    for key in ("preferred_days", "max_days", "min_days"):
+        try:
+            return int(horizon[key])
+        except (KeyError, TypeError, ValueError):
+            continue
+    return None
+
+
+def _int_or_none(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _target_id(target: Mapping[str, Any]) -> str:
+    return str(target.get("target_id") or target.get("target_name") or "unknown")
+
+
+def build_forecast_ledger_records(
+    forecast_rows: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for claim in forecast_rows:
+        target = _ensure_mapping(claim.get("target"))
+        benchmark = _ensure_mapping(claim.get("benchmark"))
+        horizon = _ensure_mapping(claim.get("horizon"))
+        required_ready = (
+            str(claim.get("forecast_testability") or "") == "testable"
+            and _target_id(target) != "unknown"
+            and bool(benchmark)
+            and str(claim.get("direction") or "unknown") not in {"", "unknown"}
+            and _horizon_bucket(horizon) != "unknown"
+        )
+        family_payload = {
+            "forecast_type": claim.get("forecast_type") or "unknown",
+            "target": _target_id(target),
+            "benchmark": benchmark.get("benchmark_id") or benchmark.get("benchmark_type") or "unknown",
+            "horizon_bucket": _horizon_bucket(horizon),
+        }
+        family_id = _stable_id("FF", family_payload)
+        cluster_id = _stable_id(
+            "CONSENSUS",
+            {
+                "forecast_family_id": family_id,
+                "direction": claim.get("direction"),
+                "claim_text": claim.get("claim_text"),
+            },
+        )
+        records.append(
+            {
+                "ledger_id": _stable_id(
+                    "RFL",
+                    {
+                        "forecast_claim_id": claim.get("forecast_claim_id"),
+                        "version": 1,
+                    },
+                ),
+                "forecast_claim_id": str(claim.get("forecast_claim_id") or ""),
+                "report_id": str(claim.get("report_id") or ""),
+                "as_of_datetime": str(claim.get("signal_datetime") or ""),
+                "forecast_family_id": family_id,
+                "dedup_cluster_id": cluster_id,
+                "consensus_cluster_id": cluster_id,
+                "copying_risk_bucket": "unknown",
+                "source_dependency_score": None,
+                "independent_viewpoint_count": None,
+                "test_status": "ready_for_outcome_labeling"
+                if required_ready
+                else "not_ready_insufficient_mapping",
+                "version": 1,
+                "immutable": True,
+            }
+        )
+    return records
+
+
+def build_outcome_labeling_readiness_report(
+    *,
+    forecast_rows: Sequence[Mapping[str, Any]],
+    forecast_ledger_rows: Sequence[Mapping[str, Any]],
+    industry_etf_proxy_readiness: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    gap_counts: dict[str, int] = {}
+    unlabelable_gap_counts: dict[str, int] = {}
+    test_status_counts: dict[str, int] = {}
+    ready_ids: list[str] = []
+    standard_blocked_ids: list[str] = []
+    blocked_ids: list[str] = []
+    industry_proxy = dict(industry_etf_proxy_readiness or {})
+    proxy_label_ready_ids = [
+        str(claim_id)
+        for claim_id in _ensure_list(
+            industry_proxy.get("labelable_forecast_claim_ids")
+        )
+        if str(claim_id).strip()
+    ]
+    proxy_label_ready_id_set = set(proxy_label_ready_ids)
+    proxy_label_only_ids: list[str] = []
+    forecast_by_id = {
+        str(row.get("forecast_claim_id") or ""): row for row in forecast_rows
+    }
+    for ledger in forecast_ledger_rows:
+        forecast_claim_id = str(ledger.get("forecast_claim_id") or "")
+        status = str(ledger.get("test_status") or "unknown")
+        test_status_counts[status] = test_status_counts.get(status, 0) + 1
+        if status == "ready_for_outcome_labeling":
+            ready_ids.append(forecast_claim_id)
+            continue
+        standard_blocked_ids.append(forecast_claim_id)
+        has_proxy_label_path = forecast_claim_id in proxy_label_ready_id_set
+        if has_proxy_label_path:
+            proxy_label_only_ids.append(forecast_claim_id)
+        else:
+            blocked_ids.append(forecast_claim_id)
+        forecast = forecast_by_id.get(forecast_claim_id) or {}
+        extraction_quality = _ensure_mapping(forecast.get("extraction_quality"))
+        mapping_gaps = [
+            str(gap)
+            for gap in _ensure_list(extraction_quality.get("mapping_gaps"))
+            if str(gap).strip()
+        ] or ["unknown_mapping_gap"]
+        for gap in mapping_gaps:
+            gap_counts[gap] = gap_counts.get(gap, 0) + 1
+            if not has_proxy_label_path:
+                unlabelable_gap_counts[gap] = unlabelable_gap_counts.get(gap, 0) + 1
+    if blocked_ids:
+        blocked_reason = (
+            "forecast_mapping_insufficient_for_unlabelable_claims"
+            if ready_ids or proxy_label_only_ids
+            else "forecast_mapping_insufficient_for_all_claims"
+        )
+    else:
+        blocked_reason = ""
+    return {
+        "readiness_id": "RKE-REPORT-OUTCOME-LABELING-READINESS",
+        "forecast_claim_count": len(forecast_rows),
+        "forecast_ledger_count": len(forecast_ledger_rows),
+        "ready_for_outcome_labeling_count": len(ready_ids),
+        "blocked_count": len(blocked_ids),
+        "standard_blocked_count": len(standard_blocked_ids),
+        "proxy_label_ready_count": len(proxy_label_ready_ids),
+        "proxy_label_only_ready_count": len(proxy_label_only_ids),
+        "test_status_counts": dict(sorted(test_status_counts.items())),
+        "mapping_gap_counts": dict(sorted(gap_counts.items())),
+        "unlabelable_mapping_gap_counts": dict(sorted(unlabelable_gap_counts.items())),
+        "ready_forecast_claim_ids": ready_ids,
+        "standard_blocked_forecast_claim_ids": standard_blocked_ids,
+        "proxy_label_ready_forecast_claim_ids": proxy_label_ready_ids,
+        "proxy_label_only_ready_forecast_claim_ids": proxy_label_only_ids,
+        "blocked_forecast_claim_ids": blocked_ids,
+        "blocked_reason": blocked_reason,
+        "minimum_required_mapping": [
+            "target",
+            "benchmark",
+            "direction",
+            "horizon",
+        ],
+        "policy": (
+            "outcome labels are generated only for source-grounded testable "
+            "forecasts with target, benchmark, direction, horizon, and PIT data; "
+            "industry ETF proxy labels may additionally evaluate sector-direction "
+            "claims on fixed PIT windows without promoting them to production use"
+        ),
+        "industry_etf_proxy_readiness": industry_proxy,
+        "next_actions": [
+            "improve extractor prompt to bind ts_code/title entities into target when source text supports it",
+            "route unmapped claims through manual gold-set review instead of fabricating labels",
+            "evaluate industry research with ETF proxy windows when sector mapping and PIT data are available",
+            "run PIT outcome labeler only after ready_for_outcome_labeling_count is positive",
+        ],
+    }
+
+
+def _resolve_qlib_etf_dir(root_path: Path, qlib_etf_dir: str | Path) -> Path:
+    raw = Path(os.path.expanduser(str(qlib_etf_dir)))
+    return raw if raw.is_absolute() else root_path / raw
+
+
+def _qlib_symbol(symbol: str) -> str:
+    cleaned = str(symbol or "").strip()
+    if "." in cleaned:
+        code, market = cleaned.split(".", 1)
+        return f"{market.lower()}{code}"
+    return cleaned.lower()
+
+
+def _read_trading_calendar(qlib_dir: Path) -> list[str]:
+    calendar_path = qlib_dir / "calendars/day.txt"
+    if not calendar_path.exists():
+        return []
+    return [
+        line.strip()
+        for line in calendar_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+
+
+def _read_qlib_series(
+    qlib_dir: Path,
+    symbol: str,
+    field: str = "adjclose",
+) -> tuple[int, list[float]]:
+    path = qlib_dir / "features" / _qlib_symbol(symbol) / f"{field}.day.bin"
+    if not path.exists():
+        return 0, []
+    data = path.read_bytes()
+    if len(data) < 8 or len(data) % 4 != 0:
+        return 0, []
+    values = struct.unpack(f"<{len(data) // 4}f", data)
+    return int(values[0]), [float(value) for value in values[1:]]
+
+
+def _series_value_at_calendar_index(
+    *,
+    start_index: int,
+    values: Sequence[float],
+    calendar_index: int,
+) -> float | None:
+    offset = calendar_index - start_index
+    if offset < 0 or offset >= len(values):
+        return None
+    value = values[offset]
+    if value != value or value <= 0:
+        return None
+    return value
+
+
+def _next_calendar_index(calendar: Sequence[str], date_value: str) -> int | None:
+    date_key = _date_key(date_value)
+    if not date_key:
+        return None
+    for index, item in enumerate(calendar):
+        if item >= date_key:
+            return index
+    return None
+
+
+def _entry_calendar_index(calendar: Sequence[str], signal_datetime: str) -> int | None:
+    date_key = _date_key(signal_datetime)
+    if not date_key:
+        return None
+    first_strictly_after_signal = None
+    for index, item in enumerate(calendar):
+        if item > date_key:
+            first_strictly_after_signal = index
+            break
+    if first_strictly_after_signal is None:
+        return None
+    entry_index = first_strictly_after_signal + max(
+        0,
+        INDUSTRY_ETF_ENTRY_LAG_TRADING_DAYS - 1,
+    )
+    if entry_index >= len(calendar):
+        return None
+    return entry_index
+
+
+def _date_key(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    match = re.search(r"\d{4}-\d{2}-\d{2}", text)
+    if match:
+        return match.group(0)
+    return text[:10]
+
+
+def _is_industry_research_report(report_type: Any) -> bool:
+    return "行业" in str(report_type or "")
+
+
+def _industry_etf_proxy_for_sector(sector: str) -> Mapping[str, str] | None:
+    normalized = str(sector or "").strip()
+    if normalized in INDUSTRY_ETF_PROXY_MAPPING:
+        return INDUSTRY_ETF_PROXY_MAPPING[normalized]
+    for key, value in INDUSTRY_ETF_PROXY_MAPPING.items():
+        if key and key in normalized:
+            return value
+    return None
+
+
+def _industry_etf_window_role(horizon_days: int) -> str:
+    if horizon_days <= 20:
+        return "short"
+    if horizon_days <= 60:
+        return "medium"
+    return "long"
+
+
+def _industry_etf_window_effective_weight(horizon_days: int) -> float:
+    role = _industry_etf_window_role(horizon_days)
+    return INDUSTRY_ETF_PROXY_WINDOW_EFFECTIVE_WEIGHTS[role]
+
+
+def _industry_etf_claim_window_alignment(
+    *,
+    claim_horizon: Mapping[str, Any],
+    horizon_days: int,
+) -> str:
+    if not claim_horizon:
+        return "fixed_window_no_source_horizon"
+    min_days = _int_or_none(claim_horizon.get("min_days"))
+    max_days = _int_or_none(
+        claim_horizon.get("preferred_days") or claim_horizon.get("max_days")
+    )
+    if min_days is not None and horizon_days < min_days:
+        return "shorter_than_source_horizon"
+    if max_days is not None and horizon_days > max_days:
+        return "beyond_source_horizon"
+    return "within_source_horizon"
+
+
+def _industry_etf_temporal_validation_summary(
+    records: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    ordered = sorted(records, key=lambda row: int(row.get("horizon_days") or 0))
+    hit_days = [
+        int(row.get("horizon_days") or 0)
+        for row in ordered
+        if row.get("directional_hit") is True
+    ]
+    miss_days = [
+        int(row.get("horizon_days") or 0)
+        for row in ordered
+        if row.get("directional_hit") is not True
+    ]
+    available_days = [int(row.get("horizon_days") or 0) for row in ordered]
+    short_record = next(
+        (row for row in ordered if str(row.get("window_role") or "") == "short"),
+        None,
+    )
+    long_record = next(
+        (row for row in reversed(ordered) if str(row.get("window_role") or "") == "long"),
+        ordered[-1] if ordered else None,
+    )
+    short_hit = (
+        bool(short_record.get("directional_hit"))
+        if short_record is not None
+        else None
+    )
+    long_hit = (
+        bool(long_record.get("directional_hit"))
+        if long_record is not None
+        else None
+    )
+    if ordered and len(hit_days) == len(ordered):
+        bucket = "consistent_hit"
+    elif ordered and not hit_days:
+        bucket = "consistent_miss"
+    elif short_hit is False and long_hit is True:
+        bucket = "short_miss_long_hit"
+    elif short_hit is True and long_hit is False:
+        bucket = "short_hit_long_miss"
+    else:
+        bucket = "mixed_windows"
+    return {
+        "policy": (
+            "industry research is validated on fixed ETF proxy windows; short, "
+            "medium, and long windows are retained as separate evidence"
+        ),
+        "available_window_days": available_days,
+        "hit_window_days": hit_days,
+        "miss_window_days": miss_days,
+        "short_window_directional_hit": short_hit,
+        "long_window_directional_hit": long_hit,
+        "long_window_hit_retained": long_hit is True,
+        "temporal_validation_bucket": bucket,
+        "window_evidence_policy": (
+            "do_not_collapse_multi_window_outcome_to_single_label"
+        ),
+    }
+
+
+def _source_report_metadata(
+    metadata_rows: Sequence[Mapping[str, Any]],
+) -> dict[str, Mapping[str, Any]]:
+    return {str(row.get("source_id") or ""): row for row in metadata_rows}
+
+
+def build_industry_etf_proxy_readiness(
+    *,
+    root_path: Path,
+    qlib_etf_dir: str | Path,
+    forecast_rows: Sequence[Mapping[str, Any]],
+    metadata_rows: Sequence[Mapping[str, Any]],
+    windows_days: Sequence[int] = INDUSTRY_ETF_PROXY_WINDOWS_DAYS,
+) -> dict[str, Any]:
+    qlib_dir = _resolve_qlib_etf_dir(root_path, qlib_etf_dir)
+    calendar = _read_trading_calendar(qlib_dir)
+    benchmark_start, benchmark_values = _read_qlib_series(
+        qlib_dir,
+        INDUSTRY_ETF_BENCHMARK_SYMBOL,
+    )
+    metadata_by_source = _source_report_metadata(metadata_rows)
+    eligible_claim_ids: list[str] = []
+    labelable_claim_ids: list[str] = []
+    data_gap_counts: dict[str, int] = {}
+    labelable_window_count = 0
+    pending_future_window_count = 0
+
+    def add_gap(name: str) -> None:
+        data_gap_counts[name] = data_gap_counts.get(name, 0) + 1
+
+    for claim in forecast_rows:
+        metadata = metadata_by_source.get(str(claim.get("source_id") or "")) or {}
+        if not _is_industry_research_report(metadata.get("report_type")):
+            continue
+        direction = str(claim.get("direction") or "unknown").lower()
+        if direction not in {"positive", "negative"}:
+            add_gap("direction_missing_or_unsupported")
+            continue
+        sector = str(metadata.get("sector") or "")
+        proxy = _industry_etf_proxy_for_sector(sector)
+        if proxy is None:
+            add_gap("sector_etf_mapping_missing")
+            continue
+        forecast_claim_id = str(claim.get("forecast_claim_id") or "")
+        eligible_claim_ids.append(forecast_claim_id)
+        if not calendar:
+            add_gap("calendar_missing")
+            continue
+        if not benchmark_values:
+            add_gap("benchmark_series_missing")
+            continue
+        etf_symbol = str(proxy["etf_symbol"])
+        etf_start, etf_values = _read_qlib_series(qlib_dir, etf_symbol)
+        if not etf_values:
+            add_gap("proxy_series_missing")
+            continue
+        entry_index = _entry_calendar_index(
+            calendar,
+            str(claim.get("signal_datetime") or ""),
+        )
+        if entry_index is None:
+            add_gap("entry_date_after_latest_calendar")
+            continue
+        if _series_value_at_calendar_index(
+            start_index=etf_start,
+            values=etf_values,
+            calendar_index=entry_index,
+        ) is None or _series_value_at_calendar_index(
+            start_index=benchmark_start,
+            values=benchmark_values,
+            calendar_index=entry_index,
+        ) is None:
+            add_gap("entry_price_missing")
+            continue
+        claim_labelable_window_count = 0
+        for horizon_days in windows_days:
+            exit_index = entry_index + int(horizon_days)
+            if exit_index >= len(calendar):
+                pending_future_window_count += 1
+                continue
+            if _series_value_at_calendar_index(
+                start_index=etf_start,
+                values=etf_values,
+                calendar_index=exit_index,
+            ) is None or _series_value_at_calendar_index(
+                start_index=benchmark_start,
+                values=benchmark_values,
+                calendar_index=exit_index,
+            ) is None:
+                add_gap("exit_price_missing")
+                continue
+            labelable_window_count += 1
+            claim_labelable_window_count += 1
+        if claim_labelable_window_count:
+            labelable_claim_ids.append(forecast_claim_id)
+    return {
+        "policy": (
+            "sector-direction industry claims can be evaluated with mapped industry ETF "
+            "returns on fixed PIT windows; each window is a separate evidence point; "
+            "LLM output extracts the claim direction but cannot assign outcome labels"
+        ),
+        "outcome_label_source": INDUSTRY_ETF_OUTCOME_LABEL_SOURCE,
+        "llm_outcome_labeling_allowed": False,
+        "windows_days": [int(value) for value in windows_days],
+        "entry_lag_trading_days": INDUSTRY_ETF_ENTRY_LAG_TRADING_DAYS,
+        "benchmark_symbol": INDUSTRY_ETF_BENCHMARK_SYMBOL,
+        "qlib_etf_dir_configured": str(qlib_etf_dir),
+        "latest_calendar_date": calendar[-1] if calendar else "",
+        "eligible_claim_count": len(eligible_claim_ids),
+        "eligible_forecast_claim_ids": eligible_claim_ids,
+        "labelable_forecast_claim_count": len(labelable_claim_ids),
+        "labelable_forecast_claim_ids": labelable_claim_ids,
+        "labelable_window_count": labelable_window_count,
+        "pending_future_window_count": pending_future_window_count,
+        "data_gap_counts": dict(sorted(data_gap_counts.items())),
+    }
+
+
+def build_industry_etf_proxy_outcome_labels(
+    *,
+    root_path: Path,
+    qlib_etf_dir: str | Path,
+    forecast_rows: Sequence[Mapping[str, Any]],
+    forecast_ledger_rows: Sequence[Mapping[str, Any]],
+    metadata_rows: Sequence[Mapping[str, Any]],
+    windows_days: Sequence[int] = INDUSTRY_ETF_PROXY_WINDOWS_DAYS,
+) -> list[dict[str, Any]]:
+    qlib_dir = _resolve_qlib_etf_dir(root_path, qlib_etf_dir)
+    calendar = _read_trading_calendar(qlib_dir)
+    if not calendar:
+        return []
+    benchmark_start, benchmark_values = _read_qlib_series(
+        qlib_dir,
+        INDUSTRY_ETF_BENCHMARK_SYMBOL,
+    )
+    if not benchmark_values:
+        return []
+    ledger_by_claim = {
+        str(row.get("forecast_claim_id") or ""): row for row in forecast_ledger_rows
+    }
+    metadata_by_source = _source_report_metadata(metadata_rows)
+    records: list[dict[str, Any]] = []
+    for claim in forecast_rows:
+        direction = str(claim.get("direction") or "unknown").lower()
+        if direction not in {"positive", "negative"}:
+            continue
+        source_id = str(claim.get("source_id") or "")
+        metadata = metadata_by_source.get(source_id) or {}
+        if not _is_industry_research_report(metadata.get("report_type")):
+            continue
+        sector = str(metadata.get("sector") or "")
+        proxy = _industry_etf_proxy_for_sector(sector)
+        if proxy is None:
+            continue
+        etf_symbol = str(proxy["etf_symbol"])
+        etf_start, etf_values = _read_qlib_series(qlib_dir, etf_symbol)
+        if not etf_values:
+            continue
+        claim_horizon = _ensure_mapping(claim.get("horizon"))
+        source_horizon_days = _horizon_preferred_days(claim_horizon)
+        source_horizon_bucket = _horizon_bucket(claim_horizon)
+        entry_index = _entry_calendar_index(
+            calendar,
+            str(claim.get("signal_datetime") or ""),
+        )
+        if entry_index is None:
+            continue
+        entry_price = _series_value_at_calendar_index(
+            start_index=etf_start,
+            values=etf_values,
+            calendar_index=entry_index,
+        )
+        benchmark_entry_price = _series_value_at_calendar_index(
+            start_index=benchmark_start,
+            values=benchmark_values,
+            calendar_index=entry_index,
+        )
+        if entry_price is None or benchmark_entry_price is None:
+            continue
+        ledger = ledger_by_claim.get(str(claim.get("forecast_claim_id") or "")) or {}
+        forecast_family_id = str(ledger.get("forecast_family_id") or "") or _stable_id(
+            "FF",
+            {
+                "forecast_type": claim.get("forecast_type") or "unknown",
+                "proxy_target": etf_symbol,
+                "benchmark": INDUSTRY_ETF_BENCHMARK_SYMBOL,
+            },
+        )
+        claim_window_set_id = _stable_id(
+            "WSET",
+            {
+                "forecast_claim_id": claim.get("forecast_claim_id"),
+                "label_type": "industry_etf_proxy",
+                "etf_symbol": etf_symbol,
+            },
+        )
+        claim_records: list[dict[str, Any]] = []
+        for horizon_days in windows_days:
+            exit_index = entry_index + int(horizon_days)
+            if exit_index >= len(calendar):
+                continue
+            exit_price = _series_value_at_calendar_index(
+                start_index=etf_start,
+                values=etf_values,
+                calendar_index=exit_index,
+            )
+            benchmark_exit_price = _series_value_at_calendar_index(
+                start_index=benchmark_start,
+                values=benchmark_values,
+                calendar_index=exit_index,
+            )
+            if exit_price is None or benchmark_exit_price is None:
+                continue
+            proxy_return = exit_price / entry_price - 1.0
+            benchmark_return = benchmark_exit_price / benchmark_entry_price - 1.0
+            relative_alpha = proxy_return - benchmark_return
+            if direction == "positive":
+                directional_hit = proxy_return > 0
+                relative_directional_hit = relative_alpha > 0
+                directional_proxy_return = proxy_return
+            else:
+                directional_hit = proxy_return < 0
+                relative_directional_hit = relative_alpha < 0
+                directional_proxy_return = -proxy_return
+            window_role = _industry_etf_window_role(int(horizon_days))
+            claim_records.append(
+                {
+                    "outcome_id": _stable_id(
+                        "OUT",
+                        {
+                            "forecast_claim_id": claim.get("forecast_claim_id"),
+                            "label_type": "industry_etf_proxy",
+                            "etf_symbol": etf_symbol,
+                            "horizon_days": horizon_days,
+                        },
+                    ),
+                    "forecast_claim_id": str(claim.get("forecast_claim_id") or ""),
+                    "forecast_family_id": forecast_family_id,
+                    "claim_window_set_id": claim_window_set_id,
+                    "entry_datetime": f"{calendar[entry_index]}T00:00:00+08:00",
+                    "exit_datetime": f"{calendar[exit_index]}T00:00:00+08:00",
+                    "horizon_days": int(horizon_days),
+                    "relative_alpha": round(relative_alpha, 8),
+                    "directional_hit": bool(directional_hit),
+                    "after_cost_alpha": round(
+                        relative_alpha - INDUSTRY_ETF_ROUND_TRIP_COST,
+                        8,
+                    ),
+                    "directional_proxy_return": round(directional_proxy_return, 8),
+                    "directional_after_cost_return": round(
+                        directional_proxy_return - INDUSTRY_ETF_ROUND_TRIP_COST,
+                        8,
+                    ),
+                    "overlap_group_id": _stable_id(
+                        "OVL",
+                        {
+                            "proxy_symbol": etf_symbol,
+                            "entry_date": calendar[entry_index],
+                            "horizon_days": horizon_days,
+                        },
+                    ),
+                    "effective_n_weight": round(
+                        _industry_etf_window_effective_weight(int(horizon_days)),
+                        6,
+                    ),
+                    "pit_valid": True,
+                    "survivorship_safe": True,
+                    "label_type": "industry_etf_proxy",
+                    "proxy_symbol": etf_symbol,
+                    "proxy_label": proxy.get("mapping_label") or "",
+                    "proxy_sector": sector,
+                    "proxy_mapping_confidence": "operator_seeded_exact_sector",
+                    "benchmark_symbol": INDUSTRY_ETF_BENCHMARK_SYMBOL,
+                    "proxy_return": round(proxy_return, 8),
+                    "benchmark_return": round(benchmark_return, 8),
+                    "relative_directional_hit": bool(relative_directional_hit),
+                    "direction_evaluated": direction,
+                    "decision_basis": INDUSTRY_ETF_DECISION_BASIS,
+                    "outcome_label_source": INDUSTRY_ETF_OUTCOME_LABEL_SOURCE,
+                    "llm_outcome_labeling_allowed": False,
+                    "performance_value_basis": "directional_after_cost_return",
+                    "window_role": window_role,
+                    "source_horizon_days": source_horizon_days,
+                    "source_horizon_bucket": source_horizon_bucket,
+                    "claim_window_alignment": _industry_etf_claim_window_alignment(
+                        claim_horizon=claim_horizon,
+                        horizon_days=int(horizon_days),
+                    ),
+                    "evaluation_policy": INDUSTRY_ETF_EVALUATION_POLICY,
+                    "entry_lag_trading_days": INDUSTRY_ETF_ENTRY_LAG_TRADING_DAYS,
+                    "round_trip_cost": INDUSTRY_ETF_ROUND_TRIP_COST,
+                    "source_metadata_id": source_id,
+                }
+            )
+        if claim_records:
+            temporal_summary = _industry_etf_temporal_validation_summary(claim_records)
+            for record in claim_records:
+                record["temporal_validation_summary"] = temporal_summary
+            records.extend(claim_records)
+    return records
+
+
+def build_outcome_label_records(
+    *,
+    root_path: Path,
+    qlib_etf_dir: str | Path,
+    forecast_rows: Sequence[Mapping[str, Any]],
+    forecast_ledger_rows: Sequence[Mapping[str, Any]],
+    metadata_rows: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    """Build PIT outcome labels. Phase C starts with conservative ETF proxies."""
+    return build_industry_etf_proxy_outcome_labels(
+        root_path=root_path,
+        qlib_etf_dir=qlib_etf_dir,
+        forecast_rows=forecast_rows,
+        forecast_ledger_rows=forecast_ledger_rows,
+        metadata_rows=metadata_rows,
+    )
+
+
+def _weighted_mean(
+    values: Sequence[tuple[float, float]],
+    *,
+    default: float | None = None,
+) -> float | None:
+    weight_sum = sum(max(weight, 0.0) for _, weight in values)
+    if weight_sum <= 0:
+        return default
+    return sum(value * max(weight, 0.0) for value, weight in values) / weight_sum
+
+
+def _label_weight(label: Mapping[str, Any]) -> float:
+    try:
+        value = float(label.get("effective_n_weight") or 0.0)
+    except (TypeError, ValueError):
+        value = 0.0
+    return value if value > 0 else 1.0
+
+
+def _performance_reliability_bucket(n_effective: float) -> str:
+    if n_effective >= 30:
+        return "high_effective_n"
+    if n_effective >= 10:
+        return "medium_effective_n"
+    if n_effective >= 3:
+        return "low_effective_n"
+    return "insufficient_data"
+
+
+def _shrunk_performance_summary(
+    labels: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    n_nominal = len(labels)
+    n_effective = sum(_label_weight(label) for label in labels)
+    reliability = _performance_reliability_bucket(n_effective)
+    alpha_values: list[tuple[float, float]] = []
+    hit_values: list[tuple[float, float]] = []
+    for label in labels:
+        weight = _label_weight(label)
+        try:
+            performance_value = (
+                label.get("directional_after_cost_return")
+                if label.get("performance_value_basis")
+                == "directional_after_cost_return"
+                else label.get("after_cost_alpha")
+            )
+            alpha = float(performance_value or 0.0)
+        except (TypeError, ValueError):
+            alpha = 0.0
+        alpha_values.append((alpha, weight))
+        hit_values.append((1.0 if label.get("directional_hit") is True else 0.0, weight))
+    mean_alpha = _weighted_mean(alpha_values, default=None)
+    hit_rate = _weighted_mean(hit_values, default=None)
+    prior_n = 10.0
+    shrunk_alpha = (
+        (mean_alpha or 0.0) * n_effective / (n_effective + prior_n)
+        if n_effective > 0
+        else 0.0
+    )
+    shrunk_hit_rate = (
+        ((hit_rate or 0.5) * n_effective + 0.5 * prior_n)
+        / (n_effective + prior_n)
+        if n_effective > 0
+        else 0.5
+    )
+    if reliability == "insufficient_data":
+        bucket = "insufficient_data"
+        multiplier = 1.0
+    elif shrunk_alpha > 0 and shrunk_hit_rate >= 0.53:
+        bucket = f"positive_{reliability}"
+        multiplier = {
+            "low_effective_n": 1.03,
+            "medium_effective_n": 1.07,
+            "high_effective_n": 1.10,
+        }[reliability]
+    elif shrunk_alpha < 0 and shrunk_hit_rate <= 0.47:
+        bucket = f"negative_{reliability}"
+        multiplier = {
+            "low_effective_n": 0.97,
+            "medium_effective_n": 0.93,
+            "high_effective_n": 0.90,
+        }[reliability]
+    else:
+        bucket = f"neutral_{reliability}"
+        multiplier = 1.0
+    return {
+        "n_nominal": n_nominal,
+        "n_effective": round(n_effective, 6),
+        "mean_after_cost_alpha": round(mean_alpha, 8) if mean_alpha is not None else None,
+        "hit_rate": round(hit_rate, 6) if hit_rate is not None else None,
+        "shrunk_after_cost_alpha": round(shrunk_alpha, 8),
+        "shrunk_hit_rate": round(shrunk_hit_rate, 6),
+        "statistical_reliability_bucket": reliability,
+        "shrunk_performance_bucket": bucket,
+        "weight_multiplier": multiplier,
+        "insufficient_data": reliability == "insufficient_data",
+    }
+
+
+def _labels_by_claim(
+    outcome_label_rows: Sequence[Mapping[str, Any]],
+) -> dict[str, list[Mapping[str, Any]]]:
+    labels: dict[str, list[Mapping[str, Any]]] = {}
+    for label in outcome_label_rows:
+        claim_id = str(label.get("forecast_claim_id") or "")
+        if claim_id and label.get("pit_valid") is True:
+            labels.setdefault(claim_id, []).append(label)
+    return labels
+
+
+def _viewpoint_cluster_id(claim: Mapping[str, Any]) -> tuple[str, list[str]]:
+    mechanism_chain = [
+        str(item)
+        for item in _ensure_list(claim.get("metric_proxy_mapping"))
+        if str(item).strip()
+    ] or [str(claim.get("forecast_type") or "unknown")]
+    return (
+        _stable_id(
+            "VIEW",
+            {
+                "mechanism_chain": mechanism_chain,
+                "direction": claim.get("direction"),
+                "forecast_type": claim.get("forecast_type"),
+            },
+        ),
+        mechanism_chain,
+    )
+
+
+def build_source_performance_profiles(
+    metadata_rows: Sequence[Mapping[str, Any]],
+    *,
+    forecast_rows: Sequence[Mapping[str, Any]] = (),
+    outcome_label_rows: Sequence[Mapping[str, Any]] = (),
+) -> list[dict[str, Any]]:
+    profiles: dict[str, dict[str, Any]] = {}
+    profile_labels: dict[str, list[Mapping[str, Any]]] = {}
+    metadata_by_source = _source_report_metadata(metadata_rows)
+    labels_by_claim = _labels_by_claim(outcome_label_rows)
+    for claim in forecast_rows:
+        claim_labels = labels_by_claim.get(str(claim.get("forecast_claim_id") or ""))
+        if not claim_labels:
+            continue
+        row = metadata_by_source.get(str(claim.get("source_id") or "")) or {}
+        for entity_type, entity_id, _ in [
+            ("institution", row.get("institution_id"), row.get("institution")),
+            *[
+                ("author", author_id, row.get("author"))
+                for author_id in _ensure_list(row.get("author_ids"))
+            ],
+        ]:
+            if not str(entity_id or "").strip():
+                continue
+            profile_id = _stable_id(
+                "SPP",
+                {
+                    "entity_type": entity_type,
+                    "entity_id": entity_id,
+                    "sector": row.get("sector") or "unknown",
+                },
+            )
+            profile_labels.setdefault(profile_id, []).extend(claim_labels)
+    for row in metadata_rows:
+        entities = [
+            ("institution", row.get("institution_id"), row.get("institution")),
+            *[
+                ("author", author_id, row.get("author"))
+                for author_id in _ensure_list(row.get("author_ids"))
+            ],
+        ]
+        for entity_type, entity_id, label in entities:
+            if not str(entity_id or "").strip():
+                continue
+            profile_id = _stable_id(
+                "SPP",
+                {
+                    "entity_type": entity_type,
+                    "entity_id": entity_id,
+                    "sector": row.get("sector") or "unknown",
+                },
+            )
+            profiles.setdefault(
+                profile_id,
+                {
+                    "profile_id": profile_id,
+                    "entity_type": entity_type,
+                    "entity_id": str(entity_id),
+                    "entity_label": str(label or ""),
+                    "context": {
+                        "market": row.get("market") or "CN_A_SHARE",
+                        "sector": row.get("sector") or "unknown",
+                        "forecast_type": "unknown",
+                        "horizon_bucket": "unknown",
+                        "regime_bucket": "unknown",
+                    },
+                    "as_of_datetime": row.get("accessible_datetime") or "",
+                    "n_nominal": 0,
+                    "n_effective": 0.0,
+                    "mean_after_cost_alpha": None,
+                    "hit_rate": None,
+                    "calibration_error": None,
+                    "max_drawdown_after_signal_median": None,
+                    "stability_bucket": "insufficient_data",
+                    "statistical_reliability_bucket": "insufficient_data",
+                    "shrunk_performance_bucket": "insufficient_data",
+                    "weight_multiplier": 1.0,
+                    "parent_prior_used": "global_neutral_prior",
+                    "insufficient_data": True,
+                    "methodology_notes": [
+                        "no_outcome_labels_yet",
+                        "neutral_weight_until_pit_backtest",
+                    ],
+                },
+            )
+    for profile_id, labels in profile_labels.items():
+        profile = profiles.get(profile_id)
+        if profile is None:
+            continue
+        summary = _shrunk_performance_summary(labels)
+        performance_as_of = _format_pit_datetime(
+            _max_pit_datetime(labels, fields=("exit_datetime", "entry_datetime"))
+        )
+        profile.update(
+            {
+                "as_of_datetime": performance_as_of or profile.get("as_of_datetime", ""),
+                "n_nominal": summary["n_nominal"],
+                "n_effective": summary["n_effective"],
+                "mean_after_cost_alpha": summary["mean_after_cost_alpha"],
+                "hit_rate": summary["hit_rate"],
+                "shrunk_after_cost_alpha": summary["shrunk_after_cost_alpha"],
+                "shrunk_hit_rate": summary["shrunk_hit_rate"],
+                "calibration_error": None,
+                "stability_bucket": "stable_enough_for_shadow_prior"
+                if not summary["insufficient_data"]
+                else "insufficient_data",
+                "statistical_reliability_bucket": summary[
+                    "statistical_reliability_bucket"
+                ],
+                "shrunk_performance_bucket": summary["shrunk_performance_bucket"],
+                "weight_multiplier": summary["weight_multiplier"],
+                "parent_prior_used": "global_neutral_prior_with_shrinkage",
+                "insufficient_data": summary["insufficient_data"],
+                "methodology_notes": [
+                    "pit_outcome_labels_used",
+                    "performance_as_of_after_outcome_exit",
+                    "effective_n_weight_overlap_adjusted",
+                    "neutral_prior_shrinkage_applied",
+                    "research_prior_only_not_signal",
+                ],
+            }
+        )
+    return list(profiles.values())
+
+
+def build_viewpoint_performance_profiles(
+    forecast_rows: Sequence[Mapping[str, Any]],
+    *,
+    outcome_label_rows: Sequence[Mapping[str, Any]] = (),
+) -> list[dict[str, Any]]:
+    profiles: dict[str, dict[str, Any]] = {}
+    profile_labels: dict[str, list[Mapping[str, Any]]] = {}
+    labels_by_claim = _labels_by_claim(outcome_label_rows)
+    for claim in forecast_rows:
+        cluster_id, mechanism_chain = _viewpoint_cluster_id(claim)
+        profile_id = _stable_id("VPP", {"viewpoint_cluster_id": cluster_id})
+        profiles.setdefault(
+            profile_id,
+            {
+                "viewpoint_profile_id": profile_id,
+                "viewpoint_cluster_id": cluster_id,
+                "mechanism_chain": mechanism_chain,
+                "context": {
+                    "market": "CN_A_SHARE",
+                    "horizon_bucket": _horizon_bucket(_ensure_mapping(claim.get("horizon"))),
+                    "regime_bucket": "unknown",
+                },
+                "n_effective": 0.0,
+                "statistical_reliability_bucket": "insufficient_data",
+                "shrunk_performance_bucket": "insufficient_data",
+                "viewpoint_weight_multiplier": 1.0,
+                "known_failure_modes": [
+                    str(item.get("text") if isinstance(item, Mapping) else item)
+                    for item in _ensure_list(claim.get("failure_modes"))
+                    if str(item).strip()
+                ],
+                "last_revalidated_at": "",
+                "insufficient_data": True,
+                "methodology_notes": ["awaiting_pit_outcome_labels"],
+            },
+        )
+        claim_labels = labels_by_claim.get(str(claim.get("forecast_claim_id") or ""))
+        if claim_labels:
+            profile_labels.setdefault(profile_id, []).extend(claim_labels)
+    for profile_id, labels in profile_labels.items():
+        profile = profiles.get(profile_id)
+        if profile is None:
+            continue
+        summary = _shrunk_performance_summary(labels)
+        performance_as_of = _format_pit_datetime(
+            _max_pit_datetime(labels, fields=("exit_datetime", "entry_datetime"))
+        )
+        profile.update(
+            {
+                "n_effective": summary["n_effective"],
+                "n_nominal": summary["n_nominal"],
+                "hit_rate": summary["hit_rate"],
+                "mean_after_cost_alpha": summary["mean_after_cost_alpha"],
+                "shrunk_after_cost_alpha": summary["shrunk_after_cost_alpha"],
+                "shrunk_hit_rate": summary["shrunk_hit_rate"],
+                "statistical_reliability_bucket": summary[
+                    "statistical_reliability_bucket"
+                ],
+                "shrunk_performance_bucket": summary["shrunk_performance_bucket"],
+                "viewpoint_weight_multiplier": summary["weight_multiplier"],
+                "last_revalidated_at": performance_as_of or _utc_now(),
+                "insufficient_data": summary["insufficient_data"],
+                "methodology_notes": [
+                    "pit_outcome_labels_used",
+                    "performance_as_of_after_outcome_exit",
+                    "effective_n_weight_overlap_adjusted",
+                    "neutral_prior_shrinkage_applied",
+                    "research_prior_only_not_signal",
+                ],
+            }
+        )
+    return list(profiles.values())
+
+
+def build_method_performance_profiles(
+    method_rows: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    profiles: list[dict[str, Any]] = []
+    for method in method_rows:
+        method_id = str(method.get("method_pattern_id") or "")
+        if not method_id:
+            continue
+        profiles.append(
+            {
+                "method_profile_id": _stable_id("MPP", {"method_pattern_id": method_id}),
+                "method_pattern_id": method_id,
+                "context": {
+                    "market": "CN_A_SHARE",
+                    "agent_id": (method.get("target_agents") or ["unknown"])[0],
+                    "horizon_bucket": "unknown",
+                    "regime_bucket": "unknown",
+                },
+                "source_support": {
+                    "high_weight_report_count": 0,
+                    "deduped_viewpoint_count": 0,
+                    "n_effective_reports": 0.0,
+                },
+                "validation_status": "candidate",
+                "after_cost_alpha_delta_bucket": "insufficient_data",
+                "calibration_delta_bucket": "insufficient_data",
+                "shrunk_method_priority": "candidate_insufficient_data",
+                "allowed_runtime_mode": "shadow_only",
+                "insufficient_data": True,
+            }
+        )
+    return profiles
+
+
+def build_tool_coverage_matches(
+    metric_rows: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for metric in metric_rows:
+        metric_id = str(metric.get("metric_candidate_id") or "")
+        canonical = str(metric.get("canonical_name") or "")
+        coverage = classify_tool_coverage(canonical)
+        status = str(coverage["coverage_status"])
+        gaps = []
+        if status == "missing":
+            gaps.append("tool_missing")
+        elif status != "exact_match":
+            gaps.append("coverage_requires_review")
+        records.append(
+            {
+                "coverage_id": _stable_id("COV", {"metric_candidate_id": metric_id}),
+                "metric_candidate_id": metric_id,
+                "coverage_status": status,
+                "existing_tool_id": (coverage["existing_tool_ids"] or [""])[0],
+                "existing_tool_ids": list(coverage["existing_tool_ids"]),
+                "coverage_details": {
+                    "raw_source_match": status == "exact_match",
+                    "frequency_match": status == "exact_match",
+                    "pit_available": status in {"exact_match", "partial_match", "proxy_available"},
+                    "lookback_supported": status == "exact_match",
+                    "unit_supported": status == "exact_match",
+                    "license_ok": status != "license_blocked",
+                    "historical_length_years": None,
+                },
+                "gaps": gaps,
+                "last_checked_at": _utc_now(),
+            }
+        )
+    return records
+
+
+def _tool_name_for_metric(metric_name: str) -> str:
+    canonical = _canonical_metric_name(metric_name) or "unknown_metric"
+    return f"get_{canonical}_indicators"
+
+
+def _tool_gap_license_status(gap: Mapping[str, Any]) -> str:
+    text = " ".join(
+        [
+            str(gap.get("gap_type") or ""),
+            *[str(item) for item in _ensure_list(gap.get("blocking_issues"))],
+            *[str(item) for item in _ensure_list(gap.get("priority_reasons"))],
+        ]
+    ).lower()
+    if "prohibited" in text or "forbidden" in text:
+        return "prohibited"
+    if "restricted" in text or "compliance" in text:
+        return "restricted"
+    return "pending_review"
+
+
+def _tool_gap_pit_feasibility_status(gap: Mapping[str, Any]) -> str:
+    text = " ".join(
+        [
+            str(gap.get("gap_type") or ""),
+            *[str(item) for item in _ensure_list(gap.get("blocking_issues"))],
+            *[str(item) for item in _ensure_list(gap.get("priority_reasons"))],
+        ]
+    ).lower()
+    if "no_pit" in text or "pit_blocked" in text:
+        return "pit_blocked"
+    if "pit" in text or "revision" in text or "history" in text:
+        return "requires_pit_backfill_review"
+    return "pit_feasible_pending_vendor_review"
+
+
+def _tool_gap_engineering_effort(gap: Mapping[str, Any]) -> str:
+    priority = str(gap.get("priority_bucket") or "low")
+    gap_type = str(gap.get("gap_type") or "").lower().replace(" ", "_")
+    pit_status = _tool_gap_pit_feasibility_status(gap)
+    if priority == "high" or pit_status in {"pit_blocked", "requires_pit_backfill_review"}:
+        return "high"
+    if "data_source" in gap_type or "data_availability" in gap_type:
+        return "high"
+    if priority == "medium" or _is_gap_missing_or_data_blocked(gap_type):
+        return "medium"
+    return "low"
+
+
+def build_data_acquisition_proposals(
+    tool_gap_rows: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    proposals: list[dict[str, Any]] = []
+    for gap in tool_gap_rows:
+        gap_id = str(gap.get("tool_gap_id") or "")
+        metric_name = str(gap.get("metric_name") or gap.get("metric_candidate_id") or "")
+        if not gap_id:
+            continue
+        owner = str(gap.get("owner") or "data_engineering")
+        license_status = _tool_gap_license_status(gap)
+        pit_status = _tool_gap_pit_feasibility_status(gap)
+        engineering_effort = _tool_gap_engineering_effort(gap)
+        proposals.append(
+            {
+                "data_proposal_id": _stable_id("DAP", {"tool_gap_id": gap_id}),
+                "tool_gap_id": gap_id,
+                "owner": owner,
+                "requested_dataset": metric_name or "unknown_dataset",
+                "required_fields": ["date", "value", "source_timestamp", "quality_flags"],
+                "pit_requirements": {
+                    "timestamp_required": True,
+                    "revision_tracking_required": True,
+                    "minimum_history_years": 5,
+                    "survivorship_issue": False,
+                },
+                "license_requirements": {
+                    "internal_model_use": True,
+                    "derived_metric_storage": True,
+                    "external_redistribution": False,
+                },
+                "license_status": license_status,
+                "pit_feasibility_status": pit_status,
+                "expected_use_cases": _ensure_list(gap.get("target_agents"))
+                or ["report_intelligence_tool_gap_resolution"],
+                "estimated_engineering_effort": engineering_effort,
+                "estimated_vendor_cost_bucket": "unknown",
+                "business_priority": str(gap.get("priority_bucket") or "low"),
+                "source_tool_gap_priority": str(gap.get("priority_bucket") or "low"),
+                "decision_status": "pending_review",
+            }
+        )
+    return proposals
+
+
+def build_tool_design_proposals(
+    tool_gap_rows: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    proposals: list[dict[str, Any]] = []
+    for gap in tool_gap_rows:
+        gap_id = str(gap.get("tool_gap_id") or "")
+        metric_name = str(gap.get("metric_name") or "unknown_metric")
+        if not gap_id:
+            continue
+        owner = str(gap.get("owner") or "data_engineering")
+        proposals.append(
+            {
+                "tool_proposal_id": _stable_id("TDP", {"tool_gap_id": gap_id}),
+                "tool_gap_id": gap_id,
+                "owner": owner,
+                "tool_name_candidate": _tool_name_for_metric(metric_name),
+                "target_agents": _ensure_list(gap.get("target_agents")),
+                "source_tool_gap_priority": str(gap.get("priority_bucket") or "low"),
+                "license_status": _tool_gap_license_status(gap),
+                "pit_feasibility_status": _tool_gap_pit_feasibility_status(gap),
+                "engineering_estimate": _tool_gap_engineering_effort(gap),
+                "input_parameters": {
+                    "market": "CN_A_SHARE",
+                    "as_of_date": "date",
+                    "lookback_days": 20,
+                },
+                "output_schema": {
+                    "as_of_date": "date",
+                    "metrics": [
+                        {
+                            "name": metric_name,
+                            "value": "number",
+                            "unit": "unknown",
+                            "freshness_days": "integer",
+                            "pit_valid": "boolean",
+                            "fallback": "boolean",
+                            "quality_flags": "array",
+                        }
+                    ],
+                },
+                "fallback_policy": {
+                    "fallback_metric": "",
+                    "confidence_cap_if_fallback": 0.60,
+                },
+                "validation_plan": {
+                    "shadow_runtime_days": 60,
+                    "primary_metric": "agent_calibration_delta",
+                    "secondary_metrics": ["hit_rate_20d", "after_cost_alpha_20d"],
+                    "required_effective_n": 30,
+                },
+                "status": "shadow_build_requested",
+            }
+        )
+    return proposals
+
+
+def build_analysis_recipes(
+    method_rows: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    recipes: list[dict[str, Any]] = []
+    for method in method_rows:
+        method_id = str(method.get("method_pattern_id") or "")
+        name = str(method.get("name") or method_id or "unknown_method")
+        if not method_id:
+            continue
+        steps: list[dict[str, Any]] = []
+        required_tools: list[str] = []
+        for index, step in enumerate(_ensure_list(method.get("steps")), 1):
+            step_text = step if isinstance(step, str) else json.dumps(_jsonable(step), ensure_ascii=False, sort_keys=True)
+            metric = _canonical_metric_name(step_text) or "unknown_metric"
+            coverage = classify_tool_coverage(metric)
+            tool = (coverage["existing_tool_ids"] or [f"tool.requested.{metric}"])[0]
+            required_tools.append(tool)
+            steps.append(
+                {
+                    "step": index,
+                    "tool": tool,
+                    "metric": metric,
+                    "operation": "candidate_from_report_method",
+                    "interpretation": step_text,
+                }
+            )
+        recipes.append(
+            {
+                "analysis_recipe_id": _stable_id("RECIPE", {"method_pattern_id": method_id}),
+                "name": name,
+                "method_pattern_id": method_id,
+                "version": "0.1.0",
+                "runtime_mode": "shadow_only",
+                "required_tools": list(dict.fromkeys(required_tools)),
+                "steps": steps,
+                "output_signal": {
+                    "name": f"{_canonical_metric_name(name)}_score",
+                    "range": [-1, 1],
+                    "confidence_policy": "requires_current_data_and_validation",
+                },
+                "validation_status": "candidate",
+                "promotion_requirements": [
+                    "tool correctness tests pass",
+                    "PIT backtest pass",
+                    "paper trading pass",
+                    "no increase in turnover-adjusted loss",
+                ],
+            }
+        )
+    return recipes
+
+
+def _bounded_prior_weight(value: float) -> float:
+    return round(min(1.2, max(0.8, value)), 6)
+
+
+def _source_profile_id_candidates(
+    claim: Mapping[str, Any],
+    metadata_by_source: Mapping[str, Mapping[str, Any]],
+) -> list[str]:
+    row = metadata_by_source.get(str(claim.get("source_id") or "")) or {}
+    candidates: list[str] = []
+    for entity_type, entity_id in [
+        ("institution", row.get("institution_id")),
+        *[
+            ("author", author_id)
+            for author_id in _ensure_list(row.get("author_ids"))
+        ],
+    ]:
+        if not str(entity_id or "").strip():
+            continue
+        candidates.append(
+            _stable_id(
+                "SPP",
+                {
+                    "entity_type": entity_type,
+                    "entity_id": entity_id,
+                    "sector": row.get("sector") or "unknown",
+                },
+            )
+        )
+    return candidates
+
+
+def _profile_multiplier(
+    profile: Mapping[str, Any] | None,
+    field: str,
+) -> float:
+    if not profile:
+        return 1.0
+    try:
+        return float(profile.get(field) or 1.0)
+    except (TypeError, ValueError):
+        return 1.0
+
+
+def _claim_source_weight_multiplier(
+    claim: Mapping[str, Any],
+    *,
+    metadata_by_source: Mapping[str, Mapping[str, Any]],
+    source_profiles_by_id: Mapping[str, Mapping[str, Any]],
+) -> tuple[float, bool]:
+    values: list[float] = []
+    matched_valid_profile = False
+    for profile_id in _source_profile_id_candidates(claim, metadata_by_source):
+        profile = source_profiles_by_id.get(profile_id)
+        if not profile:
+            continue
+        values.append(_profile_multiplier(profile, "weight_multiplier"))
+        if profile.get("insufficient_data") is False:
+            matched_valid_profile = True
+    if not values:
+        return 1.0, False
+    return _bounded_prior_weight(sum(values) / len(values)), matched_valid_profile
+
+
+def _claim_viewpoint_weight_multiplier(
+    claim: Mapping[str, Any],
+    *,
+    viewpoint_profiles_by_id: Mapping[str, Mapping[str, Any]],
+) -> tuple[float, bool]:
+    cluster_id, _ = _viewpoint_cluster_id(claim)
+    profile_id = _stable_id("VPP", {"viewpoint_cluster_id": cluster_id})
+    profile = viewpoint_profiles_by_id.get(profile_id)
+    if not profile:
+        return 1.0, False
+    return (
+        _bounded_prior_weight(
+            _profile_multiplier(profile, "viewpoint_weight_multiplier")
+        ),
+        profile.get("insufficient_data") is False,
+    )
+
+
+def build_weighted_research_contexts(
+    *,
+    forecast_rows: Sequence[Mapping[str, Any]],
+    footprint_rows: Sequence[Mapping[str, Any]],
+    analysis_recipe_rows: Sequence[Mapping[str, Any]],
+    tool_gap_rows: Sequence[Mapping[str, Any]],
+    forecast_ledger_rows: Sequence[Mapping[str, Any]] = (),
+    metadata_rows: Sequence[Mapping[str, Any]] = (),
+    source_performance_profile_rows: Sequence[Mapping[str, Any]] = (),
+    viewpoint_performance_profile_rows: Sequence[Mapping[str, Any]] = (),
+) -> list[dict[str, Any]]:
+    agents = {
+        str(agent)
+        for footprint in footprint_rows
+        for agent in _ensure_list(footprint.get("target_agent_candidates"))
+        if str(agent).strip()
+    } or {"research.general"}
+    metadata_by_source = _source_report_metadata(metadata_rows)
+    source_profiles_by_id = {
+        str(profile.get("profile_id") or ""): profile
+        for profile in source_performance_profile_rows
+    }
+    viewpoint_profiles_by_id = {
+        str(profile.get("viewpoint_profile_id") or ""): profile
+        for profile in viewpoint_performance_profile_rows
+    }
+    ledger_by_claim_id = {
+        str(row.get("forecast_claim_id") or ""): row
+        for row in forecast_ledger_rows
+        if str(row.get("forecast_claim_id") or "").strip()
+    }
+    retrieved_claims = []
+    for claim in forecast_rows:
+        claim_id = str(claim.get("forecast_claim_id") or "")
+        ledger = ledger_by_claim_id.get(claim_id) or {}
+        source_weight, source_match = _claim_source_weight_multiplier(
+            claim,
+            metadata_by_source=metadata_by_source,
+            source_profiles_by_id=source_profiles_by_id,
+        )
+        viewpoint_weight, viewpoint_match = _claim_viewpoint_weight_multiplier(
+            claim,
+            viewpoint_profiles_by_id=viewpoint_profiles_by_id,
+        )
+        combined_weight = _bounded_prior_weight(source_weight * viewpoint_weight)
+        if source_match and viewpoint_match:
+            performance_context_match = "source_and_viewpoint_profile_match"
+        elif source_match:
+            performance_context_match = "source_profile_match"
+        elif viewpoint_match:
+            performance_context_match = "viewpoint_profile_match"
+        else:
+            performance_context_match = "insufficient_data"
+        retrieved_claims.append(
+            {
+                "claim_id": claim.get("claim_id"),
+                "forecast_claim_id": claim.get("forecast_claim_id"),
+                "forecast_family_id": ledger.get("forecast_family_id") or "",
+                "dedup_cluster_id": ledger.get("dedup_cluster_id") or "",
+                "consensus_cluster_id": ledger.get("consensus_cluster_id") or "",
+                "copying_risk_bucket": ledger.get("copying_risk_bucket") or "unknown",
+                "source_dependency_score": ledger.get("source_dependency_score"),
+                "independent_viewpoint_count": ledger.get("independent_viewpoint_count"),
+                "independent_confirmation_policy": (
+                    "consensus_cluster_not_independent_confirmation"
+                ),
+                "source_span_ids": _ensure_list(claim.get("source_span_ids")),
+                "source_weight_multiplier": source_weight,
+                "viewpoint_weight_multiplier": viewpoint_weight,
+                "combined_research_prior_weight": combined_weight,
+                "performance_context_match": performance_context_match,
+                "testability": claim.get("forecast_testability") or "unknown",
+                "current_data_required": True,
+                "current_tool_evidence_ids": [],
+            }
+        )
+    contexts: list[dict[str, Any]] = []
+    for agent_id in sorted(agents):
+        contexts.append(
+            {
+                "weighted_context_id": _stable_id("WRC", {"agent_id": agent_id}),
+                "agent_id": agent_id,
+                "as_of_datetime": _utc_now(),
+                "retrieved_claims": retrieved_claims,
+                "retrieved_footprints": [
+                    {
+                        "footprint_id": footprint.get("footprint_id"),
+                        "metric_candidate_ids": [
+                            _stable_id(
+                                "METRIC",
+                                {
+                                    "canonical_name": _canonical_metric_name(
+                                        str(
+                                            _ensure_mapping(mention).get("canonical_metric_candidate")
+                                            or _ensure_mapping(mention).get("indicator_text")
+                                            or ""
+                                        )
+                                    )
+                                },
+                            )
+                            for mention in _ensure_list(footprint.get("indicator_mentions"))
+                        ],
+                        "method_pattern_ids": [],
+                        "runtime_role": "tool_hint_only",
+                        "current_tool_coverage": "unknown",
+                    }
+                    for footprint in footprint_rows
+                    if agent_id in _ensure_list(footprint.get("target_agent_candidates"))
+                    or agent_id == "research.general"
+                ],
+                "available_analysis_recipes": [
+                    {
+                        "analysis_recipe_id": recipe.get("analysis_recipe_id"),
+                        "runtime_mode": recipe.get("runtime_mode"),
+                        "validation_status": recipe.get("validation_status"),
+                    }
+                    for recipe in analysis_recipe_rows
+                ],
+                "tool_gaps": [
+                    {
+                        "tool_gap_id": gap.get("tool_gap_id"),
+                        "missing_metric": gap.get("metric_name"),
+                        "impact": "cannot fully confirm report-derived method until tool coverage is resolved",
+                    }
+                    for gap in tool_gap_rows
+                ],
+                "research_only": True,
+                "actionability": REPORT_INTELLIGENCE_SAFE_ACTIONABILITY,
+            }
+        )
+    return contexts
+
+
+def build_runtime_tool_gap_observations(
+    *,
+    run_id: str,
+    weighted_research_context_rows: Sequence[Mapping[str, Any]],
+    tool_gap_rows: Sequence[Mapping[str, Any]],
+    analysis_recipe_rows: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    recipes_by_method_id: dict[str, list[str]] = {}
+    for recipe in analysis_recipe_rows:
+        method_pattern_id = str(recipe.get("method_pattern_id") or "")
+        recipe_id = str(recipe.get("analysis_recipe_id") or "")
+        if method_pattern_id and recipe_id:
+            recipes_by_method_id.setdefault(method_pattern_id, []).append(recipe_id)
+
+    context_agent_ids = [
+        str(context.get("agent_id") or "")
+        for context in weighted_research_context_rows
+        if str(context.get("agent_id") or "").strip()
+    ]
+    observations: list[dict[str, Any]] = []
+    for gap in tool_gap_rows:
+        gap_id = str(gap.get("tool_gap_id") or "")
+        if not gap_id:
+            continue
+        target_agents = [
+            str(agent)
+            for agent in _ensure_list(gap.get("target_agents"))
+            if str(agent).strip()
+        ] or context_agent_ids or ["research.general"]
+        method_pattern_ids = [
+            str(method_id)
+            for method_id in _ensure_list(gap.get("method_pattern_ids"))
+            if str(method_id).strip()
+        ]
+        blocked_recipe_ids = sorted(
+            {
+                recipe_id
+                for method_id in method_pattern_ids
+                for recipe_id in recipes_by_method_id.get(method_id, ())
+            }
+        )
+        metric_candidate_id = str(gap.get("metric_candidate_id") or "")
+        metric_name = str(gap.get("metric_name") or "")
+        for agent_id in sorted(dict.fromkeys(target_agents)):
+            observations.append(
+                {
+                    "runtime_gap_id": _stable_id(
+                        "RTG",
+                        {
+                            "agent_id": agent_id,
+                            "tool_gap_id": gap_id,
+                            "metric_candidate_id": metric_candidate_id,
+                        },
+                    ),
+                    "agent_id": agent_id,
+                    "run_id": run_id,
+                    "missing_metric_candidate_id": metric_candidate_id,
+                    "missing_metric": metric_name,
+                    "blocked_rule_ids": [],
+                    "blocked_recipe_ids": blocked_recipe_ids,
+                    "impact_on_output": (
+                        "confidence_cap_reduced_to_0.60; "
+                        "no_trade_without_current_data_confirmation"
+                    ),
+                    "fallback_used": True,
+                    "suggested_tool_gap_id": gap_id,
+                    "runtime_role": "gap_observation_only",
+                    "research_only": True,
+                    "actionability": REPORT_INTELLIGENCE_SAFE_ACTIONABILITY,
+                    "allowed_runtime_mode": "shadow_only",
+                    "current_data_confirmation": "missing",
+                }
+            )
+    return observations
+
+
+def _audit_check(
+    *,
+    check_id: str,
+    requirement: str,
+    evidence: Mapping[str, Any],
+    failures: Sequence[str] = (),
+) -> dict[str, Any]:
+    return {
+        "check_id": check_id,
+        "requirement": requirement,
+        "accepted": not failures,
+        "failure_count": len(failures),
+        "failures": list(failures),
+        "evidence": dict(evidence),
+    }
+
+
+def _iter_context_retrieved_claims(
+    context_rows: Sequence[Mapping[str, Any]],
+) -> list[Mapping[str, Any]]:
+    return [
+        claim
+        for context in context_rows
+        for claim in _ensure_list(context.get("retrieved_claims"))
+        if isinstance(claim, Mapping)
+    ]
+
+
+def _iter_context_retrieved_footprints(
+    context_rows: Sequence[Mapping[str, Any]],
+) -> list[Mapping[str, Any]]:
+    return [
+        footprint
+        for context in context_rows
+        for footprint in _ensure_list(context.get("retrieved_footprints"))
+        if isinstance(footprint, Mapping)
+    ]
+
+
+def _contains_forbidden_shadow_output_field(value: Any) -> str | None:
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            if str(key) in REPORT_INTELLIGENCE_FORBIDDEN_SHADOW_OUTPUT_FIELDS:
+                return str(key)
+            nested = _contains_forbidden_shadow_output_field(item)
+            if nested:
+                return nested
+    elif isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        for item in value:
+            nested = _contains_forbidden_shadow_output_field(item)
+            if nested:
+                return nested
+    return None
+
+
+def _float_or_none(value: Any) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def build_report_intelligence_runtime_safety_audit(
+    *,
+    run_id: str,
+    feature_flags: Mapping[str, Any],
+    forecast_rows: Sequence[Mapping[str, Any]],
+    forecast_ledger_rows: Sequence[Mapping[str, Any]],
+    method_rows: Sequence[Mapping[str, Any]],
+    analysis_recipe_rows: Sequence[Mapping[str, Any]],
+    weighted_research_context_rows: Sequence[Mapping[str, Any]],
+    runtime_tool_gap_observation_rows: Sequence[Mapping[str, Any]],
+    tool_gap_rows: Sequence[Mapping[str, Any]],
+    load_blockers: Sequence[str] = (),
+) -> dict[str, Any]:
+    checks: list[dict[str, Any]] = []
+    loaded_failures = list(load_blockers)
+    checks.append(
+        _audit_check(
+            check_id="RI-SAFE-00",
+            requirement="Required report-intelligence safety inputs load successfully.",
+            evidence={"load_blocker_count": len(loaded_failures)},
+            failures=loaded_failures,
+        )
+    )
+
+    flags = _ensure_mapping(feature_flags.get("flags"))
+    rollout_mode = str(feature_flags.get("rollout_mode") or "")
+    rollout_index = REPORT_INTELLIGENCE_ROLLOUT_MODES.index(rollout_mode) if rollout_mode in REPORT_INTELLIGENCE_ROLLOUT_MODES else -1
+    max_safe_index = REPORT_INTELLIGENCE_ROLLOUT_MODES.index(
+        REPORT_INTELLIGENCE_MAX_SAFE_ROLLOUT_MODE
+    )
+    flag_failures: list[str] = []
+    if rollout_index < 0:
+        flag_failures.append("feature_flags.rollout_mode must be a known rollout mode")
+    elif rollout_index > max_safe_index:
+        flag_failures.append(
+            f"rollout_mode {rollout_mode} exceeds {REPORT_INTELLIGENCE_MAX_SAFE_ROLLOUT_MODE}"
+        )
+    if flags.get("production_use_of_weighted_reports") is True:
+        flag_failures.append("production_use_of_weighted_reports must remain false")
+    checks.append(
+        _audit_check(
+            check_id="RI-SAFE-01",
+            requirement="Report intelligence rollout remains at or below shadow tooling.",
+            evidence={
+                "rollout_mode": rollout_mode,
+                "production_use_of_weighted_reports": flags.get(
+                    "production_use_of_weighted_reports"
+                ),
+            },
+            failures=flag_failures,
+        )
+    )
+
+    actionability_failures: list[str] = []
+    for index, row in enumerate(weighted_research_context_rows, 1):
+        if row.get("research_only") is not True:
+            actionability_failures.append(
+                f"weighted_research_contexts row {index}: research_only must be true"
+            )
+        if row.get("actionability") != REPORT_INTELLIGENCE_SAFE_ACTIONABILITY:
+            actionability_failures.append(
+                f"weighted_research_contexts row {index}: actionability must block trading without current data"
+            )
+    for index, row in enumerate(runtime_tool_gap_observation_rows, 1):
+        if row.get("research_only") is not True:
+            actionability_failures.append(
+                f"runtime_tool_gap_observations row {index}: research_only must be true"
+            )
+        if row.get("actionability") != REPORT_INTELLIGENCE_SAFE_ACTIONABILITY:
+            actionability_failures.append(
+                f"runtime_tool_gap_observations row {index}: actionability must block trading without current data"
+            )
+        if row.get("current_data_confirmation") != "missing":
+            actionability_failures.append(
+                f"runtime_tool_gap_observations row {index}: current data confirmation must remain missing"
+            )
+    checks.append(
+        _audit_check(
+            check_id="RI-SAFE-02",
+            requirement="Research-only support cannot produce actionable recommendations.",
+            evidence={
+                "weighted_context_rows": len(weighted_research_context_rows),
+                "runtime_gap_observation_rows": len(runtime_tool_gap_observation_rows),
+                "safe_actionability": REPORT_INTELLIGENCE_SAFE_ACTIONABILITY,
+            },
+            failures=actionability_failures,
+        )
+    )
+
+    forbidden_failures: list[str] = []
+    for label, rows in (
+        ("weighted_research_contexts", weighted_research_context_rows),
+        ("runtime_tool_gap_observations", runtime_tool_gap_observation_rows),
+    ):
+        for index, row in enumerate(rows, 1):
+            forbidden_key = _contains_forbidden_shadow_output_field(row)
+            if forbidden_key:
+                forbidden_failures.append(
+                    f"{label} row {index}: forbidden decision-impact field {forbidden_key}"
+                )
+    checks.append(
+        _audit_check(
+            check_id="RI-SAFE-03",
+            requirement="Shadow report-intelligence outputs do not change sector score, sizing, or orders.",
+            evidence={
+                "forbidden_fields": list(
+                    REPORT_INTELLIGENCE_FORBIDDEN_SHADOW_OUTPUT_FIELDS
+                ),
+                "checked_rows": len(weighted_research_context_rows)
+                + len(runtime_tool_gap_observation_rows),
+            },
+            failures=forbidden_failures,
+        )
+    )
+
+    footprint_failures: list[str] = []
+    retrieved_footprints = _iter_context_retrieved_footprints(
+        weighted_research_context_rows
+    )
+    for index, footprint in enumerate(retrieved_footprints, 1):
+        if footprint.get("runtime_role") != "tool_hint_only":
+            footprint_failures.append(
+                f"retrieved_footprints row {index}: runtime_role must be tool_hint_only"
+            )
+        if footprint.get("evidence_type") == "current_tool_data":
+            footprint_failures.append(
+                f"retrieved_footprints row {index}: analytical footprint cannot be current_tool_data evidence"
+            )
+        if "confidence_impact" in footprint:
+            footprint_failures.append(
+                f"retrieved_footprints row {index}: confidence_impact is forbidden"
+            )
+    checks.append(
+        _audit_check(
+            check_id="RI-SAFE-04",
+            requirement="Analytical footprints remain metadata/tool hints, not current data evidence.",
+            evidence={"retrieved_footprint_rows": len(retrieved_footprints)},
+            failures=footprint_failures,
+        )
+    )
+
+    retrieved_claims = _iter_context_retrieved_claims(weighted_research_context_rows)
+    forecast_ids = {
+        str(row.get("forecast_claim_id") or "")
+        for row in forecast_rows
+        if str(row.get("forecast_claim_id") or "").strip()
+    }
+    retrieved_ids = {
+        str(row.get("forecast_claim_id") or "")
+        for row in retrieved_claims
+        if str(row.get("forecast_claim_id") or "").strip()
+    }
+    missing_retrieved_ids = sorted(forecast_ids - retrieved_ids)
+    low_weight_retained_ids = sorted(
+        {
+            str(row.get("forecast_claim_id") or "")
+            for row in retrieved_claims
+            if (_float_or_none(row.get("combined_research_prior_weight")) or 1.0)
+            < 1.0
+            and str(row.get("forecast_claim_id") or "").strip()
+        }
+    )
+    checks.append(
+        _audit_check(
+            check_id="RI-SAFE-05",
+            requirement="Low-weight or disagreeing research is downweighted but not erased.",
+            evidence={
+                "forecast_claim_count": len(forecast_ids),
+                "unique_retrieved_claim_count": len(retrieved_ids),
+                "low_weight_retained_count": len(low_weight_retained_ids),
+                "sample_low_weight_retained_ids": low_weight_retained_ids[:10],
+            },
+            failures=[
+                f"forecast claim not retained in weighted context: {claim_id}"
+                for claim_id in missing_retrieved_ids[:20]
+            ],
+        )
+    )
+
+    inversion_failures: list[str] = []
+    for index, claim in enumerate(retrieved_claims, 1):
+        weight = _float_or_none(claim.get("combined_research_prior_weight"))
+        if weight is None:
+            inversion_failures.append(
+                f"retrieved_claims row {index}: combined_research_prior_weight must be numeric"
+            )
+        elif weight < 0.0 or weight > 1.2:
+            inversion_failures.append(
+                f"retrieved_claims row {index}: combined weight must stay positive and bounded"
+            )
+        if claim.get("current_data_required") is not True:
+            inversion_failures.append(
+                f"retrieved_claims row {index}: current_data_required must be true"
+            )
+        if claim.get("auto_inverted") is True or claim.get("contrarian_signal") is True:
+            inversion_failures.append(
+                f"retrieved_claims row {index}: bad sources must not become automatic contrarian signals"
+            )
+    checks.append(
+        _audit_check(
+            check_id="RI-SAFE-06",
+            requirement="Historically weak sources are not automatically inverted into contrarian signals.",
+            evidence={
+                "retrieved_claim_rows": len(retrieved_claims),
+                "max_allowed_weight": 1.2,
+                "min_allowed_weight": 0.0,
+            },
+            failures=inversion_failures,
+        )
+    )
+
+    ledger_failures: list[str] = []
+    ledger_by_claim_id = {
+        str(row.get("forecast_claim_id") or ""): row
+        for row in forecast_ledger_rows
+        if str(row.get("forecast_claim_id") or "").strip()
+    }
+    for index, row in enumerate(forecast_ledger_rows, 1):
+        for field in (
+            "forecast_family_id",
+            "dedup_cluster_id",
+            "consensus_cluster_id",
+            "copying_risk_bucket",
+            "source_dependency_score",
+            "independent_viewpoint_count",
+        ):
+            if field not in row:
+                ledger_failures.append(
+                    f"report_forecast_ledger row {index}: {field} required for correlation governance"
+                )
+    for index, claim in enumerate(retrieved_claims, 1):
+        claim_id = str(claim.get("forecast_claim_id") or "")
+        if claim_id not in ledger_by_claim_id:
+            continue
+        if not str(claim.get("consensus_cluster_id") or "").strip():
+            ledger_failures.append(
+                f"retrieved_claims row {index}: consensus_cluster_id required"
+            )
+        if not str(claim.get("dedup_cluster_id") or "").strip():
+            ledger_failures.append(
+                f"retrieved_claims row {index}: dedup_cluster_id required"
+            )
+        if (
+            claim.get("independent_confirmation_policy")
+            != "consensus_cluster_not_independent_confirmation"
+        ):
+            ledger_failures.append(
+                f"retrieved_claims row {index}: independent confirmation policy missing"
+            )
+    consensus_cluster_count = len(
+        {
+            str(row.get("consensus_cluster_id") or "")
+            for row in forecast_ledger_rows
+            if str(row.get("consensus_cluster_id") or "").strip()
+        }
+    )
+    checks.append(
+        _audit_check(
+            check_id="RI-SAFE-07",
+            requirement="Correlated or copied sources are tracked by consensus/dedup clusters, not counted as independent confirmations.",
+            evidence={
+                "forecast_ledger_rows": len(forecast_ledger_rows),
+                "consensus_cluster_count": consensus_cluster_count,
+                "retrieved_claim_rows": len(retrieved_claims),
+            },
+            failures=ledger_failures,
+        )
+    )
+
+    gap_ids = {
+        str(row.get("tool_gap_id") or "")
+        for row in tool_gap_rows
+        if str(row.get("tool_gap_id") or "").strip()
+    }
+    gap_feedback_failures: list[str] = []
+    for index, row in enumerate(runtime_tool_gap_observation_rows, 1):
+        gap_id = str(row.get("suggested_tool_gap_id") or "")
+        if gap_id not in gap_ids:
+            gap_feedback_failures.append(
+                f"runtime_tool_gap_observations row {index}: suggested_tool_gap_id missing from tool_gap_registry"
+            )
+        if row.get("runtime_role") != "gap_observation_only":
+            gap_feedback_failures.append(
+                f"runtime_tool_gap_observations row {index}: runtime_role must be gap_observation_only"
+            )
+        if row.get("fallback_used") is not True:
+            gap_feedback_failures.append(
+                f"runtime_tool_gap_observations row {index}: fallback_used must be true"
+            )
+    checks.append(
+        _audit_check(
+            check_id="RI-SAFE-08",
+            requirement="Runtime tool gaps feed back into the tool gap registry without affecting decisions.",
+            evidence={
+                "runtime_gap_observation_rows": len(runtime_tool_gap_observation_rows),
+                "tool_gap_rows": len(tool_gap_rows),
+            },
+            failures=gap_feedback_failures,
+        )
+    )
+
+    recipe_failures: list[str] = []
+    for index, row in enumerate(method_rows, 1):
+        if row.get("allowed_runtime_mode") != "shadow_only":
+            recipe_failures.append(
+                f"method_patterns row {index}: allowed_runtime_mode must be shadow_only"
+            )
+    for index, row in enumerate(analysis_recipe_rows, 1):
+        if row.get("runtime_mode") != "shadow_only":
+            recipe_failures.append(
+                f"analysis_recipes row {index}: runtime_mode must be shadow_only"
+            )
+        if row.get("validation_status") not in {"candidate", "shadow_validated"}:
+            recipe_failures.append(
+                f"analysis_recipes row {index}: validation_status must remain pre-paper-trading"
+            )
+    checks.append(
+        _audit_check(
+            check_id="RI-SAFE-09",
+            requirement="Method patterns and recipes cannot jump beyond shadow mode without validation gates.",
+            evidence={
+                "method_pattern_rows": len(method_rows),
+                "analysis_recipe_rows": len(analysis_recipe_rows),
+            },
+            failures=recipe_failures,
+        )
+    )
+
+    blockers = [
+        failure
+        for check in checks
+        for failure in _ensure_list(check.get("failures"))
+        if str(failure).strip()
+    ]
+    return {
+        "audit_id": "RKE-REPORT-INTELLIGENCE-RUNTIME-SAFETY-AUDIT",
+        "run_id": run_id,
+        "as_of_datetime": _utc_now(),
+        "accepted": not blockers,
+        "blocker_count": len(blockers),
+        "blockers": blockers,
+        "checked_item_count": sum(
+            [
+                len(forecast_rows),
+                len(forecast_ledger_rows),
+                len(method_rows),
+                len(analysis_recipe_rows),
+                len(weighted_research_context_rows),
+                len(runtime_tool_gap_observation_rows),
+                len(tool_gap_rows),
+            ]
+        ),
+        "checks": checks,
+        "policy": (
+            "report intelligence may rank research priors, recipes, and tool gaps in "
+            "shadow mode only; it cannot create current market evidence, actionable "
+            "recommendations, sector scores, sizing, orders, or contrarian signals "
+            "without current tool data, validation, paper trading, and promotion gates"
+        ),
+    }
+
+
+def write_report_intelligence_runtime_safety_audit(
+    registry_dir: str | Path,
+    *,
+    run_id: str = "RIR-SAFETY-AUDIT",
+    feature_flags: Mapping[str, Any] | None = None,
+    forecast_rows: Sequence[Mapping[str, Any]] | None = None,
+    forecast_ledger_rows: Sequence[Mapping[str, Any]] | None = None,
+    method_rows: Sequence[Mapping[str, Any]] | None = None,
+    analysis_recipe_rows: Sequence[Mapping[str, Any]] | None = None,
+    weighted_research_context_rows: Sequence[Mapping[str, Any]] | None = None,
+    runtime_tool_gap_observation_rows: Sequence[Mapping[str, Any]] | None = None,
+    tool_gap_rows: Sequence[Mapping[str, Any]] | None = None,
+) -> dict[str, Any]:
+    registry_path = Path(registry_dir)
+    blockers: list[str] = []
+    if feature_flags is None:
+        feature_flags = _read_registry_json(
+            registry_path / "feature_flags.json",
+            label="feature_flags",
+            blockers=blockers,
+        )
+    if forecast_rows is None:
+        forecast_rows = _read_registry_jsonl(
+            registry_path / "forecast_claims.jsonl",
+            label="forecast_claims",
+            blockers=blockers,
+        )
+    if forecast_ledger_rows is None:
+        forecast_ledger_rows = _read_registry_jsonl(
+            registry_path / "report_forecast_ledger.jsonl",
+            label="report_forecast_ledger",
+            blockers=blockers,
+        )
+    if method_rows is None:
+        method_rows = _read_registry_jsonl(
+            registry_path / "method_patterns.jsonl",
+            label="method_patterns",
+            blockers=blockers,
+        )
+    if analysis_recipe_rows is None:
+        analysis_recipe_rows = _read_registry_jsonl(
+            registry_path / "analysis_recipes.jsonl",
+            label="analysis_recipes",
+            blockers=blockers,
+        )
+    if weighted_research_context_rows is None:
+        weighted_research_context_rows = _read_registry_jsonl(
+            registry_path / "weighted_research_contexts.jsonl",
+            label="weighted_research_contexts",
+            blockers=blockers,
+        )
+    if runtime_tool_gap_observation_rows is None:
+        runtime_tool_gap_observation_rows = _read_registry_jsonl(
+            registry_path / "runtime_tool_gap_observations.jsonl",
+            label="runtime_tool_gap_observations",
+            blockers=blockers,
+        )
+    if tool_gap_rows is None:
+        tool_gap_rows = _read_registry_jsonl(
+            registry_path / "tool_gaps.jsonl",
+            label="tool_gaps",
+            blockers=blockers,
+        )
+
+    audit = build_report_intelligence_runtime_safety_audit(
+        run_id=run_id,
+        feature_flags=feature_flags,
+        forecast_rows=forecast_rows,
+        forecast_ledger_rows=forecast_ledger_rows,
+        method_rows=method_rows,
+        analysis_recipe_rows=analysis_recipe_rows,
+        weighted_research_context_rows=weighted_research_context_rows,
+        runtime_tool_gap_observation_rows=runtime_tool_gap_observation_rows,
+        tool_gap_rows=tool_gap_rows,
+        load_blockers=blockers,
+    )
+    return _write_json(registry_path / "runtime_safety_audit.json", audit)
+
+
+def _profile_outcome_max_exit_by_id(
+    *,
+    metadata_rows: Sequence[Mapping[str, Any]],
+    forecast_rows: Sequence[Mapping[str, Any]],
+    outcome_label_rows: Sequence[Mapping[str, Any]],
+) -> dict[str, datetime]:
+    metadata_by_source = _source_report_metadata(metadata_rows)
+    labels_by_claim = _labels_by_claim(outcome_label_rows)
+    result: dict[str, datetime] = {}
+    for claim in forecast_rows:
+        labels = labels_by_claim.get(str(claim.get("forecast_claim_id") or ""))
+        if not labels:
+            continue
+        max_exit = _max_pit_datetime(labels, fields=("exit_datetime", "entry_datetime"))
+        if max_exit is None:
+            continue
+        for profile_id in _source_profile_id_candidates(
+            claim,
+            metadata_by_source=metadata_by_source,
+        ):
+            existing = result.get(profile_id)
+            if existing is None or max_exit > existing:
+                result[profile_id] = max_exit
+    return result
+
+
+def build_report_intelligence_pit_leakage_audit(
+    *,
+    run_id: str,
+    feature_flags: Mapping[str, Any],
+    metadata_rows: Sequence[Mapping[str, Any]],
+    forecast_rows: Sequence[Mapping[str, Any]],
+    forecast_ledger_rows: Sequence[Mapping[str, Any]],
+    outcome_label_rows: Sequence[Mapping[str, Any]],
+    source_performance_profile_rows: Sequence[Mapping[str, Any]],
+    tool_coverage_match_rows: Sequence[Mapping[str, Any]],
+    analysis_recipe_rows: Sequence[Mapping[str, Any]],
+    weighted_research_context_rows: Sequence[Mapping[str, Any]],
+    load_blockers: Sequence[str] = (),
+) -> dict[str, Any]:
+    checks: list[dict[str, Any]] = []
+    checks.append(
+        _audit_check(
+            check_id="RI-PIT-00",
+            requirement="Required report-intelligence PIT inputs load successfully.",
+            evidence={"load_blocker_count": len(load_blockers)},
+            failures=load_blockers,
+        )
+    )
+
+    metadata_by_source = _source_report_metadata(metadata_rows)
+    claim_by_id = {
+        str(row.get("forecast_claim_id") or ""): row
+        for row in forecast_rows
+        if str(row.get("forecast_claim_id") or "").strip()
+    }
+    ledger_by_claim_id = {
+        str(row.get("forecast_claim_id") or ""): row
+        for row in forecast_ledger_rows
+        if str(row.get("forecast_claim_id") or "").strip()
+    }
+    context_datetimes = [
+        parsed
+        for parsed in (
+            _parse_pit_datetime(row.get("as_of_datetime"))
+            for row in weighted_research_context_rows
+        )
+        if parsed is not None
+    ]
+    latest_context_datetime = max(context_datetimes) if context_datetimes else None
+
+    report_access_failures: list[str] = []
+    for index, claim in enumerate(forecast_rows, 1):
+        claim_id = str(claim.get("forecast_claim_id") or f"row-{index}")
+        metadata = metadata_by_source.get(str(claim.get("source_id") or ""))
+        if not metadata:
+            report_access_failures.append(f"{claim_id}: source metadata missing")
+            continue
+        accessible = _parse_pit_datetime(metadata.get("accessible_datetime"))
+        signal = _parse_pit_datetime(claim.get("signal_datetime"))
+        if accessible is None:
+            report_access_failures.append(f"{claim_id}: accessible_datetime missing or invalid")
+        if signal is None:
+            report_access_failures.append(f"{claim_id}: signal_datetime missing or invalid")
+        if accessible is not None and signal is not None and accessible > signal:
+            report_access_failures.append(
+                f"{claim_id}: report accessible_datetime is after claim signal_datetime"
+            )
+        ledger = ledger_by_claim_id.get(claim_id)
+        if ledger is None:
+            report_access_failures.append(f"{claim_id}: forecast ledger row missing")
+            continue
+        ledger_as_of = _parse_pit_datetime(ledger.get("as_of_datetime"))
+        if ledger_as_of is None:
+            report_access_failures.append(f"{claim_id}: ledger as_of_datetime missing or invalid")
+        if accessible is not None and ledger_as_of is not None and accessible > ledger_as_of:
+            report_access_failures.append(
+                f"{claim_id}: report accessible_datetime is after ledger as_of_datetime"
+            )
+    checks.append(
+        _audit_check(
+            check_id="RI-PIT-01",
+            requirement="Report accessible_datetime must be at or before claim/ledger decision datetime.",
+            evidence={
+                "forecast_claim_rows": len(forecast_rows),
+                "metadata_rows": len(metadata_rows),
+                "forecast_ledger_rows": len(forecast_ledger_rows),
+            },
+            failures=report_access_failures,
+        )
+    )
+
+    outcome_failures: list[str] = []
+    missing_vintage_count = 0
+    for index, label in enumerate(outcome_label_rows, 1):
+        label_id = str(label.get("outcome_id") or f"row-{index}")
+        claim = claim_by_id.get(str(label.get("forecast_claim_id") or ""))
+        if claim is None:
+            outcome_failures.append(f"{label_id}: forecast claim missing")
+            continue
+        metadata = metadata_by_source.get(str(claim.get("source_id") or "")) or {}
+        accessible = _parse_pit_datetime(metadata.get("accessible_datetime"))
+        signal = _parse_pit_datetime(claim.get("signal_datetime"))
+        entry = _parse_pit_datetime(label.get("entry_datetime"))
+        exit_dt = _parse_pit_datetime(label.get("exit_datetime"))
+        if label.get("pit_valid") is not True:
+            outcome_failures.append(f"{label_id}: pit_valid must be true")
+        if label.get("survivorship_safe") is not True:
+            outcome_failures.append(f"{label_id}: survivorship_safe must be true")
+        if entry is None:
+            outcome_failures.append(f"{label_id}: entry_datetime missing or invalid")
+        if exit_dt is None:
+            outcome_failures.append(f"{label_id}: exit_datetime missing or invalid")
+        if entry is not None and exit_dt is not None and exit_dt < entry:
+            outcome_failures.append(f"{label_id}: exit_datetime precedes entry_datetime")
+        if accessible is not None and entry is not None and accessible > entry:
+            outcome_failures.append(
+                f"{label_id}: report accessible_datetime is after outcome entry_datetime"
+            )
+        if signal is not None and entry is not None and signal > entry:
+            outcome_failures.append(
+                f"{label_id}: claim signal_datetime is after outcome entry_datetime"
+            )
+        if str(label.get("label_type") or "") == "industry_etf_proxy":
+            signal_date = _date_key(claim.get("signal_datetime"))
+            entry_date = _date_key(label.get("entry_datetime"))
+            if signal_date and entry_date and entry_date <= signal_date:
+                outcome_failures.append(
+                    f"{label_id}: industry ETF entry_datetime must be after signal date"
+                )
+            entry_lag = _int_or_none(label.get("entry_lag_trading_days"))
+            if entry_lag is None or entry_lag < INDUSTRY_ETF_ENTRY_LAG_TRADING_DAYS:
+                outcome_failures.append(
+                    f"{label_id}: industry ETF entry_lag_trading_days must be >= "
+                    f"{INDUSTRY_ETF_ENTRY_LAG_TRADING_DAYS}"
+                )
+        vintage_text = (
+            label.get("data_vintage_datetime")
+            or label.get("data_as_of_datetime")
+            or label.get("data_vintage")
+        )
+        if vintage_text:
+            vintage = _parse_pit_datetime(vintage_text)
+            if vintage is None:
+                outcome_failures.append(f"{label_id}: data vintage timestamp invalid")
+            elif exit_dt is not None and vintage > exit_dt:
+                outcome_failures.append(
+                    f"{label_id}: data vintage is after outcome exit_datetime"
+                )
+        else:
+            missing_vintage_count += 1
+    checks.append(
+        _audit_check(
+            check_id="RI-PIT-02",
+            requirement="Outcome labels must start after report access/signal and stay PIT/survivorship safe.",
+            evidence={
+                "outcome_label_rows": len(outcome_label_rows),
+                "missing_data_vintage_count": missing_vintage_count,
+                "missing_data_vintage_policy": (
+                    "allowed in shadow labels only; labels cannot become current "
+                    "tool evidence or production inputs without vintage fields"
+                ),
+            },
+            failures=outcome_failures,
+        )
+    )
+
+    profile_outcome_exit = _profile_outcome_max_exit_by_id(
+        metadata_rows=metadata_rows,
+        forecast_rows=forecast_rows,
+        outcome_label_rows=outcome_label_rows,
+    )
+    profile_failures: list[str] = []
+    nonzero_profile_count = 0
+    for index, profile in enumerate(source_performance_profile_rows, 1):
+        profile_id = str(profile.get("profile_id") or f"row-{index}")
+        profile_as_of = _parse_pit_datetime(profile.get("as_of_datetime"))
+        if profile_as_of is None:
+            profile_failures.append(f"{profile_id}: as_of_datetime missing or invalid")
+            continue
+        try:
+            n_nominal = int(profile.get("n_nominal") or 0)
+        except (TypeError, ValueError):
+            n_nominal = 0
+        if n_nominal > 0:
+            nonzero_profile_count += 1
+            max_exit = profile_outcome_exit.get(profile_id)
+            if max_exit is None:
+                profile_failures.append(
+                    f"{profile_id}: nonzero source profile missing PIT outcome exit evidence"
+                )
+            elif profile_as_of < max_exit:
+                profile_failures.append(
+                    f"{profile_id}: source profile as_of_datetime precedes outcome exit"
+                )
+            if "performance_as_of_after_outcome_exit" not in _ensure_list(
+                profile.get("methodology_notes")
+            ):
+                profile_failures.append(
+                    f"{profile_id}: methodology_notes must record outcome-exit as-of policy"
+                )
+        if latest_context_datetime is not None and profile_as_of > latest_context_datetime:
+            profile_failures.append(
+                f"{profile_id}: source profile as_of_datetime is after weighted context as_of_datetime"
+            )
+    checks.append(
+        _audit_check(
+            check_id="RI-PIT-03",
+            requirement="Source performance profiles can only use outcomes observed before the profile/context as-of time.",
+            evidence={
+                "source_profile_rows": len(source_performance_profile_rows),
+                "nonzero_source_profile_rows": nonzero_profile_count,
+                "weighted_context_rows": len(weighted_research_context_rows),
+            },
+            failures=profile_failures,
+        )
+    )
+
+    context_failures: list[str] = []
+    for context_index, context in enumerate(weighted_research_context_rows, 1):
+        context_as_of = _parse_pit_datetime(context.get("as_of_datetime"))
+        if context_as_of is None:
+            context_failures.append(
+                f"weighted_research_contexts row {context_index}: as_of_datetime missing or invalid"
+            )
+            continue
+        for claim in _ensure_list(context.get("retrieved_claims")):
+            if not isinstance(claim, Mapping):
+                continue
+            claim_id = str(claim.get("forecast_claim_id") or "")
+            source_claim = claim_by_id.get(claim_id)
+            if source_claim is None:
+                context_failures.append(f"{claim_id}: retrieved claim missing source forecast")
+                continue
+            metadata = metadata_by_source.get(str(source_claim.get("source_id") or "")) or {}
+            accessible = _parse_pit_datetime(metadata.get("accessible_datetime"))
+            signal = _parse_pit_datetime(source_claim.get("signal_datetime"))
+            if accessible is not None and accessible > context_as_of:
+                context_failures.append(
+                    f"{claim_id}: retrieved report access is after context as_of_datetime"
+                )
+            if signal is not None and signal > context_as_of:
+                context_failures.append(
+                    f"{claim_id}: retrieved claim signal is after context as_of_datetime"
+                )
+    checks.append(
+        _audit_check(
+            check_id="RI-PIT-04",
+            requirement="Weighted research contexts cannot retrieve future reports or future claims.",
+            evidence={
+                "weighted_context_rows": len(weighted_research_context_rows),
+                "retrieved_claim_rows": len(
+                    _iter_context_retrieved_claims(weighted_research_context_rows)
+                ),
+            },
+            failures=context_failures,
+        )
+    )
+
+    tool_failures: list[str] = []
+    non_pit_covered_count = 0
+    for index, coverage in enumerate(tool_coverage_match_rows, 1):
+        coverage_id = str(coverage.get("coverage_id") or f"row-{index}")
+        last_checked = _parse_pit_datetime(coverage.get("last_checked_at"))
+        if last_checked is None:
+            tool_failures.append(f"{coverage_id}: last_checked_at missing or invalid")
+        elif latest_context_datetime is not None and last_checked > latest_context_datetime:
+            tool_failures.append(
+                f"{coverage_id}: tool coverage checked after weighted context as_of_datetime"
+            )
+        status = str(coverage.get("coverage_status") or "")
+        pit_available = _ensure_mapping(coverage.get("coverage_details")).get(
+            "pit_available"
+        )
+        if status in {"exact_match", "partial_match", "proxy_available"} and pit_available is not True:
+            non_pit_covered_count += 1
+    production_recipe_count = sum(
+        1
+        for row in analysis_recipe_rows
+        if str(row.get("runtime_mode") or "") in {"paper_trading", "limited_production", "production"}
+    )
+    if non_pit_covered_count and production_recipe_count:
+        tool_failures.append(
+            "non-PIT tool coverage cannot support paper_trading or production recipes"
+        )
+    checks.append(
+        _audit_check(
+            check_id="RI-PIT-05",
+            requirement="Tool availability checks must be PIT and non-PIT tools cannot support promoted recipes.",
+            evidence={
+                "tool_coverage_match_rows": len(tool_coverage_match_rows),
+                "non_pit_covered_tool_count": non_pit_covered_count,
+                "paper_or_production_recipe_count": production_recipe_count,
+            },
+            failures=tool_failures,
+        )
+    )
+
+    recipe_failures: list[str] = []
+    recipe_by_id = {
+        str(row.get("analysis_recipe_id") or ""): row
+        for row in analysis_recipe_rows
+        if str(row.get("analysis_recipe_id") or "").strip()
+    }
+    for context_index, context in enumerate(weighted_research_context_rows, 1):
+        context_as_of = _parse_pit_datetime(context.get("as_of_datetime"))
+        if context_as_of is None:
+            continue
+        for recipe_ref in _ensure_list(context.get("available_analysis_recipes")):
+            if not isinstance(recipe_ref, Mapping):
+                continue
+            recipe_id = str(recipe_ref.get("analysis_recipe_id") or "")
+            recipe = recipe_by_id.get(recipe_id)
+            if recipe is None:
+                recipe_failures.append(
+                    f"weighted_research_contexts row {context_index}: recipe {recipe_id} missing from registry"
+                )
+                continue
+            if recipe_ref.get("runtime_mode") != recipe.get("runtime_mode"):
+                recipe_failures.append(
+                    f"weighted_research_contexts row {context_index}: recipe {recipe_id} runtime_mode mismatch"
+                )
+            if str(recipe.get("runtime_mode") or "") != "shadow_only":
+                recipe_failures.append(
+                    f"recipe {recipe_id}: runtime_mode must remain shadow_only before validation"
+                )
+    checks.append(
+        _audit_check(
+            check_id="RI-PIT-06",
+            requirement="Analysis recipe runtime_mode as_of_t must be respected by weighted contexts.",
+            evidence={
+                "analysis_recipe_rows": len(analysis_recipe_rows),
+                "weighted_context_rows": len(weighted_research_context_rows),
+            },
+            failures=recipe_failures,
+        )
+    )
+
+    flags = _ensure_mapping(feature_flags.get("flags"))
+    rollout_mode = str(feature_flags.get("rollout_mode") or "")
+    flag_failures: list[str] = []
+    if flags.get("production_use_of_weighted_reports") is True:
+        flag_failures.append("production_use_of_weighted_reports must remain false")
+    if rollout_mode not in REPORT_INTELLIGENCE_ROLLOUT_MODES:
+        flag_failures.append("rollout_mode must be recognized")
+    elif (
+        REPORT_INTELLIGENCE_ROLLOUT_MODES.index(rollout_mode)
+        > REPORT_INTELLIGENCE_ROLLOUT_MODES.index(REPORT_INTELLIGENCE_MAX_SAFE_ROLLOUT_MODE)
+    ):
+        flag_failures.append(
+            f"rollout_mode {rollout_mode} exceeds {REPORT_INTELLIGENCE_MAX_SAFE_ROLLOUT_MODE}"
+        )
+    checks.append(
+        _audit_check(
+            check_id="RI-PIT-07",
+            requirement="PIT-limited report intelligence remains shadow-only until validation and promotion gates pass.",
+            evidence={
+                "rollout_mode": rollout_mode,
+                "production_use_of_weighted_reports": flags.get(
+                    "production_use_of_weighted_reports"
+                ),
+            },
+            failures=flag_failures,
+        )
+    )
+
+    blockers = [
+        failure
+        for check in checks
+        for failure in _ensure_list(check.get("failures"))
+        if str(failure).strip()
+    ]
+    return {
+        "audit_id": "RKE-REPORT-INTELLIGENCE-PIT-LEAKAGE-AUDIT",
+        "run_id": run_id,
+        "as_of_datetime": _utc_now(),
+        "accepted": not blockers,
+        "blocker_count": len(blockers),
+        "blockers": blockers,
+        "checked_item_count": sum(
+            [
+                len(metadata_rows),
+                len(forecast_rows),
+                len(forecast_ledger_rows),
+                len(outcome_label_rows),
+                len(source_performance_profile_rows),
+                len(tool_coverage_match_rows),
+                len(analysis_recipe_rows),
+                len(weighted_research_context_rows),
+            ]
+        ),
+        "checks": checks,
+        "policy": (
+            "report intelligence is point-in-time constrained: report access, "
+            "forecast signals, outcome labels, source weights, tool coverage, and "
+            "recipe runtime modes must all be observed no later than the context "
+            "as-of time before they can influence research priors"
+        ),
+    }
+
+
+def write_report_intelligence_pit_leakage_audit(
+    registry_dir: str | Path,
+    *,
+    run_id: str = "RIR-PIT-LEAKAGE-AUDIT",
+    feature_flags: Mapping[str, Any] | None = None,
+    metadata_rows: Sequence[Mapping[str, Any]] | None = None,
+    forecast_rows: Sequence[Mapping[str, Any]] | None = None,
+    forecast_ledger_rows: Sequence[Mapping[str, Any]] | None = None,
+    outcome_label_rows: Sequence[Mapping[str, Any]] | None = None,
+    source_performance_profile_rows: Sequence[Mapping[str, Any]] | None = None,
+    tool_coverage_match_rows: Sequence[Mapping[str, Any]] | None = None,
+    analysis_recipe_rows: Sequence[Mapping[str, Any]] | None = None,
+    weighted_research_context_rows: Sequence[Mapping[str, Any]] | None = None,
+) -> dict[str, Any]:
+    registry_path = Path(registry_dir)
+    blockers: list[str] = []
+    if feature_flags is None:
+        feature_flags = _read_registry_json(
+            registry_path / "feature_flags.json",
+            label="feature_flags",
+            blockers=blockers,
+        )
+    if metadata_rows is None:
+        metadata_rows = _read_registry_jsonl(
+            registry_path / "report_metadata.jsonl",
+            label="report_metadata",
+            blockers=blockers,
+        )
+    if forecast_rows is None:
+        forecast_rows = _read_registry_jsonl(
+            registry_path / "forecast_claims.jsonl",
+            label="forecast_claims",
+            blockers=blockers,
+        )
+    if forecast_ledger_rows is None:
+        forecast_ledger_rows = _read_registry_jsonl(
+            registry_path / "report_forecast_ledger.jsonl",
+            label="report_forecast_ledger",
+            blockers=blockers,
+        )
+    if outcome_label_rows is None:
+        outcome_label_rows = _read_registry_jsonl(
+            registry_path / "report_outcome_labels.jsonl",
+            label="report_outcome_labels",
+            blockers=blockers,
+        )
+    if source_performance_profile_rows is None:
+        source_performance_profile_rows = _read_registry_jsonl(
+            registry_path / "source_performance_profiles.jsonl",
+            label="source_performance_profiles",
+            blockers=blockers,
+        )
+    if tool_coverage_match_rows is None:
+        tool_coverage_match_rows = _read_registry_jsonl(
+            registry_path / "tool_coverage_matches.jsonl",
+            label="tool_coverage_matches",
+            blockers=blockers,
+        )
+    if analysis_recipe_rows is None:
+        analysis_recipe_rows = _read_registry_jsonl(
+            registry_path / "analysis_recipes.jsonl",
+            label="analysis_recipes",
+            blockers=blockers,
+        )
+    if weighted_research_context_rows is None:
+        weighted_research_context_rows = _read_registry_jsonl(
+            registry_path / "weighted_research_contexts.jsonl",
+            label="weighted_research_contexts",
+            blockers=blockers,
+        )
+
+    audit = build_report_intelligence_pit_leakage_audit(
+        run_id=run_id,
+        feature_flags=feature_flags,
+        metadata_rows=metadata_rows,
+        forecast_rows=forecast_rows,
+        forecast_ledger_rows=forecast_ledger_rows,
+        outcome_label_rows=outcome_label_rows,
+        source_performance_profile_rows=source_performance_profile_rows,
+        tool_coverage_match_rows=tool_coverage_match_rows,
+        analysis_recipe_rows=analysis_recipe_rows,
+        weighted_research_context_rows=weighted_research_context_rows,
+        load_blockers=blockers,
+    )
+    return _write_json(registry_path / "pit_leakage_audit.json", audit)
+
+
+def _has_source_spans(row: Mapping[str, Any]) -> bool:
+    return any(str(item).strip() for item in _ensure_list(row.get("source_span_ids")))
+
+
+def _raw_data_requirements_unknown(row: Mapping[str, Any]) -> bool:
+    values = [
+        str(item).strip().lower()
+        for item in _ensure_list(row.get("raw_data_requirements"))
+        if str(item).strip()
+    ]
+    if not values:
+        return True
+    unknown_values = {"unknown", "unknown_raw_data_source", "n/a", "na", "none"}
+    return all(value in unknown_values for value in values)
+
+
+def build_report_intelligence_extraction_provenance_audit(
+    *,
+    run_id: str,
+    forecast_rows: Sequence[Mapping[str, Any]],
+    footprint_rows: Sequence[Mapping[str, Any]],
+    metric_rows: Sequence[Mapping[str, Any]],
+    forecast_ledger_rows: Sequence[Mapping[str, Any]],
+    outcome_label_rows: Sequence[Mapping[str, Any]],
+    outcome_labeling_readiness: Mapping[str, Any],
+    load_blockers: Sequence[str] = (),
+) -> dict[str, Any]:
+    checks: list[dict[str, Any]] = []
+    checks.append(
+        _audit_check(
+            check_id="RI-PROV-00",
+            requirement="Required report-intelligence provenance inputs load successfully.",
+            evidence={"load_blocker_count": len(load_blockers)},
+            failures=load_blockers,
+        )
+    )
+
+    claim_span_failures: list[str] = []
+    source_grounded_claim_count = 0
+    for index, row in enumerate(forecast_rows, 1):
+        if str(row.get("claim_provenance") or "") != "source_grounded":
+            continue
+        source_grounded_claim_count += 1
+        if not _has_source_spans(row):
+            claim_span_failures.append(
+                f"forecast_claims row {index}: source_grounded claim must cite source_span_ids"
+            )
+    checks.append(
+        _audit_check(
+            check_id="RI-PROV-01",
+            requirement="Source-grounded forecast claims must cite source span IDs.",
+            evidence={
+                "forecast_claim_rows": len(forecast_rows),
+                "source_grounded_claim_count": source_grounded_claim_count,
+            },
+            failures=claim_span_failures,
+        )
+    )
+
+    footprint_span_failures: list[str] = []
+    source_grounded_footprint_count = 0
+    grounded_indicator_count = 0
+    for index, row in enumerate(footprint_rows, 1):
+        extraction_type = str(row.get("extraction_type") or "")
+        has_spans = _has_source_spans(row)
+        if extraction_type in {"source_grounded", "mixed"}:
+            source_grounded_footprint_count += 1
+            if not has_spans:
+                footprint_span_failures.append(
+                    f"analytical_footprints row {index}: source-grounded footprint must cite source_span_ids"
+                )
+        for mention_index, mention in enumerate(
+            _ensure_list(row.get("indicator_mentions")),
+            1,
+        ):
+            if not isinstance(mention, Mapping):
+                footprint_span_failures.append(
+                    f"analytical_footprints row {index}.indicator_mentions[{mention_index}]: expected object"
+                )
+                continue
+            if mention.get("source_grounded") is True:
+                grounded_indicator_count += 1
+                if not has_spans:
+                    footprint_span_failures.append(
+                        f"analytical_footprints row {index}.indicator_mentions[{mention_index}]: source_grounded requires footprint spans"
+                    )
+    checks.append(
+        _audit_check(
+            check_id="RI-PROV-02",
+            requirement="Source-grounded analytical footprints and indicators must cite spans, tables, or charts.",
+            evidence={
+                "analytical_footprint_rows": len(footprint_rows),
+                "source_grounded_or_mixed_footprint_count": source_grounded_footprint_count,
+                "source_grounded_indicator_count": grounded_indicator_count,
+            },
+            failures=footprint_span_failures,
+        )
+    )
+
+    inferred_failures: list[str] = []
+    accepted_claim_provenance = {
+        "source_grounded",
+        "analyst_or_llm_hypothesis",
+        "inferred_hypothesis",
+        "unknown",
+    }
+    accepted_failure_mode_provenance = {
+        "source_grounded",
+        "analyst_or_llm_hypothesis",
+        "inferred_hypothesis",
+    }
+    accepted_footprint_types = {"source_grounded", "mixed", "inferred_hypothesis"}
+    inferred_failure_mode_count = 0
+    inferred_indicator_count = 0
+    for index, row in enumerate(forecast_rows, 1):
+        claim_provenance = str(row.get("claim_provenance") or "unknown")
+        if claim_provenance not in accepted_claim_provenance:
+            inferred_failures.append(
+                f"forecast_claims row {index}: unsupported claim_provenance {claim_provenance}"
+            )
+        for mode_index, mode in enumerate(_ensure_list(row.get("failure_modes")), 1):
+            if not isinstance(mode, Mapping):
+                inferred_failures.append(
+                    f"forecast_claims row {index}.failure_modes[{mode_index}]: expected object"
+                )
+                continue
+            provenance = str(mode.get("provenance") or "")
+            if provenance not in accepted_failure_mode_provenance:
+                inferred_failures.append(
+                    f"forecast_claims row {index}.failure_modes[{mode_index}]: unsupported provenance"
+                )
+            if provenance in {"analyst_or_llm_hypothesis", "inferred_hypothesis"}:
+                inferred_failure_mode_count += 1
+    for index, row in enumerate(footprint_rows, 1):
+        extraction_type = str(row.get("extraction_type") or "")
+        if extraction_type not in accepted_footprint_types:
+            inferred_failures.append(
+                f"analytical_footprints row {index}: unsupported extraction_type {extraction_type}"
+            )
+        for mention_index, mention in enumerate(
+            _ensure_list(row.get("indicator_mentions")),
+            1,
+        ):
+            if not isinstance(mention, Mapping):
+                continue
+            if not isinstance(mention.get("source_grounded"), bool):
+                inferred_failures.append(
+                    f"analytical_footprints row {index}.indicator_mentions[{mention_index}]: source_grounded must be boolean"
+                )
+            elif mention.get("source_grounded") is False:
+                inferred_indicator_count += 1
+    checks.append(
+        _audit_check(
+            check_id="RI-PROV-03",
+            requirement="LLM-inferred claims, failure modes, and indicator steps must be explicitly tagged as inferred or hypothesis.",
+            evidence={
+                "inferred_failure_mode_count": inferred_failure_mode_count,
+                "inferred_indicator_count": inferred_indicator_count,
+                "accepted_inferred_tags": [
+                    "analyst_or_llm_hypothesis",
+                    "inferred_hypothesis",
+                ],
+            },
+            failures=inferred_failures,
+        )
+    )
+
+    scoring_failures: list[str] = []
+    claim_by_id = {
+        str(row.get("forecast_claim_id") or ""): row
+        for row in forecast_rows
+        if str(row.get("forecast_claim_id") or "").strip()
+    }
+    standard_outcome_claim_ids = {
+        str(row.get("forecast_claim_id") or "")
+        for row in outcome_label_rows
+        if str(row.get("forecast_claim_id") or "").strip()
+        and row.get("label_type") != "industry_etf_proxy"
+    }
+    invalid_industry_proxy_labels: list[str] = []
+    industry_proxy_outcome_claim_ids: set[str] = set()
+    for index, row in enumerate(outcome_label_rows, 1):
+        if row.get("label_type") != "industry_etf_proxy":
+            continue
+        claim_id = str(row.get("forecast_claim_id") or "")
+        if claim_id:
+            industry_proxy_outcome_claim_ids.add(claim_id)
+        if row.get("outcome_label_source") != INDUSTRY_ETF_OUTCOME_LABEL_SOURCE:
+            invalid_industry_proxy_labels.append(
+                f"report_outcome_labels row {index}: industry ETF proxy label must use {INDUSTRY_ETF_OUTCOME_LABEL_SOURCE}"
+            )
+        if row.get("llm_outcome_labeling_allowed") is not False:
+            invalid_industry_proxy_labels.append(
+                f"report_outcome_labels row {index}: industry ETF proxy label must set llm_outcome_labeling_allowed=false"
+            )
+        if row.get("decision_basis") != INDUSTRY_ETF_DECISION_BASIS:
+            invalid_industry_proxy_labels.append(
+                f"report_outcome_labels row {index}: industry ETF proxy label must use {INDUSTRY_ETF_DECISION_BASIS}"
+            )
+    scoring_failures.extend(invalid_industry_proxy_labels)
+    ready_count = 0
+    standard_blocked_count = 0
+    unlabelable_count = 0
+    for index, ledger in enumerate(forecast_ledger_rows, 1):
+        claim_id = str(ledger.get("forecast_claim_id") or "")
+        claim = claim_by_id.get(claim_id)
+        if claim is None:
+            scoring_failures.append(
+                f"report_forecast_ledger row {index}: forecast_claim_id not found"
+            )
+            continue
+        ready = (
+            str(claim.get("forecast_testability") or "") == "testable"
+            and not _forecast_mapping_gaps(claim)
+        )
+        test_status = str(ledger.get("test_status") or "")
+        if ready:
+            ready_count += 1
+            if test_status != "ready_for_outcome_labeling":
+                scoring_failures.append(
+                    f"report_forecast_ledger row {index}: testable mapped forecast must be ready"
+                )
+        else:
+            standard_blocked_count += 1
+            if test_status == "ready_for_outcome_labeling":
+                scoring_failures.append(
+                    f"report_forecast_ledger row {index}: unmapped forecast cannot be outcome-ready"
+                )
+            if claim_id in standard_outcome_claim_ids:
+                scoring_failures.append(
+                    f"{claim_id}: unmapped or non-testable forecast entered outcome scoring"
+                )
+            if claim_id not in industry_proxy_outcome_claim_ids:
+                unlabelable_count += 1
+    if outcome_labeling_readiness:
+        if outcome_labeling_readiness.get("ready_for_outcome_labeling_count") != ready_count:
+            scoring_failures.append("outcome_labeling_readiness ready count mismatch")
+        if (
+            outcome_labeling_readiness.get("standard_blocked_count")
+            != standard_blocked_count
+        ):
+            scoring_failures.append(
+                "outcome_labeling_readiness standard blocked count mismatch"
+            )
+        if outcome_labeling_readiness.get("blocked_count") != unlabelable_count:
+            scoring_failures.append("outcome_labeling_readiness blocked count mismatch")
+    checks.append(
+        _audit_check(
+            check_id="RI-PROV-04",
+            requirement=(
+                "Forecasts missing target, benchmark, direction, or horizon cannot "
+                "enter standard outcome scoring; governed industry ETF proxy labels "
+                "remain a separate evidence channel."
+            ),
+            evidence={
+                "forecast_ledger_rows": len(forecast_ledger_rows),
+                "ready_for_outcome_labeling_count": ready_count,
+                "standard_blocked_forecast_count": standard_blocked_count,
+                "unlabelable_forecast_count": unlabelable_count,
+                "outcome_label_rows": len(outcome_label_rows),
+                "industry_etf_proxy_outcome_claim_count": len(
+                    industry_proxy_outcome_claim_ids
+                ),
+            },
+            failures=scoring_failures,
+        )
+    )
+
+    metric_failures: list[str] = []
+    unknown_raw_source_count = 0
+    promoted_unknown_count = 0
+    production_metric_statuses = {
+        "production",
+        "production_metric",
+        "production_candidate",
+        "paper_trading",
+        "limited_production",
+    }
+    for index, row in enumerate(metric_rows, 1):
+        unknown_raw = _raw_data_requirements_unknown(row)
+        status = str(row.get("status") or "")
+        priority = str(row.get("priority_bucket") or "")
+        if unknown_raw:
+            unknown_raw_source_count += 1
+        promoted = status in production_metric_statuses or priority in {
+            "production",
+            "paper_trading",
+        }
+        if unknown_raw and promoted:
+            promoted_unknown_count += 1
+            metric_failures.append(
+                f"metric_candidates row {index}: unknown raw data source cannot be promoted"
+            )
+    checks.append(
+        _audit_check(
+            check_id="RI-PROV-05",
+            requirement="Footprint-derived metrics with unknown raw data source cannot be promoted to production candidates.",
+            evidence={
+                "metric_candidate_rows": len(metric_rows),
+                "unknown_raw_source_metric_count": unknown_raw_source_count,
+                "promoted_unknown_raw_source_metric_count": promoted_unknown_count,
+            },
+            failures=metric_failures,
+        )
+    )
+
+    blockers = [
+        failure
+        for check in checks
+        for failure in _ensure_list(check.get("failures"))
+        if str(failure).strip()
+    ]
+    return {
+        "audit_id": "RKE-REPORT-INTELLIGENCE-EXTRACTION-PROVENANCE-AUDIT",
+        "run_id": run_id,
+        "as_of_datetime": _utc_now(),
+        "accepted": not blockers,
+        "blocker_count": len(blockers),
+        "blockers": blockers,
+        "checked_item_count": sum(
+            [
+                len(forecast_rows),
+                len(footprint_rows),
+                len(metric_rows),
+                len(forecast_ledger_rows),
+                len(outcome_label_rows),
+            ]
+        ),
+        "checks": checks,
+        "policy": (
+            "source-grounded forecast claims and analytical footprints must cite "
+            "spans; inferred fields must stay tagged as hypotheses; unmapped "
+            "forecasts and unknown-source metrics cannot be scored or promoted"
+        ),
+    }
+
+
+def write_report_intelligence_extraction_provenance_audit(
+    registry_dir: str | Path,
+    *,
+    run_id: str = "RIR-EXTRACTION-PROVENANCE-AUDIT",
+    forecast_rows: Sequence[Mapping[str, Any]] | None = None,
+    footprint_rows: Sequence[Mapping[str, Any]] | None = None,
+    metric_rows: Sequence[Mapping[str, Any]] | None = None,
+    forecast_ledger_rows: Sequence[Mapping[str, Any]] | None = None,
+    outcome_label_rows: Sequence[Mapping[str, Any]] | None = None,
+    outcome_labeling_readiness: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    registry_path = Path(registry_dir)
+    blockers: list[str] = []
+    if forecast_rows is None:
+        forecast_rows = _read_registry_jsonl(
+            registry_path / "forecast_claims.jsonl",
+            label="forecast_claims",
+            blockers=blockers,
+        )
+    if footprint_rows is None:
+        footprint_rows = _read_registry_jsonl(
+            registry_path / "analytical_footprints.jsonl",
+            label="analytical_footprints",
+            blockers=blockers,
+        )
+    if metric_rows is None:
+        metric_rows = _read_registry_jsonl(
+            registry_path / "metric_candidates.jsonl",
+            label="metric_candidates",
+            blockers=blockers,
+        )
+    if forecast_ledger_rows is None:
+        forecast_ledger_rows = _read_registry_jsonl(
+            registry_path / "report_forecast_ledger.jsonl",
+            label="report_forecast_ledger",
+            blockers=blockers,
+        )
+    if outcome_label_rows is None:
+        outcome_label_rows = _read_registry_jsonl(
+            registry_path / "report_outcome_labels.jsonl",
+            label="report_outcome_labels",
+            blockers=blockers,
+        )
+    if outcome_labeling_readiness is None:
+        outcome_labeling_readiness = _read_registry_json(
+            registry_path / "outcome_labeling_readiness.json",
+            label="outcome_labeling_readiness",
+            blockers=blockers,
+        )
+    audit = build_report_intelligence_extraction_provenance_audit(
+        run_id=run_id,
+        forecast_rows=forecast_rows,
+        footprint_rows=footprint_rows,
+        metric_rows=metric_rows,
+        forecast_ledger_rows=forecast_ledger_rows,
+        outcome_label_rows=outcome_label_rows,
+        outcome_labeling_readiness=outcome_labeling_readiness,
+        load_blockers=blockers,
+    )
+    return _write_json(registry_path / "extraction_provenance_audit.json", audit)
+
+
+def _profile_weight_field(row: Mapping[str, Any]) -> str:
+    if "viewpoint_weight_multiplier" in row:
+        return "viewpoint_weight_multiplier"
+    return "weight_multiplier"
+
+
+def _non_neutral_weight(value: Any) -> bool:
+    parsed = _float_or_none(value)
+    return parsed is not None and abs(parsed - 1.0) > 1e-9
+
+
+def build_report_intelligence_statistical_robustness_audit(
+    *,
+    run_id: str,
+    feature_flags: Mapping[str, Any],
+    forecast_ledger_rows: Sequence[Mapping[str, Any]],
+    outcome_label_rows: Sequence[Mapping[str, Any]],
+    source_performance_profile_rows: Sequence[Mapping[str, Any]],
+    viewpoint_performance_profile_rows: Sequence[Mapping[str, Any]],
+    method_performance_profile_rows: Sequence[Mapping[str, Any]],
+    weighted_research_context_rows: Sequence[Mapping[str, Any]],
+    load_blockers: Sequence[str] = (),
+) -> dict[str, Any]:
+    checks: list[dict[str, Any]] = []
+    checks.append(
+        _audit_check(
+            check_id="RI-STAT-00",
+            requirement="Required report-intelligence statistical inputs load successfully.",
+            evidence={"load_blocker_count": len(load_blockers)},
+            failures=load_blockers,
+        )
+    )
+
+    flags = _ensure_mapping(feature_flags.get("flags"))
+    rollout_mode = str(feature_flags.get("rollout_mode") or "")
+    rollout_index = (
+        REPORT_INTELLIGENCE_ROLLOUT_MODES.index(rollout_mode)
+        if rollout_mode in REPORT_INTELLIGENCE_ROLLOUT_MODES
+        else -1
+    )
+    max_safe_index = REPORT_INTELLIGENCE_ROLLOUT_MODES.index(
+        REPORT_INTELLIGENCE_MAX_SAFE_ROLLOUT_MODE
+    )
+    promoted_runtime = (
+        flags.get("production_use_of_weighted_reports") is True
+        or rollout_index > max_safe_index
+    )
+
+    label_failures: list[str] = []
+    industry_proxy_label_count = 0
+    for index, label in enumerate(outcome_label_rows, 1):
+        label_id = str(label.get("outcome_id") or f"row-{index}")
+        weight = _float_or_none(label.get("effective_n_weight"))
+        if weight is None or weight <= 0.0 or weight > 1.0:
+            label_failures.append(
+                f"{label_id}: effective_n_weight must be in (0, 1]"
+            )
+        if _float_or_none(label.get("after_cost_alpha")) is None:
+            label_failures.append(f"{label_id}: after_cost_alpha must be numeric")
+        for required_field in ("forecast_family_id", "overlap_group_id"):
+            if not str(label.get(required_field) or "").strip():
+                label_failures.append(f"{label_id}: {required_field} required")
+
+        if label.get("label_type") != "industry_etf_proxy":
+            continue
+        industry_proxy_label_count += 1
+        for required_field in (
+            "proxy_symbol",
+            "benchmark_symbol",
+            "proxy_return",
+            "benchmark_return",
+            "relative_alpha",
+            "directional_proxy_return",
+            "directional_after_cost_return",
+            "decision_basis",
+            "outcome_label_source",
+            "llm_outcome_labeling_allowed",
+            "evaluation_policy",
+            "window_role",
+        ):
+            if required_field not in label:
+                label_failures.append(
+                    f"{label_id}: industry ETF proxy label missing {required_field}"
+                )
+        if label.get("decision_basis") != INDUSTRY_ETF_DECISION_BASIS:
+            label_failures.append(
+                f"{label_id}: decision_basis must be {INDUSTRY_ETF_DECISION_BASIS}"
+            )
+        if label.get("outcome_label_source") != INDUSTRY_ETF_OUTCOME_LABEL_SOURCE:
+            label_failures.append(
+                f"{label_id}: outcome_label_source must be {INDUSTRY_ETF_OUTCOME_LABEL_SOURCE}"
+            )
+        if label.get("llm_outcome_labeling_allowed") is not False:
+            label_failures.append(
+                f"{label_id}: LLM outcome labeling must be explicitly disabled"
+            )
+        if label.get("evaluation_policy") != INDUSTRY_ETF_EVALUATION_POLICY:
+            label_failures.append(
+                f"{label_id}: evaluation_policy must retain long-horizon evidence"
+            )
+        if label.get("performance_value_basis") != "directional_after_cost_return":
+            label_failures.append(
+                f"{label_id}: performance_value_basis must use directional after-cost return"
+            )
+        proxy_return = _float_or_none(label.get("proxy_return"))
+        relative_alpha = _float_or_none(label.get("relative_alpha"))
+        direction = str(label.get("direction_evaluated") or "")
+        if direction == "positive" and proxy_return is not None:
+            if label.get("directional_hit") is not bool(proxy_return > 0.0):
+                label_failures.append(
+                    f"{label_id}: positive claim directional_hit must follow proxy_return"
+                )
+            if relative_alpha is not None and label.get(
+                "relative_directional_hit"
+            ) is not bool(relative_alpha > 0.0):
+                label_failures.append(
+                    f"{label_id}: positive claim relative_directional_hit must follow relative_alpha"
+                )
+        elif direction == "negative" and proxy_return is not None:
+            if label.get("directional_hit") is not bool(proxy_return < 0.0):
+                label_failures.append(
+                    f"{label_id}: negative claim directional_hit must follow proxy_return"
+                )
+            if relative_alpha is not None and label.get(
+                "relative_directional_hit"
+            ) is not bool(relative_alpha < 0.0):
+                label_failures.append(
+                    f"{label_id}: negative claim relative_directional_hit must follow relative_alpha"
+                )
+        else:
+            label_failures.append(
+                f"{label_id}: direction_evaluated must be positive or negative"
+            )
+    checks.append(
+        _audit_check(
+            check_id="RI-STAT-01",
+            requirement=(
+                "Outcome labels must be rule-based after-cost observations; industry "
+                "research labels are judged from mapped industry ETF returns, not LLM opinion."
+            ),
+            evidence={
+                "outcome_label_rows": len(outcome_label_rows),
+                "industry_etf_proxy_label_rows": industry_proxy_label_count,
+                "decision_basis": INDUSTRY_ETF_DECISION_BASIS,
+                "outcome_label_source": INDUSTRY_ETF_OUTCOME_LABEL_SOURCE,
+                "llm_outcome_labeling_allowed": False,
+            },
+            failures=label_failures,
+        )
+    )
+
+    profile_failures: list[str] = []
+    non_neutral_profile_count = 0
+    insufficient_profile_count = 0
+    all_profile_rows = [
+        *source_performance_profile_rows,
+        *viewpoint_performance_profile_rows,
+    ]
+    for index, profile in enumerate(all_profile_rows, 1):
+        profile_id = str(
+            profile.get("profile_id")
+            or profile.get("viewpoint_profile_id")
+            or f"row-{index}"
+        )
+        n_effective = _float_or_none(profile.get("n_effective")) or 0.0
+        weight_field = _profile_weight_field(profile)
+        multiplier = _float_or_none(profile.get(weight_field))
+        if multiplier is None:
+            profile_failures.append(f"{profile_id}: {weight_field} must be numeric")
+            multiplier = 1.0
+        non_neutral = abs(multiplier - 1.0) > 1e-9
+        if non_neutral:
+            non_neutral_profile_count += 1
+        if n_effective < 3.0:
+            insufficient_profile_count += 1
+            if profile.get("insufficient_data") is not True:
+                profile_failures.append(
+                    f"{profile_id}: n_effective < 3 must be marked insufficient_data"
+                )
+            if (
+                str(profile.get("statistical_reliability_bucket") or "insufficient_data")
+                != "insufficient_data"
+            ):
+                profile_failures.append(
+                    f"{profile_id}: n_effective < 3 must keep insufficient reliability bucket"
+                )
+            if non_neutral:
+                profile_failures.append(
+                    f"{profile_id}: insufficient effective N cannot change weights"
+                )
+        elif non_neutral:
+            notes = _ensure_list(profile.get("methodology_notes"))
+            for note in (
+                "effective_n_weight_overlap_adjusted",
+                "neutral_prior_shrinkage_applied",
+                "research_prior_only_not_signal",
+            ):
+                if note not in notes:
+                    profile_failures.append(
+                        f"{profile_id}: non-neutral profile missing methodology note {note}"
+                    )
+    for index, profile in enumerate(method_performance_profile_rows, 1):
+        profile_id = str(profile.get("method_profile_id") or f"method-row-{index}")
+        source_support = _ensure_mapping(profile.get("source_support"))
+        n_effective_reports = _float_or_none(
+            source_support.get("n_effective_reports")
+        ) or 0.0
+        if n_effective_reports < 3.0 and profile.get("insufficient_data") is not True:
+            profile_failures.append(
+                f"{profile_id}: method profile with n_effective_reports < 3 must remain insufficient"
+            )
+        if profile.get("allowed_runtime_mode") != "shadow_only":
+            profile_failures.append(
+                f"{profile_id}: method profile allowed_runtime_mode must be shadow_only"
+            )
+        if str(profile.get("validation_status") or "") not in {
+            "candidate",
+            "shadow_validated",
+        }:
+            profile_failures.append(
+                f"{profile_id}: method profile validation_status must stay pre-promotion"
+            )
+    checks.append(
+        _audit_check(
+            check_id="RI-STAT-02",
+            requirement=(
+                "Source, viewpoint, and method weights require minimum effective N; "
+                "insufficient samples stay neutral and shrink toward the parent prior."
+            ),
+            evidence={
+                "source_profile_rows": len(source_performance_profile_rows),
+                "viewpoint_profile_rows": len(viewpoint_performance_profile_rows),
+                "method_profile_rows": len(method_performance_profile_rows),
+                "minimum_non_neutral_effective_n": 3,
+                "insufficient_profile_count": insufficient_profile_count,
+                "non_neutral_profile_count": non_neutral_profile_count,
+            },
+            failures=profile_failures,
+        )
+    )
+
+    overlap_failures: list[str] = []
+    grouped_labels: dict[str, list[Mapping[str, Any]]] = {}
+    for label in outcome_label_rows:
+        group_id = (
+            str(label.get("claim_window_set_id") or "").strip()
+            or "|".join(
+                [
+                    str(label.get("forecast_claim_id") or ""),
+                    str(label.get("label_type") or ""),
+                    str(label.get("entry_datetime") or ""),
+                ]
+            )
+        )
+        grouped_labels.setdefault(group_id, []).append(label)
+    complete_window_set_count = 0
+    for group_id, labels in grouped_labels.items():
+        total_weight = sum(_float_or_none(label.get("effective_n_weight")) or 0.0 for label in labels)
+        if total_weight > 1.000001:
+            overlap_failures.append(
+                f"{group_id}: overlapping horizon effective_n_weight sum exceeds 1"
+            )
+        if not any(label.get("label_type") == "industry_etf_proxy" for label in labels):
+            continue
+        roles = {str(label.get("window_role") or "") for label in labels}
+        if roles == {"short", "medium", "long"}:
+            complete_window_set_count += 1
+            if abs(total_weight - 1.0) > 0.000001:
+                overlap_failures.append(
+                    f"{group_id}: complete ETF proxy window set must sum to effective N 1"
+                )
+        for label in labels:
+            role = str(label.get("window_role") or "")
+            if role not in INDUSTRY_ETF_PROXY_WINDOW_EFFECTIVE_WEIGHTS:
+                continue
+            expected_weight = INDUSTRY_ETF_PROXY_WINDOW_EFFECTIVE_WEIGHTS[role]
+            actual_weight = _float_or_none(label.get("effective_n_weight"))
+            if actual_weight is None or abs(actual_weight - expected_weight) > 0.000001:
+                overlap_failures.append(
+                    f"{label.get('outcome_id')}: {role} window effective_n_weight must be {expected_weight}"
+                )
+    checks.append(
+        _audit_check(
+            check_id="RI-STAT-03",
+            requirement=(
+                "Overlapping 20/60/120 day ETF windows are retained as separate "
+                "evidence but downweighted so one report cannot count as three independent samples."
+            ),
+            evidence={
+                "outcome_window_set_count": len(grouped_labels),
+                "complete_industry_etf_window_set_count": complete_window_set_count,
+                "window_effective_weights": dict(
+                    INDUSTRY_ETF_PROXY_WINDOW_EFFECTIVE_WEIGHTS
+                ),
+            },
+            failures=overlap_failures,
+        )
+    )
+
+    ledger_failures: list[str] = []
+    ledger_by_claim_id = {
+        str(row.get("forecast_claim_id") or ""): row
+        for row in forecast_ledger_rows
+        if str(row.get("forecast_claim_id") or "").strip()
+    }
+    for index, row in enumerate(forecast_ledger_rows, 1):
+        for field in (
+            "forecast_family_id",
+            "dedup_cluster_id",
+            "consensus_cluster_id",
+            "copying_risk_bucket",
+        ):
+            if not str(row.get(field) or "").strip():
+                ledger_failures.append(
+                    f"report_forecast_ledger row {index}: {field} required"
+                )
+        if "independent_viewpoint_count" not in row:
+            ledger_failures.append(
+                f"report_forecast_ledger row {index}: independent_viewpoint_count field required"
+            )
+    for index, label in enumerate(outcome_label_rows, 1):
+        claim_id = str(label.get("forecast_claim_id") or "")
+        ledger = ledger_by_claim_id.get(claim_id)
+        label_id = str(label.get("outcome_id") or f"row-{index}")
+        if ledger is None:
+            ledger_failures.append(f"{label_id}: forecast ledger row missing")
+            continue
+        if label.get("forecast_family_id") != ledger.get("forecast_family_id"):
+            ledger_failures.append(
+                f"{label_id}: forecast_family_id must match forecast ledger"
+            )
+    retrieved_claims = _iter_context_retrieved_claims(weighted_research_context_rows)
+    for index, claim in enumerate(retrieved_claims, 1):
+        for field in ("forecast_family_id", "dedup_cluster_id", "consensus_cluster_id"):
+            if not str(claim.get(field) or "").strip():
+                ledger_failures.append(
+                    f"retrieved_claims row {index}: {field} required"
+                )
+        if (
+            claim.get("independent_confirmation_policy")
+            != "consensus_cluster_not_independent_confirmation"
+        ):
+            ledger_failures.append(
+                f"retrieved_claims row {index}: consensus cluster must not be counted as independent confirmation"
+            )
+    checks.append(
+        _audit_check(
+            check_id="RI-STAT-04",
+            requirement=(
+                "Forecast family IDs define multiple-testing families and consensus/dedup "
+                "clusters prevent copied or correlated research from inflating evidence."
+            ),
+            evidence={
+                "forecast_ledger_rows": len(forecast_ledger_rows),
+                "multiple_testing_family_count": len(
+                    {
+                        str(row.get("forecast_family_id") or "")
+                        for row in forecast_ledger_rows
+                        if str(row.get("forecast_family_id") or "").strip()
+                    }
+                ),
+                "consensus_cluster_count": len(
+                    {
+                        str(row.get("consensus_cluster_id") or "")
+                        for row in forecast_ledger_rows
+                        if str(row.get("consensus_cluster_id") or "").strip()
+                    }
+                ),
+                "retrieved_claim_rows": len(retrieved_claims),
+            },
+            failures=ledger_failures,
+        )
+    )
+
+    calibration_failures: list[str] = []
+    calibration_unavailable_profile_count = 0
+    for index, profile in enumerate(all_profile_rows, 1):
+        profile_id = str(
+            profile.get("profile_id")
+            or profile.get("viewpoint_profile_id")
+            or f"row-{index}"
+        )
+        calibration = profile.get("calibration_error")
+        if calibration is None:
+            calibration_unavailable_profile_count += 1
+            if promoted_runtime:
+                calibration_failures.append(
+                    f"{profile_id}: calibration_error required before promoted runtime"
+                )
+        elif _float_or_none(calibration) is None:
+            calibration_failures.append(
+                f"{profile_id}: calibration_error must be numeric or null"
+            )
+    for index, label in enumerate(outcome_label_rows, 1):
+        label_id = str(label.get("outcome_id") or f"row-{index}")
+        if _float_or_none(label.get("after_cost_alpha")) is None:
+            calibration_failures.append(f"{label_id}: after_cost_alpha missing")
+        if (
+            label.get("performance_value_basis") == "directional_after_cost_return"
+            and _float_or_none(label.get("directional_after_cost_return")) is None
+        ):
+            calibration_failures.append(
+                f"{label_id}: directional_after_cost_return missing"
+            )
+    checks.append(
+        _audit_check(
+            check_id="RI-STAT-05",
+            requirement=(
+                "Scored outcomes and profile weights use after-cost metrics; missing "
+                "calibration metrics are allowed only while report intelligence remains shadow-only."
+            ),
+            evidence={
+                "outcome_label_rows": len(outcome_label_rows),
+                "calibration_unavailable_profile_count": calibration_unavailable_profile_count,
+                "rollout_mode": rollout_mode,
+                "production_use_of_weighted_reports": flags.get(
+                    "production_use_of_weighted_reports"
+                ),
+            },
+            failures=calibration_failures,
+        )
+    )
+
+    temporal_failures: list[str] = []
+    temporal_summary_count = 0
+    short_miss_long_hit_count = 0
+    for group_id, labels in grouped_labels.items():
+        if not any(label.get("label_type") == "industry_etf_proxy" for label in labels):
+            continue
+        summaries = [
+            _ensure_mapping(label.get("temporal_validation_summary"))
+            for label in labels
+        ]
+        for label, summary in zip(labels, summaries):
+            if not summary:
+                temporal_failures.append(
+                    f"{label.get('outcome_id')}: temporal_validation_summary required"
+                )
+                continue
+            temporal_summary_count += 1
+            if (
+                summary.get("window_evidence_policy")
+                != "do_not_collapse_multi_window_outcome_to_single_label"
+            ):
+                temporal_failures.append(
+                    f"{label.get('outcome_id')}: window evidence must not be collapsed"
+                )
+        long_hits = [
+            label
+            for label in labels
+            if label.get("window_role") == "long" and label.get("directional_hit") is True
+        ]
+        misses = [label for label in labels if label.get("directional_hit") is False]
+        if long_hits and misses:
+            short_miss_long_hit_count += 1
+            if not all(
+                _ensure_mapping(label.get("temporal_validation_summary")).get(
+                    "long_window_hit_retained"
+                )
+                is True
+                for label in labels
+            ):
+                temporal_failures.append(
+                    f"{group_id}: long-window hit must be retained when shorter windows miss"
+                )
+    checks.append(
+        _audit_check(
+            check_id="RI-STAT-06",
+            requirement=(
+                "Industry ETF proxy validation preserves temporal evidence: a long-horizon "
+                "correct report is retained even if shorter windows miss."
+            ),
+            evidence={
+                "industry_etf_window_set_count": sum(
+                    1
+                    for labels in grouped_labels.values()
+                    if any(label.get("label_type") == "industry_etf_proxy" for label in labels)
+                ),
+                "temporal_summary_count": temporal_summary_count,
+                "short_miss_long_hit_window_set_count": short_miss_long_hit_count,
+            },
+            failures=temporal_failures,
+        )
+    )
+
+    promotion_failures: list[str] = []
+    non_neutral_retrieved_claim_count = 0
+    for index, claim in enumerate(retrieved_claims, 1):
+        non_neutral = _non_neutral_weight(claim.get("combined_research_prior_weight"))
+        if non_neutral:
+            non_neutral_retrieved_claim_count += 1
+        if non_neutral and claim.get("performance_context_match") not in {
+            "source_profile_match",
+            "viewpoint_profile_match",
+            "source_and_viewpoint_profile_match",
+        }:
+            promotion_failures.append(
+                f"retrieved_claims row {index}: non-neutral weight requires matched performance context"
+            )
+        if non_neutral and claim.get("current_data_required") is not True:
+            promotion_failures.append(
+                f"retrieved_claims row {index}: non-neutral research prior still requires current data"
+            )
+    if promoted_runtime:
+        promotion_failures.append(
+            "statistical robustness audit allows report intelligence only through shadow tooling"
+        )
+    checks.append(
+        _audit_check(
+            check_id="RI-STAT-07",
+            requirement=(
+                "Non-neutral report-derived priors remain shadow research context and "
+                "cannot be promoted without FDR/reality-check, calibration, current data, "
+                "paper trading, and promotion gates."
+            ),
+            evidence={
+                "non_neutral_retrieved_claim_count": non_neutral_retrieved_claim_count,
+                "rollout_mode": rollout_mode,
+                "fdr_or_reality_check_status": "deferred_until_paper_trading_or_production_candidate",
+            },
+            failures=promotion_failures,
+        )
+    )
+
+    blockers = [
+        failure
+        for check in checks
+        for failure in _ensure_list(check.get("failures"))
+        if str(failure).strip()
+    ]
+    return {
+        "audit_id": "RKE-REPORT-INTELLIGENCE-STATISTICAL-ROBUSTNESS-AUDIT",
+        "run_id": run_id,
+        "as_of_datetime": _utc_now(),
+        "accepted": not blockers,
+        "blocker_count": len(blockers),
+        "blockers": blockers,
+        "checked_item_count": sum(
+            [
+                len(forecast_ledger_rows),
+                len(outcome_label_rows),
+                len(source_performance_profile_rows),
+                len(viewpoint_performance_profile_rows),
+                len(method_performance_profile_rows),
+                len(weighted_research_context_rows),
+            ]
+        ),
+        "checks": checks,
+        "policy": (
+            "report intelligence statistical evidence must be PIT, after-cost, "
+            "overlap-adjusted, grouped by forecast family, deduplicated by consensus "
+            "clusters, and kept shadow-only until effective-N, multiple-testing, "
+            "calibration, paper-trading, and promotion gates pass"
+        ),
+    }
+
+
+def write_report_intelligence_statistical_robustness_audit(
+    registry_dir: str | Path,
+    *,
+    run_id: str = "RIR-STATISTICAL-ROBUSTNESS-AUDIT",
+    feature_flags: Mapping[str, Any] | None = None,
+    forecast_ledger_rows: Sequence[Mapping[str, Any]] | None = None,
+    outcome_label_rows: Sequence[Mapping[str, Any]] | None = None,
+    source_performance_profile_rows: Sequence[Mapping[str, Any]] | None = None,
+    viewpoint_performance_profile_rows: Sequence[Mapping[str, Any]] | None = None,
+    method_performance_profile_rows: Sequence[Mapping[str, Any]] | None = None,
+    weighted_research_context_rows: Sequence[Mapping[str, Any]] | None = None,
+) -> dict[str, Any]:
+    registry_path = Path(registry_dir)
+    blockers: list[str] = []
+    if feature_flags is None:
+        feature_flags = _read_registry_json(
+            registry_path / "feature_flags.json",
+            label="feature_flags",
+            blockers=blockers,
+        )
+    if forecast_ledger_rows is None:
+        forecast_ledger_rows = _read_registry_jsonl(
+            registry_path / "report_forecast_ledger.jsonl",
+            label="report_forecast_ledger",
+            blockers=blockers,
+        )
+    if outcome_label_rows is None:
+        outcome_label_rows = _read_registry_jsonl(
+            registry_path / "report_outcome_labels.jsonl",
+            label="report_outcome_labels",
+            blockers=blockers,
+        )
+    if source_performance_profile_rows is None:
+        source_performance_profile_rows = _read_registry_jsonl(
+            registry_path / "source_performance_profiles.jsonl",
+            label="source_performance_profiles",
+            blockers=blockers,
+        )
+    if viewpoint_performance_profile_rows is None:
+        viewpoint_performance_profile_rows = _read_registry_jsonl(
+            registry_path / "viewpoint_performance_profiles.jsonl",
+            label="viewpoint_performance_profiles",
+            blockers=blockers,
+        )
+    if method_performance_profile_rows is None:
+        method_performance_profile_rows = _read_registry_jsonl(
+            registry_path / "method_performance_profiles.jsonl",
+            label="method_performance_profiles",
+            blockers=blockers,
+        )
+    if weighted_research_context_rows is None:
+        weighted_research_context_rows = _read_registry_jsonl(
+            registry_path / "weighted_research_contexts.jsonl",
+            label="weighted_research_contexts",
+            blockers=blockers,
+        )
+    audit = build_report_intelligence_statistical_robustness_audit(
+        run_id=run_id,
+        feature_flags=feature_flags,
+        forecast_ledger_rows=forecast_ledger_rows,
+        outcome_label_rows=outcome_label_rows,
+        source_performance_profile_rows=source_performance_profile_rows,
+        viewpoint_performance_profile_rows=viewpoint_performance_profile_rows,
+        method_performance_profile_rows=method_performance_profile_rows,
+        weighted_research_context_rows=weighted_research_context_rows,
+        load_blockers=blockers,
+    )
+    return _write_json(registry_path / "statistical_robustness_audit.json", audit)
+
+
+def _rows_by_id(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    id_field: str,
+) -> tuple[dict[str, Mapping[str, Any]], list[str]]:
+    values: dict[str, Mapping[str, Any]] = {}
+    failures: list[str] = []
+    for index, row in enumerate(rows, 1):
+        row_id = str(row.get(id_field) or "").strip()
+        if not row_id:
+            failures.append(f"row {index}: {id_field} required")
+            continue
+        if row_id in values:
+            failures.append(f"{id_field} duplicated: {row_id}")
+            continue
+        values[row_id] = row
+    return values, failures
+
+
+def build_report_intelligence_tool_feasibility_audit(
+    *,
+    run_id: str,
+    feature_flags: Mapping[str, Any],
+    metric_rows: Sequence[Mapping[str, Any]],
+    tool_coverage_match_rows: Sequence[Mapping[str, Any]],
+    tool_gap_rows: Sequence[Mapping[str, Any]],
+    data_acquisition_proposal_rows: Sequence[Mapping[str, Any]],
+    tool_design_proposal_rows: Sequence[Mapping[str, Any]],
+    analysis_recipe_rows: Sequence[Mapping[str, Any]],
+    runtime_tool_gap_observation_rows: Sequence[Mapping[str, Any]],
+    load_blockers: Sequence[str] = (),
+) -> dict[str, Any]:
+    checks: list[dict[str, Any]] = []
+    checks.append(
+        _audit_check(
+            check_id="RI-TOOL-00",
+            requirement="Required report-intelligence tool feasibility inputs load successfully.",
+            evidence={"load_blocker_count": len(load_blockers)},
+            failures=load_blockers,
+        )
+    )
+
+    metric_by_id, metric_id_failures = _rows_by_id(metric_rows, id_field="metric_candidate_id")
+    coverage_by_metric_id: dict[str, Mapping[str, Any]] = {}
+    coverage_failures = list(metric_id_failures)
+    coverage_status_counts: dict[str, int] = {}
+    for index, coverage in enumerate(tool_coverage_match_rows, 1):
+        coverage_id = str(coverage.get("coverage_id") or f"row-{index}")
+        metric_id = str(coverage.get("metric_candidate_id") or "").strip()
+        status = str(coverage.get("coverage_status") or "")
+        coverage_status_counts[status] = coverage_status_counts.get(status, 0) + 1
+        if not metric_id:
+            coverage_failures.append(f"{coverage_id}: metric_candidate_id required")
+        elif metric_id not in metric_by_id:
+            coverage_failures.append(f"{coverage_id}: metric_candidate_id not found")
+        elif metric_id in coverage_by_metric_id:
+            coverage_failures.append(
+                f"{coverage_id}: duplicate coverage for metric_candidate_id {metric_id}"
+            )
+        else:
+            coverage_by_metric_id[metric_id] = coverage
+        if status not in REPORT_INTELLIGENCE_TOOL_COVERAGE_STATUSES:
+            coverage_failures.append(f"{coverage_id}: unsupported coverage_status {status}")
+        if _parse_pit_datetime(coverage.get("last_checked_at")) is None:
+            coverage_failures.append(f"{coverage_id}: last_checked_at missing or invalid")
+        details = _ensure_mapping(coverage.get("coverage_details"))
+        if not details:
+            coverage_failures.append(f"{coverage_id}: coverage_details required")
+        for field in REPORT_INTELLIGENCE_COVERAGE_DETAIL_FIELDS:
+            if not isinstance(details.get(field), bool):
+                coverage_failures.append(
+                    f"{coverage_id}: coverage_details.{field} must be boolean"
+                )
+        existing_tool_ids = [
+            str(item)
+            for item in _ensure_list(coverage.get("existing_tool_ids"))
+            if str(item).strip()
+        ]
+        gaps = [
+            str(item)
+            for item in _ensure_list(coverage.get("gaps"))
+            if str(item).strip()
+        ]
+        if status == "exact_match":
+            if not existing_tool_ids:
+                coverage_failures.append(
+                    f"{coverage_id}: exact_match requires existing_tool_ids"
+                )
+            for field in REPORT_INTELLIGENCE_COVERAGE_DETAIL_FIELDS:
+                if details.get(field) is not True:
+                    coverage_failures.append(
+                        f"{coverage_id}: exact_match requires {field}=true"
+                    )
+            if gaps:
+                coverage_failures.append(f"{coverage_id}: exact_match must not have gaps")
+        elif status != "retired" and not gaps:
+            coverage_failures.append(
+                f"{coverage_id}: non-exact active coverage must list gaps"
+            )
+        if status == "license_blocked" and details.get("license_ok") is not False:
+            coverage_failures.append(
+                f"{coverage_id}: license_blocked requires license_ok=false"
+            )
+        if status == "no_pit_history" and details.get("pit_available") is not False:
+            coverage_failures.append(
+                f"{coverage_id}: no_pit_history requires pit_available=false"
+            )
+    missing_coverage_metric_ids = sorted(set(metric_by_id) - set(coverage_by_metric_id))
+    coverage_failures.extend(
+        f"{metric_id}: tool coverage match missing"
+        for metric_id in missing_coverage_metric_ids[:50]
+    )
+    checks.append(
+        _audit_check(
+            check_id="RI-TOOL-01",
+            requirement=(
+                "Every metric candidate must have deterministic tool coverage with "
+                "explicit PIT, lineage, frequency, unit, lookback, and license fields."
+            ),
+            evidence={
+                "metric_candidate_rows": len(metric_rows),
+                "tool_coverage_match_rows": len(tool_coverage_match_rows),
+                "coverage_status_counts": dict(sorted(coverage_status_counts.items())),
+                "required_coverage_detail_fields": list(
+                    REPORT_INTELLIGENCE_COVERAGE_DETAIL_FIELDS
+                ),
+            },
+            failures=coverage_failures,
+        )
+    )
+
+    tool_gap_by_id, gap_id_failures = _rows_by_id(tool_gap_rows, id_field="tool_gap_id")
+    gaps_by_metric_id: dict[str, list[Mapping[str, Any]]] = {}
+    gap_failures = list(gap_id_failures)
+    gap_priority_counts: dict[str, int] = {}
+    for index, gap in enumerate(tool_gap_rows, 1):
+        gap_id = str(gap.get("tool_gap_id") or f"row-{index}")
+        metric_id = str(gap.get("metric_candidate_id") or "")
+        priority = str(gap.get("priority_bucket") or "")
+        gap_priority_counts[priority] = gap_priority_counts.get(priority, 0) + 1
+        if metric_id and metric_id not in metric_by_id:
+            gap_failures.append(f"{gap_id}: metric_candidate_id not found")
+        if metric_id:
+            gaps_by_metric_id.setdefault(metric_id, []).append(gap)
+        if priority not in REPORT_INTELLIGENCE_TOOL_GAP_PRIORITY_BUCKETS:
+            gap_failures.append(f"{gap_id}: unsupported priority_bucket {priority}")
+        if priority == "urgent":
+            gap_failures.append(
+                f"{gap_id}: urgent is not allowed before license, PIT, engineering, and validation feasibility are accepted"
+            )
+        if not _ensure_list(gap.get("priority_reasons")):
+            gap_failures.append(f"{gap_id}: priority_reasons required")
+        if priority in {"medium", "high", "urgent"} and not _ensure_list(
+            gap.get("blocking_issues")
+        ):
+            gap_failures.append(
+                f"{gap_id}: medium/high/urgent gaps require blocking_issues"
+            )
+        if not str(gap.get("owner") or "").strip():
+            gap_failures.append(f"{gap_id}: owner required")
+        if str(gap.get("status") or "") not in {
+            "proposal_pending",
+            "blocked_pending_review",
+            "closed",
+        }:
+            gap_failures.append(f"{gap_id}: unsupported status {gap.get('status')}")
+    for metric_id, coverage in coverage_by_metric_id.items():
+        status = str(coverage.get("coverage_status") or "")
+        if status == "exact_match":
+            continue
+        if status != "retired" and metric_id not in gaps_by_metric_id:
+            gap_failures.append(f"{metric_id}: non-exact coverage missing tool gap")
+    checks.append(
+        _audit_check(
+            check_id="RI-TOOL-02",
+            requirement=(
+                "Missing, partial, non-PIT, license-blocked, or engineering-blocked "
+                "coverage must feed into the tool gap registry with bucketed priority."
+            ),
+            evidence={
+                "tool_gap_rows": len(tool_gap_rows),
+                "non_exact_coverage_rows": sum(
+                    1
+                    for row in tool_coverage_match_rows
+                    if row.get("coverage_status") not in {"exact_match", "retired"}
+                ),
+                "gap_priority_counts": dict(sorted(gap_priority_counts.items())),
+                "allowed_priority_buckets": list(
+                    REPORT_INTELLIGENCE_TOOL_GAP_PRIORITY_BUCKETS
+                ),
+            },
+            failures=gap_failures,
+        )
+    )
+
+    data_by_gap_id, data_id_failures = _rows_by_id(
+        data_acquisition_proposal_rows,
+        id_field="tool_gap_id",
+    )
+    data_failures = list(data_id_failures)
+    for index, proposal in enumerate(data_acquisition_proposal_rows, 1):
+        proposal_id = str(proposal.get("data_proposal_id") or f"row-{index}")
+        gap_id = str(proposal.get("tool_gap_id") or "")
+        gap = tool_gap_by_id.get(gap_id)
+        if gap is None:
+            data_failures.append(f"{proposal_id}: tool_gap_id not found")
+            continue
+        if proposal.get("owner") != gap.get("owner"):
+            data_failures.append(f"{proposal_id}: owner must match tool gap")
+        if proposal.get("source_tool_gap_priority") != gap.get("priority_bucket"):
+            data_failures.append(
+                f"{proposal_id}: source_tool_gap_priority must match tool gap"
+            )
+        if not _ensure_list(proposal.get("required_fields")):
+            data_failures.append(f"{proposal_id}: required_fields required")
+        pit = _ensure_mapping(proposal.get("pit_requirements"))
+        license_requirements = _ensure_mapping(proposal.get("license_requirements"))
+        if pit.get("timestamp_required") is not True:
+            data_failures.append(f"{proposal_id}: pit timestamp_required must be true")
+        if not isinstance(pit.get("revision_tracking_required"), bool):
+            data_failures.append(
+                f"{proposal_id}: revision_tracking_required must be boolean"
+            )
+        if _float_or_none(pit.get("minimum_history_years")) is None:
+            data_failures.append(f"{proposal_id}: minimum_history_years required")
+        if not isinstance(pit.get("survivorship_issue"), bool):
+            data_failures.append(f"{proposal_id}: survivorship_issue must be boolean")
+        if license_requirements.get("internal_model_use") is not True:
+            data_failures.append(
+                f"{proposal_id}: internal_model_use license requirement must be true"
+            )
+        if license_requirements.get("derived_metric_storage") is not True:
+            data_failures.append(
+                f"{proposal_id}: derived_metric_storage license requirement must be true"
+            )
+        if license_requirements.get("external_redistribution") is not False:
+            data_failures.append(
+                f"{proposal_id}: external_redistribution must remain false"
+            )
+        if proposal.get("license_status") not in {
+            "approved",
+            "pending_review",
+            "restricted",
+            "prohibited",
+        }:
+            data_failures.append(f"{proposal_id}: unsupported license_status")
+        if proposal.get("pit_feasibility_status") not in {
+            "pit_feasible_pending_vendor_review",
+            "requires_pit_backfill_review",
+            "pit_blocked",
+        }:
+            data_failures.append(f"{proposal_id}: unsupported pit_feasibility_status")
+    for gap_id in tool_gap_by_id:
+        if gap_id not in data_by_gap_id:
+            data_failures.append(f"{gap_id}: data acquisition proposal missing")
+    checks.append(
+        _audit_check(
+            check_id="RI-TOOL-03",
+            requirement=(
+                "Every tool gap must have a data acquisition proposal with explicit "
+                "PIT, survivorship/restatement, required-field, and license requirements."
+            ),
+            evidence={
+                "data_acquisition_proposal_rows": len(data_acquisition_proposal_rows),
+                "tool_gap_rows": len(tool_gap_rows),
+            },
+            failures=data_failures,
+        )
+    )
+
+    tool_by_gap_id, tool_id_failures = _rows_by_id(
+        tool_design_proposal_rows,
+        id_field="tool_gap_id",
+    )
+    design_failures = list(tool_id_failures)
+    for index, proposal in enumerate(tool_design_proposal_rows, 1):
+        proposal_id = str(proposal.get("tool_proposal_id") or f"row-{index}")
+        gap_id = str(proposal.get("tool_gap_id") or "")
+        gap = tool_gap_by_id.get(gap_id)
+        if gap is None:
+            design_failures.append(f"{proposal_id}: tool_gap_id not found")
+            continue
+        if proposal.get("owner") != gap.get("owner"):
+            design_failures.append(f"{proposal_id}: owner must match tool gap")
+        if proposal.get("source_tool_gap_priority") != gap.get("priority_bucket"):
+            design_failures.append(
+                f"{proposal_id}: source_tool_gap_priority must match tool gap"
+            )
+        if proposal.get("status") not in {
+            "shadow_build_requested",
+            "blocked_pending_review",
+        }:
+            design_failures.append(
+                f"{proposal_id}: status must remain shadow or blocked"
+            )
+        input_parameters = _ensure_mapping(proposal.get("input_parameters"))
+        for field in ("market", "as_of_date", "lookback_days"):
+            if field not in input_parameters:
+                design_failures.append(f"{proposal_id}: input_parameters.{field} required")
+        output_schema = _ensure_mapping(proposal.get("output_schema"))
+        if "as_of_date" not in output_schema:
+            design_failures.append(f"{proposal_id}: output_schema.as_of_date required")
+        metrics = [
+            item
+            for item in _ensure_list(output_schema.get("metrics"))
+            if isinstance(item, Mapping)
+        ]
+        if not metrics:
+            design_failures.append(f"{proposal_id}: output_schema.metrics required")
+        for metric_index, metric in enumerate(metrics, 1):
+            for field in (
+                "name",
+                "value",
+                "unit",
+                "freshness_days",
+                "pit_valid",
+                "fallback",
+                "quality_flags",
+            ):
+                if field not in metric:
+                    design_failures.append(
+                        f"{proposal_id}: output_schema.metrics[{metric_index}].{field} required"
+                    )
+        fallback_policy = _ensure_mapping(proposal.get("fallback_policy"))
+        fallback_cap = _float_or_none(fallback_policy.get("confidence_cap_if_fallback"))
+        if fallback_cap is None or fallback_cap > 0.60:
+            design_failures.append(
+                f"{proposal_id}: fallback confidence cap must be <= 0.60"
+            )
+        validation_plan = _ensure_mapping(proposal.get("validation_plan"))
+        if (_float_or_none(validation_plan.get("shadow_runtime_days")) or 0.0) < 60:
+            design_failures.append(
+                f"{proposal_id}: shadow_runtime_days must be at least 60"
+            )
+        if (_float_or_none(validation_plan.get("required_effective_n")) or 0.0) < 30:
+            design_failures.append(
+                f"{proposal_id}: required_effective_n must be at least 30"
+            )
+        if not str(validation_plan.get("primary_metric") or "").strip():
+            design_failures.append(f"{proposal_id}: primary_metric required")
+        if not _ensure_list(validation_plan.get("secondary_metrics")):
+            design_failures.append(f"{proposal_id}: secondary_metrics required")
+    for gap_id in tool_gap_by_id:
+        if gap_id not in tool_by_gap_id:
+            design_failures.append(f"{gap_id}: tool design proposal missing")
+    checks.append(
+        _audit_check(
+            check_id="RI-TOOL-04",
+            requirement=(
+                "Every tool gap must have a deterministic tool design proposal with "
+                "input parameters, output schema, fallback policy, and validation plan."
+            ),
+            evidence={
+                "tool_design_proposal_rows": len(tool_design_proposal_rows),
+                "tool_gap_rows": len(tool_gap_rows),
+                "minimum_shadow_runtime_days": 60,
+                "minimum_required_effective_n": 30,
+            },
+            failures=design_failures,
+        )
+    )
+
+    recipe_failures: list[str] = []
+    for index, recipe in enumerate(analysis_recipe_rows, 1):
+        recipe_id = str(recipe.get("analysis_recipe_id") or f"row-{index}")
+        runtime_mode = str(recipe.get("runtime_mode") or "")
+        validation_status = str(recipe.get("validation_status") or "")
+        if runtime_mode != "shadow_only":
+            recipe_failures.append(f"{recipe_id}: runtime_mode must remain shadow_only")
+        if validation_status not in {"candidate", "shadow_validated"}:
+            recipe_failures.append(
+                f"{recipe_id}: validation_status must stay pre-paper-trading"
+            )
+        if runtime_mode == "shadow_only" and validation_status == "shadow_validated":
+            required_tools = [
+                str(item)
+                for item in _ensure_list(recipe.get("required_tools"))
+                if str(item).strip()
+            ]
+            if not required_tools:
+                recipe_failures.append(
+                    f"{recipe_id}: shadow_validated recipe requires required_tools"
+                )
+    gap_ids = set(tool_gap_by_id)
+    for index, observation in enumerate(runtime_tool_gap_observation_rows, 1):
+        observation_id = str(observation.get("runtime_gap_id") or f"row-{index}")
+        gap_id = str(observation.get("suggested_tool_gap_id") or "")
+        if gap_id not in gap_ids:
+            recipe_failures.append(
+                f"{observation_id}: suggested_tool_gap_id missing from registry"
+            )
+        if observation.get("fallback_used") is not True:
+            recipe_failures.append(f"{observation_id}: fallback_used must be true")
+        if observation.get("runtime_role") != "gap_observation_only":
+            recipe_failures.append(
+                f"{observation_id}: runtime_role must be gap_observation_only"
+            )
+        if observation.get("actionability") != REPORT_INTELLIGENCE_SAFE_ACTIONABILITY:
+            recipe_failures.append(
+                f"{observation_id}: actionability must block trading"
+            )
+    checks.append(
+        _audit_check(
+            check_id="RI-TOOL-05",
+            requirement=(
+                "Analysis recipes and runtime tool gaps must remain shadow-only; "
+                "missing tools use explicit fallback observations that feed the gap registry."
+            ),
+            evidence={
+                "analysis_recipe_rows": len(analysis_recipe_rows),
+                "runtime_tool_gap_observation_rows": len(runtime_tool_gap_observation_rows),
+                "safe_actionability": REPORT_INTELLIGENCE_SAFE_ACTIONABILITY,
+            },
+            failures=recipe_failures,
+        )
+    )
+
+    promotion_failures: list[str] = []
+    flags = _ensure_mapping(feature_flags.get("flags"))
+    rollout_mode = str(feature_flags.get("rollout_mode") or "")
+    exact_coverage_count = coverage_status_counts.get("exact_match", 0)
+    production_recipe_count = sum(
+        1
+        for row in analysis_recipe_rows
+        if str(row.get("runtime_mode") or "") in {"paper_trading", "limited_production", "production"}
+    )
+    if flags.get("production_use_of_weighted_reports") is True:
+        promotion_failures.append("production_use_of_weighted_reports must remain false")
+    if rollout_mode not in REPORT_INTELLIGENCE_ROLLOUT_MODES:
+        promotion_failures.append("rollout_mode must be recognized")
+    elif (
+        REPORT_INTELLIGENCE_ROLLOUT_MODES.index(rollout_mode)
+        > REPORT_INTELLIGENCE_ROLLOUT_MODES.index(REPORT_INTELLIGENCE_MAX_SAFE_ROLLOUT_MODE)
+    ):
+        promotion_failures.append(
+            f"rollout_mode {rollout_mode} exceeds {REPORT_INTELLIGENCE_MAX_SAFE_ROLLOUT_MODE}"
+        )
+    if production_recipe_count:
+        promotion_failures.append(
+            "tool feasibility audit allows report-intelligence recipes only through shadow tooling"
+        )
+    if exact_coverage_count == 0 and production_recipe_count:
+        promotion_failures.append("production recipes require exact tool coverage")
+    checks.append(
+        _audit_check(
+            check_id="RI-TOOL-06",
+            requirement=(
+                "Tool feasibility can propose and shadow-build tools, but cannot promote "
+                "recipes or report-derived methods until exact coverage, correctness, "
+                "PIT history, license review, validation, paper trading, and rollout gates pass."
+            ),
+            evidence={
+                "rollout_mode": rollout_mode,
+                "production_use_of_weighted_reports": flags.get(
+                    "production_use_of_weighted_reports"
+                ),
+                "exact_coverage_count": exact_coverage_count,
+                "paper_or_production_recipe_count": production_recipe_count,
+            },
+            failures=promotion_failures,
+        )
+    )
+
+    blockers = [
+        failure
+        for check in checks
+        for failure in _ensure_list(check.get("failures"))
+        if str(failure).strip()
+    ]
+    return {
+        "audit_id": "RKE-REPORT-INTELLIGENCE-TOOL-FEASIBILITY-AUDIT",
+        "run_id": run_id,
+        "as_of_datetime": _utc_now(),
+        "accepted": not blockers,
+        "blocker_count": len(blockers),
+        "blockers": blockers,
+        "checked_item_count": sum(
+            [
+                len(metric_rows),
+                len(tool_coverage_match_rows),
+                len(tool_gap_rows),
+                len(data_acquisition_proposal_rows),
+                len(tool_design_proposal_rows),
+                len(analysis_recipe_rows),
+                len(runtime_tool_gap_observation_rows),
+            ]
+        ),
+        "checks": checks,
+        "policy": (
+            "report-intelligence tool feasibility requires deterministic coverage "
+            "records, explicit PIT and license requirements, gap-to-proposal "
+            "lineage, checker-validatable output schemas, bounded fallback policy, "
+            "and shadow-only runtime until tool correctness and promotion gates pass"
+        ),
+    }
+
+
+def write_report_intelligence_tool_feasibility_audit(
+    registry_dir: str | Path,
+    *,
+    run_id: str = "RIR-TOOL-FEASIBILITY-AUDIT",
+    feature_flags: Mapping[str, Any] | None = None,
+    metric_rows: Sequence[Mapping[str, Any]] | None = None,
+    tool_coverage_match_rows: Sequence[Mapping[str, Any]] | None = None,
+    tool_gap_rows: Sequence[Mapping[str, Any]] | None = None,
+    data_acquisition_proposal_rows: Sequence[Mapping[str, Any]] | None = None,
+    tool_design_proposal_rows: Sequence[Mapping[str, Any]] | None = None,
+    analysis_recipe_rows: Sequence[Mapping[str, Any]] | None = None,
+    runtime_tool_gap_observation_rows: Sequence[Mapping[str, Any]] | None = None,
+) -> dict[str, Any]:
+    registry_path = Path(registry_dir)
+    blockers: list[str] = []
+    if feature_flags is None:
+        feature_flags = _read_registry_json(
+            registry_path / "feature_flags.json",
+            label="feature_flags",
+            blockers=blockers,
+        )
+    if metric_rows is None:
+        metric_rows = _read_registry_jsonl(
+            registry_path / "metric_candidates.jsonl",
+            label="metric_candidates",
+            blockers=blockers,
+        )
+    if tool_coverage_match_rows is None:
+        tool_coverage_match_rows = _read_registry_jsonl(
+            registry_path / "tool_coverage_matches.jsonl",
+            label="tool_coverage_matches",
+            blockers=blockers,
+        )
+    if tool_gap_rows is None:
+        tool_gap_rows = _read_registry_jsonl(
+            registry_path / "tool_gaps.jsonl",
+            label="tool_gaps",
+            blockers=blockers,
+        )
+    if data_acquisition_proposal_rows is None:
+        data_acquisition_proposal_rows = _read_registry_jsonl(
+            registry_path / "data_acquisition_proposals.jsonl",
+            label="data_acquisition_proposals",
+            blockers=blockers,
+        )
+    if tool_design_proposal_rows is None:
+        tool_design_proposal_rows = _read_registry_jsonl(
+            registry_path / "tool_design_proposals.jsonl",
+            label="tool_design_proposals",
+            blockers=blockers,
+        )
+    if analysis_recipe_rows is None:
+        analysis_recipe_rows = _read_registry_jsonl(
+            registry_path / "analysis_recipes.jsonl",
+            label="analysis_recipes",
+            blockers=blockers,
+        )
+    if runtime_tool_gap_observation_rows is None:
+        runtime_tool_gap_observation_rows = _read_registry_jsonl(
+            registry_path / "runtime_tool_gap_observations.jsonl",
+            label="runtime_tool_gap_observations",
+            blockers=blockers,
+        )
+    audit = build_report_intelligence_tool_feasibility_audit(
+        run_id=run_id,
+        feature_flags=feature_flags,
+        metric_rows=metric_rows,
+        tool_coverage_match_rows=tool_coverage_match_rows,
+        tool_gap_rows=tool_gap_rows,
+        data_acquisition_proposal_rows=data_acquisition_proposal_rows,
+        tool_design_proposal_rows=tool_design_proposal_rows,
+        analysis_recipe_rows=analysis_recipe_rows,
+        runtime_tool_gap_observation_rows=runtime_tool_gap_observation_rows,
+        load_blockers=blockers,
+    )
+    return _write_json(registry_path / "tool_feasibility_audit.json", audit)
+
+
+def _recipe_id(row: Mapping[str, Any], index: int) -> str:
+    return str(row.get("analysis_recipe_id") or f"row-{index}")
+
+
+def _recipe_promotion_requirements_missing(row: Mapping[str, Any]) -> list[str]:
+    requirements = {
+        str(item).strip().lower()
+        for item in _ensure_list(row.get("promotion_requirements"))
+        if str(item).strip()
+    }
+    required_fragments = (
+        "tool correctness tests pass",
+        "pit backtest pass",
+        "paper trading pass",
+        "no increase in turnover-adjusted loss",
+    )
+    return [
+        fragment
+        for fragment in required_fragments
+        if not any(fragment in item for item in requirements)
+    ]
+
+
+def build_report_intelligence_recipe_validation_audit(
+    *,
+    run_id: str,
+    feature_flags: Mapping[str, Any],
+    method_rows: Sequence[Mapping[str, Any]],
+    analysis_recipe_rows: Sequence[Mapping[str, Any]],
+    tool_feasibility_audit: Mapping[str, Any],
+    weighted_research_context_rows: Sequence[Mapping[str, Any]],
+    runtime_tool_gap_observation_rows: Sequence[Mapping[str, Any]],
+    load_blockers: Sequence[str] = (),
+) -> dict[str, Any]:
+    checks: list[dict[str, Any]] = []
+    checks.append(
+        _audit_check(
+            check_id="RI-RECIPE-00",
+            requirement="Required report-intelligence recipe validation inputs load successfully.",
+            evidence={"load_blocker_count": len(load_blockers)},
+            failures=load_blockers,
+        )
+    )
+
+    method_by_id, method_id_failures = _rows_by_id(method_rows, id_field="method_pattern_id")
+    recipe_by_id, recipe_id_failures = _rows_by_id(
+        analysis_recipe_rows,
+        id_field="analysis_recipe_id",
+    )
+    schema_failures = [*method_id_failures, *recipe_id_failures]
+    for index, recipe in enumerate(analysis_recipe_rows, 1):
+        recipe_id = _recipe_id(recipe, index)
+        method_id = str(recipe.get("method_pattern_id") or "").strip()
+        if method_id not in method_by_id:
+            schema_failures.append(f"{recipe_id}: method_pattern_id not found")
+        if not str(recipe.get("version") or "").strip():
+            schema_failures.append(f"{recipe_id}: version required")
+        steps = [item for item in _ensure_list(recipe.get("steps")) if isinstance(item, Mapping)]
+        if not steps:
+            schema_failures.append(f"{recipe_id}: steps required")
+        required_tools = [
+            str(item)
+            for item in _ensure_list(recipe.get("required_tools"))
+            if str(item).strip()
+        ]
+        step_tools: list[str] = []
+        for step_index, step in enumerate(steps, 1):
+            if step.get("step") != step_index:
+                schema_failures.append(
+                    f"{recipe_id}: steps[{step_index}] must have sequential step number"
+                )
+            for field in ("tool", "metric", "operation", "interpretation"):
+                if not str(step.get(field) or "").strip():
+                    schema_failures.append(
+                        f"{recipe_id}: steps[{step_index}].{field} required"
+                    )
+            if str(step.get("tool") or "").strip():
+                step_tools.append(str(step.get("tool")))
+        missing_step_tools = sorted(set(step_tools) - set(required_tools))
+        if missing_step_tools:
+            schema_failures.append(
+                f"{recipe_id}: required_tools missing step tools "
+                + ", ".join(missing_step_tools[:10])
+            )
+        output_signal = _ensure_mapping(recipe.get("output_signal"))
+        output_range = _ensure_list(output_signal.get("range"))
+        if len(output_range) != 2 or output_range[0] != -1 or output_range[1] != 1:
+            schema_failures.append(f"{recipe_id}: output_signal.range must be [-1, 1]")
+        confidence_policy = str(output_signal.get("confidence_policy") or "")
+        if "current_data" not in confidence_policy or "validation" not in confidence_policy:
+            schema_failures.append(
+                f"{recipe_id}: confidence_policy must require current data and validation"
+            )
+        missing_requirements = _recipe_promotion_requirements_missing(recipe)
+        if missing_requirements:
+            schema_failures.append(
+                f"{recipe_id}: missing promotion requirements "
+                + ", ".join(missing_requirements)
+            )
+    checks.append(
+        _audit_check(
+            check_id="RI-RECIPE-01",
+            requirement=(
+                "Candidate recipes must be schema-valid, method-linked, step-ordered, "
+                "tool-explicit, and bounded to a checker-validatable output signal."
+            ),
+            evidence={
+                "analysis_recipe_rows": len(analysis_recipe_rows),
+                "method_pattern_rows": len(method_rows),
+            },
+            failures=schema_failures,
+        )
+    )
+
+    lifecycle_failures: list[str] = []
+    status_counts: dict[str, int] = {}
+    runtime_counts: dict[str, int] = {}
+    allowed_status_runtime = {
+        "candidate": {"shadow_only"},
+        "shadow_validated": {"shadow_only"},
+        "validation_candidate": {"shadow_only", "validation_candidate"},
+        "paper_trading_ready": {"paper_trading"},
+        "limited_production_ready": {"limited_production"},
+        "production_ready": {"production"},
+        "deprecated": {"deprecated"},
+    }
+    for index, recipe in enumerate(analysis_recipe_rows, 1):
+        recipe_id = _recipe_id(recipe, index)
+        status = str(recipe.get("validation_status") or "")
+        runtime_mode = str(recipe.get("runtime_mode") or "")
+        status_counts[status] = status_counts.get(status, 0) + 1
+        runtime_counts[runtime_mode] = runtime_counts.get(runtime_mode, 0) + 1
+        if status not in REPORT_INTELLIGENCE_RECIPE_VALIDATION_STATUSES:
+            lifecycle_failures.append(f"{recipe_id}: unsupported validation_status {status}")
+        if runtime_mode not in REPORT_INTELLIGENCE_RECIPE_RUNTIME_MODES:
+            lifecycle_failures.append(f"{recipe_id}: unsupported runtime_mode {runtime_mode}")
+        allowed_runtime = allowed_status_runtime.get(status, set())
+        if runtime_mode not in allowed_runtime:
+            lifecycle_failures.append(
+                f"{recipe_id}: validation_status {status} cannot use runtime_mode {runtime_mode}"
+            )
+        if runtime_mode in {"paper_trading", "limited_production", "production"}:
+            lifecycle_failures.append(
+                f"{recipe_id}: report-intelligence recipes cannot promote beyond shadow without explicit gated evidence"
+            )
+    checks.append(
+        _audit_check(
+            check_id="RI-RECIPE-02",
+            requirement=(
+                "Recipe lifecycle states cannot skip gates: candidate/shadow remain "
+                "shadow-only, and promoted runtime modes require explicit validation evidence."
+            ),
+            evidence={
+                "validation_status_counts": dict(sorted(status_counts.items())),
+                "runtime_mode_counts": dict(sorted(runtime_counts.items())),
+                "allowed_runtime_modes": list(REPORT_INTELLIGENCE_RECIPE_RUNTIME_MODES),
+            },
+            failures=lifecycle_failures,
+        )
+    )
+
+    shadow_failures: list[str] = []
+    for context_index, context in enumerate(weighted_research_context_rows, 1):
+        if context.get("research_only") is not True:
+            shadow_failures.append(
+                f"weighted_research_contexts row {context_index}: research_only must be true"
+            )
+        if context.get("actionability") != REPORT_INTELLIGENCE_SAFE_ACTIONABILITY:
+            shadow_failures.append(
+                f"weighted_research_contexts row {context_index}: actionability must block trading"
+            )
+        for recipe_ref in _ensure_list(context.get("available_analysis_recipes")):
+            if not isinstance(recipe_ref, Mapping):
+                shadow_failures.append(
+                    f"weighted_research_contexts row {context_index}: recipe ref must be object"
+                )
+                continue
+            recipe_id = str(recipe_ref.get("analysis_recipe_id") or "")
+            recipe = recipe_by_id.get(recipe_id)
+            if recipe is None:
+                shadow_failures.append(
+                    f"weighted_research_contexts row {context_index}: recipe {recipe_id} missing"
+                )
+                continue
+            if recipe_ref.get("runtime_mode") != recipe.get("runtime_mode"):
+                shadow_failures.append(
+                    f"weighted_research_contexts row {context_index}: recipe {recipe_id} runtime_mode mismatch"
+                )
+            if recipe_ref.get("validation_status") != recipe.get("validation_status"):
+                shadow_failures.append(
+                    f"weighted_research_contexts row {context_index}: recipe {recipe_id} validation_status mismatch"
+                )
+            if recipe_ref.get("runtime_mode") != "shadow_only":
+                shadow_failures.append(
+                    f"weighted_research_contexts row {context_index}: recipe {recipe_id} must remain shadow_only"
+                )
+    for index, observation in enumerate(runtime_tool_gap_observation_rows, 1):
+        observation_id = str(observation.get("runtime_gap_id") or f"row-{index}")
+        if observation.get("runtime_role") != "gap_observation_only":
+            shadow_failures.append(f"{observation_id}: runtime_role must be gap_observation_only")
+        if observation.get("allowed_runtime_mode") != "shadow_only":
+            shadow_failures.append(f"{observation_id}: allowed_runtime_mode must be shadow_only")
+    checks.append(
+        _audit_check(
+            check_id="RI-RECIPE-03",
+            requirement=(
+                "Shadow recipes may appear in weighted research contexts only as "
+                "research-only, no-trade, as-of registry references."
+            ),
+            evidence={
+                "weighted_context_rows": len(weighted_research_context_rows),
+                "runtime_tool_gap_observation_rows": len(runtime_tool_gap_observation_rows),
+            },
+            failures=shadow_failures,
+        )
+    )
+
+    validation_candidate_failures: list[str] = []
+    validation_candidate_count = 0
+    tool_feasibility_accepted = tool_feasibility_audit.get("accepted") is True
+    for index, recipe in enumerate(analysis_recipe_rows, 1):
+        status = str(recipe.get("validation_status") or "")
+        runtime_mode = str(recipe.get("runtime_mode") or "")
+        if status != "validation_candidate" and runtime_mode != "validation_candidate":
+            continue
+        validation_candidate_count += 1
+        recipe_id = _recipe_id(recipe, index)
+        evidence = _ensure_mapping(recipe.get("validation_evidence"))
+        if not tool_feasibility_accepted:
+            validation_candidate_failures.append(
+                f"{recipe_id}: tool_feasibility_audit must be accepted"
+            )
+        if evidence.get("all_required_tools_pit_valid") is not True:
+            validation_candidate_failures.append(
+                f"{recipe_id}: all_required_tools_pit_valid required"
+            )
+        if (_float_or_none(evidence.get("pit_history_years")) or 0.0) < 5.0:
+            validation_candidate_failures.append(
+                f"{recipe_id}: pit_history_years must be at least 5"
+            )
+        if (_float_or_none(evidence.get("effective_n")) or 0.0) < 30.0:
+            validation_candidate_failures.append(
+                f"{recipe_id}: effective_n must be at least 30"
+            )
+        if any(
+            str(tool).startswith("tool.requested.")
+            for tool in _ensure_list(recipe.get("required_tools"))
+        ):
+            validation_candidate_failures.append(
+                f"{recipe_id}: validation_candidate cannot depend on requested tools"
+            )
+    checks.append(
+        _audit_check(
+            check_id="RI-RECIPE-04",
+            requirement=(
+                "Validation-candidate recipes require accepted tool feasibility, PIT "
+                "history, enough effective samples, and concrete tools rather than requested placeholders."
+            ),
+            evidence={
+                "validation_candidate_recipe_count": validation_candidate_count,
+                "minimum_pit_history_years": 5,
+                "minimum_effective_n": 30,
+                "tool_feasibility_audit_accepted": tool_feasibility_accepted,
+            },
+            failures=validation_candidate_failures,
+        )
+    )
+
+    paper_failures: list[str] = []
+    paper_recipe_count = 0
+    for index, recipe in enumerate(analysis_recipe_rows, 1):
+        runtime_mode = str(recipe.get("runtime_mode") or "")
+        if runtime_mode not in {"paper_trading", "limited_production", "production"}:
+            continue
+        paper_recipe_count += 1
+        recipe_id = _recipe_id(recipe, index)
+        evidence = _ensure_mapping(recipe.get("validation_evidence"))
+        if evidence.get("hardened_validation_passed") is not True:
+            paper_failures.append(f"{recipe_id}: hardened_validation_passed required")
+        if evidence.get("production_sizing_enabled") is True:
+            paper_failures.append(f"{recipe_id}: production sizing must not be enabled")
+        if (_float_or_none(evidence.get("after_cost_alpha")) or 0.0) <= 0.0:
+            paper_failures.append(f"{recipe_id}: after_cost_alpha must be positive")
+        if _float_or_none(evidence.get("calibration_error")) is None:
+            paper_failures.append(f"{recipe_id}: calibration_error required")
+    checks.append(
+        _audit_check(
+            check_id="RI-RECIPE-05",
+            requirement=(
+                "Paper-trading recipes require hardened validation, after-cost metrics, "
+                "calibration measurement, and no production sizing."
+            ),
+            evidence={"paper_or_beyond_recipe_count": paper_recipe_count},
+            failures=paper_failures,
+        )
+    )
+
+    production_failures: list[str] = []
+    limited_or_production_count = 0
+    for index, recipe in enumerate(analysis_recipe_rows, 1):
+        runtime_mode = str(recipe.get("runtime_mode") or "")
+        if runtime_mode not in {"limited_production", "production"}:
+            continue
+        limited_or_production_count += 1
+        recipe_id = _recipe_id(recipe, index)
+        paper_evidence = _ensure_mapping(recipe.get("paper_trading_evidence"))
+        rollout_evidence = _ensure_mapping(recipe.get("rollout_evidence"))
+        if (_float_or_none(paper_evidence.get("after_cost_alpha_delta")) or 0.0) <= 0.0:
+            production_failures.append(
+                f"{recipe_id}: after_cost_alpha_delta must improve"
+            )
+        calibration_delta = _float_or_none(paper_evidence.get("calibration_error_delta"))
+        if calibration_delta is None or calibration_delta >= 0.0:
+            production_failures.append(
+                f"{recipe_id}: calibration_error_delta must improve"
+            )
+        if runtime_mode == "production":
+            for field in (
+                "staged_rollout_passed",
+                "monitoring_configured",
+                "rollback_configured",
+            ):
+                if rollout_evidence.get(field) is not True:
+                    production_failures.append(f"{recipe_id}: {field} required")
+    checks.append(
+        _audit_check(
+            check_id="RI-RECIPE-06",
+            requirement=(
+                "Limited production and production recipes require paper-trading "
+                "after-cost/calibration improvement plus staged rollout, monitoring, and rollback."
+            ),
+            evidence={"limited_or_production_recipe_count": limited_or_production_count},
+            failures=production_failures,
+        )
+    )
+
+    guard_failures: list[str] = []
+    flags = _ensure_mapping(feature_flags.get("flags"))
+    rollout_mode = str(feature_flags.get("rollout_mode") or "")
+    if flags.get("production_use_of_weighted_reports") is True:
+        guard_failures.append("production_use_of_weighted_reports must remain false")
+    if rollout_mode not in REPORT_INTELLIGENCE_ROLLOUT_MODES:
+        guard_failures.append("rollout_mode must be recognized")
+    elif (
+        REPORT_INTELLIGENCE_ROLLOUT_MODES.index(rollout_mode)
+        > REPORT_INTELLIGENCE_ROLLOUT_MODES.index(REPORT_INTELLIGENCE_MAX_SAFE_ROLLOUT_MODE)
+    ):
+        guard_failures.append(
+            f"rollout_mode {rollout_mode} exceeds {REPORT_INTELLIGENCE_MAX_SAFE_ROLLOUT_MODE}"
+        )
+    for index, recipe in enumerate(analysis_recipe_rows, 1):
+        recipe_id = _recipe_id(recipe, index)
+        forbidden_key = _contains_forbidden_shadow_output_field(recipe)
+        if forbidden_key:
+            guard_failures.append(
+                f"{recipe_id}: forbidden decision-impact field {forbidden_key}"
+            )
+        confidence_policy = str(
+            _ensure_mapping(recipe.get("output_signal")).get("confidence_policy") or ""
+        )
+        if "actionable" in confidence_policy and "requires_current_data" not in confidence_policy:
+            guard_failures.append(
+                f"{recipe_id}: actionable confidence policy must require current data"
+            )
+    checks.append(
+        _audit_check(
+            check_id="RI-RECIPE-07",
+            requirement=(
+                "Recipe validation outputs cannot alter decisions, sizing, or actionability "
+                "while report intelligence remains shadow-only."
+            ),
+            evidence={
+                "rollout_mode": rollout_mode,
+                "production_use_of_weighted_reports": flags.get(
+                    "production_use_of_weighted_reports"
+                ),
+                "checked_recipe_rows": len(analysis_recipe_rows),
+            },
+            failures=guard_failures,
+        )
+    )
+
+    blockers = [
+        failure
+        for check in checks
+        for failure in _ensure_list(check.get("failures"))
+        if str(failure).strip()
+    ]
+    return {
+        "audit_id": "RKE-REPORT-INTELLIGENCE-RECIPE-VALIDATION-AUDIT",
+        "run_id": run_id,
+        "as_of_datetime": _utc_now(),
+        "accepted": not blockers,
+        "blocker_count": len(blockers),
+        "blockers": blockers,
+        "checked_item_count": sum(
+            [
+                len(method_rows),
+                len(analysis_recipe_rows),
+                len(weighted_research_context_rows),
+                len(runtime_tool_gap_observation_rows),
+            ]
+        ),
+        "checks": checks,
+        "policy": (
+            "report-intelligence analysis recipes must move through candidate, "
+            "shadow_only, validation_candidate, paper_trading, limited_production, "
+            "and production gates without skipping evidence; report-derived recipes "
+            "remain research-only until current data, tool correctness, PIT validation, "
+            "paper trading, monitoring, and rollback are proven"
+        ),
+    }
+
+
+def write_report_intelligence_recipe_validation_audit(
+    registry_dir: str | Path,
+    *,
+    run_id: str = "RIR-RECIPE-VALIDATION-AUDIT",
+    feature_flags: Mapping[str, Any] | None = None,
+    method_rows: Sequence[Mapping[str, Any]] | None = None,
+    analysis_recipe_rows: Sequence[Mapping[str, Any]] | None = None,
+    tool_feasibility_audit: Mapping[str, Any] | None = None,
+    weighted_research_context_rows: Sequence[Mapping[str, Any]] | None = None,
+    runtime_tool_gap_observation_rows: Sequence[Mapping[str, Any]] | None = None,
+) -> dict[str, Any]:
+    registry_path = Path(registry_dir)
+    blockers: list[str] = []
+    if feature_flags is None:
+        feature_flags = _read_registry_json(
+            registry_path / "feature_flags.json",
+            label="feature_flags",
+            blockers=blockers,
+        )
+    if method_rows is None:
+        method_rows = _read_registry_jsonl(
+            registry_path / "method_patterns.jsonl",
+            label="method_patterns",
+            blockers=blockers,
+        )
+    if analysis_recipe_rows is None:
+        analysis_recipe_rows = _read_registry_jsonl(
+            registry_path / "analysis_recipes.jsonl",
+            label="analysis_recipes",
+            blockers=blockers,
+        )
+    if tool_feasibility_audit is None:
+        tool_feasibility_audit = _read_registry_json(
+            registry_path / "tool_feasibility_audit.json",
+            label="tool_feasibility_audit",
+            blockers=blockers,
+        )
+    if weighted_research_context_rows is None:
+        weighted_research_context_rows = _read_registry_jsonl(
+            registry_path / "weighted_research_contexts.jsonl",
+            label="weighted_research_contexts",
+            blockers=blockers,
+        )
+    if runtime_tool_gap_observation_rows is None:
+        runtime_tool_gap_observation_rows = _read_registry_jsonl(
+            registry_path / "runtime_tool_gap_observations.jsonl",
+            label="runtime_tool_gap_observations",
+            blockers=blockers,
+        )
+    audit = build_report_intelligence_recipe_validation_audit(
+        run_id=run_id,
+        feature_flags=feature_flags,
+        method_rows=method_rows,
+        analysis_recipe_rows=analysis_recipe_rows,
+        tool_feasibility_audit=tool_feasibility_audit,
+        weighted_research_context_rows=weighted_research_context_rows,
+        runtime_tool_gap_observation_rows=runtime_tool_gap_observation_rows,
+        load_blockers=blockers,
+    )
+    return _write_json(registry_path / "recipe_validation_audit.json", audit)
+
+
+def _rate(numerator: int | float, denominator: int | float) -> float | None:
+    return round(float(numerator) / float(denominator), 6) if denominator else None
+
+
+def _profile_effective_n_summary(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    id_field: str,
+) -> dict[str, Any]:
+    values: list[float] = []
+    top: list[dict[str, Any]] = []
+    for row in rows:
+        try:
+            value = float(row.get("n_effective") or 0.0)
+        except (TypeError, ValueError):
+            value = 0.0
+        values.append(value)
+        top.append(
+            {
+                "id": str(row.get(id_field) or ""),
+                "n_effective": round(value, 6),
+                "bucket": str(row.get("shrunk_performance_bucket") or ""),
+                "insufficient_data": bool(row.get("insufficient_data", True)),
+            }
+        )
+    top = sorted(top, key=lambda item: item["n_effective"], reverse=True)[:10]
+    return {
+        "profile_count": len(rows),
+        "nonzero_effective_n_count": sum(1 for value in values if value > 0),
+        "max_effective_n": round(max(values), 6) if values else 0.0,
+        "top_profiles": top,
+    }
+
+
+def _decay_monitoring_missing_requirements(row: Mapping[str, Any]) -> list[str]:
+    monitoring = _ensure_mapping(row.get("decay_monitoring"))
+    metrics = {
+        str(item).strip()
+        for item in _ensure_list(monitoring.get("metrics"))
+        if str(item).strip()
+    }
+    rollback_modes = {
+        str(item).strip()
+        for item in _ensure_list(monitoring.get("rollback_modes"))
+        if str(item).strip()
+    }
+    missing = [
+        f"metric:{metric}"
+        for metric in REPORT_INTELLIGENCE_REQUIRED_DECAY_METRICS
+        if metric not in metrics
+    ]
+    missing.extend(
+        f"rollback_mode:{mode}"
+        for mode in REPORT_INTELLIGENCE_REQUIRED_ROLLBACK_MODES
+        if mode not in rollback_modes
+    )
+    for field in (
+        "monitoring_window_days",
+        "review_frequency",
+        "owner",
+        "rollback_rule_ref",
+    ):
+        if monitoring.get(field) in {None, ""}:
+            missing.append(f"field:{field}")
+    return missing
+
+
+def build_report_intelligence_monitoring_report(
+    *,
+    run_id: str,
+    metadata_rows: Sequence[Mapping[str, Any]],
+    forecast_rows: Sequence[Mapping[str, Any]],
+    outcome_label_rows: Sequence[Mapping[str, Any]],
+    source_performance_profile_rows: Sequence[Mapping[str, Any]],
+    viewpoint_performance_profile_rows: Sequence[Mapping[str, Any]],
+    method_performance_profile_rows: Sequence[Mapping[str, Any]],
+    tool_coverage_match_rows: Sequence[Mapping[str, Any]],
+    tool_gap_rows: Sequence[Mapping[str, Any]],
+    data_acquisition_proposal_rows: Sequence[Mapping[str, Any]],
+    tool_design_proposal_rows: Sequence[Mapping[str, Any]],
+    analysis_recipe_rows: Sequence[Mapping[str, Any]],
+    weighted_research_context_rows: Sequence[Mapping[str, Any]],
+    runtime_tool_gap_observation_rows: Sequence[Mapping[str, Any]],
+    rollout_mode: str = REPORT_INTELLIGENCE_ROLLOUT_MODE,
+) -> dict[str, Any]:
+    weighted_claims = [
+        claim
+        for context in weighted_research_context_rows
+        for claim in _ensure_list(context.get("retrieved_claims"))
+        if isinstance(claim, Mapping)
+    ]
+    weighted_claim_count = len(weighted_claims)
+    non_neutral_weight_count = sum(
+        1
+        for claim in weighted_claims
+        if float(claim.get("combined_research_prior_weight") or 1.0) != 1.0
+    )
+    coverage_counts: dict[str, int] = {}
+    for row in tool_coverage_match_rows:
+        status = str(row.get("coverage_status") or "unknown")
+        coverage_counts[status] = coverage_counts.get(status, 0) + 1
+    gap_priority_counts: dict[str, int] = {}
+    for row in tool_gap_rows:
+        priority = str(row.get("priority_bucket") or "unknown")
+        gap_priority_counts[priority] = gap_priority_counts.get(priority, 0) + 1
+    open_data_proposals = sum(
+        1
+        for row in data_acquisition_proposal_rows
+        if str(row.get("decision_status") or "") not in {"accepted", "rejected", "closed"}
+    )
+    accepted_tool_proposals = sum(
+        1
+        for row in tool_design_proposal_rows
+        if str(row.get("status") or "") in {"accepted", "implemented", "paper_trading"}
+    )
+    shadow_recipes = sum(
+        1
+        for row in analysis_recipe_rows
+        if str(row.get("runtime_mode") or "") == "shadow_only"
+    )
+    validated_recipes = sum(
+        1
+        for row in analysis_recipe_rows
+        if str(row.get("validation_status") or "") in {"validated", "paper_trading"}
+    )
+    runtime_fallback_count = sum(
+        1 for row in runtime_tool_gap_observation_rows if row.get("fallback_used") is True
+    )
+    decay_monitored_recipe_ids: list[str] = []
+    unmonitored_paper_recipe_ids: list[str] = []
+    unmonitored_production_recipe_ids: list[str] = []
+    for index, row in enumerate(analysis_recipe_rows, 1):
+        runtime_mode = str(row.get("runtime_mode") or "")
+        if runtime_mode not in {"paper_trading", "limited_production", "production"}:
+            continue
+        recipe_id = str(row.get("analysis_recipe_id") or f"row-{index}")
+        if _decay_monitoring_missing_requirements(row):
+            if runtime_mode == "paper_trading":
+                unmonitored_paper_recipe_ids.append(recipe_id)
+            else:
+                unmonitored_production_recipe_ids.append(recipe_id)
+        else:
+            decay_monitored_recipe_ids.append(recipe_id)
+    production_recipe_count = sum(
+        1
+        for row in analysis_recipe_rows
+        if str(row.get("runtime_mode") or "") == "production"
+    )
+    limited_production_recipe_count = sum(
+        1
+        for row in analysis_recipe_rows
+        if str(row.get("runtime_mode") or "") == "limited_production"
+    )
+    paper_trading_recipe_count = sum(
+        1
+        for row in analysis_recipe_rows
+        if str(row.get("runtime_mode") or "") == "paper_trading"
+    )
+    unmonitored_recipe_count = (
+        len(unmonitored_paper_recipe_ids) + len(unmonitored_production_recipe_ids)
+    )
+    alpha_decay_monitor_ready = unmonitored_recipe_count == 0
+    return {
+        "monitoring_id": "RKE-REPORT-INTELLIGENCE-MONITORING",
+        "run_id": run_id,
+        "as_of_datetime": _utc_now(),
+        "rollout_mode": rollout_mode,
+        "report_corpus": {
+            "metadata_rows": len(metadata_rows),
+            "forecast_claim_rows": len(forecast_rows),
+            "outcome_label_rows": len(outcome_label_rows),
+        },
+        "report_weighting_monitoring": {
+            "weighted_research_calibration_error": None,
+            "weighted_vs_unweighted_retrieval_difference": _rate(
+                non_neutral_weight_count,
+                weighted_claim_count,
+            ),
+            "source_weight_drift": {
+                "non_neutral_profile_count": sum(
+                    1
+                    for row in source_performance_profile_rows
+                    if float(row.get("weight_multiplier") or 1.0) != 1.0
+                ),
+                "max_effective_n": _profile_effective_n_summary(
+                    source_performance_profile_rows,
+                    id_field="profile_id",
+                )["max_effective_n"],
+            },
+            "high_weight_source_decay_count": 0,
+            "low_weight_source_false_negative_rate": None,
+            "consensus_crowding_concentration": None,
+            "effective_n_by_source": _profile_effective_n_summary(
+                source_performance_profile_rows,
+                id_field="profile_id",
+            ),
+            "effective_n_by_viewpoint": _profile_effective_n_summary(
+                viewpoint_performance_profile_rows,
+                id_field="viewpoint_profile_id",
+            ),
+            "effective_n_by_method": _profile_effective_n_summary(
+                method_performance_profile_rows,
+                id_field="method_profile_id",
+            ),
+        },
+        "tooling_loop_monitoring": {
+            "tool_gap_open_count": len(tool_gap_rows),
+            "tool_gap_priority_counts": dict(sorted(gap_priority_counts.items())),
+            "high_priority_gap_aging_count": 0,
+            "tool_proposal_acceptance_rate": _rate(
+                accepted_tool_proposals,
+                len(tool_design_proposal_rows),
+            ),
+            "data_proposal_open_count": open_data_proposals,
+            "shadow_tool_correctness_failure_rate": None,
+            "recipe_validation_pass_rate": _rate(
+                validated_recipes,
+                len(analysis_recipe_rows),
+            ),
+            "shadow_recipe_count": shadow_recipes,
+            "runtime_fallback_observation_count": runtime_fallback_count,
+            "evidence_coverage": {
+                "tool_coverage_status_counts": dict(sorted(coverage_counts.items())),
+                "metric_candidate_count": len(tool_coverage_match_rows),
+                "exact_or_partial_coverage_rate": _rate(
+                    sum(
+                        count
+                        for status, count in coverage_counts.items()
+                        if status in {"exact_match", "partial_match", "proxy_available"}
+                    ),
+                    len(tool_coverage_match_rows),
+                ),
+            },
+            "missing_data_reduction": None,
+        },
+        "alpha_decay_monitoring": {
+            "monitoring_scope": (
+                "report_intelligence_recipes_at_paper_trading_or_beyond"
+            ),
+            "required_decay_metrics": list(REPORT_INTELLIGENCE_REQUIRED_DECAY_METRICS),
+            "required_rollback_modes": list(REPORT_INTELLIGENCE_REQUIRED_ROLLBACK_MODES),
+            "monitoring_spec_ready": True,
+            "live_alpha_decay_monitor_active": production_recipe_count > 0,
+            "alpha_decay_monitor_ready": alpha_decay_monitor_ready,
+            "blocked_reason": (
+                "unmonitored_paper_or_production_recipes"
+                if unmonitored_recipe_count
+                else "no_live_production_recipe_current_rollout"
+            ),
+            "paper_trading_recipe_count": paper_trading_recipe_count,
+            "limited_production_recipe_count": limited_production_recipe_count,
+            "production_recipe_count": production_recipe_count,
+            "decay_monitored_recipe_ids": sorted(decay_monitored_recipe_ids),
+            "unmonitored_paper_trading_recipe_ids": sorted(unmonitored_paper_recipe_ids),
+            "unmonitored_production_recipe_ids": sorted(
+                unmonitored_production_recipe_ids
+            ),
+        },
+        "policy": (
+            "monitoring metrics are diagnostic only; report-derived weights and "
+            "recipes remain research priors until validation, paper trading, and "
+            "promotion gates pass"
+        ),
+    }
+
+
+def _report_intelligence_rollout_at_least(
+    rollout_mode: str,
+    target_mode: str,
+) -> bool:
+    if (
+        rollout_mode not in REPORT_INTELLIGENCE_ROLLOUT_MODES
+        or target_mode not in REPORT_INTELLIGENCE_ROLLOUT_MODES
+    ):
+        return False
+    return REPORT_INTELLIGENCE_ROLLOUT_MODES.index(
+        rollout_mode
+    ) >= REPORT_INTELLIGENCE_ROLLOUT_MODES.index(target_mode)
+
+
+def _audit_report_accepted(report: Mapping[str, Any]) -> bool:
+    try:
+        blocker_count = int(report.get("blocker_count") or 0)
+    except (TypeError, ValueError):
+        blocker_count = 1
+    return report.get("accepted") is True and blocker_count == 0
+
+
+def _phase_coverage_record(
+    *,
+    phase_id: str,
+    phase_name: str,
+    requirement: str,
+    evidence_artifacts: Sequence[str],
+    evidence_counts: Mapping[str, Any],
+    failures: Sequence[str],
+    deferred_by_rollout: bool = False,
+    deferred_reason: str = "",
+) -> dict[str, Any]:
+    blockers = [str(item) for item in failures if str(item).strip()]
+    status = (
+        "blocked"
+        if blockers
+        else "deferred_by_rollout"
+        if deferred_by_rollout
+        else "passed"
+    )
+    return {
+        "phase_id": phase_id,
+        "phase_name": phase_name,
+        "requirement": requirement,
+        "status": status,
+        "accepted": not blockers,
+        "deferred_reason": deferred_reason,
+        "failure_count": len(blockers),
+        "failures": blockers,
+        "evidence_artifacts": list(evidence_artifacts),
+        "evidence_counts": dict(evidence_counts),
+    }
+
+
+def _coverage_requirement_check(
+    *,
+    check_id: str,
+    phase_id: str,
+    check_type: str,
+    requirement: str,
+    accepted: bool,
+    evidence_artifacts: Sequence[str],
+    evidence_counts: Mapping[str, Any] | None = None,
+    status: str | None = None,
+    blocker: str = "",
+) -> dict[str, Any]:
+    check_status = status or ("passed" if accepted else "blocked")
+    return {
+        "check_id": check_id,
+        "phase_id": phase_id,
+        "check_type": check_type,
+        "requirement": requirement,
+        "status": check_status,
+        "accepted": bool(accepted),
+        "blocker": "" if accepted else blocker,
+        "evidence_artifacts": list(evidence_artifacts),
+        "evidence_counts": dict(evidence_counts or {}),
+    }
+
+
+def build_report_intelligence_patch_v1_5_coverage_report(
+    *,
+    run_id: str,
+    feature_flags: Mapping[str, Any],
+    metadata_rows: Sequence[Mapping[str, Any]],
+    forecast_rows: Sequence[Mapping[str, Any]],
+    footprint_rows: Sequence[Mapping[str, Any]],
+    metric_rows: Sequence[Mapping[str, Any]],
+    method_rows: Sequence[Mapping[str, Any]],
+    tool_coverage_match_rows: Sequence[Mapping[str, Any]],
+    tool_gap_rows: Sequence[Mapping[str, Any]],
+    data_acquisition_proposal_rows: Sequence[Mapping[str, Any]],
+    tool_design_proposal_rows: Sequence[Mapping[str, Any]],
+    forecast_ledger_rows: Sequence[Mapping[str, Any]],
+    outcome_label_rows: Sequence[Mapping[str, Any]],
+    outcome_labeling_readiness: Mapping[str, Any],
+    source_performance_profile_rows: Sequence[Mapping[str, Any]],
+    viewpoint_performance_profile_rows: Sequence[Mapping[str, Any]],
+    method_performance_profile_rows: Sequence[Mapping[str, Any]],
+    analysis_recipe_rows: Sequence[Mapping[str, Any]],
+    weighted_research_context_rows: Sequence[Mapping[str, Any]],
+    runtime_tool_gap_observation_rows: Sequence[Mapping[str, Any]],
+    monitoring_report: Mapping[str, Any],
+    runtime_safety_audit: Mapping[str, Any],
+    pit_leakage_audit: Mapping[str, Any],
+    extraction_provenance_audit: Mapping[str, Any],
+    statistical_robustness_audit: Mapping[str, Any],
+    tool_feasibility_audit: Mapping[str, Any],
+    recipe_validation_audit: Mapping[str, Any],
+    footprint_review_summary: Mapping[str, Any],
+    footprint_error_taxonomy: Mapping[str, Any],
+    gold_review_summary: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    flags = _ensure_mapping(feature_flags.get("flags"))
+    rollout_mode = str(feature_flags.get("rollout_mode") or "")
+    runtime_behavior = str(feature_flags.get("runtime_behavior") or "")
+    alpha_decay = _ensure_mapping(monitoring_report.get("alpha_decay_monitoring"))
+    required_flag_names = set(REPORT_INTELLIGENCE_FEATURE_FLAGS)
+    observed_flag_names = set(flags)
+    runtime_safety_accepted = _audit_report_accepted(runtime_safety_audit)
+    pit_leakage_accepted = _audit_report_accepted(pit_leakage_audit)
+    provenance_accepted = _audit_report_accepted(extraction_provenance_audit)
+    statistical_accepted = _audit_report_accepted(statistical_robustness_audit)
+    tool_feasibility_accepted = _audit_report_accepted(tool_feasibility_audit)
+    recipe_validation_accepted = _audit_report_accepted(recipe_validation_audit)
+    footprint_review_accepted = footprint_review_summary.get("accepted") is True
+    footprint_quality_passed = (
+        footprint_review_summary.get("quality_gate_passed") is True
+    )
+    gold_review_summary = _ensure_mapping(gold_review_summary)
+    gold_review_metrics = _ensure_mapping(gold_review_summary.get("metrics"))
+    gold_review_passed = (
+        gold_review_summary.get("passed") is True
+        and gold_review_summary.get("review_complete") is True
+        and int(gold_review_summary.get("reviewed_claims") or 0) >= 500
+        and int(gold_review_summary.get("total_documents") or 0) >= 50
+        and float(gold_review_metrics.get("claim_precision") or 0.0) >= 0.8
+        and float(gold_review_metrics.get("source_span_support_precision") or 0.0)
+        >= 0.9
+    )
+    paper_recipe_count = sum(
+        1
+        for row in analysis_recipe_rows
+        if str(row.get("runtime_mode") or "") == "paper_trading"
+    )
+    limited_recipe_count = sum(
+        1
+        for row in analysis_recipe_rows
+        if str(row.get("runtime_mode") or "") == "limited_production"
+    )
+    production_recipe_count = sum(
+        1
+        for row in analysis_recipe_rows
+        if str(row.get("runtime_mode") or "") == "production"
+    )
+    fallback_observation_count = sum(
+        1 for row in runtime_tool_gap_observation_rows if row.get("fallback_used") is True
+    )
+    coverage_counts: dict[str, int] = {}
+    for row in tool_coverage_match_rows:
+        status = str(row.get("coverage_status") or "unknown")
+        coverage_counts[status] = coverage_counts.get(status, 0) + 1
+    proposal_gap_ids = {
+        str(row.get("tool_gap_id") or "")
+        for row in data_acquisition_proposal_rows
+        if str(row.get("tool_gap_id") or "").strip()
+    }
+    design_gap_ids = {
+        str(row.get("tool_gap_id") or "")
+        for row in tool_design_proposal_rows
+        if str(row.get("tool_gap_id") or "").strip()
+    }
+    gap_ids = {
+        str(row.get("tool_gap_id") or "")
+        for row in tool_gap_rows
+        if str(row.get("tool_gap_id") or "").strip()
+    }
+
+    phases: list[dict[str, Any]] = []
+
+    phase_a_failures: list[str] = []
+    missing_flags = sorted(required_flag_names - observed_flag_names)
+    if rollout_mode not in REPORT_INTELLIGENCE_ROLLOUT_MODES:
+        phase_a_failures.append("feature_flags.rollout_mode is not recognized")
+    if missing_flags:
+        phase_a_failures.append(
+            "feature_flags.flags missing expected booleans: "
+            + ", ".join(missing_flags)
+        )
+    if flags.get("production_use_of_weighted_reports") is True:
+        phase_a_failures.append("production_use_of_weighted_reports must remain false")
+    if "no agent decision impact" not in runtime_behavior:
+        phase_a_failures.append(
+            "feature_flags.runtime_behavior must state no agent decision impact"
+        )
+    if not runtime_safety_accepted:
+        phase_a_failures.append("runtime_safety_audit must be accepted")
+    phases.append(
+        _phase_coverage_record(
+            phase_id="A",
+            phase_name="Schema migration and feature flags",
+            requirement=(
+                "Add report-intelligence schemas, feature flags, and no-op runtime "
+                "guardrails without changing v1.2 actionability."
+            ),
+            evidence_artifacts=[
+                "registry/report_intelligence/feature_flags.json",
+                "registry/report_intelligence/runtime_safety_audit.json",
+            ],
+            evidence_counts={
+                "expected_schema_artifacts": list(
+                    REPORT_INTELLIGENCE_PATCH_V1_5_SCHEMA_ARTIFACTS
+                ),
+                "expected_schema_artifact_count": len(
+                    REPORT_INTELLIGENCE_PATCH_V1_5_SCHEMA_ARTIFACTS
+                ),
+                "rollout_mode": rollout_mode,
+                "flag_count": len(flags),
+                "runtime_safety_audit_accepted": runtime_safety_accepted,
+            },
+            failures=phase_a_failures,
+        )
+    )
+
+    phase_b_failures: list[str] = []
+    if not forecast_rows:
+        phase_b_failures.append("forecast_claims must contain extracted claims")
+    if not footprint_rows:
+        phase_b_failures.append(
+            "analytical_footprints must contain extracted footprints"
+        )
+    if not footprint_review_accepted:
+        phase_b_failures.append(
+            "analytical_footprint_review_summary accepted must be true"
+        )
+    if not footprint_quality_passed:
+        phase_b_failures.append(
+            "analytical_footprint_review_summary quality_gate_passed must be true"
+        )
+    if not gold_review_passed:
+        phase_b_failures.append(
+            "human-labeled forecast claim gold set gate must pass"
+        )
+    error_tags = [
+        item
+        for item in _ensure_list(footprint_error_taxonomy.get("error_tags"))
+        if isinstance(item, Mapping)
+    ]
+    if not error_tags:
+        phase_b_failures.append(
+            "analytical_footprint_error_taxonomy must define reviewable error tags"
+        )
+    if not provenance_accepted:
+        phase_b_failures.append("extraction_provenance_audit must be accepted")
+    phases.append(
+        _phase_coverage_record(
+            phase_id="B",
+            phase_name="Extraction and labeling gold sets",
+            requirement=(
+                "Extract source-grounded forecast claims and analytical footprints, "
+                "separate inferred fields, and gate footprint quality through review."
+            ),
+            evidence_artifacts=[
+                "registry/gold_sets/tushare_research_reports.review_summary.json",
+                "registry/gold_sets/tushare_research_reports.review_template.jsonl",
+                "registry/report_intelligence/forecast_claims.jsonl",
+                "registry/report_intelligence/analytical_footprints.jsonl",
+                "registry/report_intelligence/analytical_footprint_review_summary.json",
+                "registry/report_intelligence/analytical_footprint_error_taxonomy.json",
+                "registry/report_intelligence/extraction_provenance_audit.json",
+            ],
+            evidence_counts={
+                "forecast_claim_rows": len(forecast_rows),
+                "analytical_footprint_rows": len(footprint_rows),
+                "footprint_review_accepted": footprint_review_accepted,
+                "footprint_quality_passed": footprint_quality_passed,
+                "gold_review_passed": gold_review_passed,
+                "gold_reviewed_claims": int(
+                    gold_review_summary.get("reviewed_claims") or 0
+                ),
+                "gold_reviewed_documents": int(
+                    gold_review_summary.get("total_documents") or 0
+                ),
+                "gold_claim_precision": gold_review_metrics.get("claim_precision"),
+                "gold_source_span_support_precision": gold_review_metrics.get(
+                    "source_span_support_precision"
+                ),
+                "error_tag_count": len(error_tags),
+                "provenance_audit_accepted": provenance_accepted,
+            },
+            failures=phase_b_failures,
+        )
+    )
+
+    phase_c_failures: list[str] = []
+    if not forecast_ledger_rows:
+        phase_c_failures.append("report_forecast_ledger must contain forecast rows")
+    if len(forecast_ledger_rows) != len(forecast_rows):
+        phase_c_failures.append("report_forecast_ledger row count must match claims")
+    if not outcome_label_rows and int(
+        outcome_labeling_readiness.get("proxy_label_ready_count") or 0
+    ) == 0:
+        phase_c_failures.append(
+            "outcome labels or governed proxy-label-ready claims are required"
+        )
+    if not source_performance_profile_rows:
+        phase_c_failures.append("source performance profiles must be materialized")
+    if not viewpoint_performance_profile_rows:
+        phase_c_failures.append("viewpoint performance profiles must be materialized")
+    if not method_performance_profile_rows:
+        phase_c_failures.append("method performance profiles must be materialized")
+    if not statistical_accepted:
+        phase_c_failures.append("statistical_robustness_audit must be accepted")
+    if flags.get("production_use_of_weighted_reports") is True:
+        phase_c_failures.append("backtest MVP cannot enable production use")
+    phases.append(
+        _phase_coverage_record(
+            phase_id="C",
+            phase_name="Historical report performance backtest MVP",
+            requirement=(
+                "Build the report forecast ledger, outcome/proxy labels, performance "
+                "profiles, shrinkage evidence, and keep them non-production."
+            ),
+            evidence_artifacts=[
+                "registry/report_intelligence/report_forecast_ledger.jsonl",
+                "registry/report_intelligence/report_outcome_labels.jsonl",
+                "registry/report_intelligence/outcome_labeling_readiness.json",
+                "registry/report_intelligence/source_performance_profiles.jsonl",
+                "registry/report_intelligence/viewpoint_performance_profiles.jsonl",
+                "registry/report_intelligence/method_performance_profiles.jsonl",
+                "registry/report_intelligence/statistical_robustness_audit.json",
+            ],
+            evidence_counts={
+                "forecast_ledger_rows": len(forecast_ledger_rows),
+                "outcome_label_rows": len(outcome_label_rows),
+                "proxy_label_ready_count": int(
+                    outcome_labeling_readiness.get("proxy_label_ready_count") or 0
+                ),
+                "source_profile_rows": len(source_performance_profile_rows),
+                "viewpoint_profile_rows": len(viewpoint_performance_profile_rows),
+                "method_profile_rows": len(method_performance_profile_rows),
+                "statistical_audit_accepted": statistical_accepted,
+            },
+            failures=phase_c_failures,
+        )
+    )
+
+    phase_d_failures: list[str] = []
+    if not footprint_rows:
+        phase_d_failures.append("analytical footprint registry must not be empty")
+    if not metric_rows:
+        phase_d_failures.append("metric candidate registry must not be empty")
+    if not method_rows:
+        phase_d_failures.append("method pattern registry must not be empty")
+    if not footprint_review_accepted or not footprint_quality_passed:
+        phase_d_failures.append("analytical footprint review quality gate must pass")
+    if not provenance_accepted:
+        phase_d_failures.append("source-grounding provenance audit must pass")
+    phases.append(
+        _phase_coverage_record(
+            phase_id="D",
+            phase_name="Analytical footprint extraction and registry build",
+            requirement=(
+                "Normalize source-grounded or explicitly inferred footprints, metric "
+                "candidates, method patterns, aliases, and license-aware storage."
+            ),
+            evidence_artifacts=[
+                "registry/report_intelligence/analytical_footprints.jsonl",
+                "registry/report_intelligence/metric_candidates.jsonl",
+                "registry/report_intelligence/method_patterns.jsonl",
+                "registry/report_intelligence/analytical_footprint_review_summary.json",
+            ],
+            evidence_counts={
+                "analytical_footprint_rows": len(footprint_rows),
+                "metric_candidate_rows": len(metric_rows),
+                "method_pattern_rows": len(method_rows),
+                "footprint_review_accepted": footprint_review_accepted,
+                "footprint_quality_passed": footprint_quality_passed,
+            },
+            failures=phase_d_failures,
+        )
+    )
+
+    phase_e_failures: list[str] = []
+    if not metric_rows:
+        phase_e_failures.append("metric candidate rows are required")
+    if len(tool_coverage_match_rows) < len(metric_rows):
+        phase_e_failures.append(
+            "tool coverage rows must cover every metric candidate"
+        )
+    if not gap_ids:
+        phase_e_failures.append("tool gap registry must contain reviewable gaps")
+    missing_data_proposals = sorted(gap_ids - proposal_gap_ids)
+    missing_tool_proposals = sorted(gap_ids - design_gap_ids)
+    if missing_data_proposals:
+        phase_e_failures.append(
+            "tool gaps missing data acquisition proposals: "
+            + ", ".join(missing_data_proposals[:20])
+        )
+    if missing_tool_proposals:
+        phase_e_failures.append(
+            "tool gaps missing tool design proposals: "
+            + ", ".join(missing_tool_proposals[:20])
+        )
+    if not tool_feasibility_accepted:
+        phase_e_failures.append("tool_feasibility_audit must be accepted")
+    phases.append(
+        _phase_coverage_record(
+            phase_id="E",
+            phase_name="Tool coverage and gap registry",
+            requirement=(
+                "Map MVP metrics to current tools, rank PIT/license-aware gaps, "
+                "and generate data/tool proposals for review."
+            ),
+            evidence_artifacts=[
+                "registry/report_intelligence/tool_coverage_matches.jsonl",
+                "registry/report_intelligence/tool_gaps.jsonl",
+                "registry/report_intelligence/data_acquisition_proposals.jsonl",
+                "registry/report_intelligence/tool_design_proposals.jsonl",
+                "registry/report_intelligence/tool_feasibility_audit.json",
+            ],
+            evidence_counts={
+                "metric_candidate_rows": len(metric_rows),
+                "tool_coverage_match_rows": len(tool_coverage_match_rows),
+                "tool_coverage_status_counts": dict(sorted(coverage_counts.items())),
+                "tool_gap_rows": len(tool_gap_rows),
+                "data_acquisition_proposal_rows": len(
+                    data_acquisition_proposal_rows
+                ),
+                "tool_design_proposal_rows": len(tool_design_proposal_rows),
+                "tool_feasibility_audit_accepted": tool_feasibility_accepted,
+            },
+            failures=phase_e_failures,
+        )
+    )
+
+    phase_f_failures: list[str] = []
+    if not _report_intelligence_rollout_at_least(rollout_mode, "shadow_tooling"):
+        phase_f_failures.append("rollout_mode must reach shadow_tooling for Phase F")
+    if not weighted_research_context_rows:
+        phase_f_failures.append("weighted research contexts are required")
+    if not analysis_recipe_rows:
+        phase_f_failures.append("analysis recipes are required")
+    if not runtime_tool_gap_observation_rows:
+        phase_f_failures.append("runtime tool gap observations are required")
+    if fallback_observation_count != len(runtime_tool_gap_observation_rows):
+        phase_f_failures.append(
+            "runtime tool gap observations must be fallback/gap-observation only"
+        )
+    if not runtime_safety_accepted:
+        phase_f_failures.append("runtime_safety_audit must be accepted")
+    if not pit_leakage_accepted:
+        phase_f_failures.append("pit_leakage_audit must be accepted")
+    if not recipe_validation_accepted:
+        phase_f_failures.append("recipe_validation_audit must be accepted")
+    phases.append(
+        _phase_coverage_record(
+            phase_id="F",
+            phase_name="Shadow runtime",
+            requirement=(
+                "Run weighted research retrieval, shadow-only recipes, and runtime "
+                "tool-gap feedback without changing agent decisions."
+            ),
+            evidence_artifacts=[
+                "registry/report_intelligence/weighted_research_contexts.jsonl",
+                "registry/report_intelligence/analysis_recipes.jsonl",
+                "registry/report_intelligence/runtime_tool_gap_observations.jsonl",
+                "registry/report_intelligence/runtime_safety_audit.json",
+                "registry/report_intelligence/pit_leakage_audit.json",
+                "registry/report_intelligence/recipe_validation_audit.json",
+            ],
+            evidence_counts={
+                "rollout_mode": rollout_mode,
+                "weighted_research_context_rows": len(
+                    weighted_research_context_rows
+                ),
+                "analysis_recipe_rows": len(analysis_recipe_rows),
+                "runtime_tool_gap_observation_rows": len(
+                    runtime_tool_gap_observation_rows
+                ),
+                "fallback_observation_count": fallback_observation_count,
+                "runtime_safety_audit_accepted": runtime_safety_accepted,
+                "pit_leakage_audit_accepted": pit_leakage_accepted,
+                "recipe_validation_audit_accepted": recipe_validation_accepted,
+            },
+            failures=phase_f_failures,
+        )
+    )
+
+    phase_g_deferred = not _report_intelligence_rollout_at_least(
+        rollout_mode,
+        "paper_trading",
+    )
+    phase_g_failures: list[str] = []
+    if phase_g_deferred:
+        if paper_recipe_count != 0:
+            phase_g_failures.append(
+                "paper_trading recipes must be absent while rollout is below paper_trading"
+            )
+        if not recipe_validation_accepted:
+            phase_g_failures.append("recipe_validation_audit must be accepted")
+        if alpha_decay.get("alpha_decay_monitor_ready") is not True:
+            phase_g_failures.append(
+                "alpha_decay_monitoring alpha_decay_monitor_ready must be true"
+            )
+    else:
+        if paper_recipe_count == 0:
+            phase_g_failures.append(
+                "paper_trading rollout requires at least one paper_trading recipe"
+            )
+        if not recipe_validation_accepted:
+            phase_g_failures.append("recipe_validation_audit must be accepted")
+        if alpha_decay.get("alpha_decay_monitor_ready") is not True:
+            phase_g_failures.append("paper_trading recipes require decay monitoring")
+    phases.append(
+        _phase_coverage_record(
+            phase_id="G",
+            phase_name="Paper trading integration",
+            requirement=(
+                "Promote selected recipes only after paper-trading validation, "
+                "after-cost/calibration monitoring, and confidence-impact checks."
+            ),
+            evidence_artifacts=[
+                "registry/report_intelligence/recipe_validation_audit.json",
+                "registry/report_intelligence/monitoring_report.json",
+            ],
+            evidence_counts={
+                "rollout_mode": rollout_mode,
+                "paper_trading_recipe_count": paper_recipe_count,
+                "recipe_validation_audit_accepted": recipe_validation_accepted,
+                "alpha_decay_monitor_ready": alpha_decay.get(
+                    "alpha_decay_monitor_ready"
+                ),
+                "unmonitored_paper_trading_recipe_ids": alpha_decay.get(
+                    "unmonitored_paper_trading_recipe_ids",
+                    [],
+                ),
+            },
+            failures=phase_g_failures,
+            deferred_by_rollout=phase_g_deferred,
+            deferred_reason=(
+                "current rollout is shadow_tooling; Phase G is intentionally gated"
+                if phase_g_deferred
+                else ""
+            ),
+        )
+    )
+
+    phase_h_deferred = not _report_intelligence_rollout_at_least(
+        rollout_mode,
+        "limited_production",
+    )
+    observed_rollback_modes = {
+        str(item)
+        for item in _ensure_list(alpha_decay.get("required_rollback_modes"))
+        if str(item).strip()
+    }
+    missing_rollback_modes = sorted(
+        set(REPORT_INTELLIGENCE_REQUIRED_ROLLBACK_MODES) - observed_rollback_modes
+    )
+    phase_h_failures: list[str] = []
+    if missing_rollback_modes:
+        phase_h_failures.append(
+            "alpha_decay_monitoring missing rollback modes: "
+            + ", ".join(missing_rollback_modes)
+        )
+    if not runtime_safety_accepted:
+        phase_h_failures.append("runtime_safety_audit must be accepted")
+    if not pit_leakage_accepted:
+        phase_h_failures.append("pit_leakage_audit must be accepted")
+    if alpha_decay.get("monitoring_spec_ready") is not True:
+        phase_h_failures.append("alpha_decay_monitoring monitoring_spec_ready required")
+    if phase_h_deferred:
+        if limited_recipe_count or production_recipe_count:
+            phase_h_failures.append(
+                "limited/production recipes must be absent below limited_production rollout"
+            )
+        if flags.get("production_use_of_weighted_reports") is True:
+            phase_h_failures.append(
+                "production_use_of_weighted_reports must remain false"
+            )
+    else:
+        if limited_recipe_count + production_recipe_count == 0:
+            phase_h_failures.append(
+                "limited_production rollout requires a limited or production recipe"
+            )
+        if not recipe_validation_accepted:
+            phase_h_failures.append("recipe_validation_audit must be accepted")
+        if alpha_decay.get("alpha_decay_monitor_ready") is not True:
+            phase_h_failures.append("limited production requires decay monitoring")
+    phases.append(
+        _phase_coverage_record(
+            phase_id="H",
+            phase_name="Limited production rollout",
+            requirement=(
+                "Allow limited production only after strict actionability, leakage, "
+                "license, rollback, monitoring, and staged rollout gates pass."
+            ),
+            evidence_artifacts=[
+                "registry/report_intelligence/runtime_safety_audit.json",
+                "registry/report_intelligence/pit_leakage_audit.json",
+                "registry/report_intelligence/monitoring_report.json",
+                "registry/report_intelligence/recipe_validation_audit.json",
+            ],
+            evidence_counts={
+                "rollout_mode": rollout_mode,
+                "limited_production_recipe_count": limited_recipe_count,
+                "production_recipe_count": production_recipe_count,
+                "production_use_of_weighted_reports": flags.get(
+                    "production_use_of_weighted_reports"
+                ),
+                "monitoring_spec_ready": alpha_decay.get("monitoring_spec_ready"),
+                "required_rollback_modes": sorted(observed_rollback_modes),
+                "runtime_safety_audit_accepted": runtime_safety_accepted,
+                "pit_leakage_audit_accepted": pit_leakage_accepted,
+            },
+            failures=phase_h_failures,
+            deferred_by_rollout=phase_h_deferred,
+            deferred_reason=(
+                "current rollout is shadow_tooling; Phase H is intentionally gated"
+                if phase_h_deferred
+                else ""
+            ),
+        )
+    )
+
+    blockers = [
+        f"Phase {phase['phase_id']}: {failure}"
+        for phase in phases
+        for failure in _ensure_list(phase.get("failures"))
+    ]
+    passed_phase_ids = [
+        str(phase["phase_id"]) for phase in phases if phase.get("status") == "passed"
+    ]
+    deferred_phase_ids = [
+        str(phase["phase_id"])
+        for phase in phases
+        if phase.get("status") == "deferred_by_rollout"
+    ]
+    blocked_phase_ids = [
+        str(phase["phase_id"]) for phase in phases if phase.get("status") == "blocked"
+    ]
+    precision_recall = _ensure_mapping(
+        footprint_review_summary.get("precision_recall_report")
+    )
+    requirement_checklist = [
+        _coverage_requirement_check(
+            check_id="RI15-A-D1",
+            phase_id="A",
+            check_type="deliverable",
+            requirement=(
+                "report_metadata, forecast_claim, analytical_footprint, ledger, "
+                "outcome-label, performance-profile, metric, method, tool-gap, "
+                "proposal, and analysis_recipe schemas are registered."
+            ),
+            accepted=(
+                len(REPORT_INTELLIGENCE_PATCH_V1_5_SCHEMA_ARTIFACTS) >= 15
+            ),
+            evidence_artifacts=[
+                f"schemas/{name}"
+                for name in REPORT_INTELLIGENCE_PATCH_V1_5_SCHEMA_ARTIFACTS
+            ],
+            evidence_counts={
+                "expected_schema_artifact_count": len(
+                    REPORT_INTELLIGENCE_PATCH_V1_5_SCHEMA_ARTIFACTS
+                )
+            },
+            blocker="report-intelligence schema artifact set is incomplete",
+        ),
+        _coverage_requirement_check(
+            check_id="RI15-A-D2",
+            phase_id="A",
+            check_type="acceptance",
+            requirement=(
+                "Feature flags and runtime no-op mode keep v1.2 runtime unchanged "
+                "and forbid report-only actionability."
+            ),
+            accepted=(
+                runtime_safety_accepted
+                and flags.get("production_use_of_weighted_reports") is False
+                and "no agent decision impact" in runtime_behavior
+            ),
+            evidence_artifacts=[
+                "registry/report_intelligence/feature_flags.json",
+                "registry/report_intelligence/runtime_safety_audit.json",
+            ],
+            evidence_counts={
+                "rollout_mode": rollout_mode,
+                "runtime_behavior": runtime_behavior,
+                "production_use_of_weighted_reports": flags.get(
+                    "production_use_of_weighted_reports"
+                ),
+            },
+            blocker="runtime no-op/actionability guard is not proven",
+        ),
+        _coverage_requirement_check(
+            check_id="RI15-B-D1",
+            phase_id="B",
+            check_type="deliverable",
+            requirement=(
+                "Human-labeled forecast claim gold set is complete and passes "
+                "claim/source-span precision gates."
+            ),
+            accepted=gold_review_passed,
+            evidence_artifacts=[
+                "registry/gold_sets/tushare_research_reports.review_summary.json",
+                "registry/gold_sets/tushare_research_reports.review_template.jsonl",
+            ],
+            evidence_counts={
+                "reviewed_claims": int(
+                    gold_review_summary.get("reviewed_claims") or 0
+                ),
+                "total_documents": int(
+                    gold_review_summary.get("total_documents") or 0
+                ),
+                "claim_precision": gold_review_metrics.get("claim_precision"),
+                "source_span_support_precision": gold_review_metrics.get(
+                    "source_span_support_precision"
+                ),
+            },
+            blocker="human-labeled forecast claim gold set has not passed",
+        ),
+        _coverage_requirement_check(
+            check_id="RI15-B-D2",
+            phase_id="B",
+            check_type="deliverable",
+            requirement=(
+                "Human-labeled analytical footprint gold set, precision/recall "
+                "report, error taxonomy, and span-grounded verifier are present."
+            ),
+            accepted=(
+                footprint_review_accepted
+                and footprint_quality_passed
+                and bool(precision_recall)
+                and bool(error_tags)
+                and provenance_accepted
+            ),
+            evidence_artifacts=[
+                "registry/report_intelligence/analytical_footprint_review_summary.json",
+                "registry/report_intelligence/analytical_footprint_error_taxonomy.json",
+                "registry/report_intelligence/extraction_provenance_audit.json",
+            ],
+            evidence_counts={
+                "footprint_precision": precision_recall.get(
+                    "footprint_precision"
+                ),
+                "span_support_precision": precision_recall.get(
+                    "span_support_precision"
+                ),
+                "recall_status": precision_recall.get("recall_status"),
+                "error_tag_count": len(error_tags),
+            },
+            blocker="analytical-footprint gold set/provenance evidence incomplete",
+        ),
+        _coverage_requirement_check(
+            check_id="RI15-C-D1",
+            phase_id="C",
+            check_type="deliverable",
+            requirement=(
+                "Report forecast ledger, PIT outcome labels with overlap "
+                "adjustment, source/viewpoint/method profiles, shrinkage, and "
+                "bucketed weights are materialized without production use."
+            ),
+            accepted=(
+                bool(forecast_ledger_rows)
+                and bool(outcome_label_rows)
+                and bool(source_performance_profile_rows)
+                and bool(viewpoint_performance_profile_rows)
+                and bool(method_performance_profile_rows)
+                and statistical_accepted
+                and flags.get("production_use_of_weighted_reports") is False
+            ),
+            evidence_artifacts=[
+                "registry/report_intelligence/report_forecast_ledger.jsonl",
+                "registry/report_intelligence/report_outcome_labels.jsonl",
+                "registry/report_intelligence/source_performance_profiles.jsonl",
+                "registry/report_intelligence/viewpoint_performance_profiles.jsonl",
+                "registry/report_intelligence/method_performance_profiles.jsonl",
+                "registry/report_intelligence/statistical_robustness_audit.json",
+            ],
+            evidence_counts={
+                "forecast_ledger_rows": len(forecast_ledger_rows),
+                "outcome_label_rows": len(outcome_label_rows),
+                "source_profile_rows": len(source_performance_profile_rows),
+                "viewpoint_profile_rows": len(viewpoint_performance_profile_rows),
+                "method_profile_rows": len(method_performance_profile_rows),
+                "statistical_audit_accepted": statistical_accepted,
+            },
+            blocker="historical report performance backtest MVP is incomplete",
+        ),
+        _coverage_requirement_check(
+            check_id="RI15-D-D1",
+            phase_id="D",
+            check_type="deliverable",
+            requirement=(
+                "Analytical footprints, metric candidates with alias/proxy "
+                "mapping, method patterns, and license-aware storage policy are "
+                "registered as candidate/shadow assets."
+            ),
+            accepted=(
+                bool(footprint_rows)
+                and bool(metric_rows)
+                and bool(method_rows)
+                and footprint_quality_passed
+                and provenance_accepted
+            ),
+            evidence_artifacts=[
+                "registry/report_intelligence/analytical_footprints.jsonl",
+                "registry/report_intelligence/metric_candidates.jsonl",
+                "registry/report_intelligence/method_patterns.jsonl",
+                "registry/report_intelligence/analytical_footprint_review_summary.json",
+            ],
+            evidence_counts={
+                "analytical_footprint_rows": len(footprint_rows),
+                "metric_candidate_rows": len(metric_rows),
+                "method_pattern_rows": len(method_rows),
+            },
+            blocker="analytical footprint registry build is incomplete",
+        ),
+        _coverage_requirement_check(
+            check_id="RI15-E-D1",
+            phase_id="E",
+            check_type="deliverable",
+            requirement=(
+                "Tool coverage matcher, ranked tool gaps, data availability/PIT "
+                "review, data acquisition proposals, and tool design proposals "
+                "cover every metric candidate."
+            ),
+            accepted=(
+                bool(metric_rows)
+                and len(tool_coverage_match_rows) >= len(metric_rows)
+                and bool(gap_ids)
+                and not missing_data_proposals
+                and not missing_tool_proposals
+                and tool_feasibility_accepted
+            ),
+            evidence_artifacts=[
+                "registry/report_intelligence/tool_coverage_matches.jsonl",
+                "registry/report_intelligence/tool_gaps.jsonl",
+                "registry/report_intelligence/data_acquisition_proposals.jsonl",
+                "registry/report_intelligence/tool_design_proposals.jsonl",
+                "registry/report_intelligence/tool_feasibility_audit.json",
+            ],
+            evidence_counts={
+                "metric_candidate_rows": len(metric_rows),
+                "tool_coverage_match_rows": len(tool_coverage_match_rows),
+                "tool_gap_rows": len(tool_gap_rows),
+                "data_acquisition_proposal_rows": len(
+                    data_acquisition_proposal_rows
+                ),
+                "tool_design_proposal_rows": len(tool_design_proposal_rows),
+            },
+            blocker="tool coverage/gap proposal loop is incomplete",
+        ),
+        _coverage_requirement_check(
+            check_id="RI15-F-D1",
+            phase_id="F",
+            check_type="deliverable",
+            requirement=(
+                "Weighted research retriever, shadow-only analysis recipes, "
+                "runtime tool gap observations, and audit logs run without "
+                "changing agent decisions."
+            ),
+            accepted=(
+                _report_intelligence_rollout_at_least(
+                    rollout_mode,
+                    "shadow_tooling",
+                )
+                and bool(weighted_research_context_rows)
+                and bool(analysis_recipe_rows)
+                and bool(runtime_tool_gap_observation_rows)
+                and fallback_observation_count
+                == len(runtime_tool_gap_observation_rows)
+                and runtime_safety_accepted
+                and pit_leakage_accepted
+                and recipe_validation_accepted
+            ),
+            evidence_artifacts=[
+                "registry/report_intelligence/weighted_research_contexts.jsonl",
+                "registry/report_intelligence/analysis_recipes.jsonl",
+                "registry/report_intelligence/runtime_tool_gap_observations.jsonl",
+                "registry/report_intelligence/runtime_safety_audit.json",
+                "registry/report_intelligence/pit_leakage_audit.json",
+                "registry/report_intelligence/recipe_validation_audit.json",
+            ],
+            evidence_counts={
+                "rollout_mode": rollout_mode,
+                "weighted_research_context_rows": len(
+                    weighted_research_context_rows
+                ),
+                "analysis_recipe_rows": len(analysis_recipe_rows),
+                "runtime_tool_gap_observation_rows": len(
+                    runtime_tool_gap_observation_rows
+                ),
+                "fallback_observation_count": fallback_observation_count,
+            },
+            blocker="shadow runtime loop is incomplete",
+        ),
+        _coverage_requirement_check(
+            check_id="RI15-G-G1",
+            phase_id="G",
+            check_type="rollout_gate",
+            requirement=(
+                "Paper trading integration remains gated until selected recipes "
+                "have paper-trading validation, after-cost/calibration monitoring, "
+                "and confidence-impact checks."
+            ),
+            accepted=not phase_g_failures,
+            evidence_artifacts=[
+                "registry/report_intelligence/recipe_validation_audit.json",
+                "registry/report_intelligence/monitoring_report.json",
+            ],
+            evidence_counts={
+                "rollout_mode": rollout_mode,
+                "paper_trading_recipe_count": paper_recipe_count,
+                "alpha_decay_monitor_ready": alpha_decay.get(
+                    "alpha_decay_monitor_ready"
+                ),
+            },
+            status="deferred_by_rollout" if phase_g_deferred else None,
+            blocker="paper-trading rollout gate failed",
+        ),
+        _coverage_requirement_check(
+            check_id="RI15-H-G1",
+            phase_id="H",
+            check_type="rollout_gate",
+            requirement=(
+                "Limited production remains gated by max research adjustment cap, "
+                "rollback hooks, alpha decay monitoring, license/PIT safety, and "
+                "monthly review policy."
+            ),
+            accepted=not phase_h_failures,
+            evidence_artifacts=[
+                "registry/report_intelligence/runtime_safety_audit.json",
+                "registry/report_intelligence/pit_leakage_audit.json",
+                "registry/report_intelligence/monitoring_report.json",
+                "registry/report_intelligence/recipe_validation_audit.json",
+            ],
+            evidence_counts={
+                "rollout_mode": rollout_mode,
+                "limited_production_recipe_count": limited_recipe_count,
+                "production_recipe_count": production_recipe_count,
+                "required_rollback_modes": sorted(observed_rollback_modes),
+                "production_use_of_weighted_reports": flags.get(
+                    "production_use_of_weighted_reports"
+                ),
+            },
+            status="deferred_by_rollout" if phase_h_deferred else None,
+            blocker="limited-production rollout gate failed",
+        ),
+    ]
+    checklist_blockers = [
+        f"{item['check_id']}: {item['blocker']}"
+        for item in requirement_checklist
+        if item.get("accepted") is not True
+        and item.get("status") != "deferred_by_rollout"
+    ]
+    blockers.extend(checklist_blockers)
+    return {
+        "coverage_report_id": "RKE-REPORT-INTELLIGENCE-PATCH-V1-5-COVERAGE",
+        "run_id": run_id,
+        "as_of_datetime": _utc_now(),
+        "source_plan_path": (
+            "/home/hap/下载/"
+            "MOSAIC_RKE_REPORT_INTELLIGENCE_LOOP_PATCH_V1_5_MERGED.md"
+        ),
+        "current_rollout_mode": rollout_mode,
+        "current_completion_scope": (
+            "shadow_mvp_with_paper_and_production_phases_gated"
+        ),
+        "accepted": not blockers,
+        "blocker_count": len(blockers),
+        "blockers": blockers,
+        "phase_count": len(phases),
+        "passed_phase_ids": passed_phase_ids,
+        "deferred_phase_ids": deferred_phase_ids,
+        "blocked_phase_ids": blocked_phase_ids,
+        "phase_records": phases,
+        "requirement_checklist": requirement_checklist,
+        "corpus_counts": {
+            "metadata_rows": len(metadata_rows),
+            "forecast_claim_rows": len(forecast_rows),
+            "analytical_footprint_rows": len(footprint_rows),
+            "metric_candidate_rows": len(metric_rows),
+            "method_pattern_rows": len(method_rows),
+            "tool_gap_rows": len(tool_gap_rows),
+            "outcome_label_rows": len(outcome_label_rows),
+            "weighted_research_context_rows": len(weighted_research_context_rows),
+            "runtime_tool_gap_observation_rows": len(
+                runtime_tool_gap_observation_rows
+            ),
+        },
+        "policy": (
+            "Phase A-F evidence covers the current shadow MVP. Phase G/H are "
+            "accepted only as rollout-gated deferrals until explicit paper-trading "
+            "and limited-production evidence exists."
+        ),
+    }
+
+
+def write_report_intelligence_patch_v1_5_coverage_report(
+    registry_dir: str | Path,
+    *,
+    run_id: str = "RIR-PATCH-V1-5-COVERAGE",
+) -> dict[str, Any]:
+    registry_path = Path(registry_dir)
+    blockers: list[str] = []
+    feature_flags = _read_registry_json(
+        registry_path / "feature_flags.json",
+        label="feature_flags",
+        blockers=blockers,
+    )
+    metadata_rows = _read_registry_jsonl(
+        registry_path / "report_metadata.jsonl",
+        label="report_metadata",
+        blockers=blockers,
+    )
+    forecast_rows = _read_registry_jsonl(
+        registry_path / "forecast_claims.jsonl",
+        label="forecast_claims",
+        blockers=blockers,
+    )
+    footprint_rows = _read_registry_jsonl(
+        registry_path / "analytical_footprints.jsonl",
+        label="analytical_footprints",
+        blockers=blockers,
+    )
+    metric_rows = _read_registry_jsonl(
+        registry_path / "metric_candidates.jsonl",
+        label="metric_candidates",
+        blockers=blockers,
+    )
+    method_rows = _read_registry_jsonl(
+        registry_path / "method_patterns.jsonl",
+        label="method_patterns",
+        blockers=blockers,
+    )
+    tool_coverage_match_rows = _read_registry_jsonl(
+        registry_path / "tool_coverage_matches.jsonl",
+        label="tool_coverage_matches",
+        blockers=blockers,
+    )
+    tool_gap_rows = _read_registry_jsonl(
+        registry_path / "tool_gaps.jsonl",
+        label="tool_gaps",
+        blockers=blockers,
+    )
+    data_acquisition_proposal_rows = _read_registry_jsonl(
+        registry_path / "data_acquisition_proposals.jsonl",
+        label="data_acquisition_proposals",
+        blockers=blockers,
+    )
+    tool_design_proposal_rows = _read_registry_jsonl(
+        registry_path / "tool_design_proposals.jsonl",
+        label="tool_design_proposals",
+        blockers=blockers,
+    )
+    forecast_ledger_rows = _read_registry_jsonl(
+        registry_path / "report_forecast_ledger.jsonl",
+        label="report_forecast_ledger",
+        blockers=blockers,
+    )
+    outcome_label_rows = _read_registry_jsonl(
+        registry_path / "report_outcome_labels.jsonl",
+        label="report_outcome_labels",
+        blockers=blockers,
+    )
+    outcome_labeling_readiness = _read_registry_json(
+        registry_path / "outcome_labeling_readiness.json",
+        label="outcome_labeling_readiness",
+        blockers=blockers,
+    )
+    source_performance_profile_rows = _read_registry_jsonl(
+        registry_path / "source_performance_profiles.jsonl",
+        label="source_performance_profiles",
+        blockers=blockers,
+    )
+    viewpoint_performance_profile_rows = _read_registry_jsonl(
+        registry_path / "viewpoint_performance_profiles.jsonl",
+        label="viewpoint_performance_profiles",
+        blockers=blockers,
+    )
+    method_performance_profile_rows = _read_registry_jsonl(
+        registry_path / "method_performance_profiles.jsonl",
+        label="method_performance_profiles",
+        blockers=blockers,
+    )
+    analysis_recipe_rows = _read_registry_jsonl(
+        registry_path / "analysis_recipes.jsonl",
+        label="analysis_recipes",
+        blockers=blockers,
+    )
+    weighted_research_context_rows = _read_registry_jsonl(
+        registry_path / "weighted_research_contexts.jsonl",
+        label="weighted_research_contexts",
+        blockers=blockers,
+    )
+    runtime_tool_gap_observation_rows = _read_registry_jsonl(
+        registry_path / "runtime_tool_gap_observations.jsonl",
+        label="runtime_tool_gap_observations",
+        blockers=blockers,
+    )
+    monitoring_report = _read_registry_json(
+        registry_path / "monitoring_report.json",
+        label="monitoring_report",
+        blockers=blockers,
+    )
+    runtime_safety_audit = _read_registry_json(
+        registry_path / "runtime_safety_audit.json",
+        label="runtime_safety_audit",
+        blockers=blockers,
+    )
+    pit_leakage_audit = _read_registry_json(
+        registry_path / "pit_leakage_audit.json",
+        label="pit_leakage_audit",
+        blockers=blockers,
+    )
+    extraction_provenance_audit = _read_registry_json(
+        registry_path / "extraction_provenance_audit.json",
+        label="extraction_provenance_audit",
+        blockers=blockers,
+    )
+    statistical_robustness_audit = _read_registry_json(
+        registry_path / "statistical_robustness_audit.json",
+        label="statistical_robustness_audit",
+        blockers=blockers,
+    )
+    tool_feasibility_audit = _read_registry_json(
+        registry_path / "tool_feasibility_audit.json",
+        label="tool_feasibility_audit",
+        blockers=blockers,
+    )
+    recipe_validation_audit = _read_registry_json(
+        registry_path / "recipe_validation_audit.json",
+        label="recipe_validation_audit",
+        blockers=blockers,
+    )
+    footprint_review_summary = _read_registry_json(
+        registry_path / "analytical_footprint_review_summary.json",
+        label="analytical_footprint_review_summary",
+        blockers=blockers,
+    )
+    footprint_error_taxonomy = _read_registry_json(
+        registry_path / "analytical_footprint_error_taxonomy.json",
+        label="analytical_footprint_error_taxonomy",
+        blockers=blockers,
+    )
+    gold_review_summary = _read_registry_json(
+        registry_path.parent / "gold_sets/tushare_research_reports.review_summary.json",
+        label="gold_review_summary",
+        blockers=blockers,
+    )
+    report = build_report_intelligence_patch_v1_5_coverage_report(
+        run_id=run_id,
+        feature_flags=feature_flags,
+        metadata_rows=metadata_rows,
+        forecast_rows=forecast_rows,
+        footprint_rows=footprint_rows,
+        metric_rows=metric_rows,
+        method_rows=method_rows,
+        tool_coverage_match_rows=tool_coverage_match_rows,
+        tool_gap_rows=tool_gap_rows,
+        data_acquisition_proposal_rows=data_acquisition_proposal_rows,
+        tool_design_proposal_rows=tool_design_proposal_rows,
+        forecast_ledger_rows=forecast_ledger_rows,
+        outcome_label_rows=outcome_label_rows,
+        outcome_labeling_readiness=outcome_labeling_readiness,
+        source_performance_profile_rows=source_performance_profile_rows,
+        viewpoint_performance_profile_rows=viewpoint_performance_profile_rows,
+        method_performance_profile_rows=method_performance_profile_rows,
+        analysis_recipe_rows=analysis_recipe_rows,
+        weighted_research_context_rows=weighted_research_context_rows,
+        runtime_tool_gap_observation_rows=runtime_tool_gap_observation_rows,
+        monitoring_report=monitoring_report,
+        runtime_safety_audit=runtime_safety_audit,
+        pit_leakage_audit=pit_leakage_audit,
+        extraction_provenance_audit=extraction_provenance_audit,
+        statistical_robustness_audit=statistical_robustness_audit,
+        tool_feasibility_audit=tool_feasibility_audit,
+        recipe_validation_audit=recipe_validation_audit,
+        footprint_review_summary=footprint_review_summary,
+        footprint_error_taxonomy=footprint_error_taxonomy,
+        gold_review_summary=gold_review_summary,
+    )
+    if blockers:
+        report = dict(report)
+        combined_blockers = [
+            *[str(item) for item in report.get("blockers", [])],
+            *blockers,
+        ]
+        report["accepted"] = False
+        report["blockers"] = combined_blockers
+        report["blocker_count"] = len(combined_blockers)
+    return _write_json(registry_path / "patch_v1_5_coverage_report.json", report)
+
+
+def _append_unique_records(
+    target: list[dict[str, Any]],
+    records: Sequence[dict[str, Any]],
+    *,
+    key: str,
+) -> None:
+    seen = {str(record.get(key) or "") for record in target}
+    for record in records:
+        value = str(record.get(key) or "")
+        if value and value not in seen:
+            target.append(record)
+            seen.add(value)
+
+
+def _extract_for_markdown(
+    row: Mapping[str, Any],
+    markdown_text: str,
+    *,
+    run_id: str,
+    extractor: LlmExtractor,
+    chunk_chars: int,
+    max_chunks: int,
+) -> tuple[dict[str, list[dict[str, Any]]], str, str | None, list[str], int, bool]:
+    chunks = _chunk_text(markdown_text, chunk_chars=chunk_chars, max_chunks=max_chunks)
+    truncated = len("".join(chunks)) < len(markdown_text.strip())
+    report_id = _report_id(row)
+    all_forecasts: list[dict[str, Any]] = []
+    all_footprints: list[dict[str, Any]] = []
+    all_metrics: list[dict[str, Any]] = []
+    all_methods: list[dict[str, Any]] = []
+    all_gaps: list[dict[str, Any]] = []
+    blockers: list[str] = []
+    model_used: str | None = None
+    for index, chunk in enumerate(chunks, 1):
+        chunk_span_id = f"{row.get('source_id')}:original_markdown:chunk-{index:03d}"
+        try:
+            result = extractor(row, chunk, chunk_span_id, index, len(chunks))
+        except Exception as exc:  # pragma: no cover - exercised by live failures
+            result = {"status": "blocked", "blocker": f"llm_extractor_error: {exc}"}
+        if result.get("status") != "ok":
+            blockers.append(
+                f"{row.get('source_id')} chunk {index}: "
+                f"{result.get('blocker') or 'llm_extraction_failed'}"
+            )
+            if result.get("model"):
+                model_used = str(result["model"])
+            continue
+        model = str(result.get("model") or model_used or "unknown")
+        model_used = model
+        payload = _ensure_mapping(result.get("payload"))
+        footprints = _normalize_footprints(
+            payload,
+            row,
+            run_id=run_id,
+            model=model,
+            report_id=report_id,
+            chunk_span_id=chunk_span_id,
+        )
+        metrics = _normalize_metric_candidates(
+            payload,
+            footprints,
+            run_id=run_id,
+            model=model,
+        )
+        methods = _normalize_method_patterns(
+            payload,
+            footprints,
+            run_id=run_id,
+            model=model,
+        )
+        gaps = _normalize_tool_gaps(
+            payload,
+            metrics,
+            methods,
+            run_id=run_id,
+            model=model,
+        )
+        _append_unique_records(
+            all_forecasts,
+            _normalize_forecast_claims(
+                payload,
+                row,
+                run_id=run_id,
+                model=model,
+                report_id=report_id,
+                chunk_span_id=chunk_span_id,
+            ),
+            key="forecast_claim_id",
+        )
+        _append_unique_records(all_footprints, footprints, key="footprint_id")
+        _append_unique_records(all_metrics, metrics, key="metric_candidate_id")
+        _append_unique_records(all_methods, methods, key="method_pattern_id")
+        _append_unique_records(all_gaps, gaps, key="tool_gap_id")
+    llm_status = "processed" if model_used and not blockers else "blocked"
+    if not chunks:
+        llm_status = "blocked"
+        blockers.append(f"{row.get('source_id')}: markdown_empty")
+    return (
+        {
+            "forecast_claims": all_forecasts,
+            "analytical_footprints": all_footprints,
+            "metric_candidates": all_metrics,
+            "method_patterns": all_methods,
+            "tool_gaps": all_gaps,
+        },
+        llm_status,
+        model_used,
+        blockers,
+        len(chunks),
+        truncated,
+    )
+
+
+def run_report_intelligence_derived_refresh(
+    config: ReportIntelligenceConfig | None = None,
+) -> ReportIntelligenceRunResult:
+    cfg = config or ReportIntelligenceConfig(refresh_derived_only=True)
+    root_path = Path(cfg.root).resolve()
+    registry_dir = (
+        Path(cfg.registry_dir)
+        if Path(cfg.registry_dir).is_absolute()
+        else root_path / cfg.registry_dir
+    )
+    run_id = "RIR-DERIVED-" + _utc_now().replace(":", "").replace("-", "")
+    missing_private_inputs = _missing_report_intelligence_private_inputs(
+        root_path=root_path,
+        registry_dir=registry_dir,
+    )
+    existing_public_outputs = _report_intelligence_paths_exist(
+        root_path=root_path,
+        registry_dir=registry_dir,
+        paths=REPORT_INTELLIGENCE_PUBLIC_DERIVED_OUTPUT_PATHS,
+    )
+    if missing_private_inputs and existing_public_outputs:
+        blockers = (
+            "private report-intelligence inputs missing; refusing to overwrite "
+            "committed public derived artifacts: "
+            + ", ".join(missing_private_inputs)
+        )
+        return _blocked_report_intelligence_derived_refresh_result(
+            root_path=root_path,
+            registry_dir=registry_dir,
+            run_id=run_id,
+            blockers=(blockers,),
+        )
+    blockers: list[str] = []
+    metadata_rows = _read_registry_jsonl(
+        registry_dir / "report_metadata.jsonl",
+        label="report_metadata",
+        blockers=blockers,
+    )
+    forecast_rows = _read_registry_jsonl(
+        registry_dir / "forecast_claims.jsonl",
+        label="forecast_claims",
+        blockers=blockers,
+    )
+    forecast_rows = _refresh_forecast_mapping_governance(forecast_rows)
+    footprint_rows = _read_registry_jsonl(
+        registry_dir / "analytical_footprints.jsonl",
+        label="analytical_footprints",
+        blockers=blockers,
+    )
+    footprint_rows = _refresh_analytical_footprint_indicator_governance(
+        footprint_rows
+    )
+    metric_rows = _read_registry_jsonl(
+        registry_dir / "metric_candidates.jsonl",
+        label="metric_candidates",
+        blockers=blockers,
+    )
+    method_rows = _read_registry_jsonl(
+        registry_dir / "method_patterns.jsonl",
+        label="method_patterns",
+        blockers=blockers,
+    )
+    tool_gap_rows = _read_registry_jsonl(
+        registry_dir / "tool_gaps.jsonl",
+        label="tool_gaps",
+        blockers=blockers,
+    )
+    _append_unique_records(
+        metric_rows,
+        _normalize_metric_candidates(
+            {},
+            footprint_rows,
+            run_id=run_id,
+            model="derived_refresh",
+        ),
+        key="metric_candidate_id",
+    )
+    tool_gap_rows = _backfill_tool_gaps_from_metric_candidates(
+        tool_gap_rows,
+        metric_rows,
+        method_rows,
+        run_id=run_id,
+        model="derived_refresh",
+    )
+    metric_rows = _backfill_metric_candidates_from_tool_gaps(
+        metric_rows,
+        tool_gap_rows,
+        run_id=run_id,
+    )
+
+    forecast_ledger_rows = build_forecast_ledger_records(forecast_rows)
+    outcome_label_rows = build_outcome_label_records(
+        root_path=root_path,
+        qlib_etf_dir=cfg.qlib_etf_dir,
+        forecast_rows=forecast_rows,
+        forecast_ledger_rows=forecast_ledger_rows,
+        metadata_rows=metadata_rows,
+    )
+    industry_etf_proxy_readiness = build_industry_etf_proxy_readiness(
+        root_path=root_path,
+        qlib_etf_dir=cfg.qlib_etf_dir,
+        forecast_rows=forecast_rows,
+        metadata_rows=metadata_rows,
+    )
+    outcome_labeling_readiness = build_outcome_labeling_readiness_report(
+        forecast_rows=forecast_rows,
+        forecast_ledger_rows=forecast_ledger_rows,
+        industry_etf_proxy_readiness=industry_etf_proxy_readiness,
+    )
+    source_performance_profile_rows = build_source_performance_profiles(
+        metadata_rows,
+        forecast_rows=forecast_rows,
+        outcome_label_rows=outcome_label_rows,
+    )
+    viewpoint_performance_profile_rows = build_viewpoint_performance_profiles(
+        forecast_rows,
+        outcome_label_rows=outcome_label_rows,
+    )
+    method_performance_profile_rows = build_method_performance_profiles(
+        method_rows,
+    )
+    tool_coverage_match_rows = build_tool_coverage_matches(metric_rows)
+    data_acquisition_proposal_rows = build_data_acquisition_proposals(
+        tool_gap_rows,
+    )
+    tool_design_proposal_rows = build_tool_design_proposals(tool_gap_rows)
+    analysis_recipe_rows = build_analysis_recipes(method_rows)
+    weighted_research_context_rows = build_weighted_research_contexts(
+        forecast_rows=forecast_rows,
+        forecast_ledger_rows=forecast_ledger_rows,
+        footprint_rows=footprint_rows,
+        analysis_recipe_rows=analysis_recipe_rows,
+        tool_gap_rows=tool_gap_rows,
+        metadata_rows=metadata_rows,
+        source_performance_profile_rows=source_performance_profile_rows,
+        viewpoint_performance_profile_rows=viewpoint_performance_profile_rows,
+    )
+    runtime_tool_gap_observation_rows = build_runtime_tool_gap_observations(
+        run_id=run_id,
+        weighted_research_context_rows=weighted_research_context_rows,
+        tool_gap_rows=tool_gap_rows,
+        analysis_recipe_rows=analysis_recipe_rows,
+    )
+    monitoring_report = build_report_intelligence_monitoring_report(
+        run_id=run_id,
+        metadata_rows=metadata_rows,
+        forecast_rows=forecast_rows,
+        outcome_label_rows=outcome_label_rows,
+        source_performance_profile_rows=source_performance_profile_rows,
+        viewpoint_performance_profile_rows=viewpoint_performance_profile_rows,
+        method_performance_profile_rows=method_performance_profile_rows,
+        tool_coverage_match_rows=tool_coverage_match_rows,
+        tool_gap_rows=tool_gap_rows,
+        data_acquisition_proposal_rows=data_acquisition_proposal_rows,
+        tool_design_proposal_rows=tool_design_proposal_rows,
+        analysis_recipe_rows=analysis_recipe_rows,
+        weighted_research_context_rows=weighted_research_context_rows,
+        runtime_tool_gap_observation_rows=runtime_tool_gap_observation_rows,
+    )
+    feature_flag_payload = _report_intelligence_feature_flag_payload()
+    runtime_safety_audit = build_report_intelligence_runtime_safety_audit(
+        run_id=run_id,
+        feature_flags=feature_flag_payload,
+        forecast_rows=forecast_rows,
+        forecast_ledger_rows=forecast_ledger_rows,
+        method_rows=method_rows,
+        analysis_recipe_rows=analysis_recipe_rows,
+        weighted_research_context_rows=weighted_research_context_rows,
+        runtime_tool_gap_observation_rows=runtime_tool_gap_observation_rows,
+        tool_gap_rows=tool_gap_rows,
+    )
+    pit_leakage_audit = build_report_intelligence_pit_leakage_audit(
+        run_id=run_id,
+        feature_flags=feature_flag_payload,
+        metadata_rows=metadata_rows,
+        forecast_rows=forecast_rows,
+        forecast_ledger_rows=forecast_ledger_rows,
+        outcome_label_rows=outcome_label_rows,
+        source_performance_profile_rows=source_performance_profile_rows,
+        tool_coverage_match_rows=tool_coverage_match_rows,
+        analysis_recipe_rows=analysis_recipe_rows,
+        weighted_research_context_rows=weighted_research_context_rows,
+    )
+    extraction_provenance_audit = build_report_intelligence_extraction_provenance_audit(
+        run_id=run_id,
+        forecast_rows=forecast_rows,
+        footprint_rows=footprint_rows,
+        metric_rows=metric_rows,
+        forecast_ledger_rows=forecast_ledger_rows,
+        outcome_label_rows=outcome_label_rows,
+        outcome_labeling_readiness=outcome_labeling_readiness,
+    )
+    statistical_robustness_audit = (
+        build_report_intelligence_statistical_robustness_audit(
+            run_id=run_id,
+            feature_flags=feature_flag_payload,
+            forecast_ledger_rows=forecast_ledger_rows,
+            outcome_label_rows=outcome_label_rows,
+            source_performance_profile_rows=source_performance_profile_rows,
+            viewpoint_performance_profile_rows=viewpoint_performance_profile_rows,
+            method_performance_profile_rows=method_performance_profile_rows,
+            weighted_research_context_rows=weighted_research_context_rows,
+        )
+    )
+    tool_feasibility_audit = build_report_intelligence_tool_feasibility_audit(
+        run_id=run_id,
+        feature_flags=feature_flag_payload,
+        metric_rows=metric_rows,
+        tool_coverage_match_rows=tool_coverage_match_rows,
+        tool_gap_rows=tool_gap_rows,
+        data_acquisition_proposal_rows=data_acquisition_proposal_rows,
+        tool_design_proposal_rows=tool_design_proposal_rows,
+        analysis_recipe_rows=analysis_recipe_rows,
+        runtime_tool_gap_observation_rows=runtime_tool_gap_observation_rows,
+    )
+    recipe_validation_audit = build_report_intelligence_recipe_validation_audit(
+        run_id=run_id,
+        feature_flags=feature_flag_payload,
+        method_rows=method_rows,
+        analysis_recipe_rows=analysis_recipe_rows,
+        tool_feasibility_audit=tool_feasibility_audit,
+        weighted_research_context_rows=weighted_research_context_rows,
+        runtime_tool_gap_observation_rows=runtime_tool_gap_observation_rows,
+    )
+    footprint_review_outputs = write_analytical_footprint_review_artifacts(
+        registry_dir,
+        footprint_rows,
+    )
+    footprint_review_load_blockers: list[str] = []
+    footprint_review_summary = _read_registry_json(
+        registry_dir / "analytical_footprint_review_summary.json",
+        label="analytical_footprint_review_summary",
+        blockers=footprint_review_load_blockers,
+    )
+    footprint_error_taxonomy = _read_registry_json(
+        registry_dir / "analytical_footprint_error_taxonomy.json",
+        label="analytical_footprint_error_taxonomy",
+        blockers=footprint_review_load_blockers,
+    )
+    gold_review_summary = _read_registry_json(
+        registry_dir.parent / "gold_sets/tushare_research_reports.review_summary.json",
+        label="gold_review_summary",
+        blockers=footprint_review_load_blockers,
+    )
+    patch_v1_5_coverage_report = (
+        build_report_intelligence_patch_v1_5_coverage_report(
+            run_id=run_id,
+            feature_flags=feature_flag_payload,
+            metadata_rows=metadata_rows,
+            forecast_rows=forecast_rows,
+            footprint_rows=footprint_rows,
+            metric_rows=metric_rows,
+            method_rows=method_rows,
+            tool_coverage_match_rows=tool_coverage_match_rows,
+            tool_gap_rows=tool_gap_rows,
+            data_acquisition_proposal_rows=data_acquisition_proposal_rows,
+            tool_design_proposal_rows=tool_design_proposal_rows,
+            forecast_ledger_rows=forecast_ledger_rows,
+            outcome_label_rows=outcome_label_rows,
+            outcome_labeling_readiness=outcome_labeling_readiness,
+            source_performance_profile_rows=source_performance_profile_rows,
+            viewpoint_performance_profile_rows=viewpoint_performance_profile_rows,
+            method_performance_profile_rows=method_performance_profile_rows,
+            analysis_recipe_rows=analysis_recipe_rows,
+            weighted_research_context_rows=weighted_research_context_rows,
+            runtime_tool_gap_observation_rows=runtime_tool_gap_observation_rows,
+            monitoring_report=monitoring_report,
+            runtime_safety_audit=runtime_safety_audit,
+            pit_leakage_audit=pit_leakage_audit,
+            extraction_provenance_audit=extraction_provenance_audit,
+            statistical_robustness_audit=statistical_robustness_audit,
+            tool_feasibility_audit=tool_feasibility_audit,
+            recipe_validation_audit=recipe_validation_audit,
+            footprint_review_summary=footprint_review_summary,
+            footprint_error_taxonomy=footprint_error_taxonomy,
+            gold_review_summary=gold_review_summary,
+        )
+    )
+
+    outputs = {
+        "feature_flags": str(
+            _write_json(
+                registry_dir / "feature_flags.json",
+                feature_flag_payload,
+            )["path"]
+        ),
+        "report_metadata": str(registry_dir / "report_metadata.jsonl"),
+        "forecast_claims": str(
+            _write_jsonl(registry_dir / "forecast_claims.jsonl", forecast_rows)["path"]
+        ),
+        "analytical_footprints": str(
+            registry_dir / "analytical_footprints.jsonl"
+        ),
+        **footprint_review_outputs,
+        "metric_candidates": str(
+            _write_jsonl(registry_dir / "metric_candidates.jsonl", metric_rows)["path"]
+        ),
+        "method_patterns": str(registry_dir / "method_patterns.jsonl"),
+        "tool_gaps": str(
+            _write_jsonl(
+                registry_dir / "tool_gaps.jsonl",
+                tool_gap_rows,
+            )["path"]
+        ),
+        "report_forecast_ledger": str(
+            _write_jsonl(
+                registry_dir / "report_forecast_ledger.jsonl",
+                forecast_ledger_rows,
+            )["path"]
+        ),
+        "outcome_labeling_readiness": str(
+            _write_json(
+                registry_dir / "outcome_labeling_readiness.json",
+                outcome_labeling_readiness,
+            )["path"]
+        ),
+        "report_outcome_labels": str(
+            _write_jsonl(
+                registry_dir / "report_outcome_labels.jsonl",
+                outcome_label_rows,
+            )["path"]
+        ),
+        "source_performance_profiles": str(
+            _write_jsonl(
+                registry_dir / "source_performance_profiles.jsonl",
+                source_performance_profile_rows,
+            )["path"]
+        ),
+        "viewpoint_performance_profiles": str(
+            _write_jsonl(
+                registry_dir / "viewpoint_performance_profiles.jsonl",
+                viewpoint_performance_profile_rows,
+            )["path"]
+        ),
+        "method_performance_profiles": str(
+            _write_jsonl(
+                registry_dir / "method_performance_profiles.jsonl",
+                method_performance_profile_rows,
+            )["path"]
+        ),
+        "tool_coverage_matches": str(
+            _write_jsonl(
+                registry_dir / "tool_coverage_matches.jsonl",
+                tool_coverage_match_rows,
+            )["path"]
+        ),
+        "data_acquisition_proposals": str(
+            _write_jsonl(
+                registry_dir / "data_acquisition_proposals.jsonl",
+                data_acquisition_proposal_rows,
+            )["path"]
+        ),
+        "tool_design_proposals": str(
+            _write_jsonl(
+                registry_dir / "tool_design_proposals.jsonl",
+                tool_design_proposal_rows,
+            )["path"]
+        ),
+        "analysis_recipes": str(
+            _write_jsonl(
+                registry_dir / "analysis_recipes.jsonl",
+                analysis_recipe_rows,
+            )["path"]
+        ),
+        "weighted_research_contexts": str(
+            _write_jsonl(
+                registry_dir / "weighted_research_contexts.jsonl",
+                weighted_research_context_rows,
+            )["path"]
+        ),
+        "runtime_tool_gap_observations": str(
+            _write_jsonl(
+                registry_dir / "runtime_tool_gap_observations.jsonl",
+                runtime_tool_gap_observation_rows,
+            )["path"]
+        ),
+        "monitoring_report": str(
+            _write_json(
+                registry_dir / "monitoring_report.json",
+                monitoring_report,
+            )["path"]
+        ),
+        "runtime_safety_audit": str(
+            _write_json(
+                registry_dir / "runtime_safety_audit.json",
+                runtime_safety_audit,
+            )["path"]
+        ),
+        "pit_leakage_audit": str(
+            _write_json(
+                registry_dir / "pit_leakage_audit.json",
+                pit_leakage_audit,
+            )["path"]
+        ),
+        "extraction_provenance_audit": str(
+            _write_json(
+                registry_dir / "extraction_provenance_audit.json",
+                extraction_provenance_audit,
+            )["path"]
+        ),
+        "statistical_robustness_audit": str(
+            _write_json(
+                registry_dir / "statistical_robustness_audit.json",
+                statistical_robustness_audit,
+            )["path"]
+        ),
+        "tool_feasibility_audit": str(
+            _write_json(
+                registry_dir / "tool_feasibility_audit.json",
+                tool_feasibility_audit,
+            )["path"]
+        ),
+        "recipe_validation_audit": str(
+            _write_json(
+                registry_dir / "recipe_validation_audit.json",
+                recipe_validation_audit,
+            )["path"]
+        ),
+        "patch_v1_5_coverage_report": str(
+            _write_json(
+                registry_dir / "patch_v1_5_coverage_report.json",
+                patch_v1_5_coverage_report,
+            )["path"]
+        ),
+        "status": str(registry_dir / "processing_status.jsonl"),
+    }
+    outputs = {
+        key: _relative_or_absolute(Path(path), root_path)
+        for key, path in outputs.items()
+    }
+    summary_path = registry_dir / "extraction_report.json"
+    outputs["summary"] = _relative_or_absolute(summary_path, root_path)
+    summary = ReportIntelligenceRunResult(
+        run_id=run_id,
+        root=str(root_path),
+        selected_reports=len(metadata_rows),
+        metadata_rows=len(metadata_rows),
+        forecast_claim_rows=len(forecast_rows),
+        analytical_footprint_rows=len(footprint_rows),
+        metric_candidate_rows=len(metric_rows),
+        method_pattern_rows=len(method_rows),
+        tool_gap_rows=len(tool_gap_rows),
+        forecast_ledger_rows=len(forecast_ledger_rows),
+        outcome_label_rows=len(outcome_label_rows),
+        industry_etf_proxy_outcome_label_rows=sum(
+            1
+            for row in outcome_label_rows
+            if row.get("label_type") == "industry_etf_proxy"
+        ),
+        industry_etf_proxy_eligible_claim_rows=int(
+            industry_etf_proxy_readiness["eligible_claim_count"]
+        ),
+        industry_etf_proxy_labelable_window_rows=int(
+            industry_etf_proxy_readiness["labelable_window_count"]
+        ),
+        industry_etf_proxy_pending_window_rows=int(
+            industry_etf_proxy_readiness["pending_future_window_count"]
+        ),
+        source_performance_profile_rows=len(source_performance_profile_rows),
+        viewpoint_performance_profile_rows=len(viewpoint_performance_profile_rows),
+        method_performance_profile_rows=len(method_performance_profile_rows),
+        tool_coverage_match_rows=len(tool_coverage_match_rows),
+        data_acquisition_proposal_rows=len(data_acquisition_proposal_rows),
+        tool_design_proposal_rows=len(tool_design_proposal_rows),
+        analysis_recipe_rows=len(analysis_recipe_rows),
+        weighted_research_context_rows=len(weighted_research_context_rows),
+        runtime_tool_gap_observation_rows=len(runtime_tool_gap_observation_rows),
+        outcome_labeling_ready_count=int(
+            outcome_labeling_readiness["ready_for_outcome_labeling_count"]
+        ),
+        outcome_labeling_blocked_count=int(outcome_labeling_readiness["blocked_count"]),
+        pdf_ready_count=sum(
+            1
+            for row in metadata_rows
+            if _ensure_mapping(row.get("pdf")).get("status") in {"cached", "downloaded"}
+        ),
+        markdown_ready_count=sum(
+            1
+            for row in metadata_rows
+            if _ensure_mapping(row.get("markdown")).get("status")
+            in {"cached", "converted", "converted_text_source"}
+        ),
+        llm_processed_reports=sum(
+            1
+            for row in metadata_rows
+            if _ensure_mapping(row.get("extraction")).get("llm_status") == "processed"
+        ),
+        blocker_count=len(blockers),
+        blockers=tuple(blockers),
+        outputs=outputs,
+    )
+    summary_payload = asdict(summary)
+    summary_payload["root"] = "<repo_root>"
+    _write_json(summary_path, summary_payload)
+    return summary
+
+
+def run_report_intelligence_refresh(
+    config: ReportIntelligenceConfig | None = None,
+    *,
+    downloader: PdfDownloader | None = None,
+    converter: PdfConverter | None = None,
+    llm_extractor: LlmExtractor | None = None,
+) -> ReportIntelligenceRunResult:
+    cfg = config or ReportIntelligenceConfig()
+    if cfg.refresh_derived_only:
+        return run_report_intelligence_derived_refresh(cfg)
+    root_path = Path(cfg.root).resolve()
+    registry_dir = (
+        Path(cfg.registry_dir)
+        if Path(cfg.registry_dir).is_absolute()
+        else root_path / cfg.registry_dir
+    )
+    cache_dir = (
+        Path(cfg.cache_dir)
+        if Path(cfg.cache_dir).is_absolute()
+        else root_path / cfg.cache_dir
+    )
+    run_id = "RIR-" + _utc_now().replace(":", "").replace("-", "")
+    rows, source_blockers = _selected_source_rows(
+        root_path,
+        source_path=cfg.source_path,
+        source_ids=cfg.source_ids,
+        limit=cfg.limit,
+        min_publish_date=cfg.min_publish_date,
+        max_publish_date=cfg.max_publish_date,
+        selection_order=cfg.selection_order,
+    )
+    blockers: list[str] = list(source_blockers)
+    downloader = downloader or (
+        lambda url, path, overwrite: download_pdf(
+            url,
+            path,
+            overwrite,
+            timeout_seconds=cfg.download_timeout_seconds,
+        )
+    )
+    custom_converter = converter is not None
+    converter_fn = converter or (
+        lambda pdf, out_dir, md, overwrite: convert_pdf_with_mineru(
+            pdf,
+            out_dir,
+            md,
+            overwrite,
+            command=cfg.mineru_command,
+            args_template=cfg.mineru_args_template,
+            timeout_seconds=cfg.mineru_timeout_seconds,
+            backend=cfg.mineru_backend,
+            server_url=cfg.mineru_server_url,
+        )
+    )
+    llm_extractor = llm_extractor or (
+        lambda row, chunk, span_id, chunk_index, chunk_count: call_vllm_extractor(
+            row,
+            chunk,
+            span_id,
+            chunk_index,
+            chunk_count,
+            base_url=cfg.vllm_base_url,
+            model=cfg.vllm_model,
+            timeout_seconds=cfg.vllm_timeout_seconds,
+            max_output_tokens=cfg.max_llm_output_tokens,
+        )
+    )
+
+    metadata_rows: list[dict[str, Any]] = []
+    forecast_rows: list[dict[str, Any]] = []
+    footprint_rows: list[dict[str, Any]] = []
+    metric_rows: list[dict[str, Any]] = []
+    method_rows: list[dict[str, Any]] = []
+    tool_gap_rows: list[dict[str, Any]] = []
+    status_rows: list[dict[str, Any]] = []
+
+    prepared_rows: list[dict[str, Any]] = []
+    for row in rows:
+        source_id = str(row.get("source_id") or "")
+        safe_id = _safe_file_id(source_id)
+        url = str(row.get("url") or "").strip()
+        pdf_path = cache_dir / "pdfs" / f"{safe_id}.pdf"
+        markdown_path = cache_dir / "markdown" / f"{safe_id}.md"
+        mineru_output_dir = cache_dir / "mineru" / safe_id
+        row_blockers: list[str] = []
+        pdf_result: Mapping[str, Any] = {"status": "not_attempted"}
+        if not url and not markdown_path.exists():
+            row_blockers.append(f"{source_id}: report_url_missing")
+        if not cfg.skip_download and url:
+            pdf_result = downloader(url, pdf_path, cfg.overwrite)
+            if pdf_result.get("status") == "blocked":
+                row_blockers.append(f"{source_id}: {pdf_result.get('blocker')}")
+        elif pdf_path.exists():
+            pdf_result = {
+                "status": "cached",
+                "path": str(pdf_path),
+                "bytes": pdf_path.stat().st_size,
+                "sha256": _file_sha256(pdf_path),
+            }
+        prepared_rows.append(
+            {
+                "row": row,
+                "source_id": source_id,
+                "pdf_path": pdf_path,
+                "markdown_path": markdown_path,
+                "mineru_output_dir": mineru_output_dir,
+                "pdf_result": pdf_result,
+                "markdown_result": {"status": "not_attempted"},
+                "row_blockers": row_blockers,
+            }
+        )
+
+    if not cfg.skip_convert:
+        if custom_converter:
+            for prepared in prepared_rows:
+                markdown_result = converter_fn(
+                    prepared["pdf_path"],
+                    prepared["mineru_output_dir"],
+                    prepared["markdown_path"],
+                    cfg.overwrite,
+                )
+                prepared["markdown_result"] = markdown_result
+                if markdown_result.get("status") == "blocked":
+                    prepared["row_blockers"].append(
+                        f"{prepared['source_id']}: {markdown_result.get('blocker')}"
+                    )
+        else:
+            conversion_tasks = [
+                MineruBatchConversionTask(
+                    source_id=str(prepared["source_id"]),
+                    pdf_path=prepared["pdf_path"],
+                    markdown_path=prepared["markdown_path"],
+                )
+                for prepared in prepared_rows
+            ]
+            batch_results = convert_pdfs_with_mineru_batch(
+                conversion_tasks,
+                cache_dir / "mineru_batch" / run_id,
+                cfg.overwrite,
+                command=cfg.mineru_command,
+                backend=cfg.mineru_backend,
+                server_url=cfg.mineru_server_url,
+                args_template=cfg.mineru_args_template,
+                timeout_seconds=cfg.mineru_timeout_seconds,
+                batch_size=cfg.mineru_batch_size,
+                max_batch_bytes=cfg.mineru_batch_max_bytes,
+            )
+            for prepared in prepared_rows:
+                markdown_result = batch_results.get(
+                    str(prepared["source_id"]),
+                    {
+                        "status": "blocked",
+                        "blocker": "mineru_batch_result_missing",
+                        "backend": cfg.mineru_backend,
+                    },
+                )
+                prepared["markdown_result"] = markdown_result
+                if markdown_result.get("status") == "blocked":
+                    prepared["row_blockers"].append(
+                        f"{prepared['source_id']}: {markdown_result.get('blocker')}"
+                    )
+    else:
+        for prepared in prepared_rows:
+            markdown_path = prepared["markdown_path"]
+            if markdown_path.exists():
+                prepared["markdown_result"] = {
+                    "status": "cached",
+                    "path": str(markdown_path),
+                    "backend": cfg.mineru_backend,
+                    "bytes": markdown_path.stat().st_size,
+                    "sha256": _file_sha256(markdown_path),
+                }
+
+    for prepared in prepared_rows:
+        row = prepared["row"]
+        source_id = str(prepared["source_id"])
+        markdown_path = prepared["markdown_path"]
+        pdf_result = prepared["pdf_result"]
+        markdown_result = prepared["markdown_result"]
+        row_blockers = prepared["row_blockers"]
+        llm_status = "skipped" if cfg.skip_llm else "blocked"
+        llm_model: str | None = None
+        chunk_count = 0
+        truncated_chunks = False
+        if not cfg.skip_llm:
+            if markdown_path.exists() and markdown_path.stat().st_size > 0:
+                extraction, llm_status, llm_model, llm_blockers, chunk_count, truncated_chunks = (
+                    _extract_for_markdown(
+                        row,
+                        markdown_path.read_text(encoding="utf-8", errors="replace"),
+                        run_id=run_id,
+                        extractor=llm_extractor,
+                        chunk_chars=cfg.chunk_chars,
+                        max_chunks=cfg.max_chunks,
+                    )
+                )
+                row_blockers.extend(llm_blockers)
+                _append_unique_records(
+                    forecast_rows,
+                    extraction["forecast_claims"],
+                    key="forecast_claim_id",
+                )
+                _append_unique_records(
+                    footprint_rows,
+                    extraction["analytical_footprints"],
+                    key="footprint_id",
+                )
+                _append_unique_records(
+                    metric_rows,
+                    extraction["metric_candidates"],
+                    key="metric_candidate_id",
+                )
+                _append_unique_records(
+                    method_rows,
+                    extraction["method_patterns"],
+                    key="method_pattern_id",
+                )
+                _append_unique_records(
+                    tool_gap_rows,
+                    extraction["tool_gaps"],
+                    key="tool_gap_id",
+                )
+            else:
+                row_blockers.append(f"{source_id}: original_markdown_missing")
+
+        blockers.extend(row_blockers)
+        metadata_rows.append(
+            _metadata_record(
+                row,
+                run_id=run_id,
+                root_path=root_path,
+                pdf_result=pdf_result,
+                markdown_result=markdown_result,
+                llm_status=llm_status,
+                llm_model=llm_model,
+                chunk_count=chunk_count,
+                truncated_chunks=truncated_chunks,
+                blockers=row_blockers,
+            )
+        )
+        status_rows.append(
+            {
+                "run_id": run_id,
+                "source_id": source_id,
+                "report_id": _report_id(row),
+                "pdf_status": pdf_result.get("status") or "not_attempted",
+                "markdown_status": markdown_result.get("status") or "not_attempted",
+                "markdown_backend": markdown_result.get("backend")
+                or cfg.mineru_backend,
+                "markdown_blocker": markdown_result.get("blocker") or "",
+                "markdown_returncode": markdown_result.get("returncode"),
+                "markdown_timed_out": bool(markdown_result.get("timed_out")),
+                "markdown_stderr_tail": _redact_runtime_text(
+                    markdown_result.get("stderr_tail"),
+                    root_path,
+                ),
+                "markdown_stdout_tail": _redact_runtime_text(
+                    markdown_result.get("stdout_tail"),
+                    root_path,
+                ),
+                "llm_status": llm_status,
+                "llm_model": llm_model or "",
+                "blockers": row_blockers,
+            }
+        )
+
+    forecast_rows = _refresh_forecast_mapping_governance(forecast_rows)
+    footprint_rows = _refresh_analytical_footprint_indicator_governance(
+        footprint_rows
+    )
+    tool_gap_rows = _backfill_tool_gaps_from_metric_candidates(
+        tool_gap_rows,
+        metric_rows,
+        method_rows,
+        run_id=run_id,
+        model="report_intelligence_refresh",
+    )
+    metric_rows = _backfill_metric_candidates_from_tool_gaps(
+        metric_rows,
+        tool_gap_rows,
+        run_id=run_id,
+    )
+    forecast_ledger_rows = build_forecast_ledger_records(forecast_rows)
+    outcome_label_rows = build_outcome_label_records(
+        root_path=root_path,
+        qlib_etf_dir=cfg.qlib_etf_dir,
+        forecast_rows=forecast_rows,
+        forecast_ledger_rows=forecast_ledger_rows,
+        metadata_rows=metadata_rows,
+    )
+    industry_etf_proxy_readiness = build_industry_etf_proxy_readiness(
+        root_path=root_path,
+        qlib_etf_dir=cfg.qlib_etf_dir,
+        forecast_rows=forecast_rows,
+        metadata_rows=metadata_rows,
+    )
+    outcome_labeling_readiness = build_outcome_labeling_readiness_report(
+        forecast_rows=forecast_rows,
+        forecast_ledger_rows=forecast_ledger_rows,
+        industry_etf_proxy_readiness=industry_etf_proxy_readiness,
+    )
+    source_performance_profile_rows = build_source_performance_profiles(
+        metadata_rows,
+        forecast_rows=forecast_rows,
+        outcome_label_rows=outcome_label_rows,
+    )
+    viewpoint_performance_profile_rows = build_viewpoint_performance_profiles(
+        forecast_rows,
+        outcome_label_rows=outcome_label_rows,
+    )
+    method_performance_profile_rows = build_method_performance_profiles(
+        method_rows,
+    )
+    tool_coverage_match_rows = build_tool_coverage_matches(metric_rows)
+    data_acquisition_proposal_rows = build_data_acquisition_proposals(
+        tool_gap_rows,
+    )
+    tool_design_proposal_rows = build_tool_design_proposals(tool_gap_rows)
+    analysis_recipe_rows = build_analysis_recipes(method_rows)
+    weighted_research_context_rows = build_weighted_research_contexts(
+        forecast_rows=forecast_rows,
+        forecast_ledger_rows=forecast_ledger_rows,
+        footprint_rows=footprint_rows,
+        analysis_recipe_rows=analysis_recipe_rows,
+        tool_gap_rows=tool_gap_rows,
+        metadata_rows=metadata_rows,
+        source_performance_profile_rows=source_performance_profile_rows,
+        viewpoint_performance_profile_rows=viewpoint_performance_profile_rows,
+    )
+    runtime_tool_gap_observation_rows = build_runtime_tool_gap_observations(
+        run_id=run_id,
+        weighted_research_context_rows=weighted_research_context_rows,
+        tool_gap_rows=tool_gap_rows,
+        analysis_recipe_rows=analysis_recipe_rows,
+    )
+    monitoring_report = build_report_intelligence_monitoring_report(
+        run_id=run_id,
+        metadata_rows=metadata_rows,
+        forecast_rows=forecast_rows,
+        outcome_label_rows=outcome_label_rows,
+        source_performance_profile_rows=source_performance_profile_rows,
+        viewpoint_performance_profile_rows=viewpoint_performance_profile_rows,
+        method_performance_profile_rows=method_performance_profile_rows,
+        tool_coverage_match_rows=tool_coverage_match_rows,
+        tool_gap_rows=tool_gap_rows,
+        data_acquisition_proposal_rows=data_acquisition_proposal_rows,
+        tool_design_proposal_rows=tool_design_proposal_rows,
+        analysis_recipe_rows=analysis_recipe_rows,
+        weighted_research_context_rows=weighted_research_context_rows,
+        runtime_tool_gap_observation_rows=runtime_tool_gap_observation_rows,
+    )
+    feature_flag_payload = _report_intelligence_feature_flag_payload()
+    runtime_safety_audit = build_report_intelligence_runtime_safety_audit(
+        run_id=run_id,
+        feature_flags=feature_flag_payload,
+        forecast_rows=forecast_rows,
+        forecast_ledger_rows=forecast_ledger_rows,
+        method_rows=method_rows,
+        analysis_recipe_rows=analysis_recipe_rows,
+        weighted_research_context_rows=weighted_research_context_rows,
+        runtime_tool_gap_observation_rows=runtime_tool_gap_observation_rows,
+        tool_gap_rows=tool_gap_rows,
+    )
+    pit_leakage_audit = build_report_intelligence_pit_leakage_audit(
+        run_id=run_id,
+        feature_flags=feature_flag_payload,
+        metadata_rows=metadata_rows,
+        forecast_rows=forecast_rows,
+        forecast_ledger_rows=forecast_ledger_rows,
+        outcome_label_rows=outcome_label_rows,
+        source_performance_profile_rows=source_performance_profile_rows,
+        tool_coverage_match_rows=tool_coverage_match_rows,
+        analysis_recipe_rows=analysis_recipe_rows,
+        weighted_research_context_rows=weighted_research_context_rows,
+    )
+    extraction_provenance_audit = build_report_intelligence_extraction_provenance_audit(
+        run_id=run_id,
+        forecast_rows=forecast_rows,
+        footprint_rows=footprint_rows,
+        metric_rows=metric_rows,
+        forecast_ledger_rows=forecast_ledger_rows,
+        outcome_label_rows=outcome_label_rows,
+        outcome_labeling_readiness=outcome_labeling_readiness,
+    )
+    statistical_robustness_audit = (
+        build_report_intelligence_statistical_robustness_audit(
+            run_id=run_id,
+            feature_flags=feature_flag_payload,
+            forecast_ledger_rows=forecast_ledger_rows,
+            outcome_label_rows=outcome_label_rows,
+            source_performance_profile_rows=source_performance_profile_rows,
+            viewpoint_performance_profile_rows=viewpoint_performance_profile_rows,
+            method_performance_profile_rows=method_performance_profile_rows,
+            weighted_research_context_rows=weighted_research_context_rows,
+        )
+    )
+    tool_feasibility_audit = build_report_intelligence_tool_feasibility_audit(
+        run_id=run_id,
+        feature_flags=feature_flag_payload,
+        metric_rows=metric_rows,
+        tool_coverage_match_rows=tool_coverage_match_rows,
+        tool_gap_rows=tool_gap_rows,
+        data_acquisition_proposal_rows=data_acquisition_proposal_rows,
+        tool_design_proposal_rows=tool_design_proposal_rows,
+        analysis_recipe_rows=analysis_recipe_rows,
+        runtime_tool_gap_observation_rows=runtime_tool_gap_observation_rows,
+    )
+    recipe_validation_audit = build_report_intelligence_recipe_validation_audit(
+        run_id=run_id,
+        feature_flags=feature_flag_payload,
+        method_rows=method_rows,
+        analysis_recipe_rows=analysis_recipe_rows,
+        tool_feasibility_audit=tool_feasibility_audit,
+        weighted_research_context_rows=weighted_research_context_rows,
+        runtime_tool_gap_observation_rows=runtime_tool_gap_observation_rows,
+    )
+    footprint_review_outputs = write_analytical_footprint_review_artifacts(
+        registry_dir,
+        footprint_rows,
+    )
+    footprint_review_load_blockers: list[str] = []
+    footprint_review_summary = _read_registry_json(
+        registry_dir / "analytical_footprint_review_summary.json",
+        label="analytical_footprint_review_summary",
+        blockers=footprint_review_load_blockers,
+    )
+    footprint_error_taxonomy = _read_registry_json(
+        registry_dir / "analytical_footprint_error_taxonomy.json",
+        label="analytical_footprint_error_taxonomy",
+        blockers=footprint_review_load_blockers,
+    )
+    gold_review_summary = _read_registry_json(
+        registry_dir.parent / "gold_sets/tushare_research_reports.review_summary.json",
+        label="gold_review_summary",
+        blockers=footprint_review_load_blockers,
+    )
+    patch_v1_5_coverage_report = (
+        build_report_intelligence_patch_v1_5_coverage_report(
+            run_id=run_id,
+            feature_flags=feature_flag_payload,
+            metadata_rows=metadata_rows,
+            forecast_rows=forecast_rows,
+            footprint_rows=footprint_rows,
+            metric_rows=metric_rows,
+            method_rows=method_rows,
+            tool_coverage_match_rows=tool_coverage_match_rows,
+            tool_gap_rows=tool_gap_rows,
+            data_acquisition_proposal_rows=data_acquisition_proposal_rows,
+            tool_design_proposal_rows=tool_design_proposal_rows,
+            forecast_ledger_rows=forecast_ledger_rows,
+            outcome_label_rows=outcome_label_rows,
+            outcome_labeling_readiness=outcome_labeling_readiness,
+            source_performance_profile_rows=source_performance_profile_rows,
+            viewpoint_performance_profile_rows=viewpoint_performance_profile_rows,
+            method_performance_profile_rows=method_performance_profile_rows,
+            analysis_recipe_rows=analysis_recipe_rows,
+            weighted_research_context_rows=weighted_research_context_rows,
+            runtime_tool_gap_observation_rows=runtime_tool_gap_observation_rows,
+            monitoring_report=monitoring_report,
+            runtime_safety_audit=runtime_safety_audit,
+            pit_leakage_audit=pit_leakage_audit,
+            extraction_provenance_audit=extraction_provenance_audit,
+            statistical_robustness_audit=statistical_robustness_audit,
+            tool_feasibility_audit=tool_feasibility_audit,
+            recipe_validation_audit=recipe_validation_audit,
+            footprint_review_summary=footprint_review_summary,
+            footprint_error_taxonomy=footprint_error_taxonomy,
+            gold_review_summary=gold_review_summary,
+        )
+    )
+
+    outputs = {
+        "feature_flags": str(
+            _write_json(
+                registry_dir / "feature_flags.json",
+                feature_flag_payload,
+            )["path"]
+        ),
+        "report_metadata": str(
+            _write_jsonl(registry_dir / "report_metadata.jsonl", metadata_rows)["path"]
+        ),
+        "forecast_claims": str(
+            _write_jsonl(registry_dir / "forecast_claims.jsonl", forecast_rows)["path"]
+        ),
+        "analytical_footprints": str(
+            _write_jsonl(
+                registry_dir / "analytical_footprints.jsonl",
+                footprint_rows,
+            )["path"]
+        ),
+        **footprint_review_outputs,
+        "metric_candidates": str(
+            _write_jsonl(registry_dir / "metric_candidates.jsonl", metric_rows)["path"]
+        ),
+        "method_patterns": str(
+            _write_jsonl(registry_dir / "method_patterns.jsonl", method_rows)["path"]
+        ),
+        "tool_gaps": str(
+            _write_jsonl(registry_dir / "tool_gaps.jsonl", tool_gap_rows)["path"]
+        ),
+        "report_forecast_ledger": str(
+            _write_jsonl(
+                registry_dir / "report_forecast_ledger.jsonl",
+                forecast_ledger_rows,
+            )["path"]
+        ),
+        "outcome_labeling_readiness": str(
+            _write_json(
+                registry_dir / "outcome_labeling_readiness.json",
+                outcome_labeling_readiness,
+            )["path"]
+        ),
+        "report_outcome_labels": str(
+            _write_jsonl(
+                registry_dir / "report_outcome_labels.jsonl",
+                outcome_label_rows,
+            )["path"]
+        ),
+        "source_performance_profiles": str(
+            _write_jsonl(
+                registry_dir / "source_performance_profiles.jsonl",
+                source_performance_profile_rows,
+            )["path"]
+        ),
+        "viewpoint_performance_profiles": str(
+            _write_jsonl(
+                registry_dir / "viewpoint_performance_profiles.jsonl",
+                viewpoint_performance_profile_rows,
+            )["path"]
+        ),
+        "method_performance_profiles": str(
+            _write_jsonl(
+                registry_dir / "method_performance_profiles.jsonl",
+                method_performance_profile_rows,
+            )["path"]
+        ),
+        "tool_coverage_matches": str(
+            _write_jsonl(
+                registry_dir / "tool_coverage_matches.jsonl",
+                tool_coverage_match_rows,
+            )["path"]
+        ),
+        "data_acquisition_proposals": str(
+            _write_jsonl(
+                registry_dir / "data_acquisition_proposals.jsonl",
+                data_acquisition_proposal_rows,
+            )["path"]
+        ),
+        "tool_design_proposals": str(
+            _write_jsonl(
+                registry_dir / "tool_design_proposals.jsonl",
+                tool_design_proposal_rows,
+            )["path"]
+        ),
+        "analysis_recipes": str(
+            _write_jsonl(
+                registry_dir / "analysis_recipes.jsonl",
+                analysis_recipe_rows,
+            )["path"]
+        ),
+        "weighted_research_contexts": str(
+            _write_jsonl(
+                registry_dir / "weighted_research_contexts.jsonl",
+                weighted_research_context_rows,
+            )["path"]
+        ),
+        "runtime_tool_gap_observations": str(
+            _write_jsonl(
+                registry_dir / "runtime_tool_gap_observations.jsonl",
+                runtime_tool_gap_observation_rows,
+            )["path"]
+        ),
+        "monitoring_report": str(
+            _write_json(
+                registry_dir / "monitoring_report.json",
+                monitoring_report,
+            )["path"]
+        ),
+        "runtime_safety_audit": str(
+            _write_json(
+                registry_dir / "runtime_safety_audit.json",
+                runtime_safety_audit,
+            )["path"]
+        ),
+        "pit_leakage_audit": str(
+            _write_json(
+                registry_dir / "pit_leakage_audit.json",
+                pit_leakage_audit,
+            )["path"]
+        ),
+        "extraction_provenance_audit": str(
+            _write_json(
+                registry_dir / "extraction_provenance_audit.json",
+                extraction_provenance_audit,
+            )["path"]
+        ),
+        "statistical_robustness_audit": str(
+            _write_json(
+                registry_dir / "statistical_robustness_audit.json",
+                statistical_robustness_audit,
+            )["path"]
+        ),
+        "tool_feasibility_audit": str(
+            _write_json(
+                registry_dir / "tool_feasibility_audit.json",
+                tool_feasibility_audit,
+            )["path"]
+        ),
+        "recipe_validation_audit": str(
+            _write_json(
+                registry_dir / "recipe_validation_audit.json",
+                recipe_validation_audit,
+            )["path"]
+        ),
+        "patch_v1_5_coverage_report": str(
+            _write_json(
+                registry_dir / "patch_v1_5_coverage_report.json",
+                patch_v1_5_coverage_report,
+            )["path"]
+        ),
+        "status": str(
+            _write_jsonl(registry_dir / "processing_status.jsonl", status_rows)["path"]
+        ),
+    }
+    outputs = {
+        key: _relative_or_absolute(Path(path), root_path)
+        for key, path in outputs.items()
+    }
+    summary_path = registry_dir / "extraction_report.json"
+    outputs["summary"] = _relative_or_absolute(summary_path, root_path)
+    summary = ReportIntelligenceRunResult(
+        run_id=run_id,
+        root=str(root_path),
+        selected_reports=len(rows),
+        metadata_rows=len(metadata_rows),
+        forecast_claim_rows=len(forecast_rows),
+        analytical_footprint_rows=len(footprint_rows),
+        metric_candidate_rows=len(metric_rows),
+        method_pattern_rows=len(method_rows),
+        tool_gap_rows=len(tool_gap_rows),
+        forecast_ledger_rows=len(forecast_ledger_rows),
+        outcome_label_rows=len(outcome_label_rows),
+        industry_etf_proxy_outcome_label_rows=sum(
+            1
+            for row in outcome_label_rows
+            if row.get("label_type") == "industry_etf_proxy"
+        ),
+        industry_etf_proxy_eligible_claim_rows=int(
+            industry_etf_proxy_readiness["eligible_claim_count"]
+        ),
+        industry_etf_proxy_labelable_window_rows=int(
+            industry_etf_proxy_readiness["labelable_window_count"]
+        ),
+        industry_etf_proxy_pending_window_rows=int(
+            industry_etf_proxy_readiness["pending_future_window_count"]
+        ),
+        source_performance_profile_rows=len(source_performance_profile_rows),
+        viewpoint_performance_profile_rows=len(viewpoint_performance_profile_rows),
+        method_performance_profile_rows=len(method_performance_profile_rows),
+        tool_coverage_match_rows=len(tool_coverage_match_rows),
+        data_acquisition_proposal_rows=len(data_acquisition_proposal_rows),
+        tool_design_proposal_rows=len(tool_design_proposal_rows),
+        analysis_recipe_rows=len(analysis_recipe_rows),
+        weighted_research_context_rows=len(weighted_research_context_rows),
+        runtime_tool_gap_observation_rows=len(runtime_tool_gap_observation_rows),
+        outcome_labeling_ready_count=int(
+            outcome_labeling_readiness["ready_for_outcome_labeling_count"]
+        ),
+        outcome_labeling_blocked_count=int(outcome_labeling_readiness["blocked_count"]),
+        pdf_ready_count=sum(
+            1
+            for row in metadata_rows
+            if row["pdf"]["status"] in {"cached", "downloaded"}
+        ),
+        markdown_ready_count=sum(
+            1
+            for row in metadata_rows
+            if row["markdown"]["status"] in {"cached", "converted", "converted_text_source"}
+        ),
+        llm_processed_reports=sum(
+            1
+            for row in metadata_rows
+            if row["extraction"]["llm_status"] == "processed"
+        ),
+        blocker_count=len(blockers),
+        blockers=tuple(blockers),
+        outputs=outputs,
+    )
+    summary_payload = asdict(summary)
+    summary_payload["root"] = "<repo_root>"
+    _write_json(summary_path, summary_payload)
+    return summary

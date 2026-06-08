@@ -23,6 +23,8 @@ from .lockbox_review_import import (
 from .manual_review_import import TARGET_ROW_HASH_FIELD, review_row_fingerprint
 from .manual_review_batches import (
     GOLD_FULL_REVIEWED_IMPORT_PATH,
+    GOLD_REVIEW_ASSIST_JSONL_PATH,
+    GOLD_REVIEW_ASSIST_MD_PATH,
     GOLD_REVIEW_WORKBOOK_MD_PATH,
     build_manual_review_batch_status,
     write_manual_review_batches,
@@ -158,7 +160,7 @@ def _operator_command_sequence(
     gold = gate_by_kind["gold_set"]
     source_license = gate_by_kind["source_license"]
     lockbox = gate_by_kind["lockbox"]
-    return (
+    steps: list[OperatorCommandStep] = [
         OperatorCommandStep(
             step_id="review-progress-preflight",
             phase="preflight",
@@ -199,39 +201,47 @@ def _operator_command_sequence(
             manual_input_path=GOLD_FULL_REVIEWED_IMPORT_PATH,
             expected_result="Gold-set summaries and downstream gates are recomputed.",
         ),
-        OperatorCommandStep(
-            step_id="prepare-source-license-review",
-            phase="source_license",
-            action="Write the reviewed source-license policy starter and workbook.",
-            command=source_license.prepare_command,
-            manual_input_path="",
-            expected_result=f"Reviewed policy target is {SOURCE_LICENSE_REVIEWED_POLICY_PATH}.",
-        ),
-        OperatorCommandStep(
-            step_id="fill-source-license-policy",
-            phase="source_license",
-            action="Fill and sign the reviewed source-license policy.",
-            command="",
-            manual_input_path=SOURCE_LICENSE_REVIEWED_POLICY_PATH,
-            expected_result="Policy fields, matched-row fingerprint, and production approval scope are complete.",
-        ),
-        OperatorCommandStep(
-            step_id="dry-run-source-license-review",
-            phase="source_license",
-            action="Build and validate the source-license import rows.",
-            command=source_license.dry_run_command,
-            manual_input_path=SOURCE_LICENSE_REVIEWED_POLICY_PATH,
-            expected_result="Policy expands to all current source rows and dry-run import is accepted.",
-        ),
-        OperatorCommandStep(
-            step_id="apply-source-license-review",
-            phase="source_license",
-            action="Build and apply accepted source-license decisions.",
-            command=source_license.apply_command,
-            manual_input_path=SOURCE_LICENSE_REVIEWED_POLICY_PATH,
-            expected_result="Source-license summaries and production blockers are recomputed.",
-        ),
-        OperatorCommandStep(
+    ]
+    if not source_license.passed:
+        steps.extend(
+            [
+                OperatorCommandStep(
+                    step_id="prepare-source-license-review",
+                    phase="source_license",
+                    action="Write the reviewed source-license policy starter and workbook.",
+                    command=source_license.prepare_command,
+                    manual_input_path="",
+                    expected_result=f"Reviewed policy target is {SOURCE_LICENSE_REVIEWED_POLICY_PATH}.",
+                ),
+                OperatorCommandStep(
+                    step_id="fill-source-license-policy",
+                    phase="source_license",
+                    action="Fill and sign the reviewed source-license policy.",
+                    command="",
+                    manual_input_path=SOURCE_LICENSE_REVIEWED_POLICY_PATH,
+                    expected_result="Policy fields, matched-row fingerprint, and production approval scope are complete.",
+                ),
+                OperatorCommandStep(
+                    step_id="dry-run-source-license-review",
+                    phase="source_license",
+                    action="Build and validate the source-license import rows.",
+                    command=source_license.dry_run_command,
+                    manual_input_path=SOURCE_LICENSE_REVIEWED_POLICY_PATH,
+                    expected_result="Policy expands to all current source rows and dry-run import is accepted.",
+                ),
+                OperatorCommandStep(
+                    step_id="apply-source-license-review",
+                    phase="source_license",
+                    action="Build and apply accepted source-license decisions.",
+                    command=source_license.apply_command,
+                    manual_input_path=SOURCE_LICENSE_REVIEWED_POLICY_PATH,
+                    expected_result="Source-license summaries and production blockers are recomputed.",
+                ),
+            ]
+        )
+    steps.extend(
+        [
+            OperatorCommandStep(
             step_id="promotion-status-before-lockbox",
             phase="promotion",
             action="Confirm only the final lockbox gate remains before opening it.",
@@ -239,7 +249,7 @@ def _operator_command_sequence(
             manual_input_path="",
             expected_result="Gold-set and source-license criteria pass; lockbox remains not opened.",
         ),
-        OperatorCommandStep(
+            OperatorCommandStep(
             step_id="prepare-lockbox-review",
             phase="lockbox",
             action="Write the one-time lockbox review starter.",
@@ -247,7 +257,7 @@ def _operator_command_sequence(
             manual_input_path="",
             expected_result=f"Reviewer scratch target is {LOCKBOX_REVIEWED_IMPORT_PATH}.",
         ),
-        OperatorCommandStep(
+            OperatorCommandStep(
             step_id="fill-lockbox-review",
             phase="lockbox",
             action="Fill the one-time lockbox review scratch file.",
@@ -255,7 +265,7 @@ def _operator_command_sequence(
             manual_input_path=LOCKBOX_REVIEWED_IMPORT_PATH,
             expected_result="Lockbox result, open count, post-open flags, and hashes are complete.",
         ),
-        OperatorCommandStep(
+            OperatorCommandStep(
             step_id="dry-run-lockbox-review",
             phase="lockbox",
             action="Validate the signed lockbox review.",
@@ -263,15 +273,15 @@ def _operator_command_sequence(
             manual_input_path=LOCKBOX_REVIEWED_IMPORT_PATH,
             expected_result="Lockbox import is accepted and production decision is eligible.",
         ),
-        OperatorCommandStep(
+            OperatorCommandStep(
             step_id="promotion-dry-run",
             phase="promotion",
             action="Simulate the complete reviewed bundle before final apply.",
             command=promotion_dry_run_command,
             manual_input_path="",
-            expected_result="Simulation accepts all three reviewed inputs without mutating the original registry.",
+            expected_result="Simulation accepts all required reviewed inputs without mutating the original registry.",
         ),
-        OperatorCommandStep(
+            OperatorCommandStep(
             step_id="apply-lockbox-review",
             phase="lockbox",
             action="Apply the accepted one-time lockbox review.",
@@ -279,7 +289,7 @@ def _operator_command_sequence(
             manual_input_path=LOCKBOX_REVIEWED_IMPORT_PATH,
             expected_result="Lockbox review is recorded and downstream promotion gates are recomputed.",
         ),
-        OperatorCommandStep(
+            OperatorCommandStep(
             step_id="promotion-status-final",
             phase="promotion",
             action="Inspect final staged-promotion state.",
@@ -287,7 +297,9 @@ def _operator_command_sequence(
             manual_input_path="",
             expected_result="Promotion status reflects the applied manual reviews and lockbox decision.",
         ),
+        ]
     )
+    return tuple(steps)
 
 
 def build_lockbox_review_import_template(root: str | Path = ".") -> Mapping[str, Any]:
@@ -417,6 +429,7 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
             operator_note=(
                 "Run prepare-gold-review --full, fill the reviewed scratch JSONL, "
                 f"use {GOLD_REVIEW_WORKBOOK_MD_PATH} as the read-only claim checklist, "
+                f"and use {GOLD_REVIEW_ASSIST_MD_PATH} as non-import machine assistance, "
                 "then dry-run before applying the 500-claim gold set."
             ),
         ),
@@ -503,6 +516,8 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
         gold.import_template_path,
         gold.full_import_template_path,
         GOLD_REVIEW_WORKBOOK_MD_PATH,
+        GOLD_REVIEW_ASSIST_JSONL_PATH,
+        GOLD_REVIEW_ASSIST_MD_PATH,
         source_license.import_template_path,
         SOURCE_LICENSE_REVIEW_WORKBOOK_MD_PATH,
         SOURCE_LICENSE_POLICY_TEMPLATE_PATH,
@@ -512,15 +527,23 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
         OPERATOR_HANDOFF_JSON_PATH,
         OPERATOR_HANDOFF_MD_PATH,
     )
-    promotion_dry_run_command = (
-        "mosaic-rke build-license-review-import --root . "
-        f"--policy {SOURCE_LICENSE_REVIEWED_POLICY_PATH} "
-        f"--output {DEFAULT_LICENSE_POLICY_IMPORT_PATH} && "
-        "mosaic-rke promotion-dry-run --root . "
-        f"--gold-input {GOLD_FULL_REVIEWED_IMPORT_PATH} "
-        f"--license-input {DEFAULT_LICENSE_POLICY_IMPORT_PATH} "
-        f"--lockbox-input {LOCKBOX_REVIEWED_IMPORT_PATH}"
-    )
+    source_license_gate = next(gate for gate in gates if gate.review_kind == "source_license")
+    if source_license_gate.passed:
+        promotion_dry_run_command = (
+            "mosaic-rke promotion-dry-run --root . "
+            f"--gold-input {GOLD_FULL_REVIEWED_IMPORT_PATH} "
+            f"--lockbox-input {LOCKBOX_REVIEWED_IMPORT_PATH}"
+        )
+    else:
+        promotion_dry_run_command = (
+            "mosaic-rke build-license-review-import --root . "
+            f"--policy {SOURCE_LICENSE_REVIEWED_POLICY_PATH} "
+            f"--output {DEFAULT_LICENSE_POLICY_IMPORT_PATH} && "
+            "mosaic-rke promotion-dry-run --root . "
+            f"--gold-input {GOLD_FULL_REVIEWED_IMPORT_PATH} "
+            f"--license-input {DEFAULT_LICENSE_POLICY_IMPORT_PATH} "
+            f"--lockbox-input {LOCKBOX_REVIEWED_IMPORT_PATH}"
+        )
     command_sequence = _operator_command_sequence(
         gates,
         promotion_dry_run_command=promotion_dry_run_command,
@@ -631,6 +654,12 @@ def write_operator_handoff(root: str | Path = ".") -> dict[str, Any]:
             "gold_set_full_import_template"
         ],
         "gold_set_review_workbook": review_batches["gold_set_review_workbook"],
+        "gold_set_review_assist_jsonl": review_batches[
+            "gold_set_review_assist_jsonl"
+        ],
+        "gold_set_review_assist_markdown": review_batches[
+            "gold_set_review_assist_markdown"
+        ],
         "source_license_import_template": review_batches[
             "source_license_import_template"
         ],

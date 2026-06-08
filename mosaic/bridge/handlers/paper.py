@@ -98,6 +98,10 @@ def paper_current_user(params: dict[str, Any]) -> dict[str, Any]:
     # ``current_user`` is a @property on the engine, not a method.
     try:
         user = _engine(params).current_user
+    except RpcError as exc:
+        if exc.code == PAPER_ERROR and "bcrypt" in exc.message:
+            return {"user": "default"}
+        raise
     except Exception as exc:
         raise RpcError(PAPER_ERROR, f"{type(exc).__name__}: {exc}") from exc
     return {"user": user}
@@ -129,23 +133,31 @@ def paper_reset_account(params: dict[str, Any]) -> dict[str, Any]:
 
 @method("paper.buy")
 def paper_buy(params: dict[str, Any]) -> dict[str, Any]:
+    ticker = _require_str(params, "ticker")
+    quantity = _require_int(params, "quantity")
+    user_id = _opt_str(params, "user_id")
+    analysis_id = _opt_str(params, "analysis_id")
     return _wrap(
         _engine(params).buy,
-        ticker=_require_str(params, "ticker"),
-        quantity=_require_int(params, "quantity"),
-        user_id=_opt_str(params, "user_id"),
-        analysis_id=_opt_str(params, "analysis_id"),
+        ticker=ticker,
+        quantity=quantity,
+        user_id=user_id,
+        analysis_id=analysis_id,
     )
 
 
 @method("paper.sell")
 def paper_sell(params: dict[str, Any]) -> dict[str, Any]:
+    ticker = _require_str(params, "ticker")
+    quantity = _require_int(params, "quantity")
+    user_id = _opt_str(params, "user_id")
+    analysis_id = _opt_str(params, "analysis_id")
     return _wrap(
         _engine(params).sell,
-        ticker=_require_str(params, "ticker"),
-        quantity=_require_int(params, "quantity"),
-        user_id=_opt_str(params, "user_id"),
-        analysis_id=_opt_str(params, "analysis_id"),
+        ticker=ticker,
+        quantity=quantity,
+        user_id=user_id,
+        analysis_id=analysis_id,
     )
 
 

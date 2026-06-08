@@ -1,8 +1,9 @@
 title: RKE Confidence Policy v1
 components:
   - data_confidence
-  - research_confidence
+  - research_weight_confidence
   - empirical_validation_confidence
+  - method_tool_confidence
   - regime_match_confidence
 safe_default_function: "min(components), then min(confidence_cap)"
 research_only_without_current_data:

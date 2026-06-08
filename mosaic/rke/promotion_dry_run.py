@@ -100,6 +100,32 @@ def _missing_step(review_kind: PromotionDryRunKind) -> PromotionDryRunStep:
     )
 
 
+def _already_applied_step(review_kind: PromotionDryRunKind) -> PromotionDryRunStep:
+    return PromotionDryRunStep(
+        review_kind=review_kind,
+        input_path="",
+        provided=False,
+        accepted=True,
+        applied=False,
+        changed_rows=0,
+        result="already_applied",
+        blockers=(),
+    )
+
+
+def _manual_gate_already_passed(before: Any, review_kind: PromotionDryRunKind) -> bool:
+    criterion_by_kind = {
+        "gold_set": "PG02",
+        "source_license": "PG03",
+        "lockbox": "PG09",
+    }
+    criterion_id = criterion_by_kind[review_kind]
+    for criterion in before.criteria:
+        if getattr(criterion, "criterion_id", "") == criterion_id:
+            return bool(getattr(criterion, "passed", False))
+    return False
+
+
 def build_promotion_dry_run_report(
     root: str | Path = ".",
     *,
@@ -118,7 +144,11 @@ def build_promotion_dry_run_report(
         _copy_registry(root_path, temp_root)
         steps: list[PromotionDryRunStep] = []
         if resolved_gold is None:
-            steps.append(_missing_step("gold_set"))
+            steps.append(
+                _already_applied_step("gold_set")
+                if _manual_gate_already_passed(before, "gold_set")
+                else _missing_step("gold_set")
+            )
         else:
             report = apply_gold_set_review_import(temp_root, resolved_gold)
             steps.append(
@@ -134,7 +164,11 @@ def build_promotion_dry_run_report(
                 )
             )
         if resolved_license is None:
-            steps.append(_missing_step("source_license"))
+            steps.append(
+                _already_applied_step("source_license")
+                if _manual_gate_already_passed(before, "source_license")
+                else _missing_step("source_license")
+            )
         else:
             report = apply_source_license_review_import(temp_root, resolved_license)
             steps.append(
@@ -150,7 +184,11 @@ def build_promotion_dry_run_report(
                 )
             )
         if resolved_lockbox is None:
-            steps.append(_missing_step("lockbox"))
+            steps.append(
+                _already_applied_step("lockbox")
+                if _manual_gate_already_passed(before, "lockbox")
+                else _missing_step("lockbox")
+            )
         else:
             report = apply_lockbox_review_import(temp_root, resolved_lockbox)
             steps.append(
@@ -167,7 +205,7 @@ def build_promotion_dry_run_report(
             )
         after = build_production_promotion_gate_report(temp_root)
 
-    accepted = all(step.provided and step.accepted for step in steps)
+    accepted = all(step.accepted for step in steps)
     return PromotionDryRunReport(
         report_id="RKE-PROMOTION-DRY-RUN-REPORT-20260606",
         simulated=True,

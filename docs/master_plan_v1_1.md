@@ -120,6 +120,9 @@ LLM free-form statement
 
 ## 3. 系统总架构
 
+Report Intelligence rollout 的详细功能架构、artifact 数据流和门禁图见
+[`rke_report_intelligence_architecture.md`](rke_report_intelligence_architecture.md)。
+
 ### 3.1 Integrated Architecture
 
 ```text
@@ -1081,11 +1084,14 @@ Validation 必须包含：
 data_confidence:
     当前工具数据是否新鲜、完整、非 fallback、多源一致。
 
-research_confidence:
-    研究资料是否充分、source-grounded claim 是否可靠、是否存在分歧。
+research_weight_confidence:
+    source/viewpoint 表现权重、抽取质量、独立来源数量、分歧和 crowding 风险。
 
 empirical_validation_confidence:
     规则是否通过 hardened validation、walk-forward、paper trading。
+
+method_tool_confidence:
+    工具覆盖、PIT 可用性、工具正确性、recipe validation 和 shadow runtime 状态。
 
 regime_match_confidence:
     当前 regime 是否符合规则适用条件，是否触发 failure modes。
@@ -1098,8 +1104,9 @@ regime_match_confidence:
 ```text
 pre_cap_confidence = min(
     data_confidence,
-    research_confidence,
+    research_weight_confidence,
     empirical_validation_confidence,
+    method_tool_confidence,
     regime_match_confidence
 )
 

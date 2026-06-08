@@ -1,0 +1,42 @@
+{
+  "error_tags": [
+    {
+      "description": "The extracted topic or method is not supported by the cited span.",
+      "tag": "unsupported_footprint"
+    },
+    {
+      "description": "The canonical metric, unit, source, frequency, or transformation is wrong.",
+      "tag": "metric_mapping_error"
+    },
+    {
+      "description": "The extractor invented a metric not present in the report or cited span.",
+      "tag": "hallucinated_metric"
+    },
+    {
+      "description": "A derived or LLM-inferred step was stored as source-grounded.",
+      "tag": "inferred_step_mislabeled_source_grounded"
+    },
+    {
+      "description": "An uncertain metric/source/window should have been marked unknown.",
+      "tag": "ambiguous_metric_not_unknown"
+    },
+    {
+      "description": "The review row includes long proprietary report text instead of metadata.",
+      "tag": "proprietary_text_leakage"
+    }
+  ],
+  "required_manual_fields": [
+    "footprint_correct",
+    "source_span_supports_footprint",
+    "metric_mapping_correct",
+    "inferred_steps_tagged_correctly",
+    "unknowns_used_when_uncertain",
+    "no_proprietary_text_leakage",
+    "reviewer",
+    "review_date",
+    "review_notes",
+    "manual_error_tags"
+  ],
+  "review_kind": "analytical_footprint_gold_set",
+  "taxonomy_id": "RKE-REPORT-INTELLIGENCE-FOOTPRINT-ERROR-TAXONOMY"
+}

@@ -53,6 +53,18 @@ def _write_json(path: Path, payload: Any) -> None:
 
 def render_prompt_markdown(contract: PromptIRContract, runtime_input: AgentRuntimeInput) -> str:
     required_tools = ", ".join(tool.name for tool in contract.required_tools if tool.required)
+    required_tool_contracts = "\n".join(
+        (
+            f"- {tool.name}: metrics={list(tool.metric_ids)}, "
+            f"metric_candidate_ids={list(tool.metric_candidate_ids)}, "
+            f"analysis_recipe_ids={list(tool.analysis_recipe_ids)}, "
+            f"pit_required_for_backtest={str(tool.pit_required_for_backtest).lower()}, "
+            f"fallback_confidence_cap={tool.fallback_confidence_cap}, "
+            f"lineage={json.dumps(_jsonable(tool.lineage), ensure_ascii=False, sort_keys=True)}"
+        )
+        for tool in contract.required_tools
+        if tool.required
+    )
     fallback_tools = ", ".join(
         f"{tool.name}(cap={tool.confidence_cap:.2f})" for tool in contract.fallback_tools
     )
@@ -91,6 +103,7 @@ def render_prompt_markdown(contract: PromptIRContract, runtime_input: AgentRunti
             "## Tools",
             "",
             f"Required: {required_tools}",
+            required_tool_contracts,
             f"Fallback: {fallback_tools}",
             "",
             "## Runtime Evidence",

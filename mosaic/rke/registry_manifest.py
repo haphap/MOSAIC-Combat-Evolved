@@ -9,6 +9,41 @@ from pathlib import Path
 from typing import Any, Sequence
 
 
+PRIVATE_LOCAL_REGISTRY_FILES = frozenset(
+    {
+        "registry/compliance/tushare_license_review_import_report.json",
+        "registry/compliance/tushare_license_review_packet.json",
+        "registry/compliance/tushare_license_review_packet.md",
+        "registry/compliance/tushare_license_review_summary.json",
+        "registry/compliance/tushare_license_review_template.jsonl",
+        "registry/gold_sets/tushare_research_reports.candidate_claims.jsonl",
+        "registry/gold_sets/tushare_research_reports.candidate_claims.summary.json",
+        "registry/gold_sets/tushare_research_reports.review_import_report.json",
+        "registry/gold_sets/tushare_research_reports.review_packet.json",
+        "registry/gold_sets/tushare_research_reports.review_packet.md",
+        "registry/gold_sets/tushare_research_reports.review_summary.json",
+        "registry/gold_sets/tushare_research_reports.review_template.jsonl",
+        "registry/report_intelligence/analytical_footprint_review_template.jsonl",
+        "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+        "registry/report_intelligence/analytical_footprints.jsonl",
+        "registry/report_intelligence/forecast_claims.jsonl",
+        "registry/report_intelligence/processing_status.jsonl",
+        "registry/report_intelligence/report_metadata.jsonl",
+        "registry/report_intelligence/report_outcome_labels.jsonl",
+        "registry/report_intelligence/weighted_research_contexts.jsonl",
+        "registry/source_checks/source_registry_validation_report.json",
+        "registry/sources/tushare_research_reports.gold_candidates.jsonl",
+        "registry/sources/tushare_research_reports.jsonl",
+        "registry/sources/tushare_research_reports.manifest.json",
+    }
+)
+PRIVATE_LOCAL_REGISTRY_PREFIXES = (
+    "registry/report_intelligence/markdown/",
+    "registry/report_intelligence/mineru/",
+    "registry/report_intelligence/pdfs/",
+)
+
+
 REQUIRED_REGISTRY_FILES = (
     "registry/audits/central_bank_mvp_audit_trace.json",
     "registry/audits/central_bank_mvp_audit_view.json",
@@ -19,10 +54,6 @@ REQUIRED_REGISTRY_FILES = (
     "registry/claim_checks/claim_variable_validation_report.json",
     "registry/claims/central_bank_claims.jsonl",
     "registry/claims/semiconductor_claims.jsonl",
-    "registry/compliance/tushare_license_review_summary.json",
-    "registry/compliance/tushare_license_review_packet.json",
-    "registry/compliance/tushare_license_review_packet.md",
-    "registry/compliance/tushare_license_review_template.jsonl",
     "registry/compliance/source_text_redaction_report.json",
     "registry/dashboards/rke_dashboard.json",
     "registry/dashboards/rke_dashboard.md",
@@ -41,13 +72,6 @@ REQUIRED_REGISTRY_FILES = (
     "registry/evaluation/statistical_significance/central_bank_after_cost_significance.json",
     "registry/experiments/central_bank_validation_experiment_v2.json",
     "registry/experiment_checks/experiment_validation_report.json",
-    "registry/gold_sets/tushare_research_reports.review_summary.json",
-    "registry/gold_sets/tushare_research_reports.review_packet.json",
-    "registry/gold_sets/tushare_research_reports.review_packet.md",
-    "registry/gold_sets/tushare_research_reports.candidate_claims.jsonl",
-    "registry/gold_sets/tushare_research_reports.candidate_claims.summary.json",
-    "registry/gold_sets/tushare_research_reports.review_import_report.json",
-    "registry/gold_sets/tushare_research_reports.review_template.jsonl",
     "registry/handoffs/rke_operator_handoff.json",
     "registry/handoffs/rke_operator_handoff.md",
     "registry/handoffs/rke_operator_readiness_report.json",
@@ -68,6 +92,31 @@ REQUIRED_REGISTRY_FILES = (
     "registry/promotion/rke_production_promotion_gate.json",
     "registry/rendered_prompts/macro.central_bank.rke.json",
     "registry/rendered_prompts/macro.central_bank.rke.md",
+    "registry/report_intelligence/analysis_recipes.jsonl",
+    "registry/report_intelligence/analytical_footprint_error_taxonomy.json",
+    "registry/report_intelligence/analytical_footprint_review_summary.json",
+    "registry/report_intelligence/data_acquisition_proposals.jsonl",
+    "registry/report_intelligence/extraction_provenance_audit.json",
+    "registry/report_intelligence/extraction_report.json",
+    "registry/report_intelligence/feature_flags.json",
+    "registry/report_intelligence/method_patterns.jsonl",
+    "registry/report_intelligence/method_performance_profiles.jsonl",
+    "registry/report_intelligence/metric_candidates.jsonl",
+    "registry/report_intelligence/monitoring_report.json",
+    "registry/report_intelligence/pit_leakage_audit.json",
+    "registry/report_intelligence/patch_v1_5_coverage_report.json",
+    "registry/report_intelligence/outcome_labeling_readiness.json",
+    "registry/report_intelligence/report_forecast_ledger.jsonl",
+    "registry/report_intelligence/source_performance_profiles.jsonl",
+    "registry/report_intelligence/runtime_safety_audit.json",
+    "registry/report_intelligence/runtime_tool_gap_observations.jsonl",
+    "registry/report_intelligence/statistical_robustness_audit.json",
+    "registry/report_intelligence/tool_feasibility_audit.json",
+    "registry/report_intelligence/recipe_validation_audit.json",
+    "registry/report_intelligence/tool_coverage_matches.jsonl",
+    "registry/report_intelligence/tool_design_proposals.jsonl",
+    "registry/report_intelligence/tool_gaps.jsonl",
+    "registry/report_intelligence/viewpoint_performance_profiles.jsonl",
     "registry/rule_checks/rule_pack_validation_report.json",
     "registry/rule_packs/macro.central_bank.liquidity.v1.json",
     "registry/rule_packs/sector.semiconductor.policy_substitution.v1.json",
@@ -78,6 +127,9 @@ REQUIRED_REGISTRY_FILES = (
     "registry/review_batches/manual_review_bundle_manifest.json",
     "registry/review_batches/manual_review_progress_report.json",
     "registry/review_batches/manual_review_runbook.md",
+    "registry/review_batches/gold_set_review_workbook.md",
+    "registry/review_batches/gold_set_review_assist.jsonl",
+    "registry/review_batches/gold_set_review_assist.md",
     "registry/review_batches/gold_set_full_import_template.jsonl",
     "registry/review_batches/gold_set_next_import_template.jsonl",
     "registry/review_batches/lockbox_review_next_import_template.json",
@@ -86,14 +138,20 @@ REQUIRED_REGISTRY_FILES = (
     "registry/review_batches/source_license_policy_template.json",
     "registry/review_batches/source_license_review_workbook.md",
     "registry/schemas/rke_schema_validation_report.json",
-    "registry/source_checks/source_registry_validation_report.json",
     "registry/sources/central_bank_sources.jsonl",
     "registry/sources/semiconductor_demo_sources.jsonl",
-    "registry/sources/tushare_research_reports.gold_candidates.jsonl",
-    "registry/sources/tushare_research_reports.jsonl",
-    "registry/sources/tushare_research_reports.manifest.json",
     "registry/validation_hardening/central_bank_hardening_report.json",
     "registry/vocabularies/claim_variable_vocabulary.json",
+)
+EMPTY_REQUIRED_REGISTRY_FILES = frozenset(
+    {
+        # Empty means all gold-set reviews are complete.
+        "registry/review_batches/gold_set_review_assist.jsonl",
+        "registry/review_batches/gold_set_full_import_template.jsonl",
+        "registry/review_batches/gold_set_next_import_template.jsonl",
+        # Empty means all source-license reviews are complete.
+        "registry/review_batches/source_license_next_import_template.jsonl",
+    }
 )
 
 
@@ -126,6 +184,12 @@ def file_sha256(path: Path) -> str:
     return "sha256:" + sha256(path.read_bytes()).hexdigest()
 
 
+def is_public_registry_artifact(relative: str) -> bool:
+    if relative in PRIVATE_LOCAL_REGISTRY_FILES:
+        return False
+    return not any(relative.startswith(prefix) for prefix in PRIVATE_LOCAL_REGISTRY_PREFIXES)
+
+
 def validate_required_registry(
     root: str | Path = ".",
 ) -> tuple[tuple[str, ...], tuple[str, ...]]:
@@ -136,7 +200,10 @@ def validate_required_registry(
         path = root_path / relative
         if not path.exists():
             missing.append(relative)
-        elif path.stat().st_size <= 0:
+        elif (
+            path.stat().st_size <= 0
+            and relative not in EMPTY_REQUIRED_REGISTRY_FILES
+        ):
             empty.append(relative)
     return tuple(missing), tuple(empty)
 
@@ -192,6 +259,8 @@ def build_registry_manifest(root: str | Path = ".") -> RegistryManifest:
         if path.name == "rke_registry_manifest.json":
             continue
         relative = path.relative_to(root_path).as_posix()
+        if not is_public_registry_artifact(relative):
+            continue
         artifacts.append(
             RegistryArtifact(
                 path=relative,

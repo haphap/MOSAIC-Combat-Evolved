@@ -30,6 +30,7 @@ from .manual_review_import import (
 )
 from .operator_handoff import LOCKBOX_REVIEWED_IMPORT_PATH
 from .review_gates import summarize_gold_set_review
+from .review_gates import summarize_source_license_review
 
 
 MANUAL_REVIEW_PROGRESS_REPORT_ID = "RKE-MANUAL-REVIEW-PROGRESS-20260606"
@@ -142,6 +143,24 @@ def _missing_gate(
 
 def _gold_progress(root_path: Path) -> ManualReviewGateProgress:
     input_path = GOLD_FULL_REVIEWED_IMPORT_PATH
+    current_summary = summarize_gold_set_review(root_path)
+    if current_summary.passed and current_summary.review_complete:
+        resolved_input = _resolve(root_path, input_path)
+        return ManualReviewGateProgress(
+            review_kind="gold_set",
+            input_path=input_path,
+            input_exists=resolved_input.exists(),
+            target_rows=current_summary.total_claims,
+            input_rows=_jsonl_row_count(resolved_input) if resolved_input.exists() else 0,
+            complete_rows=current_summary.reviewed_claims,
+            pending_rows=0,
+            simulation_accepted=True,
+            ready_for_promotion=True,
+            blockers=(),
+            prepare_command="mosaic-rke prepare-gold-review --root . --full",
+            dry_run_command=f"mosaic-rke apply-gold-review --root . --input {input_path} --dry-run",
+            apply_command=f"mosaic-rke apply-gold-review --root . --input {input_path}",
+        )
     target_rows = build_manual_review_batch_status(root_path)[0].gold_set.pending_rows
     resolved_input = _resolve(root_path, input_path)
     prepare_command = "mosaic-rke prepare-gold-review --root . --full"
@@ -196,6 +215,23 @@ def _source_license_progress(root_path: Path) -> ManualReviewGateProgress:
         f"--policy {input_path} --output {DEFAULT_LICENSE_POLICY_IMPORT_PATH} && "
         f"mosaic-rke apply-license-review --root . --input {DEFAULT_LICENSE_POLICY_IMPORT_PATH}"
     )
+    current_summary = summarize_source_license_review(root_path)
+    if current_summary.passed and current_summary.review_complete:
+        return ManualReviewGateProgress(
+            review_kind="source_license",
+            input_path=input_path,
+            input_exists=resolved_input.exists(),
+            target_rows=current_summary.total_sources,
+            input_rows=_json_object_exists(resolved_input),
+            complete_rows=current_summary.reviewed_sources,
+            pending_rows=0,
+            simulation_accepted=True,
+            ready_for_promotion=True,
+            blockers=(),
+            prepare_command=prepare_command,
+            dry_run_command=dry_run_command,
+            apply_command=apply_command,
+        )
     if not resolved_input.exists():
         return _missing_gate(
             review_kind="source_license",

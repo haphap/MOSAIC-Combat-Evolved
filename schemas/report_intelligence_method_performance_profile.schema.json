@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RKE Report Intelligence Method Performance Profile",
+  "type": "object",
+  "required": ["method_profile_id", "method_pattern_id", "context", "source_support", "validation_status", "after_cost_alpha_delta_bucket", "calibration_delta_bucket", "shrunk_method_priority", "allowed_runtime_mode", "insufficient_data"],
+  "properties": {
+    "method_profile_id": {"type": "string", "minLength": 1},
+    "method_pattern_id": {"type": "string", "minLength": 1},
+    "context": {"type": "object"},
+    "source_support": {"type": "object"},
+    "validation_status": {"type": "string", "minLength": 1},
+    "after_cost_alpha_delta_bucket": {"type": "string", "minLength": 1},
+    "calibration_delta_bucket": {"type": "string", "minLength": 1},
+    "shrunk_method_priority": {"type": "string", "minLength": 1},
+    "allowed_runtime_mode": {"type": "string", "minLength": 1},
+    "insufficient_data": {"type": "boolean"}
+  },
+  "additionalProperties": true
+}

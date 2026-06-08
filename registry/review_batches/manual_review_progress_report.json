@@ -1,57 +1,61 @@
 {
   "blockers": [
-    "gold_set: 0/500 ready",
-    "gold_set: registry/review_batches/gold_set_full_reviewed.jsonl missing; run mosaic-rke prepare-gold-review --root . --full",
-    "source_license: 0/9812 ready",
-    "source_license: registry/review_batches/source_license_policy_reviewed.json missing; run mosaic-rke prepare-license-policy-review --root .",
     "lockbox: 0/1 ready",
-    "lockbox: registry/review_batches/lockbox_reviewed.json missing; run mosaic-rke prepare-lockbox-review --root ."
+    "lockbox: opened_at required",
+    "lockbox: opened_by required",
+    "lockbox: open_count required",
+    "lockbox: result required",
+    "lockbox: result must be one of not_opened, passed, failed",
+    "lockbox: open_count must be integer",
+    "lockbox: lockbox has not been opened"
   ],
   "gates": [
     {
       "apply_command": "mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl",
-      "blockers": [
-        "registry/review_batches/gold_set_full_reviewed.jsonl missing; run mosaic-rke prepare-gold-review --root . --full"
-      ],
-      "complete_rows": 0,
+      "blockers": [],
+      "complete_rows": 500,
       "dry_run_command": "mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl --dry-run",
-      "input_exists": false,
+      "input_exists": true,
       "input_path": "registry/review_batches/gold_set_full_reviewed.jsonl",
-      "input_rows": 0,
-      "pending_rows": 500,
+      "input_rows": 500,
+      "pending_rows": 0,
       "prepare_command": "mosaic-rke prepare-gold-review --root . --full",
-      "ready_for_promotion": false,
+      "ready_for_promotion": true,
       "review_kind": "gold_set",
-      "simulation_accepted": false,
+      "simulation_accepted": true,
       "target_rows": 500
     },
     {
       "apply_command": "mosaic-rke build-license-review-import --root . --policy registry/review_batches/source_license_policy_reviewed.json --output registry/review_batches/source_license_policy_import.jsonl && mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_policy_import.jsonl",
-      "blockers": [
-        "registry/review_batches/source_license_policy_reviewed.json missing; run mosaic-rke prepare-license-policy-review --root ."
-      ],
-      "complete_rows": 0,
+      "blockers": [],
+      "complete_rows": 17529,
       "dry_run_command": "mosaic-rke build-license-review-import --root . --policy registry/review_batches/source_license_policy_reviewed.json --output registry/review_batches/source_license_policy_import.jsonl && mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_policy_import.jsonl --dry-run",
-      "input_exists": false,
+      "input_exists": true,
       "input_path": "registry/review_batches/source_license_policy_reviewed.json",
-      "input_rows": 0,
-      "pending_rows": 9812,
+      "input_rows": 1,
+      "pending_rows": 0,
       "prepare_command": "mosaic-rke prepare-license-policy-review --root .",
-      "ready_for_promotion": false,
+      "ready_for_promotion": true,
       "review_kind": "source_license",
-      "simulation_accepted": false,
-      "target_rows": 9812
+      "simulation_accepted": true,
+      "target_rows": 17529
     },
     {
       "apply_command": "mosaic-rke apply-lockbox-review --root . --input registry/review_batches/lockbox_reviewed.json",
       "blockers": [
-        "registry/review_batches/lockbox_reviewed.json missing; run mosaic-rke prepare-lockbox-review --root ."
+        "opened_at required",
+        "opened_by required",
+        "open_count required",
+        "result required",
+        "result must be one of not_opened, passed, failed",
+        "open_count must be integer",
+        "lockbox has not been opened"
       ],
       "complete_rows": 0,
       "dry_run_command": "mosaic-rke apply-lockbox-review --root . --input registry/review_batches/lockbox_reviewed.json --dry-run",
-      "input_exists": false,
+      "input_exists": true,
       "input_path": "registry/review_batches/lockbox_reviewed.json",
-      "input_rows": 0,
+      "input_rows": 1,
       "pending_rows": 1,
       "prepare_command": "mosaic-rke prepare-lockbox-review --root .",
       "ready_for_promotion": false,

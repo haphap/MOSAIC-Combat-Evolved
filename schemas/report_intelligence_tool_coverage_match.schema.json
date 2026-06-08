@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RKE Report Intelligence Tool Coverage Match",
+  "type": "object",
+  "required": ["coverage_id", "metric_candidate_id", "coverage_status", "existing_tool_id", "existing_tool_ids", "coverage_details", "gaps", "last_checked_at"],
+  "properties": {
+    "coverage_id": {"type": "string", "minLength": 1},
+    "metric_candidate_id": {"type": "string", "minLength": 1},
+    "coverage_status": {"enum": ["exact_match", "partial_match", "proxy_available", "missing", "no_pit_history", "license_blocked", "engineering_blocked", "retired"]},
+    "existing_tool_id": {"type": "string"},
+    "existing_tool_ids": {"type": "array", "items": {"type": "string"}},
+    "coverage_details": {"type": "object"},
+    "gaps": {"type": "array", "items": {"type": "string"}},
+    "last_checked_at": {"type": "string", "minLength": 1}
+  },
+  "additionalProperties": true
+}

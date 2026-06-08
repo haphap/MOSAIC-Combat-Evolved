@@ -49,6 +49,7 @@ SOURCE_LICENSE_POLICY_FILTER_ALLOWED_FIELDS = frozenset(
         "current_license_status",
         "publish_date_max",
         "publish_date_min",
+        "review_status",
         "source_id_prefix",
         "source_type",
     }
@@ -59,6 +60,7 @@ SOURCE_LICENSE_POLICY_FILTER_ALLOWED_FIELDS = frozenset(
 class SourceLicensePolicyFilters:
     source_type: Sequence[str] = ()
     current_license_status: Sequence[str] = ()
+    review_status: Sequence[str] = ()
     publish_date_min: str | None = None
     publish_date_max: str | None = None
     source_id_prefix: Sequence[str] = ()
@@ -303,7 +305,12 @@ def _policy_filter_shape_failures(policy: Mapping[str, Any]) -> list[str]:
     if not isinstance(raw_filters, Mapping):
         return ["filters must be object"]
     failures: list[str] = []
-    for field in ("source_type", "current_license_status", "source_id_prefix"):
+    for field in (
+        "source_type",
+        "current_license_status",
+        "review_status",
+        "source_id_prefix",
+    ):
         value = raw_filters.get(field)
         if value is None:
             continue
@@ -352,6 +359,7 @@ def _policy_filters(policy: Mapping[str, Any]) -> SourceLicensePolicyFilters:
     return SourceLicensePolicyFilters(
         source_type=_as_str_tuple(raw_filters.get("source_type")),
         current_license_status=_as_str_tuple(raw_filters.get("current_license_status")),
+        review_status=_as_str_tuple(raw_filters.get("review_status")),
         publish_date_min=(
             str(raw_filters.get("publish_date_min")).strip()
             if raw_filters.get("publish_date_min") is not None
@@ -369,11 +377,14 @@ def _policy_filters(policy: Mapping[str, Any]) -> SourceLicensePolicyFilters:
 def _matches(row: Mapping[str, Any], filters: SourceLicensePolicyFilters) -> bool:
     source_type = str(row.get("source_type") or "")
     current_status = str(row.get("current_license_status") or "")
+    review_status = "reviewed" if _license_row_complete(row) else "pending"
     publish_date = str(row.get("publish_date") or "")
     source_id = str(row.get("source_id") or "")
     if filters.source_type and source_type not in set(filters.source_type):
         return False
     if filters.current_license_status and current_status not in set(filters.current_license_status):
+        return False
+    if filters.review_status and review_status not in set(filters.review_status):
         return False
     if filters.publish_date_min and publish_date < filters.publish_date_min:
         return False
@@ -474,20 +485,27 @@ def build_source_license_policy_template(root: str | Path = ".") -> Mapping[str,
     """
     root_path = Path(root)
     _, review_rows, _, _ = _load_review_template_rows(root_path)
-    source_types = sorted({str(row.get("source_type") or "") for row in review_rows if row.get("source_type")})
+    pending_rows = [row for row in review_rows if not _license_row_complete(row)]
+    source_types = sorted({str(row.get("source_type") or "") for row in pending_rows if row.get("source_type")})
     statuses = sorted(
         {
             str(row.get("current_license_status") or "")
-            for row in review_rows
+            for row in pending_rows
             if row.get("current_license_status")
         }
     )
-    publish_dates = sorted(str(row.get("publish_date") or "") for row in review_rows if row.get("publish_date"))
+    publish_dates = sorted(str(row.get("publish_date") or "") for row in pending_rows if row.get("publish_date"))
     filters = SourceLicensePolicyFilters(
         current_license_status=tuple(statuses),
+        review_status=("pending",) if pending_rows else (),
+        publish_date_min=publish_dates[0] if publish_dates else None,
+        publish_date_max=publish_dates[-1] if publish_dates else None,
         source_type=tuple(source_types),
+        source_id_prefix=()
+        if pending_rows
+        else ("__NO_PENDING_SOURCE_LICENSE_ROWS__",),
     )
-    matched_rows = [row for row in review_rows if _matches(row, filters)]
+    matched_rows = [row for row in pending_rows if _matches(row, filters)]
     return {
         "approved_for_derived_claim_storage": None,
         "approved_for_production_runtime": None,
@@ -502,6 +520,10 @@ def build_source_license_policy_template(root: str | Path = ".") -> Mapping[str,
         ),
         "filters": {
             "current_license_status": statuses,
+            "publish_date_max": publish_dates[-1] if publish_dates else None,
+            "publish_date_min": publish_dates[0] if publish_dates else None,
+            "review_status": ["pending"] if pending_rows else [],
+            "source_id_prefix": list(filters.source_id_prefix),
             "source_type": source_types,
         },
         "matched_row_count": len(matched_rows),
@@ -827,6 +849,7 @@ def build_source_license_policy_import(
         (
             filters.source_type,
             filters.current_license_status,
+            filters.review_status,
             filters.publish_date_min,
             filters.publish_date_max,
             filters.source_id_prefix,

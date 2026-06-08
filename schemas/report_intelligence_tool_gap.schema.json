@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RKE Report Intelligence Tool Gap",
+  "type": "object",
+  "required": ["tool_gap_id", "gap_type", "metric_candidate_id", "method_pattern_ids", "target_agents", "research_origin", "priority_bucket", "priority_reasons", "blocking_issues", "owner", "status"],
+  "properties": {
+    "tool_gap_id": {"type": "string", "minLength": 1},
+    "gap_type": {"type": "string", "minLength": 1},
+    "metric_candidate_id": {"type": "string"},
+    "metric_name": {"type": "string"},
+    "method_pattern_ids": {"type": "array", "items": {"type": "string"}},
+    "target_agents": {"type": "array", "items": {"type": "string"}},
+    "research_origin": {"type": "object"},
+    "priority_bucket": {"type": "string", "minLength": 1},
+    "priority_reasons": {"type": "array", "items": {"type": "string"}},
+    "blocking_issues": {"type": "array", "items": {"type": "string"}},
+    "owner": {"type": "string", "minLength": 1},
+    "status": {"type": "string", "minLength": 1}
+  },
+  "additionalProperties": true
+}

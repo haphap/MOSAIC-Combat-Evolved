@@ -113,6 +113,22 @@ def _first_mapping_item_field(
     return {}
 
 
+def _first_present(*values: Any) -> Any:
+    for value in values:
+        if value is not None:
+            return value
+    return None
+
+
+def _manual_review_status(
+    summary: Mapping[str, Any],
+    passed_status: str,
+) -> str | None:
+    if summary.get("passed") is True and summary.get("review_complete") is True:
+        return passed_status
+    return None
+
+
 def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
     root_path = Path(root)
     artifact_errors: list[str] = []
@@ -550,6 +566,14 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
         label="registry/review_batches/manual_review_progress_report.json",
         artifact_errors=artifact_errors,
     )
+    gold_review_packet_status = _first_present(
+        gold_packet.get("status"),
+        _manual_review_status(gold_review, "manual_review_passed"),
+    )
+    license_review_packet_status = _first_present(
+        license_packet.get("status"),
+        _manual_review_status(license_review, "manual_review_complete"),
+    )
     schema_records = _sequence_field(
         schema_validation,
         "records",
@@ -848,11 +872,23 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
                 "passed": gold_review.get("passed"),
             },
             "gold_review_packet": {
-                "status": gold_packet.get("status"),
-                "document_count": gold_packet.get("document_count"),
-                "pending_review_rows": gold_packet.get("pending_review_rows"),
-                "candidate_span_ref_count": gold_packet.get("candidate_span_ref_count"),
-                "risk_flag_counts": gold_packet.get("risk_flag_counts"),
+                "status": gold_review_packet_status,
+                "document_count": _first_present(
+                    gold_packet.get("document_count"),
+                    gold_review.get("total_documents"),
+                ),
+                "pending_review_rows": _first_present(
+                    gold_packet.get("pending_review_rows"),
+                    gold_review.get("pending_claims"),
+                ),
+                "candidate_span_ref_count": _first_present(
+                    gold_packet.get("candidate_span_ref_count"),
+                    gold_candidate_claims.get("candidate_available_count"),
+                ),
+                "risk_flag_counts": _first_present(
+                    gold_packet.get("risk_flag_counts"),
+                    gold_candidate_claims.get("risk_flag_counts"),
+                ),
             },
             "gold_candidate_claims": {
                 "candidate_claim_count": gold_candidate_claims.get(
@@ -881,14 +917,22 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
                 "passed": license_review.get("passed"),
             },
             "license_review_packet": {
-                "status": license_packet.get("status"),
-                "source_count": license_packet.get("source_count"),
-                "pending_sources": license_packet.get("pending_sources"),
-                "approved_for_derived_claim_storage": license_packet.get(
-                    "approved_for_derived_claim_storage"
+                "status": license_review_packet_status,
+                "source_count": _first_present(
+                    license_packet.get("source_count"),
+                    license_review.get("total_sources"),
                 ),
-                "approved_for_production_runtime": license_packet.get(
-                    "approved_for_production_runtime"
+                "pending_sources": _first_present(
+                    license_packet.get("pending_sources"),
+                    license_review.get("pending_sources"),
+                ),
+                "approved_for_derived_claim_storage": _first_present(
+                    license_packet.get("approved_for_derived_claim_storage"),
+                    license_review.get("approved_for_derived_claim_storage"),
+                ),
+                "approved_for_production_runtime": _first_present(
+                    license_packet.get("approved_for_production_runtime"),
+                    license_review.get("approved_for_production_runtime"),
                 ),
                 "policy_reason_counts": license_packet.get("policy_reason_counts"),
             },
@@ -902,6 +946,8 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
                     "full_import_template_path"
                 ),
                 "gold_set_review_workbook": "registry/review_batches/gold_set_review_workbook.md",
+                "gold_set_review_assist_jsonl": "registry/review_batches/gold_set_review_assist.jsonl",
+                "gold_set_review_assist_markdown": "registry/review_batches/gold_set_review_assist.md",
                 "gold_set_dry_run_command": review_batch_gold.get("dry_run_command"),
                 "source_license_pending_rows": review_batch_license.get("pending_rows"),
                 "source_license_exported_rows": review_batch_license.get(
@@ -1053,6 +1099,7 @@ def render_dashboard_markdown(report: Mapping[str, Any]) -> str:
         f"- Next gold review batch rows: {dict(dict(report.get('manual_review_gates') or {}).get('review_batches') or {}).get('gold_set_exported_rows')}",
         f"- Full gold review import template: {dict(dict(report.get('manual_review_gates') or {}).get('review_batches') or {}).get('gold_set_full_import_template')}",
         f"- Gold review workbook: {dict(dict(report.get('manual_review_gates') or {}).get('review_batches') or {}).get('gold_set_review_workbook')}",
+        f"- Gold review assist: {dict(dict(report.get('manual_review_gates') or {}).get('review_batches') or {}).get('gold_set_review_assist_markdown')}",
         f"- Next license review batch rows: {dict(dict(report.get('manual_review_gates') or {}).get('review_batches') or {}).get('source_license_exported_rows')}",
         f"- Source license review workbook: {dict(dict(report.get('manual_review_gates') or {}).get('review_batches') or {}).get('source_license_review_workbook')}",
         f"- Manual review promotion dry-run ready: {dict(dict(report.get('manual_review_gates') or {}).get('review_progress') or {}).get('ready_for_promotion_dry_run')}",

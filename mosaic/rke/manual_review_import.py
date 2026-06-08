@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections import Counter
 from dataclasses import asdict, dataclass
 from datetime import date
 from hashlib import sha256
@@ -59,6 +60,7 @@ MANUAL_REVIEW_IMPORT_FORBIDDEN_FIELDS = frozenset(
         "full_text",
     }
 )
+STALE_TARGET_ROW_HASH_REASON = "target_row_hash does not match target review row"
 
 
 def manual_review_forbidden_field_paths(value: Any, prefix: str = "") -> tuple[str, ...]:
@@ -355,6 +357,12 @@ def _build_report(
         blockers.append(f"{len(missing_target_ids)} review ids are missing from target")
     if invalid_rows:
         blockers.append(f"{len(invalid_rows)} review rows failed validation")
+        blockers.extend(
+            _invalid_row_reason_summary_blockers(
+                review_kind=review_kind,
+                invalid_rows=invalid_rows,
+            )
+        )
     blockers.extend(extra_blockers)
     return ManualReviewImportReport(
         report_id=(
@@ -380,6 +388,36 @@ def _build_report(
         downstream_outputs=dict(downstream_outputs),
         blockers=tuple(blockers),
     )
+
+
+def _invalid_row_reason_summary_blockers(
+    *,
+    review_kind: Literal["gold_set", "source_license"],
+    invalid_rows: Sequence[ManualReviewImportInvalidRow],
+) -> tuple[str, ...]:
+    reason_counts = Counter(
+        reason for row in invalid_rows for reason in row.reasons
+    )
+    blockers: list[str] = []
+    stale_count = reason_counts.pop(STALE_TARGET_ROW_HASH_REASON, 0)
+    if stale_count:
+        refresh_hint = (
+            "rerun `mosaic-rke prepare-gold-review --root . --full --force` "
+            "before filling reviewer decisions"
+            if review_kind == "gold_set"
+            else "rerun the source-license policy build from the current template"
+        )
+        blockers.append(
+            f"{stale_count} review rows have stale target_row_hash; {refresh_hint}"
+        )
+    for reason, count in reason_counts.most_common(8):
+        blockers.append(f"{count} review rows: {reason}")
+    remaining_reason_count = max(len(reason_counts) - 8, 0)
+    if remaining_reason_count:
+        blockers.append(
+            f"{remaining_reason_count} additional validation reason(s) suppressed"
+        )
+    return tuple(blockers)
 
 
 def _write_gold_downstream(root_path: Path) -> dict[str, str]:
@@ -412,6 +450,7 @@ def _write_gold_downstream(root_path: Path) -> dict[str, str]:
 def _write_license_downstream(root_path: Path) -> dict[str, str]:
     from .completion_auditor import write_completion_audit
     from .dashboard_reports import write_dashboard_reports
+    from .license_review_packet import write_license_review_packet
     from .manual_review_batches import write_manual_review_batches
     from .operator_handoff import write_operator_handoff
     from .promotion_gate import write_production_promotion_gate_report
@@ -422,6 +461,9 @@ def _write_license_downstream(root_path: Path) -> dict[str, str]:
 
     outputs: dict[str, str] = {}
     outputs["license_review_summary"] = str(write_source_license_review_summary(root_path)["path"])
+    license_packet = write_license_review_packet(root_path)
+    outputs["license_review_packet.json"] = license_packet["json"]
+    outputs["license_review_packet.markdown"] = license_packet["markdown"]
     outputs["source_registry_validation"] = str(write_source_registry_validation_report(root_path)["path"])
     review_batches = write_manual_review_batches(root_path)
     outputs["manual_review_batch_status"] = review_batches["status"]
