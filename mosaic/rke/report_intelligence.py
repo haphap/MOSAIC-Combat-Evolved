@@ -7762,6 +7762,15 @@ def _evolution_data_vintage_hash(
             "markdown_quality_gap_counts": _count_mapping_values(
                 _ensure_mapping(markdown.get("markdown_quality_gap_counts"))
             ),
+            "markdown_quality_review_queue_count": int(
+                markdown.get("markdown_quality_review_queue_count") or 0
+            ),
+            "markdown_false_positive_review_queue_count": int(
+                markdown.get("markdown_false_positive_review_queue_count") or 0
+            ),
+            "markdown_quality_spot_check_required": (
+                markdown.get("markdown_quality_spot_check_required") is True
+            ),
             "report_type_counts": _count_mapping_values(
                 _ensure_mapping(markdown.get("report_type_counts"))
             ),
@@ -8405,7 +8414,25 @@ def build_report_intelligence_evolution_readiness_gate(
         for item in _ensure_list(markdown.get("coverage_gate_blockers"))
         if str(item).strip()
     ]
-    coverage_passed = str(markdown.get("coverage_gate_status") or "") == "passed"
+    markdown_quality_review_queue_count = int(
+        markdown.get("markdown_quality_review_queue_count") or 0
+    )
+    markdown_false_positive_review_queue_count = int(
+        markdown.get("markdown_false_positive_review_queue_count") or 0
+    )
+    markdown_quality_spot_check_required = (
+        markdown.get("markdown_quality_spot_check_required") is True
+    )
+    markdown_blockers = list(coverage_blockers)
+    if str(markdown.get("coverage_gate_status") or "") != "passed":
+        markdown_blockers = markdown_blockers or ["markdown_coverage_gate_not_passed"]
+    if markdown_quality_review_queue_count:
+        markdown_blockers.append("markdown_quality_review_queue_pending")
+    if markdown_false_positive_review_queue_count:
+        markdown_blockers.append("markdown_false_positive_review_queue_pending")
+    if markdown_quality_spot_check_required:
+        markdown_blockers.append("markdown_quality_spot_check_required")
+    coverage_passed = not markdown_blockers
     checks.append(
         _evolution_gate_check(
             check_id="RI-EVOL-07",
@@ -8413,15 +8440,22 @@ def build_report_intelligence_evolution_readiness_gate(
                 "Markdown coverage must pass P9 corpus thresholds before "
                 "evolution depends on report-derived Markdown evidence."
             ),
-            passed=str(markdown.get("coverage_gate_status") or "") == "passed",
+            passed=coverage_passed,
             evidence={
                 "coverage_gate_status": str(markdown.get("coverage_gate_status") or ""),
                 "coverage_gate_blockers": coverage_blockers,
                 "coverage_targets": _ensure_mapping(markdown.get("coverage_targets")),
+                "markdown_quality_review_queue_count": (
+                    markdown_quality_review_queue_count
+                ),
+                "markdown_false_positive_review_queue_count": (
+                    markdown_false_positive_review_queue_count
+                ),
+                "markdown_quality_spot_check_required": (
+                    markdown_quality_spot_check_required
+                ),
             },
-            blockers=[] if coverage_passed else (
-                coverage_blockers or ["markdown_coverage_gate_not_passed"]
-            ),
+            blockers=[] if coverage_passed else markdown_blockers,
         )
     )
 
@@ -9143,9 +9177,21 @@ def build_prompt_mutation_candidates(
         for item in _ensure_list(markdown_summary.get("coverage_gate_blockers"))
         if str(item).strip()
     ]
+    markdown_quality_review_queue_count = int(
+        markdown_summary.get("markdown_quality_review_queue_count") or 0
+    )
+    markdown_false_positive_review_queue_count = int(
+        markdown_summary.get("markdown_false_positive_review_queue_count") or 0
+    )
+    markdown_quality_spot_check_required = (
+        markdown_summary.get("markdown_quality_spot_check_required") is True
+    )
     if (
         str(markdown_summary.get("coverage_gate_status") or "") == "blocked"
         or coverage_gate_blockers
+        or markdown_quality_review_queue_count
+        or markdown_false_positive_review_queue_count
+        or markdown_quality_spot_check_required
     ):
         _add_prompt_mutation_candidate(
             candidates,
@@ -9181,6 +9227,15 @@ def build_prompt_mutation_candidates(
                     ),
                     "llm_extraction_processed_count": int(
                         markdown_summary.get("llm_extraction_processed_count") or 0
+                    ),
+                    "markdown_quality_review_queue_count": (
+                        markdown_quality_review_queue_count
+                    ),
+                    "markdown_false_positive_review_queue_count": (
+                        markdown_false_positive_review_queue_count
+                    ),
+                    "markdown_quality_spot_check_required": (
+                        markdown_quality_spot_check_required
                     ),
                 }
             ],

@@ -129,7 +129,10 @@
           "markdown_quality_pass_count_min": 300,
           "markdown_ready_count_min": 300,
           "selected_report_count_min": 300
-        }
+        },
+        "markdown_false_positive_review_queue_count": 0,
+        "markdown_quality_review_queue_count": 0,
+        "markdown_quality_spot_check_required": false
       },
       "passed": false,
       "requirement": "Markdown coverage must pass P9 corpus thresholds before evolution depends on report-derived Markdown evidence."

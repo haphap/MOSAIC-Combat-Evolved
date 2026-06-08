@@ -1757,6 +1757,110 @@ def test_report_intelligence_evolution_gate_blocks_until_objective_thresholds_pa
     assert "source_span_ids" not in gate_dump
 
 
+def test_report_intelligence_evolution_gate_blocks_markdown_spot_check_queue():
+    outcome_rows = []
+    forecast_rows = []
+    for index in range(100):
+        if index < 30:
+            label_type = "stock_price_proxy"
+            prefix = "STOCK"
+        elif index < 60:
+            label_type = "industry_etf_proxy"
+            prefix = "IND"
+        else:
+            label_type = "standard_outcome"
+            prefix = "STD"
+        claim_id = f"FC-{prefix}-{index:03d}"
+        forecast_rows.append({"forecast_claim_id": claim_id})
+        outcome_rows.append(
+            {
+                "forecast_claim_id": claim_id,
+                "label_type": label_type,
+                "horizon_days": 20,
+                "effective_n_weight": 1.0,
+            }
+        )
+    clean_monitor = {
+        "observation_count": 20,
+        "blocked_recipe_count": 0,
+        "unvalidated_confidence_impact_count": 0,
+        "alpha_decay_fail_count": 0,
+        "calibration_drift_count": 0,
+        "blocker_counts": {},
+    }
+    accepted_audit = {
+        "schema_accepted": True,
+        "pit_accepted": True,
+        "provenance_accepted": True,
+        "statistical_accepted": True,
+    }
+    previous_vintage_1 = "sha256:" + "1" * 64
+    previous_vintage_2 = "sha256:" + "2" * 64
+
+    gate = build_report_intelligence_evolution_readiness_gate(
+        run_id="RIR-TEST-EVOLUTION-MARKDOWN-SPOT-CHECK",
+        forecast_rows=forecast_rows,
+        outcome_label_rows=outcome_rows,
+        recipe_paper_trading_summary={
+            "paper_trading_run_count": 20,
+            "validation_pass_count": 20,
+            "mean_cost_adjusted_alpha": 0.012,
+        },
+        confidence_impact_monitor=clean_monitor,
+        markdown_coverage_summary={
+            "coverage_gate_status": "passed",
+            "coverage_gate_blockers": [],
+            "coverage_targets": {
+                "selected_report_count_min": 300,
+                "markdown_ready_count_min": 300,
+                "markdown_quality_pass_count_min": 300,
+                "llm_extraction_processed_count_min": 100,
+            },
+            "markdown_quality_review_queue_count": 2,
+            "markdown_false_positive_review_queue_count": 1,
+            "markdown_quality_spot_check_required": True,
+        },
+        pit_leakage_audit={"accepted": True},
+        extraction_provenance_audit={"accepted": True},
+        statistical_robustness_audit={"accepted": True},
+        schema_validation_report={"accepted": True},
+        gold_review_summary={
+            "passed": True,
+            "reviewed_claims": 500,
+            "pending_claims": 0,
+        },
+        outcome_labeling_readiness={"mapping_gap_counts": {}},
+        monitor_refresh_history_rows=[
+            {**clean_monitor, "data_vintage_hash": previous_vintage_1},
+            {**clean_monitor, "data_vintage_hash": previous_vintage_2},
+        ],
+        audit_refresh_history_rows=[
+            {**accepted_audit, "data_vintage_hash": previous_vintage_1},
+            {**accepted_audit, "data_vintage_hash": previous_vintage_2},
+        ],
+        gap_distribution_history_rows=[
+            {"stable": True, "data_vintage_hash": previous_vintage_1},
+            {"stable": True, "data_vintage_hash": previous_vintage_2},
+        ],
+    )
+
+    markdown_check = next(
+        row for row in gate["checks"] if row["check_id"] == "RI-EVOL-07"
+    )
+    assert gate["gate_status"] == "blocked"
+    assert markdown_check["passed"] is False
+    assert {
+        "markdown_quality_review_queue_pending",
+        "markdown_false_positive_review_queue_pending",
+        "markdown_quality_spot_check_required",
+    } <= set(markdown_check["blockers"])
+    assert markdown_check["evidence"]["markdown_quality_review_queue_count"] == 2
+    assert (
+        markdown_check["evidence"]["markdown_false_positive_review_queue_count"]
+        == 1
+    )
+
+
 def test_report_intelligence_evolution_gate_passes_with_full_objective_evidence():
     outcome_rows = []
     forecast_rows = []
@@ -2012,6 +2116,55 @@ def test_report_intelligence_prompt_mutation_candidates_track_markdown_coverage_
     candidate_dump = json.dumps(candidate, ensure_ascii=False)
     assert "claim_text" not in candidate_dump
     assert "source_span_ids" not in candidate_dump
+
+
+def test_report_intelligence_prompt_mutation_candidates_track_markdown_spot_check_gate():
+    candidates = build_prompt_mutation_candidates(
+        run_id="RIR-TEST-MUTATION",
+        outcome_labeling_readiness={
+            "mapping_gap_counts": {},
+            "stock_price_proxy_readiness": {"data_gap_counts": {}},
+            "industry_etf_proxy_readiness": {"data_gap_counts": {}},
+        },
+        tool_gap_rows=[],
+        recipe_paper_trading_runs=[],
+        confidence_impact_observation_rows=[],
+        confidence_impact_monitor={"drift_status_counts": {}},
+        markdown_coverage_summary={
+            "selected_report_count": 300,
+            "markdown_ready_count": 300,
+            "markdown_quality_pass_count": 300,
+            "llm_extraction_processed_count": 100,
+            "coverage_targets": {
+                "selected_report_count_min": 300,
+                "markdown_ready_count_min": 300,
+                "markdown_quality_pass_count_min": 300,
+                "llm_extraction_processed_count_min": 100,
+            },
+            "coverage_gate_status": "passed",
+            "coverage_gate_blockers": [],
+            "markdown_quality_gap_counts": {
+                "markdown_repeated_line_noise": 2,
+            },
+            "markdown_quality_review_queue_count": 2,
+            "markdown_false_positive_review_queue_count": 2,
+            "markdown_quality_spot_check_required": True,
+        },
+        industry_etf_proxy_pit_availability={"pit_gap_counts": {}},
+    )
+
+    coverage = [
+        row
+        for row in candidates
+        if row["candidate_type"] == "markdown_coverage_expansion_rule"
+    ]
+    assert len(coverage) == 1
+    evidence = coverage[0]["evidence_refs"][0]
+    assert evidence["coverage_gate_status"] == "passed"
+    assert evidence["markdown_quality_review_queue_count"] == 2
+    assert evidence["markdown_false_positive_review_queue_count"] == 2
+    assert evidence["markdown_quality_spot_check_required"] is True
+    assert "manual_corpus_quality_review_required" in coverage[0]["blocked_by"]
 
 
 def test_report_intelligence_prompt_mutation_candidates_track_evolution_thresholds():
