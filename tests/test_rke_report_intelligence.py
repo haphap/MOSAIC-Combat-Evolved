@@ -1022,6 +1022,24 @@ def test_report_intelligence_analysis_recipes_pin_required_data():
 
     by_id = {row["method_pattern_id"]: row for row in recipes}
     assert by_id["METHOD-REQUIRED-DATA"]["promotion_state"] == "shadow_candidate"
+    assert by_id["METHOD-REQUIRED-DATA"]["recipe_id"] == by_id[
+        "METHOD-REQUIRED-DATA"
+    ]["analysis_recipe_id"]
+    assert by_id["METHOD-REQUIRED-DATA"]["source_method_pattern_ids"] == [
+        "METHOD-REQUIRED-DATA"
+    ]
+    assert by_id["METHOD-REQUIRED-DATA"]["decision_scope"] == (
+        "required_data_method_score"
+    )
+    assert by_id["METHOD-REQUIRED-DATA"][
+        "entry_condition"
+    ] == "T+1_or_more_conservative_shadow_entry"
+    assert by_id["METHOD-REQUIRED-DATA"]["exit_condition"] == "fixed_horizon_shadow_exit"
+    assert by_id["METHOD-REQUIRED-DATA"]["expected_horizon_days"] == 60
+    assert "no_production_order" in by_id["METHOD-REQUIRED-DATA"]["risk_controls"]
+    assert "turnover_cost_decay_blocks_validation" in by_id[
+        "METHOD-REQUIRED-DATA"
+    ]["risk_controls"]
     assert by_id["METHOD-REQUIRED-DATA"]["required_data"] == [
         "stock_price",
         "benchmark_return",
@@ -1034,11 +1052,25 @@ def test_report_intelligence_analysis_recipes_pin_required_data():
 def test_report_intelligence_recipe_paper_trading_requires_direct_pit_evidence():
     recipe = {
         "analysis_recipe_id": "RECIPE-DIRECT-PIT",
+        "recipe_id": "RECIPE-DIRECT-PIT",
         "method_pattern_id": "METHOD-DIRECT-PIT",
+        "source_method_pattern_ids": ["METHOD-DIRECT-PIT"],
         "version": "0.1.0",
         "runtime_mode": "shadow_only",
         "required_tools": ["market.price_proxy"],
         "required_data": ["stock_price", "benchmark_return"],
+        "decision_scope": "explicit_direct_pit_scope",
+        "entry_condition": "T+1_or_more_conservative_shadow_entry",
+        "exit_condition": "fixed_horizon_shadow_exit",
+        "risk_controls": [
+            "no_production_order",
+            "no_position_sizing",
+            "after_cost_alpha_required",
+            "consecutive_after_cost_decay_blocks_validation",
+            "turnover_cost_decay_blocks_validation",
+            "drawdown_threshold_pre_registered",
+        ],
+        "expected_horizon_days": 120,
         "steps": [{"step": 1, "tool": "market.price_proxy"}],
         "output_signal": {"name": "direct_pit_score"},
     }
@@ -1086,7 +1118,10 @@ def test_report_intelligence_recipe_paper_trading_requires_direct_pit_evidence()
 
     assert runs[0]["paper_trading_status"] == "passed"
     assert runs[0]["blocked_reasons"] == []
+    assert runs[0]["source_method_pattern_ids"] == ["METHOD-DIRECT-PIT"]
     assert runs[0]["required_data"] == ["stock_price", "benchmark_return"]
+    assert runs[0]["decision_scope"] == "explicit_direct_pit_scope"
+    assert runs[0]["expected_horizon_days"] == 120
     assert runs[0]["profile_weight_support"]["profile_only_validation_allowed"] is False
     assert runs[0]["pre_registered_protocol"][
         "parameter_tuning_after_results_allowed"

@@ -6312,6 +6312,23 @@ def build_tool_design_proposals(
     return proposals
 
 
+ANALYSIS_RECIPE_ENTRY_CONDITION = "T+1_or_more_conservative_shadow_entry"
+ANALYSIS_RECIPE_EXIT_CONDITION = "fixed_horizon_shadow_exit"
+ANALYSIS_RECIPE_EXPECTED_HORIZON_DAYS = 60
+ANALYSIS_RECIPE_RISK_CONTROLS = (
+    "no_production_order",
+    "no_position_sizing",
+    "after_cost_alpha_required",
+    "consecutive_after_cost_decay_blocks_validation",
+    "turnover_cost_decay_blocks_validation",
+    "drawdown_threshold_pre_registered",
+)
+
+
+def _analysis_recipe_output_signal_name(name: str) -> str:
+    return f"{_canonical_metric_name(name)}_score"
+
+
 def build_analysis_recipes(
     method_rows: Sequence[Mapping[str, Any]],
 ) -> list[dict[str, Any]]:
@@ -6321,6 +6338,8 @@ def build_analysis_recipes(
         name = str(method.get("name") or method_id or "unknown_method")
         if not method_id:
             continue
+        recipe_id = _stable_id("RECIPE", {"method_pattern_id": method_id})
+        output_signal_name = _analysis_recipe_output_signal_name(name)
         steps: list[dict[str, Any]] = []
         required_tools: list[str] = []
         for index, step in enumerate(_ensure_list(method.get("steps")), 1):
@@ -6340,17 +6359,24 @@ def build_analysis_recipes(
             )
         recipes.append(
             {
-                "analysis_recipe_id": _stable_id("RECIPE", {"method_pattern_id": method_id}),
+                "analysis_recipe_id": recipe_id,
+                "recipe_id": recipe_id,
                 "name": name,
                 "method_pattern_id": method_id,
+                "source_method_pattern_ids": [method_id],
                 "version": "0.1.0",
                 "promotion_state": "shadow_candidate",
                 "runtime_mode": "shadow_only",
                 "required_tools": list(dict.fromkeys(required_tools)),
                 "required_data": _analysis_recipe_required_data(method, steps),
+                "decision_scope": output_signal_name,
+                "entry_condition": ANALYSIS_RECIPE_ENTRY_CONDITION,
+                "exit_condition": ANALYSIS_RECIPE_EXIT_CONDITION,
+                "risk_controls": list(ANALYSIS_RECIPE_RISK_CONTROLS),
+                "expected_horizon_days": ANALYSIS_RECIPE_EXPECTED_HORIZON_DAYS,
                 "steps": steps,
                 "output_signal": {
-                    "name": f"{_canonical_metric_name(name)}_score",
+                    "name": output_signal_name,
                     "range": [-1, 1],
                     "confidence_policy": "requires_current_data_and_validation",
                 },
@@ -6407,12 +6433,20 @@ def _recipe_preregistration_hash(recipe: Mapping[str, Any]) -> str:
         "method_pattern_id": recipe.get("method_pattern_id"),
         "version": recipe.get("version"),
         "promotion_state": recipe.get("promotion_state"),
+        "source_method_pattern_ids": _ensure_list(
+            recipe.get("source_method_pattern_ids")
+        ),
         "required_tools": _ensure_list(recipe.get("required_tools")),
         "required_data": _ensure_list(recipe.get("required_data")),
+        "decision_scope": recipe.get("decision_scope"),
+        "entry_condition": recipe.get("entry_condition"),
+        "exit_condition": recipe.get("exit_condition"),
+        "risk_controls": _ensure_list(recipe.get("risk_controls")),
+        "expected_horizon_days": recipe.get("expected_horizon_days"),
         "steps": _ensure_list(recipe.get("steps")),
         "protocol_version": RECIPE_PAPER_TRADING_PROTOCOL_VERSION,
-        "entry_rule": "T+1_or_more_conservative_shadow_entry",
-        "exit_rule": "fixed_horizon_shadow_exit",
+        "entry_rule": ANALYSIS_RECIPE_ENTRY_CONDITION,
+        "exit_rule": ANALYSIS_RECIPE_EXIT_CONDITION,
         "cost_model_id": RECIPE_PAPER_TRADING_COST_MODEL_ID,
         "minimum_effective_n": RECIPE_PAPER_TRADING_MIN_EFFECTIVE_N,
         "max_drawdown": RECIPE_PAPER_TRADING_MAX_DRAWDOWN,
@@ -6651,6 +6685,27 @@ def build_recipe_paper_trading_runs(
     for index, recipe in enumerate(analysis_recipe_rows, 1):
         recipe_id = _recipe_id(recipe, index)
         method_id = str(recipe.get("method_pattern_id") or "")
+        source_method_pattern_ids = _ensure_list(
+            recipe.get("source_method_pattern_ids")
+        ) or ([method_id] if method_id else [])
+        decision_scope = str(
+            recipe.get("decision_scope")
+            or _ensure_mapping(recipe.get("output_signal")).get("name")
+            or ""
+        )
+        entry_condition = str(
+            recipe.get("entry_condition") or ANALYSIS_RECIPE_ENTRY_CONDITION
+        )
+        exit_condition = str(
+            recipe.get("exit_condition") or ANALYSIS_RECIPE_EXIT_CONDITION
+        )
+        risk_controls = _ensure_list(recipe.get("risk_controls")) or list(
+            ANALYSIS_RECIPE_RISK_CONTROLS
+        )
+        expected_horizon_days = (
+            _int_or_none(recipe.get("expected_horizon_days"))
+            or ANALYSIS_RECIPE_EXPECTED_HORIZON_DAYS
+        )
         labels = _labels_for_recipe(recipe, outcome_label_rows)
         metrics = _paper_trading_metric_summary(labels)
         blockers: list[str] = []
@@ -6756,24 +6811,14 @@ def build_recipe_paper_trading_runs(
                 "promotion_state": "shadow_candidate",
                 "validation_status": status,
                 "paper_trading_status": status,
-                "source_method_pattern_ids": [method_id] if method_id else [],
+                "source_method_pattern_ids": source_method_pattern_ids,
                 "required_tools": _ensure_list(recipe.get("required_tools")),
                 "required_data": required_data,
-                "decision_scope": _ensure_mapping(recipe.get("output_signal")).get(
-                    "name",
-                    "",
-                ),
-                "entry_condition": "T+1_or_more_conservative_shadow_entry",
-                "exit_condition": "fixed_horizon_shadow_exit",
-                "risk_controls": [
-                    "no_production_order",
-                    "no_position_sizing",
-                    "after_cost_alpha_required",
-                    "consecutive_after_cost_decay_blocks_validation",
-                    "turnover_cost_decay_blocks_validation",
-                    "drawdown_threshold_pre_registered",
-                ],
-                "expected_horizon_days": 60,
+                "decision_scope": decision_scope,
+                "entry_condition": entry_condition,
+                "exit_condition": exit_condition,
+                "risk_controls": risk_controls,
+                "expected_horizon_days": expected_horizon_days,
                 "benchmark_symbol": RECIPE_PAPER_TRADING_BENCHMARK_SYMBOL,
                 "benchmark_source": STOCK_PRICE_PROXY_BENCHMARK_SOURCE,
                 "cost_model_id": RECIPE_PAPER_TRADING_COST_MODEL_ID,
@@ -11523,7 +11568,7 @@ def write_report_intelligence_tool_feasibility_audit(
 
 
 def _recipe_id(row: Mapping[str, Any], index: int) -> str:
-    return str(row.get("analysis_recipe_id") or f"row-{index}")
+    return str(row.get("analysis_recipe_id") or row.get("recipe_id") or f"row-{index}")
 
 
 def _recipe_promotion_requirements_missing(row: Mapping[str, Any]) -> list[str]:
