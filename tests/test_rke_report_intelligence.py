@@ -2147,6 +2147,127 @@ def test_report_intelligence_stock_target_conflict_blocks_labeling(
     }
 
 
+def test_report_intelligence_accepts_bj_920_stock_codes(
+    tmp_path: Path,
+):
+    source_id = _write_source(
+        tmp_path / "registry/sources/tushare_research_reports.jsonl",
+        industry="北交所",
+        report_type="公司研报",
+        publish_date="2026-01-02",
+        ts_code="920001.BJ",
+    )
+    qlib_stock_dir = tmp_path / "qlib_stock"
+    qlib_etf_dir = tmp_path / "qlib_etf"
+    _write_qlib_stock_fixture(qlib_stock_dir, symbol="920001.BJ")
+    _write_qlib_stock_benchmark_fixture(qlib_etf_dir)
+
+    def llm(row, chunk: str, span_id: str, chunk_index: int, chunk_count: int):
+        return {
+            "status": "ok",
+            "model": "fake-vllm",
+            "payload": {
+                "forecast_claims": [
+                    {
+                        "claim_text": "北交所公司基本面改善，未来股价有望上涨。",
+                        "claim_provenance": "source_grounded",
+                        "forecast_testability": "testable",
+                        "forecast_type": "stock_outlook",
+                        "target": {"target_type": "stock", "target_id": "920001.BJ"},
+                        "benchmark": {},
+                        "direction": "positive",
+                        "horizon": {"max_days": 120, "unit": "trading_day"},
+                    }
+                ],
+                "analytical_footprints": [],
+                "metric_candidates": [],
+                "method_patterns": [],
+                "tool_gaps": [],
+            },
+        }
+
+    result = run_report_intelligence_refresh(
+        ReportIntelligenceConfig(
+            root=tmp_path,
+            source_ids=(source_id,),
+            qlib_stock_dir=qlib_stock_dir,
+            qlib_etf_dir=qlib_etf_dir,
+        ),
+        downloader=_fake_downloader,
+        converter=_fake_converter,
+        llm_extractor=llm,
+    )
+
+    assert result.stock_price_proxy_outcome_label_rows == 4
+    outcome_labels = _read_jsonl(
+        tmp_path / "registry/report_intelligence/report_outcome_labels.jsonl"
+    )
+    assert {row["proxy_symbol"] for row in outcome_labels} == {"920001.BJ"}
+    assert {row["metadata_ts_code"] for row in outcome_labels} == {"920001.BJ"}
+    assert {row["llm_target_id"] for row in outcome_labels} == {"920001.BJ"}
+
+
+def test_report_intelligence_rejects_legacy_bj_8_stock_codes(
+    tmp_path: Path,
+):
+    source_id = _write_source(
+        tmp_path / "registry/sources/tushare_research_reports.jsonl",
+        industry="北交所",
+        report_type="公司研报",
+        publish_date="2026-01-02",
+        ts_code="830001.BJ",
+    )
+    qlib_stock_dir = tmp_path / "qlib_stock"
+    qlib_etf_dir = tmp_path / "qlib_etf"
+    _write_qlib_stock_fixture(qlib_stock_dir, symbol="830001.BJ")
+    _write_qlib_stock_benchmark_fixture(qlib_etf_dir)
+
+    def llm(row, chunk: str, span_id: str, chunk_index: int, chunk_count: int):
+        return {
+            "status": "ok",
+            "model": "fake-vllm",
+            "payload": {
+                "forecast_claims": [
+                    {
+                        "claim_text": "北交所公司基本面改善，未来股价有望上涨。",
+                        "claim_provenance": "source_grounded",
+                        "forecast_testability": "testable",
+                        "forecast_type": "stock_outlook",
+                        "target": {"target_type": "stock", "target_id": "830001.BJ"},
+                        "benchmark": {},
+                        "direction": "positive",
+                        "horizon": {"max_days": 120, "unit": "trading_day"},
+                    }
+                ],
+                "analytical_footprints": [],
+                "metric_candidates": [],
+                "method_patterns": [],
+                "tool_gaps": [],
+            },
+        }
+
+    result = run_report_intelligence_refresh(
+        ReportIntelligenceConfig(
+            root=tmp_path,
+            source_ids=(source_id,),
+            qlib_stock_dir=qlib_stock_dir,
+            qlib_etf_dir=qlib_etf_dir,
+        ),
+        downloader=_fake_downloader,
+        converter=_fake_converter,
+        llm_extractor=llm,
+    )
+
+    assert result.stock_price_proxy_outcome_label_rows == 0
+    readiness = json.loads(
+        (tmp_path / "registry/report_intelligence/outcome_labeling_readiness.json")
+        .read_text(encoding="utf-8")
+    )
+    assert readiness["stock_price_proxy_readiness"]["data_gap_counts"] == {
+        "stock_target_mapping_missing": 1
+    }
+
+
 def test_report_intelligence_stock_entry_suspension_blocks_labeling(
     tmp_path: Path,
 ):
