@@ -38,6 +38,7 @@
     "recommended_action_counts": {
       "keep_shadow": 5
     },
+    "regime_fragile_alpha_count": 0,
     "unvalidated_confidence_impact_count": 0
   },
   "monitoring_id": "RKE-REPORT-INTELLIGENCE-MONITORING",

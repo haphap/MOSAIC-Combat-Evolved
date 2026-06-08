@@ -6265,6 +6265,10 @@ RECIPE_PAPER_TRADING_PROTOCOL_VERSION = "recipe_shadow_paper_trading_v1"
 RECIPE_PAPER_TRADING_MIN_EFFECTIVE_N = 3.0
 RECIPE_PAPER_TRADING_MAX_DRAWDOWN = 0.20
 RECIPE_PAPER_TRADING_ALPHA_DECAY_FAIL_STREAK = 2
+RECIPE_PAPER_TRADING_MAX_HORIZON_CONCENTRATION = 0.70
+RECIPE_PAPER_TRADING_MAX_REGIME_CONCENTRATION = 0.80
+RECIPE_PAPER_TRADING_MIN_HORIZON_COUNT = 2
+RECIPE_PAPER_TRADING_MIN_REGIME_COUNT = 2
 RECIPE_PAPER_TRADING_BENCHMARK_SYMBOL = STOCK_PRICE_PROXY_BENCHMARK_SYMBOL
 RECIPE_PAPER_TRADING_COST_MODEL_ID = STOCK_PRICE_PROXY_COST_MODEL_ID
 
@@ -6304,6 +6308,21 @@ def _labels_for_recipe(
     return labels
 
 
+def _weighted_contribution_shares(
+    totals: Mapping[str, float],
+    *,
+    denominator: float | None = None,
+) -> dict[str, float]:
+    total = denominator if denominator is not None else sum(max(value, 0.0) for value in totals.values())
+    if total is None or total <= 0:
+        return {}
+    return {
+        key: round(max(value, 0.0) / total, 6)
+        for key, value in sorted(totals.items())
+        if value > 0
+    }
+
+
 def _paper_trading_metric_summary(
     labels: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
@@ -6311,6 +6330,10 @@ def _paper_trading_metric_summary(
     weighted_benchmark: list[tuple[float, float]] = []
     weighted_hit: list[tuple[float, float]] = []
     horizons: list[int] = []
+    horizon_weight_totals: dict[str, float] = {}
+    regime_weight_totals: dict[str, float] = {}
+    horizon_missing_count = 0
+    market_regime_missing_count = 0
     ordered = sorted(labels, key=lambda row: str(row.get("exit_datetime") or ""))
     for label in ordered:
         weight = _label_weight(label)
@@ -6326,7 +6349,28 @@ def _paper_trading_metric_summary(
         horizon = _int_or_none(label.get("horizon_days"))
         if horizon:
             horizons.append(horizon)
+            horizon_key = str(horizon)
+            horizon_weight_totals[horizon_key] = (
+                horizon_weight_totals.get(horizon_key, 0.0) + weight
+            )
+        else:
+            horizon_missing_count += 1
+        regime = str(
+            label.get("market_regime") or label.get("regime") or ""
+        ).strip()
+        if regime:
+            regime_weight_totals[regime] = regime_weight_totals.get(regime, 0.0) + weight
+        else:
+            market_regime_missing_count += 1
     effective_n = sum(_label_weight(label) for label in labels)
+    horizon_contribution_shares = _weighted_contribution_shares(
+        horizon_weight_totals,
+        denominator=effective_n,
+    )
+    regime_contribution_shares = _weighted_contribution_shares(
+        regime_weight_totals,
+        denominator=effective_n,
+    )
     cost_adjusted_alpha = _weighted_mean(weighted_after_cost, default=None)
     benchmark_return = _weighted_mean(weighted_benchmark, default=None)
     hit_rate = _weighted_mean(weighted_hit, default=None)
@@ -6392,6 +6436,18 @@ def _paper_trading_metric_summary(
         if hit_rate is not None
         else None,
         "non_positive_after_cost_window_streak": max_non_positive_streak,
+        "horizon_contribution_shares": horizon_contribution_shares,
+        "max_horizon_contribution_share": max(horizon_contribution_shares.values())
+        if horizon_contribution_shares
+        else None,
+        "observed_horizon_count": len(horizon_contribution_shares),
+        "horizon_missing_count": horizon_missing_count,
+        "regime_contribution_shares": regime_contribution_shares,
+        "max_regime_contribution_share": max(regime_contribution_shares.values())
+        if regime_contribution_shares
+        else None,
+        "observed_regime_count": len(regime_contribution_shares),
+        "market_regime_missing_count": market_regime_missing_count,
         "drawdown_breach_count": sum(
             1
             for value in alpha_values
@@ -6440,6 +6496,34 @@ def build_recipe_paper_trading_runs(
         hit_rate = _float_or_none(metrics.get("hit_rate"))
         max_drawdown = _float_or_none(metrics.get("max_drawdown"))
         if not blockers:
+            max_horizon_share = _float_or_none(
+                metrics.get("max_horizon_contribution_share")
+            )
+            max_regime_share = _float_or_none(
+                metrics.get("max_regime_contribution_share")
+            )
+            observed_horizon_count = int(metrics.get("observed_horizon_count") or 0)
+            horizon_missing_count = int(metrics.get("horizon_missing_count") or 0)
+            observed_regime_count = int(metrics.get("observed_regime_count") or 0)
+            market_regime_missing_count = int(
+                metrics.get("market_regime_missing_count") or 0
+            )
+            if horizon_missing_count:
+                blockers.append("window_horizon_missing")
+            if observed_horizon_count < RECIPE_PAPER_TRADING_MIN_HORIZON_COUNT:
+                blockers.append("single_window_concentration")
+            if (
+                max_horizon_share is not None
+                and max_horizon_share > RECIPE_PAPER_TRADING_MAX_HORIZON_CONCENTRATION
+            ):
+                blockers.append("single_window_concentration")
+            if market_regime_missing_count:
+                blockers.append("market_regime_missing")
+            if observed_regime_count < RECIPE_PAPER_TRADING_MIN_REGIME_COUNT or (
+                max_regime_share is not None
+                and max_regime_share > RECIPE_PAPER_TRADING_MAX_REGIME_CONCENTRATION
+            ):
+                blockers.append("single_regime_concentration")
             if cost_adjusted_alpha is None or cost_adjusted_alpha <= 0:
                 blockers.append("after_cost_alpha_non_positive")
             if (
@@ -6511,6 +6595,14 @@ def build_recipe_paper_trading_runs(
                     "alpha_decay_fail_streak": (
                         RECIPE_PAPER_TRADING_ALPHA_DECAY_FAIL_STREAK
                     ),
+                    "max_horizon_contribution_share": (
+                        RECIPE_PAPER_TRADING_MAX_HORIZON_CONCENTRATION
+                    ),
+                    "max_regime_contribution_share": (
+                        RECIPE_PAPER_TRADING_MAX_REGIME_CONCENTRATION
+                    ),
+                    "minimum_horizon_count": RECIPE_PAPER_TRADING_MIN_HORIZON_COUNT,
+                    "minimum_regime_count": RECIPE_PAPER_TRADING_MIN_REGIME_COUNT,
                     "profile_weight_is_sufficient": False,
                     "parameter_tuning_after_results_allowed": False,
                     "production_decision_impact_allowed": False,
@@ -6624,11 +6716,23 @@ def build_confidence_impact_observations(
             "consecutive_non_positive_after_cost_windows",
             "max_drawdown_breach",
         }
+        regime_fragile_blockers = {
+            "single_window_concentration",
+            "single_regime_concentration",
+            "market_regime_missing",
+            "window_horizon_missing",
+        }
         if paper_status != "passed" and any(
             str(reason) in alpha_decay_blockers for reason in blocker_reasons
         ):
             drift_status = "alpha_decay_fail"
             recommended_action = "freeze_recipe"
+            confidence_delta = 0.0
+        elif paper_status != "passed" and any(
+            str(reason) in regime_fragile_blockers for reason in blocker_reasons
+        ):
+            drift_status = "regime_fragile_alpha"
+            recommended_action = "send_to_manual_review"
             confidence_delta = 0.0
         elif paper_status != "passed":
             drift_status = "paper_trading_blocked"
@@ -6696,6 +6800,7 @@ def build_confidence_impact_monitor(
     tracked_recipe_ids: list[str] = []
     alpha_decay_recipe_ids: list[str] = []
     calibration_drift_recipe_ids: list[str] = []
+    regime_fragile_recipe_ids: list[str] = []
     manual_review_recipe_ids: list[str] = []
     freeze_recipe_ids: list[str] = []
     retire_recipe_ids: list[str] = []
@@ -6713,6 +6818,8 @@ def build_confidence_impact_monitor(
             alpha_decay_recipe_ids.append(recipe_id)
         if str(row.get("drift_status") or "") == "calibration_drift_watch" and recipe_id:
             calibration_drift_recipe_ids.append(recipe_id)
+        if str(row.get("drift_status") or "") == "regime_fragile_alpha" and recipe_id:
+            regime_fragile_recipe_ids.append(recipe_id)
         action = str(row.get("recommended_action") or "")
         if action == "send_to_manual_review" and recipe_id:
             manual_review_recipe_ids.append(recipe_id)
@@ -6746,12 +6853,17 @@ def build_confidence_impact_monitor(
             "calibration_drift_watch",
             0,
         ),
+        "regime_fragile_alpha_count": drift_status_counts.get(
+            "regime_fragile_alpha",
+            0,
+        ),
         "drift_status_counts": dict(sorted(drift_status_counts.items())),
         "recommended_action_counts": dict(sorted(action_counts.items())),
         "blocker_counts": dict(sorted(blocker_counts.items())),
         "tracked_recipe_ids": sorted(set(tracked_recipe_ids)),
         "alpha_decay_recipe_ids": sorted(set(alpha_decay_recipe_ids)),
         "calibration_drift_recipe_ids": sorted(set(calibration_drift_recipe_ids)),
+        "regime_fragile_recipe_ids": sorted(set(regime_fragile_recipe_ids)),
         "manual_review_recipe_ids": sorted(set(manual_review_recipe_ids)),
         "freeze_recipe_ids": sorted(set(freeze_recipe_ids)),
         "retire_recipe_ids": sorted(set(retire_recipe_ids)),
@@ -11603,6 +11715,9 @@ def build_report_intelligence_monitoring_report(
             ),
             "calibration_drift_count": int(
                 confidence_monitor.get("calibration_drift_count") or 0
+            ),
+            "regime_fragile_alpha_count": int(
+                confidence_monitor.get("regime_fragile_alpha_count") or 0
             ),
             "recommended_action_counts": _ensure_mapping(
                 confidence_monitor.get("recommended_action_counts")

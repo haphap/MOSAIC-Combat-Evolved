@@ -1008,12 +1008,12 @@ def test_report_intelligence_recipe_paper_trading_requires_direct_pit_evidence()
         "output_signal": {"name": "direct_pit_score"},
     }
     labels = []
-    for day, value, hit in (
-        (10, 0.01, True),
-        (11, 0.02, False),
-        (12, 0.015, True),
-        (13, 0.018, False),
-        (14, 0.02, True),
+    for day, value, hit, horizon, regime in (
+        (10, 0.01, True, 5, "base"),
+        (11, 0.02, False, 20, "stress"),
+        (12, 0.015, True, 60, "recovery"),
+        (13, 0.018, False, 120, "base"),
+        (14, 0.02, True, 20, "stress"),
     ):
         labels.append(
             {
@@ -1023,7 +1023,8 @@ def test_report_intelligence_recipe_paper_trading_requires_direct_pit_evidence()
                 "directional_after_cost_return": value,
                 "benchmark_return": 0.005,
                 "directional_hit": hit,
-                "horizon_days": 20,
+                "horizon_days": horizon,
+                "market_regime": regime,
                 "effective_n_weight": 1.0,
             }
         )
@@ -1057,6 +1058,11 @@ def test_report_intelligence_recipe_paper_trading_requires_direct_pit_evidence()
     assert runs[0]["pre_registered_protocol"]["alpha_decay_fail_streak"] == 2
     assert runs[0]["metrics"]["brier_score"] == 0.01
     assert runs[0]["metrics"]["non_positive_after_cost_window_streak"] == 0
+    assert runs[0]["metrics"]["max_horizon_contribution_share"] == 0.4
+    assert runs[0]["metrics"]["observed_horizon_count"] == 4
+    assert runs[0]["metrics"]["horizon_missing_count"] == 0
+    assert runs[0]["metrics"]["max_regime_contribution_share"] == 0.4
+    assert runs[0]["metrics"]["observed_regime_count"] == 3
     assert summary["validation_pass_count"] == 1
     assert observations[0]["confidence_delta"] > 0
     assert observations[0]["drift_status"] == "stable_shadow"
@@ -1106,11 +1112,11 @@ def test_report_intelligence_recipe_paper_trading_flags_alpha_decay_fail():
         "output_signal": {"name": "decay_sensitive_score"},
     }
     labels = []
-    for day, value in (
-        (10, 0.04),
-        (11, -0.01),
-        (12, -0.02),
-        (13, 0.04),
+    for day, value, horizon, regime in (
+        (10, 0.04, 5, "base"),
+        (11, -0.01, 20, "stress"),
+        (12, -0.02, 60, "recovery"),
+        (13, 0.04, 120, "base"),
     ):
         labels.append(
             {
@@ -1120,7 +1126,8 @@ def test_report_intelligence_recipe_paper_trading_flags_alpha_decay_fail():
                 "directional_after_cost_return": value,
                 "benchmark_return": 0.001,
                 "directional_hit": True,
-                "horizon_days": 20,
+                "horizon_days": horizon,
+                "market_regime": regime,
                 "effective_n_weight": 1.0,
             }
         )
@@ -1155,6 +1162,93 @@ def test_report_intelligence_recipe_paper_trading_flags_alpha_decay_fail():
     assert monitor["alpha_decay_fail_count"] == 1
     assert monitor["alpha_decay_recipe_ids"] == ["RECIPE-DECAY-FAIL"]
     assert monitor["freeze_recipe_ids"] == ["RECIPE-DECAY-FAIL"]
+
+
+def test_report_intelligence_recipe_paper_trading_flags_regime_fragile_alpha():
+    recipe = {
+        "analysis_recipe_id": "RECIPE-REGIME-FRAGILE",
+        "method_pattern_id": "METHOD-REGIME-FRAGILE",
+        "version": "0.1.0",
+        "runtime_mode": "shadow_only",
+        "required_tools": ["market.price_proxy"],
+        "steps": [{"step": 1, "tool": "market.price_proxy"}],
+        "output_signal": {"name": "regime_fragile_score"},
+    }
+    labels = []
+    for day, value in (
+        (10, 0.03),
+        (11, 0.02),
+        (12, 0.025),
+        (13, 0.018),
+    ):
+        labels.append(
+            {
+                "analysis_recipe_id": "RECIPE-REGIME-FRAGILE",
+                "method_pattern_id": "METHOD-REGIME-FRAGILE",
+                "exit_datetime": f"2026-01-{day:02d}",
+                "directional_after_cost_return": value,
+                "benchmark_return": 0.001,
+                "directional_hit": True,
+                "horizon_days": 20,
+                "market_regime": "single_regime",
+                "effective_n_weight": 1.0,
+            }
+        )
+
+    runs = build_recipe_paper_trading_runs(
+        run_id="RIR-TEST-REGIME-FRAGILE",
+        analysis_recipe_rows=[recipe],
+        outcome_label_rows=labels,
+        method_performance_profile_rows=[],
+    )
+    summary = build_recipe_paper_trading_summary(
+        run_id="RIR-TEST-REGIME-FRAGILE",
+        recipe_paper_trading_runs=runs,
+    )
+    observations = build_confidence_impact_observations(
+        run_id="RIR-TEST-REGIME-FRAGILE",
+        recipe_paper_trading_runs=runs,
+    )
+    monitor = build_confidence_impact_monitor(
+        run_id="RIR-TEST-REGIME-FRAGILE",
+        confidence_observation_rows=observations,
+        recipe_paper_trading_summary=summary,
+    )
+
+    assert runs[0]["paper_trading_status"] == "blocked"
+    assert runs[0]["metrics"]["cost_adjusted_alpha"] > 0
+    assert runs[0]["metrics"]["max_horizon_contribution_share"] == 1.0
+    assert runs[0]["metrics"]["observed_horizon_count"] == 1
+    assert runs[0]["metrics"]["max_regime_contribution_share"] == 1.0
+    assert runs[0]["metrics"]["observed_regime_count"] == 1
+    assert {
+        "single_window_concentration",
+        "single_regime_concentration",
+    } <= set(runs[0]["blocked_reasons"])
+    assert observations[0]["drift_status"] == "regime_fragile_alpha"
+    assert observations[0]["recommended_action"] == "send_to_manual_review"
+    assert observations[0]["confidence_delta"] == 0.0
+    assert monitor["regime_fragile_alpha_count"] == 1
+    assert monitor["regime_fragile_recipe_ids"] == ["RECIPE-REGIME-FRAGILE"]
+    assert monitor["manual_review_recipe_ids"] == ["RECIPE-REGIME-FRAGILE"]
+
+    missing_horizon_labels = []
+    for label in labels:
+        row = dict(label)
+        row.pop("horizon_days")
+        missing_horizon_labels.append(row)
+    missing_horizon_runs = build_recipe_paper_trading_runs(
+        run_id="RIR-TEST-MISSING-HORIZON",
+        analysis_recipe_rows=[recipe],
+        outcome_label_rows=missing_horizon_labels,
+        method_performance_profile_rows=[],
+    )
+    missing_horizon_observations = build_confidence_impact_observations(
+        run_id="RIR-TEST-MISSING-HORIZON",
+        recipe_paper_trading_runs=missing_horizon_runs,
+    )
+    assert "window_horizon_missing" in missing_horizon_runs[0]["blocked_reasons"]
+    assert missing_horizon_observations[0]["drift_status"] == "regime_fragile_alpha"
 
 
 def test_report_intelligence_evolution_gate_blocks_until_objective_thresholds_pass():
