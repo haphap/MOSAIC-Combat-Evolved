@@ -164,3 +164,270 @@ uvx ruff@0.15.15 check mosaic tests
 - 公司名到 ts_code 的自动映射是否先不上线，只记录 gap。
 
 建议下一步先实现 P0 到 P2，让个股研报拥有与行业研报同等级别的 PIT outcome label。等行业和个股两类 outcome 都稳定后，再进入 P5 的 prompt/agent 演化闭环。
+
+## P7：实施拆解
+
+### P7.1 qlib `cn_data` 预检查
+
+实施前先确认本机 qlib 股票数据布局：
+
+- `~/.qlib/qlib_data/cn_data/calendars/day.txt`
+- `~/.qlib/qlib_data/cn_data/features/sh600000/adjclose.day.bin`
+- `~/.qlib/qlib_data/cn_data/features/sz000001/adjclose.day.bin`
+- 北交所 920 代码是否使用 `bj920xxx` 或其他 qlib symbol 规则。
+
+需要明确 benchmark 可用性：
+
+- 如果 qlib `cn_data` 有指数数据，优先使用 `SH000300` 或等价 CSI300。
+- 如果指数不在 `cn_data`，短期用 ETF benchmark，例如 `SH510300`，但必须在 label 中标明 `benchmark_source=etf_fallback`。
+- benchmark 缺失时不生成 stock outcome label，只进入 readiness gap。
+
+### P7.2 配置和 CLI
+
+代码改动：
+
+- 在 `ReportIntelligenceConfig` 增加 `qlib_stock_dir`。
+- 在 `mosaic-rke report-intelligence` 增加 `--qlib-stock-dir`。
+- 默认值为 `~/.qlib/qlib_data/cn_data`。
+- `--refresh-derived-only` 同样使用该配置。
+
+验收：
+
+- CLI help 能看到 `--qlib-stock-dir`。
+- 不传参数时默认不会访问 `/home/hap`。
+- 显式传临时 fixture 目录时测试可控。
+
+### P7.3 qlib 工具函数泛化
+
+当前 ETF 逻辑已有：
+
+- `_qlib_symbol()`
+- `_read_trading_calendar()`
+- `_read_qlib_series()`
+- `_series_value_at_calendar_index()`
+- `_entry_calendar_index()`
+
+实施时优先复用，不新造一套读 bin 的逻辑。只新增必要的 stock 解析：
+
+- `_resolve_qlib_data_dir()`
+- `_stock_target_symbol()`
+- `_is_stock_forecast_claim()`
+- `_stock_benchmark_symbol()`
+
+注意：
+
+- `ts_code` 标准形态是 `000001.SZ`，qlib feature 目录通常是 `sz000001`。
+- 北交所只接受 `920` 开头普通股票，不主动扩展老 `8` 开头代码。
+- 不做公司名模糊匹配，避免把同名或简称误映射成错误股票。
+
+### P7.4 readiness builder
+
+新增 `build_stock_price_proxy_readiness()`。
+
+输入：
+
+- `forecast_rows`
+- `metadata_rows`
+- `qlib_stock_dir`
+- `benchmark_symbol`
+- `windows_days`
+
+输出写入 `outcome_labeling_readiness.json` 的 `stock_price_proxy_readiness`：
+
+- `policy`
+- `outcome_label_source`
+- `llm_outcome_labeling_allowed`
+- `windows_days`
+- `entry_lag_trading_days`
+- `benchmark_symbol`
+- `qlib_stock_dir_configured`
+- `latest_calendar_date`
+- `eligible_claim_count`
+- `eligible_forecast_claim_ids`
+- `labelable_forecast_claim_count`
+- `labelable_forecast_claim_ids`
+- `labelable_window_count`
+- `pending_future_window_count`
+- `data_gap_counts`
+
+主要 gap：
+
+- `stock_target_missing`
+- `stock_target_mapping_missing`
+- `stock_series_missing`
+- `calendar_missing`
+- `benchmark_series_missing`
+- `entry_date_after_latest_calendar`
+- `entry_price_missing`
+- `exit_price_missing`
+- `direction_missing_or_unsupported`
+
+### P7.5 outcome label builder
+
+新增 `build_stock_price_proxy_outcome_labels()`。
+
+输出 label 必须包含：
+
+- `label_type=stock_price_proxy`
+- `outcome_label_source=pit_stock_price_window`
+- `llm_outcome_labeling_allowed=false`
+- `proxy_symbol`
+- `benchmark_symbol`
+- `entry_datetime`
+- `exit_datetime`
+- `entry_lag_trading_days=1`
+- `horizon_days`
+- `stock_return`
+- `benchmark_return`
+- `relative_alpha`
+- `round_trip_cost`
+- `after_cost_alpha`
+- `directional_after_cost_return`
+- `directional_hit`
+- `relative_directional_hit`
+- `source_horizon_days`
+- `source_horizon_bucket`
+- `claim_window_alignment`
+- `evaluation_policy`
+- `target_resolution_source`
+
+推荐固定值：
+
+- `STOCK_PRICE_PROXY_WINDOWS_DAYS = (5, 20, 60, 120)`
+- `STOCK_PRICE_PROXY_ENTRY_LAG_TRADING_DAYS = 1`
+- `STOCK_PRICE_PROXY_ROUND_TRIP_COST = 0.002`
+- `STOCK_PRICE_PROXY_OUTCOME_LABEL_SOURCE = "pit_stock_price_window"`
+- `evaluation_policy = "stock_t_plus_1_multi_window_proxy_retains_long_horizon_evidence"`
+
+### P7.6 合并到 derived refresh
+
+当前 derived refresh 流程是：
+
+1. `build_report_forecast_ledger()`
+2. `build_outcome_label_records()`
+3. `build_industry_etf_proxy_readiness()`
+4. `build_outcome_labeling_readiness_report()`
+5. performance/profile/audit/coverage
+
+调整为：
+
+1. 先生成 industry readiness。
+2. 再生成 stock readiness。
+3. `build_outcome_label_records()` 合并 industry labels 和 stock labels。
+4. `build_outcome_labeling_readiness_report()` 同时接收两类 readiness。
+5. performance profile 继续按统一 outcome label rows 聚合。
+
+readiness 计数逻辑要区分：
+
+- `standard_ready`
+- `industry_proxy_ready`
+- `stock_proxy_ready`
+- `blocked`
+
+其中 industry/stock proxy ready 都不等于 standard label ready，但它们都能作为 governed proxy evidence 进入 shadow profile。
+
+### P7.7 audit 扩展
+
+PIT audit：
+
+- stock outcome label 也必须验证 T+1。
+- `entry_datetime` 必须晚于 `signal_datetime` 的交易日。
+- `exit_datetime` 必须不晚于 qlib 最新 calendar。
+- `entry_lag_trading_days < 1` 直接失败。
+
+statistical robustness audit：
+
+- `stock_price_proxy` 计入 outcome label source 分布。
+- 多窗口权重不能让同一个 claim 的 evidence 权重超过 1。
+- stock 和 industry 的 window set 都保留长周期 evidence。
+
+extraction provenance audit：
+
+- stock label 必须能追溯到 forecast claim。
+- forecast claim 必须有 source span。
+- `target_resolution_source=metadata_ts_code` 时，metadata `ts_code` 必须存在。
+
+### P7.8 schema 更新
+
+需要更新：
+
+- `schemas/report_intelligence_report_outcome_label.schema.json`
+- `schemas/report_intelligence_outcome_labeling_readiness.schema.json`
+- 可能涉及 coverage/audit schema 的 enum 或 required 字段。
+
+约束：
+
+- 不把 `claim_text`、`source_span_ids` 或原文片段加入公开输出。
+- 私有输出仍由 `PRIVATE_LOCAL_REGISTRY_FILES` 和 `REPORT_INTELLIGENCE_PRIVATE_OUTPUT_PATHS` 保护。
+
+### P7.9 测试优先级
+
+第一批测试只覆盖核心闭环：
+
+1. `test_report_intelligence_labels_stock_claims_with_qlib_price_windows`
+2. `test_report_intelligence_counts_stock_price_proxy_as_labelable_channel`
+3. `test_report_intelligence_keeps_long_window_stock_hits`
+4. `test_report_intelligence_labels_bearish_stock_claims`
+5. `test_report_intelligence_pit_audit_rejects_t0_stock_entry`
+6. `test_report_intelligence_stock_readiness_records_price_gaps`
+
+第二批再扩展：
+
+1. benchmark fallback。
+2. 北交所 920 code symbol 规则。
+3. 目标价命中辅助字段。
+4. schema status 全量验证。
+
+### P7.10 首轮不做的事
+
+为控制风险，首轮明确不做：
+
+- 公司名到 `ts_code` 的模糊匹配。
+- LLM 判断研报是否正确。
+- 把 stock outcome 推进生产交易。
+- 用目标价命中替代价格窗口。
+- 自动改 prompt 或 private prompt repo。
+
+## P8：验收矩阵
+
+最小本地验收：
+
+```bash
+uv run python -m pytest tests/test_rke_report_intelligence.py -q --basetemp /tmp/pytest-rke-ri
+uv run python -m pytest tests/test_rke_schema_artifacts.py -q --basetemp /tmp/pytest-rke-schema
+uvx ruff@0.15.15 check mosaic tests
+git diff --check
+```
+
+功能验收：
+
+- 个股看多/看空都能产生 `stock_price_proxy` label。
+- 每个 claim 至少可产生 `5/20/60/120` 中可得窗口。
+- 短期 miss、长期 hit 不被折叠。
+- qlib 缺数据时只进入 readiness gap。
+- PIT audit 拒绝 T+0。
+- performance profile 能同时接收 industry 和 stock labels。
+
+隐私验收：
+
+```bash
+git check-ignore registry/report_intelligence/forecast_claims.jsonl
+git check-ignore registry/report_intelligence/report_outcome_labels.jsonl
+git rev-list --objects origin/main HEAD | rg 'tushare_research_reports|report_intelligence/markdown|report_intelligence/pdfs' || true
+```
+
+讨论验收：
+
+- benchmark 口径确定。
+- round-trip cost 确定。
+- 北交所 920 code qlib symbol 规则确认。
+- 是否允许 ETF fallback benchmark 确认。
+
+## P9：建议执行顺序
+
+建议用两个 PR 或两个 commit 分离：
+
+1. **Stock label core**：配置、builder、schema、tests、audit。
+2. **Evolution loop preparation**：把 stock/industry outcome 反馈接入 prompt mutation candidate 和 tool-gap prioritization。
+
+第一个改动完成后，先用 synthetic fixture 跑通，再用少量真实私有研报和 qlib `cn_data` 做 shadow dry-run。第二个改动必须等 outcome rows 足够稳定后再开始。
