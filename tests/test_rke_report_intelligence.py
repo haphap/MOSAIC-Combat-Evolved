@@ -1139,6 +1139,11 @@ def test_report_intelligence_blocks_llm_on_low_quality_markdown(tmp_path: Path):
     assert coverage["llm_extraction_processed_count"] == 0
     assert coverage["llm_extraction_without_quality_pass_count"] == 0
     assert coverage["markdown_quality_gap_counts"] == {"markdown_disclaimer_only": 1}
+    assert coverage["markdown_quality_review_queue_count"] == 1
+    assert coverage["markdown_quality_review_gap_counts"] == {
+        "markdown_disclaimer_only": 1
+    }
+    assert coverage["markdown_false_positive_risk_gap_counts"] == {}
 
 
 def test_markdown_coverage_flags_llm_processed_without_quality_pass():
@@ -1165,10 +1170,56 @@ def test_markdown_coverage_flags_llm_processed_without_quality_pass():
     assert summary["llm_extraction_processed_count"] == 1
     assert summary["llm_extraction_without_quality_pass_count"] == 1
     assert summary["markdown_quality_gap_counts"] == {"markdown_disclaimer_only": 1}
+    assert summary["markdown_quality_review_queue_count"] == 1
+    assert summary["markdown_quality_review_gap_counts"] == {
+        "markdown_disclaimer_only": 1
+    }
+    assert summary["markdown_false_positive_risk_gap_counts"] == {}
     assert "llm_extraction_without_quality_pass" in summary["coverage_gate_blockers"]
     dump = json.dumps(summary, ensure_ascii=False)
     assert "claim_text" not in dump
     assert "source_span_ids" not in dump
+
+
+def test_markdown_coverage_tracks_quality_review_false_positive_risk():
+    summary = build_markdown_coverage_summary(
+        run_id="RIR-MARKDOWN-REVIEW-QUEUE-TEST",
+        metadata_rows=[
+            {
+                "report_type": "行业研报",
+                "sector": "metals",
+                "pdf": {"status": "downloaded"},
+                "markdown": {
+                    "status": "converted",
+                    "bytes": 1000,
+                    "backend": "hybrid-auto-engine",
+                    "quality_gap": "markdown_repeated_line_noise",
+                },
+                "extraction": {"llm_status": "blocked"},
+            },
+            {
+                "report_type": "公司研报",
+                "sector": "bank",
+                "pdf": {"status": "downloaded"},
+                "markdown": {
+                    "status": "blocked",
+                    "bytes": 0,
+                    "backend": "hybrid-auto-engine",
+                    "quality_gap": "mineru_timeout",
+                },
+                "extraction": {"llm_status": "blocked"},
+            },
+        ],
+    )
+
+    assert summary["retry_queue_count"] == 1
+    assert summary["markdown_quality_review_queue_count"] == 1
+    assert summary["markdown_quality_review_gap_counts"] == {
+        "markdown_repeated_line_noise": 1
+    }
+    assert summary["markdown_false_positive_risk_gap_counts"] == {
+        "markdown_repeated_line_noise": 1
+    }
 
 
 def test_report_intelligence_analysis_recipes_pin_required_data():

@@ -15,10 +15,14 @@
     "coverage_gate_status",
     "coverage_gate_blockers",
     "markdown_quality_gap_counts",
+    "markdown_quality_review_queue_count",
+    "markdown_quality_review_gap_counts",
+    "markdown_false_positive_risk_gap_counts",
     "report_type_counts",
     "sector_bucket_counts",
     "conversion_backend_counts",
     "retry_queue_count",
+    "markdown_quality_review_policy",
     "private_artifact_redaction_policy"
   ],
   "properties": {
@@ -34,10 +38,14 @@
     "coverage_gate_status": {"enum": ["passed", "blocked"]},
     "coverage_gate_blockers": {"type": "array", "items": {"type": "string"}},
     "markdown_quality_gap_counts": {"type": "object"},
+    "markdown_quality_review_queue_count": {"type": "integer", "minimum": 0},
+    "markdown_quality_review_gap_counts": {"type": "object"},
+    "markdown_false_positive_risk_gap_counts": {"type": "object"},
     "report_type_counts": {"type": "object"},
     "sector_bucket_counts": {"type": "object"},
     "conversion_backend_counts": {"type": "object"},
     "retry_queue_count": {"type": "integer", "minimum": 0},
+    "markdown_quality_review_policy": {"type": "string", "minLength": 1},
     "private_artifact_redaction_policy": {"type": "string", "minLength": 1}
   },
   "additionalProperties": true

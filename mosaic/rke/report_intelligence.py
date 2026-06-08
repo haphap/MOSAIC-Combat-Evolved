@@ -388,6 +388,13 @@ MARKDOWN_QUALITY_MIN_BYTES = 80
 MARKDOWN_QUALITY_EMPTY_TABLE_RATIO_MAX = 0.60
 MARKDOWN_QUALITY_REPEATED_LINE_RATIO_MAX = 0.45
 MARKDOWN_QUALITY_REPEATED_LINE_MIN_COUNT = 4
+MARKDOWN_RETRYABLE_GAP_MARKERS = ("mineru", "timeout", "failed", "not_found")
+MARKDOWN_FALSE_POSITIVE_RISK_GAPS = {
+    "markdown_empty_table_dominant",
+    "markdown_repeated_line_noise",
+    "markdown_structure_signal_missing",
+    "markdown_too_short",
+}
 MARKDOWN_STRUCTURE_MARKERS = (
     "#",
     "##",
@@ -4497,6 +4504,14 @@ def _annotate_markdown_quality(
     return annotated
 
 
+def _markdown_gap_retryable(gap: str) -> bool:
+    return any(marker in gap for marker in MARKDOWN_RETRYABLE_GAP_MARKERS)
+
+
+def _markdown_gap_false_positive_risk(gap: str) -> bool:
+    return gap in MARKDOWN_FALSE_POSITIVE_RISK_GAPS
+
+
 def build_markdown_coverage_summary(
     *,
     run_id: str,
@@ -4506,12 +4521,15 @@ def build_markdown_coverage_summary(
     sector_bucket_counts: dict[str, int] = {}
     conversion_backend_counts: dict[str, int] = {}
     quality_gap_counts: dict[str, int] = {}
+    quality_review_gap_counts: dict[str, int] = {}
+    false_positive_risk_gap_counts: dict[str, int] = {}
     pdf_ready_count = 0
     markdown_ready_count = 0
     markdown_quality_pass_count = 0
     llm_extraction_processed_count = 0
     llm_extraction_without_quality_pass_count = 0
     retry_queue_count = 0
+    quality_review_queue_count = 0
     for row in metadata_rows:
         _increment_count(report_type_counts, row.get("report_type"))
         _increment_count(sector_bucket_counts, row.get("sector"))
@@ -4527,8 +4545,13 @@ def build_markdown_coverage_summary(
         gap = _markdown_quality_gap(markdown)
         if gap:
             _increment_count(quality_gap_counts, gap)
-            if any(marker in gap for marker in ("mineru", "timeout", "failed", "not_found")):
+            if _markdown_gap_retryable(gap):
                 retry_queue_count += 1
+            elif _is_markdown_ready(markdown):
+                quality_review_queue_count += 1
+                _increment_count(quality_review_gap_counts, gap)
+                if _markdown_gap_false_positive_risk(gap):
+                    _increment_count(false_positive_risk_gap_counts, gap)
         else:
             markdown_quality_pass_count += 1
         extraction = _ensure_mapping(row.get("extraction"))
@@ -4577,10 +4600,23 @@ def build_markdown_coverage_summary(
         ),
         "coverage_gate_blockers": coverage_gate_blockers,
         "markdown_quality_gap_counts": dict(sorted(quality_gap_counts.items())),
+        "markdown_quality_review_queue_count": quality_review_queue_count,
+        "markdown_quality_review_gap_counts": dict(
+            sorted(quality_review_gap_counts.items())
+        ),
+        "markdown_false_positive_risk_gap_counts": dict(
+            sorted(false_positive_risk_gap_counts.items())
+        ),
         "report_type_counts": dict(sorted(report_type_counts.items())),
         "sector_bucket_counts": dict(sorted(sector_bucket_counts.items())),
         "conversion_backend_counts": dict(sorted(conversion_backend_counts.items())),
         "retry_queue_count": retry_queue_count,
+        "markdown_quality_review_policy": (
+            "ready Markdown blocked by quality gates enters aggregate manual "
+            "review counts before extraction is trusted; repeated-line, sparse "
+            "structure, short, and empty-table gaps are tracked as false-positive "
+            "risk classes for corpus spot checks"
+        ),
         "private_artifact_redaction_policy": (
             "public coverage summary stores aggregate counts only; no "
             "source-specific content, retrieval locator, local file reference, "

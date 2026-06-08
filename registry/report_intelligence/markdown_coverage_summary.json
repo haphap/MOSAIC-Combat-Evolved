@@ -23,6 +23,9 @@
   "markdown_quality_gap_counts": {
     "markdown_status_not_attempted": 2
   },
+  "markdown_quality_review_queue_count": 0,
+  "markdown_quality_review_gap_counts": {},
+  "markdown_false_positive_risk_gap_counts": {},
   "report_type_counts": {
     "行业研报": 2
   },
@@ -31,5 +34,6 @@
   },
   "conversion_backend_counts": {},
   "retry_queue_count": 0,
+  "markdown_quality_review_policy": "ready Markdown blocked by quality gates enters aggregate manual review counts before extraction is trusted; repeated-line, sparse structure, short, and empty-table gaps are tracked as false-positive risk classes for corpus spot checks",
   "private_artifact_redaction_policy": "public coverage summary stores aggregate counts only; no source-specific content, retrieval locator, local file reference, or report prose is allowed"
 }
