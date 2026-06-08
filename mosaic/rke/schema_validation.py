@@ -821,6 +821,26 @@ def _count_mapping(
     return counts
 
 
+def _int_or_none(value: Any) -> int | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _int_items(value: Any) -> list[int]:
+    if not isinstance(value, Sequence) or isinstance(value, str):
+        return []
+    items: list[int] = []
+    for item in value:
+        parsed = _int_or_none(item)
+        if parsed is not None:
+            items.append(parsed)
+    return items
+
+
 def _validate_proxy_outcome_label_contract(row: Mapping[str, Any], row_label: str) -> list[str]:
     label_type = str(row.get("label_type") or "")
     if label_type not in {"stock_price_proxy", "industry_etf_proxy"}:
@@ -972,6 +992,188 @@ def _validate_proxy_outcome_label_contract(row: Mapping[str, Any], row_label: st
             if mapping_version < 1:
                 failures.append(f"{row_label}.mapping_version: must be >= 1")
     return failures
+
+
+def _validate_industry_etf_mapping_contract(
+    root_path: Path,
+    outcome_label_rows: Sequence[Mapping[str, Any]],
+) -> tuple[int, list[str]]:
+    mapping_rows, mapping_failures = _load_mapping_jsonl(
+        root_path,
+        "registry/report_intelligence/industry_etf_proxy_map.jsonl",
+    )
+    availability, availability_failures = _read_mapping_json(
+        root_path / "registry/report_intelligence/industry_etf_proxy_pit_availability.json",
+        "registry/report_intelligence/industry_etf_proxy_pit_availability.json",
+    )
+    failures = [*mapping_failures, *availability_failures]
+
+    mappings_by_id: dict[str, Mapping[str, Any]] = {}
+    for index, row in enumerate(mapping_rows, 1):
+        row_label = f"industry_etf_proxy_map row {index}"
+        mapping_id = str(row.get("mapping_id") or "").strip()
+        if not mapping_id:
+            failures.append(f"{row_label}.mapping_id: required")
+            continue
+        if mapping_id in mappings_by_id:
+            failures.append(f"{row_label}.mapping_id: duplicate {mapping_id}")
+        else:
+            mappings_by_id[mapping_id] = row
+        if str(row.get("status") or "") == "primary":
+            if row.get("review_required") is not False:
+                failures.append(f"{row_label}.review_required: primary mapping must be false")
+            aliases = _string_items(row.get("sector_aliases"))
+            sector_name = str(row.get("sector_name") or "").strip()
+            if sector_name and sector_name not in aliases:
+                failures.append(
+                    f"{row_label}.sector_aliases: must include sector_name"
+                )
+
+    availability_records: list[Mapping[str, Any]] = []
+    availability_by_id: dict[str, Mapping[str, Any]] = {}
+    if availability:
+        raw_records = availability.get("mapping_records")
+        if not isinstance(raw_records, Sequence) or isinstance(raw_records, str):
+            failures.append(
+                "industry_etf_proxy_pit_availability.mapping_records: expected array"
+            )
+        else:
+            for index, record in enumerate(raw_records, 1):
+                row_label = (
+                    f"industry_etf_proxy_pit_availability.mapping_records[{index}]"
+                )
+                if not isinstance(record, Mapping):
+                    failures.append(f"{row_label}: expected object")
+                    continue
+                availability_records.append(record)
+                mapping_id = str(record.get("mapping_id") or "").strip()
+                if not mapping_id:
+                    failures.append(f"{row_label}.mapping_id: required")
+                    continue
+                if mapping_id in availability_by_id:
+                    failures.append(f"{row_label}.mapping_id: duplicate {mapping_id}")
+                else:
+                    availability_by_id[mapping_id] = record
+                mapping = mappings_by_id.get(mapping_id)
+                if mapping is None:
+                    failures.append(
+                        f"{row_label}.mapping_id: no matching industry ETF mapping"
+                    )
+                    continue
+                for field in (
+                    "mapping_version",
+                    "sector_name",
+                    "status",
+                    "effective_from",
+                    "effective_to",
+                    "etf_symbol",
+                    "benchmark_symbol",
+                    "benchmark_source",
+                    "benchmark_family",
+                ):
+                    if str(record.get(field) or "") != str(mapping.get(field) or ""):
+                        failures.append(f"{row_label}.{field}: mapping mismatch")
+                windows_days = set(_int_items(availability.get("windows_days")))
+                available_windows = set(_int_items(record.get("available_window_days")))
+                unexpected_windows = sorted(available_windows - windows_days)
+                if unexpected_windows:
+                    failures.append(
+                        f"{row_label}.available_window_days: unexpected windows "
+                        + ", ".join(str(item) for item in unexpected_windows)
+                    )
+                for window in windows_days:
+                    flag_name = f"has_{window}d_window"
+                    if flag_name in record and record.get(flag_name) is not (
+                        window in available_windows
+                    ):
+                        failures.append(f"{row_label}.{flag_name}: window flag mismatch")
+                pit_gap_reasons = _string_items(record.get("pit_gap_reasons"))
+                if record.get("pit_available") is True and pit_gap_reasons:
+                    failures.append(
+                        f"{row_label}.pit_gap_reasons: pit_available record must have no blockers"
+                    )
+                if record.get("pit_available") is False and not pit_gap_reasons:
+                    failures.append(
+                        f"{row_label}.pit_gap_reasons: unavailable record requires blockers"
+                    )
+                if (
+                    record.get("benchmark_available") is False
+                    and "benchmark_series_missing" not in pit_gap_reasons
+                ):
+                    failures.append(
+                        f"{row_label}.pit_gap_reasons: benchmark_series_missing required"
+                    )
+        if availability.get("mapping_count") != len(mapping_rows):
+            failures.append(
+                "industry_etf_proxy_pit_availability.mapping_count mismatch"
+            )
+        pit_available_count = sum(
+            1 for record in availability_records if record.get("pit_available") is True
+        )
+        if availability.get("pit_available_mapping_count") != pit_available_count:
+            failures.append(
+                "industry_etf_proxy_pit_availability.pit_available_mapping_count mismatch"
+            )
+        missing_availability_ids = sorted(
+            set(mappings_by_id) - set(availability_by_id)
+        )
+        if missing_availability_ids:
+            failures.append(
+                "industry_etf_proxy_pit_availability missing mapping_ids: "
+                + ", ".join(missing_availability_ids[:20])
+            )
+
+    industry_label_count = 0
+    for index, row in enumerate(outcome_label_rows, 1):
+        if row.get("label_type") != "industry_etf_proxy":
+            continue
+        industry_label_count += 1
+        row_label = f"report_outcome_labels row {index}"
+        mapping_id = str(row.get("mapping_id") or "").strip()
+        mapping = mappings_by_id.get(mapping_id)
+        if mapping is None:
+            failures.append(f"{row_label}.mapping_id: no matching industry ETF mapping")
+            continue
+        if mapping.get("status") != "primary":
+            failures.append(f"{row_label}.mapping_id: mapping must be primary")
+        for label_field, mapping_field in (
+            ("mapping_version", "mapping_version"),
+            ("mapping_confidence", "mapping_confidence"),
+            ("proxy_symbol", "etf_symbol"),
+            ("benchmark_symbol", "benchmark_symbol"),
+            ("benchmark_source", "benchmark_source"),
+            ("benchmark_family", "benchmark_family"),
+            ("cost_model_id", "cost_model_id"),
+        ):
+            if str(row.get(label_field) or "") != str(mapping.get(mapping_field) or ""):
+                failures.append(f"{row_label}.{label_field}: mapping mismatch")
+        availability_record = availability_by_id.get(mapping_id)
+        if availability_record is None:
+            failures.append(
+                f"{row_label}.mapping_id: no PIT availability record for mapping"
+            )
+            continue
+        if availability_record.get("pit_available") is not True:
+            failures.append(
+                f"{row_label}.mapping_id: cannot label PIT-unavailable mapping"
+            )
+        expected_status = (
+            "available"
+            if availability_record.get("pit_available") is True
+            else "unavailable"
+        )
+        if row.get("pit_availability_status") != expected_status:
+            failures.append(
+                f"{row_label}.pit_availability_status: must match PIT availability"
+            )
+
+    item_count = (
+        len(mapping_rows)
+        + len(availability_records)
+        + industry_label_count
+        + (1 if availability else 0)
+    )
+    return item_count, failures
 
 
 def _validate_recipe_paper_trading_contract(
@@ -1337,6 +1539,20 @@ def validate_report_intelligence_semantics(
             item_count=len(outcome_label_rows),
             accepted=not outcome_label_failures,
             failures=tuple(outcome_label_failures),
+        )
+    )
+
+    (
+        industry_etf_mapping_contract_item_count,
+        industry_etf_mapping_contract_failures,
+    ) = _validate_industry_etf_mapping_contract(root_path, outcome_label_rows)
+    records.append(
+        SchemaValidationRecord(
+            schema_path="schemas/report_intelligence_industry_etf_mapping_contract_rules",
+            artifact_path="registry/report_intelligence",
+            item_count=industry_etf_mapping_contract_item_count,
+            accepted=not industry_etf_mapping_contract_failures,
+            failures=tuple(industry_etf_mapping_contract_failures),
         )
     )
 

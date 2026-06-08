@@ -140,6 +140,7 @@ def test_schema_validation_report_accepts_current_registry():
         "schemas/confidence_policy.schema.yaml",
         "schemas/report_intelligence_forecast_claim.schema.json",
         "schemas/report_intelligence_runtime_guard_rules",
+        "schemas/report_intelligence_industry_etf_mapping_contract_rules",
         "schemas/report_intelligence_recipe_paper_trading_contract_rules",
         "schemas/report_intelligence_alpha_decay_monitoring_rules",
         "schemas/report_intelligence_tooling_readiness_rules",
@@ -190,9 +191,19 @@ def _recipe_paper_trading_contract_record(tmp_path: Path):
     )
 
 
+def _industry_etf_mapping_contract_record(tmp_path: Path):
+    records = validate_report_intelligence_semantics(tmp_path)
+    return next(
+        record
+        for record in records
+        if record.schema_path
+        == "schemas/report_intelligence_industry_etf_mapping_contract_rules"
+    )
+
+
 def _write_proxy_outcome_labels(tmp_path: Path, rows: list[dict[str, object]]) -> None:
     registry = tmp_path / "registry/report_intelligence"
-    registry.mkdir(parents=True)
+    registry.mkdir(parents=True, exist_ok=True)
     (registry / "report_outcome_labels.jsonl").write_text(
         "\n".join(json.dumps(row, sort_keys=True) for row in rows) + "\n",
         encoding="utf-8",
@@ -322,6 +333,87 @@ def test_report_outcome_label_semantics_reject_proxy_math_mismatch(
     assert any(
         "directional_after_cost_return" in failure for failure in record.failures
     )
+
+
+def test_industry_etf_mapping_contract_accepts_current_public_artifacts(
+    tmp_path: Path,
+):
+    _copy_report_intelligence_registry(tmp_path)
+
+    record = _industry_etf_mapping_contract_record(tmp_path)
+
+    assert record.accepted
+    assert record.item_count == 35
+    assert record.failures == ()
+
+
+def test_industry_etf_mapping_contract_requires_pit_availability_records(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    availability_path = registry / "industry_etf_proxy_pit_availability.json"
+    availability = json.loads(availability_path.read_text(encoding="utf-8"))
+    availability["mapping_records"].pop()
+    availability_path.write_text(
+        json.dumps(availability, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _industry_etf_mapping_contract_record(tmp_path)
+
+    assert not record.accepted
+    assert any("missing mapping_ids" in item for item in record.failures)
+    assert any("pit_available_mapping_count mismatch" in item for item in record.failures)
+
+
+def test_industry_etf_mapping_contract_rejects_unavailable_mapping_label(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    mapping = json.loads(
+        (registry / "industry_etf_proxy_map.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()[0]
+    )
+    availability_path = registry / "industry_etf_proxy_pit_availability.json"
+    availability = json.loads(availability_path.read_text(encoding="utf-8"))
+    for record in availability["mapping_records"]:
+        if record["mapping_id"] == mapping["mapping_id"]:
+            record["pit_available"] = False
+            record["pit_gap_reasons"] = ["proxy_series_missing"]
+            break
+    availability["pit_available_mapping_count"] = sum(
+        1
+        for record in availability["mapping_records"]
+        if record.get("pit_available") is True
+    )
+    availability_path.write_text(
+        json.dumps(availability, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    label = _base_outcome_label("industry_etf_proxy")
+    label.update(
+        {
+            "benchmark_family": mapping["benchmark_family"],
+            "benchmark_source": mapping["benchmark_source"],
+            "benchmark_symbol": mapping["benchmark_symbol"],
+            "cost_model_id": mapping["cost_model_id"],
+            "mapping_confidence": mapping["mapping_confidence"],
+            "mapping_id": mapping["mapping_id"],
+            "mapping_version": mapping["mapping_version"],
+            "pit_availability_status": "available",
+            "proxy_sector": mapping["sector_name"],
+            "proxy_symbol": mapping["etf_symbol"],
+        }
+    )
+    _write_proxy_outcome_labels(tmp_path, [label])
+
+    record = _industry_etf_mapping_contract_record(tmp_path)
+
+    assert not record.accepted
+    assert any("cannot label PIT-unavailable mapping" in item for item in record.failures)
+    assert any("pit_availability_status" in item for item in record.failures)
 
 
 def test_recipe_paper_trading_contract_accepts_current_public_artifacts(
