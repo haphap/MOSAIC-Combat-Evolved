@@ -1,8 +1,10 @@
 {
+  "aggregate_calibration_drift_count": 0,
+  "aggregate_calibration_drift_recipe_ids": [],
   "alpha_decay_fail_count": 0,
   "alpha_decay_recipe_ids": [],
   "alpha_decay_watch_count": 0,
-  "as_of_datetime": "2026-06-08T08:11:39+00:00",
+  "as_of_datetime": "2026-06-08T08:18:57+00:00",
   "blocked_recipe_count": 5,
   "blocker_counts": {
     "insufficient_effective_n": 5,
@@ -11,6 +13,16 @@
   },
   "calibration_drift_count": 0,
   "calibration_drift_recipe_ids": [],
+  "calibration_drift_rule_counts": {},
+  "confidence_alpha_correlation": null,
+  "confidence_alpha_correlation_status": "insufficient_data",
+  "confidence_delta_bucket_outcomes": {
+    "zero": {
+      "count": 5,
+      "mean_hit_rate": null,
+      "mean_realized_alpha": null
+    }
+  },
   "cost_decay_fail_count": 0,
   "cost_decay_recipe_ids": [],
   "drift_status_counts": {
@@ -20,6 +32,7 @@
   "lockbox_required_before_production_impact": true,
   "manual_review_recipe_ids": [],
   "monitor_id": "RKE-REPORT-INTELLIGENCE-CONFIDENCE-IMPACT-MONITOR",
+  "new_regime_miscalibration_recipe_ids": [],
   "observation_count": 5,
   "paper_trading_validated_recipe_count": 0,
   "policy": "confidence impact remains shadow-only; paper-trading validation, alpha-decay checks, calibration drift checks, and lockbox gates are required before any production confidence change",

@@ -257,9 +257,9 @@
       "sha256": "sha256:6068cf396311f45bea4a6b356e13b46e5073a777836ee2e19373b15c81f60c31"
     },
     {
-      "bytes": 1473,
+      "bytes": 1896,
       "path": "registry/report_intelligence/confidence_impact_monitor.json",
-      "sha256": "sha256:4b28e9b0eab654ae8e32ec7264a8467149e145fcf852c3cb8bddbb768f3482e8"
+      "sha256": "sha256:d6f6767c55290edf6c9852de67acacad74d02545fd1cf8040c1390981d191e19"
     },
     {
       "bytes": 4410,
@@ -322,9 +322,9 @@
       "sha256": "sha256:614d25ce2e9123ef4a1627d566ffa9f5cd9391695680934af8cc21bf7732e029"
     },
     {
-      "bytes": 7566,
+      "bytes": 7716,
       "path": "registry/report_intelligence/monitoring_report.json",
-      "sha256": "sha256:a1dab9792216a4118bc454882d42effa1f0457b5504ee50934e37ba962487ea8"
+      "sha256": "sha256:f517aea7df443fbc77b4f1fabfa8bad8e7ac59150fd161141609c9f8af7a5454"
     },
     {
       "bytes": 3505,

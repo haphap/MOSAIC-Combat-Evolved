@@ -6272,6 +6272,8 @@ RECIPE_PAPER_TRADING_MIN_REGIME_COUNT = 2
 RECIPE_PAPER_TRADING_COST_DECAY_TURNOVER_THRESHOLD = 6.0
 RECIPE_PAPER_TRADING_BENCHMARK_SYMBOL = STOCK_PRICE_PROXY_BENCHMARK_SYMBOL
 RECIPE_PAPER_TRADING_COST_MODEL_ID = STOCK_PRICE_PROXY_COST_MODEL_ID
+CONFIDENCE_IMPACT_HIGH_DELTA_THRESHOLD = 0.02
+CONFIDENCE_IMPACT_CALIBRATION_ERROR_THRESHOLD = 0.20
 
 
 def _recipe_preregistration_hash(recipe: Mapping[str, Any]) -> str:
@@ -6856,6 +6858,80 @@ def build_confidence_impact_observations(
     return observations
 
 
+def _pearson_correlation(pairs: Sequence[tuple[float, float]]) -> float | None:
+    if len(pairs) < 2:
+        return None
+    xs = [item[0] for item in pairs]
+    ys = [item[1] for item in pairs]
+    x_mean = sum(xs) / len(xs)
+    y_mean = sum(ys) / len(ys)
+    x_var = sum((value - x_mean) ** 2 for value in xs)
+    y_var = sum((value - y_mean) ** 2 for value in ys)
+    if x_var <= 0 or y_var <= 0:
+        return None
+    covariance = sum((x - x_mean) * (y - y_mean) for x, y in pairs)
+    return covariance / ((x_var * y_var) ** 0.5)
+
+
+def _confidence_delta_bucket(delta: float | None) -> str:
+    if delta is None or delta == 0:
+        return "zero"
+    if delta < 0:
+        return "negative"
+    if delta >= CONFIDENCE_IMPACT_HIGH_DELTA_THRESHOLD:
+        return "high_positive"
+    return "low_positive"
+
+
+def _confidence_bucket_outcome_summary(
+    rows: Sequence[Mapping[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    grouped: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        delta = _float_or_none(row.get("confidence_delta"))
+        bucket = _confidence_delta_bucket(delta)
+        item = grouped.setdefault(
+            bucket,
+            {
+                "count": 0,
+                "realized_alpha_values": [],
+                "hit_rate_values": [],
+            },
+        )
+        item["count"] += 1
+        realized_alpha = _float_or_none(
+            row.get("after_cost_realized_alpha")
+            if row.get("after_cost_realized_alpha") is not None
+            else row.get("realized_alpha")
+        )
+        hit_rate = _float_or_none(row.get("hit_rate_recent"))
+        if realized_alpha is not None:
+            item["realized_alpha_values"].append(realized_alpha)
+        if hit_rate is not None:
+            item["hit_rate_values"].append(hit_rate)
+    summary: dict[str, dict[str, Any]] = {}
+    for bucket, item in grouped.items():
+        alpha_values = item["realized_alpha_values"]
+        hit_values = item["hit_rate_values"]
+        summary[bucket] = {
+            "count": int(item["count"]),
+            "mean_realized_alpha": round(sum(alpha_values) / len(alpha_values), 8)
+            if alpha_values
+            else None,
+            "mean_hit_rate": round(sum(hit_values) / len(hit_values), 6)
+            if hit_values
+            else None,
+        }
+    return dict(sorted(summary.items()))
+
+
+def _is_new_regime_observation(row: Mapping[str, Any]) -> bool:
+    if row.get("regime_is_new") is True:
+        return True
+    regime_status = str(row.get("regime_status") or "").strip().lower()
+    return regime_status in {"new", "new_regime", "unseen_regime"}
+
+
 def build_confidence_impact_monitor(
     *,
     run_id: str,
@@ -6874,12 +6950,77 @@ def build_confidence_impact_monitor(
     freeze_recipe_ids: list[str] = []
     retire_recipe_ids: list[str] = []
     unvalidated_impact_count = 0
+    confidence_alpha_pairs: list[tuple[float, float]] = []
+    confidence_alpha_pair_recipe_ids: list[str] = []
+    calibration_rule_counts: dict[str, int] = {}
+    aggregate_calibration_recipe_ids: list[str] = []
+    new_regime_miscalibration_recipe_ids: list[str] = []
     for row in confidence_observation_rows:
         _increment_count(drift_status_counts, row.get("drift_status"))
         _increment_count(action_counts, row.get("recommended_action"))
         recipe_id = str(row.get("recipe_id") or "")
         if recipe_id:
             tracked_recipe_ids.append(recipe_id)
+        confidence_delta = _float_or_none(row.get("confidence_delta"))
+        realized_alpha = _float_or_none(
+            row.get("after_cost_realized_alpha")
+            if row.get("after_cost_realized_alpha") is not None
+            else row.get("realized_alpha")
+        )
+        hit_rate_recent = _float_or_none(row.get("hit_rate_recent"))
+        hit_rate_baseline = _float_or_none(row.get("hit_rate_baseline"))
+        calibration_error = _float_or_none(row.get("calibration_error"))
+        if confidence_delta is not None and realized_alpha is not None:
+            confidence_alpha_pairs.append((confidence_delta, realized_alpha))
+            if recipe_id:
+                confidence_alpha_pair_recipe_ids.append(recipe_id)
+        if (
+            confidence_delta is not None
+            and confidence_delta > 0
+            and hit_rate_recent is not None
+            and hit_rate_baseline is not None
+            and hit_rate_recent <= hit_rate_baseline
+        ):
+            _increment_count(
+                calibration_rule_counts,
+                "positive_confidence_hit_nonimprovement",
+            )
+            if recipe_id:
+                aggregate_calibration_recipe_ids.append(recipe_id)
+        if (
+            confidence_delta is not None
+            and confidence_delta >= CONFIDENCE_IMPACT_HIGH_DELTA_THRESHOLD
+            and (
+                (realized_alpha is not None and realized_alpha <= 0)
+                or (
+                    hit_rate_recent is not None
+                    and hit_rate_baseline is not None
+                    and hit_rate_recent < hit_rate_baseline
+                )
+            )
+        ):
+            _increment_count(
+                calibration_rule_counts,
+                "high_confidence_underperformance",
+            )
+            if recipe_id:
+                aggregate_calibration_recipe_ids.append(recipe_id)
+        if _is_new_regime_observation(row) and (
+            (
+                calibration_error is not None
+                and calibration_error > CONFIDENCE_IMPACT_CALIBRATION_ERROR_THRESHOLD
+            )
+            or (
+                hit_rate_recent is not None
+                and hit_rate_baseline is not None
+                and hit_rate_recent < hit_rate_baseline
+            )
+            or (realized_alpha is not None and realized_alpha <= 0)
+        ):
+            _increment_count(calibration_rule_counts, "new_regime_miscalibration")
+            if recipe_id:
+                aggregate_calibration_recipe_ids.append(recipe_id)
+                new_regime_miscalibration_recipe_ids.append(recipe_id)
         if str(row.get("drift_status") or "") in {
             "alpha_decay_watch",
             "alpha_decay_fail",
@@ -6905,6 +7046,16 @@ def build_confidence_impact_monitor(
             unvalidated_impact_count += 1
         for reason in _ensure_list(row.get("blocker_reasons")):
             _increment_count(blocker_counts, reason)
+    confidence_alpha_correlation = _pearson_correlation(confidence_alpha_pairs)
+    if confidence_alpha_correlation is not None and confidence_alpha_correlation < 0:
+        _increment_count(
+            calibration_rule_counts,
+            "negative_confidence_alpha_correlation",
+        )
+        aggregate_calibration_recipe_ids.extend(confidence_alpha_pair_recipe_ids)
+    aggregate_calibration_recipe_ids = sorted(set(aggregate_calibration_recipe_ids))
+    calibration_drift_recipe_ids.extend(aggregate_calibration_recipe_ids)
+    manual_review_recipe_ids.extend(aggregate_calibration_recipe_ids)
     return {
         "monitor_id": "RKE-REPORT-INTELLIGENCE-CONFIDENCE-IMPACT-MONITOR",
         "run_id": run_id,
@@ -6925,9 +7076,27 @@ def build_confidence_impact_monitor(
             "calibration_drift_watch",
             0,
         ),
+        "aggregate_calibration_drift_count": sum(calibration_rule_counts.values()),
         "regime_fragile_alpha_count": drift_status_counts.get(
             "regime_fragile_alpha",
             0,
+        ),
+        "confidence_alpha_correlation": round(confidence_alpha_correlation, 8)
+        if confidence_alpha_correlation is not None
+        else None,
+        "confidence_alpha_correlation_status": (
+            "negative"
+            if confidence_alpha_correlation is not None
+            and confidence_alpha_correlation < 0
+            else "non_negative"
+            if confidence_alpha_correlation is not None
+            else "insufficient_data"
+        ),
+        "confidence_delta_bucket_outcomes": _confidence_bucket_outcome_summary(
+            confidence_observation_rows
+        ),
+        "calibration_drift_rule_counts": dict(
+            sorted(calibration_rule_counts.items())
         ),
         "drift_status_counts": dict(sorted(drift_status_counts.items())),
         "recommended_action_counts": dict(sorted(action_counts.items())),
@@ -6936,6 +7105,10 @@ def build_confidence_impact_monitor(
         "alpha_decay_recipe_ids": sorted(set(alpha_decay_recipe_ids)),
         "cost_decay_recipe_ids": sorted(set(cost_decay_recipe_ids)),
         "calibration_drift_recipe_ids": sorted(set(calibration_drift_recipe_ids)),
+        "aggregate_calibration_drift_recipe_ids": aggregate_calibration_recipe_ids,
+        "new_regime_miscalibration_recipe_ids": sorted(
+            set(new_regime_miscalibration_recipe_ids)
+        ),
         "regime_fragile_recipe_ids": sorted(set(regime_fragile_recipe_ids)),
         "manual_review_recipe_ids": sorted(set(manual_review_recipe_ids)),
         "freeze_recipe_ids": sorted(set(freeze_recipe_ids)),
@@ -7704,6 +7877,9 @@ def build_prompt_mutation_candidates(
     drift_counts = _count_mapping_values(
         _ensure_mapping(confidence_impact_monitor.get("drift_status_counts"))
     )
+    calibration_rule_counts = _count_mapping_values(
+        _ensure_mapping(confidence_impact_monitor.get("calibration_drift_rule_counts"))
+    )
     drift_gap_count = sum(
         drift_counts.get(key, 0)
         for key in (
@@ -7713,7 +7889,7 @@ def build_prompt_mutation_candidates(
             "cost_decay_fail",
             "regime_fragile_alpha",
         )
-    )
+    ) + sum(calibration_rule_counts.values())
     if drift_gap_count:
         _add_prompt_mutation_candidate(
             candidates,
@@ -7732,6 +7908,15 @@ def build_prompt_mutation_candidates(
                     "artifact_path": "registry/report_intelligence/confidence_impact_monitor.json",
                     "field": "drift_status_counts",
                     "drift_status_counts": drift_counts,
+                    "calibration_drift_rule_counts": calibration_rule_counts,
+                    "confidence_alpha_correlation": confidence_impact_monitor.get(
+                        "confidence_alpha_correlation"
+                    ),
+                    "confidence_alpha_correlation_status": (
+                        confidence_impact_monitor.get(
+                            "confidence_alpha_correlation_status"
+                        )
+                    ),
                 }
             ],
             severity="high",
@@ -11798,6 +11983,16 @@ def build_report_intelligence_monitoring_report(
             "calibration_drift_count": int(
                 confidence_monitor.get("calibration_drift_count") or 0
             ),
+            "aggregate_calibration_drift_count": int(
+                confidence_monitor.get("aggregate_calibration_drift_count") or 0
+            ),
+            "confidence_alpha_correlation": confidence_monitor.get(
+                "confidence_alpha_correlation"
+            ),
+            "confidence_alpha_correlation_status": confidence_monitor.get(
+                "confidence_alpha_correlation_status"
+            )
+            or "insufficient_data",
             "regime_fragile_alpha_count": int(
                 confidence_monitor.get("regime_fragile_alpha_count") or 0
             ),

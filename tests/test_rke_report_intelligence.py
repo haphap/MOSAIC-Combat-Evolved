@@ -1321,6 +1321,76 @@ def test_report_intelligence_recipe_paper_trading_flags_cost_decay_fail():
     assert monitor["freeze_recipe_ids"] == ["RECIPE-COST-DECAY"]
 
 
+def test_report_intelligence_confidence_monitor_tracks_aggregate_calibration_drift():
+    observations = [
+        {
+            "recipe_id": "RECIPE-HIGH-BAD",
+            "agent_id": "report_intelligence.shadow",
+            "confidence_delta": 0.03,
+            "paper_trading_status": "passed",
+            "drift_status": "stable_shadow",
+            "recommended_action": "keep_shadow",
+            "after_cost_realized_alpha": -0.01,
+            "hit_rate_recent": 0.45,
+            "hit_rate_baseline": 0.50,
+            "calibration_error": 0.30,
+            "regime": "policy_shift",
+            "regime_status": "new_regime",
+            "blocker_reasons": [],
+        },
+        {
+            "recipe_id": "RECIPE-LOW-GOOD",
+            "agent_id": "report_intelligence.shadow",
+            "confidence_delta": 0.01,
+            "paper_trading_status": "passed",
+            "drift_status": "stable_shadow",
+            "recommended_action": "keep_shadow",
+            "after_cost_realized_alpha": 0.02,
+            "hit_rate_recent": 0.60,
+            "hit_rate_baseline": 0.50,
+            "calibration_error": 0.05,
+            "regime": "base",
+            "blocker_reasons": [],
+        },
+    ]
+
+    monitor = build_confidence_impact_monitor(
+        run_id="RIR-TEST-AGG-CALIBRATION",
+        confidence_observation_rows=observations,
+        recipe_paper_trading_summary={
+            "recipe_count": 2,
+            "validation_pass_count": 2,
+            "blocked_count": 0,
+        },
+    )
+
+    rule_counts = monitor["calibration_drift_rule_counts"]
+    assert rule_counts["positive_confidence_hit_nonimprovement"] == 1
+    assert rule_counts["high_confidence_underperformance"] == 1
+    assert rule_counts["new_regime_miscalibration"] == 1
+    assert rule_counts["negative_confidence_alpha_correlation"] == 1
+    assert monitor["aggregate_calibration_drift_count"] == 4
+    assert monitor["confidence_alpha_correlation"] < 0
+    assert monitor["confidence_alpha_correlation_status"] == "negative"
+    assert monitor["confidence_delta_bucket_outcomes"]["high_positive"][
+        "mean_realized_alpha"
+    ] == -0.01
+    assert monitor["new_regime_miscalibration_recipe_ids"] == ["RECIPE-HIGH-BAD"]
+    assert monitor["aggregate_calibration_drift_recipe_ids"] == [
+        "RECIPE-HIGH-BAD",
+        "RECIPE-LOW-GOOD",
+    ]
+    assert monitor["calibration_drift_recipe_ids"] == [
+        "RECIPE-HIGH-BAD",
+        "RECIPE-LOW-GOOD",
+    ]
+    assert monitor["manual_review_recipe_ids"] == [
+        "RECIPE-HIGH-BAD",
+        "RECIPE-LOW-GOOD",
+    ]
+    assert monitor["production_decision_impact_allowed"] is False
+
+
 def test_report_intelligence_evolution_gate_blocks_until_objective_thresholds_pass():
     gate = build_report_intelligence_evolution_readiness_gate(
         run_id="RIR-TEST-EVOLUTION",
@@ -1535,6 +1605,12 @@ def test_report_intelligence_prompt_mutation_candidates_track_calibration_drift(
                 "cost_decay_fail": 1,
                 "regime_fragile_alpha": 1,
             },
+            "calibration_drift_rule_counts": {
+                "negative_confidence_alpha_correlation": 1,
+                "high_confidence_underperformance": 1,
+            },
+            "confidence_alpha_correlation": -0.72,
+            "confidence_alpha_correlation_status": "negative",
             "recommended_action_counts": {"reduce_confidence_impact": 1},
         },
         markdown_coverage_summary={"markdown_quality_gap_counts": {}},
@@ -1550,9 +1626,47 @@ def test_report_intelligence_prompt_mutation_candidates_track_calibration_drift(
     assert drift_counts["alpha_decay_watch"] == 1
     assert drift_counts["cost_decay_fail"] == 1
     assert drift_counts["regime_fragile_alpha"] == 1
+    rule_counts = calibration[0]["evidence_refs"][0]["calibration_drift_rule_counts"]
+    assert rule_counts["negative_confidence_alpha_correlation"] == 1
+    assert rule_counts["high_confidence_underperformance"] == 1
+    assert calibration[0]["evidence_refs"][0]["confidence_alpha_correlation"] == -0.72
     assert "shadow_regime_and_cost_replay_required" in calibration[0]["blocked_by"]
     assert calibration[0]["production_prompt_change_allowed"] is False
     assert calibration[0]["private_text_included"] is False
+
+
+def test_report_intelligence_prompt_mutation_candidates_track_aggregate_calibration_only():
+    candidates = build_prompt_mutation_candidates(
+        run_id="RIR-TEST-MUTATION",
+        outcome_labeling_readiness={
+            "mapping_gap_counts": {},
+            "stock_price_proxy_readiness": {"data_gap_counts": {}},
+            "industry_etf_proxy_readiness": {"data_gap_counts": {}},
+        },
+        tool_gap_rows=[],
+        recipe_paper_trading_runs=[],
+        confidence_impact_observation_rows=[],
+        confidence_impact_monitor={
+            "drift_status_counts": {},
+            "calibration_drift_rule_counts": {
+                "positive_confidence_hit_nonimprovement": 2,
+            },
+            "confidence_alpha_correlation": None,
+            "confidence_alpha_correlation_status": "insufficient_data",
+        },
+        markdown_coverage_summary={"markdown_quality_gap_counts": {}},
+        industry_etf_proxy_pit_availability={"pit_gap_counts": {}},
+    )
+
+    calibration = [
+        row for row in candidates if row["candidate_type"] == "calibration_fix_required"
+    ]
+    assert len(calibration) == 1
+    evidence = calibration[0]["evidence_refs"][0]
+    assert evidence["calibration_drift_rule_counts"] == {
+        "positive_confidence_hit_nonimprovement": 2,
+    }
+    assert calibration[0]["production_prompt_change_allowed"] is False
 
 
 def test_report_intelligence_can_select_historical_sources_by_date(

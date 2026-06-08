@@ -28,9 +28,12 @@
   },
   "as_of_datetime": "2026-06-07T17:18:15+00:00",
   "confidence_impact_monitoring": {
+    "aggregate_calibration_drift_count": 0,
     "alpha_decay_fail_count": 0,
     "alpha_decay_watch_count": 0,
     "calibration_drift_count": 0,
+    "confidence_alpha_correlation": null,
+    "confidence_alpha_correlation_status": "insufficient_data",
     "cost_decay_fail_count": 0,
     "monitor_id": "RKE-REPORT-INTELLIGENCE-CONFIDENCE-IMPACT-MONITOR",
     "observation_count": 5,
