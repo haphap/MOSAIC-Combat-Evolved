@@ -8232,6 +8232,17 @@ def _outcome_coverage_counts(
     }
 
 
+def _evolution_gate_check_by_id(
+    evolution_readiness_gate: Mapping[str, Any],
+    check_id: str,
+) -> dict[str, Any]:
+    gate = _ensure_mapping(evolution_readiness_gate)
+    for row in _ensure_list(gate.get("checks")):
+        if isinstance(row, Mapping) and str(row.get("check_id") or "") == check_id:
+            return dict(row)
+    return {}
+
+
 def _top_tool_gap_ids(
     tool_gap_rows: Sequence[Mapping[str, Any]],
     *,
@@ -8264,9 +8275,13 @@ def build_prompt_mutation_candidates(
     industry_etf_proxy_pit_availability: Mapping[str, Any],
     forecast_rows: Sequence[Mapping[str, Any]] = (),
     outcome_label_rows: Sequence[Mapping[str, Any]] = (),
+    evolution_readiness_gate: Mapping[str, Any] | None = None,
+    gold_review_summary: Mapping[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     candidates: list[dict[str, Any]] = []
     readiness = _ensure_mapping(outcome_labeling_readiness)
+    evolution_gate = _ensure_mapping(evolution_readiness_gate)
+    gate_thresholds = _ensure_mapping(evolution_gate.get("thresholds"))
     stock_readiness = _ensure_mapping(readiness.get("stock_price_proxy_readiness"))
     industry_readiness = _ensure_mapping(
         readiness.get("industry_etf_proxy_readiness")
@@ -8341,6 +8356,135 @@ def build_prompt_mutation_candidates(
                 "p9_markdown_coverage_target_pending",
                 "stock_and_industry_outcome_replay_required",
                 "manual_gold_set_gate_pending",
+            ],
+        )
+    gold = _ensure_mapping(gold_review_summary)
+    gold_check = _evolution_gate_check_by_id(evolution_gate, "RI-EVOL-05")
+    gold_check_evidence = _ensure_mapping(gold_check.get("evidence"))
+    gold_check_blockers = [
+        str(item)
+        for item in _ensure_list(gold_check.get("blockers"))
+        if str(item).strip()
+    ]
+    gold_passed = (
+        gold_check.get("passed") is True
+        if gold_check
+        else gold.get("passed") is True or gold.get("accepted") is True
+    )
+    if gold_check_blockers or (gold and not gold_passed):
+        gold_evidence_source = gold_check_evidence if gold_check else gold
+        _add_prompt_mutation_candidate(
+            candidates,
+            run_id=run_id,
+            candidate_type="forecast_gold_set_review_rule",
+            target_scope="report_intelligence.manual_gold_set_gate",
+            target_component="forecast_gold_set_review_queue",
+            proposed_change=(
+                "Complete manual forecast gold-set review for target, direction, "
+                "horizon, and source-grounding precision before using extracted "
+                "signals for prompt evolution."
+            ),
+            trigger_sources=[
+                "evolution_readiness_gate",
+                "gold_set_review_summary",
+            ],
+            evidence_refs=[
+                {
+                    "artifact_path": (
+                        "registry/report_intelligence/evolution_readiness_gate.json"
+                        if gold_check
+                        else "registry/gold_sets/tushare_research_reports.review_summary.json"
+                    ),
+                    "field": (
+                        "checks.RI-EVOL-05.evidence"
+                        if gold_check
+                        else "forecast_gold_set_gate"
+                    ),
+                    "gold_set_passed": gold_passed,
+                    "reviewed_claims": int(
+                        gold_evidence_source.get("reviewed_claims") or 0
+                    ),
+                    "pending_claims": int(
+                        gold_evidence_source.get("pending_claims") or 0
+                    ),
+                    "blockers": gold_check_blockers,
+                }
+            ],
+            severity="high",
+            blocked_by=[
+                "manual_forecast_gold_set_review_required",
+                "private_review_import_required",
+            ],
+        )
+    stability_checks = [
+        _evolution_gate_check_by_id(evolution_gate, "RI-EVOL-03"),
+        _evolution_gate_check_by_id(evolution_gate, "RI-EVOL-04"),
+        _evolution_gate_check_by_id(evolution_gate, "RI-EVOL-06"),
+    ]
+    stability_evidence_refs: list[dict[str, Any]] = []
+    stability_blockers: list[str] = []
+    for check in stability_checks:
+        if not check:
+            continue
+        check_blockers = [
+            str(item)
+            for item in _ensure_list(check.get("blockers"))
+            if str(item).strip()
+        ]
+        if not check_blockers:
+            continue
+        check_id = str(check.get("check_id") or "")
+        stability_blockers.extend(check_blockers)
+        stability_evidence_refs.append(
+            {
+                "artifact_path": "registry/report_intelligence/evolution_readiness_gate.json",
+                "field": f"checks.{check_id}.evidence",
+                "check_id": check_id,
+                "blockers": check_blockers,
+                "evidence": _ensure_mapping(check.get("evidence")),
+                "thresholds": {
+                    key: gate_thresholds.get(key)
+                    for key in (
+                        "min_consecutive_monitor_refreshes",
+                        "min_consecutive_audit_refreshes",
+                        "min_gap_distribution_refreshes",
+                    )
+                    if key in gate_thresholds
+                },
+            }
+        )
+    if stability_evidence_refs:
+        severe_blockers = {
+            "confidence_impact_monitor_current_blocked",
+            "current_schema_or_audit_gate_blocked",
+        }
+        _add_prompt_mutation_candidate(
+            candidates,
+            run_id=run_id,
+            candidate_type="evolution_refresh_stability_rule",
+            target_scope="report_intelligence.evolution_refresh_stability",
+            target_component="derived_refresh_history_gate",
+            proposed_change=(
+                "Accumulate three consecutive clean derived refreshes with "
+                "blocker-free confidence monitor, schema/PIT/provenance/"
+                "statistical audits, and stable gap distributions before prompt "
+                "evolution can leave shadow candidate status."
+            ),
+            trigger_sources=[
+                "evolution_readiness_gate",
+                "monitor_refresh_history",
+                "audit_refresh_history",
+                "gap_distribution_history",
+            ],
+            evidence_refs=stability_evidence_refs,
+            severity=(
+                "high"
+                if any(item in severe_blockers for item in stability_blockers)
+                else "medium"
+            ),
+            blocked_by=[
+                "three_clean_refreshes_required",
+                "monitor_audit_gap_history_required",
             ],
         )
     target_gap_keys = (
@@ -8787,6 +8931,11 @@ def write_report_intelligence_prompt_mutation_candidates(
         if outcome_label_path.exists()
         else []
     )
+    evolution_readiness_gate = _read_registry_json(
+        registry_path / "evolution_readiness_gate.json",
+        label="evolution_readiness_gate",
+        blockers=blockers,
+    )
     rows = build_prompt_mutation_candidates(
         run_id=run_id,
         outcome_labeling_readiness=outcome_labeling_readiness,
@@ -8798,6 +8947,7 @@ def write_report_intelligence_prompt_mutation_candidates(
         industry_etf_proxy_pit_availability=industry_etf_proxy_pit_availability,
         forecast_rows=forecast_rows,
         outcome_label_rows=outcome_label_rows,
+        evolution_readiness_gate=evolution_readiness_gate,
     )
     if blockers and not rows:
         _add_prompt_mutation_candidate(
@@ -14389,6 +14539,20 @@ def run_report_intelligence_derived_refresh(
         audit_refresh_history_rows=evolution_history["audit_previous"],
         gap_distribution_history_rows=evolution_history["gap_previous"],
     )
+    prompt_mutation_candidate_rows = build_prompt_mutation_candidates(
+        run_id=run_id,
+        outcome_labeling_readiness=outcome_labeling_readiness,
+        tool_gap_rows=tool_gap_rows,
+        recipe_paper_trading_runs=recipe_paper_trading_run_rows,
+        confidence_impact_observation_rows=confidence_impact_observation_rows,
+        confidence_impact_monitor=confidence_impact_monitor,
+        markdown_coverage_summary=markdown_coverage_summary,
+        industry_etf_proxy_pit_availability=industry_etf_proxy_pit_availability,
+        forecast_rows=forecast_rows,
+        outcome_label_rows=outcome_label_rows,
+        evolution_readiness_gate=evolution_readiness_gate,
+        gold_review_summary=gold_review_summary,
+    )
 
     outputs = {
         "feature_flags": str(
@@ -15260,6 +15424,20 @@ def run_report_intelligence_refresh(
         monitor_refresh_history_rows=evolution_history["monitor_previous"],
         audit_refresh_history_rows=evolution_history["audit_previous"],
         gap_distribution_history_rows=evolution_history["gap_previous"],
+    )
+    prompt_mutation_candidate_rows = build_prompt_mutation_candidates(
+        run_id=run_id,
+        outcome_labeling_readiness=outcome_labeling_readiness,
+        tool_gap_rows=tool_gap_rows,
+        recipe_paper_trading_runs=recipe_paper_trading_run_rows,
+        confidence_impact_observation_rows=confidence_impact_observation_rows,
+        confidence_impact_monitor=confidence_impact_monitor,
+        markdown_coverage_summary=markdown_coverage_summary,
+        industry_etf_proxy_pit_availability=industry_etf_proxy_pit_availability,
+        forecast_rows=forecast_rows,
+        outcome_label_rows=outcome_label_rows,
+        evolution_readiness_gate=evolution_readiness_gate,
+        gold_review_summary=gold_review_summary,
     )
 
     outputs = {

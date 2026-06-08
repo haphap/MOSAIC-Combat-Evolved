@@ -1899,6 +1899,103 @@ def test_report_intelligence_prompt_mutation_candidates_track_evolution_threshol
     assert all(row["private_text_included"] is False for row in candidates)
 
 
+def test_report_intelligence_prompt_mutation_candidates_track_gate_remediation():
+    candidates = build_prompt_mutation_candidates(
+        run_id="RIR-TEST-MUTATION",
+        outcome_labeling_readiness={
+            "mapping_gap_counts": {},
+            "stock_price_proxy_readiness": {"data_gap_counts": {}},
+            "industry_etf_proxy_readiness": {"data_gap_counts": {}},
+        },
+        tool_gap_rows=[],
+        recipe_paper_trading_runs=[],
+        confidence_impact_observation_rows=[],
+        confidence_impact_monitor={"drift_status_counts": {}},
+        markdown_coverage_summary={"markdown_quality_gap_counts": {}},
+        industry_etf_proxy_pit_availability={"pit_gap_counts": {}},
+        evolution_readiness_gate={
+            "thresholds": {
+                "min_consecutive_monitor_refreshes": 3,
+                "min_consecutive_audit_refreshes": 3,
+                "min_gap_distribution_refreshes": 3,
+            },
+            "checks": [
+                {
+                    "check_id": "RI-EVOL-03",
+                    "passed": False,
+                    "blockers": [
+                        "confidence_impact_monitor_current_blocked",
+                        "confidence_impact_monitor_history_below_threshold",
+                    ],
+                    "evidence": {
+                        "monitor_observation_count": 5,
+                        "blocked_recipe_count": 2,
+                        "trailing_monitor_pass_count": 1,
+                    },
+                },
+                {
+                    "check_id": "RI-EVOL-04",
+                    "passed": False,
+                    "blockers": ["audit_refresh_history_below_threshold"],
+                    "evidence": {
+                        "schema_accepted": True,
+                        "pit_accepted": True,
+                        "provenance_accepted": True,
+                        "statistical_accepted": True,
+                        "trailing_audit_pass_count": 1,
+                    },
+                },
+                {
+                    "check_id": "RI-EVOL-05",
+                    "passed": False,
+                    "blockers": ["forecast_gold_set_gate_not_passed"],
+                    "evidence": {
+                        "gold_set_passed": False,
+                        "reviewed_claims": 12,
+                        "pending_claims": 8,
+                    },
+                },
+                {
+                    "check_id": "RI-EVOL-06",
+                    "passed": False,
+                    "blockers": ["gap_distribution_history_below_threshold"],
+                    "evidence": {
+                        "trailing_gap_distribution_stable_count": 1,
+                        "current_mapping_gap_counts": {"horizon": 7},
+                    },
+                },
+            ],
+        },
+    )
+
+    by_type = {row["candidate_type"]: row for row in candidates}
+    gold = by_type["forecast_gold_set_review_rule"]
+    assert gold["target_component"] == "forecast_gold_set_review_queue"
+    assert gold["severity"] == "high"
+    assert "manual_forecast_gold_set_review_required" in gold["blocked_by"]
+    gold_evidence = gold["evidence_refs"][0]
+    assert gold_evidence["reviewed_claims"] == 12
+    assert gold_evidence["pending_claims"] == 8
+    assert gold_evidence["blockers"] == ["forecast_gold_set_gate_not_passed"]
+
+    stability = by_type["evolution_refresh_stability_rule"]
+    assert stability["target_component"] == "derived_refresh_history_gate"
+    assert stability["severity"] == "high"
+    assert "three_clean_refreshes_required" in stability["blocked_by"]
+    check_ids = {row["check_id"] for row in stability["evidence_refs"]}
+    assert check_ids == {"RI-EVOL-03", "RI-EVOL-04", "RI-EVOL-06"}
+    assert any(
+        row["evidence"].get("trailing_gap_distribution_stable_count") == 1
+        for row in stability["evidence_refs"]
+    )
+
+    dump = json.dumps(candidates, ensure_ascii=False)
+    assert "claim_text" not in dump
+    assert "source_span_ids" not in dump
+    assert all(row["production_prompt_change_allowed"] is False for row in candidates)
+    assert all(row["private_text_included"] is False for row in candidates)
+
+
 def test_report_intelligence_prompt_mutation_candidates_track_calibration_drift():
     candidates = build_prompt_mutation_candidates(
         run_id="RIR-TEST-MUTATION",
