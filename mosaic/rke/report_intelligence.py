@@ -11952,10 +11952,7 @@ def build_report_intelligence_patch_v1_5_coverage_report(
         "coverage_report_id": "RKE-REPORT-INTELLIGENCE-PATCH-V1-5-COVERAGE",
         "run_id": run_id,
         "as_of_datetime": _utc_now(),
-        "source_plan_path": (
-            "/home/hap/下载/"
-            "MOSAIC_RKE_REPORT_INTELLIGENCE_LOOP_PATCH_V1_5_MERGED.md"
-        ),
+        "source_plan_path": "MOSAIC_RKE_REPORT_INTELLIGENCE_LOOP_PATCH_V1_5_MERGED.md",
         "current_rollout_mode": rollout_mode,
         "current_completion_scope": (
             "shadow_mvp_with_paper_and_production_phases_gated"

@@ -327,9 +327,9 @@
       "sha256": "sha256:3591c55149fb82be5909209efb941f06d5601d125f3790eaf686408c78d79f8b"
     },
     {
-      "bytes": 20273,
+      "bytes": 20256,
       "path": "registry/report_intelligence/patch_v1_5_coverage_report.json",
-      "sha256": "sha256:78efdf712c9abd474d01df848fe7c70e593804bd25e2028bde7d36f4363c38c3"
+      "sha256": "sha256:3e98edb3b47a02f67e0ef0842e5b2a028ae45055e17772cb7852e4c2551d3080"
     },
     {
       "bytes": 3376,

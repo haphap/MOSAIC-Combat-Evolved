@@ -913,6 +913,10 @@ def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
         ).read_text(encoding="utf-8")
     )
     assert patch_coverage["phase_count"] == 8
+    assert patch_coverage["source_plan_path"] == (
+        "MOSAIC_RKE_REPORT_INTELLIGENCE_LOOP_PATCH_V1_5_MERGED.md"
+    )
+    assert "/home/hap" not in json.dumps(patch_coverage, ensure_ascii=False)
     assert {row["phase_id"] for row in patch_coverage["phase_records"]} == set("ABCDEFGH")
     assert patch_coverage["phase_records"][0]["status"] == "passed"
     assert patch_coverage["phase_records"][1]["status"] == "blocked"
