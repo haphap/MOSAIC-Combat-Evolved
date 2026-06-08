@@ -4487,6 +4487,26 @@ def build_industry_etf_proxy_pit_availability(
             _increment_count(label_gap_counts, "entry_date_after_latest_calendar")
             continue
         etf_start, etf_values = _read_qlib_series(qlib_dir, str(proxy.get("etf_symbol") or ""))
+        if not etf_values:
+            _increment_count(label_gap_counts, "proxy_series_missing")
+            continue
+        if not benchmark_values:
+            _increment_count(label_gap_counts, "benchmark_series_missing")
+            continue
+        if _series_value_at_calendar_index(
+            start_index=etf_start,
+            values=etf_values,
+            calendar_index=entry_index,
+        ) is None:
+            _increment_count(label_gap_counts, "proxy_series_missing")
+            continue
+        if _series_value_at_calendar_index(
+            start_index=benchmark_start,
+            values=benchmark_values,
+            calendar_index=entry_index,
+        ) is None:
+            _increment_count(label_gap_counts, "benchmark_series_missing")
+            continue
         claim_window_count = 0
         for window in windows_days:
             exit_index = entry_index + int(window)
@@ -4499,6 +4519,13 @@ def build_industry_etf_proxy_pit_availability(
                 calendar_index=exit_index,
             ) is None:
                 _increment_count(label_gap_counts, "proxy_series_missing")
+                continue
+            if _series_value_at_calendar_index(
+                start_index=benchmark_start,
+                values=benchmark_values,
+                calendar_index=exit_index,
+            ) is None:
+                _increment_count(label_gap_counts, "benchmark_series_missing")
                 continue
             claim_window_count += 1
             labelable_window_count += 1

@@ -171,6 +171,17 @@ def _write_qlib_etf_fixture(root: Path) -> None:
     _write_qlib_series(root, "SH510300", [1.00 + index * 0.001 for index in range(len(dates))])
 
 
+def _write_qlib_etf_without_benchmark_fixture(root: Path) -> None:
+    (root / "calendars").mkdir(parents=True, exist_ok=True)
+    dates = [f"2026-01-{day:02d}" for day in range(1, 32)]
+    dates += [f"2026-02-{day:02d}" for day in range(1, 29)]
+    dates += [f"2026-03-{day:02d}" for day in range(1, 32)]
+    dates += [f"2026-04-{day:02d}" for day in range(1, 31)]
+    dates += [f"2026-05-{day:02d}" for day in range(1, 32)]
+    (root / "calendars/day.txt").write_text("\n".join(dates) + "\n", encoding="utf-8")
+    _write_qlib_series(root, "SH512400", [1.00 + index * 0.002 for index in range(len(dates))])
+
+
 def _write_qlib_etf_mixed_window_fixture(root: Path) -> None:
     (root / "calendars").mkdir(parents=True, exist_ok=True)
     dates = [f"2026-01-{day:02d}" for day in range(1, 32)]
@@ -1252,6 +1263,92 @@ def test_report_intelligence_labels_industry_claims_with_etf_proxy_windows(
     assert source_id not in availability_dump
     assert "Liquidity report" not in availability_dump
     assert readiness["blocked_count"] == 0
+
+
+def test_report_intelligence_industry_pit_availability_records_missing_benchmark(
+    tmp_path: Path,
+):
+    source_id = _write_source(
+        tmp_path / "registry/sources/tushare_research_reports.jsonl",
+        industry="工业金属",
+        report_type="行业研究",
+        publish_date="2026-01-02",
+    )
+    qlib_etf_dir = tmp_path / "qlib_etf"
+    _write_qlib_etf_without_benchmark_fixture(qlib_etf_dir)
+
+    def llm(row, chunk: str, span_id: str, chunk_index: int, chunk_count: int):
+        return {
+            "status": "ok",
+            "model": "fake-vllm",
+            "payload": {
+                "forecast_claims": [
+                    {
+                        "claim_text": "有色金属行业景气度改善，板块后续有望上涨。",
+                        "claim_provenance": "source_grounded",
+                        "forecast_testability": "testable",
+                        "forecast_type": "industry_outlook",
+                        "target": {
+                            "target_type": "sector",
+                            "target_id": "工业金属",
+                        },
+                        "benchmark": {
+                            "benchmark_type": "broad_index",
+                            "benchmark_id": "CSI300",
+                        },
+                        "direction": "positive",
+                        "horizon": {
+                            "min_days": 20,
+                            "max_days": 120,
+                            "unit": "trading_day",
+                        },
+                    }
+                ],
+                "analytical_footprints": [],
+                "metric_candidates": [],
+                "method_patterns": [],
+                "tool_gaps": [],
+            },
+        }
+
+    result = run_report_intelligence_refresh(
+        ReportIntelligenceConfig(
+            root=tmp_path,
+            source_ids=(source_id,),
+            qlib_etf_dir=qlib_etf_dir,
+        ),
+        downloader=_fake_downloader,
+        converter=_fake_converter,
+        llm_extractor=llm,
+    )
+
+    assert result.industry_etf_proxy_outcome_label_rows == 0
+    assert result.industry_etf_proxy_eligible_claim_rows == 1
+    assert result.industry_etf_proxy_labelable_window_rows == 0
+
+    readiness = json.loads(
+        (tmp_path / "registry/report_intelligence/outcome_labeling_readiness.json")
+        .read_text(encoding="utf-8")
+    )
+    assert readiness["industry_etf_proxy_readiness"]["data_gap_counts"] == {
+        "benchmark_series_missing": 1
+    }
+    assert readiness["industry_proxy_label_ready_count"] == 0
+    assert readiness["proxy_label_ready_count"] == 0
+
+    pit_availability = json.loads(
+        (
+            tmp_path
+            / "registry/report_intelligence/industry_etf_proxy_pit_availability.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert pit_availability["pit_gap_counts"]["benchmark_series_missing"] >= 1
+    labelability = pit_availability["labelability_summary"]
+    assert labelability["eligible_claim_count"] == 1
+    assert labelability["labelable_claim_count"] == 0
+    assert labelability["labelable_window_count"] == 0
+    assert labelability["benchmark_series_missing_count"] == 1
+    assert labelability["data_gap_counts"] == {"benchmark_series_missing": 1}
 
 
 def test_report_intelligence_pit_audit_rejects_t0_industry_etf_entry():
