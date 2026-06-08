@@ -149,6 +149,16 @@ def _write_qlib_stock_benchmark_fixture(root: Path) -> None:
     _write_qlib_series(root, "SH510300", values)
 
 
+def _write_misaligned_qlib_stock_benchmark_fixture(root: Path) -> None:
+    stock_dates = _stock_fixture_dates()
+    dates = ["2025-12-29", "2025-12-30", "2025-12-31", *stock_dates]
+    _write_qlib_calendar(root, dates)
+    values = [100.0 for _ in dates]
+    values[dates.index("2026-01-03")] = 10.0
+    values[dates.index("2026-01-08")] = 11.0
+    _write_qlib_series(root, "SH510300", values)
+
+
 def _write_qlib_etf_fixture(root: Path) -> None:
     (root / "calendars").mkdir(parents=True, exist_ok=True)
     dates = [f"2026-01-{day:02d}" for day in range(1, 32)]
@@ -1438,6 +1448,154 @@ def test_report_intelligence_labels_stock_claims_with_qlib_price_windows(
     assert statistical_audit["checks"][6]["evidence"][
         "short_miss_long_hit_window_set_count"
     ] == 1
+
+
+def test_report_intelligence_counts_stock_price_proxy_as_labelable_channel(
+    tmp_path: Path,
+):
+    source_id = _write_source(
+        tmp_path / "registry/sources/tushare_research_reports.jsonl",
+        industry="银行",
+        report_type="公司研报",
+        publish_date="2026-01-02",
+        ts_code="000001.SZ",
+    )
+    qlib_stock_dir = tmp_path / "qlib_stock"
+    qlib_etf_dir = tmp_path / "qlib_etf"
+    _write_qlib_stock_fixture(qlib_stock_dir)
+    _write_qlib_stock_benchmark_fixture(qlib_etf_dir)
+
+    def llm(row, chunk: str, span_id: str, chunk_index: int, chunk_count: int):
+        return {
+            "status": "ok",
+            "model": "fake-vllm",
+            "payload": {
+                "forecast_claims": [
+                    {
+                        "claim_text": "平安银行基本面改善，未来股价有望上涨。",
+                        "claim_provenance": "source_grounded",
+                        "forecast_testability": "testable",
+                        "forecast_type": "stock_outlook",
+                        "target": {"target_type": "stock", "target_id": "000001.SZ"},
+                        "benchmark": {},
+                        "direction": "positive",
+                        "horizon": {},
+                    }
+                ],
+                "analytical_footprints": [],
+                "metric_candidates": [],
+                "method_patterns": [],
+                "tool_gaps": [],
+            },
+        }
+
+    result = run_report_intelligence_refresh(
+        ReportIntelligenceConfig(
+            root=tmp_path,
+            source_ids=(source_id,),
+            qlib_stock_dir=qlib_stock_dir,
+            qlib_etf_dir=qlib_etf_dir,
+        ),
+        downloader=_fake_downloader,
+        converter=_fake_converter,
+        llm_extractor=llm,
+    )
+
+    assert result.outcome_labeling_ready_count == 0
+    assert result.outcome_labeling_blocked_count == 0
+    assert result.stock_price_proxy_outcome_label_rows == 4
+    assert result.stock_price_proxy_eligible_claim_rows == 1
+    assert result.stock_price_proxy_labelable_window_rows == 4
+
+    forecasts = _read_jsonl(
+        tmp_path / "registry/report_intelligence/forecast_claims.jsonl"
+    )
+    forecast_claim_id = forecasts[0]["forecast_claim_id"]
+    assert forecasts[0]["forecast_testability"] == "insufficient_mapping"
+    assert forecasts[0]["extraction_quality"]["mapping_gaps"] == [
+        "benchmark",
+        "horizon",
+    ]
+
+    readiness = json.loads(
+        (tmp_path / "registry/report_intelligence/outcome_labeling_readiness.json")
+        .read_text(encoding="utf-8")
+    )
+    assert readiness["standard_blocked_count"] == 1
+    assert readiness["standard_blocked_forecast_claim_ids"] == [forecast_claim_id]
+    assert readiness["proxy_label_ready_count"] == 1
+    assert readiness["stock_proxy_label_ready_count"] == 1
+    assert readiness["industry_proxy_label_ready_count"] == 0
+    assert readiness["stock_proxy_label_ready_forecast_claim_ids"] == [
+        forecast_claim_id
+    ]
+    assert readiness["proxy_label_only_ready_count"] == 1
+    assert readiness["blocked_count"] == 0
+    assert readiness["unlabelable_mapping_gap_counts"] == {}
+
+
+def test_report_intelligence_stock_benchmark_aligns_by_date_across_qlib_dirs(
+    tmp_path: Path,
+):
+    source_id = _write_source(
+        tmp_path / "registry/sources/tushare_research_reports.jsonl",
+        industry="银行",
+        report_type="公司研报",
+        publish_date="2026-01-02",
+        ts_code="000001.SZ",
+    )
+    qlib_stock_dir = tmp_path / "qlib_stock"
+    qlib_etf_dir = tmp_path / "qlib_etf"
+    _write_qlib_stock_fixture(qlib_stock_dir)
+    _write_misaligned_qlib_stock_benchmark_fixture(qlib_etf_dir)
+
+    def llm(row, chunk: str, span_id: str, chunk_index: int, chunk_count: int):
+        return {
+            "status": "ok",
+            "model": "fake-vllm",
+            "payload": {
+                "forecast_claims": [
+                    {
+                        "claim_text": "平安银行基本面改善，未来五个交易日股价有望上涨。",
+                        "claim_provenance": "source_grounded",
+                        "forecast_testability": "testable",
+                        "forecast_type": "stock_outlook",
+                        "target": {"target_type": "stock", "target_id": "000001.SZ"},
+                        "benchmark": {},
+                        "direction": "positive",
+                        "horizon": {"max_days": 5, "unit": "trading_day"},
+                    }
+                ],
+                "analytical_footprints": [],
+                "metric_candidates": [],
+                "method_patterns": [],
+                "tool_gaps": [],
+            },
+        }
+
+    result = run_report_intelligence_refresh(
+        ReportIntelligenceConfig(
+            root=tmp_path,
+            source_ids=(source_id,),
+            qlib_stock_dir=qlib_stock_dir,
+            qlib_etf_dir=qlib_etf_dir,
+        ),
+        downloader=_fake_downloader,
+        converter=_fake_converter,
+        llm_extractor=llm,
+    )
+
+    assert result.stock_price_proxy_outcome_label_rows == 4
+    outcome_labels = _read_jsonl(
+        tmp_path / "registry/report_intelligence/report_outcome_labels.jsonl"
+    )
+    five_day_label = next(row for row in outcome_labels if row["horizon_days"] == 5)
+    assert five_day_label["entry_datetime"] == "2026-01-03T00:00:00+08:00"
+    assert five_day_label["exit_datetime"] == "2026-01-08T00:00:00+08:00"
+    assert five_day_label["benchmark_alignment"] == "date_key_cross_qlib_dir"
+    assert five_day_label["benchmark_calendar_source"] == str(qlib_etf_dir)
+    assert five_day_label["stock_calendar_source"] == str(qlib_stock_dir)
+    assert five_day_label["benchmark_return"] == pytest.approx(0.1)
 
 
 def test_report_intelligence_labels_bearish_stock_claims(
