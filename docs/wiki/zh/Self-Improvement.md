@@ -50,4 +50,4 @@ CLI:`prism list|train|status|compare`。
 
 CLI:`mirofish generate|train|history`;RPC 在 `mirofish.*`。
 
-> 记忆/persona(7M.2/7M.3)经增益验证 deferred/NO-GO;记录于 `mosaic-tsplan.md` §11.8.1。
+> 记忆/persona(7M.2/7M.3)经增益验证 deferred/NO-GO;记录于 `docs/plans/mosaic-tsplan.md` §11.8.1。

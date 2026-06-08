@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 
-MASTER_PLAN_PATH = "docs/master_plan_v1_1.md"
+MASTER_PLAN_PATH = "docs/plans/master_plan_v1_1.md"
 MASTER_PLAN_ACCEPTANCE_SECTION = "22"
 EXPECTED_COMPLETION_CRITERION_IDS = tuple(f"C{index:02d}" for index in range(1, 13))
 

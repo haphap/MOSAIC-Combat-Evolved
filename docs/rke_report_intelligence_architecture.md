@@ -1,6 +1,6 @@
 # RKE Report Intelligence 功能架构
 
-本文档说明 RKE Report Intelligence rollout 的功能边界、数据流、artifact 结构、运行门禁和后续演化方式。它对应 `MOSAIC_RKE_REPORT_INTELLIGENCE_LOOP_PATCH_V1_5_MERGED.md` 的落地实现，并作为 `docs/master_plan_v1_1.md` 中 RKE 研报智能环的实施说明。
+本文档说明 RKE Report Intelligence rollout 的功能边界、数据流、artifact 结构、运行门禁和后续演化方式。它对应 `MOSAIC_RKE_REPORT_INTELLIGENCE_LOOP_PATCH_V1_5_MERGED.md` 的落地实现，并作为 `docs/plans/master_plan_v1_1.md` 中 RKE 研报智能环的实施说明。
 
 ## 1. 目标
 
@@ -278,11 +278,11 @@ uv run mosaic-rke validate-required --root .
 测试建议：
 
 ```bash
-uv run pytest --basetemp=/home/hap/pytest-rke-full -q
+uv run pytest --basetemp=/tmp/pytest-rke-full -q
 uvx ruff@0.15.15 check $(git diff --name-only -- '*.py')
 ```
 
-`--basetemp` 放在 repo 外是为了避免大型 registry copy 填满 `/tmp`，也避免临时目录被外层 git repo 误识别。
+`--basetemp` 放在 repo 外并固定到 `/tmp` 是为了避免大型 registry copy 留在仓库或用户 home 目录，也避免临时目录被外层 git repo 误识别。
 
 ## 9. 与 RKE master plan 的关系
 

@@ -22,8 +22,8 @@ def test_policy_doc_validation_accepts_current_docs():
     assert report.accepted
     assert report.failure_count == 0
     assert {record.path for record in report.records} == {
-        "docs/master_plan_v1_1.md",
-        "docs/rke_phase_minus_1_plan.md",
+        "docs/plans/master_plan_v1_1.md",
+        "docs/plans/rke_phase_minus_1_plan.md",
         "docs/claim_extraction_guidelines.md",
         "docs/validation_policy.md",
         "docs/confidence_policy.md",

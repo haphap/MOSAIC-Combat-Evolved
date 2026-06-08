@@ -369,7 +369,7 @@ def test_master_plan_coverage_rejects_missing_completion_acceptance_metadata(
     assert not report.coverage_complete
     assert phase_3.status == "missing"
     assert (
-        "completion audit master_plan_path must be docs/master_plan_v1_1.md"
+        "completion audit master_plan_path must be docs/plans/master_plan_v1_1.md"
         in phase_3.blocker
     )
 

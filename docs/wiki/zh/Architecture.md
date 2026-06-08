@@ -51,7 +51,7 @@ MOSAIC-Agents/
 │       └── tui/                #   Ink 仪表盘
 ├── prompts/mosaic/             # 📝 双语提示词仓库(cohort_default + 7 cohorts)
 ├── tests/                      # ✅ Python 测试 (pytest / unittest)
-├── pyproject.toml · mosaic-tsplan.md · .github/workflows/ci.yml
+├── pyproject.toml · docs/plans/mosaic-tsplan.md · .github/workflows/ci.yml
 ```
 
 ## 确定性 & 防前视 (anti-lookahead)

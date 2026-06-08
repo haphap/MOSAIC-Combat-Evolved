@@ -1,7 +1,7 @@
 """MkDocs build hooks for the MOSAIC docs site.
 
 ``docs/wiki/`` is also browsed directly on github.com, so its pages link to
-repo files (``../../README.md``, ``../../mosaic-tsplan.md``, …) with relative
+repo files (``../../README.md``, ``../plans/mosaic-tsplan.md``, …) with relative
 paths that *escape* ``docs_dir``. Those don't resolve on the built site, so we
 rewrite any link that points outside ``docs/wiki/`` to an absolute GitHub blob
 URL. Links that stay inside ``docs/wiki/`` (incl. the ``../Home.md`` /

@@ -6,13 +6,13 @@
       "accepted": true,
       "bytes": 52504,
       "missing_markers": [],
-      "path": "docs/master_plan_v1_1.md"
+      "path": "docs/plans/master_plan_v1_1.md"
     },
     {
       "accepted": true,
       "bytes": 10328,
       "missing_markers": [],
-      "path": "docs/rke_phase_minus_1_plan.md"
+      "path": "docs/plans/rke_phase_minus_1_plan.md"
     },
     {
       "accepted": true,

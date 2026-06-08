@@ -5,7 +5,7 @@ documents into ``macro_documents`` with empty ``event_tags`` / ``sentiment_score
 This module fills them and builds a **point-in-time daily sentiment/event
 index** that macro agents consume as evidence.
 
-Design constraints from ``docs/macro-agent-data-source-plan.md`` (P4/§news_sentiment):
+Design constraints from ``docs/plans/macro-agent-data-source-plan.md`` (P4/§news_sentiment):
     * Deterministic, lexicon-based — **never** an LLM subjective sentiment used
       directly as a realised label (plan line 473). The index is evidence / a
       percentile trigger, not a forward-return label by itself.

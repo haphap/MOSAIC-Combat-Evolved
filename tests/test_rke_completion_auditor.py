@@ -876,7 +876,7 @@ def test_completion_auditor_writes_registry_file(tmp_path: Path):
 
     assert result["ready_for_broad_rollout"] is False
     assert payload["report_id"] == "RKE-COMPLETION-AUDIT-20260606"
-    assert payload["master_plan_path"] == "docs/master_plan_v1_1.md"
+    assert payload["master_plan_path"] == "docs/plans/master_plan_v1_1.md"
     assert payload["acceptance_section"] == "22"
     assert payload["acceptance_criteria_count"] == 12
     assert [item["criterion_id"] for item in payload["acceptance_requirements"]] == [

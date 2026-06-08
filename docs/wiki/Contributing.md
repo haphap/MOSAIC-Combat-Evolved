@@ -34,4 +34,4 @@ Notes:
 
 ## Where things live
 
-See [Architecture](Architecture.md) for the repo map. The canonical design + phase log is [`mosaic-tsplan.md`](../../mosaic-tsplan.md) at the repo root.
+See [Architecture](Architecture.md) for the repo map. The canonical design + phase log is [`mosaic-tsplan.md`](../plans/mosaic-tsplan.md) under `docs/plans/`.

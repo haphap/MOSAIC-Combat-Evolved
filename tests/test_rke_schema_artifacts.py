@@ -58,11 +58,14 @@ REQUIRED_SCHEMA_FILES = {
 }
 
 REQUIRED_POLICY_DOCS = {
-    "master_plan_v1_1.md",
     "validation_policy.md",
     "claim_extraction_guidelines.md",
     "confidence_policy.md",
     "compliance_policy.md",
+}
+REQUIRED_PLAN_DOCS = {
+    "master_plan_v1_1.md",
+    "rke_phase_minus_1_plan.md",
 }
 
 
@@ -80,8 +83,10 @@ def test_phase1_schema_artifacts_exist():
 
 def test_master_plan_policy_docs_exist():
     docs_dir = Path("docs")
+    plans_dir = docs_dir / "plans"
 
     assert {path.name for path in docs_dir.iterdir()} >= REQUIRED_POLICY_DOCS
+    assert {path.name for path in plans_dir.iterdir()} >= REQUIRED_PLAN_DOCS
 
 
 def test_json_schema_artifacts_are_parseable_and_have_required_fields():

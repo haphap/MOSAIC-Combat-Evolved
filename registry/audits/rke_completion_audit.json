@@ -139,7 +139,7 @@
       "passed": true
     }
   ],
-  "master_plan_path": "docs/master_plan_v1_1.md",
+  "master_plan_path": "docs/plans/master_plan_v1_1.md",
   "passed_count": 12,
   "ready_for_broad_rollout": true,
   "report_id": "RKE-COMPLETION-AUDIT-20260606"

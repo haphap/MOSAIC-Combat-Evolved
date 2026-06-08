@@ -1258,7 +1258,7 @@ def build_master_plan_coverage_report(
     final_acceptance_ready = final_missing_count == 0 and final_blocked_count == 0
     return MasterPlanCoverageReport(
         report_id="RKE-MASTER-PLAN-COVERAGE-REPORT-20260606",
-        master_plan_path="docs/master_plan_v1_1.md",
+        master_plan_path="docs/plans/master_plan_v1_1.md",
         mvp_deliverables_section=MVP_DELIVERABLES_SECTION,
         mvp_exit_criteria_section=MVP_EXIT_CRITERIA_SECTION,
         final_acceptance_section=MASTER_PLAN_ACCEPTANCE_SECTION,

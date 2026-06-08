@@ -34,4 +34,4 @@
 
 ## Source of truth
 
-The canonical design/phase document is [`mosaic-tsplan.md`](../../mosaic-tsplan.md) at the repo root. The READMEs ([root](../../README.md), [`mosaic-ts`](../../mosaic-ts/README.md)) cover quick usage. This wiki expands on both and keeps every claim tied to code.
+The canonical design/phase document is [`mosaic-tsplan.md`](../plans/mosaic-tsplan.md) under `docs/plans/`. The READMEs ([root](../../README.md), [`mosaic-ts`](../../mosaic-ts/README.md)) cover quick usage. This wiki expands on both and keeps every claim tied to code.

@@ -50,4 +50,4 @@ CLI: `prism list|train|status|compare`.
 
 CLI: `mirofish generate|train|history`; RPCs under `mirofish.*`.
 
-> Memory/persona (7M.2/7M.3) is deferred/NO-GO per gain validation; documented in `mosaic-tsplan.md` §11.8.1.
+> Memory/persona (7M.2/7M.3) is deferred/NO-GO per gain validation; documented in `docs/plans/mosaic-tsplan.md` §11.8.1.

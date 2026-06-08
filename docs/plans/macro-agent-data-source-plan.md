@@ -663,7 +663,7 @@ P6: all-10-agent integration gate
 | 规划补齐所有宏观 agent 的数据源 | “每个 agent 的补齐计划”逐一覆盖 10 个 Layer 1 macro agent | `central_bank` 到 `institutional_flow` 每个 agent 都有 evidence sources、primary label、secondary labels、implementation tasks |
 | 用好 `tushare.pro/document` 的全部数据 | “Tushare document 先 catalog 化”定义全量覆盖契约 | catalog refresh 扫描全部 endpoint，并把每个 endpoint 归类为 scoring/evidence/deferred/not macro relevant |
 | 用好 OpenCLI 数据收集能力 | “OpenCLI 必须先持久化”与 P4 event pipeline | `macro_documents`、query bundle、dedupe/hash、event classifier、discovered_at 约束 |
-| 将 plan 写入文件 | 本文件即交付物 | `docs/macro-agent-data-source-plan.md` |
+| 将 plan 写入文件 | 本文件即交付物 | `docs/plans/macro-agent-data-source-plan.md` |
 | 确保所有 agent 能使用 drawdown-aware scoring | “所有 primary label 都要 drawdown-aware”与 P3/P6 验收 | 10 个 agent 都必须有 `primary_ready=True` 的 drawdown-aware label，且 `MacroScorer` 能写入非 fallback label |
 
 ## 参考来源

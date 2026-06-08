@@ -51,7 +51,7 @@ MOSAIC-Agents/
 │       └── tui/                #   Ink dashboard
 ├── prompts/mosaic/             # 📝 bilingual prompt repo (cohort_default + 7 cohorts)
 ├── tests/                      # ✅ Python tests (pytest / unittest)
-├── pyproject.toml · mosaic-tsplan.md · .github/workflows/ci.yml
+├── pyproject.toml · docs/plans/mosaic-tsplan.md · .github/workflows/ci.yml
 ```
 
 ## Determinism & anti-lookahead
