@@ -1210,8 +1210,8 @@ def test_report_intelligence_analysis_recipes_pin_required_data():
         "METHOD-REQUIRED-DATA"
     ]["risk_controls"]
     assert by_id["METHOD-REQUIRED-DATA"]["required_data"] == [
-        "stock_price",
-        "benchmark_return",
+        "metric:stock_price",
+        "metric:benchmark_return",
     ]
     assert by_id["METHOD-INFERRED-DATA"]["required_data"] == [
         "metric:calculate_sector_index_return"
@@ -1288,7 +1288,10 @@ def test_report_intelligence_recipe_paper_trading_requires_direct_pit_evidence()
     assert runs[0]["paper_trading_status"] == "passed"
     assert runs[0]["blocked_reasons"] == []
     assert runs[0]["source_method_pattern_ids"] == ["METHOD-DIRECT-PIT"]
-    assert runs[0]["required_data"] == ["stock_price", "benchmark_return"]
+    assert runs[0]["required_data"] == [
+        "metric:stock_price",
+        "metric:benchmark_return",
+    ]
     assert runs[0]["decision_scope"] == "explicit_direct_pit_scope"
     assert runs[0]["expected_horizon_days"] == 120
     assert runs[0]["profile_weight_support"]["profile_only_validation_allowed"] is False

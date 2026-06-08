@@ -6616,20 +6616,35 @@ def _analysis_recipe_required_data(
     method: Mapping[str, Any],
     steps: Sequence[Mapping[str, Any]],
 ) -> list[str]:
-    explicit = [
-        str(item).strip()
-        for item in _ensure_list(method.get("required_current_data"))
-        if str(item).strip()
-    ]
+    explicit = _normalize_required_data_items(method.get("required_current_data"))
     if explicit:
-        return list(dict.fromkeys(explicit))
-    inferred = [
-        f"metric:{str(step.get('metric')).strip()}"
+        return explicit
+    inferred_metrics = [
+        step.get("metric")
         for step in steps
         if str(step.get("metric") or "").strip()
         and str(step.get("metric") or "").strip() != "unknown_metric"
     ]
-    return list(dict.fromkeys(inferred))
+    return _normalize_required_data_items(inferred_metrics)
+
+
+def _normalize_required_data_item(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if text.startswith("metric:"):
+        text = text.removeprefix("metric:").strip()
+    metric = _canonical_metric_name(text)
+    return f"metric:{metric}" if metric else ""
+
+
+def _normalize_required_data_items(value: Any) -> list[str]:
+    normalized = [
+        item
+        for item in (_normalize_required_data_item(item) for item in _ensure_list(value))
+        if item
+    ]
+    return list(dict.fromkeys(normalized))
 
 
 RECIPE_PAPER_TRADING_PROTOCOL_VERSION = "recipe_shadow_paper_trading_v1"
@@ -6657,7 +6672,7 @@ def _recipe_preregistration_hash(recipe: Mapping[str, Any]) -> str:
             recipe.get("source_method_pattern_ids")
         ),
         "required_tools": _ensure_list(recipe.get("required_tools")),
-        "required_data": _ensure_list(recipe.get("required_data")),
+        "required_data": _normalize_required_data_items(recipe.get("required_data")),
         "decision_scope": recipe.get("decision_scope"),
         "entry_condition": recipe.get("entry_condition"),
         "exit_condition": recipe.get("exit_condition"),
@@ -6938,11 +6953,7 @@ def build_recipe_paper_trading_runs(
             for tool in _ensure_list(recipe.get("required_tools"))
         ):
             blockers.append("required_tools_not_shadow_implemented")
-        required_data = [
-            str(item).strip()
-            for item in _ensure_list(recipe.get("required_data"))
-            if str(item).strip()
-        ]
+        required_data = _normalize_required_data_items(recipe.get("required_data"))
         if not required_data:
             blockers.append("required_data_missing")
         if str(recipe.get("runtime_mode") or "") != "shadow_only":

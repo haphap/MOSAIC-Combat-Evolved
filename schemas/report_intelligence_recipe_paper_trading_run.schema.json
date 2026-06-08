@@ -40,7 +40,11 @@
     "paper_trading_status": {"enum": ["passed", "blocked"]},
     "source_method_pattern_ids": {"type": "array", "items": {"type": "string"}},
     "required_tools": {"type": "array", "items": {"type": "string"}},
-    "required_data": {"type": "array"},
+    "required_data": {
+      "type": "array",
+      "items": {"type": "string", "pattern": "^metric:[0-9a-zA-Z_\\u4e00-\\u9fff]+$"},
+      "uniqueItems": true
+    },
     "decision_scope": {"type": "string"},
     "entry_condition": {"type": "string", "minLength": 1},
     "exit_condition": {"type": "string", "minLength": 1},

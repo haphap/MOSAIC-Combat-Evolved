@@ -13,7 +13,11 @@
     "promotion_state": {"type": "string", "minLength": 1},
     "runtime_mode": {"type": "string", "minLength": 1},
     "required_tools": {"type": "array", "items": {"type": "string"}},
-    "required_data": {"type": "array", "items": {"type": "string"}},
+    "required_data": {
+      "type": "array",
+      "items": {"type": "string", "pattern": "^metric:[0-9a-zA-Z_\\u4e00-\\u9fff]+$"},
+      "uniqueItems": true
+    },
     "decision_scope": {"type": "string", "minLength": 1},
     "entry_condition": {"type": "string", "minLength": 1},
     "exit_condition": {"type": "string", "minLength": 1},

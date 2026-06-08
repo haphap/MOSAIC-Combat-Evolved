@@ -171,6 +171,54 @@ def test_schema_validation_allows_missing_optional_private_jsonl(tmp_path: Path)
     assert record.failures == ()
 
 
+def test_analysis_recipe_required_data_requires_metric_prefix(tmp_path: Path):
+    schema_dir = tmp_path / "schemas"
+    schema_dir.mkdir(parents=True)
+    (schema_dir / "report_intelligence_analysis_recipe.schema.json").write_text(
+        Path("schemas/report_intelligence_analysis_recipe.schema.json").read_text(
+            encoding="utf-8"
+        ),
+        encoding="utf-8",
+    )
+    registry = tmp_path / "registry/report_intelligence"
+    registry.mkdir(parents=True)
+    recipe = {
+        "analysis_recipe_id": "RECIPE-RAW-DATA",
+        "recipe_id": "RECIPE-RAW-DATA",
+        "name": "raw data recipe",
+        "method_pattern_id": "METHOD-RAW-DATA",
+        "source_method_pattern_ids": ["METHOD-RAW-DATA"],
+        "version": "0.1.0",
+        "promotion_state": "shadow_candidate",
+        "runtime_mode": "shadow_only",
+        "required_tools": [],
+        "required_data": ["stock_price"],
+        "decision_scope": "raw_data_score",
+        "entry_condition": "T+1_or_more_conservative_shadow_entry",
+        "exit_condition": "fixed_horizon_shadow_exit",
+        "risk_controls": ["no_production_order"],
+        "expected_horizon_days": 60,
+        "steps": [],
+        "output_signal": {},
+        "validation_status": "candidate",
+        "promotion_requirements": [],
+    }
+    (registry / "analysis_recipes.jsonl").write_text(
+        json.dumps(recipe, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = validate_json_schema_artifact(
+        root=tmp_path,
+        schema_path="schemas/report_intelligence_analysis_recipe.schema.json",
+        artifact_path="registry/report_intelligence/analysis_recipes.jsonl",
+        artifact_kind="jsonl",
+    )
+
+    assert not record.accepted
+    assert any("required_data[0]" in failure for failure in record.failures)
+
+
 def _proxy_outcome_contract_record(tmp_path: Path):
     records = validate_report_intelligence_semantics(tmp_path)
     return next(
