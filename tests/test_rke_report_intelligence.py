@@ -3867,6 +3867,12 @@ def test_report_intelligence_derived_refresh_backfills_explicit_horizon(
     forecasts[0]["forecast_testability"] = "insufficient_mapping"
     forecasts[0]["extraction_quality"]["mapping_gaps"] = ["horizon"]
     _write_jsonl(forecast_path, forecasts)
+    schema_report_path = tmp_path / "registry/schemas/rke_schema_validation_report.json"
+    schema_report_path.parent.mkdir(parents=True, exist_ok=True)
+    schema_report_path.write_text(
+        json.dumps({"accepted": True, "failure_count": 0, "records": []}),
+        encoding="utf-8",
+    )
 
     result = run_report_intelligence_derived_refresh(
         ReportIntelligenceConfig(root=tmp_path, refresh_derived_only=True)
@@ -3885,6 +3891,16 @@ def test_report_intelligence_derived_refresh_backfills_explicit_horizon(
         ).read_text(encoding="utf-8")
     )
     assert patch_coverage["phase_count"] == 8
+    evolution_gate = json.loads(
+        (
+            tmp_path
+            / "registry/report_intelligence/evolution_readiness_gate.json"
+        ).read_text(encoding="utf-8")
+    )
+    audit_gate = next(
+        row for row in evolution_gate["checks"] if row["check_id"] == "RI-EVOL-04"
+    )
+    assert audit_gate["evidence"]["schema_accepted"] is True
 
 
 def test_report_intelligence_keeps_long_window_industry_etf_hits(

@@ -612,6 +612,15 @@ def _read_registry_json(
     return payload
 
 
+def _read_schema_validation_report(root_path: Path) -> Mapping[str, Any]:
+    blockers: list[str] = []
+    return _read_registry_json(
+        root_path / "registry/schemas/rke_schema_validation_report.json",
+        label="schema_validation_report",
+        blockers=blockers,
+    )
+
+
 def _safe_file_id(value: object) -> str:
     safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(value or "").strip())
     return safe[:180] or "unknown"
@@ -13786,6 +13795,7 @@ def run_report_intelligence_derived_refresh(
         statistical_robustness_audit=statistical_robustness_audit,
         gold_review_summary=gold_review_summary,
         outcome_labeling_readiness=outcome_labeling_readiness,
+        schema_validation_report=_read_schema_validation_report(root_path),
     )
 
     outputs = {
@@ -14613,6 +14623,7 @@ def run_report_intelligence_refresh(
         statistical_robustness_audit=statistical_robustness_audit,
         gold_review_summary=gold_review_summary,
         outcome_labeling_readiness=outcome_labeling_readiness,
+        schema_validation_report=_read_schema_validation_report(root_path),
     )
 
     outputs = {
