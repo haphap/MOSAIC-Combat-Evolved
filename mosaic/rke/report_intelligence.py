@@ -4406,11 +4406,16 @@ def _read_industry_etf_proxy_map_rows(registry_dir: Path) -> list[Mapping[str, A
 def _industry_etf_proxy_for_sector(
     sector: str,
     mapping_rows: Sequence[Mapping[str, Any]] | None = None,
+    *,
+    as_of_datetime: str = "",
 ) -> Mapping[str, Any] | None:
     rows = list(mapping_rows or build_default_industry_etf_proxy_map_rows())
     normalized = str(sector or "").strip()
     primary_rows = [
-        row for row in rows if str(row.get("status") or "primary") == "primary"
+        row
+        for row in rows
+        if str(row.get("status") or "primary") == "primary"
+        and _mapping_effective_for_datetime(row, as_of_datetime)
     ]
     for row in primary_rows:
         names = [
@@ -4423,6 +4428,26 @@ def _industry_etf_proxy_for_sector(
             if normalized == name or name in normalized:
                 return row
     return None
+
+
+def _mapping_effective_for_datetime(
+    row: Mapping[str, Any],
+    as_of_datetime: str,
+) -> bool:
+    as_of_date = _date_key(as_of_datetime)
+    if not as_of_date:
+        return True
+    effective_from = _date_key(str(row.get("effective_from") or ""))
+    effective_to = _date_key(str(row.get("effective_to") or ""))
+    if effective_from and as_of_date < effective_from:
+        return False
+    if effective_to and as_of_date > effective_to:
+        return False
+    return True
+
+
+def _industry_mapping_benchmark_symbol(row: Mapping[str, Any]) -> str:
+    return str(row.get("benchmark_symbol") or INDUSTRY_ETF_BENCHMARK_SYMBOL)
 
 
 def _series_available_dates(
@@ -4452,16 +4477,25 @@ def build_industry_etf_proxy_pit_availability(
 ) -> dict[str, Any]:
     qlib_dir = _resolve_qlib_etf_dir(root_path, qlib_etf_dir)
     calendar = _read_trading_calendar(qlib_dir)
-    benchmark_start, benchmark_values = _read_qlib_series(
-        qlib_dir,
-        INDUSTRY_ETF_BENCHMARK_SYMBOL,
-    )
-    benchmark_available = bool(calendar and benchmark_values)
+    benchmark_cache: dict[str, tuple[int, list[float]]] = {}
+
+    def benchmark_series(symbol: str) -> tuple[int, list[float]]:
+        benchmark_symbol = symbol or INDUSTRY_ETF_BENCHMARK_SYMBOL
+        if benchmark_symbol not in benchmark_cache:
+            benchmark_cache[benchmark_symbol] = _read_qlib_series(
+                qlib_dir,
+                benchmark_symbol,
+            )
+        return benchmark_cache[benchmark_symbol]
+
     metadata_by_source = _source_report_metadata(metadata_rows)
     mapping_records: list[dict[str, Any]] = []
     aggregate_gap_counts: dict[str, int] = {}
     for row in mapping_rows:
         etf_symbol = str(row.get("etf_symbol") or "")
+        benchmark_symbol = _industry_mapping_benchmark_symbol(row)
+        _benchmark_start, benchmark_values = benchmark_series(benchmark_symbol)
+        benchmark_available = bool(calendar and benchmark_values)
         start_index, values = _read_qlib_series(qlib_dir, etf_symbol)
         available_dates = _series_available_dates(
             calendar=calendar,
@@ -4492,10 +4526,11 @@ def build_industry_etf_proxy_pit_availability(
                 "mapping_id": str(row.get("mapping_id") or ""),
                 "mapping_version": int(row.get("mapping_version") or 1),
                 "sector_name": str(row.get("sector_name") or ""),
+                "status": str(row.get("status") or "primary"),
+                "effective_from": str(row.get("effective_from") or ""),
+                "effective_to": str(row.get("effective_to") or ""),
                 "etf_symbol": etf_symbol,
-                "benchmark_symbol": str(
-                    row.get("benchmark_symbol") or INDUSTRY_ETF_BENCHMARK_SYMBOL
-                ),
+                "benchmark_symbol": benchmark_symbol,
                 "benchmark_source": str(
                     row.get("benchmark_source") or INDUSTRY_ETF_BENCHMARK_SOURCE
                 ),
@@ -4533,6 +4568,7 @@ def build_industry_etf_proxy_pit_availability(
         proxy = _industry_etf_proxy_for_sector(
             str(metadata.get("sector") or ""),
             mapping_rows,
+            as_of_datetime=str(claim.get("signal_datetime") or ""),
         )
         if proxy is None:
             _increment_count(label_gap_counts, "sector_etf_mapping_missing")
@@ -4552,6 +4588,9 @@ def build_industry_etf_proxy_pit_availability(
         if not etf_values:
             _increment_count(label_gap_counts, "proxy_series_missing")
             continue
+        benchmark_start, benchmark_values = benchmark_series(
+            _industry_mapping_benchmark_symbol(proxy)
+        )
         if not benchmark_values:
             _increment_count(label_gap_counts, "benchmark_series_missing")
             continue
@@ -4642,10 +4681,17 @@ def build_industry_etf_proxy_readiness(
     mapping_rows = tuple(mapping_rows or build_default_industry_etf_proxy_map_rows())
     qlib_dir = _resolve_qlib_etf_dir(root_path, qlib_etf_dir)
     calendar = _read_trading_calendar(qlib_dir)
-    benchmark_start, benchmark_values = _read_qlib_series(
-        qlib_dir,
-        INDUSTRY_ETF_BENCHMARK_SYMBOL,
-    )
+    benchmark_cache: dict[str, tuple[int, list[float]]] = {}
+
+    def benchmark_series(symbol: str) -> tuple[int, list[float]]:
+        benchmark_symbol = symbol or INDUSTRY_ETF_BENCHMARK_SYMBOL
+        if benchmark_symbol not in benchmark_cache:
+            benchmark_cache[benchmark_symbol] = _read_qlib_series(
+                qlib_dir,
+                benchmark_symbol,
+            )
+        return benchmark_cache[benchmark_symbol]
+
     metadata_by_source = _source_report_metadata(metadata_rows)
     eligible_claim_ids: list[str] = []
     labelable_claim_ids: list[str] = []
@@ -4665,7 +4711,11 @@ def build_industry_etf_proxy_readiness(
             add_gap("direction_missing_or_unsupported")
             continue
         sector = str(metadata.get("sector") or "")
-        proxy = _industry_etf_proxy_for_sector(sector, mapping_rows)
+        proxy = _industry_etf_proxy_for_sector(
+            sector,
+            mapping_rows,
+            as_of_datetime=str(claim.get("signal_datetime") or ""),
+        )
         if proxy is None:
             add_gap("sector_etf_mapping_missing")
             continue
@@ -4674,6 +4724,9 @@ def build_industry_etf_proxy_readiness(
         if not calendar:
             add_gap("calendar_missing")
             continue
+        benchmark_start, benchmark_values = benchmark_series(
+            _industry_mapping_benchmark_symbol(proxy)
+        )
         if not benchmark_values:
             add_gap("benchmark_series_missing")
             continue
@@ -4732,6 +4785,13 @@ def build_industry_etf_proxy_readiness(
         "windows_days": [int(value) for value in windows_days],
         "entry_lag_trading_days": INDUSTRY_ETF_ENTRY_LAG_TRADING_DAYS,
         "benchmark_symbol": INDUSTRY_ETF_BENCHMARK_SYMBOL,
+        "benchmark_symbols": sorted(
+            {
+                _industry_mapping_benchmark_symbol(row)
+                for row in mapping_rows
+                if str(row.get("status") or "primary") == "primary"
+            }
+        ),
         "benchmark_source": INDUSTRY_ETF_BENCHMARK_SOURCE,
         "benchmark_family": INDUSTRY_ETF_BENCHMARK_FAMILY,
         "cost_model_id": INDUSTRY_ETF_COST_MODEL_ID,
@@ -5041,12 +5101,17 @@ def build_industry_etf_proxy_outcome_labels(
     calendar = _read_trading_calendar(qlib_dir)
     if not calendar:
         return []
-    benchmark_start, benchmark_values = _read_qlib_series(
-        qlib_dir,
-        INDUSTRY_ETF_BENCHMARK_SYMBOL,
-    )
-    if not benchmark_values:
-        return []
+    benchmark_cache: dict[str, tuple[int, list[float]]] = {}
+
+    def benchmark_series(symbol: str) -> tuple[int, list[float]]:
+        benchmark_symbol = symbol or INDUSTRY_ETF_BENCHMARK_SYMBOL
+        if benchmark_symbol not in benchmark_cache:
+            benchmark_cache[benchmark_symbol] = _read_qlib_series(
+                qlib_dir,
+                benchmark_symbol,
+            )
+        return benchmark_cache[benchmark_symbol]
+
     ledger_by_claim = {
         str(row.get("forecast_claim_id") or ""): row for row in forecast_ledger_rows
     }
@@ -5061,12 +5126,20 @@ def build_industry_etf_proxy_outcome_labels(
         if not _is_industry_research_report(metadata.get("report_type")):
             continue
         sector = str(metadata.get("sector") or "")
-        proxy = _industry_etf_proxy_for_sector(sector, mapping_rows)
+        proxy = _industry_etf_proxy_for_sector(
+            sector,
+            mapping_rows,
+            as_of_datetime=str(claim.get("signal_datetime") or ""),
+        )
         if proxy is None:
             continue
         etf_symbol = str(proxy["etf_symbol"])
         mapping_id = str(proxy.get("mapping_id") or "")
         mapping_availability = availability_by_mapping_id.get(mapping_id) or {}
+        benchmark_symbol = _industry_mapping_benchmark_symbol(proxy)
+        benchmark_start, benchmark_values = benchmark_series(benchmark_symbol)
+        if not benchmark_values:
+            continue
         etf_start, etf_values = _read_qlib_series(qlib_dir, etf_symbol)
         if not etf_values:
             continue
@@ -5097,7 +5170,7 @@ def build_industry_etf_proxy_outcome_labels(
             {
                 "forecast_type": claim.get("forecast_type") or "unknown",
                 "proxy_target": etf_symbol,
-                "benchmark": INDUSTRY_ETF_BENCHMARK_SYMBOL,
+                "benchmark": benchmark_symbol,
             },
         )
         claim_window_set_id = _stable_id(
@@ -5199,7 +5272,7 @@ def build_industry_etf_proxy_outcome_labels(
                     if mapping_availability.get("pit_available") is True
                     else "unverified",
                     "benchmark_symbol": str(
-                        proxy.get("benchmark_symbol") or INDUSTRY_ETF_BENCHMARK_SYMBOL
+                        proxy.get("benchmark_symbol") or benchmark_symbol
                     ),
                     "benchmark_source": str(
                         proxy.get("benchmark_source") or INDUSTRY_ETF_BENCHMARK_SOURCE

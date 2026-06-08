@@ -26,6 +26,8 @@
       "benchmark_symbol": "SH510300",
       "calendar_source": "~/.qlib/qlib_data/cn_etf",
       "earliest_price_date": "2021-02-04",
+      "effective_from": "",
+      "effective_to": "",
       "etf_symbol": "SH516160",
       "has_120d_window": true,
       "has_20d_window": true,
@@ -38,7 +40,8 @@
       "pit_available": true,
       "pit_gap_reasons": [],
       "sector_name": "光伏设备",
-      "stale_price_gap_count": 0
+      "stale_price_gap_count": 0,
+      "status": "primary"
     },
     {
       "available_window_days": [
@@ -52,6 +55,8 @@
       "benchmark_symbol": "SH510300",
       "calendar_source": "~/.qlib/qlib_data/cn_etf",
       "earliest_price_date": "2019-06-17",
+      "effective_from": "",
+      "effective_to": "",
       "etf_symbol": "SH512170",
       "has_120d_window": true,
       "has_20d_window": true,
@@ -64,7 +69,8 @@
       "pit_available": true,
       "pit_gap_reasons": [],
       "sector_name": "化学制药",
-      "stale_price_gap_count": 1
+      "stale_price_gap_count": 1,
+      "status": "primary"
     },
     {
       "available_window_days": [
@@ -78,6 +84,8 @@
       "benchmark_symbol": "SH510300",
       "calendar_source": "~/.qlib/qlib_data/cn_etf",
       "earliest_price_date": "2019-06-17",
+      "effective_from": "",
+      "effective_to": "",
       "etf_symbol": "SH512170",
       "has_120d_window": true,
       "has_20d_window": true,
@@ -90,7 +98,8 @@
       "pit_available": true,
       "pit_gap_reasons": [],
       "sector_name": "医药商业",
-      "stale_price_gap_count": 1
+      "stale_price_gap_count": 1,
+      "status": "primary"
     },
     {
       "available_window_days": [
@@ -104,6 +113,8 @@
       "benchmark_symbol": "SH510300",
       "calendar_source": "~/.qlib/qlib_data/cn_etf",
       "earliest_price_date": "2019-06-12",
+      "effective_from": "",
+      "effective_to": "",
       "etf_symbol": "SH512480",
       "has_120d_window": true,
       "has_20d_window": true,
@@ -116,7 +127,8 @@
       "pit_available": true,
       "pit_gap_reasons": [],
       "sector_name": "半导体",
-      "stale_price_gap_count": 1
+      "stale_price_gap_count": 1,
+      "status": "primary"
     },
     {
       "available_window_days": [
@@ -130,6 +142,8 @@
       "benchmark_symbol": "SH510300",
       "calendar_source": "~/.qlib/qlib_data/cn_etf",
       "earliest_price_date": "2016-08-08",
+      "effective_from": "",
+      "effective_to": "",
       "etf_symbol": "SH512880",
       "has_120d_window": true,
       "has_20d_window": true,
@@ -142,7 +156,8 @@
       "pit_available": true,
       "pit_gap_reasons": [],
       "sector_name": "多元金融",
-      "stale_price_gap_count": 0
+      "stale_price_gap_count": 0,
+      "status": "primary"
     },
     {
       "available_window_days": [
@@ -156,6 +171,8 @@
       "benchmark_symbol": "SH510300",
       "calendar_source": "~/.qlib/qlib_data/cn_etf",
       "earliest_price_date": "2017-09-01",
+      "effective_from": "",
+      "effective_to": "",
       "etf_symbol": "SH512400",
       "has_120d_window": true,
       "has_20d_window": true,
@@ -168,7 +185,8 @@
       "pit_available": true,
       "pit_gap_reasons": [],
       "sector_name": "工业金属",
-      "stale_price_gap_count": 0
+      "stale_price_gap_count": 0,
+      "status": "primary"
     },
     {
       "available_window_days": [
@@ -182,6 +200,8 @@
       "benchmark_symbol": "SH510300",
       "calendar_source": "~/.qlib/qlib_data/cn_etf",
       "earliest_price_date": "2017-09-25",
+      "effective_from": "",
+      "effective_to": "",
       "etf_symbol": "SH512200",
       "has_120d_window": true,
       "has_20d_window": true,
@@ -194,7 +214,8 @@
       "pit_available": true,
       "pit_gap_reasons": [],
       "sector_name": "房地产开发",
-      "stale_price_gap_count": 0
+      "stale_price_gap_count": 0,
+      "status": "primary"
     },
     {
       "available_window_days": [
@@ -208,6 +229,8 @@
       "benchmark_symbol": "SH510300",
       "calendar_source": "~/.qlib/qlib_data/cn_etf",
       "earliest_price_date": "2017-09-01",
+      "effective_from": "",
+      "effective_to": "",
       "etf_symbol": "SH512400",
       "has_120d_window": true,
       "has_20d_window": true,
@@ -220,7 +243,8 @@
       "pit_available": true,
       "pit_gap_reasons": [],
       "sector_name": "有色金属",
-      "stale_price_gap_count": 0
+      "stale_price_gap_count": 0,
+      "status": "primary"
     },
     {
       "available_window_days": [
@@ -234,6 +258,8 @@
       "benchmark_symbol": "SH510300",
       "calendar_source": "~/.qlib/qlib_data/cn_etf",
       "earliest_price_date": "2020-02-10",
+      "effective_from": "",
+      "effective_to": "",
       "etf_symbol": "SH515700",
       "has_120d_window": true,
       "has_20d_window": true,
@@ -246,7 +272,8 @@
       "pit_available": true,
       "pit_gap_reasons": [],
       "sector_name": "汽车零部件",
-      "stale_price_gap_count": 0
+      "stale_price_gap_count": 0,
+      "status": "primary"
     },
     {
       "available_window_days": [
@@ -260,6 +287,8 @@
       "benchmark_symbol": "SH510300",
       "calendar_source": "~/.qlib/qlib_data/cn_etf",
       "earliest_price_date": "2020-02-10",
+      "effective_from": "",
+      "effective_to": "",
       "etf_symbol": "SH515700",
       "has_120d_window": true,
       "has_20d_window": true,
@@ -272,7 +301,8 @@
       "pit_available": true,
       "pit_gap_reasons": [],
       "sector_name": "电池",
-      "stale_price_gap_count": 0
+      "stale_price_gap_count": 0,
+      "status": "primary"
     },
     {
       "available_window_days": [
@@ -286,6 +316,8 @@
       "benchmark_symbol": "SH510300",
       "calendar_source": "~/.qlib/qlib_data/cn_etf",
       "earliest_price_date": "2016-08-08",
+      "effective_from": "",
+      "effective_to": "",
       "etf_symbol": "SH512660",
       "has_120d_window": true,
       "has_20d_window": true,
@@ -298,7 +330,8 @@
       "pit_available": true,
       "pit_gap_reasons": [],
       "sector_name": "航天装备Ⅱ",
-      "stale_price_gap_count": 0
+      "stale_price_gap_count": 0,
+      "status": "primary"
     },
     {
       "available_window_days": [
@@ -312,6 +345,8 @@
       "benchmark_symbol": "SH510300",
       "calendar_source": "~/.qlib/qlib_data/cn_etf",
       "earliest_price_date": "2016-08-08",
+      "effective_from": "",
+      "effective_to": "",
       "etf_symbol": "SH512880",
       "has_120d_window": true,
       "has_20d_window": true,
@@ -324,7 +359,8 @@
       "pit_available": true,
       "pit_gap_reasons": [],
       "sector_name": "证券",
-      "stale_price_gap_count": 0
+      "stale_price_gap_count": 0,
+      "status": "primary"
     },
     {
       "available_window_days": [
@@ -338,6 +374,8 @@
       "benchmark_symbol": "SH510300",
       "calendar_source": "~/.qlib/qlib_data/cn_etf",
       "earliest_price_date": "2016-08-08",
+      "effective_from": "",
+      "effective_to": "",
       "etf_symbol": "SH512880",
       "has_120d_window": true,
       "has_20d_window": true,
@@ -350,7 +388,8 @@
       "pit_available": true,
       "pit_gap_reasons": [],
       "sector_name": "证券Ⅱ",
-      "stale_price_gap_count": 0
+      "stale_price_gap_count": 0,
+      "status": "primary"
     },
     {
       "available_window_days": [
@@ -364,6 +403,8 @@
       "benchmark_symbol": "SH510300",
       "calendar_source": "~/.qlib/qlib_data/cn_etf",
       "earliest_price_date": "2017-09-01",
+      "effective_from": "",
+      "effective_to": "",
       "etf_symbol": "SH512400",
       "has_120d_window": true,
       "has_20d_window": true,
@@ -376,7 +417,8 @@
       "pit_available": true,
       "pit_gap_reasons": [],
       "sector_name": "贵金属",
-      "stale_price_gap_count": 0
+      "stale_price_gap_count": 0,
+      "status": "primary"
     },
     {
       "available_window_days": [
@@ -390,6 +432,8 @@
       "benchmark_symbol": "SH510300",
       "calendar_source": "~/.qlib/qlib_data/cn_etf",
       "earliest_price_date": "2017-08-03",
+      "effective_from": "",
+      "effective_to": "",
       "etf_symbol": "SH512800",
       "has_120d_window": true,
       "has_20d_window": true,
@@ -402,7 +446,8 @@
       "pit_available": true,
       "pit_gap_reasons": [],
       "sector_name": "银行",
-      "stale_price_gap_count": 0
+      "stale_price_gap_count": 0,
+      "status": "primary"
     },
     {
       "available_window_days": [
@@ -416,6 +461,8 @@
       "benchmark_symbol": "SH510300",
       "calendar_source": "~/.qlib/qlib_data/cn_etf",
       "earliest_price_date": "2017-08-03",
+      "effective_from": "",
+      "effective_to": "",
       "etf_symbol": "SH512800",
       "has_120d_window": true,
       "has_20d_window": true,
@@ -428,7 +475,8 @@
       "pit_available": true,
       "pit_gap_reasons": [],
       "sector_name": "银行Ⅱ",
-      "stale_price_gap_count": 0
+      "stale_price_gap_count": 0,
+      "status": "primary"
     },
     {
       "available_window_days": [
@@ -442,6 +490,8 @@
       "benchmark_symbol": "SH510300",
       "calendar_source": "~/.qlib/qlib_data/cn_etf",
       "earliest_price_date": "2021-02-04",
+      "effective_from": "",
+      "effective_to": "",
       "etf_symbol": "SH516160",
       "has_120d_window": true,
       "has_20d_window": true,
@@ -454,7 +504,8 @@
       "pit_available": true,
       "pit_gap_reasons": [],
       "sector_name": "风电设备",
-      "stale_price_gap_count": 0
+      "stale_price_gap_count": 0,
+      "status": "primary"
     }
   ],
   "pit_available_mapping_count": 17,

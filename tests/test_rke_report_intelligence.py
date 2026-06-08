@@ -234,6 +234,18 @@ def _write_qlib_etf_fixture(root: Path) -> None:
     _write_qlib_series(root, "SH510300", [1.00 + index * 0.001 for index in range(len(dates))])
 
 
+def _write_qlib_etf_custom_benchmark_fixture(root: Path) -> None:
+    dates = [f"2026-01-{day:02d}" for day in range(1, 32)]
+    dates += [f"2026-02-{day:02d}" for day in range(1, 29)]
+    dates += [f"2026-03-{day:02d}" for day in range(1, 32)]
+    dates += [f"2026-04-{day:02d}" for day in range(1, 31)]
+    dates += [f"2026-05-{day:02d}" for day in range(1, 32)]
+    _write_qlib_calendar(root, dates)
+    _write_qlib_series(root, "SH512400", [1.00 + index * 0.002 for index in range(len(dates))])
+    _write_qlib_series(root, "SH510300", [1.00 + index * 0.001 for index in range(len(dates))])
+    _write_qlib_series(root, "SH510500", [1.00 + index * 0.005 for index in range(len(dates))])
+
+
 def _write_qlib_etf_without_benchmark_fixture(root: Path) -> None:
     (root / "calendars").mkdir(parents=True, exist_ok=True)
     dates = [f"2026-01-{day:02d}" for day in range(1, 32)]
@@ -1672,6 +1684,224 @@ def test_report_intelligence_industry_candidate_mapping_does_not_label(
         "sector_etf_mapping_missing": 1
     }
     assert readiness["industry_proxy_label_ready_count"] == 0
+
+
+def test_report_intelligence_industry_mapping_uses_registry_benchmark_symbol(
+    tmp_path: Path,
+):
+    source_id = _write_source(
+        tmp_path / "registry/sources/tushare_research_reports.jsonl",
+        industry="工业金属",
+        report_type="行业研究",
+        publish_date="2026-01-02",
+    )
+    _write_jsonl(
+        tmp_path / "registry/report_intelligence/industry_etf_proxy_map.jsonl",
+        [
+            {
+                "mapping_id": "IETF-MAP-CUSTOM-BENCHMARK",
+                "mapping_version": 1,
+                "sector_name": "工业金属",
+                "sector_aliases": ["工业金属", "有色金属"],
+                "taxonomy": "test_taxonomy",
+                "etf_symbol": "SH512400",
+                "etf_name": "有色金属ETF",
+                "mapping_label": "有色金属ETF",
+                "benchmark_symbol": "SH510500",
+                "benchmark_source": "cn_etf",
+                "benchmark_family": "CSI500_ETF_PROXY",
+                "cost_model_id": "industry_etf_round_trip_10bps_v1",
+                "mapping_confidence": "test_custom_benchmark",
+                "mapping_rationale": "custom benchmark must drive relative alpha",
+                "effective_from": "",
+                "effective_to": "",
+                "status": "primary",
+                "review_required": False,
+            }
+        ],
+    )
+    qlib_etf_dir = tmp_path / "qlib_etf"
+    _write_qlib_etf_custom_benchmark_fixture(qlib_etf_dir)
+
+    def llm(row, chunk: str, span_id: str, chunk_index: int, chunk_count: int):
+        return {
+            "status": "ok",
+            "model": "fake-vllm",
+            "payload": {
+                "forecast_claims": [
+                    {
+                        "claim_text": "有色金属行业景气度改善，板块后续有望上涨。",
+                        "claim_provenance": "source_grounded",
+                        "forecast_testability": "testable",
+                        "forecast_type": "industry_outlook",
+                        "target": {
+                            "target_type": "sector",
+                            "target_id": "工业金属",
+                        },
+                        "benchmark": {
+                            "benchmark_type": "sector_registry_benchmark",
+                            "benchmark_id": "SH510500",
+                        },
+                        "direction": "positive",
+                        "horizon": {
+                            "min_days": 20,
+                            "max_days": 120,
+                            "unit": "trading_day",
+                        },
+                    }
+                ],
+                "analytical_footprints": [],
+                "metric_candidates": [],
+                "method_patterns": [],
+                "tool_gaps": [],
+            },
+        }
+
+    result = run_report_intelligence_refresh(
+        ReportIntelligenceConfig(
+            root=tmp_path,
+            source_ids=(source_id,),
+            qlib_etf_dir=qlib_etf_dir,
+        ),
+        downloader=_fake_downloader,
+        converter=_fake_converter,
+        llm_extractor=llm,
+    )
+
+    assert result.industry_etf_proxy_outcome_label_rows == 3
+    outcome_labels = _read_jsonl(
+        tmp_path / "registry/report_intelligence/report_outcome_labels.jsonl"
+    )
+    assert {row["benchmark_symbol"] for row in outcome_labels} == {"SH510500"}
+    assert {row["benchmark_family"] for row in outcome_labels} == {
+        "CSI500_ETF_PROXY"
+    }
+    assert all(row["proxy_return"] > 0 for row in outcome_labels)
+    assert all(row["benchmark_return"] > row["proxy_return"] for row in outcome_labels)
+    assert all(row["relative_alpha"] < 0 for row in outcome_labels)
+    assert all(row["relative_directional_hit"] is False for row in outcome_labels)
+
+    readiness = json.loads(
+        (tmp_path / "registry/report_intelligence/outcome_labeling_readiness.json")
+        .read_text(encoding="utf-8")
+    )
+    assert readiness["industry_etf_proxy_readiness"]["benchmark_symbols"] == [
+        "SH510500"
+    ]
+
+    pit_availability = json.loads(
+        (
+            tmp_path
+            / "registry/report_intelligence/industry_etf_proxy_pit_availability.json"
+        ).read_text(encoding="utf-8")
+    )
+    mapping_record = pit_availability["mapping_records"][0]
+    assert mapping_record["mapping_id"] == "IETF-MAP-CUSTOM-BENCHMARK"
+    assert mapping_record["benchmark_symbol"] == "SH510500"
+    assert mapping_record["benchmark_family"] == "CSI500_ETF_PROXY"
+    assert mapping_record["pit_available"] is True
+
+
+def test_report_intelligence_industry_mapping_effective_from_blocks_early_claim(
+    tmp_path: Path,
+):
+    source_id = _write_source(
+        tmp_path / "registry/sources/tushare_research_reports.jsonl",
+        industry="工业金属",
+        report_type="行业研究",
+        publish_date="2026-01-02",
+    )
+    _write_jsonl(
+        tmp_path / "registry/report_intelligence/industry_etf_proxy_map.jsonl",
+        [
+            {
+                "mapping_id": "IETF-MAP-FUTURE-EFFECTIVE",
+                "mapping_version": 1,
+                "sector_name": "工业金属",
+                "sector_aliases": ["工业金属", "有色金属"],
+                "taxonomy": "test_taxonomy",
+                "etf_symbol": "SH512400",
+                "etf_name": "有色金属ETF",
+                "mapping_label": "有色金属ETF",
+                "benchmark_symbol": "SH510300",
+                "benchmark_source": "cn_etf",
+                "benchmark_family": "CSI300_ETF_PROXY",
+                "cost_model_id": "industry_etf_round_trip_10bps_v1",
+                "mapping_confidence": "future_effective_test",
+                "mapping_rationale": "future effective mappings must not backfill early labels",
+                "effective_from": "2026-02-01",
+                "effective_to": "",
+                "status": "primary",
+                "review_required": False,
+            }
+        ],
+    )
+    qlib_etf_dir = tmp_path / "qlib_etf"
+    _write_qlib_etf_fixture(qlib_etf_dir)
+
+    def llm(row, chunk: str, span_id: str, chunk_index: int, chunk_count: int):
+        return {
+            "status": "ok",
+            "model": "fake-vllm",
+            "payload": {
+                "forecast_claims": [
+                    {
+                        "claim_text": "有色金属行业景气度改善，板块后续有望上涨。",
+                        "claim_provenance": "source_grounded",
+                        "forecast_testability": "testable",
+                        "forecast_type": "industry_outlook",
+                        "target": {
+                            "target_type": "sector",
+                            "target_id": "工业金属",
+                        },
+                        "benchmark": {},
+                        "direction": "positive",
+                        "horizon": {
+                            "min_days": 20,
+                            "max_days": 120,
+                            "unit": "trading_day",
+                        },
+                    }
+                ],
+                "analytical_footprints": [],
+                "metric_candidates": [],
+                "method_patterns": [],
+                "tool_gaps": [],
+            },
+        }
+
+    result = run_report_intelligence_refresh(
+        ReportIntelligenceConfig(
+            root=tmp_path,
+            source_ids=(source_id,),
+            qlib_etf_dir=qlib_etf_dir,
+        ),
+        downloader=_fake_downloader,
+        converter=_fake_converter,
+        llm_extractor=llm,
+    )
+
+    assert result.industry_etf_proxy_outcome_label_rows == 0
+    readiness = json.loads(
+        (tmp_path / "registry/report_intelligence/outcome_labeling_readiness.json")
+        .read_text(encoding="utf-8")
+    )
+    assert readiness["industry_etf_proxy_readiness"]["data_gap_counts"] == {
+        "sector_etf_mapping_missing": 1
+    }
+
+    pit_availability = json.loads(
+        (
+            tmp_path
+            / "registry/report_intelligence/industry_etf_proxy_pit_availability.json"
+        ).read_text(encoding="utf-8")
+    )
+    mapping_record = pit_availability["mapping_records"][0]
+    assert mapping_record["mapping_id"] == "IETF-MAP-FUTURE-EFFECTIVE"
+    assert mapping_record["effective_from"] == "2026-02-01"
+    assert pit_availability["labelability_summary"]["data_gap_counts"] == {
+        "sector_etf_mapping_missing": 1
+    }
 
 
 def test_report_intelligence_pit_audit_rejects_t0_industry_etf_entry():
