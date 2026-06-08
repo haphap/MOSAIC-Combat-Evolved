@@ -312,9 +312,9 @@
       "sha256": "sha256:3bba92ad15890a0916d23ef8e0dc1d764980ece9d77a835b6fb93e4dc0690ae5"
     },
     {
-      "bytes": 2900,
+      "bytes": 4690,
       "path": "registry/report_intelligence/method_performance_profiles.jsonl",
-      "sha256": "sha256:aef0f80ce2036a06884a6b31610b3f02edf2109b2479e19c52a3250a4068d6af"
+      "sha256": "sha256:d122942d6a3b59d3f1a2ab059040365289727c199425e04280dc3a34f90cd85c"
     },
     {
       "bytes": 23126,

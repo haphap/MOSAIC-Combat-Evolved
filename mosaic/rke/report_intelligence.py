@@ -6048,12 +6048,28 @@ def build_viewpoint_performance_profiles(
 
 def build_method_performance_profiles(
     method_rows: Sequence[Mapping[str, Any]],
+    *,
+    outcome_label_rows: Sequence[Mapping[str, Any]] = (),
 ) -> list[dict[str, Any]]:
     profiles: list[dict[str, Any]] = []
+    labels_by_method: dict[str, list[Mapping[str, Any]]] = {}
+    for label in outcome_label_rows:
+        if label.get("pit_valid") is not True:
+            continue
+        method_id = str(label.get("method_pattern_id") or "").strip()
+        if method_id:
+            labels_by_method.setdefault(method_id, []).append(label)
     for method in method_rows:
         method_id = str(method.get("method_pattern_id") or "")
         if not method_id:
             continue
+        labels = labels_by_method.get(method_id, [])
+        summary = _shrunk_performance_summary(labels)
+        layer_support = _outcome_layer_support(labels)
+        n_effective = summary["n_effective"]
+        hit_rate = summary["hit_rate"]
+        mean_alpha = summary["mean_after_cost_alpha"]
+        insufficient_data = summary["insufficient_data"]
         profiles.append(
             {
                 "method_profile_id": _stable_id("MPP", {"method_pattern_id": method_id}),
@@ -6067,14 +6083,34 @@ def build_method_performance_profiles(
                 "source_support": {
                     "high_weight_report_count": 0,
                     "deduped_viewpoint_count": 0,
-                    "n_effective_reports": 0.0,
+                    "n_effective_reports": n_effective,
+                    "outcome_label_row_count": summary["n_nominal"],
                 },
+                "outcome_layer_support": layer_support,
                 "validation_status": "candidate",
-                "after_cost_alpha_delta_bucket": "insufficient_data",
-                "calibration_delta_bucket": "insufficient_data",
-                "shrunk_method_priority": "candidate_insufficient_data",
+                "after_cost_alpha_delta_bucket": (
+                    "positive_after_cost_alpha"
+                    if mean_alpha is not None and mean_alpha > 0
+                    else "negative_after_cost_alpha"
+                    if mean_alpha is not None and mean_alpha < 0
+                    else "insufficient_data"
+                ),
+                "calibration_delta_bucket": (
+                    "positive_hit_rate"
+                    if hit_rate is not None and hit_rate >= 0.53
+                    else "negative_hit_rate"
+                    if hit_rate is not None and hit_rate <= 0.47
+                    else "insufficient_data"
+                    if hit_rate is None
+                    else "neutral_hit_rate"
+                ),
+                "shrunk_method_priority": (
+                    "candidate_with_pit_outcome_evidence"
+                    if not insufficient_data
+                    else "candidate_insufficient_data"
+                ),
                 "allowed_runtime_mode": "shadow_only",
-                "insufficient_data": True,
+                "insufficient_data": insufficient_data,
             }
         )
     return profiles
@@ -13518,6 +13554,7 @@ def run_report_intelligence_derived_refresh(
     )
     method_performance_profile_rows = build_method_performance_profiles(
         method_rows,
+        outcome_label_rows=outcome_label_rows,
     )
     tool_coverage_match_rows = build_tool_coverage_matches(metric_rows)
     data_acquisition_proposal_rows = build_data_acquisition_proposals(
@@ -14344,6 +14381,7 @@ def run_report_intelligence_refresh(
     )
     method_performance_profile_rows = build_method_performance_profiles(
         method_rows,
+        outcome_label_rows=outcome_label_rows,
     )
     tool_coverage_match_rows = build_tool_coverage_matches(metric_rows)
     data_acquisition_proposal_rows = build_data_acquisition_proposals(

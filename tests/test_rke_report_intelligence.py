@@ -22,6 +22,7 @@ from mosaic.rke.report_intelligence import (
     build_confidence_impact_observations,
     build_prompt_mutation_candidates,
     build_report_intelligence_evolution_readiness_gate,
+    build_method_performance_profiles,
     build_recipe_paper_trading_runs,
     build_recipe_paper_trading_summary,
     build_report_intelligence_extraction_provenance_audit,
@@ -4330,6 +4331,102 @@ def test_report_intelligence_performance_profiles_keep_outcome_layers_separate()
     assert "label_type, benchmark_family, and cost_model_id" in viewpoint_support[
         "layering_policy"
     ]
+
+
+def test_report_intelligence_method_profiles_use_direct_outcome_layers():
+    method_rows = [
+        {
+            "method_pattern_id": "METHOD-LAYERED",
+            "method_name": "Layered method",
+            "target_agents": ["report_intelligence.shadow"],
+        },
+        {
+            "method_pattern_id": "METHOD-NO-EVIDENCE",
+            "method_name": "No evidence method",
+            "target_agents": ["report_intelligence.shadow"],
+        },
+    ]
+    outcome_rows = [
+        {
+            "forecast_claim_id": "FC-METHOD-1",
+            "method_pattern_id": "METHOD-LAYERED",
+            "label_type": "stock_price_proxy",
+            "benchmark_family": "CSI300_ETF_PROXY",
+            "cost_model_id": "single_stock_round_trip_20bps_v1",
+            "entry_datetime": "2026-01-03",
+            "exit_datetime": "2026-01-30",
+            "directional_hit": True,
+            "directional_after_cost_return": 0.03,
+            "performance_value_basis": "directional_after_cost_return",
+            "effective_n_weight": 1.0,
+            "pit_valid": True,
+        },
+        {
+            "forecast_claim_id": "FC-METHOD-2",
+            "method_pattern_id": "METHOD-LAYERED",
+            "label_type": "industry_etf_proxy",
+            "benchmark_family": "CSI500_ETF_PROXY",
+            "cost_model_id": "industry_etf_round_trip_10bps_v1",
+            "entry_datetime": "2026-01-03",
+            "exit_datetime": "2026-02-28",
+            "directional_hit": True,
+            "directional_after_cost_return": 0.01,
+            "performance_value_basis": "directional_after_cost_return",
+            "effective_n_weight": 1.0,
+            "pit_valid": True,
+        },
+        {
+            "forecast_claim_id": "FC-METHOD-PRIVATE-BAD",
+            "method_pattern_id": "METHOD-LAYERED",
+            "label_type": "stock_price_proxy",
+            "benchmark_family": "CSI300_ETF_PROXY",
+            "cost_model_id": "single_stock_round_trip_20bps_v1",
+            "directional_hit": False,
+            "directional_after_cost_return": -0.50,
+            "effective_n_weight": 1.0,
+            "pit_valid": False,
+        },
+    ]
+
+    profiles = build_method_performance_profiles(
+        method_rows,
+        outcome_label_rows=outcome_rows,
+    )
+    layered = next(row for row in profiles if row["method_pattern_id"] == "METHOD-LAYERED")
+    assert layered["source_support"]["n_effective_reports"] == 2.0
+    assert layered["source_support"]["outcome_label_row_count"] == 2
+    assert layered["after_cost_alpha_delta_bucket"] == "positive_after_cost_alpha"
+    assert layered["calibration_delta_bucket"] == "positive_hit_rate"
+    assert layered["shrunk_method_priority"] == "candidate_insufficient_data"
+    assert layered["allowed_runtime_mode"] == "shadow_only"
+    assert layered["outcome_layer_support"]["mixed_layer_profile"] is True
+    assert layered["outcome_layer_support"]["layer_count"] == 2
+    assert {
+        (
+            row["label_type"],
+            row["benchmark_family"],
+            row["cost_model_id"],
+        )
+        for row in layered["outcome_layer_support"]["layer_summaries"]
+    } == {
+        (
+            "stock_price_proxy",
+            "CSI300_ETF_PROXY",
+            "single_stock_round_trip_20bps_v1",
+        ),
+        (
+            "industry_etf_proxy",
+            "CSI500_ETF_PROXY",
+            "industry_etf_round_trip_10bps_v1",
+        ),
+    }
+
+    no_evidence = next(
+        row for row in profiles if row["method_pattern_id"] == "METHOD-NO-EVIDENCE"
+    )
+    assert no_evidence["source_support"]["n_effective_reports"] == 0.0
+    assert no_evidence["outcome_layer_support"]["layer_count"] == 0
+    assert no_evidence["insufficient_data"] is True
 
 
 def test_report_intelligence_does_not_fallback_to_abstract_when_markdown_missing(
