@@ -141,6 +141,30 @@ def _write_qlib_stock_fixture(
         _write_qlib_series(root, symbol, field_values, field=field)
 
 
+def _write_qlib_stock_entry_limit_locked_fixture(root: Path) -> None:
+    dates = _stock_fixture_dates()
+    _write_qlib_calendar(root, dates)
+    values = [1.0 + index * 0.001 for index in range(len(dates))]
+    entry_index = 2
+    values[entry_index - 1] = 1.0
+    values[entry_index] = 1.1
+    open_values = list(values)
+    high_values = [value * 1.001 for value in values]
+    low_values = [value * 0.999 for value in values]
+    close_values = list(values)
+    for field_values in (open_values, high_values, low_values, close_values):
+        field_values[entry_index] = 1.1
+    for field, field_values in {
+        "adjclose": values,
+        "close": close_values,
+        "open": open_values,
+        "high": high_values,
+        "low": low_values,
+        "volume": [100.0 for _ in dates],
+    }.items():
+        _write_qlib_series(root, "000001.SZ", field_values, field=field)
+
+
 def _write_qlib_stock_exit_limit_locked_fixture(root: Path) -> None:
     dates = _stock_fixture_dates()
     _write_qlib_calendar(root, dates)
@@ -161,6 +185,21 @@ def _write_qlib_stock_exit_limit_locked_fixture(root: Path) -> None:
         "high": high_values,
         "low": low_values,
         "volume": [100.0 for _ in dates],
+    }.items():
+        _write_qlib_series(root, "000001.SZ", field_values, field=field)
+
+
+def _write_qlib_stock_truncated_fixture(root: Path) -> None:
+    dates = _stock_fixture_dates()
+    _write_qlib_calendar(root, dates)
+    values = [1.0 + index * 0.001 for index in range(7)]
+    for field, field_values in {
+        "adjclose": values,
+        "close": values,
+        "open": values,
+        "high": [value * 1.001 for value in values],
+        "low": [value * 0.999 for value in values],
+        "volume": [100.0 for _ in values],
     }.items():
         _write_qlib_series(root, "000001.SZ", field_values, field=field)
 
@@ -2165,6 +2204,196 @@ def test_report_intelligence_stock_entry_suspension_blocks_labeling(
     )
     assert readiness["stock_price_proxy_readiness"]["data_gap_counts"] == {
         "stock_entry_suspended": 1
+    }
+
+
+def test_report_intelligence_stock_entry_limit_locked_blocks_labeling(
+    tmp_path: Path,
+):
+    source_id = _write_source(
+        tmp_path / "registry/sources/tushare_research_reports.jsonl",
+        industry="银行",
+        report_type="公司研报",
+        publish_date="2026-01-02",
+        ts_code="000001.SZ",
+    )
+    qlib_stock_dir = tmp_path / "qlib_stock"
+    qlib_etf_dir = tmp_path / "qlib_etf"
+    _write_qlib_stock_entry_limit_locked_fixture(qlib_stock_dir)
+    _write_qlib_stock_benchmark_fixture(qlib_etf_dir)
+
+    def llm(row, chunk: str, span_id: str, chunk_index: int, chunk_count: int):
+        return {
+            "status": "ok",
+            "model": "fake-vllm",
+            "payload": {
+                "forecast_claims": [
+                    {
+                        "claim_text": "平安银行基本面改善，未来股价有望上涨。",
+                        "claim_provenance": "source_grounded",
+                        "forecast_testability": "testable",
+                        "forecast_type": "stock_outlook",
+                        "target": {"target_type": "stock", "target_id": "000001.SZ"},
+                        "benchmark": {},
+                        "direction": "positive",
+                        "horizon": {},
+                    }
+                ],
+                "analytical_footprints": [],
+                "metric_candidates": [],
+                "method_patterns": [],
+                "tool_gaps": [],
+            },
+        }
+
+    result = run_report_intelligence_refresh(
+        ReportIntelligenceConfig(
+            root=tmp_path,
+            source_ids=(source_id,),
+            qlib_stock_dir=qlib_stock_dir,
+            qlib_etf_dir=qlib_etf_dir,
+        ),
+        downloader=_fake_downloader,
+        converter=_fake_converter,
+        llm_extractor=llm,
+    )
+
+    assert result.stock_price_proxy_outcome_label_rows == 0
+    readiness = json.loads(
+        (tmp_path / "registry/report_intelligence/outcome_labeling_readiness.json")
+        .read_text(encoding="utf-8")
+    )
+    assert readiness["stock_price_proxy_readiness"]["data_gap_counts"] == {
+        "entry_limit_locked": 1
+    }
+
+
+def test_report_intelligence_stock_long_suspension_blocks_window(
+    tmp_path: Path,
+):
+    source_id = _write_source(
+        tmp_path / "registry/sources/tushare_research_reports.jsonl",
+        industry="银行",
+        report_type="公司研报",
+        publish_date="2026-01-02",
+        ts_code="000001.SZ",
+    )
+    qlib_stock_dir = tmp_path / "qlib_stock"
+    qlib_etf_dir = tmp_path / "qlib_etf"
+    dates = _stock_fixture_dates()
+    volume = [100.0 for _ in dates]
+    volume[7] = 0.0
+    _write_qlib_stock_fixture(qlib_stock_dir, volume=volume)
+    _write_qlib_stock_benchmark_fixture(qlib_etf_dir)
+
+    def llm(row, chunk: str, span_id: str, chunk_index: int, chunk_count: int):
+        return {
+            "status": "ok",
+            "model": "fake-vllm",
+            "payload": {
+                "forecast_claims": [
+                    {
+                        "claim_text": "平安银行基本面改善，未来股价有望上涨。",
+                        "claim_provenance": "source_grounded",
+                        "forecast_testability": "testable",
+                        "forecast_type": "stock_outlook",
+                        "target": {"target_type": "stock", "target_id": "000001.SZ"},
+                        "benchmark": {},
+                        "direction": "positive",
+                        "horizon": {"max_days": 120, "unit": "trading_day"},
+                    }
+                ],
+                "analytical_footprints": [],
+                "metric_candidates": [],
+                "method_patterns": [],
+                "tool_gaps": [],
+            },
+        }
+
+    result = run_report_intelligence_refresh(
+        ReportIntelligenceConfig(
+            root=tmp_path,
+            source_ids=(source_id,),
+            qlib_stock_dir=qlib_stock_dir,
+            qlib_etf_dir=qlib_etf_dir,
+        ),
+        downloader=_fake_downloader,
+        converter=_fake_converter,
+        llm_extractor=llm,
+    )
+
+    assert result.stock_price_proxy_outcome_label_rows == 3
+    outcome_labels = _read_jsonl(
+        tmp_path / "registry/report_intelligence/report_outcome_labels.jsonl"
+    )
+    assert {row["horizon_days"] for row in outcome_labels} == {20, 60, 120}
+    readiness = json.loads(
+        (tmp_path / "registry/report_intelligence/outcome_labeling_readiness.json")
+        .read_text(encoding="utf-8")
+    )
+    assert readiness["stock_price_proxy_readiness"]["data_gap_counts"] == {
+        "stock_long_suspension_window": 1
+    }
+
+
+def test_report_intelligence_stock_delisted_before_exit_blocks_labeling(
+    tmp_path: Path,
+):
+    source_id = _write_source(
+        tmp_path / "registry/sources/tushare_research_reports.jsonl",
+        industry="银行",
+        report_type="公司研报",
+        publish_date="2026-01-02",
+        ts_code="000001.SZ",
+    )
+    qlib_stock_dir = tmp_path / "qlib_stock"
+    qlib_etf_dir = tmp_path / "qlib_etf"
+    _write_qlib_stock_truncated_fixture(qlib_stock_dir)
+    _write_qlib_stock_benchmark_fixture(qlib_etf_dir)
+
+    def llm(row, chunk: str, span_id: str, chunk_index: int, chunk_count: int):
+        return {
+            "status": "ok",
+            "model": "fake-vllm",
+            "payload": {
+                "forecast_claims": [
+                    {
+                        "claim_text": "平安银行基本面改善，未来股价有望上涨。",
+                        "claim_provenance": "source_grounded",
+                        "forecast_testability": "testable",
+                        "forecast_type": "stock_outlook",
+                        "target": {"target_type": "stock", "target_id": "000001.SZ"},
+                        "benchmark": {},
+                        "direction": "positive",
+                        "horizon": {"max_days": 120, "unit": "trading_day"},
+                    }
+                ],
+                "analytical_footprints": [],
+                "metric_candidates": [],
+                "method_patterns": [],
+                "tool_gaps": [],
+            },
+        }
+
+    result = run_report_intelligence_refresh(
+        ReportIntelligenceConfig(
+            root=tmp_path,
+            source_ids=(source_id,),
+            qlib_stock_dir=qlib_stock_dir,
+            qlib_etf_dir=qlib_etf_dir,
+        ),
+        downloader=_fake_downloader,
+        converter=_fake_converter,
+        llm_extractor=llm,
+    )
+
+    assert result.stock_price_proxy_outcome_label_rows == 0
+    readiness = json.loads(
+        (tmp_path / "registry/report_intelligence/outcome_labeling_readiness.json")
+        .read_text(encoding="utf-8")
+    )
+    assert readiness["stock_price_proxy_readiness"]["data_gap_counts"] == {
+        "stock_delisted_before_exit": 4
     }
 
 
