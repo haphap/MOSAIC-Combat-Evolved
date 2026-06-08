@@ -7040,6 +7040,58 @@ def build_prompt_mutation_candidates(
             blocked_by=["paper_trading_validation_required", "lockbox_required"],
         )
     markdown_summary = _ensure_mapping(markdown_coverage_summary)
+    coverage_gate_blockers = [
+        str(item)
+        for item in _ensure_list(markdown_summary.get("coverage_gate_blockers"))
+        if str(item).strip()
+    ]
+    if (
+        str(markdown_summary.get("coverage_gate_status") or "") == "blocked"
+        or coverage_gate_blockers
+    ):
+        _add_prompt_mutation_candidate(
+            candidates,
+            run_id=run_id,
+            candidate_type="markdown_coverage_expansion_rule",
+            target_scope="report_intelligence.markdown_corpus_expansion",
+            target_component="report_selection_and_mineru_pipeline",
+            proposed_change=(
+                "Expand private PDF-to-Markdown coverage to the P9 thresholds "
+                "before allowing prompt evolution to depend on report-derived "
+                "Markdown evidence."
+            ),
+            trigger_sources=["markdown_coverage_summary"],
+            evidence_refs=[
+                {
+                    "artifact_path": "registry/report_intelligence/markdown_coverage_summary.json",
+                    "field": "coverage_gate_status",
+                    "coverage_gate_status": str(
+                        markdown_summary.get("coverage_gate_status") or ""
+                    ),
+                    "coverage_gate_blockers": coverage_gate_blockers,
+                    "coverage_targets": _ensure_mapping(
+                        markdown_summary.get("coverage_targets")
+                    ),
+                    "selected_report_count": int(
+                        markdown_summary.get("selected_report_count") or 0
+                    ),
+                    "markdown_ready_count": int(
+                        markdown_summary.get("markdown_ready_count") or 0
+                    ),
+                    "markdown_quality_pass_count": int(
+                        markdown_summary.get("markdown_quality_pass_count") or 0
+                    ),
+                    "llm_extraction_processed_count": int(
+                        markdown_summary.get("llm_extraction_processed_count") or 0
+                    ),
+                }
+            ],
+            severity="high",
+            blocked_by=[
+                "p9_markdown_coverage_target_pending",
+                "manual_corpus_quality_review_required",
+            ],
+        )
     quality_gaps = _count_mapping_values(
         _ensure_mapping(markdown_summary.get("markdown_quality_gap_counts"))
     )

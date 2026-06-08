@@ -1073,6 +1073,61 @@ def test_report_intelligence_recipe_paper_trading_requires_direct_pit_evidence()
     assert blocked_observations[0]["drift_status"] == "paper_trading_blocked"
 
 
+def test_report_intelligence_prompt_mutation_candidates_track_markdown_coverage_gate():
+    candidates = build_prompt_mutation_candidates(
+        run_id="RIR-TEST-MUTATION",
+        outcome_labeling_readiness={
+            "mapping_gap_counts": {},
+            "stock_price_proxy_readiness": {"data_gap_counts": {}},
+            "industry_etf_proxy_readiness": {"data_gap_counts": {}},
+        },
+        tool_gap_rows=[],
+        recipe_paper_trading_runs=[],
+        confidence_impact_observation_rows=[],
+        confidence_impact_monitor={"drift_status_counts": {}},
+        markdown_coverage_summary={
+            "selected_report_count": 42,
+            "markdown_ready_count": 20,
+            "markdown_quality_pass_count": 18,
+            "llm_extraction_processed_count": 7,
+            "coverage_targets": {
+                "selected_report_count_min": 300,
+                "markdown_ready_count_min": 300,
+                "markdown_quality_pass_count_min": 300,
+                "llm_extraction_processed_count_min": 100,
+            },
+            "coverage_gate_status": "blocked",
+            "coverage_gate_blockers": [
+                "selected_report_count_below_target",
+                "llm_extraction_processed_count_below_target",
+            ],
+            "markdown_quality_gap_counts": {},
+        },
+        industry_etf_proxy_pit_availability={"pit_gap_counts": {}},
+    )
+
+    coverage = [
+        row
+        for row in candidates
+        if row["candidate_type"] == "markdown_coverage_expansion_rule"
+    ]
+    assert len(coverage) == 1
+    candidate = coverage[0]
+    assert candidate["target_component"] == "report_selection_and_mineru_pipeline"
+    assert candidate["severity"] == "high"
+    assert "p9_markdown_coverage_target_pending" in candidate["blocked_by"]
+    evidence = candidate["evidence_refs"][0]
+    assert evidence["coverage_gate_status"] == "blocked"
+    assert evidence["coverage_targets"]["selected_report_count_min"] == 300
+    assert evidence["selected_report_count"] == 42
+    assert evidence["llm_extraction_processed_count"] == 7
+    assert candidate["production_prompt_change_allowed"] is False
+    assert candidate["private_text_included"] is False
+    candidate_dump = json.dumps(candidate, ensure_ascii=False)
+    assert "claim_text" not in candidate_dump
+    assert "source_span_ids" not in candidate_dump
+
+
 def test_report_intelligence_prompt_mutation_candidates_track_calibration_drift():
     candidates = build_prompt_mutation_candidates(
         run_id="RIR-TEST-MUTATION",

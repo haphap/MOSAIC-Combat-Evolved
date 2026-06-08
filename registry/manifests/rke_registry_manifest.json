@@ -337,9 +337,9 @@
       "sha256": "sha256:82fc8131f3a4b310e777f42ae90baa14c9de90024c5c2ca6bfa57195a67d83ff"
     },
     {
-      "bytes": 7277,
+      "bytes": 9177,
       "path": "registry/report_intelligence/prompt_mutation_candidates.jsonl",
-      "sha256": "sha256:bcf1815fd8a63ad02e8795529f5cf522245bcb43ca0b2d26ee9e341456af6180"
+      "sha256": "sha256:2fa7cf0be98dcb07df237e3082829f7eb879b452d254f58b8dd8f114163ef776"
     },
     {
       "bytes": 9737,
