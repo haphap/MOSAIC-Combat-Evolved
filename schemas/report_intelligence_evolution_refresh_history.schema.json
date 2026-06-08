@@ -20,6 +20,7 @@
       ]
     },
     "run_id": {"type": "string", "minLength": 1},
+    "data_vintage_hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
     "as_of_datetime": {"type": "string", "minLength": 1},
     "accepted": {"type": "boolean"},
     "stable": {"type": "boolean"},

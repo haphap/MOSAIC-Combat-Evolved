@@ -7602,6 +7602,159 @@ def _evolution_gate_check(
     }
 
 
+def _history_vintage_key(row: Mapping[str, Any]) -> str:
+    data_vintage_hash = str(row.get("data_vintage_hash") or "").strip()
+    if data_vintage_hash.startswith("sha256:"):
+        return data_vintage_hash
+    return "legacy-unvintaged"
+
+
+def _evolution_data_vintage_hash(
+    *,
+    forecast_rows: Sequence[Mapping[str, Any]],
+    outcome_label_rows: Sequence[Mapping[str, Any]],
+    recipe_paper_trading_summary: Mapping[str, Any],
+    confidence_impact_monitor: Mapping[str, Any],
+    markdown_coverage_summary: Mapping[str, Any],
+    pit_leakage_audit: Mapping[str, Any],
+    extraction_provenance_audit: Mapping[str, Any],
+    statistical_robustness_audit: Mapping[str, Any],
+    gold_review_summary: Mapping[str, Any],
+    outcome_labeling_readiness: Mapping[str, Any] | None,
+    schema_validation_report: Mapping[str, Any] | None,
+) -> str:
+    paper = _ensure_mapping(recipe_paper_trading_summary)
+    monitor = _ensure_mapping(confidence_impact_monitor)
+    markdown = _ensure_mapping(markdown_coverage_summary)
+    gold = _ensure_mapping(gold_review_summary)
+    readiness = _ensure_mapping(outcome_labeling_readiness)
+    audit = _audit_current_record(
+        schema_validation_report=schema_validation_report,
+        pit_leakage_audit=pit_leakage_audit,
+        extraction_provenance_audit=extraction_provenance_audit,
+        statistical_robustness_audit=statistical_robustness_audit,
+    )
+    stock_readiness = _ensure_mapping(readiness.get("stock_price_proxy_readiness"))
+    industry_readiness = _ensure_mapping(
+        readiness.get("industry_etf_proxy_readiness")
+    )
+    payload = {
+        "forecast_claim_count": len(forecast_rows),
+        "outcome_label_count": len(outcome_label_rows),
+        "outcome_coverage": _outcome_coverage_counts(outcome_label_rows),
+        "paper_trading": {
+            "recipe_count": int(paper.get("recipe_count") or 0),
+            "paper_trading_run_count": int(paper.get("paper_trading_run_count") or 0),
+            "validation_pass_count": int(paper.get("validation_pass_count") or 0),
+            "blocked_count": int(paper.get("blocked_count") or 0),
+            "status_counts": _count_mapping_values(
+                _ensure_mapping(paper.get("status_counts"))
+            ),
+            "blocker_counts": _count_mapping_values(
+                _ensure_mapping(paper.get("blocker_counts"))
+            ),
+            "mean_cost_adjusted_alpha": paper.get("mean_cost_adjusted_alpha"),
+        },
+        "confidence_monitor": {
+            "observation_count": int(monitor.get("observation_count") or 0),
+            "blocked_recipe_count": int(monitor.get("blocked_recipe_count") or 0),
+            "unvalidated_confidence_impact_count": int(
+                monitor.get("unvalidated_confidence_impact_count") or 0
+            ),
+            "alpha_decay_fail_count": int(
+                monitor.get("alpha_decay_fail_count") or 0
+            ),
+            "calibration_drift_count": int(
+                monitor.get("calibration_drift_count") or 0
+            ),
+            "blocker_counts": _count_mapping_values(
+                _ensure_mapping(monitor.get("blocker_counts"))
+            ),
+            "drift_status_counts": _count_mapping_values(
+                _ensure_mapping(monitor.get("drift_status_counts"))
+            ),
+            "calibration_drift_rule_counts": _count_mapping_values(
+                _ensure_mapping(monitor.get("calibration_drift_rule_counts"))
+            ),
+        },
+        "markdown_coverage": {
+            "selected_report_count": int(markdown.get("selected_report_count") or 0),
+            "markdown_ready_count": int(markdown.get("markdown_ready_count") or 0),
+            "markdown_quality_pass_count": int(
+                markdown.get("markdown_quality_pass_count") or 0
+            ),
+            "llm_extraction_processed_count": int(
+                markdown.get("llm_extraction_processed_count") or 0
+            ),
+            "coverage_gate_status": str(markdown.get("coverage_gate_status") or ""),
+            "coverage_gate_blockers": _ensure_list(
+                markdown.get("coverage_gate_blockers")
+            ),
+            "markdown_quality_gap_counts": _count_mapping_values(
+                _ensure_mapping(markdown.get("markdown_quality_gap_counts"))
+            ),
+            "report_type_counts": _count_mapping_values(
+                _ensure_mapping(markdown.get("report_type_counts"))
+            ),
+        },
+        "gold_review": {
+            "accepted": gold.get("accepted") is True,
+            "passed": gold.get("passed") is True,
+            "reviewed_claims": int(gold.get("reviewed_claims") or 0),
+            "pending_claims": int(gold.get("pending_claims") or 0),
+        },
+        "readiness": {
+            "forecast_claim_count": int(readiness.get("forecast_claim_count") or 0),
+            "ready_for_outcome_labeling_count": int(
+                readiness.get("ready_for_outcome_labeling_count") or 0
+            ),
+            "proxy_label_ready_count": int(
+                readiness.get("proxy_label_ready_count") or 0
+            ),
+            "blocked_count": int(readiness.get("blocked_count") or 0),
+            "mapping_gap_counts": _count_mapping_values(
+                _ensure_mapping(readiness.get("mapping_gap_counts"))
+            ),
+            "stock_price_proxy_readiness": {
+                "eligible_claim_count": int(
+                    stock_readiness.get("eligible_claim_count") or 0
+                ),
+                "labelable_forecast_claim_count": int(
+                    stock_readiness.get("labelable_forecast_claim_count") or 0
+                ),
+                "labelable_window_count": int(
+                    stock_readiness.get("labelable_window_count") or 0
+                ),
+                "data_gap_counts": _count_mapping_values(
+                    _ensure_mapping(stock_readiness.get("data_gap_counts"))
+                ),
+            },
+            "industry_etf_proxy_readiness": {
+                "eligible_claim_count": int(
+                    industry_readiness.get("eligible_claim_count") or 0
+                ),
+                "labelable_forecast_claim_count": int(
+                    industry_readiness.get("labelable_forecast_claim_count") or 0
+                ),
+                "labelable_window_count": int(
+                    industry_readiness.get("labelable_window_count") or 0
+                ),
+                "data_gap_counts": _count_mapping_values(
+                    _ensure_mapping(industry_readiness.get("data_gap_counts"))
+                ),
+            },
+        },
+        "audits": audit,
+    }
+    encoded = json.dumps(
+        _jsonable(payload),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return "sha256:" + sha256(encoded).hexdigest()
+
+
 def _monitor_refresh_record_passed(row: Mapping[str, Any]) -> bool:
     if "accepted" in row:
         return row.get("accepted") is True
@@ -7630,8 +7783,13 @@ def _audit_refresh_record_passed(row: Mapping[str, Any]) -> bool:
 
 
 def _trailing_pass_count(rows: Sequence[Mapping[str, Any]], *, kind: str) -> int:
+    seen_vintages: set[str] = set()
     count = 0
     for row in reversed(list(rows)):
+        vintage_key = _history_vintage_key(row)
+        if vintage_key in seen_vintages:
+            continue
+        seen_vintages.add(vintage_key)
         passed = (
             _monitor_refresh_record_passed(row)
             if kind == "monitor"
@@ -7655,8 +7813,13 @@ def _gap_distribution_record_stable(row: Mapping[str, Any]) -> bool:
 def _trailing_gap_distribution_stable_count(
     rows: Sequence[Mapping[str, Any]],
 ) -> int:
+    seen_vintages: set[str] = set()
     count = 0
     for row in reversed(list(rows)):
+        vintage_key = _history_vintage_key(row)
+        if vintage_key in seen_vintages:
+            continue
+        seen_vintages.add(vintage_key)
         if not _gap_distribution_record_stable(row):
             break
         count += 1
@@ -7677,10 +7840,15 @@ def _append_evolution_history_record(
     record: Mapping[str, Any],
 ) -> list[Mapping[str, Any]]:
     run_id = str(record.get("run_id") or "")
+    data_vintage_hash = str(record.get("data_vintage_hash") or "").strip()
     deduped = [
         dict(row)
         for row in rows
-        if str(row.get("run_id") or "") != run_id
+        if (
+            str(row.get("data_vintage_hash") or "").strip() != data_vintage_hash
+            if data_vintage_hash
+            else str(row.get("run_id") or "") != run_id
+        )
     ]
     deduped.append(dict(record))
     return deduped[-EVOLUTION_REFRESH_HISTORY_MAX_ROWS:]
@@ -7689,13 +7857,18 @@ def _append_evolution_history_record(
 def _monitor_refresh_history_record(
     *,
     run_id: str,
+    data_vintage_hash: str,
     confidence_impact_monitor: Mapping[str, Any],
 ) -> dict[str, Any]:
     monitor = _ensure_mapping(confidence_impact_monitor)
     return {
-        "history_id": _stable_id("MONHIST", {"run_id": run_id}),
+        "history_id": _stable_id(
+            "MONHIST",
+            {"data_vintage_hash": data_vintage_hash or run_id},
+        ),
         "history_type": "confidence_impact_monitor",
         "run_id": run_id,
+        "data_vintage_hash": data_vintage_hash,
         "as_of_datetime": _utc_now(),
         "accepted": _monitor_refresh_record_passed(monitor),
         "observation_count": int(monitor.get("observation_count") or 0),
@@ -7715,13 +7888,18 @@ def _monitor_refresh_history_record(
 def _audit_refresh_history_record(
     *,
     run_id: str,
+    data_vintage_hash: str,
     audit_record: Mapping[str, Any],
 ) -> dict[str, Any]:
     audit = _ensure_mapping(audit_record)
     return {
-        "history_id": _stable_id("AUDHIST", {"run_id": run_id}),
+        "history_id": _stable_id(
+            "AUDHIST",
+            {"data_vintage_hash": data_vintage_hash or run_id},
+        ),
         "history_type": "schema_pit_provenance_statistical_audit",
         "run_id": run_id,
+        "data_vintage_hash": data_vintage_hash,
         "as_of_datetime": _utc_now(),
         "accepted": _audit_refresh_record_passed(audit),
         "schema_accepted": audit.get("schema_accepted") is True,
@@ -7735,6 +7913,7 @@ def _audit_refresh_history_record(
 def _gap_distribution_history_record(
     *,
     run_id: str,
+    data_vintage_hash: str,
     outcome_labeling_readiness: Mapping[str, Any],
 ) -> dict[str, Any]:
     gap_counts = _count_mapping_values(
@@ -7750,9 +7929,13 @@ def _gap_distribution_history_record(
         max_gap_share = max_gap_count / total_gap_count
     stable = total_gap_count == 0 or max_gap_share <= 0.80
     return {
-        "history_id": _stable_id("GAPHIST", {"run_id": run_id}),
+        "history_id": _stable_id(
+            "GAPHIST",
+            {"data_vintage_hash": data_vintage_hash or run_id},
+        ),
         "history_type": "mapping_gap_distribution",
         "run_id": run_id,
+        "data_vintage_hash": data_vintage_hash,
         "as_of_datetime": _utc_now(),
         "accepted": stable,
         "stable": stable,
@@ -7768,11 +7951,16 @@ def _prepare_evolution_refresh_history(
     *,
     registry_dir: Path,
     run_id: str,
+    forecast_rows: Sequence[Mapping[str, Any]],
+    outcome_label_rows: Sequence[Mapping[str, Any]],
+    recipe_paper_trading_summary: Mapping[str, Any],
     confidence_impact_monitor: Mapping[str, Any],
+    markdown_coverage_summary: Mapping[str, Any],
     schema_validation_report: Mapping[str, Any],
     pit_leakage_audit: Mapping[str, Any],
     extraction_provenance_audit: Mapping[str, Any],
     statistical_robustness_audit: Mapping[str, Any],
+    gold_review_summary: Mapping[str, Any],
     outcome_labeling_readiness: Mapping[str, Any],
 ) -> dict[str, list[Mapping[str, Any]]]:
     monitor_history_rows = _read_evolution_history_rows(
@@ -7790,6 +7978,19 @@ def _prepare_evolution_refresh_history(
         extraction_provenance_audit=extraction_provenance_audit,
         statistical_robustness_audit=statistical_robustness_audit,
     )
+    data_vintage_hash = _evolution_data_vintage_hash(
+        forecast_rows=forecast_rows,
+        outcome_label_rows=outcome_label_rows,
+        recipe_paper_trading_summary=recipe_paper_trading_summary,
+        confidence_impact_monitor=confidence_impact_monitor,
+        markdown_coverage_summary=markdown_coverage_summary,
+        pit_leakage_audit=pit_leakage_audit,
+        extraction_provenance_audit=extraction_provenance_audit,
+        statistical_robustness_audit=statistical_robustness_audit,
+        gold_review_summary=gold_review_summary,
+        outcome_labeling_readiness=outcome_labeling_readiness,
+        schema_validation_report=schema_validation_report,
+    )
     return {
         "monitor_previous": monitor_history_rows,
         "audit_previous": audit_history_rows,
@@ -7798,6 +7999,7 @@ def _prepare_evolution_refresh_history(
             monitor_history_rows,
             _monitor_refresh_history_record(
                 run_id=run_id,
+                data_vintage_hash=data_vintage_hash,
                 confidence_impact_monitor=confidence_impact_monitor,
             ),
         ),
@@ -7805,6 +8007,7 @@ def _prepare_evolution_refresh_history(
             audit_history_rows,
             _audit_refresh_history_record(
                 run_id=run_id,
+                data_vintage_hash=data_vintage_hash,
                 audit_record=audit_record,
             ),
         ),
@@ -7812,6 +8015,7 @@ def _prepare_evolution_refresh_history(
             gap_distribution_history_rows,
             _gap_distribution_history_record(
                 run_id=run_id,
+                data_vintage_hash=data_vintage_hash,
                 outcome_labeling_readiness=outcome_labeling_readiness,
             ),
         ),
@@ -7873,6 +8077,19 @@ def build_report_intelligence_evolution_readiness_gate(
         if str(row.get("label_type") or "") == "industry_etf_proxy"
         and str(row.get("forecast_claim_id") or "").strip()
     }
+    data_vintage_hash = _evolution_data_vintage_hash(
+        forecast_rows=forecast_rows,
+        outcome_label_rows=outcome_label_rows,
+        recipe_paper_trading_summary=recipe_paper_trading_summary,
+        confidence_impact_monitor=confidence_impact_monitor,
+        markdown_coverage_summary=markdown_coverage_summary,
+        pit_leakage_audit=pit_leakage_audit,
+        extraction_provenance_audit=extraction_provenance_audit,
+        statistical_robustness_audit=statistical_robustness_audit,
+        gold_review_summary=gold_review_summary,
+        outcome_labeling_readiness=outcome_labeling_readiness,
+        schema_validation_report=schema_validation_report,
+    )
     checks: list[dict[str, Any]] = []
 
     outcome_blockers: list[str] = []
@@ -7936,9 +8153,14 @@ def build_report_intelligence_evolution_readiness_gate(
     )
 
     monitor = _ensure_mapping(confidence_impact_monitor)
+    current_monitor_record = _monitor_refresh_history_record(
+        run_id=run_id,
+        data_vintage_hash=data_vintage_hash,
+        confidence_impact_monitor=monitor,
+    )
     monitor_records = [
         *[dict(row) for row in monitor_refresh_history_rows],
-        dict(monitor),
+        current_monitor_record,
     ]
     monitor_trailing_pass_count = _trailing_pass_count(
         monitor_records,
@@ -7966,6 +8188,9 @@ def build_report_intelligence_evolution_readiness_gate(
                     monitor.get("unvalidated_confidence_impact_count") or 0
                 ),
                 "trailing_monitor_pass_count": monitor_trailing_pass_count,
+                "trailing_monitor_distinct_vintage_count": monitor_trailing_pass_count,
+                "data_vintage_hash": data_vintage_hash,
+                "distinct_data_vintage_required": True,
             },
             blockers=monitor_blockers,
         )
@@ -7977,9 +8202,14 @@ def build_report_intelligence_evolution_readiness_gate(
         extraction_provenance_audit=extraction_provenance_audit,
         statistical_robustness_audit=statistical_robustness_audit,
     )
+    current_audit_history_record = _audit_refresh_history_record(
+        run_id=run_id,
+        data_vintage_hash=data_vintage_hash,
+        audit_record=current_audit_record,
+    )
     audit_records = [
         *[dict(row) for row in audit_refresh_history_rows],
-        current_audit_record,
+        current_audit_history_record,
     ]
     audit_trailing_pass_count = _trailing_pass_count(audit_records, kind="audit")
     audit_blockers: list[str] = []
@@ -7998,6 +8228,9 @@ def build_report_intelligence_evolution_readiness_gate(
             evidence={
                 **current_audit_record,
                 "trailing_audit_pass_count": audit_trailing_pass_count,
+                "trailing_audit_distinct_vintage_count": audit_trailing_pass_count,
+                "data_vintage_hash": data_vintage_hash,
+                "distinct_data_vintage_required": True,
             },
             blockers=audit_blockers,
         )
@@ -8029,6 +8262,7 @@ def build_report_intelligence_evolution_readiness_gate(
     )
     current_gap_record = _gap_distribution_history_record(
         run_id=run_id,
+        data_vintage_hash=data_vintage_hash,
         outcome_labeling_readiness=readiness,
     )
     gap_records = [
@@ -8049,6 +8283,11 @@ def build_report_intelligence_evolution_readiness_gate(
             passed=not gap_blockers,
             evidence={
                 "trailing_gap_distribution_stable_count": gap_trailing_stable_count,
+                "trailing_gap_distribution_distinct_vintage_count": (
+                    gap_trailing_stable_count
+                ),
+                "data_vintage_hash": data_vintage_hash,
+                "distinct_data_vintage_required": True,
                 "current_mapping_gap_counts": current_gap_counts,
             },
             blockers=gap_blockers,
@@ -8089,6 +8328,7 @@ def build_report_intelligence_evolution_readiness_gate(
     return {
         "gate_id": "RKE-REPORT-INTELLIGENCE-EVOLUTION-READINESS-GATE",
         "run_id": run_id,
+        "data_vintage_hash": data_vintage_hash,
         "as_of_datetime": _utc_now(),
         "gate_status": "passed" if not blockers else "blocked",
         "promotion_state": (
@@ -8465,7 +8705,8 @@ def build_prompt_mutation_candidates(
             target_scope="report_intelligence.evolution_refresh_stability",
             target_component="derived_refresh_history_gate",
             proposed_change=(
-                "Accumulate three consecutive clean derived refreshes with "
+                "Accumulate three consecutive clean derived refreshes across "
+                "distinct aggregate data vintages with "
                 "blocker-free confidence monitor, schema/PIT/provenance/"
                 "statistical audits, and stable gap distributions before prompt "
                 "evolution can leave shadow candidate status."
@@ -8483,7 +8724,7 @@ def build_prompt_mutation_candidates(
                 else "medium"
             ),
             blocked_by=[
-                "three_clean_refreshes_required",
+                "three_distinct_clean_data_vintages_required",
                 "monitor_audit_gap_history_required",
             ],
         )
@@ -14515,11 +14756,16 @@ def run_report_intelligence_derived_refresh(
     evolution_history = _prepare_evolution_refresh_history(
         registry_dir=registry_dir,
         run_id=run_id,
+        forecast_rows=forecast_rows,
+        outcome_label_rows=outcome_label_rows,
+        recipe_paper_trading_summary=recipe_paper_trading_summary,
         confidence_impact_monitor=confidence_impact_monitor,
+        markdown_coverage_summary=markdown_coverage_summary,
         schema_validation_report=schema_validation_report,
         pit_leakage_audit=pit_leakage_audit,
         extraction_provenance_audit=extraction_provenance_audit,
         statistical_robustness_audit=statistical_robustness_audit,
+        gold_review_summary=gold_review_summary,
         outcome_labeling_readiness=outcome_labeling_readiness,
     )
     evolution_readiness_gate = build_report_intelligence_evolution_readiness_gate(
@@ -15401,11 +15647,16 @@ def run_report_intelligence_refresh(
     evolution_history = _prepare_evolution_refresh_history(
         registry_dir=registry_dir,
         run_id=run_id,
+        forecast_rows=forecast_rows,
+        outcome_label_rows=outcome_label_rows,
+        recipe_paper_trading_summary=recipe_paper_trading_summary,
         confidence_impact_monitor=confidence_impact_monitor,
+        markdown_coverage_summary=markdown_coverage_summary,
         schema_validation_report=schema_validation_report,
         pit_leakage_audit=pit_leakage_audit,
         extraction_provenance_audit=extraction_provenance_audit,
         statistical_robustness_audit=statistical_robustness_audit,
+        gold_review_summary=gold_review_summary,
         outcome_labeling_readiness=outcome_labeling_readiness,
     )
     evolution_readiness_gate = build_report_intelligence_evolution_readiness_gate(

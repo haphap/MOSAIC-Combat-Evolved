@@ -1732,6 +1732,8 @@ def test_report_intelligence_evolution_gate_passes_with_full_objective_evidence(
         "provenance_accepted": True,
         "statistical_accepted": True,
     }
+    previous_vintage_1 = "sha256:" + "1" * 64
+    previous_vintage_2 = "sha256:" + "2" * 64
     gate = build_report_intelligence_evolution_readiness_gate(
         run_id="RIR-TEST-EVOLUTION",
         forecast_rows=forecast_rows,
@@ -1760,16 +1762,22 @@ def test_report_intelligence_evolution_gate_passes_with_full_objective_evidence(
             "pending_claims": 0,
         },
         outcome_labeling_readiness={"mapping_gap_counts": {}},
-        monitor_refresh_history_rows=[clean_monitor, clean_monitor],
-        audit_refresh_history_rows=[accepted_audit, accepted_audit],
+        monitor_refresh_history_rows=[
+            {**clean_monitor, "data_vintage_hash": previous_vintage_1},
+            {**clean_monitor, "data_vintage_hash": previous_vintage_2},
+        ],
+        audit_refresh_history_rows=[
+            {**accepted_audit, "data_vintage_hash": previous_vintage_1},
+            {**accepted_audit, "data_vintage_hash": previous_vintage_2},
+        ],
         gap_distribution_history_rows=[
-            {"stable": True},
-            {"stable": True},
-            {"stable": True},
+            {"stable": True, "data_vintage_hash": previous_vintage_1},
+            {"stable": True, "data_vintage_hash": previous_vintage_2},
         ],
     )
 
     assert gate["gate_status"] == "passed"
+    assert str(gate["data_vintage_hash"]).startswith("sha256:")
     assert gate["blocker_count"] == 0
     assert gate["promotion_state"] == "ready_for_shadow_evolution_candidate"
     assert all(row["passed"] is True for row in gate["checks"])
@@ -1777,6 +1785,115 @@ def test_report_intelligence_evolution_gate_passes_with_full_objective_evidence(
     assert outcome_check["evidence"]["unique_outcome_claim_count"] == 100
     assert outcome_check["evidence"]["stock_proxy_unique_claim_count"] == 30
     assert outcome_check["evidence"]["industry_proxy_unique_claim_count"] == 30
+
+
+def test_report_intelligence_evolution_gate_requires_distinct_data_vintages():
+    outcome_rows = []
+    forecast_rows = []
+    for index in range(100):
+        if index < 30:
+            label_type = "stock_price_proxy"
+            prefix = "STOCK"
+        elif index < 60:
+            label_type = "industry_etf_proxy"
+            prefix = "IND"
+        else:
+            label_type = "standard_outcome"
+            prefix = "STD"
+        claim_id = f"FC-{prefix}-{index:03d}"
+        forecast_rows.append({"forecast_claim_id": claim_id})
+        outcome_rows.append(
+            {
+                "forecast_claim_id": claim_id,
+                "label_type": label_type,
+                "horizon_days": 20,
+                "effective_n_weight": 1.0,
+            }
+        )
+    clean_monitor = {
+        "observation_count": 20,
+        "blocked_recipe_count": 0,
+        "unvalidated_confidence_impact_count": 0,
+        "alpha_decay_fail_count": 0,
+        "calibration_drift_count": 0,
+        "blocker_counts": {},
+    }
+    accepted_audit = {
+        "schema_accepted": True,
+        "pit_accepted": True,
+        "provenance_accepted": True,
+        "statistical_accepted": True,
+    }
+    common_kwargs = {
+        "run_id": "RIR-TEST-EVOLUTION-REPEATED-VINTAGE",
+        "forecast_rows": forecast_rows,
+        "outcome_label_rows": outcome_rows,
+        "recipe_paper_trading_summary": {
+            "paper_trading_run_count": 20,
+            "validation_pass_count": 20,
+            "mean_cost_adjusted_alpha": 0.012,
+        },
+        "confidence_impact_monitor": clean_monitor,
+        "markdown_coverage_summary": {
+            "coverage_gate_status": "passed",
+            "coverage_gate_blockers": [],
+            "coverage_targets": {
+                "selected_report_count_min": 300,
+                "markdown_ready_count_min": 300,
+            },
+        },
+        "pit_leakage_audit": {"accepted": True},
+        "extraction_provenance_audit": {"accepted": True},
+        "statistical_robustness_audit": {"accepted": True},
+        "schema_validation_report": {"accepted": True},
+        "gold_review_summary": {
+            "passed": True,
+            "reviewed_claims": 500,
+            "pending_claims": 0,
+        },
+        "outcome_labeling_readiness": {"mapping_gap_counts": {}},
+    }
+    current_hash = build_report_intelligence_evolution_readiness_gate(
+        **common_kwargs
+    )["data_vintage_hash"]
+
+    gate = build_report_intelligence_evolution_readiness_gate(
+        **common_kwargs,
+        monitor_refresh_history_rows=[
+            {**clean_monitor, "data_vintage_hash": current_hash},
+            {**clean_monitor, "data_vintage_hash": current_hash},
+        ],
+        audit_refresh_history_rows=[
+            {**accepted_audit, "data_vintage_hash": current_hash},
+            {**accepted_audit, "data_vintage_hash": current_hash},
+        ],
+        gap_distribution_history_rows=[
+            {"stable": True, "data_vintage_hash": current_hash},
+            {"stable": True, "data_vintage_hash": current_hash},
+        ],
+    )
+
+    assert gate["gate_status"] == "blocked"
+    assert {
+        "confidence_impact_monitor_history_below_threshold",
+        "audit_refresh_history_below_threshold",
+        "gap_distribution_history_below_threshold",
+    } <= set(gate["blockers"])
+    monitor_check = next(
+        row for row in gate["checks"] if row["check_id"] == "RI-EVOL-03"
+    )
+    audit_check = next(
+        row for row in gate["checks"] if row["check_id"] == "RI-EVOL-04"
+    )
+    gap_check = next(
+        row for row in gate["checks"] if row["check_id"] == "RI-EVOL-06"
+    )
+    assert monitor_check["evidence"]["trailing_monitor_distinct_vintage_count"] == 1
+    assert audit_check["evidence"]["trailing_audit_distinct_vintage_count"] == 1
+    assert (
+        gap_check["evidence"]["trailing_gap_distribution_distinct_vintage_count"]
+        == 1
+    )
 
 
 def test_report_intelligence_prompt_mutation_candidates_track_markdown_coverage_gate():
@@ -1981,7 +2098,10 @@ def test_report_intelligence_prompt_mutation_candidates_track_gate_remediation()
     stability = by_type["evolution_refresh_stability_rule"]
     assert stability["target_component"] == "derived_refresh_history_gate"
     assert stability["severity"] == "high"
-    assert "three_clean_refreshes_required" in stability["blocked_by"]
+    assert (
+        "three_distinct_clean_data_vintages_required"
+        in stability["blocked_by"]
+    )
     check_ids = {row["check_id"] for row in stability["evidence_refs"]}
     assert check_ids == {"RI-EVOL-03", "RI-EVOL-04", "RI-EVOL-06"}
     assert any(
@@ -4269,11 +4389,13 @@ def test_report_intelligence_derived_refresh_backfills_explicit_horizon(
             / "registry/report_intelligence/evolution_readiness_gate.json"
         ).read_text(encoding="utf-8")
     )
+    assert str(evolution_gate["data_vintage_hash"]).startswith("sha256:")
     audit_gate = next(
         row for row in evolution_gate["checks"] if row["check_id"] == "RI-EVOL-04"
     )
     assert audit_gate["evidence"]["schema_accepted"] is True
     assert audit_gate["evidence"]["trailing_audit_pass_count"] == 1
+    assert audit_gate["evidence"]["data_vintage_hash"] == evolution_gate["data_vintage_hash"]
     audit_history = _read_jsonl(
         tmp_path / "registry/report_intelligence/audit_refresh_history.jsonl"
     )
@@ -4281,11 +4403,13 @@ def test_report_intelligence_derived_refresh_backfills_explicit_horizon(
         "schema_pit_provenance_statistical_audit"
     )
     assert audit_history[-1]["schema_accepted"] is True
+    assert audit_history[-1]["data_vintage_hash"] == evolution_gate["data_vintage_hash"]
     assert audit_history[-1]["private_text_included"] is False
     gap_history = _read_jsonl(
         tmp_path / "registry/report_intelligence/gap_distribution_history.jsonl"
     )
     assert gap_history[-1]["history_type"] == "mapping_gap_distribution"
+    assert gap_history[-1]["data_vintage_hash"] == evolution_gate["data_vintage_hash"]
     assert gap_history[-1]["private_text_included"] is False
 
 
