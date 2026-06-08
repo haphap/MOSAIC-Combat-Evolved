@@ -4206,6 +4206,31 @@ def _entry_limit_locked(
     return None
 
 
+def _exit_limit_locked(
+    *,
+    direction: str,
+    previous_close: float | None,
+    open_price: float | None,
+    high_price: float | None,
+    low_price: float | None,
+    close_price: float | None,
+) -> bool | None:
+    if direction == "positive":
+        exit_direction = "negative"
+    elif direction == "negative":
+        exit_direction = "positive"
+    else:
+        return None
+    return _entry_limit_locked(
+        direction=exit_direction,
+        previous_close=previous_close,
+        open_price=open_price,
+        high_price=high_price,
+        low_price=low_price,
+        close_price=close_price,
+    )
+
+
 def _source_report_metadata(
     metadata_rows: Sequence[Mapping[str, Any]],
 ) -> dict[str, Mapping[str, Any]]:
@@ -4870,6 +4895,40 @@ def build_stock_price_proxy_readiness(
             if exit_volume_ok is None:
                 add_gap("entry_liquidity_unverified")
                 continue
+            exit_locked = _exit_limit_locked(
+                direction=direction,
+                previous_close=_series_value_at_calendar_index(
+                    start_index=close_start,
+                    values=close_values,
+                    calendar_index=exit_index - 1,
+                ),
+                open_price=_series_value_at_calendar_index(
+                    start_index=open_start,
+                    values=open_values,
+                    calendar_index=exit_index,
+                ),
+                high_price=_series_value_at_calendar_index(
+                    start_index=high_start,
+                    values=high_values,
+                    calendar_index=exit_index,
+                ),
+                low_price=_series_value_at_calendar_index(
+                    start_index=low_start,
+                    values=low_values,
+                    calendar_index=exit_index,
+                ),
+                close_price=_series_value_at_calendar_index(
+                    start_index=close_start,
+                    values=close_values,
+                    calendar_index=exit_index,
+                ),
+            )
+            if exit_locked is True:
+                add_gap("exit_limit_locked")
+                continue
+            if exit_locked is None:
+                add_gap("entry_liquidity_unverified")
+                continue
             if _series_value_at_date(
                 calendar=benchmark_calendar,
                 start_index=benchmark_start,
@@ -5302,6 +5361,36 @@ def build_stock_price_proxy_outcome_labels(
                 calendar_index=exit_index,
             )
             if exit_volume_ok is not True:
+                continue
+            exit_locked = _exit_limit_locked(
+                direction=direction,
+                previous_close=_series_value_at_calendar_index(
+                    start_index=close_start,
+                    values=close_values,
+                    calendar_index=exit_index - 1,
+                ),
+                open_price=_series_value_at_calendar_index(
+                    start_index=open_start,
+                    values=open_values,
+                    calendar_index=exit_index,
+                ),
+                high_price=_series_value_at_calendar_index(
+                    start_index=high_start,
+                    values=high_values,
+                    calendar_index=exit_index,
+                ),
+                low_price=_series_value_at_calendar_index(
+                    start_index=low_start,
+                    values=low_values,
+                    calendar_index=exit_index,
+                ),
+                close_price=_series_value_at_calendar_index(
+                    start_index=close_start,
+                    values=close_values,
+                    calendar_index=exit_index,
+                ),
+            )
+            if exit_locked is not False:
                 continue
             benchmark_exit_price = _series_value_at_date(
                 calendar=benchmark_calendar,
@@ -8037,6 +8126,7 @@ def build_report_intelligence_pit_leakage_audit(
             forbidden_stock_gaps = {
                 "stock_entry_suspended",
                 "entry_limit_locked",
+                "exit_limit_locked",
                 "stock_delisted_before_exit",
             }
             label_gaps = set(str(item) for item in _ensure_list(label.get("readiness_gaps")))

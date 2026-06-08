@@ -141,6 +141,30 @@ def _write_qlib_stock_fixture(
         _write_qlib_series(root, symbol, field_values, field=field)
 
 
+def _write_qlib_stock_exit_limit_locked_fixture(root: Path) -> None:
+    dates = _stock_fixture_dates()
+    _write_qlib_calendar(root, dates)
+    values = [1.0 + index * 0.001 for index in range(len(dates))]
+    exit_index = 7
+    values[exit_index - 1] = 1.0
+    values[exit_index] = 0.9
+    open_values = list(values)
+    high_values = [value * 1.001 for value in values]
+    low_values = [value * 0.999 for value in values]
+    close_values = list(values)
+    for field_values in (open_values, high_values, low_values, close_values):
+        field_values[exit_index] = 0.9
+    for field, field_values in {
+        "adjclose": values,
+        "close": close_values,
+        "open": open_values,
+        "high": high_values,
+        "low": low_values,
+        "volume": [100.0 for _ in dates],
+    }.items():
+        _write_qlib_series(root, "000001.SZ", field_values, field=field)
+
+
 def _write_qlib_stock_benchmark_fixture(root: Path) -> None:
     stock_dates = _stock_fixture_dates()
     dates = ["2025-12-31", *stock_dates]
@@ -2144,6 +2168,73 @@ def test_report_intelligence_stock_entry_suspension_blocks_labeling(
     }
 
 
+def test_report_intelligence_stock_exit_limit_locked_blocks_window(
+    tmp_path: Path,
+):
+    source_id = _write_source(
+        tmp_path / "registry/sources/tushare_research_reports.jsonl",
+        industry="银行",
+        report_type="公司研报",
+        publish_date="2026-01-02",
+        ts_code="000001.SZ",
+    )
+    qlib_stock_dir = tmp_path / "qlib_stock"
+    qlib_etf_dir = tmp_path / "qlib_etf"
+    _write_qlib_stock_exit_limit_locked_fixture(qlib_stock_dir)
+    _write_qlib_stock_benchmark_fixture(qlib_etf_dir)
+
+    def llm(row, chunk: str, span_id: str, chunk_index: int, chunk_count: int):
+        return {
+            "status": "ok",
+            "model": "fake-vllm",
+            "payload": {
+                "forecast_claims": [
+                    {
+                        "claim_text": "平安银行基本面改善，未来股价有望上涨。",
+                        "claim_provenance": "source_grounded",
+                        "forecast_testability": "testable",
+                        "forecast_type": "stock_outlook",
+                        "target": {"target_type": "stock", "target_id": "000001.SZ"},
+                        "benchmark": {},
+                        "direction": "positive",
+                        "horizon": {"max_days": 120, "unit": "trading_day"},
+                    }
+                ],
+                "analytical_footprints": [],
+                "metric_candidates": [],
+                "method_patterns": [],
+                "tool_gaps": [],
+            },
+        }
+
+    result = run_report_intelligence_refresh(
+        ReportIntelligenceConfig(
+            root=tmp_path,
+            source_ids=(source_id,),
+            qlib_stock_dir=qlib_stock_dir,
+            qlib_etf_dir=qlib_etf_dir,
+        ),
+        downloader=_fake_downloader,
+        converter=_fake_converter,
+        llm_extractor=llm,
+    )
+
+    assert result.stock_price_proxy_outcome_label_rows == 3
+    outcome_labels = _read_jsonl(
+        tmp_path / "registry/report_intelligence/report_outcome_labels.jsonl"
+    )
+    assert {row["horizon_days"] for row in outcome_labels} == {20, 60, 120}
+
+    readiness = json.loads(
+        (tmp_path / "registry/report_intelligence/outcome_labeling_readiness.json")
+        .read_text(encoding="utf-8")
+    )
+    assert readiness["stock_price_proxy_readiness"]["data_gap_counts"] == {
+        "exit_limit_locked": 1
+    }
+    assert readiness["stock_price_proxy_readiness"]["labelable_window_count"] == 3
+
+
 def test_report_intelligence_pit_audit_rejects_t0_stock_entry():
     audit = build_report_intelligence_pit_leakage_audit(
         run_id="RIR-PIT-STOCK-T0-TEST",
@@ -2195,6 +2286,59 @@ def test_report_intelligence_pit_audit_rejects_t0_stock_entry():
     assert any("stock entry_datetime must be after signal date" in item for item in audit["blockers"])
     assert any("stock entry_lag_trading_days" in item for item in audit["blockers"])
     assert any("stock benchmark must align by date" in item for item in audit["blockers"])
+
+
+def test_report_intelligence_pit_audit_rejects_stock_exit_limit_locked_label():
+    audit = build_report_intelligence_pit_leakage_audit(
+        run_id="RIR-PIT-STOCK-EXIT-LOCKED-TEST",
+        feature_flags={
+            "rollout_mode": "shadow_tooling",
+            "flags": {"production_use_of_weighted_reports": False},
+        },
+        metadata_rows=[
+            {
+                "source_id": "SRC-STOCK-EXIT-LOCKED",
+                "accessible_datetime": "2026-01-02T00:00:00+08:00",
+            }
+        ],
+        forecast_rows=[
+            {
+                "forecast_claim_id": "FC-STOCK-EXIT-LOCKED",
+                "source_id": "SRC-STOCK-EXIT-LOCKED",
+                "signal_datetime": "2026-01-02T00:00:00+08:00",
+            }
+        ],
+        forecast_ledger_rows=[
+            {
+                "forecast_claim_id": "FC-STOCK-EXIT-LOCKED",
+                "as_of_datetime": "2026-01-02T00:00:00+08:00",
+            }
+        ],
+        outcome_label_rows=[
+            {
+                "outcome_id": "OUT-STOCK-EXIT-LOCKED",
+                "forecast_claim_id": "FC-STOCK-EXIT-LOCKED",
+                "entry_datetime": "2026-01-03T00:00:00+08:00",
+                "exit_datetime": "2026-01-08T00:00:00+08:00",
+                "pit_valid": True,
+                "survivorship_safe": False,
+                "survivorship_check": "survivorship_unverified_qlib_cn_data",
+                "label_type": "stock_price_proxy",
+                "entry_lag_trading_days": 1,
+                "benchmark_source": "cn_etf",
+                "benchmark_alignment": "date_key_cross_qlib_dir",
+                "latest_calendar_date": "2026-05-31",
+                "readiness_gaps": ["exit_limit_locked"],
+            }
+        ],
+        source_performance_profile_rows=[],
+        tool_coverage_match_rows=[],
+        analysis_recipe_rows=[],
+        weighted_research_context_rows=[],
+    )
+
+    assert audit["accepted"] is False
+    assert any("exit_limit_locked" in item for item in audit["blockers"])
 
 
 def test_report_intelligence_pit_audit_allows_shadow_stock_survivorship_unverified():
