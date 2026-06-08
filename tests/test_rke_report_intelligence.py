@@ -16,6 +16,7 @@ from mosaic.rke.report_intelligence import (
     MineruBatchConversionTask,
     ReportIntelligenceConfig,
     REPORT_INTELLIGENCE_PRIVATE_OUTPUT_PATHS,
+    build_analysis_recipes,
     build_report_intelligence_pit_leakage_audit,
     apply_analytical_footprint_review_import,
     build_confidence_impact_monitor,
@@ -998,6 +999,35 @@ def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
     assert source_id not in candidate_dump
 
 
+def test_report_intelligence_analysis_recipes_pin_required_data():
+    recipes = build_analysis_recipes(
+        [
+            {
+                "method_pattern_id": "METHOD-REQUIRED-DATA",
+                "name": "Required Data Method",
+                "required_current_data": ["stock_price", "benchmark_return"],
+                "steps": ["compare stock price with benchmark return"],
+            },
+            {
+                "method_pattern_id": "METHOD-INFERRED-DATA",
+                "name": "Inferred Data Method",
+                "required_current_data": [],
+                "steps": ["calculate sector index return"],
+            },
+        ]
+    )
+
+    by_id = {row["method_pattern_id"]: row for row in recipes}
+    assert by_id["METHOD-REQUIRED-DATA"]["promotion_state"] == "shadow_candidate"
+    assert by_id["METHOD-REQUIRED-DATA"]["required_data"] == [
+        "stock_price",
+        "benchmark_return",
+    ]
+    assert by_id["METHOD-INFERRED-DATA"]["required_data"] == [
+        "metric:calculate_sector_index_return"
+    ]
+
+
 def test_report_intelligence_recipe_paper_trading_requires_direct_pit_evidence():
     recipe = {
         "analysis_recipe_id": "RECIPE-DIRECT-PIT",
@@ -1005,6 +1035,7 @@ def test_report_intelligence_recipe_paper_trading_requires_direct_pit_evidence()
         "version": "0.1.0",
         "runtime_mode": "shadow_only",
         "required_tools": ["market.price_proxy"],
+        "required_data": ["stock_price", "benchmark_return"],
         "steps": [{"step": 1, "tool": "market.price_proxy"}],
         "output_signal": {"name": "direct_pit_score"},
     }
@@ -1052,6 +1083,7 @@ def test_report_intelligence_recipe_paper_trading_requires_direct_pit_evidence()
 
     assert runs[0]["paper_trading_status"] == "passed"
     assert runs[0]["blocked_reasons"] == []
+    assert runs[0]["required_data"] == ["stock_price", "benchmark_return"]
     assert runs[0]["profile_weight_support"]["profile_only_validation_allowed"] is False
     assert runs[0]["pre_registered_protocol"][
         "parameter_tuning_after_results_allowed"
@@ -1103,6 +1135,17 @@ def test_report_intelligence_recipe_paper_trading_requires_direct_pit_evidence()
     assert blocked_observations[0]["confidence_delta"] == 0.0
     assert blocked_observations[0]["drift_status"] == "paper_trading_blocked"
 
+    missing_required_data = dict(recipe)
+    missing_required_data["required_data"] = []
+    missing_data_runs = build_recipe_paper_trading_runs(
+        run_id="RIR-TEST-PAPER",
+        analysis_recipe_rows=[missing_required_data],
+        outcome_label_rows=labels,
+        method_performance_profile_rows=[],
+    )
+    assert missing_data_runs[0]["paper_trading_status"] == "blocked"
+    assert "required_data_missing" in missing_data_runs[0]["blocked_reasons"]
+
 
 def test_report_intelligence_recipe_paper_trading_flags_alpha_decay_fail():
     recipe = {
@@ -1111,6 +1154,7 @@ def test_report_intelligence_recipe_paper_trading_flags_alpha_decay_fail():
         "version": "0.1.0",
         "runtime_mode": "shadow_only",
         "required_tools": ["market.price_proxy"],
+        "required_data": ["stock_price", "benchmark_return"],
         "steps": [{"step": 1, "tool": "market.price_proxy"}],
         "output_signal": {"name": "decay_sensitive_score"},
     }
@@ -1174,6 +1218,7 @@ def test_report_intelligence_recipe_paper_trading_flags_regime_fragile_alpha():
         "version": "0.1.0",
         "runtime_mode": "shadow_only",
         "required_tools": ["market.price_proxy"],
+        "required_data": ["stock_price", "benchmark_return"],
         "steps": [{"step": 1, "tool": "market.price_proxy"}],
         "output_signal": {"name": "regime_fragile_score"},
     }
@@ -1261,6 +1306,7 @@ def test_report_intelligence_recipe_paper_trading_flags_cost_decay_fail():
         "version": "0.1.0",
         "runtime_mode": "shadow_only",
         "required_tools": ["market.price_proxy"],
+        "required_data": ["stock_price", "benchmark_return"],
         "steps": [{"step": 1, "tool": "market.price_proxy"}],
         "output_signal": {"name": "turnover_sensitive_score"},
     }

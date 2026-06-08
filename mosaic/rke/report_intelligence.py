@@ -6334,8 +6334,10 @@ def build_analysis_recipes(
                 "name": name,
                 "method_pattern_id": method_id,
                 "version": "0.1.0",
+                "promotion_state": "shadow_candidate",
                 "runtime_mode": "shadow_only",
                 "required_tools": list(dict.fromkeys(required_tools)),
+                "required_data": _analysis_recipe_required_data(method, steps),
                 "steps": steps,
                 "output_signal": {
                     "name": f"{_canonical_metric_name(name)}_score",
@@ -6352,6 +6354,26 @@ def build_analysis_recipes(
             }
         )
     return recipes
+
+
+def _analysis_recipe_required_data(
+    method: Mapping[str, Any],
+    steps: Sequence[Mapping[str, Any]],
+) -> list[str]:
+    explicit = [
+        str(item).strip()
+        for item in _ensure_list(method.get("required_current_data"))
+        if str(item).strip()
+    ]
+    if explicit:
+        return list(dict.fromkeys(explicit))
+    inferred = [
+        f"metric:{str(step.get('metric')).strip()}"
+        for step in steps
+        if str(step.get("metric") or "").strip()
+        and str(step.get("metric") or "").strip() != "unknown_metric"
+    ]
+    return list(dict.fromkeys(inferred))
 
 
 RECIPE_PAPER_TRADING_PROTOCOL_VERSION = "recipe_shadow_paper_trading_v1"
@@ -6374,7 +6396,9 @@ def _recipe_preregistration_hash(recipe: Mapping[str, Any]) -> str:
         "analysis_recipe_id": recipe.get("analysis_recipe_id"),
         "method_pattern_id": recipe.get("method_pattern_id"),
         "version": recipe.get("version"),
+        "promotion_state": recipe.get("promotion_state"),
         "required_tools": _ensure_list(recipe.get("required_tools")),
+        "required_data": _ensure_list(recipe.get("required_data")),
         "steps": _ensure_list(recipe.get("steps")),
         "protocol_version": RECIPE_PAPER_TRADING_PROTOCOL_VERSION,
         "entry_rule": "T+1_or_more_conservative_shadow_entry",
@@ -6629,6 +6653,13 @@ def build_recipe_paper_trading_runs(
             for tool in _ensure_list(recipe.get("required_tools"))
         ):
             blockers.append("required_tools_not_shadow_implemented")
+        required_data = [
+            str(item).strip()
+            for item in _ensure_list(recipe.get("required_data"))
+            if str(item).strip()
+        ]
+        if not required_data:
+            blockers.append("required_data_missing")
         if str(recipe.get("runtime_mode") or "") != "shadow_only":
             blockers.append("unsupported_runtime_mode")
         cost_adjusted_alpha = _float_or_none(metrics.get("cost_adjusted_alpha"))
@@ -6717,7 +6748,7 @@ def build_recipe_paper_trading_runs(
                 "paper_trading_status": status,
                 "source_method_pattern_ids": [method_id] if method_id else [],
                 "required_tools": _ensure_list(recipe.get("required_tools")),
-                "required_data": [],
+                "required_data": required_data,
                 "decision_scope": _ensure_mapping(recipe.get("output_signal")).get(
                     "name",
                     "",

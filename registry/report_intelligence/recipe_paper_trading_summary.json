@@ -1,5 +1,5 @@
 {
-  "as_of_datetime": "2026-06-08T08:11:39+00:00",
+  "as_of_datetime": "2026-06-08T08:57:24+00:00",
   "blocked_count": 5,
   "blocked_recipe_ids": [
     "RECIPE-06f48d5a725b5b4e",
@@ -22,7 +22,7 @@
   "profile_paper_trade_disagreement_count": 0,
   "protocol_version": "recipe_shadow_paper_trading_v1",
   "recipe_count": 5,
-  "run_id": "RIR-PUBLIC-RECIPE-PAPER-TRADING",
+  "run_id": "RIR-PUBLIC-RECIPE-REQUIRED-DATA",
   "status_counts": {
     "blocked": 5
   },
