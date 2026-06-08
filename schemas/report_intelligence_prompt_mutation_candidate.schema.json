@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RKE Report Intelligence Prompt Mutation Candidate",
+  "type": "object",
+  "required": [
+    "mutation_candidate_id",
+    "run_id",
+    "schema_version",
+    "candidate_type",
+    "target_scope",
+    "target_component",
+    "proposed_change",
+    "trigger_sources",
+    "evidence_refs",
+    "severity",
+    "validation_requirements",
+    "blocked_by",
+    "promotion_state",
+    "manual_review_required",
+    "production_prompt_change_allowed",
+    "private_text_included",
+    "policy"
+  ],
+  "properties": {
+    "mutation_candidate_id": {"type": "string", "minLength": 1},
+    "run_id": {"type": "string", "minLength": 1},
+    "schema_version": {"type": "string", "minLength": 1},
+    "candidate_type": {"type": "string", "minLength": 1},
+    "target_scope": {"type": "string", "minLength": 1},
+    "target_component": {"type": "string", "minLength": 1},
+    "proposed_change": {"type": "string", "minLength": 1},
+    "trigger_sources": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+    "evidence_refs": {"type": "array", "items": {"type": "object"}, "minItems": 1},
+    "severity": {"enum": ["low", "medium", "high"]},
+    "validation_requirements": {
+      "type": "array",
+      "items": {"type": "string"},
+      "minItems": 1
+    },
+    "blocked_by": {"type": "array", "items": {"type": "string"}},
+    "promotion_state": {"type": "string", "minLength": 1},
+    "manual_review_required": {"type": "boolean"},
+    "production_prompt_change_allowed": {"type": "boolean", "const": false},
+    "private_text_included": {"type": "boolean", "const": false},
+    "policy": {"type": "string", "minLength": 1}
+  },
+  "additionalProperties": true
+}

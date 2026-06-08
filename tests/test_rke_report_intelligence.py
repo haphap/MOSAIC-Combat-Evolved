@@ -20,6 +20,7 @@ from mosaic.rke.report_intelligence import (
     apply_analytical_footprint_review_import,
     build_confidence_impact_monitor,
     build_confidence_impact_observations,
+    build_prompt_mutation_candidates,
     build_recipe_paper_trading_runs,
     build_recipe_paper_trading_summary,
     build_report_intelligence_extraction_provenance_audit,
@@ -460,6 +461,7 @@ def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
     assert result.data_acquisition_proposal_rows == 1
     assert result.tool_design_proposal_rows == 1
     assert result.analysis_recipe_rows == 1
+    assert result.prompt_mutation_candidate_rows >= 1
     assert result.weighted_research_context_rows == 1
     assert result.runtime_tool_gap_observation_rows == 1
     assert result.outcome_labeling_ready_count == 1
@@ -475,6 +477,7 @@ def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
     assert "recipe_paper_trading_summary" in result.outputs
     assert "confidence_impact_observations" in result.outputs
     assert "confidence_impact_monitor" in result.outputs
+    assert "prompt_mutation_candidates" in result.outputs
     assert "markdown_coverage_summary" in result.outputs
     assert "industry_etf_proxy_map" in result.outputs
     assert "industry_etf_proxy_pit_availability" in result.outputs
@@ -850,6 +853,23 @@ def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
     assert confidence_observations[0]["drift_status"] == "paper_trading_blocked"
     assert confidence_observations[0]["recommended_action"] == "keep_shadow"
 
+    prompt_candidates = _read_jsonl(
+        tmp_path
+        / "registry/report_intelligence/prompt_mutation_candidates.jsonl"
+    )
+    assert prompt_candidates
+    assert {
+        "recipe_paper_trading_rule",
+        "confidence_gate_rule",
+        "tool_gap_prioritization_rule",
+    } <= {row["candidate_type"] for row in prompt_candidates}
+    assert all(row["production_prompt_change_allowed"] is False for row in prompt_candidates)
+    assert all(row["private_text_included"] is False for row in prompt_candidates)
+    candidate_dump = json.dumps(prompt_candidates, ensure_ascii=False)
+    assert "claim_text" not in candidate_dump
+    assert "source_span_ids" not in candidate_dump
+    assert source_id not in candidate_dump
+
 
 def test_report_intelligence_recipe_paper_trading_requires_direct_pit_evidence():
     recipe = {
@@ -938,6 +958,42 @@ def test_report_intelligence_recipe_paper_trading_requires_direct_pit_evidence()
     )
     assert blocked_observations[0]["confidence_delta"] == 0.0
     assert blocked_observations[0]["drift_status"] == "paper_trading_blocked"
+
+
+def test_report_intelligence_prompt_mutation_candidates_track_calibration_drift():
+    candidates = build_prompt_mutation_candidates(
+        run_id="RIR-TEST-MUTATION",
+        outcome_labeling_readiness={
+            "mapping_gap_counts": {},
+            "stock_price_proxy_readiness": {"data_gap_counts": {}},
+            "industry_etf_proxy_readiness": {"data_gap_counts": {}},
+        },
+        tool_gap_rows=[],
+        recipe_paper_trading_runs=[],
+        confidence_impact_observation_rows=[
+            {
+                "recipe_id": "RECIPE-DECAY",
+                "paper_trading_status": "passed",
+                "drift_status": "alpha_decay_watch",
+                "recommended_action": "reduce_confidence_impact",
+                "confidence_delta": 0.0,
+            }
+        ],
+        confidence_impact_monitor={
+            "drift_status_counts": {"alpha_decay_watch": 1},
+            "recommended_action_counts": {"reduce_confidence_impact": 1},
+        },
+        markdown_coverage_summary={"markdown_quality_gap_counts": {}},
+        industry_etf_proxy_pit_availability={"pit_gap_counts": {}},
+    )
+
+    calibration = [
+        row for row in candidates if row["candidate_type"] == "calibration_fix_required"
+    ]
+    assert len(calibration) == 1
+    assert calibration[0]["target_component"] == "confidence_calibration_policy"
+    assert calibration[0]["production_prompt_change_allowed"] is False
+    assert calibration[0]["private_text_included"] is False
 
 
 def test_report_intelligence_can_select_historical_sources_by_date(

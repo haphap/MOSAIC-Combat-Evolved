@@ -1,5 +1,5 @@
 {
-  "artifact_count": 109,
+  "artifact_count": 110,
   "artifacts": [
     {
       "bytes": 539,
@@ -337,6 +337,11 @@
       "sha256": "sha256:82fc8131f3a4b310e777f42ae90baa14c9de90024c5c2ca6bfa57195a67d83ff"
     },
     {
+      "bytes": 7277,
+      "path": "registry/report_intelligence/prompt_mutation_candidates.jsonl",
+      "sha256": "sha256:bcf1815fd8a63ad02e8795529f5cf522245bcb43ca0b2d26ee9e341456af6180"
+    },
+    {
       "bytes": 9737,
       "path": "registry/report_intelligence/recipe_paper_trading_runs.jsonl",
       "sha256": "sha256:5854b64ac1dbcca657ed47adfddf7d51a76743ba0e882c04ab12e73abac6a890"
@@ -522,9 +527,9 @@
       "sha256": "sha256:2002369921dcddb680beb2dd6c380954c254b2f328c1a2e8d8f22f32a570bc3e"
     },
     {
-      "bytes": 15170,
+      "bytes": 15429,
       "path": "registry/schemas/rke_schema_validation_report.json",
-      "sha256": "sha256:252482cef339f41733eb7f2fe8646c91508dd1a214d7f7cede36a2cf7330d55e"
+      "sha256": "sha256:862cac503cdc07aa96b7b05a059b272834795a1aceb497c105dcdb67e1ef3972"
     },
     {
       "bytes": 316,

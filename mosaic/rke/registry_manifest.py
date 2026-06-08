@@ -113,6 +113,7 @@ REQUIRED_REGISTRY_FILES = (
     "registry/report_intelligence/recipe_paper_trading_summary.json",
     "registry/report_intelligence/confidence_impact_observations.jsonl",
     "registry/report_intelligence/confidence_impact_monitor.json",
+    "registry/report_intelligence/prompt_mutation_candidates.jsonl",
     "registry/report_intelligence/report_forecast_ledger.jsonl",
     "registry/report_intelligence/source_performance_profiles.jsonl",
     "registry/report_intelligence/runtime_safety_audit.json",

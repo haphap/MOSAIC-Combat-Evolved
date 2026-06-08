@@ -86,6 +86,9 @@ REPORT_INTELLIGENCE_CONFIDENCE_IMPACT_OBSERVATIONS_PATH = (
 REPORT_INTELLIGENCE_CONFIDENCE_IMPACT_MONITOR_PATH = (
     "registry/report_intelligence/confidence_impact_monitor.json"
 )
+REPORT_INTELLIGENCE_PROMPT_MUTATION_CANDIDATES_PATH = (
+    "registry/report_intelligence/prompt_mutation_candidates.jsonl"
+)
 REPORT_INTELLIGENCE_PRIVATE_OUTPUT_PATHS = frozenset(
     {
         ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH,
@@ -131,6 +134,7 @@ REPORT_INTELLIGENCE_PUBLIC_DERIVED_OUTPUT_PATHS = frozenset(
         "registry/report_intelligence/outcome_labeling_readiness.json",
         REPORT_INTELLIGENCE_CONFIDENCE_IMPACT_MONITOR_PATH,
         REPORT_INTELLIGENCE_CONFIDENCE_IMPACT_OBSERVATIONS_PATH,
+        REPORT_INTELLIGENCE_PROMPT_MUTATION_CANDIDATES_PATH,
         REPORT_INTELLIGENCE_RECIPE_PAPER_TRADING_RUNS_PATH,
         REPORT_INTELLIGENCE_RECIPE_PAPER_TRADING_SUMMARY_PATH,
         "registry/report_intelligence/report_forecast_ledger.jsonl",
@@ -434,6 +438,7 @@ class ReportIntelligenceRunResult:
     data_acquisition_proposal_rows: int
     tool_design_proposal_rows: int
     analysis_recipe_rows: int
+    prompt_mutation_candidate_rows: int
     weighted_research_context_rows: int
     runtime_tool_gap_observation_rows: int
     outcome_labeling_ready_count: int
@@ -717,6 +722,7 @@ def _blocked_report_intelligence_derived_refresh_result(
         data_acquisition_proposal_rows=0,
         tool_design_proposal_rows=0,
         analysis_recipe_rows=0,
+        prompt_mutation_candidate_rows=0,
         weighted_research_context_rows=0,
         runtime_tool_gap_observation_rows=0,
         outcome_labeling_ready_count=0,
@@ -6375,6 +6381,480 @@ def write_report_intelligence_recipe_paper_trading_artifacts(
     }
 
 
+PROMPT_MUTATION_CANDIDATE_SCHEMA_VERSION = "prompt_mutation_candidate_v1"
+
+
+def _count_mapping_values(mapping: Mapping[str, Any]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for key, value in mapping.items():
+        try:
+            count = int(value)
+        except (TypeError, ValueError):
+            continue
+        if count > 0:
+            counts[str(key)] = count
+    return counts
+
+
+def _add_prompt_mutation_candidate(
+    candidates: list[dict[str, Any]],
+    *,
+    run_id: str,
+    candidate_type: str,
+    target_scope: str,
+    target_component: str,
+    proposed_change: str,
+    trigger_sources: Sequence[str],
+    evidence_refs: Sequence[Mapping[str, Any]],
+    severity: str = "medium",
+    blocked_by: Sequence[str] = (),
+) -> None:
+    evidence = [dict(item) for item in evidence_refs]
+    payload = {
+        "candidate_type": candidate_type,
+        "target_scope": target_scope,
+        "target_component": target_component,
+        "evidence_refs": evidence,
+    }
+    candidate_id = _stable_id("PMUT", payload)
+    if any(row.get("mutation_candidate_id") == candidate_id for row in candidates):
+        return
+    candidates.append(
+        {
+            "mutation_candidate_id": candidate_id,
+            "run_id": run_id,
+            "schema_version": PROMPT_MUTATION_CANDIDATE_SCHEMA_VERSION,
+            "candidate_type": candidate_type,
+            "target_scope": target_scope,
+            "target_component": target_component,
+            "proposed_change": proposed_change,
+            "trigger_sources": list(dict.fromkeys(str(item) for item in trigger_sources)),
+            "evidence_refs": evidence,
+            "severity": severity,
+            "validation_requirements": [
+                "gold_set_review_pass",
+                "pit_outcome_replay_pass",
+                "schema_validation_pass",
+                "provenance_audit_pass",
+                "statistical_robustness_audit_pass",
+                "shadow_paper_trading_pass",
+            ],
+            "blocked_by": list(dict.fromkeys(str(item) for item in blocked_by))
+            or ["gold_set_gate_pending", "paper_trading_gate_pending"],
+            "promotion_state": "shadow_candidate_only",
+            "manual_review_required": True,
+            "production_prompt_change_allowed": False,
+            "private_text_included": False,
+            "policy": (
+                "Prompt mutation candidates are derived from governed aggregate "
+                "evidence only; they do not modify production prompts and cannot "
+                "include private source content, retrieval locators, or private "
+                "prompt content."
+            ),
+        }
+    )
+
+
+def _paper_trading_blocker_counts(
+    recipe_paper_trading_runs: Sequence[Mapping[str, Any]],
+) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for run in recipe_paper_trading_runs:
+        for reason in _ensure_list(run.get("blocked_reasons")):
+            _increment_count(counts, reason)
+    return counts
+
+
+def _top_tool_gap_ids(
+    tool_gap_rows: Sequence[Mapping[str, Any]],
+    *,
+    limit: int = 10,
+) -> list[str]:
+    priority_rank = {"urgent": 0, "blocked": 1, "high": 2, "medium": 3, "low": 4}
+    ordered = sorted(
+        tool_gap_rows,
+        key=lambda row: (
+            priority_rank.get(str(row.get("priority_bucket") or "low"), 9),
+            str(row.get("tool_gap_id") or ""),
+        ),
+    )
+    return [
+        str(row.get("tool_gap_id") or "")
+        for row in ordered[:limit]
+        if str(row.get("tool_gap_id") or "").strip()
+    ]
+
+
+def build_prompt_mutation_candidates(
+    *,
+    run_id: str,
+    outcome_labeling_readiness: Mapping[str, Any],
+    tool_gap_rows: Sequence[Mapping[str, Any]],
+    recipe_paper_trading_runs: Sequence[Mapping[str, Any]],
+    confidence_impact_observation_rows: Sequence[Mapping[str, Any]],
+    confidence_impact_monitor: Mapping[str, Any],
+    markdown_coverage_summary: Mapping[str, Any],
+    industry_etf_proxy_pit_availability: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
+    readiness = _ensure_mapping(outcome_labeling_readiness)
+    stock_readiness = _ensure_mapping(readiness.get("stock_price_proxy_readiness"))
+    industry_readiness = _ensure_mapping(
+        readiness.get("industry_etf_proxy_readiness")
+    )
+    stock_gap_counts = _count_mapping_values(
+        _ensure_mapping(stock_readiness.get("data_gap_counts"))
+    )
+    industry_gap_counts = _count_mapping_values(
+        _ensure_mapping(industry_readiness.get("data_gap_counts"))
+    )
+    mapping_gap_counts = _count_mapping_values(
+        _ensure_mapping(readiness.get("mapping_gap_counts"))
+    )
+    target_gap_keys = (
+        "stock_target_mapping_missing",
+        "stock_target_missing",
+        "stock_target_conflict",
+    )
+    target_gap_count = sum(stock_gap_counts.get(key, 0) for key in target_gap_keys)
+    if target_gap_count:
+        _add_prompt_mutation_candidate(
+            candidates,
+            run_id=run_id,
+            candidate_type="target_mapping_rule",
+            target_scope="report_intelligence.stock_target_binding",
+            target_component="forecast_extraction_prompt",
+            proposed_change=(
+                "Tighten stock target extraction so ts_code, metadata ts_code, "
+                "and source-grounded target_type=stock evidence are emitted only "
+                "when they agree; route conflicts and name-only targets to gaps."
+            ),
+            trigger_sources=[
+                "stock_price_proxy_readiness",
+                "outcome_labeling_readiness",
+            ],
+            evidence_refs=[
+                {
+                    "artifact_path": "registry/report_intelligence/outcome_labeling_readiness.json",
+                    "field": "stock_price_proxy_readiness.data_gap_counts",
+                    "gap_counts": {
+                        key: stock_gap_counts.get(key, 0)
+                        for key in target_gap_keys
+                        if stock_gap_counts.get(key, 0)
+                    },
+                    "total_gap_count": target_gap_count,
+                }
+            ],
+            severity="high" if stock_gap_counts.get("stock_target_conflict", 0) else "medium",
+            blocked_by=[
+                "manual_gold_set_target_review_required",
+                "stock_target_conflict_review_required",
+            ],
+        )
+    horizon_direction_gap_count = sum(
+        mapping_gap_counts.get(key, 0)
+        + stock_gap_counts.get(key, 0)
+        + industry_gap_counts.get(key, 0)
+        for key in ("direction_missing_or_unsupported", "horizon", "unknown_mapping_gap")
+    )
+    if horizon_direction_gap_count:
+        _add_prompt_mutation_candidate(
+            candidates,
+            run_id=run_id,
+            candidate_type="horizon_direction_rule",
+            target_scope="report_intelligence.forecast_mapping",
+            target_component="forecast_extraction_prompt",
+            proposed_change=(
+                "Add stricter extraction instructions for direction and horizon "
+                "normalization; ambiguous direction or horizon must remain a gap "
+                "instead of becoming a testable forecast."
+            ),
+            trigger_sources=[
+                "outcome_labeling_readiness",
+                "stock_price_proxy_readiness",
+                "industry_etf_proxy_readiness",
+            ],
+            evidence_refs=[
+                {
+                    "artifact_path": "registry/report_intelligence/outcome_labeling_readiness.json",
+                    "field": "mapping_gap_counts",
+                    "gap_counts": mapping_gap_counts,
+                    "total_gap_count": horizon_direction_gap_count,
+                }
+            ],
+            severity="medium",
+        )
+    industry_pit = _ensure_mapping(industry_etf_proxy_pit_availability)
+    pit_gap_counts = _count_mapping_values(_ensure_mapping(industry_pit.get("pit_gap_counts")))
+    sector_gap_count = industry_gap_counts.get("sector_etf_mapping_missing", 0)
+    if sector_gap_count or pit_gap_counts:
+        _add_prompt_mutation_candidate(
+            candidates,
+            run_id=run_id,
+            candidate_type="industry_proxy_mapping_rule",
+            target_scope="report_intelligence.industry_etf_proxy_mapping",
+            target_component="industry_mapping_registry",
+            proposed_change=(
+                "Prioritize missing or PIT-unavailable sector mappings for "
+                "operator review before using industry ETF proxy labels."
+            ),
+            trigger_sources=[
+                "industry_etf_proxy_readiness",
+                "industry_etf_proxy_pit_availability",
+            ],
+            evidence_refs=[
+                {
+                    "artifact_path": "registry/report_intelligence/industry_etf_proxy_pit_availability.json",
+                    "field": "pit_gap_counts",
+                    "gap_counts": pit_gap_counts,
+                },
+                {
+                    "artifact_path": "registry/report_intelligence/outcome_labeling_readiness.json",
+                    "field": "industry_etf_proxy_readiness.data_gap_counts",
+                    "sector_etf_mapping_missing_count": sector_gap_count,
+                },
+            ],
+            severity="medium",
+            blocked_by=["operator_mapping_review_required"],
+        )
+    priority_counts: dict[str, int] = {}
+    for gap in tool_gap_rows:
+        _increment_count(priority_counts, gap.get("priority_bucket"))
+    actionable_tool_gap_count = priority_counts.get("urgent", 0) + priority_counts.get(
+        "blocked",
+        0,
+    ) + priority_counts.get("high", 0) + priority_counts.get("medium", 0)
+    if actionable_tool_gap_count:
+        _add_prompt_mutation_candidate(
+            candidates,
+            run_id=run_id,
+            candidate_type="tool_gap_prioritization_rule",
+            target_scope="report_intelligence.tool_gap_loop",
+            target_component="tool_gap_prioritization_policy",
+            proposed_change=(
+                "Promote high and medium report-derived tool gaps into the "
+                "engineering queue only after PIT, license, and required-field "
+                "requirements are explicit."
+            ),
+            trigger_sources=["tool_gaps", "data_acquisition_proposals"],
+            evidence_refs=[
+                {
+                    "artifact_path": "registry/report_intelligence/tool_gaps.jsonl",
+                    "field": "priority_bucket",
+                    "priority_counts": dict(sorted(priority_counts.items())),
+                    "top_tool_gap_ids": _top_tool_gap_ids(tool_gap_rows),
+                }
+            ],
+            severity="medium",
+            blocked_by=["data_engineering_review_required"],
+        )
+    paper_blocker_counts = _paper_trading_blocker_counts(recipe_paper_trading_runs)
+    if paper_blocker_counts:
+        _add_prompt_mutation_candidate(
+            candidates,
+            run_id=run_id,
+            candidate_type="recipe_paper_trading_rule",
+            target_scope="report_intelligence.analysis_recipe_validation",
+            target_component="analysis_recipe_prompt_and_tool_contract",
+            proposed_change=(
+                "Require analysis recipes to expose direct PIT outcome bindings, "
+                "implemented tools, and pre-registered T+1 paper-trading evidence "
+                "before any confidence impact is considered."
+            ),
+            trigger_sources=[
+                "recipe_paper_trading_runs",
+                "confidence_impact_monitor",
+            ],
+            evidence_refs=[
+                {
+                    "artifact_path": "registry/report_intelligence/recipe_paper_trading_runs.jsonl",
+                    "field": "blocked_reasons",
+                    "blocker_counts": dict(sorted(paper_blocker_counts.items())),
+                }
+            ],
+            severity="high"
+            if paper_blocker_counts.get("required_tools_not_shadow_implemented", 0)
+            else "medium",
+            blocked_by=["paper_trading_validation_required"],
+        )
+    drift_counts = _count_mapping_values(
+        _ensure_mapping(confidence_impact_monitor.get("drift_status_counts"))
+    )
+    drift_gap_count = sum(
+        drift_counts.get(key, 0)
+        for key in (
+            "alpha_decay_watch",
+            "alpha_decay_fail",
+            "calibration_drift_watch",
+        )
+    )
+    if drift_gap_count:
+        _add_prompt_mutation_candidate(
+            candidates,
+            run_id=run_id,
+            candidate_type="calibration_fix_required",
+            target_scope="report_intelligence.confidence_impact",
+            target_component="confidence_calibration_policy",
+            proposed_change=(
+                "Reduce or freeze confidence impact for recipes with alpha decay "
+                "or calibration drift until new shadow evidence and manual review pass."
+            ),
+            trigger_sources=["confidence_impact_observations"],
+            evidence_refs=[
+                {
+                    "artifact_path": "registry/report_intelligence/confidence_impact_monitor.json",
+                    "field": "drift_status_counts",
+                    "drift_status_counts": drift_counts,
+                }
+            ],
+            severity="high",
+            blocked_by=["manual_calibration_review_required"],
+        )
+    blocked_confidence_count = sum(
+        1
+        for row in confidence_impact_observation_rows
+        if str(row.get("paper_trading_status") or "") != "passed"
+    )
+    if blocked_confidence_count:
+        _add_prompt_mutation_candidate(
+            candidates,
+            run_id=run_id,
+            candidate_type="confidence_gate_rule",
+            target_scope="report_intelligence.confidence_impact",
+            target_component="confidence_impact_gate",
+            proposed_change=(
+                "Keep confidence_delta at zero for every recipe without passed "
+                "paper-trading validation and lockbox approval."
+            ),
+            trigger_sources=[
+                "confidence_impact_observations",
+                "recipe_paper_trading_summary",
+            ],
+            evidence_refs=[
+                {
+                    "artifact_path": "registry/report_intelligence/confidence_impact_observations.jsonl",
+                    "field": "paper_trading_status",
+                    "blocked_observation_count": blocked_confidence_count,
+                }
+            ],
+            severity="high",
+            blocked_by=["paper_trading_validation_required", "lockbox_required"],
+        )
+    markdown_summary = _ensure_mapping(markdown_coverage_summary)
+    quality_gaps = _count_mapping_values(
+        _ensure_mapping(markdown_summary.get("markdown_quality_gap_counts"))
+    )
+    retry_queue_count = int(markdown_summary.get("retry_queue_count") or 0)
+    if quality_gaps or retry_queue_count:
+        _add_prompt_mutation_candidate(
+            candidates,
+            run_id=run_id,
+            candidate_type="markdown_quality_rule",
+            target_scope="report_intelligence.markdown_extraction",
+            target_component="mineru_quality_gate",
+            proposed_change=(
+                "Route low-quality Markdown conversions to retry or manual review "
+                "before LLM extraction, preserving private PDF and Markdown caches."
+            ),
+            trigger_sources=["markdown_coverage_summary"],
+            evidence_refs=[
+                {
+                    "artifact_path": "registry/report_intelligence/markdown_coverage_summary.json",
+                    "field": "markdown_quality_gap_counts",
+                    "gap_counts": quality_gaps,
+                    "retry_queue_count": retry_queue_count,
+                }
+            ],
+            severity="medium",
+            blocked_by=["markdown_quality_review_required"],
+        )
+    return sorted(candidates, key=lambda row: str(row.get("mutation_candidate_id") or ""))
+
+
+def write_report_intelligence_prompt_mutation_candidates(
+    registry_dir: str | Path,
+    *,
+    run_id: str = "RIR-PROMPT-MUTATION-CANDIDATES",
+) -> dict[str, Any]:
+    registry_path = Path(registry_dir)
+    blockers: list[str] = []
+    outcome_labeling_readiness = _read_registry_json(
+        registry_path / "outcome_labeling_readiness.json",
+        label="outcome_labeling_readiness",
+        blockers=blockers,
+    )
+    tool_gap_rows = _read_registry_jsonl(
+        registry_path / "tool_gaps.jsonl",
+        label="tool_gaps",
+        blockers=blockers,
+    )
+    recipe_paper_trading_run_rows = _read_registry_jsonl(
+        registry_path / "recipe_paper_trading_runs.jsonl",
+        label="recipe_paper_trading_runs",
+        blockers=blockers,
+    )
+    confidence_impact_observation_rows = _read_registry_jsonl(
+        registry_path / "confidence_impact_observations.jsonl",
+        label="confidence_impact_observations",
+        blockers=blockers,
+    )
+    confidence_impact_monitor = _read_registry_json(
+        registry_path / "confidence_impact_monitor.json",
+        label="confidence_impact_monitor",
+        blockers=blockers,
+    )
+    markdown_coverage_summary = _read_registry_json(
+        registry_path / "markdown_coverage_summary.json",
+        label="markdown_coverage_summary",
+        blockers=blockers,
+    )
+    industry_etf_proxy_pit_availability = _read_registry_json(
+        registry_path / "industry_etf_proxy_pit_availability.json",
+        label="industry_etf_proxy_pit_availability",
+        blockers=blockers,
+    )
+    rows = build_prompt_mutation_candidates(
+        run_id=run_id,
+        outcome_labeling_readiness=outcome_labeling_readiness,
+        tool_gap_rows=tool_gap_rows,
+        recipe_paper_trading_runs=recipe_paper_trading_run_rows,
+        confidence_impact_observation_rows=confidence_impact_observation_rows,
+        confidence_impact_monitor=confidence_impact_monitor,
+        markdown_coverage_summary=markdown_coverage_summary,
+        industry_etf_proxy_pit_availability=industry_etf_proxy_pit_availability,
+    )
+    if blockers and not rows:
+        _add_prompt_mutation_candidate(
+            rows,
+            run_id=run_id,
+            candidate_type="evolution_input_load_gap",
+            target_scope="report_intelligence.prompt_evolution",
+            target_component="prompt_mutation_candidate_builder",
+            proposed_change=(
+                "Hold prompt evolution until required public derived evidence "
+                "artifacts can be loaded without parse or presence blockers."
+            ),
+            trigger_sources=["artifact_load_blockers"],
+            evidence_refs=[
+                {
+                    "artifact_path": "registry/report_intelligence",
+                    "field": "load_blockers",
+                    "blocker_count": len(blockers),
+                }
+            ],
+            severity="high",
+            blocked_by=["artifact_load_blockers"],
+        )
+    return {
+        "prompt_mutation_candidates": str(
+            _write_jsonl(
+                registry_path / "prompt_mutation_candidates.jsonl",
+                rows,
+            )["path"]
+        )
+    }
+
+
 def _bounded_prior_weight(value: float) -> float:
     return round(min(1.2, max(0.8, value)), 6)
 
@@ -11693,6 +12173,16 @@ def run_report_intelligence_derived_refresh(
         confidence_observation_rows=confidence_impact_observation_rows,
         recipe_paper_trading_summary=recipe_paper_trading_summary,
     )
+    prompt_mutation_candidate_rows = build_prompt_mutation_candidates(
+        run_id=run_id,
+        outcome_labeling_readiness=outcome_labeling_readiness,
+        tool_gap_rows=tool_gap_rows,
+        recipe_paper_trading_runs=recipe_paper_trading_run_rows,
+        confidence_impact_observation_rows=confidence_impact_observation_rows,
+        confidence_impact_monitor=confidence_impact_monitor,
+        markdown_coverage_summary=markdown_coverage_summary,
+        industry_etf_proxy_pit_availability=industry_etf_proxy_pit_availability,
+    )
     weighted_research_context_rows = build_weighted_research_contexts(
         forecast_rows=forecast_rows,
         forecast_ledger_rows=forecast_ledger_rows,
@@ -11973,6 +12463,12 @@ def run_report_intelligence_derived_refresh(
                 confidence_impact_monitor,
             )["path"]
         ),
+        "prompt_mutation_candidates": str(
+            _write_jsonl(
+                registry_dir / "prompt_mutation_candidates.jsonl",
+                prompt_mutation_candidate_rows,
+            )["path"]
+        ),
         "weighted_research_contexts": str(
             _write_jsonl(
                 registry_dir / "weighted_research_contexts.jsonl",
@@ -12088,6 +12584,7 @@ def run_report_intelligence_derived_refresh(
         data_acquisition_proposal_rows=len(data_acquisition_proposal_rows),
         tool_design_proposal_rows=len(tool_design_proposal_rows),
         analysis_recipe_rows=len(analysis_recipe_rows),
+        prompt_mutation_candidate_rows=len(prompt_mutation_candidate_rows),
         weighted_research_context_rows=len(weighted_research_context_rows),
         runtime_tool_gap_observation_rows=len(runtime_tool_gap_observation_rows),
         outcome_labeling_ready_count=int(
@@ -12483,6 +12980,16 @@ def run_report_intelligence_refresh(
         confidence_observation_rows=confidence_impact_observation_rows,
         recipe_paper_trading_summary=recipe_paper_trading_summary,
     )
+    prompt_mutation_candidate_rows = build_prompt_mutation_candidates(
+        run_id=run_id,
+        outcome_labeling_readiness=outcome_labeling_readiness,
+        tool_gap_rows=tool_gap_rows,
+        recipe_paper_trading_runs=recipe_paper_trading_run_rows,
+        confidence_impact_observation_rows=confidence_impact_observation_rows,
+        confidence_impact_monitor=confidence_impact_monitor,
+        markdown_coverage_summary=markdown_coverage_summary,
+        industry_etf_proxy_pit_availability=industry_etf_proxy_pit_availability,
+    )
     weighted_research_context_rows = build_weighted_research_contexts(
         forecast_rows=forecast_rows,
         forecast_ledger_rows=forecast_ledger_rows,
@@ -12767,6 +13274,12 @@ def run_report_intelligence_refresh(
                 confidence_impact_monitor,
             )["path"]
         ),
+        "prompt_mutation_candidates": str(
+            _write_jsonl(
+                registry_dir / "prompt_mutation_candidates.jsonl",
+                prompt_mutation_candidate_rows,
+            )["path"]
+        ),
         "weighted_research_contexts": str(
             _write_jsonl(
                 registry_dir / "weighted_research_contexts.jsonl",
@@ -12884,6 +13397,7 @@ def run_report_intelligence_refresh(
         data_acquisition_proposal_rows=len(data_acquisition_proposal_rows),
         tool_design_proposal_rows=len(tool_design_proposal_rows),
         analysis_recipe_rows=len(analysis_recipe_rows),
+        prompt_mutation_candidate_rows=len(prompt_mutation_candidate_rows),
         weighted_research_context_rows=len(weighted_research_context_rows),
         runtime_tool_gap_observation_rows=len(runtime_tool_gap_observation_rows),
         outcome_labeling_ready_count=int(

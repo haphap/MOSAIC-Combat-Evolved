@@ -249,6 +249,13 @@
     },
     {
       "accepted": true,
+      "artifact_path": "registry/report_intelligence/prompt_mutation_candidates.jsonl",
+      "failures": [],
+      "item_count": 5,
+      "schema_path": "schemas/report_intelligence_prompt_mutation_candidate.schema.json"
+    },
+    {
+      "accepted": true,
       "artifact_path": "registry/report_intelligence/weighted_research_contexts.jsonl",
       "failures": [],
       "item_count": 1,

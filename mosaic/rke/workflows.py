@@ -37,6 +37,7 @@ from .report_intelligence import (
     write_report_intelligence_extraction_provenance_audit,
     write_report_intelligence_patch_v1_5_coverage_report,
     write_report_intelligence_pit_leakage_audit,
+    write_report_intelligence_prompt_mutation_candidates,
     write_report_intelligence_recipe_paper_trading_artifacts,
     write_report_intelligence_recipe_validation_audit,
     write_report_intelligence_runtime_safety_audit,
@@ -181,6 +182,10 @@ def run_full_rke_refresh(
         root_path / "registry/report_intelligence",
         run_id="RIR-FULL-REFRESH-RECIPE-PAPER-TRADING",
     )
+    prompt_mutation_candidates = write_report_intelligence_prompt_mutation_candidates(
+        root_path / "registry/report_intelligence",
+        run_id="RIR-FULL-REFRESH-PROMPT-MUTATION-CANDIDATES",
+    )
     footprint_rows = _load_required_mapping_rows(
         root_path / "registry/report_intelligence/analytical_footprints.jsonl",
         label="analytical footprints",
@@ -283,6 +288,9 @@ def run_full_rke_refresh(
     outputs["report_intelligence_confidence_impact_monitor"] = recipe_paper_trading[
         "confidence_impact_monitor"
     ]
+    outputs["report_intelligence_prompt_mutation_candidates"] = (
+        prompt_mutation_candidates["prompt_mutation_candidates"]
+    )
     outputs["schema_validation_report"] = str(schema_summary["path"])
     outputs["rule_pack_validation_report"] = str(rule_pack_validation["path"])
     outputs["validation_hardening_report"] = str(validation_hardening["path"])

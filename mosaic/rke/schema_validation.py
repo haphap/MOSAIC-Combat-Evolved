@@ -464,6 +464,12 @@ REPORT_INTELLIGENCE_JSON_SCHEMA_TARGETS = (
         False,
     ),
     (
+        "schemas/report_intelligence_prompt_mutation_candidate.schema.json",
+        "registry/report_intelligence/prompt_mutation_candidates.jsonl",
+        "jsonl",
+        False,
+    ),
+    (
         "schemas/report_intelligence_weighted_research_context.schema.json",
         "registry/report_intelligence/weighted_research_contexts.jsonl",
         "jsonl",

@@ -90,6 +90,10 @@ def test_required_registry_files_are_present_in_repo():
         in REQUIRED_REGISTRY_FILES
     )
     assert (
+        "registry/report_intelligence/prompt_mutation_candidates.jsonl"
+        in REQUIRED_REGISTRY_FILES
+    )
+    assert (
         "registry/report_intelligence/analytical_footprint_review_template.jsonl"
         not in REQUIRED_REGISTRY_FILES
     )
@@ -220,6 +224,7 @@ def test_full_refresh_preserves_existing_review_templates(tmp_path: Path):
     assert "report_intelligence_recipe_paper_trading_summary" in result.outputs
     assert "report_intelligence_confidence_impact_observations" in result.outputs
     assert "report_intelligence_confidence_impact_monitor" in result.outputs
+    assert "report_intelligence_prompt_mutation_candidates" in result.outputs
     assert "audit_trace_view.json" in result.outputs
     assert "audit_trace_view.markdown" in result.outputs
     assert "operator_handoff.json" in result.outputs
