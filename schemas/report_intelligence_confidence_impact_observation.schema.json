@@ -20,23 +20,41 @@
     "run_id": {"type": "string", "minLength": 1},
     "recipe_id": {"type": "string", "minLength": 1},
     "agent_id": {"type": "string", "minLength": 1},
-    "confidence_delta": {"type": "number"},
-    "confidence_delta_source": {"type": "string", "minLength": 1},
+    "confidence_delta": {"type": "number", "minimum": 0, "maximum": 0.03},
+    "confidence_delta_source": {"const": "recipe_paper_trading_validation"},
     "expected_alpha": {"type": ["number", "null"]},
     "realized_alpha": {"type": ["number", "null"]},
     "after_cost_realized_alpha": {"type": ["number", "null"]},
     "pre_cost_realized_alpha": {"type": ["number", "null"]},
     "estimated_cost_drag": {"type": ["number", "null"]},
     "alpha_decay_slope": {"type": ["number", "null"]},
-    "calibration_error": {"type": ["number", "null"]},
-    "brier_score": {"type": ["number", "null"]},
-    "hit_rate_recent": {"type": ["number", "null"]},
-    "hit_rate_baseline": {"type": "number"},
+    "calibration_error": {"type": ["number", "null"], "minimum": 0},
+    "brier_score": {"type": ["number", "null"], "minimum": 0},
+    "hit_rate_recent": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+    "hit_rate_baseline": {"type": "number", "minimum": 0, "maximum": 1},
     "drawdown_since_activation": {"type": ["number", "null"]},
     "regime": {"type": "string"},
     "paper_trading_status": {"enum": ["passed", "blocked"]},
-    "drift_status": {"type": "string", "minLength": 1},
-    "recommended_action": {"type": "string", "minLength": 1},
+    "drift_status": {
+      "enum": [
+        "stable_shadow",
+        "paper_trading_blocked",
+        "alpha_decay_watch",
+        "alpha_decay_fail",
+        "calibration_drift_watch",
+        "cost_decay_fail",
+        "regime_fragile_alpha"
+      ]
+    },
+    "recommended_action": {
+      "enum": [
+        "keep_shadow",
+        "reduce_confidence_impact",
+        "freeze_recipe",
+        "send_to_manual_review",
+        "retire_recipe"
+      ]
+    },
     "blocker_reasons": {"type": "array", "items": {"type": "string"}},
     "production_decision_impact_allowed": {"type": "boolean", "const": false}
   },

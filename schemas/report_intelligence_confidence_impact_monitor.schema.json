@@ -53,13 +53,27 @@
     "calibration_drift_count": {"type": "integer", "minimum": 0},
     "aggregate_calibration_drift_count": {"type": "integer", "minimum": 0},
     "regime_fragile_alpha_count": {"type": "integer", "minimum": 0},
-    "confidence_alpha_correlation": {"type": ["number", "null"]},
-    "confidence_alpha_correlation_status": {"type": "string", "minLength": 1},
+    "confidence_alpha_correlation": {"type": ["number", "null"], "minimum": -1, "maximum": 1},
+    "confidence_alpha_correlation_status": {
+      "enum": ["insufficient_data", "non_negative", "negative"]
+    },
     "confidence_delta_bucket_outcomes": {"type": "object"},
-    "calibration_drift_rule_counts": {"type": "object"},
-    "drift_status_counts": {"type": "object"},
-    "recommended_action_counts": {"type": "object"},
-    "blocker_counts": {"type": "object"},
+    "calibration_drift_rule_counts": {
+      "type": "object",
+      "additionalProperties": {"type": "integer", "minimum": 0}
+    },
+    "drift_status_counts": {
+      "type": "object",
+      "additionalProperties": {"type": "integer", "minimum": 0}
+    },
+    "recommended_action_counts": {
+      "type": "object",
+      "additionalProperties": {"type": "integer", "minimum": 0}
+    },
+    "blocker_counts": {
+      "type": "object",
+      "additionalProperties": {"type": "integer", "minimum": 0}
+    },
     "tracked_recipe_ids": {"type": "array", "items": {"type": "string"}},
     "alpha_decay_recipe_ids": {"type": "array", "items": {"type": "string"}},
     "cost_decay_recipe_ids": {"type": "array", "items": {"type": "string"}},
@@ -71,7 +85,7 @@
     "freeze_recipe_ids": {"type": "array", "items": {"type": "string"}},
     "retire_recipe_ids": {"type": "array", "items": {"type": "string"}},
     "production_decision_impact_allowed": {"type": "boolean", "const": false},
-    "lockbox_required_before_production_impact": {"type": "boolean"},
+    "lockbox_required_before_production_impact": {"type": "boolean", "const": true},
     "policy": {"type": "string", "minLength": 1}
   },
   "additionalProperties": true
