@@ -1610,6 +1610,7 @@ def test_report_intelligence_recipe_paper_trading_requires_direct_pit_evidence()
     assert runs[0]["metrics"]["max_regime_contribution_share"] == 0.4
     assert runs[0]["metrics"]["observed_regime_count"] == 3
     assert summary["validation_pass_count"] == 1
+    assert summary["validation_protocol"] == runs[0]["pre_registered_protocol"]
     assert observations[0]["confidence_delta"] > 0
     assert observations[0]["drift_status"] == "stable_shadow"
     assert observations[0]["brier_score"] == 0.01

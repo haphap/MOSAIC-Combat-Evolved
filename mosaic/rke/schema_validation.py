@@ -1734,6 +1734,24 @@ def _validate_recipe_paper_trading_contract(
                 "recipe_paper_trading_summary.validation_protocol: expected object"
             )
             validation_protocol = {}
+        expected_protocol = _expected_recipe_paper_trading_protocol()
+        for protocol_field, expected_value in expected_protocol.items():
+            observed_value = validation_protocol.get(protocol_field)
+            if isinstance(expected_value, float):
+                observed_float = _float_or_none(observed_value)
+                if observed_float is None or not _nearly_equal(
+                    observed_float,
+                    expected_value,
+                ):
+                    failures.append(
+                        "recipe_paper_trading_summary.validation_protocol."
+                        f"{protocol_field}: must be {expected_value}"
+                    )
+            elif observed_value != expected_value:
+                failures.append(
+                    "recipe_paper_trading_summary.validation_protocol."
+                    f"{protocol_field}: must be {expected_value}"
+                )
         for field in ("profile_weight_is_sufficient", "production_decision_impact_allowed"):
             if validation_protocol.get(field) is not False:
                 failures.append(

@@ -30,15 +30,28 @@
   "summary_id": "RKE-REPORT-INTELLIGENCE-RECIPE-PAPER-TRADING-SUMMARY",
   "validation_pass_count": 0,
   "validation_protocol": {
+    "alpha_decay_fail_streak": 2,
     "backtest_window_policy": "chronological_pre_oos_exit_windows_v1",
     "benchmark_source": "cn_etf",
     "benchmark_symbol": "SH510300",
+    "cost_decay_turnover_threshold": 6.0,
     "cost_model_id": "single_stock_round_trip_20bps_v1",
     "entry_semantics": "T+1_or_more_conservative",
+    "exit_semantics": "fixed_horizon_shadow_exit",
+    "max_drawdown": 0.2,
+    "max_horizon_contribution_share": 0.7,
+    "max_regime_contribution_share": 0.8,
+    "minimum_effective_n": 3.0,
+    "minimum_horizon_count": 2,
     "minimum_out_of_sample_effective_n": 1.0,
+    "minimum_regime_count": 2,
+    "out_of_sample_fraction": 0.2,
     "out_of_sample_window_policy": "chronological_last_20pct_exit_windows_v1",
+    "parameter_lock_policy": "pre_registration_hash_locks_required_data_protocol_cost_benchmark_windows_v1",
+    "parameter_tuning_after_results_allowed": false,
     "production_decision_impact_allowed": false,
     "profile_weight_is_sufficient": false,
+    "round_trip_cost_includes_slippage": true,
     "slippage_model_id": "included_in_round_trip_cost_20bps_v1"
   }
 }

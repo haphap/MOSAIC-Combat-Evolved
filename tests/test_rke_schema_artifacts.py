@@ -319,6 +319,30 @@ def test_recipe_paper_trading_summary_rejects_profile_weight_promotion(
     )
 
 
+def test_recipe_paper_trading_summary_requires_full_protocol(tmp_path: Path):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    summary_path = registry / "recipe_paper_trading_summary.json"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    summary["validation_protocol"].pop("parameter_lock_policy", None)
+    summary_path.write_text(
+        json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = validate_json_schema_artifact(
+        root=tmp_path,
+        schema_path="schemas/report_intelligence_recipe_paper_trading_summary.schema.json",
+        artifact_path="registry/report_intelligence/recipe_paper_trading_summary.json",
+        artifact_kind="json",
+    )
+
+    assert not record.accepted
+    assert any(
+        "validation_protocol.parameter_lock_policy: required" in failure
+        for failure in record.failures
+    )
+
+
 def test_confidence_impact_observation_rejects_unknown_drift_status(
     tmp_path: Path,
 ):
@@ -921,6 +945,27 @@ def test_recipe_paper_trading_contract_rejects_run_summary_mismatch(
     assert any("validation_status" in item for item in record.failures)
     assert any("passed run must have no blockers" in item for item in record.failures)
     assert any("validation_pass_count" in item for item in record.failures)
+
+
+def test_recipe_paper_trading_contract_rejects_summary_protocol_mismatch(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    summary_path = registry / "recipe_paper_trading_summary.json"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    summary["validation_protocol"]["out_of_sample_fraction"] = 0.5
+    summary_path.write_text(
+        json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _recipe_paper_trading_contract_record(tmp_path)
+
+    assert not record.accepted
+    assert any(
+        "validation_protocol.out_of_sample_fraction: must be 0.2" in item
+        for item in record.failures
+    )
 
 
 def test_recipe_paper_trading_contract_rejects_preregistration_payload_mismatch(

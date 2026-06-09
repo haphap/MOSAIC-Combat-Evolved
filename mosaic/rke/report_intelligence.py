@@ -7670,22 +7670,7 @@ def build_recipe_paper_trading_summary(
             "each recipe has a deterministic experiment id and pre-registration hash "
             "before any outcome metrics are evaluated"
         ),
-        "validation_protocol": {
-            "entry_semantics": "T+1_or_more_conservative",
-            "cost_model_id": RECIPE_PAPER_TRADING_COST_MODEL_ID,
-            "benchmark_symbol": RECIPE_PAPER_TRADING_BENCHMARK_SYMBOL,
-            "benchmark_source": STOCK_PRICE_PROXY_BENCHMARK_SOURCE,
-            "slippage_model_id": RECIPE_PAPER_TRADING_SLIPPAGE_MODEL_ID,
-            "backtest_window_policy": RECIPE_PAPER_TRADING_BACKTEST_WINDOW_POLICY,
-            "out_of_sample_window_policy": (
-                RECIPE_PAPER_TRADING_OUT_OF_SAMPLE_WINDOW_POLICY
-            ),
-            "minimum_out_of_sample_effective_n": (
-                RECIPE_PAPER_TRADING_MIN_OUT_OF_SAMPLE_EFFECTIVE_N
-            ),
-            "profile_weight_is_sufficient": False,
-            "production_decision_impact_allowed": False,
-        },
+        "validation_protocol": _recipe_paper_trading_protocol(),
         "policy": (
             "paper-trading validation is a shadow gate; profile support can prioritize "
             "recipes but cannot promote confidence impact without direct PIT paper-trading evidence"
