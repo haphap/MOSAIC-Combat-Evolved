@@ -457,6 +457,32 @@ def test_report_outcome_label_semantics_accept_complete_proxy_contracts(
     assert record.failures == ()
 
 
+def test_report_outcome_label_semantics_reject_missing_label_type(
+    tmp_path: Path,
+):
+    stock_label = _base_outcome_label("stock_price_proxy")
+    stock_label.pop("label_type")
+    _write_proxy_outcome_labels(tmp_path, [stock_label])
+
+    record = _proxy_outcome_contract_record(tmp_path)
+
+    assert not record.accepted
+    assert any("label_type" in failure for failure in record.failures)
+
+
+def test_report_outcome_label_semantics_reject_unknown_label_type(
+    tmp_path: Path,
+):
+    stock_label = _base_outcome_label("stock_price_proxy")
+    stock_label["label_type"] = "standard"
+    _write_proxy_outcome_labels(tmp_path, [stock_label])
+
+    record = _proxy_outcome_contract_record(tmp_path)
+
+    assert not record.accepted
+    assert any("label_type" in failure for failure in record.failures)
+
+
 def test_report_outcome_label_semantics_reject_proxy_math_mismatch(
     tmp_path: Path,
 ):

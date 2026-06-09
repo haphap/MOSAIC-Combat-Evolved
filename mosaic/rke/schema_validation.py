@@ -906,7 +906,9 @@ def _int_items(value: Any) -> list[int]:
 def _validate_proxy_outcome_label_contract(row: Mapping[str, Any], row_label: str) -> list[str]:
     label_type = str(row.get("label_type") or "")
     if label_type not in {"stock_price_proxy", "industry_etf_proxy"}:
-        return []
+        return [
+            f"{row_label}.label_type: must be stock_price_proxy or industry_etf_proxy"
+        ]
     failures = _required_field_failures(
         row,
         row_label=row_label,
