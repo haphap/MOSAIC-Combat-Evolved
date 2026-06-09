@@ -65,6 +65,35 @@ def _passing_forecast_gold_review_summary(**overrides):
     return summary
 
 
+def _full_evolution_outcome_fixture() -> tuple[
+    list[dict[str, str]],
+    list[dict[str, object]],
+]:
+    outcome_rows: list[dict[str, object]] = []
+    forecast_rows: list[dict[str, str]] = []
+    for index in range(100):
+        if index < 30:
+            label_type = "stock_price_proxy"
+            prefix = "STOCK"
+        elif index < 60:
+            label_type = "industry_etf_proxy"
+            prefix = "IND"
+        else:
+            label_type = "standard_outcome"
+            prefix = "STD"
+        claim_id = f"FC-{prefix}-{index:03d}"
+        forecast_rows.append({"forecast_claim_id": claim_id})
+        outcome_rows.append(
+            {
+                "forecast_claim_id": claim_id,
+                "label_type": label_type,
+                "horizon_days": 20,
+                "effective_n_weight": 1.0,
+            }
+        )
+    return forecast_rows, outcome_rows
+
+
 def _write_source(
     path: Path,
     *,
@@ -1938,6 +1967,138 @@ def test_report_intelligence_confidence_monitor_tracks_aggregate_calibration_dri
         "RECIPE-LOW-GOOD",
     ]
     assert monitor["production_decision_impact_allowed"] is False
+
+
+def test_report_intelligence_evolution_gate_blocks_aggregate_calibration_drift():
+    forecast_rows, outcome_rows = _full_evolution_outcome_fixture()
+    clean_monitor = {
+        "observation_count": 20,
+        "blocked_recipe_count": 0,
+        "unvalidated_confidence_impact_count": 0,
+        "alpha_decay_fail_count": 0,
+        "calibration_drift_count": 0,
+        "aggregate_calibration_drift_count": 0,
+        "calibration_drift_rule_counts": {},
+        "blocker_counts": {},
+    }
+    drift_monitor = {
+        **clean_monitor,
+        "aggregate_calibration_drift_count": 1,
+        "calibration_drift_rule_counts": {
+            "negative_confidence_alpha_correlation": 1
+        },
+    }
+    accepted_audit = {
+        "schema_accepted": True,
+        "pit_accepted": True,
+        "provenance_accepted": True,
+        "statistical_accepted": True,
+    }
+    previous_vintage_1 = "sha256:" + "1" * 64
+    previous_vintage_2 = "sha256:" + "2" * 64
+
+    current_drift_gate = build_report_intelligence_evolution_readiness_gate(
+        run_id="RIR-TEST-EVOLUTION-CURRENT-AGG-CALIBRATION-DRIFT",
+        forecast_rows=forecast_rows,
+        outcome_label_rows=outcome_rows,
+        recipe_paper_trading_summary={
+            "paper_trading_run_count": 20,
+            "validation_pass_count": 20,
+            "mean_cost_adjusted_alpha": 0.012,
+        },
+        confidence_impact_monitor=drift_monitor,
+        markdown_coverage_summary={
+            "coverage_gate_status": "passed",
+            "coverage_gate_blockers": [],
+            "coverage_targets": {
+                "selected_report_count_min": 300,
+                "markdown_ready_count_min": 300,
+            },
+        },
+        pit_leakage_audit={"accepted": True},
+        extraction_provenance_audit={"accepted": True},
+        statistical_robustness_audit={"accepted": True},
+        schema_validation_report={"accepted": True},
+        gold_review_summary=_passing_forecast_gold_review_summary(),
+        outcome_labeling_readiness={"mapping_gap_counts": {}},
+        monitor_refresh_history_rows=[
+            {**clean_monitor, "data_vintage_hash": previous_vintage_1},
+            {**clean_monitor, "data_vintage_hash": previous_vintage_2},
+        ],
+        audit_refresh_history_rows=[
+            {**accepted_audit, "data_vintage_hash": previous_vintage_1},
+            {**accepted_audit, "data_vintage_hash": previous_vintage_2},
+        ],
+        gap_distribution_history_rows=[
+            {"stable": True, "data_vintage_hash": previous_vintage_1},
+            {"stable": True, "data_vintage_hash": previous_vintage_2},
+        ],
+    )
+
+    monitor_check = next(
+        row
+        for row in current_drift_gate["checks"]
+        if row["check_id"] == "RI-EVOL-03"
+    )
+    assert current_drift_gate["gate_status"] == "blocked"
+    assert "confidence_impact_monitor_current_blocked" in monitor_check["blockers"]
+    assert monitor_check["evidence"]["aggregate_calibration_drift_count"] == 1
+    assert monitor_check["evidence"]["calibration_drift_rule_counts"] == {
+        "negative_confidence_alpha_correlation": 1
+    }
+
+    history_drift_gate = build_report_intelligence_evolution_readiness_gate(
+        run_id="RIR-TEST-EVOLUTION-HISTORY-AGG-CALIBRATION-DRIFT",
+        forecast_rows=forecast_rows,
+        outcome_label_rows=outcome_rows,
+        recipe_paper_trading_summary={
+            "paper_trading_run_count": 20,
+            "validation_pass_count": 20,
+            "mean_cost_adjusted_alpha": 0.012,
+        },
+        confidence_impact_monitor=clean_monitor,
+        markdown_coverage_summary={
+            "coverage_gate_status": "passed",
+            "coverage_gate_blockers": [],
+            "coverage_targets": {
+                "selected_report_count_min": 300,
+                "markdown_ready_count_min": 300,
+            },
+        },
+        pit_leakage_audit={"accepted": True},
+        extraction_provenance_audit={"accepted": True},
+        statistical_robustness_audit={"accepted": True},
+        schema_validation_report={"accepted": True},
+        gold_review_summary=_passing_forecast_gold_review_summary(),
+        outcome_labeling_readiness={"mapping_gap_counts": {}},
+        monitor_refresh_history_rows=[
+            {**clean_monitor, "data_vintage_hash": previous_vintage_1},
+            {
+                **drift_monitor,
+                "accepted": True,
+                "data_vintage_hash": previous_vintage_2,
+            },
+        ],
+        audit_refresh_history_rows=[
+            {**accepted_audit, "data_vintage_hash": previous_vintage_1},
+            {**accepted_audit, "data_vintage_hash": previous_vintage_2},
+        ],
+        gap_distribution_history_rows=[
+            {"stable": True, "data_vintage_hash": previous_vintage_1},
+            {"stable": True, "data_vintage_hash": previous_vintage_2},
+        ],
+    )
+
+    history_monitor_check = next(
+        row
+        for row in history_drift_gate["checks"]
+        if row["check_id"] == "RI-EVOL-03"
+    )
+    assert history_drift_gate["gate_status"] == "blocked"
+    assert {
+        "confidence_impact_monitor_history_below_threshold",
+    } <= set(history_monitor_check["blockers"])
+    assert history_monitor_check["evidence"]["trailing_monitor_pass_count"] == 1
 
 
 def test_report_intelligence_evolution_gate_blocks_until_objective_thresholds_pass():

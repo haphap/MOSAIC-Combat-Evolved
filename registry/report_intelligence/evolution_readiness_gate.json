@@ -74,7 +74,10 @@
       ],
       "check_id": "RI-EVOL-03",
       "evidence": {
+        "aggregate_calibration_drift_count": 0,
         "blocked_recipe_count": 5,
+        "calibration_drift_count": 0,
+        "calibration_drift_rule_counts": {},
         "monitor_observation_count": 5,
         "trailing_monitor_pass_count": 0,
         "unvalidated_confidence_impact_count": 0

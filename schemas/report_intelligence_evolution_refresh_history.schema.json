@@ -29,6 +29,11 @@
     "unvalidated_confidence_impact_count": {"type": "integer", "minimum": 0},
     "alpha_decay_fail_count": {"type": "integer", "minimum": 0},
     "calibration_drift_count": {"type": "integer", "minimum": 0},
+    "aggregate_calibration_drift_count": {"type": "integer", "minimum": 0},
+    "calibration_drift_rule_counts": {
+      "type": "object",
+      "additionalProperties": {"type": "integer", "minimum": 0}
+    },
     "blocker_counts": {"type": "object"},
     "schema_accepted": {"type": "boolean"},
     "pit_accepted": {"type": "boolean"},

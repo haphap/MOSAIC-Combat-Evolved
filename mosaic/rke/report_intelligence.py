@@ -8456,16 +8456,25 @@ def _evolution_data_vintage_hash(
 
 
 def _monitor_refresh_record_passed(row: Mapping[str, Any]) -> bool:
-    if "accepted" in row:
-        return row.get("accepted") is True
     blocker_counts = _count_mapping_values(_ensure_mapping(row.get("blocker_counts")))
-    return (
+    calibration_rule_counts = _count_mapping_values(
+        _ensure_mapping(row.get("calibration_drift_rule_counts"))
+    )
+    aggregate_calibration_drift_count = int(
+        row.get("aggregate_calibration_drift_count") or 0
+    )
+    computed_passed = (
         int(row.get("blocked_recipe_count") or 0) == 0
         and int(row.get("unvalidated_confidence_impact_count") or 0) == 0
         and int(row.get("alpha_decay_fail_count") or 0) == 0
         and int(row.get("calibration_drift_count") or 0) == 0
+        and aggregate_calibration_drift_count == 0
         and not blocker_counts
+        and not calibration_rule_counts
     )
+    if "accepted" in row and row.get("accepted") is not True:
+        return False
+    return computed_passed
 
 
 def _audit_refresh_record_passed(row: Mapping[str, Any]) -> bool:
@@ -8611,6 +8620,12 @@ def _monitor_refresh_history_record(
         ),
         "alpha_decay_fail_count": int(monitor.get("alpha_decay_fail_count") or 0),
         "calibration_drift_count": int(monitor.get("calibration_drift_count") or 0),
+        "aggregate_calibration_drift_count": int(
+            monitor.get("aggregate_calibration_drift_count") or 0
+        ),
+        "calibration_drift_rule_counts": _count_mapping_values(
+            _ensure_mapping(monitor.get("calibration_drift_rule_counts"))
+        ),
         "blocker_counts": _count_mapping_values(
             _ensure_mapping(monitor.get("blocker_counts"))
         ),
@@ -8922,6 +8937,15 @@ def build_report_intelligence_evolution_readiness_gate(
                 "blocked_recipe_count": int(monitor.get("blocked_recipe_count") or 0),
                 "unvalidated_confidence_impact_count": int(
                     monitor.get("unvalidated_confidence_impact_count") or 0
+                ),
+                "calibration_drift_count": int(
+                    monitor.get("calibration_drift_count") or 0
+                ),
+                "aggregate_calibration_drift_count": int(
+                    monitor.get("aggregate_calibration_drift_count") or 0
+                ),
+                "calibration_drift_rule_counts": _count_mapping_values(
+                    _ensure_mapping(monitor.get("calibration_drift_rule_counts"))
                 ),
                 "trailing_monitor_pass_count": monitor_trailing_pass_count,
                 "trailing_monitor_distinct_vintage_count": monitor_trailing_pass_count,
