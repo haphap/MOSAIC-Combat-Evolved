@@ -38,6 +38,7 @@
   "policy": "confidence impact remains shadow-only; paper-trading validation, alpha-decay checks, calibration drift checks, and lockbox gates are required before any production confidence change",
   "production_decision_impact_allowed": false,
   "recipe_count": 5,
+  "reduce_confidence_impact_recipe_ids": [],
   "recommended_action_counts": {
     "keep_shadow": 5
   },

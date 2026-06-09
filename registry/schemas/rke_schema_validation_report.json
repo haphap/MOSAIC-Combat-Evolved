@@ -447,7 +447,7 @@
       "accepted": true,
       "artifact_path": "registry/report_intelligence",
       "failures": [],
-      "item_count": 11,
+      "item_count": 12,
       "schema_path": "schemas/report_intelligence_recipe_paper_trading_contract_rules"
     },
     {

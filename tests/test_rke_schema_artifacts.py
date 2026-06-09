@@ -611,7 +611,7 @@ def test_recipe_paper_trading_contract_accepts_current_public_artifacts(
     record = _recipe_paper_trading_contract_record(tmp_path)
 
     assert record.accepted
-    assert record.item_count == 11
+    assert record.item_count == 12
     assert record.failures == ()
 
 
@@ -645,6 +645,26 @@ def test_recipe_paper_trading_contract_rejects_confidence_bypass(
     assert any(
         "production_decision_impact_allowed" in item for item in record.failures
     )
+
+
+def test_recipe_paper_trading_contract_rejects_monitor_action_mismatch(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    monitor_path = registry / "confidence_impact_monitor.json"
+    monitor = json.loads(monitor_path.read_text(encoding="utf-8"))
+    monitor["recommended_action_counts"] = {"keep_shadow": 4}
+    monitor["tracked_recipe_ids"] = monitor["tracked_recipe_ids"][:-1]
+    monitor_path.write_text(
+        json.dumps(monitor, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _recipe_paper_trading_contract_record(tmp_path)
+
+    assert not record.accepted
+    assert any("recommended_action_counts mismatch" in item for item in record.failures)
+    assert any("tracked_recipe_ids mismatch" in item for item in record.failures)
 
 
 def test_recipe_paper_trading_contract_rejects_run_summary_mismatch(

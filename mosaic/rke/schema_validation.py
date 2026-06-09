@@ -1375,12 +1375,26 @@ def _validate_recipe_paper_trading_contract(
         root_path,
         "registry/report_intelligence/confidence_impact_observations.jsonl",
     )
+    monitor, monitor_failures = _read_mapping_json(
+        root_path / "registry/report_intelligence/confidence_impact_monitor.json",
+        "registry/report_intelligence/confidence_impact_monitor.json",
+    )
     summary, summary_failures = _read_mapping_json(
         root_path / "registry/report_intelligence/recipe_paper_trading_summary.json",
         "registry/report_intelligence/recipe_paper_trading_summary.json",
     )
-    failures = [*run_failures, *confidence_failures, *summary_failures]
-    item_count = len(run_rows) + len(confidence_rows) + (1 if summary else 0)
+    failures = [
+        *run_failures,
+        *confidence_failures,
+        *monitor_failures,
+        *summary_failures,
+    ]
+    item_count = (
+        len(run_rows)
+        + len(confidence_rows)
+        + (1 if monitor else 0)
+        + (1 if summary else 0)
+    )
 
     runs_by_recipe_id: dict[str, Mapping[str, Any]] = {}
     passed_recipe_ids: list[str] = []
@@ -1629,12 +1643,25 @@ def _validate_recipe_paper_trading_contract(
                 )
 
     confidence_by_recipe_id: dict[str, Mapping[str, Any]] = {}
+    confidence_action_counts: dict[str, int] = {}
+    confidence_drift_counts: dict[str, int] = {}
+    confidence_blocker_counts: dict[str, int] = {}
+    confidence_tracked_recipe_ids: list[str] = []
+    reduce_confidence_recipe_ids: list[str] = []
+    manual_review_recipe_ids: list[str] = []
+    freeze_recipe_ids: list[str] = []
+    retire_recipe_ids: list[str] = []
+    alpha_decay_recipe_ids: list[str] = []
+    cost_decay_recipe_ids: list[str] = []
+    calibration_drift_recipe_ids: list[str] = []
+    regime_fragile_recipe_ids: list[str] = []
     for index, row in enumerate(confidence_rows, 1):
         row_label = f"confidence_impact_observations row {index}"
         recipe_id = str(row.get("recipe_id") or "").strip()
         if not recipe_id:
             failures.append(f"{row_label}.recipe_id: required")
             continue
+        confidence_tracked_recipe_ids.append(recipe_id)
         if recipe_id in confidence_by_recipe_id:
             failures.append(f"{row_label}.recipe_id: duplicate {recipe_id}")
         else:
@@ -1664,6 +1691,48 @@ def _validate_recipe_paper_trading_contract(
             failures.append(
                 f"{row_label}.confidence_delta: blocked or unvalidated recipe must stay zero"
             )
+        drift_status = str(row.get("drift_status") or "")
+        recommended_action = str(row.get("recommended_action") or "")
+        if drift_status:
+            confidence_drift_counts[drift_status] = (
+                confidence_drift_counts.get(drift_status, 0) + 1
+            )
+        if recommended_action:
+            confidence_action_counts[recommended_action] = (
+                confidence_action_counts.get(recommended_action, 0) + 1
+            )
+        if (
+            confidence_delta is not None
+            and confidence_delta > 0
+            and (
+                run_status != "passed"
+                or drift_status != "stable_shadow"
+                or recommended_action != "keep_shadow"
+            )
+        ):
+            failures.append(
+                f"{row_label}.confidence_delta: positive impact requires passed stable_shadow keep_shadow"
+            )
+        if run_status != "passed" and recommended_action == "keep_shadow" and (
+            drift_status != "paper_trading_blocked"
+        ):
+            failures.append(
+                f"{row_label}.recommended_action: blocked keep_shadow requires paper_trading_blocked drift"
+            )
+        if (
+            recommended_action
+            in {
+                "reduce_confidence_impact",
+                "freeze_recipe",
+                "send_to_manual_review",
+                "retire_recipe",
+            }
+            and confidence_delta is not None
+            and not _nearly_equal(confidence_delta, 0.0)
+        ):
+            failures.append(
+                f"{row_label}.confidence_delta: mitigation actions must keep impact at zero"
+            )
         if run_status != "passed" and row.get("drift_status") == "stable_shadow":
             failures.append(
                 f"{row_label}.drift_status: blocked recipe cannot be stable_shadow"
@@ -1674,6 +1743,26 @@ def _validate_recipe_paper_trading_contract(
             failures.append(
                 f"{row_label}.blocker_reasons: mismatch with paper-trading run"
             )
+        for reason in _string_items(row.get("blocker_reasons")):
+            confidence_blocker_counts[reason] = (
+                confidence_blocker_counts.get(reason, 0) + 1
+            )
+        if recommended_action == "reduce_confidence_impact":
+            reduce_confidence_recipe_ids.append(recipe_id)
+        if recommended_action == "send_to_manual_review":
+            manual_review_recipe_ids.append(recipe_id)
+        if recommended_action == "freeze_recipe":
+            freeze_recipe_ids.append(recipe_id)
+        if recommended_action == "retire_recipe":
+            retire_recipe_ids.append(recipe_id)
+        if drift_status in {"alpha_decay_watch", "alpha_decay_fail"}:
+            alpha_decay_recipe_ids.append(recipe_id)
+        if drift_status == "cost_decay_fail":
+            cost_decay_recipe_ids.append(recipe_id)
+        if drift_status == "calibration_drift_watch":
+            calibration_drift_recipe_ids.append(recipe_id)
+        if drift_status == "regime_fragile_alpha":
+            regime_fragile_recipe_ids.append(recipe_id)
 
     missing_confidence_ids = sorted(
         set(runs_by_recipe_id) - set(confidence_by_recipe_id)
@@ -1683,6 +1772,74 @@ def _validate_recipe_paper_trading_contract(
             "confidence_impact_observations missing recipe_ids: "
             + ", ".join(missing_confidence_ids[:20])
         )
+    if monitor:
+        expected_monitor_counts = {
+            "recipe_count": len(run_rows),
+            "observation_count": len(confidence_rows),
+            "paper_trading_validated_recipe_count": len(passed_recipe_ids),
+            "blocked_recipe_count": len(blocked_recipe_ids),
+        }
+        for field, expected in expected_monitor_counts.items():
+            if monitor.get(field) != expected:
+                failures.append(f"confidence_impact_monitor.{field}: expected {expected}")
+        if monitor.get("production_decision_impact_allowed") is not False:
+            failures.append(
+                "confidence_impact_monitor.production_decision_impact_allowed: must be false"
+            )
+        if monitor.get("lockbox_required_before_production_impact") is not True:
+            failures.append(
+                "confidence_impact_monitor.lockbox_required_before_production_impact: must be true"
+            )
+        expected_action_counts = dict(sorted(confidence_action_counts.items()))
+        observed_action_counts = _count_mapping(
+            monitor.get("recommended_action_counts"),
+            row_label="confidence_impact_monitor.recommended_action_counts",
+            failures=failures,
+        )
+        if observed_action_counts != expected_action_counts:
+            failures.append("confidence_impact_monitor.recommended_action_counts mismatch")
+        expected_drift_counts = dict(sorted(confidence_drift_counts.items()))
+        observed_drift_counts = _count_mapping(
+            monitor.get("drift_status_counts"),
+            row_label="confidence_impact_monitor.drift_status_counts",
+            failures=failures,
+        )
+        if observed_drift_counts != expected_drift_counts:
+            failures.append("confidence_impact_monitor.drift_status_counts mismatch")
+        expected_blocker_counts = dict(sorted(confidence_blocker_counts.items()))
+        observed_blocker_counts = _count_mapping(
+            monitor.get("blocker_counts"),
+            row_label="confidence_impact_monitor.blocker_counts",
+            failures=failures,
+        )
+        if observed_blocker_counts != expected_blocker_counts:
+            failures.append("confidence_impact_monitor.blocker_counts mismatch")
+        expected_monitor_ids = {
+            "tracked_recipe_ids": sorted(set(confidence_tracked_recipe_ids)),
+            "reduce_confidence_impact_recipe_ids": sorted(
+                set(reduce_confidence_recipe_ids)
+            ),
+            "freeze_recipe_ids": sorted(set(freeze_recipe_ids)),
+            "retire_recipe_ids": sorted(set(retire_recipe_ids)),
+            "alpha_decay_recipe_ids": sorted(set(alpha_decay_recipe_ids)),
+            "cost_decay_recipe_ids": sorted(set(cost_decay_recipe_ids)),
+            "regime_fragile_recipe_ids": sorted(set(regime_fragile_recipe_ids)),
+        }
+        for field, expected_ids in expected_monitor_ids.items():
+            if _string_items(monitor.get(field)) != expected_ids:
+                failures.append(f"confidence_impact_monitor.{field} mismatch")
+        observed_manual_review_ids = set(_string_items(monitor.get("manual_review_recipe_ids")))
+        if not set(manual_review_recipe_ids).issubset(observed_manual_review_ids):
+            failures.append(
+                "confidence_impact_monitor.manual_review_recipe_ids missing action recipes"
+            )
+        observed_calibration_ids = set(
+            _string_items(monitor.get("calibration_drift_recipe_ids"))
+        )
+        if not set(calibration_drift_recipe_ids).issubset(observed_calibration_ids):
+            failures.append(
+                "confidence_impact_monitor.calibration_drift_recipe_ids missing drift recipes"
+            )
     return item_count, failures
 
 

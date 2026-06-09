@@ -1538,6 +1538,7 @@ def test_report_intelligence_recipe_paper_trading_flags_alpha_decay_fail():
     assert observations[0]["confidence_delta"] == 0.0
     assert monitor["alpha_decay_fail_count"] == 1
     assert monitor["alpha_decay_recipe_ids"] == ["RECIPE-DECAY-FAIL"]
+    assert monitor["reduce_confidence_impact_recipe_ids"] == []
     assert monitor["freeze_recipe_ids"] == ["RECIPE-DECAY-FAIL"]
 
 

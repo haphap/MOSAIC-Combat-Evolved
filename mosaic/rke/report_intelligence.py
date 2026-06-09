@@ -7558,6 +7558,7 @@ def build_confidence_impact_monitor(
     calibration_drift_recipe_ids: list[str] = []
     regime_fragile_recipe_ids: list[str] = []
     manual_review_recipe_ids: list[str] = []
+    reduce_confidence_impact_recipe_ids: list[str] = []
     freeze_recipe_ids: list[str] = []
     retire_recipe_ids: list[str] = []
     unvalidated_impact_count = 0
@@ -7644,6 +7645,8 @@ def build_confidence_impact_monitor(
         if str(row.get("drift_status") or "") == "regime_fragile_alpha" and recipe_id:
             regime_fragile_recipe_ids.append(recipe_id)
         action = str(row.get("recommended_action") or "")
+        if action == "reduce_confidence_impact" and recipe_id:
+            reduce_confidence_impact_recipe_ids.append(recipe_id)
         if action == "send_to_manual_review" and recipe_id:
             manual_review_recipe_ids.append(recipe_id)
         if action == "freeze_recipe" and recipe_id:
@@ -7722,6 +7725,9 @@ def build_confidence_impact_monitor(
         ),
         "regime_fragile_recipe_ids": sorted(set(regime_fragile_recipe_ids)),
         "manual_review_recipe_ids": sorted(set(manual_review_recipe_ids)),
+        "reduce_confidence_impact_recipe_ids": sorted(
+            set(reduce_confidence_impact_recipe_ids)
+        ),
         "freeze_recipe_ids": sorted(set(freeze_recipe_ids)),
         "retire_recipe_ids": sorted(set(retire_recipe_ids)),
         "production_decision_impact_allowed": False,
