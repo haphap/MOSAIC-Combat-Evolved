@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import asdict, dataclass
+from hashlib import sha256
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -850,6 +851,14 @@ def _count_mapping(
     return counts
 
 
+def _jsonable(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {str(key): _jsonable(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_jsonable(item) for item in value]
+    return value
+
+
 def _public_forbidden_text_failures(
     value: Any,
     *,
@@ -1258,6 +1267,82 @@ def _validate_industry_etf_mapping_contract(
     return item_count, failures
 
 
+RECIPE_PAPER_TRADING_PROTOCOL_VERSION = "recipe_shadow_paper_trading_v1"
+RECIPE_PAPER_TRADING_BENCHMARK_SOURCE = "cn_etf"
+RECIPE_PAPER_TRADING_BENCHMARK_SYMBOL = "SH510300"
+RECIPE_PAPER_TRADING_COST_MODEL_ID = "single_stock_round_trip_20bps_v1"
+RECIPE_PAPER_TRADING_MIN_EFFECTIVE_N = 3.0
+RECIPE_PAPER_TRADING_MAX_DRAWDOWN = 0.20
+RECIPE_PAPER_TRADING_ALPHA_DECAY_FAIL_STREAK = 2
+RECIPE_PAPER_TRADING_MAX_HORIZON_CONCENTRATION = 0.70
+RECIPE_PAPER_TRADING_MAX_REGIME_CONCENTRATION = 0.80
+RECIPE_PAPER_TRADING_MIN_HORIZON_COUNT = 2
+RECIPE_PAPER_TRADING_MIN_REGIME_COUNT = 2
+RECIPE_PAPER_TRADING_COST_DECAY_TURNOVER_THRESHOLD = 6.0
+
+
+def _expected_recipe_paper_trading_protocol() -> dict[str, Any]:
+    return {
+        "entry_semantics": "T+1_or_more_conservative",
+        "exit_semantics": "fixed_horizon_shadow_exit",
+        "cost_model_id": RECIPE_PAPER_TRADING_COST_MODEL_ID,
+        "benchmark_symbol": RECIPE_PAPER_TRADING_BENCHMARK_SYMBOL,
+        "benchmark_source": RECIPE_PAPER_TRADING_BENCHMARK_SOURCE,
+        "minimum_effective_n": RECIPE_PAPER_TRADING_MIN_EFFECTIVE_N,
+        "max_drawdown": RECIPE_PAPER_TRADING_MAX_DRAWDOWN,
+        "alpha_decay_fail_streak": RECIPE_PAPER_TRADING_ALPHA_DECAY_FAIL_STREAK,
+        "max_horizon_contribution_share": (
+            RECIPE_PAPER_TRADING_MAX_HORIZON_CONCENTRATION
+        ),
+        "max_regime_contribution_share": (
+            RECIPE_PAPER_TRADING_MAX_REGIME_CONCENTRATION
+        ),
+        "minimum_horizon_count": RECIPE_PAPER_TRADING_MIN_HORIZON_COUNT,
+        "minimum_regime_count": RECIPE_PAPER_TRADING_MIN_REGIME_COUNT,
+        "cost_decay_turnover_threshold": (
+            RECIPE_PAPER_TRADING_COST_DECAY_TURNOVER_THRESHOLD
+        ),
+        "profile_weight_is_sufficient": False,
+        "parameter_tuning_after_results_allowed": False,
+        "production_decision_impact_allowed": False,
+    }
+
+
+def _recipe_preregistration_payload_from_run(row: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "analysis_recipe_id": str(row.get("analysis_recipe_id") or ""),
+        "promotion_state": str(row.get("promotion_state") or ""),
+        "protocol_version": str(row.get("protocol_version") or ""),
+        "source_method_pattern_ids": _string_items(row.get("source_method_pattern_ids")),
+        "required_tools": _string_items(row.get("required_tools")),
+        "required_data": _string_items(row.get("required_data")),
+        "decision_scope": str(row.get("decision_scope") or ""),
+        "entry_condition": str(row.get("entry_condition") or ""),
+        "exit_condition": str(row.get("exit_condition") or ""),
+        "risk_controls": _string_items(row.get("risk_controls")),
+        "expected_horizon_days": _int_or_none(row.get("expected_horizon_days")),
+        "benchmark_symbol": str(row.get("benchmark_symbol") or ""),
+        "benchmark_source": str(row.get("benchmark_source") or ""),
+        "cost_model_id": str(row.get("cost_model_id") or ""),
+        "pre_registered_protocol": dict(
+            row.get("pre_registered_protocol")
+            if isinstance(row.get("pre_registered_protocol"), Mapping)
+            else {}
+        ),
+        "production_decision_impact_allowed": False,
+    }
+
+
+def _recipe_preregistration_hash_from_run(row: Mapping[str, Any]) -> str:
+    encoded = json.dumps(
+        _jsonable(_recipe_preregistration_payload_from_run(row)),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return "sha256:" + sha256(encoded).hexdigest()
+
+
 def _validate_recipe_paper_trading_contract(
     root_path: Path,
 ) -> tuple[int, list[str]]:
@@ -1315,6 +1400,32 @@ def _validate_recipe_paper_trading_contract(
             failures.append(
                 f"{row_label}.production_decision_impact_allowed: must be false"
             )
+        if row.get("promotion_state") != "shadow_candidate":
+            failures.append(f"{row_label}.promotion_state: must be shadow_candidate")
+        if row.get("protocol_version") != RECIPE_PAPER_TRADING_PROTOCOL_VERSION:
+            failures.append(
+                f"{row_label}.protocol_version: must be {RECIPE_PAPER_TRADING_PROTOCOL_VERSION}"
+            )
+        if row.get("benchmark_source") != RECIPE_PAPER_TRADING_BENCHMARK_SOURCE:
+            failures.append(
+                f"{row_label}.benchmark_source: must be {RECIPE_PAPER_TRADING_BENCHMARK_SOURCE}"
+            )
+        if row.get("benchmark_symbol") != RECIPE_PAPER_TRADING_BENCHMARK_SYMBOL:
+            failures.append(
+                f"{row_label}.benchmark_symbol: must be {RECIPE_PAPER_TRADING_BENCHMARK_SYMBOL}"
+            )
+        if row.get("cost_model_id") != RECIPE_PAPER_TRADING_COST_MODEL_ID:
+            failures.append(
+                f"{row_label}.cost_model_id: must be {RECIPE_PAPER_TRADING_COST_MODEL_ID}"
+            )
+        if row.get("entry_condition") != "T+1_or_more_conservative_shadow_entry":
+            failures.append(
+                f"{row_label}.entry_condition: must be T+1_or_more_conservative_shadow_entry"
+            )
+        if row.get("exit_condition") != "fixed_horizon_shadow_exit":
+            failures.append(
+                f"{row_label}.exit_condition: must be fixed_horizon_shadow_exit"
+            )
         preregistration_hash = str(row.get("pre_registration_hash") or "")
         if not re.fullmatch(r"sha256:[0-9a-f]{64}", preregistration_hash):
             failures.append(
@@ -1325,14 +1436,41 @@ def _validate_recipe_paper_trading_contract(
         if not isinstance(protocol, Mapping):
             failures.append(f"{row_label}.pre_registered_protocol: expected object")
             protocol = {}
-        for protocol_field in (
-            "profile_weight_is_sufficient",
-            "parameter_tuning_after_results_allowed",
-            "production_decision_impact_allowed",
-        ):
-            if protocol.get(protocol_field) is not False:
+        expected_protocol = _expected_recipe_paper_trading_protocol()
+        for protocol_field, expected_value in expected_protocol.items():
+            observed_value = protocol.get(protocol_field)
+            if isinstance(expected_value, float):
+                observed_float = _float_or_none(observed_value)
+                if observed_float is None or not _nearly_equal(
+                    observed_float,
+                    expected_value,
+                ):
+                    failures.append(
+                        f"{row_label}.pre_registered_protocol.{protocol_field}: "
+                        f"must be {expected_value}"
+                    )
+            elif observed_value != expected_value:
                 failures.append(
-                    f"{row_label}.pre_registered_protocol.{protocol_field}: must be false"
+                    f"{row_label}.pre_registered_protocol.{protocol_field}: "
+                    f"must be {expected_value}"
+                )
+        if protocol.get("cost_model_id") != row.get("cost_model_id"):
+            failures.append(
+                f"{row_label}.pre_registered_protocol.cost_model_id: must match row cost_model_id"
+            )
+        if protocol.get("benchmark_symbol") != row.get("benchmark_symbol"):
+            failures.append(
+                f"{row_label}.pre_registered_protocol.benchmark_symbol: must match row benchmark_symbol"
+            )
+        if protocol.get("benchmark_source") != row.get("benchmark_source"):
+            failures.append(
+                f"{row_label}.pre_registered_protocol.benchmark_source: must match row benchmark_source"
+            )
+        if re.fullmatch(r"sha256:[0-9a-f]{64}", preregistration_hash):
+            expected_hash = _recipe_preregistration_hash_from_run(row)
+            if preregistration_hash != expected_hash:
+                failures.append(
+                    f"{row_label}.pre_registration_hash: mismatch with pre-registered protocol payload"
                 )
 
         metrics = row.get("metrics")

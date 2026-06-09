@@ -6719,27 +6719,13 @@ CONFIDENCE_IMPACT_HIGH_DELTA_THRESHOLD = 0.02
 CONFIDENCE_IMPACT_CALIBRATION_ERROR_THRESHOLD = 0.20
 
 
-def _recipe_preregistration_hash(recipe: Mapping[str, Any]) -> str:
-    payload = {
-        "analysis_recipe_id": recipe.get("analysis_recipe_id"),
-        "method_pattern_id": recipe.get("method_pattern_id"),
-        "version": recipe.get("version"),
-        "promotion_state": recipe.get("promotion_state"),
-        "source_method_pattern_ids": _ensure_list(
-            recipe.get("source_method_pattern_ids")
-        ),
-        "required_tools": _ensure_list(recipe.get("required_tools")),
-        "required_data": _normalize_required_data_items(recipe.get("required_data")),
-        "decision_scope": recipe.get("decision_scope"),
-        "entry_condition": recipe.get("entry_condition"),
-        "exit_condition": recipe.get("exit_condition"),
-        "risk_controls": _ensure_list(recipe.get("risk_controls")),
-        "expected_horizon_days": recipe.get("expected_horizon_days"),
-        "steps": _ensure_list(recipe.get("steps")),
-        "protocol_version": RECIPE_PAPER_TRADING_PROTOCOL_VERSION,
-        "entry_rule": ANALYSIS_RECIPE_ENTRY_CONDITION,
-        "exit_rule": ANALYSIS_RECIPE_EXIT_CONDITION,
+def _recipe_paper_trading_protocol() -> dict[str, Any]:
+    return {
+        "entry_semantics": "T+1_or_more_conservative",
+        "exit_semantics": "fixed_horizon_shadow_exit",
         "cost_model_id": RECIPE_PAPER_TRADING_COST_MODEL_ID,
+        "benchmark_symbol": RECIPE_PAPER_TRADING_BENCHMARK_SYMBOL,
+        "benchmark_source": STOCK_PRICE_PROXY_BENCHMARK_SOURCE,
         "minimum_effective_n": RECIPE_PAPER_TRADING_MIN_EFFECTIVE_N,
         "max_drawdown": RECIPE_PAPER_TRADING_MAX_DRAWDOWN,
         "alpha_decay_fail_streak": RECIPE_PAPER_TRADING_ALPHA_DECAY_FAIL_STREAK,
@@ -6754,11 +6740,58 @@ def _recipe_preregistration_hash(recipe: Mapping[str, Any]) -> str:
         "cost_decay_turnover_threshold": (
             RECIPE_PAPER_TRADING_COST_DECAY_TURNOVER_THRESHOLD
         ),
+        "profile_weight_is_sufficient": False,
+        "parameter_tuning_after_results_allowed": False,
+        "production_decision_impact_allowed": False,
     }
+
+
+def _recipe_preregistration_payload(
+    *,
+    analysis_recipe_id: str,
+    promotion_state: str,
+    source_method_pattern_ids: Sequence[Any],
+    required_tools: Sequence[Any],
+    required_data: Sequence[Any],
+    decision_scope: str,
+    entry_condition: str,
+    exit_condition: str,
+    risk_controls: Sequence[Any],
+    expected_horizon_days: int,
+    benchmark_symbol: str,
+    benchmark_source: str,
+    cost_model_id: str,
+    pre_registered_protocol: Mapping[str, Any],
+) -> dict[str, Any]:
+    payload = {
+        "analysis_recipe_id": analysis_recipe_id,
+        "promotion_state": promotion_state,
+        "protocol_version": RECIPE_PAPER_TRADING_PROTOCOL_VERSION,
+        "source_method_pattern_ids": [str(item) for item in source_method_pattern_ids],
+        "required_tools": [str(item) for item in required_tools],
+        "required_data": _normalize_required_data_items(required_data),
+        "decision_scope": decision_scope,
+        "entry_condition": entry_condition,
+        "exit_condition": exit_condition,
+        "risk_controls": [str(item) for item in risk_controls],
+        "expected_horizon_days": expected_horizon_days,
+        "benchmark_symbol": benchmark_symbol,
+        "benchmark_source": benchmark_source,
+        "cost_model_id": cost_model_id,
+        "pre_registered_protocol": dict(pre_registered_protocol),
+        "production_decision_impact_allowed": False,
+    }
+    return payload
+
+
+def _recipe_preregistration_hash_from_payload(payload: Mapping[str, Any]) -> str:
     return "sha256:" + sha256(
-        json.dumps(_jsonable(payload), ensure_ascii=False, sort_keys=True).encode(
-            "utf-8"
-        )
+        json.dumps(
+            _jsonable(payload),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
     ).hexdigest()
 
 
@@ -7015,6 +7048,7 @@ def build_recipe_paper_trading_runs(
             blockers.append("required_data_missing")
         if str(recipe.get("runtime_mode") or "") != "shadow_only":
             blockers.append("unsupported_runtime_mode")
+        required_tools = _ensure_list(recipe.get("required_tools"))
         cost_adjusted_alpha = _float_or_none(metrics.get("cost_adjusted_alpha"))
         pre_cost_alpha = _float_or_none(metrics.get("pre_cost_alpha"))
         hit_rate = _float_or_none(metrics.get("hit_rate"))
@@ -7077,6 +7111,25 @@ def build_recipe_paper_trading_runs(
         )
         profile_support_only = (profile_n or 0.0) > 0 and bool(blockers)
         status = "passed" if not blockers else "blocked"
+        pre_registered_protocol = _recipe_paper_trading_protocol()
+        pre_registration_hash = _recipe_preregistration_hash_from_payload(
+            _recipe_preregistration_payload(
+                analysis_recipe_id=recipe_id,
+                promotion_state="shadow_candidate",
+                source_method_pattern_ids=source_method_pattern_ids,
+                required_tools=required_tools,
+                required_data=required_data,
+                decision_scope=decision_scope,
+                entry_condition=entry_condition,
+                exit_condition=exit_condition,
+                risk_controls=risk_controls,
+                expected_horizon_days=expected_horizon_days,
+                benchmark_symbol=RECIPE_PAPER_TRADING_BENCHMARK_SYMBOL,
+                benchmark_source=STOCK_PRICE_PROXY_BENCHMARK_SOURCE,
+                cost_model_id=RECIPE_PAPER_TRADING_COST_MODEL_ID,
+                pre_registered_protocol=pre_registered_protocol,
+            )
+        )
         runs.append(
             {
                 "paper_trading_run_id": _stable_id(
@@ -7094,13 +7147,13 @@ def build_recipe_paper_trading_runs(
                         "protocol_version": RECIPE_PAPER_TRADING_PROTOCOL_VERSION,
                     },
                 ),
-                "pre_registration_hash": _recipe_preregistration_hash(recipe),
+                "pre_registration_hash": pre_registration_hash,
                 "protocol_version": RECIPE_PAPER_TRADING_PROTOCOL_VERSION,
                 "promotion_state": "shadow_candidate",
                 "validation_status": status,
                 "paper_trading_status": status,
                 "source_method_pattern_ids": source_method_pattern_ids,
-                "required_tools": _ensure_list(recipe.get("required_tools")),
+                "required_tools": required_tools,
                 "required_data": required_data,
                 "decision_scope": decision_scope,
                 "entry_condition": entry_condition,
@@ -7110,31 +7163,7 @@ def build_recipe_paper_trading_runs(
                 "benchmark_symbol": RECIPE_PAPER_TRADING_BENCHMARK_SYMBOL,
                 "benchmark_source": STOCK_PRICE_PROXY_BENCHMARK_SOURCE,
                 "cost_model_id": RECIPE_PAPER_TRADING_COST_MODEL_ID,
-                "pre_registered_protocol": {
-                    "entry_semantics": "T+1_or_more_conservative",
-                    "exit_semantics": "fixed_horizon_shadow_exit",
-                    "cost_model_id": RECIPE_PAPER_TRADING_COST_MODEL_ID,
-                    "benchmark_symbol": RECIPE_PAPER_TRADING_BENCHMARK_SYMBOL,
-                    "minimum_effective_n": RECIPE_PAPER_TRADING_MIN_EFFECTIVE_N,
-                    "max_drawdown": RECIPE_PAPER_TRADING_MAX_DRAWDOWN,
-                    "alpha_decay_fail_streak": (
-                        RECIPE_PAPER_TRADING_ALPHA_DECAY_FAIL_STREAK
-                    ),
-                    "max_horizon_contribution_share": (
-                        RECIPE_PAPER_TRADING_MAX_HORIZON_CONCENTRATION
-                    ),
-                    "max_regime_contribution_share": (
-                        RECIPE_PAPER_TRADING_MAX_REGIME_CONCENTRATION
-                    ),
-                    "minimum_horizon_count": RECIPE_PAPER_TRADING_MIN_HORIZON_COUNT,
-                    "minimum_regime_count": RECIPE_PAPER_TRADING_MIN_REGIME_COUNT,
-                    "cost_decay_turnover_threshold": (
-                        RECIPE_PAPER_TRADING_COST_DECAY_TURNOVER_THRESHOLD
-                    ),
-                    "profile_weight_is_sufficient": False,
-                    "parameter_tuning_after_results_allowed": False,
-                    "production_decision_impact_allowed": False,
-                },
+                "pre_registered_protocol": pre_registered_protocol,
                 "metrics": metrics,
                 "blocked_reasons": sorted(set(blockers)),
                 "profile_weight_support": {

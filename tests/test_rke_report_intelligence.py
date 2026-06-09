@@ -35,6 +35,7 @@ from mosaic.rke.report_intelligence import (
     convert_pdfs_with_mineru_batch,
     run_report_intelligence_refresh,
     run_report_intelligence_derived_refresh,
+    _append_evolution_history_record,
     _markdown_quality_gap,
 )
 
@@ -1368,6 +1369,7 @@ def test_report_intelligence_recipe_paper_trading_requires_direct_pit_evidence()
 
     assert runs[0]["paper_trading_status"] == "passed"
     assert runs[0]["blocked_reasons"] == []
+    assert str(runs[0]["pre_registration_hash"]).startswith("sha256:")
     assert runs[0]["source_method_pattern_ids"] == ["METHOD-DIRECT-PIT"]
     assert runs[0]["required_data"] == [
         "metric:stock_price",
@@ -1380,6 +1382,7 @@ def test_report_intelligence_recipe_paper_trading_requires_direct_pit_evidence()
         "parameter_tuning_after_results_allowed"
     ] is False
     assert runs[0]["pre_registered_protocol"]["alpha_decay_fail_streak"] == 2
+    assert runs[0]["pre_registered_protocol"]["benchmark_source"] == "cn_etf"
     assert runs[0]["pre_registered_protocol"]["cost_decay_turnover_threshold"] == 6.0
     assert "turnover_cost_decay_blocks_validation" in runs[0]["risk_controls"]
     assert runs[0]["metrics"]["brier_score"] == 0.01
@@ -1436,6 +1439,23 @@ def test_report_intelligence_recipe_paper_trading_requires_direct_pit_evidence()
     )
     assert missing_data_runs[0]["paper_trading_status"] == "blocked"
     assert "required_data_missing" in missing_data_runs[0]["blocked_reasons"]
+
+    changed_recipe = dict(recipe)
+    changed_recipe["required_data"] = ["stock_price", "benchmark_return", "liquidity"]
+    changed_runs = build_recipe_paper_trading_runs(
+        run_id="RIR-TEST-PAPER",
+        analysis_recipe_rows=[changed_recipe],
+        outcome_label_rows=labels,
+        method_performance_profile_rows=[],
+    )
+    assert changed_runs[0]["pre_registration_hash"] != runs[0][
+        "pre_registration_hash"
+    ]
+    assert changed_runs[0]["required_data"] == [
+        "metric:stock_price",
+        "metric:benchmark_return",
+        "metric:liquidity",
+    ]
 
 
 def test_report_intelligence_recipe_paper_trading_flags_alpha_decay_fail():
@@ -2132,6 +2152,27 @@ def test_report_intelligence_evolution_gate_requires_distinct_data_vintages():
         gap_check["evidence"]["trailing_gap_distribution_distinct_vintage_count"]
         == 1
     )
+
+
+def test_report_intelligence_evolution_history_replaces_same_data_vintage():
+    data_vintage_hash = "sha256:" + "a" * 64
+    history = _append_evolution_history_record(
+        [
+            {
+                "run_id": "RIR-OLD",
+                "data_vintage_hash": data_vintage_hash,
+                "accepted": True,
+            }
+        ],
+        {
+            "run_id": "RIR-NEW",
+            "data_vintage_hash": data_vintage_hash,
+            "accepted": True,
+        },
+    )
+
+    assert len(history) == 1
+    assert history[0]["run_id"] == "RIR-NEW"
 
 
 def test_report_intelligence_prompt_mutation_candidates_track_markdown_coverage_gate():

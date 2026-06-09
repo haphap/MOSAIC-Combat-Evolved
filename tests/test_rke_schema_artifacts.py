@@ -673,6 +673,29 @@ def test_recipe_paper_trading_contract_rejects_run_summary_mismatch(
     assert any("validation_pass_count" in item for item in record.failures)
 
 
+def test_recipe_paper_trading_contract_rejects_preregistration_payload_mismatch(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    runs_path = registry / "recipe_paper_trading_runs.jsonl"
+    runs = [
+        json.loads(line)
+        for line in runs_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    runs[0]["decision_scope"] = "post_result_rewritten_scope"
+    runs_path.write_text(
+        "\n".join(json.dumps(row, ensure_ascii=False, sort_keys=True) for row in runs)
+        + "\n",
+        encoding="utf-8",
+    )
+
+    record = _recipe_paper_trading_contract_record(tmp_path)
+
+    assert not record.accepted
+    assert any("pre_registration_hash: mismatch" in item for item in record.failures)
+
+
 def test_schema_validation_accepts_public_registry_without_private_report_inputs(
     tmp_path: Path,
 ):
