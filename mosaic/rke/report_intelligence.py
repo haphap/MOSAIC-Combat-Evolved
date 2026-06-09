@@ -471,7 +471,7 @@ class ReportIntelligenceConfig:
     limit: int | None = None
     min_publish_date: str | None = None
     max_publish_date: str | None = None
-    selection_order: Literal["latest", "oldest"] = "latest"
+    selection_order: Literal["latest", "oldest", "stratified"] = "latest"
     overwrite: bool = False
     skip_download: bool = False
     skip_convert: bool = False
@@ -874,7 +874,7 @@ def _selected_source_rows(
     limit: int | None,
     min_publish_date: str | None = None,
     max_publish_date: str | None = None,
-    selection_order: Literal["latest", "oldest"] = "latest",
+    selection_order: Literal["latest", "oldest", "stratified"] = "latest",
 ) -> tuple[list[Mapping[str, Any]], list[str]]:
     raw_rows, parse_blockers = load_jsonl_with_errors(
         _source_file(root_path, source_path),
@@ -897,8 +897,8 @@ def _selected_source_rows(
             for row in rows
             if str(row.get("publish_date") or "") <= max_publish_date
         ]
-    if selection_order not in {"latest", "oldest"}:
-        blockers.append("selection_order must be latest or oldest")
+    if selection_order not in {"latest", "oldest", "stratified"}:
+        blockers.append("selection_order must be latest, oldest, or stratified")
         selection_order = "latest"
     rows = sorted(
         rows,
@@ -908,9 +908,110 @@ def _selected_source_rows(
         ),
         reverse=selection_order == "latest",
     )
+    if selection_order == "stratified":
+        rows = _stratified_source_rows(
+            rows,
+            len(rows) if limit is None else max(limit, 0),
+        )
+        return rows, blockers
     if limit is not None:
         rows = rows[: max(limit, 0)]
     return rows, blockers
+
+
+def _source_publish_datetime(row: Mapping[str, Any]) -> str:
+    publish_date = str(row.get("publish_date") or "").strip()
+    if not publish_date:
+        return ""
+    return publish_date if "T" in publish_date else f"{publish_date}T00:00:00+08:00"
+
+
+def _stratified_source_values(
+    row: Mapping[str, Any],
+    *,
+    corpus_as_of: datetime | None,
+    institution_counts: Mapping[str, int],
+    total_reports: int,
+) -> tuple[tuple[str, str], ...]:
+    metadata_like = {
+        **dict(row),
+        "publish_datetime": _source_publish_datetime(row),
+        "sector": str(row.get("industry") or row.get("query_key") or "unknown"),
+    }
+    report_type = str(row.get("report_type") or "unknown_report_type")
+    sector = str(row.get("industry") or row.get("query_key") or "unknown_sector")
+    return (
+        ("report_type", report_type),
+        ("time_bucket", _coverage_time_bucket(metadata_like, corpus_as_of=corpus_as_of)),
+        (
+            "institution_bucket",
+            _coverage_institution_bucket(
+                metadata_like,
+                institution_counts=institution_counts,
+                total_reports=total_reports,
+            ),
+        ),
+        ("sector_bucket", sector),
+        (
+            "stock_ts_code",
+            "stock_ts_code_present"
+            if _is_explicit_stock_ts_code(row.get("ts_code"))
+            else "stock_ts_code_missing",
+        ),
+    )
+
+
+def _stratified_source_rows(
+    rows: Sequence[Mapping[str, Any]],
+    limit: int,
+) -> list[Mapping[str, Any]]:
+    if limit <= 0:
+        return []
+    remaining = list(rows)
+    selected: list[Mapping[str, Any]] = []
+    seen: dict[str, set[str]] = {
+        "report_type": set(),
+        "time_bucket": set(),
+        "institution_bucket": set(),
+        "sector_bucket": set(),
+        "stock_ts_code": set(),
+    }
+    corpus_as_of = _coverage_corpus_as_of(
+        [{"publish_datetime": _source_publish_datetime(row)} for row in remaining]
+    )
+    institution_counts = _coverage_institution_counts(remaining)
+
+    while remaining and len(selected) < limit:
+        best_index = 0
+        best_score: tuple[int, str, str] | None = None
+        for index, row in enumerate(remaining):
+            values = _stratified_source_values(
+                row,
+                corpus_as_of=corpus_as_of,
+                institution_counts=institution_counts,
+                total_reports=len(rows),
+            )
+            coverage_gain = sum(
+                value not in seen[dimension] for dimension, value in values
+            )
+            score = (
+                coverage_gain,
+                str(row.get("publish_date") or ""),
+                str(row.get("source_id") or ""),
+            )
+            if best_score is None or score > best_score:
+                best_score = score
+                best_index = index
+        row = remaining.pop(best_index)
+        selected.append(row)
+        for dimension, value in _stratified_source_values(
+            row,
+            corpus_as_of=corpus_as_of,
+            institution_counts=institution_counts,
+            total_reports=len(rows),
+        ):
+            seen[dimension].add(value)
+    return selected
 
 
 def download_pdf(

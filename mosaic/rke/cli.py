@@ -692,9 +692,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     report_intelligence.add_argument(
         "--selection-order",
-        choices=("latest", "oldest"),
+        choices=("latest", "oldest", "stratified"),
         default="latest",
-        help="Order source selection before applying --limit. Defaults to latest.",
+        help=(
+            "Order source selection before applying --limit. Use stratified for "
+            "P9 coverage sampling across report type, time, institution, sector, "
+            "and stock-code buckets. Defaults to latest."
+        ),
     )
     report_intelligence.add_argument(
         "--overwrite",

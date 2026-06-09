@@ -4905,7 +4905,113 @@ def test_report_intelligence_cli_help_exposes_stock_qlib_dir(capsys):
     assert exc.value.code == 0
     help_text = capsys.readouterr().out
     assert "--qlib-stock-dir" in help_text
+    assert "stratified" in help_text
     assert ReportIntelligenceConfig().qlib_stock_dir == "~/.qlib/qlib_data/cn_data"
+
+
+def test_report_intelligence_stratified_source_selection_covers_p9_buckets(
+    tmp_path: Path,
+):
+    source_path = tmp_path / "registry/sources/tushare_research_reports.jsonl"
+    source_path.parent.mkdir(parents=True, exist_ok=True)
+
+    def row(
+        source_id: str,
+        *,
+        publish_date: str,
+        report_type: str,
+        industry: str,
+        ts_code: str = "",
+        institution: str = "Broker",
+    ) -> dict[str, object]:
+        return {
+            "author": "Analyst A",
+            "discovered_at": f"{publish_date}T00:00:00+00:00",
+            "industry": industry,
+            "institution": institution,
+            "license_status": "pending_review",
+            "point_in_time_available": True,
+            "publish_date": publish_date,
+            "query_key": industry,
+            "report_type": report_type,
+            "source_hash": f"sha256:{source_id}",
+            "source_id": source_id,
+            "source_type": "tushare_research_report",
+            "title": f"{report_type} {industry}",
+            "ts_code": ts_code,
+            "url": f"https://example.invalid/{source_id}.pdf",
+        }
+
+    rows = [
+        row(
+            f"SRC-MACRO-{index}",
+            publish_date=f"2026-06-0{index + 1}",
+            report_type="宏观研报",
+            industry="宏观",
+            institution="Head Broker",
+        )
+        for index in range(4)
+    ]
+    rows.extend(
+        [
+            row(
+                "SRC-IND-METALS",
+                publish_date="2024-06-01",
+                report_type="行业研报",
+                industry="有色金属",
+                institution="Tail Broker A",
+            ),
+            row(
+                "SRC-STOCK-BANK",
+                publish_date="2020-06-01",
+                report_type="公司研报",
+                industry="银行",
+                ts_code="000001.SZ",
+                institution="Tail Broker B",
+            ),
+        ]
+    )
+    source_path.write_text(
+        "".join(json.dumps(item, ensure_ascii=False, sort_keys=True) + "\n" for item in rows),
+        encoding="utf-8",
+    )
+
+    result = run_report_intelligence_refresh(
+        ReportIntelligenceConfig(
+            root=tmp_path,
+            source_path=source_path,
+            limit=3,
+            selection_order="stratified",
+            skip_download=True,
+            skip_convert=True,
+            skip_llm=True,
+        )
+    )
+
+    assert result.selected_reports == 3
+    metadata = _read_jsonl(
+        tmp_path / "registry/report_intelligence/report_metadata.jsonl"
+    )
+    selected_ids = {row["source_id"] for row in metadata}
+    assert selected_ids == {"SRC-MACRO-3", "SRC-IND-METALS", "SRC-STOCK-BANK"}
+
+    coverage = json.loads(
+        (
+            tmp_path / "registry/report_intelligence/markdown_coverage_summary.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert coverage["report_type_counts"] == {
+        "公司研报": 1,
+        "宏观研报": 1,
+        "行业研报": 1,
+    }
+    assert coverage["time_bucket_counts"] == {
+        "long_cycle_history": 1,
+        "recent_1y": 1,
+        "recent_3y": 1,
+    }
+    assert coverage["stock_report_count"] == 1
+    assert coverage["industry_report_count"] == 1
 
 
 def test_report_intelligence_extractor_prompt_guides_industry_proxy_fields():
