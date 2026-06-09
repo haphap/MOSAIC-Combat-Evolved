@@ -2038,6 +2038,72 @@ def validate_report_intelligence_semantics(
                 "markdown_coverage_summary.coverage_gate_blockers must include "
                 "llm_extraction_without_quality_pass"
             )
+        coverage_targets = markdown_coverage.get("coverage_targets")
+        coverage_blockers = set(
+            _string_items(markdown_coverage.get("coverage_gate_blockers"))
+        )
+        if not isinstance(coverage_targets, Mapping):
+            markdown_coverage_failures.append(
+                "markdown_coverage_summary.coverage_targets: expected object"
+            )
+        else:
+            for count_field, target_field, blocker in (
+                (
+                    "selected_report_count",
+                    "selected_report_count_min",
+                    "selected_report_count_below_p9_target",
+                ),
+                (
+                    "markdown_ready_count",
+                    "markdown_ready_count_min",
+                    "markdown_ready_count_below_p9_target",
+                ),
+                (
+                    "markdown_quality_pass_count",
+                    "markdown_quality_pass_count_min",
+                    "markdown_quality_pass_count_below_p9_target",
+                ),
+                (
+                    "llm_extraction_processed_count",
+                    "llm_extraction_processed_count_min",
+                    "llm_extraction_processed_count_below_p9_target",
+                ),
+                (
+                    "industry_report_count",
+                    "industry_report_count_min",
+                    "industry_report_count_below_p9_target",
+                ),
+                (
+                    "stock_report_count",
+                    "stock_report_count_min",
+                    "stock_report_count_below_p9_target",
+                ),
+            ):
+                count = _int_or_none(markdown_coverage.get(count_field))
+                target = _int_or_none(coverage_targets.get(target_field))
+                if count is None:
+                    markdown_coverage_failures.append(
+                        f"markdown_coverage_summary.{count_field}: expected integer"
+                    )
+                    continue
+                if target is None:
+                    markdown_coverage_failures.append(
+                        "markdown_coverage_summary.coverage_targets."
+                        f"{target_field}: expected integer"
+                    )
+                    continue
+                if count < target and blocker not in coverage_blockers:
+                    markdown_coverage_failures.append(
+                        "markdown_coverage_summary.coverage_gate_blockers must "
+                        f"include {blocker}"
+                    )
+        if (
+            markdown_coverage.get("coverage_gate_status") == "passed"
+            and coverage_blockers
+        ):
+            markdown_coverage_failures.append(
+                "markdown_coverage_summary.coverage_gate_status passed with blockers"
+            )
     records.append(
         SchemaValidationRecord(
             schema_path="schemas/report_intelligence_markdown_coverage_privacy_rules",

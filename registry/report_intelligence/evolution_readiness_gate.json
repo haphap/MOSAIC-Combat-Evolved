@@ -1,6 +1,6 @@
 {
   "as_of_datetime": "2026-06-08T10:23:08+00:00",
-  "blocker_count": 25,
+  "blocker_count": 27,
   "blockers": [
     "after_cost_paper_trading_summary_missing",
     "audit_refresh_history_below_threshold",
@@ -14,6 +14,7 @@
     "gold_reviewed_claims_below_threshold",
     "gold_reviewed_documents_below_threshold",
     "horizon_accuracy_missing",
+    "industry_report_count_below_p9_target",
     "industry_proxy_claim_count_below_threshold",
     "llm_extraction_processed_count_below_p9_target",
     "markdown_quality_pass_count_below_p9_target",
@@ -22,6 +23,7 @@
     "paper_trading_validated_recipe_count_below_threshold",
     "selected_report_count_below_p9_target",
     "source_span_support_precision_missing",
+    "stock_report_count_below_p9_target",
     "stock_proxy_claim_count_below_threshold",
     "target_accuracy_missing",
     "unsupported_field_false_grounding_rate_missing",
@@ -158,7 +160,9 @@
         "selected_report_count_below_p9_target",
         "markdown_ready_count_below_p9_target",
         "markdown_quality_pass_count_below_p9_target",
-        "llm_extraction_processed_count_below_p9_target"
+        "llm_extraction_processed_count_below_p9_target",
+        "industry_report_count_below_p9_target",
+        "stock_report_count_below_p9_target"
       ],
       "check_id": "RI-EVOL-07",
       "evidence": {
@@ -166,18 +170,28 @@
           "selected_report_count_below_p9_target",
           "markdown_ready_count_below_p9_target",
           "markdown_quality_pass_count_below_p9_target",
-          "llm_extraction_processed_count_below_p9_target"
+          "llm_extraction_processed_count_below_p9_target",
+          "industry_report_count_below_p9_target",
+          "stock_report_count_below_p9_target"
         ],
         "coverage_gate_status": "blocked",
         "coverage_targets": {
+          "industry_report_count_min": 80,
           "llm_extraction_processed_count_min": 100,
           "markdown_quality_pass_count_min": 300,
           "markdown_ready_count_min": 300,
-          "selected_report_count_min": 300
+          "selected_report_count_min": 300,
+          "stock_report_count_min": 80
         },
+        "industry_report_count": 2,
+        "llm_extraction_processed_count": 0,
         "markdown_false_positive_review_queue_count": 0,
+        "markdown_quality_pass_count": 0,
         "markdown_quality_review_queue_count": 0,
-        "markdown_quality_spot_check_required": false
+        "markdown_quality_spot_check_required": false,
+        "markdown_ready_count": 0,
+        "selected_report_count": 2,
+        "stock_report_count": 0
       },
       "passed": false,
       "requirement": "Markdown coverage must pass P9 corpus thresholds before evolution depends on report-derived Markdown evidence."

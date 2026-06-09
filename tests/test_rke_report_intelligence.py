@@ -637,20 +637,29 @@ def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
     assert markdown_coverage["markdown_quality_pass_count"] == 1
     assert markdown_coverage["llm_extraction_processed_count"] == 1
     assert markdown_coverage["llm_extraction_without_quality_pass_count"] == 0
+    assert markdown_coverage["industry_report_count"] == 0
+    assert markdown_coverage["stock_report_count"] == 0
     assert markdown_coverage["coverage_targets"] == {
+        "industry_report_count_min": 80,
         "llm_extraction_processed_count_min": 100,
         "markdown_quality_pass_count_min": 300,
         "markdown_ready_count_min": 300,
         "selected_report_count_min": 300,
+        "stock_report_count_min": 80,
     }
     assert markdown_coverage["coverage_gate_status"] == "blocked"
     assert set(markdown_coverage["coverage_gate_blockers"]) == {
         "llm_extraction_processed_count_below_p9_target",
+        "industry_report_count_below_p9_target",
         "markdown_quality_pass_count_below_p9_target",
         "markdown_ready_count_below_p9_target",
         "selected_report_count_below_p9_target",
+        "stock_report_count_below_p9_target",
     }
     assert markdown_coverage["report_type_counts"] == {"宏观研报": 1}
+    assert markdown_coverage["stratified_sampling_policy"]["privacy_boundary"] == (
+        "aggregate_counts_only"
+    )
     coverage_dump = json.dumps(markdown_coverage, ensure_ascii=False)
     assert source_id not in coverage_dump
     assert "Liquidity report" not in coverage_dump
@@ -1160,6 +1169,8 @@ def test_report_intelligence_blocks_llm_on_low_quality_markdown(tmp_path: Path):
     assert coverage["markdown_quality_pass_count"] == 0
     assert coverage["llm_extraction_processed_count"] == 0
     assert coverage["llm_extraction_without_quality_pass_count"] == 0
+    assert coverage["industry_report_count"] == 0
+    assert coverage["stock_report_count"] == 0
     assert coverage["markdown_quality_gap_counts"] == {"markdown_disclaimer_only": 1}
     assert coverage["markdown_quality_review_queue_count"] == 1
     assert coverage["markdown_quality_review_gap_counts"] == {
@@ -1194,6 +1205,8 @@ def test_markdown_coverage_flags_llm_processed_without_quality_pass():
     assert summary["markdown_quality_pass_count"] == 0
     assert summary["llm_extraction_processed_count"] == 1
     assert summary["llm_extraction_without_quality_pass_count"] == 1
+    assert summary["industry_report_count"] == 0
+    assert summary["stock_report_count"] == 0
     assert summary["markdown_quality_gap_counts"] == {"markdown_disclaimer_only": 1}
     assert summary["markdown_quality_review_queue_count"] == 1
     assert summary["markdown_quality_review_gap_counts"] == {
@@ -1204,6 +1217,7 @@ def test_markdown_coverage_flags_llm_processed_without_quality_pass():
     assert summary["markdown_quality_spot_check_required"] is True
     assert summary["private_text_included"] is False
     assert "llm_extraction_without_quality_pass" in summary["coverage_gate_blockers"]
+    assert "stock_report_count_below_p9_target" in summary["coverage_gate_blockers"]
     dump = json.dumps(summary, ensure_ascii=False)
     assert "claim_text" not in dump
     assert "source_span_ids" not in dump
@@ -1241,6 +1255,8 @@ def test_markdown_coverage_tracks_quality_review_false_positive_risk():
     )
 
     assert summary["retry_queue_count"] == 1
+    assert summary["industry_report_count"] == 1
+    assert summary["stock_report_count"] == 0
     assert summary["markdown_quality_review_queue_count"] == 1
     assert summary["markdown_quality_review_gap_counts"] == {
         "markdown_repeated_line_noise": 1
@@ -1251,6 +1267,69 @@ def test_markdown_coverage_tracks_quality_review_false_positive_risk():
     }
     assert summary["markdown_quality_spot_check_required"] is True
     assert summary["private_text_included"] is False
+
+
+def test_markdown_coverage_requires_stratified_industry_and_stock_samples():
+    def ready_row(index: int, *, report_type: str, ts_code: str = "") -> dict[str, object]:
+        return {
+            "report_type": report_type,
+            "sector": f"sector-{index % 6}",
+            "ts_code": ts_code,
+            "pdf": {"status": "downloaded"},
+            "markdown": {
+                "status": "converted",
+                "bytes": 200,
+                "backend": "hybrid-auto-engine",
+            },
+            "extraction": {"llm_status": "processed"},
+        }
+
+    rows = [
+        *[
+            ready_row(index, report_type="行业研报")
+            for index in range(80)
+        ],
+        *[
+            ready_row(index, report_type="公司研报", ts_code=f"000{index:03d}.SZ")
+            for index in range(79)
+        ],
+        *[
+            ready_row(index, report_type="宏观研报")
+            for index in range(141)
+        ],
+    ]
+
+    summary = build_markdown_coverage_summary(
+        run_id="RIR-MARKDOWN-STRATA-TEST",
+        metadata_rows=rows,
+    )
+
+    assert summary["industry_report_count"] == 80
+    assert summary["stock_report_count"] == 79
+    assert summary["coverage_gate_status"] == "blocked"
+    assert summary["coverage_gate_blockers"] == [
+        "stock_report_count_below_p9_target"
+    ]
+    assert summary["stratified_sampling_policy"]["required_dimensions"] == [
+        "report_type",
+        "time_bucket",
+        "institution_bucket",
+        "sector_bucket",
+        "stock_ts_code",
+        "horizon_bucket",
+        "evaluability_bucket",
+    ]
+
+    passing = build_markdown_coverage_summary(
+        run_id="RIR-MARKDOWN-STRATA-PASS-TEST",
+        metadata_rows=[
+            *rows,
+            ready_row(999, report_type="公司研报", ts_code="000999.SZ"),
+        ],
+    )
+    assert passing["stock_report_count"] == 80
+    assert passing["coverage_gate_status"] == "passed"
+    assert passing["coverage_gate_blockers"] == []
 
 
 def test_report_intelligence_analysis_recipes_pin_required_data():

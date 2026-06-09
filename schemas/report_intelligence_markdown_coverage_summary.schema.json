@@ -11,6 +11,8 @@
     "markdown_quality_pass_count",
     "llm_extraction_processed_count",
     "llm_extraction_without_quality_pass_count",
+    "industry_report_count",
+    "stock_report_count",
     "coverage_targets",
     "coverage_gate_status",
     "coverage_gate_blockers",
@@ -24,6 +26,7 @@
     "sector_bucket_counts",
     "conversion_backend_counts",
     "retry_queue_count",
+    "stratified_sampling_policy",
     "markdown_quality_review_policy",
     "private_artifact_redaction_policy",
     "private_text_included"
@@ -37,19 +40,25 @@
     "markdown_quality_pass_count": {"type": "integer", "minimum": 0},
     "llm_extraction_processed_count": {"type": "integer", "minimum": 0},
     "llm_extraction_without_quality_pass_count": {"type": "integer", "minimum": 0},
+    "industry_report_count": {"type": "integer", "minimum": 0},
+    "stock_report_count": {"type": "integer", "minimum": 0},
     "coverage_targets": {
       "type": "object",
       "required": [
         "selected_report_count_min",
         "markdown_ready_count_min",
         "markdown_quality_pass_count_min",
-        "llm_extraction_processed_count_min"
+        "llm_extraction_processed_count_min",
+        "industry_report_count_min",
+        "stock_report_count_min"
       ],
       "properties": {
         "selected_report_count_min": {"const": 300},
         "markdown_ready_count_min": {"const": 300},
         "markdown_quality_pass_count_min": {"const": 300},
-        "llm_extraction_processed_count_min": {"const": 100}
+        "llm_extraction_processed_count_min": {"const": 100},
+        "industry_report_count_min": {"const": 80},
+        "stock_report_count_min": {"const": 80}
       },
       "additionalProperties": {"type": "integer", "minimum": 0}
     },
@@ -86,6 +95,24 @@
       "additionalProperties": {"type": "integer", "minimum": 0}
     },
     "retry_queue_count": {"type": "integer", "minimum": 0},
+    "stratified_sampling_policy": {
+      "type": "object",
+      "required": [
+        "required_dimensions",
+        "industry_report_count_min",
+        "stock_report_with_ts_code_count_min",
+        "sector_bucket_policy",
+        "privacy_boundary"
+      ],
+      "properties": {
+        "required_dimensions": {"type": "array", "items": {"type": "string"}},
+        "industry_report_count_min": {"const": 80},
+        "stock_report_with_ts_code_count_min": {"const": 80},
+        "sector_bucket_policy": {"type": "string", "minLength": 1},
+        "privacy_boundary": {"const": "aggregate_counts_only"}
+      },
+      "additionalProperties": true
+    },
     "markdown_quality_review_policy": {"type": "string", "minLength": 1},
     "private_artifact_redaction_policy": {"type": "string", "minLength": 1},
     "private_text_included": {"type": "boolean", "const": false}

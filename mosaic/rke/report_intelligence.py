@@ -397,6 +397,8 @@ MARKDOWN_COVERAGE_MIN_SELECTED_REPORTS = 300
 MARKDOWN_COVERAGE_MIN_MARKDOWN_READY = 300
 MARKDOWN_COVERAGE_MIN_QUALITY_PASS = 300
 MARKDOWN_COVERAGE_MIN_LLM_EXTRACTION_PROCESSED = 100
+MARKDOWN_COVERAGE_MIN_INDUSTRY_REPORTS = 80
+MARKDOWN_COVERAGE_MIN_STOCK_REPORTS = 80
 MARKDOWN_QUALITY_MIN_BYTES = 80
 MARKDOWN_QUALITY_EMPTY_TABLE_RATIO_MAX = 0.60
 MARKDOWN_QUALITY_REPEATED_LINE_RATIO_MAX = 0.45
@@ -3988,6 +3990,21 @@ def _is_potential_stock_report(metadata: Mapping[str, Any]) -> bool:
     )
 
 
+def _is_explicit_stock_ts_code(value: Any) -> bool:
+    text = str(value or "").strip().upper()
+    match = re.fullmatch(r"(\d{6})\.(SH|SZ|BJ)", text)
+    if not match:
+        return False
+    code, market = match.groups()
+    return market != "BJ" or code.startswith("920")
+
+
+def _is_explicit_stock_research_report(metadata: Mapping[str, Any]) -> bool:
+    return _is_potential_stock_report(metadata) and bool(
+        _is_explicit_stock_ts_code(metadata.get("ts_code"))
+    )
+
+
 def _normalize_ts_code(value: Any) -> str:
     text = str(value or "").strip().upper()
     if not text:
@@ -4536,6 +4553,8 @@ def build_markdown_coverage_summary(
     quality_gap_counts: dict[str, int] = {}
     quality_review_gap_counts: dict[str, int] = {}
     false_positive_risk_gap_counts: dict[str, int] = {}
+    industry_report_count = 0
+    stock_report_count = 0
     pdf_ready_count = 0
     markdown_ready_count = 0
     markdown_quality_pass_count = 0
@@ -4547,6 +4566,10 @@ def build_markdown_coverage_summary(
     for row in metadata_rows:
         _increment_count(report_type_counts, row.get("report_type"))
         _increment_count(sector_bucket_counts, row.get("sector"))
+        if _is_industry_research_report(row.get("report_type")):
+            industry_report_count += 1
+        if _is_explicit_stock_research_report(row):
+            stock_report_count += 1
         pdf = _ensure_mapping(row.get("pdf"))
         markdown = _ensure_mapping(row.get("markdown"))
         if _is_pdf_ready(pdf):
@@ -4581,6 +4604,8 @@ def build_markdown_coverage_summary(
         "llm_extraction_processed_count_min": (
             MARKDOWN_COVERAGE_MIN_LLM_EXTRACTION_PROCESSED
         ),
+        "industry_report_count_min": MARKDOWN_COVERAGE_MIN_INDUSTRY_REPORTS,
+        "stock_report_count_min": MARKDOWN_COVERAGE_MIN_STOCK_REPORTS,
     }
     coverage_gate_blockers: list[str] = []
     if len(metadata_rows) < MARKDOWN_COVERAGE_MIN_SELECTED_REPORTS:
@@ -4596,6 +4621,10 @@ def build_markdown_coverage_summary(
         coverage_gate_blockers.append(
             "llm_extraction_processed_count_below_p9_target"
         )
+    if industry_report_count < MARKDOWN_COVERAGE_MIN_INDUSTRY_REPORTS:
+        coverage_gate_blockers.append("industry_report_count_below_p9_target")
+    if stock_report_count < MARKDOWN_COVERAGE_MIN_STOCK_REPORTS:
+        coverage_gate_blockers.append("stock_report_count_below_p9_target")
     if llm_extraction_without_quality_pass_count:
         coverage_gate_blockers.append("llm_extraction_without_quality_pass")
     summary = {
@@ -4609,6 +4638,8 @@ def build_markdown_coverage_summary(
         "llm_extraction_without_quality_pass_count": (
             llm_extraction_without_quality_pass_count
         ),
+        "industry_report_count": industry_report_count,
+        "stock_report_count": stock_report_count,
         "coverage_targets": coverage_targets,
         "coverage_gate_status": (
             "passed" if not coverage_gate_blockers else "blocked"
@@ -4630,6 +4661,27 @@ def build_markdown_coverage_summary(
         "sector_bucket_counts": dict(sorted(sector_bucket_counts.items())),
         "conversion_backend_counts": dict(sorted(conversion_backend_counts.items())),
         "retry_queue_count": retry_queue_count,
+        "stratified_sampling_policy": {
+            "required_dimensions": [
+                "report_type",
+                "time_bucket",
+                "institution_bucket",
+                "sector_bucket",
+                "stock_ts_code",
+                "horizon_bucket",
+                "evaluability_bucket",
+            ],
+            "industry_report_count_min": MARKDOWN_COVERAGE_MIN_INDUSTRY_REPORTS,
+            "stock_report_with_ts_code_count_min": (
+                MARKDOWN_COVERAGE_MIN_STOCK_REPORTS
+            ),
+            "sector_bucket_policy": (
+                "sector_bucket_counts are aggregate-only; high-frequency "
+                "sector minimums are evaluated from the private source universe "
+                "and recorded as coverage gaps before evolution promotion"
+            ),
+            "privacy_boundary": "aggregate_counts_only",
+        },
         "markdown_quality_review_policy": (
             "ready Markdown blocked by quality gates enters aggregate manual "
             "review counts before extraction is trusted; repeated-line, sparse "
@@ -8014,6 +8066,10 @@ def _evolution_data_vintage_hash(
             "llm_extraction_processed_count": int(
                 markdown.get("llm_extraction_processed_count") or 0
             ),
+            "industry_report_count": int(
+                markdown.get("industry_report_count") or 0
+            ),
+            "stock_report_count": int(markdown.get("stock_report_count") or 0),
             "coverage_gate_status": str(markdown.get("coverage_gate_status") or ""),
             "coverage_gate_blockers": _ensure_list(
                 markdown.get("coverage_gate_blockers")
@@ -8717,6 +8773,22 @@ def build_report_intelligence_evolution_readiness_gate(
                 "coverage_gate_status": str(markdown.get("coverage_gate_status") or ""),
                 "coverage_gate_blockers": coverage_blockers,
                 "coverage_targets": _ensure_mapping(markdown.get("coverage_targets")),
+                "selected_report_count": int(
+                    markdown.get("selected_report_count") or 0
+                ),
+                "markdown_ready_count": int(
+                    markdown.get("markdown_ready_count") or 0
+                ),
+                "markdown_quality_pass_count": int(
+                    markdown.get("markdown_quality_pass_count") or 0
+                ),
+                "llm_extraction_processed_count": int(
+                    markdown.get("llm_extraction_processed_count") or 0
+                ),
+                "industry_report_count": int(
+                    markdown.get("industry_report_count") or 0
+                ),
+                "stock_report_count": int(markdown.get("stock_report_count") or 0),
                 "markdown_quality_review_queue_count": (
                     markdown_quality_review_queue_count
                 ),
@@ -9524,6 +9596,12 @@ def build_prompt_mutation_candidates(
                     ),
                     "llm_extraction_processed_count": int(
                         markdown_summary.get("llm_extraction_processed_count") or 0
+                    ),
+                    "industry_report_count": int(
+                        markdown_summary.get("industry_report_count") or 0
+                    ),
+                    "stock_report_count": int(
+                        markdown_summary.get("stock_report_count") or 0
                     ),
                     "markdown_quality_review_queue_count": (
                         markdown_quality_review_queue_count
