@@ -2097,6 +2097,75 @@ def validate_report_intelligence_semantics(
                         "markdown_coverage_summary.coverage_gate_blockers must "
                         f"include {blocker}"
                     )
+        coverage_strata_targets = markdown_coverage.get("coverage_strata_targets")
+        coverage_strata_missing = set(
+            _string_items(markdown_coverage.get("coverage_strata_missing"))
+        )
+        if not isinstance(coverage_strata_targets, Mapping):
+            markdown_coverage_failures.append(
+                "markdown_coverage_summary.coverage_strata_targets: expected object"
+            )
+        else:
+            strata_checks = (
+                (
+                    "time_bucket_counts",
+                    "time_bucket_required",
+                    "time_bucket",
+                    "time_bucket_coverage_below_p9_target",
+                ),
+                (
+                    "institution_bucket_counts",
+                    "institution_bucket_required",
+                    "institution_bucket",
+                    "institution_bucket_coverage_below_p9_target",
+                ),
+                (
+                    "report_horizon_bucket_counts",
+                    "horizon_bucket_required",
+                    "horizon_bucket",
+                    "horizon_bucket_coverage_below_p9_target",
+                ),
+                (
+                    "evaluability_bucket_counts",
+                    "evaluability_bucket_required",
+                    "evaluability_bucket",
+                    "evaluability_bucket_coverage_below_p9_target",
+                ),
+            )
+            for counts_field, targets_field, dimension, blocker in strata_checks:
+                counts = _count_mapping(
+                    markdown_coverage.get(counts_field),
+                    row_label=f"markdown_coverage_summary.{counts_field}",
+                    failures=markdown_coverage_failures,
+                )
+                required = _string_items(coverage_strata_targets.get(targets_field))
+                if not required:
+                    markdown_coverage_failures.append(
+                        "markdown_coverage_summary.coverage_strata_targets."
+                        f"{targets_field}: must be non-empty"
+                    )
+                    continue
+                expected_missing = {
+                    f"{dimension}:{bucket}"
+                    for bucket in required
+                    if int(counts.get(bucket) or 0) <= 0
+                }
+                if expected_missing and blocker not in coverage_blockers:
+                    markdown_coverage_failures.append(
+                        "markdown_coverage_summary.coverage_gate_blockers must "
+                        f"include {blocker}"
+                    )
+                if not expected_missing and blocker in coverage_blockers:
+                    markdown_coverage_failures.append(
+                        "markdown_coverage_summary.coverage_gate_blockers includes "
+                        f"stale {blocker}"
+                    )
+                missing_delta = expected_missing - coverage_strata_missing
+                if missing_delta:
+                    markdown_coverage_failures.append(
+                        "markdown_coverage_summary.coverage_strata_missing must "
+                        "include " + ", ".join(sorted(missing_delta))
+                    )
         if (
             markdown_coverage.get("coverage_gate_status") == "passed"
             and coverage_blockers

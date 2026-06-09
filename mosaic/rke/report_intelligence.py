@@ -399,6 +399,26 @@ MARKDOWN_COVERAGE_MIN_QUALITY_PASS = 300
 MARKDOWN_COVERAGE_MIN_LLM_EXTRACTION_PROCESSED = 100
 MARKDOWN_COVERAGE_MIN_INDUSTRY_REPORTS = 80
 MARKDOWN_COVERAGE_MIN_STOCK_REPORTS = 80
+MARKDOWN_COVERAGE_REQUIRED_TIME_BUCKETS = (
+    "recent_1y",
+    "recent_3y",
+    "long_cycle_history",
+)
+MARKDOWN_COVERAGE_REQUIRED_INSTITUTION_BUCKETS = (
+    "head_institution",
+    "long_tail_institution",
+)
+MARKDOWN_COVERAGE_REQUIRED_HORIZON_BUCKETS = (
+    "5d",
+    "20d",
+    "60d",
+    "long_horizon",
+)
+MARKDOWN_COVERAGE_REQUIRED_EVALUABILITY_BUCKETS = (
+    "stock_proxy_candidate",
+    "industry_proxy_candidate",
+    "mapping_gap_candidate",
+)
 MARKDOWN_QUALITY_MIN_BYTES = 80
 MARKDOWN_QUALITY_EMPTY_TABLE_RATIO_MAX = 0.60
 MARKDOWN_QUALITY_REPEATED_LINE_RATIO_MAX = 0.45
@@ -4542,13 +4562,147 @@ def _markdown_gap_false_positive_risk(gap: str) -> bool:
     return gap in MARKDOWN_FALSE_POSITIVE_RISK_GAPS
 
 
+def _coverage_metadata_datetime(row: Mapping[str, Any]) -> datetime | None:
+    for field in ("publish_datetime", "accessible_datetime", "publish_date"):
+        parsed = _parse_pit_datetime(row.get(field))
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def _coverage_corpus_as_of(metadata_rows: Sequence[Mapping[str, Any]]) -> datetime | None:
+    dates = [
+        parsed
+        for row in metadata_rows
+        if (parsed := _coverage_metadata_datetime(row)) is not None
+    ]
+    return max(dates) if dates else None
+
+
+def _coverage_time_bucket(
+    row: Mapping[str, Any],
+    *,
+    corpus_as_of: datetime | None,
+) -> str:
+    report_date = _coverage_metadata_datetime(row)
+    if report_date is None:
+        return "date_missing"
+    if corpus_as_of is None:
+        return "date_unbucketed"
+    age_days = (corpus_as_of.date() - report_date.date()).days
+    if age_days < 0:
+        return "future_report_date"
+    if age_days <= 365:
+        return "recent_1y"
+    if age_days <= 365 * 3:
+        return "recent_3y"
+    return "long_cycle_history"
+
+
+def _coverage_report_key(row: Mapping[str, Any]) -> str:
+    return str(row.get("source_id") or row.get("report_id") or "").strip()
+
+
+def _coverage_forecast_rows_by_report(
+    forecast_rows: Sequence[Mapping[str, Any]],
+) -> dict[str, list[Mapping[str, Any]]]:
+    rows_by_report: dict[str, list[Mapping[str, Any]]] = {}
+    for row in forecast_rows:
+        key = _coverage_report_key(row)
+        if key:
+            rows_by_report.setdefault(key, []).append(row)
+    return rows_by_report
+
+
+def _coverage_institution_counts(
+    metadata_rows: Sequence[Mapping[str, Any]],
+) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for row in metadata_rows:
+        key = str(row.get("institution_id") or row.get("institution") or "").strip()
+        if key:
+            counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
+def _coverage_institution_bucket(
+    row: Mapping[str, Any],
+    *,
+    institution_counts: Mapping[str, int],
+    total_reports: int,
+) -> str:
+    key = str(row.get("institution_id") or row.get("institution") or "").strip()
+    if not key:
+        return "missing_institution"
+    head_threshold = max(10, (max(total_reports, 1) + 19) // 20)
+    if institution_counts.get(key, 0) >= head_threshold:
+        return "head_institution"
+    return "long_tail_institution"
+
+
+def _coverage_horizon_buckets_for_report(
+    forecast_rows: Sequence[Mapping[str, Any]],
+) -> set[str]:
+    buckets = {
+        _horizon_bucket(_ensure_mapping(row.get("horizon")))
+        for row in forecast_rows
+    }
+    buckets.discard("")
+    return buckets or {"no_extracted_forecast_horizon"}
+
+
+def _coverage_evaluability_buckets_for_report(
+    row: Mapping[str, Any],
+    forecast_rows: Sequence[Mapping[str, Any]],
+    *,
+    markdown_gap: str,
+) -> set[str]:
+    markdown = _ensure_mapping(row.get("markdown"))
+    extraction = _ensure_mapping(row.get("extraction"))
+    if not _is_markdown_ready(markdown):
+        return {"markdown_not_ready"}
+    if markdown_gap:
+        return {"quality_gate_blocked"}
+    if str(extraction.get("llm_status") or "") != "processed":
+        return {"llm_extraction_pending"}
+    if not forecast_rows:
+        return {"no_forecast_claim_extracted"}
+    buckets: set[str] = set()
+    if any(_forecast_mapping_gaps(forecast) for forecast in forecast_rows):
+        buckets.add("mapping_gap_candidate")
+    if any(_is_stock_forecast_claim(forecast, row) for forecast in forecast_rows):
+        buckets.add("stock_proxy_candidate")
+    if _is_industry_research_report(row.get("report_type")):
+        buckets.add("industry_proxy_candidate")
+    return buckets or {"standard_evaluable_candidate"}
+
+
+def _coverage_missing_required_buckets(
+    counts: Mapping[str, int],
+    required_buckets: Sequence[str],
+    *,
+    dimension: str,
+) -> list[str]:
+    return [
+        f"{dimension}:{bucket}"
+        for bucket in required_buckets
+        if int(counts.get(bucket) or 0) <= 0
+    ]
+
+
 def build_markdown_coverage_summary(
     *,
     run_id: str,
     metadata_rows: Sequence[Mapping[str, Any]],
+    forecast_rows: Sequence[Mapping[str, Any]] = (),
 ) -> dict[str, Any]:
     report_type_counts: dict[str, int] = {}
+    time_bucket_counts: dict[str, int] = {}
+    institution_bucket_counts: dict[str, int] = {}
     sector_bucket_counts: dict[str, int] = {}
+    report_horizon_bucket_counts: dict[str, int] = {}
+    forecast_horizon_bucket_counts: dict[str, int] = {}
+    evaluability_bucket_counts: dict[str, int] = {}
     conversion_backend_counts: dict[str, int] = {}
     quality_gap_counts: dict[str, int] = {}
     quality_review_gap_counts: dict[str, int] = {}
@@ -4563,8 +4717,23 @@ def build_markdown_coverage_summary(
     retry_queue_count = 0
     quality_review_queue_count = 0
     false_positive_review_queue_count = 0
+    corpus_as_of = _coverage_corpus_as_of(metadata_rows)
+    forecast_rows_by_report = _coverage_forecast_rows_by_report(forecast_rows)
+    institution_counts = _coverage_institution_counts(metadata_rows)
     for row in metadata_rows:
         _increment_count(report_type_counts, row.get("report_type"))
+        _increment_count(
+            time_bucket_counts,
+            _coverage_time_bucket(row, corpus_as_of=corpus_as_of),
+        )
+        _increment_count(
+            institution_bucket_counts,
+            _coverage_institution_bucket(
+                row,
+                institution_counts=institution_counts,
+                total_reports=len(metadata_rows),
+            ),
+        )
         _increment_count(sector_bucket_counts, row.get("sector"))
         if _is_industry_research_report(row.get("report_type")):
             industry_report_count += 1
@@ -4597,6 +4766,22 @@ def build_markdown_coverage_summary(
             llm_extraction_processed_count += 1
             if gap:
                 llm_extraction_without_quality_pass_count += 1
+        report_forecasts = forecast_rows_by_report.get(_coverage_report_key(row), [])
+        for bucket in sorted(_coverage_horizon_buckets_for_report(report_forecasts)):
+            _increment_count(report_horizon_bucket_counts, bucket)
+        for forecast in report_forecasts:
+            _increment_count(
+                forecast_horizon_bucket_counts,
+                _horizon_bucket(_ensure_mapping(forecast.get("horizon"))),
+            )
+        for bucket in sorted(
+            _coverage_evaluability_buckets_for_report(
+                row,
+                report_forecasts,
+                markdown_gap=gap,
+            )
+        ):
+            _increment_count(evaluability_bucket_counts, bucket)
     coverage_targets = {
         "selected_report_count_min": MARKDOWN_COVERAGE_MIN_SELECTED_REPORTS,
         "markdown_ready_count_min": MARKDOWN_COVERAGE_MIN_MARKDOWN_READY,
@@ -4607,6 +4792,40 @@ def build_markdown_coverage_summary(
         "industry_report_count_min": MARKDOWN_COVERAGE_MIN_INDUSTRY_REPORTS,
         "stock_report_count_min": MARKDOWN_COVERAGE_MIN_STOCK_REPORTS,
     }
+    coverage_strata_targets = {
+        "time_bucket_required": list(MARKDOWN_COVERAGE_REQUIRED_TIME_BUCKETS),
+        "institution_bucket_required": list(
+            MARKDOWN_COVERAGE_REQUIRED_INSTITUTION_BUCKETS
+        ),
+        "horizon_bucket_required": list(
+            MARKDOWN_COVERAGE_REQUIRED_HORIZON_BUCKETS
+        ),
+        "evaluability_bucket_required": list(
+            MARKDOWN_COVERAGE_REQUIRED_EVALUABILITY_BUCKETS
+        ),
+    }
+    coverage_strata_missing = [
+        *_coverage_missing_required_buckets(
+            time_bucket_counts,
+            MARKDOWN_COVERAGE_REQUIRED_TIME_BUCKETS,
+            dimension="time_bucket",
+        ),
+        *_coverage_missing_required_buckets(
+            institution_bucket_counts,
+            MARKDOWN_COVERAGE_REQUIRED_INSTITUTION_BUCKETS,
+            dimension="institution_bucket",
+        ),
+        *_coverage_missing_required_buckets(
+            report_horizon_bucket_counts,
+            MARKDOWN_COVERAGE_REQUIRED_HORIZON_BUCKETS,
+            dimension="horizon_bucket",
+        ),
+        *_coverage_missing_required_buckets(
+            evaluability_bucket_counts,
+            MARKDOWN_COVERAGE_REQUIRED_EVALUABILITY_BUCKETS,
+            dimension="evaluability_bucket",
+        ),
+    ]
     coverage_gate_blockers: list[str] = []
     if len(metadata_rows) < MARKDOWN_COVERAGE_MIN_SELECTED_REPORTS:
         coverage_gate_blockers.append("selected_report_count_below_p9_target")
@@ -4625,6 +4844,14 @@ def build_markdown_coverage_summary(
         coverage_gate_blockers.append("industry_report_count_below_p9_target")
     if stock_report_count < MARKDOWN_COVERAGE_MIN_STOCK_REPORTS:
         coverage_gate_blockers.append("stock_report_count_below_p9_target")
+    if any(item.startswith("time_bucket:") for item in coverage_strata_missing):
+        coverage_gate_blockers.append("time_bucket_coverage_below_p9_target")
+    if any(item.startswith("institution_bucket:") for item in coverage_strata_missing):
+        coverage_gate_blockers.append("institution_bucket_coverage_below_p9_target")
+    if any(item.startswith("horizon_bucket:") for item in coverage_strata_missing):
+        coverage_gate_blockers.append("horizon_bucket_coverage_below_p9_target")
+    if any(item.startswith("evaluability_bucket:") for item in coverage_strata_missing):
+        coverage_gate_blockers.append("evaluability_bucket_coverage_below_p9_target")
     if llm_extraction_without_quality_pass_count:
         coverage_gate_blockers.append("llm_extraction_without_quality_pass")
     summary = {
@@ -4641,6 +4868,8 @@ def build_markdown_coverage_summary(
         "industry_report_count": industry_report_count,
         "stock_report_count": stock_report_count,
         "coverage_targets": coverage_targets,
+        "coverage_strata_targets": coverage_strata_targets,
+        "coverage_strata_missing": coverage_strata_missing,
         "coverage_gate_status": (
             "passed" if not coverage_gate_blockers else "blocked"
         ),
@@ -4658,7 +4887,16 @@ def build_markdown_coverage_summary(
         ),
         "markdown_quality_spot_check_required": quality_review_queue_count > 0,
         "report_type_counts": dict(sorted(report_type_counts.items())),
+        "time_bucket_counts": dict(sorted(time_bucket_counts.items())),
+        "institution_bucket_counts": dict(sorted(institution_bucket_counts.items())),
         "sector_bucket_counts": dict(sorted(sector_bucket_counts.items())),
+        "report_horizon_bucket_counts": dict(
+            sorted(report_horizon_bucket_counts.items())
+        ),
+        "forecast_horizon_bucket_counts": dict(
+            sorted(forecast_horizon_bucket_counts.items())
+        ),
+        "evaluability_bucket_counts": dict(sorted(evaluability_bucket_counts.items())),
         "conversion_backend_counts": dict(sorted(conversion_backend_counts.items())),
         "retry_queue_count": retry_queue_count,
         "stratified_sampling_policy": {
@@ -8074,6 +8312,9 @@ def _evolution_data_vintage_hash(
             "coverage_gate_blockers": _ensure_list(
                 markdown.get("coverage_gate_blockers")
             ),
+            "coverage_strata_missing": _ensure_list(
+                markdown.get("coverage_strata_missing")
+            ),
             "markdown_quality_gap_counts": _count_mapping_values(
                 _ensure_mapping(markdown.get("markdown_quality_gap_counts"))
             ),
@@ -8088,6 +8329,18 @@ def _evolution_data_vintage_hash(
             ),
             "report_type_counts": _count_mapping_values(
                 _ensure_mapping(markdown.get("report_type_counts"))
+            ),
+            "time_bucket_counts": _count_mapping_values(
+                _ensure_mapping(markdown.get("time_bucket_counts"))
+            ),
+            "institution_bucket_counts": _count_mapping_values(
+                _ensure_mapping(markdown.get("institution_bucket_counts"))
+            ),
+            "report_horizon_bucket_counts": _count_mapping_values(
+                _ensure_mapping(markdown.get("report_horizon_bucket_counts"))
+            ),
+            "evaluability_bucket_counts": _count_mapping_values(
+                _ensure_mapping(markdown.get("evaluability_bucket_counts"))
             ),
         },
         "gold_review": {
@@ -8773,6 +9026,12 @@ def build_report_intelligence_evolution_readiness_gate(
                 "coverage_gate_status": str(markdown.get("coverage_gate_status") or ""),
                 "coverage_gate_blockers": coverage_blockers,
                 "coverage_targets": _ensure_mapping(markdown.get("coverage_targets")),
+                "coverage_strata_targets": _ensure_mapping(
+                    markdown.get("coverage_strata_targets")
+                ),
+                "coverage_strata_missing": _ensure_list(
+                    markdown.get("coverage_strata_missing")
+                ),
                 "selected_report_count": int(
                     markdown.get("selected_report_count") or 0
                 ),
@@ -8789,6 +9048,18 @@ def build_report_intelligence_evolution_readiness_gate(
                     markdown.get("industry_report_count") or 0
                 ),
                 "stock_report_count": int(markdown.get("stock_report_count") or 0),
+                "time_bucket_counts": _count_mapping_values(
+                    _ensure_mapping(markdown.get("time_bucket_counts"))
+                ),
+                "institution_bucket_counts": _count_mapping_values(
+                    _ensure_mapping(markdown.get("institution_bucket_counts"))
+                ),
+                "report_horizon_bucket_counts": _count_mapping_values(
+                    _ensure_mapping(markdown.get("report_horizon_bucket_counts"))
+                ),
+                "evaluability_bucket_counts": _count_mapping_values(
+                    _ensure_mapping(markdown.get("evaluability_bucket_counts"))
+                ),
                 "markdown_quality_review_queue_count": (
                     markdown_quality_review_queue_count
                 ),
@@ -9585,6 +9856,12 @@ def build_prompt_mutation_candidates(
                     "coverage_targets": _ensure_mapping(
                         markdown_summary.get("coverage_targets")
                     ),
+                    "coverage_strata_targets": _ensure_mapping(
+                        markdown_summary.get("coverage_strata_targets")
+                    ),
+                    "coverage_strata_missing": _ensure_list(
+                        markdown_summary.get("coverage_strata_missing")
+                    ),
                     "selected_report_count": int(
                         markdown_summary.get("selected_report_count") or 0
                     ),
@@ -9602,6 +9879,24 @@ def build_prompt_mutation_candidates(
                     ),
                     "stock_report_count": int(
                         markdown_summary.get("stock_report_count") or 0
+                    ),
+                    "time_bucket_counts": _count_mapping_values(
+                        _ensure_mapping(markdown_summary.get("time_bucket_counts"))
+                    ),
+                    "institution_bucket_counts": _count_mapping_values(
+                        _ensure_mapping(
+                            markdown_summary.get("institution_bucket_counts")
+                        )
+                    ),
+                    "report_horizon_bucket_counts": _count_mapping_values(
+                        _ensure_mapping(
+                            markdown_summary.get("report_horizon_bucket_counts")
+                        )
+                    ),
+                    "evaluability_bucket_counts": _count_mapping_values(
+                        _ensure_mapping(
+                            markdown_summary.get("evaluability_bucket_counts")
+                        )
                     ),
                     "markdown_quality_review_queue_count": (
                         markdown_quality_review_queue_count
@@ -15086,6 +15381,7 @@ def run_report_intelligence_derived_refresh(
     markdown_coverage_summary = build_markdown_coverage_summary(
         run_id=run_id,
         metadata_rows=metadata_rows,
+        forecast_rows=forecast_rows,
     )
     industry_etf_proxy_map_rows = _read_industry_etf_proxy_map_rows(registry_dir)
     industry_etf_proxy_pit_availability = build_industry_etf_proxy_pit_availability(
@@ -15979,6 +16275,7 @@ def run_report_intelligence_refresh(
     markdown_coverage_summary = build_markdown_coverage_summary(
         run_id=run_id,
         metadata_rows=metadata_rows,
+        forecast_rows=forecast_rows,
     )
     industry_etf_proxy_map_rows = _read_industry_etf_proxy_map_rows(registry_dir)
     industry_etf_proxy_pit_availability = build_industry_etf_proxy_pit_availability(

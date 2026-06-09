@@ -1,6 +1,6 @@
 {
   "as_of_datetime": "2026-06-08T10:23:08+00:00",
-  "blocker_count": 27,
+  "blocker_count": 31,
   "blockers": [
     "after_cost_paper_trading_summary_missing",
     "audit_refresh_history_below_threshold",
@@ -8,13 +8,16 @@
     "confidence_impact_monitor_current_blocked",
     "confidence_impact_monitor_history_below_threshold",
     "direction_accuracy_missing",
+    "evaluability_bucket_coverage_below_p9_target",
     "forecast_gold_set_gate_not_passed",
     "forecast_gold_set_review_incomplete",
     "gap_distribution_history_below_threshold",
     "gold_reviewed_claims_below_threshold",
     "gold_reviewed_documents_below_threshold",
     "horizon_accuracy_missing",
+    "horizon_bucket_coverage_below_p9_target",
     "industry_report_count_below_p9_target",
+    "institution_bucket_coverage_below_p9_target",
     "industry_proxy_claim_count_below_threshold",
     "llm_extraction_processed_count_below_p9_target",
     "markdown_quality_pass_count_below_p9_target",
@@ -26,6 +29,7 @@
     "stock_report_count_below_p9_target",
     "stock_proxy_claim_count_below_threshold",
     "target_accuracy_missing",
+    "time_bucket_coverage_below_p9_target",
     "unsupported_field_false_grounding_rate_missing",
     "unique_outcome_claim_count_below_threshold",
     "variable_mapping_accuracy_missing"
@@ -162,7 +166,11 @@
         "markdown_quality_pass_count_below_p9_target",
         "llm_extraction_processed_count_below_p9_target",
         "industry_report_count_below_p9_target",
-        "stock_report_count_below_p9_target"
+        "stock_report_count_below_p9_target",
+        "time_bucket_coverage_below_p9_target",
+        "institution_bucket_coverage_below_p9_target",
+        "horizon_bucket_coverage_below_p9_target",
+        "evaluability_bucket_coverage_below_p9_target"
       ],
       "check_id": "RI-EVOL-07",
       "evidence": {
@@ -172,7 +180,11 @@
           "markdown_quality_pass_count_below_p9_target",
           "llm_extraction_processed_count_below_p9_target",
           "industry_report_count_below_p9_target",
-          "stock_report_count_below_p9_target"
+          "stock_report_count_below_p9_target",
+          "time_bucket_coverage_below_p9_target",
+          "institution_bucket_coverage_below_p9_target",
+          "horizon_bucket_coverage_below_p9_target",
+          "evaluability_bucket_coverage_below_p9_target"
         ],
         "coverage_gate_status": "blocked",
         "coverage_targets": {
@@ -183,6 +195,48 @@
           "selected_report_count_min": 300,
           "stock_report_count_min": 80
         },
+        "coverage_strata_targets": {
+          "evaluability_bucket_required": [
+            "stock_proxy_candidate",
+            "industry_proxy_candidate",
+            "mapping_gap_candidate"
+          ],
+          "horizon_bucket_required": [
+            "5d",
+            "20d",
+            "60d",
+            "long_horizon"
+          ],
+          "institution_bucket_required": [
+            "head_institution",
+            "long_tail_institution"
+          ],
+          "time_bucket_required": [
+            "recent_1y",
+            "recent_3y",
+            "long_cycle_history"
+          ]
+        },
+        "coverage_strata_missing": [
+          "time_bucket:recent_1y",
+          "time_bucket:recent_3y",
+          "time_bucket:long_cycle_history",
+          "institution_bucket:head_institution",
+          "institution_bucket:long_tail_institution",
+          "horizon_bucket:5d",
+          "horizon_bucket:20d",
+          "horizon_bucket:60d",
+          "horizon_bucket:long_horizon",
+          "evaluability_bucket:stock_proxy_candidate",
+          "evaluability_bucket:industry_proxy_candidate",
+          "evaluability_bucket:mapping_gap_candidate"
+        ],
+        "evaluability_bucket_counts": {
+          "markdown_not_ready": 2
+        },
+        "institution_bucket_counts": {
+          "missing_institution": 2
+        },
         "industry_report_count": 2,
         "llm_extraction_processed_count": 0,
         "markdown_false_positive_review_queue_count": 0,
@@ -190,8 +244,14 @@
         "markdown_quality_review_queue_count": 0,
         "markdown_quality_spot_check_required": false,
         "markdown_ready_count": 0,
+        "report_horizon_bucket_counts": {
+          "no_extracted_forecast_horizon": 2
+        },
         "selected_report_count": 2,
-        "stock_report_count": 0
+        "stock_report_count": 0,
+        "time_bucket_counts": {
+          "date_missing": 2
+        }
       },
       "passed": false,
       "requirement": "Markdown coverage must pass P9 corpus thresholds before evolution depends on report-derived Markdown evidence."

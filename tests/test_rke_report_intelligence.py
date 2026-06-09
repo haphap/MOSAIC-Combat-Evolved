@@ -649,14 +649,37 @@ def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
     }
     assert markdown_coverage["coverage_gate_status"] == "blocked"
     assert set(markdown_coverage["coverage_gate_blockers"]) == {
+        "evaluability_bucket_coverage_below_p9_target",
+        "horizon_bucket_coverage_below_p9_target",
         "llm_extraction_processed_count_below_p9_target",
         "industry_report_count_below_p9_target",
+        "institution_bucket_coverage_below_p9_target",
         "markdown_quality_pass_count_below_p9_target",
         "markdown_ready_count_below_p9_target",
         "selected_report_count_below_p9_target",
         "stock_report_count_below_p9_target",
+        "time_bucket_coverage_below_p9_target",
     }
     assert markdown_coverage["report_type_counts"] == {"宏观研报": 1}
+    assert markdown_coverage["time_bucket_counts"] == {"recent_1y": 1}
+    assert markdown_coverage["institution_bucket_counts"] == {
+        "long_tail_institution": 1
+    }
+    assert markdown_coverage["report_horizon_bucket_counts"] == {"20d": 1}
+    assert markdown_coverage["evaluability_bucket_counts"] == {
+        "standard_evaluable_candidate": 1
+    }
+    assert {
+        "time_bucket:recent_3y",
+        "time_bucket:long_cycle_history",
+        "institution_bucket:head_institution",
+        "horizon_bucket:5d",
+        "horizon_bucket:60d",
+        "horizon_bucket:long_horizon",
+        "evaluability_bucket:stock_proxy_candidate",
+        "evaluability_bucket:industry_proxy_candidate",
+        "evaluability_bucket:mapping_gap_candidate",
+    } <= set(markdown_coverage["coverage_strata_missing"])
     assert markdown_coverage["stratified_sampling_policy"]["privacy_boundary"] == (
         "aggregate_counts_only"
     )
@@ -1270,9 +1293,23 @@ def test_markdown_coverage_tracks_quality_review_false_positive_risk():
 
 
 def test_markdown_coverage_requires_stratified_industry_and_stock_samples():
-    def ready_row(index: int, *, report_type: str, ts_code: str = "") -> dict[str, object]:
+    def ready_row(
+        index: int,
+        *,
+        report_type: str,
+        ts_code: str = "",
+    ) -> dict[str, object]:
+        if index < 100:
+            publish_datetime = "2026-06-01T00:00:00+08:00"
+        elif index < 200:
+            publish_datetime = "2024-06-01T00:00:00+08:00"
+        else:
+            publish_datetime = "2020-06-01T00:00:00+08:00"
         return {
+            "source_id": f"SRC-STRATA-{index:03d}",
             "report_type": report_type,
+            "institution": "Head Broker" if index < 20 else f"Tail Broker {index}",
+            "publish_datetime": publish_datetime,
             "sector": f"sector-{index % 6}",
             "ts_code": ts_code,
             "pdf": {"status": "downloaded"},
@@ -1284,24 +1321,38 @@ def test_markdown_coverage_requires_stratified_industry_and_stock_samples():
             "extraction": {"llm_status": "processed"},
         }
 
+    def forecast_row(index: int, *, mapping_gap: bool = False) -> dict[str, object]:
+        horizons = [5, 20, 60, 120]
+        target = (
+            {"target_type": "stock", "target_id": "000001.SZ"}
+            if 80 <= index < 159
+            else {"target_type": "sector", "target_id": "半导体"}
+        )
+        return {
+            "source_id": f"SRC-STRATA-{index:03d}",
+            "target": {} if mapping_gap else target,
+            "benchmark": {} if mapping_gap else {"benchmark_id": "SH510300"},
+            "direction": "positive",
+            "horizon": {"preferred_days": horizons[index % len(horizons)]},
+        }
+
     rows = [
-        *[
-            ready_row(index, report_type="行业研报")
-            for index in range(80)
-        ],
+        *[ready_row(index, report_type="行业研报") for index in range(80)],
         *[
             ready_row(index, report_type="公司研报", ts_code=f"000{index:03d}.SZ")
-            for index in range(79)
+            for index in range(80, 159)
         ],
-        *[
-            ready_row(index, report_type="宏观研报")
-            for index in range(141)
-        ],
+        *[ready_row(index, report_type="宏观研报") for index in range(159, 300)],
+    ]
+    forecast_rows = [
+        forecast_row(index, mapping_gap=index == 159)
+        for index in range(300)
     ]
 
     summary = build_markdown_coverage_summary(
         run_id="RIR-MARKDOWN-STRATA-TEST",
         metadata_rows=rows,
+        forecast_rows=forecast_rows,
     )
 
     assert summary["industry_report_count"] == 80
@@ -1319,12 +1370,42 @@ def test_markdown_coverage_requires_stratified_industry_and_stock_samples():
         "horizon_bucket",
         "evaluability_bucket",
     ]
+    assert summary["time_bucket_counts"] == {
+        "long_cycle_history": 100,
+        "recent_1y": 100,
+        "recent_3y": 100,
+    }
+    assert summary["institution_bucket_counts"] == {
+        "head_institution": 20,
+        "long_tail_institution": 280,
+    }
+    assert set(summary["report_horizon_bucket_counts"]) == {
+        "5d",
+        "20d",
+        "60d",
+        "long_horizon",
+    }
+    assert {
+        "industry_proxy_candidate",
+        "mapping_gap_candidate",
+        "stock_proxy_candidate",
+    } <= set(summary["evaluability_bucket_counts"])
 
     passing = build_markdown_coverage_summary(
         run_id="RIR-MARKDOWN-STRATA-PASS-TEST",
         metadata_rows=[
             *rows,
             ready_row(999, report_type="公司研报", ts_code="000999.SZ"),
+        ],
+        forecast_rows=[
+            *forecast_rows,
+            {
+                "source_id": "SRC-STRATA-999",
+                "target": {"target_type": "stock", "target_id": "000999.SZ"},
+                "benchmark": {"benchmark_id": "SH510300"},
+                "direction": "positive",
+                "horizon": {"preferred_days": 120},
+            },
         ],
     )
     assert passing["stock_report_count"] == 80
