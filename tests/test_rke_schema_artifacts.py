@@ -673,6 +673,47 @@ def test_industry_etf_mapping_contract_requires_pit_availability_records(
     assert any("pit_available_mapping_count mismatch" in item for item in record.failures)
 
 
+def test_industry_etf_pit_availability_schema_requires_plan_fields(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    availability_path = registry / "industry_etf_proxy_pit_availability.json"
+    availability = json.loads(availability_path.read_text(encoding="utf-8"))
+    availability["mapping_records"][0].pop("has_120d_window", None)
+    availability_path.write_text(
+        json.dumps(availability, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = validate_json_schema_artifact(
+        root=tmp_path,
+        schema_path="schemas/report_intelligence_industry_etf_proxy_pit_availability.schema.json",
+        artifact_path="registry/report_intelligence/industry_etf_proxy_pit_availability.json",
+        artifact_kind="json",
+    )
+
+    assert not record.accepted
+    assert any("has_120d_window: required" in item for item in record.failures)
+
+
+def test_industry_etf_mapping_contract_requires_plan_pit_record_fields(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    availability_path = registry / "industry_etf_proxy_pit_availability.json"
+    availability = json.loads(availability_path.read_text(encoding="utf-8"))
+    availability["mapping_records"][0].pop("latest_calendar_date", None)
+    availability_path.write_text(
+        json.dumps(availability, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _industry_etf_mapping_contract_record(tmp_path)
+
+    assert not record.accepted
+    assert any("latest_calendar_date: required" in item for item in record.failures)
+
+
 def test_industry_etf_mapping_contract_rejects_unavailable_mapping_label(
     tmp_path: Path,
 ):

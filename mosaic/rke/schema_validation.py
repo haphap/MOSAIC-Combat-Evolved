@@ -764,6 +764,40 @@ INDUSTRY_PROXY_REQUIRED_LABEL_FIELDS = (
     "evaluation_policy",
 )
 
+INDUSTRY_ETF_PIT_AVAILABILITY_RECORD_REQUIRED_FIELDS = (
+    "mapping_id",
+    "mapping_version",
+    "sector_name",
+    "status",
+    "etf_symbol",
+    "benchmark_symbol",
+    "benchmark_source",
+    "benchmark_family",
+    "calendar_source",
+    "earliest_price_date",
+    "latest_price_date",
+    "latest_calendar_date",
+    "has_20d_window",
+    "has_60d_window",
+    "has_120d_window",
+    "available_window_days",
+    "missing_price_count",
+    "stale_price_gap_count",
+    "benchmark_available",
+    "pit_available",
+    "pit_gap_reasons",
+)
+
+INDUSTRY_ETF_PIT_LABELABILITY_REQUIRED_FIELDS = (
+    "eligible_claim_count",
+    "labelable_claim_count",
+    "labelable_window_count",
+    "pending_future_window_count",
+    "sector_etf_mapping_missing_count",
+    "proxy_series_missing_count",
+    "benchmark_series_missing_count",
+)
+
 STOCK_PROXY_SURVIVORSHIP_UNVERIFIED_CHECK = "survivorship_unverified_qlib_cn_data"
 STOCK_PROXY_SURVIVORSHIP_AUDITED_CHECK = "delisted_inclusive_universe_audit_passed"
 STOCK_PROXY_SURVIVORSHIP_CHECKS = {
@@ -1139,6 +1173,9 @@ def _validate_industry_etf_mapping_contract(
                     failures.append(f"{row_label}: expected object")
                     continue
                 availability_records.append(record)
+                for field in INDUSTRY_ETF_PIT_AVAILABILITY_RECORD_REQUIRED_FIELDS:
+                    if field not in record:
+                        failures.append(f"{row_label}.{field}: required")
                 mapping_id = str(record.get("mapping_id") or "").strip()
                 if not mapping_id:
                     failures.append(f"{row_label}.mapping_id: required")
@@ -1196,6 +1233,27 @@ def _validate_industry_etf_mapping_contract(
                     failures.append(
                         f"{row_label}.pit_gap_reasons: benchmark_series_missing required"
                     )
+        labelability_summary = availability.get("labelability_summary")
+        if not isinstance(labelability_summary, Mapping):
+            failures.append(
+                "industry_etf_proxy_pit_availability.labelability_summary: expected object"
+            )
+            labelability_summary = {}
+        for field in INDUSTRY_ETF_PIT_LABELABILITY_REQUIRED_FIELDS:
+            if field not in labelability_summary:
+                failures.append(
+                    f"industry_etf_proxy_pit_availability.labelability_summary.{field}: required"
+                )
+                continue
+            parsed_count = _int_or_none(labelability_summary.get(field))
+            if parsed_count is None:
+                failures.append(
+                    f"industry_etf_proxy_pit_availability.labelability_summary.{field}: expected integer"
+                )
+            elif parsed_count < 0:
+                failures.append(
+                    f"industry_etf_proxy_pit_availability.labelability_summary.{field}: must be >= 0"
+                )
         if availability.get("mapping_count") != len(mapping_rows):
             failures.append(
                 "industry_etf_proxy_pit_availability.mapping_count mismatch"
