@@ -210,13 +210,15 @@ mosaic-rke fetch-tushare-reports \
   --max-reports-per-query 6000
 ```
 
-`--p9-profile` expands the private source query set to the Report
-Intelligence P9 corpus profile (`个股研报`, `行业研报`, `策略报告`, `宏观研报`,
-`固收研报`, `金融工程`) and records the profile plus P9 coverage targets in
-`registry/sources/tushare_research_reports.manifest.json`. It also uses a
-7-day full-market date window by default. The generated source rows, abstracts,
-PDF URLs, gold/license templates, and manifest remain private local artifacts
-and must not be committed.
+`--p9-profile` expands the private Tushare source query set to the official
+`research_report` categories that can be queried directly (`个股研报`,
+`行业研报`) and records the broader P9 target categories plus explicit source
+gaps in `registry/sources/tushare_research_reports.manifest.json`. Strategy,
+macro, fixed-income, and financial-engineering reports remain P9 coverage goals,
+but they must come from another compliant source before they can count as
+covered. The command also uses a 7-day full-market date window by default. The
+generated source rows, abstracts, PDF URLs, gold/license templates, and manifest
+remain private local artifacts and must not be committed.
 
 If the Tushare corpus was already fetched into a local CSV/JSONL cache, import
 that file directly and skip network calls:

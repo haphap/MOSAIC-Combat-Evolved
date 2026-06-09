@@ -61,10 +61,6 @@ P9_REPORT_INTELLIGENCE_CORPUS_PROFILE = "p9_report_intelligence_v1"
 P9_REPORT_INTELLIGENCE_REPORT_TYPES = (
     "个股研报",
     "行业研报",
-    "策略报告",
-    "宏观研报",
-    "固收研报",
-    "金融工程",
 )
 P9_REPORT_INTELLIGENCE_TARGET_CATEGORIES = (
     "stock_report_with_ts_code",
@@ -73,6 +69,28 @@ P9_REPORT_INTELLIGENCE_TARGET_CATEGORIES = (
     "macro_report",
     "fixed_income_report",
     "financial_engineering_report",
+)
+P9_REPORT_INTELLIGENCE_SOURCE_GAPS = (
+    {
+        "target_category": "strategy_report",
+        "missing_source": "Tushare research_report only supports 个股研报/行业研报 report_type queries",
+        "required_action": "add a compliant strategy-report source before counting this category as covered",
+    },
+    {
+        "target_category": "macro_report",
+        "missing_source": "Tushare research_report only supports 个股研报/行业研报 report_type queries",
+        "required_action": "add a compliant macro-report source before counting this category as covered",
+    },
+    {
+        "target_category": "fixed_income_report",
+        "missing_source": "Tushare research_report only supports 个股研报/行业研报 report_type queries",
+        "required_action": "add a compliant fixed-income report source before counting this category as covered",
+    },
+    {
+        "target_category": "financial_engineering_report",
+        "missing_source": "Tushare research_report only supports 个股研报/行业研报 report_type queries",
+        "required_action": "add a compliant financial-engineering report source before counting this category as covered",
+    },
 )
 P9_REPORT_INTELLIGENCE_TARGETS = {
     "selected_report_count_min": 300,
@@ -369,11 +387,17 @@ def _corpus_profile_manifest(profile: str) -> dict[str, Any]:
             "enabled": True,
             "report_type_profile": list(P9_REPORT_INTELLIGENCE_REPORT_TYPES),
             "target_categories": list(P9_REPORT_INTELLIGENCE_TARGET_CATEGORIES),
+            "source_gaps": list(P9_REPORT_INTELLIGENCE_SOURCE_GAPS),
             "coverage_targets": dict(P9_REPORT_INTELLIGENCE_TARGETS),
             "selection_policy": (
                 "fetch all configured report_type windows into the private source pool; "
                 "use report-intelligence --selection-order stratified for P9 Markdown "
                 "conversion and LLM extraction sampling"
+            ),
+            "source_coverage_note": (
+                "Tushare research_report is the first P9 source and is only used for "
+                "个股研报/行业研报. Strategy, macro, fixed-income, and financial-engineering "
+                "targets remain explicit source gaps until another compliant source is added."
             ),
             "privacy_boundary": (
                 "source rows, abstracts, PDF URLs, PDFs, Markdown, MinerU output, and "

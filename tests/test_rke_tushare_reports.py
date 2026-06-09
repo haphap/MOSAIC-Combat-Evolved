@@ -344,6 +344,15 @@ def test_refresh_tushare_research_report_registry_p9_profile_expands_report_type
     assert manifest["corpus_profile"]["coverage_targets"][
         "selected_report_count_min"
     ] == 300
+    assert len(manifest["corpus_profile"]["target_categories"]) == 6
+    assert {
+        gap["target_category"] for gap in manifest["corpus_profile"]["source_gaps"]
+    } == {
+        "strategy_report",
+        "macro_report",
+        "fixed_income_report",
+        "financial_engineering_report",
+    }
     assert manifest["corpus_profile"]["privacy_boundary"]
 
 

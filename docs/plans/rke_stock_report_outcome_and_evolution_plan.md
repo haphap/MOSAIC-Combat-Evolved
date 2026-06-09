@@ -493,7 +493,9 @@ git rev-list --objects origin/main..HEAD | rg 'tushare_research_reports|report_i
 
 真实样本选择必须分层，而不是只按最新研报顺序抽样：
 
-- report_type：行业、公司、策略、宏观、固收、金融工程。
+- report_type：目标覆盖行业、公司、策略、宏观、固收、金融工程；其中 Tushare
+  `research_report` 首轮只查询官方支持的 `个股研报` 和 `行业研报`，策略/宏观/固收/
+  金融工程必须记录为 source gap，等接入其他合规来源后再计入覆盖。
 - 时间：近 1 年、近 3 年、长周期历史样本。
 - 机构：头部机构和长尾机构都要覆盖，避免 source profile 只学习头部风格。
 - 行业：优先覆盖已有 ETF proxy 映射行业，再覆盖 mapping gap 行业。
@@ -512,10 +514,11 @@ mosaic-rke fetch-tushare-reports \
   --max-reports-per-query 6000
 ```
 
-`--p9-profile` 会把 P9 report_type 目标加入私有 Tushare source 查询集，并在
-`registry/sources/tushare_research_reports.manifest.json` 记录 profile、覆盖阈值和
-隐私边界。随后用 `mosaic-rke report-intelligence --selection-order stratified`
-从私有 source pool 中执行 Markdown/LLM 抽样。
+`--p9-profile` 会把 P9 的 Tushare 可查询 report_type 加入私有 source 查询集，并在
+`registry/sources/tushare_research_reports.manifest.json` 记录 profile、覆盖阈值、
+隐私边界和 `source_gaps`。随后用
+`mosaic-rke report-intelligence --selection-order stratified` 从私有 source pool
+中执行 Markdown/LLM 抽样。
 
 首轮建议规模：
 
