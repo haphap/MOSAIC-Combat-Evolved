@@ -350,6 +350,40 @@ def test_confidence_impact_observation_rejects_unknown_drift_status(
     assert any("drift_status" in failure for failure in record.failures)
 
 
+def test_confidence_impact_observation_schema_requires_plan_fields(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    observations_path = registry / "confidence_impact_observations.jsonl"
+    observations = [
+        json.loads(line)
+        for line in observations_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    observations[0].pop("after_cost_realized_alpha", None)
+    observations_path.write_text(
+        "\n".join(
+            json.dumps(row, ensure_ascii=False, sort_keys=True)
+            for row in observations
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    record = validate_json_schema_artifact(
+        root=tmp_path,
+        schema_path="schemas/report_intelligence_confidence_impact_observation.schema.json",
+        artifact_path="registry/report_intelligence/confidence_impact_observations.jsonl",
+        artifact_kind="jsonl",
+    )
+
+    assert not record.accepted
+    assert any(
+        "after_cost_realized_alpha: required" in item
+        for item in record.failures
+    )
+
+
 def _proxy_outcome_contract_record(tmp_path: Path):
     records = validate_report_intelligence_semantics(tmp_path)
     return next(
@@ -811,6 +845,35 @@ def test_recipe_paper_trading_contract_rejects_confidence_bypass(
     assert any("confidence_delta" in item for item in record.failures)
     assert any(
         "production_decision_impact_allowed" in item for item in record.failures
+    )
+
+
+def test_recipe_paper_trading_contract_rejects_missing_confidence_monitor_field(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    observations_path = registry / "confidence_impact_observations.jsonl"
+    observations = [
+        json.loads(line)
+        for line in observations_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    observations[0].pop("calibration_error", None)
+    observations_path.write_text(
+        "\n".join(
+            json.dumps(row, ensure_ascii=False, sort_keys=True)
+            for row in observations
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    record = _recipe_paper_trading_contract_record(tmp_path)
+
+    assert not record.accepted
+    assert any(
+        "confidence_impact_observations row 1.calibration_error: required" in item
+        for item in record.failures
     )
 
 

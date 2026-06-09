@@ -1305,6 +1305,24 @@ RECIPE_PAPER_TRADING_REQUIRED_METRICS = (
     "calibration_error",
     "drawdown_breach_count",
 )
+CONFIDENCE_IMPACT_REQUIRED_OBSERVATION_FIELDS = (
+    "recipe_id",
+    "agent_id",
+    "confidence_delta",
+    "confidence_delta_source",
+    "expected_alpha",
+    "realized_alpha",
+    "after_cost_realized_alpha",
+    "alpha_decay_slope",
+    "calibration_error",
+    "brier_score",
+    "hit_rate_recent",
+    "hit_rate_baseline",
+    "drawdown_since_activation",
+    "regime",
+    "drift_status",
+    "recommended_action",
+)
 SHA256_DIGEST_PATTERN = re.compile(r"sha256:[0-9a-f]{64}")
 
 
@@ -1737,6 +1755,9 @@ def _validate_recipe_paper_trading_contract(
     regime_fragile_recipe_ids: list[str] = []
     for index, row in enumerate(confidence_rows, 1):
         row_label = f"confidence_impact_observations row {index}"
+        for field in CONFIDENCE_IMPACT_REQUIRED_OBSERVATION_FIELDS:
+            if field not in row:
+                failures.append(f"{row_label}.{field}: required")
         recipe_id = str(row.get("recipe_id") or "").strip()
         if not recipe_id:
             failures.append(f"{row_label}.recipe_id: required")
