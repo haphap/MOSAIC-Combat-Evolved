@@ -123,7 +123,10 @@ from .source_text_redaction import (
     build_source_text_redaction_report,
     write_source_text_redaction_report,
 )
-from .tushare_reports import refresh_tushare_research_report_registry
+from .tushare_reports import (
+    P9_REPORT_INTELLIGENCE_CORPUS_PROFILE,
+    refresh_tushare_research_report_registry,
+)
 from .validation_hardening import (
     build_central_bank_statistical_significance_report,
     build_central_bank_validation_hardening_report,
@@ -616,6 +619,15 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     fetch_reports.add_argument(
+        "--p9-profile",
+        action="store_true",
+        help=(
+            "Use the P9 Report Intelligence corpus profile: add stock, industry, "
+            "strategy, macro, fixed-income, and financial-engineering report types "
+            "to the private source query set and record P9 coverage targets in the manifest."
+        ),
+    )
+    fetch_reports.add_argument(
         "--max-reports-per-query",
         type=int,
         default=6000,
@@ -630,8 +642,10 @@ def build_parser() -> argparse.ArgumentParser:
     fetch_reports.add_argument(
         "--date-chunk-days",
         type=int,
-        default=31,
-        help="Days per full-market report_type query window. Defaults to 31.",
+        help=(
+            "Days per full-market report_type query window. Defaults to 31, or 7 "
+            "when --p9-profile is set."
+        ),
     )
     fetch_reports.add_argument(
         "--merge-existing-source",
@@ -1172,6 +1186,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0 if report.ready_for_promotion_dry_run else 2
     if args.command == "fetch-tushare-reports":
         _load_env_file(args.env_file)
+        date_chunk_days = args.date_chunk_days
+        if date_chunk_days is None:
+            date_chunk_days = 7 if args.p9_profile else 31
         result = refresh_tushare_research_report_registry(
             root,
             stock_codes=_split_repeated_csv(args.stock_codes),
@@ -1182,9 +1199,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             input_path=args.input_path,
             max_reports_per_query=args.max_reports_per_query,
             stock_query_batch_size=args.stock_query_batch_size,
-            date_chunk_days=args.date_chunk_days,
+            date_chunk_days=date_chunk_days,
             merge_existing_source=args.merge_existing_source,
             preserve_review_templates=not args.overwrite_review_templates,
+            corpus_profile=(
+                P9_REPORT_INTELLIGENCE_CORPUS_PROFILE if args.p9_profile else None
+            ),
         )
         _print_json(asdict(result))
         return 0 if result.manifest_valid else 2

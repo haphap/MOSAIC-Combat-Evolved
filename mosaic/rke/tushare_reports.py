@@ -57,6 +57,32 @@ from .validation_hardening import (
 
 ReportKind = Literal["stock", "industry"]
 TUSHARE_RESEARCH_REPORT_PAGE_SIZE = 1000
+P9_REPORT_INTELLIGENCE_CORPUS_PROFILE = "p9_report_intelligence_v1"
+P9_REPORT_INTELLIGENCE_REPORT_TYPES = (
+    "个股研报",
+    "行业研报",
+    "策略报告",
+    "宏观研报",
+    "固收研报",
+    "金融工程",
+)
+P9_REPORT_INTELLIGENCE_TARGET_CATEGORIES = (
+    "stock_report_with_ts_code",
+    "industry_report",
+    "strategy_report",
+    "macro_report",
+    "fixed_income_report",
+    "financial_engineering_report",
+)
+P9_REPORT_INTELLIGENCE_TARGETS = {
+    "selected_report_count_min": 300,
+    "markdown_ready_count_min": 300,
+    "markdown_quality_pass_count_min": 300,
+    "llm_extraction_processed_count_min": 100,
+    "industry_report_count_min": 80,
+    "stock_report_count_min": 80,
+    "sector_bucket_min_report_count": 5,
+}
 
 
 def _utc_now() -> str:
@@ -124,6 +150,7 @@ class TushareResearchReportRefreshResult:
     completion_ready_for_broad_rollout: bool
     manifest_valid: bool
     outputs: Mapping[str, str]
+    corpus_profile: str = "custom"
 
 
 def normalize_research_report_row(
@@ -305,6 +332,63 @@ def _chunked(values: Sequence[str], size: int) -> list[tuple[str, ...]]:
         raise ValueError("stock_query_batch_size must be positive")
     normalized = tuple(str(value or "").strip() for value in values if str(value or "").strip())
     return [normalized[index : index + size] for index in range(0, len(normalized), size)]
+
+
+def _dedupe_ordered(values: Sequence[str]) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            str(value or "").strip()
+            for value in values
+            if str(value or "").strip()
+        )
+    )
+
+
+def _normalize_corpus_profile(value: str | None) -> str:
+    profile = str(value or "").strip()
+    if not profile:
+        return "custom"
+    if profile == P9_REPORT_INTELLIGENCE_CORPUS_PROFILE:
+        return profile
+    raise ValueError(
+        f"unsupported corpus_profile {profile!r}; expected "
+        f"{P9_REPORT_INTELLIGENCE_CORPUS_PROFILE!r}"
+    )
+
+
+def _profile_report_types(profile: str) -> tuple[str, ...]:
+    if profile == P9_REPORT_INTELLIGENCE_CORPUS_PROFILE:
+        return P9_REPORT_INTELLIGENCE_REPORT_TYPES
+    return ()
+
+
+def _corpus_profile_manifest(profile: str) -> dict[str, Any]:
+    if profile == P9_REPORT_INTELLIGENCE_CORPUS_PROFILE:
+        return {
+            "name": profile,
+            "enabled": True,
+            "report_type_profile": list(P9_REPORT_INTELLIGENCE_REPORT_TYPES),
+            "target_categories": list(P9_REPORT_INTELLIGENCE_TARGET_CATEGORIES),
+            "coverage_targets": dict(P9_REPORT_INTELLIGENCE_TARGETS),
+            "selection_policy": (
+                "fetch all configured report_type windows into the private source pool; "
+                "use report-intelligence --selection-order stratified for P9 Markdown "
+                "conversion and LLM extraction sampling"
+            ),
+            "privacy_boundary": (
+                "source rows, abstracts, PDF URLs, PDFs, Markdown, MinerU output, and "
+                "LLM extraction rows are private local artifacts and must not be committed"
+            ),
+        }
+    return {
+        "name": "custom",
+        "enabled": False,
+        "report_type_profile": [],
+        "target_categories": [],
+        "coverage_targets": {},
+        "selection_policy": "operator-specified query set",
+        "privacy_boundary": "private source artifacts remain gitignored",
+    }
 
 
 def _date_windows(start_date: str, end_date: str, chunk_days: int) -> list[tuple[str, str]]:
@@ -619,8 +703,10 @@ def _write_research_report_manifest(
     report_type_counts: Mapping[str, int],
     query_key_counts: Mapping[str, int],
     ingested_at: str,
+    corpus_profile: str,
 ) -> dict[str, Any]:
     payload = {
+        "corpus_profile": _corpus_profile_manifest(corpus_profile),
         "corpus_id": f"CORPUS-TSRR-{end_date.replace('-', '')}-001",
         "ingested_at": ingested_at,
         "license_status": "pending_review",
@@ -684,10 +770,15 @@ def refresh_tushare_research_report_registry(
     date_chunk_days: int = 31,
     merge_existing_source: bool = False,
     preserve_review_templates: bool = True,
+    corpus_profile: str | None = None,
     discovered_at: str | None = None,
     pro: Any | None = None,
 ) -> TushareResearchReportRefreshResult:
     """Fetch Tushare reports and refresh dependent Phase -1 registry artifacts."""
+    resolved_corpus_profile = _normalize_corpus_profile(corpus_profile)
+    report_types = _dedupe_ordered(
+        (*report_types, *_profile_report_types(resolved_corpus_profile))
+    )
     if input_path is None and (not start_date or not end_date):
         raise ValueError("start_date and end_date are required when fetching from Tushare")
     if input_path is None and not stock_codes and not industry_keywords and not report_types:
@@ -816,6 +907,7 @@ def refresh_tushare_research_report_registry(
         report_type_counts=report_type_counts,
         query_key_counts=query_key_counts,
         ingested_at=ingested_at,
+        corpus_profile=resolved_corpus_profile,
     )
     outputs["source_manifest"] = str(manifest_result["path"])
 
@@ -916,6 +1008,7 @@ def refresh_tushare_research_report_registry(
 
     return TushareResearchReportRefreshResult(
         root=str(root_path),
+        corpus_profile=resolved_corpus_profile,
         source_rows=audit.row_count,
         rows_with_abstract=audit.rows_with_abstract,
         skipped_empty_abstract_rows=skipped_empty_abstract_rows,

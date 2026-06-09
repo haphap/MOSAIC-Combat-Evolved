@@ -6,7 +6,10 @@ from pathlib import Path
 
 import pandas as pd
 
+from mosaic.rke.cli import build_parser
 from mosaic.rke.tushare_reports import (
+    P9_REPORT_INTELLIGENCE_CORPUS_PROFILE,
+    P9_REPORT_INTELLIGENCE_REPORT_TYPES,
     fetch_tushare_research_reports,
     load_tushare_research_reports_from_file,
     normalize_research_report_row,
@@ -287,6 +290,61 @@ def test_fetch_tushare_research_reports_paginates_full_market_report_type():
     assert len(reports) == 1002
     assert [call["offset"] for call in fake.calls] == [0, 1000]
     assert {call["limit"] for call in fake.calls} == {1000}
+
+
+def test_fetch_tushare_reports_cli_exposes_p9_profile():
+    parser = build_parser()
+    fetch_parser = next(
+        action.choices["fetch-tushare-reports"]
+        for action in parser._actions
+        if isinstance(getattr(action, "choices", None), dict)
+        and "fetch-tushare-reports" in action.choices
+    )
+    help_text = fetch_parser.format_help()
+
+    assert "--p9-profile" in help_text
+
+
+def test_refresh_tushare_research_report_registry_p9_profile_expands_report_types(
+    tmp_path: Path,
+):
+    shutil.copytree(Path("registry"), tmp_path / "registry")
+    fake = FullMarketFakeTusharePro()
+
+    result = refresh_tushare_research_report_registry(
+        tmp_path,
+        stock_codes=(),
+        industry_keywords=(),
+        report_types=(),
+        start_date="2026-06-01",
+        end_date="2026-06-01",
+        date_chunk_days=7,
+        max_reports_per_query=6000,
+        preserve_review_templates=False,
+        corpus_profile=P9_REPORT_INTELLIGENCE_CORPUS_PROFILE,
+        discovered_at="2026-06-05T12:00:00+00:00",
+        pro=fake,
+    )
+
+    manifest = json.loads(
+        (tmp_path / "registry/sources/tushare_research_reports.manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert result.corpus_profile == P9_REPORT_INTELLIGENCE_CORPUS_PROFILE
+    assert [call["report_type"] for call in fake.calls] == list(
+        P9_REPORT_INTELLIGENCE_REPORT_TYPES
+    )
+    assert manifest["query_set"]["report_types"] == list(
+        P9_REPORT_INTELLIGENCE_REPORT_TYPES
+    )
+    assert manifest["corpus_profile"]["name"] == P9_REPORT_INTELLIGENCE_CORPUS_PROFILE
+    assert manifest["corpus_profile"]["enabled"] is True
+    assert manifest["corpus_profile"]["coverage_targets"][
+        "selected_report_count_min"
+    ] == 300
+    assert manifest["corpus_profile"]["privacy_boundary"]
 
 
 def test_normalize_research_report_row_builds_source_and_span_ids():

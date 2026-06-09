@@ -501,6 +501,22 @@ git rev-list --objects origin/main..HEAD | rg 'tushare_research_reports|report_i
 - horizon：短期、中期、长期观点都要覆盖。
 - 结果可评价性：优先选择 qlib 价格数据可用的报告，但保留一定 mapping gap 样本用于抽取和映射改进。
 
+可执行抓取入口：
+
+```bash
+mosaic-rke fetch-tushare-reports \
+  --root . \
+  --start-date <YYYY-MM-DD> \
+  --end-date <YYYY-MM-DD> \
+  --p9-profile \
+  --max-reports-per-query 6000
+```
+
+`--p9-profile` 会把 P9 report_type 目标加入私有 Tushare source 查询集，并在
+`registry/sources/tushare_research_reports.manifest.json` 记录 profile、覆盖阈值和
+隐私边界。随后用 `mosaic-rke report-intelligence --selection-order stratified`
+从私有 source pool 中执行 Markdown/LLM 抽样。
+
 首轮建议规模：
 
 - PDF/Markdown 准备：不少于 300 篇真实研报。

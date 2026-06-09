@@ -12,6 +12,7 @@ from mosaic.rke import (
 )
 from mosaic.rke.cli import main
 from mosaic.rke.registry_manifest import PRIVATE_LOCAL_REGISTRY_FILES
+from mosaic.rke.tushare_reports import P9_REPORT_INTELLIGENCE_CORPUS_PROFILE
 
 
 GOLD_MANUAL_FIELDS = (
@@ -720,7 +721,61 @@ def test_rke_cli_fetch_tushare_reports_passes_query_args(
     assert captured["max_reports_per_query"] == 42
     assert captured["stock_query_batch_size"] == 2
     assert captured["date_chunk_days"] == 7
+    assert captured["corpus_profile"] is None
     assert captured["preserve_review_templates"] is True
+
+
+def test_rke_cli_fetch_tushare_reports_p9_profile_defaults_date_chunk(
+    monkeypatch,
+    tmp_path: Path,
+    capsys,
+):
+    captured = {}
+
+    def fake_refresh(root, **kwargs):
+        captured["root"] = str(root)
+        captured.update(kwargs)
+        return TushareResearchReportRefreshResult(
+            root=str(root),
+            source_rows=6,
+            rows_with_abstract=6,
+            skipped_empty_abstract_rows=0,
+            gold_candidate_rows=6,
+            gold_review_template_updated=True,
+            license_review_template_updated=True,
+            publish_date_min="2026-06-01",
+            publish_date_max="2026-06-01",
+            report_type_counts={"个股研报": 1, "行业研报": 1},
+            query_key_counts={"000001.SZ": 1, "半导体": 1},
+            completion_ready_for_broad_rollout=False,
+            manifest_valid=True,
+            outputs={"source": "registry/sources/tushare_research_reports.jsonl"},
+            corpus_profile=P9_REPORT_INTELLIGENCE_CORPUS_PROFILE,
+        )
+
+    monkeypatch.setattr(
+        "mosaic.rke.cli.refresh_tushare_research_report_registry", fake_refresh
+    )
+
+    code = main(
+        (
+            "fetch-tushare-reports",
+            "--root",
+            str(tmp_path),
+            "--start-date",
+            "2026-06-01",
+            "--end-date",
+            "2026-06-01",
+            "--p9-profile",
+        )
+    )
+    output = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert output["corpus_profile"] == P9_REPORT_INTELLIGENCE_CORPUS_PROFILE
+    assert captured["corpus_profile"] == P9_REPORT_INTELLIGENCE_CORPUS_PROFILE
+    assert captured["date_chunk_days"] == 7
+    assert captured["report_types"] == ()
 
 
 def test_rke_cli_fetch_tushare_reports_accepts_local_input_path(
@@ -776,6 +831,8 @@ def test_rke_cli_fetch_tushare_reports_accepts_local_input_path(
     assert captured["stock_codes"] == ()
     assert captured["industry_keywords"] == ()
     assert captured["report_types"] == ()
+    assert captured["date_chunk_days"] == 31
+    assert captured["corpus_profile"] is None
 
 
 def test_pyproject_exposes_mosaic_rke_console_script():
