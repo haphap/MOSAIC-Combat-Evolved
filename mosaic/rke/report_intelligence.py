@@ -7364,28 +7364,30 @@ def _paper_trading_metric_summary(
 def _paper_trading_chronological_split_metrics(
     items: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
+    ordered_items = sorted(items, key=lambda row: str(row.get("exit_datetime") or ""))
     weighted_after_cost = [
         (float(item["after_cost"]), float(item["weight"]))
-        for item in items
+        for item in ordered_items
         if _float_or_none(item.get("after_cost")) is not None
     ]
     weighted_hit = [
         (float(item["hit"]), float(item["weight"]))
-        for item in items
+        for item in ordered_items
         if _float_or_none(item.get("hit")) is not None
     ]
     cost_adjusted_alpha = _weighted_mean(weighted_after_cost, default=None)
     hit_rate = _weighted_mean(weighted_hit, default=None)
     effective_n = sum(
-        max(_float_or_none(item.get("weight")) or 0.0, 0.0) for item in items
+        max(_float_or_none(item.get("weight")) or 0.0, 0.0)
+        for item in ordered_items
     )
     exit_datetimes = [
         str(item.get("exit_datetime") or "")
-        for item in items
+        for item in ordered_items
         if str(item.get("exit_datetime") or "").strip()
     ]
     return {
-        "label_count": len(items),
+        "label_count": len(ordered_items),
         "effective_n": round(effective_n, 6),
         "cost_adjusted_alpha": round(cost_adjusted_alpha, 8)
         if cost_adjusted_alpha is not None
@@ -8252,9 +8254,16 @@ def _forecast_gold_review_gate(
     return not blockers, evidence, blockers
 
 
+EVOLUTION_DATA_VINTAGE_HASH_RE = re.compile(r"sha256:[0-9a-f]{64}")
+
+
+def _valid_data_vintage_hash(value: Any) -> bool:
+    return bool(EVOLUTION_DATA_VINTAGE_HASH_RE.fullmatch(str(value or "").strip()))
+
+
 def _history_vintage_key(row: Mapping[str, Any]) -> str:
     data_vintage_hash = str(row.get("data_vintage_hash") or "").strip()
-    if data_vintage_hash.startswith("sha256:"):
+    if _valid_data_vintage_hash(data_vintage_hash):
         return data_vintage_hash
     return "legacy-unvintaged"
 
@@ -8554,8 +8563,12 @@ def _append_evolution_history_record(
         dict(row)
         for row in rows
         if (
-            str(row.get("data_vintage_hash") or "").strip() != data_vintage_hash
-            if data_vintage_hash
+            (
+                _valid_data_vintage_hash(row.get("data_vintage_hash"))
+                and str(row.get("data_vintage_hash") or "").strip()
+                != data_vintage_hash
+            )
+            if _valid_data_vintage_hash(data_vintage_hash)
             else str(row.get("run_id") or "") != run_id
         )
     ]

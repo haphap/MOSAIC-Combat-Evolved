@@ -883,6 +883,33 @@ def test_recipe_paper_trading_contract_rejects_preregistration_payload_mismatch(
     assert any("pre_registration_hash: mismatch" in item for item in record.failures)
 
 
+def test_recipe_paper_trading_contract_rejects_raw_required_data_persistence(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    runs_path = registry / "recipe_paper_trading_runs.jsonl"
+    runs = [
+        json.loads(line)
+        for line in runs_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    runs[0]["required_data"] = [
+        item.removeprefix("metric:") for item in runs[0]["required_data"]
+    ]
+    runs_path.write_text(
+        "\n".join(json.dumps(row, ensure_ascii=False, sort_keys=True) for row in runs)
+        + "\n",
+        encoding="utf-8",
+    )
+
+    record = _recipe_paper_trading_contract_record(tmp_path)
+
+    assert not record.accepted
+    assert any(
+        "required_data: must persist normalized" in item for item in record.failures
+    )
+
+
 def test_recipe_paper_trading_contract_rejects_passed_run_without_oos_alpha(
     tmp_path: Path,
 ):
@@ -975,6 +1002,37 @@ def test_evolution_refresh_history_rejects_accepted_aggregate_calibration_drift(
         in item
         for item in record.failures
     )
+
+
+def test_evolution_refresh_history_requires_data_vintage_hash(tmp_path: Path):
+    cases = (
+        ("monitor_refresh_history.jsonl", "monitor_refresh_history row 1"),
+        ("audit_refresh_history.jsonl", "audit_refresh_history row 1"),
+        ("gap_distribution_history.jsonl", "gap_distribution_history row 1"),
+    )
+    for filename, row_label in cases:
+        case_dir = tmp_path / filename.replace(".jsonl", "")
+        case_dir.mkdir()
+        registry = _copy_report_intelligence_registry(case_dir)
+        history_path = registry / filename
+        rows = [
+            json.loads(line)
+            for line in history_path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        rows[0].pop("data_vintage_hash", None)
+        history_path.write_text(
+            "\n".join(json.dumps(row, ensure_ascii=False, sort_keys=True) for row in rows)
+            + "\n",
+            encoding="utf-8",
+        )
+
+        record = _evolution_refresh_history_record(case_dir)
+
+        assert not record.accepted
+        assert any(
+            f"{row_label}.data_vintage_hash" in item for item in record.failures
+        )
 
 
 def test_schema_validation_accepts_public_registry_without_private_report_inputs(

@@ -37,6 +37,7 @@ from mosaic.rke.report_intelligence import (
     run_report_intelligence_derived_refresh,
     _append_evolution_history_record,
     _markdown_quality_gap,
+    _paper_trading_chronological_split_metrics,
 )
 
 
@@ -1674,6 +1675,36 @@ def test_report_intelligence_recipe_paper_trading_requires_direct_pit_evidence()
     ]
 
 
+def test_report_intelligence_paper_trading_split_sorts_exit_datetime():
+    metrics = _paper_trading_chronological_split_metrics(
+        [
+            {
+                "exit_datetime": "2026-01-14",
+                "after_cost": 0.03,
+                "hit": 1.0,
+                "weight": 1.0,
+            },
+            {
+                "exit_datetime": "2026-01-10",
+                "after_cost": 0.01,
+                "hit": 1.0,
+                "weight": 1.0,
+            },
+            {
+                "exit_datetime": "2026-01-12",
+                "after_cost": -0.01,
+                "hit": 0.0,
+                "weight": 2.0,
+            },
+        ]
+    )
+
+    assert metrics["start_exit_datetime"] == "2026-01-10"
+    assert metrics["end_exit_datetime"] == "2026-01-14"
+    assert metrics["effective_n"] == 4.0
+    assert metrics["cost_adjusted_alpha"] == 0.005
+
+
 def test_report_intelligence_recipe_paper_trading_flags_alpha_decay_fail():
     recipe = {
         "analysis_recipe_id": "RECIPE-DECAY-FAIL",
@@ -2525,6 +2556,33 @@ def test_report_intelligence_evolution_history_replaces_same_data_vintage():
 
     assert len(history) == 1
     assert history[0]["run_id"] == "RIR-NEW"
+
+
+def test_report_intelligence_evolution_history_append_drops_unvintaged_rows():
+    previous_hash = "sha256:" + "a" * 64
+    current_hash = "sha256:" + "b" * 64
+
+    history = _append_evolution_history_record(
+        [
+            {"run_id": "RIR-LEGACY", "accepted": True},
+            {
+                "run_id": "RIR-PREVIOUS",
+                "data_vintage_hash": previous_hash,
+                "accepted": True,
+            },
+        ],
+        {
+            "run_id": "RIR-CURRENT",
+            "data_vintage_hash": current_hash,
+            "accepted": True,
+        },
+    )
+
+    assert [row["run_id"] for row in history] == ["RIR-PREVIOUS", "RIR-CURRENT"]
+    assert {row["data_vintage_hash"] for row in history} == {
+        previous_hash,
+        current_hash,
+    }
 
 
 def test_report_intelligence_prompt_mutation_candidates_track_markdown_coverage_gate():

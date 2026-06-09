@@ -1291,6 +1291,7 @@ RECIPE_PAPER_TRADING_OUT_OF_SAMPLE_WINDOW_POLICY = (
 RECIPE_PAPER_TRADING_PARAMETER_LOCK_POLICY = (
     "pre_registration_hash_locks_required_data_protocol_cost_benchmark_windows_v1"
 )
+SHA256_DIGEST_PATTERN = re.compile(r"sha256:[0-9a-f]{64}")
 
 
 def _expected_recipe_paper_trading_protocol() -> dict[str, Any]:
@@ -1331,6 +1332,37 @@ def _expected_recipe_paper_trading_protocol() -> dict[str, Any]:
     }
 
 
+def _canonical_metric_name(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    lowered = text.lower()
+    lowered = re.sub(r"[^0-9a-zA-Z\u4e00-\u9fff]+", "_", lowered)
+    lowered = re.sub(r"_+", "_", lowered).strip("_")
+    return lowered[:120]
+
+
+def _normalize_required_data_item(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if text.startswith("metric:"):
+        text = text.removeprefix("metric:").strip()
+    metric = _canonical_metric_name(text)
+    return f"metric:{metric}" if metric else ""
+
+
+def _normalize_required_data_items(value: Any) -> list[str]:
+    normalized = [
+        item
+        for item in (
+            _normalize_required_data_item(item) for item in _string_items(value)
+        )
+        if item
+    ]
+    return list(dict.fromkeys(normalized))
+
+
 def _recipe_preregistration_payload_from_run(row: Mapping[str, Any]) -> dict[str, Any]:
     return {
         "analysis_recipe_id": str(row.get("analysis_recipe_id") or ""),
@@ -1338,7 +1370,7 @@ def _recipe_preregistration_payload_from_run(row: Mapping[str, Any]) -> dict[str
         "protocol_version": str(row.get("protocol_version") or ""),
         "source_method_pattern_ids": _string_items(row.get("source_method_pattern_ids")),
         "required_tools": _string_items(row.get("required_tools")),
-        "required_data": _string_items(row.get("required_data")),
+        "required_data": _normalize_required_data_items(row.get("required_data")),
         "decision_scope": str(row.get("decision_scope") or ""),
         "entry_condition": str(row.get("entry_condition") or ""),
         "exit_condition": str(row.get("exit_condition") or ""),
@@ -1471,8 +1503,14 @@ def _validate_recipe_paper_trading_contract(
             failures.append(
                 f"{row_label}.exit_condition: must be fixed_horizon_shadow_exit"
             )
+        required_data = _string_items(row.get("required_data"))
+        normalized_required_data = _normalize_required_data_items(required_data)
+        if required_data != normalized_required_data:
+            failures.append(
+                f"{row_label}.required_data: must persist normalized metric:<canonical> items"
+            )
         preregistration_hash = str(row.get("pre_registration_hash") or "")
-        if not re.fullmatch(r"sha256:[0-9a-f]{64}", preregistration_hash):
+        if not SHA256_DIGEST_PATTERN.fullmatch(preregistration_hash):
             failures.append(
                 f"{row_label}.pre_registration_hash: expected sha256 digest"
             )
@@ -1511,7 +1549,7 @@ def _validate_recipe_paper_trading_contract(
             failures.append(
                 f"{row_label}.pre_registered_protocol.benchmark_source: must match row benchmark_source"
             )
-        if re.fullmatch(r"sha256:[0-9a-f]{64}", preregistration_hash):
+        if SHA256_DIGEST_PATTERN.fullmatch(preregistration_hash):
             expected_hash = _recipe_preregistration_hash_from_run(row)
             if preregistration_hash != expected_hash:
                 failures.append(
@@ -1884,6 +1922,19 @@ def _history_count(
     return parsed
 
 
+def _validate_history_data_vintage_hash(
+    row: Mapping[str, Any],
+    *,
+    row_label: str,
+    failures: list[str],
+) -> None:
+    data_vintage_hash = str(row.get("data_vintage_hash") or "")
+    if not SHA256_DIGEST_PATTERN.fullmatch(data_vintage_hash):
+        failures.append(
+            f"{row_label}.data_vintage_hash: expected sha256 data vintage digest"
+        )
+
+
 def _validate_evolution_refresh_history_contract(
     root_path: Path,
 ) -> tuple[int, list[str]]:
@@ -1891,9 +1942,22 @@ def _validate_evolution_refresh_history_contract(
         root_path,
         "registry/report_intelligence/monitor_refresh_history.jsonl",
     )
-    failures = list(monitor_failures)
+    audit_rows, audit_failures = _load_mapping_jsonl(
+        root_path,
+        "registry/report_intelligence/audit_refresh_history.jsonl",
+    )
+    gap_rows, gap_failures = _load_mapping_jsonl(
+        root_path,
+        "registry/report_intelligence/gap_distribution_history.jsonl",
+    )
+    failures = [*monitor_failures, *audit_failures, *gap_failures]
     for index, row in enumerate(monitor_rows, 1):
         row_label = f"monitor_refresh_history row {index}"
+        _validate_history_data_vintage_hash(
+            row,
+            row_label=row_label,
+            failures=failures,
+        )
         if str(row.get("history_type") or "") != "confidence_impact_monitor":
             failures.append(f"{row_label}.history_type: must be confidence_impact_monitor")
         for required_field in (
@@ -1960,7 +2024,32 @@ def _validate_evolution_refresh_history_contract(
             failures.append(
                 f"{row_label}.accepted: must match monitor blocker, alpha decay, and calibration drift fields"
             )
-    return len(monitor_rows), failures
+    for index, row in enumerate(audit_rows, 1):
+        row_label = f"audit_refresh_history row {index}"
+        _validate_history_data_vintage_hash(
+            row,
+            row_label=row_label,
+            failures=failures,
+        )
+        if (
+            str(row.get("history_type") or "")
+            != "schema_pit_provenance_statistical_audit"
+        ):
+            failures.append(
+                f"{row_label}.history_type: must be schema_pit_provenance_statistical_audit"
+            )
+    for index, row in enumerate(gap_rows, 1):
+        row_label = f"gap_distribution_history row {index}"
+        _validate_history_data_vintage_hash(
+            row,
+            row_label=row_label,
+            failures=failures,
+        )
+        if str(row.get("history_type") or "") != "mapping_gap_distribution":
+            failures.append(
+                f"{row_label}.history_type: must be mapping_gap_distribution"
+            )
+    return len(monitor_rows) + len(audit_rows) + len(gap_rows), failures
 
 
 def validate_report_intelligence_semantics(
@@ -2603,7 +2692,7 @@ def validate_report_intelligence_semantics(
     records.append(
         SchemaValidationRecord(
             schema_path="schemas/report_intelligence_evolution_refresh_history_rules",
-            artifact_path="registry/report_intelligence/monitor_refresh_history.jsonl",
+            artifact_path="registry/report_intelligence/*_refresh_history.jsonl",
             item_count=evolution_refresh_history_item_count,
             accepted=not evolution_refresh_history_failures,
             failures=tuple(evolution_refresh_history_failures),

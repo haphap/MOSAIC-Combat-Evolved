@@ -6,6 +6,7 @@
     "history_id",
     "history_type",
     "run_id",
+    "data_vintage_hash",
     "as_of_datetime",
     "accepted",
     "private_text_included"
