@@ -14,6 +14,8 @@
     "industry_report_count",
     "stock_report_count",
     "coverage_targets",
+    "sector_bucket_coverage_gaps",
+    "sector_bucket_below_min_count",
     "coverage_strata_targets",
     "coverage_strata_missing",
     "coverage_gate_status",
@@ -57,7 +59,8 @@
         "markdown_quality_pass_count_min",
         "llm_extraction_processed_count_min",
         "industry_report_count_min",
-        "stock_report_count_min"
+        "stock_report_count_min",
+        "sector_bucket_min_report_count"
       ],
       "properties": {
         "selected_report_count_min": {"const": 300},
@@ -65,10 +68,16 @@
         "markdown_quality_pass_count_min": {"const": 300},
         "llm_extraction_processed_count_min": {"const": 100},
         "industry_report_count_min": {"const": 80},
-        "stock_report_count_min": {"const": 80}
+        "stock_report_count_min": {"const": 80},
+        "sector_bucket_min_report_count": {"const": 5}
       },
       "additionalProperties": {"type": "integer", "minimum": 0}
     },
+    "sector_bucket_coverage_gaps": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "sector_bucket_below_min_count": {"type": "integer", "minimum": 0},
     "coverage_strata_targets": {
       "type": "object",
       "required": [

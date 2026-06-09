@@ -1,6 +1,6 @@
 {
   "as_of_datetime": "2026-06-08T10:23:08+00:00",
-  "blocker_count": 31,
+  "blocker_count": 32,
   "blockers": [
     "after_cost_paper_trading_summary_missing",
     "audit_refresh_history_below_threshold",
@@ -24,6 +24,7 @@
     "markdown_ready_count_below_p9_target",
     "paper_trading_run_count_below_threshold",
     "paper_trading_validated_recipe_count_below_threshold",
+    "sector_bucket_coverage_below_p9_target",
     "selected_report_count_below_p9_target",
     "source_span_support_precision_missing",
     "stock_report_count_below_p9_target",
@@ -167,6 +168,7 @@
         "llm_extraction_processed_count_below_p9_target",
         "industry_report_count_below_p9_target",
         "stock_report_count_below_p9_target",
+        "sector_bucket_coverage_below_p9_target",
         "time_bucket_coverage_below_p9_target",
         "institution_bucket_coverage_below_p9_target",
         "horizon_bucket_coverage_below_p9_target",
@@ -181,6 +183,7 @@
           "llm_extraction_processed_count_below_p9_target",
           "industry_report_count_below_p9_target",
           "stock_report_count_below_p9_target",
+          "sector_bucket_coverage_below_p9_target",
           "time_bucket_coverage_below_p9_target",
           "institution_bucket_coverage_below_p9_target",
           "horizon_bucket_coverage_below_p9_target",
@@ -193,8 +196,13 @@
           "markdown_quality_pass_count_min": 300,
           "markdown_ready_count_min": 300,
           "selected_report_count_min": 300,
-          "stock_report_count_min": 80
+          "stock_report_count_min": 80,
+          "sector_bucket_min_report_count": 5
         },
+        "sector_bucket_coverage_gaps": [
+          "sector_bucket:semiconductor"
+        ],
+        "sector_bucket_below_min_count": 1,
         "coverage_strata_targets": {
           "evaluability_bucket_required": [
             "stock_proxy_candidate",

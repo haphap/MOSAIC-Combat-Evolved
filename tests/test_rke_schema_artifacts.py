@@ -660,6 +660,31 @@ def test_markdown_coverage_privacy_rules_require_strata_missing_entries(
     assert any("time_bucket:recent_1y" in failure for failure in record.failures)
 
 
+def test_markdown_coverage_privacy_rules_require_sector_gap_entries(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    coverage_path = registry / "markdown_coverage_summary.json"
+    coverage = json.loads(coverage_path.read_text(encoding="utf-8"))
+    coverage["sector_bucket_coverage_gaps"] = []
+    coverage["sector_bucket_below_min_count"] = 0
+    coverage_path.write_text(
+        json.dumps(coverage, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = next(
+        item
+        for item in validate_report_intelligence_semantics(tmp_path)
+        if item.schema_path
+        == "schemas/report_intelligence_markdown_coverage_privacy_rules"
+    )
+
+    assert not record.accepted
+    assert any("sector_bucket:semiconductor" in failure for failure in record.failures)
+    assert any("sector_bucket_below_min_count" in failure for failure in record.failures)
+
+
 def test_recipe_paper_trading_contract_accepts_current_public_artifacts(
     tmp_path: Path,
 ):

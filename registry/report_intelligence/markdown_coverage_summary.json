@@ -15,8 +15,13 @@
     "markdown_quality_pass_count_min": 300,
     "llm_extraction_processed_count_min": 100,
     "industry_report_count_min": 80,
-    "stock_report_count_min": 80
+    "stock_report_count_min": 80,
+    "sector_bucket_min_report_count": 5
   },
+  "sector_bucket_coverage_gaps": [
+    "sector_bucket:semiconductor"
+  ],
+  "sector_bucket_below_min_count": 1,
   "coverage_strata_targets": {
     "time_bucket_required": [
       "recent_1y",
@@ -61,6 +66,7 @@
     "llm_extraction_processed_count_below_p9_target",
     "industry_report_count_below_p9_target",
     "stock_report_count_below_p9_target",
+    "sector_bucket_coverage_below_p9_target",
     "time_bucket_coverage_below_p9_target",
     "institution_bucket_coverage_below_p9_target",
     "horizon_bucket_coverage_below_p9_target",

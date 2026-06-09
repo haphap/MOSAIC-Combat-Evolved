@@ -399,6 +399,7 @@ MARKDOWN_COVERAGE_MIN_QUALITY_PASS = 300
 MARKDOWN_COVERAGE_MIN_LLM_EXTRACTION_PROCESSED = 100
 MARKDOWN_COVERAGE_MIN_INDUSTRY_REPORTS = 80
 MARKDOWN_COVERAGE_MIN_STOCK_REPORTS = 80
+MARKDOWN_COVERAGE_MIN_REPORTS_PER_SECTOR_BUCKET = 5
 MARKDOWN_COVERAGE_REQUIRED_TIME_BUCKETS = (
     "recent_1y",
     "recent_3y",
@@ -4690,6 +4691,16 @@ def _coverage_missing_required_buckets(
     ]
 
 
+def _sector_bucket_coverage_gaps(
+    sector_bucket_counts: Mapping[str, int],
+) -> list[str]:
+    return [
+        f"sector_bucket:{bucket}"
+        for bucket, count in sorted(sector_bucket_counts.items())
+        if bucket and int(count or 0) < MARKDOWN_COVERAGE_MIN_REPORTS_PER_SECTOR_BUCKET
+    ]
+
+
 def build_markdown_coverage_summary(
     *,
     run_id: str,
@@ -4791,7 +4802,11 @@ def build_markdown_coverage_summary(
         ),
         "industry_report_count_min": MARKDOWN_COVERAGE_MIN_INDUSTRY_REPORTS,
         "stock_report_count_min": MARKDOWN_COVERAGE_MIN_STOCK_REPORTS,
+        "sector_bucket_min_report_count": (
+            MARKDOWN_COVERAGE_MIN_REPORTS_PER_SECTOR_BUCKET
+        ),
     }
+    sector_bucket_coverage_gaps = _sector_bucket_coverage_gaps(sector_bucket_counts)
     coverage_strata_targets = {
         "time_bucket_required": list(MARKDOWN_COVERAGE_REQUIRED_TIME_BUCKETS),
         "institution_bucket_required": list(
@@ -4844,6 +4859,8 @@ def build_markdown_coverage_summary(
         coverage_gate_blockers.append("industry_report_count_below_p9_target")
     if stock_report_count < MARKDOWN_COVERAGE_MIN_STOCK_REPORTS:
         coverage_gate_blockers.append("stock_report_count_below_p9_target")
+    if sector_bucket_coverage_gaps:
+        coverage_gate_blockers.append("sector_bucket_coverage_below_p9_target")
     if any(item.startswith("time_bucket:") for item in coverage_strata_missing):
         coverage_gate_blockers.append("time_bucket_coverage_below_p9_target")
     if any(item.startswith("institution_bucket:") for item in coverage_strata_missing):
@@ -4868,6 +4885,8 @@ def build_markdown_coverage_summary(
         "industry_report_count": industry_report_count,
         "stock_report_count": stock_report_count,
         "coverage_targets": coverage_targets,
+        "sector_bucket_coverage_gaps": sector_bucket_coverage_gaps,
+        "sector_bucket_below_min_count": len(sector_bucket_coverage_gaps),
         "coverage_strata_targets": coverage_strata_targets,
         "coverage_strata_missing": coverage_strata_missing,
         "coverage_gate_status": (
@@ -8330,6 +8349,12 @@ def _evolution_data_vintage_hash(
             "report_type_counts": _count_mapping_values(
                 _ensure_mapping(markdown.get("report_type_counts"))
             ),
+            "sector_bucket_coverage_gaps": _ensure_list(
+                markdown.get("sector_bucket_coverage_gaps")
+            ),
+            "sector_bucket_below_min_count": int(
+                markdown.get("sector_bucket_below_min_count") or 0
+            ),
             "time_bucket_counts": _count_mapping_values(
                 _ensure_mapping(markdown.get("time_bucket_counts"))
             ),
@@ -9048,6 +9073,12 @@ def build_report_intelligence_evolution_readiness_gate(
                     markdown.get("industry_report_count") or 0
                 ),
                 "stock_report_count": int(markdown.get("stock_report_count") or 0),
+                "sector_bucket_coverage_gaps": _ensure_list(
+                    markdown.get("sector_bucket_coverage_gaps")
+                ),
+                "sector_bucket_below_min_count": int(
+                    markdown.get("sector_bucket_below_min_count") or 0
+                ),
                 "time_bucket_counts": _count_mapping_values(
                     _ensure_mapping(markdown.get("time_bucket_counts"))
                 ),
@@ -9879,6 +9910,12 @@ def build_prompt_mutation_candidates(
                     ),
                     "stock_report_count": int(
                         markdown_summary.get("stock_report_count") or 0
+                    ),
+                    "sector_bucket_coverage_gaps": _ensure_list(
+                        markdown_summary.get("sector_bucket_coverage_gaps")
+                    ),
+                    "sector_bucket_below_min_count": int(
+                        markdown_summary.get("sector_bucket_below_min_count") or 0
                     ),
                     "time_bucket_counts": _count_mapping_values(
                         _ensure_mapping(markdown_summary.get("time_bucket_counts"))

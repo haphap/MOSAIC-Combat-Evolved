@@ -644,6 +644,7 @@ def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
         "llm_extraction_processed_count_min": 100,
         "markdown_quality_pass_count_min": 300,
         "markdown_ready_count_min": 300,
+        "sector_bucket_min_report_count": 5,
         "selected_report_count_min": 300,
         "stock_report_count_min": 80,
     }
@@ -656,6 +657,7 @@ def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
         "institution_bucket_coverage_below_p9_target",
         "markdown_quality_pass_count_below_p9_target",
         "markdown_ready_count_below_p9_target",
+        "sector_bucket_coverage_below_p9_target",
         "selected_report_count_below_p9_target",
         "stock_report_count_below_p9_target",
         "time_bucket_coverage_below_p9_target",
@@ -669,6 +671,10 @@ def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
     assert markdown_coverage["evaluability_bucket_counts"] == {
         "standard_evaluable_candidate": 1
     }
+    assert markdown_coverage["sector_bucket_coverage_gaps"] == [
+        "sector_bucket:宏观"
+    ]
+    assert markdown_coverage["sector_bucket_below_min_count"] == 1
     assert {
         "time_bucket:recent_3y",
         "time_bucket:long_cycle_history",
@@ -1385,6 +1391,8 @@ def test_markdown_coverage_requires_stratified_industry_and_stock_samples():
         "60d",
         "long_horizon",
     }
+    assert summary["sector_bucket_coverage_gaps"] == []
+    assert summary["sector_bucket_below_min_count"] == 0
     assert {
         "industry_proxy_candidate",
         "mapping_gap_candidate",

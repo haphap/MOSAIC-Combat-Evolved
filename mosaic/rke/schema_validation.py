@@ -2097,6 +2097,58 @@ def validate_report_intelligence_semantics(
                         "markdown_coverage_summary.coverage_gate_blockers must "
                         f"include {blocker}"
                     )
+            sector_bucket_counts = _count_mapping(
+                markdown_coverage.get("sector_bucket_counts"),
+                row_label="markdown_coverage_summary.sector_bucket_counts",
+                failures=markdown_coverage_failures,
+            )
+            sector_bucket_min = _int_or_none(
+                coverage_targets.get("sector_bucket_min_report_count")
+            )
+            if sector_bucket_min is None:
+                markdown_coverage_failures.append(
+                    "markdown_coverage_summary.coverage_targets."
+                    "sector_bucket_min_report_count: expected integer"
+                )
+            else:
+                expected_sector_gaps = {
+                    f"sector_bucket:{bucket}"
+                    for bucket, count in sector_bucket_counts.items()
+                    if int(count or 0) < sector_bucket_min
+                }
+                actual_sector_gaps = set(
+                    _string_items(markdown_coverage.get("sector_bucket_coverage_gaps"))
+                )
+                missing_sector_gaps = expected_sector_gaps - actual_sector_gaps
+                if missing_sector_gaps:
+                    markdown_coverage_failures.append(
+                        "markdown_coverage_summary.sector_bucket_coverage_gaps "
+                        "must include " + ", ".join(sorted(missing_sector_gaps))
+                    )
+                if (
+                    expected_sector_gaps
+                    and "sector_bucket_coverage_below_p9_target"
+                    not in coverage_blockers
+                ):
+                    markdown_coverage_failures.append(
+                        "markdown_coverage_summary.coverage_gate_blockers must "
+                        "include sector_bucket_coverage_below_p9_target"
+                    )
+                if (
+                    not expected_sector_gaps
+                    and "sector_bucket_coverage_below_p9_target" in coverage_blockers
+                ):
+                    markdown_coverage_failures.append(
+                        "markdown_coverage_summary.coverage_gate_blockers includes "
+                        "stale sector_bucket_coverage_below_p9_target"
+                    )
+                sector_gap_count = _int_or_none(
+                    markdown_coverage.get("sector_bucket_below_min_count")
+                )
+                if sector_gap_count != len(expected_sector_gaps):
+                    markdown_coverage_failures.append(
+                        "markdown_coverage_summary.sector_bucket_below_min_count mismatch"
+                    )
         coverage_strata_targets = markdown_coverage.get("coverage_strata_targets")
         coverage_strata_missing = set(
             _string_items(markdown_coverage.get("coverage_strata_missing"))
