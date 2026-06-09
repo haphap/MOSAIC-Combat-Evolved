@@ -940,10 +940,10 @@ def _stratified_source_values(
     metadata_like = {
         **dict(row),
         "publish_datetime": _source_publish_datetime(row),
-        "sector": str(row.get("industry") or row.get("query_key") or "unknown"),
+        "sector": _report_sector_bucket(row),
     }
     report_type = str(row.get("report_type") or "unknown_report_type")
-    sector = str(row.get("industry") or row.get("query_key") or "unknown_sector")
+    sector = _report_sector_bucket(row)
     return (
         ("report_type", report_type),
         ("time_bucket", _coverage_time_bucket(metadata_like, corpus_as_of=corpus_as_of)),
@@ -1652,7 +1652,7 @@ def _metadata_record(
         "report_type": str(row.get("report_type") or ""),
         "market": "CN_A_SHARE",
         "asset_class": "equity",
-        "sector": str(row.get("industry") or row.get("query_key") or "unknown"),
+        "sector": _report_sector_bucket(row),
         "ts_code": str(row.get("ts_code") or ""),
         "subsectors": [],
         "title": str(row.get("title") or ""),
@@ -2570,7 +2570,7 @@ def _normalize_footprints(
             "source_span_ids": _source_span_ids(footprint, chunk_span_id),
             "extraction_type": str(footprint.get("extraction_type") or "mixed"),
             "market": "CN_A_SHARE",
-            "sector": str(row.get("industry") or row.get("query_key") or "unknown"),
+            "sector": _report_sector_bucket(row),
             "topic": topic,
             "indicator_mentions": _normalize_indicator_mentions(
                 footprint.get("indicator_mentions")
@@ -4482,6 +4482,29 @@ def _increment_count(counts: dict[str, int], key: Any, *, default: str = "unknow
     counts[normalized] = counts.get(normalized, 0) + 1
 
 
+def _clean_bucket_text(value: Any) -> str:
+    text = str(value or "").strip()
+    if text.lower() in {"", "nan", "none", "null"}:
+        return ""
+    return text
+
+
+def _looks_like_stock_code(value: Any) -> bool:
+    text = str(value or "").strip().upper()
+    return bool(re.fullmatch(r"\d{6}(\.(SH|SZ|BJ))?", text))
+
+
+def _report_sector_bucket(row: Mapping[str, Any]) -> str:
+    for field in ("sector", "industry", "ind_name"):
+        value = _clean_bucket_text(row.get(field))
+        if value and not _looks_like_stock_code(value):
+            return value
+    query_key = _clean_bucket_text(row.get("query_key"))
+    if query_key and not _looks_like_stock_code(query_key):
+        return query_key
+    return "unknown_sector"
+
+
 def _is_pdf_ready(pdf: Mapping[str, Any]) -> bool:
     return str(pdf.get("status") or "") in {"cached", "downloaded"}
 
@@ -4858,7 +4881,11 @@ def build_markdown_coverage_summary(
                 total_reports=len(metadata_rows),
             ),
         )
-        _increment_count(sector_bucket_counts, row.get("sector"))
+        _increment_count(
+            sector_bucket_counts,
+            _report_sector_bucket(row),
+            default="unknown_sector",
+        )
         if _is_industry_research_report(row.get("report_type")):
             industry_report_count += 1
         if _is_explicit_stock_research_report(row):

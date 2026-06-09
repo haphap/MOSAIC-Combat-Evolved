@@ -1283,6 +1283,51 @@ def test_markdown_coverage_flags_llm_processed_without_quality_pass():
     assert "source_span_ids" not in dump
 
 
+def test_markdown_coverage_does_not_bucket_stock_query_key_as_sector():
+    summary = build_markdown_coverage_summary(
+        run_id="RIR-MARKDOWN-STOCK-SECTOR-BUCKET-TEST",
+        metadata_rows=[
+            {
+                "report_type": "个股研报",
+                "query_key": "920003.BJ",
+                "ts_code": "920003.BJ",
+                "industry": "",
+                "sector": "",
+                "pdf": {"status": "downloaded"},
+                "markdown": {
+                    "status": "converted",
+                    "bytes": 200,
+                    "backend": "hybrid-auto-engine",
+                },
+                "extraction": {"llm_status": "processed"},
+            },
+            {
+                "report_type": "个股研报",
+                "query_key": "832317.BJ",
+                "ts_code": "832317.BJ",
+                "industry": "832317.BJ",
+                "sector": "",
+                "pdf": {"status": "downloaded"},
+                "markdown": {
+                    "status": "converted",
+                    "bytes": 200,
+                    "backend": "hybrid-auto-engine",
+                },
+                "extraction": {"llm_status": "processed"},
+            }
+        ],
+    )
+
+    assert summary["stock_report_count"] == 1
+    assert summary["sector_bucket_counts"] == {"unknown_sector": 2}
+    assert "920003.BJ" not in summary["sector_bucket_counts"]
+    assert "832317.BJ" not in summary["sector_bucket_counts"]
+    assert all(
+        "920003.BJ" not in gap and "832317.BJ" not in gap
+        for gap in summary["sector_bucket_coverage_gaps"]
+    )
+
+
 def test_markdown_coverage_tracks_quality_review_false_positive_risk():
     summary = build_markdown_coverage_summary(
         run_id="RIR-MARKDOWN-REVIEW-QUEUE-TEST",
