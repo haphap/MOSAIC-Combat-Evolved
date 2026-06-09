@@ -910,6 +910,55 @@ def test_recipe_paper_trading_contract_rejects_raw_required_data_persistence(
     )
 
 
+def test_recipe_paper_trading_run_schema_requires_plan_metrics(tmp_path: Path):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    runs_path = registry / "recipe_paper_trading_runs.jsonl"
+    runs = [
+        json.loads(line)
+        for line in runs_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    runs[0]["metrics"].pop("alpha_decay_slope", None)
+    runs_path.write_text(
+        "\n".join(json.dumps(row, ensure_ascii=False, sort_keys=True) for row in runs)
+        + "\n",
+        encoding="utf-8",
+    )
+
+    record = validate_json_schema_artifact(
+        root=tmp_path,
+        schema_path="schemas/report_intelligence_recipe_paper_trading_run.schema.json",
+        artifact_path="registry/report_intelligence/recipe_paper_trading_runs.jsonl",
+        artifact_kind="jsonl",
+    )
+
+    assert not record.accepted
+    assert any("metrics.alpha_decay_slope: required" in item for item in record.failures)
+
+
+def test_recipe_paper_trading_contract_rejects_missing_plan_metric(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    runs_path = registry / "recipe_paper_trading_runs.jsonl"
+    runs = [
+        json.loads(line)
+        for line in runs_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    runs[0]["metrics"].pop("calibration_error", None)
+    runs_path.write_text(
+        "\n".join(json.dumps(row, ensure_ascii=False, sort_keys=True) for row in runs)
+        + "\n",
+        encoding="utf-8",
+    )
+
+    record = _recipe_paper_trading_contract_record(tmp_path)
+
+    assert not record.accepted
+    assert any("metrics.calibration_error: required" in item for item in record.failures)
+
+
 def test_recipe_paper_trading_contract_rejects_passed_run_without_oos_alpha(
     tmp_path: Path,
 ):

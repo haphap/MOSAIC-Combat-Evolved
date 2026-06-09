@@ -1291,6 +1291,20 @@ RECIPE_PAPER_TRADING_OUT_OF_SAMPLE_WINDOW_POLICY = (
 RECIPE_PAPER_TRADING_PARAMETER_LOCK_POLICY = (
     "pre_registration_hash_locks_required_data_protocol_cost_benchmark_windows_v1"
 )
+RECIPE_PAPER_TRADING_REQUIRED_METRICS = (
+    "annualized_return",
+    "benchmark_return",
+    "alpha",
+    "sharpe",
+    "max_drawdown",
+    "turnover",
+    "hit_rate",
+    "effective_n",
+    "cost_adjusted_alpha",
+    "alpha_decay_slope",
+    "calibration_error",
+    "drawdown_breach_count",
+)
 SHA256_DIGEST_PATTERN = re.compile(r"sha256:[0-9a-f]{64}")
 
 
@@ -1560,6 +1574,9 @@ def _validate_recipe_paper_trading_contract(
         if not isinstance(metrics, Mapping):
             failures.append(f"{row_label}.metrics: expected object")
             metrics = {}
+        for metric_field in RECIPE_PAPER_TRADING_REQUIRED_METRICS:
+            if metric_field not in metrics:
+                failures.append(f"{row_label}.metrics.{metric_field}: required")
         effective_n = _float_or_none(metrics.get("effective_n"))
         out_of_sample_effective_n = _float_or_none(
             metrics.get("out_of_sample_effective_n")

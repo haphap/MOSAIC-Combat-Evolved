@@ -107,7 +107,38 @@
       },
       "additionalProperties": true
     },
-    "metrics": {"type": "object"},
+    "metrics": {
+      "type": "object",
+      "required": [
+        "annualized_return",
+        "benchmark_return",
+        "alpha",
+        "sharpe",
+        "max_drawdown",
+        "turnover",
+        "hit_rate",
+        "effective_n",
+        "cost_adjusted_alpha",
+        "alpha_decay_slope",
+        "calibration_error",
+        "drawdown_breach_count"
+      ],
+      "properties": {
+        "annualized_return": {"type": ["number", "null"]},
+        "benchmark_return": {"type": ["number", "null"]},
+        "alpha": {"type": ["number", "null"]},
+        "sharpe": {"type": ["number", "null"]},
+        "max_drawdown": {"type": ["number", "null"]},
+        "turnover": {"type": ["number", "null"], "minimum": 0},
+        "hit_rate": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+        "effective_n": {"type": "number", "minimum": 0},
+        "cost_adjusted_alpha": {"type": ["number", "null"]},
+        "alpha_decay_slope": {"type": ["number", "null"]},
+        "calibration_error": {"type": ["number", "null"], "minimum": 0},
+        "drawdown_breach_count": {"type": "integer", "minimum": 0}
+      },
+      "additionalProperties": true
+    },
     "blocked_reasons": {"type": "array", "items": {"type": "string"}},
     "profile_weight_support": {"type": "object"},
     "production_decision_impact_allowed": {"type": "boolean", "const": false},
