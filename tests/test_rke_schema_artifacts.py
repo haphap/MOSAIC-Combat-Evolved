@@ -144,6 +144,7 @@ def test_schema_validation_report_accepts_current_registry():
         "schemas/report_intelligence_markdown_coverage_privacy_rules",
         "schemas/report_intelligence_recipe_paper_trading_contract_rules",
         "schemas/report_intelligence_evolution_refresh_history_rules",
+        "schemas/report_intelligence_evolution_readiness_gate_rules",
         "schemas/report_intelligence_alpha_decay_monitoring_rules",
         "schemas/report_intelligence_tooling_readiness_rules",
         "schemas/report_intelligence_patch_v1_5_coverage_rules",
@@ -435,6 +436,16 @@ def _evolution_refresh_history_record(tmp_path: Path):
         for record in records
         if record.schema_path
         == "schemas/report_intelligence_evolution_refresh_history_rules"
+    )
+
+
+def _evolution_readiness_gate_record(tmp_path: Path):
+    records = validate_report_intelligence_semantics(tmp_path)
+    return next(
+        record
+        for record in records
+        if record.schema_path
+        == "schemas/report_intelligence_evolution_readiness_gate_rules"
     )
 
 
@@ -1231,6 +1242,60 @@ def test_evolution_refresh_history_requires_data_vintage_hash(tmp_path: Path):
         assert any(
             f"{row_label}.data_vintage_hash" in item for item in record.failures
         )
+
+
+def test_evolution_readiness_gate_contract_accepts_current_public_artifact(
+    tmp_path: Path,
+):
+    _copy_report_intelligence_registry(tmp_path)
+
+    record = _evolution_readiness_gate_record(tmp_path)
+
+    assert record.accepted
+    assert record.item_count == 7
+    assert record.failures == ()
+
+
+def test_evolution_readiness_gate_contract_requires_all_checks(tmp_path: Path):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    gate_path = registry / "evolution_readiness_gate.json"
+    gate = json.loads(gate_path.read_text(encoding="utf-8"))
+    gate["checks"] = [
+        check for check in gate["checks"] if check["check_id"] != "RI-EVOL-06"
+    ]
+    gate_path.write_text(
+        json.dumps(gate, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _evolution_readiness_gate_record(tmp_path)
+
+    assert not record.accepted
+    assert any("missing check_ids: RI-EVOL-06" in item for item in record.failures)
+    assert any("blockers mismatch with checks" in item for item in record.failures)
+
+
+def test_evolution_readiness_gate_contract_rejects_blocker_count_mismatch(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    gate_path = registry / "evolution_readiness_gate.json"
+    gate = json.loads(gate_path.read_text(encoding="utf-8"))
+    gate["blocker_count"] = 0
+    gate["gate_status"] = "passed"
+    gate["promotion_state"] = "ready_for_shadow_evolution_candidate"
+    gate["checks"][0]["passed"] = True
+    gate_path.write_text(
+        json.dumps(gate, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _evolution_readiness_gate_record(tmp_path)
+
+    assert not record.accepted
+    assert any("blocker_count: expected" in item for item in record.failures)
+    assert any("gate_status: expected blocked" in item for item in record.failures)
+    assert any("checks[1].passed: must be False" in item for item in record.failures)
 
 
 def test_schema_validation_accepts_public_registry_without_private_report_inputs(

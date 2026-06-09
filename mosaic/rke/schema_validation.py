@@ -798,6 +798,26 @@ INDUSTRY_ETF_PIT_LABELABILITY_REQUIRED_FIELDS = (
     "benchmark_series_missing_count",
 )
 
+EVOLUTION_GATE_EXPECTED_CHECK_IDS = (
+    "RI-EVOL-01",
+    "RI-EVOL-02",
+    "RI-EVOL-03",
+    "RI-EVOL-04",
+    "RI-EVOL-05",
+    "RI-EVOL-06",
+    "RI-EVOL-07",
+)
+
+EVOLUTION_GATE_EXPECTED_THRESHOLDS = {
+    "min_unique_outcome_claims": 100,
+    "min_stock_proxy_claims": 30,
+    "min_industry_proxy_claims": 30,
+    "min_paper_trading_recipes": 20,
+    "min_consecutive_monitor_refreshes": 3,
+    "min_consecutive_audit_refreshes": 3,
+    "min_gap_distribution_refreshes": 3,
+}
+
 STOCK_PROXY_SURVIVORSHIP_UNVERIFIED_CHECK = "survivorship_unverified_qlib_cn_data"
 STOCK_PROXY_SURVIVORSHIP_AUDITED_CHECK = "delisted_inclusive_universe_audit_passed"
 STOCK_PROXY_SURVIVORSHIP_CHECKS = {
@@ -2166,6 +2186,113 @@ def _validate_evolution_refresh_history_contract(
     return len(monitor_rows) + len(audit_rows) + len(gap_rows), failures
 
 
+def _validate_evolution_readiness_gate_contract(
+    root_path: Path,
+) -> tuple[int, list[str]]:
+    gate, gate_failures = _read_mapping_json(
+        root_path / "registry/report_intelligence/evolution_readiness_gate.json",
+        "registry/report_intelligence/evolution_readiness_gate.json",
+    )
+    failures = list(gate_failures)
+    if not gate:
+        return 0, failures
+
+    thresholds = gate.get("thresholds")
+    if not isinstance(thresholds, Mapping):
+        failures.append("evolution_readiness_gate.thresholds: expected object")
+        thresholds = {}
+    for field, expected in EVOLUTION_GATE_EXPECTED_THRESHOLDS.items():
+        if thresholds.get(field) != expected:
+            failures.append(
+                f"evolution_readiness_gate.thresholds.{field}: expected {expected}"
+            )
+
+    checks = gate.get("checks")
+    aggregate_blockers: list[str] = []
+    observed_check_ids: list[str] = []
+    if not isinstance(checks, Sequence) or isinstance(checks, str):
+        failures.append("evolution_readiness_gate.checks: expected array")
+        checks = []
+    for index, check in enumerate(checks, 1):
+        row_label = f"evolution_readiness_gate.checks[{index}]"
+        if not isinstance(check, Mapping):
+            failures.append(f"{row_label}: expected object")
+            continue
+        check_id = str(check.get("check_id") or "").strip()
+        if not check_id:
+            failures.append(f"{row_label}.check_id: required")
+        else:
+            observed_check_ids.append(check_id)
+        blockers = _string_items(check.get("blockers"))
+        aggregate_blockers.extend(blockers)
+        expected_passed = not blockers
+        if check.get("passed") is not expected_passed:
+            failures.append(
+                f"{row_label}.passed: must be {expected_passed} based on blockers"
+            )
+
+    duplicate_check_ids = sorted(
+        check_id
+        for check_id in set(observed_check_ids)
+        if observed_check_ids.count(check_id) > 1
+    )
+    if duplicate_check_ids:
+        failures.append(
+            "evolution_readiness_gate.checks duplicate check_ids: "
+            + ", ".join(duplicate_check_ids)
+        )
+    expected_check_ids = set(EVOLUTION_GATE_EXPECTED_CHECK_IDS)
+    observed_check_id_set = set(observed_check_ids)
+    missing_check_ids = sorted(expected_check_ids - observed_check_id_set)
+    extra_check_ids = sorted(observed_check_id_set - expected_check_ids)
+    if missing_check_ids:
+        failures.append(
+            "evolution_readiness_gate.checks missing check_ids: "
+            + ", ".join(missing_check_ids)
+        )
+    if extra_check_ids:
+        failures.append(
+            "evolution_readiness_gate.checks unexpected check_ids: "
+            + ", ".join(extra_check_ids)
+        )
+
+    expected_blockers = sorted(set(aggregate_blockers))
+    observed_blockers = _string_items(gate.get("blockers"))
+    if len(observed_blockers) != len(set(observed_blockers)):
+        failures.append("evolution_readiness_gate.blockers: duplicate blockers")
+    if set(observed_blockers) != set(expected_blockers):
+        failures.append("evolution_readiness_gate.blockers mismatch with checks")
+    expected_blocker_count = len(expected_blockers)
+    observed_blocker_count = _int_or_none(gate.get("blocker_count"))
+    if observed_blocker_count != expected_blocker_count:
+        failures.append(
+            f"evolution_readiness_gate.blocker_count: expected {expected_blocker_count}"
+        )
+    expected_gate_status = "passed" if expected_blocker_count == 0 else "blocked"
+    if gate.get("gate_status") != expected_gate_status:
+        failures.append(
+            f"evolution_readiness_gate.gate_status: expected {expected_gate_status}"
+        )
+    expected_promotion_state = (
+        "ready_for_shadow_evolution_candidate"
+        if expected_gate_status == "passed"
+        else "blocked_before_prompt_evolution"
+    )
+    if gate.get("promotion_state") != expected_promotion_state:
+        failures.append(
+            "evolution_readiness_gate.promotion_state: expected "
+            + expected_promotion_state
+        )
+    if gate.get("production_prompt_change_allowed") is not False:
+        failures.append(
+            "evolution_readiness_gate.production_prompt_change_allowed: must be false"
+        )
+    if gate.get("private_text_included") is not False:
+        failures.append("evolution_readiness_gate.private_text_included: must be false")
+
+    return len(checks), failures
+
+
 def validate_report_intelligence_semantics(
     root: str | Path,
 ) -> tuple[SchemaValidationRecord, ...]:
@@ -2810,6 +2937,20 @@ def validate_report_intelligence_semantics(
             item_count=evolution_refresh_history_item_count,
             accepted=not evolution_refresh_history_failures,
             failures=tuple(evolution_refresh_history_failures),
+        )
+    )
+
+    (
+        evolution_readiness_gate_item_count,
+        evolution_readiness_gate_failures,
+    ) = _validate_evolution_readiness_gate_contract(root_path)
+    records.append(
+        SchemaValidationRecord(
+            schema_path="schemas/report_intelligence_evolution_readiness_gate_rules",
+            artifact_path="registry/report_intelligence/evolution_readiness_gate.json",
+            item_count=evolution_readiness_gate_item_count,
+            accepted=not evolution_readiness_gate_failures,
+            failures=tuple(evolution_readiness_gate_failures),
         )
     )
 
