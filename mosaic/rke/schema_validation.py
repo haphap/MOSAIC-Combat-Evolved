@@ -1279,6 +1279,16 @@ RECIPE_PAPER_TRADING_MAX_REGIME_CONCENTRATION = 0.80
 RECIPE_PAPER_TRADING_MIN_HORIZON_COUNT = 2
 RECIPE_PAPER_TRADING_MIN_REGIME_COUNT = 2
 RECIPE_PAPER_TRADING_COST_DECAY_TURNOVER_THRESHOLD = 6.0
+RECIPE_PAPER_TRADING_OUT_OF_SAMPLE_FRACTION = 0.20
+RECIPE_PAPER_TRADING_MIN_OUT_OF_SAMPLE_EFFECTIVE_N = 1.0
+RECIPE_PAPER_TRADING_SLIPPAGE_MODEL_ID = "included_in_round_trip_cost_20bps_v1"
+RECIPE_PAPER_TRADING_BACKTEST_WINDOW_POLICY = "chronological_pre_oos_exit_windows_v1"
+RECIPE_PAPER_TRADING_OUT_OF_SAMPLE_WINDOW_POLICY = (
+    "chronological_last_20pct_exit_windows_v1"
+)
+RECIPE_PAPER_TRADING_PARAMETER_LOCK_POLICY = (
+    "pre_registration_hash_locks_required_data_protocol_cost_benchmark_windows_v1"
+)
 
 
 def _expected_recipe_paper_trading_protocol() -> dict[str, Any]:
@@ -1288,6 +1298,17 @@ def _expected_recipe_paper_trading_protocol() -> dict[str, Any]:
         "cost_model_id": RECIPE_PAPER_TRADING_COST_MODEL_ID,
         "benchmark_symbol": RECIPE_PAPER_TRADING_BENCHMARK_SYMBOL,
         "benchmark_source": RECIPE_PAPER_TRADING_BENCHMARK_SOURCE,
+        "slippage_model_id": RECIPE_PAPER_TRADING_SLIPPAGE_MODEL_ID,
+        "round_trip_cost_includes_slippage": True,
+        "backtest_window_policy": RECIPE_PAPER_TRADING_BACKTEST_WINDOW_POLICY,
+        "out_of_sample_window_policy": (
+            RECIPE_PAPER_TRADING_OUT_OF_SAMPLE_WINDOW_POLICY
+        ),
+        "out_of_sample_fraction": RECIPE_PAPER_TRADING_OUT_OF_SAMPLE_FRACTION,
+        "minimum_out_of_sample_effective_n": (
+            RECIPE_PAPER_TRADING_MIN_OUT_OF_SAMPLE_EFFECTIVE_N
+        ),
+        "parameter_lock_policy": RECIPE_PAPER_TRADING_PARAMETER_LOCK_POLICY,
         "minimum_effective_n": RECIPE_PAPER_TRADING_MIN_EFFECTIVE_N,
         "max_drawdown": RECIPE_PAPER_TRADING_MAX_DRAWDOWN,
         "alpha_decay_fail_streak": RECIPE_PAPER_TRADING_ALPHA_DECAY_FAIL_STREAK,
@@ -1478,7 +1499,16 @@ def _validate_recipe_paper_trading_contract(
             failures.append(f"{row_label}.metrics: expected object")
             metrics = {}
         effective_n = _float_or_none(metrics.get("effective_n"))
+        out_of_sample_effective_n = _float_or_none(
+            metrics.get("out_of_sample_effective_n")
+        )
+        out_of_sample_alpha = _float_or_none(
+            metrics.get("out_of_sample_cost_adjusted_alpha")
+        )
         minimum_effective_n = _float_or_none(protocol.get("minimum_effective_n"))
+        minimum_out_of_sample_n = _float_or_none(
+            protocol.get("minimum_out_of_sample_effective_n")
+        )
         cost_adjusted_alpha = _float_or_none(metrics.get("cost_adjusted_alpha"))
         if cost_adjusted_alpha is not None:
             cost_adjusted_values.append(cost_adjusted_alpha)
@@ -1501,6 +1531,20 @@ def _validate_recipe_paper_trading_contract(
             ):
                 failures.append(
                     f"{row_label}.metrics.effective_n: passed run must meet pre-registered minimum"
+                )
+            if (
+                minimum_out_of_sample_n is not None
+                and (
+                    out_of_sample_effective_n is None
+                    or out_of_sample_effective_n < minimum_out_of_sample_n
+                )
+            ):
+                failures.append(
+                    f"{row_label}.metrics.out_of_sample_effective_n: passed run must meet pre-registered OOS minimum"
+                )
+            if out_of_sample_alpha is None or out_of_sample_alpha <= 0:
+                failures.append(
+                    f"{row_label}.metrics.out_of_sample_cost_adjusted_alpha: passed run requires positive OOS after-cost alpha"
                 )
         elif status == "blocked" and not blocked_reasons:
             failures.append(

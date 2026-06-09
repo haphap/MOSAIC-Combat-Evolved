@@ -696,6 +696,38 @@ def test_recipe_paper_trading_contract_rejects_preregistration_payload_mismatch(
     assert any("pre_registration_hash: mismatch" in item for item in record.failures)
 
 
+def test_recipe_paper_trading_contract_rejects_passed_run_without_oos_alpha(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    runs_path = registry / "recipe_paper_trading_runs.jsonl"
+    runs = [
+        json.loads(line)
+        for line in runs_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    runs[0]["paper_trading_status"] = "passed"
+    runs[0]["validation_status"] = "passed"
+    runs[0]["blocked_reasons"] = []
+    metrics = runs[0]["metrics"]
+    metrics["effective_n"] = 5.0
+    metrics["cost_adjusted_alpha"] = 0.01
+    metrics["out_of_sample_effective_n"] = 1.0
+    metrics["out_of_sample_cost_adjusted_alpha"] = -0.001
+    runs_path.write_text(
+        "\n".join(json.dumps(row, ensure_ascii=False, sort_keys=True) for row in runs)
+        + "\n",
+        encoding="utf-8",
+    )
+
+    record = _recipe_paper_trading_contract_record(tmp_path)
+
+    assert not record.accepted
+    assert any(
+        "out_of_sample_cost_adjusted_alpha" in item for item in record.failures
+    )
+
+
 def test_schema_validation_accepts_public_registry_without_private_report_inputs(
     tmp_path: Path,
 ):

@@ -1384,9 +1384,28 @@ def test_report_intelligence_recipe_paper_trading_requires_direct_pit_evidence()
     assert runs[0]["pre_registered_protocol"]["alpha_decay_fail_streak"] == 2
     assert runs[0]["pre_registered_protocol"]["benchmark_source"] == "cn_etf"
     assert runs[0]["pre_registered_protocol"]["cost_decay_turnover_threshold"] == 6.0
+    assert runs[0]["pre_registered_protocol"]["slippage_model_id"] == (
+        "included_in_round_trip_cost_20bps_v1"
+    )
+    assert runs[0]["pre_registered_protocol"]["backtest_window_policy"] == (
+        "chronological_pre_oos_exit_windows_v1"
+    )
+    assert runs[0]["pre_registered_protocol"]["out_of_sample_window_policy"] == (
+        "chronological_last_20pct_exit_windows_v1"
+    )
+    assert runs[0]["pre_registered_protocol"][
+        "minimum_out_of_sample_effective_n"
+    ] == 1.0
     assert "turnover_cost_decay_blocks_validation" in runs[0]["risk_controls"]
     assert runs[0]["metrics"]["brier_score"] == 0.01
     assert runs[0]["metrics"]["non_positive_after_cost_window_streak"] == 0
+    assert runs[0]["metrics"]["backtest_label_count"] == 4
+    assert runs[0]["metrics"]["backtest_effective_n"] == 4.0
+    assert runs[0]["metrics"]["backtest_cost_adjusted_alpha"] == 0.01575
+    assert runs[0]["metrics"]["out_of_sample_label_count"] == 1
+    assert runs[0]["metrics"]["out_of_sample_effective_n"] == 1.0
+    assert runs[0]["metrics"]["out_of_sample_cost_adjusted_alpha"] == 0.02
+    assert runs[0]["metrics"]["out_of_sample_start_exit_datetime"] == "2026-01-14"
     assert runs[0]["metrics"]["max_horizon_contribution_share"] == 0.4
     assert runs[0]["metrics"]["observed_horizon_count"] == 4
     assert runs[0]["metrics"]["horizon_missing_count"] == 0

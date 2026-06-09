@@ -6713,6 +6713,16 @@ RECIPE_PAPER_TRADING_MAX_REGIME_CONCENTRATION = 0.80
 RECIPE_PAPER_TRADING_MIN_HORIZON_COUNT = 2
 RECIPE_PAPER_TRADING_MIN_REGIME_COUNT = 2
 RECIPE_PAPER_TRADING_COST_DECAY_TURNOVER_THRESHOLD = 6.0
+RECIPE_PAPER_TRADING_OUT_OF_SAMPLE_FRACTION = 0.20
+RECIPE_PAPER_TRADING_MIN_OUT_OF_SAMPLE_EFFECTIVE_N = 1.0
+RECIPE_PAPER_TRADING_SLIPPAGE_MODEL_ID = "included_in_round_trip_cost_20bps_v1"
+RECIPE_PAPER_TRADING_BACKTEST_WINDOW_POLICY = "chronological_pre_oos_exit_windows_v1"
+RECIPE_PAPER_TRADING_OUT_OF_SAMPLE_WINDOW_POLICY = (
+    "chronological_last_20pct_exit_windows_v1"
+)
+RECIPE_PAPER_TRADING_PARAMETER_LOCK_POLICY = (
+    "pre_registration_hash_locks_required_data_protocol_cost_benchmark_windows_v1"
+)
 RECIPE_PAPER_TRADING_BENCHMARK_SYMBOL = STOCK_PRICE_PROXY_BENCHMARK_SYMBOL
 RECIPE_PAPER_TRADING_COST_MODEL_ID = STOCK_PRICE_PROXY_COST_MODEL_ID
 CONFIDENCE_IMPACT_HIGH_DELTA_THRESHOLD = 0.02
@@ -6726,6 +6736,17 @@ def _recipe_paper_trading_protocol() -> dict[str, Any]:
         "cost_model_id": RECIPE_PAPER_TRADING_COST_MODEL_ID,
         "benchmark_symbol": RECIPE_PAPER_TRADING_BENCHMARK_SYMBOL,
         "benchmark_source": STOCK_PRICE_PROXY_BENCHMARK_SOURCE,
+        "slippage_model_id": RECIPE_PAPER_TRADING_SLIPPAGE_MODEL_ID,
+        "round_trip_cost_includes_slippage": True,
+        "backtest_window_policy": RECIPE_PAPER_TRADING_BACKTEST_WINDOW_POLICY,
+        "out_of_sample_window_policy": (
+            RECIPE_PAPER_TRADING_OUT_OF_SAMPLE_WINDOW_POLICY
+        ),
+        "out_of_sample_fraction": RECIPE_PAPER_TRADING_OUT_OF_SAMPLE_FRACTION,
+        "minimum_out_of_sample_effective_n": (
+            RECIPE_PAPER_TRADING_MIN_OUT_OF_SAMPLE_EFFECTIVE_N
+        ),
+        "parameter_lock_policy": RECIPE_PAPER_TRADING_PARAMETER_LOCK_POLICY,
         "minimum_effective_n": RECIPE_PAPER_TRADING_MIN_EFFECTIVE_N,
         "max_drawdown": RECIPE_PAPER_TRADING_MAX_DRAWDOWN,
         "alpha_decay_fail_streak": RECIPE_PAPER_TRADING_ALPHA_DECAY_FAIL_STREAK,
@@ -6854,6 +6875,7 @@ def _paper_trading_metric_summary(
     horizon_missing_count = 0
     market_regime_missing_count = 0
     ordered = sorted(labels, key=lambda row: str(row.get("exit_datetime") or ""))
+    chronological_items: list[dict[str, Any]] = []
     for label in ordered:
         weight = _label_weight(label)
         after_cost = _float_or_none(label.get("directional_after_cost_return"))
@@ -6869,7 +6891,16 @@ def _paper_trading_metric_summary(
                 weighted_cost_drag.append((pre_cost - after_cost, weight))
         if benchmark is not None:
             weighted_benchmark.append((benchmark, weight))
-        weighted_hit.append((1.0 if label.get("directional_hit") is True else 0.0, weight))
+        hit_value = 1.0 if label.get("directional_hit") is True else 0.0
+        weighted_hit.append((hit_value, weight))
+        chronological_items.append(
+            {
+                "exit_datetime": str(label.get("exit_datetime") or ""),
+                "after_cost": after_cost,
+                "hit": hit_value,
+                "weight": weight,
+            }
+        )
         horizon = _int_or_none(label.get("horizon_days"))
         if horizon:
             horizons.append(horizon)
@@ -6934,6 +6965,20 @@ def _paper_trading_metric_summary(
         )
         if variance > 0:
             sharpe = mean_alpha / (variance**0.5)
+    oos_count = 0
+    if chronological_items:
+        oos_count = max(
+            1,
+            int(
+                len(chronological_items)
+                * RECIPE_PAPER_TRADING_OUT_OF_SAMPLE_FRACTION
+                + 0.999999
+            ),
+        )
+    oos_items = chronological_items[-oos_count:] if oos_count else []
+    backtest_items = chronological_items[:-oos_count] if oos_count else []
+    backtest_metrics = _paper_trading_chronological_split_metrics(backtest_items)
+    oos_metrics = _paper_trading_chronological_split_metrics(oos_items)
     return {
         "annualized_return": round(annualized_return, 8)
         if annualized_return is not None
@@ -6985,6 +7030,53 @@ def _paper_trading_metric_summary(
             for value in alpha_values
             if value <= -RECIPE_PAPER_TRADING_MAX_DRAWDOWN
         ),
+        "backtest_label_count": backtest_metrics["label_count"],
+        "backtest_effective_n": backtest_metrics["effective_n"],
+        "backtest_cost_adjusted_alpha": backtest_metrics["cost_adjusted_alpha"],
+        "backtest_hit_rate": backtest_metrics["hit_rate"],
+        "backtest_start_exit_datetime": backtest_metrics["start_exit_datetime"],
+        "backtest_end_exit_datetime": backtest_metrics["end_exit_datetime"],
+        "out_of_sample_label_count": oos_metrics["label_count"],
+        "out_of_sample_effective_n": oos_metrics["effective_n"],
+        "out_of_sample_cost_adjusted_alpha": oos_metrics["cost_adjusted_alpha"],
+        "out_of_sample_hit_rate": oos_metrics["hit_rate"],
+        "out_of_sample_start_exit_datetime": oos_metrics["start_exit_datetime"],
+        "out_of_sample_end_exit_datetime": oos_metrics["end_exit_datetime"],
+    }
+
+
+def _paper_trading_chronological_split_metrics(
+    items: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    weighted_after_cost = [
+        (float(item["after_cost"]), float(item["weight"]))
+        for item in items
+        if _float_or_none(item.get("after_cost")) is not None
+    ]
+    weighted_hit = [
+        (float(item["hit"]), float(item["weight"]))
+        for item in items
+        if _float_or_none(item.get("hit")) is not None
+    ]
+    cost_adjusted_alpha = _weighted_mean(weighted_after_cost, default=None)
+    hit_rate = _weighted_mean(weighted_hit, default=None)
+    effective_n = sum(
+        max(_float_or_none(item.get("weight")) or 0.0, 0.0) for item in items
+    )
+    exit_datetimes = [
+        str(item.get("exit_datetime") or "")
+        for item in items
+        if str(item.get("exit_datetime") or "").strip()
+    ]
+    return {
+        "label_count": len(items),
+        "effective_n": round(effective_n, 6),
+        "cost_adjusted_alpha": round(cost_adjusted_alpha, 8)
+        if cost_adjusted_alpha is not None
+        else None,
+        "hit_rate": round(hit_rate, 6) if hit_rate is not None else None,
+        "start_exit_datetime": exit_datetimes[0] if exit_datetimes else "",
+        "end_exit_datetime": exit_datetimes[-1] if exit_datetimes else "",
     }
 
 
@@ -7067,6 +7159,12 @@ def build_recipe_paper_trading_runs(
             market_regime_missing_count = int(
                 metrics.get("market_regime_missing_count") or 0
             )
+            out_of_sample_effective_n = _float_or_none(
+                metrics.get("out_of_sample_effective_n")
+            )
+            out_of_sample_alpha = _float_or_none(
+                metrics.get("out_of_sample_cost_adjusted_alpha")
+            )
             if horizon_missing_count:
                 blockers.append("window_horizon_missing")
             if observed_horizon_count < RECIPE_PAPER_TRADING_MIN_HORIZON_COUNT:
@@ -7103,6 +7201,14 @@ def build_recipe_paper_trading_runs(
                 blockers.append("hit_rate_below_threshold")
             if max_drawdown is not None and max_drawdown < -RECIPE_PAPER_TRADING_MAX_DRAWDOWN:
                 blockers.append("max_drawdown_breach")
+            if (
+                out_of_sample_effective_n is None
+                or out_of_sample_effective_n
+                < RECIPE_PAPER_TRADING_MIN_OUT_OF_SAMPLE_EFFECTIVE_N
+            ):
+                blockers.append("out_of_sample_effective_n_below_threshold")
+            if out_of_sample_alpha is None or out_of_sample_alpha <= 0:
+                blockers.append("out_of_sample_after_cost_alpha_non_positive")
         method_profile = method_profiles.get(method_id) or {}
         profile_n = _float_or_none(
             _ensure_mapping(method_profile.get("source_support")).get(
@@ -7241,6 +7347,15 @@ def build_recipe_paper_trading_summary(
             "entry_semantics": "T+1_or_more_conservative",
             "cost_model_id": RECIPE_PAPER_TRADING_COST_MODEL_ID,
             "benchmark_symbol": RECIPE_PAPER_TRADING_BENCHMARK_SYMBOL,
+            "benchmark_source": STOCK_PRICE_PROXY_BENCHMARK_SOURCE,
+            "slippage_model_id": RECIPE_PAPER_TRADING_SLIPPAGE_MODEL_ID,
+            "backtest_window_policy": RECIPE_PAPER_TRADING_BACKTEST_WINDOW_POLICY,
+            "out_of_sample_window_policy": (
+                RECIPE_PAPER_TRADING_OUT_OF_SAMPLE_WINDOW_POLICY
+            ),
+            "minimum_out_of_sample_effective_n": (
+                RECIPE_PAPER_TRADING_MIN_OUT_OF_SAMPLE_EFFECTIVE_N
+            ),
             "profile_weight_is_sufficient": False,
             "production_decision_impact_allowed": False,
         },
