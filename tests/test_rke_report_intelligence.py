@@ -38,6 +38,7 @@ from mosaic.rke.report_intelligence import (
     _append_evolution_history_record,
     _markdown_quality_gap,
     _paper_trading_chronological_split_metrics,
+    _user_prompt,
 )
 
 
@@ -4905,6 +4906,33 @@ def test_report_intelligence_cli_help_exposes_stock_qlib_dir(capsys):
     help_text = capsys.readouterr().out
     assert "--qlib-stock-dir" in help_text
     assert ReportIntelligenceConfig().qlib_stock_dir == "~/.qlib/qlib_data/cn_data"
+
+
+def test_report_intelligence_extractor_prompt_guides_industry_proxy_fields():
+    prompt = _user_prompt(
+        {
+            "source_id": "SRC-IND-PROMPT",
+            "title": "有色金属行业深度",
+            "institution": "Broker A",
+            "author": "Analyst A",
+            "publish_date": "2026-01-02",
+            "report_type": "行业研报",
+            "query_key": "有色金属",
+            "industry": "有色金属",
+            "ts_code": "",
+        },
+        "有色金属行业景气度改善，建议超配，后续有望跑赢市场。",
+        "SPAN-IND-PROMPT-001",
+        0,
+        1,
+    )
+
+    assert "target.target_type='sector'" in prompt
+    assert "metadata.industry or metadata.query_key" in prompt
+    assert "target.target_id to the metadata sector string" in prompt
+    assert "expects the sector to outperform" in prompt
+    assert "Use neutral, ambiguous, or unknown" in prompt
+    assert "Never invent a horizon" in prompt
 
 
 def test_report_intelligence_counts_industry_etf_proxy_as_labelable_channel(
