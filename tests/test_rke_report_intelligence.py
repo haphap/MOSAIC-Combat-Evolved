@@ -1771,7 +1771,9 @@ def test_report_intelligence_recipe_paper_trading_flags_regime_fragile_alpha():
     assert {
         "single_window_concentration",
         "single_regime_concentration",
+        "recipe_instability_gap",
     } <= set(runs[0]["blocked_reasons"])
+    assert summary["recipe_instability_gap_count"] == 1
     assert observations[0]["drift_status"] == "regime_fragile_alpha"
     assert observations[0]["recommended_action"] == "send_to_manual_review"
     assert observations[0]["confidence_delta"] == 0.0
@@ -1795,6 +1797,7 @@ def test_report_intelligence_recipe_paper_trading_flags_regime_fragile_alpha():
         recipe_paper_trading_runs=missing_horizon_runs,
     )
     assert "window_horizon_missing" in missing_horizon_runs[0]["blocked_reasons"]
+    assert "recipe_instability_gap" in missing_horizon_runs[0]["blocked_reasons"]
     assert missing_horizon_observations[0]["drift_status"] == "regime_fragile_alpha"
 
 

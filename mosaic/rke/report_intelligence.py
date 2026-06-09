@@ -7034,6 +7034,13 @@ RECIPE_PAPER_TRADING_PARAMETER_LOCK_POLICY = (
 )
 RECIPE_PAPER_TRADING_BENCHMARK_SYMBOL = STOCK_PRICE_PROXY_BENCHMARK_SYMBOL
 RECIPE_PAPER_TRADING_COST_MODEL_ID = STOCK_PRICE_PROXY_COST_MODEL_ID
+RECIPE_PAPER_TRADING_INSTABILITY_GAP_BLOCKER = "recipe_instability_gap"
+RECIPE_PAPER_TRADING_INSTABILITY_BLOCKERS = (
+    "window_horizon_missing",
+    "single_window_concentration",
+    "market_regime_missing",
+    "single_regime_concentration",
+)
 CONFIDENCE_IMPACT_HIGH_DELTA_THRESHOLD = 0.02
 CONFIDENCE_IMPACT_CALIBRATION_ERROR_THRESHOLD = 0.20
 
@@ -7518,6 +7525,11 @@ def build_recipe_paper_trading_runs(
                 blockers.append("out_of_sample_effective_n_below_threshold")
             if out_of_sample_alpha is None or out_of_sample_alpha <= 0:
                 blockers.append("out_of_sample_after_cost_alpha_non_positive")
+        if any(
+            reason in RECIPE_PAPER_TRADING_INSTABILITY_BLOCKERS
+            for reason in blockers
+        ):
+            blockers.append(RECIPE_PAPER_TRADING_INSTABILITY_GAP_BLOCKER)
         method_profile = method_profiles.get(method_id) or {}
         profile_n = _float_or_none(
             _ensure_mapping(method_profile.get("source_support")).get(
@@ -7608,6 +7620,7 @@ def build_recipe_paper_trading_summary(
     passed_ids: list[str] = []
     blocked_ids: list[str] = []
     disagreement_count = 0
+    instability_gap_count = 0
     cost_adjusted_values: list[float] = []
     for run in recipe_paper_trading_runs:
         status = str(run.get("paper_trading_status") or "unknown")
@@ -7619,6 +7632,8 @@ def build_recipe_paper_trading_summary(
             blocked_ids.append(recipe_id)
         for reason in _ensure_list(run.get("blocked_reasons")):
             _increment_count(blocker_counts, reason)
+            if reason == RECIPE_PAPER_TRADING_INSTABILITY_GAP_BLOCKER:
+                instability_gap_count += 1
         profile_support = _ensure_mapping(run.get("profile_weight_support"))
         if profile_support.get("profile_paper_trade_disagreement") is True:
             disagreement_count += 1
@@ -7641,6 +7656,7 @@ def build_recipe_paper_trading_summary(
         "passed_recipe_ids": sorted(passed_ids),
         "blocked_recipe_ids": sorted(blocked_ids),
         "profile_paper_trade_disagreement_count": disagreement_count,
+        "recipe_instability_gap_count": instability_gap_count,
         "mean_cost_adjusted_alpha": round(
             sum(cost_adjusted_values) / len(cost_adjusted_values),
             8,
@@ -7698,11 +7714,8 @@ def build_confidence_impact_observations(
             "max_drawdown_breach",
         }
         cost_decay_blockers = {"cost_decay_fail"}
-        regime_fragile_blockers = {
-            "single_window_concentration",
-            "single_regime_concentration",
-            "market_regime_missing",
-            "window_horizon_missing",
+        regime_fragile_blockers = set(RECIPE_PAPER_TRADING_INSTABILITY_BLOCKERS) | {
+            RECIPE_PAPER_TRADING_INSTABILITY_GAP_BLOCKER
         }
         if paper_status != "passed" and any(
             str(reason) in cost_decay_blockers for reason in blocker_reasons

@@ -20,6 +20,7 @@
   "policy": "paper-trading validation is a shadow gate; profile support can prioritize recipes but cannot promote confidence impact without direct PIT paper-trading evidence",
   "pre_registration_policy": "each recipe has a deterministic experiment id and pre-registration hash before any outcome metrics are evaluated",
   "profile_paper_trade_disagreement_count": 0,
+  "recipe_instability_gap_count": 0,
   "protocol_version": "recipe_shadow_paper_trading_v1",
   "recipe_count": 5,
   "run_id": "RIR-PUBLIC-RECIPE-CONTRACT",

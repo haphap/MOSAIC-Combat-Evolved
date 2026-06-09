@@ -1397,11 +1397,19 @@ def _validate_recipe_paper_trading_contract(
     )
 
     runs_by_recipe_id: dict[str, Mapping[str, Any]] = {}
+    recipe_instability_gap_blocker = "recipe_instability_gap"
+    recipe_instability_source_blockers = {
+        "window_horizon_missing",
+        "single_window_concentration",
+        "market_regime_missing",
+        "single_regime_concentration",
+    }
     passed_recipe_ids: list[str] = []
     blocked_recipe_ids: list[str] = []
     status_counts: dict[str, int] = {}
     blocker_counts: dict[str, int] = {}
     disagreement_count = 0
+    instability_gap_count = 0
     cost_adjusted_values: list[float] = []
 
     for index, row in enumerate(run_rows, 1):
@@ -1529,6 +1537,20 @@ def _validate_recipe_paper_trading_contract(
         blocked_reasons = _string_items(row.get("blocked_reasons"))
         for reason in blocked_reasons:
             blocker_counts[reason] = blocker_counts.get(reason, 0) + 1
+        has_instability_source = bool(
+            recipe_instability_source_blockers.intersection(blocked_reasons)
+        )
+        has_instability_gap = recipe_instability_gap_blocker in blocked_reasons
+        if has_instability_gap:
+            instability_gap_count += 1
+        if has_instability_source and not has_instability_gap:
+            failures.append(
+                f"{row_label}.blocked_reasons: instability blockers require recipe_instability_gap"
+            )
+        if has_instability_gap and not has_instability_source:
+            failures.append(
+                f"{row_label}.blocked_reasons: recipe_instability_gap requires a named instability blocker"
+            )
 
         if status == "passed":
             if blocked_reasons:
@@ -1581,6 +1603,7 @@ def _validate_recipe_paper_trading_contract(
             "validation_pass_count": len(passed_recipe_ids),
             "blocked_count": len(blocked_recipe_ids),
             "profile_paper_trade_disagreement_count": disagreement_count,
+            "recipe_instability_gap_count": instability_gap_count,
         }
         for field, expected in expected_count_fields.items():
             if summary.get(field) != expected:
