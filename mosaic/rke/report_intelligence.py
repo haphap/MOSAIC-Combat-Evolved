@@ -28,6 +28,10 @@ from typing import Any, Callable, Literal, Mapping, Sequence
 
 from .manual_review_import import manual_review_forbidden_field_paths
 from .phase_minus1 import load_jsonl_with_errors
+from .required_data import (
+    canonical_metric_name as _canonical_metric_name,
+    normalize_required_data_items,
+)
 
 
 TUSHARE_REPORT_SOURCE_PATH = "registry/sources/tushare_research_reports.jsonl"
@@ -967,7 +971,7 @@ def _stratified_source_rows(
 ) -> list[Mapping[str, Any]]:
     if limit <= 0:
         return []
-    remaining = list(rows)
+    total_reports = len(rows)
     selected: list[Mapping[str, Any]] = []
     seen: dict[str, set[str]] = {
         "report_type": set(),
@@ -977,39 +981,46 @@ def _stratified_source_rows(
         "stock_ts_code": set(),
     }
     corpus_as_of = _coverage_corpus_as_of(
-        [{"publish_datetime": _source_publish_datetime(row)} for row in remaining]
+        [{"publish_datetime": _source_publish_datetime(row)} for row in rows]
     )
-    institution_counts = _coverage_institution_counts(remaining)
+    institution_counts = _coverage_institution_counts(rows)
+    remaining: list[
+        tuple[Mapping[str, Any], tuple[tuple[str, str], ...], tuple[str, str]]
+    ] = [
+        (
+            row,
+            _stratified_source_values(
+                row,
+                corpus_as_of=corpus_as_of,
+                institution_counts=institution_counts,
+                total_reports=total_reports,
+            ),
+            (
+                str(row.get("publish_date") or ""),
+                str(row.get("source_id") or ""),
+            ),
+        )
+        for row in rows
+    ]
 
     while remaining and len(selected) < limit:
         best_index = 0
         best_score: tuple[int, str, str] | None = None
-        for index, row in enumerate(remaining):
-            values = _stratified_source_values(
-                row,
-                corpus_as_of=corpus_as_of,
-                institution_counts=institution_counts,
-                total_reports=len(rows),
-            )
+        for index, (_, values, tie_break) in enumerate(remaining):
             coverage_gain = sum(
                 value not in seen[dimension] for dimension, value in values
             )
             score = (
                 coverage_gain,
-                str(row.get("publish_date") or ""),
-                str(row.get("source_id") or ""),
+                tie_break[0],
+                tie_break[1],
             )
             if best_score is None or score > best_score:
                 best_score = score
                 best_index = index
-        row = remaining.pop(best_index)
+        row, values, _ = remaining.pop(best_index)
         selected.append(row)
-        for dimension, value in _stratified_source_values(
-            row,
-            corpus_as_of=corpus_as_of,
-            institution_counts=institution_counts,
-            total_reports=len(rows),
-        ):
+        for dimension, value in values:
             seen[dimension].add(value)
     return selected
 
@@ -3139,16 +3150,6 @@ def apply_analytical_footprint_review_import(
     )
     _write_json(report_path, asdict(report))
     return report
-
-
-def _canonical_metric_name(value: Any) -> str:
-    text = str(value or "").strip()
-    if not text:
-        return ""
-    lowered = text.lower()
-    lowered = re.sub(r"[^0-9a-zA-Z\u4e00-\u9fff]+", "_", lowered)
-    lowered = re.sub(r"_+", "_", lowered).strip("_")
-    return lowered[:120]
 
 
 def _normalize_metric_candidates(
@@ -7106,23 +7107,8 @@ def _analysis_recipe_required_data(
     return _normalize_required_data_items(inferred_metrics)
 
 
-def _normalize_required_data_item(value: Any) -> str:
-    text = str(value or "").strip()
-    if not text:
-        return ""
-    if text.startswith("metric:"):
-        text = text.removeprefix("metric:").strip()
-    metric = _canonical_metric_name(text)
-    return f"metric:{metric}" if metric else ""
-
-
 def _normalize_required_data_items(value: Any) -> list[str]:
-    normalized = [
-        item
-        for item in (_normalize_required_data_item(item) for item in _ensure_list(value))
-        if item
-    ]
-    return list(dict.fromkeys(normalized))
+    return normalize_required_data_items(_ensure_list(value))
 
 
 RECIPE_PAPER_TRADING_PROTOCOL_VERSION = "recipe_shadow_paper_trading_v1"

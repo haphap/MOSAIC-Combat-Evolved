@@ -9,6 +9,8 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from .required_data import normalize_required_data_items
+
 
 SUPPORTED_JSON_SCHEMA_KEYWORDS = frozenset(
     {
@@ -1442,35 +1444,8 @@ def _expected_recipe_paper_trading_protocol() -> dict[str, Any]:
     }
 
 
-def _canonical_metric_name(value: Any) -> str:
-    text = str(value or "").strip()
-    if not text:
-        return ""
-    lowered = text.lower()
-    lowered = re.sub(r"[^0-9a-zA-Z\u4e00-\u9fff]+", "_", lowered)
-    lowered = re.sub(r"_+", "_", lowered).strip("_")
-    return lowered[:120]
-
-
-def _normalize_required_data_item(value: Any) -> str:
-    text = str(value or "").strip()
-    if not text:
-        return ""
-    if text.startswith("metric:"):
-        text = text.removeprefix("metric:").strip()
-    metric = _canonical_metric_name(text)
-    return f"metric:{metric}" if metric else ""
-
-
 def _normalize_required_data_items(value: Any) -> list[str]:
-    normalized = [
-        item
-        for item in (
-            _normalize_required_data_item(item) for item in _string_items(value)
-        )
-        if item
-    ]
-    return list(dict.fromkeys(normalized))
+    return normalize_required_data_items(_string_items(value))
 
 
 def _recipe_preregistration_payload_from_run(row: Mapping[str, Any]) -> dict[str, Any]:
