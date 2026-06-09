@@ -1866,6 +1866,101 @@ def _validate_recipe_paper_trading_contract(
     return item_count, failures
 
 
+def _history_count(
+    row: Mapping[str, Any],
+    field: str,
+    *,
+    row_label: str,
+    failures: list[str],
+) -> int:
+    parsed = _int_or_none(row.get(field))
+    if parsed is None:
+        failures.append(f"{row_label}.{field}: expected integer count")
+        return -1
+    if parsed < 0:
+        failures.append(f"{row_label}.{field}: must be >= 0")
+    return parsed
+
+
+def _validate_evolution_refresh_history_contract(
+    root_path: Path,
+) -> tuple[int, list[str]]:
+    monitor_rows, monitor_failures = _load_mapping_jsonl(
+        root_path,
+        "registry/report_intelligence/monitor_refresh_history.jsonl",
+    )
+    failures = list(monitor_failures)
+    for index, row in enumerate(monitor_rows, 1):
+        row_label = f"monitor_refresh_history row {index}"
+        if str(row.get("history_type") or "") != "confidence_impact_monitor":
+            failures.append(f"{row_label}.history_type: must be confidence_impact_monitor")
+        for required_field in (
+            "blocked_recipe_count",
+            "unvalidated_confidence_impact_count",
+            "alpha_decay_fail_count",
+            "calibration_drift_count",
+            "aggregate_calibration_drift_count",
+            "blocker_counts",
+            "calibration_drift_rule_counts",
+        ):
+            if required_field not in row:
+                failures.append(f"{row_label}.{required_field}: required")
+        blocker_counts = _count_mapping(
+            row.get("blocker_counts"),
+            row_label=f"{row_label}.blocker_counts",
+            failures=failures,
+        )
+        calibration_rule_counts = _count_mapping(
+            row.get("calibration_drift_rule_counts"),
+            row_label=f"{row_label}.calibration_drift_rule_counts",
+            failures=failures,
+        )
+        expected_accepted = (
+            _history_count(
+                row,
+                "blocked_recipe_count",
+                row_label=row_label,
+                failures=failures,
+            )
+            == 0
+            and _history_count(
+                row,
+                "unvalidated_confidence_impact_count",
+                row_label=row_label,
+                failures=failures,
+            )
+            == 0
+            and _history_count(
+                row,
+                "alpha_decay_fail_count",
+                row_label=row_label,
+                failures=failures,
+            )
+            == 0
+            and _history_count(
+                row,
+                "calibration_drift_count",
+                row_label=row_label,
+                failures=failures,
+            )
+            == 0
+            and _history_count(
+                row,
+                "aggregate_calibration_drift_count",
+                row_label=row_label,
+                failures=failures,
+            )
+            == 0
+            and not blocker_counts
+            and not calibration_rule_counts
+        )
+        if row.get("accepted") is not expected_accepted:
+            failures.append(
+                f"{row_label}.accepted: must match monitor blocker, alpha decay, and calibration drift fields"
+            )
+    return len(monitor_rows), failures
+
+
 def validate_report_intelligence_semantics(
     root: str | Path,
 ) -> tuple[SchemaValidationRecord, ...]:
@@ -2496,6 +2591,20 @@ def validate_report_intelligence_semantics(
             item_count=recipe_paper_trading_contract_item_count,
             accepted=not recipe_paper_trading_contract_failures,
             failures=tuple(recipe_paper_trading_contract_failures),
+        )
+    )
+
+    (
+        evolution_refresh_history_item_count,
+        evolution_refresh_history_failures,
+    ) = _validate_evolution_refresh_history_contract(root_path)
+    records.append(
+        SchemaValidationRecord(
+            schema_path="schemas/report_intelligence_evolution_refresh_history_rules",
+            artifact_path="registry/report_intelligence/monitor_refresh_history.jsonl",
+            item_count=evolution_refresh_history_item_count,
+            accepted=not evolution_refresh_history_failures,
+            failures=tuple(evolution_refresh_history_failures),
         )
     )
 

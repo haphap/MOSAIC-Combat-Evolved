@@ -143,6 +143,7 @@ def test_schema_validation_report_accepts_current_registry():
         "schemas/report_intelligence_industry_etf_mapping_contract_rules",
         "schemas/report_intelligence_markdown_coverage_privacy_rules",
         "schemas/report_intelligence_recipe_paper_trading_contract_rules",
+        "schemas/report_intelligence_evolution_refresh_history_rules",
         "schemas/report_intelligence_alpha_decay_monitoring_rules",
         "schemas/report_intelligence_tooling_readiness_rules",
         "schemas/report_intelligence_patch_v1_5_coverage_rules",
@@ -318,6 +319,16 @@ def _recipe_paper_trading_contract_record(tmp_path: Path):
         for record in records
         if record.schema_path
         == "schemas/report_intelligence_recipe_paper_trading_contract_rules"
+    )
+
+
+def _evolution_refresh_history_record(tmp_path: Path):
+    records = validate_report_intelligence_semantics(tmp_path)
+    return next(
+        record
+        for record in records
+        if record.schema_path
+        == "schemas/report_intelligence_evolution_refresh_history_rules"
     )
 
 
@@ -855,6 +866,39 @@ def test_recipe_paper_trading_contract_rejects_instability_without_gap(
     assert not record.accepted
     assert any(
         "instability blockers require recipe_instability_gap" in item
+        for item in record.failures
+    )
+
+
+def test_evolution_refresh_history_rejects_accepted_aggregate_calibration_drift(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    history_path = registry / "monitor_refresh_history.jsonl"
+    rows = [
+        json.loads(line)
+        for line in history_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    rows[0]["accepted"] = True
+    rows[0]["blocked_recipe_count"] = 0
+    rows[0]["blocker_counts"] = {}
+    rows[0]["aggregate_calibration_drift_count"] = 1
+    rows[0]["calibration_drift_rule_counts"] = {
+        "negative_confidence_alpha_correlation": 1
+    }
+    history_path.write_text(
+        "\n".join(json.dumps(row, ensure_ascii=False, sort_keys=True) for row in rows)
+        + "\n",
+        encoding="utf-8",
+    )
+
+    record = _evolution_refresh_history_record(tmp_path)
+
+    assert not record.accepted
+    assert any(
+        "accepted: must match monitor blocker, alpha decay, and calibration drift fields"
+        in item
         for item in record.failures
     )
 
