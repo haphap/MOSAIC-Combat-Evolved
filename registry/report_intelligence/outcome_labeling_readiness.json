@@ -13,7 +13,10 @@
   "forecast_claim_count": 12,
   "forecast_ledger_count": 12,
   "industry_etf_proxy_readiness": {
+    "benchmark_family": "CSI300_ETF_PROXY",
+    "benchmark_source": "cn_etf",
     "benchmark_symbol": "SH510300",
+    "cost_model_id": "industry_etf_round_trip_10bps_v1",
     "data_gap_counts": {},
     "eligible_claim_count": 5,
     "eligible_forecast_claim_ids": [
@@ -23,6 +26,7 @@
       "FC-31829036250ae5b0",
       "FC-699df73c9a9c1384"
     ],
+    "entry_lag_trading_days": 1,
     "labelable_forecast_claim_count": 5,
     "labelable_forecast_claim_ids": [
       "FC-ff7da2af7911f07d",
@@ -34,8 +38,14 @@
     "labelable_window_count": 15,
     "latest_calendar_date": "2026-06-05",
     "llm_outcome_labeling_allowed": false,
+    "mapping_count": 17,
     "outcome_label_source": "pit_industry_etf_price_window",
     "pending_future_window_count": 0,
+    "pit_availability_status": {
+      "availability_id": "RKE-REPORT-INDUSTRY-ETF-PROXY-PIT-AVAILABILITY",
+      "pit_available_mapping_count": 17,
+      "pit_gap_counts": {}
+    },
     "policy": "sector-direction industry claims can be evaluated with mapped industry ETF returns on fixed PIT windows; each window is a separate evidence point; LLM output extracts the claim direction but cannot assign outcome labels",
     "qlib_etf_dir_configured": "~/.qlib/qlib_data/cn_etf",
     "windows_days": [

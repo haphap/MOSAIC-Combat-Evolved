@@ -245,6 +245,54 @@ def test_outcome_labeling_readiness_requires_proxy_channel_fields(tmp_path: Path
     )
 
 
+def test_outcome_labeling_readiness_requires_stock_pit_realism_policy(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    readiness_path = registry / "outcome_labeling_readiness.json"
+    readiness = json.loads(readiness_path.read_text(encoding="utf-8"))
+    readiness["stock_price_proxy_readiness"]["pit_realism_policy"].pop(
+        "benchmark_alignment"
+    )
+    readiness_path.write_text(
+        json.dumps(readiness, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = validate_json_schema_artifact(
+        root=tmp_path,
+        schema_path="schemas/report_intelligence_outcome_labeling_readiness.schema.json",
+        artifact_path="registry/report_intelligence/outcome_labeling_readiness.json",
+        artifact_kind="json",
+    )
+
+    assert not record.accepted
+    assert any("benchmark_alignment: required" in failure for failure in record.failures)
+
+
+def test_outcome_labeling_readiness_rejects_proxy_llm_labeling(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    readiness_path = registry / "outcome_labeling_readiness.json"
+    readiness = json.loads(readiness_path.read_text(encoding="utf-8"))
+    readiness["industry_etf_proxy_readiness"]["llm_outcome_labeling_allowed"] = True
+    readiness_path.write_text(
+        json.dumps(readiness, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = validate_json_schema_artifact(
+        root=tmp_path,
+        schema_path="schemas/report_intelligence_outcome_labeling_readiness.schema.json",
+        artifact_path="registry/report_intelligence/outcome_labeling_readiness.json",
+        artifact_kind="json",
+    )
+
+    assert not record.accepted
+    assert any("llm_outcome_labeling_allowed" in failure for failure in record.failures)
+
+
 def test_recipe_paper_trading_summary_rejects_profile_weight_promotion(
     tmp_path: Path,
 ):
