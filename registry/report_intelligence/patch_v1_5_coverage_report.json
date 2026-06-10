@@ -1,19 +1,13 @@
 {
   "accepted": false,
-  "as_of_datetime": "2026-06-10T14:48:28+00:00",
+  "as_of_datetime": "2026-06-10T14:56:05+00:00",
   "blocked_phase_ids": [
-    "B",
-    "D"
+    "B"
   ],
-  "blocker_count": 7,
+  "blocker_count": 2,
   "blockers": [
-    "Phase B: analytical_footprint_review_summary accepted must be true",
-    "Phase B: analytical_footprint_review_summary quality_gate_passed must be true",
     "Phase B: human-labeled forecast claim gold set gate must pass",
-    "Phase D: analytical footprint review quality gate must pass",
-    "RI15-B-D1: human-labeled forecast claim gold set has not passed",
-    "RI15-B-D2: analytical-footprint gold set/provenance evidence incomplete",
-    "RI15-D-D1: analytical footprint registry build is incomplete"
+    "RI15-B-D1: human-labeled forecast claim gold set has not passed"
   ],
   "corpus_counts": {
     "analytical_footprint_rows": 95,
@@ -36,6 +30,7 @@
   "passed_phase_ids": [
     "A",
     "C",
+    "D",
     "E",
     "F"
   ],
@@ -93,8 +88,8 @@
       "evidence_counts": {
         "analytical_footprint_rows": 95,
         "error_tag_count": 6,
-        "footprint_quality_passed": false,
-        "footprint_review_accepted": false,
+        "footprint_quality_passed": true,
+        "footprint_review_accepted": true,
         "forecast_claim_rows": 95,
         "gold_claim_precision": null,
         "gold_review_passed": false,
@@ -103,10 +98,8 @@
         "gold_source_span_support_precision": null,
         "provenance_audit_accepted": true
       },
-      "failure_count": 3,
+      "failure_count": 1,
       "failures": [
-        "analytical_footprint_review_summary accepted must be true",
-        "analytical_footprint_review_summary quality_gate_passed must be true",
         "human-labeled forecast claim gold set gate must pass"
       ],
       "phase_id": "B",
@@ -143,7 +136,7 @@
       "status": "passed"
     },
     {
-      "accepted": false,
+      "accepted": true,
       "deferred_reason": "",
       "evidence_artifacts": [
         "registry/report_intelligence/analytical_footprints.jsonl",
@@ -153,19 +146,17 @@
       ],
       "evidence_counts": {
         "analytical_footprint_rows": 95,
-        "footprint_quality_passed": false,
-        "footprint_review_accepted": false,
+        "footprint_quality_passed": true,
+        "footprint_review_accepted": true,
         "method_pattern_rows": 62,
         "metric_candidate_rows": 165
       },
-      "failure_count": 1,
-      "failures": [
-        "analytical footprint review quality gate must pass"
-      ],
+      "failure_count": 0,
+      "failures": [],
       "phase_id": "D",
       "phase_name": "Analytical footprint extraction and registry build",
       "requirement": "Normalize source-grounded or explicitly inferred footprints, metric candidates, method patterns, aliases, and license-aware storage.",
-      "status": "blocked"
+      "status": "passed"
     },
     {
       "accepted": true,
@@ -345,8 +336,8 @@
       "status": "blocked"
     },
     {
-      "accepted": false,
-      "blocker": "analytical-footprint gold set/provenance evidence incomplete",
+      "accepted": true,
+      "blocker": "",
       "check_id": "RI15-B-D2",
       "check_type": "deliverable",
       "evidence_artifacts": [
@@ -356,13 +347,13 @@
       ],
       "evidence_counts": {
         "error_tag_count": 6,
-        "footprint_precision": null,
+        "footprint_precision": 1.0,
         "recall_status": "requires_human_negative_examples",
-        "span_support_precision": null
+        "span_support_precision": 1.0
       },
       "phase_id": "B",
       "requirement": "Human-labeled analytical footprint gold set, precision/recall report, error taxonomy, and span-grounded verifier are present.",
-      "status": "blocked"
+      "status": "passed"
     },
     {
       "accepted": true,
@@ -390,8 +381,8 @@
       "status": "passed"
     },
     {
-      "accepted": false,
-      "blocker": "analytical footprint registry build is incomplete",
+      "accepted": true,
+      "blocker": "",
       "check_id": "RI15-D-D1",
       "check_type": "deliverable",
       "evidence_artifacts": [
@@ -407,7 +398,7 @@
       },
       "phase_id": "D",
       "requirement": "Analytical footprints, metric candidates with alias/proxy mapping, method patterns, and license-aware storage policy are registered as candidate/shadow assets.",
-      "status": "blocked"
+      "status": "passed"
     },
     {
       "accepted": true,
@@ -501,6 +492,6 @@
       "status": "deferred_by_rollout"
     }
   ],
-  "run_id": "RIR-DERIVED-20260610T144827+0000",
+  "run_id": "RIR-DERIVED-20260610T145604+0000",
   "source_plan_path": "MOSAIC_RKE_REPORT_INTELLIGENCE_LOOP_PATCH_V1_5_MERGED.md"
 }

@@ -1,5 +1,5 @@
 {
-  "as_of_datetime": "2026-06-10T14:48:28+00:00",
+  "as_of_datetime": "2026-06-10T14:56:05+00:00",
   "blocked_count": 62,
   "blocked_recipe_ids": [
     "RECIPE-01f3b9c4f654f503",
@@ -80,7 +80,7 @@
   "protocol_version": "recipe_shadow_paper_trading_v1",
   "recipe_count": 62,
   "recipe_instability_gap_count": 0,
-  "run_id": "RIR-DERIVED-20260610T144827+0000",
+  "run_id": "RIR-DERIVED-20260610T145604+0000",
   "status_counts": {
     "blocked": 62
   },
