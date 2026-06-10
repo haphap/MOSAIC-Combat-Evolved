@@ -173,6 +173,7 @@
         "labelable_window_count",
         "pending_future_window_count",
         "data_gap_counts",
+        "stock_series_coverage_summary",
         "pit_realism_policy"
       ],
       "properties": {
@@ -207,6 +208,32 @@
         "data_gap_counts": {
           "type": "object",
           "additionalProperties": {"type": "integer", "minimum": 0}
+        },
+        "stock_series_coverage_summary": {
+          "type": "object",
+          "properties": {
+            "target_series_count": {"type": "integer", "minimum": 0},
+            "target_series_missing_count": {"type": "integer", "minimum": 0},
+            "earliest_price_date_min": {"type": ["string", "null"]},
+            "earliest_price_date_max": {"type": ["string", "null"]},
+            "latest_price_date_min": {"type": ["string", "null"]},
+            "latest_price_date_max": {"type": ["string", "null"]},
+            "latest_calendar_date": {"type": "string"},
+            "latest_aligned_series_count": {"type": "integer", "minimum": 0},
+            "stale_before_latest_calendar_count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "future_dated_series_count": {"type": "integer", "minimum": 0},
+            "series_lifecycle_status_counts": {
+              "type": "object",
+              "additionalProperties": {"type": "integer", "minimum": 0}
+            },
+            "entry_before_series_start_count": {"type": "integer", "minimum": 0},
+            "entry_after_series_end_count": {"type": "integer", "minimum": 0},
+            "entry_within_series_range_count": {"type": "integer", "minimum": 0}
+          },
+          "additionalProperties": false
         },
         "pit_realism_policy": {
           "type": "object",

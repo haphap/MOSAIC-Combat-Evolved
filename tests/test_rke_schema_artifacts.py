@@ -542,6 +542,32 @@ def _base_outcome_label(label_type: str) -> dict[str, object]:
     return row
 
 
+def test_report_outcome_label_schema_requires_proxy_contract_fields(
+    tmp_path: Path,
+):
+    schema_dir = tmp_path / "schemas"
+    schema_dir.mkdir(parents=True)
+    (schema_dir / "report_intelligence_report_outcome_label.schema.json").write_text(
+        Path("schemas/report_intelligence_report_outcome_label.schema.json").read_text(
+            encoding="utf-8"
+        ),
+        encoding="utf-8",
+    )
+    stock_label = _base_outcome_label("stock_price_proxy")
+    stock_label.pop("benchmark_family")
+    _write_proxy_outcome_labels(tmp_path, [stock_label])
+
+    record = validate_json_schema_artifact(
+        root=tmp_path,
+        schema_path="schemas/report_intelligence_report_outcome_label.schema.json",
+        artifact_path="registry/report_intelligence/report_outcome_labels.jsonl",
+        artifact_kind="jsonl",
+    )
+
+    assert not record.accepted
+    assert any("benchmark_family: required" in failure for failure in record.failures)
+
+
 def test_report_outcome_label_semantics_require_proxy_contract_fields(
     tmp_path: Path,
 ):
@@ -651,6 +677,32 @@ def test_report_outcome_label_semantics_reject_untradable_stock_label(
     assert not record.accepted
     assert any("entry_tradable" in failure for failure in record.failures)
     assert any("entry_limit_locked" in failure for failure in record.failures)
+
+
+def test_report_outcome_label_semantics_reject_bad_target_price_fields(
+    tmp_path: Path,
+):
+    stock_label = _base_outcome_label("stock_price_proxy")
+    stock_label.update(
+        {
+            "target_price": 1.2,
+            "target_price_hit": True,
+            "target_price_entry_price": 1.0,
+            "target_price_eval_price": 1.1,
+            "target_price_source_grounded": False,
+            "target_price_provenance": "",
+            "target_price_hit_policy": "llm_judged_target_price",
+        }
+    )
+    _write_proxy_outcome_labels(tmp_path, [stock_label])
+
+    record = _proxy_outcome_contract_record(tmp_path)
+
+    assert not record.accepted
+    assert any("target_price_hit" in failure for failure in record.failures)
+    assert any("target_price_source_grounded" in failure for failure in record.failures)
+    assert any("target_price_provenance" in failure for failure in record.failures)
+    assert any("target_price_hit_policy" in failure for failure in record.failures)
 
 
 def test_industry_etf_mapping_contract_accepts_current_public_artifacts(
@@ -804,10 +856,11 @@ def test_markdown_coverage_privacy_rules_require_strata_blockers(
     registry = _copy_report_intelligence_registry(tmp_path)
     coverage_path = registry / "markdown_coverage_summary.json"
     coverage = json.loads(coverage_path.read_text(encoding="utf-8"))
+    coverage["selected_report_count"] = 0
     coverage["coverage_gate_blockers"] = [
         blocker
         for blocker in coverage["coverage_gate_blockers"]
-        if blocker != "industry_report_count_below_p9_target"
+        if blocker != "selected_report_count_below_p9_target"
     ]
     coverage_path.write_text(
         json.dumps(coverage, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
@@ -823,7 +876,7 @@ def test_markdown_coverage_privacy_rules_require_strata_blockers(
 
     assert not record.accepted
     assert any(
-        "industry_report_count_below_p9_target" in failure
+        "selected_report_count_below_p9_target" in failure
         for failure in record.failures
     )
 
@@ -834,6 +887,11 @@ def test_markdown_coverage_privacy_rules_require_strata_missing_entries(
     registry = _copy_report_intelligence_registry(tmp_path)
     coverage_path = registry / "markdown_coverage_summary.json"
     coverage = json.loads(coverage_path.read_text(encoding="utf-8"))
+    coverage["time_bucket_counts"] = {
+        key: value
+        for key, value in coverage["time_bucket_counts"].items()
+        if key != "recent_1y"
+    }
     coverage["coverage_strata_missing"] = [
         item
         for item in coverage["coverage_strata_missing"]
@@ -861,6 +919,7 @@ def test_markdown_coverage_privacy_rules_require_sector_gap_entries(
     registry = _copy_report_intelligence_registry(tmp_path)
     coverage_path = registry / "markdown_coverage_summary.json"
     coverage = json.loads(coverage_path.read_text(encoding="utf-8"))
+    coverage["sector_bucket_counts"] = {"tiny_sector": 1}
     coverage["sector_bucket_coverage_gaps"] = []
     coverage["sector_bucket_below_min_count"] = 0
     coverage_path.write_text(
@@ -876,7 +935,7 @@ def test_markdown_coverage_privacy_rules_require_sector_gap_entries(
     )
 
     assert not record.accepted
-    assert any("sector_bucket:semiconductor" in failure for failure in record.failures)
+    assert any("sector_bucket:tiny_sector" in failure for failure in record.failures)
     assert any("sector_bucket_below_min_count" in failure for failure in record.failures)
 
 
@@ -1261,7 +1320,7 @@ def test_evolution_readiness_gate_contract_requires_all_checks(tmp_path: Path):
     gate_path = registry / "evolution_readiness_gate.json"
     gate = json.loads(gate_path.read_text(encoding="utf-8"))
     gate["checks"] = [
-        check for check in gate["checks"] if check["check_id"] != "RI-EVOL-06"
+        check for check in gate["checks"] if check["check_id"] != "RI-EVOL-01"
     ]
     gate_path.write_text(
         json.dumps(gate, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
@@ -1271,7 +1330,7 @@ def test_evolution_readiness_gate_contract_requires_all_checks(tmp_path: Path):
     record = _evolution_readiness_gate_record(tmp_path)
 
     assert not record.accepted
-    assert any("missing check_ids: RI-EVOL-06" in item for item in record.failures)
+    assert any("missing check_ids: RI-EVOL-01" in item for item in record.failures)
     assert any("blockers mismatch with checks" in item for item in record.failures)
 
 

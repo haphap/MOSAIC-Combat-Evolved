@@ -44,7 +44,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Iterable, Optional, Sequence
 
 from mosaic.default_config import DEFAULT_ETF_ANALYSIS_START_DATE
 
@@ -174,6 +174,72 @@ class IngestOutcome:
     raw_dir: Optional[Path] = None
     normalize_dir: Optional[Path] = None
     qlib_dir: Optional[Path] = None
+
+
+def _canonical_stock_ts_code(value: object) -> str | None:
+    text = str(value or "").strip().upper()
+    if not text:
+        return None
+    if "." in text:
+        code, suffix = text.split(".", 1)
+    elif len(text) == 8 and text[:2] in {"SH", "SZ", "BJ"}:
+        suffix, code = text[:2], text[2:]
+    else:
+        return None
+    if suffix not in {"SH", "SZ", "BJ"} or not code.isdigit() or len(code) != 6:
+        return None
+    if suffix == "SH" and not code.startswith(("60", "68")):
+        return None
+    if suffix == "SZ" and not code.startswith(("00", "30")):
+        return None
+    if suffix == "BJ" and not code.startswith("92"):
+        return None
+    return f"{code}.{suffix}"
+
+
+def _split_symbol_items(values: Iterable[str]) -> list[str]:
+    symbols: list[str] = []
+    for value in values:
+        for item in str(value or "").replace("\n", ",").split(","):
+            code = _canonical_stock_ts_code(item)
+            if code:
+                symbols.append(code)
+    return sorted(set(symbols))
+
+
+def stock_symbols_from_jsonl(path: Path | str) -> list[str]:
+    """Extract stock ts_codes from source/metadata/forecast JSONL rows.
+
+    This intentionally accepts only explicit stock identifiers.  It does not
+    infer company names, matching the RKE stock-outcome plan's no-fuzzy-mapping
+    rule.
+    """
+    path = Path(path).expanduser()
+    symbols: set[str] = set()
+    if not path.exists():
+        raise FileNotFoundError(f"symbol source JSONL not found: {path}")
+    import json
+
+    with path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(row, dict):
+                continue
+            for key in ("ts_code", "proxy_symbol"):
+                code = _canonical_stock_ts_code(row.get(key))
+                if code:
+                    symbols.add(code)
+            target = row.get("target")
+            if isinstance(target, dict) and str(target.get("target_type") or "") == "stock":
+                code = _canonical_stock_ts_code(target.get("target_id"))
+                if code:
+                    symbols.add(code)
+    return sorted(symbols)
 
 
 def _python_executable() -> str:
@@ -352,6 +418,118 @@ def ingest_incremental(
         returncode=outcome.returncode,
         stdout_tail=outcome.stdout_tail,
         stderr_tail=outcome.stderr_tail,
+        qlib_dir=qlib_dir,
+    )
+
+
+def backfill_stock_symbols(
+    *,
+    symbols: Sequence[str],
+    start: str,
+    end: str,
+    qlib_dir: Optional[Path] = None,
+    raw_dir: Path = DEFAULT_RAW_DIR,
+    normalize_dir: Path = DEFAULT_NORMALIZE_DIR,
+    timeout: int = 120,
+    request_symbol_batch_size: int = 1,
+) -> IngestOutcome:
+    """Backfill historical qlib bins for an explicit stock ts_code set.
+
+    This is the targeted path for RKE stock-report outcome labeling: it avoids a
+    full-market rebuild and only rewrites feature bins for the requested symbols.
+    The qlib calendar must already exist and cover ``start``/``end``.
+    """
+    from mosaic.dataflows.collectors.data_collector.tushare.collector import (
+        _get_token,
+        normalize_tushare_eod,
+        repair_feature_bins_from_normalize,
+        ts,
+        ts_code_to_qlib_symbol,
+    )
+
+    if ts is None:
+        raise RuntimeError("tushare is required for stock symbol backfill")
+    symbol_list = _split_symbol_items(symbols)
+    if not symbol_list:
+        raise ValueError("at least one valid stock ts_code is required")
+    if request_symbol_batch_size <= 0:
+        raise ValueError("request_symbol_batch_size must be positive")
+
+    qlib_dir = Path(qlib_dir or DEFAULT_QLIB_DATA_DIR).expanduser()
+    raw_dir = Path(raw_dir).expanduser()
+    normalize_dir = Path(normalize_dir).expanduser()
+    if not (qlib_dir / "calendars" / "day.txt").exists():
+        raise FileNotFoundError(
+            f"qlib data dir not initialised yet: {qlib_dir}. "
+            "Run full ingest or calendar sync first."
+        )
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    normalize_dir.mkdir(parents=True, exist_ok=True)
+
+    start_api = start.replace("-", "")
+    end_api = end.replace("-", "")
+    pro = ts.pro_api(_get_token(), timeout=timeout)
+    written_csvs: list[Path] = []
+    fetched_rows = 0
+    batches = [
+        symbol_list[index : index + request_symbol_batch_size]
+        for index in range(0, len(symbol_list), request_symbol_batch_size)
+    ]
+    for batch_index, batch in enumerate(batches, 1):
+        ts_code_arg = ",".join(batch)
+        daily = pro.daily(ts_code=ts_code_arg, start_date=start_api, end_date=end_api)
+        if daily is None or daily.empty:
+            logger.warning("backfill-symbols: no daily rows for %s", ts_code_arg)
+            continue
+        adj = pro.adj_factor(ts_code=ts_code_arg, start_date=start_api, end_date=end_api)
+        if adj is not None and not adj.empty:
+            merged = daily.merge(adj, on=["ts_code", "trade_date"], how="left")
+        else:
+            merged = daily.copy()
+            merged["adj_factor"] = 1.0
+        fetched_rows += len(merged)
+        raw_path = raw_dir / f"stock_backfill_{batch_index:04d}_{start_api}_{end_api}.csv"
+        merged.to_csv(raw_path, index=False)
+        normalized = normalize_tushare_eod(merged)
+        if normalized.empty:
+            continue
+        for symbol, group in normalized.groupby("symbol", sort=True):
+            expected = ts_code_to_qlib_symbol(
+                next((code for code in batch if ts_code_to_qlib_symbol(code) == symbol), symbol)
+            )
+            symbol_name = str(expected or symbol).lower()
+            csv_path = normalize_dir / f"{symbol_name}.csv"
+            group = group.sort_values("date").drop_duplicates(subset=["date"], keep="last")
+            group.to_csv(csv_path, index=False)
+            written_csvs.append(csv_path)
+
+    if not written_csvs:
+        return IngestOutcome(
+            verb="backfill_symbols",
+            returncode=4,
+            stdout_tail="",
+            stderr_tail="no rows fetched for requested symbols",
+            raw_dir=raw_dir,
+            normalize_dir=normalize_dir,
+            qlib_dir=qlib_dir,
+        )
+
+    repair_result = repair_feature_bins_from_normalize(
+        normalize_dir=normalize_dir,
+        qlib_dir=qlib_dir,
+        csv_files=written_csvs,
+        force_symbols=[path.stem.upper() for path in written_csvs],
+    )
+    return IngestOutcome(
+        verb="backfill_symbols",
+        returncode=0,
+        stdout_tail=(
+            f"requested_symbols={len(symbol_list)} fetched_rows={fetched_rows} "
+            f"rebuilt_symbols={repair_result.get('rebuilt_count')}"
+        ),
+        stderr_tail="",
+        raw_dir=raw_dir,
+        normalize_dir=normalize_dir,
         qlib_dir=qlib_dir,
     )
 
@@ -569,14 +747,38 @@ def _cli() -> int:
     full = sub.add_parser("full", help="full ingest from --start to --end")
     full.add_argument("--start", default="1990-01-01")
     full.add_argument("--end", required=True)
-    full.add_argument("--qlib-dir", default=str(DEFAULT_QLIB_DATA_DIR))
+    full.add_argument("--kind", choices=("stock", "etf"), default="stock")
+    full.add_argument("--qlib-dir", default=None)
     full.add_argument("--max-workers", type=int, default=4)
     full.add_argument("--timeout", type=int, default=120)
 
     inc = sub.add_parser("incremental", help="append from last covered day")
     inc.add_argument("--end", required=True)
-    inc.add_argument("--qlib-dir", default=str(DEFAULT_QLIB_DATA_DIR))
+    inc.add_argument("--kind", choices=("stock", "etf"), default="stock")
+    inc.add_argument("--qlib-dir", default=None)
     inc.add_argument("--timeout", type=int, default=120)
+
+    backfill = sub.add_parser(
+        "backfill-symbols",
+        help="targeted historical backfill for explicit stock ts_codes",
+    )
+    backfill.add_argument("--start", required=True)
+    backfill.add_argument("--end", required=True)
+    backfill.add_argument(
+        "--symbols",
+        action="append",
+        default=[],
+        help="Comma-separated stock ts_codes, e.g. 000001.SZ,600000.SH.",
+    )
+    backfill.add_argument(
+        "--symbols-jsonl",
+        action="append",
+        default=[],
+        help="JSONL source to scan for ts_code or stock target.target_id.",
+    )
+    backfill.add_argument("--qlib-dir", default=None)
+    backfill.add_argument("--timeout", type=int, default=120)
+    backfill.add_argument("--request-symbol-batch-size", type=int, default=1)
 
     cal = sub.add_parser("calendar", help="refresh calendars/day.txt only")
     cal.add_argument("--end", default=None)
@@ -593,15 +795,29 @@ def _cli() -> int:
             outcome = ingest_full(
                 start=args.start,
                 end=args.end,
-                qlib_dir=Path(args.qlib_dir),
+                kind=args.kind,
+                qlib_dir=Path(args.qlib_dir) if args.qlib_dir else None,
                 max_workers=args.max_workers,
                 timeout=args.timeout,
             )
         elif args.cmd == "incremental":
             outcome = ingest_incremental(
                 end=args.end,
-                qlib_dir=Path(args.qlib_dir),
+                kind=args.kind,
+                qlib_dir=Path(args.qlib_dir) if args.qlib_dir else None,
                 timeout=args.timeout,
+            )
+        elif args.cmd == "backfill-symbols":
+            symbols = _split_symbol_items(args.symbols)
+            for jsonl_path in args.symbols_jsonl:
+                symbols.extend(stock_symbols_from_jsonl(jsonl_path))
+            outcome = backfill_stock_symbols(
+                symbols=symbols,
+                start=args.start,
+                end=args.end,
+                qlib_dir=Path(args.qlib_dir) if args.qlib_dir else None,
+                timeout=args.timeout,
+                request_symbol_batch_size=args.request_symbol_batch_size,
             )
         elif args.cmd == "calendar":
             outcome = sync_calendar(

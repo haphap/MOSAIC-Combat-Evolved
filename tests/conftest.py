@@ -243,7 +243,22 @@ def _synthetic_claim_row(source: dict, document_index: int, claim_index: int) ->
 
 def _ensure_synthetic_private_tushare_registry(root_path: Path) -> None:
     source_path = root_path / "registry" / _RKE_TUSHARE_SOURCE_PATH
-    if source_path.exists():
+    ri_fixture_paths = (
+        root_path / "registry/report_intelligence/report_metadata.jsonl",
+        root_path / "registry/report_intelligence/processing_status.jsonl",
+        root_path / "registry/report_intelligence/forecast_claims.jsonl",
+        root_path / "registry/report_intelligence/analytical_footprints.jsonl",
+        root_path / "registry/report_intelligence/report_outcome_labels.jsonl",
+        root_path / "registry/report_intelligence/weighted_research_contexts.jsonl",
+    )
+    required_fixture_paths = [
+        root_path / "registry" / _RKE_TUSHARE_SOURCE_PATH,
+        root_path / "registry" / _RKE_TUSHARE_GOLD_CANDIDATES_PATH,
+        root_path / "registry" / _RKE_TUSHARE_GOLD_REVIEW_PATH,
+        root_path / "registry" / _RKE_TUSHARE_LICENSE_REVIEW_PATH,
+        *ri_fixture_paths,
+    ]
+    if source_path.exists() and all(path.exists() for path in required_fixture_paths):
         return
 
     sources = _build_synthetic_tushare_rows()

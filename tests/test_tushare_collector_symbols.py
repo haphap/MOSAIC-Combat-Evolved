@@ -28,6 +28,8 @@ def test_legacy_bse_symbols_are_not_queried_incrementally():
     assert not is_queryable_incremental_symbol("bj830799")
     assert not is_queryable_incremental_symbol("BJ870508")
     assert not is_queryable_incremental_symbol("870508.BJ")
+    assert not is_queryable_incremental_symbol("BJ930001")
+    assert not is_queryable_incremental_symbol("990001.BJ")
 
 
 def test_current_bse_and_mainland_symbols_remain_queryable():

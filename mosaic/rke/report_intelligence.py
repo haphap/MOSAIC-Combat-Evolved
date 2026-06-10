@@ -160,6 +160,11 @@ DEFAULT_Q_LIB_ETF_PATH = "~/.qlib/qlib_data/cn_etf"
 DEFAULT_Q_LIB_STOCK_PATH = "~/.qlib/qlib_data/cn_data"
 DEFAULT_MINERU_BACKEND = "hybrid-auto-engine"
 DEFAULT_MINERU_ARGS_TEMPLATE = "-p {pdf} -o {output_dir} -b {backend} -m auto"
+DEFAULT_MINERU_ENV = {
+    "MINERU_TABLE_ENABLE": "true",
+    "MINERU_FORMULA_ENABLE": "true",
+}
+MINERU_VLM_HF_CACHE_DIRNAME = "models--opendatalab--MinerU2.5-Pro-2605-1.2B"
 MINERU_BACKENDS = (
     "hybrid-auto-engine",
     "vlm-auto-engine",
@@ -403,6 +408,7 @@ MARKDOWN_COVERAGE_MIN_QUALITY_PASS = 300
 MARKDOWN_COVERAGE_MIN_LLM_EXTRACTION_PROCESSED = 100
 MARKDOWN_COVERAGE_MIN_INDUSTRY_REPORTS = 80
 MARKDOWN_COVERAGE_MIN_STOCK_REPORTS = 80
+MARKDOWN_COVERAGE_MIN_STOCK_OUTCOME_120D_READY_REPORTS = 30
 MARKDOWN_COVERAGE_MIN_REPORTS_PER_SECTOR_BUCKET = 5
 MARKDOWN_COVERAGE_REQUIRED_TIME_BUCKETS = (
     "recent_1y",
@@ -423,6 +429,9 @@ MARKDOWN_COVERAGE_REQUIRED_EVALUABILITY_BUCKETS = (
     "stock_proxy_candidate",
     "industry_proxy_candidate",
     "mapping_gap_candidate",
+)
+MARKDOWN_COVERAGE_REQUIRED_STOCK_OUTCOME_AGE_BUCKETS = (
+    "stock_outcome_120d_calendar_ready",
 )
 MARKDOWN_QUALITY_MIN_BYTES = 80
 MARKDOWN_QUALITY_EMPTY_TABLE_RATIO_MAX = 0.60
@@ -491,9 +500,10 @@ class ReportIntelligenceConfig:
     mineru_batch_max_bytes: int = 5_000_000
     vllm_base_url: str = DEFAULT_VLLM_BASE_URL
     vllm_model: str | None = None
+    vllm_api_key: str | None = None
     qlib_etf_dir: str | Path = DEFAULT_Q_LIB_ETF_PATH
     qlib_stock_dir: str | Path = DEFAULT_Q_LIB_STOCK_PATH
-    vllm_timeout_seconds: int = 120
+    vllm_timeout_seconds: int = 300
     chunk_chars: int = 60_000
     max_chunks: int = 8
     max_llm_output_tokens: int = 4096
@@ -962,6 +972,13 @@ def _stratified_source_values(
             if _is_explicit_stock_ts_code(row.get("ts_code"))
             else "stock_ts_code_missing",
         ),
+        (
+            "stock_outcome_age_bucket",
+            _coverage_stock_outcome_age_bucket(
+                metadata_like,
+                corpus_as_of=corpus_as_of,
+            ),
+        ),
     )
 
 
@@ -979,6 +996,7 @@ def _stratified_source_rows(
         "institution_bucket": set(),
         "sector_bucket": set(),
         "stock_ts_code": set(),
+        "stock_outcome_age_bucket": set(),
     }
     corpus_as_of = _coverage_corpus_as_of(
         [{"publish_datetime": _source_publish_datetime(row)} for row in rows]
@@ -1162,6 +1180,28 @@ def _mineru_executable(command: str) -> tuple[list[str], str | None]:
     return [executable, *command_parts[1:]], None
 
 
+def _mineru_cached_vlm_model_exists(env: Mapping[str, str]) -> bool:
+    hf_home = env.get("HF_HOME")
+    if hf_home:
+        cache_root = Path(hf_home).expanduser()
+    else:
+        cache_root = Path.home() / ".cache" / "huggingface"
+    model_cache = cache_root / "hub" / MINERU_VLM_HF_CACHE_DIRNAME
+    return (model_cache / "refs" / "main").exists() and any(
+        (model_cache / "snapshots").glob("*")
+    )
+
+
+def _mineru_subprocess_env() -> dict[str, str]:
+    env = os.environ.copy()
+    for key, value in DEFAULT_MINERU_ENV.items():
+        env.setdefault(key, value)
+    if _mineru_cached_vlm_model_exists(env):
+        env.setdefault("HF_HUB_OFFLINE", "1")
+        env.setdefault("TRANSFORMERS_OFFLINE", "1")
+    return env
+
+
 def _mineru_args(
     command: str,
     *,
@@ -1225,10 +1265,12 @@ def _terminate_process_tree(pid: int) -> None:
 def _run_mineru(args: Sequence[str], *, cwd: Path, timeout_seconds: int) -> Mapping[str, Any]:
     command = " ".join(shlex.quote(part) for part in args)
     started_at = time.monotonic()
+    env = _mineru_subprocess_env()
     try:
         process = subprocess.Popen(
             list(args),
             cwd=str(cwd),
+            env=env,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -1531,15 +1573,15 @@ def resolve_vllm_model(
     base_url: str = DEFAULT_VLLM_BASE_URL,
     *,
     explicit_model: str | None = None,
+    api_key: str | None = None,
     timeout_seconds: int = 10,
 ) -> str:
     if explicit_model:
         return explicit_model
     try:
-        with urllib.request.urlopen(
-            _url(base_url, "models"),
-            timeout=timeout_seconds,
-        ) as response:
+        headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+        request = urllib.request.Request(_url(base_url, "models"), headers=headers)
+        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
             payload = json.loads(response.read().decode("utf-8"))
     except (OSError, urllib.error.URLError, json.JSONDecodeError) as exc:
         raise RuntimeError(f"vllm_model_discovery_failed: {exc}") from exc
@@ -1807,12 +1849,14 @@ def call_vllm_extractor(
     *,
     base_url: str = DEFAULT_VLLM_BASE_URL,
     model: str | None = None,
+    api_key: str | None = None,
     timeout_seconds: int = 120,
     max_output_tokens: int = 4096,
 ) -> Mapping[str, Any]:
     resolved_model = resolve_vllm_model(
         base_url,
         explicit_model=model,
+        api_key=api_key,
         timeout_seconds=min(timeout_seconds, 30),
     )
     payload = {
@@ -1835,10 +1879,13 @@ def call_vllm_extractor(
         "response_format": {"type": "json_object"},
         "chat_template_kwargs": {"enable_thinking": False},
     }
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
     request = urllib.request.Request(
         _url(base_url, "chat/completions"),
         data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
+        headers=headers,
         method="POST",
     )
     try:
@@ -2873,29 +2920,35 @@ def build_analytical_footprint_error_taxonomy() -> dict[str, Any]:
 def write_analytical_footprint_review_artifacts(
     registry_dir: Path,
     footprint_rows: Sequence[Mapping[str, Any]],
+    *,
+    preserve_existing_summary: bool = False,
 ) -> dict[str, str]:
     template_path = registry_dir / "analytical_footprint_review_template.jsonl"
+    summary_path = registry_dir / "analytical_footprint_review_summary.json"
+    taxonomy_path = registry_dir / "analytical_footprint_error_taxonomy.json"
     review_rows = build_analytical_footprint_review_rows(
         footprint_rows,
         existing_template_path=template_path,
     )
     summary = build_analytical_footprint_review_summary(review_rows)
     taxonomy = build_analytical_footprint_error_taxonomy()
+    if preserve_existing_summary and summary_path.exists():
+        summary_output = {"path": summary_path}
+    else:
+        summary_output = _write_json(summary_path, summary)
+    if preserve_existing_summary and taxonomy_path.exists():
+        taxonomy_output = {"path": taxonomy_path}
+    else:
+        taxonomy_output = _write_json(taxonomy_path, taxonomy)
     return {
         "analytical_footprint_review_template": str(
             _write_jsonl(template_path, review_rows)["path"]
         ),
         "analytical_footprint_review_summary": str(
-            _write_json(
-                registry_dir / "analytical_footprint_review_summary.json",
-                summary,
-            )["path"]
+            summary_output["path"]
         ),
         "analytical_footprint_error_taxonomy": str(
-            _write_json(
-                registry_dir / "analytical_footprint_error_taxonomy.json",
-                taxonomy,
-            )["path"]
+            taxonomy_output["path"]
         ),
     }
 
@@ -4130,7 +4183,11 @@ def _is_explicit_stock_ts_code(value: Any) -> bool:
     if not match:
         return False
     code, market = match.groups()
-    return market != "BJ" or code.startswith("920")
+    if market == "SH" and not code.startswith(("60", "68")):
+        return False
+    if market == "SZ" and not code.startswith(("00", "30")):
+        return False
+    return market != "BJ" or code.startswith("92")
 
 
 def _is_explicit_stock_research_report(metadata: Mapping[str, Any]) -> bool:
@@ -4147,7 +4204,11 @@ def _normalize_ts_code(value: Any) -> str:
     if not match:
         return ""
     code, market = match.groups()
-    if market == "BJ" and not code.startswith("920"):
+    if market == "SH" and not code.startswith(("60", "68")):
+        return ""
+    if market == "SZ" and not code.startswith(("00", "30")):
+        return ""
+    if market == "BJ" and not code.startswith("92"):
         return ""
     return f"{code}.{market}"
 
@@ -4505,6 +4566,10 @@ def _report_sector_bucket(row: Mapping[str, Any]) -> str:
     return "unknown_sector"
 
 
+def _coverage_sector_bucket(row: Mapping[str, Any]) -> str:
+    return _coverage_sector_family(_report_sector_bucket(row))
+
+
 def _is_pdf_ready(pdf: Mapping[str, Any]) -> bool:
     return str(pdf.get("status") or "") in {"cached", "downloaded"}
 
@@ -4736,6 +4801,34 @@ def _coverage_time_bucket(
     return "long_cycle_history"
 
 
+def _coverage_stock_outcome_age_bucket(
+    row: Mapping[str, Any],
+    *,
+    corpus_as_of: datetime | None,
+) -> str:
+    if not _is_potential_stock_report(row):
+        return "non_stock_report"
+    if not _is_explicit_stock_ts_code(row.get("ts_code")):
+        return "stock_ts_code_missing"
+    report_date = _coverage_metadata_datetime(row)
+    if report_date is None:
+        return "stock_report_date_missing"
+    if corpus_as_of is None:
+        return "stock_outcome_age_unbucketed"
+    age_days = (corpus_as_of.date() - report_date.date()).days
+    if age_days < 0:
+        return "stock_future_report_date"
+    if age_days >= 180:
+        return "stock_outcome_120d_calendar_ready"
+    if age_days >= 90:
+        return "stock_outcome_60d_calendar_ready"
+    if age_days >= 30:
+        return "stock_outcome_20d_calendar_ready"
+    if age_days >= 10:
+        return "stock_outcome_5d_calendar_ready"
+    return "stock_outcome_pending"
+
+
 def _coverage_report_key(row: Mapping[str, Any]) -> str:
     return str(row.get("source_id") or row.get("report_id") or "").strip()
 
@@ -4779,12 +4872,23 @@ def _coverage_institution_bucket(
 
 def _coverage_horizon_buckets_for_report(
     forecast_rows: Sequence[Mapping[str, Any]],
+    metadata: Mapping[str, Any],
 ) -> set[str]:
-    buckets = {
+    explicit_buckets = {
         _horizon_bucket(_ensure_mapping(row.get("horizon")))
         for row in forecast_rows
     }
-    buckets.discard("")
+    explicit_buckets.discard("")
+    buckets = {bucket for bucket in explicit_buckets if bucket != "unknown"}
+    if not buckets and forecast_rows:
+        # If the report lacks an explicit claim horizon but is proxy-evaluable,
+        # count the PIT windows that the outcome labelers will retain.
+        if any(_is_stock_forecast_claim(forecast, metadata) for forecast in forecast_rows):
+            buckets.update(_horizon_bucket({"preferred_days": days}) for days in STOCK_PRICE_PROXY_WINDOWS_DAYS)
+        if _is_industry_research_report(metadata.get("report_type")):
+            buckets.update(_horizon_bucket({"preferred_days": days}) for days in INDUSTRY_ETF_PROXY_WINDOWS_DAYS)
+    if "unknown" in explicit_buckets:
+        buckets.add("unknown")
     return buckets or {"no_extracted_forecast_horizon"}
 
 
@@ -4837,6 +4941,32 @@ def _sector_bucket_coverage_gaps(
     ]
 
 
+_SECTOR_FAMILY_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("technology_electronics", ("半导体", "电子", "元件", "光学", "通信", "通讯", "计算机", "软件", "互联网", "IT服务", "数字媒体", "游戏")),
+    ("healthcare", ("医药", "医疗", "生物", "中药", "化学制药", "医疗器械", "医疗服务")),
+    ("financials", ("银行", "证券", "保险", "金融", "券商", "信托")),
+    ("real_estate_construction", ("房地产", "建筑", "工程", "装修", "建材", "水泥", "园林", "基础建设", "房屋建设")),
+    ("energy_materials", ("有色", "金属", "钢铁", "煤炭", "石油", "油气", "化工", "化学", "材料", "塑料", "橡胶", "玻璃", "电池", "光伏", "风电", "新能源")),
+    ("industrial_equipment", ("机械", "设备", "仪器", "电机", "电网", "自动化", "轨交", "船舶", "航天", "航空", "军工", "兵装", "电源")),
+    ("consumer", ("食品", "饮料", "白酒", "家电", "家居", "服装", "纺织", "美容", "化妆", "零售", "电商", "旅游", "酒店", "餐饮", "教育", "文娱", "传媒", "体育", "珠宝", "饰品", "个护")),
+    ("auto_transport", ("汽车", "乘用车", "商用车", "摩托", "交运", "物流", "港口", "航运", "机场", "铁路", "公路")),
+    ("utilities_environment", ("电力", "燃气", "公用事业", "环保", "环境", "水务")),
+    ("agriculture", ("农业", "农", "养殖", "种植", "饲料", "动物保健")),
+)
+
+
+def _coverage_sector_family(raw_sector: str) -> str:
+    normalized = raw_sector.strip()
+    if not normalized or normalized == "unknown_sector":
+        return "other_sector"
+    if any(keyword in normalized for keyword in ("宏观", "策略", "固收", "金融工程", "行业研报")):
+        return "other_sector"
+    for family, keywords in _SECTOR_FAMILY_KEYWORDS:
+        if any(keyword in normalized for keyword in keywords):
+            return family
+    return "other_sector"
+
+
 def build_markdown_coverage_summary(
     *,
     run_id: str,
@@ -4850,6 +4980,7 @@ def build_markdown_coverage_summary(
     report_horizon_bucket_counts: dict[str, int] = {}
     forecast_horizon_bucket_counts: dict[str, int] = {}
     evaluability_bucket_counts: dict[str, int] = {}
+    stock_outcome_age_bucket_counts: dict[str, int] = {}
     conversion_backend_counts: dict[str, int] = {}
     quality_gap_counts: dict[str, int] = {}
     quality_review_gap_counts: dict[str, int] = {}
@@ -4883,13 +5014,20 @@ def build_markdown_coverage_summary(
         )
         _increment_count(
             sector_bucket_counts,
-            _report_sector_bucket(row),
+            _coverage_sector_bucket(row),
             default="unknown_sector",
         )
         if _is_industry_research_report(row.get("report_type")):
             industry_report_count += 1
         if _is_explicit_stock_research_report(row):
             stock_report_count += 1
+            _increment_count(
+                stock_outcome_age_bucket_counts,
+                _coverage_stock_outcome_age_bucket(
+                    row,
+                    corpus_as_of=corpus_as_of,
+                ),
+            )
         pdf = _ensure_mapping(row.get("pdf"))
         markdown = _ensure_mapping(row.get("markdown"))
         if _is_pdf_ready(pdf):
@@ -4918,7 +5056,9 @@ def build_markdown_coverage_summary(
             if gap:
                 llm_extraction_without_quality_pass_count += 1
         report_forecasts = forecast_rows_by_report.get(_coverage_report_key(row), [])
-        for bucket in sorted(_coverage_horizon_buckets_for_report(report_forecasts)):
+        for bucket in sorted(
+            _coverage_horizon_buckets_for_report(report_forecasts, row)
+        ):
             _increment_count(report_horizon_bucket_counts, bucket)
         for forecast in report_forecasts:
             _increment_count(
@@ -4942,6 +5082,9 @@ def build_markdown_coverage_summary(
         ),
         "industry_report_count_min": MARKDOWN_COVERAGE_MIN_INDUSTRY_REPORTS,
         "stock_report_count_min": MARKDOWN_COVERAGE_MIN_STOCK_REPORTS,
+        "stock_outcome_120d_ready_report_count_min": (
+            MARKDOWN_COVERAGE_MIN_STOCK_OUTCOME_120D_READY_REPORTS
+        ),
         "sector_bucket_min_report_count": (
             MARKDOWN_COVERAGE_MIN_REPORTS_PER_SECTOR_BUCKET
         ),
@@ -4957,6 +5100,9 @@ def build_markdown_coverage_summary(
         ),
         "evaluability_bucket_required": list(
             MARKDOWN_COVERAGE_REQUIRED_EVALUABILITY_BUCKETS
+        ),
+        "stock_outcome_age_bucket_required": list(
+            MARKDOWN_COVERAGE_REQUIRED_STOCK_OUTCOME_AGE_BUCKETS
         ),
     }
     coverage_strata_missing = [
@@ -4980,6 +5126,11 @@ def build_markdown_coverage_summary(
             MARKDOWN_COVERAGE_REQUIRED_EVALUABILITY_BUCKETS,
             dimension="evaluability_bucket",
         ),
+        *_coverage_missing_required_buckets(
+            stock_outcome_age_bucket_counts,
+            MARKDOWN_COVERAGE_REQUIRED_STOCK_OUTCOME_AGE_BUCKETS,
+            dimension="stock_outcome_age_bucket",
+        ),
     ]
     coverage_gate_blockers: list[str] = []
     if len(metadata_rows) < MARKDOWN_COVERAGE_MIN_SELECTED_REPORTS:
@@ -4999,6 +5150,16 @@ def build_markdown_coverage_summary(
         coverage_gate_blockers.append("industry_report_count_below_p9_target")
     if stock_report_count < MARKDOWN_COVERAGE_MIN_STOCK_REPORTS:
         coverage_gate_blockers.append("stock_report_count_below_p9_target")
+    stock_outcome_120d_ready_count = int(
+        stock_outcome_age_bucket_counts.get("stock_outcome_120d_calendar_ready") or 0
+    )
+    if (
+        stock_outcome_120d_ready_count
+        < MARKDOWN_COVERAGE_MIN_STOCK_OUTCOME_120D_READY_REPORTS
+    ):
+        coverage_gate_blockers.append(
+            "stock_outcome_120d_ready_count_below_p9_target"
+        )
     if sector_bucket_coverage_gaps:
         coverage_gate_blockers.append("sector_bucket_coverage_below_p9_target")
     if any(item.startswith("time_bucket:") for item in coverage_strata_missing):
@@ -5009,6 +5170,13 @@ def build_markdown_coverage_summary(
         coverage_gate_blockers.append("horizon_bucket_coverage_below_p9_target")
     if any(item.startswith("evaluability_bucket:") for item in coverage_strata_missing):
         coverage_gate_blockers.append("evaluability_bucket_coverage_below_p9_target")
+    if any(
+        item.startswith("stock_outcome_age_bucket:")
+        for item in coverage_strata_missing
+    ):
+        coverage_gate_blockers.append(
+            "stock_outcome_age_bucket_coverage_below_p9_target"
+        )
     if llm_extraction_without_quality_pass_count:
         coverage_gate_blockers.append("llm_extraction_without_quality_pass")
     summary = {
@@ -5024,6 +5192,7 @@ def build_markdown_coverage_summary(
         ),
         "industry_report_count": industry_report_count,
         "stock_report_count": stock_report_count,
+        "stock_outcome_120d_ready_report_count": stock_outcome_120d_ready_count,
         "coverage_targets": coverage_targets,
         "sector_bucket_coverage_gaps": sector_bucket_coverage_gaps,
         "sector_bucket_below_min_count": len(sector_bucket_coverage_gaps),
@@ -5056,6 +5225,9 @@ def build_markdown_coverage_summary(
             sorted(forecast_horizon_bucket_counts.items())
         ),
         "evaluability_bucket_counts": dict(sorted(evaluability_bucket_counts.items())),
+        "stock_outcome_age_bucket_counts": dict(
+            sorted(stock_outcome_age_bucket_counts.items())
+        ),
         "conversion_backend_counts": dict(sorted(conversion_backend_counts.items())),
         "retry_queue_count": retry_queue_count,
         "stratified_sampling_policy": {
@@ -5065,6 +5237,7 @@ def build_markdown_coverage_summary(
                 "institution_bucket",
                 "sector_bucket",
                 "stock_ts_code",
+                "stock_outcome_age_bucket",
                 "horizon_bucket",
                 "evaluability_bucket",
             ],
@@ -5191,6 +5364,39 @@ def _industry_mapping_benchmark_symbol(row: Mapping[str, Any]) -> str:
     return str(row.get("benchmark_symbol") or INDUSTRY_ETF_BENCHMARK_SYMBOL)
 
 
+def _industry_pit_availability_by_mapping_id(
+    pit_availability: Mapping[str, Any] | None,
+) -> dict[str, Mapping[str, Any]]:
+    if not pit_availability:
+        return {}
+    return {
+        str(row.get("mapping_id") or ""): row
+        for row in _ensure_list(_ensure_mapping(pit_availability).get("mapping_records"))
+        if isinstance(row, Mapping) and str(row.get("mapping_id") or "").strip()
+    }
+
+
+def _industry_pit_availability_gap(
+    mapping: Mapping[str, Any],
+    availability_by_mapping_id: Mapping[str, Mapping[str, Any]],
+) -> str:
+    if not availability_by_mapping_id:
+        return ""
+    mapping_id = str(mapping.get("mapping_id") or "")
+    record = availability_by_mapping_id.get(mapping_id)
+    if not record:
+        return "pit_availability_missing"
+    if record.get("pit_available") is True:
+        return ""
+    reasons = [str(item) for item in _ensure_list(record.get("pit_gap_reasons"))]
+    for reason in ("calendar_missing", "proxy_series_missing", "benchmark_series_missing"):
+        if reason in reasons:
+            return reason
+    if "insufficient_window_history" in reasons:
+        return "pit_availability_insufficient_window_history"
+    return "pit_availability_unavailable"
+
+
 def _series_available_dates(
     *,
     calendar: Sequence[str],
@@ -5205,6 +5411,56 @@ def _series_available_dates(
         if value == value and value > 0:
             dates.append(calendar[calendar_index])
     return dates
+
+
+def _stock_series_coverage_summary(
+    *,
+    target_series_count: int,
+    target_series_missing_count: int,
+    earliest_price_dates: Sequence[str],
+    latest_price_dates: Sequence[str],
+    latest_calendar_date: str,
+    entry_before_series_start_count: int,
+    entry_after_series_end_count: int,
+    entry_within_series_range_count: int,
+) -> dict[str, Any]:
+    lifecycle_counts: dict[str, int] = {}
+    for latest_price_date in latest_price_dates:
+        if not latest_calendar_date:
+            status = "calendar_missing"
+        elif latest_price_date == latest_calendar_date:
+            status = "latest_aligned"
+        elif latest_price_date < latest_calendar_date:
+            status = "stale_before_latest_calendar"
+        else:
+            status = "future_dated"
+        _increment_count(lifecycle_counts, status)
+    return {
+        "target_series_count": int(target_series_count),
+        "target_series_missing_count": int(target_series_missing_count),
+        "earliest_price_date_min": min(earliest_price_dates)
+        if earliest_price_dates
+        else "",
+        "earliest_price_date_max": max(earliest_price_dates)
+        if earliest_price_dates
+        else "",
+        "latest_price_date_min": min(latest_price_dates)
+        if latest_price_dates
+        else "",
+        "latest_price_date_max": max(latest_price_dates)
+        if latest_price_dates
+        else "",
+        "latest_calendar_date": latest_calendar_date,
+        "latest_aligned_series_count": int(lifecycle_counts.get("latest_aligned") or 0),
+        "stale_before_latest_calendar_count": int(
+            lifecycle_counts.get("stale_before_latest_calendar") or 0
+        ),
+        "future_dated_series_count": int(lifecycle_counts.get("future_dated") or 0),
+        "series_lifecycle_status_counts": dict(sorted(lifecycle_counts.items())),
+        "entry_before_series_start_count": int(entry_before_series_start_count),
+        "entry_after_series_end_count": int(entry_after_series_end_count),
+        "entry_within_series_range_count": int(entry_within_series_range_count),
+    }
 
 
 def build_industry_etf_proxy_pit_availability(
@@ -5420,6 +5676,9 @@ def build_industry_etf_proxy_readiness(
     windows_days: Sequence[int] = INDUSTRY_ETF_PROXY_WINDOWS_DAYS,
 ) -> dict[str, Any]:
     mapping_rows = tuple(mapping_rows or build_default_industry_etf_proxy_map_rows())
+    availability_by_mapping_id = _industry_pit_availability_by_mapping_id(
+        pit_availability
+    )
     qlib_dir = _resolve_qlib_etf_dir(root_path, qlib_etf_dir)
     calendar = _read_trading_calendar(qlib_dir)
     benchmark_cache: dict[str, tuple[int, list[float]]] = {}
@@ -5462,6 +5721,10 @@ def build_industry_etf_proxy_readiness(
             continue
         forecast_claim_id = str(claim.get("forecast_claim_id") or "")
         eligible_claim_ids.append(forecast_claim_id)
+        pit_gap = _industry_pit_availability_gap(proxy, availability_by_mapping_id)
+        if pit_gap:
+            add_gap(pit_gap)
+            continue
         if not calendar:
             add_gap("calendar_missing")
             continue
@@ -5585,6 +5848,14 @@ def build_stock_price_proxy_readiness(
     data_gap_counts: dict[str, int] = {}
     labelable_window_count = 0
     pending_future_window_count = 0
+    target_symbols_with_series: set[str] = set()
+    target_symbols_missing_series: set[str] = set()
+    target_series_spans: dict[str, tuple[str, str]] = {}
+    earliest_price_dates: list[str] = []
+    latest_price_dates: list[str] = []
+    entry_before_series_start_count = 0
+    entry_after_series_end_count = 0
+    entry_within_series_range_count = 0
 
     def add_gap(name: str) -> None:
         data_gap_counts[name] = data_gap_counts.get(name, 0) + 1
@@ -5616,8 +5887,23 @@ def build_stock_price_proxy_readiness(
             continue
         stock_start, stock_values = _read_qlib_series(stock_dir, ts_code)
         if not stock_values:
+            target_symbols_missing_series.add(ts_code)
             add_gap("stock_series_missing")
             continue
+        available_dates = _series_available_dates(
+            calendar=stock_calendar,
+            start_index=stock_start,
+            values=stock_values,
+        )
+        if available_dates:
+            target_symbols_with_series.add(ts_code)
+            if ts_code not in target_series_spans:
+                target_series_spans[ts_code] = (
+                    available_dates[0],
+                    available_dates[-1],
+                )
+                earliest_price_dates.append(available_dates[0])
+                latest_price_dates.append(available_dates[-1])
         volume_start, volume_values = _read_qlib_series(stock_dir, ts_code, "volume")
         open_start, open_values = _read_qlib_series(stock_dir, ts_code, "open")
         high_start, high_values = _read_qlib_series(stock_dir, ts_code, "high")
@@ -5640,8 +5926,16 @@ def build_stock_price_proxy_readiness(
             calendar_index=entry_index,
         )
         if entry_price is None:
-            add_gap("entry_price_missing")
+            if available_dates and entry_date < available_dates[0]:
+                entry_before_series_start_count += 1
+                add_gap("entry_price_before_series_start")
+            elif available_dates and entry_date > available_dates[-1]:
+                entry_after_series_end_count += 1
+                add_gap("entry_price_after_series_end")
+            else:
+                add_gap("entry_price_missing")
             continue
+        entry_within_series_range_count += 1
         entry_volume_ok = _has_positive_volume_at(
             start_index=volume_start,
             values=volume_values,
@@ -5696,11 +5990,6 @@ def build_stock_price_proxy_readiness(
         ) is None:
             add_gap("benchmark_series_missing")
             continue
-        available_dates = _series_available_dates(
-            calendar=stock_calendar,
-            start_index=stock_start,
-            values=stock_values,
-        )
         latest_stock_price_date = available_dates[-1] if available_dates else ""
         claim_labelable_window_count = 0
         for horizon_days in windows_days:
@@ -5802,6 +6091,16 @@ def build_stock_price_proxy_readiness(
         "labelable_window_count": labelable_window_count,
         "pending_future_window_count": pending_future_window_count,
         "data_gap_counts": dict(sorted(data_gap_counts.items())),
+        "stock_series_coverage_summary": _stock_series_coverage_summary(
+            target_series_count=len(target_symbols_with_series),
+            target_series_missing_count=len(target_symbols_missing_series),
+            earliest_price_dates=earliest_price_dates,
+            latest_price_dates=latest_price_dates,
+            latest_calendar_date=stock_calendar[-1] if stock_calendar else "",
+            entry_before_series_start_count=entry_before_series_start_count,
+            entry_after_series_end_count=entry_after_series_end_count,
+            entry_within_series_range_count=entry_within_series_range_count,
+        ),
         "pit_realism_policy": {
             "entry_suspension_blocks_label": True,
             "entry_limit_locked_blocks_label": True,
@@ -5831,13 +6130,9 @@ def build_industry_etf_proxy_outcome_labels(
     windows_days: Sequence[int] = INDUSTRY_ETF_PROXY_WINDOWS_DAYS,
 ) -> list[dict[str, Any]]:
     mapping_rows = tuple(mapping_rows or build_default_industry_etf_proxy_map_rows())
-    availability_by_mapping_id = {
-        str(row.get("mapping_id") or ""): row
-        for row in _ensure_list(
-            _ensure_mapping(pit_availability).get("mapping_records")
-        )
-        if isinstance(row, Mapping)
-    }
+    availability_by_mapping_id = _industry_pit_availability_by_mapping_id(
+        pit_availability
+    )
     qlib_dir = _resolve_qlib_etf_dir(root_path, qlib_etf_dir)
     calendar = _read_trading_calendar(qlib_dir)
     if not calendar:
@@ -5877,6 +6172,8 @@ def build_industry_etf_proxy_outcome_labels(
         etf_symbol = str(proxy["etf_symbol"])
         mapping_id = str(proxy.get("mapping_id") or "")
         mapping_availability = availability_by_mapping_id.get(mapping_id) or {}
+        if _industry_pit_availability_gap(proxy, availability_by_mapping_id):
+            continue
         benchmark_symbol = _industry_mapping_benchmark_symbol(proxy)
         benchmark_start, benchmark_values = benchmark_series(benchmark_symbol)
         if not benchmark_values:
@@ -7820,6 +8117,10 @@ def build_confidence_impact_observations(
         brier_score = _float_or_none(metrics.get("brier_score"))
         hit_rate = _float_or_none(metrics.get("hit_rate"))
         blocker_reasons = _ensure_list(run.get("blocked_reasons"))
+        profile_support = _ensure_mapping(run.get("profile_weight_support"))
+        profile_paper_trade_disagreement = (
+            profile_support.get("profile_paper_trade_disagreement") is True
+        )
         alpha_decay_blockers = {
             "after_cost_alpha_non_positive",
             "consecutive_non_positive_after_cost_windows",
@@ -7845,6 +8146,10 @@ def build_confidence_impact_observations(
             str(reason) in regime_fragile_blockers for reason in blocker_reasons
         ):
             drift_status = "regime_fragile_alpha"
+            recommended_action = "send_to_manual_review"
+            confidence_delta = 0.0
+        elif paper_status != "passed" and profile_paper_trade_disagreement:
+            drift_status = "profile_paper_trade_disagreement"
             recommended_action = "send_to_manual_review"
             confidence_delta = 0.0
         elif paper_status != "passed":
@@ -7991,6 +8296,7 @@ def build_confidence_impact_monitor(
     cost_decay_recipe_ids: list[str] = []
     calibration_drift_recipe_ids: list[str] = []
     regime_fragile_recipe_ids: list[str] = []
+    profile_paper_trade_disagreement_recipe_ids: list[str] = []
     manual_review_recipe_ids: list[str] = []
     reduce_confidence_impact_recipe_ids: list[str] = []
     freeze_recipe_ids: list[str] = []
@@ -8078,6 +8384,12 @@ def build_confidence_impact_monitor(
             calibration_drift_recipe_ids.append(recipe_id)
         if str(row.get("drift_status") or "") == "regime_fragile_alpha" and recipe_id:
             regime_fragile_recipe_ids.append(recipe_id)
+        if (
+            str(row.get("drift_status") or "")
+            == "profile_paper_trade_disagreement"
+            and recipe_id
+        ):
+            profile_paper_trade_disagreement_recipe_ids.append(recipe_id)
         action = str(row.get("recommended_action") or "")
         if action == "reduce_confidence_impact" and recipe_id:
             reduce_confidence_impact_recipe_ids.append(recipe_id)
@@ -8129,6 +8441,10 @@ def build_confidence_impact_monitor(
             "regime_fragile_alpha",
             0,
         ),
+        "profile_paper_trade_disagreement_count": drift_status_counts.get(
+            "profile_paper_trade_disagreement",
+            0,
+        ),
         "confidence_alpha_correlation": round(confidence_alpha_correlation, 8)
         if confidence_alpha_correlation is not None
         else None,
@@ -8158,6 +8474,9 @@ def build_confidence_impact_monitor(
             set(new_regime_miscalibration_recipe_ids)
         ),
         "regime_fragile_recipe_ids": sorted(set(regime_fragile_recipe_ids)),
+        "profile_paper_trade_disagreement_recipe_ids": sorted(
+            set(profile_paper_trade_disagreement_recipe_ids)
+        ),
         "manual_review_recipe_ids": sorted(set(manual_review_recipe_ids)),
         "reduce_confidence_impact_recipe_ids": sorted(
             set(reduce_confidence_impact_recipe_ids)
@@ -9233,6 +9552,12 @@ def build_report_intelligence_evolution_readiness_gate(
                     markdown.get("industry_report_count") or 0
                 ),
                 "stock_report_count": int(markdown.get("stock_report_count") or 0),
+                "stock_outcome_120d_ready_report_count": int(
+                    markdown.get("stock_outcome_120d_ready_report_count") or 0
+                ),
+                "stock_outcome_age_bucket_counts": _count_mapping_values(
+                    _ensure_mapping(markdown.get("stock_outcome_age_bucket_counts"))
+                ),
                 "sector_bucket_coverage_gaps": _ensure_list(
                     markdown.get("sector_bucket_coverage_gaps")
                 ),
@@ -9309,6 +9634,121 @@ def build_report_intelligence_evolution_readiness_gate(
     }
     gate["private_text_included"] = _public_payload_private_text_included(gate)
     return gate
+
+
+def write_report_intelligence_evolution_readiness_gate(
+    registry_dir: str | Path,
+    *,
+    run_id: str = "RIR-PUBLIC-EVOLUTION-GATE",
+) -> dict[str, Any]:
+    """Rebuild only the public evolution gate from existing registry artifacts."""
+    registry_path = Path(registry_dir)
+    root_path = registry_path.parent.parent
+    blockers: list[str] = []
+    forecast_rows = _read_registry_jsonl(
+        registry_path / "report_forecast_ledger.jsonl",
+        label="report_forecast_ledger",
+        blockers=blockers,
+    )
+    outcome_label_path = registry_path / "report_outcome_labels.jsonl"
+    outcome_label_rows = (
+        _read_registry_jsonl(
+            outcome_label_path,
+            label="report_outcome_labels",
+            blockers=blockers,
+        )
+        if outcome_label_path.exists()
+        else []
+    )
+    recipe_paper_trading_summary = _read_registry_json(
+        registry_path / "recipe_paper_trading_summary.json",
+        label="recipe_paper_trading_summary",
+        blockers=blockers,
+    )
+    confidence_impact_monitor = _read_registry_json(
+        registry_path / "confidence_impact_monitor.json",
+        label="confidence_impact_monitor",
+        blockers=blockers,
+    )
+    markdown_coverage_summary = _read_registry_json(
+        registry_path / "markdown_coverage_summary.json",
+        label="markdown_coverage_summary",
+        blockers=blockers,
+    )
+    pit_leakage_audit = _read_registry_json(
+        registry_path / "pit_leakage_audit.json",
+        label="pit_leakage_audit",
+        blockers=blockers,
+    )
+    extraction_provenance_audit = _read_registry_json(
+        registry_path / "extraction_provenance_audit.json",
+        label="extraction_provenance_audit",
+        blockers=blockers,
+    )
+    statistical_robustness_audit = _read_registry_json(
+        registry_path / "statistical_robustness_audit.json",
+        label="statistical_robustness_audit",
+        blockers=blockers,
+    )
+    gold_review_summary = _read_registry_json(
+        registry_path.parent / "gold_sets/tushare_research_reports.review_summary.json",
+        label="gold_review_summary",
+        blockers=blockers,
+    )
+    outcome_labeling_readiness = _read_registry_json(
+        registry_path / "outcome_labeling_readiness.json",
+        label="outcome_labeling_readiness",
+        blockers=blockers,
+    )
+    monitor_refresh_history_rows = _read_registry_jsonl(
+        registry_path / "monitor_refresh_history.jsonl",
+        label="monitor_refresh_history",
+        blockers=blockers,
+    )
+    audit_refresh_history_rows = _read_registry_jsonl(
+        registry_path / "audit_refresh_history.jsonl",
+        label="audit_refresh_history",
+        blockers=blockers,
+    )
+    gap_distribution_history_rows = _read_registry_jsonl(
+        registry_path / "gap_distribution_history.jsonl",
+        label="gap_distribution_history",
+        blockers=blockers,
+    )
+    gate = build_report_intelligence_evolution_readiness_gate(
+        run_id=run_id,
+        forecast_rows=forecast_rows,
+        outcome_label_rows=outcome_label_rows,
+        recipe_paper_trading_summary=recipe_paper_trading_summary,
+        confidence_impact_monitor=confidence_impact_monitor,
+        markdown_coverage_summary=markdown_coverage_summary,
+        pit_leakage_audit=pit_leakage_audit,
+        extraction_provenance_audit=extraction_provenance_audit,
+        statistical_robustness_audit=statistical_robustness_audit,
+        gold_review_summary=gold_review_summary,
+        outcome_labeling_readiness=outcome_labeling_readiness,
+        schema_validation_report=_read_schema_validation_report(root_path),
+        monitor_refresh_history_rows=monitor_refresh_history_rows,
+        audit_refresh_history_rows=audit_refresh_history_rows,
+        gap_distribution_history_rows=gap_distribution_history_rows,
+    )
+    if blockers:
+        gate = dict(gate)
+        gate["input_load_blockers"] = blockers
+        gate["blockers"] = sorted(
+            set([*_ensure_list(gate.get("blockers")), "evolution_input_load_gap"])
+        )
+        gate["blocker_count"] = len(gate["blockers"])
+        gate["gate_status"] = "blocked"
+        gate["promotion_state"] = "blocked_before_prompt_evolution"
+        gate["private_text_included"] = _public_payload_private_text_included(gate)
+    written = _write_json(registry_path / "evolution_readiness_gate.json", gate)
+    return {
+        "evolution_readiness_gate": str(written["path"]),
+        "gate_status": str(gate.get("gate_status") or ""),
+        "blocker_count": int(gate.get("blocker_count") or 0),
+        "input_load_blockers": blockers,
+    }
 
 
 PROMPT_MUTATION_CANDIDATE_SCHEMA_VERSION = "prompt_mutation_candidate_v1"
@@ -10070,6 +10510,15 @@ def build_prompt_mutation_candidates(
                     ),
                     "stock_report_count": int(
                         markdown_summary.get("stock_report_count") or 0
+                    ),
+                    "stock_outcome_120d_ready_report_count": int(
+                        markdown_summary.get("stock_outcome_120d_ready_report_count")
+                        or 0
+                    ),
+                    "stock_outcome_age_bucket_counts": _count_mapping_values(
+                        _ensure_mapping(
+                            markdown_summary.get("stock_outcome_age_bucket_counts")
+                        )
                     ),
                     "sector_bucket_coverage_gaps": _ensure_list(
                         markdown_summary.get("sector_bucket_coverage_gaps")
@@ -15770,6 +16219,7 @@ def run_report_intelligence_derived_refresh(
     footprint_review_outputs = write_analytical_footprint_review_artifacts(
         registry_dir,
         footprint_rows,
+        preserve_existing_summary=True,
     )
     footprint_review_load_blockers: list[str] = []
     footprint_review_summary = _read_registry_json(
@@ -16237,6 +16687,7 @@ def run_report_intelligence_refresh(
             chunk_count,
             base_url=cfg.vllm_base_url,
             model=cfg.vllm_model,
+            api_key=cfg.vllm_api_key,
             timeout_seconds=cfg.vllm_timeout_seconds,
             max_output_tokens=cfg.max_llm_output_tokens,
         )

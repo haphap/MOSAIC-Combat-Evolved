@@ -23,6 +23,8 @@ from mosaic.rke.report_intelligence import (
     build_confidence_impact_observations,
     build_markdown_coverage_summary,
     build_prompt_mutation_candidates,
+    build_industry_etf_proxy_outcome_labels,
+    build_industry_etf_proxy_readiness,
     build_report_intelligence_evolution_readiness_gate,
     build_method_performance_profiles,
     build_recipe_paper_trading_runs,
@@ -31,10 +33,12 @@ from mosaic.rke.report_intelligence import (
     build_source_performance_profiles,
     build_viewpoint_performance_profiles,
     build_weighted_research_contexts,
+    call_vllm_extractor,
     classify_tool_coverage,
     convert_pdfs_with_mineru_batch,
     run_report_intelligence_refresh,
     run_report_intelligence_derived_refresh,
+    write_report_intelligence_evolution_readiness_gate,
     _append_evolution_history_record,
     _markdown_quality_gap,
     _paper_trading_chronological_split_metrics,
@@ -44,6 +48,71 @@ from mosaic.rke.report_intelligence import (
 
 def _sha(path: Path) -> str:
     return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def test_call_vllm_extractor_sends_authorization_header(monkeypatch):
+    seen: dict[str, object] = {}
+
+    class _Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return json.dumps(
+                {
+                    "choices": [
+                        {
+                            "message": {
+                                "content": json.dumps(
+                                    {
+                                        "forecast_claims": [],
+                                        "analytical_footprints": [],
+                                        "metric_candidates": [],
+                                        "method_patterns": [],
+                                        "tool_gaps": [],
+                                    }
+                                )
+                            }
+                        }
+                    ]
+                }
+            ).encode("utf-8")
+
+    def _fake_urlopen(request, timeout):
+        seen["url"] = request.full_url
+        seen["authorization"] = request.get_header("Authorization")
+        seen["payload"] = json.loads(request.data.decode("utf-8"))
+        seen["timeout"] = timeout
+        return _Response()
+
+    monkeypatch.setattr(
+        "mosaic.rke.report_intelligence.urllib.request.urlopen",
+        _fake_urlopen,
+    )
+
+    result = call_vllm_extractor(
+        {
+            "source_id": "SRC-1",
+            "title": "测试报告",
+            "publish_date": "2024-01-02",
+        },
+        "原文 Markdown",
+        "SRC-1:chunk-1",
+        0,
+        1,
+        base_url="https://example.test/v1",
+        model="mimo-v2.5-pro",
+        api_key="secret-token",
+    )
+
+    assert result["status"] == "ok"
+    assert result["model"] == "mimo-v2.5-pro"
+    assert seen["url"] == "https://example.test/v1/chat/completions"
+    assert seen["authorization"] == "Bearer secret-token"
+    assert seen["payload"]["model"] == "mimo-v2.5-pro"
 
 
 def _passing_forecast_gold_review_summary(**overrides):
@@ -678,6 +747,7 @@ def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
         "sector_bucket_min_report_count": 5,
         "selected_report_count_min": 300,
         "stock_report_count_min": 80,
+        "stock_outcome_120d_ready_report_count_min": 30,
     }
     assert markdown_coverage["coverage_gate_status"] == "blocked"
     assert set(markdown_coverage["coverage_gate_blockers"]) == {
@@ -691,6 +761,8 @@ def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
         "sector_bucket_coverage_below_p9_target",
         "selected_report_count_below_p9_target",
         "stock_report_count_below_p9_target",
+        "stock_outcome_120d_ready_count_below_p9_target",
+        "stock_outcome_age_bucket_coverage_below_p9_target",
         "time_bucket_coverage_below_p9_target",
     }
     assert markdown_coverage["report_type_counts"] == {"宏观研报": 1}
@@ -703,7 +775,7 @@ def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
         "standard_evaluable_candidate": 1
     }
     assert markdown_coverage["sector_bucket_coverage_gaps"] == [
-        "sector_bucket:宏观"
+        "sector_bucket:other_sector"
     ]
     assert markdown_coverage["sector_bucket_below_min_count"] == 1
     assert {
@@ -716,6 +788,7 @@ def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
         "evaluability_bucket:stock_proxy_candidate",
         "evaluability_bucket:industry_proxy_candidate",
         "evaluability_bucket:mapping_gap_candidate",
+        "stock_outcome_age_bucket:stock_outcome_120d_calendar_ready",
     } <= set(markdown_coverage["coverage_strata_missing"])
     assert markdown_coverage["stratified_sampling_policy"]["privacy_boundary"] == (
         "aggregate_counts_only"
@@ -1319,7 +1392,7 @@ def test_markdown_coverage_does_not_bucket_stock_query_key_as_sector():
     )
 
     assert summary["stock_report_count"] == 1
-    assert summary["sector_bucket_counts"] == {"unknown_sector": 2}
+    assert summary["sector_bucket_counts"] == {"other_sector": 2}
     assert "920003.BJ" not in summary["sector_bucket_counts"]
     assert "832317.BJ" not in summary["sector_bucket_counts"]
     assert all(
@@ -1449,6 +1522,7 @@ def test_markdown_coverage_requires_stratified_industry_and_stock_samples():
         "institution_bucket",
         "sector_bucket",
         "stock_ts_code",
+        "stock_outcome_age_bucket",
         "horizon_bucket",
         "evaluability_bucket",
     ]
@@ -1474,6 +1548,11 @@ def test_markdown_coverage_requires_stratified_industry_and_stock_samples():
         "mapping_gap_candidate",
         "stock_proxy_candidate",
     } <= set(summary["evaluability_bucket_counts"])
+    assert summary["stock_outcome_120d_ready_report_count"] == 59
+    assert summary["stock_outcome_age_bucket_counts"] == {
+        "stock_outcome_120d_calendar_ready": 59,
+        "stock_outcome_pending": 20,
+    }
 
     passing = build_markdown_coverage_summary(
         run_id="RIR-MARKDOWN-STRATA-PASS-TEST",
@@ -1681,6 +1760,15 @@ def test_report_intelligence_recipe_paper_trading_requires_direct_pit_evidence()
         run_id="RIR-TEST-PAPER",
         recipe_paper_trading_runs=blocked_runs,
     )
+    blocked_summary = build_recipe_paper_trading_summary(
+        run_id="RIR-TEST-PAPER",
+        recipe_paper_trading_runs=blocked_runs,
+    )
+    blocked_monitor = build_confidence_impact_monitor(
+        run_id="RIR-TEST-PAPER",
+        confidence_observation_rows=blocked_observations,
+        recipe_paper_trading_summary=blocked_summary,
+    )
 
     assert blocked_runs[0]["paper_trading_status"] == "blocked"
     assert "no_direct_recipe_outcome_binding" in blocked_runs[0]["blocked_reasons"]
@@ -1691,7 +1779,17 @@ def test_report_intelligence_recipe_paper_trading_requires_direct_pit_evidence()
         is True
     )
     assert blocked_observations[0]["confidence_delta"] == 0.0
-    assert blocked_observations[0]["drift_status"] == "paper_trading_blocked"
+    assert (
+        blocked_observations[0]["drift_status"]
+        == "profile_paper_trade_disagreement"
+    )
+    assert blocked_observations[0]["recommended_action"] == "send_to_manual_review"
+    assert blocked_summary["profile_paper_trade_disagreement_count"] == 1
+    assert blocked_monitor["profile_paper_trade_disagreement_count"] == 1
+    assert blocked_monitor["profile_paper_trade_disagreement_recipe_ids"] == [
+        "RECIPE-DIRECT-PIT"
+    ]
+    assert blocked_monitor["manual_review_recipe_ids"] == ["RECIPE-DIRECT-PIT"]
 
     missing_required_data = dict(recipe)
     missing_required_data["required_data"] = []
@@ -2715,6 +2813,11 @@ def test_report_intelligence_prompt_mutation_candidates_track_markdown_spot_chec
             "markdown_quality_gap_counts": {
                 "markdown_repeated_line_noise": 2,
             },
+            "stock_outcome_120d_ready_report_count": 7,
+            "stock_outcome_age_bucket_counts": {
+                "stock_outcome_120d_calendar_ready": 7,
+                "stock_outcome_pending": 3,
+            },
             "markdown_quality_review_queue_count": 2,
             "markdown_false_positive_review_queue_count": 2,
             "markdown_quality_spot_check_required": True,
@@ -2730,6 +2833,11 @@ def test_report_intelligence_prompt_mutation_candidates_track_markdown_spot_chec
     assert len(coverage) == 1
     evidence = coverage[0]["evidence_refs"][0]
     assert evidence["coverage_gate_status"] == "passed"
+    assert evidence["stock_outcome_120d_ready_report_count"] == 7
+    assert evidence["stock_outcome_age_bucket_counts"] == {
+        "stock_outcome_120d_calendar_ready": 7,
+        "stock_outcome_pending": 3,
+    }
     assert evidence["markdown_quality_review_queue_count"] == 2
     assert evidence["markdown_false_positive_review_queue_count"] == 2
     assert evidence["markdown_quality_spot_check_required"] is True
@@ -3236,6 +3344,92 @@ def test_report_intelligence_labels_industry_claims_with_etf_proxy_windows(
     assert source_id not in availability_dump
     assert "Liquidity report" not in availability_dump
     assert readiness["blocked_count"] == 0
+
+
+def test_report_intelligence_industry_pit_availability_blocks_labels(
+    tmp_path: Path,
+):
+    qlib_etf_dir = tmp_path / "qlib_etf"
+    _write_qlib_etf_fixture(qlib_etf_dir)
+    mapping_rows = [
+        {
+            "mapping_id": "IETF-MAP-PIT-BLOCKED",
+            "mapping_version": 1,
+            "sector_name": "工业金属",
+            "sector_aliases": ["工业金属"],
+            "taxonomy": "test_taxonomy",
+            "etf_symbol": "SH512400",
+            "etf_name": "有色金属ETF",
+            "mapping_label": "有色金属ETF",
+            "benchmark_symbol": "SH510300",
+            "benchmark_source": "cn_etf",
+            "benchmark_family": "CSI300_ETF_PROXY",
+            "cost_model_id": "industry_etf_round_trip_10bps_v1",
+            "mapping_confidence": "operator_seeded_exact_sector",
+            "mapping_rationale": "test PIT availability gate",
+            "effective_from": "",
+            "effective_to": "",
+            "status": "primary",
+            "review_required": False,
+        }
+    ]
+    metadata_rows = [
+        {
+            "source_id": "SRC-PIT-BLOCKED",
+            "report_type": "行业研究",
+            "sector": "工业金属",
+        }
+    ]
+    forecast_rows = [
+        {
+            "forecast_claim_id": "FC-PIT-BLOCKED",
+            "source_id": "SRC-PIT-BLOCKED",
+            "signal_datetime": "2026-01-02T00:00:00+08:00",
+            "direction": "positive",
+            "target": {"target_type": "sector", "target_id": "工业金属"},
+            "horizon": {"preferred_days": 120},
+        }
+    ]
+    pit_availability = {
+        "mapping_records": [
+            {
+                "mapping_id": "IETF-MAP-PIT-BLOCKED",
+                "pit_available": False,
+                "pit_gap_reasons": ["insufficient_window_history"],
+            }
+        ]
+    }
+
+    readiness = build_industry_etf_proxy_readiness(
+        root_path=tmp_path,
+        qlib_etf_dir=qlib_etf_dir,
+        forecast_rows=forecast_rows,
+        metadata_rows=metadata_rows,
+        mapping_rows=mapping_rows,
+        pit_availability=pit_availability,
+    )
+    labels = build_industry_etf_proxy_outcome_labels(
+        root_path=tmp_path,
+        qlib_etf_dir=qlib_etf_dir,
+        forecast_rows=forecast_rows,
+        forecast_ledger_rows=[
+            {
+                "forecast_claim_id": "FC-PIT-BLOCKED",
+                "forecast_family_id": "FF-PIT-BLOCKED",
+            }
+        ],
+        metadata_rows=metadata_rows,
+        mapping_rows=mapping_rows,
+        pit_availability=pit_availability,
+    )
+
+    assert readiness["eligible_claim_count"] == 1
+    assert readiness["labelable_forecast_claim_count"] == 0
+    assert readiness["labelable_window_count"] == 0
+    assert readiness["data_gap_counts"] == {
+        "pit_availability_insufficient_window_history": 1
+    }
+    assert labels == []
 
 
 def test_report_intelligence_industry_pit_availability_records_missing_benchmark(
@@ -4209,6 +4403,101 @@ def test_report_intelligence_stock_readiness_records_price_gaps(
     assert readiness["blocked_count"] == 1
 
 
+def test_report_intelligence_stock_readiness_records_series_start_gap(
+    tmp_path: Path,
+):
+    source_id = _write_source(
+        tmp_path / "registry/sources/tushare_research_reports.jsonl",
+        industry="银行",
+        report_type="公司研报",
+        publish_date="2026-01-02",
+        ts_code="000001.SZ",
+    )
+    qlib_stock_dir = tmp_path / "qlib_stock"
+    qlib_etf_dir = tmp_path / "qlib_etf"
+    dates = _stock_fixture_dates()
+    _write_qlib_calendar(qlib_stock_dir, dates)
+    late_values = [1.0 + index * 0.001 for index in range(len(dates) - 10)]
+    for field, values in {
+        "adjclose": late_values,
+        "close": late_values,
+        "open": late_values,
+        "high": [value * 1.001 for value in late_values],
+        "low": [value * 0.999 for value in late_values],
+        "volume": [100.0 for _ in late_values],
+    }.items():
+        _write_qlib_series(
+            qlib_stock_dir,
+            "000001.SZ",
+            values,
+            field=field,
+            start_index=10.0,
+        )
+    _write_qlib_stock_benchmark_fixture(qlib_etf_dir)
+
+    def llm(row, chunk: str, span_id: str, chunk_index: int, chunk_count: int):
+        return {
+            "status": "ok",
+            "model": "fake-vllm",
+            "payload": {
+                "forecast_claims": [
+                    {
+                        "claim_text": "平安银行基本面改善，未来股价有望上涨。",
+                        "claim_provenance": "source_grounded",
+                        "forecast_testability": "testable",
+                        "forecast_type": "stock_outlook",
+                        "target": {"target_type": "stock", "target_id": "000001.SZ"},
+                        "benchmark": {},
+                        "direction": "positive",
+                        "horizon": {},
+                    }
+                ],
+                "analytical_footprints": [],
+                "metric_candidates": [],
+                "method_patterns": [],
+                "tool_gaps": [],
+            },
+        }
+
+    result = run_report_intelligence_refresh(
+        ReportIntelligenceConfig(
+            root=tmp_path,
+            source_ids=(source_id,),
+            qlib_stock_dir=qlib_stock_dir,
+            qlib_etf_dir=qlib_etf_dir,
+        ),
+        downloader=_fake_downloader,
+        converter=_fake_converter,
+        llm_extractor=llm,
+    )
+
+    assert result.stock_price_proxy_outcome_label_rows == 0
+    readiness = json.loads(
+        (tmp_path / "registry/report_intelligence/outcome_labeling_readiness.json")
+        .read_text(encoding="utf-8")
+    )
+    stock_readiness = readiness["stock_price_proxy_readiness"]
+    assert stock_readiness["data_gap_counts"] == {
+        "entry_price_before_series_start": 1
+    }
+    assert stock_readiness["stock_series_coverage_summary"] == {
+        "target_series_count": 1,
+        "target_series_missing_count": 0,
+        "earliest_price_date_min": "2026-01-11",
+        "earliest_price_date_max": "2026-01-11",
+        "latest_price_date_min": "2026-05-31",
+        "latest_price_date_max": "2026-05-31",
+        "latest_calendar_date": "2026-05-31",
+        "latest_aligned_series_count": 1,
+        "stale_before_latest_calendar_count": 0,
+        "future_dated_series_count": 0,
+        "series_lifecycle_status_counts": {"latest_aligned": 1},
+        "entry_before_series_start_count": 1,
+        "entry_after_series_end_count": 0,
+        "entry_within_series_range_count": 0,
+    }
+
+
 def test_report_intelligence_stock_target_conflict_blocks_labeling(
     tmp_path: Path,
 ):
@@ -4270,19 +4559,21 @@ def test_report_intelligence_stock_target_conflict_blocks_labeling(
     }
 
 
-def test_report_intelligence_accepts_bj_920_stock_codes(
+@pytest.mark.parametrize("bj_ts_code", ("920001.BJ", "921001.BJ"))
+def test_report_intelligence_accepts_bj_92_stock_codes(
     tmp_path: Path,
+    bj_ts_code: str,
 ):
     source_id = _write_source(
         tmp_path / "registry/sources/tushare_research_reports.jsonl",
         industry="北交所",
         report_type="公司研报",
         publish_date="2026-01-02",
-        ts_code="920001.BJ",
+        ts_code=bj_ts_code,
     )
     qlib_stock_dir = tmp_path / "qlib_stock"
     qlib_etf_dir = tmp_path / "qlib_etf"
-    _write_qlib_stock_fixture(qlib_stock_dir, symbol="920001.BJ")
+    _write_qlib_stock_fixture(qlib_stock_dir, symbol=bj_ts_code)
     _write_qlib_stock_benchmark_fixture(qlib_etf_dir)
 
     def llm(row, chunk: str, span_id: str, chunk_index: int, chunk_count: int):
@@ -4296,7 +4587,7 @@ def test_report_intelligence_accepts_bj_920_stock_codes(
                         "claim_provenance": "source_grounded",
                         "forecast_testability": "testable",
                         "forecast_type": "stock_outlook",
-                        "target": {"target_type": "stock", "target_id": "920001.BJ"},
+                        "target": {"target_type": "stock", "target_id": bj_ts_code},
                         "benchmark": {},
                         "direction": "positive",
                         "horizon": {"max_days": 120, "unit": "trading_day"},
@@ -4325,9 +4616,9 @@ def test_report_intelligence_accepts_bj_920_stock_codes(
     outcome_labels = _read_jsonl(
         tmp_path / "registry/report_intelligence/report_outcome_labels.jsonl"
     )
-    assert {row["proxy_symbol"] for row in outcome_labels} == {"920001.BJ"}
-    assert {row["metadata_ts_code"] for row in outcome_labels} == {"920001.BJ"}
-    assert {row["llm_target_id"] for row in outcome_labels} == {"920001.BJ"}
+    assert {row["proxy_symbol"] for row in outcome_labels} == {bj_ts_code}
+    assert {row["metadata_ts_code"] for row in outcome_labels} == {bj_ts_code}
+    assert {row["llm_target_id"] for row in outcome_labels} == {bj_ts_code}
 
 
 def test_report_intelligence_rejects_legacy_bj_8_stock_codes(
@@ -4357,6 +4648,69 @@ def test_report_intelligence_rejects_legacy_bj_8_stock_codes(
                         "forecast_testability": "testable",
                         "forecast_type": "stock_outlook",
                         "target": {"target_type": "stock", "target_id": "830001.BJ"},
+                        "benchmark": {},
+                        "direction": "positive",
+                        "horizon": {"max_days": 120, "unit": "trading_day"},
+                    }
+                ],
+                "analytical_footprints": [],
+                "metric_candidates": [],
+                "method_patterns": [],
+                "tool_gaps": [],
+            },
+        }
+
+    result = run_report_intelligence_refresh(
+        ReportIntelligenceConfig(
+            root=tmp_path,
+            source_ids=(source_id,),
+            qlib_stock_dir=qlib_stock_dir,
+            qlib_etf_dir=qlib_etf_dir,
+        ),
+        downloader=_fake_downloader,
+        converter=_fake_converter,
+        llm_extractor=llm,
+    )
+
+    assert result.stock_price_proxy_outcome_label_rows == 0
+    readiness = json.loads(
+        (tmp_path / "registry/report_intelligence/outcome_labeling_readiness.json")
+        .read_text(encoding="utf-8")
+    )
+    assert readiness["stock_price_proxy_readiness"]["data_gap_counts"] == {
+        "stock_target_mapping_missing": 1
+    }
+
+
+@pytest.mark.parametrize("fund_like_code", ("501001.SH", "160621.SZ"))
+def test_report_intelligence_rejects_fund_like_codes_as_stock_targets(
+    tmp_path: Path,
+    fund_like_code: str,
+):
+    source_id = _write_source(
+        tmp_path / "registry/sources/tushare_research_reports.jsonl",
+        industry="基金",
+        report_type="公司研报",
+        publish_date="2026-01-02",
+        ts_code=fund_like_code,
+    )
+    qlib_stock_dir = tmp_path / "qlib_stock"
+    qlib_etf_dir = tmp_path / "qlib_etf"
+    _write_qlib_stock_fixture(qlib_stock_dir)
+    _write_qlib_stock_benchmark_fixture(qlib_etf_dir)
+
+    def llm(row, chunk: str, span_id: str, chunk_index: int, chunk_count: int):
+        return {
+            "status": "ok",
+            "model": "fake-vllm",
+            "payload": {
+                "forecast_claims": [
+                    {
+                        "claim_text": "基金类代码不应被普通股票评价通道处理。",
+                        "claim_provenance": "source_grounded",
+                        "forecast_testability": "testable",
+                        "forecast_type": "stock_outlook",
+                        "target": {"target_type": "stock", "target_id": fund_like_code},
                         "benchmark": {},
                         "direction": "positive",
                         "horizon": {"max_days": 120, "unit": "trading_day"},
@@ -4643,6 +4997,14 @@ def test_report_intelligence_stock_delisted_before_exit_blocks_labeling(
     assert readiness["stock_price_proxy_readiness"]["data_gap_counts"] == {
         "stock_delisted_before_exit": 4
     }
+    assert readiness["stock_price_proxy_readiness"][
+        "stock_series_coverage_summary"
+    ]["series_lifecycle_status_counts"] == {
+        "stale_before_latest_calendar": 1
+    }
+    assert readiness["stock_price_proxy_readiness"][
+        "stock_series_coverage_summary"
+    ]["stale_before_latest_calendar_count"] == 1
 
 
 def test_report_intelligence_stock_exit_limit_locked_blocks_window(
@@ -4950,8 +5312,119 @@ def test_report_intelligence_cli_help_exposes_stock_qlib_dir(capsys):
     assert exc.value.code == 0
     help_text = capsys.readouterr().out
     assert "--qlib-stock-dir" in help_text
+    assert "--vllm-timeout-seconds" in help_text
+    assert "--max-llm-output-tokens" in help_text
     assert "stratified" in help_text
     assert ReportIntelligenceConfig().qlib_stock_dir == "~/.qlib/qlib_data/cn_data"
+    assert ReportIntelligenceConfig().vllm_timeout_seconds == 300
+
+
+def test_report_intelligence_evolution_gate_writer_preserves_stock_coverage_evidence(
+    tmp_path: Path,
+):
+    registry_dir = tmp_path / "registry/report_intelligence"
+    registry_dir.mkdir(parents=True, exist_ok=True)
+
+    def write_json(path: Path, payload: dict) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
+    _write_jsonl(
+        registry_dir / "report_forecast_ledger.jsonl",
+        [{"forecast_claim_id": "FC-001", "source_id": "SRC-001"}],
+    )
+    for filename in (
+        "monitor_refresh_history.jsonl",
+        "audit_refresh_history.jsonl",
+        "gap_distribution_history.jsonl",
+    ):
+        _write_jsonl(registry_dir / filename, [])
+
+    write_json(
+        registry_dir / "recipe_paper_trading_summary.json",
+        {
+            "paper_trading_run_count": 0,
+            "validation_pass_count": 0,
+            "mean_cost_adjusted_alpha": None,
+        },
+    )
+    write_json(
+        registry_dir / "confidence_impact_monitor.json",
+        {
+            "observation_count": 0,
+            "blocked_recipe_count": 0,
+            "unvalidated_confidence_impact_count": 0,
+            "calibration_drift_count": 0,
+            "aggregate_calibration_drift_count": 0,
+            "calibration_drift_rule_counts": {},
+        },
+    )
+    write_json(
+        registry_dir / "markdown_coverage_summary.json",
+        {
+            "coverage_gate_status": "blocked",
+            "coverage_gate_blockers": [
+                "stock_outcome_120d_ready_count_below_p9_target"
+            ],
+            "coverage_targets": {"stock_outcome_120d_ready_report_count_min": 30},
+            "coverage_strata_targets": {
+                "stock_outcome_age_bucket_required": [
+                    "stock_outcome_120d_calendar_ready"
+                ]
+            },
+            "coverage_strata_missing": [
+                "stock_outcome_age_bucket:stock_outcome_120d_calendar_ready"
+            ],
+            "selected_report_count": 0,
+            "markdown_ready_count": 0,
+            "markdown_quality_pass_count": 0,
+            "llm_extraction_processed_count": 0,
+            "industry_report_count": 0,
+            "stock_report_count": 0,
+            "stock_outcome_120d_ready_report_count": 0,
+            "stock_outcome_age_bucket_counts": {},
+        },
+    )
+    for filename in (
+        "pit_leakage_audit.json",
+        "extraction_provenance_audit.json",
+        "statistical_robustness_audit.json",
+    ):
+        write_json(registry_dir / filename, {"accepted": True, "blockers": []})
+    write_json(registry_dir / "outcome_labeling_readiness.json", {"mapping_gap_counts": {}})
+    write_json(
+        tmp_path / "registry/gold_sets/tushare_research_reports.review_summary.json",
+        {
+            "passed": False,
+            "review_complete": False,
+            "reviewed_claims": 0,
+            "total_documents": 0,
+            "metrics": {},
+        },
+    )
+    write_json(
+        tmp_path / "registry/schemas/rke_schema_validation_report.json",
+        {"accepted": True, "failure_count": 0, "records": []},
+    )
+
+    result = write_report_intelligence_evolution_readiness_gate(
+        registry_dir,
+        run_id="RIR-TEST-GATE",
+    )
+
+    assert result["input_load_blockers"] == []
+    gate = json.loads(
+        (registry_dir / "evolution_readiness_gate.json").read_text(encoding="utf-8")
+    )
+    markdown_check = next(
+        check for check in gate["checks"] if check["check_id"] == "RI-EVOL-07"
+    )
+    assert markdown_check["evidence"]["stock_outcome_120d_ready_report_count"] == 0
+    assert markdown_check["evidence"]["stock_outcome_age_bucket_counts"] == {}
+    assert "stock_outcome_120d_ready_count_below_p9_target" in gate["blockers"]
 
 
 def test_report_intelligence_stratified_source_selection_covers_p9_buckets(
@@ -5057,6 +5530,91 @@ def test_report_intelligence_stratified_source_selection_covers_p9_buckets(
     }
     assert coverage["stock_report_count"] == 1
     assert coverage["industry_report_count"] == 1
+
+
+def test_report_intelligence_stratified_source_selection_covers_outcome_ready_stock(
+    tmp_path: Path,
+):
+    source_path = tmp_path / "registry/sources/tushare_research_reports.jsonl"
+    source_path.parent.mkdir(parents=True, exist_ok=True)
+
+    def stock_row(
+        source_id: str,
+        *,
+        publish_date: str,
+        ts_code: str,
+    ) -> dict[str, object]:
+        return {
+            "author": "Analyst A",
+            "discovered_at": f"{publish_date}T00:00:00+00:00",
+            "industry": "银行",
+            "institution": "Broker",
+            "license_status": "pending_review",
+            "point_in_time_available": True,
+            "publish_date": publish_date,
+            "query_key": ts_code,
+            "report_type": "公司研报",
+            "source_hash": f"sha256:{source_id}",
+            "source_id": source_id,
+            "source_type": "tushare_research_report",
+            "title": f"公司研报 {ts_code}",
+            "ts_code": ts_code,
+            "url": f"https://example.invalid/{source_id}.pdf",
+        }
+
+    rows = [
+        stock_row(
+            "SRC-STOCK-RECENT-1",
+            publish_date="2026-06-05",
+            ts_code="000001.SZ",
+        ),
+        stock_row(
+            "SRC-STOCK-RECENT-2",
+            publish_date="2026-06-04",
+            ts_code="000002.SZ",
+        ),
+        stock_row(
+            "SRC-STOCK-OUTCOME-READY",
+            publish_date="2025-01-02",
+            ts_code="000003.SZ",
+        ),
+    ]
+    source_path.write_text(
+        "".join(
+            json.dumps(item, ensure_ascii=False, sort_keys=True) + "\n"
+            for item in rows
+        ),
+        encoding="utf-8",
+    )
+
+    result = run_report_intelligence_refresh(
+        ReportIntelligenceConfig(
+            root=tmp_path,
+            source_path=source_path,
+            limit=2,
+            selection_order="stratified",
+            skip_download=True,
+            skip_convert=True,
+            skip_llm=True,
+        )
+    )
+
+    assert result.selected_reports == 2
+    metadata = _read_jsonl(
+        tmp_path / "registry/report_intelligence/report_metadata.jsonl"
+    )
+    selected_ids = {row["source_id"] for row in metadata}
+    assert selected_ids == {"SRC-STOCK-RECENT-1", "SRC-STOCK-OUTCOME-READY"}
+
+    coverage = json.loads(
+        (
+            tmp_path / "registry/report_intelligence/markdown_coverage_summary.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert coverage["stock_outcome_age_bucket_counts"] == {
+        "stock_outcome_120d_calendar_ready": 1,
+        "stock_outcome_pending": 1,
+    }
 
 
 def test_report_intelligence_extractor_prompt_guides_industry_proxy_fields():
@@ -5308,6 +5866,38 @@ def test_report_intelligence_derived_refresh_backfills_explicit_horizon(
         json.dumps({"accepted": True, "failure_count": 0, "records": []}),
         encoding="utf-8",
     )
+    review_summary_path = (
+        tmp_path
+        / "registry/report_intelligence/analytical_footprint_review_summary.json"
+    )
+    review_summary = json.loads(review_summary_path.read_text(encoding="utf-8"))
+    review_summary.update(
+        {
+            "accepted": True,
+            "review_complete": True,
+            "quality_gate_passed": True,
+            "quality_gate_blockers": [],
+            "blockers": [],
+            "total_rows": 1,
+            "complete_rows": 1,
+            "pending_rows": 0,
+        }
+    )
+    review_summary["precision_recall_report"] = {
+        "footprint_precision": 1.0,
+        "span_support_precision": 1.0,
+        "metric_mapping_accuracy": 1.0,
+        "inferred_step_tagging_accuracy": 1.0,
+        "unknown_on_ambiguity_rate": 1.0,
+        "proprietary_leakage_free_rate": 1.0,
+        "recall_estimate": None,
+        "recall_status": "requires_human_negative_examples",
+    }
+    review_summary_path.write_text(
+        json.dumps(review_summary, ensure_ascii=False, indent=2, sort_keys=True)
+        + "\n",
+        encoding="utf-8",
+    )
 
     result = run_report_intelligence_derived_refresh(
         ReportIntelligenceConfig(root=tmp_path, refresh_derived_only=True)
@@ -5322,6 +5912,13 @@ def test_report_intelligence_derived_refresh_backfills_explicit_horizon(
     assert refreshed[0]["forecast_testability"] == "testable"
     assert refreshed[0]["horizon"]["max_days"] == 183
     assert "mapping_gaps" not in refreshed[0]["extraction_quality"]
+    refreshed_review_summary = json.loads(
+        review_summary_path.read_text(encoding="utf-8")
+    )
+    assert refreshed_review_summary["accepted"] is True
+    assert refreshed_review_summary["review_complete"] is True
+    assert refreshed_review_summary["quality_gate_passed"] is True
+    assert refreshed_review_summary["pending_rows"] == 0
     patch_coverage = json.loads(
         (
             tmp_path
@@ -5351,6 +5948,11 @@ def test_report_intelligence_derived_refresh_backfills_explicit_horizon(
     assert audit_history[-1]["schema_accepted"] is True
     assert audit_history[-1]["data_vintage_hash"] == evolution_gate["data_vintage_hash"]
     assert audit_history[-1]["private_text_included"] is False
+    markdown_gate = next(
+        row for row in evolution_gate["checks"] if row["check_id"] == "RI-EVOL-07"
+    )
+    assert "stock_outcome_120d_ready_report_count" in markdown_gate["evidence"]
+    assert "stock_outcome_age_bucket_counts" in markdown_gate["evidence"]
     gap_history = _read_jsonl(
         tmp_path / "registry/report_intelligence/gap_distribution_history.jsonl"
     )
@@ -6473,14 +7075,29 @@ def test_report_intelligence_defaults_to_hybrid_mineru_backend():
     assert "{backend}" in DEFAULT_MINERU_ARGS_TEMPLATE
 
 
-def test_mineru_batch_conversion_uses_directory_input(tmp_path: Path):
+def test_mineru_batch_conversion_uses_directory_input(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("HF_HOME", str(tmp_path / "hf-home"))
+    cached_model = (
+        tmp_path
+        / "hf-home"
+        / "hub"
+        / "models--opendatalab--MinerU2.5-Pro-2605-1.2B"
+    )
+    (cached_model / "refs").mkdir(parents=True)
+    (cached_model / "refs" / "main").write_text("local-snapshot\n", encoding="utf-8")
+    (cached_model / "snapshots" / "local-snapshot").mkdir(parents=True)
     fake_mineru = tmp_path / "fake-mineru"
     fake_mineru.write_text(
         "\n".join(
             [
                 "#!/usr/bin/env python3",
                 "import sys",
+                "import os",
                 "from pathlib import Path",
+                "assert os.environ.get('MINERU_TABLE_ENABLE') == 'true'",
+                "assert os.environ.get('MINERU_FORMULA_ENABLE') == 'true'",
+                "assert os.environ.get('HF_HUB_OFFLINE') == '1'",
+                "assert os.environ.get('TRANSFORMERS_OFFLINE') == '1'",
                 "args = sys.argv[1:]",
                 "input_dir = Path(args[args.index('-p') + 1])",
                 "output_dir = Path(args[args.index('-o') + 1])",

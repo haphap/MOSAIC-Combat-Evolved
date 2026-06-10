@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any, Sequence
@@ -99,6 +100,8 @@ from .report_intelligence import (
     ReportIntelligenceConfig,
     apply_analytical_footprint_review_import,
     run_report_intelligence_refresh,
+    write_report_intelligence_evolution_readiness_gate,
+    write_report_intelligence_prompt_mutation_candidates,
 )
 from .review_progress import (
     build_manual_review_progress,
@@ -809,6 +812,26 @@ def build_parser() -> argparse.ArgumentParser:
         help="vLLM model id. When omitted, /models first result is used.",
     )
     report_intelligence.add_argument(
+        "--vllm-api-key-env",
+        default="MOSAIC_VLLM_API_KEY,OPENAI_API_KEY",
+        help=(
+            "Comma-separated environment variable names for an OpenAI-compatible "
+            "chat API key. Defaults to MOSAIC_VLLM_API_KEY,OPENAI_API_KEY."
+        ),
+    )
+    report_intelligence.add_argument(
+        "--vllm-timeout-seconds",
+        type=int,
+        default=300,
+        help="OpenAI-compatible chat request timeout in seconds. Defaults to 300.",
+    )
+    report_intelligence.add_argument(
+        "--max-llm-output-tokens",
+        type=int,
+        default=4096,
+        help="Maximum output tokens per LLM extraction chunk. Defaults to 4096.",
+    )
+    report_intelligence.add_argument(
         "--qlib-etf-dir",
         default="~/.qlib/qlib_data/cn_etf",
         help="Local qlib ETF data directory for proxy outcome labels.",
@@ -829,6 +852,27 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=8,
         help="Maximum Markdown chunks per report. Defaults to 8.",
+    )
+
+    evolution_gate = subparsers.add_parser(
+        "report-intelligence-evolution-gate",
+        help=(
+            "Rebuild only report-intelligence evolution gate artifacts from "
+            "existing registry evidence."
+        ),
+    )
+    evolution_gate.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
+    evolution_gate.add_argument(
+        "--run-id",
+        default="RIR-PUBLIC-EVOLUTION-GATE",
+        help="Run id to stamp on the rebuilt evolution gate.",
+    )
+    evolution_gate.add_argument(
+        "--refresh-prompt-mutations",
+        action="store_true",
+        help="Also rebuild prompt mutation candidates after writing the gate.",
     )
 
     apply_footprint_review = subparsers.add_parser(
@@ -1234,14 +1278,40 @@ def main(argv: Sequence[str] | None = None) -> int:
                 mineru_batch_max_bytes=args.mineru_batch_max_bytes,
                 vllm_base_url=args.vllm_base_url,
                 vllm_model=args.vllm_model,
+                vllm_api_key=next(
+                    (
+                        os.environ[name.strip()]
+                        for name in str(args.vllm_api_key_env or "").split(",")
+                        if name.strip() and os.environ.get(name.strip())
+                    ),
+                    None,
+                ),
                 qlib_etf_dir=args.qlib_etf_dir,
                 qlib_stock_dir=args.qlib_stock_dir,
+                vllm_timeout_seconds=args.vllm_timeout_seconds,
                 chunk_chars=args.chunk_chars,
                 max_chunks=args.max_chunks,
+                max_llm_output_tokens=args.max_llm_output_tokens,
             )
         )
         _print_json(asdict(result))
         return 0 if result.blocker_count == 0 else 2
+    if args.command == "report-intelligence-evolution-gate":
+        registry_dir = root / "registry/report_intelligence"
+        result = write_report_intelligence_evolution_readiness_gate(
+            registry_dir,
+            run_id=args.run_id,
+        )
+        if args.refresh_prompt_mutations:
+            result = {
+                **result,
+                **write_report_intelligence_prompt_mutation_candidates(
+                    registry_dir,
+                    run_id=args.run_id,
+                ),
+            }
+        _print_json(result)
+        return 0 if not result.get("input_load_blockers") else 2
     if args.command == "apply-footprint-review":
         report = apply_analytical_footprint_review_import(
             root,

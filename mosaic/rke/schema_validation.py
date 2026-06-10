@@ -16,10 +16,12 @@ SUPPORTED_JSON_SCHEMA_KEYWORDS = frozenset(
     {
         "$schema",
         "additionalProperties",
+        "allOf",
         "const",
         "enum",
         "exclusiveMaximum",
         "exclusiveMinimum",
+        "if",
         "items",
         "maxItems",
         "maxLength",
@@ -30,6 +32,7 @@ SUPPORTED_JSON_SCHEMA_KEYWORDS = frozenset(
         "pattern",
         "properties",
         "required",
+        "then",
         "title",
         "type",
         "uniqueItems",
@@ -192,6 +195,11 @@ def iter_json_schema_keywords(schema: Mapping[str, Any]) -> tuple[str, ...]:
                 elif isinstance(value, list):
                     for item_schema in value:
                         walk(item_schema)
+            elif key in {"allOf"} and isinstance(value, list):
+                for item_schema in value:
+                    walk(item_schema)
+            elif key in {"if", "then"} and isinstance(value, Mapping):
+                walk(value)
 
     walk(schema)
     return tuple(keywords)
@@ -227,6 +235,16 @@ def _json_unique_items(value: Sequence[Any]) -> bool:
 
 def _validate_value(value: Any, schema: Mapping[str, Any], path: str) -> list[str]:
     failures: list[str] = []
+    all_of = schema.get("allOf")
+    if isinstance(all_of, list):
+        for item_schema in all_of:
+            if isinstance(item_schema, Mapping):
+                failures.extend(_validate_value(value, item_schema, path))
+    if_schema = schema.get("if")
+    then_schema = schema.get("then")
+    if isinstance(if_schema, Mapping) and isinstance(then_schema, Mapping):
+        if not _validate_value(value, if_schema, path):
+            failures.extend(_validate_value(value, then_schema, path))
     expected_types = _schema_expected_types(schema)
     if expected_types and not any(
         _schema_type_matches(value, expected_type)
@@ -883,6 +901,67 @@ def _float_or_none(value: Any) -> float | None:
         return None
 
 
+STOCK_TARGET_PRICE_CONTRACT_FIELDS = (
+    "target_price",
+    "target_price_hit",
+    "target_price_entry_price",
+    "target_price_eval_price",
+    "target_price_source_grounded",
+    "target_price_provenance",
+    "target_price_hit_policy",
+)
+
+
+def _validate_stock_target_price_contract(
+    row: Mapping[str, Any],
+    *,
+    row_label: str,
+    direction: str,
+) -> list[str]:
+    if not any(field in row for field in STOCK_TARGET_PRICE_CONTRACT_FIELDS):
+        return []
+    failures = _required_field_failures(
+        row,
+        row_label=row_label,
+        required_fields=STOCK_TARGET_PRICE_CONTRACT_FIELDS,
+    )
+    target_price = _float_or_none(row.get("target_price"))
+    entry_price = _float_or_none(row.get("target_price_entry_price"))
+    eval_price = _float_or_none(row.get("target_price_eval_price"))
+    for field, value in (
+        ("target_price", target_price),
+        ("target_price_entry_price", entry_price),
+        ("target_price_eval_price", eval_price),
+    ):
+        if value is None:
+            failures.append(f"{row_label}.{field}: expected number")
+        elif value <= 0:
+            failures.append(f"{row_label}.{field}: must be > 0")
+    if row.get("target_price_source_grounded") is not True:
+        failures.append(f"{row_label}.target_price_source_grounded: must be true")
+    if not str(row.get("target_price_provenance") or "").strip():
+        failures.append(f"{row_label}.target_price_provenance: required")
+    policy = str(row.get("target_price_hit_policy") or "")
+    if not policy.startswith("auxiliary_source_grounded_target_price_hit_v1:"):
+        failures.append(
+            f"{row_label}.target_price_hit_policy: unsupported target price policy"
+        )
+    if target_price is not None and eval_price is not None and direction in {
+        "positive",
+        "negative",
+    }:
+        expected_hit = (
+            eval_price >= target_price
+            if direction == "positive"
+            else eval_price <= target_price
+        )
+        if row.get("target_price_hit") is not expected_hit:
+            failures.append(
+                f"{row_label}.target_price_hit: must match direction_evaluated and target_price_eval_price"
+            )
+    return failures
+
+
 def _string_items(value: Any) -> list[str]:
     if not isinstance(value, Sequence) or isinstance(value, str):
         return []
@@ -1126,6 +1205,13 @@ def _validate_proxy_outcome_label_contract(row: Mapping[str, Any], row_label: st
             failures.append(
                 f"{row_label}.exit_liquidity_check: must be {STOCK_PROXY_TRADABILITY_CHECK}"
             )
+        failures.extend(
+            _validate_stock_target_price_contract(
+                row,
+                row_label=row_label,
+                direction=direction,
+            )
+        )
     elif label_type == "industry_etf_proxy":
         if row.get("outcome_label_source") != "pit_industry_etf_price_window":
             failures.append(
@@ -2503,6 +2589,11 @@ def validate_report_intelligence_semantics(
                     "stock_report_count_min",
                     "stock_report_count_below_p9_target",
                 ),
+                (
+                    "stock_outcome_120d_ready_report_count",
+                    "stock_outcome_120d_ready_report_count_min",
+                    "stock_outcome_120d_ready_count_below_p9_target",
+                ),
             ):
                 count = _int_or_none(markdown_coverage.get(count_field))
                 target = _int_or_none(coverage_targets.get(target_field))
@@ -2607,6 +2698,12 @@ def validate_report_intelligence_semantics(
                     "evaluability_bucket_required",
                     "evaluability_bucket",
                     "evaluability_bucket_coverage_below_p9_target",
+                ),
+                (
+                    "stock_outcome_age_bucket_counts",
+                    "stock_outcome_age_bucket_required",
+                    "stock_outcome_age_bucket",
+                    "stock_outcome_age_bucket_coverage_below_p9_target",
                 ),
             )
             for counts_field, targets_field, dimension, blocker in strata_checks:

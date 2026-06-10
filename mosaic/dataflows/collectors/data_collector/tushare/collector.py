@@ -8,7 +8,6 @@ from typing import Dict, Iterable, List, Optional, Set
 import json
 import time
 
-import multiprocessing
 from concurrent.futures import ProcessPoolExecutor, TimeoutError
 
 import numpy as np
@@ -29,7 +28,7 @@ for p in (CUR_DIR, SCRIPTS_DIR):
         sys.path.insert(0, str(p))
 
 from dump_bin import DumpDataAll, DumpDataUpdate  # noqa: E402
-from data_collector.base import BaseCollector, BaseNormalize, BaseRun, Normalize  # noqa: E402
+from data_collector.base import BaseCollector, BaseNormalize, BaseRun  # noqa: E402
 from data_collector.utils import get_calendar_list  # noqa: E402
 
 DEFAULT_BASE_DIR = CUR_DIR  # align with yahoo collector default_base_dir
@@ -76,13 +75,13 @@ def qlib_symbol_to_ts_code(symbol: str) -> str:
 
 
 def is_queryable_incremental_symbol(symbol: str) -> bool:
-    """Return False for legacy BSE symbols that should not be queried live."""
+    """Return False for non-ordinary BSE symbols that should not be queried live."""
     normalized = symbol.strip().upper()
     ts_code = qlib_symbol_to_ts_code(normalized).upper()
     if ts_code.endswith(".BJ"):
-        return ts_code.split(".", 1)[0].startswith("9")
+        return ts_code.split(".", 1)[0].startswith("92")
     if normalized.startswith("BJ"):
-        return normalized[2:].startswith("9")
+        return normalized[2:].startswith("92")
     return True
 
 

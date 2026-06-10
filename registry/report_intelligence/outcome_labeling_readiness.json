@@ -130,6 +130,22 @@
     "llm_outcome_labeling_allowed": false,
     "outcome_label_source": "pit_stock_price_window",
     "pending_future_window_count": 0,
+    "stock_series_coverage_summary": {
+      "target_series_count": 0,
+      "target_series_missing_count": 0,
+      "earliest_price_date_min": null,
+      "earliest_price_date_max": null,
+      "latest_price_date_min": null,
+      "latest_price_date_max": null,
+      "latest_calendar_date": "2026-06-03",
+      "latest_aligned_series_count": 0,
+      "stale_before_latest_calendar_count": 0,
+      "future_dated_series_count": 0,
+      "series_lifecycle_status_counts": {},
+      "entry_before_series_start_count": 0,
+      "entry_after_series_end_count": 0,
+      "entry_within_series_range_count": 0
+    },
     "pit_realism_policy": {
       "benchmark_alignment": "date_key_cross_qlib_dir",
       "company_name_fuzzy_mapping_enabled": false,

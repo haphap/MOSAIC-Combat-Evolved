@@ -53,7 +53,8 @@
         "alpha_decay_fail",
         "calibration_drift_watch",
         "cost_decay_fail",
-        "regime_fragile_alpha"
+        "regime_fragile_alpha",
+        "profile_paper_trade_disagreement"
       ]
     },
     "recommended_action": {

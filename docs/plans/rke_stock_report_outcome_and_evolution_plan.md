@@ -178,7 +178,11 @@ uvx ruff@0.15.15 check mosaic tests
 - `~/.qlib/qlib_data/cn_data/calendars/day.txt`
 - `~/.qlib/qlib_data/cn_data/features/sh600000/adjclose.day.bin`
 - `~/.qlib/qlib_data/cn_data/features/sz000001/adjclose.day.bin`
-- 北交所 920 代码是否使用 `bj920xxx` 或其他 qlib symbol 规则。
+- 北交所 92 开头代码是否使用 `bj92xxxx` qlib symbol 规则。
+- 股票覆盖率诊断必须限定普通股票代码空间，排除 `501xxx.SH`、`51xxxx.SH`、
+  `52xxxx.SH`、`15xxxx.SZ`、`16xxxx.SZ`、`18xxxx.SZ` 等基金、ETF、LOF
+  目录；这些目录即使出现在 `cn_data/features` 中，也不能算作 stock outcome
+  的股票历史缺口。
 
 需要明确 benchmark 可用性：
 
@@ -234,7 +238,9 @@ uvx ruff@0.15.15 check mosaic tests
 注意：
 
 - `ts_code` 标准形态是 `000001.SZ`，qlib feature 目录通常是 `sz000001`。
-- 北交所只接受 `920` 开头普通股票，不主动扩展老 `8` 开头代码。
+- 普通股票代码范围显式限定为：沪市 `60/68` 开头，深市 `00/30`
+  开头，北交所 `92` 开头。北交所只接受 `92` 开头普通股票，不主动扩展老
+  `8/4` 开头代码。
 - 不做公司名模糊匹配，避免把同名或简称误映射成错误股票。
 - 如果 stock 和 benchmark 来自不同 qlib 目录，stock 入场/退出日期由 stock calendar 决定，benchmark 价格按相同日期查找；禁止用 stock calendar index 直接索引 benchmark series。
 
@@ -429,7 +435,7 @@ extraction provenance audit：
 第二批再扩展：
 
 1. benchmark fallback。
-2. 北交所 920 code symbol 规则。
+2. 北交所 92 code symbol 规则。
 3. 目标价命中辅助字段。
 4. schema status 全量验证。
 5. 涨跌停可交易性识别。
@@ -480,7 +486,7 @@ git rev-list --objects origin/main..HEAD | rg 'tushare_research_reports|report_i
 
 - benchmark 口径确定。
 - round-trip cost 确定。
-- 北交所 920 code qlib symbol 规则确认。
+- 北交所 92 code qlib symbol 规则确认。
 - 是否允许 ETF fallback benchmark 确认。
 - 停牌入场是 roll 到下一可交易日还是直接 gap；首轮建议直接 gap。
 - 涨跌停可交易性无法精确识别时，是否接受 `entry_liquidity_unverified` gap。
@@ -531,6 +537,28 @@ mosaic-rke fetch-tushare-reports \
 ### P9.2 MinerU 转换流程
 
 默认使用 `hybrid-auto-engine`，复杂图表或 OCR 质量不足时切到 `vlm-auto-engine`。
+本地环境应安装 `report-intelligence` extra 中的 `vllm`，让 MinerU 在 Linux/CUDA
+环境下自动选择 vLLM async engine。验证方式：
+
+```bash
+uv run python - <<'PY'
+import torch
+import vllm
+from mineru.backend.vlm.vlm_analyze import ModelSingleton
+
+print(f"cuda_available={torch.cuda.is_available()}")
+print(f"vllm={vllm.__version__}")
+print(ModelSingleton().get_model)
+PY
+```
+
+实际转换命令继续使用 `-b hybrid-auto-engine -m auto`。单页 smoke run 的
+MinerU 日志应出现 `Using vllm-async-engine` 或等价 vLLM async 初始化信息。
+RKE 调用 MinerU 时默认注入 `MINERU_TABLE_ENABLE=true` 和
+`MINERU_FORMULA_ENABLE=true`。如果本地
+HuggingFace cache 中已经存在 MinerU VLM 模型，RKE 会对 MinerU 子进程自动设置
+`HF_HUB_OFFLINE=1` 和 `TRANSFORMERS_OFFLINE=1`，避免批量转换时因在线 revision
+检查或网络抖动失败；无本地缓存时仍允许首次在线下载模型。
 
 处理策略：
 

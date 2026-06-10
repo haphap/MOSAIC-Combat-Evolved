@@ -9,6 +9,7 @@
   "llm_extraction_without_quality_pass_count": 0,
   "industry_report_count": 2,
   "stock_report_count": 0,
+  "stock_outcome_120d_ready_report_count": 0,
   "coverage_targets": {
     "selected_report_count_min": 300,
     "markdown_ready_count_min": 300,
@@ -16,6 +17,7 @@
     "llm_extraction_processed_count_min": 100,
     "industry_report_count_min": 80,
     "stock_report_count_min": 80,
+    "stock_outcome_120d_ready_report_count_min": 30,
     "sector_bucket_min_report_count": 5
   },
   "sector_bucket_coverage_gaps": [
@@ -42,6 +44,9 @@
       "stock_proxy_candidate",
       "industry_proxy_candidate",
       "mapping_gap_candidate"
+    ],
+    "stock_outcome_age_bucket_required": [
+      "stock_outcome_120d_calendar_ready"
     ]
   },
   "coverage_strata_missing": [
@@ -56,7 +61,8 @@
     "horizon_bucket:long_horizon",
     "evaluability_bucket:stock_proxy_candidate",
     "evaluability_bucket:industry_proxy_candidate",
-    "evaluability_bucket:mapping_gap_candidate"
+    "evaluability_bucket:mapping_gap_candidate",
+    "stock_outcome_age_bucket:stock_outcome_120d_calendar_ready"
   ],
   "coverage_gate_status": "blocked",
   "coverage_gate_blockers": [
@@ -66,11 +72,13 @@
     "llm_extraction_processed_count_below_p9_target",
     "industry_report_count_below_p9_target",
     "stock_report_count_below_p9_target",
+    "stock_outcome_120d_ready_count_below_p9_target",
     "sector_bucket_coverage_below_p9_target",
     "time_bucket_coverage_below_p9_target",
     "institution_bucket_coverage_below_p9_target",
     "horizon_bucket_coverage_below_p9_target",
-    "evaluability_bucket_coverage_below_p9_target"
+    "evaluability_bucket_coverage_below_p9_target",
+    "stock_outcome_age_bucket_coverage_below_p9_target"
   ],
   "markdown_quality_gap_counts": {
     "markdown_status_not_attempted": 2
@@ -99,6 +107,7 @@
   "evaluability_bucket_counts": {
     "markdown_not_ready": 2
   },
+  "stock_outcome_age_bucket_counts": {},
   "conversion_backend_counts": {},
   "retry_queue_count": 0,
   "stratified_sampling_policy": {
