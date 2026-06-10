@@ -100,6 +100,7 @@ from .report_intelligence import (
     DEFAULT_VLLM_TIMEOUT_SECONDS,
     ReportIntelligenceConfig,
     apply_analytical_footprint_review_import,
+    merge_report_intelligence_batch_outputs,
     run_report_intelligence_refresh,
     write_report_intelligence_evolution_readiness_gate,
     write_report_intelligence_prompt_mutation_candidates,
@@ -878,6 +879,30 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Also rebuild prompt mutation candidates after writing the gate.",
     )
+    merge_report_batches = subparsers.add_parser(
+        "merge-report-intelligence-batches",
+        help=(
+            "Merge multiple local report-intelligence batch output directories "
+            "into the registry JSONL inputs."
+        ),
+    )
+    merge_report_batches.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
+    merge_report_batches.add_argument(
+        "--input-dir",
+        action="append",
+        required=True,
+        help=(
+            "Batch output directory containing report-intelligence JSONL files. "
+            "May be repeated."
+        ),
+    )
+    merge_report_batches.add_argument(
+        "--refresh-derived",
+        action="store_true",
+        help="After merging rows, recompute public derived report-intelligence artifacts.",
+    )
 
     apply_footprint_review = subparsers.add_parser(
         "apply-footprint-review",
@@ -1316,6 +1341,18 @@ def main(argv: Sequence[str] | None = None) -> int:
             }
         _print_json(result)
         return 0 if not result.get("input_load_blockers") else 2
+    if args.command == "merge-report-intelligence-batches":
+        result = merge_report_intelligence_batch_outputs(
+            root=root,
+            input_dirs=args.input_dir,
+        )
+        if args.refresh_derived and result["blocker_count"] == 0:
+            refresh = run_report_intelligence_refresh(
+                ReportIntelligenceConfig(root=root, refresh_derived_only=True)
+            )
+            result = {**result, "derived_refresh": asdict(refresh)}
+        _print_json(result)
+        return 0 if result["blocker_count"] == 0 else 2
     if args.command == "apply-footprint-review":
         report = apply_analytical_footprint_review_import(
             root,

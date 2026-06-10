@@ -156,7 +156,7 @@ REPORT_INTELLIGENCE_PUBLIC_DERIVED_OUTPUT_PATHS = frozenset(
     }
 )
 DEFAULT_VLLM_BASE_URL = "http://127.0.0.1:8020/v1"
-DEFAULT_VLLM_TIMEOUT_SECONDS = 900
+DEFAULT_VLLM_TIMEOUT_SECONDS = 1800
 DEFAULT_Q_LIB_ETF_PATH = "~/.qlib/qlib_data/cn_etf"
 DEFAULT_Q_LIB_STOCK_PATH = "~/.qlib/qlib_data/cn_data"
 DEFAULT_MINERU_BACKEND = "hybrid-auto-engine"
@@ -16047,6 +16047,85 @@ def _append_unique_records(
         if value and value not in seen:
             target.append(record)
             seen.add(value)
+
+
+REPORT_INTELLIGENCE_BATCH_MERGE_JSONL_KEYS: Mapping[str, str] = {
+    "analytical_footprints.jsonl": "footprint_id",
+    "forecast_claims.jsonl": "forecast_claim_id",
+    "metric_candidates.jsonl": "metric_candidate_id",
+    "method_patterns.jsonl": "method_pattern_id",
+    "processing_status.jsonl": "source_id",
+    "report_metadata.jsonl": "report_id",
+    "report_outcome_labels.jsonl": "outcome_label_id",
+    "tool_gaps.jsonl": "tool_gap_id",
+    "weighted_research_contexts.jsonl": "context_id",
+}
+
+
+def _batch_output_path(input_dir: Path, filename: str) -> Path:
+    direct = input_dir / filename
+    if direct.exists():
+        return direct
+    nested = input_dir / "registry/report_intelligence" / filename
+    if nested.exists():
+        return nested
+    return direct
+
+
+def merge_report_intelligence_batch_outputs(
+    *,
+    root: str | Path = ".",
+    input_dirs: Sequence[str | Path],
+    registry_dir: str | Path = REPORT_INTELLIGENCE_REGISTRY_DIR,
+) -> dict[str, Any]:
+    root_path = Path(root).resolve()
+    registry_path = (
+        Path(registry_dir)
+        if Path(registry_dir).is_absolute()
+        else root_path / registry_dir
+    )
+    resolved_inputs = [
+        Path(input_dir) if Path(input_dir).is_absolute() else root_path / input_dir
+        for input_dir in input_dirs
+    ]
+    blockers: list[str] = []
+    outputs: dict[str, str] = {}
+    row_counts: dict[str, int] = {}
+    input_file_counts: dict[str, int] = {}
+    for filename, key in REPORT_INTELLIGENCE_BATCH_MERGE_JSONL_KEYS.items():
+        rows: list[dict[str, Any]] = []
+        file_count = 0
+        for input_dir in resolved_inputs:
+            path = _batch_output_path(input_dir, filename)
+            if not path.exists():
+                continue
+            file_count += 1
+            batch_rows = _read_registry_jsonl(
+                path,
+                label=f"{input_dir.name}/{filename}",
+                blockers=blockers,
+            )
+            _append_unique_records(
+                rows,
+                [dict(row) for row in batch_rows],
+                key=key,
+            )
+        if file_count:
+            written = _write_jsonl(registry_path / filename, rows)
+            outputs[filename] = str(written["path"])
+            row_counts[filename] = len(rows)
+            input_file_counts[filename] = file_count
+    if not outputs:
+        blockers.append("no report-intelligence batch jsonl files found")
+    return {
+        "input_dirs": [str(path) for path in resolved_inputs],
+        "input_dir_count": len(resolved_inputs),
+        "outputs": outputs,
+        "row_counts": row_counts,
+        "input_file_counts": input_file_counts,
+        "blockers": blockers,
+        "blocker_count": len(blockers),
+    }
 
 
 def _extract_for_markdown(

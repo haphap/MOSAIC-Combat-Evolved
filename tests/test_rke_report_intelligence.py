@@ -37,6 +37,7 @@ from mosaic.rke.report_intelligence import (
     call_vllm_extractor,
     classify_tool_coverage,
     convert_pdfs_with_mineru_batch,
+    merge_report_intelligence_batch_outputs,
     run_report_intelligence_refresh,
     run_report_intelligence_derived_refresh,
     write_report_intelligence_evolution_readiness_gate,
@@ -7182,3 +7183,90 @@ def test_mineru_batch_conversion_uses_directory_input(tmp_path: Path, monkeypatc
     assert results["SRC-B"]["duration_seconds"] >= 0
     assert (tmp_path / "mineru_batch" / "input-002").exists()
     assert (tmp_path / "markdown" / "SRC-A.md").read_text(encoding="utf-8").startswith("# SRC-A")
+
+
+def test_merge_report_intelligence_batch_outputs_dedupes_batch_jsonl(
+    tmp_path: Path,
+):
+    direct_batch = tmp_path / "batch-a"
+    nested_batch = tmp_path / "batch-b/registry/report_intelligence"
+    direct_batch.mkdir(parents=True)
+    nested_batch.mkdir(parents=True)
+
+    (direct_batch / "report_metadata.jsonl").write_text(
+        "\n".join(
+            [
+                json.dumps({"report_id": "RPT-1", "source_id": "SRC-1"}),
+                json.dumps({"report_id": "RPT-2", "source_id": "SRC-2"}),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (nested_batch / "report_metadata.jsonl").write_text(
+        "\n".join(
+            [
+                json.dumps({"report_id": "RPT-2", "source_id": "SRC-2-DUP"}),
+                json.dumps({"report_id": "RPT-3", "source_id": "SRC-3"}),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (direct_batch / "forecast_claims.jsonl").write_text(
+        json.dumps({"forecast_claim_id": "FC-1", "report_id": "RPT-1"}) + "\n",
+        encoding="utf-8",
+    )
+    (nested_batch / "forecast_claims.jsonl").write_text(
+        "\n".join(
+            [
+                json.dumps({"forecast_claim_id": "FC-1", "report_id": "RPT-1-DUP"}),
+                json.dumps({"forecast_claim_id": "FC-2", "report_id": "RPT-3"}),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = merge_report_intelligence_batch_outputs(
+        root=tmp_path,
+        input_dirs=(direct_batch, tmp_path / "batch-b"),
+    )
+
+    assert result["blocker_count"] == 0
+    assert result["row_counts"]["report_metadata.jsonl"] == 3
+    assert result["row_counts"]["forecast_claims.jsonl"] == 2
+    metadata = _read_jsonl(
+        tmp_path / "registry/report_intelligence/report_metadata.jsonl"
+    )
+    forecasts = _read_jsonl(
+        tmp_path / "registry/report_intelligence/forecast_claims.jsonl"
+    )
+    assert [row["report_id"] for row in metadata] == ["RPT-1", "RPT-2", "RPT-3"]
+    assert [row["forecast_claim_id"] for row in forecasts] == ["FC-1", "FC-2"]
+
+
+def test_merge_report_intelligence_batches_cli(capsys, tmp_path: Path):
+    batch = tmp_path / "batch"
+    batch.mkdir()
+    (batch / "tool_gaps.jsonl").write_text(
+        json.dumps({"tool_gap_id": "TG-1"}) + "\n",
+        encoding="utf-8",
+    )
+
+    rc = main(
+        (
+            "merge-report-intelligence-batches",
+            "--root",
+            str(tmp_path),
+            "--input-dir",
+            str(batch),
+        )
+    )
+
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["row_counts"]["tool_gaps.jsonl"] == 1
+    assert _read_jsonl(tmp_path / "registry/report_intelligence/tool_gaps.jsonl") == [
+        {"tool_gap_id": "TG-1"}
+    ]
