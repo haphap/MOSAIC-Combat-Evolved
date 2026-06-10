@@ -26,7 +26,7 @@
     "unmonitored_paper_trading_recipe_ids": [],
     "unmonitored_production_recipe_ids": []
   },
-  "as_of_datetime": "2026-06-10T10:19:02+00:00",
+  "as_of_datetime": "2026-06-10T14:14:44+00:00",
   "confidence_impact_monitoring": {
     "aggregate_calibration_drift_count": 0,
     "alpha_decay_fail_count": 0,
@@ -36,11 +36,11 @@
     "confidence_alpha_correlation_status": "insufficient_data",
     "cost_decay_fail_count": 0,
     "monitor_id": "RKE-REPORT-INTELLIGENCE-CONFIDENCE-IMPACT-MONITOR",
-    "observation_count": 6,
+    "observation_count": 50,
     "paper_trading_validated_recipe_count": 0,
     "production_decision_impact_allowed": false,
     "recommended_action_counts": {
-      "keep_shadow": 6
+      "keep_shadow": 50
     },
     "regime_fragile_alpha_count": 0,
     "unvalidated_confidence_impact_count": 0
@@ -48,16 +48,16 @@
   "monitoring_id": "RKE-REPORT-INTELLIGENCE-MONITORING",
   "policy": "monitoring metrics are diagnostic only; report-derived weights and recipes remain research priors until validation, paper trading, and promotion gates pass",
   "report_corpus": {
-    "forecast_claim_rows": 7,
-    "metadata_rows": 10,
-    "outcome_label_rows": 28
+    "forecast_claim_rows": 89,
+    "metadata_rows": 43,
+    "outcome_label_rows": 88
   },
   "report_weighting_monitoring": {
     "consensus_crowding_concentration": null,
     "effective_n_by_method": {
       "max_effective_n": 0.0,
       "nonzero_effective_n_count": 0,
-      "profile_count": 6,
+      "profile_count": 50,
       "top_profiles": [
         {
           "bucket": "",
@@ -94,13 +94,37 @@
           "id": "MPP-792df846d2cbe856",
           "insufficient_data": true,
           "n_effective": 0.0
+        },
+        {
+          "bucket": "",
+          "id": "MPP-c60140691694df09",
+          "insufficient_data": true,
+          "n_effective": 0.0
+        },
+        {
+          "bucket": "",
+          "id": "MPP-5c39cdcec66081e1",
+          "insufficient_data": true,
+          "n_effective": 0.0
+        },
+        {
+          "bucket": "",
+          "id": "MPP-a0bce39767f001a1",
+          "insufficient_data": true,
+          "n_effective": 0.0
+        },
+        {
+          "bucket": "",
+          "id": "MPP-a78d69450b3cb65c",
+          "insufficient_data": true,
+          "n_effective": 0.0
         }
       ]
     },
     "effective_n_by_source": {
       "max_effective_n": 3.0,
-      "nonzero_effective_n_count": 13,
-      "profile_count": 35,
+      "nonzero_effective_n_count": 33,
+      "profile_count": 131,
       "top_profiles": [
         {
           "bucket": "neutral_low_effective_n",
@@ -165,25 +189,37 @@
       ]
     },
     "effective_n_by_viewpoint": {
-      "max_effective_n": 3.0,
-      "nonzero_effective_n_count": 5,
-      "profile_count": 5,
+      "max_effective_n": 7.0,
+      "nonzero_effective_n_count": 11,
+      "profile_count": 50,
       "top_profiles": [
         {
           "bucket": "neutral_low_effective_n",
           "id": "VPP-48649d45b30701b2",
           "insufficient_data": false,
-          "n_effective": 3.0
+          "n_effective": 7.0
         },
         {
-          "bucket": "insufficient_data",
-          "id": "VPP-1778118bce28265e",
-          "insufficient_data": true,
-          "n_effective": 1.0
+          "bucket": "positive_low_effective_n",
+          "id": "VPP-e9344a77a2636169",
+          "insufficient_data": false,
+          "n_effective": 4.0
         },
         {
           "bucket": "insufficient_data",
           "id": "VPP-fdfeb8624e69b68c",
+          "insufficient_data": true,
+          "n_effective": 2.0
+        },
+        {
+          "bucket": "insufficient_data",
+          "id": "VPP-1944c2dbbbbefcba",
+          "insufficient_data": true,
+          "n_effective": 2.0
+        },
+        {
+          "bucket": "insufficient_data",
+          "id": "VPP-1778118bce28265e",
           "insufficient_data": true,
           "n_effective": 1.0
         },
@@ -198,6 +234,24 @@
           "id": "VPP-75afaa0a74c5912a",
           "insufficient_data": true,
           "n_effective": 1.0
+        },
+        {
+          "bucket": "insufficient_data",
+          "id": "VPP-1000dded936008c6",
+          "insufficient_data": true,
+          "n_effective": 1.0
+        },
+        {
+          "bucket": "insufficient_data",
+          "id": "VPP-9932ce382de03b0f",
+          "insufficient_data": true,
+          "n_effective": 1.0
+        },
+        {
+          "bucket": "insufficient_data",
+          "id": "VPP-2d6c59ae7e4dac29",
+          "insufficient_data": true,
+          "n_effective": 1.0
         }
       ]
     },
@@ -205,32 +259,32 @@
     "low_weight_source_false_negative_rate": null,
     "source_weight_drift": {
       "max_effective_n": 3.0,
-      "non_neutral_profile_count": 0
+      "non_neutral_profile_count": 11
     },
     "weighted_research_calibration_error": null,
-    "weighted_vs_unweighted_retrieval_difference": 0.0
+    "weighted_vs_unweighted_retrieval_difference": 0.202247
   },
   "rollout_mode": "shadow_tooling",
-  "run_id": "RIR-20260610T100951+0000",
+  "run_id": "RIR-DERIVED-20260610T141444+0000",
   "tooling_loop_monitoring": {
-    "data_proposal_open_count": 28,
+    "data_proposal_open_count": 403,
     "evidence_coverage": {
       "exact_or_partial_coverage_rate": 0.0,
-      "metric_candidate_count": 16,
+      "metric_candidate_count": 132,
       "tool_coverage_status_counts": {
-        "missing": 16
+        "missing": 132
       }
     },
     "high_priority_gap_aging_count": 0,
     "missing_data_reduction": null,
     "recipe_validation_pass_rate": 0.0,
-    "runtime_fallback_observation_count": 28,
-    "shadow_recipe_count": 6,
+    "runtime_fallback_observation_count": 403,
+    "shadow_recipe_count": 50,
     "shadow_tool_correctness_failure_rate": null,
-    "tool_gap_open_count": 28,
+    "tool_gap_open_count": 403,
     "tool_gap_priority_counts": {
-      "low": 4,
-      "medium": 24
+      "low": 24,
+      "medium": 379
     },
     "tool_proposal_acceptance_rate": 0.0
   }

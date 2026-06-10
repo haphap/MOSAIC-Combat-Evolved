@@ -1,27 +1,39 @@
 {
-  "accepted": true,
-  "blockers": [],
-  "complete_rows": 8,
-  "error_counts": {
-    "metric_mapping_error": 1,
-    "unsupported_footprint": 1
-  },
+  "accepted": false,
+  "blockers": [
+    "3 analytical footprint review rows still pending",
+    "footprint_precision unavailable",
+    "span_support_precision unavailable",
+    "metric_mapping_accuracy unavailable",
+    "inferred_step_tagging_accuracy unavailable",
+    "unknown_on_ambiguity_rate unavailable",
+    "proprietary_leakage_free_rate unavailable"
+  ],
+  "complete_rows": 0,
+  "error_counts": {},
   "error_taxonomy_path": "registry/report_intelligence/analytical_footprint_error_taxonomy.json",
   "manual_review_required": true,
-  "pending_rows": 0,
+  "pending_rows": 3,
   "policy": "analytical footprint review is a manual gold-set gate for source grounding, metric mapping, inferred-step tagging, ambiguity handling, and proprietary text leakage; no rows are accepted until reviewers fill all required fields and quality thresholds pass",
   "precision_recall_report": {
-    "footprint_precision": 0.875,
-    "inferred_step_tagging_accuracy": 1.0,
-    "metric_mapping_accuracy": 0.875,
-    "proprietary_leakage_free_rate": 1.0,
+    "footprint_precision": null,
+    "inferred_step_tagging_accuracy": null,
+    "metric_mapping_accuracy": null,
+    "proprietary_leakage_free_rate": null,
     "recall_estimate": null,
     "recall_status": "requires_human_negative_examples",
-    "span_support_precision": 1.0,
-    "unknown_on_ambiguity_rate": 1.0
+    "span_support_precision": null,
+    "unknown_on_ambiguity_rate": null
   },
-  "quality_gate_blockers": [],
-  "quality_gate_passed": true,
+  "quality_gate_blockers": [
+    "footprint_precision unavailable",
+    "span_support_precision unavailable",
+    "metric_mapping_accuracy unavailable",
+    "inferred_step_tagging_accuracy unavailable",
+    "unknown_on_ambiguity_rate unavailable",
+    "proprietary_leakage_free_rate unavailable"
+  ],
+  "quality_gate_passed": false,
   "quality_gate_thresholds": {
     "footprint_precision": 0.8,
     "inferred_step_tagging_accuracy": 0.8,
@@ -30,9 +42,9 @@
     "span_support_precision": 0.9,
     "unknown_on_ambiguity_rate": 0.8
   },
-  "review_complete": true,
+  "review_complete": false,
   "review_kind": "analytical_footprint_gold_set",
   "review_template_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl",
   "summary_id": "RKE-REPORT-INTELLIGENCE-FOOTPRINT-REVIEW-SUMMARY",
-  "total_rows": 8
+  "total_rows": 3
 }

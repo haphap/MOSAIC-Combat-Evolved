@@ -1,18 +1,29 @@
 {
-  "accepted": true,
-  "as_of_datetime": "2026-06-07T17:18:15+00:00",
-  "blocked_phase_ids": [],
-  "blocker_count": 0,
-  "blockers": [],
+  "accepted": false,
+  "as_of_datetime": "2026-06-10T14:14:44+00:00",
+  "blocked_phase_ids": [
+    "B",
+    "D"
+  ],
+  "blocker_count": 7,
+  "blockers": [
+    "Phase B: analytical_footprint_review_summary accepted must be true",
+    "Phase B: analytical_footprint_review_summary quality_gate_passed must be true",
+    "Phase B: human-labeled forecast claim gold set gate must pass",
+    "Phase D: analytical footprint review quality gate must pass",
+    "RI15-B-D1: human-labeled forecast claim gold set has not passed",
+    "RI15-B-D2: analytical-footprint gold set/provenance evidence incomplete",
+    "RI15-D-D1: analytical footprint registry build is incomplete"
+  ],
   "corpus_counts": {
-    "analytical_footprint_rows": 8,
-    "forecast_claim_rows": 12,
-    "metadata_rows": 3,
-    "method_pattern_rows": 5,
-    "metric_candidate_rows": 32,
-    "outcome_label_rows": 15,
-    "runtime_tool_gap_observation_rows": 46,
-    "tool_gap_rows": 46,
+    "analytical_footprint_rows": 79,
+    "forecast_claim_rows": 89,
+    "metadata_rows": 43,
+    "method_pattern_rows": 50,
+    "metric_candidate_rows": 132,
+    "outcome_label_rows": 88,
+    "runtime_tool_gap_observation_rows": 403,
+    "tool_gap_rows": 403,
     "weighted_research_context_rows": 1
   },
   "coverage_report_id": "RKE-REPORT-INTELLIGENCE-PATCH-V1-5-COVERAGE",
@@ -24,9 +35,7 @@
   ],
   "passed_phase_ids": [
     "A",
-    "B",
     "C",
-    "D",
     "E",
     "F"
   ],
@@ -70,7 +79,7 @@
       "status": "passed"
     },
     {
-      "accepted": true,
+      "accepted": false,
       "deferred_reason": "",
       "evidence_artifacts": [
         "registry/gold_sets/tushare_research_reports.review_summary.json",
@@ -82,24 +91,28 @@
         "registry/report_intelligence/extraction_provenance_audit.json"
       ],
       "evidence_counts": {
-        "analytical_footprint_rows": 8,
+        "analytical_footprint_rows": 79,
         "error_tag_count": 6,
-        "footprint_quality_passed": true,
-        "footprint_review_accepted": true,
-        "forecast_claim_rows": 12,
-        "gold_claim_precision": 1.0,
-        "gold_review_passed": true,
-        "gold_reviewed_claims": 500,
+        "footprint_quality_passed": false,
+        "footprint_review_accepted": false,
+        "forecast_claim_rows": 89,
+        "gold_claim_precision": null,
+        "gold_review_passed": false,
+        "gold_reviewed_claims": 0,
         "gold_reviewed_documents": 50,
-        "gold_source_span_support_precision": 1.0,
+        "gold_source_span_support_precision": null,
         "provenance_audit_accepted": true
       },
-      "failure_count": 0,
-      "failures": [],
+      "failure_count": 3,
+      "failures": [
+        "analytical_footprint_review_summary accepted must be true",
+        "analytical_footprint_review_summary quality_gate_passed must be true",
+        "human-labeled forecast claim gold set gate must pass"
+      ],
       "phase_id": "B",
       "phase_name": "Extraction and labeling gold sets",
       "requirement": "Extract source-grounded forecast claims and analytical footprints, separate inferred fields, and gate footprint quality through review.",
-      "status": "passed"
+      "status": "blocked"
     },
     {
       "accepted": true,
@@ -114,13 +127,13 @@
         "registry/report_intelligence/statistical_robustness_audit.json"
       ],
       "evidence_counts": {
-        "forecast_ledger_rows": 12,
-        "method_profile_rows": 5,
-        "outcome_label_rows": 15,
-        "proxy_label_ready_count": 5,
-        "source_profile_rows": 16,
+        "forecast_ledger_rows": 89,
+        "method_profile_rows": 50,
+        "outcome_label_rows": 88,
+        "proxy_label_ready_count": 22,
+        "source_profile_rows": 131,
         "statistical_audit_accepted": true,
-        "viewpoint_profile_rows": 10
+        "viewpoint_profile_rows": 50
       },
       "failure_count": 0,
       "failures": [],
@@ -130,7 +143,7 @@
       "status": "passed"
     },
     {
-      "accepted": true,
+      "accepted": false,
       "deferred_reason": "",
       "evidence_artifacts": [
         "registry/report_intelligence/analytical_footprints.jsonl",
@@ -139,18 +152,20 @@
         "registry/report_intelligence/analytical_footprint_review_summary.json"
       ],
       "evidence_counts": {
-        "analytical_footprint_rows": 8,
-        "footprint_quality_passed": true,
-        "footprint_review_accepted": true,
-        "method_pattern_rows": 5,
-        "metric_candidate_rows": 32
+        "analytical_footprint_rows": 79,
+        "footprint_quality_passed": false,
+        "footprint_review_accepted": false,
+        "method_pattern_rows": 50,
+        "metric_candidate_rows": 132
       },
-      "failure_count": 0,
-      "failures": [],
+      "failure_count": 1,
+      "failures": [
+        "analytical footprint review quality gate must pass"
+      ],
       "phase_id": "D",
       "phase_name": "Analytical footprint extraction and registry build",
       "requirement": "Normalize source-grounded or explicitly inferred footprints, metric candidates, method patterns, aliases, and license-aware storage.",
-      "status": "passed"
+      "status": "blocked"
     },
     {
       "accepted": true,
@@ -163,15 +178,15 @@
         "registry/report_intelligence/tool_feasibility_audit.json"
       ],
       "evidence_counts": {
-        "data_acquisition_proposal_rows": 46,
-        "metric_candidate_rows": 32,
-        "tool_coverage_match_rows": 32,
+        "data_acquisition_proposal_rows": 403,
+        "metric_candidate_rows": 132,
+        "tool_coverage_match_rows": 132,
         "tool_coverage_status_counts": {
-          "missing": 32
+          "missing": 132
         },
-        "tool_design_proposal_rows": 46,
+        "tool_design_proposal_rows": 403,
         "tool_feasibility_audit_accepted": true,
-        "tool_gap_rows": 46
+        "tool_gap_rows": 403
       },
       "failure_count": 0,
       "failures": [],
@@ -192,13 +207,13 @@
         "registry/report_intelligence/recipe_validation_audit.json"
       ],
       "evidence_counts": {
-        "analysis_recipe_rows": 5,
-        "fallback_observation_count": 46,
+        "analysis_recipe_rows": 50,
+        "fallback_observation_count": 403,
         "pit_leakage_audit_accepted": true,
         "recipe_validation_audit_accepted": true,
         "rollout_mode": "shadow_tooling",
         "runtime_safety_audit_accepted": true,
-        "runtime_tool_gap_observation_rows": 46,
+        "runtime_tool_gap_observation_rows": 403,
         "weighted_research_context_rows": 1
       },
       "failure_count": 0,
@@ -310,8 +325,8 @@
       "status": "passed"
     },
     {
-      "accepted": true,
-      "blocker": "",
+      "accepted": false,
+      "blocker": "human-labeled forecast claim gold set has not passed",
       "check_id": "RI15-B-D1",
       "check_type": "deliverable",
       "evidence_artifacts": [
@@ -319,18 +334,18 @@
         "registry/gold_sets/tushare_research_reports.review_template.jsonl"
       ],
       "evidence_counts": {
-        "claim_precision": 1.0,
-        "reviewed_claims": 500,
-        "source_span_support_precision": 1.0,
+        "claim_precision": null,
+        "reviewed_claims": 0,
+        "source_span_support_precision": null,
         "total_documents": 50
       },
       "phase_id": "B",
       "requirement": "Human-labeled forecast claim gold set is complete and passes claim/source-span precision gates.",
-      "status": "passed"
+      "status": "blocked"
     },
     {
-      "accepted": true,
-      "blocker": "",
+      "accepted": false,
+      "blocker": "analytical-footprint gold set/provenance evidence incomplete",
       "check_id": "RI15-B-D2",
       "check_type": "deliverable",
       "evidence_artifacts": [
@@ -340,13 +355,13 @@
       ],
       "evidence_counts": {
         "error_tag_count": 6,
-        "footprint_precision": 0.875,
+        "footprint_precision": null,
         "recall_status": "requires_human_negative_examples",
-        "span_support_precision": 1.0
+        "span_support_precision": null
       },
       "phase_id": "B",
       "requirement": "Human-labeled analytical footprint gold set, precision/recall report, error taxonomy, and span-grounded verifier are present.",
-      "status": "passed"
+      "status": "blocked"
     },
     {
       "accepted": true,
@@ -362,20 +377,20 @@
         "registry/report_intelligence/statistical_robustness_audit.json"
       ],
       "evidence_counts": {
-        "forecast_ledger_rows": 12,
-        "method_profile_rows": 5,
-        "outcome_label_rows": 15,
-        "source_profile_rows": 16,
+        "forecast_ledger_rows": 89,
+        "method_profile_rows": 50,
+        "outcome_label_rows": 88,
+        "source_profile_rows": 131,
         "statistical_audit_accepted": true,
-        "viewpoint_profile_rows": 10
+        "viewpoint_profile_rows": 50
       },
       "phase_id": "C",
       "requirement": "Report forecast ledger, PIT outcome labels with overlap adjustment, source/viewpoint/method profiles, shrinkage, and bucketed weights are materialized without production use.",
       "status": "passed"
     },
     {
-      "accepted": true,
-      "blocker": "",
+      "accepted": false,
+      "blocker": "analytical footprint registry build is incomplete",
       "check_id": "RI15-D-D1",
       "check_type": "deliverable",
       "evidence_artifacts": [
@@ -385,13 +400,13 @@
         "registry/report_intelligence/analytical_footprint_review_summary.json"
       ],
       "evidence_counts": {
-        "analytical_footprint_rows": 8,
-        "method_pattern_rows": 5,
-        "metric_candidate_rows": 32
+        "analytical_footprint_rows": 79,
+        "method_pattern_rows": 50,
+        "metric_candidate_rows": 132
       },
       "phase_id": "D",
       "requirement": "Analytical footprints, metric candidates with alias/proxy mapping, method patterns, and license-aware storage policy are registered as candidate/shadow assets.",
-      "status": "passed"
+      "status": "blocked"
     },
     {
       "accepted": true,
@@ -406,11 +421,11 @@
         "registry/report_intelligence/tool_feasibility_audit.json"
       ],
       "evidence_counts": {
-        "data_acquisition_proposal_rows": 46,
-        "metric_candidate_rows": 32,
-        "tool_coverage_match_rows": 32,
-        "tool_design_proposal_rows": 46,
-        "tool_gap_rows": 46
+        "data_acquisition_proposal_rows": 403,
+        "metric_candidate_rows": 132,
+        "tool_coverage_match_rows": 132,
+        "tool_design_proposal_rows": 403,
+        "tool_gap_rows": 403
       },
       "phase_id": "E",
       "requirement": "Tool coverage matcher, ranked tool gaps, data availability/PIT review, data acquisition proposals, and tool design proposals cover every metric candidate.",
@@ -430,10 +445,10 @@
         "registry/report_intelligence/recipe_validation_audit.json"
       ],
       "evidence_counts": {
-        "analysis_recipe_rows": 5,
-        "fallback_observation_count": 46,
+        "analysis_recipe_rows": 50,
+        "fallback_observation_count": 403,
         "rollout_mode": "shadow_tooling",
-        "runtime_tool_gap_observation_rows": 46,
+        "runtime_tool_gap_observation_rows": 403,
         "weighted_research_context_rows": 1
       },
       "phase_id": "F",
@@ -485,6 +500,6 @@
       "status": "deferred_by_rollout"
     }
   ],
-  "run_id": "RIR-DERIVED-20260607T171815+0000",
+  "run_id": "RIR-DERIVED-20260610T141444+0000",
   "source_plan_path": "MOSAIC_RKE_REPORT_INTELLIGENCE_LOOP_PATCH_V1_5_MERGED.md"
 }
