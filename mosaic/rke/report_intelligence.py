@@ -156,6 +156,7 @@ REPORT_INTELLIGENCE_PUBLIC_DERIVED_OUTPUT_PATHS = frozenset(
     }
 )
 DEFAULT_VLLM_BASE_URL = "http://127.0.0.1:8020/v1"
+DEFAULT_VLLM_TIMEOUT_SECONDS = 900
 DEFAULT_Q_LIB_ETF_PATH = "~/.qlib/qlib_data/cn_etf"
 DEFAULT_Q_LIB_STOCK_PATH = "~/.qlib/qlib_data/cn_data"
 DEFAULT_MINERU_BACKEND = "hybrid-auto-engine"
@@ -503,7 +504,7 @@ class ReportIntelligenceConfig:
     vllm_api_key: str | None = None
     qlib_etf_dir: str | Path = DEFAULT_Q_LIB_ETF_PATH
     qlib_stock_dir: str | Path = DEFAULT_Q_LIB_STOCK_PATH
-    vllm_timeout_seconds: int = 300
+    vllm_timeout_seconds: int = DEFAULT_VLLM_TIMEOUT_SECONDS
     chunk_chars: int = 60_000
     max_chunks: int = 8
     max_llm_output_tokens: int = 4096

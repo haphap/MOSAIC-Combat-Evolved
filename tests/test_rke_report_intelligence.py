@@ -13,6 +13,7 @@ from mosaic.rke.cli import main
 from mosaic.rke.registry_manifest import PRIVATE_LOCAL_REGISTRY_FILES
 from mosaic.rke.report_intelligence import (
     DEFAULT_MINERU_ARGS_TEMPLATE,
+    DEFAULT_VLLM_TIMEOUT_SECONDS,
     MineruBatchConversionTask,
     ReportIntelligenceConfig,
     REPORT_INTELLIGENCE_PRIVATE_OUTPUT_PATHS,
@@ -5316,7 +5317,7 @@ def test_report_intelligence_cli_help_exposes_stock_qlib_dir(capsys):
     assert "--max-llm-output-tokens" in help_text
     assert "stratified" in help_text
     assert ReportIntelligenceConfig().qlib_stock_dir == "~/.qlib/qlib_data/cn_data"
-    assert ReportIntelligenceConfig().vllm_timeout_seconds == 300
+    assert ReportIntelligenceConfig().vllm_timeout_seconds == DEFAULT_VLLM_TIMEOUT_SECONDS
 
 
 def test_report_intelligence_evolution_gate_writer_preserves_stock_coverage_evidence(

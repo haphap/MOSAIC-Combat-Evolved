@@ -97,6 +97,7 @@ from .registry_manifest import (
     write_registry_manifest,
 )
 from .report_intelligence import (
+    DEFAULT_VLLM_TIMEOUT_SECONDS,
     ReportIntelligenceConfig,
     apply_analytical_footprint_review_import,
     run_report_intelligence_refresh,
@@ -822,8 +823,11 @@ def build_parser() -> argparse.ArgumentParser:
     report_intelligence.add_argument(
         "--vllm-timeout-seconds",
         type=int,
-        default=300,
-        help="OpenAI-compatible chat request timeout in seconds. Defaults to 300.",
+        default=DEFAULT_VLLM_TIMEOUT_SECONDS,
+        help=(
+            "OpenAI-compatible chat request timeout in seconds. "
+            f"Defaults to {DEFAULT_VLLM_TIMEOUT_SECONDS}."
+        ),
     )
     report_intelligence.add_argument(
         "--max-llm-output-tokens",
