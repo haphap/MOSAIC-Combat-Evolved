@@ -97,6 +97,17 @@ def test_required_registry_files_are_present_in_repo():
         "registry/report_intelligence/analytical_footprint_review_template.jsonl"
         not in REQUIRED_REGISTRY_FILES
     )
+    private_review_artifacts = {
+        "registry/review_batches/gold_set_next_import_template.jsonl",
+        "registry/review_batches/gold_set_full_import_template.jsonl",
+        "registry/review_batches/gold_set_review_workbook.md",
+        "registry/review_batches/gold_set_review_assist.jsonl",
+        "registry/review_batches/gold_set_review_assist.md",
+        "registry/review_batches/source_license_next_import_template.jsonl",
+        "registry/review_batches/source_license_review_workbook.md",
+    }
+    assert private_review_artifacts <= PRIVATE_LOCAL_REGISTRY_FILES
+    assert private_review_artifacts.isdisjoint(REQUIRED_REGISTRY_FILES)
     assert (
         "registry/report_intelligence/analytical_footprint_review_summary.json"
         in REQUIRED_REGISTRY_FILES

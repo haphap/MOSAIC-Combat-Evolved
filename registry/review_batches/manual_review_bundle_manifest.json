@@ -1,6 +1,6 @@
 {
   "accepted": true,
-  "artifact_count": 22,
+  "artifact_count": 10,
   "artifacts": [
     {
       "bytes": 11823,
@@ -30,130 +30,22 @@
       "sha256": "sha256:c015e299666ebf58b40ea3b41ce7bd3a8d93ab2e77255a025c280681cebc06f5"
     },
     {
-      "bytes": 3145,
+      "bytes": 4998,
       "exists": true,
       "format": "json",
       "path": "registry/review_batches/manual_review_progress_report.json",
       "role": "manual_review_progress_report",
       "row_count": null,
-      "sha256": "sha256:6ce6328a3616082e6f156a709d6be3344a99475a5cab7aa8a9f3062cd7494600"
+      "sha256": "sha256:fcf21dfb17dbcf267ff063424f119da329feccf2f81eed1bcb80dd765426bd8c"
     },
     {
-      "bytes": 6362,
+      "bytes": 7284,
       "exists": true,
       "format": "markdown",
       "path": "registry/review_batches/manual_review_runbook.md",
       "role": "manual_review_runbook_markdown",
       "row_count": null,
-      "sha256": "sha256:40f1d9220c9a6b1d2e08509c3098d51e828190d6c965ee1c77b7675a76083855"
-    },
-    {
-      "bytes": 221629,
-      "exists": true,
-      "format": "json",
-      "path": "registry/gold_sets/tushare_research_reports.review_packet.json",
-      "role": "gold_review_packet_json",
-      "row_count": null,
-      "sha256": "sha256:be38eb126c6e9331d6335d66ee0eba598d27bae26b659d76b8fc46d4b0eaef10"
-    },
-    {
-      "bytes": 38062,
-      "exists": true,
-      "format": "markdown",
-      "path": "registry/gold_sets/tushare_research_reports.review_packet.md",
-      "role": "gold_review_packet_markdown",
-      "row_count": null,
-      "sha256": "sha256:df0a7d1bf68510c3fb332415cb36f1394a603eeec5da168a3b8497cf16842536"
-    },
-    {
-      "bytes": 877,
-      "exists": true,
-      "format": "markdown",
-      "path": "registry/review_batches/gold_set_review_workbook.md",
-      "role": "gold_review_workbook_markdown",
-      "row_count": null,
-      "sha256": "sha256:0ee2521171d0877b7905d5e39fc46b6c859584703925bbf953848b50804b84b3"
-    },
-    {
-      "bytes": 0,
-      "exists": true,
-      "format": "jsonl",
-      "path": "registry/review_batches/gold_set_review_assist.jsonl",
-      "role": "gold_review_assist_jsonl",
-      "row_count": 0,
-      "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-    },
-    {
-      "bytes": 720,
-      "exists": true,
-      "format": "markdown",
-      "path": "registry/review_batches/gold_set_review_assist.md",
-      "role": "gold_review_assist_markdown",
-      "row_count": null,
-      "sha256": "sha256:ac4af2ae6f27cb831be4371b004e6448948605364e801edf3c76ac686e36f67f"
-    },
-    {
-      "bytes": 0,
-      "exists": true,
-      "format": "jsonl",
-      "path": "registry/review_batches/gold_set_next_import_template.jsonl",
-      "role": "gold_next_import_template",
-      "row_count": 0,
-      "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-    },
-    {
-      "bytes": 0,
-      "exists": true,
-      "format": "jsonl",
-      "path": "registry/review_batches/gold_set_full_import_template.jsonl",
-      "role": "gold_full_import_template",
-      "row_count": 0,
-      "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-    },
-    {
-      "bytes": 523,
-      "exists": true,
-      "format": "json",
-      "path": "registry/gold_sets/tushare_research_reports.review_import_report.json",
-      "role": "gold_blank_import_report",
-      "row_count": null,
-      "sha256": "sha256:d937d5fc6aeada1b3ac632573b2423cc5dfbe296f21b8e2fa88d36ae4a8785cc"
-    },
-    {
-      "bytes": 9531813,
-      "exists": true,
-      "format": "json",
-      "path": "registry/compliance/tushare_license_review_packet.json",
-      "role": "license_review_packet_json",
-      "row_count": null,
-      "sha256": "sha256:aedb5841e47758a7108691501e114661ad689073e30665f391be646f3d2ba52c"
-    },
-    {
-      "bytes": 2156470,
-      "exists": true,
-      "format": "markdown",
-      "path": "registry/compliance/tushare_license_review_packet.md",
-      "role": "license_review_packet_markdown",
-      "row_count": null,
-      "sha256": "sha256:3c59d5e07c5bfd6057ed2d630ff0a35fee46e1328c282a66b7eecb1dbc87b914"
-    },
-    {
-      "bytes": 1796,
-      "exists": true,
-      "format": "markdown",
-      "path": "registry/review_batches/source_license_review_workbook.md",
-      "role": "license_review_workbook_markdown",
-      "row_count": null,
-      "sha256": "sha256:85b6d3970ddb17795e44fe27728c74bb229b286668cf1962995dd7fabf5b3509"
-    },
-    {
-      "bytes": 0,
-      "exists": true,
-      "format": "jsonl",
-      "path": "registry/review_batches/source_license_next_import_template.jsonl",
-      "role": "license_next_import_template",
-      "row_count": 0,
-      "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      "sha256": "sha256:54d1a8a6a02ac4519ea41e45f624893bc2d6bde3596ead5bdbc8143e29278042"
     },
     {
       "bytes": 1339,

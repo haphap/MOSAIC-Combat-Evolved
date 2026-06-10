@@ -53,8 +53,15 @@ logs/
 # controlled import commands; these transient files should not be committed.
 registry/review_batches/gold_set_reviewed.jsonl
 registry/review_batches/gold_set_full_reviewed.jsonl
+registry/review_batches/gold_set_next_import_template.jsonl
+registry/review_batches/gold_set_full_import_template.jsonl
+registry/review_batches/gold_set_review_workbook.md
+registry/review_batches/gold_set_review_assist.jsonl
+registry/review_batches/gold_set_review_assist.md
 registry/review_batches/source_license_policy_reviewed.json
 registry/review_batches/source_license_policy_import.jsonl
+registry/review_batches/source_license_next_import_template.jsonl
+registry/review_batches/source_license_review_workbook.md
 registry/review_batches/lockbox_reviewed.json
 
 # RKE report intelligence keeps original PDFs / MinerU Markdown in local cache.

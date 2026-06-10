@@ -359,7 +359,7 @@ def test_manual_review_bundle_manifest_hashes_review_artifacts(tmp_path: Path):
 
     assert result["accepted"] is True
     assert payload["accepted"] is True
-    assert payload["artifact_count"] >= 20
+    assert payload["artifact_count"] >= 10
     assert payload["blockers"] == []
     assert "registry/review_batches/manual_review_bundle_manifest.json" not in artifacts
     assert payload["promotion_dry_run"]["accepted"] is False
@@ -369,14 +369,14 @@ def test_manual_review_bundle_manifest_hashes_review_artifacts(tmp_path: Path):
     assert payload["promotion_dry_run"]["rejected_steps"] == ["lockbox"]
     assert set(payload["promotion_dry_run"]["already_applied_steps"]) == {"gold_set", "source_license"}
     assert payload["promotion_dry_run"]["missing_steps"] == ["lockbox"]
-    assert artifacts["registry/review_batches/gold_set_full_import_template.jsonl"]["row_count"] == 500
     assert artifacts["registry/review_batches/manual_review_progress_report.json"]["format"] == "json"
     assert artifacts["registry/review_batches/manual_review_runbook.md"]["format"] == "markdown"
-    assert artifacts["registry/review_batches/gold_set_review_workbook.md"]["format"] == "markdown"
-    assert artifacts["registry/review_batches/gold_set_review_assist.jsonl"]["row_count"] == 500
-    assert artifacts["registry/review_batches/gold_set_review_assist.md"]["format"] == "markdown"
-    assert artifacts["registry/review_batches/source_license_review_workbook.md"]["format"] == "markdown"
-    assert artifacts["registry/review_batches/source_license_next_import_template.jsonl"]["row_count"] == 50
+    assert "registry/review_batches/gold_set_full_import_template.jsonl" not in artifacts
+    assert "registry/review_batches/gold_set_review_workbook.md" not in artifacts
+    assert "registry/review_batches/gold_set_review_assist.jsonl" not in artifacts
+    assert "registry/review_batches/gold_set_review_assist.md" not in artifacts
+    assert "registry/review_batches/source_license_review_workbook.md" not in artifacts
+    assert "registry/review_batches/source_license_next_import_template.jsonl" not in artifacts
     assert artifacts["registry/promotion/rke_promotion_dry_run_report.json"]["format"] == "json"
     assert all(artifact["sha256"].startswith("sha256:") for artifact in payload["artifacts"])
 
@@ -420,47 +420,37 @@ def test_manual_review_bundle_manifest_reports_non_object_json_artifacts(tmp_pat
     )
 
 
-def test_manual_review_bundle_manifest_detects_malformed_jsonl_rows(tmp_path: Path):
+def test_manual_review_bundle_manifest_ignores_private_malformed_jsonl_rows(tmp_path: Path):
     _copy_registry(tmp_path)
     import_path = tmp_path / "registry/review_batches/source_license_next_import_template.jsonl"
-    expected_row = len(import_path.read_text(encoding="utf-8").splitlines()) + 1
     _append_jsonl_value(import_path, "not an object")
 
     manifest = build_manual_review_bundle_manifest(tmp_path)
-    artifact = next(item for item in manifest.artifacts if item.path.endswith("source_license_next_import_template.jsonl"))
 
-    assert not manifest.accepted
-    assert artifact.row_count == expected_row
-    assert (
-        f"registry/review_batches/source_license_next_import_template.jsonl row must be object at row(s): {expected_row}"
-        in manifest.blockers
+    assert manifest.accepted
+    assert not any(
+        item.path.endswith("source_license_next_import_template.jsonl")
+        for item in manifest.artifacts
     )
+    assert manifest.blockers == ()
 
 
-def test_manual_review_bundle_manifest_reports_malformed_jsonl_line_numbers(tmp_path: Path):
+def test_manual_review_bundle_manifest_excludes_private_jsonl_parse_errors(tmp_path: Path):
     _copy_registry(tmp_path)
     import_path = tmp_path / "registry/review_batches/source_license_next_import_template.jsonl"
-    existing_lines = len(import_path.read_text(encoding="utf-8").splitlines())
     import_path.write_text(
         import_path.read_text(encoding="utf-8") + "{\n" + json.dumps("not an object") + "\n",
         encoding="utf-8",
     )
 
     manifest = build_manual_review_bundle_manifest(tmp_path)
-    artifact = next(item for item in manifest.artifacts if item.path.endswith("source_license_next_import_template.jsonl"))
 
-    assert not manifest.accepted
-    assert artifact.row_count == existing_lines + 2
-    assert (
-        f"registry/review_batches/source_license_next_import_template.jsonl row {existing_lines + 1} "
-        "must contain valid JSON"
-        in manifest.blockers[0]
+    assert manifest.accepted
+    assert not any(
+        item.path.endswith("source_license_next_import_template.jsonl")
+        for item in manifest.artifacts
     )
-    assert (
-        "registry/review_batches/source_license_next_import_template.jsonl "
-        f"row must be object at row(s): {existing_lines + 2}"
-        in manifest.blockers
-    )
+    assert not any("source_license_next_import_template" in item for item in manifest.blockers)
 
 
 def test_manual_review_batch_status_moves_after_partial_import(tmp_path: Path):

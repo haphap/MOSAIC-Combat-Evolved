@@ -23,6 +23,13 @@ PRIVATE_LOCAL_REGISTRY_FILES = frozenset(
         "registry/gold_sets/tushare_research_reports.review_packet.md",
         "registry/gold_sets/tushare_research_reports.review_summary.json",
         "registry/gold_sets/tushare_research_reports.review_template.jsonl",
+        "registry/review_batches/gold_set_full_import_template.jsonl",
+        "registry/review_batches/gold_set_next_import_template.jsonl",
+        "registry/review_batches/gold_set_review_assist.jsonl",
+        "registry/review_batches/gold_set_review_assist.md",
+        "registry/review_batches/gold_set_review_workbook.md",
+        "registry/review_batches/source_license_next_import_template.jsonl",
+        "registry/review_batches/source_license_review_workbook.md",
         "registry/report_intelligence/analytical_footprint_review_template.jsonl",
         "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
         "registry/report_intelligence/analytical_footprints.jsonl",
@@ -138,32 +145,16 @@ REQUIRED_REGISTRY_FILES = (
     "registry/review_batches/manual_review_bundle_manifest.json",
     "registry/review_batches/manual_review_progress_report.json",
     "registry/review_batches/manual_review_runbook.md",
-    "registry/review_batches/gold_set_review_workbook.md",
-    "registry/review_batches/gold_set_review_assist.jsonl",
-    "registry/review_batches/gold_set_review_assist.md",
-    "registry/review_batches/gold_set_full_import_template.jsonl",
-    "registry/review_batches/gold_set_next_import_template.jsonl",
     "registry/review_batches/lockbox_review_next_import_template.json",
-    "registry/review_batches/source_license_next_import_template.jsonl",
     "registry/review_batches/source_license_policy_import_report.json",
     "registry/review_batches/source_license_policy_template.json",
-    "registry/review_batches/source_license_review_workbook.md",
     "registry/schemas/rke_schema_validation_report.json",
     "registry/sources/central_bank_sources.jsonl",
     "registry/sources/semiconductor_demo_sources.jsonl",
     "registry/validation_hardening/central_bank_hardening_report.json",
     "registry/vocabularies/claim_variable_vocabulary.json",
 )
-EMPTY_REQUIRED_REGISTRY_FILES = frozenset(
-    {
-        # Empty means all gold-set reviews are complete.
-        "registry/review_batches/gold_set_review_assist.jsonl",
-        "registry/review_batches/gold_set_full_import_template.jsonl",
-        "registry/review_batches/gold_set_next_import_template.jsonl",
-        # Empty means all source-license reviews are complete.
-        "registry/review_batches/source_license_next_import_template.jsonl",
-    }
-)
+EMPTY_REQUIRED_REGISTRY_FILES = frozenset()
 
 
 @dataclass(frozen=True)

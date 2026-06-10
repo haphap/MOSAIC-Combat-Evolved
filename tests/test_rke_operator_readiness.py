@@ -472,7 +472,7 @@ def test_write_operator_readiness_report_outputs_registry_artifact(tmp_path: Pat
     assert steps["source_license"]["result"] == "already_applied"
     assert steps["lockbox"]["result"] == "not_provided"
     assert bundle_payload["accepted"] is True
-    assert bundle_payload["artifact_count"] >= 20
+    assert bundle_payload["artifact_count"] >= 10
     assert (tmp_path / "registry/handoffs/rke_operator_readiness_report.json").exists()
     assert (tmp_path / "registry/review_batches/gold_set_full_import_template.jsonl").exists()
     assert (tmp_path / "registry/review_batches/gold_set_review_workbook.md").exists()
