@@ -1,6 +1,6 @@
 {
-  "as_of_datetime": "2026-06-08T10:23:08+00:00",
-  "blocker_count": 32,
+  "as_of_datetime": "2026-06-10T09:01:06+00:00",
+  "blocker_count": 34,
   "blockers": [
     "after_cost_paper_trading_summary_missing",
     "audit_refresh_history_below_threshold",
@@ -12,13 +12,13 @@
     "forecast_gold_set_gate_not_passed",
     "forecast_gold_set_review_incomplete",
     "gap_distribution_history_below_threshold",
+    "gold_pending_claims_remaining",
     "gold_reviewed_claims_below_threshold",
-    "gold_reviewed_documents_below_threshold",
     "horizon_accuracy_missing",
     "horizon_bucket_coverage_below_p9_target",
+    "industry_proxy_claim_count_below_threshold",
     "industry_report_count_below_p9_target",
     "institution_bucket_coverage_below_p9_target",
-    "industry_proxy_claim_count_below_threshold",
     "llm_extraction_processed_count_below_p9_target",
     "markdown_quality_pass_count_below_p9_target",
     "markdown_ready_count_below_p9_target",
@@ -27,12 +27,14 @@
     "sector_bucket_coverage_below_p9_target",
     "selected_report_count_below_p9_target",
     "source_span_support_precision_missing",
-    "stock_report_count_below_p9_target",
+    "stock_outcome_120d_ready_count_below_p9_target",
+    "stock_outcome_age_bucket_coverage_below_p9_target",
     "stock_proxy_claim_count_below_threshold",
+    "stock_report_count_below_p9_target",
     "target_accuracy_missing",
     "time_bucket_coverage_below_p9_target",
-    "unsupported_field_false_grounding_rate_missing",
     "unique_outcome_claim_count_below_threshold",
+    "unsupported_field_false_grounding_rate_missing",
     "variable_mapping_accuracy_missing"
   ],
   "checks": [
@@ -78,7 +80,10 @@
         "blocked_recipe_count": 5,
         "calibration_drift_count": 0,
         "calibration_drift_rule_counts": {},
+        "data_vintage_hash": "sha256:79fad2e951efd75a7284e227fef313d6fd07c407cc3924255afd63af65617ba4",
+        "distinct_data_vintage_required": true,
         "monitor_observation_count": 5,
+        "trailing_monitor_distinct_vintage_count": 0,
         "trailing_monitor_pass_count": 0,
         "unvalidated_confidence_impact_count": 0
       },
@@ -91,11 +96,14 @@
       ],
       "check_id": "RI-EVOL-04",
       "evidence": {
+        "data_vintage_hash": "sha256:79fad2e951efd75a7284e227fef313d6fd07c407cc3924255afd63af65617ba4",
+        "distinct_data_vintage_required": true,
         "pit_accepted": true,
         "provenance_accepted": true,
         "schema_accepted": true,
         "statistical_accepted": true,
-        "trailing_audit_pass_count": 1
+        "trailing_audit_distinct_vintage_count": 2,
+        "trailing_audit_pass_count": 2
       },
       "passed": false,
       "requirement": "The last three derived refreshes must pass schema, PIT, provenance, and statistical robustness gates."
@@ -105,7 +113,7 @@
         "forecast_gold_set_gate_not_passed",
         "forecast_gold_set_review_incomplete",
         "gold_reviewed_claims_below_threshold",
-        "gold_reviewed_documents_below_threshold",
+        "gold_pending_claims_remaining",
         "claim_precision_missing",
         "source_span_support_precision_missing",
         "target_accuracy_missing",
@@ -126,7 +134,7 @@
           "unsupported_field_false_grounding_rate": null,
           "variable_mapping_accuracy": null
         },
-        "pending_claims": 0,
+        "pending_claims": 500,
         "review_complete": false,
         "reviewed_claims": 0,
         "stock_target_conflict_count": 0,
@@ -143,7 +151,7 @@
           "unsupported_field_false_grounding_rate_max": 0.05,
           "variable_mapping_accuracy_min": 0.8
         },
-        "total_documents": 0
+        "total_documents": 50
       },
       "passed": false,
       "requirement": "Manual forecast gold-set review must pass before prompt evolution uses extracted target, direction, or horizon signals."
@@ -158,7 +166,10 @@
           "benchmark": 10,
           "horizon": 12
         },
-        "trailing_gap_distribution_stable_count": 1
+        "data_vintage_hash": "sha256:79fad2e951efd75a7284e227fef313d6fd07c407cc3924255afd63af65617ba4",
+        "distinct_data_vintage_required": true,
+        "trailing_gap_distribution_distinct_vintage_count": 2,
+        "trailing_gap_distribution_stable_count": 2
       },
       "passed": false,
       "requirement": "Outcome and missing-gap distributions must be stable across recent refreshes before evolution changes prompts."
@@ -171,11 +182,13 @@
         "llm_extraction_processed_count_below_p9_target",
         "industry_report_count_below_p9_target",
         "stock_report_count_below_p9_target",
+        "stock_outcome_120d_ready_count_below_p9_target",
         "sector_bucket_coverage_below_p9_target",
         "time_bucket_coverage_below_p9_target",
         "institution_bucket_coverage_below_p9_target",
         "horizon_bucket_coverage_below_p9_target",
-        "evaluability_bucket_coverage_below_p9_target"
+        "evaluability_bucket_coverage_below_p9_target",
+        "stock_outcome_age_bucket_coverage_below_p9_target"
       ],
       "check_id": "RI-EVOL-07",
       "evidence": {
@@ -186,26 +199,30 @@
           "llm_extraction_processed_count_below_p9_target",
           "industry_report_count_below_p9_target",
           "stock_report_count_below_p9_target",
+          "stock_outcome_120d_ready_count_below_p9_target",
           "sector_bucket_coverage_below_p9_target",
           "time_bucket_coverage_below_p9_target",
           "institution_bucket_coverage_below_p9_target",
           "horizon_bucket_coverage_below_p9_target",
-          "evaluability_bucket_coverage_below_p9_target"
+          "evaluability_bucket_coverage_below_p9_target",
+          "stock_outcome_age_bucket_coverage_below_p9_target"
         ],
         "coverage_gate_status": "blocked",
-        "coverage_targets": {
-          "industry_report_count_min": 80,
-          "llm_extraction_processed_count_min": 100,
-          "markdown_quality_pass_count_min": 300,
-          "markdown_ready_count_min": 300,
-          "selected_report_count_min": 300,
-          "stock_report_count_min": 80,
-          "sector_bucket_min_report_count": 5
-        },
-        "sector_bucket_coverage_gaps": [
-          "sector_bucket:semiconductor"
+        "coverage_strata_missing": [
+          "time_bucket:recent_1y",
+          "time_bucket:recent_3y",
+          "time_bucket:long_cycle_history",
+          "institution_bucket:head_institution",
+          "institution_bucket:long_tail_institution",
+          "horizon_bucket:5d",
+          "horizon_bucket:20d",
+          "horizon_bucket:60d",
+          "horizon_bucket:long_horizon",
+          "evaluability_bucket:stock_proxy_candidate",
+          "evaluability_bucket:industry_proxy_candidate",
+          "evaluability_bucket:mapping_gap_candidate",
+          "stock_outcome_age_bucket:stock_outcome_120d_calendar_ready"
         ],
-        "sector_bucket_below_min_count": 1,
         "coverage_strata_targets": {
           "evaluability_bucket_required": [
             "stock_proxy_candidate",
@@ -222,33 +239,32 @@
             "head_institution",
             "long_tail_institution"
           ],
+          "stock_outcome_age_bucket_required": [
+            "stock_outcome_120d_calendar_ready"
+          ],
           "time_bucket_required": [
             "recent_1y",
             "recent_3y",
             "long_cycle_history"
           ]
         },
-        "coverage_strata_missing": [
-          "time_bucket:recent_1y",
-          "time_bucket:recent_3y",
-          "time_bucket:long_cycle_history",
-          "institution_bucket:head_institution",
-          "institution_bucket:long_tail_institution",
-          "horizon_bucket:5d",
-          "horizon_bucket:20d",
-          "horizon_bucket:60d",
-          "horizon_bucket:long_horizon",
-          "evaluability_bucket:stock_proxy_candidate",
-          "evaluability_bucket:industry_proxy_candidate",
-          "evaluability_bucket:mapping_gap_candidate"
-        ],
+        "coverage_targets": {
+          "industry_report_count_min": 80,
+          "llm_extraction_processed_count_min": 100,
+          "markdown_quality_pass_count_min": 300,
+          "markdown_ready_count_min": 300,
+          "sector_bucket_min_report_count": 5,
+          "selected_report_count_min": 300,
+          "stock_outcome_120d_ready_report_count_min": 30,
+          "stock_report_count_min": 80
+        },
         "evaluability_bucket_counts": {
           "markdown_not_ready": 2
         },
+        "industry_report_count": 2,
         "institution_bucket_counts": {
           "missing_institution": 2
         },
-        "industry_report_count": 2,
         "llm_extraction_processed_count": 0,
         "markdown_false_positive_review_queue_count": 0,
         "markdown_quality_pass_count": 0,
@@ -258,7 +274,13 @@
         "report_horizon_bucket_counts": {
           "no_extracted_forecast_horizon": 2
         },
+        "sector_bucket_below_min_count": 1,
+        "sector_bucket_coverage_gaps": [
+          "sector_bucket:semiconductor"
+        ],
         "selected_report_count": 2,
+        "stock_outcome_120d_ready_report_count": 0,
+        "stock_outcome_age_bucket_counts": {},
         "stock_report_count": 0,
         "time_bucket_counts": {
           "date_missing": 2
@@ -268,6 +290,7 @@
       "requirement": "Markdown coverage must pass P9 corpus thresholds before evolution depends on report-derived Markdown evidence."
     }
   ],
+  "data_vintage_hash": "sha256:79fad2e951efd75a7284e227fef313d6fd07c407cc3924255afd63af65617ba4",
   "gate_id": "RKE-REPORT-INTELLIGENCE-EVOLUTION-READINESS-GATE",
   "gate_status": "blocked",
   "policy": "Prompt and agent evolution remains blocked until governed aggregate PIT outcome coverage, paper-trading, monitor stability, audit history, gold-set quality, gap stability, and Markdown coverage gates pass; this artifact stores aggregate evidence only and cannot change production prompts.",
