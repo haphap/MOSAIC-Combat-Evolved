@@ -1,31 +1,23 @@
 {
   "conversion_backend_counts": {
-    "hybrid-auto-engine": 109
+    "hybrid-auto-engine": 351
   },
-  "coverage_gate_blockers": [
-    "selected_report_count_below_p9_target",
-    "markdown_ready_count_below_p9_target",
-    "markdown_quality_pass_count_below_p9_target",
-    "industry_report_count_below_p9_target",
-    "stock_report_count_below_p9_target",
-    "sector_bucket_coverage_below_p9_target",
-    "time_bucket_coverage_below_p9_target"
-  ],
-  "coverage_gate_status": "blocked",
+  "coverage_gate_blockers": [],
+  "coverage_gate_status": "passed",
   "coverage_id": "RKE-REPORT-MARKDOWN-COVERAGE-SUMMARY",
   "coverage_shortfalls": {
     "coverage_strata_missing_count": {
       "blocker": "stratified_coverage_below_p9_target",
-      "current": 1,
+      "current": 0,
       "next_action": "fill_missing_time_institution_horizon_evaluability_strata",
-      "remaining": 1,
+      "remaining": 0,
       "target": 0
     },
     "industry_report_count": {
       "blocker": "industry_report_count_below_p9_target",
-      "current": 60,
+      "current": 200,
       "next_action": "add_more_industry_research_reports_to_stratified_pool",
-      "remaining": 20,
+      "remaining": 0,
       "target": 80
     },
     "llm_extraction_processed_count": {
@@ -37,50 +29,48 @@
     },
     "markdown_quality_pass_count": {
       "blocker": "markdown_quality_pass_count_below_p9_target",
-      "current": 109,
+      "current": 351,
       "next_action": "resolve_markdown_quality_gaps_before_llm_extraction",
-      "remaining": 191,
+      "remaining": 0,
       "target": 300
     },
     "markdown_ready_count": {
       "blocker": "markdown_ready_count_below_p9_target",
-      "current": 109,
+      "current": 351,
       "next_action": "download_pdfs_and_convert_quality_gated_markdown",
-      "remaining": 191,
+      "remaining": 0,
       "target": 300
     },
     "sector_bucket_below_min_count": {
       "blocker": "sector_bucket_coverage_below_p9_target",
-      "current": 2,
+      "current": 0,
       "next_action": "fill_aggregate_sector_bucket_coverage_gaps",
-      "remaining": 2,
+      "remaining": 0,
       "target": 0
     },
     "selected_report_count": {
       "blocker": "selected_report_count_below_p9_target",
-      "current": 109,
+      "current": 351,
       "next_action": "add_stratified_real_reports_to_private_source_pool",
-      "remaining": 191,
+      "remaining": 0,
       "target": 300
     },
     "stock_outcome_120d_ready_report_count": {
       "blocker": "stock_outcome_120d_ready_count_below_p9_target",
-      "current": 30,
+      "current": 47,
       "next_action": "prefer_historical_stock_reports_with_120d_outcome_windows",
       "remaining": 0,
       "target": 30
     },
     "stock_report_count": {
       "blocker": "stock_report_count_below_p9_target",
-      "current": 49,
+      "current": 151,
       "next_action": "add_more_stock_research_reports_with_ts_code",
-      "remaining": 31,
+      "remaining": 0,
       "target": 80
     }
   },
-  "coverage_strata_missing": [
-    "time_bucket:long_cycle_history"
-  ],
+  "coverage_strata_missing": [],
   "coverage_strata_targets": {
     "evaluability_bucket_required": [
       "stock_proxy_candidate",
@@ -118,7 +108,7 @@
   },
   "evaluability_bucket_counts": {
     "industry_proxy_candidate": 30,
-    "llm_extraction_pending": 1,
+    "llm_extraction_pending": 243,
     "mapping_gap_candidate": 53,
     "no_forecast_claim_extracted": 54,
     "stock_proxy_candidate": 26
@@ -127,23 +117,23 @@
     "long_horizon": 11,
     "unknown": 166
   },
-  "industry_report_count": 60,
+  "industry_report_count": 200,
   "institution_bucket_counts": {
-    "head_institution": 13,
-    "long_tail_institution": 96
+    "head_institution": 109,
+    "long_tail_institution": 242
   },
   "llm_extraction_processed_count": 108,
   "llm_extraction_without_quality_pass_count": 0,
   "markdown_false_positive_review_queue_count": 0,
   "markdown_false_positive_risk_gap_counts": {},
   "markdown_quality_gap_counts": {},
-  "markdown_quality_pass_count": 109,
+  "markdown_quality_pass_count": 351,
   "markdown_quality_review_gap_counts": {},
   "markdown_quality_review_policy": "ready Markdown blocked by quality gates enters aggregate manual review counts before extraction is trusted; repeated-line, sparse structure, short, and empty-table gaps are tracked as false-positive risk classes for corpus spot checks",
   "markdown_quality_review_queue_count": 0,
   "markdown_quality_spot_check_required": false,
-  "markdown_ready_count": 109,
-  "pdf_download_ready_count": 109,
+  "markdown_ready_count": 351,
+  "pdf_download_ready_count": 351,
   "private_artifact_redaction_policy": "public coverage summary stores aggregate counts only; no source-specific content, retrieval locator, local file reference, or report prose is allowed",
   "private_text_included": false,
   "report_horizon_bucket_counts": {
@@ -151,40 +141,40 @@
     "5d": 26,
     "60d": 46,
     "long_horizon": 54,
-    "no_extracted_forecast_horizon": 55,
+    "no_extracted_forecast_horizon": 297,
     "unknown": 53
   },
   "report_type_counts": {
-    "个股研报": 49,
-    "行业研报": 60
+    "个股研报": 151,
+    "行业研报": 200
   },
   "retry_queue_count": 0,
-  "run_id": "RIR-DERIVED-20260610T225936+0000",
-  "sector_bucket_below_min_count": 2,
+  "run_id": "RIR-DERIVED-20260610T230213+0000",
+  "sector_bucket_below_min_count": 0,
   "sector_bucket_counts": {
-    "agriculture": 2,
-    "auto_transport": 9,
-    "consumer": 7,
-    "energy_materials": 17,
-    "financials": 10,
-    "healthcare": 11,
-    "industrial_equipment": 13,
-    "other_sector": 9,
-    "real_estate_construction": 6,
-    "technology_electronics": 21,
-    "utilities_environment": 4
+    "agriculture": 12,
+    "auto_transport": 26,
+    "consumer": 38,
+    "energy_materials": 55,
+    "financials": 19,
+    "healthcare": 24,
+    "industrial_equipment": 37,
+    "other_sector": 41,
+    "real_estate_construction": 28,
+    "technology_electronics": 62,
+    "utilities_environment": 9
   },
-  "sector_bucket_coverage_gaps": [
-    "sector_bucket:agriculture",
-    "sector_bucket:utilities_environment"
-  ],
-  "selected_report_count": 109,
-  "stock_outcome_120d_ready_report_count": 30,
+  "sector_bucket_coverage_gaps": [],
+  "selected_report_count": 351,
+  "stock_outcome_120d_ready_report_count": 47,
   "stock_outcome_age_bucket_counts": {
-    "stock_outcome_120d_calendar_ready": 30,
-    "stock_outcome_pending": 19
+    "stock_outcome_120d_calendar_ready": 47,
+    "stock_outcome_20d_calendar_ready": 8,
+    "stock_outcome_5d_calendar_ready": 16,
+    "stock_outcome_60d_calendar_ready": 18,
+    "stock_outcome_pending": 62
   },
-  "stock_report_count": 49,
+  "stock_report_count": 151,
   "stratified_sampling_policy": {
     "industry_report_count_min": 80,
     "privacy_boundary": "aggregate_counts_only",
@@ -202,7 +192,8 @@
     "stock_report_with_ts_code_count_min": 80
   },
   "time_bucket_counts": {
-    "recent_1y": 62,
+    "long_cycle_history": 27,
+    "recent_1y": 277,
     "recent_3y": 47
   }
 }

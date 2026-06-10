@@ -1,10 +1,10 @@
 {
   "accepted": true,
-  "as_of_datetime": "2026-06-10T22:59:36+00:00",
+  "as_of_datetime": "2026-06-10T23:02:13+00:00",
   "audit_id": "RKE-REPORT-INTELLIGENCE-STATISTICAL-ROBUSTNESS-AUDIT",
   "blocker_count": 0,
   "blockers": [],
-  "checked_item_count": 832,
+  "checked_item_count": 1415,
   "checks": [
     {
       "accepted": true,
@@ -40,11 +40,11 @@
       "accepted": true,
       "check_id": "RI-STAT-02",
       "evidence": {
-        "insufficient_profile_count": 360,
+        "insufficient_profile_count": 943,
         "method_profile_rows": 94,
         "minimum_non_neutral_effective_n": 3,
         "non_neutral_profile_count": 27,
-        "source_profile_rows": 293,
+        "source_profile_rows": 876,
         "viewpoint_profile_rows": 104
       },
       "failure_count": 0,
@@ -91,7 +91,7 @@
       "accepted": true,
       "check_id": "RI-STAT-05",
       "evidence": {
-        "calibration_unavailable_profile_count": 397,
+        "calibration_unavailable_profile_count": 980,
         "outcome_label_rows": 163,
         "production_use_of_weighted_reports": false,
         "rollout_mode": "shadow_tooling"
@@ -127,5 +127,5 @@
     }
   ],
   "policy": "report intelligence statistical evidence must be PIT, after-cost, overlap-adjusted, grouped by forecast family, deduplicated by consensus clusters, and kept shadow-only until effective-N, multiple-testing, calibration, paper-trading, and promotion gates pass",
-  "run_id": "RIR-DERIVED-20260610T225936+0000"
+  "run_id": "RIR-DERIVED-20260610T230213+0000"
 }

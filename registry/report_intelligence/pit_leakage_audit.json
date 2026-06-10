@@ -1,10 +1,10 @@
 {
   "accepted": true,
-  "as_of_datetime": "2026-06-10T22:59:36+00:00",
+  "as_of_datetime": "2026-06-10T23:02:13+00:00",
   "audit_id": "RKE-REPORT-INTELLIGENCE-PIT-LEAKAGE-AUDIT",
   "blocker_count": 0,
   "blockers": [],
-  "checked_item_count": 1279,
+  "checked_item_count": 2104,
   "checks": [
     {
       "accepted": true,
@@ -22,7 +22,7 @@
       "evidence": {
         "forecast_claim_rows": 177,
         "forecast_ledger_rows": 177,
-        "metadata_rows": 109
+        "metadata_rows": 351
       },
       "failure_count": 0,
       "failures": [],
@@ -47,7 +47,7 @@
       "check_id": "RI-PIT-03",
       "evidence": {
         "nonzero_source_profile_rows": 57,
-        "source_profile_rows": 293,
+        "source_profile_rows": 876,
         "weighted_context_rows": 1
       },
       "failure_count": 0,
@@ -101,5 +101,5 @@
     }
   ],
   "policy": "report intelligence is point-in-time constrained: report access, forecast signals, outcome labels, source weights, tool coverage, and recipe runtime modes must all be observed no later than the context as-of time before they can influence research priors",
-  "run_id": "RIR-DERIVED-20260610T225936+0000"
+  "run_id": "RIR-DERIVED-20260610T230213+0000"
 }

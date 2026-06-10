@@ -90,7 +90,7 @@
       "accepted": true,
       "artifact_path": "registry/report_intelligence/report_metadata.jsonl",
       "failures": [],
-      "item_count": 109,
+      "item_count": 351,
       "schema_path": "schemas/report_intelligence_report_metadata.schema.json"
     },
     {
@@ -153,7 +153,7 @@
       "accepted": true,
       "artifact_path": "registry/report_intelligence/source_performance_profiles.jsonl",
       "failures": [],
-      "item_count": 293,
+      "item_count": 876,
       "schema_path": "schemas/report_intelligence_source_performance_profile.schema.json"
     },
     {
@@ -251,21 +251,21 @@
       "accepted": true,
       "artifact_path": "registry/report_intelligence/monitor_refresh_history.jsonl",
       "failures": [],
-      "item_count": 16,
+      "item_count": 17,
       "schema_path": "schemas/report_intelligence_evolution_refresh_history.schema.json"
     },
     {
       "accepted": true,
       "artifact_path": "registry/report_intelligence/audit_refresh_history.jsonl",
       "failures": [],
-      "item_count": 16,
+      "item_count": 17,
       "schema_path": "schemas/report_intelligence_evolution_refresh_history.schema.json"
     },
     {
       "accepted": true,
       "artifact_path": "registry/report_intelligence/gap_distribution_history.jsonl",
       "failures": [],
-      "item_count": 16,
+      "item_count": 17,
       "schema_path": "schemas/report_intelligence_evolution_refresh_history.schema.json"
     },
     {
@@ -279,7 +279,7 @@
       "accepted": true,
       "artifact_path": "registry/report_intelligence/prompt_mutation_candidates.jsonl",
       "failures": [],
-      "item_count": 11,
+      "item_count": 10,
       "schema_path": "schemas/report_intelligence_prompt_mutation_candidate.schema.json"
     },
     {
@@ -454,7 +454,7 @@
       "accepted": true,
       "artifact_path": "registry/report_intelligence/*_refresh_history.jsonl",
       "failures": [],
-      "item_count": 48,
+      "item_count": 51,
       "schema_path": "schemas/report_intelligence_evolution_refresh_history_rules"
     },
     {
