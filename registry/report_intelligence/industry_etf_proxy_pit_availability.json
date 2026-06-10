@@ -3,12 +3,12 @@
   "labelability_summary": {
     "benchmark_series_missing_count": 0,
     "data_gap_counts": {
-      "direction_missing_or_unsupported": 5,
+      "direction_missing_or_unsupported": 6,
       "sector_etf_mapping_missing": 16
     },
-    "eligible_claim_count": 17,
-    "labelable_claim_count": 0,
-    "labelable_window_count": 0,
+    "eligible_claim_count": 22,
+    "labelable_claim_count": 5,
+    "labelable_window_count": 15,
     "pending_future_window_count": 51,
     "proxy_series_missing_count": 0,
     "sector_etf_mapping_missing_count": 16

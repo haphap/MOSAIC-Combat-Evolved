@@ -26,7 +26,7 @@
     "unmonitored_paper_trading_recipe_ids": [],
     "unmonitored_production_recipe_ids": []
   },
-  "as_of_datetime": "2026-06-10T14:14:44+00:00",
+  "as_of_datetime": "2026-06-10T14:48:28+00:00",
   "confidence_impact_monitoring": {
     "aggregate_calibration_drift_count": 0,
     "alpha_decay_fail_count": 0,
@@ -36,11 +36,11 @@
     "confidence_alpha_correlation_status": "insufficient_data",
     "cost_decay_fail_count": 0,
     "monitor_id": "RKE-REPORT-INTELLIGENCE-CONFIDENCE-IMPACT-MONITOR",
-    "observation_count": 50,
+    "observation_count": 62,
     "paper_trading_validated_recipe_count": 0,
     "production_decision_impact_allowed": false,
     "recommended_action_counts": {
-      "keep_shadow": 50
+      "keep_shadow": 62
     },
     "regime_fragile_alpha_count": 0,
     "unvalidated_confidence_impact_count": 0
@@ -48,16 +48,16 @@
   "monitoring_id": "RKE-REPORT-INTELLIGENCE-MONITORING",
   "policy": "monitoring metrics are diagnostic only; report-derived weights and recipes remain research priors until validation, paper trading, and promotion gates pass",
   "report_corpus": {
-    "forecast_claim_rows": 89,
-    "metadata_rows": 43,
-    "outcome_label_rows": 88
+    "forecast_claim_rows": 95,
+    "metadata_rows": 59,
+    "outcome_label_rows": 103
   },
   "report_weighting_monitoring": {
     "consensus_crowding_concentration": null,
     "effective_n_by_method": {
       "max_effective_n": 0.0,
       "nonzero_effective_n_count": 0,
-      "profile_count": 50,
+      "profile_count": 62,
       "top_profiles": [
         {
           "bucket": "",
@@ -123,8 +123,8 @@
     },
     "effective_n_by_source": {
       "max_effective_n": 3.0,
-      "nonzero_effective_n_count": 33,
-      "profile_count": 131,
+      "nonzero_effective_n_count": 45,
+      "profile_count": 179,
       "top_profiles": [
         {
           "bucket": "neutral_low_effective_n",
@@ -190,8 +190,8 @@
     },
     "effective_n_by_viewpoint": {
       "max_effective_n": 7.0,
-      "nonzero_effective_n_count": 11,
-      "profile_count": 50,
+      "nonzero_effective_n_count": 15,
+      "profile_count": 54,
       "top_profiles": [
         {
           "bucket": "neutral_low_effective_n",
@@ -214,6 +214,12 @@
         {
           "bucket": "insufficient_data",
           "id": "VPP-1944c2dbbbbefcba",
+          "insufficient_data": true,
+          "n_effective": 2.0
+        },
+        {
+          "bucket": "insufficient_data",
+          "id": "VPP-ca80414a2f554555",
           "insufficient_data": true,
           "n_effective": 2.0
         },
@@ -243,13 +249,7 @@
         },
         {
           "bucket": "insufficient_data",
-          "id": "VPP-9932ce382de03b0f",
-          "insufficient_data": true,
-          "n_effective": 1.0
-        },
-        {
-          "bucket": "insufficient_data",
-          "id": "VPP-2d6c59ae7e4dac29",
+          "id": "VPP-908505c2afb44091",
           "insufficient_data": true,
           "n_effective": 1.0
         }
@@ -262,29 +262,30 @@
       "non_neutral_profile_count": 11
     },
     "weighted_research_calibration_error": null,
-    "weighted_vs_unweighted_retrieval_difference": 0.202247
+    "weighted_vs_unweighted_retrieval_difference": 0.189474
   },
   "rollout_mode": "shadow_tooling",
-  "run_id": "RIR-DERIVED-20260610T141444+0000",
+  "run_id": "RIR-DERIVED-20260610T144827+0000",
   "tooling_loop_monitoring": {
-    "data_proposal_open_count": 403,
+    "data_proposal_open_count": 499,
     "evidence_coverage": {
-      "exact_or_partial_coverage_rate": 0.0,
-      "metric_candidate_count": 132,
+      "exact_or_partial_coverage_rate": 0.006061,
+      "metric_candidate_count": 165,
       "tool_coverage_status_counts": {
-        "missing": 132
+        "exact_match": 1,
+        "missing": 164
       }
     },
     "high_priority_gap_aging_count": 0,
     "missing_data_reduction": null,
     "recipe_validation_pass_rate": 0.0,
-    "runtime_fallback_observation_count": 403,
-    "shadow_recipe_count": 50,
+    "runtime_fallback_observation_count": 499,
+    "shadow_recipe_count": 62,
     "shadow_tool_correctness_failure_rate": null,
-    "tool_gap_open_count": 403,
+    "tool_gap_open_count": 499,
     "tool_gap_priority_counts": {
-      "low": 24,
-      "medium": 379
+      "low": 33,
+      "medium": 466
     },
     "tool_proposal_acceptance_rate": 0.0
   }

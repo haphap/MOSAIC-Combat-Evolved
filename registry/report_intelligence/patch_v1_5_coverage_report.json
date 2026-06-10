@@ -1,6 +1,6 @@
 {
   "accepted": false,
-  "as_of_datetime": "2026-06-10T14:14:44+00:00",
+  "as_of_datetime": "2026-06-10T14:48:28+00:00",
   "blocked_phase_ids": [
     "B",
     "D"
@@ -16,14 +16,14 @@
     "RI15-D-D1: analytical footprint registry build is incomplete"
   ],
   "corpus_counts": {
-    "analytical_footprint_rows": 79,
-    "forecast_claim_rows": 89,
-    "metadata_rows": 43,
-    "method_pattern_rows": 50,
-    "metric_candidate_rows": 132,
-    "outcome_label_rows": 88,
-    "runtime_tool_gap_observation_rows": 403,
-    "tool_gap_rows": 403,
+    "analytical_footprint_rows": 95,
+    "forecast_claim_rows": 95,
+    "metadata_rows": 59,
+    "method_pattern_rows": 62,
+    "metric_candidate_rows": 165,
+    "outcome_label_rows": 103,
+    "runtime_tool_gap_observation_rows": 499,
+    "tool_gap_rows": 499,
     "weighted_research_context_rows": 1
   },
   "coverage_report_id": "RKE-REPORT-INTELLIGENCE-PATCH-V1-5-COVERAGE",
@@ -91,11 +91,11 @@
         "registry/report_intelligence/extraction_provenance_audit.json"
       ],
       "evidence_counts": {
-        "analytical_footprint_rows": 79,
+        "analytical_footprint_rows": 95,
         "error_tag_count": 6,
         "footprint_quality_passed": false,
         "footprint_review_accepted": false,
-        "forecast_claim_rows": 89,
+        "forecast_claim_rows": 95,
         "gold_claim_precision": null,
         "gold_review_passed": false,
         "gold_reviewed_claims": 0,
@@ -127,13 +127,13 @@
         "registry/report_intelligence/statistical_robustness_audit.json"
       ],
       "evidence_counts": {
-        "forecast_ledger_rows": 89,
-        "method_profile_rows": 50,
-        "outcome_label_rows": 88,
-        "proxy_label_ready_count": 22,
-        "source_profile_rows": 131,
+        "forecast_ledger_rows": 95,
+        "method_profile_rows": 62,
+        "outcome_label_rows": 103,
+        "proxy_label_ready_count": 27,
+        "source_profile_rows": 179,
         "statistical_audit_accepted": true,
-        "viewpoint_profile_rows": 50
+        "viewpoint_profile_rows": 54
       },
       "failure_count": 0,
       "failures": [],
@@ -152,11 +152,11 @@
         "registry/report_intelligence/analytical_footprint_review_summary.json"
       ],
       "evidence_counts": {
-        "analytical_footprint_rows": 79,
+        "analytical_footprint_rows": 95,
         "footprint_quality_passed": false,
         "footprint_review_accepted": false,
-        "method_pattern_rows": 50,
-        "metric_candidate_rows": 132
+        "method_pattern_rows": 62,
+        "metric_candidate_rows": 165
       },
       "failure_count": 1,
       "failures": [
@@ -178,15 +178,16 @@
         "registry/report_intelligence/tool_feasibility_audit.json"
       ],
       "evidence_counts": {
-        "data_acquisition_proposal_rows": 403,
-        "metric_candidate_rows": 132,
-        "tool_coverage_match_rows": 132,
+        "data_acquisition_proposal_rows": 499,
+        "metric_candidate_rows": 165,
+        "tool_coverage_match_rows": 165,
         "tool_coverage_status_counts": {
-          "missing": 132
+          "exact_match": 1,
+          "missing": 164
         },
-        "tool_design_proposal_rows": 403,
+        "tool_design_proposal_rows": 499,
         "tool_feasibility_audit_accepted": true,
-        "tool_gap_rows": 403
+        "tool_gap_rows": 499
       },
       "failure_count": 0,
       "failures": [],
@@ -207,13 +208,13 @@
         "registry/report_intelligence/recipe_validation_audit.json"
       ],
       "evidence_counts": {
-        "analysis_recipe_rows": 50,
-        "fallback_observation_count": 403,
+        "analysis_recipe_rows": 62,
+        "fallback_observation_count": 499,
         "pit_leakage_audit_accepted": true,
         "recipe_validation_audit_accepted": true,
         "rollout_mode": "shadow_tooling",
         "runtime_safety_audit_accepted": true,
-        "runtime_tool_gap_observation_rows": 403,
+        "runtime_tool_gap_observation_rows": 499,
         "weighted_research_context_rows": 1
       },
       "failure_count": 0,
@@ -377,12 +378,12 @@
         "registry/report_intelligence/statistical_robustness_audit.json"
       ],
       "evidence_counts": {
-        "forecast_ledger_rows": 89,
-        "method_profile_rows": 50,
-        "outcome_label_rows": 88,
-        "source_profile_rows": 131,
+        "forecast_ledger_rows": 95,
+        "method_profile_rows": 62,
+        "outcome_label_rows": 103,
+        "source_profile_rows": 179,
         "statistical_audit_accepted": true,
-        "viewpoint_profile_rows": 50
+        "viewpoint_profile_rows": 54
       },
       "phase_id": "C",
       "requirement": "Report forecast ledger, PIT outcome labels with overlap adjustment, source/viewpoint/method profiles, shrinkage, and bucketed weights are materialized without production use.",
@@ -400,9 +401,9 @@
         "registry/report_intelligence/analytical_footprint_review_summary.json"
       ],
       "evidence_counts": {
-        "analytical_footprint_rows": 79,
-        "method_pattern_rows": 50,
-        "metric_candidate_rows": 132
+        "analytical_footprint_rows": 95,
+        "method_pattern_rows": 62,
+        "metric_candidate_rows": 165
       },
       "phase_id": "D",
       "requirement": "Analytical footprints, metric candidates with alias/proxy mapping, method patterns, and license-aware storage policy are registered as candidate/shadow assets.",
@@ -421,11 +422,11 @@
         "registry/report_intelligence/tool_feasibility_audit.json"
       ],
       "evidence_counts": {
-        "data_acquisition_proposal_rows": 403,
-        "metric_candidate_rows": 132,
-        "tool_coverage_match_rows": 132,
-        "tool_design_proposal_rows": 403,
-        "tool_gap_rows": 403
+        "data_acquisition_proposal_rows": 499,
+        "metric_candidate_rows": 165,
+        "tool_coverage_match_rows": 165,
+        "tool_design_proposal_rows": 499,
+        "tool_gap_rows": 499
       },
       "phase_id": "E",
       "requirement": "Tool coverage matcher, ranked tool gaps, data availability/PIT review, data acquisition proposals, and tool design proposals cover every metric candidate.",
@@ -445,10 +446,10 @@
         "registry/report_intelligence/recipe_validation_audit.json"
       ],
       "evidence_counts": {
-        "analysis_recipe_rows": 50,
-        "fallback_observation_count": 403,
+        "analysis_recipe_rows": 62,
+        "fallback_observation_count": 499,
         "rollout_mode": "shadow_tooling",
-        "runtime_tool_gap_observation_rows": 403,
+        "runtime_tool_gap_observation_rows": 499,
         "weighted_research_context_rows": 1
       },
       "phase_id": "F",
@@ -500,6 +501,6 @@
       "status": "deferred_by_rollout"
     }
   ],
-  "run_id": "RIR-DERIVED-20260610T141444+0000",
+  "run_id": "RIR-DERIVED-20260610T144827+0000",
   "source_plan_path": "MOSAIC_RKE_REPORT_INTELLIGENCE_LOOP_PATCH_V1_5_MERGED.md"
 }

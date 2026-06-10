@@ -1,7 +1,7 @@
 {
   "accepted": false,
   "blockers": [
-    "3 analytical footprint review rows still pending",
+    "7 analytical footprint review rows still pending",
     "footprint_precision unavailable",
     "span_support_precision unavailable",
     "metric_mapping_accuracy unavailable",
@@ -13,7 +13,7 @@
   "error_counts": {},
   "error_taxonomy_path": "registry/report_intelligence/analytical_footprint_error_taxonomy.json",
   "manual_review_required": true,
-  "pending_rows": 3,
+  "pending_rows": 7,
   "policy": "analytical footprint review is a manual gold-set gate for source grounding, metric mapping, inferred-step tagging, ambiguity handling, and proprietary text leakage; no rows are accepted until reviewers fill all required fields and quality thresholds pass",
   "precision_recall_report": {
     "footprint_precision": null,
@@ -46,5 +46,5 @@
   "review_kind": "analytical_footprint_gold_set",
   "review_template_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl",
   "summary_id": "RKE-REPORT-INTELLIGENCE-FOOTPRINT-REVIEW-SUMMARY",
-  "total_rows": 3
+  "total_rows": 7
 }
