@@ -705,6 +705,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Source id to process. May be repeated or comma-separated.",
     )
     report_intelligence.add_argument(
+        "--exclude-processed-registry-dir",
+        action="append",
+        dest="exclude_processed_registry_dirs",
+        help=(
+            "Registry output directory whose processing_status.jsonl marks "
+            "already-processed source ids to skip. May be repeated or comma-separated."
+        ),
+    )
+    report_intelligence.add_argument(
         "--limit",
         type=int,
         help="Maximum selected source rows to process.",
@@ -1297,6 +1306,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 registry_dir=args.registry_dir,
                 cache_dir=args.cache_dir,
                 source_ids=_split_repeated_csv(args.source_ids),
+                exclude_processed_registry_dirs=_split_repeated_csv(
+                    args.exclude_processed_registry_dirs
+                ),
                 limit=args.limit,
                 min_publish_date=args.min_publish_date,
                 max_publish_date=args.max_publish_date,

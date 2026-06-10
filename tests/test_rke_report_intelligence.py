@@ -1187,6 +1187,66 @@ def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
     assert source_id not in candidate_dump
 
 
+def test_report_intelligence_can_skip_processed_batch_source_ids(tmp_path: Path):
+    source_path = tmp_path / "registry/sources/tushare_research_reports.jsonl"
+    base_row = {
+        "abstract": "摘要不能作为本测试的抽取输入。",
+        "author": "Analyst A",
+        "discovered_at": "2026-06-06T00:00:00+00:00",
+        "industry": "宏观",
+        "institution": "Broker A",
+        "license_status": "pending_review",
+        "point_in_time_available": True,
+        "query_key": "liquidity",
+        "report_type": "宏观研报",
+        "source_hash": "sha256:test",
+        "source_type": "tushare_research_report",
+        "title": "Liquidity report",
+        "ts_code": "",
+        "url": "https://example.invalid/report.pdf",
+    }
+    _write_jsonl(
+        source_path,
+        [
+            {
+                **base_row,
+                "publish_date": "2026-06-05",
+                "source_id": "SRC-NEWER-PROCESSED",
+                "source_span_id": "SRC-NEWER-PROCESSED:abstract",
+            },
+            {
+                **base_row,
+                "publish_date": "2026-06-04",
+                "source_id": "SRC-OLDER-UNPROCESSED",
+                "source_span_id": "SRC-OLDER-UNPROCESSED:abstract",
+            },
+        ],
+    )
+    processed_registry = tmp_path / "previous_batch"
+    _write_jsonl(
+        processed_registry / "processing_status.jsonl",
+        [{"source_id": "SRC-NEWER-PROCESSED", "llm_status": "processed"}],
+    )
+
+    result = run_report_intelligence_refresh(
+        ReportIntelligenceConfig(
+            root=tmp_path,
+            exclude_processed_registry_dirs=("previous_batch",),
+            limit=1,
+        ),
+        downloader=_fake_downloader,
+        converter=_fake_converter,
+        llm_extractor=_fake_llm,
+    )
+
+    status = _read_jsonl(
+        tmp_path / "registry/report_intelligence/processing_status.jsonl"
+    )
+    assert result.blocker_count == 0
+    assert result.selected_reports == 1
+    assert status[0]["source_id"] == "SRC-OLDER-UNPROCESSED"
+
+
 @pytest.mark.parametrize(
     ("markdown_text", "expected_gap"),
     [
@@ -5345,6 +5405,7 @@ def test_report_intelligence_cli_help_exposes_stock_qlib_dir(capsys):
     help_text = capsys.readouterr().out
     assert "--qlib-stock-dir" in help_text
     assert "--registry-dir" in help_text
+    assert "--exclude-processed-registry-dir" in help_text
     assert "--vllm-timeout-seconds" in help_text
     assert "--max-llm-output-tokens" in help_text
     assert "stratified" in help_text

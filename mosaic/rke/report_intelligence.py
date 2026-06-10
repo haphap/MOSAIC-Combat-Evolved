@@ -482,6 +482,7 @@ class ReportIntelligenceConfig:
     registry_dir: str | Path = REPORT_INTELLIGENCE_REGISTRY_DIR
     cache_dir: str | Path = REPORT_INTELLIGENCE_CACHE_DIR
     source_ids: Sequence[str] = ()
+    exclude_processed_registry_dirs: Sequence[str | Path] = ()
     limit: int | None = None
     min_publish_date: str | None = None
     max_publish_date: str | None = None
@@ -881,11 +882,41 @@ def _source_file(root_path: Path, source_path: str | Path) -> Path:
     return path if path.is_absolute() else root_path / path
 
 
+def _processed_source_ids_from_registry_dirs(
+    root_path: Path, registry_dirs: Sequence[str | Path]
+) -> tuple[set[str], list[str]]:
+    processed: set[str] = set()
+    blockers: list[str] = []
+    for registry_dir in registry_dirs:
+        path = Path(registry_dir)
+        if not path.is_absolute():
+            path = root_path / path
+        status_path = path / "processing_status.jsonl"
+        if not status_path.exists():
+            blockers.append(
+                f"exclude processed registry status missing: {status_path}"
+            )
+            continue
+        raw_rows, parse_blockers = load_jsonl_with_errors(
+            status_path,
+            label=f"processed registry status {status_path}",
+        )
+        blockers.extend(parse_blockers)
+        for row in _mapping_rows(raw_rows, blockers):
+            if row.get("llm_status") != "processed":
+                continue
+            source_id = str(row.get("source_id") or "").strip()
+            if source_id:
+                processed.add(source_id)
+    return processed, blockers
+
+
 def _selected_source_rows(
     root_path: Path,
     *,
     source_path: str | Path,
     source_ids: Sequence[str],
+    exclude_source_ids: Sequence[str] = (),
     limit: int | None,
     min_publish_date: str | None = None,
     max_publish_date: str | None = None,
@@ -900,6 +931,17 @@ def _selected_source_rows(
     wanted = {str(source_id) for source_id in source_ids if str(source_id).strip()}
     if wanted:
         rows = [row for row in rows if str(row.get("source_id") or "") in wanted]
+    excluded = {
+        str(source_id).strip()
+        for source_id in exclude_source_ids
+        if str(source_id).strip()
+    }
+    if excluded:
+        rows = [
+            row
+            for row in rows
+            if str(row.get("source_id") or "").strip() not in excluded
+        ]
     if min_publish_date:
         rows = [
             row
@@ -16940,16 +16982,21 @@ def run_report_intelligence_refresh(
         else root_path / cfg.cache_dir
     )
     run_id = "RIR-" + _utc_now().replace(":", "").replace("-", "")
+    processed_source_ids, processed_source_blockers = _processed_source_ids_from_registry_dirs(
+        root_path,
+        cfg.exclude_processed_registry_dirs,
+    )
     rows, source_blockers = _selected_source_rows(
         root_path,
         source_path=cfg.source_path,
         source_ids=cfg.source_ids,
+        exclude_source_ids=tuple(processed_source_ids),
         limit=cfg.limit,
         min_publish_date=cfg.min_publish_date,
         max_publish_date=cfg.max_publish_date,
         selection_order=cfg.selection_order,
     )
-    blockers: list[str] = list(source_blockers)
+    blockers: list[str] = [*processed_source_blockers, *source_blockers]
     downloader = downloader or (
         lambda url, path, overwrite: download_pdf(
             url,
