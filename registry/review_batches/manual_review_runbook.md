@@ -6,8 +6,8 @@ It records paths, commands, row counts, acceptance criteria, and current blocker
 ## Current Progress
 
 - Promotion dry-run ready: false
-- Gold-set review: 500/500 complete; scratch exists: true; simulation accepted: true
-- Source-license review: 17529/17529 complete; scratch exists: true; simulation accepted: true
+- Gold-set review: 0/500 complete; scratch exists: true; simulation accepted: false
+- Source-license review: 0/1216 complete; scratch exists: true; simulation accepted: false
 - Lockbox review: 0/1 complete; scratch exists: true; simulation accepted: false
 
 ## Prepare Commands
@@ -78,6 +78,23 @@ A promotion dry run is ready only when all three gates above report ready for pr
 
 ## Current Blockers
 
+- gold_set: 0/500 ready
+- gold_set: 500 review rows failed validation
+- gold_set: 500 review rows: reviewer required
+- gold_set: 500 review rows: review_date required
+- gold_set: 500 review rows: manual_claim_text required
+- gold_set: 500 review rows: claim_correct must be boolean
+- gold_set: 500 review rows: source_span_supports_claim must be boolean
+- gold_set: 500 review rows: direction_correct must be boolean
+- gold_set: 500 review rows: variable_mapping_correct must be boolean
+- gold_set: 500 review rows: unsupported_field_false_grounded must be boolean
+- gold_set: 500 gold-set claim review rows still pending
+- source_license: 0/1216 ready
+- source_license: reviewer required
+- source_license: review_date required
+- source_license: approved_for_derived_claim_storage must be boolean
+- source_license: approved_for_production_runtime must be boolean
+- source_license: 1216 source license review rows still pending
 - lockbox: 0/1 ready
 - lockbox: opened_at required
 - lockbox: opened_by required
