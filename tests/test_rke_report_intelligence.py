@@ -1247,6 +1247,71 @@ def test_report_intelligence_can_skip_processed_batch_source_ids(tmp_path: Path)
     assert status[0]["source_id"] == "SRC-OLDER-UNPROCESSED"
 
 
+def test_report_intelligence_can_require_cached_markdown_before_limit(tmp_path: Path):
+    source_path = tmp_path / "registry/sources/tushare_research_reports.jsonl"
+    base_row = {
+        "abstract": "摘要不能作为本测试的抽取输入。",
+        "author": "Analyst A",
+        "discovered_at": "2026-06-06T00:00:00+00:00",
+        "industry": "宏观",
+        "institution": "Broker A",
+        "license_status": "pending_review",
+        "point_in_time_available": True,
+        "query_key": "liquidity",
+        "report_type": "宏观研报",
+        "source_hash": "sha256:test",
+        "source_type": "tushare_research_report",
+        "title": "Liquidity report",
+        "ts_code": "",
+        "url": "https://example.invalid/report.pdf",
+    }
+    _write_jsonl(
+        source_path,
+        [
+            {
+                **base_row,
+                "publish_date": "2026-06-05",
+                "source_id": "SRC-NEWER-MISSING-MARKDOWN",
+                "source_span_id": "SRC-NEWER-MISSING-MARKDOWN:abstract",
+            },
+            {
+                **base_row,
+                "publish_date": "2026-06-04",
+                "source_id": "SRC-OLDER-CACHED-MARKDOWN",
+                "source_span_id": "SRC-OLDER-CACHED-MARKDOWN:abstract",
+            },
+        ],
+    )
+    markdown_path = (
+        tmp_path
+        / ".mosaic/rke/report_intelligence/markdown/SRC-OLDER-CACHED-MARKDOWN.md"
+    )
+    markdown_path.parent.mkdir(parents=True)
+    markdown_path.write_text(
+        "# 流动性脉冲\n报告原文讨论7日公开市场净投放，并用DR007确认资金压力。",
+        encoding="utf-8",
+    )
+
+    result = run_report_intelligence_refresh(
+        ReportIntelligenceConfig(
+            root=tmp_path,
+            require_cached_markdown=True,
+            limit=1,
+            skip_download=True,
+            skip_convert=True,
+            skip_llm=True,
+        )
+    )
+
+    status = _read_jsonl(
+        tmp_path / "registry/report_intelligence/processing_status.jsonl"
+    )
+    assert result.blocker_count == 0
+    assert result.selected_reports == 1
+    assert result.markdown_ready_count == 1
+    assert status[0]["source_id"] == "SRC-OLDER-CACHED-MARKDOWN"
+
+
 @pytest.mark.parametrize(
     ("markdown_text", "expected_gap"),
     [
@@ -5406,6 +5471,7 @@ def test_report_intelligence_cli_help_exposes_stock_qlib_dir(capsys):
     assert "--qlib-stock-dir" in help_text
     assert "--registry-dir" in help_text
     assert "--exclude-processed-registry-dir" in help_text
+    assert "--require-cached-markdown" in help_text
     assert "--vllm-timeout-seconds" in help_text
     assert "--max-llm-output-tokens" in help_text
     assert "stratified" in help_text

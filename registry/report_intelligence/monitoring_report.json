@@ -26,7 +26,7 @@
     "unmonitored_paper_trading_recipe_ids": [],
     "unmonitored_production_recipe_ids": []
   },
-  "as_of_datetime": "2026-06-10T14:56:05+00:00",
+  "as_of_datetime": "2026-06-10T22:59:36+00:00",
   "confidence_impact_monitoring": {
     "aggregate_calibration_drift_count": 0,
     "alpha_decay_fail_count": 0,
@@ -36,11 +36,11 @@
     "confidence_alpha_correlation_status": "insufficient_data",
     "cost_decay_fail_count": 0,
     "monitor_id": "RKE-REPORT-INTELLIGENCE-CONFIDENCE-IMPACT-MONITOR",
-    "observation_count": 62,
+    "observation_count": 94,
     "paper_trading_validated_recipe_count": 0,
     "production_decision_impact_allowed": false,
     "recommended_action_counts": {
-      "keep_shadow": 62
+      "keep_shadow": 94
     },
     "regime_fragile_alpha_count": 0,
     "unvalidated_confidence_impact_count": 0
@@ -48,53 +48,17 @@
   "monitoring_id": "RKE-REPORT-INTELLIGENCE-MONITORING",
   "policy": "monitoring metrics are diagnostic only; report-derived weights and recipes remain research priors until validation, paper trading, and promotion gates pass",
   "report_corpus": {
-    "forecast_claim_rows": 95,
-    "metadata_rows": 59,
-    "outcome_label_rows": 103
+    "forecast_claim_rows": 177,
+    "metadata_rows": 109,
+    "outcome_label_rows": 163
   },
   "report_weighting_monitoring": {
     "consensus_crowding_concentration": null,
     "effective_n_by_method": {
       "max_effective_n": 0.0,
       "nonzero_effective_n_count": 0,
-      "profile_count": 62,
+      "profile_count": 94,
       "top_profiles": [
-        {
-          "bucket": "",
-          "id": "MPP-2baf47fb2a30e076",
-          "insufficient_data": true,
-          "n_effective": 0.0
-        },
-        {
-          "bucket": "",
-          "id": "MPP-09456233315fa9b2",
-          "insufficient_data": true,
-          "n_effective": 0.0
-        },
-        {
-          "bucket": "",
-          "id": "MPP-a20237394aba1a15",
-          "insufficient_data": true,
-          "n_effective": 0.0
-        },
-        {
-          "bucket": "",
-          "id": "MPP-62e6c7d6b6fab7ea",
-          "insufficient_data": true,
-          "n_effective": 0.0
-        },
-        {
-          "bucket": "",
-          "id": "MPP-9c4f5a9c59fef541",
-          "insufficient_data": true,
-          "n_effective": 0.0
-        },
-        {
-          "bucket": "",
-          "id": "MPP-792df846d2cbe856",
-          "insufficient_data": true,
-          "n_effective": 0.0
-        },
         {
           "bucket": "",
           "id": "MPP-c60140691694df09",
@@ -118,102 +82,156 @@
           "id": "MPP-a78d69450b3cb65c",
           "insufficient_data": true,
           "n_effective": 0.0
+        },
+        {
+          "bucket": "",
+          "id": "MPP-fae60180a5bd6e18",
+          "insufficient_data": true,
+          "n_effective": 0.0
+        },
+        {
+          "bucket": "",
+          "id": "MPP-4acbc23c9b6673d3",
+          "insufficient_data": true,
+          "n_effective": 0.0
+        },
+        {
+          "bucket": "",
+          "id": "MPP-6f6dfd858f5431b0",
+          "insufficient_data": true,
+          "n_effective": 0.0
+        },
+        {
+          "bucket": "",
+          "id": "MPP-7d65765db4905db9",
+          "insufficient_data": true,
+          "n_effective": 0.0
+        },
+        {
+          "bucket": "",
+          "id": "MPP-a3b40dd2e3438d23",
+          "insufficient_data": true,
+          "n_effective": 0.0
+        },
+        {
+          "bucket": "",
+          "id": "MPP-36551a593d88bf08",
+          "insufficient_data": true,
+          "n_effective": 0.0
         }
       ]
     },
     "effective_n_by_source": {
-      "max_effective_n": 3.0,
-      "nonzero_effective_n_count": 45,
-      "profile_count": 179,
+      "max_effective_n": 9.0,
+      "nonzero_effective_n_count": 57,
+      "profile_count": 293,
       "top_profiles": [
-        {
-          "bucket": "neutral_low_effective_n",
-          "id": "SPP-3d9f79e8281d751c",
-          "insufficient_data": false,
-          "n_effective": 3.0
-        },
-        {
-          "bucket": "neutral_low_effective_n",
-          "id": "SPP-8a09c36901145e52",
-          "insufficient_data": false,
-          "n_effective": 3.0
-        },
-        {
-          "bucket": "neutral_low_effective_n",
-          "id": "SPP-29e76e98678d965a",
-          "insufficient_data": false,
-          "n_effective": 3.0
-        },
         {
           "bucket": "neutral_low_effective_n",
           "id": "SPP-0afee35305226510",
           "insufficient_data": false,
-          "n_effective": 3.0
+          "n_effective": 9.0
         },
         {
           "bucket": "neutral_low_effective_n",
           "id": "SPP-781612dd295d40a2",
           "insufficient_data": false,
-          "n_effective": 3.0
+          "n_effective": 9.0
         },
         {
           "bucket": "neutral_low_effective_n",
           "id": "SPP-dcc4afd00a05260e",
           "insufficient_data": false,
-          "n_effective": 3.0
-        },
-        {
-          "bucket": "neutral_low_effective_n",
-          "id": "SPP-ce1dbc81fe2524e0",
-          "insufficient_data": false,
-          "n_effective": 3.0
-        },
-        {
-          "bucket": "neutral_low_effective_n",
-          "id": "SPP-d1939a761935acb7",
-          "insufficient_data": false,
-          "n_effective": 3.0
+          "n_effective": 9.0
         },
         {
           "bucket": "neutral_low_effective_n",
           "id": "SPP-ad1408d6bd12beaa",
           "insufficient_data": false,
-          "n_effective": 3.0
+          "n_effective": 9.0
         },
         {
           "bucket": "neutral_low_effective_n",
           "id": "SPP-8739b748c319aa2b",
           "insufficient_data": false,
-          "n_effective": 3.0
+          "n_effective": 9.0
+        },
+        {
+          "bucket": "positive_low_effective_n",
+          "id": "SPP-7b013474d3914d28",
+          "insufficient_data": false,
+          "n_effective": 5.0
+        },
+        {
+          "bucket": "positive_low_effective_n",
+          "id": "SPP-9e8330c4b191c862",
+          "insufficient_data": false,
+          "n_effective": 5.0
+        },
+        {
+          "bucket": "positive_low_effective_n",
+          "id": "SPP-4aebeb3c0ba01257",
+          "insufficient_data": false,
+          "n_effective": 5.0
+        },
+        {
+          "bucket": "positive_low_effective_n",
+          "id": "SPP-9cc12b45a5d1b354",
+          "insufficient_data": false,
+          "n_effective": 5.0
+        },
+        {
+          "bucket": "positive_low_effective_n",
+          "id": "SPP-411771dc48d27e3e",
+          "insufficient_data": false,
+          "n_effective": 5.0
         }
       ]
     },
     "effective_n_by_viewpoint": {
-      "max_effective_n": 7.0,
-      "nonzero_effective_n_count": 15,
-      "profile_count": 54,
+      "max_effective_n": 6.0,
+      "nonzero_effective_n_count": 24,
+      "profile_count": 104,
       "top_profiles": [
         {
-          "bucket": "neutral_low_effective_n",
+          "bucket": "positive_low_effective_n",
           "id": "VPP-48649d45b30701b2",
           "insufficient_data": false,
-          "n_effective": 7.0
+          "n_effective": 6.0
         },
         {
           "bucket": "positive_low_effective_n",
           "id": "VPP-e9344a77a2636169",
           "insufficient_data": false,
-          "n_effective": 4.0
+          "n_effective": 5.0
+        },
+        {
+          "bucket": "positive_low_effective_n",
+          "id": "VPP-fdfeb8624e69b68c",
+          "insufficient_data": false,
+          "n_effective": 3.0
+        },
+        {
+          "bucket": "positive_low_effective_n",
+          "id": "VPP-75afaa0a74c5912a",
+          "insufficient_data": false,
+          "n_effective": 3.0
         },
         {
           "bucket": "insufficient_data",
-          "id": "VPP-fdfeb8624e69b68c",
+          "id": "VPP-1944c2dbbbbefcba",
           "insufficient_data": true,
           "n_effective": 2.0
         },
         {
           "bucket": "insufficient_data",
-          "id": "VPP-1944c2dbbbbefcba",
+          "id": "VPP-9932ce382de03b0f",
+          "insufficient_data": true,
+          "n_effective": 2.0
+        },
+        {
+          "bucket": "insufficient_data",
+          "id": "VPP-0cf73d0b31a6f139",
           "insufficient_data": true,
           "n_effective": 2.0
         },
@@ -225,31 +243,13 @@
         },
         {
           "bucket": "insufficient_data",
-          "id": "VPP-1778118bce28265e",
-          "insufficient_data": true,
-          "n_effective": 1.0
-        },
-        {
-          "bucket": "insufficient_data",
           "id": "VPP-1668dd66cf770d5a",
           "insufficient_data": true,
-          "n_effective": 1.0
-        },
-        {
-          "bucket": "insufficient_data",
-          "id": "VPP-75afaa0a74c5912a",
-          "insufficient_data": true,
-          "n_effective": 1.0
+          "n_effective": 2.0
         },
         {
           "bucket": "insufficient_data",
           "id": "VPP-1000dded936008c6",
-          "insufficient_data": true,
-          "n_effective": 1.0
-        },
-        {
-          "bucket": "insufficient_data",
-          "id": "VPP-908505c2afb44091",
           "insufficient_data": true,
           "n_effective": 1.0
         }
@@ -258,34 +258,34 @@
     "high_weight_source_decay_count": 0,
     "low_weight_source_false_negative_rate": null,
     "source_weight_drift": {
-      "max_effective_n": 3.0,
-      "non_neutral_profile_count": 11
+      "max_effective_n": 9.0,
+      "non_neutral_profile_count": 23
     },
     "weighted_research_calibration_error": null,
-    "weighted_vs_unweighted_retrieval_difference": 0.189474
+    "weighted_vs_unweighted_retrieval_difference": 0.214689
   },
   "rollout_mode": "shadow_tooling",
-  "run_id": "RIR-DERIVED-20260610T145604+0000",
+  "run_id": "RIR-DERIVED-20260610T225936+0000",
   "tooling_loop_monitoring": {
-    "data_proposal_open_count": 499,
+    "data_proposal_open_count": 754,
     "evidence_coverage": {
-      "exact_or_partial_coverage_rate": 0.006061,
-      "metric_candidate_count": 165,
+      "exact_or_partial_coverage_rate": 0.003774,
+      "metric_candidate_count": 265,
       "tool_coverage_status_counts": {
         "exact_match": 1,
-        "missing": 164
+        "missing": 264
       }
     },
     "high_priority_gap_aging_count": 0,
     "missing_data_reduction": null,
     "recipe_validation_pass_rate": 0.0,
-    "runtime_fallback_observation_count": 499,
-    "shadow_recipe_count": 62,
+    "runtime_fallback_observation_count": 754,
+    "shadow_recipe_count": 94,
     "shadow_tool_correctness_failure_rate": null,
-    "tool_gap_open_count": 499,
+    "tool_gap_open_count": 754,
     "tool_gap_priority_counts": {
-      "low": 33,
-      "medium": 466
+      "low": 49,
+      "medium": 705
     },
     "tool_proposal_acceptance_rate": 0.0
   }

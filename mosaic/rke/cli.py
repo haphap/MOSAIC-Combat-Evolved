@@ -714,6 +714,14 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     report_intelligence.add_argument(
+        "--require-cached-markdown",
+        action="store_true",
+        help=(
+            "Only select source rows whose cache-dir markdown file already exists. "
+            "Useful for LLM-only incremental batches."
+        ),
+    )
+    report_intelligence.add_argument(
         "--limit",
         type=int,
         help="Maximum selected source rows to process.",
@@ -1309,6 +1317,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 exclude_processed_registry_dirs=_split_repeated_csv(
                     args.exclude_processed_registry_dirs
                 ),
+                require_cached_markdown=args.require_cached_markdown,
                 limit=args.limit,
                 min_publish_date=args.min_publish_date,
                 max_publish_date=args.max_publish_date,

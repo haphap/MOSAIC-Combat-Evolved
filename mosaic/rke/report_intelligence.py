@@ -483,6 +483,7 @@ class ReportIntelligenceConfig:
     cache_dir: str | Path = REPORT_INTELLIGENCE_CACHE_DIR
     source_ids: Sequence[str] = ()
     exclude_processed_registry_dirs: Sequence[str | Path] = ()
+    require_cached_markdown: bool = False
     limit: int | None = None
     min_publish_date: str | None = None
     max_publish_date: str | None = None
@@ -911,13 +912,19 @@ def _processed_source_ids_from_registry_dirs(
     return processed, blockers
 
 
+def _cached_markdown_path_for_source(cache_dir: Path, source_id: object) -> Path:
+    return cache_dir / "markdown" / f"{_safe_file_id(str(source_id or ''))}.md"
+
+
 def _selected_source_rows(
     root_path: Path,
     *,
     source_path: str | Path,
+    cache_dir: str | Path,
     source_ids: Sequence[str],
-    exclude_source_ids: Sequence[str] = (),
     limit: int | None,
+    exclude_source_ids: Sequence[str] = (),
+    require_cached_markdown: bool = False,
     min_publish_date: str | None = None,
     max_publish_date: str | None = None,
     selection_order: Literal["latest", "oldest", "stratified"] = "latest",
@@ -941,6 +948,21 @@ def _selected_source_rows(
             row
             for row in rows
             if str(row.get("source_id") or "").strip() not in excluded
+        ]
+    if require_cached_markdown:
+        resolved_cache_dir = (
+            Path(cache_dir)
+            if Path(cache_dir).is_absolute()
+            else root_path / cache_dir
+        )
+        rows = [
+            row
+            for row in rows
+            if (markdown_path := _cached_markdown_path_for_source(
+                resolved_cache_dir,
+                row.get("source_id"),
+            )).exists()
+            and markdown_path.stat().st_size > 0
         ]
     if min_publish_date:
         rows = [
@@ -16989,8 +17011,10 @@ def run_report_intelligence_refresh(
     rows, source_blockers = _selected_source_rows(
         root_path,
         source_path=cfg.source_path,
+        cache_dir=cfg.cache_dir,
         source_ids=cfg.source_ids,
         exclude_source_ids=tuple(processed_source_ids),
+        require_cached_markdown=cfg.require_cached_markdown,
         limit=cfg.limit,
         min_publish_date=cfg.min_publish_date,
         max_publish_date=cfg.max_publish_date,
