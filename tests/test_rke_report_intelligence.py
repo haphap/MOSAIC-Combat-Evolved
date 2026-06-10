@@ -750,6 +750,22 @@ def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
         "stock_report_count_min": 80,
         "stock_outcome_120d_ready_report_count_min": 30,
     }
+    assert markdown_coverage["coverage_shortfalls"]["selected_report_count"] == {
+        "blocker": "selected_report_count_below_p9_target",
+        "current": 1,
+        "next_action": "add_stratified_real_reports_to_private_source_pool",
+        "remaining": 299,
+        "target": 300,
+    }
+    assert markdown_coverage["coverage_shortfalls"]["markdown_ready_count"][
+        "remaining"
+    ] == 299
+    assert markdown_coverage["coverage_shortfalls"][
+        "llm_extraction_processed_count"
+    ]["remaining"] == 99
+    assert markdown_coverage["coverage_shortfalls"]["stock_report_count"][
+        "remaining"
+    ] == 80
     assert markdown_coverage["coverage_gate_status"] == "blocked"
     assert set(markdown_coverage["coverage_gate_blockers"]) == {
         "evaluability_bucket_coverage_below_p9_target",
@@ -2322,6 +2338,20 @@ def test_report_intelligence_evolution_gate_blocks_until_objective_thresholds_pa
         "gap_distribution_history_below_threshold",
         "selected_report_count_below_p9_target",
     } <= set(gate["blockers"])
+    assert gate["requirement_shortfalls"]["unique_outcome_claim_count"] == {
+        "blocker": "unique_outcome_claim_count_below_threshold",
+        "current": 0,
+        "next_action": "produce_more_non_llm_pit_outcome_labels",
+        "remaining": 100,
+        "target": 100,
+    }
+    assert gate["requirement_shortfalls"]["paper_trading_validated_recipe_count"][
+        "remaining"
+    ] == 20
+    assert gate["requirement_shortfalls"]["monitor_current_blocked_recipe_count"][
+        "remaining"
+    ] == 5
+    assert gate["requirement_shortfalls"]["markdown_coverage"] == {}
     gate_dump = json.dumps(gate, ensure_ascii=False)
     assert "claim_text" not in gate_dump
     assert "source_span_ids" not in gate_dump

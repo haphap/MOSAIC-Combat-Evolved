@@ -11,6 +11,7 @@
     "production_prompt_change_allowed",
     "thresholds",
     "checks",
+    "requirement_shortfalls",
     "blockers",
     "blocker_count",
     "private_text_included",
@@ -64,6 +65,63 @@
           "passed": {"type": "boolean"},
           "evidence": {"type": "object"},
           "blockers": {"type": "array", "items": {"type": "string"}}
+        },
+        "additionalProperties": true
+      }
+    },
+    "requirement_shortfalls": {
+      "type": "object",
+      "required": [
+        "unique_outcome_claim_count",
+        "stock_proxy_unique_claim_count",
+        "industry_proxy_unique_claim_count",
+        "paper_trading_run_count",
+        "paper_trading_validated_recipe_count",
+        "after_cost_paper_trading_summary",
+        "monitor_distinct_vintage_count",
+        "monitor_current_blocked_recipe_count",
+        "audit_distinct_vintage_count",
+        "gold_reviewed_claims",
+        "gold_pending_claims",
+        "gold_quality_metric_gaps",
+        "gap_distribution_distinct_vintage_count",
+        "markdown_coverage"
+      ],
+      "properties": {
+        "markdown_coverage": {"type": "object"},
+        "gold_quality_metric_gaps": {
+          "type": "object",
+          "required": ["missing_or_below_threshold", "blocker", "next_action"],
+          "properties": {
+            "missing_or_below_threshold": {
+              "type": "array",
+              "items": {"type": "string"}
+            },
+            "blocker": {"type": "string", "minLength": 1},
+            "next_action": {"type": "string", "minLength": 1}
+          },
+          "additionalProperties": true
+        },
+        "after_cost_paper_trading_summary": {
+          "type": "object",
+          "required": ["status", "blocker", "next_action"],
+          "properties": {
+            "status": {"enum": ["present", "missing"]},
+            "blocker": {"type": "string", "minLength": 1},
+            "next_action": {"type": "string", "minLength": 1}
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": {
+        "type": "object",
+        "required": ["current", "target", "remaining", "blocker", "next_action"],
+        "properties": {
+          "current": {"type": "integer", "minimum": 0},
+          "target": {"type": "integer", "minimum": 0},
+          "remaining": {"type": "integer", "minimum": 0},
+          "blocker": {"type": "string", "minLength": 1},
+          "next_action": {"type": "string", "minLength": 1}
         },
         "additionalProperties": true
       }

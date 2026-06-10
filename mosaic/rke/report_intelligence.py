@@ -1932,6 +1932,22 @@ def _ensure_mapping(value: Any) -> dict[str, Any]:
     return dict(value) if isinstance(value, Mapping) else {}
 
 
+def _threshold_shortfall(
+    *,
+    current: int,
+    target: int,
+    blocker: str,
+    next_action: str,
+) -> dict[str, Any]:
+    return {
+        "current": max(0, int(current)),
+        "target": max(0, int(target)),
+        "remaining": max(0, int(target) - int(current)),
+        "blocker": blocker,
+        "next_action": next_action,
+    }
+
+
 def _stable_item_key(value: Any) -> str:
     return json.dumps(_jsonable(value), ensure_ascii=False, sort_keys=True)
 
@@ -5180,6 +5196,64 @@ def build_markdown_coverage_summary(
         )
     if llm_extraction_without_quality_pass_count:
         coverage_gate_blockers.append("llm_extraction_without_quality_pass")
+    coverage_shortfalls = {
+        "selected_report_count": _threshold_shortfall(
+            current=len(metadata_rows),
+            target=MARKDOWN_COVERAGE_MIN_SELECTED_REPORTS,
+            blocker="selected_report_count_below_p9_target",
+            next_action="add_stratified_real_reports_to_private_source_pool",
+        ),
+        "markdown_ready_count": _threshold_shortfall(
+            current=markdown_ready_count,
+            target=MARKDOWN_COVERAGE_MIN_MARKDOWN_READY,
+            blocker="markdown_ready_count_below_p9_target",
+            next_action="download_pdfs_and_convert_quality_gated_markdown",
+        ),
+        "markdown_quality_pass_count": _threshold_shortfall(
+            current=markdown_quality_pass_count,
+            target=MARKDOWN_COVERAGE_MIN_QUALITY_PASS,
+            blocker="markdown_quality_pass_count_below_p9_target",
+            next_action="resolve_markdown_quality_gaps_before_llm_extraction",
+        ),
+        "llm_extraction_processed_count": _threshold_shortfall(
+            current=llm_extraction_processed_count,
+            target=MARKDOWN_COVERAGE_MIN_LLM_EXTRACTION_PROCESSED,
+            blocker="llm_extraction_processed_count_below_p9_target",
+            next_action="run_llm_extraction_on_quality_passed_markdown",
+        ),
+        "industry_report_count": _threshold_shortfall(
+            current=industry_report_count,
+            target=MARKDOWN_COVERAGE_MIN_INDUSTRY_REPORTS,
+            blocker="industry_report_count_below_p9_target",
+            next_action="add_more_industry_research_reports_to_stratified_pool",
+        ),
+        "stock_report_count": _threshold_shortfall(
+            current=stock_report_count,
+            target=MARKDOWN_COVERAGE_MIN_STOCK_REPORTS,
+            blocker="stock_report_count_below_p9_target",
+            next_action="add_more_stock_research_reports_with_ts_code",
+        ),
+        "stock_outcome_120d_ready_report_count": _threshold_shortfall(
+            current=stock_outcome_120d_ready_count,
+            target=MARKDOWN_COVERAGE_MIN_STOCK_OUTCOME_120D_READY_REPORTS,
+            blocker="stock_outcome_120d_ready_count_below_p9_target",
+            next_action="prefer_historical_stock_reports_with_120d_outcome_windows",
+        ),
+        "sector_bucket_below_min_count": {
+            "current": len(sector_bucket_coverage_gaps),
+            "target": 0,
+            "remaining": len(sector_bucket_coverage_gaps),
+            "blocker": "sector_bucket_coverage_below_p9_target",
+            "next_action": "fill_aggregate_sector_bucket_coverage_gaps",
+        },
+        "coverage_strata_missing_count": {
+            "current": len(coverage_strata_missing),
+            "target": 0,
+            "remaining": len(coverage_strata_missing),
+            "blocker": "stratified_coverage_below_p9_target",
+            "next_action": "fill_missing_time_institution_horizon_evaluability_strata",
+        },
+    }
     summary = {
         "coverage_id": "RKE-REPORT-MARKDOWN-COVERAGE-SUMMARY",
         "run_id": run_id,
@@ -5195,6 +5269,7 @@ def build_markdown_coverage_summary(
         "stock_report_count": stock_report_count,
         "stock_outcome_120d_ready_report_count": stock_outcome_120d_ready_count,
         "coverage_targets": coverage_targets,
+        "coverage_shortfalls": coverage_shortfalls,
         "sector_bucket_coverage_gaps": sector_bucket_coverage_gaps,
         "sector_bucket_below_min_count": len(sector_bucket_coverage_gaps),
         "coverage_strata_targets": coverage_strata_targets,
@@ -8684,6 +8759,141 @@ def _forecast_gold_review_gate(
     return not blockers, evidence, blockers
 
 
+def _evolution_gate_requirement_shortfalls(
+    checks: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    by_id = {
+        str(check.get("check_id") or ""): _ensure_mapping(check) for check in checks
+    }
+    shortfalls: dict[str, Any] = {}
+
+    outcome_evidence = _ensure_mapping(by_id.get("RI-EVOL-01", {}).get("evidence"))
+    shortfalls["unique_outcome_claim_count"] = _threshold_shortfall(
+        current=int(outcome_evidence.get("unique_outcome_claim_count") or 0),
+        target=EVOLUTION_GATE_MIN_UNIQUE_OUTCOME_CLAIMS,
+        blocker="unique_outcome_claim_count_below_threshold",
+        next_action="produce_more_non_llm_pit_outcome_labels",
+    )
+    shortfalls["stock_proxy_unique_claim_count"] = _threshold_shortfall(
+        current=int(outcome_evidence.get("stock_proxy_unique_claim_count") or 0),
+        target=EVOLUTION_GATE_MIN_STOCK_PROXY_CLAIMS,
+        blocker="stock_proxy_claim_count_below_threshold",
+        next_action="run_stock_price_proxy_labels_for_historical_stock_reports",
+    )
+    shortfalls["industry_proxy_unique_claim_count"] = _threshold_shortfall(
+        current=int(outcome_evidence.get("industry_proxy_unique_claim_count") or 0),
+        target=EVOLUTION_GATE_MIN_INDUSTRY_PROXY_CLAIMS,
+        blocker="industry_proxy_claim_count_below_threshold",
+        next_action="run_industry_etf_proxy_labels_for_mapped_industry_reports",
+    )
+
+    paper_evidence = _ensure_mapping(by_id.get("RI-EVOL-02", {}).get("evidence"))
+    shortfalls["paper_trading_run_count"] = _threshold_shortfall(
+        current=int(paper_evidence.get("paper_trading_run_count") or 0),
+        target=EVOLUTION_GATE_MIN_PAPER_TRADING_RECIPES,
+        blocker="paper_trading_run_count_below_threshold",
+        next_action="pre_register_more_analysis_recipes_for_shadow_paper_trading",
+    )
+    shortfalls["paper_trading_validated_recipe_count"] = _threshold_shortfall(
+        current=int(paper_evidence.get("validation_pass_count") or 0),
+        target=EVOLUTION_GATE_MIN_PAPER_TRADING_RECIPES,
+        blocker="paper_trading_validated_recipe_count_below_threshold",
+        next_action="bind_recipe_runs_to_direct_pit_outcomes_and_after_cost_metrics",
+    )
+    shortfalls["after_cost_paper_trading_summary"] = {
+        "status": (
+            "present"
+            if _float_or_none(paper_evidence.get("mean_cost_adjusted_alpha"))
+            is not None
+            else "missing"
+        ),
+        "blocker": "after_cost_paper_trading_summary_missing",
+        "next_action": "compute_mean_after_cost_alpha_from_validated_recipe_runs",
+    }
+
+    monitor_evidence = _ensure_mapping(by_id.get("RI-EVOL-03", {}).get("evidence"))
+    blocked_recipe_count = int(monitor_evidence.get("blocked_recipe_count") or 0)
+    shortfalls["monitor_distinct_vintage_count"] = _threshold_shortfall(
+        current=int(
+            monitor_evidence.get("trailing_monitor_distinct_vintage_count") or 0
+        ),
+        target=EVOLUTION_GATE_MIN_CONSECUTIVE_MONITOR_REFRESHES,
+        blocker="confidence_impact_monitor_history_below_threshold",
+        next_action=(
+            "refresh_distinct_data_vintages_until_monitor_gate_passes_three_times"
+        ),
+    )
+    shortfalls["monitor_current_blocked_recipe_count"] = {
+        "current": blocked_recipe_count,
+        "target": 0,
+        "remaining": blocked_recipe_count,
+        "blocker": "confidence_impact_monitor_current_blocked",
+        "next_action": "clear_recipe_monitor_blockers_before_evolution",
+    }
+
+    audit_evidence = _ensure_mapping(by_id.get("RI-EVOL-04", {}).get("evidence"))
+    shortfalls["audit_distinct_vintage_count"] = _threshold_shortfall(
+        current=int(audit_evidence.get("trailing_audit_distinct_vintage_count") or 0),
+        target=EVOLUTION_GATE_MIN_CONSECUTIVE_AUDIT_REFRESHES,
+        blocker="audit_refresh_history_below_threshold",
+        next_action=(
+            "refresh_distinct_data_vintages_until_schema_pit_provenance_"
+            "statistical_audits_pass_three_times"
+        ),
+    )
+
+    gold_evidence = _ensure_mapping(by_id.get("RI-EVOL-05", {}).get("evidence"))
+    gold_thresholds = _ensure_mapping(gold_evidence.get("thresholds"))
+    metrics = _ensure_mapping(gold_evidence.get("metrics"))
+    shortfalls["gold_reviewed_claims"] = _threshold_shortfall(
+        current=int(gold_evidence.get("reviewed_claims") or 0),
+        target=int(gold_thresholds.get("min_reviewed_claims") or 0),
+        blocker="gold_reviewed_claims_below_threshold",
+        next_action="complete_manual_forecast_claim_gold_review",
+    )
+    pending_claims = int(gold_evidence.get("pending_claims") or 0)
+    shortfalls["gold_pending_claims"] = {
+        "current": pending_claims,
+        "target": 0,
+        "remaining": pending_claims,
+        "blocker": "gold_pending_claims_remaining",
+        "next_action": "review_or_exclude_pending_gold_claims",
+    }
+    metric_gaps: list[str] = []
+    for key, raw_value in sorted(metrics.items()):
+        value = _float_or_none(raw_value)
+        if key == "unsupported_field_false_grounding_rate":
+            threshold = _float_or_none(
+                gold_thresholds.get("unsupported_field_false_grounding_rate_max")
+            )
+            if value is None or (threshold is not None and value > threshold):
+                metric_gaps.append(key)
+            continue
+        threshold = _float_or_none(gold_thresholds.get(f"{key}_min"))
+        if value is None or (threshold is not None and value < threshold):
+            metric_gaps.append(key)
+    shortfalls["gold_quality_metric_gaps"] = {
+        "missing_or_below_threshold": metric_gaps,
+        "blocker": "forecast_gold_set_gate_not_passed",
+        "next_action": "raise_manual_review_precision_accuracy_and_grounding_metrics",
+    }
+
+    gap_evidence = _ensure_mapping(by_id.get("RI-EVOL-06", {}).get("evidence"))
+    shortfalls["gap_distribution_distinct_vintage_count"] = _threshold_shortfall(
+        current=int(
+            gap_evidence.get("trailing_gap_distribution_distinct_vintage_count") or 0
+        ),
+        target=EVOLUTION_GATE_MIN_GAP_DISTRIBUTION_REFRESHES,
+        blocker="gap_distribution_history_below_threshold",
+        next_action="refresh_distinct_data_vintages_until_gap_distribution_is_stable",
+    )
+
+    markdown_evidence = _ensure_mapping(by_id.get("RI-EVOL-07", {}).get("evidence"))
+    coverage_shortfalls = _ensure_mapping(markdown_evidence.get("coverage_shortfalls"))
+    shortfalls["markdown_coverage"] = coverage_shortfalls
+    return shortfalls
+
+
 EVOLUTION_DATA_VINTAGE_HASH_RE = re.compile(r"sha256:[0-9a-f]{64}")
 
 
@@ -9531,6 +9741,9 @@ def build_report_intelligence_evolution_readiness_gate(
                 "coverage_gate_status": str(markdown.get("coverage_gate_status") or ""),
                 "coverage_gate_blockers": coverage_blockers,
                 "coverage_targets": _ensure_mapping(markdown.get("coverage_targets")),
+                "coverage_shortfalls": _ensure_mapping(
+                    markdown.get("coverage_shortfalls")
+                ),
                 "coverage_strata_targets": _ensure_mapping(
                     markdown.get("coverage_strata_targets")
                 ),
@@ -9624,6 +9837,7 @@ def build_report_intelligence_evolution_readiness_gate(
             ),
         },
         "checks": checks,
+        "requirement_shortfalls": _evolution_gate_requirement_shortfalls(checks),
         "blockers": sorted(set(blockers)),
         "blocker_count": len(set(blockers)),
         "policy": (

@@ -20,6 +20,71 @@
     "stock_outcome_120d_ready_report_count_min": 30,
     "sector_bucket_min_report_count": 5
   },
+  "coverage_shortfalls": {
+    "coverage_strata_missing_count": {
+      "blocker": "stratified_coverage_below_p9_target",
+      "current": 13,
+      "next_action": "fill_missing_time_institution_horizon_evaluability_strata",
+      "remaining": 13,
+      "target": 0
+    },
+    "industry_report_count": {
+      "blocker": "industry_report_count_below_p9_target",
+      "current": 2,
+      "next_action": "add_more_industry_research_reports_to_stratified_pool",
+      "remaining": 78,
+      "target": 80
+    },
+    "llm_extraction_processed_count": {
+      "blocker": "llm_extraction_processed_count_below_p9_target",
+      "current": 0,
+      "next_action": "run_llm_extraction_on_quality_passed_markdown",
+      "remaining": 100,
+      "target": 100
+    },
+    "markdown_quality_pass_count": {
+      "blocker": "markdown_quality_pass_count_below_p9_target",
+      "current": 0,
+      "next_action": "resolve_markdown_quality_gaps_before_llm_extraction",
+      "remaining": 300,
+      "target": 300
+    },
+    "markdown_ready_count": {
+      "blocker": "markdown_ready_count_below_p9_target",
+      "current": 0,
+      "next_action": "download_pdfs_and_convert_quality_gated_markdown",
+      "remaining": 300,
+      "target": 300
+    },
+    "sector_bucket_below_min_count": {
+      "blocker": "sector_bucket_coverage_below_p9_target",
+      "current": 1,
+      "next_action": "fill_aggregate_sector_bucket_coverage_gaps",
+      "remaining": 1,
+      "target": 0
+    },
+    "selected_report_count": {
+      "blocker": "selected_report_count_below_p9_target",
+      "current": 2,
+      "next_action": "add_stratified_real_reports_to_private_source_pool",
+      "remaining": 298,
+      "target": 300
+    },
+    "stock_outcome_120d_ready_report_count": {
+      "blocker": "stock_outcome_120d_ready_count_below_p9_target",
+      "current": 0,
+      "next_action": "prefer_historical_stock_reports_with_120d_outcome_windows",
+      "remaining": 30,
+      "target": 30
+    },
+    "stock_report_count": {
+      "blocker": "stock_report_count_below_p9_target",
+      "current": 0,
+      "next_action": "add_more_stock_research_reports_with_ts_code",
+      "remaining": 80,
+      "target": 80
+    }
+  },
   "sector_bucket_coverage_gaps": [
     "sector_bucket:semiconductor"
   ],
