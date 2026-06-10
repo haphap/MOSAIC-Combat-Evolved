@@ -4,12 +4,12 @@
   "alpha_decay_fail_count": 0,
   "alpha_decay_recipe_ids": [],
   "alpha_decay_watch_count": 0,
-  "as_of_datetime": "2026-06-08T10:29:23+00:00",
-  "blocked_recipe_count": 5,
+  "as_of_datetime": "2026-06-10T10:19:02+00:00",
+  "blocked_recipe_count": 6,
   "blocker_counts": {
-    "insufficient_effective_n": 5,
-    "no_direct_recipe_outcome_binding": 5,
-    "required_tools_not_shadow_implemented": 5
+    "insufficient_effective_n": 6,
+    "no_direct_recipe_outcome_binding": 6,
+    "required_tools_not_shadow_implemented": 6
   },
   "calibration_drift_count": 0,
   "calibration_drift_recipe_ids": [],
@@ -18,7 +18,7 @@
   "confidence_alpha_correlation_status": "insufficient_data",
   "confidence_delta_bucket_outcomes": {
     "zero": {
-      "count": 5,
+      "count": 6,
       "mean_hit_rate": null,
       "mean_realized_alpha": null
     }
@@ -26,32 +26,35 @@
   "cost_decay_fail_count": 0,
   "cost_decay_recipe_ids": [],
   "drift_status_counts": {
-    "paper_trading_blocked": 5
+    "paper_trading_blocked": 6
   },
   "freeze_recipe_ids": [],
   "lockbox_required_before_production_impact": true,
   "manual_review_recipe_ids": [],
   "monitor_id": "RKE-REPORT-INTELLIGENCE-CONFIDENCE-IMPACT-MONITOR",
   "new_regime_miscalibration_recipe_ids": [],
-  "observation_count": 5,
+  "observation_count": 6,
   "paper_trading_validated_recipe_count": 0,
   "policy": "confidence impact remains shadow-only; paper-trading validation, alpha-decay checks, calibration drift checks, and lockbox gates are required before any production confidence change",
   "production_decision_impact_allowed": false,
-  "recipe_count": 5,
-  "reduce_confidence_impact_recipe_ids": [],
+  "profile_paper_trade_disagreement_count": 0,
+  "profile_paper_trade_disagreement_recipe_ids": [],
+  "recipe_count": 6,
   "recommended_action_counts": {
-    "keep_shadow": 5
+    "keep_shadow": 6
   },
+  "reduce_confidence_impact_recipe_ids": [],
   "regime_fragile_alpha_count": 0,
   "regime_fragile_recipe_ids": [],
   "retire_recipe_ids": [],
-  "run_id": "RIR-PUBLIC-RECIPE-CONTRACT",
+  "run_id": "RIR-20260610T100951+0000",
   "tracked_recipe_ids": [
-    "RECIPE-06f48d5a725b5b4e",
-    "RECIPE-21c2b0c93edbc457",
-    "RECIPE-97a328e964f973d4",
-    "RECIPE-b8ee217dbe374ffb",
-    "RECIPE-f7c95b83c13d5589"
+    "RECIPE-09456233315fa9b2",
+    "RECIPE-2baf47fb2a30e076",
+    "RECIPE-62e6c7d6b6fab7ea",
+    "RECIPE-792df846d2cbe856",
+    "RECIPE-9c4f5a9c59fef541",
+    "RECIPE-a20237394aba1a15"
   ],
   "unvalidated_confidence_impact_count": 0
 }

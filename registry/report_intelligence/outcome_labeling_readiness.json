@@ -1,42 +1,25 @@
 {
-  "blocked_count": 7,
-  "blocked_forecast_claim_ids": [
-    "FC-d439329dc8c3cee4",
-    "FC-4ba22d03f41e7202",
-    "FC-9bab7296fb16680b",
-    "FC-d9074f5bcdc42e4b",
-    "FC-222b2ed577cad501",
-    "FC-6a9459dd4fd655c2",
-    "FC-bd09a21901988890"
-  ],
-  "blocked_reason": "forecast_mapping_insufficient_for_unlabelable_claims",
-  "forecast_claim_count": 12,
-  "forecast_ledger_count": 12,
+  "blocked_count": 0,
+  "blocked_forecast_claim_ids": [],
+  "blocked_reason": "",
+  "forecast_claim_count": 7,
+  "forecast_ledger_count": 7,
   "industry_etf_proxy_readiness": {
     "benchmark_family": "CSI300_ETF_PROXY",
     "benchmark_source": "cn_etf",
     "benchmark_symbol": "SH510300",
+    "benchmark_symbols": [
+      "SH510300"
+    ],
     "cost_model_id": "industry_etf_round_trip_10bps_v1",
     "data_gap_counts": {},
-    "eligible_claim_count": 5,
-    "eligible_forecast_claim_ids": [
-      "FC-ff7da2af7911f07d",
-      "FC-f71d7fdce37427f1",
-      "FC-97a05ba07bbf8e40",
-      "FC-31829036250ae5b0",
-      "FC-699df73c9a9c1384"
-    ],
+    "eligible_claim_count": 0,
+    "eligible_forecast_claim_ids": [],
     "entry_lag_trading_days": 1,
-    "labelable_forecast_claim_count": 5,
-    "labelable_forecast_claim_ids": [
-      "FC-ff7da2af7911f07d",
-      "FC-f71d7fdce37427f1",
-      "FC-97a05ba07bbf8e40",
-      "FC-31829036250ae5b0",
-      "FC-699df73c9a9c1384"
-    ],
-    "labelable_window_count": 15,
-    "latest_calendar_date": "2026-06-05",
+    "labelable_forecast_claim_count": 0,
+    "labelable_forecast_claim_ids": [],
+    "labelable_window_count": 0,
+    "latest_calendar_date": "2026-06-09",
     "llm_outcome_labeling_allowed": false,
     "mapping_count": 17,
     "outcome_label_source": "pit_industry_etf_price_window",
@@ -54,17 +37,11 @@
       120
     ]
   },
-  "industry_proxy_label_ready_count": 5,
-  "industry_proxy_label_ready_forecast_claim_ids": [
-    "FC-ff7da2af7911f07d",
-    "FC-f71d7fdce37427f1",
-    "FC-97a05ba07bbf8e40",
-    "FC-31829036250ae5b0",
-    "FC-699df73c9a9c1384"
-  ],
+  "industry_proxy_label_ready_count": 0,
+  "industry_proxy_label_ready_forecast_claim_ids": [],
   "mapping_gap_counts": {
-    "benchmark": 10,
-    "horizon": 12
+    "benchmark": 1,
+    "horizon": 7
   },
   "minimum_required_mapping": [
     "target",
@@ -80,39 +57,38 @@
     "run PIT outcome labeler only after ready_for_outcome_labeling_count is positive"
   ],
   "policy": "outcome labels are generated only for source-grounded testable forecasts with target, benchmark, direction, horizon, and PIT data; industry ETF and stock price proxy labels may additionally evaluate governed target-direction claims on fixed PIT windows without promoting them to production use",
-  "proxy_label_only_ready_count": 5,
+  "proxy_label_only_ready_count": 7,
   "proxy_label_only_ready_forecast_claim_ids": [
-    "FC-ff7da2af7911f07d",
-    "FC-f71d7fdce37427f1",
-    "FC-97a05ba07bbf8e40",
-    "FC-31829036250ae5b0",
-    "FC-699df73c9a9c1384"
+    "FC-39235bb6c0f50faf",
+    "FC-2c2b0436b0672fbb",
+    "FC-39aee7b355454b90",
+    "FC-65d36c39aab2fe4f",
+    "FC-0cb7a218d848d73e",
+    "FC-00f9f417199833eb",
+    "FC-f38aa8a009e8e305"
   ],
-  "proxy_label_ready_count": 5,
+  "proxy_label_ready_count": 7,
   "proxy_label_ready_forecast_claim_ids": [
-    "FC-ff7da2af7911f07d",
-    "FC-f71d7fdce37427f1",
-    "FC-97a05ba07bbf8e40",
-    "FC-31829036250ae5b0",
-    "FC-699df73c9a9c1384"
+    "FC-00f9f417199833eb",
+    "FC-0cb7a218d848d73e",
+    "FC-2c2b0436b0672fbb",
+    "FC-39235bb6c0f50faf",
+    "FC-39aee7b355454b90",
+    "FC-65d36c39aab2fe4f",
+    "FC-f38aa8a009e8e305"
   ],
   "readiness_id": "RKE-REPORT-OUTCOME-LABELING-READINESS",
   "ready_for_outcome_labeling_count": 0,
   "ready_forecast_claim_ids": [],
-  "standard_blocked_count": 12,
+  "standard_blocked_count": 7,
   "standard_blocked_forecast_claim_ids": [
-    "FC-d439329dc8c3cee4",
-    "FC-4ba22d03f41e7202",
-    "FC-9bab7296fb16680b",
-    "FC-d9074f5bcdc42e4b",
-    "FC-222b2ed577cad501",
-    "FC-6a9459dd4fd655c2",
-    "FC-bd09a21901988890",
-    "FC-ff7da2af7911f07d",
-    "FC-f71d7fdce37427f1",
-    "FC-97a05ba07bbf8e40",
-    "FC-31829036250ae5b0",
-    "FC-699df73c9a9c1384"
+    "FC-39235bb6c0f50faf",
+    "FC-2c2b0436b0672fbb",
+    "FC-39aee7b355454b90",
+    "FC-65d36c39aab2fe4f",
+    "FC-0cb7a218d848d73e",
+    "FC-00f9f417199833eb",
+    "FC-f38aa8a009e8e305"
   ],
   "stock_price_proxy_readiness": {
     "benchmark_family": "CSI300_ETF_PROXY",
@@ -120,32 +96,32 @@
     "benchmark_symbol": "SH510300",
     "cost_model_id": "single_stock_round_trip_20bps_v1",
     "data_gap_counts": {},
-    "eligible_claim_count": 0,
-    "eligible_forecast_claim_ids": [],
+    "eligible_claim_count": 7,
+    "eligible_forecast_claim_ids": [
+      "FC-39235bb6c0f50faf",
+      "FC-2c2b0436b0672fbb",
+      "FC-39aee7b355454b90",
+      "FC-65d36c39aab2fe4f",
+      "FC-0cb7a218d848d73e",
+      "FC-00f9f417199833eb",
+      "FC-f38aa8a009e8e305"
+    ],
     "entry_lag_trading_days": 1,
-    "labelable_forecast_claim_count": 0,
-    "labelable_forecast_claim_ids": [],
-    "labelable_window_count": 0,
-    "latest_calendar_date": "2026-06-03",
+    "labelable_forecast_claim_count": 7,
+    "labelable_forecast_claim_ids": [
+      "FC-39235bb6c0f50faf",
+      "FC-2c2b0436b0672fbb",
+      "FC-39aee7b355454b90",
+      "FC-65d36c39aab2fe4f",
+      "FC-0cb7a218d848d73e",
+      "FC-00f9f417199833eb",
+      "FC-f38aa8a009e8e305"
+    ],
+    "labelable_window_count": 28,
+    "latest_calendar_date": "2026-06-09",
     "llm_outcome_labeling_allowed": false,
     "outcome_label_source": "pit_stock_price_window",
     "pending_future_window_count": 0,
-    "stock_series_coverage_summary": {
-      "target_series_count": 0,
-      "target_series_missing_count": 0,
-      "earliest_price_date_min": null,
-      "earliest_price_date_max": null,
-      "latest_price_date_min": null,
-      "latest_price_date_max": null,
-      "latest_calendar_date": "2026-06-03",
-      "latest_aligned_series_count": 0,
-      "stale_before_latest_calendar_count": 0,
-      "future_dated_series_count": 0,
-      "series_lifecycle_status_counts": {},
-      "entry_before_series_start_count": 0,
-      "entry_after_series_end_count": 0,
-      "entry_within_series_range_count": 0
-    },
     "pit_realism_policy": {
       "benchmark_alignment": "date_key_cross_qlib_dir",
       "company_name_fuzzy_mapping_enabled": false,
@@ -159,6 +135,24 @@
     "policy": "stock claims can be evaluated with qlib cn_data adjusted close returns on T+1 fixed PIT windows; LLM output extracts target and direction but cannot assign outcome labels",
     "qlib_benchmark_dir_configured": "~/.qlib/qlib_data/cn_etf",
     "qlib_stock_dir_configured": "~/.qlib/qlib_data/cn_data",
+    "stock_series_coverage_summary": {
+      "earliest_price_date_max": "2017-06-22",
+      "earliest_price_date_min": "2000-01-04",
+      "entry_after_series_end_count": 0,
+      "entry_before_series_start_count": 0,
+      "entry_within_series_range_count": 7,
+      "future_dated_series_count": 0,
+      "latest_aligned_series_count": 3,
+      "latest_calendar_date": "2026-06-09",
+      "latest_price_date_max": "2026-06-09",
+      "latest_price_date_min": "2026-06-09",
+      "series_lifecycle_status_counts": {
+        "latest_aligned": 3
+      },
+      "stale_before_latest_calendar_count": 0,
+      "target_series_count": 3,
+      "target_series_missing_count": 0
+    },
     "windows_days": [
       5,
       20,
@@ -166,13 +160,18 @@
       120
     ]
   },
-  "stock_proxy_label_ready_count": 0,
-  "stock_proxy_label_ready_forecast_claim_ids": [],
+  "stock_proxy_label_ready_count": 7,
+  "stock_proxy_label_ready_forecast_claim_ids": [
+    "FC-39235bb6c0f50faf",
+    "FC-2c2b0436b0672fbb",
+    "FC-39aee7b355454b90",
+    "FC-65d36c39aab2fe4f",
+    "FC-0cb7a218d848d73e",
+    "FC-00f9f417199833eb",
+    "FC-f38aa8a009e8e305"
+  ],
   "test_status_counts": {
-    "not_ready_insufficient_mapping": 12
+    "not_ready_insufficient_mapping": 7
   },
-  "unlabelable_mapping_gap_counts": {
-    "benchmark": 6,
-    "horizon": 7
-  }
+  "unlabelable_mapping_gap_counts": {}
 }

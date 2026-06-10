@@ -1,10 +1,10 @@
 {
   "accepted": true,
-  "as_of_datetime": "2026-06-07T17:18:15+00:00",
+  "as_of_datetime": "2026-06-10T10:19:02+00:00",
   "audit_id": "RKE-REPORT-INTELLIGENCE-RUNTIME-SAFETY-AUDIT",
   "blocker_count": 0,
   "blockers": [],
-  "checked_item_count": 127,
+  "checked_item_count": 83,
   "checks": [
     {
       "accepted": true,
@@ -31,7 +31,7 @@
       "accepted": true,
       "check_id": "RI-SAFE-02",
       "evidence": {
-        "runtime_gap_observation_rows": 46,
+        "runtime_gap_observation_rows": 28,
         "safe_actionability": "no_trade_without_current_data_confirmation",
         "weighted_context_rows": 1
       },
@@ -43,7 +43,7 @@
       "accepted": true,
       "check_id": "RI-SAFE-03",
       "evidence": {
-        "checked_rows": 47,
+        "checked_rows": 29,
         "forbidden_fields": [
           "sector_score",
           "sizing",
@@ -62,7 +62,7 @@
       "accepted": true,
       "check_id": "RI-SAFE-04",
       "evidence": {
-        "retrieved_footprint_rows": 8
+        "retrieved_footprint_rows": 7
       },
       "failure_count": 0,
       "failures": [],
@@ -72,10 +72,10 @@
       "accepted": true,
       "check_id": "RI-SAFE-05",
       "evidence": {
-        "forecast_claim_count": 12,
+        "forecast_claim_count": 7,
         "low_weight_retained_count": 0,
         "sample_low_weight_retained_ids": [],
-        "unique_retrieved_claim_count": 12
+        "unique_retrieved_claim_count": 7
       },
       "failure_count": 0,
       "failures": [],
@@ -87,7 +87,7 @@
       "evidence": {
         "max_allowed_weight": 1.2,
         "min_allowed_weight": 0.0,
-        "retrieved_claim_rows": 12
+        "retrieved_claim_rows": 7
       },
       "failure_count": 0,
       "failures": [],
@@ -97,9 +97,9 @@
       "accepted": true,
       "check_id": "RI-SAFE-07",
       "evidence": {
-        "consensus_cluster_count": 12,
-        "forecast_ledger_rows": 12,
-        "retrieved_claim_rows": 12
+        "consensus_cluster_count": 7,
+        "forecast_ledger_rows": 7,
+        "retrieved_claim_rows": 7
       },
       "failure_count": 0,
       "failures": [],
@@ -109,8 +109,8 @@
       "accepted": true,
       "check_id": "RI-SAFE-08",
       "evidence": {
-        "runtime_gap_observation_rows": 46,
-        "tool_gap_rows": 46
+        "runtime_gap_observation_rows": 28,
+        "tool_gap_rows": 28
       },
       "failure_count": 0,
       "failures": [],
@@ -120,8 +120,8 @@
       "accepted": true,
       "check_id": "RI-SAFE-09",
       "evidence": {
-        "analysis_recipe_rows": 5,
-        "method_pattern_rows": 5
+        "analysis_recipe_rows": 6,
+        "method_pattern_rows": 6
       },
       "failure_count": 0,
       "failures": [],
@@ -129,5 +129,5 @@
     }
   ],
   "policy": "report intelligence may rank research priors, recipes, and tool gaps in shadow mode only; it cannot create current market evidence, actionable recommendations, sector scores, sizing, orders, or contrarian signals without current tool data, validation, paper trading, and promotion gates",
-  "run_id": "RIR-DERIVED-20260607T171815+0000"
+  "run_id": "RIR-20260610T100951+0000"
 }

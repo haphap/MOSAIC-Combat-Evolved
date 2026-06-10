@@ -1,31 +1,32 @@
 {
-  "as_of_datetime": "2026-06-08T10:29:23+00:00",
-  "blocked_count": 5,
+  "as_of_datetime": "2026-06-10T10:19:02+00:00",
+  "blocked_count": 6,
   "blocked_recipe_ids": [
-    "RECIPE-06f48d5a725b5b4e",
-    "RECIPE-21c2b0c93edbc457",
-    "RECIPE-97a328e964f973d4",
-    "RECIPE-b8ee217dbe374ffb",
-    "RECIPE-f7c95b83c13d5589"
+    "RECIPE-09456233315fa9b2",
+    "RECIPE-2baf47fb2a30e076",
+    "RECIPE-62e6c7d6b6fab7ea",
+    "RECIPE-792df846d2cbe856",
+    "RECIPE-9c4f5a9c59fef541",
+    "RECIPE-a20237394aba1a15"
   ],
   "blocker_counts": {
-    "insufficient_effective_n": 5,
-    "no_direct_recipe_outcome_binding": 5,
-    "required_tools_not_shadow_implemented": 5
+    "insufficient_effective_n": 6,
+    "no_direct_recipe_outcome_binding": 6,
+    "required_tools_not_shadow_implemented": 6
   },
   "mean_cost_adjusted_alpha": null,
   "minimum_effective_n": 3.0,
-  "paper_trading_run_count": 5,
+  "paper_trading_run_count": 6,
   "passed_recipe_ids": [],
   "policy": "paper-trading validation is a shadow gate; profile support can prioritize recipes but cannot promote confidence impact without direct PIT paper-trading evidence",
   "pre_registration_policy": "each recipe has a deterministic experiment id and pre-registration hash before any outcome metrics are evaluated",
   "profile_paper_trade_disagreement_count": 0,
-  "recipe_instability_gap_count": 0,
   "protocol_version": "recipe_shadow_paper_trading_v1",
-  "recipe_count": 5,
-  "run_id": "RIR-PUBLIC-RECIPE-CONTRACT",
+  "recipe_count": 6,
+  "recipe_instability_gap_count": 0,
+  "run_id": "RIR-20260610T100951+0000",
   "status_counts": {
-    "blocked": 5
+    "blocked": 6
   },
   "summary_id": "RKE-REPORT-INTELLIGENCE-RECIPE-PAPER-TRADING-SUMMARY",
   "validation_pass_count": 0,

@@ -947,7 +947,7 @@ def test_recipe_paper_trading_contract_accepts_current_public_artifacts(
     record = _recipe_paper_trading_contract_record(tmp_path)
 
     assert record.accepted
-    assert record.item_count == 12
+    assert record.item_count == 14
     assert record.failures == ()
 
 
