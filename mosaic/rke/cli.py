@@ -691,6 +691,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Local PDF/Markdown cache directory. Defaults to .mosaic/rke/report_intelligence.",
     )
     report_intelligence.add_argument(
+        "--registry-dir",
+        default="registry/report_intelligence",
+        help=(
+            "Report Intelligence output registry directory. Defaults to "
+            "registry/report_intelligence."
+        ),
+    )
+    report_intelligence.add_argument(
         "--source-id",
         action="append",
         dest="source_ids",
@@ -1286,6 +1294,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             ReportIntelligenceConfig(
                 root=root,
                 source_path=args.source_path,
+                registry_dir=args.registry_dir,
                 cache_dir=args.cache_dir,
                 source_ids=_split_repeated_csv(args.source_ids),
                 limit=args.limit,

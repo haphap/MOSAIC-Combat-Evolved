@@ -5344,11 +5344,13 @@ def test_report_intelligence_cli_help_exposes_stock_qlib_dir(capsys):
     assert exc.value.code == 0
     help_text = capsys.readouterr().out
     assert "--qlib-stock-dir" in help_text
+    assert "--registry-dir" in help_text
     assert "--vllm-timeout-seconds" in help_text
     assert "--max-llm-output-tokens" in help_text
     assert "stratified" in help_text
     assert ReportIntelligenceConfig().qlib_stock_dir == "~/.qlib/qlib_data/cn_data"
     assert ReportIntelligenceConfig().vllm_timeout_seconds == DEFAULT_VLLM_TIMEOUT_SECONDS
+    assert ReportIntelligenceConfig().vllm_timeout_seconds >= 7200
 
 
 def test_report_intelligence_evolution_gate_writer_preserves_stock_coverage_evidence(
