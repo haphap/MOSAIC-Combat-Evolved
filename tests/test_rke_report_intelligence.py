@@ -8894,6 +8894,24 @@ def test_merge_report_intelligence_batch_outputs_preserves_existing_registry(
         json.dumps({"source_id": "SRC-1", "llm_status": "skipped"}) + "\n",
         encoding="utf-8",
     )
+    (registry / "method_patterns.jsonl").write_text(
+        json.dumps(
+            {
+                "method_pattern_id": "METHOD-1",
+                "name": "relative performance",
+                "source_footprint_ids": [],
+                "steps": ["compare returns"],
+                "required_current_data": [],
+                "optional_confirmation_data": [],
+                "failure_modes": [],
+                "target_agents": [],
+                "validation_status": "candidate",
+                "allowed_runtime_mode": "shadow_only",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     batch = tmp_path / "batch"
     batch.mkdir()
     (batch / "report_metadata.jsonl").write_text(
@@ -8910,6 +8928,24 @@ def test_merge_report_intelligence_batch_outputs_preserves_existing_registry(
         json.dumps({"source_id": "SRC-1", "llm_status": "processed"}) + "\n",
         encoding="utf-8",
     )
+    (batch / "method_patterns.jsonl").write_text(
+        json.dumps(
+            {
+                "method_pattern_id": "METHOD-1",
+                "name": "relative performance",
+                "source_footprint_ids": ["AFP-1"],
+                "steps": ["check benchmark alpha"],
+                "required_current_data": ["benchmark_return"],
+                "optional_confirmation_data": ["volume"],
+                "failure_modes": ["benchmark_mismatch"],
+                "target_agents": ["stock_agent"],
+                "validation_status": "candidate",
+                "allowed_runtime_mode": "shadow_only",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
 
     result = merge_report_intelligence_batch_outputs(
         root=tmp_path,
@@ -8922,14 +8958,22 @@ def test_merge_report_intelligence_batch_outputs_preserves_existing_registry(
     assert result["input_file_counts"]["report_metadata.jsonl"] == 1
     assert result["row_counts"]["report_metadata.jsonl"] == 3
     assert result["row_counts"]["processing_status.jsonl"] == 1
+    assert result["row_counts"]["method_patterns.jsonl"] == 1
     metadata = _read_jsonl(registry / "report_metadata.jsonl")
     status = _read_jsonl(registry / "processing_status.jsonl")
+    methods = _read_jsonl(registry / "method_patterns.jsonl")
     assert metadata == [
         {"report_id": "RPT-0", "source_id": "SRC-0"},
         {"report_id": "RPT-1", "source_id": "SRC-1-NEW"},
         {"report_id": "RPT-2", "source_id": "SRC-2"},
     ]
     assert status == [{"source_id": "SRC-1", "llm_status": "processed"}]
+    assert methods[0]["source_footprint_ids"] == ["AFP-1"]
+    assert methods[0]["steps"] == ["compare returns", "check benchmark alpha"]
+    assert methods[0]["required_current_data"] == ["benchmark_return"]
+    assert methods[0]["optional_confirmation_data"] == ["volume"]
+    assert methods[0]["failure_modes"] == ["benchmark_mismatch"]
+    assert methods[0]["target_agents"] == ["stock_agent"]
 
 
 def test_merge_report_intelligence_batch_outputs_can_replace_existing_registry(

@@ -9,7 +9,7 @@
     "status": "insufficient_validated_runs",
     "validated_recipe_count": 0
   },
-  "as_of_datetime": "2026-06-11T23:25:13+00:00",
+  "as_of_datetime": "2026-06-11T23:33:43+00:00",
   "blocked_count": 110,
   "blocked_recipe_ids": [
     "RECIPE-005f7579881934bb",
@@ -134,7 +134,7 @@
         "analysis_recipe_rows": 110,
         "analytical_footprint_rows": 3,
         "forecast_claim_rows": 0,
-        "method_pattern_rows": 110,
+        "method_pattern_rows": 118,
         "outcome_label_rows": 0
       },
       "diagnostic_version": "direct_pit_binding_gap_v1",
@@ -149,16 +149,15 @@
         "outcome_labels_with_forecast_claim_id": 0
       },
       "method_source_linkage": {
-        "linked_source_footprint_count": 0,
+        "linked_source_footprint_count": 3,
         "linked_source_footprints_missing_from_footprint_artifact": 0,
-        "method_pattern_count": 110,
-        "method_patterns_with_source_footprints": 0,
-        "method_patterns_without_source_footprints": 110
+        "method_pattern_count": 118,
+        "method_patterns_with_source_footprints": 9,
+        "method_patterns_without_source_footprints": 109
       },
       "missing_artifact_flags": [
         "outcome_labels_absent",
-        "forecast_claims_absent",
-        "method_source_footprints_empty"
+        "forecast_claims_absent"
       ],
       "next_actions": [
         "regenerate method patterns with source_footprint_ids preserved",

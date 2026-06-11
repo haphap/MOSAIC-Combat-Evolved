@@ -18289,6 +18289,69 @@ def _append_unique_records(
         seen[value] = len(target) - 1
 
 
+METHOD_PATTERN_MERGE_LIST_FIELDS = (
+    "source_footprint_ids",
+    "steps",
+    "required_current_data",
+    "optional_confirmation_data",
+    "failure_modes",
+    "target_agents",
+)
+
+
+def _merge_method_pattern_record(
+    existing: Mapping[str, Any],
+    incoming: Mapping[str, Any],
+) -> dict[str, Any]:
+    merged = dict(existing)
+    for field in METHOD_PATTERN_MERGE_LIST_FIELDS:
+        merged[field] = _merge_unique_values(
+            _ensure_list(existing.get(field)),
+            _ensure_list(incoming.get(field)),
+        )
+    for field in (
+        "name",
+        "description",
+        "validation_status",
+        "allowed_runtime_mode",
+    ):
+        if not str(merged.get(field) or "").strip() and incoming.get(field) is not None:
+            merged[field] = incoming.get(field)
+    if not _ensure_mapping(merged.get("extractor")) and _ensure_mapping(
+        incoming.get("extractor")
+    ):
+        merged["extractor"] = dict(_ensure_mapping(incoming.get("extractor")))
+    return merged
+
+
+def _append_unique_method_patterns(
+    target: list[dict[str, Any]],
+    records: Sequence[dict[str, Any]],
+    *,
+    replace_existing: bool = False,
+) -> None:
+    seen = {
+        str(record.get("method_pattern_id") or ""): index
+        for index, record in enumerate(target)
+        if str(record.get("method_pattern_id") or "")
+    }
+    for record in records:
+        value = str(record.get("method_pattern_id") or "")
+        if not value:
+            continue
+        if value in seen:
+            if replace_existing:
+                target[seen[value]] = record
+            else:
+                target[seen[value]] = _merge_method_pattern_record(
+                    target[seen[value]],
+                    record,
+                )
+            continue
+        target.append(record)
+        seen[value] = len(target) - 1
+
+
 REPORT_INTELLIGENCE_BATCH_MERGE_JSONL_KEYS: Mapping[str, str] = {
     "analytical_footprints.jsonl": "footprint_id",
     "forecast_claims.jsonl": "forecast_claim_id",
@@ -18349,12 +18412,19 @@ def merge_report_intelligence_batch_outputs(
                 label=f"{registry_path.name}/{filename}",
                 blockers=blockers,
             )
-            _append_unique_records(
-                rows,
-                [dict(row) for row in existing_rows],
-                key=key,
-                replace_existing=replace_duplicates,
-            )
+            if filename == "method_patterns.jsonl":
+                _append_unique_method_patterns(
+                    rows,
+                    [dict(row) for row in existing_rows],
+                    replace_existing=replace_duplicates,
+                )
+            else:
+                _append_unique_records(
+                    rows,
+                    [dict(row) for row in existing_rows],
+                    key=key,
+                    replace_existing=replace_duplicates,
+                )
         file_count = 0
         for input_dir in resolved_inputs:
             path = _batch_output_path(input_dir, filename)
@@ -18366,12 +18436,19 @@ def merge_report_intelligence_batch_outputs(
                 label=f"{input_dir.name}/{filename}",
                 blockers=blockers,
             )
-            _append_unique_records(
-                rows,
-                [dict(row) for row in batch_rows],
-                key=key,
-                replace_existing=replace_duplicates,
-            )
+            if filename == "method_patterns.jsonl":
+                _append_unique_method_patterns(
+                    rows,
+                    [dict(row) for row in batch_rows],
+                    replace_existing=replace_duplicates,
+                )
+            else:
+                _append_unique_records(
+                    rows,
+                    [dict(row) for row in batch_rows],
+                    key=key,
+                    replace_existing=replace_duplicates,
+                )
         if file_count:
             written = _write_jsonl(registry_path / filename, rows)
             outputs[filename] = str(written["path"])
@@ -18472,7 +18549,7 @@ def _extract_for_markdown(
         )
         _append_unique_records(all_footprints, footprints, key="footprint_id")
         _append_unique_records(all_metrics, metrics, key="metric_candidate_id")
-        _append_unique_records(all_methods, methods, key="method_pattern_id")
+        _append_unique_method_patterns(all_methods, methods)
         _append_unique_records(all_gaps, gaps, key="tool_gap_id")
     llm_status = "processed" if model_used and not blockers else "blocked"
     if not chunks:
@@ -18560,7 +18637,7 @@ def run_report_intelligence_derived_refresh(
         label="method_patterns",
         blockers=blockers,
     )
-    _append_unique_records(
+    _append_unique_method_patterns(
         method_rows,
         _normalize_method_patterns(
             {},
@@ -18568,8 +18645,6 @@ def run_report_intelligence_derived_refresh(
             run_id=run_id,
             model="derived_refresh",
         ),
-        key="method_pattern_id",
-        replace_existing=True,
     )
     tool_gap_rows = _read_registry_jsonl(
         registry_dir / "tool_gaps.jsonl",
@@ -18678,6 +18753,13 @@ def run_report_intelligence_derived_refresh(
         recipe_paper_trading_runs=recipe_paper_trading_run_rows,
         tool_gap_rows=tool_gap_rows,
         tool_design_proposal_rows=tool_design_proposal_rows,
+        direct_pit_binding_gap_details=_direct_pit_binding_gap_details(
+            analysis_recipe_rows=analysis_recipe_rows,
+            outcome_label_rows=outcome_label_rows,
+            forecast_rows=forecast_rows,
+            footprint_rows=footprint_rows,
+            method_rows=method_rows,
+        ),
     )
     confidence_impact_observation_rows = build_confidence_impact_observations(
         run_id=run_id,
@@ -19502,10 +19584,9 @@ def run_report_intelligence_refresh(
                         extraction["metric_candidates"],
                         key="metric_candidate_id",
                     )
-                    _append_unique_records(
+                    _append_unique_method_patterns(
                         method_rows,
                         extraction["method_patterns"],
-                        key="method_pattern_id",
                     )
                     _append_unique_records(
                         tool_gap_rows,
@@ -19674,6 +19755,13 @@ def run_report_intelligence_refresh(
         recipe_paper_trading_runs=recipe_paper_trading_run_rows,
         tool_gap_rows=tool_gap_rows,
         tool_design_proposal_rows=tool_design_proposal_rows,
+        direct_pit_binding_gap_details=_direct_pit_binding_gap_details(
+            analysis_recipe_rows=analysis_recipe_rows,
+            outcome_label_rows=outcome_label_rows,
+            forecast_rows=forecast_rows,
+            footprint_rows=footprint_rows,
+            method_rows=method_rows,
+        ),
     )
     confidence_impact_observation_rows = build_confidence_impact_observations(
         run_id=run_id,

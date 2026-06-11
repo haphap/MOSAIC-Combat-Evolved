@@ -188,7 +188,7 @@
       "accepted": true,
       "artifact_path": "registry/report_intelligence/method_patterns.jsonl",
       "failures": [],
-      "item_count": 110,
+      "item_count": 118,
       "schema_path": "schemas/report_intelligence_method_pattern.schema.json"
     },
     {
@@ -488,7 +488,7 @@
       "accepted": true,
       "artifact_path": "registry/report_intelligence",
       "failures": [],
-      "item_count": 1105,
+      "item_count": 1113,
       "schema_path": "schemas/report_intelligence_runtime_guard_rules"
     },
     {

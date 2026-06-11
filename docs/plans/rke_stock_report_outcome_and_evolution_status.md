@@ -35,7 +35,7 @@ contracts.
 | `registry/report_intelligence/patch_v1_5_coverage_report.json` | public count-only fallback preserves aggregate evidence when private JSONL inputs are absent; Phase C now passes, while Phase B/D remain blocked by manual review and footprint quality gates |
 | `registry/report_intelligence/industry_etf_proxy_map.jsonl` | 64 primary/governed mapping rows; `工业金属` maps to `SH560860` |
 | `registry/report_intelligence/recipe_paper_trading_runs.jsonl` | 110 pre-registered shadow paper-trading runs |
-| `registry/report_intelligence/recipe_paper_trading_summary.json` | 0 recipes passed paper-trading validation; direct PIT binding diagnostics show 110 recipes still lack direct recipe-outcome binding, 110 method patterns have no `source_footprint_ids`, current public-safe inputs have 0 forecast-claim rows and 0 outcome-label rows, and 110 recipes remain blocked by requested-tool placeholders |
+| `registry/report_intelligence/recipe_paper_trading_summary.json` | 0 recipes passed paper-trading validation; direct PIT binding diagnostics show 110 recipes still lack direct recipe-outcome binding; method source linkage improved to 9/118 method patterns with `source_footprint_ids`, while current public-safe inputs still have 0 forecast-claim rows and 0 outcome-label rows, and 110 recipes remain blocked by requested-tool placeholders |
 | `registry/report_intelligence/confidence_impact_monitor.json` | 0 paper-trading validated recipes; confidence impact remains blocked until recipe validation passes |
 | `registry/report_intelligence/evolution_readiness_gate.json` | blocked; 16 blockers remain across manual review, outcome-count, paper-trading, schema/audit, and audit-history readiness; public count-only fallback preserves outcome coverage when private label JSONL is absent |
 | `registry/review_batches/manual_review_progress_report.json` | public baseline: gold-set 0/500, source license 0/1216, lockbox 0/1; synthetic fixture: gold-set 500/500, source license 50/50, lockbox 0/1 |
@@ -99,10 +99,11 @@ blocker families include:
    `insufficient_validated_runs` until enough pre-registered recipes pass.
    `direct_pit_binding_diagnostics.status=blocked_no_direct_pit_binding`
    records that profile weights are not being used as a substitute for direct
-   PIT recipe validation. The binding gap details currently identify three
-   concrete missing links: public-safe refresh has 0 forecast-claim rows, 0
-   outcome-label rows, and 110/110 method patterns have empty
-   `source_footprint_ids`.
+   PIT recipe validation. The binding gap details currently identify the
+   remaining concrete missing links: public-safe refresh has 0 forecast-claim
+   rows and 0 outcome-label rows. Method source linkage is no longer completely
+   empty: 9/118 method patterns now carry `source_footprint_ids`, leaving
+   109/118 method patterns without footprint provenance.
 5. Refresh-history stability: audit history must satisfy the trailing-vintage
    gate; monitor and gap-distribution trailing-vintage gates currently pass.
 6. Re-run `mosaic-rke review-progress --root .`, promotion dry-run, and
