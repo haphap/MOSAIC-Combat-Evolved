@@ -1492,6 +1492,12 @@ CONFIDENCE_IMPACT_REQUIRED_OBSERVATION_FIELDS = (
     "hit_rate_baseline",
     "drawdown_since_activation",
     "regime",
+    "regime_status",
+    "regime_contribution_shares",
+    "max_regime_contribution_share",
+    "observed_regime_count",
+    "market_regime_missing_count",
+    "market_regime_coverage_status",
     "drift_status",
     "recommended_action",
 )
@@ -2006,6 +2012,59 @@ def _validate_recipe_paper_trading_contract(
         ):
             failures.append(
                 f"{row_label}.blocker_reasons: mismatch with paper-trading run"
+            )
+        run_metrics_raw = run.get("metrics")
+        run_metrics = run_metrics_raw if isinstance(run_metrics_raw, Mapping) else {}
+        expected_regime_shares_raw = run_metrics.get("regime_contribution_shares")
+        expected_regime_shares_mapping = (
+            expected_regime_shares_raw
+            if isinstance(expected_regime_shares_raw, Mapping)
+            else {}
+        )
+        observed_regime_shares_raw = row.get("regime_contribution_shares")
+        observed_regime_shares_mapping = (
+            observed_regime_shares_raw
+            if isinstance(observed_regime_shares_raw, Mapping)
+            else {}
+        )
+        expected_regime_shares = {
+            str(key): value
+            for key, value in expected_regime_shares_mapping.items()
+        }
+        observed_regime_shares = {
+            str(key): value
+            for key, value in observed_regime_shares_mapping.items()
+        }
+        if observed_regime_shares != expected_regime_shares:
+            failures.append(
+                f"{row_label}.regime_contribution_shares: mismatch with paper-trading run"
+            )
+        expected_dominant_regime = "unknown"
+        numeric_regime_shares = {
+            key: float(value)
+            for key, value in expected_regime_shares.items()
+            if _float_or_none(value) is not None
+        }
+        if numeric_regime_shares:
+            expected_dominant_regime = sorted(
+                numeric_regime_shares.items(),
+                key=lambda item: (-item[1], item[0]),
+            )[0][0]
+        if str(row.get("regime") or "") != expected_dominant_regime:
+            failures.append(f"{row_label}.regime: mismatch with paper-trading run")
+        for field in (
+            "max_regime_contribution_share",
+            "observed_regime_count",
+            "market_regime_missing_count",
+        ):
+            if row.get(field) != run_metrics.get(field):
+                failures.append(f"{row_label}.{field}: mismatch with paper-trading run")
+        expected_regime_coverage_status = (
+            run_metrics.get("market_regime_coverage_status") or "unknown"
+        )
+        if row.get("market_regime_coverage_status") != expected_regime_coverage_status:
+            failures.append(
+                f"{row_label}.market_regime_coverage_status: mismatch with paper-trading run"
             )
         for reason in _string_items(row.get("blocker_reasons")):
             confidence_blocker_counts[reason] = (

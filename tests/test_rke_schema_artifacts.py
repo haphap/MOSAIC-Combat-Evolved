@@ -532,6 +532,40 @@ def test_confidence_impact_observation_schema_requires_plan_fields(
     )
 
 
+def test_confidence_impact_observation_schema_requires_regime_monitor_fields(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    observations_path = registry / "confidence_impact_observations.jsonl"
+    observations = [
+        json.loads(line)
+        for line in observations_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    observations[0].pop("regime_contribution_shares", None)
+    observations_path.write_text(
+        "\n".join(
+            json.dumps(row, ensure_ascii=False, sort_keys=True)
+            for row in observations
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    record = validate_json_schema_artifact(
+        root=tmp_path,
+        schema_path="schemas/report_intelligence_confidence_impact_observation.schema.json",
+        artifact_path="registry/report_intelligence/confidence_impact_observations.jsonl",
+        artifact_kind="jsonl",
+    )
+
+    assert not record.accepted
+    assert any(
+        "regime_contribution_shares: required" in item
+        for item in record.failures
+    )
+
+
 def _proxy_outcome_contract_record(tmp_path: Path):
     records = validate_report_intelligence_semantics(tmp_path)
     return next(
@@ -1228,6 +1262,41 @@ def test_recipe_paper_trading_contract_rejects_missing_confidence_monitor_field(
     assert not record.accepted
     assert any(
         "confidence_impact_observations row 1.calibration_error: required" in item
+        for item in record.failures
+    )
+
+
+def test_recipe_paper_trading_contract_rejects_regime_monitor_mismatch(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    observations_path = registry / "confidence_impact_observations.jsonl"
+    observations = [
+        json.loads(line)
+        for line in observations_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    observations[0]["regime"] = "manual_override"
+    observations[0]["regime_contribution_shares"] = {"manual_override": 1.0}
+    observations_path.write_text(
+        "\n".join(
+            json.dumps(row, ensure_ascii=False, sort_keys=True)
+            for row in observations
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    record = _recipe_paper_trading_contract_record(tmp_path)
+
+    assert not record.accepted
+    assert any(
+        "confidence_impact_observations row 1.regime: mismatch" in item
+        for item in record.failures
+    )
+    assert any(
+        "confidence_impact_observations row 1.regime_contribution_shares: mismatch"
+        in item
         for item in record.failures
     )
 

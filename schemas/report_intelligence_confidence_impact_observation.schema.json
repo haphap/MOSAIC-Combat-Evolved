@@ -19,6 +19,12 @@
     "hit_rate_baseline",
     "drawdown_since_activation",
     "regime",
+    "regime_status",
+    "regime_contribution_shares",
+    "max_regime_contribution_share",
+    "observed_regime_count",
+    "market_regime_missing_count",
+    "market_regime_coverage_status",
     "paper_trading_status",
     "drift_status",
     "recommended_action",
@@ -44,6 +50,19 @@
     "hit_rate_baseline": {"type": "number", "minimum": 0, "maximum": 1},
     "drawdown_since_activation": {"type": ["number", "null"]},
     "regime": {"type": "string"},
+    "regime_status": {
+      "enum": ["dominant_observed", "missing_diagnostic"]
+    },
+    "regime_contribution_shares": {
+      "type": "object",
+      "additionalProperties": {"type": "number", "minimum": 0, "maximum": 1}
+    },
+    "max_regime_contribution_share": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+    "observed_regime_count": {"type": "integer", "minimum": 0},
+    "market_regime_missing_count": {"type": "integer", "minimum": 0},
+    "market_regime_coverage_status": {
+      "enum": ["observed", "partially_missing", "missing_diagnostic_only", "unknown"]
+    },
     "paper_trading_status": {"enum": ["passed", "blocked"]},
     "drift_status": {
       "enum": [

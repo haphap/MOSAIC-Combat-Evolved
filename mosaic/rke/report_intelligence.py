@@ -9794,6 +9794,22 @@ def build_confidence_impact_observations(
         calibration_error = _float_or_none(metrics.get("calibration_error"))
         brier_score = _float_or_none(metrics.get("brier_score"))
         hit_rate = _float_or_none(metrics.get("hit_rate"))
+        regime_contribution_shares = {
+            str(key): float(value)
+            for key, value in _ensure_mapping(
+                metrics.get("regime_contribution_shares")
+            ).items()
+            if _float_or_none(value) is not None
+        }
+        dominant_regime = "unknown"
+        if regime_contribution_shares:
+            dominant_regime = sorted(
+                regime_contribution_shares.items(),
+                key=lambda item: (-item[1], item[0]),
+            )[0][0]
+        market_regime_coverage_status = str(
+            metrics.get("market_regime_coverage_status") or "unknown"
+        )
         blocker_reasons = _ensure_list(run.get("blocked_reasons"))
         profile_support = _ensure_mapping(run.get("profile_weight_support"))
         profile_paper_trade_disagreement = (
@@ -9875,7 +9891,21 @@ def build_confidence_impact_observations(
                 "hit_rate_recent": hit_rate,
                 "hit_rate_baseline": 0.5,
                 "drawdown_since_activation": metrics.get("max_drawdown"),
-                "regime": "unknown",
+                "regime": dominant_regime,
+                "regime_status": (
+                    "dominant_observed"
+                    if dominant_regime != "unknown"
+                    else "missing_diagnostic"
+                ),
+                "regime_contribution_shares": regime_contribution_shares,
+                "max_regime_contribution_share": metrics.get(
+                    "max_regime_contribution_share"
+                ),
+                "observed_regime_count": metrics.get("observed_regime_count"),
+                "market_regime_missing_count": metrics.get(
+                    "market_regime_missing_count"
+                ),
+                "market_regime_coverage_status": market_regime_coverage_status,
                 "paper_trading_status": paper_status,
                 "drift_status": drift_status,
                 "recommended_action": recommended_action,

@@ -2557,6 +2557,17 @@ def test_report_intelligence_recipe_paper_trading_requires_direct_pit_evidence()
     assert observations[0]["confidence_delta"] > 0
     assert observations[0]["drift_status"] == "stable_shadow"
     assert observations[0]["brier_score"] == 0.01
+    assert observations[0]["regime"] == "base"
+    assert observations[0]["regime_status"] == "dominant_observed"
+    assert observations[0]["regime_contribution_shares"] == {
+        "base": 0.4,
+        "recovery": 0.2,
+        "stress": 0.4,
+    }
+    assert observations[0]["max_regime_contribution_share"] == 0.4
+    assert observations[0]["observed_regime_count"] == 3
+    assert observations[0]["market_regime_missing_count"] == 0
+    assert observations[0]["market_regime_coverage_status"] == "observed"
     assert monitor["paper_trading_validated_recipe_count"] == 1
     assert monitor["tracked_recipe_ids"] == ["RECIPE-DIRECT-PIT"]
     assert monitor["alpha_decay_recipe_ids"] == []
@@ -2576,6 +2587,16 @@ def test_report_intelligence_recipe_paper_trading_requires_direct_pit_evidence()
 
     assert no_regime_runs[0]["paper_trading_status"] == "passed"
     assert no_regime_runs[0]["metrics"]["market_regime_coverage_status"] == (
+        "missing_diagnostic_only"
+    )
+    no_regime_observations = build_confidence_impact_observations(
+        run_id="RIR-TEST-PAPER",
+        recipe_paper_trading_runs=no_regime_runs,
+    )
+    assert no_regime_observations[0]["regime"] == "unknown"
+    assert no_regime_observations[0]["regime_status"] == "missing_diagnostic"
+    assert no_regime_observations[0]["regime_contribution_shares"] == {}
+    assert no_regime_observations[0]["market_regime_coverage_status"] == (
         "missing_diagnostic_only"
     )
     assert "market_regime_missing" not in no_regime_runs[0]["blocked_reasons"]
