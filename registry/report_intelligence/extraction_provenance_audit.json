@@ -1,10 +1,10 @@
 {
   "accepted": true,
-  "as_of_datetime": "2026-06-11T00:26:47+00:00",
+  "as_of_datetime": "2026-06-11T00:54:09+00:00",
   "audit_id": "RKE-REPORT-INTELLIGENCE-EXTRACTION-PROVENANCE-AUDIT",
   "blocker_count": 0,
   "blockers": [],
-  "checked_item_count": 1046,
+  "checked_item_count": 1067,
   "checks": [
     {
       "accepted": true,
@@ -59,12 +59,12 @@
       "check_id": "RI-PROV-04",
       "evidence": {
         "forecast_ledger_rows": 189,
-        "industry_etf_proxy_outcome_claim_count": 5,
-        "outcome_label_rows": 163,
+        "industry_etf_proxy_outcome_claim_count": 12,
+        "outcome_label_rows": 184,
         "ready_for_outcome_labeling_count": 7,
         "standard_blocked_forecast_count": 182,
         "stock_price_proxy_outcome_claim_count": 37,
-        "unlabelable_forecast_count": 140
+        "unlabelable_forecast_count": 133
       },
       "failure_count": 0,
       "failures": [],
@@ -84,5 +84,5 @@
     }
   ],
   "policy": "source-grounded forecast claims and analytical footprints must cite spans; inferred fields must stay tagged as hypotheses; unmapped forecasts and unknown-source metrics cannot be scored or promoted",
-  "run_id": "RIR-DERIVED-20260611T002647+0000"
+  "run_id": "RIR-DERIVED-20260611T005408+0000"
 }

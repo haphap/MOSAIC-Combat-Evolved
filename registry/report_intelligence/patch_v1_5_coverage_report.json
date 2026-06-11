@@ -1,6 +1,6 @@
 {
   "accepted": false,
-  "as_of_datetime": "2026-06-11T00:26:47+00:00",
+  "as_of_datetime": "2026-06-11T00:54:09+00:00",
   "blocked_phase_ids": [
     "B"
   ],
@@ -15,7 +15,7 @@
     "metadata_rows": 352,
     "method_pattern_rows": 110,
     "metric_candidate_rows": 305,
-    "outcome_label_rows": 163,
+    "outcome_label_rows": 184,
     "runtime_tool_gap_observation_rows": 884,
     "tool_gap_rows": 884,
     "weighted_research_context_rows": 1
@@ -122,8 +122,8 @@
       "evidence_counts": {
         "forecast_ledger_rows": 189,
         "method_profile_rows": 110,
-        "outcome_label_rows": 163,
-        "proxy_label_ready_count": 42,
+        "outcome_label_rows": 184,
+        "proxy_label_ready_count": 49,
         "source_profile_rows": 878,
         "statistical_audit_accepted": true,
         "viewpoint_profile_rows": 110
@@ -371,7 +371,7 @@
       "evidence_counts": {
         "forecast_ledger_rows": 189,
         "method_profile_rows": 110,
-        "outcome_label_rows": 163,
+        "outcome_label_rows": 184,
         "source_profile_rows": 878,
         "statistical_audit_accepted": true,
         "viewpoint_profile_rows": 110
@@ -492,6 +492,6 @@
       "status": "deferred_by_rollout"
     }
   ],
-  "run_id": "RIR-DERIVED-20260611T002647+0000",
+  "run_id": "RIR-DERIVED-20260611T005408+0000",
   "source_plan_path": "MOSAIC_RKE_REPORT_INTELLIGENCE_LOOP_PATCH_V1_5_MERGED.md"
 }

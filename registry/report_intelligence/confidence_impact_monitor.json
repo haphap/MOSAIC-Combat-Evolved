@@ -4,7 +4,7 @@
   "alpha_decay_fail_count": 0,
   "alpha_decay_recipe_ids": [],
   "alpha_decay_watch_count": 0,
-  "as_of_datetime": "2026-06-11T00:26:47+00:00",
+  "as_of_datetime": "2026-06-11T00:54:09+00:00",
   "blocked_recipe_count": 110,
   "blocker_counts": {
     "insufficient_effective_n": 110,
@@ -47,7 +47,7 @@
   "regime_fragile_alpha_count": 0,
   "regime_fragile_recipe_ids": [],
   "retire_recipe_ids": [],
-  "run_id": "RIR-DERIVED-20260611T002647+0000",
+  "run_id": "RIR-DERIVED-20260611T005408+0000",
   "tracked_recipe_ids": [
     "RECIPE-005f7579881934bb",
     "RECIPE-0180151b56a1b6d9",

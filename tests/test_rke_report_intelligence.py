@@ -42,6 +42,7 @@ from mosaic.rke.report_intelligence import (
     run_report_intelligence_derived_refresh,
     write_report_intelligence_evolution_readiness_gate,
     _append_evolution_history_record,
+    _read_industry_etf_proxy_map_rows,
     _markdown_quality_gap,
     _paper_trading_chronological_split_metrics,
     _user_prompt,
@@ -359,6 +360,7 @@ def _write_qlib_etf_fixture(root: Path) -> None:
     dates += [f"2026-04-{day:02d}" for day in range(1, 31)]
     dates += [f"2026-05-{day:02d}" for day in range(1, 32)]
     (root / "calendars/day.txt").write_text("\n".join(dates) + "\n", encoding="utf-8")
+    _write_qlib_series(root, "SH560860", [1.00 + index * 0.002 for index in range(len(dates))])
     _write_qlib_series(root, "SH512400", [1.00 + index * 0.002 for index in range(len(dates))])
     _write_qlib_series(root, "SH510300", [1.00 + index * 0.001 for index in range(len(dates))])
 
@@ -370,6 +372,7 @@ def _write_qlib_etf_custom_benchmark_fixture(root: Path) -> None:
     dates += [f"2026-04-{day:02d}" for day in range(1, 31)]
     dates += [f"2026-05-{day:02d}" for day in range(1, 32)]
     _write_qlib_calendar(root, dates)
+    _write_qlib_series(root, "SH560860", [1.00 + index * 0.002 for index in range(len(dates))])
     _write_qlib_series(root, "SH512400", [1.00 + index * 0.002 for index in range(len(dates))])
     _write_qlib_series(root, "SH510300", [1.00 + index * 0.001 for index in range(len(dates))])
     _write_qlib_series(root, "SH510500", [1.00 + index * 0.005 for index in range(len(dates))])
@@ -383,6 +386,7 @@ def _write_qlib_etf_without_benchmark_fixture(root: Path) -> None:
     dates += [f"2026-04-{day:02d}" for day in range(1, 31)]
     dates += [f"2026-05-{day:02d}" for day in range(1, 32)]
     (root / "calendars/day.txt").write_text("\n".join(dates) + "\n", encoding="utf-8")
+    _write_qlib_series(root, "SH560860", [1.00 + index * 0.002 for index in range(len(dates))])
     _write_qlib_series(root, "SH512400", [1.00 + index * 0.002 for index in range(len(dates))])
 
 
@@ -411,6 +415,7 @@ def _write_qlib_etf_mixed_window_fixture(root: Path) -> None:
             values.append(1.00 - index * 0.002)
         else:
             values.append(0.95 + (index - 25) * 0.002)
+    _write_qlib_series(root, "SH560860", values)
     _write_qlib_series(root, "SH512400", values)
     _write_qlib_series(root, "SH510300", [1.00 + index * 0.0005 for index in range(len(dates))])
 
@@ -423,6 +428,7 @@ def _write_qlib_etf_bearish_fixture(root: Path) -> None:
     dates += [f"2026-04-{day:02d}" for day in range(1, 31)]
     dates += [f"2026-05-{day:02d}" for day in range(1, 32)]
     (root / "calendars/day.txt").write_text("\n".join(dates) + "\n", encoding="utf-8")
+    _write_qlib_series(root, "SH560860", [1.00 - index * 0.0015 for index in range(len(dates))])
     _write_qlib_series(root, "SH512400", [1.00 - index * 0.0015 for index in range(len(dates))])
     _write_qlib_series(root, "SH510300", [1.00 + index * 0.0002 for index in range(len(dates))])
 
@@ -3423,7 +3429,7 @@ def test_report_intelligence_labels_industry_claims_with_etf_proxy_windows(
     )
     assert {row["horizon_days"] for row in outcome_labels} == {20, 60, 120}
     assert {row["label_type"] for row in outcome_labels} == {"industry_etf_proxy"}
-    assert {row["proxy_symbol"] for row in outcome_labels} == {"SH512400"}
+    assert {row["proxy_symbol"] for row in outcome_labels} == {"SH560860"}
     assert {row["benchmark_symbol"] for row in outcome_labels} == {"SH510300"}
     assert {row["benchmark_source"] for row in outcome_labels} == {"cn_etf"}
     assert {row["benchmark_family"] for row in outcome_labels} == {
@@ -3587,6 +3593,74 @@ def test_report_intelligence_industry_pit_availability_blocks_labels(
         "pit_availability_insufficient_window_history": 1
     }
     assert labels == []
+
+
+def test_report_intelligence_merges_default_industry_etf_mapping_fallbacks(
+    tmp_path: Path,
+):
+    registry_dir = tmp_path / "registry/report_intelligence"
+    registry_dir.mkdir(parents=True)
+    stale_default_mapping = {
+        "mapping_id": "IETF-MAP-STALE-DEFAULT",
+        "mapping_version": 1,
+        "sector_name": "工业金属",
+        "sector_aliases": ["工业金属"],
+        "taxonomy": "operator_seeded_tushare_industry",
+        "etf_symbol": "SH512400",
+        "etf_name": "有色ETF",
+        "mapping_label": "有色ETF",
+        "benchmark_symbol": "SH510300",
+        "benchmark_source": "cn_etf",
+        "benchmark_family": "CSI300_ETF_PROXY",
+        "cost_model_id": "industry_etf_round_trip_10bps_v1",
+        "mapping_confidence": "operator_seeded_exact_sector",
+        "mapping_rationale": "old default should be refreshed",
+        "effective_from": "",
+        "effective_to": "",
+        "status": "primary",
+        "review_required": False,
+    }
+    existing_mapping = {
+        "mapping_id": "IETF-MAP-EXISTING",
+        "mapping_version": 1,
+        "sector_name": "有色金属",
+        "sector_aliases": ["有色金属"],
+        "taxonomy": "test_taxonomy",
+        "etf_symbol": "SH512400",
+        "etf_name": "有色ETF",
+        "mapping_label": "有色ETF",
+        "benchmark_symbol": "SH510300",
+        "benchmark_source": "cn_etf",
+        "benchmark_family": "CSI300_ETF_PROXY",
+        "cost_model_id": "industry_etf_round_trip_10bps_v1",
+        "mapping_confidence": "operator_override",
+        "mapping_rationale": "operator override should remain authoritative",
+        "effective_from": "",
+        "effective_to": "",
+        "status": "primary",
+        "review_required": False,
+    }
+    (registry_dir / "industry_etf_proxy_map.jsonl").write_text(
+        "\n".join(
+            [
+                json.dumps(stale_default_mapping, ensure_ascii=False),
+                json.dumps(existing_mapping, ensure_ascii=False),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    mapping_rows = _read_industry_etf_proxy_map_rows(registry_dir)
+
+    by_sector = {str(row["sector_name"]): row for row in mapping_rows}
+    assert by_sector["工业金属"]["etf_symbol"] == "SH560860"
+    assert by_sector["有色金属"]["etf_symbol"] == "SH512400"
+    assert by_sector["有色金属"]["mapping_confidence"] == "operator_override"
+    assert by_sector["通信设备"]["etf_symbol"] == "SH515880"
+    assert by_sector["IT服务Ⅱ"]["etf_symbol"] == "SH515230"
+    assert by_sector["旅游及景区"]["etf_symbol"] == "SZ159766"
+    assert sum(1 for row in mapping_rows if row["sector_name"] == "工业金属") == 1
 
 
 def test_report_intelligence_industry_pit_availability_records_missing_benchmark(
@@ -3950,9 +4024,7 @@ def test_report_intelligence_industry_mapping_uses_registry_benchmark_symbol(
         (tmp_path / "registry/report_intelligence/outcome_labeling_readiness.json")
         .read_text(encoding="utf-8")
     )
-    assert readiness["industry_etf_proxy_readiness"]["benchmark_symbols"] == [
-        "SH510500"
-    ]
+    assert "SH510500" in readiness["industry_etf_proxy_readiness"]["benchmark_symbols"]
 
     pit_availability = json.loads(
         (
@@ -5486,12 +5558,26 @@ def test_report_intelligence_cli_loads_env_file_before_vllm_key_lookup(
     monkeypatch: pytest.MonkeyPatch,
 ):
     env_path = tmp_path / ".env"
-    env_path.write_text("MOSAIC_VLLM_API_KEY=from-env-file\n", encoding="utf-8")
+    env_path.write_text(
+        "\n".join(
+            [
+                "MOSAIC_VLLM_API_KEY=from-env-file",
+                "MOSAIC_RKE_VLLM_BASE_URL=https://example.invalid/v1",
+                "MOSAIC_RKE_VLLM_MODEL=test-model",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     monkeypatch.delenv("MOSAIC_VLLM_API_KEY", raising=False)
+    monkeypatch.delenv("MOSAIC_RKE_VLLM_BASE_URL", raising=False)
+    monkeypatch.delenv("MOSAIC_RKE_VLLM_MODEL", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
     def fake_refresh(config: ReportIntelligenceConfig):
         assert config.vllm_api_key == "from-env-file"
+        assert config.vllm_base_url == "https://example.invalid/v1"
+        assert config.vllm_model == "test-model"
         raise RuntimeError("captured config")
 
     monkeypatch.setattr("mosaic.rke.cli.run_report_intelligence_refresh", fake_refresh)

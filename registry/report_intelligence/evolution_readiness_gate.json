@@ -1,5 +1,5 @@
 {
-  "as_of_datetime": "2026-06-11T00:26:47+00:00",
+  "as_of_datetime": "2026-06-11T00:54:09+00:00",
   "blocker_count": 19,
   "blockers": [
     "after_cost_paper_trading_summary_missing",
@@ -31,9 +31,9 @@
       "check_id": "RI-EVOL-01",
       "evidence": {
         "forecast_claim_count": 189,
-        "industry_proxy_unique_claim_count": 5,
+        "industry_proxy_unique_claim_count": 12,
         "stock_proxy_unique_claim_count": 37,
-        "unique_outcome_claim_count": 42
+        "unique_outcome_claim_count": 49
       },
       "passed": false,
       "requirement": "Evolution requires enough stock and industry PIT outcome coverage before prompt mutation candidates can influence prompts."
@@ -63,7 +63,7 @@
         "blocked_recipe_count": 110,
         "calibration_drift_count": 0,
         "calibration_drift_rule_counts": {},
-        "data_vintage_hash": "sha256:5ca7bd8f461c6dc0aa65500c075914e848560bd15ddba302f3fdf2457029de6b",
+        "data_vintage_hash": "sha256:ac4802976b14322586e37070b927b1c14663ccf3334ec416d80a1fe245551f96",
         "distinct_data_vintage_required": true,
         "monitor_observation_count": 110,
         "trailing_monitor_distinct_vintage_count": 0,
@@ -80,7 +80,7 @@
       ],
       "check_id": "RI-EVOL-04",
       "evidence": {
-        "data_vintage_hash": "sha256:5ca7bd8f461c6dc0aa65500c075914e848560bd15ddba302f3fdf2457029de6b",
+        "data_vintage_hash": "sha256:ac4802976b14322586e37070b927b1c14663ccf3334ec416d80a1fe245551f96",
         "distinct_data_vintage_required": true,
         "pit_accepted": true,
         "provenance_accepted": true,
@@ -149,10 +149,10 @@
           "direction": 4,
           "horizon": 178
         },
-        "data_vintage_hash": "sha256:5ca7bd8f461c6dc0aa65500c075914e848560bd15ddba302f3fdf2457029de6b",
+        "data_vintage_hash": "sha256:ac4802976b14322586e37070b927b1c14663ccf3334ec416d80a1fe245551f96",
         "distinct_data_vintage_required": true,
-        "trailing_gap_distribution_distinct_vintage_count": 4,
-        "trailing_gap_distribution_stable_count": 4
+        "trailing_gap_distribution_distinct_vintage_count": 5,
+        "trailing_gap_distribution_stable_count": 5
       },
       "passed": true,
       "requirement": "Outcome and missing-gap distributions must be stable across recent refreshes before evolution changes prompts."
@@ -312,7 +312,7 @@
       "requirement": "Markdown coverage must pass P9 corpus thresholds before evolution depends on report-derived Markdown evidence."
     }
   ],
-  "data_vintage_hash": "sha256:5ca7bd8f461c6dc0aa65500c075914e848560bd15ddba302f3fdf2457029de6b",
+  "data_vintage_hash": "sha256:ac4802976b14322586e37070b927b1c14663ccf3334ec416d80a1fe245551f96",
   "gate_id": "RKE-REPORT-INTELLIGENCE-EVOLUTION-READINESS-GATE",
   "gate_status": "blocked",
   "policy": "Prompt and agent evolution remains blocked until governed aggregate PIT outcome coverage, paper-trading, monitor stability, audit history, gold-set quality, gap stability, and Markdown coverage gates pass; this artifact stores aggregate evidence only and cannot change production prompts.",
@@ -334,7 +334,7 @@
     },
     "gap_distribution_distinct_vintage_count": {
       "blocker": "gap_distribution_history_below_threshold",
-      "current": 4,
+      "current": 5,
       "next_action": "refresh_distinct_data_vintages_until_gap_distribution_is_stable",
       "remaining": 0,
       "target": 3
@@ -368,9 +368,9 @@
     },
     "industry_proxy_unique_claim_count": {
       "blocker": "industry_proxy_claim_count_below_threshold",
-      "current": 5,
+      "current": 12,
       "next_action": "run_industry_etf_proxy_labels_for_mapped_industry_reports",
-      "remaining": 25,
+      "remaining": 18,
       "target": 30
     },
     "markdown_coverage": {
@@ -475,13 +475,13 @@
     },
     "unique_outcome_claim_count": {
       "blocker": "unique_outcome_claim_count_below_threshold",
-      "current": 42,
+      "current": 49,
       "next_action": "produce_more_non_llm_pit_outcome_labels",
-      "remaining": 58,
+      "remaining": 51,
       "target": 100
     }
   },
-  "run_id": "RIR-DERIVED-20260611T002647+0000",
+  "run_id": "RIR-DERIVED-20260611T005408+0000",
   "thresholds": {
     "min_consecutive_audit_refreshes": 3,
     "min_consecutive_monitor_refreshes": 3,

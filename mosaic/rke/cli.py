@@ -835,12 +835,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     report_intelligence.add_argument(
         "--vllm-base-url",
-        default="http://127.0.0.1:8020/v1",
-        help="OpenAI-compatible local vLLM base URL.",
+        help=(
+            "OpenAI-compatible vLLM base URL. Defaults to "
+            "MOSAIC_RKE_VLLM_BASE_URL or http://127.0.0.1:8020/v1."
+        ),
     )
     report_intelligence.add_argument(
         "--vllm-model",
-        help="vLLM model id. When omitted, /models first result is used.",
+        help=(
+            "vLLM model id. Defaults to MOSAIC_RKE_VLLM_MODEL; when omitted, "
+            "/models first result is used."
+        ),
     )
     report_intelligence.add_argument(
         "--vllm-api-key-env",
@@ -1340,8 +1345,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 mineru_timeout_seconds=args.mineru_timeout_seconds,
                 mineru_batch_size=args.mineru_batch_size,
                 mineru_batch_max_bytes=args.mineru_batch_max_bytes,
-                vllm_base_url=args.vllm_base_url,
-                vllm_model=args.vllm_model,
+                vllm_base_url=args.vllm_base_url
+                or os.environ.get("MOSAIC_RKE_VLLM_BASE_URL")
+                or "http://127.0.0.1:8020/v1",
+                vllm_model=args.vllm_model
+                or os.environ.get("MOSAIC_RKE_VLLM_MODEL"),
                 vllm_api_key=next(
                     (
                         os.environ[name.strip()]

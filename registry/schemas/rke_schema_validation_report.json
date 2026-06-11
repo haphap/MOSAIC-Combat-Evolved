@@ -125,7 +125,7 @@
       "accepted": true,
       "artifact_path": "registry/report_intelligence/industry_etf_proxy_map.jsonl",
       "failures": [],
-      "item_count": 17,
+      "item_count": 34,
       "schema_path": "schemas/report_intelligence_industry_etf_proxy_map.schema.json"
     },
     {
@@ -139,7 +139,7 @@
       "accepted": true,
       "artifact_path": "registry/report_intelligence/report_outcome_labels.jsonl",
       "failures": [],
-      "item_count": 163,
+      "item_count": 184,
       "schema_path": "schemas/report_intelligence_report_outcome_label.schema.json"
     },
     {
@@ -251,21 +251,21 @@
       "accepted": true,
       "artifact_path": "registry/report_intelligence/monitor_refresh_history.jsonl",
       "failures": [],
-      "item_count": 18,
+      "item_count": 19,
       "schema_path": "schemas/report_intelligence_evolution_refresh_history.schema.json"
     },
     {
       "accepted": true,
       "artifact_path": "registry/report_intelligence/audit_refresh_history.jsonl",
       "failures": [],
-      "item_count": 18,
+      "item_count": 19,
       "schema_path": "schemas/report_intelligence_evolution_refresh_history.schema.json"
     },
     {
       "accepted": true,
       "artifact_path": "registry/report_intelligence/gap_distribution_history.jsonl",
       "failures": [],
-      "item_count": 18,
+      "item_count": 19,
       "schema_path": "schemas/report_intelligence_evolution_refresh_history.schema.json"
     },
     {
@@ -391,14 +391,14 @@
       "accepted": true,
       "artifact_path": "registry/report_intelligence/report_outcome_labels.jsonl",
       "failures": [],
-      "item_count": 163,
+      "item_count": 184,
       "schema_path": "schemas/report_intelligence_proxy_outcome_label_contract_rules"
     },
     {
       "accepted": true,
       "artifact_path": "registry/report_intelligence",
       "failures": [],
-      "item_count": 50,
+      "item_count": 105,
       "schema_path": "schemas/report_intelligence_industry_etf_mapping_contract_rules"
     },
     {
@@ -454,7 +454,7 @@
       "accepted": true,
       "artifact_path": "registry/report_intelligence/*_refresh_history.jsonl",
       "failures": [],
-      "item_count": 54,
+      "item_count": 57,
       "schema_path": "schemas/report_intelligence_evolution_refresh_history_rules"
     },
     {

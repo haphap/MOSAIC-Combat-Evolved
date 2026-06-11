@@ -357,7 +357,7 @@ INDUSTRY_ETF_BENCHMARK_SOURCE = "cn_etf"
 INDUSTRY_ETF_BENCHMARK_FAMILY = "CSI300_ETF_PROXY"
 INDUSTRY_ETF_COST_MODEL_ID = "industry_etf_round_trip_10bps_v1"
 INDUSTRY_ETF_PROXY_MAPPING: Mapping[str, Mapping[str, str]] = {
-    "工业金属": {"etf_symbol": "SH512400", "mapping_label": "有色ETF"},
+    "工业金属": {"etf_symbol": "SH560860", "mapping_label": "工业有色ETF"},
     "有色金属": {"etf_symbol": "SH512400", "mapping_label": "有色ETF"},
     "贵金属": {"etf_symbol": "SH512400", "mapping_label": "有色ETF"},
     "银行": {"etf_symbol": "SH512800", "mapping_label": "银行ETF"},
@@ -366,14 +366,31 @@ INDUSTRY_ETF_PROXY_MAPPING: Mapping[str, Mapping[str, str]] = {
     "证券Ⅱ": {"etf_symbol": "SH512880", "mapping_label": "证券ETF"},
     "多元金融": {"etf_symbol": "SH512880", "mapping_label": "证券ETF"},
     "半导体": {"etf_symbol": "SH512480", "mapping_label": "半导体ETF"},
+    "通信设备": {"etf_symbol": "SH515880", "mapping_label": "通信ETF"},
+    "IT服务Ⅱ": {"etf_symbol": "SH515230", "mapping_label": "软件ETF"},
+    "计算机设备": {"etf_symbol": "SH512720", "mapping_label": "计算机ETF"},
+    "光学光电子": {"etf_symbol": "SH515260", "mapping_label": "电子ETF"},
+    "游戏Ⅱ": {"etf_symbol": "SZ159869", "mapping_label": "游戏ETF"},
     "电池": {"etf_symbol": "SH515700", "mapping_label": "新能源车ETF"},
     "汽车零部件": {"etf_symbol": "SH515700", "mapping_label": "新能源车ETF"},
     "医药商业": {"etf_symbol": "SH512170", "mapping_label": "医疗ETF"},
     "化学制药": {"etf_symbol": "SH512170", "mapping_label": "医疗ETF"},
+    "创新药": {"etf_symbol": "SH515120", "mapping_label": "创新药ETF"},
+    "创新药及生物类似药": {"etf_symbol": "SH515120", "mapping_label": "创新药ETF"},
+    "化学制品": {"etf_symbol": "SH516020", "mapping_label": "化工ETF"},
     "房地产开发": {"etf_symbol": "SH512200", "mapping_label": "房地产ETF"},
     "航天装备Ⅱ": {"etf_symbol": "SH512660", "mapping_label": "军工ETF"},
+    "通用设备": {"etf_symbol": "SH516960", "mapping_label": "机械ETF"},
+    "自动化设备": {"etf_symbol": "SH516960", "mapping_label": "机械ETF"},
     "风电设备": {"etf_symbol": "SH516160", "mapping_label": "新能源ETF"},
     "光伏设备": {"etf_symbol": "SH516160", "mapping_label": "新能源ETF"},
+    "其他电源设备Ⅱ": {"etf_symbol": "SH516160", "mapping_label": "新能源ETF"},
+    "公用事业": {"etf_symbol": "SZ159301", "mapping_label": "公用事业ETF"},
+    "火电": {"etf_symbol": "SZ159301", "mapping_label": "公用事业ETF"},
+    "水电": {"etf_symbol": "SZ159301", "mapping_label": "公用事业ETF"},
+    "核电": {"etf_symbol": "SZ159301", "mapping_label": "公用事业ETF"},
+    "新能源发电": {"etf_symbol": "SZ159301", "mapping_label": "公用事业ETF"},
+    "旅游及景区": {"etf_symbol": "SZ159766", "mapping_label": "旅游ETF"},
 }
 INDUSTRY_ETF_BENCHMARK_SYMBOL = "SH510300"
 STOCK_PRICE_PROXY_WINDOWS_DAYS = (5, 20, 60, 120)
@@ -5452,9 +5469,42 @@ def _read_industry_etf_proxy_map_rows(registry_dir: Path) -> list[Mapping[str, A
     map_path = registry_dir / "industry_etf_proxy_map.jsonl"
     if not map_path.exists():
         return build_default_industry_etf_proxy_map_rows()
+    default_rows = build_default_industry_etf_proxy_map_rows()
+    default_by_sector = {
+        str(row.get("sector_name") or "").strip(): row
+        for row in default_rows
+        if str(row.get("sector_name") or "").strip()
+    }
     rows, _errors = load_jsonl_with_errors(map_path, label="industry_etf_proxy_map")
     mapping_rows = [row for row in rows if isinstance(row, Mapping)]
-    return mapping_rows or build_default_industry_etf_proxy_map_rows()
+    if not mapping_rows:
+        return default_rows
+    refreshed_rows: list[Mapping[str, Any]] = []
+    for row in mapping_rows:
+        sector = str(row.get("sector_name") or "").strip()
+        default_row = default_by_sector.get(sector)
+        if (
+            default_row is not None
+            and str(row.get("taxonomy") or "") == "operator_seeded_tushare_industry"
+            and str(row.get("mapping_confidence") or "")
+            == "operator_seeded_exact_sector"
+            and str(row.get("status") or "primary") == "primary"
+            and not bool(row.get("review_required"))
+        ):
+            refreshed_rows.append(default_row)
+        else:
+            refreshed_rows.append(row)
+    configured_sectors = {
+        str(row.get("sector_name") or "").strip()
+        for row in refreshed_rows
+        if str(row.get("sector_name") or "").strip()
+    }
+    fallback_rows = [
+        row
+        for row in default_rows
+        if str(row.get("sector_name") or "").strip() not in configured_sectors
+    ]
+    return [*refreshed_rows, *fallback_rows]
 
 
 def _industry_etf_proxy_for_sector(

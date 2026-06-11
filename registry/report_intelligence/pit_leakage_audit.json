@@ -1,10 +1,10 @@
 {
   "accepted": true,
-  "as_of_datetime": "2026-06-11T00:26:47+00:00",
+  "as_of_datetime": "2026-06-11T00:54:09+00:00",
   "audit_id": "RKE-REPORT-INTELLIGENCE-PIT-LEAKAGE-AUDIT",
   "blocker_count": 0,
   "blockers": [],
-  "checked_item_count": 2187,
+  "checked_item_count": 2208,
   "checks": [
     {
       "accepted": true,
@@ -32,9 +32,9 @@
       "accepted": true,
       "check_id": "RI-PIT-02",
       "evidence": {
-        "missing_data_vintage_count": 163,
+        "missing_data_vintage_count": 184,
         "missing_data_vintage_policy": "allowed in shadow labels only; labels cannot become current tool evidence or production inputs without vintage fields",
-        "outcome_label_rows": 163,
+        "outcome_label_rows": 184,
         "stock_survivorship_policy": "allowed only for shadow stock proxy labels; promoted runtime requires a delisted-inclusive survivorship audit",
         "stock_survivorship_unverified_count": 148
       },
@@ -46,7 +46,7 @@
       "accepted": true,
       "check_id": "RI-PIT-03",
       "evidence": {
-        "nonzero_source_profile_rows": 57,
+        "nonzero_source_profile_rows": 61,
         "source_profile_rows": 878,
         "weighted_context_rows": 1
       },
@@ -101,5 +101,5 @@
     }
   ],
   "policy": "report intelligence is point-in-time constrained: report access, forecast signals, outcome labels, source weights, tool coverage, and recipe runtime modes must all be observed no later than the context as-of time before they can influence research priors",
-  "run_id": "RIR-DERIVED-20260611T002647+0000"
+  "run_id": "RIR-DERIVED-20260611T005408+0000"
 }
