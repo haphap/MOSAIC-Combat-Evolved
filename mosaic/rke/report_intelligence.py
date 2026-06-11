@@ -47,6 +47,9 @@ ANALYTICAL_FOOTPRINT_REVIEW_SUMMARY_PATH = (
 ANALYTICAL_FOOTPRINT_REVIEW_IMPORT_REPORT_PATH = (
     "registry/report_intelligence/analytical_footprint_review_import_report.json"
 )
+ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH = (
+    "registry/report_intelligence/analytical_footprint_reviewed.jsonl"
+)
 ANALYTICAL_FOOTPRINT_ERROR_TAXONOMY_PATH = (
     "registry/report_intelligence/analytical_footprint_error_taxonomy.json"
 )
@@ -101,7 +104,7 @@ REPORT_INTELLIGENCE_EVOLUTION_READINESS_GATE_PATH = (
 REPORT_INTELLIGENCE_PRIVATE_OUTPUT_PATHS = frozenset(
     {
         ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH,
-        "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+        ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH,
         "registry/report_intelligence/analytical_footprints.jsonl",
         "registry/report_intelligence/forecast_claims.jsonl",
         "registry/report_intelligence/processing_status.jsonl",
@@ -800,6 +803,20 @@ class AnalyticalFootprintReviewImportReport:
     missing_target_ids: Sequence[str]
     invalid_rows: Sequence[AnalyticalFootprintReviewImportInvalidRow]
     summary_path: str
+    blockers: Sequence[str]
+
+
+@dataclass(frozen=True)
+class AnalyticalFootprintReviewPrepareReport:
+    report_id: str
+    target_path: str
+    output_path: str
+    accepted: bool
+    overwrite: bool
+    output_rows: int
+    complete_rows: int
+    pending_rows: int
+    pending_required_fields: Mapping[str, int]
     blockers: Sequence[str]
 
 
@@ -3948,6 +3965,83 @@ def write_analytical_footprint_review_artifacts(
             taxonomy_output["path"]
         ),
     }
+
+
+def _footprint_review_pending_required_fields(
+    review_rows: Sequence[Mapping[str, Any]],
+) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for row in review_rows:
+        for field in ANALYTICAL_FOOTPRINT_REVIEW_BOOLEAN_FIELDS:
+            if not isinstance(row.get(field), bool):
+                counts[field] = counts.get(field, 0) + 1
+        for field in ("reviewer", "review_date", "review_notes"):
+            if not str(row.get(field) or "").strip():
+                counts[field] = counts.get(field, 0) + 1
+    return dict(sorted(counts.items()))
+
+
+def prepare_analytical_footprint_review_import(
+    root: str | Path,
+    output_path: str | Path = ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH,
+    *,
+    reviewer: str = "",
+    review_date: str = "",
+    overwrite: bool = False,
+) -> AnalyticalFootprintReviewPrepareReport:
+    root_path = Path(root)
+    target_path = root_path / ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH
+    resolved_output_path = Path(output_path)
+    if not resolved_output_path.is_absolute():
+        resolved_output_path = root_path / resolved_output_path
+    target_rows_raw, target_parse_blockers = load_jsonl_with_errors(
+        target_path,
+        label="analytical footprint target review",
+    )
+    target_rows, invalid_target_rows = _split_mapping_rows(target_rows_raw)
+    blockers: list[str] = []
+    if not target_rows_raw:
+        blockers.append("analytical footprint review template is empty")
+    if invalid_target_rows:
+        blockers.append(
+            "analytical footprint target review row must be object at row(s): "
+            + ", ".join(str(row_number) for row_number in invalid_target_rows)
+        )
+    blockers.extend(target_parse_blockers)
+    if resolved_output_path.exists() and not overwrite:
+        blockers.append(f"output_path already exists: {resolved_output_path}")
+    scaffold_rows: list[dict[str, Any]] = []
+    for row in target_rows:
+        scaffold = dict(row)
+        if reviewer:
+            scaffold["reviewer"] = reviewer
+        if review_date:
+            scaffold["review_date"] = review_date
+        forbidden_paths = manual_review_forbidden_field_paths(scaffold)
+        if forbidden_paths:
+            blockers.append(
+                "analytical footprint review scaffold contains forbidden fields: "
+                + ", ".join(forbidden_paths)
+            )
+        scaffold_rows.append(scaffold)
+    if not blockers:
+        _write_jsonl(resolved_output_path, scaffold_rows)
+    complete_rows = sum(1 for row in scaffold_rows if _footprint_review_row_complete(row))
+    report = AnalyticalFootprintReviewPrepareReport(
+        report_id="RKE-REPORT-INTELLIGENCE-FOOTPRINT-REVIEW-PREPARE-REPORT",
+        target_path=ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH,
+        output_path=str(resolved_output_path),
+        accepted=not blockers,
+        overwrite=overwrite,
+        output_rows=len(scaffold_rows),
+        complete_rows=complete_rows,
+        pending_rows=len(scaffold_rows) - complete_rows,
+        pending_required_fields=_footprint_review_pending_required_fields(
+            scaffold_rows
+        ),
+        blockers=tuple(blockers),
+    )
+    return report
 
 
 def _split_mapping_rows(rows: Sequence[Any]) -> tuple[list[Mapping[str, Any]], tuple[int, ...]]:

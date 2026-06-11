@@ -101,6 +101,7 @@ from .report_intelligence import (
     ReportIntelligenceConfig,
     apply_analytical_footprint_review_import,
     merge_report_intelligence_batch_outputs,
+    prepare_analytical_footprint_review_import,
     run_report_intelligence_refresh,
     write_report_intelligence_evolution_readiness_gate,
     write_report_intelligence_prompt_mutation_candidates,
@@ -969,6 +970,37 @@ def build_parser() -> argparse.ArgumentParser:
         "--dry-run", action="store_true", help="Validate without mutating the registry."
     )
 
+    prepare_footprint_review = subparsers.add_parser(
+        "prepare-footprint-review",
+        help="Prepare a gitignored analytical-footprint review import scaffold.",
+    )
+    prepare_footprint_review.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
+    prepare_footprint_review.add_argument(
+        "--output",
+        default="registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+        help=(
+            "Output JSONL import scaffold. Defaults to the gitignored "
+            "analytical_footprint_reviewed.jsonl path."
+        ),
+    )
+    prepare_footprint_review.add_argument(
+        "--reviewer",
+        default="",
+        help="Optional reviewer name to prefill in each scaffold row.",
+    )
+    prepare_footprint_review.add_argument(
+        "--review-date",
+        default="",
+        help="Optional YYYY-MM-DD review date to prefill in each scaffold row.",
+    )
+    prepare_footprint_review.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Overwrite an existing output scaffold.",
+    )
+
     validate = subparsers.add_parser(
         "validate-required", help="Validate required registry files."
     )
@@ -1418,6 +1450,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             root,
             args.input,
             dry_run=args.dry_run,
+        )
+        _print_json(asdict(report))
+        return 0 if report.accepted else 2
+    if args.command == "prepare-footprint-review":
+        report = prepare_analytical_footprint_review_import(
+            root,
+            args.output,
+            reviewer=args.reviewer,
+            review_date=args.review_date,
+            overwrite=args.overwrite,
         )
         _print_json(asdict(report))
         return 0 if report.accepted else 2

@@ -42,6 +42,7 @@ from mosaic.rke.report_intelligence import (
     classify_tool_coverage,
     convert_pdfs_with_mineru_batch,
     merge_report_intelligence_batch_outputs,
+    prepare_analytical_footprint_review_import,
     run_report_intelligence_refresh,
     run_report_intelligence_derived_refresh,
     write_report_intelligence_evolution_readiness_gate,
@@ -8400,6 +8401,71 @@ def test_apply_analytical_footprint_review_import_updates_summary(tmp_path: Path
     assert summary["quality_gate_blockers"] == []
     assert summary["pending_rows"] == 0
     assert summary["complete_rows"] == len(reviewed_rows)
+
+
+def test_prepare_analytical_footprint_review_import_scaffold(tmp_path: Path):
+    source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
+    run_report_intelligence_refresh(
+        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        downloader=_fake_downloader,
+        converter=_fake_converter,
+        llm_extractor=_fake_llm,
+    )
+    output_path = tmp_path / "footprint_review_scaffold.jsonl"
+
+    report = prepare_analytical_footprint_review_import(
+        tmp_path,
+        output_path,
+        reviewer="footprint-reviewer",
+        review_date="2026-06-12",
+    )
+
+    assert report.accepted
+    assert report.output_rows == 1
+    assert report.complete_rows == 0
+    assert report.pending_rows == 1
+    assert report.pending_required_fields["review_notes"] == 1
+    assert report.pending_required_fields["footprint_correct"] == 1
+    scaffold_rows = _read_jsonl(output_path)
+    assert scaffold_rows[0]["reviewer"] == "footprint-reviewer"
+    assert scaffold_rows[0]["review_date"] == "2026-06-12"
+    assert scaffold_rows[0]["footprint_correct"] is None
+    assert scaffold_rows[0]["target_row_hash"].startswith("sha256:")
+    assert "source_text" not in scaffold_rows[0]
+
+    dry_run = apply_analytical_footprint_review_import(
+        tmp_path,
+        output_path,
+        dry_run=True,
+    )
+    assert not dry_run.accepted
+    assert dry_run.applied_rows == 0
+
+    completed_rows = []
+    for row in scaffold_rows:
+        completed = dict(row)
+        completed.update(
+            {
+                "footprint_correct": True,
+                "source_span_supports_footprint": True,
+                "metric_mapping_correct": True,
+                "inferred_steps_tagged_correctly": True,
+                "unknowns_used_when_uncertain": True,
+                "no_proprietary_text_leakage": True,
+                "manual_error_tags": [],
+                "review_notes": "fixture approval",
+            }
+        )
+        completed_rows.append(completed)
+    _write_jsonl(output_path, completed_rows)
+
+    apply_report = apply_analytical_footprint_review_import(
+        tmp_path,
+        output_path,
+    )
+
+    assert apply_report.accepted
+    assert apply_report.applied_rows == 1
 
 
 def test_analytical_footprint_review_summary_requires_quality_thresholds(

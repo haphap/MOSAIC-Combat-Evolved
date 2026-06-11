@@ -52,7 +52,7 @@ contracts.
 | P5 evolution loop | Partially implemented | mutation candidates, tool-gap prioritization, paper-trading and monitor inputs exist; promotion remains blocked by manual review gates |
 | P6 decisions | Implemented for default path | default benchmark `SH510300` from `cn_etf`; stock cost 20 bps; stock windows 5/20/60/120; no company-name fuzzy mapping |
 | P7 implementation breakdown | Implemented | qlib helpers, readiness builder, label builder, derived refresh integration, audits, schemas, tests |
-| P8 acceptance matrix | Automated acceptance passes except manual review / coverage gates | ruff, report-intelligence tests, schema-artifact tests, prompt leak guard, diff check pass; `schema-status` intentionally exits 2 until analytical footprint review, Phase B gold-set review, and Phase D footprint quality gates pass |
+| P8 acceptance matrix | Automated acceptance passes except manual review / coverage gates | ruff, report-intelligence tests, schema-artifact tests, prompt leak guard, diff check pass; `schema-status` intentionally exits 2 until analytical footprint review, Phase B gold-set review, and Phase D footprint quality gates pass; `prepare-footprint-review` now creates a gitignored import scaffold for the footprint gate |
 | P9 PDF/Markdown coverage expansion | Implemented for current sample pool | public coverage summary exists and passes privacy rules; private PDF/Markdown/cache paths remain gitignored |
 | P10 industry ETF mapping/PIT availability | Implemented | 64-row mapping registry, PIT availability artifact, mapping contract tests; `工业金属 -> SH560860` pinned |
 | P11 recipe paper-trading | Implemented | pre-registration hash, OOS chronological split, required data contracts, cost/benchmark protocol, paper-trading runs and summary |
@@ -71,6 +71,19 @@ uv run python scripts/check_prompt_leaks.py
 git diff --check
 ```
 
+Current analytical-footprint review scaffold command:
+
+```bash
+uv run mosaic-rke prepare-footprint-review --root . --output /tmp/rke_footprint_review_scaffold_20260612.jsonl --reviewer hap --review-date 2026-06-12 --overwrite
+```
+
+This writes a private, gitignored/manual handoff file outside the checkout. The
+latest run prepared 3 rows and reported the remaining required fields:
+`footprint_correct`, `source_span_supports_footprint`,
+`metric_mapping_correct`, `inferred_steps_tagged_correctly`,
+`unknowns_used_when_uncertain`, `no_proprietary_text_leakage`, and
+`review_notes`.
+
 `uv run mosaic-rke schema-status --root .` currently exits with code 2 by
 design. The failing semantic records are
 `schemas/report_intelligence_analytical_footprint_review_rules` and
@@ -86,6 +99,10 @@ blocker families include:
 
 1. Manual/operator gates: lockbox review remains pending, and schema-status
    still reports analytical-footprint review and patch coverage semantic blockers.
+   The footprint review handoff can now be prepared with
+   `mosaic-rke prepare-footprint-review`, filled by a reviewer, validated with
+   `mosaic-rke apply-footprint-review --dry-run`, then applied through the same
+   import path.
 2. P9 coverage watchlist: current public gate reports `coverage_gate_status=passed`
    with no P9 coverage blockers. Continue monitoring the watchlist, but it is
    not currently blocking evolution readiness.
