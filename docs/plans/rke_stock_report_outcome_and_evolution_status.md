@@ -37,7 +37,7 @@ contracts.
 | `registry/report_intelligence/recipe_paper_trading_runs.jsonl` | 110 pre-registered shadow paper-trading runs |
 | `registry/report_intelligence/recipe_paper_trading_summary.json` | 0 recipes passed paper-trading validation; 110 recipes blocked by unimplemented requested tools are now linked to a tool implementation queue |
 | `registry/report_intelligence/confidence_impact_monitor.json` | 0 paper-trading validated recipes; confidence impact remains blocked until recipe validation passes |
-| `registry/report_intelligence/evolution_readiness_gate.json` | blocked; 16 blockers remain across manual review, outcome-label, paper-trading, and audit-history readiness |
+| `registry/report_intelligence/evolution_readiness_gate.json` | blocked; 16 blockers remain across manual review, outcome-count, paper-trading, schema/audit, and audit-history readiness; public count-only fallback preserves outcome coverage when private label JSONL is absent |
 | `registry/review_batches/manual_review_progress_report.json` | public baseline: gold-set 0/500, source license 0/1216, lockbox 0/1; synthetic fixture: gold-set 500/500, source license 50/50, lockbox 0/1 |
 
 ## Plan Coverage
@@ -86,14 +86,13 @@ blocker families include:
 
 1. Manual/operator gates: lockbox review remains pending, and schema-status
    still reports analytical-footprint review and patch coverage semantic blockers.
-2. P9 coverage watchlist: `markdown_ready_count_below_p9_target`,
-   `markdown_quality_pass_count_below_p9_target`,
-   `llm_extraction_processed_count_below_p9_target`,
-   `industry_report_count_below_p9_target`, and stock/strata coverage blockers
-   remain.
-3. Outcome evidence: `industry_proxy_claim_count_below_threshold` remains, and
-   total unique PIT outcome labels are below the evolution threshold; stock
-   proxy labels now clear the minimum stock threshold.
+2. P9 coverage watchlist: current public gate reports `coverage_gate_status=passed`
+   with no P9 coverage blockers. Continue monitoring the watchlist, but it is
+   not currently blocking evolution readiness.
+3. Outcome evidence: `industry_proxy_claim_count_below_threshold` remains
+   (`12/30`), and total unique PIT outcome labels are below the evolution
+   threshold (`49/100`); stock proxy labels now clear the minimum stock
+   threshold (`37/30`).
 4. Paper-trading evidence: `paper_trading_run_count_below_threshold` and
    `paper_trading_validated_recipe_count_below_threshold` remain. The
    after-cost summary object is now present, but it is marked

@@ -6769,7 +6769,20 @@ def test_report_intelligence_evolution_gate_writer_preserves_stock_coverage_evid
         "statistical_robustness_audit.json",
     ):
         write_json(registry_dir / filename, {"accepted": True, "blockers": []})
-    write_json(registry_dir / "outcome_labeling_readiness.json", {"mapping_gap_counts": {}})
+    write_json(
+        registry_dir / "outcome_labeling_readiness.json",
+        {
+            "mapping_gap_counts": {},
+            "stock_price_proxy_readiness": {
+                "labelable_forecast_claim_count": 1,
+                "labelable_forecast_claim_ids": ["FC-STOCK-001"],
+            },
+            "industry_etf_proxy_readiness": {
+                "labelable_forecast_claim_count": 1,
+                "labelable_forecast_claim_ids": ["FC-IND-001"],
+            },
+        },
+    )
     write_json(
         tmp_path / "registry/gold_sets/tushare_research_reports.review_summary.json",
         {
@@ -6791,9 +6804,18 @@ def test_report_intelligence_evolution_gate_writer_preserves_stock_coverage_evid
     )
 
     assert result["input_load_blockers"] == []
+    assert result["count_only_public_fallbacks"] == ["report_outcome_labels"]
     gate = json.loads(
         (registry_dir / "evolution_readiness_gate.json").read_text(encoding="utf-8")
     )
+    assert gate["count_only_public_fallbacks"] == ["report_outcome_labels"]
+    assert "private_input_fallback_policy" in gate
+    outcome_check = next(
+        check for check in gate["checks"] if check["check_id"] == "RI-EVOL-01"
+    )
+    assert outcome_check["evidence"]["unique_outcome_claim_count"] == 2
+    assert outcome_check["evidence"]["stock_proxy_unique_claim_count"] == 1
+    assert outcome_check["evidence"]["industry_proxy_unique_claim_count"] == 1
     markdown_check = next(
         check for check in gate["checks"] if check["check_id"] == "RI-EVOL-07"
     )

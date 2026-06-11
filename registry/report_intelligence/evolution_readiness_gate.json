@@ -1,5 +1,5 @@
 {
-  "as_of_datetime": "2026-06-11T22:36:00+00:00",
+  "as_of_datetime": "2026-06-11T23:07:34+00:00",
   "blocker_count": 16,
   "blockers": [
     "audit_refresh_history_below_threshold",
@@ -66,7 +66,7 @@
         "blocked_recipe_count": 110,
         "calibration_drift_count": 0,
         "calibration_drift_rule_counts": {},
-        "data_vintage_hash": "sha256:530eed82d022d3ea8c5795800f30975f2bf21e4acc8250288c96778062c18ab8",
+        "data_vintage_hash": "sha256:b3ee277ef6c4dcdbd9686c0d958faa6d94cff36c14dfb72e9f83c751903cdaf4",
         "distinct_data_vintage_required": true,
         "monitor_observation_count": 110,
         "trailing_monitor_distinct_vintage_count": 35,
@@ -83,7 +83,7 @@
       ],
       "check_id": "RI-EVOL-04",
       "evidence": {
-        "data_vintage_hash": "sha256:530eed82d022d3ea8c5795800f30975f2bf21e4acc8250288c96778062c18ab8",
+        "data_vintage_hash": "sha256:b3ee277ef6c4dcdbd9686c0d958faa6d94cff36c14dfb72e9f83c751903cdaf4",
         "distinct_data_vintage_required": true,
         "pit_accepted": true,
         "provenance_accepted": true,
@@ -152,7 +152,7 @@
           "direction": 4,
           "horizon": 178
         },
-        "data_vintage_hash": "sha256:530eed82d022d3ea8c5795800f30975f2bf21e4acc8250288c96778062c18ab8",
+        "data_vintage_hash": "sha256:b3ee277ef6c4dcdbd9686c0d958faa6d94cff36c14dfb72e9f83c751903cdaf4",
         "distinct_data_vintage_required": true,
         "trailing_gap_distribution_distinct_vintage_count": 6,
         "trailing_gap_distribution_stable_count": 6
@@ -315,10 +315,14 @@
       "requirement": "Markdown coverage must pass P9 corpus thresholds before evolution depends on report-derived Markdown evidence."
     }
   ],
-  "data_vintage_hash": "sha256:530eed82d022d3ea8c5795800f30975f2bf21e4acc8250288c96778062c18ab8",
+  "count_only_public_fallbacks": [
+    "report_outcome_labels"
+  ],
+  "data_vintage_hash": "sha256:b3ee277ef6c4dcdbd9686c0d958faa6d94cff36c14dfb72e9f83c751903cdaf4",
   "gate_id": "RKE-REPORT-INTELLIGENCE-EVOLUTION-READINESS-GATE",
   "gate_status": "blocked",
   "policy": "Prompt and agent evolution remains blocked until governed aggregate PIT outcome coverage, paper-trading, monitor stability, audit history, gold-set quality, gap stability, and Markdown coverage gates pass; this artifact stores aggregate evidence only and cannot change production prompts.",
+  "private_input_fallback_policy": "When private outcome-label JSONL is absent, the public evolution gate uses labelable forecast-claim ids/counts from outcome_labeling_readiness.json; fallback rows contain no report prose, titles, abstracts, URLs, source spans, reviewer text, or price-window returns.",
   "private_text_included": false,
   "production_prompt_change_allowed": false,
   "promotion_state": "blocked_before_prompt_evolution",
@@ -484,7 +488,7 @@
       "target": 100
     }
   },
-  "run_id": "RIR-PUBLIC-EVOLUTION-GATE-20260612",
+  "run_id": "RIR-PUBLIC-EVOLUTION-GATE-20260612C",
   "thresholds": {
     "min_consecutive_audit_refreshes": 3,
     "min_consecutive_monitor_refreshes": 3,

@@ -210,9 +210,10 @@ def test_stock_report_outcome_status_doc_matches_public_artifacts():
     for blocker in (
         "industry_proxy_claim_count_below_threshold",
         "paper_trading_validated_recipe_count_below_threshold",
-        "markdown_ready_count_below_p9_target",
     ):
+        assert blocker in evolution_gate["blockers"]
         assert blocker in status_text
+    assert "coverage_gate_status=passed" in status_text
     assert "report prose" in status_text
     assert "production trading decisions" in status_text
 

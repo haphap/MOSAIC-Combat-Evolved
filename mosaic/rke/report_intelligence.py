@@ -11560,6 +11560,52 @@ def build_report_intelligence_evolution_readiness_gate(
     return gate
 
 
+def _evolution_gate_public_outcome_label_rows(
+    *,
+    outcome_labeling_readiness: Mapping[str, Any],
+) -> list[Mapping[str, Any]]:
+    readiness = _ensure_mapping(outcome_labeling_readiness)
+    rows: list[Mapping[str, Any]] = []
+    channel_specs = (
+        (
+            "stock_price_proxy_readiness",
+            "stock_price_proxy",
+            "pit_stock_price_window",
+            "stock",
+        ),
+        (
+            "industry_etf_proxy_readiness",
+            "industry_etf_proxy",
+            "pit_industry_etf_price_window",
+            "industry",
+        ),
+    )
+    for readiness_key, label_type, label_source, synthetic_prefix in channel_specs:
+        channel = _ensure_mapping(readiness.get(readiness_key))
+        claim_ids = [
+            str(item).strip()
+            for item in _ensure_list(channel.get("labelable_forecast_claim_ids"))
+            if str(item).strip()
+        ]
+        target_count = int(channel.get("labelable_forecast_claim_count") or len(claim_ids))
+        if target_count <= 0:
+            continue
+        while len(claim_ids) < target_count:
+            claim_ids.append(
+                f"COUNT-ONLY-{synthetic_prefix}-outcome-{len(claim_ids) + 1:06d}"
+            )
+        for claim_id in claim_ids[:target_count]:
+            rows.append(
+                {
+                    "forecast_claim_id": claim_id,
+                    "label_type": label_type,
+                    "outcome_label_source": label_source,
+                    "public_count_only_fallback": True,
+                }
+            )
+    return rows
+
+
 def write_report_intelligence_evolution_readiness_gate(
     registry_dir: str | Path,
     *,
@@ -11575,9 +11621,21 @@ def write_report_intelligence_evolution_readiness_gate(
         label="report_forecast_ledger",
         blockers=blockers,
     )
+    outcome_labeling_readiness = _read_registry_json(
+        registry_path / "outcome_labeling_readiness.json",
+        label="outcome_labeling_readiness",
+        blockers=blockers,
+    )
     outcome_label_path = registry_path / "report_outcome_labels.jsonl"
     outcome_label_missing = not _jsonl_has_mapping_rows(outcome_label_path)
-    if outcome_label_missing and gate_path.exists():
+    public_outcome_fallback_rows = (
+        _evolution_gate_public_outcome_label_rows(
+            outcome_labeling_readiness=outcome_labeling_readiness,
+        )
+        if outcome_label_missing
+        else []
+    )
+    if outcome_label_missing and not public_outcome_fallback_rows and gate_path.exists():
         existing_gate_blockers: list[str] = []
         existing_gate = _read_registry_json(
             gate_path,
@@ -11600,9 +11658,12 @@ def write_report_intelligence_evolution_readiness_gate(
             label="report_outcome_labels",
             blockers=blockers,
         )
-        if outcome_label_path.exists()
-        else []
+        if not outcome_label_missing
+        else public_outcome_fallback_rows
     )
+    public_fallbacks: list[str] = []
+    if outcome_label_missing and public_outcome_fallback_rows:
+        public_fallbacks.append("report_outcome_labels")
     recipe_paper_trading_summary = _read_registry_json(
         registry_path / "recipe_paper_trading_summary.json",
         label="recipe_paper_trading_summary",
@@ -11638,11 +11699,6 @@ def write_report_intelligence_evolution_readiness_gate(
         label="gold_review_summary",
         blockers=blockers,
     )
-    outcome_labeling_readiness = _read_registry_json(
-        registry_path / "outcome_labeling_readiness.json",
-        label="outcome_labeling_readiness",
-        blockers=blockers,
-    )
     monitor_refresh_history_rows = _read_registry_jsonl(
         registry_path / "monitor_refresh_history.jsonl",
         label="monitor_refresh_history",
@@ -11675,6 +11731,17 @@ def write_report_intelligence_evolution_readiness_gate(
         audit_refresh_history_rows=audit_refresh_history_rows,
         gap_distribution_history_rows=gap_distribution_history_rows,
     )
+    if public_fallbacks:
+        gate = dict(gate)
+        gate["count_only_public_fallbacks"] = sorted(public_fallbacks)
+        gate["private_input_fallback_policy"] = (
+            "When private outcome-label JSONL is absent, the public evolution "
+            "gate uses labelable forecast-claim ids/counts from "
+            "outcome_labeling_readiness.json; fallback rows contain no report "
+            "prose, titles, abstracts, URLs, source spans, reviewer text, or "
+            "price-window returns."
+        )
+        gate["private_text_included"] = _public_payload_private_text_included(gate)
     if blockers:
         gate = dict(gate)
         gate["input_load_blockers"] = blockers
@@ -11691,6 +11758,7 @@ def write_report_intelligence_evolution_readiness_gate(
         "gate_status": str(gate.get("gate_status") or ""),
         "blocker_count": int(gate.get("blocker_count") or 0),
         "input_load_blockers": blockers,
+        "count_only_public_fallbacks": sorted(public_fallbacks),
         "preserved_existing_gate": False,
     }
 
