@@ -17,11 +17,11 @@ Markdown paths, source spans, reviewer notes, or private Tushare rows.
 - Outcome labels are shadow-only. `llm_outcome_labeling_allowed=false` remains
   required; LLM output extracts claims and methods only.
 - Evolution is not promotable yet. The current public aggregate evidence still
-  has manual review, outcome-label, paper-trading, and audit-history
-  readiness blockers. The checked-in public baseline still has gold-set,
-  source-license, and lockbox promotion blockers; the synthetic pytest fixture
-  can mark gold-set/source-license rows complete for contract tests, but that
-  does not open the real promotion gate.
+  has manual review, paper-trading, and audit-history readiness blockers. The
+  checked-in public baseline still has gold-set, source-license, and lockbox
+  promotion blockers; the synthetic pytest fixture can mark
+  gold-set/source-license rows complete for contract tests, but that does not
+  open the real promotion gate.
 
 Current public aggregate evidence. Private report-intelligence JSONL files such
 as `report_metadata.jsonl`, `forecast_claims.jsonl`, and
@@ -32,6 +32,7 @@ contracts.
 | Artifact | Evidence |
 | --- | --- |
 | `registry/report_intelligence/extraction_report.json` | current public-safe artifact reports 184 outcome labels: 36 industry ETF proxy, 148 stock price proxy |
+| `registry/report_intelligence/patch_v1_5_coverage_report.json` | public count-only fallback preserves aggregate evidence when private JSONL inputs are absent; Phase C now passes, while Phase B/D remain blocked by manual review and footprint quality gates |
 | `registry/report_intelligence/industry_etf_proxy_map.jsonl` | 64 primary/governed mapping rows; `工业金属` maps to `SH560860` |
 | `registry/report_intelligence/recipe_paper_trading_runs.jsonl` | 110 pre-registered shadow paper-trading runs |
 | `registry/report_intelligence/recipe_paper_trading_summary.json` | 0 recipes passed paper-trading validation; 110 recipes blocked by unimplemented requested tools are now linked to a tool implementation queue |
@@ -51,7 +52,7 @@ contracts.
 | P5 evolution loop | Partially implemented | mutation candidates, tool-gap prioritization, paper-trading and monitor inputs exist; promotion remains blocked by manual review gates |
 | P6 decisions | Implemented for default path | default benchmark `SH510300` from `cn_etf`; stock cost 20 bps; stock windows 5/20/60/120; no company-name fuzzy mapping |
 | P7 implementation breakdown | Implemented | qlib helpers, readiness builder, label builder, derived refresh integration, audits, schemas, tests |
-| P8 acceptance matrix | Automated acceptance passes except manual review / coverage gates | ruff, report-intelligence tests, schema-artifact tests, prompt leak guard, diff check pass; `schema-status` intentionally exits 2 until analytical footprint review, Phase B gold-set review, and downstream coverage gates pass |
+| P8 acceptance matrix | Automated acceptance passes except manual review / coverage gates | ruff, report-intelligence tests, schema-artifact tests, prompt leak guard, diff check pass; `schema-status` intentionally exits 2 until analytical footprint review, Phase B gold-set review, and Phase D footprint quality gates pass |
 | P9 PDF/Markdown coverage expansion | Implemented for current sample pool | public coverage summary exists and passes privacy rules; private PDF/Markdown/cache paths remain gitignored |
 | P10 industry ETF mapping/PIT availability | Implemented | 64-row mapping registry, PIT availability artifact, mapping contract tests; `工业金属 -> SH560860` pinned |
 | P11 recipe paper-trading | Implemented | pre-registration hash, OOS chronological split, required data contracts, cost/benchmark protocol, paper-trading runs and summary |
@@ -74,8 +75,9 @@ git diff --check
 design. The failing semantic records are
 `schemas/report_intelligence_analytical_footprint_review_rules` and
 `schemas/report_intelligence_patch_v1_5_coverage_rules`, because the analytical
-footprint review gate, Phase B human gold-set review, and downstream Phase C/D
-coverage gates have not passed.
+footprint review gate, Phase B human gold-set review, and Phase D footprint
+quality gates have not passed. Phase C now passes from public aggregate counts
+even when private report-intelligence JSONL files are absent.
 
 ## Remaining Gates
 

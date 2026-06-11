@@ -45,7 +45,7 @@ def test_master_plan_coverage_reports_current_registry_ready():
     )
     assert phase_1b.status == "missing"
     assert "patch_v1_5_coverage_report.json accepted must be true" in phase_1b.blocker
-    assert "blocked phases: B, C, D" in phase_1b.blocker
+    assert "blocked phases: B, D" in phase_1b.blocker
     assert all(
         record.status == "passed"
         for record in report.records
@@ -238,7 +238,7 @@ def test_master_plan_coverage_malformed_blocked_evidence_is_missing(tmp_path: Pa
     assert not report.coverage_complete
     assert phase_1b.status == "missing"
     assert "patch_v1_5_coverage_report.json accepted must be true" in phase_1b.blocker
-    assert "blocked phases: B, C, D" in phase_1b.blocker
+    assert "blocked phases: B, D" in phase_1b.blocker
 
 
 def test_master_plan_coverage_reports_invalid_completion_audit_json(tmp_path: Path):

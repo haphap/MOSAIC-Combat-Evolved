@@ -17694,6 +17694,11 @@ def write_report_intelligence_patch_v1_5_coverage_report(
 ) -> dict[str, Any]:
     registry_path = Path(registry_dir)
     blockers: list[str] = []
+    extraction_report = _read_registry_json(
+        registry_path / "extraction_report.json",
+        label="extraction_report",
+        blockers=[],
+    )
     feature_flags = _read_registry_json(
         registry_path / "feature_flags.json",
         label="feature_flags",
@@ -17839,6 +17844,48 @@ def write_report_intelligence_patch_v1_5_coverage_report(
         label="gold_review_summary",
         blockers=blockers,
     )
+    count_only_public_fallbacks: list[str] = []
+    metadata_rows = _patch_coverage_count_only_rows(
+        rows=metadata_rows,
+        extraction_report=extraction_report,
+        count_field="metadata_rows",
+        row_id_field="source_id",
+        fallback_label="report_metadata",
+        count_only_public_fallbacks=count_only_public_fallbacks,
+    )
+    forecast_rows = _patch_coverage_count_only_rows(
+        rows=forecast_rows,
+        extraction_report=extraction_report,
+        count_field="forecast_claim_rows",
+        row_id_field="forecast_claim_id",
+        fallback_label="forecast_claims",
+        count_only_public_fallbacks=count_only_public_fallbacks,
+    )
+    footprint_rows = _patch_coverage_count_only_rows(
+        rows=footprint_rows,
+        extraction_report=extraction_report,
+        count_field="analytical_footprint_rows",
+        row_id_field="footprint_id",
+        fallback_label="analytical_footprints",
+        count_only_public_fallbacks=count_only_public_fallbacks,
+    )
+    outcome_label_rows = _patch_coverage_count_only_rows(
+        rows=outcome_label_rows,
+        extraction_report=extraction_report,
+        count_field="outcome_label_rows",
+        row_id_field="outcome_id",
+        fallback_label="report_outcome_labels",
+        count_only_public_fallbacks=count_only_public_fallbacks,
+    )
+    if count_only_public_fallbacks:
+        blockers = [
+            blocker
+            for blocker in blockers
+            if not any(
+                blocker == f"{label}: missing"
+                for label in count_only_public_fallbacks
+            )
+        ]
     report = build_report_intelligence_patch_v1_5_coverage_report(
         run_id=run_id,
         feature_flags=feature_flags,
@@ -17871,6 +17918,15 @@ def write_report_intelligence_patch_v1_5_coverage_report(
         footprint_error_taxonomy=footprint_error_taxonomy,
         gold_review_summary=gold_review_summary,
     )
+    if count_only_public_fallbacks:
+        report = dict(report)
+        report["count_only_public_fallbacks"] = sorted(count_only_public_fallbacks)
+        report["private_input_fallback_policy"] = (
+            "When private report JSONL inputs are absent or truncated, this public "
+            "coverage artifact uses aggregate counts from extraction_report.json; "
+            "synthetic count-only rows contain no source prose, titles, abstracts, "
+            "URLs, source spans, or reviewer text."
+        )
     if blockers:
         report = dict(report)
         combined_blockers = [
@@ -17881,6 +17937,25 @@ def write_report_intelligence_patch_v1_5_coverage_report(
         report["blockers"] = combined_blockers
         report["blocker_count"] = len(combined_blockers)
     return _write_json(registry_path / "patch_v1_5_coverage_report.json", report)
+
+
+def _patch_coverage_count_only_rows(
+    *,
+    rows: Sequence[Mapping[str, Any]],
+    extraction_report: Mapping[str, Any],
+    count_field: str,
+    row_id_field: str,
+    fallback_label: str,
+    count_only_public_fallbacks: list[str],
+) -> list[Mapping[str, Any]]:
+    public_count = _int_or_none(extraction_report.get(count_field)) or 0
+    if public_count <= len(rows):
+        return list(rows)
+    count_only_public_fallbacks.append(fallback_label)
+    return [
+        {row_id_field: f"COUNT-ONLY-{fallback_label}-{index:06d}"}
+        for index in range(1, public_count + 1)
+    ]
 
 
 def _append_unique_records(

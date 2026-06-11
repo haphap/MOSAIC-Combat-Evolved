@@ -1,6 +1,6 @@
 {
   "accepted": false,
-  "failure_count": 8,
+  "failure_count": 20,
   "records": [
     {
       "accepted": true,
@@ -90,21 +90,21 @@
       "accepted": true,
       "artifact_path": "registry/report_intelligence/report_metadata.jsonl",
       "failures": [],
-      "item_count": 352,
+      "item_count": 1,
       "schema_path": "schemas/report_intelligence_report_metadata.schema.json"
     },
     {
       "accepted": true,
       "artifact_path": "registry/report_intelligence/forecast_claims.jsonl",
       "failures": [],
-      "item_count": 189,
+      "item_count": 0,
       "schema_path": "schemas/report_intelligence_forecast_claim.schema.json"
     },
     {
       "accepted": true,
       "artifact_path": "registry/report_intelligence/analytical_footprints.jsonl",
       "failures": [],
-      "item_count": 200,
+      "item_count": 3,
       "schema_path": "schemas/report_intelligence_analytical_footprint.schema.json"
     },
     {
@@ -125,7 +125,7 @@
       "accepted": true,
       "artifact_path": "registry/report_intelligence/industry_etf_proxy_map.jsonl",
       "failures": [],
-      "item_count": 34,
+      "item_count": 64,
       "schema_path": "schemas/report_intelligence_industry_etf_proxy_map.schema.json"
     },
     {
@@ -137,9 +137,16 @@
     },
     {
       "accepted": true,
+      "artifact_path": "registry/report_intelligence/macro_regime_calendar.jsonl",
+      "failures": [],
+      "item_count": 4,
+      "schema_path": "schemas/report_intelligence_macro_regime_calendar.schema.json"
+    },
+    {
+      "accepted": true,
       "artifact_path": "registry/report_intelligence/report_outcome_labels.jsonl",
       "failures": [],
-      "item_count": 184,
+      "item_count": 0,
       "schema_path": "schemas/report_intelligence_report_outcome_label.schema.json"
     },
     {
@@ -251,7 +258,7 @@
       "accepted": true,
       "artifact_path": "registry/report_intelligence/monitor_refresh_history.jsonl",
       "failures": [],
-      "item_count": 19,
+      "item_count": 34,
       "schema_path": "schemas/report_intelligence_evolution_refresh_history.schema.json"
     },
     {
@@ -384,21 +391,21 @@
       "accepted": true,
       "artifact_path": "registry/report_intelligence",
       "failures": [],
-      "item_count": 389,
+      "item_count": 3,
       "schema_path": "schemas/report_intelligence_provenance_rules"
     },
     {
       "accepted": true,
       "artifact_path": "registry/report_intelligence/report_outcome_labels.jsonl",
       "failures": [],
-      "item_count": 184,
+      "item_count": 0,
       "schema_path": "schemas/report_intelligence_proxy_outcome_label_contract_rules"
     },
     {
       "accepted": true,
       "artifact_path": "registry/report_intelligence",
       "failures": [],
-      "item_count": 105,
+      "item_count": 129,
       "schema_path": "schemas/report_intelligence_industry_etf_mapping_contract_rules"
     },
     {
@@ -409,9 +416,15 @@
       "schema_path": "schemas/report_intelligence_markdown_coverage_privacy_rules"
     },
     {
-      "accepted": true,
+      "accepted": false,
       "artifact_path": "registry/report_intelligence/analytical_footprint_review_summary.json",
-      "failures": [],
+      "failures": [
+        "analytical_footprint_review_summary accepted must be true",
+        "analytical_footprint_review_summary review_complete must be true",
+        "analytical_footprint_review_summary quality_gate_passed must be true",
+        "analytical_footprint_review_summary pending_rows must be zero",
+        "analytical_footprint_review_summary quality blockers: footprint_precision unavailable; span_support_precision unavailable; metric_mapping_accuracy unavailable; inferred_step_tagging_accuracy unavailable; unknown_on_ambiguity_rate unavailable; proprietary_leakage_free_rate unavailable"
+      ],
       "item_count": 1,
       "schema_path": "schemas/report_intelligence_analytical_footprint_review_rules"
     },
@@ -454,7 +467,7 @@
       "accepted": true,
       "artifact_path": "registry/report_intelligence/*_refresh_history.jsonl",
       "failures": [],
-      "item_count": 57,
+      "item_count": 72,
       "schema_path": "schemas/report_intelligence_evolution_refresh_history_rules"
     },
     {
@@ -516,8 +529,15 @@
         "patch_v1_5_coverage_report Phase B: accepted must be true",
         "patch_v1_5_coverage_report Phase B: status cannot be blocked",
         "patch_v1_5_coverage_report Phase B: failure_count must be zero",
+        "patch_v1_5_coverage_report Phase D: accepted must be true",
+        "patch_v1_5_coverage_report Phase D: status cannot be blocked",
+        "patch_v1_5_coverage_report Phase D: failure_count must be zero",
         "patch_v1_5_coverage_report RI15-B-D1: accepted must be true",
-        "patch_v1_5_coverage_report RI15-B-D1: status cannot be blocked"
+        "patch_v1_5_coverage_report RI15-B-D1: status cannot be blocked",
+        "patch_v1_5_coverage_report RI15-B-D2: accepted must be true",
+        "patch_v1_5_coverage_report RI15-B-D2: status cannot be blocked",
+        "patch_v1_5_coverage_report RI15-D-D1: accepted must be true",
+        "patch_v1_5_coverage_report RI15-D-D1: status cannot be blocked"
       ],
       "item_count": 18,
       "schema_path": "schemas/report_intelligence_patch_v1_5_coverage_rules"

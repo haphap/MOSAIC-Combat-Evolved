@@ -45,6 +45,7 @@ from mosaic.rke.report_intelligence import (
     run_report_intelligence_refresh,
     run_report_intelligence_derived_refresh,
     write_report_intelligence_evolution_readiness_gate,
+    write_report_intelligence_patch_v1_5_coverage_report,
     _append_evolution_history_record,
     _backfill_tool_gaps_from_metric_candidates,
     _read_industry_etf_proxy_map_rows,
@@ -2782,6 +2783,74 @@ def test_report_intelligence_recipe_paper_trading_requires_direct_pit_evidence()
     assert multi_blocked_summary["tool_implementation_queue"]["tool_gap_ids"] == [
         "TG-TOOL-BLOCKED"
     ]
+
+
+def test_report_intelligence_patch_coverage_uses_public_counts_without_private_inputs(
+    tmp_path: Path,
+):
+    registry_dir = tmp_path / "registry/report_intelligence"
+    registry_dir.mkdir(parents=True, exist_ok=True)
+    source_registry = Path("registry/report_intelligence")
+    for filename in (
+        "feature_flags.json",
+        "extraction_report.json",
+        "metric_candidates.jsonl",
+        "method_patterns.jsonl",
+        "tool_coverage_matches.jsonl",
+        "tool_gaps.jsonl",
+        "data_acquisition_proposals.jsonl",
+        "tool_design_proposals.jsonl",
+        "report_forecast_ledger.jsonl",
+        "outcome_labeling_readiness.json",
+        "source_performance_profiles.jsonl",
+        "viewpoint_performance_profiles.jsonl",
+        "method_performance_profiles.jsonl",
+        "analysis_recipes.jsonl",
+        "weighted_research_contexts.jsonl",
+        "runtime_tool_gap_observations.jsonl",
+        "monitoring_report.json",
+        "runtime_safety_audit.json",
+        "pit_leakage_audit.json",
+        "extraction_provenance_audit.json",
+        "statistical_robustness_audit.json",
+        "tool_feasibility_audit.json",
+        "recipe_validation_audit.json",
+        "analytical_footprint_review_summary.json",
+        "analytical_footprint_error_taxonomy.json",
+    ):
+        shutil.copy2(source_registry / filename, registry_dir / filename)
+    gold_dir = tmp_path / "registry/gold_sets"
+    gold_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(
+        Path("registry/gold_sets/tushare_research_reports.review_summary.json"),
+        gold_dir / "tushare_research_reports.review_summary.json",
+    )
+
+    write_report_intelligence_patch_v1_5_coverage_report(
+        registry_dir,
+        run_id="RIR-PATCH-FALLBACK-TEST",
+    )
+
+    report = json.loads(
+        (registry_dir / "patch_v1_5_coverage_report.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    extraction_report = json.loads(
+        (registry_dir / "extraction_report.json").read_text(encoding="utf-8")
+    )
+    assert report["corpus_counts"]["forecast_claim_rows"] == extraction_report[
+        "forecast_claim_rows"
+    ]
+    assert report["corpus_counts"]["outcome_label_rows"] == extraction_report[
+        "outcome_label_rows"
+    ]
+    assert "forecast_claims" in report["count_only_public_fallbacks"]
+    assert "report_outcome_labels" in report["count_only_public_fallbacks"]
+    assert "forecast_claims: missing" not in report["blockers"]
+    phase_c = next(row for row in report["phase_records"] if row["phase_id"] == "C")
+    assert phase_c["accepted"] is True
+    assert phase_c["failure_count"] == 0
 
 
 def test_report_intelligence_recipe_paper_trading_infers_unique_method_binding():

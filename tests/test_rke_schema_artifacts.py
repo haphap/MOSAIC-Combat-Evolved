@@ -88,9 +88,6 @@ EXPECTED_PHASE_B_PATCH_COVERAGE_FAILURES = {
     "patch_v1_5_coverage_report Phase B: accepted must be true",
     "patch_v1_5_coverage_report Phase B: status cannot be blocked",
     "patch_v1_5_coverage_report Phase B: failure_count must be zero",
-    "patch_v1_5_coverage_report Phase C: accepted must be true",
-    "patch_v1_5_coverage_report Phase C: status cannot be blocked",
-    "patch_v1_5_coverage_report Phase C: failure_count must be zero",
     "patch_v1_5_coverage_report Phase D: accepted must be true",
     "patch_v1_5_coverage_report Phase D: status cannot be blocked",
     "patch_v1_5_coverage_report Phase D: failure_count must be zero",
@@ -98,8 +95,6 @@ EXPECTED_PHASE_B_PATCH_COVERAGE_FAILURES = {
     "patch_v1_5_coverage_report RI15-B-D1: status cannot be blocked",
     "patch_v1_5_coverage_report RI15-B-D2: accepted must be true",
     "patch_v1_5_coverage_report RI15-B-D2: status cannot be blocked",
-    "patch_v1_5_coverage_report RI15-C-D1: accepted must be true",
-    "patch_v1_5_coverage_report RI15-C-D1: status cannot be blocked",
     "patch_v1_5_coverage_report RI15-D-D1: accepted must be true",
     "patch_v1_5_coverage_report RI15-D-D1: status cannot be blocked",
 }
