@@ -1,5 +1,5 @@
 {
-  "blocked_count": 128,
+  "blocked_count": 140,
   "blocked_forecast_claim_ids": [
     "FC-5a2d13ccf391a0f8",
     "FC-fc7d560041fcaa49",
@@ -128,11 +128,23 @@
     "FC-129683570fa8ddbb",
     "FC-2099f3f97470f907",
     "FC-9bceb39ede0be50c",
-    "FC-44f844e1d65a773f"
+    "FC-44f844e1d65a773f",
+    "FC-0c72950a995f1b9d",
+    "FC-44279af2f117eb23",
+    "FC-d025c147e1f6fab0",
+    "FC-1df48a17c0a02a16",
+    "FC-41af8e765258b9ec",
+    "FC-0e6107af7431c97e",
+    "FC-28f195ba4126d1cd",
+    "FC-b3f14f6054a1465b",
+    "FC-2be7d0cacbe56dfc",
+    "FC-805fb3f25011a4ce",
+    "FC-5f7a630eae703c1c",
+    "FC-2579bc02d673c3b9"
   ],
   "blocked_reason": "forecast_mapping_insufficient_for_unlabelable_claims",
-  "forecast_claim_count": 177,
-  "forecast_ledger_count": 177,
+  "forecast_claim_count": 189,
+  "forecast_ledger_count": 189,
   "industry_etf_proxy_readiness": {
     "benchmark_family": "CSI300_ETF_PROXY",
     "benchmark_source": "cn_etf",
@@ -142,8 +154,8 @@
     ],
     "cost_model_id": "industry_etf_round_trip_10bps_v1",
     "data_gap_counts": {
-      "direction_missing_or_unsupported": 9,
-      "sector_etf_mapping_missing": 42
+      "direction_missing_or_unsupported": 11,
+      "sector_etf_mapping_missing": 52
     },
     "eligible_claim_count": 44,
     "eligible_forecast_claim_ids": [
@@ -230,8 +242,8 @@
   ],
   "mapping_gap_counts": {
     "benchmark": 109,
-    "direction": 2,
-    "horizon": 166
+    "direction": 4,
+    "horizon": 178
   },
   "minimum_required_mapping": [
     "target",
@@ -348,7 +360,7 @@
     "FC-05ccb1a9c07b1752",
     "FC-b6dfa01613a8674a"
   ],
-  "standard_blocked_count": 170,
+  "standard_blocked_count": 182,
   "standard_blocked_forecast_claim_ids": [
     "FC-5a2d13ccf391a0f8",
     "FC-fc7d560041fcaa49",
@@ -519,7 +531,19 @@
     "FC-129683570fa8ddbb",
     "FC-2099f3f97470f907",
     "FC-9bceb39ede0be50c",
-    "FC-44f844e1d65a773f"
+    "FC-44f844e1d65a773f",
+    "FC-0c72950a995f1b9d",
+    "FC-44279af2f117eb23",
+    "FC-d025c147e1f6fab0",
+    "FC-1df48a17c0a02a16",
+    "FC-41af8e765258b9ec",
+    "FC-0e6107af7431c97e",
+    "FC-28f195ba4126d1cd",
+    "FC-b3f14f6054a1465b",
+    "FC-2be7d0cacbe56dfc",
+    "FC-805fb3f25011a4ce",
+    "FC-5f7a630eae703c1c",
+    "FC-2579bc02d673c3b9"
   ],
   "stock_price_proxy_readiness": {
     "benchmark_family": "CSI300_ETF_PROXY",
@@ -732,12 +756,12 @@
     "FC-f38aa8a009e8e305"
   ],
   "test_status_counts": {
-    "not_ready_insufficient_mapping": 170,
+    "not_ready_insufficient_mapping": 182,
     "ready_for_outcome_labeling": 7
   },
   "unlabelable_mapping_gap_counts": {
     "benchmark": 95,
-    "direction": 2,
-    "horizon": 124
+    "direction": 4,
+    "horizon": 136
   }
 }

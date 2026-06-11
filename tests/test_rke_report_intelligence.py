@@ -5470,6 +5470,7 @@ def test_report_intelligence_cli_help_exposes_stock_qlib_dir(capsys):
     help_text = capsys.readouterr().out
     assert "--qlib-stock-dir" in help_text
     assert "--registry-dir" in help_text
+    assert "--env-file" in help_text
     assert "--exclude-processed-registry-dir" in help_text
     assert "--require-cached-markdown" in help_text
     assert "--vllm-timeout-seconds" in help_text
@@ -5478,6 +5479,25 @@ def test_report_intelligence_cli_help_exposes_stock_qlib_dir(capsys):
     assert ReportIntelligenceConfig().qlib_stock_dir == "~/.qlib/qlib_data/cn_data"
     assert ReportIntelligenceConfig().vllm_timeout_seconds == DEFAULT_VLLM_TIMEOUT_SECONDS
     assert ReportIntelligenceConfig().vllm_timeout_seconds >= 7200
+
+
+def test_report_intelligence_cli_loads_env_file_before_vllm_key_lookup(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    env_path = tmp_path / ".env"
+    env_path.write_text("MOSAIC_VLLM_API_KEY=from-env-file\n", encoding="utf-8")
+    monkeypatch.delenv("MOSAIC_VLLM_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    def fake_refresh(config: ReportIntelligenceConfig):
+        assert config.vllm_api_key == "from-env-file"
+        raise RuntimeError("captured config")
+
+    monkeypatch.setattr("mosaic.rke.cli.run_report_intelligence_refresh", fake_refresh)
+
+    with pytest.raises(RuntimeError, match="captured config"):
+        main(("report-intelligence", "--env-file", str(env_path), "--skip-llm"))
 
 
 def test_report_intelligence_evolution_gate_writer_preserves_stock_coverage_evidence(

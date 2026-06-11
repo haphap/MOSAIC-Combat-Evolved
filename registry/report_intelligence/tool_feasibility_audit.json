@@ -1,10 +1,10 @@
 {
   "accepted": true,
-  "as_of_datetime": "2026-06-10T23:02:13+00:00",
+  "as_of_datetime": "2026-06-11T00:26:47+00:00",
   "audit_id": "RKE-REPORT-INTELLIGENCE-TOOL-FEASIBILITY-AUDIT",
   "blocker_count": 0,
   "blockers": [],
-  "checked_item_count": 3640,
+  "checked_item_count": 4256,
   "checks": [
     {
       "accepted": true,
@@ -22,9 +22,9 @@
       "evidence": {
         "coverage_status_counts": {
           "exact_match": 1,
-          "missing": 264
+          "missing": 304
         },
-        "metric_candidate_rows": 265,
+        "metric_candidate_rows": 305,
         "required_coverage_detail_fields": [
           "raw_source_match",
           "frequency_match",
@@ -33,7 +33,7 @@
           "unit_supported",
           "license_ok"
         ],
-        "tool_coverage_match_rows": 265
+        "tool_coverage_match_rows": 305
       },
       "failure_count": 0,
       "failures": [],
@@ -51,11 +51,11 @@
           "urgent"
         ],
         "gap_priority_counts": {
-          "low": 49,
-          "medium": 705
+          "low": 59,
+          "medium": 825
         },
-        "non_exact_coverage_rows": 264,
-        "tool_gap_rows": 754
+        "non_exact_coverage_rows": 304,
+        "tool_gap_rows": 884
       },
       "failure_count": 0,
       "failures": [],
@@ -65,8 +65,8 @@
       "accepted": true,
       "check_id": "RI-TOOL-03",
       "evidence": {
-        "data_acquisition_proposal_rows": 754,
-        "tool_gap_rows": 754
+        "data_acquisition_proposal_rows": 884,
+        "tool_gap_rows": 884
       },
       "failure_count": 0,
       "failures": [],
@@ -78,8 +78,8 @@
       "evidence": {
         "minimum_required_effective_n": 30,
         "minimum_shadow_runtime_days": 60,
-        "tool_design_proposal_rows": 754,
-        "tool_gap_rows": 754
+        "tool_design_proposal_rows": 884,
+        "tool_gap_rows": 884
       },
       "failure_count": 0,
       "failures": [],
@@ -89,8 +89,8 @@
       "accepted": true,
       "check_id": "RI-TOOL-05",
       "evidence": {
-        "analysis_recipe_rows": 94,
-        "runtime_tool_gap_observation_rows": 754,
+        "analysis_recipe_rows": 110,
+        "runtime_tool_gap_observation_rows": 884,
         "safe_actionability": "no_trade_without_current_data_confirmation"
       },
       "failure_count": 0,
@@ -112,5 +112,5 @@
     }
   ],
   "policy": "report-intelligence tool feasibility requires deterministic coverage records, explicit PIT and license requirements, gap-to-proposal lineage, checker-validatable output schemas, bounded fallback policy, and shadow-only runtime until tool correctness and promotion gates pass",
-  "run_id": "RIR-DERIVED-20260610T230213+0000"
+  "run_id": "RIR-DERIVED-20260611T002647+0000"
 }

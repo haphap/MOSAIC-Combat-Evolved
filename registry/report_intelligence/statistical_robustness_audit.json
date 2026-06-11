@@ -1,10 +1,10 @@
 {
   "accepted": true,
-  "as_of_datetime": "2026-06-10T23:02:13+00:00",
+  "as_of_datetime": "2026-06-11T00:26:47+00:00",
   "audit_id": "RKE-REPORT-INTELLIGENCE-STATISTICAL-ROBUSTNESS-AUDIT",
   "blocker_count": 0,
   "blockers": [],
-  "checked_item_count": 1415,
+  "checked_item_count": 1451,
   "checks": [
     {
       "accepted": true,
@@ -40,12 +40,12 @@
       "accepted": true,
       "check_id": "RI-STAT-02",
       "evidence": {
-        "insufficient_profile_count": 943,
-        "method_profile_rows": 94,
+        "insufficient_profile_count": 951,
+        "method_profile_rows": 110,
         "minimum_non_neutral_effective_n": 3,
         "non_neutral_profile_count": 27,
-        "source_profile_rows": 876,
-        "viewpoint_profile_rows": 104
+        "source_profile_rows": 878,
+        "viewpoint_profile_rows": 110
       },
       "failure_count": 0,
       "failures": [],
@@ -78,10 +78,10 @@
       "accepted": true,
       "check_id": "RI-STAT-04",
       "evidence": {
-        "consensus_cluster_count": 177,
-        "forecast_ledger_rows": 177,
-        "multiple_testing_family_count": 168,
-        "retrieved_claim_rows": 177
+        "consensus_cluster_count": 189,
+        "forecast_ledger_rows": 189,
+        "multiple_testing_family_count": 177,
+        "retrieved_claim_rows": 189
       },
       "failure_count": 0,
       "failures": [],
@@ -91,7 +91,7 @@
       "accepted": true,
       "check_id": "RI-STAT-05",
       "evidence": {
-        "calibration_unavailable_profile_count": 980,
+        "calibration_unavailable_profile_count": 988,
         "outcome_label_rows": 163,
         "production_use_of_weighted_reports": false,
         "rollout_mode": "shadow_tooling"
@@ -118,7 +118,7 @@
       "check_id": "RI-STAT-07",
       "evidence": {
         "fdr_or_reality_check_status": "deferred_until_paper_trading_or_production_candidate",
-        "non_neutral_retrieved_claim_count": 38,
+        "non_neutral_retrieved_claim_count": 39,
         "rollout_mode": "shadow_tooling"
       },
       "failure_count": 0,
@@ -127,5 +127,5 @@
     }
   ],
   "policy": "report intelligence statistical evidence must be PIT, after-cost, overlap-adjusted, grouped by forecast family, deduplicated by consensus clusters, and kept shadow-only until effective-N, multiple-testing, calibration, paper-trading, and promotion gates pass",
-  "run_id": "RIR-DERIVED-20260610T230213+0000"
+  "run_id": "RIR-DERIVED-20260611T002647+0000"
 }

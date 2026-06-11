@@ -681,6 +681,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--root", default=".", help="Repository root. Defaults to current directory."
     )
     report_intelligence.add_argument(
+        "--env-file",
+        help="Optional .env file to load before reading vLLM/OpenAI API keys.",
+    )
+    report_intelligence.add_argument(
         "--source-path",
         default="registry/sources/tushare_research_reports.jsonl",
         help="Source JSONL path. Defaults to registry/sources/tushare_research_reports.jsonl.",
@@ -1307,6 +1311,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         _print_json(asdict(result))
         return 0 if result.manifest_valid else 2
     if args.command == "report-intelligence":
+        _load_env_file(args.env_file)
         result = run_report_intelligence_refresh(
             ReportIntelligenceConfig(
                 root=root,
