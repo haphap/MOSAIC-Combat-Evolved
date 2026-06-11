@@ -48,6 +48,7 @@ from mosaic.rke.report_intelligence import (
     write_report_intelligence_patch_v1_5_coverage_report,
     _append_evolution_history_record,
     _backfill_tool_gaps_from_metric_candidates,
+    _direct_pit_binding_gap_details,
     _read_industry_etf_proxy_map_rows,
     _markdown_quality_gap,
     _normalize_method_patterns,
@@ -2809,6 +2810,145 @@ def test_report_intelligence_recipe_paper_trading_requires_direct_pit_evidence()
     ]
     assert multi_blocked_summary["tool_implementation_queue"]["tool_gap_ids"] == [
         "TG-TOOL-BLOCKED"
+    ]
+
+
+def test_direct_pit_binding_gap_details_trace_missing_method_links():
+    details = _direct_pit_binding_gap_details(
+        analysis_recipe_rows=[
+            {
+                "analysis_recipe_id": "RECIPE-GAP",
+                "method_pattern_id": "METHOD-GAP",
+                "source_method_pattern_ids": ["METHOD-GAP"],
+            }
+        ],
+        outcome_label_rows=[
+            {
+                "outcome_id": "OUT-GAP",
+                "forecast_claim_id": "CLAIM-GAP",
+            }
+        ],
+        forecast_rows=[
+            {
+                "forecast_claim_id": "CLAIM-GAP",
+                "source_id": "SRC-GAP",
+                "report_id": "REPORT-GAP",
+            }
+        ],
+        footprint_rows=[
+            {
+                "footprint_id": "FP-GAP",
+                "source_id": "SRC-GAP",
+                "report_id": "REPORT-GAP",
+            }
+        ],
+        method_rows=[
+            {
+                "method_pattern_id": "METHOD-GAP",
+                "source_footprint_ids": [],
+            }
+        ],
+    )
+
+    assert details["artifact_counts"] == {
+        "analysis_recipe_rows": 1,
+        "outcome_label_rows": 1,
+        "forecast_claim_rows": 1,
+        "analytical_footprint_rows": 1,
+        "method_pattern_rows": 1,
+    }
+    assert details["method_source_linkage"][
+        "method_patterns_without_source_footprints"
+    ] == 1
+    assert details["forecast_outcome_linkage"][
+        "outcome_label_forecast_ids_missing_from_forecast_artifact"
+    ] == 0
+    assert details["recipe_binding_linkage"][
+        "recipes_with_direct_or_method_outcome_binding"
+    ] == 0
+    assert details["missing_artifact_flags"] == ["method_source_footprints_empty"]
+
+    linked_details = _direct_pit_binding_gap_details(
+        analysis_recipe_rows=[
+            {
+                "analysis_recipe_id": "RECIPE-LINKED",
+                "method_pattern_id": "METHOD-LINKED",
+                "source_method_pattern_ids": ["METHOD-LINKED"],
+            }
+        ],
+        outcome_label_rows=[
+            {
+                "outcome_id": "OUT-LINKED",
+                "forecast_claim_id": "CLAIM-LINKED",
+            }
+        ],
+        forecast_rows=[
+            {
+                "forecast_claim_id": "CLAIM-LINKED",
+                "source_id": "SRC-LINKED",
+            }
+        ],
+        footprint_rows=[
+            {
+                "footprint_id": "FP-LINKED",
+                "source_id": "SRC-LINKED",
+            }
+        ],
+        method_rows=[
+            {
+                "method_pattern_id": "METHOD-LINKED",
+                "source_footprint_ids": ["FP-LINKED"],
+            }
+        ],
+    )
+
+    assert linked_details["method_source_linkage"][
+        "method_patterns_with_source_footprints"
+    ] == 1
+    assert linked_details["recipe_binding_linkage"][
+        "inferred_method_pattern_label_count"
+    ] == 1
+    assert linked_details["recipe_binding_linkage"][
+        "recipes_with_direct_or_method_outcome_binding"
+    ] == 1
+
+
+def test_recipe_paper_trading_summary_carries_public_binding_gap_details():
+    summary = build_recipe_paper_trading_summary(
+        run_id="RIR-TEST-GAP-SUMMARY",
+        recipe_paper_trading_runs=[
+            {
+                "analysis_recipe_id": "RECIPE-GAP",
+                "paper_trading_status": "blocked",
+                "blocked_reasons": ["no_direct_recipe_outcome_binding"],
+                "metrics": {"effective_n": 0.0},
+                "source_method_pattern_ids": ["METHOD-GAP"],
+                "required_tools": [],
+            }
+        ],
+        direct_pit_binding_gap_details={
+            "diagnostic_version": "direct_pit_binding_gap_v1",
+            "artifact_counts": {"analysis_recipe_rows": 1},
+            "method_source_linkage": {
+                "method_patterns_without_source_footprints": 1
+            },
+            "forecast_outcome_linkage": {"forecast_claim_count": 0},
+            "footprint_source_linkage": {"analytical_footprint_count": 0},
+            "recipe_binding_linkage": {
+                "recipes_with_direct_or_method_outcome_binding": 0
+            },
+            "missing_artifact_flags": ["method_source_footprints_empty"],
+            "next_actions": ["regenerate method patterns with source links"],
+        },
+    )
+
+    diagnostics = summary["direct_pit_binding_diagnostics"]
+    assert diagnostics["status"] == "blocked_no_direct_pit_binding"
+    assert diagnostics["binding_gap_details"]["diagnostic_version"] == (
+        "direct_pit_binding_gap_v1"
+    )
+    assert diagnostics["binding_gap_details"]["missing_artifact_flags"] == [
+        "method_source_footprints_empty"
     ]
 
 

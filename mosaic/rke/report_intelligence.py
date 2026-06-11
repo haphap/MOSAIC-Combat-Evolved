@@ -9082,6 +9082,181 @@ def _inferred_outcome_labels_by_method_id(
     return labels_by_method
 
 
+def _direct_pit_binding_gap_details(
+    *,
+    analysis_recipe_rows: Sequence[Mapping[str, Any]],
+    outcome_label_rows: Sequence[Mapping[str, Any]],
+    forecast_rows: Sequence[Mapping[str, Any]],
+    footprint_rows: Sequence[Mapping[str, Any]],
+    method_rows: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    method_ids = {
+        str(row.get("method_pattern_id") or "").strip()
+        for row in method_rows
+        if str(row.get("method_pattern_id") or "").strip()
+    }
+    methods_with_source_footprints = {
+        str(row.get("method_pattern_id") or "").strip()
+        for row in method_rows
+        if str(row.get("method_pattern_id") or "").strip()
+        and _ensure_list(row.get("source_footprint_ids"))
+    }
+    footprint_ids = {
+        str(row.get("footprint_id") or "").strip()
+        for row in footprint_rows
+        if str(row.get("footprint_id") or "").strip()
+    }
+    linked_footprint_ids = {
+        str(footprint_id or "").strip()
+        for row in method_rows
+        for footprint_id in _ensure_list(row.get("source_footprint_ids"))
+        if str(footprint_id or "").strip()
+    }
+    footprints_with_source_or_report = {
+        str(row.get("footprint_id") or "").strip()
+        for row in footprint_rows
+        if str(row.get("footprint_id") or "").strip()
+        and (
+            str(row.get("source_id") or "").strip()
+            or str(row.get("report_id") or "").strip()
+        )
+    }
+    forecast_ids = {
+        str(row.get("forecast_claim_id") or "").strip()
+        for row in forecast_rows
+        if str(row.get("forecast_claim_id") or "").strip()
+    }
+    forecasts_with_source_or_report = {
+        str(row.get("forecast_claim_id") or "").strip()
+        for row in forecast_rows
+        if str(row.get("forecast_claim_id") or "").strip()
+        and (
+            str(row.get("source_id") or "").strip()
+            or str(row.get("report_id") or "").strip()
+        )
+    }
+    explicit_recipe_label_ids = {
+        str(row.get("analysis_recipe_id") or "").strip()
+        for row in outcome_label_rows
+        if str(row.get("analysis_recipe_id") or "").strip()
+    }
+    explicit_method_label_ids = {
+        str(row.get("method_pattern_id") or "").strip()
+        for row in outcome_label_rows
+        if str(row.get("method_pattern_id") or "").strip()
+    }
+    label_forecast_ids = {
+        str(row.get("forecast_claim_id") or "").strip()
+        for row in outcome_label_rows
+        if str(row.get("forecast_claim_id") or "").strip()
+    }
+    inferred_labels_by_method_id = _inferred_outcome_labels_by_method_id(
+        outcome_label_rows=outcome_label_rows,
+        forecast_rows=forecast_rows,
+        footprint_rows=footprint_rows,
+        method_rows=method_rows,
+    )
+    inferred_method_label_ids = set(inferred_labels_by_method_id)
+    recipe_method_ids: set[str] = set()
+    recipes_with_source_method_ids = 0
+    for recipe in analysis_recipe_rows:
+        recipe_methods = {
+            str(method_id or "").strip()
+            for method_id in _ensure_list(recipe.get("source_method_pattern_ids"))
+            if str(method_id or "").strip()
+        }
+        method_id = str(recipe.get("method_pattern_id") or "").strip()
+        if method_id:
+            recipe_methods.add(method_id)
+        if recipe_methods:
+            recipes_with_source_method_ids += 1
+        recipe_method_ids.update(recipe_methods)
+    method_ids_with_any_label = explicit_method_label_ids | inferred_method_label_ids
+    recipes_with_direct_labels: set[str] = set()
+    for index, recipe in enumerate(analysis_recipe_rows, 1):
+        recipe_id = _recipe_id(recipe, index)
+        if recipe_id in explicit_recipe_label_ids:
+            recipes_with_direct_labels.add(recipe_id)
+            continue
+        recipe_methods = {
+            str(method_id or "").strip()
+            for method_id in _ensure_list(recipe.get("source_method_pattern_ids"))
+            if str(method_id or "").strip()
+        }
+        method_id = str(recipe.get("method_pattern_id") or "").strip()
+        if method_id:
+            recipe_methods.add(method_id)
+        if recipe_methods & method_ids_with_any_label:
+            recipes_with_direct_labels.add(recipe_id)
+    unresolved_label_forecast_ids = sorted(label_forecast_ids - forecast_ids)
+    linked_missing_footprint_ids = sorted(linked_footprint_ids - footprint_ids)
+    missing_flags: list[str] = []
+    if not outcome_label_rows:
+        missing_flags.append("outcome_labels_absent")
+    if not forecast_rows:
+        missing_flags.append("forecast_claims_absent")
+    if not footprint_rows:
+        missing_flags.append("analytical_footprints_absent")
+    if method_ids and not methods_with_source_footprints:
+        missing_flags.append("method_source_footprints_empty")
+    if label_forecast_ids and not forecasts_with_source_or_report:
+        missing_flags.append("label_forecasts_without_source_or_report")
+    return {
+        "diagnostic_version": "direct_pit_binding_gap_v1",
+        "artifact_counts": {
+            "analysis_recipe_rows": len(analysis_recipe_rows),
+            "outcome_label_rows": len(outcome_label_rows),
+            "forecast_claim_rows": len(forecast_rows),
+            "analytical_footprint_rows": len(footprint_rows),
+            "method_pattern_rows": len(method_rows),
+        },
+        "method_source_linkage": {
+            "method_pattern_count": len(method_ids),
+            "method_patterns_with_source_footprints": len(
+                methods_with_source_footprints
+            ),
+            "method_patterns_without_source_footprints": max(
+                0,
+                len(method_ids) - len(methods_with_source_footprints),
+            ),
+            "linked_source_footprint_count": len(linked_footprint_ids),
+            "linked_source_footprints_missing_from_footprint_artifact": len(
+                linked_missing_footprint_ids
+            ),
+        },
+        "forecast_outcome_linkage": {
+            "forecast_claim_count": len(forecast_ids),
+            "forecasts_with_source_or_report": len(forecasts_with_source_or_report),
+            "outcome_labels_with_forecast_claim_id": len(label_forecast_ids),
+            "outcome_label_forecast_ids_missing_from_forecast_artifact": len(
+                unresolved_label_forecast_ids
+            ),
+        },
+        "footprint_source_linkage": {
+            "analytical_footprint_count": len(footprint_ids),
+            "footprints_with_source_or_report": len(footprints_with_source_or_report),
+        },
+        "recipe_binding_linkage": {
+            "recipe_count": len(analysis_recipe_rows),
+            "recipes_with_source_method_patterns": recipes_with_source_method_ids,
+            "recipe_source_method_pattern_count": len(recipe_method_ids),
+            "outcome_labels_with_analysis_recipe_id": len(explicit_recipe_label_ids),
+            "outcome_labels_with_method_pattern_id": len(explicit_method_label_ids),
+            "inferred_method_pattern_label_count": len(inferred_method_label_ids),
+            "recipes_with_direct_or_method_outcome_binding": len(
+                recipes_with_direct_labels
+            ),
+        },
+        "missing_artifact_flags": missing_flags,
+        "next_actions": [
+            "regenerate method patterns with source_footprint_ids preserved",
+            "keep forecast claims and analytical footprints available for derived refresh",
+            "rebuild PIT outcome labels so labels carry recipe_id or method_pattern_id",
+            "rerun recipe paper-trading after direct labels and shadow tools are ready",
+        ],
+    }
+
+
 def _weighted_contribution_shares(
     totals: Mapping[str, float],
     *,
@@ -9576,6 +9751,7 @@ def build_recipe_paper_trading_summary(
     recipe_paper_trading_runs: Sequence[Mapping[str, Any]],
     tool_gap_rows: Sequence[Mapping[str, Any]] = (),
     tool_design_proposal_rows: Sequence[Mapping[str, Any]] = (),
+    direct_pit_binding_gap_details: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     status_counts: dict[str, int] = {}
     blocker_counts: dict[str, int] = {}
@@ -9743,6 +9919,25 @@ def build_recipe_paper_trading_summary(
         )
     if not direct_pit_binding_next_actions:
         direct_pit_binding_next_actions.append("monitor validated paper-trading drift")
+    direct_pit_binding_diagnostics: dict[str, Any] = {
+        "status": direct_pit_binding_status,
+        "diagnostic_only": True,
+        "policy": (
+            "profile weights and method names are insufficient; recipe "
+            "paper-trading requires direct PIT outcome labels bound to the "
+            "recipe or its source method pattern"
+        ),
+        "recipe_count": len(recipe_paper_trading_runs),
+        "direct_pit_bound_recipe_count": len(direct_pit_bound_ids),
+        "no_direct_recipe_outcome_binding_count": direct_pit_gap_count,
+        "insufficient_effective_n_count": insufficient_effective_n_count,
+        "required_tools_not_shadow_implemented_count": requested_tool_block_count,
+        "next_actions": direct_pit_binding_next_actions,
+    }
+    if direct_pit_binding_gap_details:
+        direct_pit_binding_diagnostics["binding_gap_details"] = dict(
+            direct_pit_binding_gap_details
+        )
     return {
         "summary_id": "RKE-REPORT-INTELLIGENCE-RECIPE-PAPER-TRADING-SUMMARY",
         "run_id": run_id,
@@ -9761,21 +9956,7 @@ def build_recipe_paper_trading_summary(
         "direct_pit_bound_blocker_counts": dict(
             sorted(direct_pit_bound_blocker_counts.items())
         ),
-        "direct_pit_binding_diagnostics": {
-            "status": direct_pit_binding_status,
-            "diagnostic_only": True,
-            "policy": (
-                "profile weights and method names are insufficient; recipe "
-                "paper-trading requires direct PIT outcome labels bound to the "
-                "recipe or its source method pattern"
-            ),
-            "recipe_count": len(recipe_paper_trading_runs),
-            "direct_pit_bound_recipe_count": len(direct_pit_bound_ids),
-            "no_direct_recipe_outcome_binding_count": direct_pit_gap_count,
-            "insufficient_effective_n_count": insufficient_effective_n_count,
-            "required_tools_not_shadow_implemented_count": requested_tool_block_count,
-            "next_actions": direct_pit_binding_next_actions,
-        },
+        "direct_pit_binding_diagnostics": direct_pit_binding_diagnostics,
         "validation_candidate_recipe_count": len(validation_candidate_ids),
         "validation_candidate_recipe_ids": sorted(validation_candidate_ids),
         "tool_only_blocked_recipe_count": len(tool_only_blocked_ids),
@@ -10331,6 +10512,13 @@ def write_report_intelligence_recipe_paper_trading_artifacts(
         recipe_paper_trading_runs=recipe_paper_trading_run_rows,
         tool_gap_rows=tool_gap_rows,
         tool_design_proposal_rows=tool_design_proposal_rows,
+        direct_pit_binding_gap_details=_direct_pit_binding_gap_details(
+            analysis_recipe_rows=analysis_recipe_rows,
+            outcome_label_rows=outcome_label_rows,
+            forecast_rows=forecast_rows,
+            footprint_rows=footprint_rows,
+            method_rows=method_rows,
+        ),
     )
     confidence_impact_observation_rows = build_confidence_impact_observations(
         run_id=run_id,

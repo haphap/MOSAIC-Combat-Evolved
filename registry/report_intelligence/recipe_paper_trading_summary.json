@@ -9,7 +9,7 @@
     "status": "insufficient_validated_runs",
     "validated_recipe_count": 0
   },
-  "as_of_datetime": "2026-06-11T23:15:33+00:00",
+  "as_of_datetime": "2026-06-11T23:25:13+00:00",
   "blocked_count": 110,
   "blocked_recipe_ids": [
     "RECIPE-005f7579881934bb",
@@ -129,6 +129,53 @@
     "required_tools_not_shadow_implemented": 110
   },
   "direct_pit_binding_diagnostics": {
+    "binding_gap_details": {
+      "artifact_counts": {
+        "analysis_recipe_rows": 110,
+        "analytical_footprint_rows": 3,
+        "forecast_claim_rows": 0,
+        "method_pattern_rows": 110,
+        "outcome_label_rows": 0
+      },
+      "diagnostic_version": "direct_pit_binding_gap_v1",
+      "footprint_source_linkage": {
+        "analytical_footprint_count": 3,
+        "footprints_with_source_or_report": 3
+      },
+      "forecast_outcome_linkage": {
+        "forecast_claim_count": 0,
+        "forecasts_with_source_or_report": 0,
+        "outcome_label_forecast_ids_missing_from_forecast_artifact": 0,
+        "outcome_labels_with_forecast_claim_id": 0
+      },
+      "method_source_linkage": {
+        "linked_source_footprint_count": 0,
+        "linked_source_footprints_missing_from_footprint_artifact": 0,
+        "method_pattern_count": 110,
+        "method_patterns_with_source_footprints": 0,
+        "method_patterns_without_source_footprints": 110
+      },
+      "missing_artifact_flags": [
+        "outcome_labels_absent",
+        "forecast_claims_absent",
+        "method_source_footprints_empty"
+      ],
+      "next_actions": [
+        "regenerate method patterns with source_footprint_ids preserved",
+        "keep forecast claims and analytical footprints available for derived refresh",
+        "rebuild PIT outcome labels so labels carry recipe_id or method_pattern_id",
+        "rerun recipe paper-trading after direct labels and shadow tools are ready"
+      ],
+      "recipe_binding_linkage": {
+        "inferred_method_pattern_label_count": 0,
+        "outcome_labels_with_analysis_recipe_id": 0,
+        "outcome_labels_with_method_pattern_id": 0,
+        "recipe_count": 110,
+        "recipe_source_method_pattern_count": 110,
+        "recipes_with_direct_or_method_outcome_binding": 0,
+        "recipes_with_source_method_patterns": 110
+      }
+    },
     "diagnostic_only": true,
     "direct_pit_bound_recipe_count": 0,
     "insufficient_effective_n_count": 110,

@@ -92,6 +92,51 @@
         "next_actions": {
           "type": "array",
           "items": {"type": "string", "minLength": 1}
+        },
+        "binding_gap_details": {
+          "type": "object",
+          "required": [
+            "diagnostic_version",
+            "artifact_counts",
+            "method_source_linkage",
+            "forecast_outcome_linkage",
+            "footprint_source_linkage",
+            "recipe_binding_linkage",
+            "missing_artifact_flags",
+            "next_actions"
+          ],
+          "properties": {
+            "diagnostic_version": {"const": "direct_pit_binding_gap_v1"},
+            "artifact_counts": {
+              "type": "object",
+              "additionalProperties": {"type": "integer", "minimum": 0}
+            },
+            "method_source_linkage": {
+              "type": "object",
+              "additionalProperties": {"type": "integer", "minimum": 0}
+            },
+            "forecast_outcome_linkage": {
+              "type": "object",
+              "additionalProperties": {"type": "integer", "minimum": 0}
+            },
+            "footprint_source_linkage": {
+              "type": "object",
+              "additionalProperties": {"type": "integer", "minimum": 0}
+            },
+            "recipe_binding_linkage": {
+              "type": "object",
+              "additionalProperties": {"type": "integer", "minimum": 0}
+            },
+            "missing_artifact_flags": {
+              "type": "array",
+              "items": {"type": "string", "minLength": 1}
+            },
+            "next_actions": {
+              "type": "array",
+              "items": {"type": "string", "minLength": 1}
+            }
+          },
+          "additionalProperties": true
         }
       },
       "additionalProperties": true
