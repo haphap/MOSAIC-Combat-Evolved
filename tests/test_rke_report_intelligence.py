@@ -5547,10 +5547,65 @@ def test_report_intelligence_cli_help_exposes_stock_qlib_dir(capsys):
     assert "--require-cached-markdown" in help_text
     assert "--vllm-timeout-seconds" in help_text
     assert "--max-llm-output-tokens" in help_text
+    assert "--progress-jsonl" in help_text
     assert "stratified" in help_text
     assert ReportIntelligenceConfig().qlib_stock_dir == "~/.qlib/qlib_data/cn_data"
     assert ReportIntelligenceConfig().vllm_timeout_seconds == DEFAULT_VLLM_TIMEOUT_SECONDS
     assert ReportIntelligenceConfig().vllm_timeout_seconds >= 7200
+
+
+def test_report_intelligence_progress_jsonl_is_redacted(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+):
+    source_id = _write_source(
+        tmp_path / "registry/sources/tushare_research_reports.jsonl",
+        industry="工业金属",
+        report_type="行业研究",
+        publish_date="2026-01-02",
+    )
+    qlib_etf_dir = tmp_path / "qlib_etf"
+    _write_qlib_etf_fixture(qlib_etf_dir)
+
+    def llm(row, chunk: str, span_id: str, chunk_index: int, chunk_count: int):
+        return {
+            "status": "ok",
+            "model": "fake-vllm",
+            "payload": {
+                "forecast_claims": [],
+                "analytical_footprints": [],
+                "metric_candidates": [],
+                "method_patterns": [],
+                "tool_gaps": [],
+            },
+        }
+
+    run_report_intelligence_refresh(
+        ReportIntelligenceConfig(
+            root=tmp_path,
+            source_ids=(source_id,),
+            qlib_etf_dir=qlib_etf_dir,
+            progress_jsonl=True,
+        ),
+        downloader=_fake_downloader,
+        converter=_fake_converter,
+        llm_extractor=llm,
+    )
+
+    stderr = capsys.readouterr().err
+    progress_rows = [
+        json.loads(line)
+        for line in stderr.splitlines()
+        if line.strip()
+    ]
+    assert {row["event"] for row in progress_rows} >= {
+        "selected",
+        "llm_start",
+        "llm_done",
+        "summary",
+    }
+    assert source_id not in stderr
+    assert "http" not in stderr
 
 
 def test_report_intelligence_cli_loads_env_file_before_vllm_key_lookup(

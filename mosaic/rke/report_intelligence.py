@@ -17,6 +17,7 @@ import shlex
 import shutil
 import struct
 import subprocess
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -527,6 +528,28 @@ class ReportIntelligenceConfig:
     chunk_chars: int = 60_000
     max_chunks: int = 8
     max_llm_output_tokens: int = 4096
+    progress_jsonl: bool = False
+
+
+def _emit_report_intelligence_progress(
+    cfg: ReportIntelligenceConfig,
+    *,
+    event: str,
+    run_id: str,
+    **fields: Any,
+) -> None:
+    if not cfg.progress_jsonl:
+        return
+    payload = {
+        "event": event,
+        "run_id": run_id,
+        **fields,
+    }
+    print(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True),
+        file=sys.stderr,
+        flush=True,
+    )
 
 
 @dataclass(frozen=True)
@@ -17071,6 +17094,14 @@ def run_report_intelligence_refresh(
         selection_order=cfg.selection_order,
     )
     blockers: list[str] = [*processed_source_blockers, *source_blockers]
+    _emit_report_intelligence_progress(
+        cfg,
+        event="selected",
+        run_id=run_id,
+        selected_reports=len(rows),
+        excluded_processed_count=len(processed_source_ids),
+        source_blocker_count=len(source_blockers),
+    )
     downloader = downloader or (
         lambda url, path, overwrite: download_pdf(
             url,
@@ -17117,7 +17148,17 @@ def run_report_intelligence_refresh(
     status_rows: list[dict[str, Any]] = []
 
     prepared_rows: list[dict[str, Any]] = []
-    for row in rows:
+    for index, row in enumerate(rows, 1):
+        _emit_report_intelligence_progress(
+            cfg,
+            event="row_prepare_start",
+            run_id=run_id,
+            index=index,
+            total=len(rows),
+            skip_download=cfg.skip_download,
+            skip_convert=cfg.skip_convert,
+            skip_llm=cfg.skip_llm,
+        )
         source_id = str(row.get("source_id") or "")
         safe_id = _safe_file_id(source_id)
         url = str(row.get("url") or "").strip()
@@ -17142,6 +17183,7 @@ def run_report_intelligence_refresh(
         prepared_rows.append(
             {
                 "row": row,
+                "index": index,
                 "source_id": source_id,
                 "pdf_path": pdf_path,
                 "markdown_path": markdown_path,
@@ -17150,6 +17192,15 @@ def run_report_intelligence_refresh(
                 "markdown_result": {"status": "not_attempted"},
                 "row_blockers": row_blockers,
             }
+        )
+        _emit_report_intelligence_progress(
+            cfg,
+            event="row_prepare_done",
+            run_id=run_id,
+            index=index,
+            total=len(rows),
+            pdf_status=str(pdf_result.get("status") or "not_attempted"),
+            blocker_count=len(row_blockers),
         )
 
     if not cfg.skip_convert:
@@ -17214,6 +17265,14 @@ def run_report_intelligence_refresh(
                 }
 
     for prepared in prepared_rows:
+        index = int(prepared.get("index") or 0)
+        _emit_report_intelligence_progress(
+            cfg,
+            event="row_extract_start",
+            run_id=run_id,
+            index=index,
+            total=len(prepared_rows),
+        )
         row = prepared["row"]
         source_id = str(prepared["source_id"])
         markdown_path = prepared["markdown_path"]
@@ -17232,15 +17291,45 @@ def run_report_intelligence_refresh(
                 if quality_gap:
                     row_blockers.append(f"{source_id}: {quality_gap}")
                 else:
+                    markdown_text = markdown_path.read_text(
+                        encoding="utf-8",
+                        errors="replace",
+                    )
+                    _emit_report_intelligence_progress(
+                        cfg,
+                        event="llm_start",
+                        run_id=run_id,
+                        index=index,
+                        total=len(prepared_rows),
+                        markdown_bytes=markdown_path.stat().st_size,
+                        chunk_chars=cfg.chunk_chars,
+                        max_chunks=cfg.max_chunks,
+                    )
                     extraction, llm_status, llm_model, llm_blockers, chunk_count, truncated_chunks = (
                         _extract_for_markdown(
                             row,
-                            markdown_path.read_text(encoding="utf-8", errors="replace"),
+                            markdown_text,
                             run_id=run_id,
                             extractor=llm_extractor,
                             chunk_chars=cfg.chunk_chars,
                             max_chunks=cfg.max_chunks,
                         )
+                    )
+                    _emit_report_intelligence_progress(
+                        cfg,
+                        event="llm_done",
+                        run_id=run_id,
+                        index=index,
+                        total=len(prepared_rows),
+                        llm_status=llm_status,
+                        chunk_count=chunk_count,
+                        truncated_chunks=truncated_chunks,
+                        forecast_claim_count=len(extraction["forecast_claims"]),
+                        analytical_footprint_count=len(
+                            extraction["analytical_footprints"]
+                        ),
+                        tool_gap_count=len(extraction["tool_gaps"]),
+                        blocker_count=len(llm_blockers),
                     )
                     row_blockers.extend(llm_blockers)
                     _append_unique_records(
@@ -17316,6 +17405,20 @@ def run_report_intelligence_refresh(
                 "llm_model": llm_model or "",
                 "blockers": row_blockers,
             }
+        )
+        _emit_report_intelligence_progress(
+            cfg,
+            event="row_done",
+            run_id=run_id,
+            index=index,
+            total=len(prepared_rows),
+            pdf_status=str(pdf_result.get("status") or "not_attempted"),
+            markdown_status=str(markdown_result.get("status") or "not_attempted"),
+            markdown_quality_gate_status=str(
+                markdown_result.get("quality_gate_status") or ""
+            ),
+            llm_status=llm_status,
+            blocker_count=len(row_blockers),
         )
 
     forecast_rows = _refresh_forecast_mapping_governance(forecast_rows)
@@ -17934,4 +18037,14 @@ def run_report_intelligence_refresh(
     summary_payload = asdict(summary)
     summary_payload["root"] = "<repo_root>"
     _write_json(summary_path, summary_payload)
+    _emit_report_intelligence_progress(
+        cfg,
+        event="summary",
+        run_id=run_id,
+        selected_reports=summary.selected_reports,
+        llm_processed_reports=summary.llm_processed_reports,
+        forecast_claim_rows=summary.forecast_claim_rows,
+        outcome_label_rows=summary.outcome_label_rows,
+        blocker_count=summary.blocker_count,
+    )
     return summary

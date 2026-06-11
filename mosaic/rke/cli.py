@@ -892,6 +892,13 @@ def build_parser() -> argparse.ArgumentParser:
         default=8,
         help="Maximum Markdown chunks per report. Defaults to 8.",
     )
+    report_intelligence.add_argument(
+        "--progress-jsonl",
+        action="store_true",
+        help=(
+            "Emit redacted progress JSON lines to stderr for long PDF/LLM runs."
+        ),
+    )
 
     evolution_gate = subparsers.add_parser(
         "report-intelligence-evolution-gate",
@@ -1364,6 +1371,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 chunk_chars=args.chunk_chars,
                 max_chunks=args.max_chunks,
                 max_llm_output_tokens=args.max_llm_output_tokens,
+                progress_jsonl=args.progress_jsonl,
             )
         )
         _print_json(asdict(result))
