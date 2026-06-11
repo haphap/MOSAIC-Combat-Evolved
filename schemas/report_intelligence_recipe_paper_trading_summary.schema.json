@@ -18,6 +18,7 @@
     "direct_pit_bound_recipe_count",
     "direct_pit_bound_recipe_ids",
     "direct_pit_bound_blocker_counts",
+    "direct_pit_binding_diagnostics",
     "validation_candidate_recipe_count",
     "validation_candidate_recipe_ids",
     "tool_only_blocked_recipe_count",
@@ -59,6 +60,41 @@
     "direct_pit_bound_blocker_counts": {
       "type": "object",
       "additionalProperties": {"type": "integer", "minimum": 0}
+    },
+    "direct_pit_binding_diagnostics": {
+      "type": "object",
+      "required": [
+        "status",
+        "diagnostic_only",
+        "policy",
+        "recipe_count",
+        "direct_pit_bound_recipe_count",
+        "no_direct_recipe_outcome_binding_count",
+        "insufficient_effective_n_count",
+        "required_tools_not_shadow_implemented_count",
+        "next_actions"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "blocked_no_direct_pit_binding",
+            "partial_direct_pit_binding",
+            "ready_for_validation"
+          ]
+        },
+        "diagnostic_only": {"type": "boolean", "const": true},
+        "policy": {"type": "string", "minLength": 1},
+        "recipe_count": {"type": "integer", "minimum": 0},
+        "direct_pit_bound_recipe_count": {"type": "integer", "minimum": 0},
+        "no_direct_recipe_outcome_binding_count": {"type": "integer", "minimum": 0},
+        "insufficient_effective_n_count": {"type": "integer", "minimum": 0},
+        "required_tools_not_shadow_implemented_count": {"type": "integer", "minimum": 0},
+        "next_actions": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        }
+      },
+      "additionalProperties": true
     },
     "validation_candidate_recipe_count": {"type": "integer", "minimum": 0},
     "validation_candidate_recipe_ids": {"type": "array", "items": {"type": "string"}},

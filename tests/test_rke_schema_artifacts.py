@@ -463,6 +463,32 @@ def test_recipe_paper_trading_summary_requires_full_protocol(tmp_path: Path):
     )
 
 
+def test_recipe_paper_trading_summary_requires_direct_pit_diagnostics(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    summary_path = registry / "recipe_paper_trading_summary.json"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    summary.pop("direct_pit_binding_diagnostics", None)
+    summary_path.write_text(
+        json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = validate_json_schema_artifact(
+        root=tmp_path,
+        schema_path="schemas/report_intelligence_recipe_paper_trading_summary.schema.json",
+        artifact_path="registry/report_intelligence/recipe_paper_trading_summary.json",
+        artifact_kind="json",
+    )
+
+    assert not record.accepted
+    assert any(
+        "direct_pit_binding_diagnostics: required" in failure
+        for failure in record.failures
+    )
+
+
 def test_confidence_impact_observation_rejects_unknown_drift_status(
     tmp_path: Path,
 ):

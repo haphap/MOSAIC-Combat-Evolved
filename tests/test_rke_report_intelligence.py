@@ -2547,6 +2547,21 @@ def test_report_intelligence_recipe_paper_trading_requires_direct_pit_evidence()
     assert summary["direct_pit_bound_recipe_count"] == 1
     assert summary["direct_pit_bound_recipe_ids"] == ["RECIPE-DIRECT-PIT"]
     assert summary["direct_pit_bound_blocker_counts"] == {}
+    assert summary["direct_pit_binding_diagnostics"] == {
+        "status": "ready_for_validation",
+        "diagnostic_only": True,
+        "policy": (
+            "profile weights and method names are insufficient; recipe "
+            "paper-trading requires direct PIT outcome labels bound to the "
+            "recipe or its source method pattern"
+        ),
+        "recipe_count": 1,
+        "direct_pit_bound_recipe_count": 1,
+        "no_direct_recipe_outcome_binding_count": 0,
+        "insufficient_effective_n_count": 0,
+        "required_tools_not_shadow_implemented_count": 0,
+        "next_actions": ["monitor validated paper-trading drift"],
+    }
     assert summary["validation_candidate_recipe_count"] == 1
     assert summary["tool_only_blocked_recipe_count"] == 0
     assert summary["tool_only_blocked_tool_gap_count"] == 0
@@ -2645,6 +2660,12 @@ def test_report_intelligence_recipe_paper_trading_requires_direct_pit_evidence()
     assert blocked_observations[0]["recommended_action"] == "send_to_manual_review"
     assert blocked_summary["profile_paper_trade_disagreement_count"] == 1
     assert blocked_summary["direct_pit_bound_recipe_count"] == 0
+    assert blocked_summary["direct_pit_binding_diagnostics"]["status"] == (
+        "blocked_no_direct_pit_binding"
+    )
+    assert blocked_summary["direct_pit_binding_diagnostics"][
+        "no_direct_recipe_outcome_binding_count"
+    ] == 1
     assert blocked_monitor["profile_paper_trade_disagreement_count"] == 1
     assert blocked_monitor["profile_paper_trade_disagreement_recipe_ids"] == [
         "RECIPE-DIRECT-PIT"
@@ -2726,6 +2747,12 @@ def test_report_intelligence_recipe_paper_trading_requires_direct_pit_evidence()
         "required_tools_not_shadow_implemented"
     ]
     assert tool_blocked_summary["direct_pit_bound_recipe_count"] == 1
+    assert tool_blocked_summary["direct_pit_binding_diagnostics"]["status"] == (
+        "partial_direct_pit_binding"
+    )
+    assert tool_blocked_summary["direct_pit_binding_diagnostics"][
+        "required_tools_not_shadow_implemented_count"
+    ] == 1
     assert tool_blocked_summary["tool_only_blocked_recipe_ids"] == [
         "RECIPE-TOOL-BLOCKED"
     ]

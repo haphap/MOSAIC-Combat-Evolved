@@ -9707,6 +9707,42 @@ def build_recipe_paper_trading_summary(
                 "blocked or profile-only recipes are excluded"
             ),
         }
+    direct_pit_gap_count = int(
+        blocker_counts.get("no_direct_recipe_outcome_binding", 0)
+    )
+    insufficient_effective_n_count = int(
+        blocker_counts.get("insufficient_effective_n", 0)
+    )
+    requested_tool_block_count = int(
+        blocker_counts.get("required_tools_not_shadow_implemented", 0)
+    )
+    direct_pit_binding_status = (
+        "ready_for_validation"
+        if (
+            not direct_pit_gap_count
+            and direct_pit_bound_ids
+            and not insufficient_effective_n_count
+            and not requested_tool_block_count
+        )
+        else "partial_direct_pit_binding"
+        if direct_pit_bound_ids
+        else "blocked_no_direct_pit_binding"
+    )
+    direct_pit_binding_next_actions: list[str] = []
+    if direct_pit_gap_count:
+        direct_pit_binding_next_actions.append(
+            "link recipes to source-grounded method patterns and PIT outcome labels"
+        )
+    if insufficient_effective_n_count:
+        direct_pit_binding_next_actions.append(
+            "expand direct PIT-bound outcome samples until effective_n passes"
+        )
+    if requested_tool_block_count:
+        direct_pit_binding_next_actions.append(
+            "implement or reject requested shadow tools before validation"
+        )
+    if not direct_pit_binding_next_actions:
+        direct_pit_binding_next_actions.append("monitor validated paper-trading drift")
     return {
         "summary_id": "RKE-REPORT-INTELLIGENCE-RECIPE-PAPER-TRADING-SUMMARY",
         "run_id": run_id,
@@ -9725,6 +9761,21 @@ def build_recipe_paper_trading_summary(
         "direct_pit_bound_blocker_counts": dict(
             sorted(direct_pit_bound_blocker_counts.items())
         ),
+        "direct_pit_binding_diagnostics": {
+            "status": direct_pit_binding_status,
+            "diagnostic_only": True,
+            "policy": (
+                "profile weights and method names are insufficient; recipe "
+                "paper-trading requires direct PIT outcome labels bound to the "
+                "recipe or its source method pattern"
+            ),
+            "recipe_count": len(recipe_paper_trading_runs),
+            "direct_pit_bound_recipe_count": len(direct_pit_bound_ids),
+            "no_direct_recipe_outcome_binding_count": direct_pit_gap_count,
+            "insufficient_effective_n_count": insufficient_effective_n_count,
+            "required_tools_not_shadow_implemented_count": requested_tool_block_count,
+            "next_actions": direct_pit_binding_next_actions,
+        },
         "validation_candidate_recipe_count": len(validation_candidate_ids),
         "validation_candidate_recipe_ids": sorted(validation_candidate_ids),
         "tool_only_blocked_recipe_count": len(tool_only_blocked_ids),

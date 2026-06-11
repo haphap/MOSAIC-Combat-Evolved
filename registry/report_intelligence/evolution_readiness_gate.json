@@ -1,5 +1,5 @@
 {
-  "as_of_datetime": "2026-06-11T23:07:34+00:00",
+  "as_of_datetime": "2026-06-11T23:15:56+00:00",
   "blocker_count": 16,
   "blockers": [
     "audit_refresh_history_below_threshold",
@@ -488,7 +488,7 @@
       "target": 100
     }
   },
-  "run_id": "RIR-PUBLIC-EVOLUTION-GATE-20260612C",
+  "run_id": "RIR-PUBLIC-EVOLUTION-GATE-20260612D",
   "thresholds": {
     "min_consecutive_audit_refreshes": 3,
     "min_consecutive_monitor_refreshes": 3,

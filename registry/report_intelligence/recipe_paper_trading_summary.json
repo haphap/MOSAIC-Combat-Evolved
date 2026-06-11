@@ -9,7 +9,7 @@
     "status": "insufficient_validated_runs",
     "validated_recipe_count": 0
   },
-  "as_of_datetime": "2026-06-11T00:54:09+00:00",
+  "as_of_datetime": "2026-06-11T23:15:33+00:00",
   "blocked_count": 110,
   "blocked_recipe_ids": [
     "RECIPE-005f7579881934bb",
@@ -127,6 +127,21 @@
     "insufficient_effective_n": 110,
     "no_direct_recipe_outcome_binding": 110,
     "required_tools_not_shadow_implemented": 110
+  },
+  "direct_pit_binding_diagnostics": {
+    "diagnostic_only": true,
+    "direct_pit_bound_recipe_count": 0,
+    "insufficient_effective_n_count": 110,
+    "next_actions": [
+      "link recipes to source-grounded method patterns and PIT outcome labels",
+      "expand direct PIT-bound outcome samples until effective_n passes",
+      "implement or reject requested shadow tools before validation"
+    ],
+    "no_direct_recipe_outcome_binding_count": 110,
+    "policy": "profile weights and method names are insufficient; recipe paper-trading requires direct PIT outcome labels bound to the recipe or its source method pattern",
+    "recipe_count": 110,
+    "required_tools_not_shadow_implemented_count": 110,
+    "status": "blocked_no_direct_pit_binding"
   },
   "direct_pit_bound_blocker_counts": {},
   "direct_pit_bound_recipe_count": 0,
