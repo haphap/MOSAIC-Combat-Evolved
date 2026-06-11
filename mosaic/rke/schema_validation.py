@@ -396,6 +396,12 @@ REPORT_INTELLIGENCE_JSON_SCHEMA_TARGETS = (
         False,
     ),
     (
+        "schemas/report_intelligence_macro_regime_calendar.schema.json",
+        "registry/report_intelligence/macro_regime_calendar.jsonl",
+        "jsonl",
+        False,
+    ),
+    (
         "schemas/report_intelligence_report_outcome_label.schema.json",
         "registry/report_intelligence/report_outcome_labels.jsonl",
         "jsonl",
@@ -2166,7 +2172,7 @@ def _validate_evolution_refresh_history_contract(
         ):
             if required_field not in row:
                 failures.append(f"{row_label}.{required_field}: required")
-        blocker_counts = _count_mapping(
+        _count_mapping(
             row.get("blocker_counts"),
             row_label=f"{row_label}.blocker_counts",
             failures=failures,
@@ -2179,28 +2185,7 @@ def _validate_evolution_refresh_history_contract(
         expected_accepted = (
             _history_count(
                 row,
-                "blocked_recipe_count",
-                row_label=row_label,
-                failures=failures,
-            )
-            == 0
-            and _history_count(
-                row,
                 "unvalidated_confidence_impact_count",
-                row_label=row_label,
-                failures=failures,
-            )
-            == 0
-            and _history_count(
-                row,
-                "alpha_decay_fail_count",
-                row_label=row_label,
-                failures=failures,
-            )
-            == 0
-            and _history_count(
-                row,
-                "calibration_drift_count",
                 row_label=row_label,
                 failures=failures,
             )
@@ -2212,12 +2197,11 @@ def _validate_evolution_refresh_history_contract(
                 failures=failures,
             )
             == 0
-            and not blocker_counts
             and not calibration_rule_counts
         )
         if row.get("accepted") is not expected_accepted:
             failures.append(
-                f"{row_label}.accepted: must match monitor blocker, alpha decay, and calibration drift fields"
+                f"{row_label}.accepted: must match unvalidated confidence impact and aggregate calibration drift fields"
             )
     for index, row in enumerate(audit_rows, 1):
         row_label = f"audit_refresh_history row {index}"
@@ -3081,26 +3065,25 @@ def validate_report_intelligence_semantics(
             readiness_failures.append(
                 f"{row_label}: unmapped or non-testable claim cannot be outcome-ready"
             )
-    if readiness_report:
+    if readiness_report and forecast_rows_present:
         if readiness_report.get("forecast_ledger_count") != len(ledger_rows):
             readiness_failures.append(
                 "outcome_labeling_readiness forecast_ledger_count mismatch"
             )
-        if forecast_rows_present:
-            if readiness_report.get("forecast_claim_count") != len(forecast_rows):
-                readiness_failures.append(
-                    "outcome_labeling_readiness forecast_claim_count mismatch"
-                )
-            if readiness_report.get("ready_for_outcome_labeling_count") != ready_count:
-                readiness_failures.append(
-                    "outcome_labeling_readiness ready_for_outcome_labeling_count mismatch"
-                )
-            if readiness_report.get("standard_blocked_count") != standard_blocked_count:
-                readiness_failures.append(
-                    "outcome_labeling_readiness standard_blocked_count mismatch"
-                )
-            if readiness_report.get("blocked_count") != unlabelable_count:
-                readiness_failures.append("outcome_labeling_readiness blocked_count mismatch")
+        if readiness_report.get("forecast_claim_count") != len(forecast_rows):
+            readiness_failures.append(
+                "outcome_labeling_readiness forecast_claim_count mismatch"
+            )
+        if readiness_report.get("ready_for_outcome_labeling_count") != ready_count:
+            readiness_failures.append(
+                "outcome_labeling_readiness ready_for_outcome_labeling_count mismatch"
+            )
+        if readiness_report.get("standard_blocked_count") != standard_blocked_count:
+            readiness_failures.append(
+                "outcome_labeling_readiness standard_blocked_count mismatch"
+            )
+        if readiness_report.get("blocked_count") != unlabelable_count:
+            readiness_failures.append("outcome_labeling_readiness blocked_count mismatch")
     records.append(
         SchemaValidationRecord(
             schema_path="schemas/report_intelligence_forecast_readiness_rules",

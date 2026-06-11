@@ -14,6 +14,7 @@ from mosaic.rke.registry_manifest import PRIVATE_LOCAL_REGISTRY_FILES
 from mosaic.rke.report_intelligence import (
     DEFAULT_MINERU_ARGS_TEMPLATE,
     DEFAULT_VLLM_TIMEOUT_SECONDS,
+    MAX_STORED_CLAIM_TEXT_CHARS,
     MineruBatchConversionTask,
     ReportIntelligenceConfig,
     REPORT_INTELLIGENCE_PRIVATE_OUTPUT_PATHS,
@@ -28,10 +29,13 @@ from mosaic.rke.report_intelligence import (
     build_industry_etf_proxy_readiness,
     build_report_intelligence_evolution_readiness_gate,
     build_method_performance_profiles,
+    build_outcome_labeling_readiness_report,
     build_recipe_paper_trading_runs,
     build_recipe_paper_trading_summary,
     build_report_intelligence_extraction_provenance_audit,
     build_source_performance_profiles,
+    build_data_acquisition_proposals,
+    build_tool_design_proposals,
     build_viewpoint_performance_profiles,
     build_weighted_research_contexts,
     call_vllm_extractor,
@@ -42,10 +46,16 @@ from mosaic.rke.report_intelligence import (
     run_report_intelligence_derived_refresh,
     write_report_intelligence_evolution_readiness_gate,
     _append_evolution_history_record,
+    _backfill_tool_gaps_from_metric_candidates,
     _read_industry_etf_proxy_map_rows,
     _markdown_quality_gap,
+    _normalize_method_patterns,
+    _normalize_forecast_claims,
     _paper_trading_chronological_split_metrics,
     _user_prompt,
+    _refresh_forecast_mapping_governance,
+    _infer_claim_component_roles,
+    _infer_claim_mechanism_roles,
 )
 
 
@@ -118,6 +128,527 @@ def test_call_vllm_extractor_sends_authorization_header(monkeypatch):
     assert seen["payload"]["model"] == "mimo-v2.5-pro"
 
 
+def test_user_prompt_requires_context_synthesized_forecast_claims():
+    prompt = _user_prompt(
+        {
+            "source_id": "SRC-PROMPT",
+            "title": "测试报告",
+            "publish_date": "2026-06-11",
+        },
+        "股债市场双向波动，理财子通过多资产组合应对波动并获取超额收益。",
+        "SRC-PROMPT:chunk-1",
+        0,
+        1,
+    )
+
+    assert "compact synthesis over the relevant paragraph/window" in prompt
+    assert "does not need to be a verbatim sentence" in prompt
+    assert "For Chinese source text, output claim_text in Chinese" in prompt
+    assert "under <macro regime if present>" in prompt
+    assert "finance-relevant target impact" in prompt
+    assert "analytical_footprints, not forecast_claims" in prompt
+    assert "pure historical/statistical descriptions" in prompt
+    assert "2026-2028年" in prompt
+    assert "metric_proxy_mapping" in prompt
+    assert "stock_forward_return" in prompt
+    assert "Do not merge macro regime, industry-cycle regime" in prompt
+    assert "company labs reaching designed utilization" in prompt
+    assert "Make the economic mechanism explicit" in prompt
+    assert "price/cost pass-through" in prompt
+    assert "macro regime" in prompt
+    assert "industry-cycle regime" in prompt
+    assert "rate-cut cycle" in prompt
+    assert "global copper supply is structurally tight" in prompt
+
+
+def test_normalize_forecast_claims_filters_boilerplate_and_descriptive_facts():
+    records = _normalize_forecast_claims(
+        {
+            "forecast_claims": [
+                {
+                    "claim_text": "风险提示：宏观经济、货币政策超预期变化、数据误差等风险。",
+                    "claim_provenance": "source_grounded",
+                },
+                {
+                    "claim_text": "黑钨精矿65%国产的价格涨跌幅为600%。",
+                    "claim_provenance": "source_grounded",
+                },
+                {
+                    "claim_text": (
+                        "在医院业务扩张需求下，通过构建数据资源中心，"
+                        "预期将提升管理决策效率、医疗服务质量和患者就医体验。"
+                    ),
+                    "claim_provenance": "source_grounded",
+                    "direction": "positive",
+                    "target": {"target_id": "IT服务Ⅱ", "target_type": "sector"},
+                },
+                {
+                    "claim_text": (
+                        "通过开发自动数据上报平台，预期将综合上报效率提升90%，"
+                        "错误率下降，时间周期缩短，从而降低人工成本。"
+                    ),
+                    "claim_provenance": "source_grounded",
+                    "direction": "positive",
+                    "target": {"target_id": "IT服务Ⅱ", "target_type": "sector"},
+                },
+                {
+                    "claim_text": (
+                        "建议租赁公司健全合规管理体系，加强租赁物全生命周期管理，"
+                        "完善租赁物估值、监控和处置体系。"
+                    ),
+                    "claim_provenance": "source_grounded",
+                    "direction": "positive",
+                    "target": {"target_id": "多元金融", "target_type": "sector"},
+                },
+                {
+                    "claim_text": "若供给约束延续且库存继续下降，有色金属景气周期有望推动板块后续跑赢市场。",
+                    "claim_provenance": "source_grounded",
+                    "direction": "positive",
+                    "forecast_testability": "testable",
+                    "forecast_type": "sector_outlook",
+                    "horizon": {"max_days": 60, "unit": "trading_day"},
+                    "metric_proxy_mapping": ["commodity_price_cycle"],
+                    "target": {"target_id": "有色金属", "target_type": "sector"},
+                },
+            ]
+        },
+        {
+            "source_id": "SRC-CLAIM-FILTER",
+            "publish_date": "2026-06-11",
+        },
+        run_id="RUN-CLAIM-FILTER",
+        model="fake-vllm",
+        report_id="RPT-CLAIM-FILTER",
+        chunk_span_id="SRC-CLAIM-FILTER:chunk-1",
+    )
+
+    assert [record["claim_text"] for record in records] == [
+        "若供给约束延续且库存继续下降，有色金属景气周期有望推动板块后续跑赢市场。"
+    ]
+
+
+def test_normalize_forecast_claims_infers_horizon_and_metric_proxy_mapping():
+    records = _normalize_forecast_claims(
+        {
+            "forecast_claims": [
+                {
+                    "claim_text": (
+                        "在金属材料检测行业需求持续增长、公司全国布局实验室投产达效的背景下，"
+                        "公司预计2026-2028年营业收入和归母净利润将保持增长，维持买入评级。"
+                    ),
+                    "claim_provenance": "source_grounded",
+                    "direction": "positive",
+                    "forecast_testability": "testable",
+                    "forecast_type": "earnings",
+                    "horizon": {},
+                    "metric_proxy_mapping": [],
+                    "target": {"target_id": "300797.SZ", "target_type": "stock"},
+                    "benchmark": {
+                        "benchmark_id": "SH510300",
+                        "benchmark_type": "broad_market",
+                    },
+                }
+            ]
+        },
+        {
+            "source_id": "SRC-MAPPING-INFER",
+            "publish_date": "2026-06-11",
+        },
+        run_id="RUN-MAPPING-INFER",
+        model="fake-vllm",
+        report_id="RPT-MAPPING-INFER",
+        chunk_span_id="SRC-MAPPING-INFER:chunk-1",
+    )
+
+    assert len(records) == 1
+    record = records[0]
+    assert record["forecast_testability"] == "testable"
+    assert record["horizon"]["max_days"] > 900
+    assert record["horizon"]["source_text"] == "2026-2028年"
+    assert record["extraction_quality"]["claim_component_roles"] == {
+        "has_regime_context": True,
+        "has_macro_regime_context": True,
+        "has_industry_cycle_regime_context": True,
+        "regime_context_types": ["us_rate_cut_cycle", "industry_demand_growth"],
+        "macro_regime_context_types": ["us_rate_cut_cycle"],
+        "source_text_macro_regime_context_types": [],
+        "as_of_date_macro_regime_context_types": ["us_rate_cut_cycle"],
+        "macro_regime_context_sources": {
+            "us_rate_cut_cycle": (
+                "as_of_date:2026-06-11; US policy-rate cycle remained in a "
+                "post-cut/easing-evaluation window after 2025 cuts"
+            )
+        },
+        "industry_cycle_regime_context_types": ["industry_demand_growth"],
+        "has_company_capability_or_action": True,
+        "has_market_or_fundamental_impact": True,
+        "target_type": "stock",
+        "mixed_regime_and_company_capability": True,
+        "role_policy": (
+            "separate_macro_regime_industry_cycle_regime_company_capability_"
+            "mechanism_and_impact"
+        ),
+        "as_of_regime_policy": (
+            "macro regime may be inferred from PIT as_of_datetime; industry-cycle "
+            "regime must be source-text derived"
+        ),
+    }
+    mechanism = record["extraction_quality"]["claim_mechanism_roles"]
+    assert set(mechanism["channels"]) >= {
+        "demand_pull",
+        "capacity_release_or_supply",
+    }
+    assert "expand_capacity_or_coverage" in mechanism["actions"]
+    assert set(mechanism["impact_variables"]) >= {
+        "demand_growth",
+        "revenue_growth",
+        "earnings_growth",
+    }
+    assert mechanism["has_economic_mechanism"] is True
+    assert mechanism["mechanism_connects_to_evaluable_impact"] is True
+    assert set(record["metric_proxy_mapping"]) >= {
+        "demand_growth",
+        "revenue_growth",
+        "earnings_growth",
+        "stock_forward_return",
+    }
+    assert (
+        record["extraction_quality"]["metric_proxy_mapping_inferred_from_claim_text"]
+        is True
+    )
+
+
+def test_normalize_forecast_claims_infers_chinese_relative_and_qualitative_horizon():
+    records = _normalize_forecast_claims(
+        {
+            "forecast_claims": [
+                {
+                    "claim_text": "行业未来三年需求增长有望推动景气度改善并带动板块跑赢市场。",
+                    "claim_provenance": "source_grounded",
+                    "direction": "positive",
+                    "forecast_testability": "testable",
+                    "target": {"target_id": "计算机", "target_type": "sector"},
+                    "benchmark": {"benchmark_type": "broad_market"},
+                    "horizon": {},
+                },
+                {
+                    "claim_text": "长期供需格局改善将支撑商品价格中枢上行。",
+                    "claim_provenance": "source_grounded",
+                    "direction": "positive",
+                    "forecast_testability": "testable",
+                    "target": {"target_id": "铜", "target_type": "commodity"},
+                    "benchmark": {"benchmark_type": "spot_price"},
+                    "horizon": {},
+                },
+            ]
+        },
+        {
+            "source_id": "SRC-HORIZON-INFER",
+            "publish_date": "2026-06-11",
+        },
+        run_id="RUN-HORIZON-INFER",
+        model="fake-vllm",
+        report_id="RPT-HORIZON-INFER",
+        chunk_span_id="SRC-HORIZON-INFER:chunk-1",
+    )
+
+    assert records[0]["horizon"]["max_days"] == 1096
+    assert records[0]["horizon"]["source_text"] == "未来三年"
+    assert set(records[0]["metric_proxy_mapping"]) >= {
+        "demand_growth",
+        "industry_prosperity",
+        "industry_etf_forward_return",
+        "relative_alpha",
+    }
+    assert records[1]["horizon"]["preferred_days"] == 120
+    assert records[1]["horizon"]["source_text"] == "长期"
+    assert set(records[1]["metric_proxy_mapping"]) >= {
+        "commodity_price_cycle",
+        "commodity_spot_price",
+    }
+
+
+def test_normalize_forecast_claims_replaces_unreasonable_model_horizon():
+    records = _normalize_forecast_claims(
+        {
+            "forecast_claims": [
+                {
+                    "claim_text": (
+                        "受光纤、半导体等下游高增长需求拉动，预计2026年全球"
+                        "半导体级氦气需求增长9%，需求高增长与供给紧缺在2026年内同时出现。"
+                    ),
+                    "claim_provenance": "source_grounded",
+                    "direction": "positive",
+                    "forecast_testability": "testable",
+                    "target": {"target_id": "化学制品", "target_type": "sector"},
+                    "benchmark": {"benchmark_type": "broad_market"},
+                    "horizon": {"max_days": 739996, "unit": "calendar_day"},
+                }
+            ]
+        },
+        {
+            "source_id": "SRC-UNREASONABLE-HORIZON",
+            "publish_date": None,
+        },
+        run_id="RUN-UNREASONABLE-HORIZON",
+        model="fake-vllm",
+        report_id="RPT-UNREASONABLE-HORIZON",
+        chunk_span_id="SRC-UNREASONABLE-HORIZON:chunk-1",
+    )
+
+    assert len(records) == 1
+    assert records[0]["horizon"]["max_days"] == 365
+    assert records[0]["horizon"]["invalid_model_horizon_replaced"] is True
+    assert records[0]["extraction_quality"]["horizon_inferred_from_claim_text"] is True
+
+
+def test_refresh_forecast_mapping_governance_drops_stale_non_financial_claims():
+    refreshed = _refresh_forecast_mapping_governance(
+        [
+            {
+                "forecast_claim_id": "FC-STALE",
+                "claim_text": (
+                    "建议租赁公司健全合规管理体系，加强租赁物全生命周期管理，"
+                    "完善租赁物估值、监控和处置体系。"
+                ),
+                "target": {"target_id": "多元金融", "target_type": "sector"},
+                "benchmark": {"benchmark_type": "broad_market"},
+                "direction": "positive",
+                "horizon": {"max_days": 120},
+                "forecast_testability": "testable",
+            },
+            {
+                "forecast_claim_id": "FC-VALID",
+                "claim_text": "若供给约束延续且库存继续下降，有色金属景气周期有望推动板块后续跑赢市场。",
+                "target": {"target_id": "有色金属", "target_type": "sector"},
+                "benchmark": {"benchmark_type": "broad_market"},
+                "direction": "positive",
+                "horizon": {"max_days": 120},
+                "forecast_testability": "testable",
+            },
+        ]
+    )
+
+    assert [row["forecast_claim_id"] for row in refreshed] == ["FC-VALID"]
+
+
+def test_infer_claim_mechanism_roles_covers_business_mix_and_overseas_channels():
+    business_mix = _infer_claim_mechanism_roles(
+        "公司高毛利配件业务占比提升，耗材属性凸显，有望推动公司利润持续增长。",
+        target={"target_type": "stock", "target_id": "688392.SH"},
+        metric_proxy_mapping=["earnings_growth", "margin_profitability"],
+    )
+    overseas = _infer_claim_mechanism_roles(
+        "海外盈利优于国内，建议关注出海主线。",
+        target={"target_type": "sector", "target_id": "汽车零部件"},
+        metric_proxy_mapping=["margin_profitability"],
+    )
+    cost_efficiency = _infer_claim_mechanism_roles(
+        "公司管理费用率下降并持续控制成本，提质增效有助于提升盈利能力。",
+        target={"target_type": "stock", "target_id": "300797.SZ"},
+        metric_proxy_mapping=["margin_profitability"],
+    )
+
+    assert "business_mix_shift" in business_mix["channels"]
+    assert "shift_business_mix" in business_mix["actions"]
+    assert business_mix["mechanism_connects_to_evaluable_impact"] is True
+    assert "overseas_expansion" in overseas["channels"]
+    assert "expand_overseas_market" in overseas["actions"]
+    assert overseas["mechanism_connects_to_evaluable_impact"] is True
+    assert "margin_expansion_or_pressure" in cost_efficiency["channels"]
+    assert "optimize_cost_or_efficiency" in cost_efficiency["actions"]
+    assert cost_efficiency["mechanism_connects_to_evaluable_impact"] is True
+
+
+def test_infer_claim_component_roles_separates_macro_and_industry_regime():
+    macro = _infer_claim_component_roles(
+        "美国2024年9月开启降息周期，中国同时期开始加大货币政策逆周期调节力度，流动性改善有望推动高beta风格跑赢市场。",
+        target={"target_type": "sector", "target_id": "有色金属"},
+    )
+    copper = _infer_claim_component_roles(
+        "当前全球铜市场呈现供给长期偏紧、需求动能切换的格局，铜价中枢上行有望支撑有色板块景气度。",
+        target={"target_type": "sector", "target_id": "工业金属"},
+    )
+
+    assert set(macro["macro_regime_context_types"]) >= {
+        "us_rate_cut_cycle",
+        "china_countercyclical_policy",
+        "monetary_liquidity_condition",
+    }
+    assert macro["industry_cycle_regime_context_types"] == []
+    assert macro["has_macro_regime_context"] is True
+    assert macro["has_industry_cycle_regime_context"] is False
+    assert set(copper["industry_cycle_regime_context_types"]) >= {
+        "supply_tightness",
+        "demand_transition",
+        "price_cycle",
+        "prosperity_cycle",
+    }
+    assert copper["macro_regime_context_types"] == []
+    assert copper["has_macro_regime_context"] is False
+    assert copper["has_industry_cycle_regime_context"] is True
+
+
+def test_infer_claim_component_roles_adds_pit_as_of_macro_regime():
+    roles = _infer_claim_component_roles(
+        "公司加快推进数字化转型和智能化升级，有助于提质增效并支撑业绩增长。",
+        target={"target_type": "stock", "target_id": "300797.SZ"},
+        as_of_datetime="2025-06-05",
+    )
+
+    assert set(roles["macro_regime_context_types"]) >= {
+        "us_rate_cut_cycle",
+        "china_countercyclical_policy",
+        "monetary_liquidity_condition",
+    }
+    assert roles["source_text_macro_regime_context_types"] == []
+    assert set(roles["as_of_date_macro_regime_context_types"]) >= {
+        "us_rate_cut_cycle",
+        "china_countercyclical_policy",
+        "monetary_liquidity_condition",
+    }
+    assert roles["has_macro_regime_context"] is True
+    assert roles["has_regime_context"] is True
+    assert roles["has_company_capability_or_action"] is True
+    assert roles["macro_regime_context_sources"]["us_rate_cut_cycle"].startswith(
+        "as_of_date:2025-06-05"
+    )
+
+
+def test_infer_claim_component_roles_uses_governed_macro_regime_calendar():
+    roles = _infer_claim_component_roles(
+        "公司加快推进数字化转型和智能化升级，有助于提质增效并支撑业绩增长。",
+        target={"target_type": "stock", "target_id": "300797.SZ"},
+        as_of_datetime="2026-06-05",
+        macro_regime_calendar_rows=[
+            {
+                "regime_id": "MACRO-REGIME-TEST-20260101",
+                "regime_type": "test_macro_liquidity_window",
+                "start_date": "2026-01-01",
+                "end_date": "2026-12-31",
+                "source": "test governed PIT macro regime row",
+                "pit_available": True,
+                "policy": "test only",
+                "version": 1,
+            }
+        ],
+    )
+
+    assert roles["macro_regime_context_types"] == ["test_macro_liquidity_window"]
+    assert roles["source_text_macro_regime_context_types"] == []
+    assert roles["as_of_date_macro_regime_context_types"] == [
+        "test_macro_liquidity_window"
+    ]
+    assert roles["macro_regime_context_sources"] == {
+        "test_macro_liquidity_window": (
+            "as_of_date:2026-06-05; test governed PIT macro regime row"
+        )
+    }
+
+
+def test_infer_claim_component_roles_covers_common_industry_cycle_buckets():
+    specialty_gas = _infer_claim_component_roles(
+        "在地缘冲突导致全球氦气供给中长期紧张、半导体材料国产替代深化的背景下，电子特气企业具备价值重估空间。",
+        target={"target_type": "sector", "target_id": "化学制品"},
+    )
+    steel = _infer_claim_component_roles(
+        "在原材料价格近期上涨且出口限制扩大的背景下，钢铁行业面临投入成本上升和利润空间挤压。",
+        target={"target_type": "sector", "target_id": "普钢"},
+    )
+    ai_compute = _infer_claim_component_roles(
+        "在AI技术商业化加速、推理算力需求爆发和算力供需持续错配的背景下，AIGC算力主线是当前行业增长方向。",
+        target={"target_type": "sector", "target_id": "IT服务Ⅱ"},
+    )
+    broker = _infer_claim_component_roles(
+        "自营业务已成为券商行业第一大收入来源和业绩分化的核心变量，当前券商板块估值处于历史低位。",
+        target={"target_type": "sector", "target_id": "证券Ⅱ"},
+    )
+
+    assert set(specialty_gas["industry_cycle_regime_context_types"]) >= {
+        "supply_tightness",
+        "import_substitution_cycle",
+    }
+    assert set(steel["industry_cycle_regime_context_types"]) >= {
+        "raw_material_cost_pressure",
+        "industry_policy_catalyst",
+    }
+    assert set(ai_compute["industry_cycle_regime_context_types"]) >= {
+        "technology_cycle",
+        "supply_tightness",
+    }
+    assert set(broker["industry_cycle_regime_context_types"]) >= {
+        "business_model_shift",
+        "competition_cycle",
+        "industry_valuation_cycle",
+    }
+
+
+def test_outcome_readiness_marks_company_only_claims_as_diagnostic_regime_gap():
+    readiness = build_outcome_labeling_readiness_report(
+        forecast_rows=[
+            {
+                "forecast_claim_id": "FC-COMPANY-ONLY",
+                "claim_text": "公司特种装备业务提升显著、产能与交付能力增强，有助于提质增效并支撑业绩增长。",
+                "target": {"target_type": "stock", "target_id": "300797.SZ"},
+                "metric_proxy_mapping": ["earnings_growth"],
+                "extraction_quality": {},
+            }
+        ],
+        forecast_ledger_rows=[
+            {
+                "forecast_claim_id": "FC-COMPANY-ONLY",
+                "test_status": "ready_for_outcome_labeling",
+            }
+        ],
+    )
+
+    assert readiness["macro_regime_counts"] == {}
+    assert readiness["source_text_macro_regime_counts"] == {}
+    assert readiness["as_of_date_macro_regime_counts"] == {}
+    assert readiness["macro_regime_source_counts"] == {}
+    assert readiness["industry_cycle_regime_counts"] == {}
+    assert readiness["regime_gap_counts"] == {
+        "company_capability_only_no_regime_context": 1
+    }
+    assert readiness["regime_gap_forecast_claim_ids"] == ["FC-COMPANY-ONLY"]
+
+
+def test_outcome_readiness_counts_as_of_date_macro_regime_separately():
+    readiness = build_outcome_labeling_readiness_report(
+        forecast_rows=[
+            {
+                "forecast_claim_id": "FC-ASOF-MACRO",
+                "claim_text": "公司特种装备业务提升显著、产能与交付能力增强，有助于提质增效并支撑业绩增长。",
+                "signal_datetime": "2025-06-05",
+                "target": {"target_type": "stock", "target_id": "300797.SZ"},
+                "metric_proxy_mapping": ["earnings_growth"],
+                "extraction_quality": {},
+            }
+        ],
+        forecast_ledger_rows=[
+            {
+                "forecast_claim_id": "FC-ASOF-MACRO",
+                "test_status": "ready_for_outcome_labeling",
+            }
+        ],
+    )
+
+    assert set(readiness["macro_regime_counts"]) >= {
+        "us_rate_cut_cycle",
+        "china_countercyclical_policy",
+        "monetary_liquidity_condition",
+    }
+    assert readiness["source_text_macro_regime_counts"] == {}
+    assert set(readiness["as_of_date_macro_regime_counts"]) >= {
+        "us_rate_cut_cycle",
+        "china_countercyclical_policy",
+        "monetary_liquidity_condition",
+    }
+    assert readiness["macro_regime_source_counts"] == {"as_of_date": 3}
+    assert readiness["regime_gap_counts"] == {}
+    assert "PIT as_of_datetime" in readiness["as_of_date_macro_regime_policy"]
+
+
 def _passing_forecast_gold_review_summary(**overrides):
     summary = {
         "passed": True,
@@ -133,6 +664,26 @@ def _passing_forecast_gold_review_summary(**overrides):
             "horizon_accuracy": 0.87,
             "variable_mapping_accuracy": 0.82,
             "unsupported_field_false_grounding_rate": 0.02,
+        },
+    }
+    summary.update(overrides)
+    return summary
+
+
+def _passing_recipe_paper_trading_summary(**overrides):
+    summary = {
+        "paper_trading_run_count": 20,
+        "validation_pass_count": 20,
+        "mean_cost_adjusted_alpha": 0.012,
+        "after_cost_paper_trading_summary": {
+            "status": "computed",
+            "validated_recipe_count": 20,
+            "mean_after_cost_alpha": 0.012,
+            "median_after_cost_alpha": 0.012,
+            "min_after_cost_alpha": 0.004,
+            "max_after_cost_alpha": 0.02,
+            "positive_after_cost_recipe_count": 20,
+            "policy": "test summary",
         },
     }
     summary.update(overrides)
@@ -676,6 +1227,34 @@ def test_report_intelligence_derived_refresh_refuses_clean_checkout_overwrite(
     assert readiness_path.read_text(encoding="utf-8") == before_readiness
 
 
+def test_report_intelligence_derived_refresh_refuses_empty_private_inputs_overwrite(
+    tmp_path: Path,
+):
+    registry = _copy_committed_report_intelligence_public_artifacts(tmp_path)
+    private_dir = registry
+    private_dir.mkdir(parents=True, exist_ok=True)
+    for name in (
+        "analytical_footprints.jsonl",
+        "forecast_claims.jsonl",
+        "report_metadata.jsonl",
+    ):
+        (private_dir / name).write_text("", encoding="utf-8")
+    ledger_path = registry / "report_forecast_ledger.jsonl"
+    readiness_path = registry / "outcome_labeling_readiness.json"
+    before_ledger = ledger_path.read_text(encoding="utf-8")
+    before_readiness = readiness_path.read_text(encoding="utf-8")
+
+    result = run_report_intelligence_derived_refresh(
+        ReportIntelligenceConfig(root=tmp_path, refresh_derived_only=True)
+    )
+
+    assert result.blocker_count == 1
+    assert "private report-intelligence inputs missing" in result.blockers[0]
+    assert "forecast_claims.jsonl" in result.blockers[0]
+    assert ledger_path.read_text(encoding="utf-8") == before_ledger
+    assert readiness_path.read_text(encoding="utf-8") == before_readiness
+
+
 def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
     tmp_path: Path,
 ):
@@ -903,6 +1482,30 @@ def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
     assert readiness["ready_for_outcome_labeling_count"] == 1
     assert readiness["blocked_count"] == 0
     assert readiness["mapping_gap_counts"] == {}
+    assert readiness["macro_regime_counts"] == {
+        "monetary_liquidity_condition": 1,
+        "us_rate_cut_cycle": 1,
+    }
+    assert readiness["source_text_macro_regime_counts"] == {
+        "monetary_liquidity_condition": 1
+    }
+    assert readiness["as_of_date_macro_regime_counts"] == {"us_rate_cut_cycle": 1}
+    assert readiness["macro_regime_source_counts"] == {"as_of_date": 1, "source_text": 1}
+    assert readiness["industry_cycle_regime_counts"] == {}
+    assert readiness["regime_gap_counts"] == {}
+    assert readiness["regime_gap_forecast_claim_ids"] == []
+    assert readiness["mechanism_channel_counts"] == {
+        "policy_liquidity_transmission": 1
+    }
+    assert readiness["mechanism_impact_variable_counts"] == {
+        "dr007_policy_rate_spread": 1,
+        "pboc_net_injection_7d": 1,
+    }
+    assert readiness["mechanism_gap_counts"] == {}
+    assert readiness["mechanism_gap_forecast_claim_ids"] == []
+    assert "regime, mechanism, company capability, and impact" in readiness[
+        "mechanism_policy"
+    ]
 
     feature_flags = json.loads(
         (tmp_path / "registry/report_intelligence/feature_flags.json").read_text(
@@ -1740,6 +2343,12 @@ def test_report_intelligence_analysis_recipes_pin_required_data():
                 "required_current_data": [],
                 "steps": ["calculate sector index return"],
             },
+            {
+                "method_pattern_id": "METHOD-REASONING-STEP",
+                "name": "Reasoning Step Method",
+                "required_current_data": [],
+                "steps": ["identify key catalysts and compare scenarios"],
+            },
         ]
     )
 
@@ -1770,6 +2379,43 @@ def test_report_intelligence_analysis_recipes_pin_required_data():
     assert by_id["METHOD-INFERRED-DATA"]["required_data"] == [
         "metric:calculate_sector_index_return"
     ]
+    assert by_id["METHOD-REASONING-STEP"]["required_tools"] == []
+    assert by_id["METHOD-REASONING-STEP"]["required_data"] == [
+        "metric:stock_price",
+        "metric:benchmark_return",
+    ]
+    assert by_id["METHOD-REASONING-STEP"]["steps"][0]["tool"] == (
+        "analysis.reasoning_step"
+    )
+    assert by_id["METHOD-REASONING-STEP"]["steps"][0][
+        "requires_external_tool"
+    ] is False
+
+
+def test_report_intelligence_method_patterns_keep_source_footprint_refs():
+    methods = _normalize_method_patterns(
+        {},
+        [
+            {
+                "footprint_id": "AFP-1",
+                "analysis_patterns": [
+                    "compare target return with benchmark",
+                    {"pattern": "check valuation and liquidity"},
+                ],
+                "target_agent_candidates": ["stock_agent"],
+            }
+        ],
+        run_id="RIR-TEST",
+        model="test-model",
+    )
+
+    assert len(methods) == 2
+    assert all(row["source_footprint_ids"] == ["AFP-1"] for row in methods)
+    assert {row["name"] for row in methods} == {
+        "compare target return with benchmark",
+        "check valuation and liquidity",
+    }
+    assert all(row["steps"] for row in methods)
 
 
 def test_report_intelligence_recipe_paper_trading_requires_direct_pit_evidence():
@@ -1884,6 +2530,29 @@ def test_report_intelligence_recipe_paper_trading_requires_direct_pit_evidence()
     assert runs[0]["metrics"]["max_regime_contribution_share"] == 0.4
     assert runs[0]["metrics"]["observed_regime_count"] == 3
     assert summary["validation_pass_count"] == 1
+    assert summary["after_cost_paper_trading_summary"] == {
+        "status": "computed",
+        "validated_recipe_count": 1,
+        "mean_after_cost_alpha": 0.0166,
+        "median_after_cost_alpha": 0.0166,
+        "min_after_cost_alpha": 0.0166,
+        "max_after_cost_alpha": 0.0166,
+        "positive_after_cost_recipe_count": 1,
+        "policy": (
+            "computed from passed pre-registered paper-trading runs only; "
+            "blocked or profile-only recipes are excluded"
+        ),
+    }
+    assert summary["direct_pit_bound_recipe_count"] == 1
+    assert summary["direct_pit_bound_recipe_ids"] == ["RECIPE-DIRECT-PIT"]
+    assert summary["direct_pit_bound_blocker_counts"] == {}
+    assert summary["validation_candidate_recipe_count"] == 1
+    assert summary["tool_only_blocked_recipe_count"] == 0
+    assert summary["tool_only_blocked_tool_gap_count"] == 0
+    assert summary["tool_only_blocked_tool_proposal_count"] == 0
+    assert summary["tool_implementation_queue"]["blocked_recipe_count"] == 0
+    assert summary["tool_implementation_queue"]["requested_tools"] == []
+    assert summary["tool_implementation_queue"]["tool_gap_ids"] == []
     assert summary["validation_protocol"] == runs[0]["pre_registered_protocol"]
     assert observations[0]["confidence_delta"] > 0
     assert observations[0]["drift_status"] == "stable_shadow"
@@ -1892,6 +2561,25 @@ def test_report_intelligence_recipe_paper_trading_requires_direct_pit_evidence()
     assert monitor["tracked_recipe_ids"] == ["RECIPE-DIRECT-PIT"]
     assert monitor["alpha_decay_recipe_ids"] == []
     assert monitor["production_decision_impact_allowed"] is False
+
+    no_regime_labels = []
+    for label in labels:
+        no_regime_label = dict(label)
+        no_regime_label.pop("market_regime", None)
+        no_regime_labels.append(no_regime_label)
+    no_regime_runs = build_recipe_paper_trading_runs(
+        run_id="RIR-TEST-PAPER",
+        analysis_recipe_rows=[recipe],
+        outcome_label_rows=no_regime_labels,
+        method_performance_profile_rows=[],
+    )
+
+    assert no_regime_runs[0]["paper_trading_status"] == "passed"
+    assert no_regime_runs[0]["metrics"]["market_regime_coverage_status"] == (
+        "missing_diagnostic_only"
+    )
+    assert "market_regime_missing" not in no_regime_runs[0]["blocked_reasons"]
+    assert "single_regime_concentration" not in no_regime_runs[0]["blocked_reasons"]
 
     blocked_runs = build_recipe_paper_trading_runs(
         run_id="RIR-TEST-PAPER",
@@ -1934,6 +2622,7 @@ def test_report_intelligence_recipe_paper_trading_requires_direct_pit_evidence()
     )
     assert blocked_observations[0]["recommended_action"] == "send_to_manual_review"
     assert blocked_summary["profile_paper_trade_disagreement_count"] == 1
+    assert blocked_summary["direct_pit_bound_recipe_count"] == 0
     assert blocked_monitor["profile_paper_trade_disagreement_count"] == 1
     assert blocked_monitor["profile_paper_trade_disagreement_recipe_ids"] == [
         "RECIPE-DIRECT-PIT"
@@ -1967,6 +2656,190 @@ def test_report_intelligence_recipe_paper_trading_requires_direct_pit_evidence()
         "metric:benchmark_return",
         "metric:liquidity",
     ]
+
+    tool_blocked_recipe = dict(recipe)
+    tool_blocked_recipe["analysis_recipe_id"] = "RECIPE-TOOL-BLOCKED"
+    tool_blocked_recipe["recipe_id"] = "RECIPE-TOOL-BLOCKED"
+    tool_blocked_recipe["method_pattern_id"] = "METHOD-TOOL-BLOCKED"
+    tool_blocked_recipe["source_method_pattern_ids"] = ["METHOD-TOOL-BLOCKED"]
+    tool_blocked_recipe["required_tools"] = [
+        "tool.requested.market_unimplemented_proxy"
+    ]
+    tool_blocked_recipe["steps"] = [
+        {"step": 1, "tool": "tool.requested.market_unimplemented_proxy"}
+    ]
+    tool_blocked_labels = [
+        dict(
+            label,
+            analysis_recipe_id="RECIPE-TOOL-BLOCKED",
+            method_pattern_id="METHOD-TOOL-BLOCKED",
+        )
+        for label in labels
+    ]
+    tool_blocked_runs = build_recipe_paper_trading_runs(
+        run_id="RIR-TEST-PAPER",
+        analysis_recipe_rows=[tool_blocked_recipe],
+        outcome_label_rows=tool_blocked_labels,
+        method_performance_profile_rows=[],
+    )
+    tool_blocked_summary = build_recipe_paper_trading_summary(
+        run_id="RIR-TEST-PAPER",
+        recipe_paper_trading_runs=tool_blocked_runs,
+        tool_gap_rows=[
+            {
+                "tool_gap_id": "TG-TOOL-BLOCKED",
+                "method_pattern_ids": ["METHOD-TOOL-BLOCKED"],
+            }
+        ],
+        tool_design_proposal_rows=[
+            {
+                "tool_proposal_id": "TDP-TOOL-BLOCKED",
+                "tool_gap_id": "TG-TOOL-BLOCKED",
+            }
+        ],
+    )
+
+    assert tool_blocked_runs[0]["paper_trading_status"] == "blocked"
+    assert tool_blocked_runs[0]["blocked_reasons"] == [
+        "required_tools_not_shadow_implemented"
+    ]
+    assert tool_blocked_summary["direct_pit_bound_recipe_count"] == 1
+    assert tool_blocked_summary["tool_only_blocked_recipe_ids"] == [
+        "RECIPE-TOOL-BLOCKED"
+    ]
+    assert tool_blocked_summary["tool_only_blocked_tool_gap_ids"] == [
+        "TG-TOOL-BLOCKED"
+    ]
+    assert tool_blocked_summary["tool_only_blocked_tool_proposal_ids"] == [
+        "TDP-TOOL-BLOCKED"
+    ]
+    assert tool_blocked_summary["tool_implementation_queue"]["tool_gap_ids"] == [
+        "TG-TOOL-BLOCKED"
+    ]
+    assert tool_blocked_summary["tool_implementation_queue"]["tool_proposal_ids"] == [
+        "TDP-TOOL-BLOCKED"
+    ]
+    assert tool_blocked_summary["tool_implementation_queue"][
+        "blocked_recipe_ids"
+    ] == ["RECIPE-TOOL-BLOCKED"]
+    assert tool_blocked_summary["tool_implementation_queue"]["requested_tools"] == [
+        "tool.requested.market_unimplemented_proxy"
+    ]
+
+    multi_blocked_recipe = dict(tool_blocked_recipe)
+    multi_blocked_recipe["analysis_recipe_id"] = "RECIPE-MULTI-BLOCKED"
+    multi_blocked_recipe["recipe_id"] = "RECIPE-MULTI-BLOCKED"
+    multi_blocked_runs = build_recipe_paper_trading_runs(
+        run_id="RIR-TEST-PAPER",
+        analysis_recipe_rows=[multi_blocked_recipe],
+        outcome_label_rows=[],
+        method_performance_profile_rows=[],
+    )
+    multi_blocked_summary = build_recipe_paper_trading_summary(
+        run_id="RIR-TEST-PAPER",
+        recipe_paper_trading_runs=multi_blocked_runs,
+        tool_gap_rows=[
+            {
+                "tool_gap_id": "TG-TOOL-BLOCKED",
+                "method_pattern_ids": ["METHOD-TOOL-BLOCKED"],
+            }
+        ],
+    )
+
+    assert set(multi_blocked_runs[0]["blocked_reasons"]) == {
+        "insufficient_effective_n",
+        "no_direct_recipe_outcome_binding",
+        "required_tools_not_shadow_implemented",
+    }
+    assert multi_blocked_summary["tool_only_blocked_recipe_ids"] == []
+    assert multi_blocked_summary["tool_implementation_queue"][
+        "blocked_recipe_ids"
+    ] == ["RECIPE-MULTI-BLOCKED"]
+    assert multi_blocked_summary["tool_implementation_queue"]["requested_tools"] == [
+        "tool.requested.market_unimplemented_proxy"
+    ]
+    assert multi_blocked_summary["tool_implementation_queue"]["tool_gap_ids"] == [
+        "TG-TOOL-BLOCKED"
+    ]
+
+
+def test_report_intelligence_recipe_paper_trading_infers_unique_method_binding():
+    recipe = {
+        "analysis_recipe_id": "RECIPE-INFERRED-PIT",
+        "recipe_id": "RECIPE-INFERRED-PIT",
+        "method_pattern_id": "METHOD-INFERRED-PIT",
+        "source_method_pattern_ids": ["METHOD-INFERRED-PIT"],
+        "version": "0.1.0",
+        "runtime_mode": "shadow_only",
+        "required_tools": ["market.price_proxy"],
+        "required_data": ["stock_price", "benchmark_return"],
+        "decision_scope": "inferred_direct_pit_scope",
+        "entry_condition": "T+1_or_more_conservative_shadow_entry",
+        "exit_condition": "fixed_horizon_shadow_exit",
+        "risk_controls": [
+            "no_production_order",
+            "no_position_sizing",
+            "after_cost_alpha_required",
+            "consecutive_after_cost_decay_blocks_validation",
+            "turnover_cost_decay_blocks_validation",
+            "drawdown_threshold_pre_registered",
+        ],
+        "expected_horizon_days": 120,
+        "steps": [{"step": 1, "tool": "market.price_proxy"}],
+        "output_signal": {"name": "inferred_pit_score"},
+    }
+    forecast_rows = [
+        {
+            "forecast_claim_id": "FC-INFERRED",
+            "source_id": "SRC-INFERRED",
+            "report_id": "RPT-INFERRED",
+        }
+    ]
+    footprint_rows = [
+        {
+            "footprint_id": "AFP-INFERRED",
+            "source_id": "SRC-INFERRED",
+            "report_id": "RPT-INFERRED",
+        }
+    ]
+    method_rows = [
+        {
+            "method_pattern_id": "METHOD-INFERRED-PIT",
+            "source_footprint_ids": ["AFP-INFERRED"],
+        }
+    ]
+    labels = [
+        {
+            "forecast_claim_id": "FC-INFERRED",
+            "exit_datetime": f"2026-02-{day:02d}",
+            "directional_after_cost_return": 0.02,
+            "benchmark_return": 0.005,
+            "directional_hit": True,
+            "horizon_days": horizon,
+            "market_regime": regime,
+            "effective_n_weight": 1.0,
+        }
+        for day, horizon, regime in (
+            (10, 5, "base"),
+            (11, 20, "stress"),
+            (12, 60, "recovery"),
+            (13, 120, "base"),
+            (14, 20, "stress"),
+        )
+    ]
+
+    runs = build_recipe_paper_trading_runs(
+        run_id="RIR-TEST-INFERRED-PAPER",
+        analysis_recipe_rows=[recipe],
+        outcome_label_rows=labels,
+        forecast_rows=forecast_rows,
+        footprint_rows=footprint_rows,
+        method_rows=method_rows,
+    )
+
+    assert runs[0]["paper_trading_status"] == "passed"
+    assert runs[0]["blocked_reasons"] == []
+    assert runs[0]["metrics"]["backtest_effective_n"] == 4.0
 
 
 def test_report_intelligence_paper_trading_split_sorts_exit_datetime():
@@ -2326,11 +3199,7 @@ def test_report_intelligence_evolution_gate_blocks_aggregate_calibration_drift()
         run_id="RIR-TEST-EVOLUTION-CURRENT-AGG-CALIBRATION-DRIFT",
         forecast_rows=forecast_rows,
         outcome_label_rows=outcome_rows,
-        recipe_paper_trading_summary={
-            "paper_trading_run_count": 20,
-            "validation_pass_count": 20,
-            "mean_cost_adjusted_alpha": 0.012,
-        },
+        recipe_paper_trading_summary=_passing_recipe_paper_trading_summary(),
         confidence_impact_monitor=drift_monitor,
         markdown_coverage_summary={
             "coverage_gate_status": "passed",
@@ -2376,11 +3245,7 @@ def test_report_intelligence_evolution_gate_blocks_aggregate_calibration_drift()
         run_id="RIR-TEST-EVOLUTION-HISTORY-AGG-CALIBRATION-DRIFT",
         forecast_rows=forecast_rows,
         outcome_label_rows=outcome_rows,
-        recipe_paper_trading_summary={
-            "paper_trading_run_count": 20,
-            "validation_pass_count": 20,
-            "mean_cost_adjusted_alpha": 0.012,
-        },
+        recipe_paper_trading_summary=_passing_recipe_paper_trading_summary(),
         confidence_impact_monitor=clean_monitor,
         markdown_coverage_summary={
             "coverage_gate_status": "passed",
@@ -2435,6 +3300,16 @@ def test_report_intelligence_evolution_gate_blocks_until_objective_thresholds_pa
             "paper_trading_run_count": 5,
             "validation_pass_count": 0,
             "mean_cost_adjusted_alpha": None,
+            "after_cost_paper_trading_summary": {
+                "status": "insufficient_validated_runs",
+                "validated_recipe_count": 0,
+                "mean_after_cost_alpha": None,
+                "median_after_cost_alpha": None,
+                "min_after_cost_alpha": None,
+                "max_after_cost_alpha": None,
+                "positive_after_cost_recipe_count": 0,
+                "policy": "test summary present but insufficient",
+            },
         },
         confidence_impact_monitor={
             "observation_count": 5,
@@ -2465,11 +3340,12 @@ def test_report_intelligence_evolution_gate_blocks_until_objective_thresholds_pa
         "stock_proxy_claim_count_below_threshold",
         "industry_proxy_claim_count_below_threshold",
         "paper_trading_validated_recipe_count_below_threshold",
-        "confidence_impact_monitor_current_blocked",
         "audit_refresh_history_below_threshold",
         "gap_distribution_history_below_threshold",
         "selected_report_count_below_p9_target",
     } <= set(gate["blockers"])
+    assert "after_cost_paper_trading_summary_missing" not in gate["blockers"]
+    assert "confidence_impact_monitor_current_blocked" not in gate["blockers"]
     assert gate["requirement_shortfalls"]["unique_outcome_claim_count"] == {
         "blocker": "unique_outcome_claim_count_below_threshold",
         "current": 0,
@@ -2480,9 +3356,9 @@ def test_report_intelligence_evolution_gate_blocks_until_objective_thresholds_pa
     assert gate["requirement_shortfalls"]["paper_trading_validated_recipe_count"][
         "remaining"
     ] == 20
-    assert gate["requirement_shortfalls"]["monitor_current_blocked_recipe_count"][
+    assert gate["requirement_shortfalls"]["monitor_current_global_blocker_count"][
         "remaining"
-    ] == 5
+    ] == 0
     assert gate["requirement_shortfalls"]["markdown_coverage"] == {}
     gate_dump = json.dumps(gate, ensure_ascii=False)
     assert "claim_text" not in gate_dump
@@ -2494,11 +3370,7 @@ def test_report_intelligence_evolution_gate_requires_gold_precision_and_conflict
         run_id="RIR-TEST-EVOLUTION-GOLD-GATE",
         forecast_rows=[{"forecast_claim_id": "FC-1"}],
         outcome_label_rows=[],
-        recipe_paper_trading_summary={
-            "paper_trading_run_count": 20,
-            "validation_pass_count": 20,
-            "mean_cost_adjusted_alpha": 0.012,
-        },
+        recipe_paper_trading_summary=_passing_recipe_paper_trading_summary(),
         confidence_impact_monitor={
             "observation_count": 20,
             "blocked_recipe_count": 0,
@@ -2595,11 +3467,7 @@ def test_report_intelligence_evolution_gate_blocks_markdown_spot_check_queue():
         run_id="RIR-TEST-EVOLUTION-MARKDOWN-SPOT-CHECK",
         forecast_rows=forecast_rows,
         outcome_label_rows=outcome_rows,
-        recipe_paper_trading_summary={
-            "paper_trading_run_count": 20,
-            "validation_pass_count": 20,
-            "mean_cost_adjusted_alpha": 0.012,
-        },
+        recipe_paper_trading_summary=_passing_recipe_paper_trading_summary(),
         confidence_impact_monitor=clean_monitor,
         markdown_coverage_summary={
             "coverage_gate_status": "passed",
@@ -2695,11 +3563,7 @@ def test_report_intelligence_evolution_gate_passes_with_full_objective_evidence(
         run_id="RIR-TEST-EVOLUTION",
         forecast_rows=forecast_rows,
         outcome_label_rows=outcome_rows,
-        recipe_paper_trading_summary={
-            "paper_trading_run_count": 20,
-            "validation_pass_count": 20,
-            "mean_cost_adjusted_alpha": 0.012,
-        },
+        recipe_paper_trading_summary=_passing_recipe_paper_trading_summary(),
         confidence_impact_monitor=clean_monitor,
         markdown_coverage_summary={
             "coverage_gate_status": "passed",
@@ -2781,11 +3645,7 @@ def test_report_intelligence_evolution_gate_requires_distinct_data_vintages():
         "run_id": "RIR-TEST-EVOLUTION-REPEATED-VINTAGE",
         "forecast_rows": forecast_rows,
         "outcome_label_rows": outcome_rows,
-        "recipe_paper_trading_summary": {
-            "paper_trading_run_count": 20,
-            "validation_pass_count": 20,
-            "mean_cost_adjusted_alpha": 0.012,
-        },
+        "recipe_paper_trading_summary": _passing_recipe_paper_trading_summary(),
         "confidence_impact_monitor": clean_monitor,
         "markdown_coverage_summary": {
             "coverage_gate_status": "passed",
@@ -2946,6 +3806,109 @@ def test_report_intelligence_prompt_mutation_candidates_track_markdown_coverage_
     candidate_dump = json.dumps(candidate, ensure_ascii=False)
     assert "claim_text" not in candidate_dump
     assert "source_span_ids" not in candidate_dump
+
+
+def test_report_intelligence_prompt_mutation_candidates_track_regime_mechanism_gaps():
+    candidates = build_prompt_mutation_candidates(
+        run_id="RIR-TEST-MUTATION",
+        outcome_labeling_readiness={
+            "mapping_gap_counts": {},
+            "regime_gap_counts": {
+                "regime_context_unclassified": 2,
+                "company_capability_only_no_regime_context": 3,
+            },
+            "mechanism_gap_counts": {"economic_mechanism_missing": 1},
+            "macro_regime_counts": {"us_rate_cut_cycle": 1},
+            "source_text_macro_regime_counts": {},
+            "as_of_date_macro_regime_counts": {"us_rate_cut_cycle": 1},
+            "macro_regime_source_counts": {"as_of_date": 1},
+            "industry_cycle_regime_counts": {"price_cycle": 2},
+            "regime_gap_forecast_claim_ids": ["FC-R1", "FC-R2", "FC-R3"],
+            "mechanism_gap_forecast_claim_ids": ["FC-M1"],
+            "stock_price_proxy_readiness": {"data_gap_counts": {}},
+            "industry_etf_proxy_readiness": {"data_gap_counts": {}},
+        },
+        tool_gap_rows=[],
+        recipe_paper_trading_runs=[],
+        confidence_impact_observation_rows=[],
+        confidence_impact_monitor={"drift_status_counts": {}},
+        markdown_coverage_summary={
+            "coverage_gate_status": "passed",
+            "coverage_gate_blockers": [],
+            "markdown_quality_gap_counts": {},
+        },
+        industry_etf_proxy_pit_availability={"pit_gap_counts": {}},
+    )
+
+    regime = [
+        row
+        for row in candidates
+        if row["candidate_type"] == "regime_mechanism_extraction_rule"
+    ]
+    assert len(regime) == 1
+    candidate = regime[0]
+    assert candidate["severity"] == "high"
+    evidence = candidate["evidence_refs"][0]
+    assert evidence["regime_gap_counts"] == {
+        "company_capability_only_no_regime_context": 3,
+        "regime_context_unclassified": 2,
+    }
+    assert evidence["mechanism_gap_counts"] == {"economic_mechanism_missing": 1}
+    assert evidence["source_text_macro_regime_counts"] == {}
+    assert evidence["as_of_date_macro_regime_counts"] == {"us_rate_cut_cycle": 1}
+    assert evidence["macro_regime_source_counts"] == {"as_of_date": 1}
+    assert evidence["hard_gap_count"] == 3
+    assert evidence["regime_gap_forecast_claim_count"] == 3
+    assert evidence["mechanism_gap_forecast_claim_count"] == 1
+    assert candidate["private_text_included"] is False
+    candidate_dump = json.dumps(candidate, ensure_ascii=False)
+    assert "claim_text" not in candidate_dump
+    assert "source_span_ids" not in candidate_dump
+
+
+def test_report_intelligence_prompt_mutation_candidates_keep_company_only_regime_gap_diagnostic():
+    candidates = build_prompt_mutation_candidates(
+        run_id="RIR-TEST-MUTATION",
+        outcome_labeling_readiness={
+            "mapping_gap_counts": {},
+            "regime_gap_counts": {"company_capability_only_no_regime_context": 7},
+            "mechanism_gap_counts": {},
+            "macro_regime_counts": {},
+            "source_text_macro_regime_counts": {},
+            "as_of_date_macro_regime_counts": {},
+            "macro_regime_source_counts": {},
+            "industry_cycle_regime_counts": {"prosperity_cycle": 3},
+            "regime_gap_forecast_claim_ids": ["FC-COMPANY"],
+            "mechanism_gap_forecast_claim_ids": [],
+            "stock_price_proxy_readiness": {"data_gap_counts": {}},
+            "industry_etf_proxy_readiness": {"data_gap_counts": {}},
+        },
+        tool_gap_rows=[],
+        recipe_paper_trading_runs=[],
+        confidence_impact_observation_rows=[],
+        confidence_impact_monitor={"drift_status_counts": {}},
+        markdown_coverage_summary={
+            "coverage_gate_status": "passed",
+            "coverage_gate_blockers": [],
+            "markdown_quality_gap_counts": {},
+        },
+        industry_etf_proxy_pit_availability={"pit_gap_counts": {}},
+    )
+
+    candidate = next(
+        row
+        for row in candidates
+        if row["candidate_type"] == "regime_mechanism_extraction_rule"
+    )
+    assert candidate["severity"] == "medium"
+    evidence = candidate["evidence_refs"][0]
+    assert evidence["hard_gap_count"] == 0
+    assert evidence["source_text_macro_regime_counts"] == {}
+    assert evidence["as_of_date_macro_regime_counts"] == {}
+    assert evidence["macro_regime_source_counts"] == {}
+    assert "company_capability_only_no_regime_context is diagnostic" in evidence[
+        "diagnostic_gap_policy"
+    ]
 
 
 def test_report_intelligence_prompt_mutation_candidates_track_markdown_spot_check_gate():
@@ -5749,6 +6712,58 @@ def test_report_intelligence_evolution_gate_writer_preserves_stock_coverage_evid
     assert "stock_outcome_120d_ready_count_below_p9_target" in gate["blockers"]
 
 
+def test_report_intelligence_evolution_gate_writer_preserves_existing_gate_without_private_outcomes(
+    tmp_path: Path,
+):
+    registry_dir = tmp_path / "registry/report_intelligence"
+    registry_dir.mkdir(parents=True, exist_ok=True)
+    existing_gate = {
+        "gate_id": "RKE-REPORT-INTELLIGENCE-EVOLUTION-READINESS-GATE",
+        "run_id": "RIR-EXISTING",
+        "gate_status": "blocked",
+        "blocker_count": 1,
+        "blockers": ["manual_review_pending"],
+        "checks": [
+            {
+                "check_id": "RI-EVOL-01",
+                "passed": False,
+                "requirement": "preserve existing outcome coverage evidence",
+                "evidence": {
+                    "forecast_claim_count": 189,
+                    "unique_outcome_claim_count": 49,
+                    "stock_proxy_unique_claim_count": 37,
+                    "industry_proxy_unique_claim_count": 12,
+                },
+                "blockers": [],
+            }
+        ],
+    }
+    (registry_dir / "evolution_readiness_gate.json").write_text(
+        json.dumps(existing_gate, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    _write_jsonl(
+        registry_dir / "report_forecast_ledger.jsonl",
+        [{"forecast_claim_id": "FC-001", "source_id": "SRC-001"}],
+    )
+    _write_jsonl(registry_dir / "report_outcome_labels.jsonl", [])
+
+    result = write_report_intelligence_evolution_readiness_gate(
+        registry_dir,
+        run_id="RIR-EMPTY-PRIVATE-OUTCOMES",
+    )
+
+    assert result["preserved_existing_gate"] is True
+    assert result["gate_status"] == "blocked"
+    assert result["blocker_count"] == 1
+    assert "report_outcome_labels: missing_or_empty_private_input" in result[
+        "input_load_blockers"
+    ]
+    assert json.loads(
+        (registry_dir / "evolution_readiness_gate.json").read_text(encoding="utf-8")
+    ) == existing_gate
+
+
 def test_report_intelligence_stratified_source_selection_covers_p9_buckets(
     tmp_path: Path,
 ):
@@ -7257,7 +8272,7 @@ def test_report_intelligence_bounds_stored_claim_text(tmp_path: Path):
         "公开市场净投放连续改善并且DR007相对政策利率回落时，"
         "高beta风格相对沪深300在未来二十个交易日可能显著占优，"
         "但若资金面重新收紧则该判断需要下调。"
-    )
+    ) * 8
 
     def llm(row, chunk: str, span_id: str, chunk_index: int, chunk_count: int):
         return {
@@ -7301,7 +8316,7 @@ def test_report_intelligence_bounds_stored_claim_text(tmp_path: Path):
     )
 
     forecasts = _read_jsonl(tmp_path / "registry/report_intelligence/forecast_claims.jsonl")
-    assert len(forecasts[0]["claim_text"]) <= 72
+    assert len(forecasts[0]["claim_text"]) <= MAX_STORED_CLAIM_TEXT_CHARS
     assert forecasts[0]["claim_text"].endswith("...")
     assert forecasts[0]["extraction_quality"]["claim_text_truncated_for_redaction"] is True
     assert long_claim_text not in forecasts[0]["claim_text"]
@@ -7387,7 +8402,52 @@ def test_report_intelligence_cli_can_write_status_without_network(
 def test_report_intelligence_tool_coverage_classifier():
     assert classify_tool_coverage("pboc_net_injection_7d")["coverage_status"] == "exact_match"
     assert classify_tool_coverage("dr007_policy_rate_spread")["coverage_status"] == "partial_match"
+    fundamentals = classify_tool_coverage("forecast_net_profit")
+    assert fundamentals["coverage_status"] == "exact_match"
+    assert fundamentals["existing_tool_ids"] == ["tool.get_fundamentals"]
+    balance_sheet = classify_tool_coverage("资产负债率")
+    assert balance_sheet["coverage_status"] == "exact_match"
+    assert balance_sheet["existing_tool_ids"] == ["tool.get_balance_sheet"]
+    cashflow = classify_tool_coverage("经营活动现金流净额")
+    assert cashflow["coverage_status"] == "exact_match"
+    assert cashflow["existing_tool_ids"] == ["tool.get_cashflow"]
+    price_proxy = classify_tool_coverage("stock_price_relative_alpha")
+    assert price_proxy["coverage_status"] == "exact_match"
+    assert price_proxy["existing_tool_ids"] == ["market.price_proxy"]
+    sector_proxy = classify_tool_coverage("sector_relative_performance")
+    assert sector_proxy["coverage_status"] == "exact_match"
+    assert sector_proxy["existing_tool_ids"] == ["market.price_proxy"]
     assert classify_tool_coverage("missing_private_metric")["coverage_status"] == "missing"
+
+
+def test_report_intelligence_retires_tool_gaps_with_existing_coverage():
+    rows = _backfill_tool_gaps_from_metric_candidates(
+        [
+            {
+                "tool_gap_id": "TG-SECTOR-RELATIVE",
+                "gap_type": "missing_metric",
+                "metric_candidate_id": "METRIC-SECTOR-RELATIVE",
+                "metric_name": "sector_relative_performance",
+                "method_pattern_ids": ["METHOD-SECTOR"],
+                "priority_bucket": "medium",
+                "priority_reasons": ["tool coverage is missing for extracted metric"],
+                "blocking_issues": ["requires_engineering_review"],
+                "owner": "data_engineering",
+                "status": "proposal_pending",
+            }
+        ],
+        metric_rows=[],
+        method_rows=[],
+        run_id="RIR-TEST",
+        model="test-model",
+    )
+
+    assert rows[0]["status"] == "retired"
+    assert rows[0]["priority_bucket"] == "resolved"
+    assert rows[0]["blocking_issues"] == []
+    assert "metric_now_has_existing_tool_coverage" in rows[0]["priority_reasons"]
+    assert build_data_acquisition_proposals(rows) == []
+    assert build_tool_design_proposals(rows) == []
 
 
 def test_report_intelligence_defaults_to_hybrid_mineru_backend():
@@ -7536,9 +8596,103 @@ def test_merge_report_intelligence_batch_outputs_dedupes_batch_jsonl(
     assert [row["forecast_claim_id"] for row in forecasts] == ["FC-1", "FC-2"]
 
 
+def test_merge_report_intelligence_batch_outputs_preserves_existing_registry(
+    tmp_path: Path,
+):
+    registry = tmp_path / "registry/report_intelligence"
+    registry.mkdir(parents=True)
+    (registry / "report_metadata.jsonl").write_text(
+        "\n".join(
+            [
+                json.dumps({"report_id": "RPT-0", "source_id": "SRC-0"}),
+                json.dumps({"report_id": "RPT-1", "source_id": "SRC-1-OLD"}),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (registry / "processing_status.jsonl").write_text(
+        json.dumps({"source_id": "SRC-1", "llm_status": "skipped"}) + "\n",
+        encoding="utf-8",
+    )
+    batch = tmp_path / "batch"
+    batch.mkdir()
+    (batch / "report_metadata.jsonl").write_text(
+        "\n".join(
+            [
+                json.dumps({"report_id": "RPT-1", "source_id": "SRC-1-NEW"}),
+                json.dumps({"report_id": "RPT-2", "source_id": "SRC-2"}),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (batch / "processing_status.jsonl").write_text(
+        json.dumps({"source_id": "SRC-1", "llm_status": "processed"}) + "\n",
+        encoding="utf-8",
+    )
+
+    result = merge_report_intelligence_batch_outputs(
+        root=tmp_path,
+        input_dirs=(batch,),
+    )
+
+    assert result["blocker_count"] == 0
+    assert result["include_existing_registry"] is True
+    assert result["existing_file_counts"]["report_metadata.jsonl"] == 1
+    assert result["input_file_counts"]["report_metadata.jsonl"] == 1
+    assert result["row_counts"]["report_metadata.jsonl"] == 3
+    assert result["row_counts"]["processing_status.jsonl"] == 1
+    metadata = _read_jsonl(registry / "report_metadata.jsonl")
+    status = _read_jsonl(registry / "processing_status.jsonl")
+    assert metadata == [
+        {"report_id": "RPT-0", "source_id": "SRC-0"},
+        {"report_id": "RPT-1", "source_id": "SRC-1-NEW"},
+        {"report_id": "RPT-2", "source_id": "SRC-2"},
+    ]
+    assert status == [{"source_id": "SRC-1", "llm_status": "processed"}]
+
+
+def test_merge_report_intelligence_batch_outputs_can_replace_existing_registry(
+    tmp_path: Path,
+):
+    registry = tmp_path / "registry/report_intelligence"
+    registry.mkdir(parents=True)
+    (registry / "report_metadata.jsonl").write_text(
+        json.dumps({"report_id": "RPT-0", "source_id": "SRC-0"}) + "\n",
+        encoding="utf-8",
+    )
+    batch = tmp_path / "batch"
+    batch.mkdir()
+    (batch / "report_metadata.jsonl").write_text(
+        json.dumps({"report_id": "RPT-1", "source_id": "SRC-1"}) + "\n",
+        encoding="utf-8",
+    )
+
+    result = merge_report_intelligence_batch_outputs(
+        root=tmp_path,
+        input_dirs=(batch,),
+        include_existing_registry=False,
+    )
+
+    assert result["blocker_count"] == 0
+    assert result["include_existing_registry"] is False
+    assert result["existing_file_counts"]["report_metadata.jsonl"] == 0
+    assert result["row_counts"]["report_metadata.jsonl"] == 1
+    assert _read_jsonl(registry / "report_metadata.jsonl") == [
+        {"report_id": "RPT-1", "source_id": "SRC-1"}
+    ]
+
+
 def test_merge_report_intelligence_batches_cli(capsys, tmp_path: Path):
     batch = tmp_path / "batch"
     batch.mkdir()
+    registry = tmp_path / "registry/report_intelligence"
+    registry.mkdir(parents=True)
+    (registry / "tool_gaps.jsonl").write_text(
+        json.dumps({"tool_gap_id": "TG-0"}) + "\n",
+        encoding="utf-8",
+    )
     (batch / "tool_gaps.jsonl").write_text(
         json.dumps({"tool_gap_id": "TG-1"}) + "\n",
         encoding="utf-8",
@@ -7556,7 +8710,44 @@ def test_merge_report_intelligence_batches_cli(capsys, tmp_path: Path):
 
     assert rc == 0
     payload = json.loads(capsys.readouterr().out)
+    assert payload["row_counts"]["tool_gaps.jsonl"] == 2
+    assert payload["existing_file_counts"]["tool_gaps.jsonl"] == 1
+    assert _read_jsonl(tmp_path / "registry/report_intelligence/tool_gaps.jsonl") == [
+        {"tool_gap_id": "TG-0"},
+        {"tool_gap_id": "TG-1"}
+    ]
+
+
+def test_merge_report_intelligence_batches_cli_replace(capsys, tmp_path: Path):
+    batch = tmp_path / "batch"
+    batch.mkdir()
+    registry = tmp_path / "registry/report_intelligence"
+    registry.mkdir(parents=True)
+    (registry / "tool_gaps.jsonl").write_text(
+        json.dumps({"tool_gap_id": "TG-0"}) + "\n",
+        encoding="utf-8",
+    )
+    (batch / "tool_gaps.jsonl").write_text(
+        json.dumps({"tool_gap_id": "TG-1"}) + "\n",
+        encoding="utf-8",
+    )
+
+    rc = main(
+        (
+            "merge-report-intelligence-batches",
+            "--root",
+            str(tmp_path),
+            "--input-dir",
+            str(batch),
+            "--replace",
+        )
+    )
+
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["include_existing_registry"] is False
     assert payload["row_counts"]["tool_gaps.jsonl"] == 1
+    assert payload["existing_file_counts"]["tool_gaps.jsonl"] == 0
     assert _read_jsonl(tmp_path / "registry/report_intelligence/tool_gaps.jsonl") == [
         {"tool_gap_id": "TG-1"}
     ]

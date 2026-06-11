@@ -10,6 +10,7 @@ explicitly via ``monkeypatch.setenv`` (which runs after this autouse fixture).
 from __future__ import annotations
 
 import json
+import fcntl
 import shutil
 import subprocess
 from collections import Counter
@@ -75,6 +76,15 @@ _RKE_SYNTHETIC_FIXTURE_PATHS = (
     Path("registry/report_intelligence/report_outcome_labels.jsonl"),
     Path("registry/report_intelligence/weighted_research_contexts.jsonl"),
 )
+_RKE_TRACKED_TEST_MUTABLE_PATHS = (
+    Path("registry/dashboards/rke_dashboard.json"),
+    Path("registry/dashboards/rke_dashboard.md"),
+    Path("registry/review_batches/manual_review_bundle_manifest.json"),
+    Path("registry/review_batches/manual_review_progress_report.json"),
+    Path("registry/review_batches/manual_review_runbook.md"),
+    Path("registry/review_batches/source_license_policy_import_report.json"),
+    Path("registry/schemas/rke_schema_validation_report.json"),
+)
 _RKE_SYNTHETIC_TUSHARE_SOURCE_COUNT = 50
 _RKE_SYNTHETIC_TUSHARE_CLAIMS_PER_SOURCE = 10
 _RKE_SYNTHETIC_SEMICONDUCTOR_SOURCE_ID = "SRC-TSRR-SYNTH-20260601-0000"
@@ -118,6 +128,25 @@ def _git_status_porcelain(root_path: Path) -> set[str]:
     if result.returncode != 0:
         return set()
     return {line for line in result.stdout.splitlines() if line.strip()}
+
+
+def _restore_paths_from_backups(
+    root_path: Path,
+    backups: list[tuple[Path, Path | None]],
+) -> None:
+    for relative_path, backup_path in backups:
+        path = root_path / relative_path
+        if path.is_dir():
+            shutil.rmtree(path)
+        elif path.exists():
+            path.unlink()
+        if backup_path is None:
+            continue
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if backup_path.is_dir():
+            shutil.copytree(backup_path, path)
+        else:
+            shutil.copy2(backup_path, path)
 
 
 def _synthetic_source_id(index: int) -> str:
@@ -470,6 +499,15 @@ def _ensure_synthetic_private_tushare_registry(root_path: Path) -> None:
     report_ids = sorted(
         {str(row.get("report_id") or "RPT-SYNTH-RKE-0001") for row in ledger_rows}
     )
+    readiness_path = root_path / "registry/report_intelligence/outcome_labeling_readiness.json"
+    proxy_label_ready_ids: set[str] = set()
+    if readiness_path.exists():
+        readiness_payload = json.loads(readiness_path.read_text(encoding="utf-8"))
+        proxy_label_ready_ids = {
+            str(claim_id)
+            for claim_id in readiness_payload.get("proxy_label_ready_forecast_claim_ids", [])
+            if str(claim_id).strip()
+        }
     source_id = sources[0]["source_id"]
     source_span_id = sources[0]["source_span_id"]
     _write_jsonl(
@@ -516,42 +554,62 @@ def _ensure_synthetic_private_tushare_registry(root_path: Path) -> None:
             for report_id in report_ids
         ],
     )
-    _write_jsonl(
-        root_path / "registry/report_intelligence/forecast_claims.jsonl",
-        [
-            {
-                "forecast_claim_id": str(row.get("forecast_claim_id") or ""),
-                "forecast_family_id": str(
-                    row.get("forecast_family_id") or "FF-SYNTH-RKE-0001"
-                ),
-                "claim_id": f"CLAIM-{row.get('forecast_claim_id') or 'SYNTH'}",
-                "report_id": str(row.get("report_id") or report_ids[0]),
-                "source_id": source_id,
-                "source_span_ids": [source_span_id],
-                "claim_text": "合成研报认为半导体景气度需要结合点时数据验证。",
-                "claim_provenance": "source_grounded",
-                "forecast_testability": "insufficient_mapping",
-                "forecast_type": "industry_view",
-                "target": {},
-                "benchmark": {},
-                "direction": "unknown",
-                "horizon": {},
-                "signal_datetime": "2026-06-05T00:00:00+00:00",
-                "metric_proxy_mapping": ["industry_etf_forward_return"],
-                "failure_modes": [
-                    {
-                        "text": "synthetic clean-checkout row keeps mapping gaps explicit",
-                        "provenance": "source_grounded",
-                    }
-                ],
+    def synthetic_forecast_claim_for_ledger_row(row: dict) -> dict:
+        claim_id = str(row.get("forecast_claim_id") or "")
+        ready = str(row.get("test_status") or "") == "ready_for_outcome_labeling"
+        base = {
+            "forecast_claim_id": claim_id,
+            "forecast_family_id": str(
+                row.get("forecast_family_id") or "FF-SYNTH-RKE-0001"
+            ),
+            "claim_id": f"CLAIM-{claim_id or 'SYNTH'}",
+            "report_id": str(row.get("report_id") or report_ids[0]),
+            "source_id": source_id,
+            "source_span_ids": [source_span_id],
+            "claim_text": "合成研报认为半导体景气度需要结合点时数据验证。",
+            "claim_provenance": "source_grounded",
+            "forecast_type": "industry_view",
+            "signal_datetime": "2026-06-05T00:00:00+00:00",
+            "metric_proxy_mapping": ["industry_etf_forward_return"],
+            "extractor": {"backend": "synthetic_fixture"},
+        }
+        if ready:
+            return {
+                **base,
+                "forecast_testability": "testable",
+                "target": {"target_type": "sector", "target_id": "半导体"},
+                "benchmark": {"benchmark_symbol": "SH510300"},
+                "direction": "positive",
+                "horizon": {"window_days": 20},
+                "failure_modes": [],
                 "extraction_quality": {
                     "confidence": "medium",
-                    "mapping_gaps": ["target", "benchmark", "horizon"],
+                    "mapping_gaps": [],
                 },
-                "extractor": {"backend": "synthetic_fixture"},
             }
-            for row in ledger_rows
-        ],
+        return {
+            **base,
+            "forecast_testability": "insufficient_mapping",
+            "target": {},
+            "benchmark": {},
+            "direction": "unknown",
+            "horizon": {},
+            "failure_modes": [
+                {
+                    "text": "synthetic clean-checkout row keeps mapping gaps explicit",
+                    "provenance": "source_grounded",
+                }
+            ],
+            "extraction_quality": {
+                "confidence": "medium",
+                "mapping_gaps": ["target", "benchmark", "horizon"],
+                "proxy_label_ready": claim_id in proxy_label_ready_ids,
+            },
+        }
+
+    _write_jsonl(
+        root_path / "registry/report_intelligence/forecast_claims.jsonl",
+        [synthetic_forecast_claim_for_ledger_row(row) for row in ledger_rows],
     )
     _write_jsonl(
         root_path / "registry/report_intelligence/analytical_footprints.jsonl",
@@ -623,35 +681,76 @@ def _ensure_private_tushare_test_fixture(tmp_path_factory):
     root_path = Path.cwd()
     backup_root = tmp_path_factory.mktemp("rke-private-tushare-backup")
     moved_paths: list[tuple[Path, Path]] = []
-    for relative_path in _RKE_SYNTHETIC_FIXTURE_PATHS:
+    lock_path = Path("/tmp/mosaic-rke-private-tushare-fixture.lock")
+    lock_handle = lock_path.open("w", encoding="utf-8")
+    fcntl.flock(lock_handle, fcntl.LOCK_EX)
+
+    def restore_private_paths() -> None:
+        for relative_path in _RKE_SYNTHETIC_FIXTURE_PATHS:
+            path = root_path / relative_path
+            if path.is_dir():
+                shutil.rmtree(path)
+            elif path.exists():
+                path.unlink()
+        for relative_path, backup_path in moved_paths:
+            restore_path = root_path / relative_path
+            if not backup_path.exists():
+                continue
+            restore_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(backup_path), str(restore_path))
+
+    try:
+        for relative_path in _RKE_SYNTHETIC_FIXTURE_PATHS:
+            path = root_path / relative_path
+            if not path.exists():
+                continue
+            backup_path = backup_root / relative_path
+            backup_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(path), str(backup_path))
+            moved_paths.append((relative_path, backup_path))
+
+        before_status = _git_status_porcelain(root_path)
+        _ensure_synthetic_private_tushare_registry(root_path)
+        after_status = _git_status_porcelain(root_path)
+        fixture_status_delta = sorted(after_status - before_status)
+        assert not fixture_status_delta, (
+            "synthetic private Tushare fixture must only write gitignored paths; "
+            f"unexpected git status delta: {fixture_status_delta}"
+        )
+        yield
+    finally:
+        restore_private_paths()
+        fcntl.flock(lock_handle, fcntl.LOCK_UN)
+        lock_handle.close()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _restore_tracked_rke_public_artifacts_after_tests(
+    tmp_path_factory,
+    _ensure_private_tushare_test_fixture,
+):
+    """Let tests rewrite public reports without leaving generated diffs behind."""
+
+    root_path = Path.cwd()
+    backup_root = tmp_path_factory.mktemp("rke-public-artifact-backup")
+    backups: list[tuple[Path, Path | None]] = []
+    for relative_path in _RKE_TRACKED_TEST_MUTABLE_PATHS:
         path = root_path / relative_path
         if not path.exists():
+            backups.append((relative_path, None))
             continue
         backup_path = backup_root / relative_path
         backup_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(path), str(backup_path))
-        moved_paths.append((relative_path, backup_path))
-
-    before_status = _git_status_porcelain(root_path)
-    _ensure_synthetic_private_tushare_registry(root_path)
-    after_status = _git_status_porcelain(root_path)
-    fixture_status_delta = sorted(after_status - before_status)
-    assert not fixture_status_delta, (
-        "synthetic private Tushare fixture must only write gitignored paths; "
-        f"unexpected git status delta: {fixture_status_delta}"
-    )
-    yield
-
-    for relative_path in _RKE_SYNTHETIC_FIXTURE_PATHS:
-        path = root_path / relative_path
         if path.is_dir():
-            shutil.rmtree(path)
-        elif path.exists():
-            path.unlink()
-    for relative_path, backup_path in moved_paths:
-        restore_path = root_path / relative_path
-        restore_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(backup_path), str(restore_path))
+            shutil.copytree(path, backup_path)
+        else:
+            shutil.copy2(path, backup_path)
+        backups.append((relative_path, backup_path))
+
+    try:
+        yield
+    finally:
+        _restore_paths_from_backups(root_path, backups)
 
 
 @pytest.fixture(autouse=True)

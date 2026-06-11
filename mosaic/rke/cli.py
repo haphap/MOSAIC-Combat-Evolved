@@ -944,6 +944,14 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="After merging rows, recompute public derived report-intelligence artifacts.",
     )
+    merge_report_batches.add_argument(
+        "--replace",
+        action="store_true",
+        help=(
+            "Replace registry JSONL inputs from the supplied batches instead of "
+            "preserving existing registry rows first."
+        ),
+    )
 
     apply_footprint_review = subparsers.add_parser(
         "apply-footprint-review",
@@ -1396,6 +1404,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         result = merge_report_intelligence_batch_outputs(
             root=root,
             input_dirs=args.input_dir,
+            include_existing_registry=not args.replace,
         )
         if args.refresh_derived and result["blocker_count"] == 0:
             refresh = run_report_intelligence_refresh(

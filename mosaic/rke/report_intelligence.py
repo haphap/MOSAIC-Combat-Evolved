@@ -117,6 +117,12 @@ REPORT_INTELLIGENCE_REQUIRED_PRIVATE_DERIVED_INPUT_PATHS = frozenset(
         "registry/report_intelligence/report_metadata.jsonl",
     }
 )
+REPORT_INTELLIGENCE_NONEMPTY_PRIVATE_DERIVED_INPUT_PATHS = frozenset(
+    {
+        "registry/report_intelligence/forecast_claims.jsonl",
+        "registry/report_intelligence/report_metadata.jsonl",
+    }
+)
 REPORT_INTELLIGENCE_PUBLIC_DERIVED_OUTPUT_PATHS = frozenset(
     {
         ANALYTICAL_FOOTPRINT_ERROR_TAXONOMY_PATH,
@@ -166,6 +172,154 @@ DEFAULT_MINERU_ENV = {
     "MINERU_TABLE_ENABLE": "true",
     "MINERU_FORMULA_ENABLE": "true",
 }
+FORECAST_CLAIM_RISK_WARNING_PREFIX_RE = re.compile(
+    r"^\s*(?:风险提示|风险因素|风险声明|免责声明)\s*[:：]"
+)
+FORECAST_CLAIM_MECHANISM_TERMS = (
+    "预计",
+    "预期",
+    "有望",
+    "未来",
+    "后续",
+    "长期",
+    "短期",
+    "中期",
+    "看好",
+    "维持",
+    "建议",
+    "上调",
+    "下调",
+    "优于",
+    "跑赢",
+    "跑输",
+    "超配",
+    "低配",
+    "增持",
+    "减持",
+    "驱动",
+    "推动",
+    "带动",
+    "导致",
+    "受益",
+    "压制",
+    "制约",
+    "改善",
+    "修复",
+    "恶化",
+    "承压",
+    "风险",
+    "压力",
+    "催化",
+    "拐点",
+    "弹性",
+    "传导",
+    "供需",
+    "库存",
+    "产能",
+    "景气",
+    "景气周期",
+    "行业周期",
+    "价格周期",
+    "煤价周期",
+    "格局",
+    "regime",
+    "outperform",
+    "underperform",
+)
+FORECAST_CLAIM_DESCRIPTIVE_ONLY_TERMS = (
+    "涨跌幅",
+    "区间涨幅",
+    "区间跌幅",
+    "年初至",
+    "当前",
+    "截至",
+    "分别为",
+    "最高",
+    "其次",
+    "排在",
+    "排名",
+    "环比",
+    "同比",
+    "ROE",
+    "毛利率",
+    "净利率",
+    "资产负债率",
+    "研发比例",
+    "存量规模",
+    "价格为",
+    "涨跌不一",
+    "规模",
+)
+FORECAST_CLAIM_FINANCE_IMPACT_TERMS = (
+    "需求增长",
+    "订单",
+    "销量",
+    "出货",
+    "装机",
+    "营收",
+    "营业收入",
+    "收入增长",
+    "利润",
+    "盈利",
+    "业绩",
+    "净利润",
+    "毛利率",
+    "净利率",
+    "估值修复",
+    "估值溢价",
+    "估值提升",
+    "估值重估",
+    "价值重估",
+    "目标价",
+    "股价",
+    "股票",
+    "指数",
+    "行业指数",
+    "市场指数",
+    "沪深300",
+    "高beta",
+    "高 beta",
+    "风格",
+    "收益率",
+    "超额收益",
+    "相对收益",
+    "跑赢",
+    "跑输",
+    "优于",
+    "占优",
+    "评级",
+    "看多",
+    "看空",
+    "看好",
+    "买入",
+    "增持",
+    "减持",
+    "超配",
+    "低配",
+    "景气",
+    "景气度",
+    "景气周期",
+    "行业周期",
+    "价格周期",
+    "煤价周期",
+    "价格中枢",
+    "流动性",
+    "信用扩张",
+    "信用收缩",
+    "信用利差",
+    "信用风险",
+    "信用周期",
+    "信贷",
+    "社融",
+    "revenue",
+    "profit",
+    "earnings",
+    "margin",
+    "valuation",
+    "return",
+    "outperform",
+    "underperform",
+)
 MINERU_VLM_HF_CACHE_DIRNAME = "models--opendatalab--MinerU2.5-Pro-2605-1.2B"
 MINERU_BACKENDS = (
     "hybrid-auto-engine",
@@ -217,6 +371,7 @@ REPORT_INTELLIGENCE_TOOL_COVERAGE_STATUSES = (
 )
 REPORT_INTELLIGENCE_TOOL_GAP_PRIORITY_BUCKETS = (
     "blocked",
+    "resolved",
     "low",
     "medium",
     "high",
@@ -291,7 +446,8 @@ FORECAST_GOLD_REVIEW_MIN_METRICS: Mapping[str, float] = {
 FORECAST_GOLD_REVIEW_MAX_METRICS: Mapping[str, float] = {
     "unsupported_field_false_grounding_rate": 0.05,
 }
-MAX_STORED_CLAIM_TEXT_CHARS = 72
+MAX_STORED_CLAIM_TEXT_CHARS = 512
+MAX_REASONABLE_FORECAST_HORIZON_DAYS = 3653
 ANALYTICAL_FOOTPRINT_REVIEW_BOOLEAN_FIELDS = (
     "footprint_correct",
     "source_span_supports_footprint",
@@ -366,32 +522,62 @@ INDUSTRY_ETF_PROXY_MAPPING: Mapping[str, Mapping[str, str]] = {
     "证券": {"etf_symbol": "SH512880", "mapping_label": "证券ETF"},
     "证券Ⅱ": {"etf_symbol": "SH512880", "mapping_label": "证券ETF"},
     "多元金融": {"etf_symbol": "SH512880", "mapping_label": "证券ETF"},
+    "保险": {"etf_symbol": "SH512070", "mapping_label": "证券保险ETF"},
     "半导体": {"etf_symbol": "SH512480", "mapping_label": "半导体ETF"},
     "通信设备": {"etf_symbol": "SH515880", "mapping_label": "通信ETF"},
     "IT服务Ⅱ": {"etf_symbol": "SH515230", "mapping_label": "软件ETF"},
     "计算机设备": {"etf_symbol": "SH512720", "mapping_label": "计算机ETF"},
+    "电子信息": {"etf_symbol": "SH515260", "mapping_label": "电子ETF"},
+    "电子元件": {"etf_symbol": "SH515260", "mapping_label": "电子ETF"},
     "光学光电子": {"etf_symbol": "SH515260", "mapping_label": "电子ETF"},
+    "游戏": {"etf_symbol": "SZ159869", "mapping_label": "游戏ETF"},
     "游戏Ⅱ": {"etf_symbol": "SZ159869", "mapping_label": "游戏ETF"},
     "电池": {"etf_symbol": "SH515700", "mapping_label": "新能源车ETF"},
+    "汽车整车": {"etf_symbol": "SZ159512", "mapping_label": "汽车ETF"},
     "汽车零部件": {"etf_symbol": "SH515700", "mapping_label": "新能源车ETF"},
     "医药商业": {"etf_symbol": "SH512170", "mapping_label": "医疗ETF"},
+    "中药": {"etf_symbol": "SH560080", "mapping_label": "中药ETF"},
     "化学制药": {"etf_symbol": "SH512170", "mapping_label": "医疗ETF"},
     "创新药": {"etf_symbol": "SH515120", "mapping_label": "创新药ETF"},
     "创新药及生物类似药": {"etf_symbol": "SH515120", "mapping_label": "创新药ETF"},
+    "化肥行业": {"etf_symbol": "SH516020", "mapping_label": "化工ETF"},
     "化学制品": {"etf_symbol": "SH516020", "mapping_label": "化工ETF"},
+    "煤炭采选": {"etf_symbol": "SH515220", "mapping_label": "煤炭ETF"},
+    "煤炭行业": {"etf_symbol": "SH515220", "mapping_label": "煤炭ETF"},
+    "钢铁行业": {"etf_symbol": "SH515210", "mapping_label": "钢铁ETF"},
+    "石油行业": {"etf_symbol": "SH561360", "mapping_label": "石油ETF"},
+    "水泥建材": {"etf_symbol": "SZ159745", "mapping_label": "建材ETF"},
+    "房地产": {"etf_symbol": "SH512200", "mapping_label": "房地产ETF"},
     "房地产开发": {"etf_symbol": "SH512200", "mapping_label": "房地产ETF"},
+    "航天航空": {"etf_symbol": "SH512660", "mapping_label": "军工ETF"},
     "航天装备Ⅱ": {"etf_symbol": "SH512660", "mapping_label": "军工ETF"},
+    "船舶制造": {"etf_symbol": "SH560710", "mapping_label": "船舶ETF"},
+    "机械行业": {"etf_symbol": "SH516960", "mapping_label": "机械ETF"},
     "通用设备": {"etf_symbol": "SH516960", "mapping_label": "机械ETF"},
     "自动化设备": {"etf_symbol": "SH516960", "mapping_label": "机械ETF"},
+    "电源设备": {"etf_symbol": "SH516160", "mapping_label": "新能源ETF"},
     "风电设备": {"etf_symbol": "SH516160", "mapping_label": "新能源ETF"},
     "光伏设备": {"etf_symbol": "SH516160", "mapping_label": "新能源ETF"},
     "其他电源设备Ⅱ": {"etf_symbol": "SH516160", "mapping_label": "新能源ETF"},
     "公用事业": {"etf_symbol": "SZ159301", "mapping_label": "公用事业ETF"},
+    "燃气": {"etf_symbol": "SZ159301", "mapping_label": "公用事业ETF"},
     "火电": {"etf_symbol": "SZ159301", "mapping_label": "公用事业ETF"},
     "水电": {"etf_symbol": "SZ159301", "mapping_label": "公用事业ETF"},
     "核电": {"etf_symbol": "SZ159301", "mapping_label": "公用事业ETF"},
     "新能源发电": {"etf_symbol": "SZ159301", "mapping_label": "公用事业ETF"},
+    "电力行业": {"etf_symbol": "SZ159611", "mapping_label": "电力ETF"},
+    "环保工程": {"etf_symbol": "SH512580", "mapping_label": "环保ETF"},
+    "环保行业": {"etf_symbol": "SH512580", "mapping_label": "环保ETF"},
+    "物流行业": {"etf_symbol": "SH516910", "mapping_label": "物流ETF"},
+    "旅游酒店": {"etf_symbol": "SZ159766", "mapping_label": "旅游ETF"},
     "旅游及景区": {"etf_symbol": "SZ159766", "mapping_label": "旅游ETF"},
+    "家电行业": {"etf_symbol": "SZ159996", "mapping_label": "家电ETF"},
+    "家用轻工": {"etf_symbol": "SH515730", "mapping_label": "家居家电ETF"},
+    "酿酒行业": {"etf_symbol": "SH512690", "mapping_label": "酒ETF"},
+    "文化传媒": {"etf_symbol": "SH512980", "mapping_label": "传媒ETF"},
+    "工程建设": {"etf_symbol": "SH516970", "mapping_label": "基建ETF"},
+    "食品饮料": {"etf_symbol": "SH515170", "mapping_label": "食品饮料ETF"},
+    "互联网服务": {"etf_symbol": "SZ159729", "mapping_label": "互联网ETF"},
 }
 INDUSTRY_ETF_BENCHMARK_SYMBOL = "SH510300"
 STOCK_PRICE_PROXY_WINDOWS_DAYS = (5, 20, 60, 120)
@@ -718,6 +904,16 @@ def _read_registry_jsonl(
     return valid_rows
 
 
+def _read_macro_regime_calendar_rows(registry_dir: Path) -> list[Mapping[str, Any]]:
+    blockers: list[str] = []
+    rows = _read_registry_jsonl(
+        registry_dir / "macro_regime_calendar.jsonl",
+        label="macro_regime_calendar",
+        blockers=blockers,
+    )
+    return rows or list(DEFAULT_MACRO_REGIME_CALENDAR_ROWS)
+
+
 def _read_registry_json(
     path: Path,
     *,
@@ -815,17 +1011,41 @@ def _missing_report_intelligence_private_inputs(
     root_path: Path,
     registry_dir: Path,
 ) -> tuple[str, ...]:
-    return tuple(
-        sorted(
-            relative
-            for relative in REPORT_INTELLIGENCE_REQUIRED_PRIVATE_DERIVED_INPUT_PATHS
-            if not _report_intelligence_registry_path(
-                root_path=root_path,
-                registry_dir=registry_dir,
-                relative_path=relative,
-            ).exists()
+    missing: list[str] = []
+    for relative in sorted(REPORT_INTELLIGENCE_REQUIRED_PRIVATE_DERIVED_INPUT_PATHS):
+        path = _report_intelligence_registry_path(
+            root_path=root_path,
+            registry_dir=registry_dir,
+            relative_path=relative,
         )
-    )
+        if not path.exists():
+            missing.append(relative)
+            continue
+        if (
+            relative in REPORT_INTELLIGENCE_NONEMPTY_PRIVATE_DERIVED_INPUT_PATHS
+            and path.stat().st_size == 0
+        ):
+            missing.append(relative)
+            continue
+        rows, errors = load_jsonl_with_errors(path, label=relative)
+        if errors:
+            missing.append(relative)
+            continue
+        if (
+            relative in REPORT_INTELLIGENCE_NONEMPTY_PRIVATE_DERIVED_INPUT_PATHS
+            and not any(isinstance(row, Mapping) for row in rows)
+        ):
+            missing.append(relative)
+    return tuple(missing)
+
+
+def _jsonl_has_mapping_rows(path: Path) -> bool:
+    if not path.exists() or path.stat().st_size == 0:
+        return False
+    rows, errors = load_jsonl_with_errors(path, label=str(path))
+    if errors:
+        return False
+    return any(isinstance(row, Mapping) for row in rows)
 
 
 def _blocked_report_intelligence_derived_refresh_result(
@@ -1873,7 +2093,31 @@ def _system_prompt() -> str:
         "ambiguous; use unknown or insufficient_mapping instead. Return only a "
         "single JSON object. Do not include thinking text, commentary, Markdown, "
         "or code fences. Metadata may identify the report entity, but source text "
-        "must still support each forecast. /no_think"
+        "must still support each forecast. Extract forecast_claims as concise "
+        "source-grounded research claims synthesized from the whole Markdown "
+        "chunk or a coherent paragraph, not as isolated sentence snippets. A "
+        "valid claim should connect background/regime, mechanism/action, company "
+        "capability when relevant, and potential market or fundamental impact "
+        "when the source supports that connection. Split regime into macro "
+        "environment and industry-cycle regime when the source supports both: "
+        "macro regime includes rate-cut cycles, monetary/liquidity stance, "
+        "credit cycle, fiscal or regulatory policy, FX/dollar cycle, and growth "
+        "or inflation environment; industry-cycle regime includes sector supply "
+        "tightness, demand-driver transition, inventory, capacity, price, "
+        "competition, prosperity, or technology cycles. Keep those regimes "
+        "separate from company-specific capability or action: sector demand "
+        "growth is a regime, while lab rollout, capacity, channel, technology, "
+        "cost control, order backlog, or management execution is company "
+        "capability/action. Also keep mechanism separate from both regime and "
+        "impact: a mechanism is the transmission channel such as demand pull, "
+        "price/cost pass-through, margin expansion, capacity release, market-share "
+        "gain, technology/productivity improvement, policy/liquidity transmission, "
+        "or valuation repricing. For Chinese reports, write claim_text in Chinese. Do not "
+        "put boilerplate risk warnings or purely historical descriptive facts "
+        "into forecast_claims. Do not emit general scientific, clinical, public "
+        "health, or policy recommendations as forecast_claims unless the source "
+        "connects them to company/sector demand, revenue, profit, valuation, "
+        "stock return, industry prosperity, or an investment view. /no_think"
     )
 
 
@@ -1909,6 +2153,40 @@ def _user_prompt(
         "benchmark, direction (positive|negative|neutral|ambiguous|unknown), "
         "horizon, explicitness (explicit|inferred|unknown), source_conviction, "
         "metric_proxy_mapping, failure_modes, extraction_quality.\n"
+        "Only emit forecast_claims for source-grounded research claims with at "
+        "least one of: causal/economic mechanism, regime condition, explicit or "
+        "clearly implied forward view, expected target impact, or actionable "
+        "investment view. The claim_text should be a compact synthesis over the "
+        "relevant paragraph/window when needed. It does not need to be a verbatim "
+        "sentence, but every element must be supported by the cited source span. "
+        "For Chinese source text, output claim_text in Chinese and keep variable "
+        "or schema ids in English only where the schema requires ids. "
+        "Prefer claims of the form: under <macro regime if present> and "
+        "<industry-cycle regime if present>, <mechanism/action> "
+        "and, for stock reports, <company capability/action> are expected to "
+        "affect <target/fundamental/return> through <channel>. Do not merge "
+        "macro regime, industry-cycle regime, and company capability into one "
+        "undifferentiated cause: 'the Fed entered a rate-cut cycle' or 'China "
+        "stepped up counter-cyclical monetary policy' is macro regime; 'global "
+        "copper supply is structurally tight while demand drivers are shifting' "
+        "is industry-cycle regime; 'company labs reaching designed utilization' "
+        "is company capability/action. "
+        "Make the economic mechanism explicit when supported: identify whether "
+        "the claim works through demand pull, price/cost pass-through, capacity "
+        "release, margin expansion, market-share gain, technology/productivity, "
+        "policy/liquidity transmission, or valuation repricing. "
+        "A forecast_claim must have a finance-relevant target impact: demand, "
+        "orders, revenue, margin, profit, valuation, stock return, sector return, "
+        "industry prosperity, credit growth, liquidity, or explicit investment "
+        "view. General clinical, public-health, scientific, regulatory, or policy "
+        "recommendations without such market/fundamental linkage belong in "
+        "analytical_footprints, not forecast_claims. "
+        "Do not emit forecast_claims for generic boilerplate such as '风险提示：...' "
+        "or for pure historical/statistical descriptions such as price-change "
+        "tables, ROE rankings, current margins, asset-liability ratios, and "
+        "market-performance summaries unless the surrounding paragraph links "
+        "those facts to a forward impact or mechanism. Such descriptive facts may "
+        "appear in analytical_footprints as context, not forecast_claims.\n"
         "For stock reports, if Report metadata.ts_code is present and the chunk "
         "contains a forecast, rating, or investment view for that same company, "
         "set target.target_type='stock' and target.target_id to metadata.ts_code. "
@@ -1926,7 +2204,15 @@ def _user_prompt(
         "If the text names a benchmark, include benchmark_id; otherwise use "
         "benchmark_type='broad_market' only when the text frames a relative call "
         "against the market. Never invent a horizon; keep horizon unknown when "
-        "the source text has no explicit or clearly implied time window.\n"
+        "the source text has no explicit or clearly implied time window. When "
+        "the text explicitly says windows such as 2026-2028年, 未来三年, 年内, "
+        "未来6个月, 短期, 中期, 中长期, or 长期, encode that in horizon rather "
+        "than leaving it empty. Fill metric_proxy_mapping with source-supported "
+        "finance proxies such as stock_forward_return, industry_etf_forward_return, "
+        "relative_alpha, revenue_growth, earnings_growth, margin_profitability, "
+        "valuation_multiple, demand_growth, industry_prosperity, liquidity_credit_condition, "
+        "or commodity_price_cycle. Leave the list empty only when the claim has "
+        "no finance/fundamental/return proxy in the source text.\n"
         "analytical_footprints fields: topic, indicator_mentions, "
         "analysis_patterns, target_agent_candidates. Mark each mention/step "
         "with source_grounded true/false when possible.\n"
@@ -2081,6 +2367,27 @@ def _bounded_claim_text(text: str) -> tuple[str, bool]:
     if len(normalized) <= MAX_STORED_CLAIM_TEXT_CHARS:
         return normalized, False
     return normalized[: MAX_STORED_CLAIM_TEXT_CHARS - 3].rstrip() + "...", True
+
+
+def _is_forecast_claim_candidate_text(text: str) -> bool:
+    normalized = re.sub(r"\s+", " ", text).strip()
+    if not normalized or FORECAST_CLAIM_RISK_WARNING_PREFIX_RE.match(normalized):
+        return False
+    lowered = normalized.lower()
+    mechanism_hits = sum(
+        1 for term in FORECAST_CLAIM_MECHANISM_TERMS if term in normalized
+    )
+    descriptive_hits = sum(
+        1 for term in FORECAST_CLAIM_DESCRIPTIVE_ONLY_TERMS if term in normalized
+    )
+    numeric_heavy = len(re.findall(r"\d+(?:\.\d+)?%?", normalized)) >= 3
+    if mechanism_hits == 0 and (descriptive_hits or numeric_heavy):
+        return False
+    if numeric_heavy and descriptive_hits and mechanism_hits < 2:
+        return False
+    if not any(term.lower() in lowered for term in FORECAST_CLAIM_FINANCE_IMPACT_TERMS):
+        return False
+    return True
 
 
 def _normalize_failure_modes(value: Any) -> list[dict[str, Any]]:
@@ -2488,11 +2795,86 @@ def _duration_to_days(value: float, unit: str) -> int | None:
     return None
 
 
+_CHINESE_NUMBER_VALUES: Mapping[str, int] = {
+    "零": 0,
+    "一": 1,
+    "二": 2,
+    "两": 2,
+    "三": 3,
+    "四": 4,
+    "五": 5,
+    "六": 6,
+    "七": 7,
+    "八": 8,
+    "九": 9,
+}
+
+
+def _parse_chinese_integer_text(value: str) -> int | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    if text.isdigit():
+        return int(text)
+    if text in _CHINESE_NUMBER_VALUES:
+        return _CHINESE_NUMBER_VALUES[text]
+    if text == "十":
+        return 10
+    if "十" in text:
+        left, _, right = text.partition("十")
+        tens = _CHINESE_NUMBER_VALUES.get(left, 1 if not left else -1)
+        ones = _CHINESE_NUMBER_VALUES.get(right, 0 if not right else -1)
+        if tens >= 0 and ones >= 0:
+            return tens * 10 + ones
+    return None
+
+
 def _parse_float_text(value: str) -> float | None:
     try:
         return float(value)
     except ValueError:
         return None
+
+
+def _parse_duration_value_text(value: str) -> float | None:
+    text = str(value or "").strip()
+    if text == "半":
+        return 0.5
+    parsed = _parse_float_text(text)
+    if parsed is not None:
+        return parsed
+    chinese = _parse_chinese_integer_text(text)
+    return float(chinese) if chinese is not None else None
+
+
+def _days_until_year_end(publish_date: str, target_year: int) -> int | None:
+    try:
+        publish_dt = datetime.strptime(str(publish_date or ""), "%Y-%m-%d")
+    except ValueError:
+        return None
+    target_dt = datetime(target_year, 12, 31)
+    days = (target_dt - publish_dt).days
+    return days if days > 0 else None
+
+
+def _year_range_days_without_publish_date(start_year: int, end_year: int) -> int | None:
+    if end_year < start_year:
+        return None
+    return int(round((end_year - start_year + 1) * 365.25))
+
+
+def _horizon_days_from_mapping(horizon: Mapping[str, Any]) -> int | None:
+    for key in ("preferred_days", "max_days", "min_days"):
+        try:
+            return int(horizon[key])
+        except (KeyError, TypeError, ValueError):
+            continue
+    return None
+
+
+def _horizon_exceeds_reasonable_bound(horizon: Mapping[str, Any]) -> bool:
+    days = _horizon_days_from_mapping(horizon)
+    return days is not None and days > MAX_REASONABLE_FORECAST_HORIZON_DAYS
 
 
 def _infer_horizon_from_claim_text(
@@ -2501,14 +2883,17 @@ def _infer_horizon_from_claim_text(
 ) -> dict[str, Any]:
     text = str(claim_text or "")
     relative_patterns = (
-        r"未来\s*(?P<value>\d+(?:\.\d+)?)\s*(?:个)?(?P<unit>交易日|天|日|周|个月|月|年)(?:内|以内|左右|附近)?",
-        r"(?P<value>\d+(?:\.\d+)?)\s*(?:个)?(?P<unit>交易日|天|日|周|个月|月|年)(?:内|以内)",
+        r"未来\s*(?P<value>\d+(?:\.\d+)?|[一二两三四五六七八九十]+|半)\s*(?:个)?(?P<unit>交易日|天|日|周|个月|月|年)(?:内|以内|左右|附近)?",
+        r"(?P<value>\d+(?:\.\d+)?|[一二两三四五六七八九十]+|半)\s*(?:个)?(?P<unit>交易日|天|日|周|个月|月|年)(?:内|以内)",
     )
     for pattern in relative_patterns:
         match = re.search(pattern, text)
         if not match:
             continue
-        value = _parse_float_text(match.group("value"))
+        raw_value = match.group("value")
+        if match.group("unit") == "年" and re.fullmatch(r"20\d{2}", raw_value):
+            continue
+        value = _parse_duration_value_text(raw_value)
         if value is None:
             continue
         days = _duration_to_days(value, match.group("unit"))
@@ -2521,24 +2906,454 @@ def _infer_horizon_from_claim_text(
             "source_text": match.group(0),
         }
 
+    range_match = re.search(
+        r"(20\d{2})\s*(?:-|—|~|至|到)\s*(20\d{2})\s*年",
+        text,
+    )
+    if range_match:
+        start_year = int(range_match.group(1))
+        end_year = int(range_match.group(2))
+        days = _days_until_year_end(publish_date, end_year)
+        if days is None:
+            days = _year_range_days_without_publish_date(start_year, end_year)
+        if days is not None:
+            return {
+                "max_days": days,
+                "unit": "calendar_day",
+                "source": "explicit_claim_text",
+                "source_text": range_match.group(0).strip(),
+            }
+
     absolute_match = re.search(r"(?:预计|预期|有望|计划|将)?\s*(?:到|至|截至)\s*(20\d{2})\s*年", text)
     if absolute_match:
+        target_year = int(absolute_match.group(1))
+        days = _days_until_year_end(publish_date, target_year)
+        if days is None:
+            days = _year_range_days_without_publish_date(target_year, target_year)
+        if days is not None:
+            return {
+                "max_days": days,
+                "unit": "calendar_day",
+                "source": "explicit_claim_text",
+                "source_text": absolute_match.group(0).strip(),
+            }
+    if re.search(r"(?:年内|今年内)", text):
         try:
-            publish_dt = datetime.strptime(str(publish_date or ""), "%Y-%m-%d")
+            publish_year = datetime.strptime(str(publish_date or ""), "%Y-%m-%d").year
         except ValueError:
-            publish_dt = None
-        if publish_dt is not None:
-            target_year = int(absolute_match.group(1))
-            target_dt = datetime(target_year, 12, 31)
-            days = (target_dt - publish_dt).days
-            if days > 0:
+            publish_year = None
+        if publish_year is not None:
+            days = _days_until_year_end(publish_date, publish_year)
+            if days is not None:
                 return {
                     "max_days": days,
                     "unit": "calendar_day",
                     "source": "explicit_claim_text",
-                    "source_text": absolute_match.group(0).strip(),
+                    "source_text": "年内",
                 }
+        year_in_text = re.search(r"(20\d{2})\s*年内", text)
+        if year_in_text:
+            return {
+                "max_days": 365,
+                "unit": "calendar_day",
+                "source": "explicit_claim_text_missing_publish_date",
+                "source_text": year_in_text.group(0),
+            }
+    qualitative_horizons: tuple[tuple[str, int], ...] = (
+        ("短期", 20),
+        ("中短期", 60),
+        ("中长期", 120),
+        ("中期", 60),
+        ("长期", 120),
+    )
+    for source_text, days in qualitative_horizons:
+        if source_text in text:
+            return {
+                "preferred_days": days,
+                "unit": "trading_day",
+                "source": "qualitative_claim_text",
+                "source_text": source_text,
+            }
     return {}
+
+
+METRIC_PROXY_INFERENCE_RULES: tuple[tuple[str, str], ...] = (
+    (r"营收|营业收入|收入增长|销售收入|收入端|revenue", "revenue_growth"),
+    (r"归母净利润|净利润|利润增长|盈利增长|业绩增长|利润端|earnings", "earnings_growth"),
+    (r"毛利率|净利率|费用率|成本下降|降本|盈利能力|margin", "margin_profitability"),
+    (r"估值|目标价|市盈率|市净率|\bpe\b|\bpb\b|valuation", "valuation_multiple"),
+    (r"需求|订单|销量|出货|客流|装机|交付|销售量", "demand_growth"),
+    (r"景气|景气度|行业周期|超级周期|产业周期|繁荣", "industry_prosperity"),
+    (r"供需|库存|产能|价格中枢|价格维持|涨价|降价|商品价格", "commodity_price_cycle"),
+    (r"利率|流动性|信用|社融|信贷|货币政策|资金面", "liquidity_credit_condition"),
+)
+
+
+CLAIM_REGIME_CONTEXT_RE = re.compile(
+    r"行业|产业|市场|需求|供给|供需|景气|周期|政策|利率|流动性|库存|产能|价格中枢|竞争格局|宏观",
+    flags=re.IGNORECASE,
+)
+CLAIM_MACRO_REGIME_RULES: tuple[tuple[str, str], ...] = (
+    ("us_rate_cut_cycle", r"美国|美联储|Fed|FED|降息周期|降息|联邦基金利率"),
+    (
+        "china_countercyclical_policy",
+        r"中国[^。；，,]{0,24}(?:逆周期|货币政策|稳增长|稳经济|政策加码|政策发力)|"
+        r"国内[^。；，,]{0,24}(?:逆周期|货币政策|稳增长|稳经济|政策加码|政策发力)|"
+        r"逆周期|稳增长|稳经济|政策加码|政策发力",
+    ),
+    ("monetary_liquidity_condition", r"货币政策|流动性|资金面|公开市场|净投放|DR007|央行|PBOC"),
+    ("credit_cycle", r"信用扩张|信用收缩|社融|信贷|融资需求|信用周期|信用利差"),
+    ("fx_usd_cycle", r"美元|汇率|人民币|美元指数|外汇"),
+    ("global_growth_inflation", r"全球经济|海外经济|通胀|再通胀|衰退|复苏|PMI"),
+    ("fiscal_policy", r"财政|专项债|国债|赤字|税收|补贴"),
+    ("regulatory_policy", r"监管|产业政策|政策支持|政策约束|政策放松"),
+)
+DEFAULT_MACRO_REGIME_CALENDAR_ROWS: tuple[Mapping[str, Any], ...] = (
+    {
+        "regime_id": "MACRO-REGIME-US-RATE-CUT-20240918",
+        "regime_type": "us_rate_cut_cycle",
+        "start_date": "2024-09-18",
+        "end_date": "2025-12-31",
+        "source": "Fed rate-cut cycle after the September 2024 FOMC cut",
+        "source_url": "https://www.federalreserve.gov/newsevents/pressreleases/monetary20240918a.htm",
+        "pit_available": True,
+        "policy": (
+            "macro regime calendar is public aggregate governance metadata; it may "
+            "supplement forecast claims by PIT as_of_datetime but must not claim "
+            "source-text grounding"
+        ),
+        "version": 1,
+    },
+    {
+        "regime_id": "MACRO-REGIME-US-RATE-CUT-20260101",
+        "regime_type": "us_rate_cut_cycle",
+        "start_date": "2026-01-01",
+        "end_date": "2026-12-31",
+        "source": "US policy-rate cycle remained in a post-cut/easing-evaluation window after 2025 cuts",
+        "source_url": "https://www.federalreserve.gov/newsevents/pressreleases/monetary20251210a.htm",
+        "pit_available": True,
+        "policy": (
+            "macro regime calendar is public aggregate governance metadata; it may "
+            "supplement forecast claims by PIT as_of_datetime but must not claim "
+            "source-text grounding"
+        ),
+        "version": 1,
+    },
+    {
+        "regime_id": "MACRO-REGIME-CN-COUNTERCYCLICAL-20240924",
+        "regime_type": "china_countercyclical_policy",
+        "start_date": "2024-09-24",
+        "end_date": "2025-12-31",
+        "source": (
+            "China counter-cyclical policy support after the September 2024 "
+            "policy package"
+        ),
+        "pit_available": True,
+        "policy": (
+            "macro regime calendar is public aggregate governance metadata; it may "
+            "supplement forecast claims by PIT as_of_datetime but must not claim "
+            "source-text grounding"
+        ),
+        "version": 1,
+    },
+    {
+        "regime_id": "MACRO-REGIME-CN-MONETARY-LIQUIDITY-20240924",
+        "regime_type": "monetary_liquidity_condition",
+        "start_date": "2024-09-24",
+        "end_date": "2025-12-31",
+        "source": (
+            "China monetary-policy counter-cyclical support after the September "
+            "2024 policy package"
+        ),
+        "pit_available": True,
+        "policy": (
+            "macro regime calendar is public aggregate governance metadata; it may "
+            "supplement forecast claims by PIT as_of_datetime but must not claim "
+            "source-text grounding"
+        ),
+        "version": 1,
+    },
+)
+CLAIM_INDUSTRY_CYCLE_REGIME_RULES: tuple[tuple[str, str], ...] = (
+    (
+        "supply_tightness",
+        r"供给.*偏紧|供应.*偏紧|供给约束|供给收缩|供应短缺|产能受限|"
+        r"供给.*紧张|供应.*紧张|供需.*错配",
+    ),
+    ("demand_transition", r"需求动能切换|需求结构变化|新需求|传统需求|新能源需求|AI需求|下游需求"),
+    ("industry_demand_growth", r"行业需求持续增长|产业需求持续增长|需求持续增长|需求增长|需求改善"),
+    ("inventory_cycle", r"库存|补库|去库|库存周期"),
+    ("capacity_cycle", r"行业产能|产业产能|产能周期|产能过剩|产能出清|产能受限|产能利用率"),
+    (
+        "raw_material_cost_pressure",
+        r"原材料价格|投入成本|成本上升|成本压力|铁矿石|炼焦煤|天然橡胶|丁基橡胶",
+    ),
+    ("price_cycle", r"价格周期|价格中枢|涨价|降价|煤价|铜价|金属价格|商品价格|价格.*上涨"),
+    ("competition_cycle", r"竞争格局|集中度|价格战|格局改善|份额|结构分化|业绩分化"),
+    ("prosperity_cycle", r"景气|景气度|行业周期|产业周期|超级周期|盈利修复|盈利质量"),
+    ("technology_cycle", r"技术周期|产品周期|AI周期|AI技术|算力周期|推理算力|AIGC|创新周期|算力网络|词元生产"),
+    ("business_model_shift", r"商业模式|业务结构|收入结构|收入来源|自营业务|高质量发展阶段"),
+    ("industry_valuation_cycle", r"估值处于历史低位|安全边际|估值修复|估值提升|估值重估"),
+    ("import_substitution_cycle", r"国产替代|进口替代|贸易逆差"),
+    ("industry_policy_catalyst", r"政策催化|政策支持|出口限制|产业政策"),
+    ("globalization_export_cycle", r"出口高增|出海|海外订单|全球化|国际业务"),
+    ("end_market_order_cycle", r"客户.*承诺|客户需求|订单弹性|订单增长"),
+    ("energy_hydrology_cycle", r"来水|水文|风光|装机|消纳|特高压"),
+)
+
+
+def _as_of_date_key(value: Any) -> str:
+    parsed = _parse_pit_datetime(value)
+    if parsed is not None:
+        return parsed.date().isoformat()
+    text = str(value or "").strip()
+    match = re.search(r"\d{4}-\d{2}-\d{2}", text)
+    return match.group(0) if match else ""
+
+
+def _as_of_date_macro_regime_types(
+    as_of_datetime: Any,
+    macro_regime_calendar_rows: Sequence[Mapping[str, Any]] = (),
+) -> tuple[list[str], dict[str, str]]:
+    date_key = _as_of_date_key(as_of_datetime)
+    if not date_key:
+        return [], {}
+    regime_types: list[str] = []
+    sources: dict[str, str] = {}
+    rows = macro_regime_calendar_rows or DEFAULT_MACRO_REGIME_CALENDAR_ROWS
+    for row in rows:
+        regime_type = str(row.get("regime_type") or "").strip()
+        start_date = str(row.get("start_date") or "").strip()
+        end_date = str(row.get("end_date") or "").strip()
+        note = str(row.get("source") or "").strip()
+        if not regime_type or not start_date or not end_date:
+            continue
+        if row.get("pit_available") is not True:
+            continue
+        if start_date <= date_key <= end_date:
+            regime_types.append(regime_type)
+            sources[regime_type] = f"as_of_date:{date_key}; {note}"
+    return list(dict.fromkeys(regime_types)), sources
+CLAIM_COMPANY_CAPABILITY_RE = re.compile(
+    r"公司|自身|实验室|投产|达效|全国布局|产能利用|渠道|客户|订单|技术|研发|产品|费用管控|降本|管理|执行|市占率|份额",
+    flags=re.IGNORECASE,
+)
+CLAIM_MARKET_FUNDAMENTAL_IMPACT_RE = re.compile(
+    r"营收|营业收入|收入|利润|盈利|业绩|EPS|毛利率|净利率|估值修复|估值溢价|估值提升|估值重估|价值重估|目标价|股价|回报|收益|跑赢|跑输|景气度|需求增长|订单增长|成长空间",
+    flags=re.IGNORECASE,
+)
+CLAIM_MECHANISM_CHANNEL_RULES: tuple[tuple[str, str], ...] = (
+    ("demand_pull", r"需求|订单|销量|出货|客流|装机|交付|下游|出口"),
+    ("price_cost_pass_through", r"价格|涨价|降价|成本|原材料|煤价|油价|运价|费用率"),
+    ("margin_expansion_or_pressure", r"毛利率|净利率|利润率|盈利能力|利润空间|费用率|降本"),
+    ("capacity_release_or_supply", r"产能|投产|达效|扩产|产量|供给|供应|库存|利用率"),
+    ("market_share_or_competition", r"市占率|份额|竞争格局|龙头|集中度|替代|进口替代"),
+    ("technology_productivity", r"技术|研发|效率|算力|模型|自动化|数字化|AI|推理优化"),
+    (
+        "policy_liquidity_transmission",
+        r"政策|监管|利率|流动性|信用扩张|信用收缩|社融|信贷|资金面|公开市场|净投放|DR007|PBOC|央行",
+    ),
+    ("valuation_repricing", r"估值修复|估值溢价|估值提升|估值重估|价值重估|目标价|评级"),
+    ("business_mix_shift", r"业务占比|业务结构|收入结构|配件业务|耗材|自营业务|软件|硬件|服务"),
+    ("overseas_expansion", r"海外|出海|出口|外销"),
+    ("tax_or_subsidy_benefit", r"税率|所得税|税收|补贴"),
+)
+CLAIM_MECHANISM_ACTION_RULES: tuple[tuple[str, str], ...] = (
+    ("expand_capacity_or_coverage", r"扩充|扩产|投产|达效|布局|拓展|建设|注入"),
+    (
+        "optimize_cost_or_efficiency",
+        r"降本|控费|费用管控|费用率下降|管理费用率下降|财务费用率下降|"
+        r"控制成本|成本控制|提质增效|效率提升|优化|精简",
+    ),
+    ("pass_through_price_or_cost", r"传导|转嫁|报价|价格中枢|成本上升|涨价"),
+    ("upgrade_product_or_technology", r"升级|研发|创新|技术|产品力|推理优化|数字化"),
+    ("gain_share_or_substitute", r"份额提升|市占率|替代|进口替代|渠道|客户"),
+    (
+        "receive_policy_or_liquidity_impulse",
+        r"政策支持|监管放松|流动性改善|信用扩张|资金流入|净投放改善|DR007回落|资金面改善",
+    ),
+    ("reprice_valuation_or_rating", r"估值修复|估值溢价|估值提升|价值重估|评级|买入|增持"),
+    ("shift_business_mix", r"占比提升|结构优化|收入来源|业务增长|稳定增长"),
+    ("expand_overseas_market", r"海外|出海|出口|外销"),
+)
+
+
+def _mechanism_impact_variables(
+    metric_proxy_mapping: Sequence[Any],
+    claim_text: str,
+) -> list[str]:
+    variables = [
+        str(item).strip()
+        for item in metric_proxy_mapping
+        if str(item or "").strip()
+    ]
+    if variables:
+        return list(dict.fromkeys(variables))
+    text = re.sub(r"\s+", " ", str(claim_text or ""))
+    inferred: list[str] = []
+    for pattern, metric in METRIC_PROXY_INFERENCE_RULES:
+        if re.search(pattern, text, flags=re.IGNORECASE):
+            inferred.append(metric)
+    return list(dict.fromkeys(inferred))
+
+
+def _infer_claim_mechanism_roles(
+    claim_text: str,
+    *,
+    target: Mapping[str, Any],
+    metric_proxy_mapping: Sequence[Any],
+) -> dict[str, Any]:
+    text = re.sub(r"\s+", " ", str(claim_text or ""))
+    channels = [
+        channel
+        for channel, pattern in CLAIM_MECHANISM_CHANNEL_RULES
+        if re.search(pattern, text, flags=re.IGNORECASE)
+    ]
+    actions = [
+        action
+        for action, pattern in CLAIM_MECHANISM_ACTION_RULES
+        if re.search(pattern, text, flags=re.IGNORECASE)
+    ]
+    impact_variables = _mechanism_impact_variables(metric_proxy_mapping, text)
+    target_type = str(target.get("target_type") or "").strip().lower() or "unknown"
+    has_mechanism = bool(channels or actions)
+    connects_to_impact = has_mechanism and bool(impact_variables)
+    return {
+        "channels": channels,
+        "actions": actions,
+        "impact_variables": impact_variables,
+        "has_economic_mechanism": has_mechanism,
+        "mechanism_connects_to_evaluable_impact": connects_to_impact,
+        "possible_operational_only_mechanism": has_mechanism and not connects_to_impact,
+        "target_type": target_type,
+        "mechanism_policy": "separate_regime_mechanism_capability_and_impact",
+    }
+
+
+def _infer_claim_component_roles(
+    claim_text: str,
+    *,
+    target: Mapping[str, Any],
+    as_of_datetime: Any = "",
+    macro_regime_calendar_rows: Sequence[Mapping[str, Any]] = (),
+) -> dict[str, Any]:
+    text = re.sub(r"\s+", " ", str(claim_text or ""))
+    text_macro_regime_types = [
+        regime_type
+        for regime_type, pattern in CLAIM_MACRO_REGIME_RULES
+        if re.search(pattern, text, flags=re.IGNORECASE)
+    ]
+    date_macro_regime_types, date_macro_regime_sources = (
+        _as_of_date_macro_regime_types(
+            as_of_datetime,
+            macro_regime_calendar_rows=macro_regime_calendar_rows,
+        )
+    )
+    macro_regime_types = list(
+        dict.fromkeys([*text_macro_regime_types, *date_macro_regime_types])
+    )
+    macro_regime_sources = {
+        regime_type: "source_text" for regime_type in text_macro_regime_types
+    }
+    for regime_type, source in date_macro_regime_sources.items():
+        macro_regime_sources.setdefault(regime_type, source)
+    industry_cycle_regime_types = [
+        regime_type
+        for regime_type, pattern in CLAIM_INDUSTRY_CYCLE_REGIME_RULES
+        if re.search(pattern, text, flags=re.IGNORECASE)
+    ]
+    has_company_capability = bool(CLAIM_COMPANY_CAPABILITY_RE.search(text))
+    generic_regime_context = bool(CLAIM_REGIME_CONTEXT_RE.search(text))
+    has_regime = bool(
+        macro_regime_types
+        or industry_cycle_regime_types
+        or (generic_regime_context and not has_company_capability)
+    )
+    target_type = str(target.get("target_type") or "").strip().lower()
+    return {
+        "has_regime_context": has_regime,
+        "has_macro_regime_context": bool(macro_regime_types),
+        "has_industry_cycle_regime_context": bool(industry_cycle_regime_types),
+        "regime_context_types": list(
+            dict.fromkeys([*macro_regime_types, *industry_cycle_regime_types])
+        ),
+        "macro_regime_context_types": macro_regime_types,
+        "source_text_macro_regime_context_types": text_macro_regime_types,
+        "as_of_date_macro_regime_context_types": date_macro_regime_types,
+        "macro_regime_context_sources": macro_regime_sources,
+        "industry_cycle_regime_context_types": industry_cycle_regime_types,
+        "has_company_capability_or_action": has_company_capability,
+        "has_market_or_fundamental_impact": bool(
+            CLAIM_MARKET_FUNDAMENTAL_IMPACT_RE.search(text)
+        ),
+        "target_type": target_type or "unknown",
+        "mixed_regime_and_company_capability": (
+            target_type == "stock" and has_regime and has_company_capability
+        ),
+        "role_policy": (
+            "separate_macro_regime_industry_cycle_regime_company_capability_"
+            "mechanism_and_impact"
+        ),
+        "as_of_regime_policy": (
+            "macro regime may be inferred from PIT as_of_datetime; industry-cycle "
+            "regime must be source-text derived"
+        ),
+    }
+
+
+def _target_return_metric(target: Mapping[str, Any], claim_text: str) -> str:
+    target_type = str(target.get("target_type") or "").strip().lower()
+    if target_type == "stock":
+        return "stock_forward_return"
+    if target_type in {"sector", "industry"}:
+        return "industry_etf_forward_return"
+    if target_type == "commodity":
+        return "commodity_spot_price"
+    if re.search(r"股价|股票|买入|增持|减持|目标价", claim_text):
+        return "stock_forward_return"
+    if re.search(r"板块|行业|超配|低配|跑赢|跑输", claim_text):
+        return "industry_etf_forward_return"
+    return "forward_return_proxy"
+
+
+def _normalize_metric_proxy_mapping(
+    value: Any,
+    *,
+    claim_text: str,
+    target: Mapping[str, Any],
+) -> tuple[list[str], bool]:
+    records = [
+        str(item).strip()
+        for item in _ensure_list(value)
+        if str(item or "").strip()
+        and str(item or "").strip().lower() not in {"unknown", "n/a", "na", "none"}
+    ]
+    inferred: list[str] = []
+    normalized_text = re.sub(r"\s+", " ", str(claim_text or ""))
+    for pattern, metric in METRIC_PROXY_INFERENCE_RULES:
+        if re.search(pattern, normalized_text, flags=re.IGNORECASE):
+            inferred.append(metric)
+    if (
+        str(target.get("target_type") or "").strip().lower() == "commodity"
+        and "commodity_price_cycle" in inferred
+    ):
+        inferred.append("commodity_spot_price")
+    if re.search(
+        r"股价|股价表现|跑赢|跑输|超额收益|收益率|上涨|下跌|回报|买入|增持|减持|评级|目标价",
+        normalized_text,
+    ):
+        inferred.append(_target_return_metric(target, normalized_text))
+    if re.search(r"跑赢|跑输|超额收益|相对收益|alpha|阿尔法", normalized_text, flags=re.IGNORECASE):
+        inferred.append("relative_alpha")
+
+    merged: list[str] = []
+    seen: set[str] = set()
+    for item in [*records, *inferred]:
+        key = item.lower()
+        if key not in seen:
+            merged.append(item)
+            seen.add(key)
+    return merged, bool(inferred and not records)
 
 
 def _normalize_or_infer_horizon(
@@ -2548,11 +3363,16 @@ def _normalize_or_infer_horizon(
     publish_date: str,
 ) -> tuple[dict[str, Any], bool]:
     normalized = _ensure_mapping(horizon)
-    if _horizon_bucket(normalized) != "unknown":
+    invalid_model_horizon = _horizon_exceeds_reasonable_bound(normalized)
+    if _horizon_bucket(normalized) != "unknown" and not invalid_model_horizon:
         return normalized, False
     inferred = _infer_horizon_from_claim_text(claim_text, publish_date)
     if inferred:
+        if invalid_model_horizon:
+            inferred["invalid_model_horizon_replaced"] = True
         return inferred, True
+    if invalid_model_horizon:
+        return {}, False
     return normalized, False
 
 
@@ -2581,6 +3401,7 @@ def _normalize_forecast_claims(
     model: str,
     report_id: str,
     chunk_span_id: str,
+    macro_regime_calendar_rows: Sequence[Mapping[str, Any]] = (),
 ) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     for item in _ensure_list(payload.get("forecast_claims")):
@@ -2588,11 +3409,19 @@ def _normalize_forecast_claims(
         raw_claim_text = _record_text(claim, "claim_text", "text")
         if not raw_claim_text:
             continue
+        if not _is_forecast_claim_candidate_text(raw_claim_text):
+            continue
         claim_text, claim_text_truncated = _bounded_claim_text(raw_claim_text)
         horizon, horizon_inferred = _normalize_or_infer_horizon(
             claim.get("horizon"),
             claim_text=raw_claim_text,
             publish_date=str(row.get("publish_date") or ""),
+        )
+        target = _ensure_mapping(claim.get("target"))
+        metric_proxy_mapping, metric_proxy_inferred = _normalize_metric_proxy_mapping(
+            claim.get("metric_proxy_mapping"),
+            claim_text=raw_claim_text,
+            target=target,
         )
         record = {
             "forecast_claim_id": _stable_id(
@@ -2619,7 +3448,7 @@ def _normalize_forecast_claims(
                 claim.get("forecast_testability") or "insufficient_mapping"
             ),
             "forecast_type": str(claim.get("forecast_type") or "unknown"),
-            "target": _ensure_mapping(claim.get("target")),
+            "target": target,
             "benchmark": _ensure_mapping(claim.get("benchmark")),
             "direction": _normalize_forecast_direction(claim.get("direction")),
             "horizon": horizon,
@@ -2627,7 +3456,7 @@ def _normalize_forecast_claims(
             "entry_rule": _ensure_mapping(claim.get("entry_rule")),
             "explicitness": str(claim.get("explicitness") or "unknown"),
             "source_conviction": str(claim.get("source_conviction") or "unknown"),
-            "metric_proxy_mapping": _ensure_list(claim.get("metric_proxy_mapping")),
+            "metric_proxy_mapping": metric_proxy_mapping,
             "failure_modes": _normalize_failure_modes(claim.get("failure_modes")),
             "extraction_quality": _ensure_mapping(claim.get("extraction_quality")),
             "extractor": {
@@ -2641,12 +3470,31 @@ def _normalize_forecast_claims(
         ] = claim_text_truncated
         if record["claim_provenance"] == "source_grounded":
             record["extraction_quality"].setdefault("span_grounded", True)
+        record["extraction_quality"]["claim_component_roles"] = (
+            _infer_claim_component_roles(
+                raw_claim_text,
+                target=target,
+                as_of_datetime=row.get("publish_date"),
+                macro_regime_calendar_rows=macro_regime_calendar_rows,
+            )
+        )
+        record["extraction_quality"]["claim_mechanism_roles"] = (
+            _infer_claim_mechanism_roles(
+                raw_claim_text,
+                target=target,
+                metric_proxy_mapping=metric_proxy_mapping,
+            )
+        )
         if horizon_inferred:
             record["extraction_quality"]["horizon_inferred_from_claim_text"] = True
             record["extraction_quality"]["horizon_inference_source_text"] = horizon.get(
                 "source_text",
                 "",
             )
+        if metric_proxy_inferred:
+            record["extraction_quality"][
+                "metric_proxy_mapping_inferred_from_claim_text"
+            ] = True
         mapping_gaps = _forecast_mapping_gaps(record)
         if mapping_gaps:
             record["forecast_testability"] = "insufficient_mapping"
@@ -2658,13 +3506,18 @@ def _normalize_forecast_claims(
 
 def _refresh_forecast_mapping_governance(
     forecast_rows: Sequence[Mapping[str, Any]],
+    *,
+    macro_regime_calendar_rows: Sequence[Mapping[str, Any]] = (),
 ) -> list[dict[str, Any]]:
     refreshed_rows: list[dict[str, Any]] = []
     for row in forecast_rows:
         refreshed = dict(row)
+        claim_text = str(refreshed.get("claim_text") or "")
+        if not _is_forecast_claim_candidate_text(claim_text):
+            continue
         horizon, horizon_inferred = _normalize_or_infer_horizon(
             refreshed.get("horizon"),
-            claim_text=str(refreshed.get("claim_text") or ""),
+            claim_text=claim_text,
             publish_date=str(
                 refreshed.get("signal_datetime")
                 or refreshed.get("publish_date")
@@ -2673,12 +3526,35 @@ def _refresh_forecast_mapping_governance(
         )
         refreshed["horizon"] = horizon
         extraction_quality = dict(_ensure_mapping(refreshed.get("extraction_quality")))
+        metric_proxy_mapping, metric_proxy_inferred = _normalize_metric_proxy_mapping(
+            refreshed.get("metric_proxy_mapping"),
+            claim_text=claim_text,
+            target=_ensure_mapping(refreshed.get("target")),
+        )
+        refreshed["metric_proxy_mapping"] = metric_proxy_mapping
         if horizon_inferred:
             extraction_quality["horizon_inferred_from_claim_text"] = True
             extraction_quality["horizon_inference_source_text"] = horizon.get(
                 "source_text",
                 "",
             )
+        if metric_proxy_inferred:
+            extraction_quality["metric_proxy_mapping_inferred_from_claim_text"] = True
+        extraction_quality["claim_component_roles"] = _infer_claim_component_roles(
+            claim_text,
+            target=_ensure_mapping(refreshed.get("target")),
+            as_of_datetime=(
+                refreshed.get("signal_datetime")
+                or refreshed.get("publish_date")
+                or ""
+            ),
+            macro_regime_calendar_rows=macro_regime_calendar_rows,
+        )
+        extraction_quality["claim_mechanism_roles"] = _infer_claim_mechanism_roles(
+            claim_text,
+            target=_ensure_mapping(refreshed.get("target")),
+            metric_proxy_mapping=metric_proxy_mapping,
+        )
         mapping_gaps = _forecast_mapping_gaps(refreshed)
         if mapping_gaps:
             refreshed["forecast_testability"] = "insufficient_mapping"
@@ -3445,12 +4321,17 @@ def _normalize_method_patterns(
     for footprint in footprints:
         for pattern in _ensure_list(footprint.get("analysis_patterns")):
             pattern_map = _ensure_mapping(pattern)
-            name = _record_text(pattern_map, "pattern_candidate", "name")
+            name = (
+                str(pattern).strip()
+                if isinstance(pattern, str)
+                else _record_text(pattern_map, "pattern_candidate", "name", "pattern")
+            )
             if name:
                 raw_methods.append(
                     {
                         "name": name,
-                        "steps": pattern_map.get("steps") or [],
+                        "source_footprint_ids": [footprint.get("footprint_id")],
+                        "steps": pattern_map.get("steps") or [name],
                         "required_current_data": pattern_map.get(
                             "required_current_data"
                         )
@@ -3524,6 +4405,104 @@ def classify_tool_coverage(canonical_name: str) -> dict[str, Any]:
             ("tool.get_realized_volatility",),
         ),
         (
+            (
+                "revenue",
+                "net_profit",
+                "gross_margin",
+                "net_margin",
+                "margin",
+                "roe",
+                "roic",
+                "eps",
+                "earnings",
+                "p/e",
+                "p/b",
+                "pe_ratio",
+                "pb_ratio",
+                "ev_ebitda",
+                "price_to_book",
+                "price_to_earnings",
+                "target_price",
+                "financial_model",
+                "profitability",
+                "expense_ratio",
+                "yoy_growth",
+                "year_over_year",
+                "quarter_over_quarter",
+                "valuation",
+                "营业收入",
+                "归母净利润",
+                "净利润",
+                "毛利率",
+                "净利率",
+                "市盈率",
+                "市净率",
+                "每股收益",
+                "估值",
+            ),
+            "exact_match",
+            ("tool.get_fundamentals",),
+        ),
+        (
+            (
+                "debt_to_asset",
+                "asset_liability",
+                "current_ratio",
+                "book_value",
+                "资产负债率",
+                "流动比率",
+                "每股净资产",
+            ),
+            "exact_match",
+            ("tool.get_balance_sheet",),
+        ),
+        (
+            (
+                "cashflow",
+                "cash_flow",
+                "operating_cash",
+                "investing_cash",
+                "financing_cash",
+                "经营活动现金流",
+                "投资活动现金流",
+                "筹资活动现金流",
+                "现金及现金等价物",
+            ),
+            "exact_match",
+            ("tool.get_cashflow",),
+        ),
+        (
+            (
+                "receivable_turnover",
+                "inventory_turnover",
+                "asset_turnover",
+                "应收账款周转率",
+                "存货周转率",
+                "总资产周转率",
+            ),
+            "exact_match",
+            ("tool.get_fundamentals",),
+        ),
+        (
+            (
+                "stock_price",
+                "stock_return",
+                "benchmark_return",
+                "industry_etf_forward_return",
+                "sector_index_return",
+                "forward_return",
+                "target_return",
+                "relative_alpha",
+                "relative_performance",
+                "price_proxy",
+                "sector_relative_performance",
+                "股价",
+                "收益率",
+            ),
+            "exact_match",
+            ("market.price_proxy",),
+        ),
+        (
             ("dr007", "r007", "repo", "回购", "资金利率"),
             "partial_match",
             ("tool.get_money_market_rate_proxy",),
@@ -3554,6 +4533,16 @@ def _is_gap_missing_or_data_blocked(gap_type: str) -> bool:
             "no_pit",
         )
     )
+
+
+def _tool_gap_resolved_by_existing_coverage(row: Mapping[str, Any]) -> bool:
+    metric_name = str(row.get("metric_name") or row.get("metric_candidate_id") or "")
+    if not metric_name.strip():
+        return False
+    coverage = classify_tool_coverage(metric_name)
+    return bool(coverage.get("existing_tool_ids")) and str(
+        coverage.get("coverage_status") or ""
+    ) in {"exact_match", "proxy_available"}
 
 
 def _tool_gap_priority_metadata(
@@ -3688,6 +4677,22 @@ def _refresh_tool_gap_governance(
 ) -> list[dict[str, Any]]:
     governed_rows: list[dict[str, Any]] = []
     for row in rows:
+        if _tool_gap_resolved_by_existing_coverage(row):
+            governed = dict(row)
+            governed.update(
+                {
+                    "priority_bucket": "resolved",
+                    "priority_reasons": _merge_unique_values(
+                        _ensure_list(row.get("priority_reasons")),
+                        ["metric_now_has_existing_tool_coverage"],
+                    ),
+                    "blocking_issues": [],
+                    "owner": str(row.get("owner") or "data_engineering"),
+                    "status": "retired",
+                }
+            )
+            governed_rows.append(governed)
+            continue
         metric_name = str(row.get("metric_name") or row.get("metric_candidate_id") or "")
         method_name = str(row.get("method_name") or "")
         target_agents, _target_entities = _split_agent_and_entity_candidates(
@@ -4019,10 +5024,23 @@ def build_outcome_labeling_readiness_report(
     forecast_ledger_rows: Sequence[Mapping[str, Any]],
     industry_etf_proxy_readiness: Mapping[str, Any] | None = None,
     stock_price_proxy_readiness: Mapping[str, Any] | None = None,
+    macro_regime_calendar_rows: Sequence[Mapping[str, Any]] = (),
 ) -> dict[str, Any]:
     gap_counts: dict[str, int] = {}
     unlabelable_gap_counts: dict[str, int] = {}
     test_status_counts: dict[str, int] = {}
+    mechanism_channel_counts: dict[str, int] = {}
+    mechanism_action_counts: dict[str, int] = {}
+    mechanism_impact_variable_counts: dict[str, int] = {}
+    mechanism_gap_counts: dict[str, int] = {}
+    mechanism_gap_ids: list[str] = []
+    macro_regime_counts: dict[str, int] = {}
+    source_text_macro_regime_counts: dict[str, int] = {}
+    as_of_date_macro_regime_counts: dict[str, int] = {}
+    macro_regime_source_counts: dict[str, int] = {}
+    industry_cycle_regime_counts: dict[str, int] = {}
+    regime_gap_counts: dict[str, int] = {}
+    regime_gap_ids: list[str] = []
     ready_ids: list[str] = []
     standard_blocked_ids: list[str] = []
     blocked_ids: list[str] = []
@@ -4048,6 +5066,112 @@ def build_outcome_labeling_readiness_report(
     forecast_by_id = {
         str(row.get("forecast_claim_id") or ""): row for row in forecast_rows
     }
+    for forecast in forecast_rows:
+        forecast_claim_id = str(forecast.get("forecast_claim_id") or "")
+        extraction_quality = _ensure_mapping(forecast.get("extraction_quality"))
+        component_roles = _ensure_mapping(
+            extraction_quality.get("claim_component_roles")
+        )
+        if not component_roles:
+            component_roles = _infer_claim_component_roles(
+                str(forecast.get("claim_text") or ""),
+                target=_ensure_mapping(forecast.get("target")),
+                as_of_datetime=(
+                    forecast.get("signal_datetime")
+                    or forecast.get("publish_date")
+                    or ""
+                ),
+                macro_regime_calendar_rows=macro_regime_calendar_rows,
+            )
+        for regime_type in _ensure_list(
+            component_roles.get("macro_regime_context_types")
+        ):
+            key = str(regime_type).strip()
+            if key:
+                macro_regime_counts[key] = macro_regime_counts.get(key, 0) + 1
+        for regime_type in _ensure_list(
+            component_roles.get("source_text_macro_regime_context_types")
+        ):
+            key = str(regime_type).strip()
+            if key:
+                source_text_macro_regime_counts[key] = (
+                    source_text_macro_regime_counts.get(key, 0) + 1
+                )
+                macro_regime_source_counts["source_text"] = (
+                    macro_regime_source_counts.get("source_text", 0) + 1
+                )
+        for regime_type in _ensure_list(
+            component_roles.get("as_of_date_macro_regime_context_types")
+        ):
+            key = str(regime_type).strip()
+            if key:
+                as_of_date_macro_regime_counts[key] = (
+                    as_of_date_macro_regime_counts.get(key, 0) + 1
+                )
+                macro_regime_source_counts["as_of_date"] = (
+                    macro_regime_source_counts.get("as_of_date", 0) + 1
+                )
+        for regime_type in _ensure_list(
+            component_roles.get("industry_cycle_regime_context_types")
+        ):
+            key = str(regime_type).strip()
+            if key:
+                industry_cycle_regime_counts[key] = (
+                    industry_cycle_regime_counts.get(key, 0) + 1
+                )
+        regime_gaps: list[str] = []
+        if component_roles.get("has_regime_context") is not True:
+            if component_roles.get("has_company_capability_or_action") is True:
+                regime_gaps.append("company_capability_only_no_regime_context")
+            else:
+                regime_gaps.append("regime_context_missing")
+        elif (
+            component_roles.get("has_macro_regime_context") is not True
+            and component_roles.get("has_industry_cycle_regime_context") is not True
+        ):
+            regime_gaps.append("regime_context_unclassified")
+        if regime_gaps and forecast_claim_id:
+            regime_gap_ids.append(forecast_claim_id)
+        for gap in regime_gaps:
+            regime_gap_counts[gap] = regime_gap_counts.get(gap, 0) + 1
+        mechanism_roles = _ensure_mapping(
+            extraction_quality.get("claim_mechanism_roles")
+        )
+        if not mechanism_roles:
+            mechanism_roles = _infer_claim_mechanism_roles(
+                str(forecast.get("claim_text") or ""),
+                target=_ensure_mapping(forecast.get("target")),
+                metric_proxy_mapping=_ensure_list(
+                    forecast.get("metric_proxy_mapping")
+                ),
+            )
+        for channel in _ensure_list(mechanism_roles.get("channels")):
+            key = str(channel).strip()
+            if key:
+                mechanism_channel_counts[key] = (
+                    mechanism_channel_counts.get(key, 0) + 1
+                )
+        for action in _ensure_list(mechanism_roles.get("actions")):
+            key = str(action).strip()
+            if key:
+                mechanism_action_counts[key] = mechanism_action_counts.get(key, 0) + 1
+        for variable in _ensure_list(mechanism_roles.get("impact_variables")):
+            key = str(variable).strip()
+            if key:
+                mechanism_impact_variable_counts[key] = (
+                    mechanism_impact_variable_counts.get(key, 0) + 1
+                )
+        mechanism_gaps: list[str] = []
+        if mechanism_roles.get("has_economic_mechanism") is not True:
+            mechanism_gaps.append("economic_mechanism_missing")
+        if mechanism_roles.get("mechanism_connects_to_evaluable_impact") is not True:
+            mechanism_gaps.append("mechanism_evaluable_impact_missing")
+        if mechanism_roles.get("possible_operational_only_mechanism") is True:
+            mechanism_gaps.append("possible_operational_only_mechanism")
+        if mechanism_gaps and forecast_claim_id:
+            mechanism_gap_ids.append(forecast_claim_id)
+        for gap in mechanism_gaps:
+            mechanism_gap_counts[gap] = mechanism_gap_counts.get(gap, 0) + 1
     for ledger in forecast_ledger_rows:
         forecast_claim_id = str(ledger.get("forecast_claim_id") or "")
         status = str(ledger.get("test_status") or "unknown")
@@ -4094,6 +5218,24 @@ def build_outcome_labeling_readiness_report(
         "test_status_counts": dict(sorted(test_status_counts.items())),
         "mapping_gap_counts": dict(sorted(gap_counts.items())),
         "unlabelable_mapping_gap_counts": dict(sorted(unlabelable_gap_counts.items())),
+        "macro_regime_counts": dict(sorted(macro_regime_counts.items())),
+        "source_text_macro_regime_counts": dict(
+            sorted(source_text_macro_regime_counts.items())
+        ),
+        "as_of_date_macro_regime_counts": dict(
+            sorted(as_of_date_macro_regime_counts.items())
+        ),
+        "macro_regime_source_counts": dict(sorted(macro_regime_source_counts.items())),
+        "industry_cycle_regime_counts": dict(
+            sorted(industry_cycle_regime_counts.items())
+        ),
+        "regime_gap_counts": dict(sorted(regime_gap_counts.items())),
+        "mechanism_channel_counts": dict(sorted(mechanism_channel_counts.items())),
+        "mechanism_action_counts": dict(sorted(mechanism_action_counts.items())),
+        "mechanism_impact_variable_counts": dict(
+            sorted(mechanism_impact_variable_counts.items())
+        ),
+        "mechanism_gap_counts": dict(sorted(mechanism_gap_counts.items())),
         "ready_forecast_claim_ids": ready_ids,
         "standard_blocked_forecast_claim_ids": standard_blocked_ids,
         "proxy_label_ready_forecast_claim_ids": proxy_label_ready_ids,
@@ -4101,6 +5243,8 @@ def build_outcome_labeling_readiness_report(
         "stock_proxy_label_ready_forecast_claim_ids": stock_proxy_label_ready_ids,
         "proxy_label_only_ready_forecast_claim_ids": proxy_label_only_ids,
         "blocked_forecast_claim_ids": blocked_ids,
+        "regime_gap_forecast_claim_ids": sorted(set(regime_gap_ids)),
+        "mechanism_gap_forecast_claim_ids": sorted(set(mechanism_gap_ids)),
         "blocked_reason": blocked_reason,
         "minimum_required_mapping": [
             "target",
@@ -4114,6 +5258,16 @@ def build_outcome_labeling_readiness_report(
             "industry ETF and stock price proxy labels may additionally evaluate "
             "governed target-direction claims on fixed PIT windows without "
             "promoting them to production use"
+        ),
+        "mechanism_policy": (
+            "mechanism roles are diagnostic extraction governance only; regime, "
+            "mechanism, company capability, and impact must stay separable before "
+            "mechanism-specific prompt evolution or performance attribution"
+        ),
+        "as_of_date_macro_regime_policy": (
+            "macro regime may be supplemented from PIT as_of_datetime using "
+            "predefined historical regime windows; source_text and as_of_date "
+            "macro regime counts are tracked separately"
         ),
         "industry_etf_proxy_readiness": industry_proxy,
         "stock_price_proxy_readiness": stock_proxy,
@@ -7454,7 +8608,7 @@ def build_data_acquisition_proposals(
     for gap in tool_gap_rows:
         gap_id = str(gap.get("tool_gap_id") or "")
         metric_name = str(gap.get("metric_name") or gap.get("metric_candidate_id") or "")
-        if not gap_id:
+        if not gap_id or str(gap.get("status") or "") == "retired":
             continue
         owner = str(gap.get("owner") or "data_engineering")
         license_status = _tool_gap_license_status(gap)
@@ -7499,7 +8653,7 @@ def build_tool_design_proposals(
     for gap in tool_gap_rows:
         gap_id = str(gap.get("tool_gap_id") or "")
         metric_name = str(gap.get("metric_name") or "unknown_metric")
-        if not gap_id:
+        if not gap_id or str(gap.get("status") or "") == "retired":
             continue
         owner = str(gap.get("owner") or "data_engineering")
         proposals.append(
@@ -7551,6 +8705,10 @@ def build_tool_design_proposals(
 ANALYSIS_RECIPE_ENTRY_CONDITION = "T+1_or_more_conservative_shadow_entry"
 ANALYSIS_RECIPE_EXIT_CONDITION = "fixed_horizon_shadow_exit"
 ANALYSIS_RECIPE_EXPECTED_HORIZON_DAYS = 60
+ANALYSIS_RECIPE_DEFAULT_REQUIRED_DATA = (
+    "stock_price",
+    "benchmark_return",
+)
 ANALYSIS_RECIPE_RISK_CONTROLS = (
     "no_production_order",
     "no_position_sizing",
@@ -7559,10 +8717,73 @@ ANALYSIS_RECIPE_RISK_CONTROLS = (
     "turnover_cost_decay_blocks_validation",
     "drawdown_threshold_pre_registered",
 )
+ANALYSIS_RECIPE_REASONING_STEP_TOOL = "analysis.reasoning_step"
+ANALYSIS_RECIPE_REASONING_STEP_KEYWORDS = (
+    "analyze",
+    "assess",
+    "evaluate",
+    "analysis",
+    "compare",
+    "comparison",
+    "identify",
+    "interpretation",
+    "breakdown",
+    "impact",
+    "tracking",
+    "calculation",
+    "modeling",
+    "projection",
+    "identification",
+    "positioning",
+    "derivation",
+    "estimation",
+    "adjustment",
+    "timeline",
+    "comparable",
+    "assign_rating",
+    "set_time_horizon",
+    "define_",
+    "project_future",
+    "monitor_",
+    "track_",
+    "map_to",
+    "correlate",
+    "分析",
+    "评估",
+    "识别",
+    "比较",
+    "判断",
+    "预测",
+    "监控",
+    "跟踪",
+    "计算",
+    "推算",
+    "评级",
+    "对比",
+    "定性",
+    "引用",
+    "增长",
+    "累计",
+)
 
 
 def _analysis_recipe_output_signal_name(name: str) -> str:
     return f"{_canonical_metric_name(name)}_score"
+
+
+def _analysis_recipe_step_tool(
+    *,
+    metric: str,
+    coverage: Mapping[str, Any],
+) -> tuple[str, bool]:
+    existing_tools = [str(tool) for tool in _ensure_list(coverage.get("existing_tool_ids"))]
+    if existing_tools:
+        return existing_tools[0], True
+    if metric == "unknown_metric" or any(
+        keyword in metric for keyword in ANALYSIS_RECIPE_REASONING_STEP_KEYWORDS
+    ):
+        return ANALYSIS_RECIPE_REASONING_STEP_TOOL, False
+    return f"tool.requested.{metric}", True
 
 
 def build_analysis_recipes(
@@ -7582,14 +8803,19 @@ def build_analysis_recipes(
             step_text = step if isinstance(step, str) else json.dumps(_jsonable(step), ensure_ascii=False, sort_keys=True)
             metric = _canonical_metric_name(step_text) or "unknown_metric"
             coverage = classify_tool_coverage(metric)
-            tool = (coverage["existing_tool_ids"] or [f"tool.requested.{metric}"])[0]
-            required_tools.append(tool)
+            tool, requires_external_tool = _analysis_recipe_step_tool(
+                metric=metric,
+                coverage=coverage,
+            )
+            if requires_external_tool:
+                required_tools.append(tool)
             steps.append(
                 {
                     "step": index,
                     "tool": tool,
                     "metric": metric,
                     "operation": "candidate_from_report_method",
+                    "requires_external_tool": requires_external_tool,
                     "interpretation": step_text,
                 }
             )
@@ -7638,10 +8864,13 @@ def _analysis_recipe_required_data(
     inferred_metrics = [
         step.get("metric")
         for step in steps
+        if step.get("requires_external_tool") is True
         if str(step.get("metric") or "").strip()
         and str(step.get("metric") or "").strip() != "unknown_metric"
     ]
-    return _normalize_required_data_items(inferred_metrics)
+    if inferred_metrics:
+        return _normalize_required_data_items(inferred_metrics)
+    return _normalize_required_data_items(ANALYSIS_RECIPE_DEFAULT_REQUIRED_DATA)
 
 
 def _normalize_required_data_items(value: Any) -> list[str]:
@@ -7770,17 +8999,87 @@ def _recipe_preregistration_hash_from_payload(payload: Mapping[str, Any]) -> str
 def _labels_for_recipe(
     recipe: Mapping[str, Any],
     outcome_label_rows: Sequence[Mapping[str, Any]],
+    *,
+    inferred_labels_by_method_id: Mapping[str, Sequence[Mapping[str, Any]]] | None = None,
 ) -> list[Mapping[str, Any]]:
     recipe_id = str(recipe.get("analysis_recipe_id") or "")
     method_id = str(recipe.get("method_pattern_id") or "")
     labels: list[Mapping[str, Any]] = []
+    seen: set[str] = set()
     for label in outcome_label_rows:
         if str(label.get("analysis_recipe_id") or "") == recipe_id:
-            labels.append(label)
+            label_id = str(label.get("outcome_id") or id(label))
+            if label_id not in seen:
+                labels.append(label)
+                seen.add(label_id)
             continue
         if method_id and str(label.get("method_pattern_id") or "") == method_id:
-            labels.append(label)
+            label_id = str(label.get("outcome_id") or id(label))
+            if label_id not in seen:
+                labels.append(label)
+                seen.add(label_id)
+    if method_id and inferred_labels_by_method_id:
+        for label in inferred_labels_by_method_id.get(method_id, ()):
+            label_id = str(label.get("outcome_id") or id(label))
+            if label_id not in seen:
+                labels.append(label)
+                seen.add(label_id)
     return labels
+
+
+def _inferred_outcome_labels_by_method_id(
+    *,
+    outcome_label_rows: Sequence[Mapping[str, Any]],
+    forecast_rows: Sequence[Mapping[str, Any]],
+    footprint_rows: Sequence[Mapping[str, Any]],
+    method_rows: Sequence[Mapping[str, Any]],
+) -> dict[str, list[Mapping[str, Any]]]:
+    claim_by_id = {
+        str(row.get("forecast_claim_id") or ""): row
+        for row in forecast_rows
+        if str(row.get("forecast_claim_id") or "").strip()
+    }
+    footprint_by_id = {
+        str(row.get("footprint_id") or ""): row
+        for row in footprint_rows
+        if str(row.get("footprint_id") or "").strip()
+    }
+    source_methods: dict[str, set[str]] = {}
+    report_methods: dict[str, set[str]] = {}
+    for method in method_rows:
+        method_id = str(method.get("method_pattern_id") or "").strip()
+        if not method_id:
+            continue
+        for footprint_id in _ensure_list(method.get("source_footprint_ids")):
+            footprint = footprint_by_id.get(str(footprint_id))
+            if not footprint:
+                continue
+            source_id = str(footprint.get("source_id") or "").strip()
+            report_id = str(footprint.get("report_id") or "").strip()
+            if source_id:
+                source_methods.setdefault(source_id, set()).add(method_id)
+            if report_id:
+                report_methods.setdefault(report_id, set()).add(method_id)
+
+    labels_by_method: dict[str, list[Mapping[str, Any]]] = {}
+    for label in outcome_label_rows:
+        if str(label.get("method_pattern_id") or "").strip():
+            continue
+        claim = claim_by_id.get(str(label.get("forecast_claim_id") or ""))
+        if not claim:
+            continue
+        candidates = set()
+        source_id = str(claim.get("source_id") or "").strip()
+        report_id = str(claim.get("report_id") or "").strip()
+        if source_id:
+            candidates.update(source_methods.get(source_id, set()))
+        if report_id:
+            candidates.update(report_methods.get(report_id, set()))
+        if not candidates:
+            continue
+        for method_id in sorted(candidates):
+            labels_by_method.setdefault(method_id, []).append(label)
+    return labels_by_method
 
 
 def _weighted_contribution_shares(
@@ -7976,6 +9275,13 @@ def _paper_trading_metric_summary(
         else None,
         "observed_regime_count": len(regime_contribution_shares),
         "market_regime_missing_count": market_regime_missing_count,
+        "market_regime_coverage_status": (
+            "missing_diagnostic_only"
+            if market_regime_missing_count and not regime_contribution_shares
+            else "partially_missing"
+            if market_regime_missing_count
+            else "observed"
+        ),
         "drawdown_breach_count": sum(
             1
             for value in alpha_values
@@ -8049,8 +9355,17 @@ def build_recipe_paper_trading_runs(
     analysis_recipe_rows: Sequence[Mapping[str, Any]],
     outcome_label_rows: Sequence[Mapping[str, Any]],
     method_performance_profile_rows: Sequence[Mapping[str, Any]] = (),
+    forecast_rows: Sequence[Mapping[str, Any]] = (),
+    footprint_rows: Sequence[Mapping[str, Any]] = (),
+    method_rows: Sequence[Mapping[str, Any]] = (),
 ) -> list[dict[str, Any]]:
     method_profiles = _method_profile_by_method_id(method_performance_profile_rows)
+    inferred_labels_by_method_id = _inferred_outcome_labels_by_method_id(
+        outcome_label_rows=outcome_label_rows,
+        forecast_rows=forecast_rows,
+        footprint_rows=footprint_rows,
+        method_rows=method_rows,
+    )
     runs: list[dict[str, Any]] = []
     for index, recipe in enumerate(analysis_recipe_rows, 1):
         recipe_id = _recipe_id(recipe, index)
@@ -8076,7 +9391,11 @@ def build_recipe_paper_trading_runs(
             _int_or_none(recipe.get("expected_horizon_days"))
             or ANALYSIS_RECIPE_EXPECTED_HORIZON_DAYS
         )
-        labels = _labels_for_recipe(recipe, outcome_label_rows)
+        labels = _labels_for_recipe(
+            recipe,
+            outcome_label_rows,
+            inferred_labels_by_method_id=inferred_labels_by_method_id,
+        )
         metrics = _paper_trading_metric_summary(labels)
         blockers: list[str] = []
         if not labels:
@@ -8127,11 +9446,15 @@ def build_recipe_paper_trading_runs(
                 and max_horizon_share > RECIPE_PAPER_TRADING_MAX_HORIZON_CONCENTRATION
             ):
                 blockers.append("single_window_concentration")
-            if market_regime_missing_count:
+            if market_regime_missing_count and observed_regime_count > 0:
                 blockers.append("market_regime_missing")
-            if observed_regime_count < RECIPE_PAPER_TRADING_MIN_REGIME_COUNT or (
-                max_regime_share is not None
-                and max_regime_share > RECIPE_PAPER_TRADING_MAX_REGIME_CONCENTRATION
+            if observed_regime_count > 0 and (
+                observed_regime_count < RECIPE_PAPER_TRADING_MIN_REGIME_COUNT
+                or (
+                    max_regime_share is not None
+                    and max_regime_share
+                    > RECIPE_PAPER_TRADING_MAX_REGIME_CONCENTRATION
+                )
             ):
                 blockers.append("single_regime_concentration")
             if cost_adjusted_alpha is None or cost_adjusted_alpha <= 0:
@@ -8251,6 +9574,8 @@ def build_recipe_paper_trading_summary(
     *,
     run_id: str,
     recipe_paper_trading_runs: Sequence[Mapping[str, Any]],
+    tool_gap_rows: Sequence[Mapping[str, Any]] = (),
+    tool_design_proposal_rows: Sequence[Mapping[str, Any]] = (),
 ) -> dict[str, Any]:
     status_counts: dict[str, int] = {}
     blocker_counts: dict[str, int] = {}
@@ -8259,15 +9584,71 @@ def build_recipe_paper_trading_summary(
     disagreement_count = 0
     instability_gap_count = 0
     cost_adjusted_values: list[float] = []
+    passed_cost_adjusted_values: list[float] = []
+    direct_pit_bound_ids: list[str] = []
+    direct_pit_bound_blocker_counts: dict[str, int] = {}
+    validation_candidate_ids: list[str] = []
+    tool_only_blocked_ids: list[str] = []
+    tool_gap_ids_by_method_id: dict[str, list[str]] = {}
+    tool_gap_ids: set[str] = set()
+    queued_tool_gap_ids: set[str] = set()
+    queued_tool_proposal_ids: set[str] = set()
+    queued_requested_tools: set[str] = set()
+    queued_recipe_ids: set[str] = set()
+    for gap in tool_gap_rows:
+        gap_id = str(gap.get("tool_gap_id") or "").strip()
+        if not gap_id or str(gap.get("status") or "") == "retired":
+            continue
+        tool_gap_ids.add(gap_id)
+        for method_id in _ensure_list(gap.get("method_pattern_ids")):
+            method_key = str(method_id or "").strip()
+            if method_key:
+                tool_gap_ids_by_method_id.setdefault(method_key, []).append(gap_id)
+    proposal_ids_by_gap_id: dict[str, list[str]] = {}
+    for proposal in tool_design_proposal_rows:
+        gap_id = str(proposal.get("tool_gap_id") or "").strip()
+        proposal_id = str(proposal.get("tool_proposal_id") or "").strip()
+        if gap_id and proposal_id:
+            proposal_ids_by_gap_id.setdefault(gap_id, []).append(proposal_id)
+    tool_only_gap_ids: set[str] = set()
+    tool_only_proposal_ids: set[str] = set()
     for run in recipe_paper_trading_runs:
         status = str(run.get("paper_trading_status") or "unknown")
         status_counts[status] = status_counts.get(status, 0) + 1
         recipe_id = str(run.get("analysis_recipe_id") or "")
+        metrics = _ensure_mapping(run.get("metrics"))
+        effective_n = _float_or_none(metrics.get("effective_n")) or 0.0
+        blocked_reasons = [str(reason) for reason in _ensure_list(run.get("blocked_reasons"))]
+        direct_pit_bound = effective_n > 0.0 and "no_direct_recipe_outcome_binding" not in blocked_reasons
+        if direct_pit_bound:
+            direct_pit_bound_ids.append(recipe_id)
+            for reason in blocked_reasons:
+                _increment_count(direct_pit_bound_blocker_counts, reason)
+        if direct_pit_bound and "insufficient_effective_n" not in blocked_reasons:
+            validation_candidate_ids.append(recipe_id)
+        if blocked_reasons == ["required_tools_not_shadow_implemented"]:
+            tool_only_blocked_ids.append(recipe_id)
+            for method_id in _ensure_list(run.get("source_method_pattern_ids")):
+                for gap_id in tool_gap_ids_by_method_id.get(str(method_id or ""), ()):
+                    tool_only_gap_ids.add(gap_id)
+                    tool_only_proposal_ids.update(proposal_ids_by_gap_id.get(gap_id, ()))
+        if "required_tools_not_shadow_implemented" in blocked_reasons:
+            queued_recipe_ids.add(recipe_id)
+            for tool in _ensure_list(run.get("required_tools")):
+                tool_name = str(tool or "").strip()
+                if tool_name.startswith("tool.requested."):
+                    queued_requested_tools.add(tool_name)
+            for method_id in _ensure_list(run.get("source_method_pattern_ids")):
+                for gap_id in tool_gap_ids_by_method_id.get(str(method_id or ""), ()):
+                    queued_tool_gap_ids.add(gap_id)
+                    queued_tool_proposal_ids.update(
+                        proposal_ids_by_gap_id.get(gap_id, ())
+                    )
         if status == "passed":
             passed_ids.append(recipe_id)
         else:
             blocked_ids.append(recipe_id)
-        for reason in _ensure_list(run.get("blocked_reasons")):
+        for reason in blocked_reasons:
             _increment_count(blocker_counts, reason)
             if reason == RECIPE_PAPER_TRADING_INSTABILITY_GAP_BLOCKER:
                 instability_gap_count += 1
@@ -8279,6 +9660,53 @@ def build_recipe_paper_trading_summary(
         )
         if cost_adjusted is not None:
             cost_adjusted_values.append(cost_adjusted)
+            if status == "passed":
+                passed_cost_adjusted_values.append(cost_adjusted)
+    passed_cost_adjusted_values = sorted(passed_cost_adjusted_values)
+    passed_count = len(passed_cost_adjusted_values)
+    if passed_count:
+        midpoint = passed_count // 2
+        if passed_count % 2:
+            median_after_cost_alpha: float | None = passed_cost_adjusted_values[
+                midpoint
+            ]
+        else:
+            median_after_cost_alpha = (
+                passed_cost_adjusted_values[midpoint - 1]
+                + passed_cost_adjusted_values[midpoint]
+            ) / 2.0
+        after_cost_paper_trading_summary = {
+            "status": "computed",
+            "validated_recipe_count": passed_count,
+            "mean_after_cost_alpha": round(
+                sum(passed_cost_adjusted_values) / passed_count,
+                8,
+            ),
+            "median_after_cost_alpha": round(median_after_cost_alpha, 8),
+            "min_after_cost_alpha": round(min(passed_cost_adjusted_values), 8),
+            "max_after_cost_alpha": round(max(passed_cost_adjusted_values), 8),
+            "positive_after_cost_recipe_count": sum(
+                1 for value in passed_cost_adjusted_values if value > 0
+            ),
+            "policy": (
+                "computed from passed pre-registered paper-trading runs only; "
+                "blocked or profile-only recipes are excluded"
+            ),
+        }
+    else:
+        after_cost_paper_trading_summary = {
+            "status": "insufficient_validated_runs",
+            "validated_recipe_count": 0,
+            "mean_after_cost_alpha": None,
+            "median_after_cost_alpha": None,
+            "min_after_cost_alpha": None,
+            "max_after_cost_alpha": None,
+            "positive_after_cost_recipe_count": 0,
+            "policy": (
+                "computed from passed pre-registered paper-trading runs only; "
+                "blocked or profile-only recipes are excluded"
+            ),
+        }
     return {
         "summary_id": "RKE-REPORT-INTELLIGENCE-RECIPE-PAPER-TRADING-SUMMARY",
         "run_id": run_id,
@@ -8292,6 +9720,42 @@ def build_recipe_paper_trading_summary(
         "blocker_counts": dict(sorted(blocker_counts.items())),
         "passed_recipe_ids": sorted(passed_ids),
         "blocked_recipe_ids": sorted(blocked_ids),
+        "direct_pit_bound_recipe_count": len(direct_pit_bound_ids),
+        "direct_pit_bound_recipe_ids": sorted(direct_pit_bound_ids),
+        "direct_pit_bound_blocker_counts": dict(
+            sorted(direct_pit_bound_blocker_counts.items())
+        ),
+        "validation_candidate_recipe_count": len(validation_candidate_ids),
+        "validation_candidate_recipe_ids": sorted(validation_candidate_ids),
+        "tool_only_blocked_recipe_count": len(tool_only_blocked_ids),
+        "tool_only_blocked_recipe_ids": sorted(tool_only_blocked_ids),
+        "tool_only_blocked_tool_gap_count": len(tool_only_gap_ids),
+        "tool_only_blocked_tool_gap_ids": sorted(tool_only_gap_ids),
+        "tool_only_blocked_tool_proposal_count": len(tool_only_proposal_ids),
+        "tool_only_blocked_tool_proposal_ids": sorted(tool_only_proposal_ids),
+        "tool_implementation_queue": {
+            "queue_policy": (
+                "implement or explicitly reject tool gaps linked to direct-PIT "
+                "validation candidates before promoting recipe confidence impact"
+            ),
+            "source_blocker": "required_tools_not_shadow_implemented",
+            "blocked_recipe_count": len(queued_recipe_ids),
+            "blocked_recipe_ids": sorted(queued_recipe_ids),
+            "requested_tool_count": len(queued_requested_tools),
+            "requested_tools": sorted(queued_requested_tools),
+            "tool_gap_count": len(queued_tool_gap_ids),
+            "tool_gap_ids": sorted(queued_tool_gap_ids),
+            "tool_proposal_count": len(queued_tool_proposal_ids),
+            "tool_proposal_ids": sorted(queued_tool_proposal_ids),
+            "unlinked_tool_gap_registry_count": max(
+                0,
+                len(tool_gap_ids - queued_tool_gap_ids),
+            ),
+            "unlinked_requested_tool_count": max(
+                0,
+                len(queued_requested_tools) - len(queued_tool_gap_ids),
+            ),
+        },
         "profile_paper_trade_disagreement_count": disagreement_count,
         "recipe_instability_gap_count": instability_gap_count,
         "mean_cost_adjusted_alpha": round(
@@ -8300,6 +9764,7 @@ def build_recipe_paper_trading_summary(
         )
         if cost_adjusted_values
         else None,
+        "after_cost_paper_trading_summary": after_cost_paper_trading_summary,
         "minimum_effective_n": RECIPE_PAPER_TRADING_MIN_EFFECTIVE_N,
         "pre_registration_policy": (
             "each recipe has a deterministic experiment id and pre-registration hash "
@@ -8723,6 +10188,46 @@ def write_report_intelligence_recipe_paper_trading_artifacts(
         label="method_performance_profiles",
         blockers=blockers,
     )
+    forecast_rows: list[Mapping[str, Any]] = []
+    forecast_path = registry_path / "forecast_claims.jsonl"
+    if forecast_path.exists():
+        forecast_rows = _read_registry_jsonl(
+            forecast_path,
+            label="forecast_claims",
+            blockers=blockers,
+        )
+    footprint_rows: list[Mapping[str, Any]] = []
+    footprint_path = registry_path / "analytical_footprints.jsonl"
+    if footprint_path.exists():
+        footprint_rows = _read_registry_jsonl(
+            footprint_path,
+            label="analytical_footprints",
+            blockers=blockers,
+        )
+    method_rows: list[Mapping[str, Any]] = []
+    method_path = registry_path / "method_patterns.jsonl"
+    if method_path.exists():
+        method_rows = _read_registry_jsonl(
+            method_path,
+            label="method_patterns",
+            blockers=blockers,
+        )
+    tool_gap_rows: list[Mapping[str, Any]] = []
+    tool_gap_path = registry_path / "tool_gaps.jsonl"
+    if tool_gap_path.exists():
+        tool_gap_rows = _read_registry_jsonl(
+            tool_gap_path,
+            label="tool_gaps",
+            blockers=blockers,
+        )
+    tool_design_proposal_rows: list[Mapping[str, Any]] = []
+    tool_design_proposal_path = registry_path / "tool_design_proposals.jsonl"
+    if tool_design_proposal_path.exists():
+        tool_design_proposal_rows = _read_registry_jsonl(
+            tool_design_proposal_path,
+            label="tool_design_proposals",
+            blockers=blockers,
+        )
     outcome_label_path = registry_path / "report_outcome_labels.jsonl"
     outcome_label_rows: list[Mapping[str, Any]] = []
     if outcome_label_path.exists():
@@ -8736,10 +10241,15 @@ def write_report_intelligence_recipe_paper_trading_artifacts(
         analysis_recipe_rows=analysis_recipe_rows,
         outcome_label_rows=outcome_label_rows,
         method_performance_profile_rows=method_performance_profile_rows,
+        forecast_rows=forecast_rows,
+        footprint_rows=footprint_rows,
+        method_rows=method_rows,
     )
     recipe_paper_trading_summary = build_recipe_paper_trading_summary(
         run_id=run_id,
         recipe_paper_trading_runs=recipe_paper_trading_run_rows,
+        tool_gap_rows=tool_gap_rows,
+        tool_design_proposal_rows=tool_design_proposal_rows,
     )
     confidence_impact_observation_rows = build_confidence_impact_observations(
         run_id=run_id,
@@ -8937,19 +10447,34 @@ def _evolution_gate_requirement_shortfalls(
         blocker="paper_trading_validated_recipe_count_below_threshold",
         next_action="bind_recipe_runs_to_direct_pit_outcomes_and_after_cost_metrics",
     )
+    after_cost_summary = _ensure_mapping(
+        paper_evidence.get("after_cost_paper_trading_summary")
+    )
+    after_cost_summary_status = str(after_cost_summary.get("status") or "").strip()
     shortfalls["after_cost_paper_trading_summary"] = {
-        "status": (
-            "present"
-            if _float_or_none(paper_evidence.get("mean_cost_adjusted_alpha"))
-            is not None
-            else "missing"
+        "status": after_cost_summary_status or "missing",
+        "blocker": (
+            "after_cost_paper_trading_summary_missing"
+            if not after_cost_summary_status
+            else ""
         ),
-        "blocker": "after_cost_paper_trading_summary_missing",
-        "next_action": "compute_mean_after_cost_alpha_from_validated_recipe_runs",
+        "next_action": (
+            "compute_mean_after_cost_alpha_from_validated_recipe_runs"
+            if not after_cost_summary_status
+            else "increase_validated_recipe_count_until_after_cost_summary_is_computed"
+        ),
     }
 
     monitor_evidence = _ensure_mapping(by_id.get("RI-EVOL-03", {}).get("evidence"))
-    blocked_recipe_count = int(monitor_evidence.get("blocked_recipe_count") or 0)
+    monitor_global_blocker_count = (
+        int(monitor_evidence.get("unvalidated_confidence_impact_count") or 0)
+        + int(monitor_evidence.get("aggregate_calibration_drift_count") or 0)
+        + sum(
+            _count_mapping_values(
+                _ensure_mapping(monitor_evidence.get("calibration_drift_rule_counts"))
+            ).values()
+        )
+    )
     shortfalls["monitor_distinct_vintage_count"] = _threshold_shortfall(
         current=int(
             monitor_evidence.get("trailing_monitor_distinct_vintage_count") or 0
@@ -8960,12 +10485,12 @@ def _evolution_gate_requirement_shortfalls(
             "refresh_distinct_data_vintages_until_monitor_gate_passes_three_times"
         ),
     )
-    shortfalls["monitor_current_blocked_recipe_count"] = {
-        "current": blocked_recipe_count,
+    shortfalls["monitor_current_global_blocker_count"] = {
+        "current": monitor_global_blocker_count,
         "target": 0,
-        "remaining": blocked_recipe_count,
+        "remaining": monitor_global_blocker_count,
         "blocker": "confidence_impact_monitor_current_blocked",
-        "next_action": "clear_recipe_monitor_blockers_before_evolution",
+        "next_action": "clear_unvalidated_confidence_impact_or_aggregate_calibration_drift_before_evolution",
     }
 
     audit_evidence = _ensure_mapping(by_id.get("RI-EVOL-04", {}).get("evidence"))
@@ -9242,20 +10767,19 @@ def _evolution_data_vintage_hash(
 
 
 def _monitor_refresh_record_passed(row: Mapping[str, Any]) -> bool:
-    blocker_counts = _count_mapping_values(_ensure_mapping(row.get("blocker_counts")))
     calibration_rule_counts = _count_mapping_values(
         _ensure_mapping(row.get("calibration_drift_rule_counts"))
     )
     aggregate_calibration_drift_count = int(
         row.get("aggregate_calibration_drift_count") or 0
     )
+    # Per-recipe paper-trading blockers and alpha-decay failures freeze the
+    # affected recipes through confidence_impact_monitor queues. They should not
+    # block the whole evolution pool when no positive confidence impact was
+    # granted and no aggregate calibration drift is present.
     computed_passed = (
-        int(row.get("blocked_recipe_count") or 0) == 0
-        and int(row.get("unvalidated_confidence_impact_count") or 0) == 0
-        and int(row.get("alpha_decay_fail_count") or 0) == 0
-        and int(row.get("calibration_drift_count") or 0) == 0
+        int(row.get("unvalidated_confidence_impact_count") or 0) == 0
         and aggregate_calibration_drift_count == 0
-        and not blocker_counts
         and not calibration_rule_counts
     )
     if "accepted" in row and row.get("accepted") is not True:
@@ -9488,6 +11012,19 @@ def _gap_distribution_history_record(
     return record
 
 
+def _normalize_monitor_refresh_history_rows(
+    rows: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    for row in rows:
+        item = dict(row)
+        comparable = dict(item)
+        comparable.pop("accepted", None)
+        item["accepted"] = _monitor_refresh_record_passed(comparable)
+        normalized.append(item)
+    return normalized
+
+
 def _prepare_evolution_refresh_history(
     *,
     registry_dir: Path,
@@ -9504,8 +11041,8 @@ def _prepare_evolution_refresh_history(
     gold_review_summary: Mapping[str, Any],
     outcome_labeling_readiness: Mapping[str, Any],
 ) -> dict[str, list[Mapping[str, Any]]]:
-    monitor_history_rows = _read_evolution_history_rows(
-        registry_dir / "monitor_refresh_history.jsonl"
+    monitor_history_rows = _normalize_monitor_refresh_history_rows(
+        _read_evolution_history_rows(registry_dir / "monitor_refresh_history.jsonl")
     )
     audit_history_rows = _read_evolution_history_rows(
         registry_dir / "audit_refresh_history.jsonl"
@@ -9668,7 +11205,10 @@ def build_report_intelligence_evolution_readiness_gate(
         EVOLUTION_GATE_MIN_PAPER_TRADING_RECIPES
     ):
         paper_blockers.append("paper_trading_run_count_below_threshold")
-    if _float_or_none(paper_summary.get("mean_cost_adjusted_alpha")) is None:
+    after_cost_summary = _ensure_mapping(
+        paper_summary.get("after_cost_paper_trading_summary")
+    )
+    if not str(after_cost_summary.get("status") or "").strip():
         paper_blockers.append("after_cost_paper_trading_summary_missing")
     checks.append(
         _evolution_gate_check(
@@ -9688,6 +11228,7 @@ def build_report_intelligence_evolution_readiness_gate(
                 "mean_cost_adjusted_alpha": paper_summary.get(
                     "mean_cost_adjusted_alpha"
                 ),
+                "after_cost_paper_trading_summary": after_cost_summary,
             },
             blockers=paper_blockers,
         )
@@ -9716,7 +11257,8 @@ def build_report_intelligence_evolution_readiness_gate(
         _evolution_gate_check(
             check_id="RI-EVOL-03",
             requirement=(
-                "Confidence impact monitor must be blocker-free for three "
+                "Confidence impact monitor must have no unvalidated positive "
+                "confidence impact or aggregate calibration drift for three "
                 "consecutive refreshes before evolution can change prompts."
             ),
             passed=not monitor_blockers,
@@ -9997,12 +11539,31 @@ def write_report_intelligence_evolution_readiness_gate(
     registry_path = Path(registry_dir)
     root_path = registry_path.parent.parent
     blockers: list[str] = []
+    gate_path = registry_path / "evolution_readiness_gate.json"
     forecast_rows = _read_registry_jsonl(
         registry_path / "report_forecast_ledger.jsonl",
         label="report_forecast_ledger",
         blockers=blockers,
     )
     outcome_label_path = registry_path / "report_outcome_labels.jsonl"
+    outcome_label_missing = not _jsonl_has_mapping_rows(outcome_label_path)
+    if outcome_label_missing and gate_path.exists():
+        existing_gate_blockers: list[str] = []
+        existing_gate = _read_registry_json(
+            gate_path,
+            label="evolution_readiness_gate",
+            blockers=existing_gate_blockers,
+        )
+        if existing_gate:
+            blockers.append("report_outcome_labels: missing_or_empty_private_input")
+            blockers.extend(existing_gate_blockers)
+            return {
+                "evolution_readiness_gate": str(gate_path),
+                "gate_status": str(existing_gate.get("gate_status") or ""),
+                "blocker_count": int(existing_gate.get("blocker_count") or 0),
+                "input_load_blockers": blockers,
+                "preserved_existing_gate": True,
+            }
     outcome_label_rows = (
         _read_registry_jsonl(
             outcome_label_path,
@@ -10094,12 +11655,13 @@ def write_report_intelligence_evolution_readiness_gate(
         gate["gate_status"] = "blocked"
         gate["promotion_state"] = "blocked_before_prompt_evolution"
         gate["private_text_included"] = _public_payload_private_text_included(gate)
-    written = _write_json(registry_path / "evolution_readiness_gate.json", gate)
+    written = _write_json(gate_path, gate)
     return {
         "evolution_readiness_gate": str(written["path"]),
         "gate_status": str(gate.get("gate_status") or ""),
         "blocker_count": int(gate.get("blocker_count") or 0),
         "input_load_blockers": blockers,
+        "preserved_existing_gate": False,
     }
 
 
@@ -10271,6 +11833,27 @@ def build_prompt_mutation_candidates(
     )
     mapping_gap_counts = _count_mapping_values(
         _ensure_mapping(readiness.get("mapping_gap_counts"))
+    )
+    regime_gap_counts = _count_mapping_values(
+        _ensure_mapping(readiness.get("regime_gap_counts"))
+    )
+    mechanism_gap_counts = _count_mapping_values(
+        _ensure_mapping(readiness.get("mechanism_gap_counts"))
+    )
+    macro_regime_counts = _count_mapping_values(
+        _ensure_mapping(readiness.get("macro_regime_counts"))
+    )
+    source_text_macro_regime_counts = _count_mapping_values(
+        _ensure_mapping(readiness.get("source_text_macro_regime_counts"))
+    )
+    as_of_date_macro_regime_counts = _count_mapping_values(
+        _ensure_mapping(readiness.get("as_of_date_macro_regime_counts"))
+    )
+    macro_regime_source_counts = _count_mapping_values(
+        _ensure_mapping(readiness.get("macro_regime_source_counts"))
+    )
+    industry_cycle_regime_counts = _count_mapping_values(
+        _ensure_mapping(readiness.get("industry_cycle_regime_counts"))
     )
     outcome_counts = _outcome_coverage_counts(outcome_label_rows)
     outcome_threshold_gaps = {
@@ -10562,6 +12145,88 @@ def build_prompt_mutation_candidates(
                 }
             ],
             severity="medium",
+        )
+    regime_mechanism_gap_count = sum(regime_gap_counts.values()) + sum(
+        mechanism_gap_counts.values()
+    )
+    hard_regime_mechanism_gaps = {
+        "regime_context_missing",
+        "regime_context_unclassified",
+        "economic_mechanism_missing",
+        "mechanism_evaluable_impact_missing",
+        "possible_operational_only_mechanism",
+    }
+    hard_gap_count = sum(
+        count
+        for key, count in {
+            **regime_gap_counts,
+            **mechanism_gap_counts,
+        }.items()
+        if key in hard_regime_mechanism_gaps
+    )
+    if regime_mechanism_gap_count:
+        _add_prompt_mutation_candidate(
+            candidates,
+            run_id=run_id,
+            candidate_type="regime_mechanism_extraction_rule",
+            target_scope="report_intelligence.forecast_claim_structure",
+            target_component="forecast_extraction_prompt",
+            proposed_change=(
+                "Tighten forecast claim extraction so macro regime, industry "
+                "cycle regime, company capability, economic mechanism, and "
+                "evaluable impact are separated before a claim can inform prompt "
+                "evolution."
+            ),
+            trigger_sources=[
+                "outcome_labeling_readiness",
+                "forecast_claims",
+            ],
+            evidence_refs=[
+                {
+                    "artifact_path": "registry/report_intelligence/outcome_labeling_readiness.json",
+                    "field": "regime_gap_counts.mechanism_gap_counts",
+                    "regime_gap_counts": regime_gap_counts,
+                    "mechanism_gap_counts": mechanism_gap_counts,
+                    "macro_regime_counts": macro_regime_counts,
+                    "source_text_macro_regime_counts": (
+                        source_text_macro_regime_counts
+                    ),
+                    "as_of_date_macro_regime_counts": (
+                        as_of_date_macro_regime_counts
+                    ),
+                    "macro_regime_source_counts": macro_regime_source_counts,
+                    "industry_cycle_regime_counts": industry_cycle_regime_counts,
+                    "regime_gap_forecast_claim_count": len(
+                        {
+                            str(item)
+                            for item in _ensure_list(
+                                readiness.get("regime_gap_forecast_claim_ids")
+                            )
+                            if str(item).strip()
+                        }
+                    ),
+                    "mechanism_gap_forecast_claim_count": len(
+                        {
+                            str(item)
+                            for item in _ensure_list(
+                                readiness.get("mechanism_gap_forecast_claim_ids")
+                            )
+                            if str(item).strip()
+                        }
+                    ),
+                    "hard_gap_count": hard_gap_count,
+                    "diagnostic_gap_policy": (
+                        "company_capability_only_no_regime_context is diagnostic; "
+                        "missing or unclassified regime and missing mechanism are "
+                        "prompt-evolution blockers"
+                    ),
+                }
+            ],
+            severity="high" if hard_gap_count else "medium",
+            blocked_by=[
+                "manual_gold_set_regime_mechanism_review_required",
+                "paper_trading_validation_required",
+            ],
         )
     industry_pit = _ensure_mapping(industry_etf_proxy_pit_availability)
     pit_gap_counts = _count_mapping_values(_ensure_mapping(industry_pit.get("pit_gap_counts")))
@@ -13783,6 +15448,7 @@ def build_report_intelligence_tool_feasibility_audit(
         if str(gap.get("status") or "") not in {
             "proposal_pending",
             "blocked_pending_review",
+            "retired",
             "closed",
         }:
             gap_failures.append(f"{gap_id}: unsupported status {gap.get('status')}")
@@ -13872,7 +15538,9 @@ def build_report_intelligence_tool_feasibility_audit(
             "pit_blocked",
         }:
             data_failures.append(f"{proposal_id}: unsupported pit_feasibility_status")
-    for gap_id in tool_gap_by_id:
+    for gap_id, gap in tool_gap_by_id.items():
+        if str(gap.get("status") or "") == "retired":
+            continue
         if gap_id not in data_by_gap_id:
             data_failures.append(f"{gap_id}: data acquisition proposal missing")
     checks.append(
@@ -13962,7 +15630,9 @@ def build_report_intelligence_tool_feasibility_audit(
             design_failures.append(f"{proposal_id}: primary_metric required")
         if not _ensure_list(validation_plan.get("secondary_metrics")):
             design_failures.append(f"{proposal_id}: secondary_metrics required")
-    for gap_id in tool_gap_by_id:
+    for gap_id, gap in tool_gap_by_id.items():
+        if str(gap.get("status") or "") == "retired":
+            continue
         if gap_id not in tool_by_gap_id:
             design_failures.append(f"{gap_id}: tool design proposal missing")
     checks.append(
@@ -14271,7 +15941,10 @@ def build_report_intelligence_recipe_validation_audit(
                     schema_failures.append(
                         f"{recipe_id}: steps[{step_index}].{field} required"
                     )
-            if str(step.get("tool") or "").strip():
+            if (
+                step.get("requires_external_tool") is not False
+                and str(step.get("tool") or "").strip()
+            ):
                 step_tools.append(str(step.get("tool")))
         missing_step_tools = sorted(set(step_tools) - set(required_tools))
         if missing_step_tools:
@@ -15156,6 +16829,12 @@ def build_report_intelligence_patch_v1_5_coverage_report(
         for row in tool_gap_rows
         if str(row.get("tool_gap_id") or "").strip()
     }
+    active_gap_ids = {
+        str(row.get("tool_gap_id") or "")
+        for row in tool_gap_rows
+        if str(row.get("tool_gap_id") or "").strip()
+        and str(row.get("status") or "") != "retired"
+    }
 
     phases: list[dict[str, Any]] = []
 
@@ -15369,10 +17048,10 @@ def build_report_intelligence_patch_v1_5_coverage_report(
         phase_e_failures.append(
             "tool coverage rows must cover every metric candidate"
         )
-    if not gap_ids:
+    if not active_gap_ids:
         phase_e_failures.append("tool gap registry must contain reviewable gaps")
-    missing_data_proposals = sorted(gap_ids - proposal_gap_ids)
-    missing_tool_proposals = sorted(gap_ids - design_gap_ids)
+    missing_data_proposals = sorted(active_gap_ids - proposal_gap_ids)
+    missing_tool_proposals = sorted(active_gap_ids - design_gap_ids)
     if missing_data_proposals:
         phase_e_failures.append(
             "tool gaps missing data acquisition proposals: "
@@ -15405,6 +17084,8 @@ def build_report_intelligence_patch_v1_5_coverage_report(
                 "tool_coverage_match_rows": len(tool_coverage_match_rows),
                 "tool_coverage_status_counts": dict(sorted(coverage_counts.items())),
                 "tool_gap_rows": len(tool_gap_rows),
+                "active_tool_gap_rows": len(active_gap_ids),
+                "retired_tool_gap_rows": len(gap_ids - active_gap_ids),
                 "data_acquisition_proposal_rows": len(
                     data_acquisition_proposal_rows
                 ),
@@ -16177,13 +17858,23 @@ def _append_unique_records(
     records: Sequence[dict[str, Any]],
     *,
     key: str,
+    replace_existing: bool = False,
 ) -> None:
-    seen = {str(record.get(key) or "") for record in target}
+    seen = {
+        str(record.get(key) or ""): index
+        for index, record in enumerate(target)
+        if str(record.get(key) or "")
+    }
     for record in records:
         value = str(record.get(key) or "")
-        if value and value not in seen:
-            target.append(record)
-            seen.add(value)
+        if not value:
+            continue
+        if value in seen:
+            if replace_existing:
+                target[seen[value]] = record
+            continue
+        target.append(record)
+        seen[value] = len(target) - 1
 
 
 REPORT_INTELLIGENCE_BATCH_MERGE_JSONL_KEYS: Mapping[str, str] = {
@@ -16214,6 +17905,7 @@ def merge_report_intelligence_batch_outputs(
     root: str | Path = ".",
     input_dirs: Sequence[str | Path],
     registry_dir: str | Path = REPORT_INTELLIGENCE_REGISTRY_DIR,
+    include_existing_registry: bool = True,
 ) -> dict[str, Any]:
     root_path = Path(root).resolve()
     registry_path = (
@@ -16229,8 +17921,28 @@ def merge_report_intelligence_batch_outputs(
     outputs: dict[str, str] = {}
     row_counts: dict[str, int] = {}
     input_file_counts: dict[str, int] = {}
+    existing_file_counts: dict[str, int] = {}
     for filename, key in REPORT_INTELLIGENCE_BATCH_MERGE_JSONL_KEYS.items():
+        replace_duplicates = filename in {
+            "processing_status.jsonl",
+            "report_metadata.jsonl",
+        }
         rows: list[dict[str, Any]] = []
+        existing_file_count = 0
+        existing_path = registry_path / filename
+        if include_existing_registry and existing_path.exists():
+            existing_file_count = 1
+            existing_rows = _read_registry_jsonl(
+                existing_path,
+                label=f"{registry_path.name}/{filename}",
+                blockers=blockers,
+            )
+            _append_unique_records(
+                rows,
+                [dict(row) for row in existing_rows],
+                key=key,
+                replace_existing=replace_duplicates,
+            )
         file_count = 0
         for input_dir in resolved_inputs:
             path = _batch_output_path(input_dir, filename)
@@ -16246,20 +17958,24 @@ def merge_report_intelligence_batch_outputs(
                 rows,
                 [dict(row) for row in batch_rows],
                 key=key,
+                replace_existing=replace_duplicates,
             )
         if file_count:
             written = _write_jsonl(registry_path / filename, rows)
             outputs[filename] = str(written["path"])
             row_counts[filename] = len(rows)
             input_file_counts[filename] = file_count
+            existing_file_counts[filename] = existing_file_count
     if not outputs:
         blockers.append("no report-intelligence batch jsonl files found")
     return {
         "input_dirs": [str(path) for path in resolved_inputs],
         "input_dir_count": len(resolved_inputs),
+        "include_existing_registry": include_existing_registry,
         "outputs": outputs,
         "row_counts": row_counts,
         "input_file_counts": input_file_counts,
+        "existing_file_counts": existing_file_counts,
         "blockers": blockers,
         "blocker_count": len(blockers),
     }
@@ -16273,6 +17989,7 @@ def _extract_for_markdown(
     extractor: LlmExtractor,
     chunk_chars: int,
     max_chunks: int,
+    macro_regime_calendar_rows: Sequence[Mapping[str, Any]] = (),
 ) -> tuple[dict[str, list[dict[str, Any]]], str, str | None, list[str], int, bool]:
     chunks = _chunk_text(markdown_text, chunk_chars=chunk_chars, max_chunks=max_chunks)
     truncated = len("".join(chunks)) < len(markdown_text.strip())
@@ -16337,6 +18054,7 @@ def _extract_for_markdown(
                 model=model,
                 report_id=report_id,
                 chunk_span_id=chunk_span_id,
+                macro_regime_calendar_rows=macro_regime_calendar_rows,
             ),
             key="forecast_claim_id",
         )
@@ -16397,6 +18115,7 @@ def run_report_intelligence_derived_refresh(
             blockers=(blockers,),
         )
     blockers: list[str] = []
+    macro_regime_calendar_rows = _read_macro_regime_calendar_rows(registry_dir)
     metadata_rows = _read_registry_jsonl(
         registry_dir / "report_metadata.jsonl",
         label="report_metadata",
@@ -16407,7 +18126,10 @@ def run_report_intelligence_derived_refresh(
         label="forecast_claims",
         blockers=blockers,
     )
-    forecast_rows = _refresh_forecast_mapping_governance(forecast_rows)
+    forecast_rows = _refresh_forecast_mapping_governance(
+        forecast_rows,
+        macro_regime_calendar_rows=macro_regime_calendar_rows,
+    )
     footprint_rows = _read_registry_jsonl(
         registry_dir / "analytical_footprints.jsonl",
         label="analytical_footprints",
@@ -16425,6 +18147,17 @@ def run_report_intelligence_derived_refresh(
         registry_dir / "method_patterns.jsonl",
         label="method_patterns",
         blockers=blockers,
+    )
+    _append_unique_records(
+        method_rows,
+        _normalize_method_patterns(
+            {},
+            footprint_rows,
+            run_id=run_id,
+            model="derived_refresh",
+        ),
+        key="method_pattern_id",
+        replace_existing=True,
     )
     tool_gap_rows = _read_registry_jsonl(
         registry_dir / "tool_gaps.jsonl",
@@ -16498,6 +18231,7 @@ def run_report_intelligence_derived_refresh(
         forecast_ledger_rows=forecast_ledger_rows,
         industry_etf_proxy_readiness=industry_etf_proxy_readiness,
         stock_price_proxy_readiness=stock_price_proxy_readiness,
+        macro_regime_calendar_rows=macro_regime_calendar_rows,
     )
     source_performance_profile_rows = build_source_performance_profiles(
         metadata_rows,
@@ -16523,10 +18257,15 @@ def run_report_intelligence_derived_refresh(
         analysis_recipe_rows=analysis_recipe_rows,
         outcome_label_rows=outcome_label_rows,
         method_performance_profile_rows=method_performance_profile_rows,
+        forecast_rows=forecast_rows,
+        footprint_rows=footprint_rows,
+        method_rows=method_rows,
     )
     recipe_paper_trading_summary = build_recipe_paper_trading_summary(
         run_id=run_id,
         recipe_paper_trading_runs=recipe_paper_trading_run_rows,
+        tool_gap_rows=tool_gap_rows,
+        tool_design_proposal_rows=tool_design_proposal_rows,
     )
     confidence_impact_observation_rows = build_confidence_impact_observations(
         run_id=run_id,
@@ -16768,7 +18507,9 @@ def run_report_intelligence_derived_refresh(
         "metric_candidates": str(
             _write_jsonl(registry_dir / "metric_candidates.jsonl", metric_rows)["path"]
         ),
-        "method_patterns": str(registry_dir / "method_patterns.jsonl"),
+        "method_patterns": str(
+            _write_jsonl(registry_dir / "method_patterns.jsonl", method_rows)["path"]
+        ),
         "tool_gaps": str(
             _write_jsonl(
                 registry_dir / "tool_gaps.jsonl",
@@ -17094,6 +18835,7 @@ def run_report_intelligence_refresh(
         selection_order=cfg.selection_order,
     )
     blockers: list[str] = [*processed_source_blockers, *source_blockers]
+    macro_regime_calendar_rows = _read_macro_regime_calendar_rows(registry_dir)
     _emit_report_intelligence_progress(
         cfg,
         event="selected",
@@ -17313,6 +19055,7 @@ def run_report_intelligence_refresh(
                             extractor=llm_extractor,
                             chunk_chars=cfg.chunk_chars,
                             max_chunks=cfg.max_chunks,
+                            macro_regime_calendar_rows=macro_regime_calendar_rows,
                         )
                     )
                     _emit_report_intelligence_progress(
@@ -17421,7 +19164,10 @@ def run_report_intelligence_refresh(
             blocker_count=len(row_blockers),
         )
 
-    forecast_rows = _refresh_forecast_mapping_governance(forecast_rows)
+    forecast_rows = _refresh_forecast_mapping_governance(
+        forecast_rows,
+        macro_regime_calendar_rows=macro_regime_calendar_rows,
+    )
     footprint_rows = _refresh_analytical_footprint_indicator_governance(
         footprint_rows
     )
@@ -17481,6 +19227,7 @@ def run_report_intelligence_refresh(
         forecast_ledger_rows=forecast_ledger_rows,
         industry_etf_proxy_readiness=industry_etf_proxy_readiness,
         stock_price_proxy_readiness=stock_price_proxy_readiness,
+        macro_regime_calendar_rows=macro_regime_calendar_rows,
     )
     source_performance_profile_rows = build_source_performance_profiles(
         metadata_rows,
@@ -17506,10 +19253,15 @@ def run_report_intelligence_refresh(
         analysis_recipe_rows=analysis_recipe_rows,
         outcome_label_rows=outcome_label_rows,
         method_performance_profile_rows=method_performance_profile_rows,
+        forecast_rows=forecast_rows,
+        footprint_rows=footprint_rows,
+        method_rows=method_rows,
     )
     recipe_paper_trading_summary = build_recipe_paper_trading_summary(
         run_id=run_id,
         recipe_paper_trading_runs=recipe_paper_trading_run_rows,
+        tool_gap_rows=tool_gap_rows,
+        tool_design_proposal_rows=tool_design_proposal_rows,
     )
     confidence_impact_observation_rows = build_confidence_impact_observations(
         run_id=run_id,

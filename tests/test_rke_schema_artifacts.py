@@ -15,6 +15,7 @@ from mosaic.rke.schema_validation import (
     validate_report_intelligence_semantics,
     validate_rule_pack_schema_artifact,
 )
+from mosaic.rke.report_intelligence import build_default_industry_etf_proxy_map_rows
 
 
 REQUIRED_SCHEMA_FILES = {
@@ -36,6 +37,7 @@ REQUIRED_SCHEMA_FILES = {
     "report_intelligence_markdown_coverage_summary.schema.json",
     "report_intelligence_industry_etf_proxy_map.schema.json",
     "report_intelligence_industry_etf_proxy_pit_availability.schema.json",
+    "report_intelligence_macro_regime_calendar.schema.json",
     "report_intelligence_report_outcome_label.schema.json",
     "report_intelligence_outcome_labeling_readiness.schema.json",
     "report_intelligence_source_performance_profile.schema.json",
@@ -76,7 +78,73 @@ REQUIRED_POLICY_DOCS = {
 REQUIRED_PLAN_DOCS = {
     "master_plan_v1_1.md",
     "rke_phase_minus_1_plan.md",
+    "rke_stock_report_outcome_and_evolution_plan.md",
+    "rke_stock_report_outcome_and_evolution_status.md",
 }
+EXPECTED_PHASE_B_PATCH_COVERAGE_FAILURES = {
+    "patch_v1_5_coverage_report accepted must be true",
+    "patch_v1_5_coverage_report blocker_count must be zero",
+    "patch_v1_5_coverage_report blocked_phase_ids must be empty",
+    "patch_v1_5_coverage_report Phase B: accepted must be true",
+    "patch_v1_5_coverage_report Phase B: status cannot be blocked",
+    "patch_v1_5_coverage_report Phase B: failure_count must be zero",
+    "patch_v1_5_coverage_report Phase C: accepted must be true",
+    "patch_v1_5_coverage_report Phase C: status cannot be blocked",
+    "patch_v1_5_coverage_report Phase C: failure_count must be zero",
+    "patch_v1_5_coverage_report Phase D: accepted must be true",
+    "patch_v1_5_coverage_report Phase D: status cannot be blocked",
+    "patch_v1_5_coverage_report Phase D: failure_count must be zero",
+    "patch_v1_5_coverage_report RI15-B-D1: accepted must be true",
+    "patch_v1_5_coverage_report RI15-B-D1: status cannot be blocked",
+    "patch_v1_5_coverage_report RI15-B-D2: accepted must be true",
+    "patch_v1_5_coverage_report RI15-B-D2: status cannot be blocked",
+    "patch_v1_5_coverage_report RI15-C-D1: accepted must be true",
+    "patch_v1_5_coverage_report RI15-C-D1: status cannot be blocked",
+    "patch_v1_5_coverage_report RI15-D-D1: accepted must be true",
+    "patch_v1_5_coverage_report RI15-D-D1: status cannot be blocked",
+}
+EXPECTED_ANALYTICAL_FOOTPRINT_REVIEW_FAILURES = {
+    "analytical_footprint_review_summary accepted must be true",
+    "analytical_footprint_review_summary review_complete must be true",
+    "analytical_footprint_review_summary quality_gate_passed must be true",
+    "analytical_footprint_review_summary pending_rows must be zero",
+    (
+        "analytical_footprint_review_summary quality blockers: "
+        "footprint_precision unavailable; span_support_precision unavailable; "
+        "metric_mapping_accuracy unavailable; inferred_step_tagging_accuracy unavailable; "
+        "unknown_on_ambiguity_rate unavailable; proprietary_leakage_free_rate unavailable"
+    ),
+}
+
+
+def _assert_only_phase_b_patch_coverage_failures(report) -> None:
+    failed_records = {
+        record.schema_path: record for record in report.records if not record.accepted
+    }
+    assert set(failed_records) == {
+        "schemas/report_intelligence_analytical_footprint_review_rules",
+        "schemas/report_intelligence_patch_v1_5_coverage_rules",
+    }
+    assert (
+        set(
+            failed_records[
+                "schemas/report_intelligence_analytical_footprint_review_rules"
+            ].failures
+        )
+        == EXPECTED_ANALYTICAL_FOOTPRINT_REVIEW_FAILURES
+    )
+    assert (
+        set(
+            failed_records[
+                "schemas/report_intelligence_patch_v1_5_coverage_rules"
+            ].failures
+        )
+        == EXPECTED_PHASE_B_PATCH_COVERAGE_FAILURES
+    )
+    assert report.failure_count == (
+        len(EXPECTED_ANALYTICAL_FOOTPRINT_REVIEW_FAILURES)
+        + len(EXPECTED_PHASE_B_PATCH_COVERAGE_FAILURES)
+    )
 
 
 def _copy_report_intelligence_registry(tmp_path: Path) -> Path:
@@ -97,6 +165,61 @@ def test_master_plan_policy_docs_exist():
 
     assert {path.name for path in docs_dir.iterdir()} >= REQUIRED_POLICY_DOCS
     assert {path.name for path in plans_dir.iterdir()} >= REQUIRED_PLAN_DOCS
+
+
+def test_stock_report_outcome_status_doc_matches_public_artifacts():
+    status_text = Path(
+        "docs/plans/rke_stock_report_outcome_and_evolution_status.md"
+    ).read_text(encoding="utf-8")
+    extraction_report = json.loads(
+        Path("registry/report_intelligence/extraction_report.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    progress_report = json.loads(
+        Path("registry/review_batches/manual_review_progress_report.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    evolution_gate = json.loads(
+        Path("registry/report_intelligence/evolution_readiness_gate.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    gate_counts = {
+        gate["review_kind"]: (
+            gate["complete_rows"],
+            gate["target_rows"],
+            gate["pending_rows"],
+        )
+        for gate in progress_report["gates"]
+    }
+
+    outcome_count = extraction_report["outcome_label_rows"]
+    industry_count = extraction_report["industry_etf_proxy_outcome_label_rows"]
+    stock_count = extraction_report["stock_price_proxy_outcome_label_rows"]
+    assert (
+        f"{outcome_count} outcome labels: {industry_count} industry ETF proxy, "
+        f"{stock_count} stock price proxy"
+    ) in status_text
+    assert f"gold-set {gate_counts['gold_set'][0]}/{gate_counts['gold_set'][1]}" in status_text
+    assert (
+        f"source license {gate_counts['source_license'][0]}/"
+        f"{gate_counts['source_license'][1]}"
+    ) in status_text
+    assert f"lockbox {gate_counts['lockbox'][0]}/{gate_counts['lockbox'][1]}" in status_text
+    assert (
+        f"blocked; {evolution_gate['blocker_count']} blockers remain"
+        in status_text
+    )
+    for blocker in (
+        "industry_proxy_claim_count_below_threshold",
+        "paper_trading_validated_recipe_count_below_threshold",
+        "markdown_ready_count_below_p9_target",
+    ):
+        assert blocker in status_text
+    assert "report prose" in status_text
+    assert "production trading decisions" in status_text
 
 
 def test_json_schema_artifacts_are_parseable_and_have_required_fields():
@@ -129,8 +252,8 @@ def test_yaml_policy_schema_artifacts_pin_master_plan_defaults():
 def test_schema_validation_report_accepts_current_registry():
     report = build_schema_validation_report(".")
 
-    assert report.accepted
-    assert report.failure_count == 0
+    assert not report.accepted
+    _assert_only_phase_b_patch_coverage_failures(report)
     assert len(report.records) >= 15
     assert {
         "schemas/source_metadata.schema.json",
@@ -708,13 +831,96 @@ def test_report_outcome_label_semantics_reject_bad_target_price_fields(
 def test_industry_etf_mapping_contract_accepts_current_public_artifacts(
     tmp_path: Path,
 ):
-    _copy_report_intelligence_registry(tmp_path)
+    registry = _copy_report_intelligence_registry(tmp_path)
 
     record = _industry_etf_mapping_contract_record(tmp_path)
+    mapping_rows = [
+        json.loads(line)
+        for line in (registry / "industry_etf_proxy_map.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if line.strip()
+    ]
+    availability = json.loads(
+        (registry / "industry_etf_proxy_pit_availability.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    industry_label_count = sum(
+        1
+        for line in (registry / "report_outcome_labels.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if line.strip() and json.loads(line).get("label_type") == "industry_etf_proxy"
+    )
 
     assert record.accepted
-    assert record.item_count == 35
+    assert len(mapping_rows) == 64
+    assert record.item_count == (
+        len(mapping_rows)
+        + len(availability["mapping_records"])
+        + industry_label_count
+        + 1
+    )
     assert record.failures == ()
+
+
+def test_industry_etf_mapping_keeps_industrial_metals_proxy_on_sh560860(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    registry_rows = [
+        json.loads(line)
+        for line in (registry / "industry_etf_proxy_map.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if line.strip()
+    ]
+    default_by_sector = {
+        row["sector_name"]: row for row in build_default_industry_etf_proxy_map_rows()
+    }
+    registry_by_sector = {row["sector_name"]: row for row in registry_rows}
+
+    assert default_by_sector["工业金属"]["etf_symbol"] == "SH560860"
+    assert default_by_sector["工业金属"]["mapping_label"] == "工业有色ETF"
+    assert registry_by_sector["工业金属"]["etf_symbol"] == "SH560860"
+
+
+def test_industry_etf_mapping_covers_historical_industry_report_sectors(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    registry_rows = [
+        json.loads(line)
+        for line in (registry / "industry_etf_proxy_map.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if line.strip()
+    ]
+    default_by_sector = {
+        row["sector_name"]: row for row in build_default_industry_etf_proxy_map_rows()
+    }
+    registry_by_sector = {row["sector_name"]: row for row in registry_rows}
+    expected = {
+        "煤炭采选": "SH515220",
+        "环保工程": "SH512580",
+        "机械行业": "SH516960",
+        "电子信息": "SH515260",
+        "物流行业": "SH516910",
+        "钢铁行业": "SH515210",
+        "石油行业": "SH561360",
+        "汽车整车": "SZ159512",
+        "中药": "SH560080",
+        "电力行业": "SZ159611",
+        "酿酒行业": "SH512690",
+        "文化传媒": "SH512980",
+        "食品饮料": "SH515170",
+        "互联网服务": "SZ159729",
+    }
+
+    for sector, etf_symbol in expected.items():
+        assert default_by_sector[sector]["etf_symbol"] == etf_symbol
+        assert registry_by_sector[sector]["etf_symbol"] == etf_symbol
 
 
 def test_industry_etf_mapping_contract_requires_pit_availability_records(
@@ -942,12 +1148,26 @@ def test_markdown_coverage_privacy_rules_require_sector_gap_entries(
 def test_recipe_paper_trading_contract_accepts_current_public_artifacts(
     tmp_path: Path,
 ):
-    _copy_report_intelligence_registry(tmp_path)
+    registry = _copy_report_intelligence_registry(tmp_path)
 
     record = _recipe_paper_trading_contract_record(tmp_path)
+    run_count = sum(
+        1
+        for line in (registry / "recipe_paper_trading_runs.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if line.strip()
+    )
+    observation_count = sum(
+        1
+        for line in (registry / "confidence_impact_observations.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if line.strip()
+    )
 
     assert record.accepted
-    assert record.item_count == 14
+    assert record.item_count == run_count + observation_count + 2
     assert record.failures == ()
 
 
@@ -1266,7 +1486,7 @@ def test_evolution_refresh_history_rejects_accepted_aggregate_calibration_drift(
 
     assert not record.accepted
     assert any(
-        "accepted: must match monitor blocker, alpha decay, and calibration drift fields"
+        "accepted: must match unvalidated confidence impact and aggregate calibration drift fields"
         in item
         for item in record.failures
     )
@@ -1320,7 +1540,7 @@ def test_evolution_readiness_gate_contract_requires_all_checks(tmp_path: Path):
     gate_path = registry / "evolution_readiness_gate.json"
     gate = json.loads(gate_path.read_text(encoding="utf-8"))
     gate["checks"] = [
-        check for check in gate["checks"] if check["check_id"] != "RI-EVOL-01"
+        check for check in gate["checks"] if check["check_id"] != "RI-EVOL-05"
     ]
     gate_path.write_text(
         json.dumps(gate, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
@@ -1330,7 +1550,7 @@ def test_evolution_readiness_gate_contract_requires_all_checks(tmp_path: Path):
     record = _evolution_readiness_gate_record(tmp_path)
 
     assert not record.accepted
-    assert any("missing check_ids: RI-EVOL-01" in item for item in record.failures)
+    assert any("missing check_ids: RI-EVOL-05" in item for item in record.failures)
     assert any("blockers mismatch with checks" in item for item in record.failures)
 
 
@@ -1343,7 +1563,10 @@ def test_evolution_readiness_gate_contract_rejects_blocker_count_mismatch(
     gate["blocker_count"] = 0
     gate["gate_status"] = "passed"
     gate["promotion_state"] = "ready_for_shadow_evolution_candidate"
-    gate["checks"][0]["passed"] = True
+    for check in gate["checks"]:
+        if check.get("check_id") == "RI-EVOL-05":
+            check["passed"] = True
+            break
     gate_path.write_text(
         json.dumps(gate, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
@@ -1354,7 +1577,7 @@ def test_evolution_readiness_gate_contract_rejects_blocker_count_mismatch(
     assert not record.accepted
     assert any("blocker_count: expected" in item for item in record.failures)
     assert any("gate_status: expected blocked" in item for item in record.failures)
-    assert any("checks[1].passed: must be False" in item for item in record.failures)
+    assert any("passed: must be False based on blockers" in item for item in record.failures)
 
 
 def test_schema_validation_accepts_public_registry_without_private_report_inputs(
@@ -1384,8 +1607,8 @@ def test_schema_validation_accepts_public_registry_without_private_report_inputs
 
     report = build_schema_validation_report(tmp_path)
 
-    assert report.accepted
-    assert report.failure_count == 0
+    assert not report.accepted
+    _assert_only_phase_b_patch_coverage_failures(report)
     private_artifacts = {
         "registry/report_intelligence/report_metadata.jsonl",
         "registry/report_intelligence/forecast_claims.jsonl",
@@ -2052,9 +2275,12 @@ def test_schema_status_cli_writes_report(capsys):
     code = main(("schema-status", "--root", "."))
     output = json.loads(capsys.readouterr().out)
 
-    assert code == 0
-    assert output["accepted"] is True
-    assert output["failure_count"] == 0
+    assert code == 2
+    assert output["accepted"] is False
+    assert output["failure_count"] == (
+        len(EXPECTED_ANALYTICAL_FOOTPRINT_REVIEW_FAILURES)
+        + len(EXPECTED_PHASE_B_PATCH_COVERAGE_FAILURES)
+    )
     assert Path("registry/schemas/rke_schema_validation_report.json").exists()
 
 

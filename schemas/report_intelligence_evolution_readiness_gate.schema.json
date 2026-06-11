@@ -79,7 +79,7 @@
         "paper_trading_validated_recipe_count",
         "after_cost_paper_trading_summary",
         "monitor_distinct_vintage_count",
-        "monitor_current_blocked_recipe_count",
+        "monitor_current_global_blocker_count",
         "audit_distinct_vintage_count",
         "gold_reviewed_claims",
         "gold_pending_claims",
@@ -106,8 +106,8 @@
           "type": "object",
           "required": ["status", "blocker", "next_action"],
           "properties": {
-            "status": {"enum": ["present", "missing"]},
-            "blocker": {"type": "string", "minLength": 1},
+            "status": {"enum": ["present", "missing", "computed", "insufficient_validated_runs"]},
+            "blocker": {"type": "string"},
             "next_action": {"type": "string", "minLength": 1}
           },
           "additionalProperties": true

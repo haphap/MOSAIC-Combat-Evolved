@@ -10,6 +10,7 @@ from mosaic.rke import (
     merge_candidate_claims_into_review_template,
     write_gold_candidate_claims,
 )
+from mosaic.rke.gold_candidate_claims import _source_sentences, _variable_pair
 
 
 def test_gold_candidate_claims_cover_current_manual_queue():
@@ -24,6 +25,50 @@ def test_gold_candidate_claims_cover_current_manual_queue():
     assert all(claim.claim_id.startswith("GOLD-SRC-TSRR-") for claim in claims)
     assert all(claim.source_text_hash.startswith("sha256:") for claim in claims)
     assert any(claim.cause_variables and claim.target_variables for claim in claims)
+    fallback_claims = [
+        claim
+        for claim in claims
+        if "original_markdown_forecast_claim" not in claim.review_risk_flags
+    ]
+    assert fallback_claims
+    assert all(claim.extraction_confidence_bin == "low" for claim in fallback_claims)
+    assert all(
+        "sentence_fallback_requires_context_synthesis" in claim.review_risk_flags
+        for claim in fallback_claims
+    )
+
+
+def test_source_sentences_prioritize_research_claims_over_descriptive_facts():
+    sentences = _source_sentences(
+        "工业金属品种价格涨跌不一。"
+        "黑钨精矿65%国产的价格涨跌幅为600%。"
+        "若供给约束延续且库存继续下降，有色金属景气周期有望推动板块后续跑赢市场。"
+    )
+
+    assert [row[2] for row in sentences] == [
+        "若供给约束延续且库存继续下降，有色金属景气周期有望推动板块后续跑赢市场。"
+    ]
+
+
+def test_variable_pair_does_not_infer_causes_from_metadata_context():
+    known_variable_ids = {
+        "bank_credit_supply",
+        "bank_net_interest_margin_pressure",
+        "commodity_price_cycle",
+        "industry_etf_forward_return",
+    }
+
+    cause, target, flags = _variable_pair(
+        "部分理财子公司选择通过多资产组合策略应对波动。",
+        query_key="银行",
+        industry="有色金属",
+        ts_code="",
+        known_variable_ids=known_variable_ids,
+    )
+
+    assert cause == ()
+    assert target == ()
+    assert flags == ("canonical_variable_mapping_needed",)
 
 
 def test_gold_candidate_claims_merge_preserves_manual_fields(tmp_path: Path):
@@ -142,6 +187,43 @@ def test_gold_candidate_claims_map_report_claims_with_local_vocabulary_fallback(
     assert "forecast_mapping_insufficient" in first_claim.review_risk_flags
 
 
+def test_gold_candidate_claims_skip_boilerplate_risk_warning_report_claims(tmp_path: Path):
+    shutil.copytree(Path("registry"), tmp_path / "registry")
+    review_path = tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    review_rows = [json.loads(line) for line in review_path.read_text(encoding="utf-8").splitlines()]
+    first_review = review_rows[0]
+    source_id = first_review["source_id"]
+    report_claim_path = tmp_path / "registry/report_intelligence/forecast_claims.jsonl"
+    report_claim_path.parent.mkdir(parents=True, exist_ok=True)
+    report_claim_path.write_text(
+        json.dumps(
+            {
+                "claim_provenance": "source_grounded",
+                "claim_text": "风险提示：宏观经济、货币政策超预期变化、数据误差等风险。",
+                "direction": "negative",
+                "extraction_quality": {"mapping_gaps": []},
+                "forecast_claim_id": "FC-RISK-WARNING-001",
+                "forecast_testability": "testable",
+                "forecast_type": "risk_warning",
+                "metric_proxy_mapping": ["industry_policy_catalyst"],
+                "source_id": source_id,
+                "source_span_ids": [f"{source_id}:original_markdown:chunk-001"],
+                "target": {"target_id": "industry_etf_forward_return"},
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    claims = build_gold_candidate_claims(tmp_path)
+    first_claim = next(claim for claim in claims if claim.claim_id == first_review["claim_id"])
+
+    assert not first_claim.claim_text.startswith("风险提示")
+    assert "original_markdown_forecast_claim" not in first_claim.review_risk_flags
+
+
 def test_gold_candidate_claims_fallback_to_original_markdown_sentences(tmp_path: Path):
     shutil.copytree(Path("registry"), tmp_path / "registry")
     review_path = tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
@@ -174,6 +256,42 @@ def test_gold_candidate_claims_fallback_to_original_markdown_sentences(tmp_path:
     assert first_claim.claim_text == markdown_text
     assert first_claim.source_span_id == f"{source_id}:original_markdown"
     assert "original_markdown_sentence_fallback" in first_claim.review_risk_flags
+
+
+def test_gold_candidate_claims_skip_boilerplate_risk_warning_markdown_sentences(tmp_path: Path):
+    shutil.copytree(Path("registry"), tmp_path / "registry")
+    review_path = tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    review_rows = [json.loads(line) for line in review_path.read_text(encoding="utf-8").splitlines()]
+    first_review = review_rows[0]
+    source_id = first_review["source_id"]
+    markdown_text = (
+        "风险提示：宏观经济、货币政策超预期变化、数据误差等风险。"
+        "原文Markdown句子显示，政策支持与流动性改善将推动行业景气提升。"
+    )
+    markdown_path = tmp_path / ".mosaic/rke/report_intelligence/markdown" / f"{source_id}.md"
+    markdown_path.parent.mkdir(parents=True, exist_ok=True)
+    markdown_path.write_text(markdown_text, encoding="utf-8")
+    report_dir = tmp_path / "registry/report_intelligence"
+    report_dir.mkdir(parents=True, exist_ok=True)
+    (report_dir / "forecast_claims.jsonl").write_text("", encoding="utf-8")
+    (report_dir / "report_metadata.jsonl").write_text(
+        json.dumps(
+            {
+                "markdown": {"path": f".mosaic/rke/report_intelligence/markdown/{source_id}.md"},
+                "source_id": source_id,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    claims = build_gold_candidate_claims(tmp_path)
+    first_claim = next(claim for claim in claims if claim.claim_id == first_review["claim_id"])
+
+    assert first_claim.claim_text == "原文Markdown句子显示，政策支持与流动性改善将推动行业景气提升。"
+    assert not first_claim.claim_text.startswith("风险提示")
 
 
 def test_gold_candidate_claims_report_malformed_rows_without_rewriting_review_template(tmp_path: Path):

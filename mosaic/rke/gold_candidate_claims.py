@@ -63,6 +63,81 @@ MECHANISM_KEYWORDS = (
 NEGATIVE_TERMS = ("下降", "承压", "风险", "压力", "下滑", "回落", "限制", "恶化")
 POSITIVE_TERMS = ("增长", "提升", "改善", "修复", "复苏", "景气", "盈利", "需求", "订单", "催化")
 SENTENCE_RE = re.compile(r"[^。！？!?；;\n]{12,260}[。！？!?；;]?")
+RISK_WARNING_PREFIX_RE = re.compile(
+    r"^\s*(?:风险提示|风险因素|风险声明|免责声明)\s*[:：]"
+)
+CLAIM_MECHANISM_TERMS = (
+    "预计",
+    "预期",
+    "有望",
+    "未来",
+    "后续",
+    "长期",
+    "短期",
+    "中期",
+    "看好",
+    "维持",
+    "建议",
+    "上调",
+    "下调",
+    "优于",
+    "跑赢",
+    "跑输",
+    "超配",
+    "低配",
+    "增持",
+    "减持",
+    "驱动",
+    "推动",
+    "带动",
+    "导致",
+    "受益",
+    "压制",
+    "制约",
+    "改善",
+    "修复",
+    "恶化",
+    "承压",
+    "风险",
+    "压力",
+    "催化",
+    "拐点",
+    "弹性",
+    "传导",
+    "供需",
+    "库存",
+    "产能",
+    "景气",
+    "周期",
+    "格局",
+    "regime",
+    "outperform",
+    "underperform",
+)
+DESCRIPTIVE_ONLY_TERMS = (
+    "涨跌幅",
+    "区间涨幅",
+    "区间跌幅",
+    "年初至",
+    "当前",
+    "截至",
+    "分别为",
+    "最高",
+    "其次",
+    "排在",
+    "排名",
+    "环比",
+    "同比",
+    "ROE",
+    "毛利率",
+    "净利率",
+    "资产负债率",
+    "研发比例",
+    "存量规模",
+    "价格为",
+    "涨跌不一",
+    "规模",
+)
 MANUAL_REVIEW_FIELDS = (
     "manual_claim_text",
     "claim_correct",
@@ -159,6 +234,33 @@ def _short_hash(text: str) -> str:
     return "sha256:" + sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
+def _is_boilerplate_risk_warning(text: str) -> bool:
+    return bool(RISK_WARNING_PREFIX_RE.match(text.strip()))
+
+
+def _claim_sentence_score(sentence: str, keywords: Sequence[str]) -> int | None:
+    text = sentence.strip()
+    if not text or _is_boilerplate_risk_warning(text):
+        return None
+    mechanism_hits = sum(1 for term in CLAIM_MECHANISM_TERMS if term in text)
+    descriptive_hits = sum(1 for term in DESCRIPTIVE_ONLY_TERMS if term in text)
+    numeric_heavy = len(re.findall(r"\d+(?:\.\d+)?%?", text)) >= 3
+    has_source_relation = any(token in text for token in ("因为", "由于", "若", "如果", "随着", "在", "当", "使得"))
+    has_mechanism = mechanism_hits > 0 or has_source_relation
+    if not has_mechanism and (descriptive_hits or numeric_heavy):
+        return None
+    if mechanism_hits == 0 and len(keywords) < 2:
+        return None
+    score = mechanism_hits * 4 + len(keywords)
+    if has_source_relation:
+        score += 2
+    if descriptive_hits:
+        score -= descriptive_hits * 3
+    if numeric_heavy:
+        score -= 4
+    return score if score > 0 else None
+
+
 def _string_sequence(value: Any) -> tuple[str, ...]:
     if value is None:
         return ()
@@ -179,17 +281,21 @@ def _review_rows_by_source(review_rows: Sequence[Mapping[str, Any]]) -> dict[str
 
 
 def _source_sentences(text: str) -> list[tuple[int, int, str, tuple[str, ...]]]:
-    prioritized: list[tuple[int, int, str, tuple[str, ...]]] = []
-    fallback: list[tuple[int, int, str, tuple[str, ...]]] = []
+    scored: list[tuple[int, int, int, str, tuple[str, ...]]] = []
     for match in SENTENCE_RE.finditer(text):
         sentence = match.group(0).strip()
         keywords = tuple(keyword for keyword in MECHANISM_KEYWORDS if keyword in sentence)
-        row = (match.start(), match.end(), sentence, keywords)
-        if keywords:
-            prioritized.append(row)
-        else:
-            fallback.append(row)
-    return prioritized + fallback
+        score = _claim_sentence_score(sentence, keywords)
+        if score is None:
+            continue
+        scored.append((score, match.start(), match.end(), sentence, keywords))
+    return [
+        (start, end, sentence, keywords)
+        for _, start, end, sentence, keywords in sorted(
+            scored,
+            key=lambda row: (-row[0], row[1]),
+        )
+    ]
 
 
 def _claim_type(sentence: str, keywords: Sequence[str]) -> str:
@@ -219,6 +325,10 @@ def _append_known(target: list[str], variable_id: str, known_variable_ids: set[s
         target.append(variable_id)
 
 
+def _contains_any(text: str, keywords: Sequence[str]) -> bool:
+    return any(keyword in text for keyword in keywords)
+
+
 def _stock_like_identifier(value: str) -> bool:
     return bool(re.search(r"\b(?:00|30|60|68|90|92)\d{4}\.(?:SZ|SH|BJ)\b", value))
 
@@ -231,7 +341,7 @@ def _variable_pair(
     ts_code: str,
     known_variable_ids: set[str],
 ) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
-    text = f"{query_key} {industry} {ts_code} {sentence}"
+    text = sentence
     text_lower = text.lower()
     cause: list[str] = []
     target: list[str] = []
@@ -465,7 +575,36 @@ def _variable_pair(
         _append_known(cause, "global_dollar_liquidity_pressure", known_variable_ids)
 
     stock_like = _stock_like_identifier(query_key) or _stock_like_identifier(ts_code)
-    if stock_like:
+    has_target_view = _contains_any(
+        text,
+        (
+            "看好",
+            "增持",
+            "买入",
+            "上调",
+            "下调",
+            "跑赢",
+            "跑输",
+            "优于",
+            "强于",
+            "弱于",
+            "未来",
+            "后续",
+            "有望",
+            "预期",
+            "预计",
+            "目标价",
+            "上涨",
+            "下跌",
+            "改善",
+            "修复",
+            "承压",
+            "盈利",
+            "利润",
+            "估值",
+        ),
+    )
+    if stock_like and (cause or has_target_view):
         _append_known(target, "stock_forward_excess_return", known_variable_ids)
     elif any(
         keyword in text
@@ -482,12 +621,17 @@ def _variable_pair(
             "强于大市",
             "看好",
             "增持",
+            "跑赢",
+            "跑输",
+            "后续",
+            "未来",
+            "有望",
+            "预期",
+            "预计",
         )
     ) or any(keyword in text_lower for keyword in ("industry", "sector", "market benchmark", "outperform")):
         _append_known(target, "industry_etf_forward_return", known_variable_ids)
-    elif str(industry or query_key).strip():
-        _append_known(target, "industry_etf_forward_return", known_variable_ids)
-    elif cause:
+    elif cause and _contains_any(text, ("政策", "催化", "流动性", "风险偏好", "市场", "指数")):
         _append_known(target, "forward_alpha_after_policy_catalyst", known_variable_ids)
 
     if not cause or not target:
@@ -529,7 +673,12 @@ def _candidate_claim_for_review_row(
         ts_code=str(candidate.get("ts_code") or ""),
         known_variable_ids=known_variable_ids,
     )
-    risk_flags = ["manual_review_required", *extra_risk_flags, *variable_flags]
+    risk_flags = [
+        "manual_review_required",
+        "sentence_fallback_requires_context_synthesis",
+        *extra_risk_flags,
+        *variable_flags,
+    ]
     if not candidate_available:
         risk_flags.append("candidate_unavailable")
     if not keywords:
@@ -563,7 +712,7 @@ def _candidate_claim_for_review_row(
         direction=direction,
         unsupported_fields=("failure_modes", "valid_conditions"),
         verifier_status="requires_review",
-        extraction_confidence_bin="medium" if candidate_available and not variable_flags else "low",
+        extraction_confidence_bin="low",
         review_risk_flags=tuple(dict.fromkeys(risk_flags)),
     )
 
@@ -583,6 +732,8 @@ def _source_report_claims(
     for row in rows:
         source_id = str(row.get("source_id") or "")
         claim_text = str(row.get("claim_text") or "").strip()
+        if _is_boilerplate_risk_warning(claim_text):
+            continue
         if source_id and claim_text:
             grouped.setdefault(source_id, []).append(row)
     blockers = list(parse_blockers)

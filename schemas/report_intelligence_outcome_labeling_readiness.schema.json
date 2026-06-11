@@ -44,6 +44,16 @@
     "test_status_counts": {"type": "object"},
     "mapping_gap_counts": {"type": "object"},
     "unlabelable_mapping_gap_counts": {"type": "object"},
+    "macro_regime_counts": {"type": "object"},
+    "source_text_macro_regime_counts": {"type": "object"},
+    "as_of_date_macro_regime_counts": {"type": "object"},
+    "macro_regime_source_counts": {"type": "object"},
+    "industry_cycle_regime_counts": {"type": "object"},
+    "regime_gap_counts": {"type": "object"},
+    "mechanism_channel_counts": {"type": "object"},
+    "mechanism_action_counts": {"type": "object"},
+    "mechanism_impact_variable_counts": {"type": "object"},
+    "mechanism_gap_counts": {"type": "object"},
     "ready_forecast_claim_ids": {"type": "array", "items": {"type": "string"}},
     "standard_blocked_forecast_claim_ids": {
       "type": "array",
@@ -66,9 +76,19 @@
       "items": {"type": "string"}
     },
     "blocked_forecast_claim_ids": {"type": "array", "items": {"type": "string"}},
+    "regime_gap_forecast_claim_ids": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "mechanism_gap_forecast_claim_ids": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
     "blocked_reason": {"type": "string"},
     "minimum_required_mapping": {"type": "array", "items": {"type": "string"}},
     "policy": {"type": "string", "minLength": 1},
+    "mechanism_policy": {"type": "string", "minLength": 1},
+    "as_of_date_macro_regime_policy": {"type": "string", "minLength": 1},
     "industry_etf_proxy_readiness": {
       "type": "object",
       "required": [
