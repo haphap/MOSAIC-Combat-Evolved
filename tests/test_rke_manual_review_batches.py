@@ -250,6 +250,40 @@ def test_gold_review_evidence_is_private_non_import_review_aid(tmp_path: Path):
     )
 
 
+def test_gold_review_evidence_uses_local_markdown_cache_without_metadata(
+    tmp_path: Path,
+):
+    _copy_registry(tmp_path)
+    first_row = _load_jsonl(
+        tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    )[0]
+    source_id = first_row["source_id"]
+    metadata_path = tmp_path / "registry/report_intelligence/report_metadata.jsonl"
+    metadata_rows = [
+        row
+        for row in _load_jsonl(metadata_path)
+        if row.get("source_id") != source_id
+    ]
+    _write_jsonl(metadata_path, metadata_rows)
+    cache_path = (
+        tmp_path
+        / ".mosaic/rke/report_intelligence/markdown"
+        / f"{source_id}.md"
+    )
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    cache_path.write_text(
+        f"# Local markdown fallback\n\n{first_row['proposed_claim_text']}\n",
+        encoding="utf-8",
+    )
+
+    _summary, rows = build_gold_review_evidence(tmp_path, limit=1)
+
+    assert rows[0]["source_id"] == source_id
+    assert rows[0]["markdown_exists"] is True
+    assert rows[0]["markdown_path"] == f".mosaic/rke/report_intelligence/markdown/{source_id}.md"
+    assert "markdown_missing" not in rows[0]["suggested_manual_error_tags"]
+
+
 def test_gold_review_workbook_is_read_only_claim_checklist(tmp_path: Path):
     _copy_registry(tmp_path)
 

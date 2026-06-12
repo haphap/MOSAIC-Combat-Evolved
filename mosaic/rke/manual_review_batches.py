@@ -696,21 +696,30 @@ def _gold_markdown_snippets(
 def _gold_markdown_text(
     root_path: Path,
     metadata_row: Mapping[str, Any] | None,
+    source_id: str,
 ) -> tuple[str, str, bool]:
-    if metadata_row is None:
-        return "", "", False
-    markdown = metadata_row.get("markdown")
-    if not isinstance(markdown, Mapping):
-        return "", "", False
-    markdown_path_text = str(markdown.get("path") or "")
-    if not markdown_path_text:
-        return "", "", False
-    markdown_path = Path(markdown_path_text)
-    if not markdown_path.is_absolute():
-        markdown_path = root_path / markdown_path
-    if not markdown_path.exists():
-        return markdown_path_text, "", False
-    return markdown_path_text, markdown_path.read_text(encoding="utf-8", errors="ignore"), True
+    candidate_paths: list[str] = []
+    if metadata_row is not None:
+        markdown = metadata_row.get("markdown")
+        if isinstance(markdown, Mapping):
+            markdown_path_text = str(markdown.get("path") or "")
+            if markdown_path_text:
+                candidate_paths.append(markdown_path_text)
+    safe_source_id = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(source_id or "").strip())[:180] or "unknown"
+    candidate_paths.append(
+        f".mosaic/rke/report_intelligence/markdown/{safe_source_id}.md"
+    )
+    for markdown_path_text in candidate_paths:
+        markdown_path = Path(markdown_path_text)
+        if not markdown_path.is_absolute():
+            markdown_path = root_path / markdown_path
+        if markdown_path.exists() and markdown_path.stat().st_size > 0:
+            return (
+                markdown_path_text,
+                markdown_path.read_text(encoding="utf-8", errors="ignore"),
+                True,
+            )
+    return (candidate_paths[0] if candidate_paths else ""), "", False
 
 
 def _gold_evidence_row(
@@ -724,7 +733,11 @@ def _gold_evidence_row(
     source_id = str(row.get("source_id") or "")
     source_row = source_by_id.get(source_id, {})
     metadata_row = metadata_by_source.get(source_id)
-    markdown_path_text, markdown_text, markdown_exists = _gold_markdown_text(root_path, metadata_row)
+    markdown_path_text, markdown_text, markdown_exists = _gold_markdown_text(
+        root_path,
+        metadata_row,
+        source_id,
+    )
     terms = _gold_evidence_terms(row)
     abstract_snippet = _gold_source_offset_snippet(source_row, row)
     snippets: list[dict[str, Any]] = []
