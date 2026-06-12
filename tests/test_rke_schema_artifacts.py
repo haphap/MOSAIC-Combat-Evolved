@@ -1926,6 +1926,99 @@ def test_evolution_readiness_gate_contract_rejects_blocker_count_mismatch(
     assert any("passed: must be False based on blockers" in item for item in record.failures)
 
 
+def test_evolution_readiness_gate_contract_rejects_tampered_outcome_thresholds(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    gate_path = registry / "evolution_readiness_gate.json"
+    gate = json.loads(gate_path.read_text(encoding="utf-8"))
+    outcome_check = next(
+        check for check in gate["checks"] if check["check_id"] == "RI-EVOL-01"
+    )
+    outcome_check["evidence"]["stock_proxy_unique_claim_count"] = 1
+    gate_path.write_text(
+        json.dumps(gate, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _evolution_readiness_gate_record(tmp_path)
+
+    assert not record.accepted
+    assert any(
+        "RI-EVOL-01].evidence.stock_proxy_unique_claim_count: expected >= 30"
+        in item
+        for item in record.failures
+    )
+
+
+def test_evolution_readiness_gate_contract_rejects_tampered_paper_trading_summary(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    gate_path = registry / "evolution_readiness_gate.json"
+    gate = json.loads(gate_path.read_text(encoding="utf-8"))
+    paper_check = next(
+        check for check in gate["checks"] if check["check_id"] == "RI-EVOL-02"
+    )
+    after_cost = paper_check["evidence"]["after_cost_paper_trading_summary"]
+    after_cost["status"] = "missing"
+    after_cost["validated_recipe_count"] = 0
+    after_cost["positive_after_cost_recipe_count"] = 0
+    gate_path.write_text(
+        json.dumps(gate, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _evolution_readiness_gate_record(tmp_path)
+
+    assert not record.accepted
+    assert any(
+        "RI-EVOL-02].evidence.after_cost_paper_trading_summary.status: expected computed"
+        in item
+        for item in record.failures
+    )
+    assert any(
+        "after_cost_paper_trading_summary.validated_recipe_count: expected >= 20"
+        in item
+        for item in record.failures
+    )
+
+
+def test_evolution_readiness_gate_contract_rejects_tampered_monitor_stability(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    gate_path = registry / "evolution_readiness_gate.json"
+    gate = json.loads(gate_path.read_text(encoding="utf-8"))
+    monitor_check = next(
+        check for check in gate["checks"] if check["check_id"] == "RI-EVOL-03"
+    )
+    monitor_check["evidence"]["trailing_monitor_pass_count"] = 1
+    monitor_check["evidence"]["unvalidated_confidence_impact_count"] = 1
+    monitor_check["evidence"]["aggregate_calibration_drift_count"] = 1
+    gate_path.write_text(
+        json.dumps(gate, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _evolution_readiness_gate_record(tmp_path)
+
+    assert not record.accepted
+    assert any(
+        "RI-EVOL-03].evidence.trailing_monitor_pass_count: expected >= 3" in item
+        for item in record.failures
+    )
+    assert any(
+        "RI-EVOL-03].evidence.unvalidated_confidence_impact_count: expected 0"
+        in item
+        for item in record.failures
+    )
+    assert any(
+        "RI-EVOL-03].evidence.aggregate_calibration_drift_count: expected 0" in item
+        for item in record.failures
+    )
+
+
 def _read_prompt_mutation_candidates(path: Path) -> list[dict[str, object]]:
     return [
         json.loads(line)

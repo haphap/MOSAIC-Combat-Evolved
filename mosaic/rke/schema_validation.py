@@ -2434,9 +2434,53 @@ def _validate_evolution_readiness_gate_contract(
                 f"evolution_readiness_gate.thresholds.{field}: expected {expected}"
             )
 
+    def evidence_mapping(check: Mapping[str, Any], row_label: str) -> Mapping[str, Any]:
+        evidence = check.get("evidence")
+        if not isinstance(evidence, Mapping):
+            failures.append(f"{row_label}.evidence: expected object")
+            return {}
+        return evidence
+
+    def require_int_at_least(
+        evidence: Mapping[str, Any],
+        field: str,
+        minimum: int,
+        row_label: str,
+    ) -> None:
+        value_label = (
+            f"{row_label}.{field}"
+            if ".evidence" in row_label
+            else f"{row_label}.evidence.{field}"
+        )
+        value = _int_or_none(evidence.get(field))
+        if value is None:
+            failures.append(f"{value_label}: expected integer")
+        elif value < minimum:
+            failures.append(
+                f"{value_label}: expected >= {minimum}"
+            )
+
+    def require_int_equal(
+        evidence: Mapping[str, Any],
+        field: str,
+        expected: int,
+        row_label: str,
+    ) -> None:
+        value_label = (
+            f"{row_label}.{field}"
+            if ".evidence" in row_label
+            else f"{row_label}.evidence.{field}"
+        )
+        value = _int_or_none(evidence.get(field))
+        if value is None:
+            failures.append(f"{value_label}: expected integer")
+        elif value != expected:
+            failures.append(f"{value_label}: expected {expected}")
+
     checks = gate.get("checks")
     aggregate_blockers: list[str] = []
     observed_check_ids: list[str] = []
+    checks_by_id: dict[str, Mapping[str, Any]] = {}
     if not isinstance(checks, Sequence) or isinstance(checks, str):
         failures.append("evolution_readiness_gate.checks: expected array")
         checks = []
@@ -2450,6 +2494,7 @@ def _validate_evolution_readiness_gate_contract(
             failures.append(f"{row_label}.check_id: required")
         else:
             observed_check_ids.append(check_id)
+            checks_by_id[check_id] = check
         blockers = _string_items(check.get("blockers"))
         aggregate_blockers.extend(blockers)
         expected_passed = not blockers
@@ -2516,6 +2561,132 @@ def _validate_evolution_readiness_gate_contract(
         )
     if gate.get("private_text_included") is not False:
         failures.append("evolution_readiness_gate.private_text_included: must be false")
+
+    check_01 = checks_by_id.get("RI-EVOL-01")
+    if check_01:
+        row_label = "evolution_readiness_gate.checks[RI-EVOL-01]"
+        evidence = evidence_mapping(check_01, row_label)
+        require_int_at_least(
+            evidence,
+            "unique_outcome_claim_count",
+            int(thresholds.get("min_unique_outcome_claims") or 0),
+            row_label,
+        )
+        require_int_at_least(
+            evidence,
+            "stock_proxy_unique_claim_count",
+            int(thresholds.get("min_stock_proxy_claims") or 0),
+            row_label,
+        )
+        require_int_at_least(
+            evidence,
+            "industry_proxy_unique_claim_count",
+            int(thresholds.get("min_industry_proxy_claims") or 0),
+            row_label,
+        )
+
+    check_02 = checks_by_id.get("RI-EVOL-02")
+    if check_02:
+        row_label = "evolution_readiness_gate.checks[RI-EVOL-02]"
+        evidence = evidence_mapping(check_02, row_label)
+        min_recipes = int(thresholds.get("min_paper_trading_recipes") or 0)
+        require_int_at_least(evidence, "paper_trading_run_count", min_recipes, row_label)
+        require_int_at_least(evidence, "validation_pass_count", min_recipes, row_label)
+        after_cost = evidence.get("after_cost_paper_trading_summary")
+        if not isinstance(after_cost, Mapping):
+            failures.append(
+                f"{row_label}.evidence.after_cost_paper_trading_summary: expected object"
+            )
+        else:
+            if after_cost.get("status") != "computed":
+                failures.append(
+                    f"{row_label}.evidence.after_cost_paper_trading_summary.status: expected computed"
+                )
+            require_int_at_least(
+                after_cost,
+                "validated_recipe_count",
+                min_recipes,
+                row_label + ".evidence.after_cost_paper_trading_summary",
+            )
+            require_int_at_least(
+                after_cost,
+                "positive_after_cost_recipe_count",
+                min_recipes,
+                row_label + ".evidence.after_cost_paper_trading_summary",
+            )
+
+    check_03 = checks_by_id.get("RI-EVOL-03")
+    if check_03:
+        row_label = "evolution_readiness_gate.checks[RI-EVOL-03]"
+        evidence = evidence_mapping(check_03, row_label)
+        min_refreshes = int(thresholds.get("min_consecutive_monitor_refreshes") or 0)
+        require_int_at_least(
+            evidence,
+            "trailing_monitor_distinct_vintage_count",
+            min_refreshes,
+            row_label,
+        )
+        require_int_at_least(
+            evidence,
+            "trailing_monitor_pass_count",
+            min_refreshes,
+            row_label,
+        )
+        require_int_equal(evidence, "unvalidated_confidence_impact_count", 0, row_label)
+        require_int_equal(evidence, "aggregate_calibration_drift_count", 0, row_label)
+
+    check_04 = checks_by_id.get("RI-EVOL-04")
+    if check_04 and check_04.get("passed") is True:
+        row_label = "evolution_readiness_gate.checks[RI-EVOL-04]"
+        evidence = evidence_mapping(check_04, row_label)
+        for field in (
+            "schema_accepted",
+            "pit_accepted",
+            "provenance_accepted",
+            "statistical_accepted",
+        ):
+            if evidence.get(field) is not True:
+                failures.append(f"{row_label}.evidence.{field}: must be true")
+        min_refreshes = int(thresholds.get("min_consecutive_audit_refreshes") or 0)
+        require_int_at_least(
+            evidence,
+            "trailing_audit_distinct_vintage_count",
+            min_refreshes,
+            row_label,
+        )
+        require_int_at_least(
+            evidence,
+            "trailing_audit_pass_count",
+            min_refreshes,
+            row_label,
+        )
+
+    check_06 = checks_by_id.get("RI-EVOL-06")
+    if check_06:
+        row_label = "evolution_readiness_gate.checks[RI-EVOL-06]"
+        evidence = evidence_mapping(check_06, row_label)
+        min_refreshes = int(thresholds.get("min_gap_distribution_refreshes") or 0)
+        require_int_at_least(
+            evidence,
+            "trailing_gap_distribution_distinct_vintage_count",
+            min_refreshes,
+            row_label,
+        )
+        require_int_at_least(
+            evidence,
+            "trailing_gap_distribution_stable_count",
+            min_refreshes,
+            row_label,
+        )
+
+    check_07 = checks_by_id.get("RI-EVOL-07")
+    if check_07:
+        row_label = "evolution_readiness_gate.checks[RI-EVOL-07]"
+        evidence = evidence_mapping(check_07, row_label)
+        if evidence.get("coverage_gate_status") != "passed":
+            failures.append(f"{row_label}.evidence.coverage_gate_status: expected passed")
+        if _string_items(evidence.get("coverage_gate_blockers")):
+            failures.append(f"{row_label}.evidence.coverage_gate_blockers: must be empty")
 
     return len(checks), failures
 
