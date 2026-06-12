@@ -232,28 +232,31 @@ Report Intelligence 的输出默认是 shadow tooling，不直接进入交易决
 ```mermaid
 stateDiagram-v2
   [*] --> ShadowOnly
-  ShadowOnly --> SchemaAccepted: schema-status accepted
-  SchemaAccepted --> MasterPlanReady: master-plan-status ready
-  MasterPlanReady --> OperatorReady: operator-readiness accepted
-  OperatorReady --> StagedProduction: promotion-status staged_production_allowed
+  ShadowOnly --> ReviewBlocked: manual review gates incomplete
+  ReviewBlocked --> SchemaBlocked: schema-status semantic gates fail
+  SchemaBlocked --> EvolutionBlocked: outcome / paper-trading thresholds unmet
+  EvolutionBlocked --> StagedProduction: all non-lockbox gates pass
   StagedProduction --> ProductionBlocked: lockbox not opened
   ProductionBlocked --> ProductionEligible: lockbox passed
 
   ShadowOnly: report priors and recipes only
+  ReviewBlocked: gold-set, footprint, or lockbox review pending
+  SchemaBlocked: schema/audit readiness not accepted
+  EvolutionBlocked: prompt evolution remains shadow-only
   StagedProduction: all non-lockbox gates pass
   ProductionBlocked: direct production forbidden
 ```
 
-当前 rollout 的关键状态：
+当前 rollout 的关键状态（2026-06-12）：
 
 | Gate | 当前结果 |
 |---|---|
-| `report-intelligence --refresh-derived-only` | accepted, `blocker_count=0` |
-| `schema-status` | accepted, `failure_count=0` |
-| `master-plan-status` | `coverage_complete=true`, `ready_for_broad_rollout=true` |
-| `operator-readiness` | accepted, 15 checks passed |
-| `promotion-status` | `next_state=staged_production`, `production_allowed=false` |
-| lockbox | 未打开，是唯一生产 blocker |
+| `report-intelligence --refresh-derived-only` | public-safe mode refuses to overwrite committed derived artifacts when required private inputs are absent; with local private snapshots it can recompute derived artifacts, but those private inputs must not be committed |
+| `schema-status` | exits 2 by design until analytical footprint review and patch v1.5 coverage semantic gates pass |
+| `review-progress` | source-license review ready; gold-set remains 0/500 complete after stale target hashes were regenerated; lockbox remains 0/1 |
+| `evolution_readiness_gate` | blocked by manual gold-set metrics, insufficient unique outcome coverage, industry proxy coverage, zero validated paper-trading recipes, and audit-history readiness |
+| `recipe_paper_trading_summary` | committed public-safe summary has no validated recipes; local private snapshot replay can reach partial direct PIT binding, but still lacks enough direct PIT samples and implemented shadow tools |
+| production impact | forbidden; report-derived signals remain shadow-only until schema/audit, manual review, paper-trading, confidence-impact, and lockbox gates all pass |
 
 ## 8. CLI 运行方式
 
@@ -298,7 +301,7 @@ Report Intelligence 对 master plan 的贡献主要落在以下部分：
 
 ## 10. 后续演化方向
 
-当前 v1.5 已完成 shadow rollout。后续如果要进入更强 runtime 使用，需要按以下顺序推进：
+当前 v1.5 仍处于 shadow-only evolution candidate 状态。后续如果要进入更强 runtime 使用，需要按以下顺序推进：
 
 1. 扩大 PDF 原文到 Markdown 的覆盖率，增加更多真实研报样本。
 2. 增加人工 footprint negative examples，补足 recall 评估。
