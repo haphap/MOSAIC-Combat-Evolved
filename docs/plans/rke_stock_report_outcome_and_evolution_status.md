@@ -39,7 +39,7 @@ contracts.
 | `registry/report_intelligence/recipe_paper_trading_summary.json` | 0 recipes passed paper-trading validation; direct PIT binding diagnostics show 110 recipes still lack direct recipe-outcome binding; method source linkage improved to 9/118 method patterns with `source_footprint_ids`, while current public-safe inputs still have 0 forecast-claim rows and 0 outcome-label rows, and 110 recipes remain blocked by requested-tool placeholders |
 | `registry/report_intelligence/confidence_impact_monitor.json` | 0 paper-trading validated recipes; confidence impact remains blocked until recipe validation passes |
 | `registry/report_intelligence/evolution_readiness_gate.json` | blocked; 16 blockers remain across manual review, outcome-count, paper-trading, schema/audit, and audit-history readiness; public count-only fallback preserves outcome coverage when private label JSONL is absent |
-| `registry/review_batches/manual_review_progress_report.json` | public baseline: gold-set 0/500, source license 17529/17529, lockbox 0/1; gold-set scratch rows currently have stale `target_row_hash` and must be regenerated before manual filling; synthetic fixture: gold-set 500/500, source license 50/50, lockbox 0/1 |
+| `registry/review_batches/manual_review_progress_report.json` | public baseline: gold-set 0/500, source license 17529/17529, lockbox 0/1; gold-set scratch rows have current target hashes after `prepare-gold-review --full --force`, but all 500 rows still require reviewer fields; synthetic fixture: gold-set 500/500, source license 50/50, lockbox 0/1 |
 
 ## Plan Coverage
 
@@ -102,9 +102,10 @@ blocker families include:
 1. Manual/operator gates: gold-set review and lockbox review remain pending, and
    schema-status still reports analytical-footprint review and patch coverage
    semantic blockers. Source-license review is ready in the current public
-   progress report. The gold-set scratch file has stale target hashes; rerun
-   `mosaic-rke prepare-gold-review --root . --full --force` before filling
-   reviewer decisions. The footprint review handoff can now be prepared with
+   progress report. The gold-set scratch file was regenerated with
+   `mosaic-rke prepare-gold-review --root . --full --force`; the remaining
+   gold-set blockers are the 500 required human review rows. The footprint
+   review handoff can now be prepared with
    `mosaic-rke prepare-footprint-review`, filled by a reviewer, validated with
    `mosaic-rke apply-footprint-review --dry-run`, then applied through the same
    import path.

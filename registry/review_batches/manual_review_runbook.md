@@ -80,15 +80,14 @@ A promotion dry run is ready only when all three gates above report ready for pr
 
 - gold_set: 0/500 ready
 - gold_set: 500 review rows failed validation
-- gold_set: 500 review rows have stale target_row_hash; rerun `mosaic-rke prepare-gold-review --root . --full --force` before filling reviewer decisions
-- gold_set: 479 review rows: reviewer required
-- gold_set: 479 review rows: review_date required
-- gold_set: 479 review rows: manual_claim_text required
-- gold_set: 479 review rows: claim_correct must be boolean
-- gold_set: 479 review rows: source_span_supports_claim must be boolean
-- gold_set: 479 review rows: direction_correct must be boolean
-- gold_set: 479 review rows: variable_mapping_correct must be boolean
-- gold_set: 479 review rows: unsupported_field_false_grounded must be boolean
+- gold_set: 500 review rows: reviewer required
+- gold_set: 500 review rows: review_date required
+- gold_set: 500 review rows: manual_claim_text required
+- gold_set: 500 review rows: claim_correct must be boolean
+- gold_set: 500 review rows: source_span_supports_claim must be boolean
+- gold_set: 500 review rows: direction_correct must be boolean
+- gold_set: 500 review rows: variable_mapping_correct must be boolean
+- gold_set: 500 review rows: unsupported_field_false_grounded must be boolean
 - gold_set: 500 gold-set claim review rows still pending
 - lockbox: 0/1 ready
 - lockbox: opened_at required

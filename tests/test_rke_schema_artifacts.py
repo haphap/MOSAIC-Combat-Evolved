@@ -202,8 +202,8 @@ def test_stock_report_outcome_status_doc_matches_public_artifacts():
         f"source license {gate_counts['source_license'][0]}/"
         f"{gate_counts['source_license'][1]}"
     ) in status_text
-    assert "stale `target_row_hash`" in status_text
-    assert "prepare-gold-review --root . --full --force" in status_text
+    assert "current target hashes" in status_text
+    assert "500 rows still require reviewer fields" in status_text
     assert f"lockbox {gate_counts['lockbox'][0]}/{gate_counts['lockbox'][1]}" in status_text
     assert "labelability_summary" in status_text
     assert "outcome_labeling_readiness.industry_etf_proxy_readiness" in status_text
