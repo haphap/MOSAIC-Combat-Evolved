@@ -268,7 +268,9 @@ def test_normalize_forecast_claims_infers_horizon_and_metric_proxy_mapping():
     assert record["forecast_testability"] == "testable"
     assert record["horizon"]["max_days"] > 900
     assert record["horizon"]["source_text"] == "2026-2028年"
-    assert record["extraction_quality"]["claim_component_roles"] == {
+    component_roles = record["extraction_quality"]["claim_component_roles"]
+    details = component_roles.pop("as_of_date_macro_regime_context_details")
+    assert component_roles == {
         "has_regime_context": True,
         "has_macro_regime_context": True,
         "has_industry_cycle_regime_context": True,
@@ -296,6 +298,11 @@ def test_normalize_forecast_claims_infers_horizon_and_metric_proxy_mapping():
             "regime must be source-text derived"
         ),
     }
+    assert details[0]["regime_id"] == "MACRO-REGIME-US-RATE-CUT-20260101"
+    assert details[0]["regime_type"] == "us_rate_cut_cycle"
+    assert details[0]["as_of_date"] == "2026-06-11"
+    assert details[0]["source_basis"] == "as_of_date"
+    assert details[0]["source_text_grounded"] is False
     mechanism = record["extraction_quality"]["claim_mechanism_roles"]
     assert set(mechanism["channels"]) >= {
         "demand_pull",
@@ -516,6 +523,27 @@ def test_infer_claim_component_roles_adds_pit_as_of_macro_regime():
     assert roles["macro_regime_context_sources"]["us_rate_cut_cycle"].startswith(
         "as_of_date:2025-06-05"
     )
+    detail_by_type = {
+        detail["regime_type"]: detail
+        for detail in roles["as_of_date_macro_regime_context_details"]
+    }
+    assert detail_by_type["us_rate_cut_cycle"] == {
+        "regime_id": "MACRO-REGIME-US-RATE-CUT-20240918",
+        "regime_type": "us_rate_cut_cycle",
+        "as_of_date": "2025-06-05",
+        "start_date": "2024-09-18",
+        "end_date": "2025-12-31",
+        "source": "Fed rate-cut cycle after the September 2024 FOMC cut",
+        "source_url": "https://www.federalreserve.gov/newsevents/pressreleases/monetary20240918a.htm",
+        "source_basis": "as_of_date",
+        "source_text_grounded": False,
+        "pit_available": True,
+        "policy": (
+            "macro regime calendar is public aggregate governance metadata; it may "
+            "supplement forecast claims by PIT as_of_datetime but must not claim "
+            "source-text grounding"
+        ),
+    }
 
 
 def test_infer_claim_component_roles_uses_governed_macro_regime_calendar():
@@ -547,6 +575,21 @@ def test_infer_claim_component_roles_uses_governed_macro_regime_calendar():
             "as_of_date:2026-06-05; test governed PIT macro regime row"
         )
     }
+    assert roles["as_of_date_macro_regime_context_details"] == [
+        {
+            "regime_id": "MACRO-REGIME-TEST-20260101",
+            "regime_type": "test_macro_liquidity_window",
+            "as_of_date": "2026-06-05",
+            "start_date": "2026-01-01",
+            "end_date": "2026-12-31",
+            "source": "test governed PIT macro regime row",
+            "source_url": "",
+            "source_basis": "as_of_date",
+            "source_text_grounded": False,
+            "pit_available": True,
+            "policy": "test only",
+        }
+    ]
 
 
 def test_infer_claim_component_roles_covers_common_industry_cycle_buckets():

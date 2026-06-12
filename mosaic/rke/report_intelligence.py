@@ -3132,13 +3132,26 @@ def _as_of_date_macro_regime_types(
     as_of_datetime: Any,
     macro_regime_calendar_rows: Sequence[Mapping[str, Any]] = (),
 ) -> tuple[list[str], dict[str, str]]:
+    regime_types, sources, _details = _as_of_date_macro_regime_context(
+        as_of_datetime,
+        macro_regime_calendar_rows=macro_regime_calendar_rows,
+    )
+    return regime_types, sources
+
+
+def _as_of_date_macro_regime_context(
+    as_of_datetime: Any,
+    macro_regime_calendar_rows: Sequence[Mapping[str, Any]] = (),
+) -> tuple[list[str], dict[str, str], list[dict[str, Any]]]:
     date_key = _as_of_date_key(as_of_datetime)
     if not date_key:
-        return [], {}
+        return [], {}, []
     regime_types: list[str] = []
     sources: dict[str, str] = {}
+    details: list[dict[str, Any]] = []
     rows = macro_regime_calendar_rows or DEFAULT_MACRO_REGIME_CALENDAR_ROWS
     for row in rows:
+        regime_id = str(row.get("regime_id") or "").strip()
         regime_type = str(row.get("regime_type") or "").strip()
         start_date = str(row.get("start_date") or "").strip()
         end_date = str(row.get("end_date") or "").strip()
@@ -3150,7 +3163,34 @@ def _as_of_date_macro_regime_types(
         if start_date <= date_key <= end_date:
             regime_types.append(regime_type)
             sources[regime_type] = f"as_of_date:{date_key}; {note}"
-    return list(dict.fromkeys(regime_types)), sources
+            details.append(
+                {
+                    "regime_id": regime_id,
+                    "regime_type": regime_type,
+                    "as_of_date": date_key,
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "source": note,
+                    "source_url": str(row.get("source_url") or "").strip(),
+                    "source_basis": "as_of_date",
+                    "source_text_grounded": False,
+                    "pit_available": True,
+                    "policy": str(row.get("policy") or "").strip(),
+                }
+            )
+    deduped_types = list(dict.fromkeys(regime_types))
+    deduped_details: list[dict[str, Any]] = []
+    seen_details: set[tuple[str, str]] = set()
+    for detail in details:
+        key = (
+            str(detail.get("regime_id") or ""),
+            str(detail.get("regime_type") or ""),
+        )
+        if key in seen_details:
+            continue
+        seen_details.add(key)
+        deduped_details.append(detail)
+    return deduped_types, sources, deduped_details
 CLAIM_COMPANY_CAPABILITY_RE = re.compile(
     r"公司|自身|实验室|投产|达效|全国布局|产能利用|渠道|客户|订单|技术|研发|产品|费用管控|降本|管理|执行|市占率|份额",
     flags=re.IGNORECASE,
@@ -3260,8 +3300,12 @@ def _infer_claim_component_roles(
         for regime_type, pattern in CLAIM_MACRO_REGIME_RULES
         if re.search(pattern, text, flags=re.IGNORECASE)
     ]
-    date_macro_regime_types, date_macro_regime_sources = (
-        _as_of_date_macro_regime_types(
+    (
+        date_macro_regime_types,
+        date_macro_regime_sources,
+        date_macro_regime_details,
+    ) = (
+        _as_of_date_macro_regime_context(
             as_of_datetime,
             macro_regime_calendar_rows=macro_regime_calendar_rows,
         )
@@ -3297,6 +3341,7 @@ def _infer_claim_component_roles(
         "macro_regime_context_types": macro_regime_types,
         "source_text_macro_regime_context_types": text_macro_regime_types,
         "as_of_date_macro_regime_context_types": date_macro_regime_types,
+        "as_of_date_macro_regime_context_details": date_macro_regime_details,
         "macro_regime_context_sources": macro_regime_sources,
         "industry_cycle_regime_context_types": industry_cycle_regime_types,
         "has_company_capability_or_action": has_company_capability,
