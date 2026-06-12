@@ -181,7 +181,13 @@ def test_stock_report_outcome_status_doc_matches_public_artifacts():
             encoding="utf-8"
         )
     )
+    operator_readiness = json.loads(
+        Path("registry/handoffs/rke_operator_readiness_report.json").read_text(
+            encoding="utf-8"
+        )
+    )
     gate_kinds = {gate["review_kind"] for gate in progress_report["gates"]}
+    operator_check_ids = {check["check_id"] for check in operator_readiness["checks"]}
 
     outcome_count = extraction_report["outcome_label_rows"]
     industry_count = extraction_report["industry_etf_proxy_outcome_label_rows"]
@@ -208,6 +214,14 @@ def test_stock_report_outcome_status_doc_matches_public_artifacts():
     assert "qlib://..." in status_text
     assert "entry_lag_trading_days" in status_text
     assert "STOCK_PRICE_PROXY_ENTRY_LAG_TRADING_DAYS" in status_text
+    assert "operator readiness currently passes 15/15 checks" in status_text
+    assert operator_readiness["accepted"] is True
+    assert operator_readiness["passed_count"] == operator_readiness["check_count"] == 15
+    assert {
+        "blank_full_gold_set_import_is_rejected",
+        "blank_bundle_dry_run_does_not_promote",
+        "promotion_gate_still_blocks_production",
+    } <= operator_check_ids
     assert (
         f"blocked; {evolution_gate['blocker_count']} blockers remain"
         in status_text

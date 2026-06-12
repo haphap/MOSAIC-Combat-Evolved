@@ -40,6 +40,7 @@ contracts.
 | `registry/report_intelligence/confidence_impact_monitor.json` | 20 paper-trading validated recipes are monitored; unvalidated confidence impact count is 0; alpha-decay and calibration-drift observations remain shadow-only |
 | `registry/report_intelligence/evolution_readiness_gate.json` | blocked; 13 blockers remain, limited to schema/audit-history readiness and manual forecast gold-set quality metrics |
 | `registry/review_batches/manual_review_progress_report.json` | public baseline: gold-set 0/500, analytical-footprint review 0/1001, source license 17529/17529, lockbox 0/1; Synthetic pytest fixtures can mark manual rows complete for contract tests, but current target hashes in the real scratch still require human review. The report now includes source-text-free `current_batch_status` for the active local 50-row gold-set, analytical-footprint, and lockbox scratch files. Current gold batch status is 50 rows, 0 complete, 50 pending, 0 malformed; missing required fields are aggregate counts only. Current analytical-footprint batch status is 50 rows, 0 complete, 50 pending, 0 malformed; missing required fields are aggregate counts only. Current lockbox decision status is 1 row, 0 complete, 1 pending, 0 malformed; missing required fields are aggregate counts only. Full gold-set and footprint review imports still require human decisions before promotion dry-run. |
+| `registry/handoffs/rke_operator_readiness_report.json` | operator readiness currently passes 15/15 checks: required registry valid, handoff command sequence complete, manual import templates sparse and provenance-tagged, blank gold/lockbox/source-license templates rejected, blank bundle dry-run does not promote, manual review bundle manifest current, and promotion gate still blocks production |
 
 ## Plan Coverage
 
@@ -167,6 +168,7 @@ blocker families include:
    gate; monitor and gap-distribution trailing-vintage gates currently pass.
 7. Re-run
    `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke review-progress --root .`,
+   `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke operator-readiness --root .`,
    promotion dry-run, and
    `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke schema-status --root .`.
 
