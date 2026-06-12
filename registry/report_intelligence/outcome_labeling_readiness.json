@@ -405,7 +405,7 @@
       }
     },
     "policy": "sector-direction industry claims can be evaluated with mapped industry ETF returns on fixed PIT windows; each window is a separate evidence point; LLM output extracts the claim direction but cannot assign outcome labels",
-    "qlib_etf_dir_configured": "/home/hap/.qlib/qlib_data/cn_etf",
+    "qlib_etf_dir_configured": "qlib://cn_etf",
     "windows_days": [
       20,
       60,
@@ -2390,8 +2390,8 @@
       "survivorship_unverified": true
     },
     "policy": "stock claims can be evaluated with qlib cn_data adjusted close returns on T+1 fixed PIT windows; LLM output extracts target and direction but cannot assign outcome labels",
-    "qlib_benchmark_dir_configured": "/home/hap/.qlib/qlib_data/cn_etf",
-    "qlib_stock_dir_configured": "/home/hap/.qlib/qlib_data/cn_data",
+    "qlib_benchmark_dir_configured": "qlib://cn_etf",
+    "qlib_stock_dir_configured": "qlib://cn_data",
     "stock_series_coverage_summary": {
       "earliest_price_date_max": "2026-04-10",
       "earliest_price_date_min": "2000-01-04",

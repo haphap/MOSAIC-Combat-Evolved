@@ -1386,6 +1386,13 @@ def _validate_industry_etf_mapping_contract(
             else None
         )
         if isinstance(industry_readiness, Mapping):
+            if not str(
+                industry_readiness.get("qlib_etf_dir_configured") or ""
+            ).startswith("qlib://"):
+                failures.append(
+                    "outcome_labeling_readiness.industry_etf_proxy_readiness."
+                    "qlib_etf_dir_configured: must use public qlib source label"
+                )
             expected_labelability_fields = {
                 "eligible_claim_count": "eligible_claim_count",
                 "labelable_claim_count": "labelable_forecast_claim_count",
@@ -1437,6 +1444,25 @@ def _validate_industry_etf_mapping_contract(
         else:
             failures.append(
                 "outcome_labeling_readiness.industry_etf_proxy_readiness: expected object"
+            )
+        stock_readiness = (
+            outcome_readiness.get("stock_price_proxy_readiness")
+            if isinstance(outcome_readiness, Mapping)
+            else None
+        )
+        if isinstance(stock_readiness, Mapping):
+            for field in (
+                "qlib_stock_dir_configured",
+                "qlib_benchmark_dir_configured",
+            ):
+                if not str(stock_readiness.get(field) or "").startswith("qlib://"):
+                    failures.append(
+                        "outcome_labeling_readiness.stock_price_proxy_readiness."
+                        f"{field}: must use public qlib source label"
+                    )
+        else:
+            failures.append(
+                "outcome_labeling_readiness.stock_price_proxy_readiness: expected object"
             )
         if availability.get("mapping_count") != len(mapping_rows):
             failures.append(

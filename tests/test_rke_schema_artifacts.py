@@ -1068,6 +1068,46 @@ def test_industry_etf_mapping_contract_rejects_local_calendar_paths(
     )
 
 
+def test_industry_etf_mapping_contract_rejects_local_readiness_paths(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    readiness_path = registry / "outcome_labeling_readiness.json"
+    readiness = json.loads(readiness_path.read_text(encoding="utf-8"))
+    readiness["industry_etf_proxy_readiness"]["qlib_etf_dir_configured"] = (
+        "/home/hap/.qlib/qlib_data/cn_etf"
+    )
+    readiness["stock_price_proxy_readiness"]["qlib_stock_dir_configured"] = (
+        "/home/hap/.qlib/qlib_data/cn_data"
+    )
+    readiness["stock_price_proxy_readiness"]["qlib_benchmark_dir_configured"] = (
+        "/home/hap/.qlib/qlib_data/cn_etf"
+    )
+    readiness_path.write_text(
+        json.dumps(readiness, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _industry_etf_mapping_contract_record(tmp_path)
+
+    assert not record.accepted
+    assert any(
+        "industry_etf_proxy_readiness.qlib_etf_dir_configured: "
+        "must use public qlib source label" in item
+        for item in record.failures
+    )
+    assert any(
+        "stock_price_proxy_readiness.qlib_stock_dir_configured: "
+        "must use public qlib source label" in item
+        for item in record.failures
+    )
+    assert any(
+        "stock_price_proxy_readiness.qlib_benchmark_dir_configured: "
+        "must use public qlib source label" in item
+        for item in record.failures
+    )
+
+
 def test_industry_etf_mapping_contract_rejects_labelability_readiness_drift(
     tmp_path: Path,
 ):

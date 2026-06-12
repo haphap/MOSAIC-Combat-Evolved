@@ -5253,6 +5253,9 @@ def test_report_intelligence_labels_industry_claims_with_etf_proxy_windows(
         .read_text(encoding="utf-8")
     )
     proxy_readiness = readiness["industry_etf_proxy_readiness"]
+    readiness_dump = json.dumps(readiness, ensure_ascii=False)
+    assert "/home/hap" not in readiness_dump
+    assert proxy_readiness["qlib_etf_dir_configured"].startswith("qlib://")
     assert proxy_readiness["eligible_claim_count"] == 1
     assert proxy_readiness["labelable_forecast_claim_count"] == 1
     assert proxy_readiness["labelable_forecast_claim_ids"] == [
@@ -6144,6 +6147,10 @@ def test_report_intelligence_labels_stock_claims_with_qlib_price_windows(
         .read_text(encoding="utf-8")
     )
     stock_readiness = readiness["stock_price_proxy_readiness"]
+    readiness_dump = json.dumps(readiness, ensure_ascii=False)
+    assert "/home/hap" not in readiness_dump
+    assert stock_readiness["qlib_stock_dir_configured"].startswith("qlib://")
+    assert stock_readiness["qlib_benchmark_dir_configured"].startswith("qlib://")
     assert stock_readiness["eligible_claim_count"] == 1
     assert stock_readiness["labelable_forecast_claim_count"] == 1
     assert stock_readiness["labelable_window_count"] == 4

@@ -7892,6 +7892,7 @@ def build_industry_etf_proxy_readiness(
         pit_availability
     )
     qlib_dir = _resolve_qlib_etf_dir(root_path, qlib_etf_dir)
+    qlib_source_label = _public_qlib_source_label(qlib_etf_dir)
     calendar = _read_trading_calendar(qlib_dir)
     benchmark_cache: dict[str, tuple[int, list[float]]] = {}
 
@@ -8018,7 +8019,7 @@ def build_industry_etf_proxy_readiness(
         "benchmark_source": INDUSTRY_ETF_BENCHMARK_SOURCE,
         "benchmark_family": INDUSTRY_ETF_BENCHMARK_FAMILY,
         "cost_model_id": INDUSTRY_ETF_COST_MODEL_ID,
-        "qlib_etf_dir_configured": str(qlib_etf_dir),
+        "qlib_etf_dir_configured": qlib_source_label,
         "latest_calendar_date": calendar[-1] if calendar else "",
         "mapping_count": len(mapping_rows),
         "eligible_claim_count": len(eligible_claim_ids),
@@ -8057,6 +8058,8 @@ def build_stock_price_proxy_readiness(
 ) -> dict[str, Any]:
     stock_dir = _resolve_qlib_stock_dir(root_path, qlib_stock_dir)
     benchmark_dir = _resolve_qlib_etf_dir(root_path, qlib_etf_dir)
+    stock_source_label = _public_qlib_source_label(qlib_stock_dir)
+    benchmark_source_label = _public_qlib_source_label(qlib_etf_dir)
     stock_calendar = _read_trading_calendar(stock_dir)
     benchmark_calendar = _read_trading_calendar(benchmark_dir)
     benchmark_start, benchmark_values = _read_qlib_series(
@@ -8314,8 +8317,8 @@ def build_stock_price_proxy_readiness(
         "benchmark_source": STOCK_PRICE_PROXY_BENCHMARK_SOURCE,
         "benchmark_family": STOCK_PRICE_PROXY_BENCHMARK_FAMILY,
         "cost_model_id": STOCK_PRICE_PROXY_COST_MODEL_ID,
-        "qlib_stock_dir_configured": str(qlib_stock_dir),
-        "qlib_benchmark_dir_configured": str(qlib_etf_dir),
+        "qlib_stock_dir_configured": stock_source_label,
+        "qlib_benchmark_dir_configured": benchmark_source_label,
         "latest_calendar_date": stock_calendar[-1] if stock_calendar else "",
         "eligible_claim_count": len(eligible_claim_ids),
         "eligible_forecast_claim_ids": eligible_claim_ids,
