@@ -696,6 +696,50 @@ def test_outcome_readiness_counts_as_of_date_macro_regime_separately():
     assert "PIT as_of_datetime" in readiness["as_of_date_macro_regime_policy"]
 
 
+def test_outcome_readiness_excludes_pending_proxy_claims_from_unlabelable_gaps():
+    readiness = build_outcome_labeling_readiness_report(
+        forecast_rows=[
+            {
+                "forecast_claim_id": "FC-PENDING-STOCK",
+                "claim_text": "公司盈利改善有望推动股价表现。",
+                "target": {"target_type": "stock", "target_id": "300001.SZ"},
+                "direction": "positive",
+                "extraction_quality": {"mapping_gaps": ["horizon"]},
+            },
+            {
+                "forecast_claim_id": "FC-BLOCKED",
+                "claim_text": "行业需求改善。",
+                "target": {"target_type": "sector", "target_id": "未知行业"},
+                "direction": "positive",
+                "extraction_quality": {"mapping_gaps": ["horizon"]},
+            },
+        ],
+        forecast_ledger_rows=[
+            {
+                "forecast_claim_id": "FC-PENDING-STOCK",
+                "test_status": "not_ready_insufficient_mapping",
+            },
+            {
+                "forecast_claim_id": "FC-BLOCKED",
+                "test_status": "not_ready_insufficient_mapping",
+            },
+        ],
+        stock_price_proxy_readiness={
+            "pending_future_forecast_claim_ids": ["FC-PENDING-STOCK"],
+        },
+    )
+
+    assert readiness["mapping_gap_counts"] == {"horizon": 2}
+    assert readiness["unlabelable_mapping_gap_counts"] == {"horizon": 1}
+    assert readiness["blocked_forecast_claim_ids"] == ["FC-BLOCKED"]
+    assert readiness["proxy_label_pending_count"] == 1
+    assert readiness["stock_proxy_label_pending_count"] == 1
+    assert readiness["proxy_label_pending_only_count"] == 1
+    assert readiness["proxy_label_pending_only_forecast_claim_ids"] == [
+        "FC-PENDING-STOCK"
+    ]
+
+
 def _passing_forecast_gold_review_summary(**overrides):
     summary = {
         "passed": True,
@@ -3223,6 +3267,64 @@ def test_report_intelligence_recipe_paper_trading_infers_unique_method_binding()
     assert runs[0]["paper_trading_status"] == "passed"
     assert runs[0]["blocked_reasons"] == []
     assert runs[0]["metrics"]["backtest_effective_n"] == 4.0
+
+
+def test_recipe_paper_trading_binds_all_source_method_pattern_ids():
+    recipe = {
+        "analysis_recipe_id": "RECIPE-SOURCE-METHODS",
+        "recipe_id": "RECIPE-SOURCE-METHODS",
+        "method_pattern_id": "METHOD-PRIMARY",
+        "source_method_pattern_ids": ["METHOD-PRIMARY", "METHOD-SECONDARY"],
+        "version": "0.1.0",
+        "runtime_mode": "shadow_only",
+        "required_tools": [],
+        "required_data": ["metric:stock_price", "metric:benchmark_return"],
+        "decision_scope": "source_method_binding_scope",
+        "entry_condition": "T+1_or_more_conservative_shadow_entry",
+        "exit_condition": "fixed_horizon_shadow_exit",
+        "risk_controls": [
+            "no_production_order",
+            "no_position_sizing",
+            "after_cost_alpha_required",
+            "consecutive_after_cost_decay_blocks_validation",
+            "turnover_cost_decay_blocks_validation",
+            "drawdown_threshold_pre_registered",
+        ],
+        "expected_horizon_days": 120,
+        "steps": [{"step": 1, "tool": "analysis.reasoning_step"}],
+        "output_signal": {"name": "source_method_binding_score"},
+    }
+    labels = [
+        {
+            "outcome_id": f"OUT-SOURCE-METHOD-{index}",
+            "method_pattern_id": "METHOD-SECONDARY",
+            "exit_datetime": f"2026-02-{10 + index:02d}",
+            "directional_after_cost_return": 0.02,
+            "benchmark_return": 0.005,
+            "directional_hit": True,
+            "horizon_days": horizon,
+            "market_regime": regime,
+            "effective_n_weight": 1.0,
+        }
+        for index, (horizon, regime) in enumerate(
+            (
+                (5, "base"),
+                (20, "stress"),
+                (60, "recovery"),
+                (120, "base"),
+            )
+        )
+    ]
+
+    runs = build_recipe_paper_trading_runs(
+        run_id="RIR-TEST-SOURCE-METHODS",
+        analysis_recipe_rows=[recipe],
+        outcome_label_rows=labels,
+    )
+
+    assert runs[0]["paper_trading_status"] == "passed"
+    assert runs[0]["blocked_reasons"] == []
+    assert runs[0]["metrics"]["effective_n"] == 4.0
 
 
 def test_report_intelligence_paper_trading_split_sorts_exit_datetime():
@@ -6058,6 +6160,99 @@ def test_report_intelligence_counts_stock_price_proxy_as_labelable_channel(
     assert readiness["proxy_label_only_ready_count"] == 1
     assert readiness["blocked_count"] == 0
     assert readiness["unlabelable_mapping_gap_counts"] == {}
+
+
+def test_report_intelligence_marks_stock_proxy_future_windows_as_pending(
+    tmp_path: Path,
+):
+    source_id = _write_source(
+        tmp_path / "registry/sources/tushare_research_reports.jsonl",
+        industry="银行",
+        report_type="公司研报",
+        publish_date="2026-05-30",
+        ts_code="000001.SZ",
+    )
+    qlib_stock_dir = tmp_path / "qlib_stock"
+    qlib_etf_dir = tmp_path / "qlib_etf"
+    _write_qlib_stock_fixture(qlib_stock_dir)
+    _write_qlib_stock_benchmark_fixture(qlib_etf_dir)
+
+    def llm(row, chunk: str, span_id: str, chunk_index: int, chunk_count: int):
+        return {
+            "status": "ok",
+            "model": "fake-vllm",
+            "payload": {
+                "forecast_claims": [
+                    {
+                        "claim_text": "平安银行基本面改善，未来股价有望上涨。",
+                        "claim_provenance": "source_grounded",
+                        "forecast_testability": "testable",
+                        "forecast_type": "stock_outlook",
+                        "target": {"target_type": "stock", "target_id": "000001.SZ"},
+                        "benchmark": {},
+                        "direction": "positive",
+                        "horizon": {},
+                    }
+                ],
+                "analytical_footprints": [],
+                "metric_candidates": [],
+                "method_patterns": [],
+                "tool_gaps": [],
+            },
+        }
+
+    result = run_report_intelligence_refresh(
+        ReportIntelligenceConfig(
+            root=tmp_path,
+            source_ids=(source_id,),
+            qlib_stock_dir=qlib_stock_dir,
+            qlib_etf_dir=qlib_etf_dir,
+        ),
+        downloader=_fake_downloader,
+        converter=_fake_converter,
+        llm_extractor=llm,
+    )
+
+    assert result.stock_price_proxy_outcome_label_rows == 0
+    assert result.stock_price_proxy_eligible_claim_rows == 1
+    assert result.stock_price_proxy_labelable_window_rows == 0
+
+    forecasts = _read_jsonl(
+        tmp_path / "registry/report_intelligence/forecast_claims.jsonl"
+    )
+    forecast_claim_id = forecasts[0]["forecast_claim_id"]
+    readiness = json.loads(
+        (tmp_path / "registry/report_intelligence/outcome_labeling_readiness.json")
+        .read_text(encoding="utf-8")
+    )
+    stock_readiness = readiness["stock_price_proxy_readiness"]
+    assert stock_readiness["eligible_claim_count"] == 1
+    assert stock_readiness["labelable_forecast_claim_count"] == 0
+    assert stock_readiness["pending_future_window_count"] == 4
+    assert stock_readiness["pending_future_forecast_claim_count"] == 1
+    assert stock_readiness["pending_future_forecast_claim_ids"] == [
+        forecast_claim_id
+    ]
+    assert readiness["standard_blocked_count"] == 1
+    assert readiness["proxy_label_pending_count"] == 1
+    assert readiness["stock_proxy_label_pending_count"] == 1
+    assert readiness["proxy_label_pending_only_count"] == 1
+    assert readiness["proxy_label_pending_only_forecast_claim_ids"] == [
+        forecast_claim_id
+    ]
+    assert readiness["blocked_count"] == 0
+    assert readiness["unlabelable_mapping_gap_counts"] == {}
+
+    provenance_audit = json.loads(
+        (
+            tmp_path
+            / "registry/report_intelligence/extraction_provenance_audit.json"
+        ).read_text(encoding="utf-8")
+    )
+    by_id = {row["check_id"]: row for row in provenance_audit["checks"]}
+    assert by_id["RI-PROV-04"]["accepted"] is True
+    assert by_id["RI-PROV-04"]["evidence"]["proxy_label_pending_only_count"] == 1
+    assert by_id["RI-PROV-04"]["evidence"]["unlabelable_forecast_count"] == 0
 
 
 def test_report_intelligence_stock_benchmark_aligns_by_date_across_qlib_dirs(

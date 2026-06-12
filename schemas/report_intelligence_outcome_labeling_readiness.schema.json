@@ -40,6 +40,10 @@
     "industry_proxy_label_ready_count": {"type": "integer", "minimum": 0},
     "stock_proxy_label_ready_count": {"type": "integer", "minimum": 0},
     "proxy_label_only_ready_count": {"type": "integer", "minimum": 0},
+    "proxy_label_pending_count": {"type": "integer", "minimum": 0},
+    "industry_proxy_label_pending_count": {"type": "integer", "minimum": 0},
+    "stock_proxy_label_pending_count": {"type": "integer", "minimum": 0},
+    "proxy_label_pending_only_count": {"type": "integer", "minimum": 0},
     "blocked_count": {"type": "integer", "minimum": 0},
     "test_status_counts": {"type": "object"},
     "mapping_gap_counts": {"type": "object"},
@@ -72,6 +76,22 @@
       "items": {"type": "string"}
     },
     "proxy_label_only_ready_forecast_claim_ids": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "proxy_label_pending_forecast_claim_ids": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "industry_proxy_label_pending_forecast_claim_ids": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "stock_proxy_label_pending_forecast_claim_ids": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "proxy_label_pending_only_forecast_claim_ids": {
       "type": "array",
       "items": {"type": "string"}
     },
@@ -147,6 +167,14 @@
         },
         "labelable_window_count": {"type": "integer", "minimum": 0},
         "pending_future_window_count": {"type": "integer", "minimum": 0},
+        "pending_future_forecast_claim_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "pending_future_forecast_claim_ids": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
         "data_gap_counts": {
           "type": "object",
           "additionalProperties": {"type": "integer", "minimum": 0}
@@ -225,6 +253,14 @@
         },
         "labelable_window_count": {"type": "integer", "minimum": 0},
         "pending_future_window_count": {"type": "integer", "minimum": 0},
+        "pending_future_forecast_claim_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "pending_future_forecast_claim_ids": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
         "data_gap_counts": {
           "type": "object",
           "additionalProperties": {"type": "integer", "minimum": 0}

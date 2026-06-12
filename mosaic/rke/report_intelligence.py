@@ -5193,16 +5193,34 @@ def build_outcome_labeling_readiness_report(
         )
         if str(claim_id).strip()
     ]
+    industry_proxy_pending_ids = [
+        str(claim_id)
+        for claim_id in _ensure_list(
+            industry_proxy.get("pending_future_forecast_claim_ids")
+        )
+        if str(claim_id).strip()
+    ]
     stock_proxy_label_ready_ids = [
         str(claim_id)
         for claim_id in _ensure_list(stock_proxy.get("labelable_forecast_claim_ids"))
+        if str(claim_id).strip()
+    ]
+    stock_proxy_pending_ids = [
+        str(claim_id)
+        for claim_id in _ensure_list(stock_proxy.get("pending_future_forecast_claim_ids"))
         if str(claim_id).strip()
     ]
     proxy_label_ready_ids = sorted(
         set(industry_proxy_label_ready_ids) | set(stock_proxy_label_ready_ids)
     )
     proxy_label_ready_id_set = set(proxy_label_ready_ids)
+    proxy_label_pending_ids = sorted(
+        (set(industry_proxy_pending_ids) | set(stock_proxy_pending_ids))
+        - proxy_label_ready_id_set
+    )
+    proxy_label_pending_id_set = set(proxy_label_pending_ids)
     proxy_label_only_ids: list[str] = []
+    proxy_label_pending_only_ids: list[str] = []
     forecast_by_id = {
         str(row.get("forecast_claim_id") or ""): row for row in forecast_rows
     }
@@ -5323,6 +5341,8 @@ def build_outcome_labeling_readiness_report(
         has_proxy_label_path = forecast_claim_id in proxy_label_ready_id_set
         if has_proxy_label_path:
             proxy_label_only_ids.append(forecast_claim_id)
+        elif forecast_claim_id in proxy_label_pending_id_set:
+            proxy_label_pending_only_ids.append(forecast_claim_id)
         else:
             blocked_ids.append(forecast_claim_id)
         forecast = forecast_by_id.get(forecast_claim_id) or {}
@@ -5334,7 +5354,9 @@ def build_outcome_labeling_readiness_report(
         ] or ["unknown_mapping_gap"]
         for gap in mapping_gaps:
             gap_counts[gap] = gap_counts.get(gap, 0) + 1
-            if not has_proxy_label_path:
+            if not (
+                has_proxy_label_path or forecast_claim_id in proxy_label_pending_id_set
+            ):
                 unlabelable_gap_counts[gap] = unlabelable_gap_counts.get(gap, 0) + 1
     if blocked_ids:
         blocked_reason = (
@@ -5355,6 +5377,10 @@ def build_outcome_labeling_readiness_report(
         "industry_proxy_label_ready_count": len(industry_proxy_label_ready_ids),
         "stock_proxy_label_ready_count": len(stock_proxy_label_ready_ids),
         "proxy_label_only_ready_count": len(proxy_label_only_ids),
+        "proxy_label_pending_count": len(proxy_label_pending_ids),
+        "industry_proxy_label_pending_count": len(industry_proxy_pending_ids),
+        "stock_proxy_label_pending_count": len(stock_proxy_pending_ids),
+        "proxy_label_pending_only_count": len(proxy_label_pending_only_ids),
         "test_status_counts": dict(sorted(test_status_counts.items())),
         "mapping_gap_counts": dict(sorted(gap_counts.items())),
         "unlabelable_mapping_gap_counts": dict(sorted(unlabelable_gap_counts.items())),
@@ -5382,6 +5408,10 @@ def build_outcome_labeling_readiness_report(
         "industry_proxy_label_ready_forecast_claim_ids": industry_proxy_label_ready_ids,
         "stock_proxy_label_ready_forecast_claim_ids": stock_proxy_label_ready_ids,
         "proxy_label_only_ready_forecast_claim_ids": proxy_label_only_ids,
+        "proxy_label_pending_forecast_claim_ids": proxy_label_pending_ids,
+        "industry_proxy_label_pending_forecast_claim_ids": industry_proxy_pending_ids,
+        "stock_proxy_label_pending_forecast_claim_ids": stock_proxy_pending_ids,
+        "proxy_label_pending_only_forecast_claim_ids": proxy_label_pending_only_ids,
         "blocked_forecast_claim_ids": blocked_ids,
         "regime_gap_forecast_claim_ids": sorted(set(regime_gap_ids)),
         "mechanism_gap_forecast_claim_ids": sorted(set(mechanism_gap_ids)),
@@ -7274,6 +7304,7 @@ def build_industry_etf_proxy_readiness(
     metadata_by_source = _source_report_metadata(metadata_rows)
     eligible_claim_ids: list[str] = []
     labelable_claim_ids: list[str] = []
+    pending_future_claim_ids: list[str] = []
     data_gap_counts: dict[str, int] = {}
     labelable_window_count = 0
     pending_future_window_count = 0
@@ -7337,10 +7368,13 @@ def build_industry_etf_proxy_readiness(
             add_gap("entry_price_missing")
             continue
         claim_labelable_window_count = 0
+        claim_pending_future_window_count = 0
+        claim_window_gap_count = 0
         for horizon_days in windows_days:
             exit_index = entry_index + int(horizon_days)
             if exit_index >= len(calendar):
                 pending_future_window_count += 1
+                claim_pending_future_window_count += 1
                 continue
             if _series_value_at_calendar_index(
                 start_index=etf_start,
@@ -7352,11 +7386,14 @@ def build_industry_etf_proxy_readiness(
                 calendar_index=exit_index,
             ) is None:
                 add_gap("exit_price_missing")
+                claim_window_gap_count += 1
                 continue
             labelable_window_count += 1
             claim_labelable_window_count += 1
         if claim_labelable_window_count:
             labelable_claim_ids.append(forecast_claim_id)
+        elif claim_pending_future_window_count and not claim_window_gap_count:
+            pending_future_claim_ids.append(forecast_claim_id)
     return {
         "policy": (
             "sector-direction industry claims can be evaluated with mapped industry ETF "
@@ -7387,6 +7424,8 @@ def build_industry_etf_proxy_readiness(
         "labelable_forecast_claim_ids": labelable_claim_ids,
         "labelable_window_count": labelable_window_count,
         "pending_future_window_count": pending_future_window_count,
+        "pending_future_forecast_claim_count": len(pending_future_claim_ids),
+        "pending_future_forecast_claim_ids": pending_future_claim_ids,
         "data_gap_counts": dict(sorted(data_gap_counts.items())),
         "pit_availability_status": {
             "availability_id": str(
@@ -7424,6 +7463,7 @@ def build_stock_price_proxy_readiness(
     metadata_by_source = _source_report_metadata(metadata_rows)
     eligible_claim_ids: list[str] = []
     labelable_claim_ids: list[str] = []
+    pending_future_claim_ids: list[str] = []
     data_gap_counts: dict[str, int] = {}
     labelable_window_count = 0
     pending_future_window_count = 0
@@ -7571,10 +7611,13 @@ def build_stock_price_proxy_readiness(
             continue
         latest_stock_price_date = available_dates[-1] if available_dates else ""
         claim_labelable_window_count = 0
+        claim_pending_future_window_count = 0
+        claim_window_gap_count = 0
         for horizon_days in windows_days:
             exit_index = entry_index + int(horizon_days)
             if exit_index >= len(stock_calendar):
                 pending_future_window_count += 1
+                claim_pending_future_window_count += 1
                 continue
             exit_date = stock_calendar[exit_index]
             exit_price = _series_value_at_calendar_index(
@@ -7588,6 +7631,7 @@ def build_stock_price_proxy_readiness(
                     if latest_stock_price_date and exit_date > latest_stock_price_date
                     else "exit_price_missing"
                 )
+                claim_window_gap_count += 1
                 continue
             exit_volume_ok = _has_positive_volume_at(
                 start_index=volume_start,
@@ -7596,9 +7640,11 @@ def build_stock_price_proxy_readiness(
             )
             if exit_volume_ok is False:
                 add_gap("stock_long_suspension_window")
+                claim_window_gap_count += 1
                 continue
             if exit_volume_ok is None:
                 add_gap("entry_liquidity_unverified")
+                claim_window_gap_count += 1
                 continue
             exit_locked = _exit_limit_locked(
                 direction=direction,
@@ -7630,9 +7676,11 @@ def build_stock_price_proxy_readiness(
             )
             if exit_locked is True:
                 add_gap("exit_limit_locked")
+                claim_window_gap_count += 1
                 continue
             if exit_locked is None:
                 add_gap("entry_liquidity_unverified")
+                claim_window_gap_count += 1
                 continue
             if _series_value_at_date(
                 calendar=benchmark_calendar,
@@ -7641,11 +7689,14 @@ def build_stock_price_proxy_readiness(
                 date_value=exit_date,
             ) is None:
                 add_gap("benchmark_series_missing")
+                claim_window_gap_count += 1
                 continue
             labelable_window_count += 1
             claim_labelable_window_count += 1
         if claim_labelable_window_count:
             labelable_claim_ids.append(forecast_claim_id)
+        elif claim_pending_future_window_count and not claim_window_gap_count:
+            pending_future_claim_ids.append(forecast_claim_id)
     return {
         "policy": (
             "stock claims can be evaluated with qlib cn_data adjusted close "
@@ -7669,6 +7720,8 @@ def build_stock_price_proxy_readiness(
         "labelable_forecast_claim_ids": labelable_claim_ids,
         "labelable_window_count": labelable_window_count,
         "pending_future_window_count": pending_future_window_count,
+        "pending_future_forecast_claim_count": len(pending_future_claim_ids),
+        "pending_future_forecast_claim_ids": pending_future_claim_ids,
         "data_gap_counts": dict(sorted(data_gap_counts.items())),
         "stock_series_coverage_summary": _stock_series_coverage_summary(
             target_series_count=len(target_symbols_with_series),
@@ -9224,6 +9277,13 @@ def _labels_for_recipe(
 ) -> list[Mapping[str, Any]]:
     recipe_id = str(recipe.get("analysis_recipe_id") or "")
     method_id = str(recipe.get("method_pattern_id") or "")
+    source_method_ids = {
+        str(item).strip()
+        for item in _ensure_list(recipe.get("source_method_pattern_ids"))
+        if str(item).strip()
+    }
+    if method_id:
+        source_method_ids.add(method_id)
     labels: list[Mapping[str, Any]] = []
     seen: set[str] = set()
     for label in outcome_label_rows:
@@ -9233,17 +9293,18 @@ def _labels_for_recipe(
                 labels.append(label)
                 seen.add(label_id)
             continue
-        if method_id and str(label.get("method_pattern_id") or "") == method_id:
+        if str(label.get("method_pattern_id") or "") in source_method_ids:
             label_id = str(label.get("outcome_id") or id(label))
             if label_id not in seen:
                 labels.append(label)
                 seen.add(label_id)
-    if method_id and inferred_labels_by_method_id:
-        for label in inferred_labels_by_method_id.get(method_id, ()):
-            label_id = str(label.get("outcome_id") or id(label))
-            if label_id not in seen:
-                labels.append(label)
-                seen.add(label_id)
+    if source_method_ids and inferred_labels_by_method_id:
+        for source_method_id in sorted(source_method_ids):
+            for label in inferred_labels_by_method_id.get(source_method_id, ()):
+                label_id = str(label.get("outcome_id") or id(label))
+                if label_id not in seen:
+                    labels.append(label)
+                    seen.add(label_id)
     return labels
 
 
@@ -15127,6 +15188,15 @@ def build_report_intelligence_extraction_provenance_audit(
     ready_count = 0
     standard_blocked_count = 0
     unlabelable_count = 0
+    proxy_pending_claim_ids = {
+        str(claim_id)
+        for claim_id in _ensure_list(
+            _ensure_mapping(outcome_labeling_readiness).get(
+                "proxy_label_pending_only_forecast_claim_ids"
+            )
+        )
+        if str(claim_id).strip()
+    }
     for index, ledger in enumerate(forecast_ledger_rows, 1):
         claim_id = str(ledger.get("forecast_claim_id") or "")
         claim = claim_by_id.get(claim_id)
@@ -15159,6 +15229,7 @@ def build_report_intelligence_extraction_provenance_audit(
             if (
                 claim_id not in industry_proxy_outcome_claim_ids
                 and claim_id not in stock_proxy_outcome_claim_ids
+                and claim_id not in proxy_pending_claim_ids
             ):
                 unlabelable_count += 1
     if outcome_labeling_readiness:
@@ -15186,6 +15257,7 @@ def build_report_intelligence_extraction_provenance_audit(
                 "ready_for_outcome_labeling_count": ready_count,
                 "standard_blocked_forecast_count": standard_blocked_count,
                 "unlabelable_forecast_count": unlabelable_count,
+                "proxy_label_pending_only_count": len(proxy_pending_claim_ids),
                 "outcome_label_rows": len(outcome_label_rows),
                 "industry_etf_proxy_outcome_claim_count": len(
                     industry_proxy_outcome_claim_ids
