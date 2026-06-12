@@ -50,6 +50,9 @@ ANALYTICAL_FOOTPRINT_REVIEW_IMPORT_REPORT_PATH = (
 ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH = (
     "registry/report_intelligence/analytical_footprint_reviewed.jsonl"
 )
+ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH = (
+    "registry/report_intelligence/analytical_footprint_review_batch.jsonl"
+)
 ANALYTICAL_FOOTPRINT_REVIEW_ASSIST_JSONL_PATH = (
     "registry/report_intelligence/analytical_footprint_review_assist.jsonl"
 )
@@ -120,6 +123,7 @@ REPORT_INTELLIGENCE_PRIVATE_OUTPUT_PATHS = frozenset(
         ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_MD_PATH,
         ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH,
         ANALYTICAL_FOOTPRINT_REVIEW_WORKBOOK_MD_PATH,
+        ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH,
         ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH,
         "registry/report_intelligence/analytical_footprints.jsonl",
         "registry/report_intelligence/forecast_claims.jsonl",

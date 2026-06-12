@@ -98,6 +98,8 @@ from .registry_manifest import (
     write_registry_manifest,
 )
 from .report_intelligence import (
+    ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH,
+    ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH,
     DEFAULT_VLLM_TIMEOUT_SECONDS,
     ReportIntelligenceConfig,
     apply_analytical_footprint_review_import,
@@ -1021,10 +1023,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     prepare_footprint_review.add_argument(
         "--output",
-        default="registry/report_intelligence/analytical_footprint_reviewed.jsonl",
         help=(
-            "Output JSONL import scaffold. Defaults to the gitignored "
-            "analytical_footprint_reviewed.jsonl path."
+            "Output JSONL import scaffold. Defaults to the full reviewed path, "
+            "or the batch reviewed path when --limit is set."
         ),
     )
     prepare_footprint_review.add_argument(
@@ -1547,9 +1548,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         _print_json(asdict(report))
         return 0 if report.accepted else 2
     if args.command == "prepare-footprint-review":
+        if args.output:
+            footprint_output = args.output
+        elif args.limit is not None:
+            footprint_output = ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH
+        else:
+            footprint_output = ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH
         report = prepare_analytical_footprint_review_import(
             root,
-            args.output,
+            footprint_output,
             reviewer=args.reviewer,
             review_date=args.review_date,
             limit=args.limit,

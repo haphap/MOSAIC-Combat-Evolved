@@ -13,8 +13,10 @@ from mosaic.rke.cli import main
 from mosaic.rke.registry_manifest import PRIVATE_LOCAL_REGISTRY_FILES
 from mosaic.rke.report_intelligence import (
     ANALYTICAL_FOOTPRINT_REVIEW_ASSIST_JSONL_PATH,
+    ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH,
     ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_JSONL_PATH,
     ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_MD_PATH,
+    ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH,
     ANALYTICAL_FOOTPRINT_REVIEW_WORKBOOK_MD_PATH,
     DEFAULT_MINERU_ARGS_TEMPLATE,
     DEFAULT_VLLM_TIMEOUT_SECONDS,
@@ -9177,6 +9179,45 @@ def test_prepare_analytical_footprint_review_import_supports_offset_batches(
     assert scaffold_rows[0]["footprint_id"] == duplicate["footprint_id"]
     assert scaffold_rows[0]["reviewer"] == "footprint-reviewer"
     assert scaffold_rows[0]["review_date"] == "2026-06-12"
+
+
+def test_prepare_footprint_review_cli_limit_defaults_to_batch_path(
+    tmp_path: Path,
+    capsys,
+):
+    source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
+    run_report_intelligence_refresh(
+        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        downloader=_fake_downloader,
+        converter=_fake_converter,
+        llm_extractor=_fake_llm,
+    )
+
+    code = main(
+        (
+            "prepare-footprint-review",
+            "--root",
+            str(tmp_path),
+            "--limit",
+            "1",
+            "--offset",
+            "0",
+            "--reviewer",
+            "footprint-reviewer",
+            "--review-date",
+            "2026-06-12",
+        )
+    )
+    output = json.loads(capsys.readouterr().out)
+    batch_path = tmp_path / ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH
+
+    assert code == 0
+    assert output["output_path"] == str(batch_path)
+    assert output["requested_limit"] == 1
+    assert output["requested_offset"] == 0
+    assert output["output_rows"] == 1
+    assert batch_path.exists()
+    assert not (tmp_path / ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH).exists()
 
 
 def test_write_analytical_footprint_review_assist_is_private_not_import(
