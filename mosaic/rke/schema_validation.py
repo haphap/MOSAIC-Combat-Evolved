@@ -862,6 +862,7 @@ OPERATOR_READINESS_EXPECTED_CHECK_IDS = {
     "promotion_gate_still_blocks_production",
     "source_text_redaction_clean",
 }
+PROMOTION_GATE_EXPECTED_CRITERION_IDS = {f"PG{index:02d}" for index in range(1, 11)}
 
 STOCK_PROXY_SURVIVORSHIP_UNVERIFIED_CHECK = "survivorship_unverified_qlib_cn_data"
 STOCK_PROXY_SURVIVORSHIP_AUDITED_CHECK = "delisted_inclusive_universe_audit_passed"
@@ -2820,6 +2821,119 @@ def _validate_manual_review_bundle_manifest_contract(
     return len(artifacts), failures
 
 
+def _validate_production_promotion_gate_contract(
+    root_path: Path,
+) -> tuple[int, list[str]]:
+    gate, gate_failures = _read_mapping_json(
+        root_path / "registry/promotion/rke_production_promotion_gate.json",
+        "registry/promotion/rke_production_promotion_gate.json",
+    )
+    failures = list(gate_failures)
+    criteria: list[Mapping[str, Any]] = []
+    if not gate:
+        return 0, failures
+
+    raw_criteria = gate.get("criteria")
+    if not isinstance(raw_criteria, Sequence) or isinstance(raw_criteria, str):
+        failures.append("production_promotion_gate.criteria: expected array")
+    else:
+        criteria = [item for item in raw_criteria if isinstance(item, Mapping)]
+        malformed_count = len(raw_criteria) - len(criteria)
+        if malformed_count:
+            failures.append(
+                f"production_promotion_gate.criteria: {malformed_count} non-object criteria"
+            )
+
+    criterion_ids = [str(item.get("criterion_id") or "") for item in criteria]
+    duplicate_ids = sorted(
+        criterion_id
+        for criterion_id in set(criterion_ids)
+        if criterion_ids.count(criterion_id) > 1
+    )
+    if duplicate_ids:
+        failures.append(
+            "production_promotion_gate.criteria duplicate criterion_ids: "
+            + ", ".join(duplicate_ids)
+        )
+    observed_ids = set(criterion_ids)
+    missing_ids = sorted(PROMOTION_GATE_EXPECTED_CRITERION_IDS - observed_ids)
+    unexpected_ids = sorted(observed_ids - PROMOTION_GATE_EXPECTED_CRITERION_IDS)
+    if missing_ids:
+        failures.append(
+            "production_promotion_gate.criteria missing criterion_ids: "
+            + ", ".join(missing_ids)
+        )
+    if unexpected_ids:
+        failures.append(
+            "production_promotion_gate.criteria unexpected criterion_ids: "
+            + ", ".join(unexpected_ids)
+        )
+
+    criterion_blockers = [
+        str(item.get("blocker") or "").strip()
+        for item in criteria
+        if str(item.get("blocker") or "").strip()
+    ]
+    for index, item in enumerate(criteria, 1):
+        row_label = f"production_promotion_gate.criteria[{index}]"
+        criterion_id = str(item.get("criterion_id") or "").strip()
+        passed = item.get("passed")
+        blocker = str(item.get("blocker") or "").strip()
+        if not criterion_id:
+            failures.append(f"{row_label}.criterion_id: must be non-empty")
+        for string_key in ("description", "evidence", "evidence_path"):
+            if not str(item.get(string_key) or "").strip():
+                failures.append(f"{row_label}.{string_key}: must be non-empty")
+        if not isinstance(passed, bool):
+            failures.append(f"{row_label}.passed: must be boolean")
+        elif passed and blocker:
+            failures.append(f"{row_label}.blocker: passed criterion must not block")
+        elif not passed and not blocker:
+            failures.append(f"{row_label}.blocker: failed criterion requires blocker")
+
+    blockers = _string_items(gate.get("blockers"))
+    if set(blockers) != set(criterion_blockers):
+        failures.append("production_promotion_gate.blockers mismatch with criteria")
+    paper_allowed = gate.get("paper_trading_allowed") is True
+    staged_allowed = gate.get("staged_production_allowed") is True
+    production_allowed = gate.get("production_allowed") is True
+    expected_next_state = (
+        "production"
+        if production_allowed
+        else "staged_production"
+        if staged_allowed
+        else "paper_trading"
+        if paper_allowed
+        else "candidate"
+    )
+    if gate.get("next_state") != expected_next_state:
+        failures.append(
+            "production_promotion_gate.next_state: expected " + expected_next_state
+        )
+    if gate.get("direct_production_forbidden") is not (not production_allowed):
+        failures.append(
+            "production_promotion_gate.direct_production_forbidden mismatch"
+        )
+    if gate.get("direct_production_forbidden") is not True:
+        failures.append(
+            "production_promotion_gate.direct_production_forbidden: must be true"
+        )
+    if gate.get("paper_trading_allowed") is not True:
+        failures.append(
+            "production_promotion_gate.paper_trading_allowed: current public baseline must be true"
+        )
+    if production_allowed:
+        failures.append(
+            "production_promotion_gate.production_allowed: current public baseline must be false"
+        )
+    if staged_allowed:
+        failures.append(
+            "production_promotion_gate.staged_production_allowed: current public baseline must be false"
+        )
+
+    return len(criteria), failures
+
+
 def validate_report_intelligence_semantics(
     root: str | Path,
 ) -> tuple[SchemaValidationRecord, ...]:
@@ -3543,6 +3657,19 @@ def validate_report_intelligence_semantics(
             item_count=bundle_manifest_item_count,
             accepted=not bundle_manifest_failures,
             failures=tuple(bundle_manifest_failures),
+        )
+    )
+
+    promotion_gate_item_count, promotion_gate_failures = (
+        _validate_production_promotion_gate_contract(root_path)
+    )
+    records.append(
+        SchemaValidationRecord(
+            schema_path="schemas/report_intelligence_production_promotion_gate_rules",
+            artifact_path="registry/promotion/rke_production_promotion_gate.json",
+            item_count=promotion_gate_item_count,
+            accepted=not promotion_gate_failures,
+            failures=tuple(promotion_gate_failures),
         )
     )
 

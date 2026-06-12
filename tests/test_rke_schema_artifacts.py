@@ -711,6 +711,16 @@ def _manual_review_bundle_manifest_record(tmp_path: Path):
     )
 
 
+def _production_promotion_gate_record(tmp_path: Path):
+    records = validate_report_intelligence_semantics(tmp_path)
+    return next(
+        record
+        for record in records
+        if record.schema_path
+        == "schemas/report_intelligence_production_promotion_gate_rules"
+    )
+
+
 def _industry_etf_mapping_contract_record(tmp_path: Path):
     records = validate_report_intelligence_semantics(tmp_path)
     return next(
@@ -2183,6 +2193,98 @@ def test_manual_review_bundle_manifest_contract_rejects_bad_hash_or_promotion(
     assert any(".sha256: must be sha256:<64 hex>" in item for item in record.failures)
     assert any(
         "production_allowed_after_simulation: must be false" in item
+        for item in record.failures
+    )
+
+
+def test_production_promotion_gate_contract_accepts_current_public_artifact(
+    tmp_path: Path,
+):
+    _copy_registry_for_manual_progress(tmp_path)
+
+    record = _production_promotion_gate_record(tmp_path)
+
+    assert record.accepted
+    assert record.item_count == 10
+    assert record.failures == ()
+
+
+def test_production_promotion_gate_contract_rejects_missing_criterion(
+    tmp_path: Path,
+):
+    registry = _copy_registry_for_manual_progress(tmp_path)
+    gate_path = registry / "promotion/rke_production_promotion_gate.json"
+    gate = json.loads(gate_path.read_text(encoding="utf-8"))
+    gate["criteria"] = [
+        criterion
+        for criterion in gate["criteria"]
+        if criterion["criterion_id"] != "PG10"
+    ]
+    gate_path.write_text(
+        json.dumps(gate, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _production_promotion_gate_record(tmp_path)
+
+    assert not record.accepted
+    assert any("missing criterion_ids: PG10" in item for item in record.failures)
+
+
+def test_production_promotion_gate_contract_rejects_blocker_mismatch(
+    tmp_path: Path,
+):
+    registry = _copy_registry_for_manual_progress(tmp_path)
+    gate_path = registry / "promotion/rke_production_promotion_gate.json"
+    gate = json.loads(gate_path.read_text(encoding="utf-8"))
+    gate["criteria"][1]["passed"] = True
+    gate["criteria"][1]["blocker"] = "manual gold-set review still required"
+    gate["blockers"] = []
+    gate_path.write_text(
+        json.dumps(gate, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _production_promotion_gate_record(tmp_path)
+
+    assert not record.accepted
+    assert any("passed criterion must not block" in item for item in record.failures)
+    assert any("blockers mismatch with criteria" in item for item in record.failures)
+
+
+def test_production_promotion_gate_contract_rejects_production_bypass(
+    tmp_path: Path,
+):
+    registry = _copy_registry_for_manual_progress(tmp_path)
+    gate_path = registry / "promotion/rke_production_promotion_gate.json"
+    gate = json.loads(gate_path.read_text(encoding="utf-8"))
+    gate["paper_trading_allowed"] = False
+    gate["staged_production_allowed"] = True
+    gate["production_allowed"] = True
+    gate["direct_production_forbidden"] = False
+    gate["next_state"] = "production"
+    gate_path.write_text(
+        json.dumps(gate, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _production_promotion_gate_record(tmp_path)
+
+    assert not record.accepted
+    assert any(
+        "direct_production_forbidden: must be true" in item
+        for item in record.failures
+    )
+    assert any(
+        "paper_trading_allowed: current public baseline must be true" in item
+        for item in record.failures
+    )
+    assert any(
+        "production_allowed: current public baseline must be false" in item
+        for item in record.failures
+    )
+    assert any(
+        "staged_production_allowed: current public baseline must be false" in item
         for item in record.failures
     )
 
