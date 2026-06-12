@@ -14,6 +14,7 @@ from mosaic.rke.review_progress import (
     write_manual_review_progress_report,
     write_manual_review_runbook,
 )
+from mosaic.rke.temp_paths import rke_temporary_directory
 
 
 def _copy_registry(dst_root: Path) -> None:
@@ -72,6 +73,18 @@ def _write_json(path: Path, payload: dict) -> None:
         json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+
+
+def test_rke_temporary_directory_honors_rke_tmpdir(tmp_path: Path, monkeypatch):
+    tmp_parent = tmp_path / "rke-tmp"
+    monkeypatch.setenv("MOSAIC_RKE_TMPDIR", str(tmp_parent))
+
+    with rke_temporary_directory(prefix="mosaic-rke-review-progress-") as tmp_dir:
+        tmp_path_obj = Path(tmp_dir)
+        assert tmp_path_obj.parent == tmp_parent
+        assert tmp_path_obj.exists()
+
+    assert tmp_parent.exists()
 
 
 def _license_review_source_count(root: Path) -> int:

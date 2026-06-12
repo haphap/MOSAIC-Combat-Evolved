@@ -1,0 +1,17 @@
+"""Temporary-directory helpers for RKE commands."""
+
+from __future__ import annotations
+
+import os
+import tempfile
+from pathlib import Path
+
+
+def rke_temporary_directory(prefix: str) -> tempfile.TemporaryDirectory[str]:
+    """Create an RKE temporary directory, honoring MOSAIC_RKE_TMPDIR."""
+    tmp_parent = str(os.environ.get("MOSAIC_RKE_TMPDIR") or "").strip()
+    if tmp_parent:
+        parent = Path(tmp_parent).expanduser()
+        parent.mkdir(parents=True, exist_ok=True)
+        return tempfile.TemporaryDirectory(prefix=prefix, dir=str(parent))
+    return tempfile.TemporaryDirectory(prefix=prefix)

@@ -13,6 +13,7 @@ It records paths, commands, row counts, acceptance criteria, and current blocker
 
 ## Prepare Commands
 
+- Temp workspace: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke` keeps review-progress and promotion dry-run registry copies out of system `/tmp`.
 - Gold-set: `mosaic-rke prepare-gold-review --root . --full`
 - Analytical-footprint: `mosaic-rke prepare-footprint-review --root . --output registry/report_intelligence/analytical_footprint_reviewed.jsonl --overwrite`
 - Source-license: `mosaic-rke prepare-license-policy-review --root .`

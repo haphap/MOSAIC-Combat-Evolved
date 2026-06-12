@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import shutil
-import tempfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Literal, Mapping, Sequence
@@ -19,6 +18,7 @@ from .report_intelligence import (
     ANALYTICAL_FOOTPRINT_REVIEW_SUMMARY_PATH,
     apply_analytical_footprint_review_import,
 )
+from .temp_paths import rke_temporary_directory
 
 
 PROMOTION_DRY_RUN_REPORT_PATH = "registry/promotion/rke_promotion_dry_run_report.json"
@@ -163,7 +163,7 @@ def build_promotion_dry_run_report(
     resolved_license = _resolve_input_path(root_path, license_input)
     resolved_lockbox = _resolve_input_path(root_path, lockbox_input)
 
-    with tempfile.TemporaryDirectory(prefix="mosaic-rke-promotion-dry-run-") as tmp_dir:
+    with rke_temporary_directory(prefix="mosaic-rke-promotion-dry-run-") as tmp_dir:
         temp_root = Path(tmp_dir)
         _copy_registry(root_path, temp_root)
         steps: list[PromotionDryRunStep] = []

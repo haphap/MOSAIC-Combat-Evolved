@@ -63,14 +63,14 @@ contracts.
 Last local validation set:
 
 ```bash
-uv run python -m pytest tests/test_rke_schema_artifacts.py -q --basetemp /tmp/pytest-rke-schema-artifacts
-uv run python -m pytest tests/test_rke_report_intelligence.py -q --basetemp /tmp/pytest-rke-ri-current
-uv run python -m pytest tests/test_rke_*.py -q --basetemp /tmp/pytest-rke-all-current
+MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run python -m pytest tests/test_rke_schema_artifacts.py -q --basetemp /home/hap/tmp/mosaic-rke/pytest-rke-schema-artifacts
+MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run python -m pytest tests/test_rke_report_intelligence.py -q --basetemp /home/hap/tmp/mosaic-rke/pytest-rke-ri-current
+MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run python -m pytest tests/test_rke_*.py -q --basetemp /home/hap/tmp/mosaic-rke/pytest-rke-all-current
 uvx ruff@0.15.15 check mosaic/rke/report_intelligence.py mosaic/rke/schema_validation.py tests/conftest.py tests/test_rke_report_intelligence.py tests/test_rke_schema_artifacts.py
-uv run python scripts/check_prompt_leaks.py
+MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run python scripts/check_prompt_leaks.py
 git diff --check
-uv run mosaic-rke review-progress --root .
-uv run mosaic-rke operator-readiness --root .
+MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke review-progress --root .
+MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke operator-readiness --root .
 ```
 
 Current manual review evidence and scaffold commands:

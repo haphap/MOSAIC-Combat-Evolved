@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import shutil
-import tempfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Literal, Mapping, Sequence
@@ -43,6 +42,7 @@ from .report_intelligence import (
 )
 from .review_gates import summarize_gold_set_review
 from .review_gates import summarize_source_license_review
+from .temp_paths import rke_temporary_directory
 
 
 MANUAL_REVIEW_PROGRESS_REPORT_ID = "RKE-MANUAL-REVIEW-PROGRESS-20260606"
@@ -189,7 +189,7 @@ def _gold_progress(root_path: Path) -> ManualReviewGateProgress:
         )
 
     input_rows = _jsonl_row_count(resolved_input)
-    with tempfile.TemporaryDirectory(prefix="mosaic-rke-review-progress-") as tmp_dir:
+    with rke_temporary_directory(prefix="mosaic-rke-review-progress-") as tmp_dir:
         temp_root = Path(tmp_dir)
         _copy_registry(root_path, temp_root)
         report = apply_gold_set_review_import(temp_root, resolved_input, dry_run=False)
@@ -306,7 +306,7 @@ def _lockbox_progress(root_path: Path) -> ManualReviewGateProgress:
         )
 
     input_rows = _json_object_exists(resolved_input)
-    with tempfile.TemporaryDirectory(prefix="mosaic-rke-review-progress-") as tmp_dir:
+    with rke_temporary_directory(prefix="mosaic-rke-review-progress-") as tmp_dir:
         temp_root = Path(tmp_dir)
         _copy_registry(root_path, temp_root)
         report = apply_lockbox_review_import(temp_root, resolved_input, dry_run=False)
@@ -387,7 +387,7 @@ def _footprint_review_progress(root_path: Path) -> ManualReviewGateProgress:
         )
 
     input_rows = _jsonl_row_count(resolved_input)
-    with tempfile.TemporaryDirectory(prefix="mosaic-rke-review-progress-") as tmp_dir:
+    with rke_temporary_directory(prefix="mosaic-rke-review-progress-") as tmp_dir:
         temp_root = Path(tmp_dir)
         _copy_registry(root_path, temp_root)
         report = apply_analytical_footprint_review_import(
@@ -504,6 +504,7 @@ def render_manual_review_runbook_markdown(report: ManualReviewProgressReport) ->
         "",
         "## Prepare Commands",
         "",
+        "- Temp workspace: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke` keeps review-progress and promotion dry-run registry copies out of system `/tmp`.",
         f"- Gold-set: `{gold.prepare_command}`",
         f"- Analytical-footprint: `{footprint.prepare_command}`",
         f"- Source-license: `{source_license.prepare_command}`",
