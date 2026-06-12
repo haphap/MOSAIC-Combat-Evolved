@@ -216,10 +216,10 @@ def test_manual_review_runbook_renders_operator_checklist_without_source_text(tm
     assert result["path"].endswith("registry/review_batches/manual_review_runbook.md")
     assert result["ready_for_promotion_dry_run"] is False
     assert "mosaic-rke prepare-gold-review --root . --full" in markdown
-    assert "mosaic-rke write-gold-review-evidence --root . --limit 50" in markdown
+    assert "mosaic-rke write-gold-review-evidence --root . --limit 50 --offset 0" in markdown
     assert "mosaic-rke prepare-footprint-review --root ." in markdown
     assert "mosaic-rke write-footprint-review-assist --root ." in markdown
-    assert "mosaic-rke write-footprint-review-evidence --root . --limit 50" in markdown
+    assert "mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 0" in markdown
     assert "mosaic-rke prepare-license-policy-review --root ." in markdown
     assert "mosaic-rke prepare-lockbox-review --root ." in markdown
     assert "registry/review_batches/gold_set_full_reviewed.jsonl" in markdown

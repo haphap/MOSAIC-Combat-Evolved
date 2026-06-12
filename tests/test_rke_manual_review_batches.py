@@ -250,6 +250,21 @@ def test_gold_review_evidence_is_private_non_import_review_aid(tmp_path: Path):
     )
 
 
+def test_gold_review_evidence_supports_offset_batches(tmp_path: Path):
+    _copy_registry(tmp_path)
+
+    first_summary, first_rows = build_gold_review_evidence(tmp_path, limit=1, offset=0)
+    second_summary, second_rows = build_gold_review_evidence(tmp_path, limit=1, offset=1)
+    result = write_gold_review_evidence(tmp_path, limit=1, offset=1)
+
+    assert first_summary.requested_offset == 0
+    assert second_summary.requested_offset == 1
+    assert result["offset"] == 1
+    assert len(first_rows) == 1
+    assert len(second_rows) == 1
+    assert first_rows[0]["claim_id"] != second_rows[0]["claim_id"]
+
+
 def test_gold_review_evidence_uses_local_markdown_cache_without_metadata(
     tmp_path: Path,
 ):

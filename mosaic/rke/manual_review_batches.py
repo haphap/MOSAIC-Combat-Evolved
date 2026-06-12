@@ -112,6 +112,7 @@ class GoldReviewEvidenceSummary:
     review_template_path: str
     reviewed_import_path: str
     requested_limit: int
+    requested_offset: int
     row_count: int
     evidence_rows: int
     missing_markdown_rows: int
@@ -810,6 +811,7 @@ def build_gold_review_evidence(
     root: str | Path = ".",
     *,
     limit: int = 50,
+    offset: int = 0,
 ) -> tuple[GoldReviewEvidenceSummary, tuple[Mapping[str, Any], ...]]:
     root_path = Path(root)
     raw_rows, template_rows, invalid_rows, parse_blockers, _ = _load_review_rows(
@@ -851,7 +853,7 @@ def build_gold_review_evidence(
     prioritized_rows = sorted(
         enumerate(pending_rows, 1),
         key=lambda item: (-_gold_evidence_priority_score(item[1]), item[0]),
-    )[: max(0, int(limit))]
+    )[max(0, int(offset)) : max(0, int(offset)) + max(0, int(limit))]
     evidence_rows = tuple(
         _gold_evidence_row(
             index,
@@ -883,6 +885,7 @@ def build_gold_review_evidence(
             review_template_path=GOLD_REVIEW_TEMPLATE_PATH,
             reviewed_import_path=GOLD_FULL_REVIEWED_IMPORT_PATH,
             requested_limit=max(0, int(limit)),
+            requested_offset=max(0, int(offset)),
             row_count=len(evidence_rows),
             evidence_rows=sum(1 for row in evidence_rows if row.get("evidence_snippets")),
             missing_markdown_rows=missing_markdown_rows,
@@ -961,9 +964,10 @@ def write_gold_review_evidence(
     root: str | Path = ".",
     *,
     limit: int = 50,
+    offset: int = 0,
 ) -> dict[str, Any]:
     root_path = Path(root)
-    summary, rows = build_gold_review_evidence(root_path, limit=limit)
+    summary, rows = build_gold_review_evidence(root_path, limit=limit, offset=offset)
     jsonl_result = _write_jsonl(root_path / GOLD_REVIEW_EVIDENCE_JSONL_PATH, rows)
     md_path = root_path / GOLD_REVIEW_EVIDENCE_MD_PATH
     md_path.parent.mkdir(parents=True, exist_ok=True)
@@ -975,6 +979,7 @@ def write_gold_review_evidence(
         "jsonl": str(jsonl_result["path"]),
         "markdown": str(md_path),
         "rows": len(rows),
+        "offset": summary.requested_offset,
         "evidence_rows": summary.evidence_rows,
         "missing_markdown_rows": summary.missing_markdown_rows,
         "blockers": len(summary.blockers),

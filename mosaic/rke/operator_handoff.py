@@ -265,7 +265,7 @@ def _operator_command_sequence(
             step_id="write-gold-review-evidence",
             phase="gold_set",
             action="Write private gold-set evidence draft files.",
-            command="mosaic-rke write-gold-review-evidence --root . --limit 50",
+            command="mosaic-rke write-gold-review-evidence --root . --limit 50 --offset 0",
             manual_input_path="",
             expected_result=(
                 f"Private evidence Markdown is {GOLD_REVIEW_EVIDENCE_MD_PATH} "
@@ -321,7 +321,7 @@ def _operator_command_sequence(
             step_id="write-footprint-review-evidence",
             phase="footprint_review",
             action="Write private analytical-footprint evidence draft files.",
-            command="mosaic-rke write-footprint-review-evidence --root . --limit 50",
+            command="mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 0",
             manual_input_path="",
             expected_result=(
                 f"Private evidence Markdown is {ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_MD_PATH} "

@@ -54,7 +54,7 @@ Dry-run command: `mosaic-rke promotion-dry-run --root . --gold-input registry/re
 
 - Phase: gold_set
 - Action: Write private gold-set evidence draft files.
-- Command: `mosaic-rke write-gold-review-evidence --root . --limit 50`
+- Command: `mosaic-rke write-gold-review-evidence --root . --limit 50 --offset 0`
 - Manual input: none
 - Expected result: Private evidence Markdown is registry/review_batches/gold_set_review_evidence.md and evidence JSONL is registry/review_batches/gold_set_review_evidence.jsonl.
 
@@ -102,7 +102,7 @@ Dry-run command: `mosaic-rke promotion-dry-run --root . --gold-input registry/re
 
 - Phase: footprint_review
 - Action: Write private analytical-footprint evidence draft files.
-- Command: `mosaic-rke write-footprint-review-evidence --root . --limit 50`
+- Command: `mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 0`
 - Manual input: none
 - Expected result: Private evidence Markdown is registry/report_intelligence/analytical_footprint_review_evidence.md and evidence JSONL is registry/report_intelligence/analytical_footprint_review_evidence.jsonl.
 

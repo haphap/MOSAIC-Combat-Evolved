@@ -51,12 +51,12 @@ def test_operator_handoff_summarizes_remaining_manual_gates():
     )
     assert any(
         step.step_id == "write-footprint-review-evidence"
-        and step.command == "mosaic-rke write-footprint-review-evidence --root . --limit 50"
+        and step.command == "mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 0"
         for step in handoff.command_sequence
     )
     assert any(
         step.step_id == "write-gold-review-evidence"
-        and step.command == "mosaic-rke write-gold-review-evidence --root . --limit 50"
+        and step.command == "mosaic-rke write-gold-review-evidence --root . --limit 50 --offset 0"
         for step in handoff.command_sequence
     )
     assert {gate.review_kind for gate in handoff.gates} == {

@@ -856,6 +856,7 @@ class AnalyticalFootprintReviewEvidenceReport:
     jsonl_path: str
     markdown_path: str
     requested_limit: int
+    requested_offset: int
     row_count: int
     evidence_rows: int
     missing_markdown_rows: int
@@ -4515,6 +4516,7 @@ def build_analytical_footprint_review_evidence(
     root: str | Path = ".",
     *,
     limit: int = 25,
+    offset: int = 0,
 ) -> tuple[AnalyticalFootprintReviewEvidenceReport, tuple[Mapping[str, Any], ...]]:
     root_path = Path(root)
     target_path = root_path / ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH
@@ -4538,7 +4540,7 @@ def build_analytical_footprint_review_evidence(
     prioritized_rows = sorted(
         enumerate(pending_rows, 1),
         key=lambda item: (-_footprint_review_priority_score(item[1]), item[0]),
-    )[: max(0, int(limit))]
+    )[max(0, int(offset)) : max(0, int(offset)) + max(0, int(limit))]
     evidence_rows = tuple(
         _footprint_review_evidence_row(
             index,
@@ -4572,6 +4574,7 @@ def build_analytical_footprint_review_evidence(
             jsonl_path=ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_JSONL_PATH,
             markdown_path=ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_MD_PATH,
             requested_limit=max(0, int(limit)),
+            requested_offset=max(0, int(offset)),
             row_count=len(evidence_rows),
             evidence_rows=sum(1 for row in evidence_rows if row.get("evidence_snippets")),
             missing_markdown_rows=missing_markdown_rows,
@@ -4642,9 +4645,14 @@ def write_analytical_footprint_review_evidence(
     root: str | Path = ".",
     *,
     limit: int = 25,
+    offset: int = 0,
 ) -> AnalyticalFootprintReviewEvidenceReport:
     root_path = Path(root)
-    report, rows = build_analytical_footprint_review_evidence(root_path, limit=limit)
+    report, rows = build_analytical_footprint_review_evidence(
+        root_path,
+        limit=limit,
+        offset=offset,
+    )
     _write_jsonl(root_path / ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_JSONL_PATH, rows)
     markdown_path = root_path / ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_MD_PATH
     markdown_path.parent.mkdir(parents=True, exist_ok=True)

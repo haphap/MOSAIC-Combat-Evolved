@@ -27,6 +27,7 @@ from mosaic.rke.report_intelligence import (
     apply_analytical_footprint_review_import,
     build_confidence_impact_monitor,
     build_confidence_impact_observations,
+    build_analytical_footprint_review_evidence,
     build_markdown_coverage_summary,
     build_prompt_mutation_candidates,
     build_industry_etf_proxy_outcome_labels,
@@ -9209,6 +9210,47 @@ def test_write_analytical_footprint_review_evidence_is_private_not_import(
     markdown = (tmp_path / report.markdown_path).read_text(encoding="utf-8")
     assert "RKE Analytical Footprint Review Evidence Draft" in markdown
     assert "not an import file" in markdown
+
+
+def test_analytical_footprint_review_evidence_supports_offset_batches(
+    tmp_path: Path,
+):
+    source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
+    run_report_intelligence_refresh(
+        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        downloader=_fake_downloader,
+        converter=_fake_converter,
+        llm_extractor=_fake_llm,
+    )
+    template_path = tmp_path / "registry/report_intelligence/analytical_footprint_review_template.jsonl"
+    rows = _read_jsonl(template_path)
+    duplicate = dict(rows[0])
+    duplicate["footprint_id"] = f"{rows[0]['footprint_id']}-B"
+    rows.append(duplicate)
+    _write_jsonl(template_path, rows)
+
+    first_report, first_rows = build_analytical_footprint_review_evidence(
+        tmp_path,
+        limit=1,
+        offset=0,
+    )
+    second_report, second_rows = build_analytical_footprint_review_evidence(
+        tmp_path,
+        limit=1,
+        offset=1,
+    )
+    written_report = write_analytical_footprint_review_evidence(
+        tmp_path,
+        limit=1,
+        offset=1,
+    )
+
+    assert first_report.requested_offset == 0
+    assert second_report.requested_offset == 1
+    assert written_report.requested_offset == 1
+    assert len(first_rows) == 1
+    assert len(second_rows) == 1
+    assert first_rows[0]["footprint_id"] != second_rows[0]["footprint_id"]
 
 
 def test_analytical_footprint_review_summary_requires_quality_thresholds(
