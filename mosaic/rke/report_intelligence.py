@@ -5750,6 +5750,31 @@ def _stock_price_claim_window_alignment(
     )
 
 
+def _as_of_date_market_regime_fields(
+    signal_datetime: Any,
+    *,
+    macro_regime_calendar_rows: Sequence[Mapping[str, Any]] = (),
+) -> dict[str, Any]:
+    regime_types, _sources, details = _as_of_date_macro_regime_context(
+        signal_datetime,
+        macro_regime_calendar_rows=macro_regime_calendar_rows,
+    )
+    if not regime_types:
+        return {}
+    return {
+        "market_regime": "|".join(regime_types),
+        "market_regime_types": regime_types,
+        "market_regime_source": "as_of_date",
+        "market_regime_source_text_grounded": False,
+        "market_regime_details": details,
+        "market_regime_policy": (
+            "Market regime is inferred from the PIT report as-of date using the "
+            "governed macro regime calendar; it is not treated as source-text "
+            "grounded report prose."
+        ),
+    }
+
+
 def _industry_etf_temporal_validation_summary(
     records: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
@@ -7737,6 +7762,9 @@ def build_industry_etf_proxy_outcome_labels(
         claim_horizon = _ensure_mapping(claim.get("horizon"))
         source_horizon_days = _horizon_preferred_days(claim_horizon)
         source_horizon_bucket = _horizon_bucket(claim_horizon)
+        market_regime_fields = _as_of_date_market_regime_fields(
+            claim.get("signal_datetime")
+        )
         entry_index = _entry_calendar_index(
             calendar,
             str(claim.get("signal_datetime") or ""),
@@ -7893,6 +7921,7 @@ def build_industry_etf_proxy_outcome_labels(
                     "entry_lag_trading_days": INDUSTRY_ETF_ENTRY_LAG_TRADING_DAYS,
                     "round_trip_cost": INDUSTRY_ETF_ROUND_TRIP_COST,
                     "source_metadata_id": source_id,
+                    **market_regime_fields,
                 }
             )
         if claim_records:
@@ -8033,6 +8062,9 @@ def build_stock_price_proxy_outcome_labels(
         source_horizon_bucket = _horizon_bucket(claim_horizon)
         target = _ensure_mapping(claim.get("target"))
         target_price_info = _stock_target_price_info(claim)
+        market_regime_fields = _as_of_date_market_regime_fields(
+            claim.get("signal_datetime")
+        )
         available_dates = _series_available_dates(
             calendar=stock_calendar,
             start_index=stock_start,
@@ -8196,6 +8228,7 @@ def build_stock_price_proxy_outcome_labels(
                 "exit_limit_locked": False,
                 "entry_liquidity_check": STOCK_PRICE_PROXY_TRADABILITY_CHECK,
                 "exit_liquidity_check": STOCK_PRICE_PROXY_TRADABILITY_CHECK,
+                **market_regime_fields,
             }
             record.update(
                 _stock_target_price_hit_fields(
@@ -9472,6 +9505,25 @@ def _directional_pre_cost_alpha(label: Mapping[str, Any]) -> float | None:
     return None
 
 
+def _label_market_regime_types(label: Mapping[str, Any]) -> list[str]:
+    explicit = [
+        str(item).strip()
+        for item in _ensure_list(label.get("market_regime_types"))
+        if str(item).strip()
+    ]
+    if explicit:
+        return list(dict.fromkeys(explicit))
+    text = str(label.get("market_regime") or label.get("regime") or "").strip()
+    if not text:
+        return []
+    parts = [
+        part.strip()
+        for part in re.split(r"[|,;，；]", text)
+        if part.strip()
+    ]
+    return list(dict.fromkeys(parts or [text]))
+
+
 def _paper_trading_metric_summary(
     labels: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
@@ -9521,11 +9573,13 @@ def _paper_trading_metric_summary(
             )
         else:
             horizon_missing_count += 1
-        regime = str(
-            label.get("market_regime") or label.get("regime") or ""
-        ).strip()
-        if regime:
-            regime_weight_totals[regime] = regime_weight_totals.get(regime, 0.0) + weight
+        regimes = _label_market_regime_types(label)
+        if regimes:
+            regime_weight = weight / len(regimes)
+            for regime in regimes:
+                regime_weight_totals[regime] = (
+                    regime_weight_totals.get(regime, 0.0) + regime_weight
+                )
         else:
             market_regime_missing_count += 1
     effective_n = sum(_label_weight(label) for label in labels)

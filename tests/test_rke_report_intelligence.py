@@ -2634,6 +2634,22 @@ def test_report_intelligence_recipe_paper_trading_requires_direct_pit_evidence()
     assert monitor["alpha_decay_recipe_ids"] == []
     assert monitor["production_decision_impact_allowed"] is False
 
+    multi_regime_labels = [dict(label) for label in labels]
+    multi_regime_labels[0]["market_regime_types"] = ["base", "stress"]
+    multi_regime_labels[0]["market_regime"] = "base|stress"
+    multi_regime_runs = build_recipe_paper_trading_runs(
+        run_id="RIR-TEST-PAPER",
+        analysis_recipe_rows=[recipe],
+        outcome_label_rows=multi_regime_labels,
+        method_performance_profile_rows=[],
+    )
+    assert multi_regime_runs[0]["paper_trading_status"] == "passed"
+    assert multi_regime_runs[0]["metrics"]["regime_contribution_shares"] == {
+        "base": 0.3,
+        "recovery": 0.2,
+        "stress": 0.5,
+    }
+
     no_regime_labels = []
     for label in labels:
         no_regime_label = dict(label)
@@ -4884,6 +4900,23 @@ def test_report_intelligence_labels_industry_claims_with_etf_proxy_windows(
     }
     assert {row["entry_lag_trading_days"] for row in outcome_labels} == {1}
     assert {row["round_trip_cost"] for row in outcome_labels} == {0.001}
+    assert {row["market_regime"] for row in outcome_labels} == {
+        "us_rate_cut_cycle"
+    }
+    assert {tuple(row["market_regime_types"]) for row in outcome_labels} == {
+        ("us_rate_cut_cycle",)
+    }
+    assert {row["market_regime_source"] for row in outcome_labels} == {"as_of_date"}
+    assert {row["market_regime_source_text_grounded"] for row in outcome_labels} == {
+        False
+    }
+    assert {
+        row["market_regime_details"][0]["source_basis"] for row in outcome_labels
+    } == {"as_of_date"}
+    assert {
+        row["market_regime_details"][0]["source_text_grounded"]
+        for row in outcome_labels
+    } == {False}
     assert all(row["directional_hit"] is True for row in outcome_labels)
     assert all(row["relative_alpha"] > 0 for row in outcome_labels)
 
@@ -5739,6 +5772,23 @@ def test_report_intelligence_labels_stock_claims_with_qlib_price_windows(
     assert {row["exit_liquidity_check"] for row in outcome_labels} == {
         "positive_volume_and_limit_lock_screen"
     }
+    assert {row["market_regime"] for row in outcome_labels} == {
+        "us_rate_cut_cycle"
+    }
+    assert {tuple(row["market_regime_types"]) for row in outcome_labels} == {
+        ("us_rate_cut_cycle",)
+    }
+    assert {row["market_regime_source"] for row in outcome_labels} == {"as_of_date"}
+    assert {row["market_regime_source_text_grounded"] for row in outcome_labels} == {
+        False
+    }
+    assert {
+        row["market_regime_details"][0]["source_basis"] for row in outcome_labels
+    } == {"as_of_date"}
+    assert {
+        row["market_regime_details"][0]["source_text_grounded"]
+        for row in outcome_labels
+    } == {False}
     assert outcome_labels[0]["stock_return"] < 0
     assert outcome_labels[0]["directional_hit"] is False
     assert outcome_labels[0]["target_price_hit"] is False
