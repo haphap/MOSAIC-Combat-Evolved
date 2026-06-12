@@ -8263,7 +8263,7 @@ def build_stock_price_proxy_readiness(
                 claim_window_gap_count += 1
                 continue
             if exit_volume_ok is None:
-                add_gap("entry_liquidity_unverified")
+                add_gap("exit_liquidity_unverified")
                 claim_window_gap_count += 1
                 continue
             exit_locked = _exit_limit_locked(
@@ -8299,7 +8299,7 @@ def build_stock_price_proxy_readiness(
                 claim_window_gap_count += 1
                 continue
             if exit_locked is None:
-                add_gap("entry_liquidity_unverified")
+                add_gap("exit_liquidity_unverified")
                 claim_window_gap_count += 1
                 continue
             if _series_value_at_date(
@@ -15248,6 +15248,8 @@ def build_report_intelligence_pit_leakage_audit(
                 )
             forbidden_stock_gaps = {
                 "stock_entry_suspended",
+                "entry_liquidity_unverified",
+                "exit_liquidity_unverified",
                 "entry_limit_locked",
                 "exit_limit_locked",
                 "stock_delisted_before_exit",

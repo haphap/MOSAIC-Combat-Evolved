@@ -950,6 +950,8 @@ STOCK_PROXY_TRADABILITY_CHECK = "positive_volume_and_limit_lock_screen"
 STOCK_PROXY_READINESS_WINDOWS = (5, 20, 60, 120)
 STOCK_PROXY_BLOCKING_GAPS = {
     "stock_entry_suspended",
+    "entry_liquidity_unverified",
+    "exit_liquidity_unverified",
     "entry_limit_locked",
     "exit_limit_locked",
     "stock_delisted_before_exit",
