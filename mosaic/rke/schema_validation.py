@@ -939,6 +939,21 @@ STOCK_PROXY_BLOCKING_GAPS = {
     "exit_limit_locked",
     "stock_delisted_before_exit",
 }
+EXTRACTION_REPORT_PUBLIC_JSONL_COUNT_FIELDS = (
+    ("forecast_ledger_rows", "registry/report_intelligence/report_forecast_ledger.jsonl"),
+    ("source_performance_profile_rows", "registry/report_intelligence/source_performance_profiles.jsonl"),
+    ("viewpoint_performance_profile_rows", "registry/report_intelligence/viewpoint_performance_profiles.jsonl"),
+    ("method_performance_profile_rows", "registry/report_intelligence/method_performance_profiles.jsonl"),
+    ("metric_candidate_rows", "registry/report_intelligence/metric_candidates.jsonl"),
+    ("method_pattern_rows", "registry/report_intelligence/method_patterns.jsonl"),
+    ("tool_coverage_match_rows", "registry/report_intelligence/tool_coverage_matches.jsonl"),
+    ("tool_gap_rows", "registry/report_intelligence/tool_gaps.jsonl"),
+    ("data_acquisition_proposal_rows", "registry/report_intelligence/data_acquisition_proposals.jsonl"),
+    ("tool_design_proposal_rows", "registry/report_intelligence/tool_design_proposals.jsonl"),
+    ("analysis_recipe_rows", "registry/report_intelligence/analysis_recipes.jsonl"),
+    ("runtime_tool_gap_observation_rows", "registry/report_intelligence/runtime_tool_gap_observations.jsonl"),
+    ("prompt_mutation_candidate_rows", "registry/report_intelligence/prompt_mutation_candidates.jsonl"),
+)
 REPORT_INTELLIGENCE_PUBLIC_FORBIDDEN_TEXT_KEYS = {
     "abstract",
     "claim_text",
@@ -1891,6 +1906,178 @@ def _validate_stock_price_proxy_readiness_contract(
                 )
 
     return len(stock_labels) + len(eligible_ids), failures
+
+
+def _validate_extraction_report_contract(root_path: Path) -> tuple[int, list[str]]:
+    extraction_report, extraction_errors = _read_mapping_json(
+        root_path / "registry/report_intelligence/extraction_report.json",
+        "registry/report_intelligence/extraction_report.json",
+    )
+    failures = list(extraction_errors)
+    if not extraction_report:
+        return 0, failures
+
+    failures.extend(
+        _public_forbidden_text_failures(
+            extraction_report,
+            path="report_intelligence.extraction_report",
+        )
+    )
+    if extraction_report.get("root") != "<repo_root>":
+        failures.append("extraction_report.root: must be <repo_root>")
+    blockers = extraction_report.get("blockers")
+    if blockers not in ([], ()):
+        failures.append("extraction_report.blockers: must be empty for current baseline")
+    if _int_or_none(extraction_report.get("blocker_count")) != 0:
+        failures.append("extraction_report.blocker_count: must be zero")
+
+    outputs = extraction_report.get("outputs")
+    if not isinstance(outputs, Mapping):
+        failures.append("extraction_report.outputs: expected object")
+        outputs = {}
+    for output_name, output_path in outputs.items():
+        output_text = str(output_path or "")
+        if not output_text.startswith("registry/report_intelligence/"):
+            failures.append(
+                f"extraction_report.outputs.{output_name}: must stay under registry/report_intelligence"
+            )
+        if output_text.startswith("/") or ".." in Path(output_text).parts:
+            failures.append(
+                f"extraction_report.outputs.{output_name}: must be repo-relative"
+            )
+
+    item_count = 1
+    for count_field, artifact_path in EXTRACTION_REPORT_PUBLIC_JSONL_COUNT_FIELDS:
+        rows, row_failures = _load_mapping_jsonl(root_path, artifact_path)
+        failures.extend(row_failures)
+        item_count += len(rows)
+        if _int_or_none(extraction_report.get(count_field)) != len(rows):
+            failures.append(f"extraction_report.{count_field}: expected {len(rows)}")
+
+    markdown_summary, markdown_errors = _read_mapping_json(
+        root_path / "registry/report_intelligence/markdown_coverage_summary.json",
+        "registry/report_intelligence/markdown_coverage_summary.json",
+    )
+    failures.extend(markdown_errors)
+    if markdown_summary:
+        for report_field, summary_field in (
+            ("selected_reports", "selected_report_count"),
+            ("pdf_ready_count", "pdf_download_ready_count"),
+            ("markdown_ready_count", "markdown_ready_count"),
+        ):
+            if _int_or_none(extraction_report.get(report_field)) != _int_or_none(
+                markdown_summary.get(summary_field)
+            ):
+                failures.append(
+                    f"extraction_report.{report_field}: markdown_coverage_summary mismatch"
+                )
+
+    readiness_report, readiness_errors = _read_mapping_json(
+        root_path / "registry/report_intelligence/outcome_labeling_readiness.json",
+        "registry/report_intelligence/outcome_labeling_readiness.json",
+    )
+    failures.extend(readiness_errors)
+    if readiness_report:
+        industry_readiness = readiness_report.get("industry_etf_proxy_readiness")
+        stock_readiness = readiness_report.get("stock_price_proxy_readiness")
+        if isinstance(industry_readiness, Mapping):
+            for report_field, readiness_field in (
+                ("industry_etf_proxy_eligible_claim_rows", "eligible_claim_count"),
+                (
+                    "industry_etf_proxy_labelable_window_rows",
+                    "labelable_window_count",
+                ),
+                (
+                    "industry_etf_proxy_pending_window_rows",
+                    "pending_future_window_count",
+                ),
+            ):
+                if _int_or_none(extraction_report.get(report_field)) != _int_or_none(
+                    industry_readiness.get(readiness_field)
+                ):
+                    failures.append(
+                        f"extraction_report.{report_field}: industry readiness mismatch"
+                    )
+        else:
+            failures.append(
+                "outcome_labeling_readiness.industry_etf_proxy_readiness: expected object"
+            )
+        if isinstance(stock_readiness, Mapping):
+            for report_field, readiness_field in (
+                ("stock_price_proxy_eligible_claim_rows", "eligible_claim_count"),
+                (
+                    "stock_price_proxy_labelable_window_rows",
+                    "labelable_window_count",
+                ),
+                (
+                    "stock_price_proxy_pending_window_rows",
+                    "pending_future_window_count",
+                ),
+            ):
+                if _int_or_none(extraction_report.get(report_field)) != _int_or_none(
+                    stock_readiness.get(readiness_field)
+                ):
+                    failures.append(
+                        f"extraction_report.{report_field}: stock readiness mismatch"
+                    )
+        else:
+            failures.append(
+                "outcome_labeling_readiness.stock_price_proxy_readiness: expected object"
+            )
+        expected_proxy_ready = len(
+            set(_string_items(readiness_report.get("proxy_label_ready_forecast_claim_ids")))
+        )
+        if _int_or_none(readiness_report.get("proxy_label_ready_count")) != expected_proxy_ready:
+            failures.append(
+                "outcome_labeling_readiness.proxy_label_ready_count mismatch"
+            )
+        expected_proxy_pending = len(
+            set(
+                _string_items(
+                    readiness_report.get("proxy_label_pending_forecast_claim_ids")
+                )
+            )
+        )
+        if (
+            _int_or_none(readiness_report.get("proxy_label_pending_count"))
+            != expected_proxy_pending
+        ):
+            failures.append(
+                "outcome_labeling_readiness.proxy_label_pending_count mismatch"
+            )
+
+    industry_labels = _int_or_none(
+        extraction_report.get("industry_etf_proxy_outcome_label_rows")
+    )
+    stock_labels = _int_or_none(
+        extraction_report.get("stock_price_proxy_outcome_label_rows")
+    )
+    outcome_labels = _int_or_none(extraction_report.get("outcome_label_rows"))
+    if (
+        industry_labels is not None
+        and stock_labels is not None
+        and outcome_labels is not None
+        and industry_labels + stock_labels != outcome_labels
+    ):
+        failures.append(
+            "extraction_report.outcome_label_rows: must equal industry + stock proxy labels"
+        )
+
+    paper_summary, paper_errors = _read_mapping_json(
+        root_path / "registry/report_intelligence/recipe_paper_trading_summary.json",
+        "registry/report_intelligence/recipe_paper_trading_summary.json",
+    )
+    failures.extend(paper_errors)
+    if paper_summary:
+        blocked_count = _int_or_none(paper_summary.get("blocked_count"))
+        if blocked_count is not None:
+            analysis_rows = _int_or_none(extraction_report.get("analysis_recipe_rows"))
+            if analysis_rows is not None and blocked_count > analysis_rows:
+                failures.append(
+                    "recipe_paper_trading_summary.blocked_count cannot exceed extraction_report.analysis_recipe_rows"
+                )
+
+    return item_count, failures
 
 
 RECIPE_PAPER_TRADING_PROTOCOL_VERSION = "recipe_shadow_paper_trading_v1"
@@ -4037,6 +4224,19 @@ def validate_report_intelligence_semantics(
             item_count=stock_price_proxy_readiness_item_count,
             accepted=not stock_price_proxy_readiness_failures,
             failures=tuple(stock_price_proxy_readiness_failures),
+        )
+    )
+
+    extraction_report_item_count, extraction_report_failures = (
+        _validate_extraction_report_contract(root_path)
+    )
+    records.append(
+        SchemaValidationRecord(
+            schema_path="schemas/report_intelligence_extraction_report_contract_rules",
+            artifact_path="registry/report_intelligence/extraction_report.json",
+            item_count=extraction_report_item_count,
+            accepted=not extraction_report_failures,
+            failures=tuple(extraction_report_failures),
         )
     )
 

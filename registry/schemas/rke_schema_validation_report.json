@@ -417,6 +417,13 @@
     },
     {
       "accepted": true,
+      "artifact_path": "registry/report_intelligence/extraction_report.json",
+      "failures": [],
+      "item_count": 10964,
+      "schema_path": "schemas/report_intelligence_extraction_report_contract_rules"
+    },
+    {
+      "accepted": true,
       "artifact_path": "registry/report_intelligence/markdown_coverage_summary.json",
       "failures": [],
       "item_count": 1,

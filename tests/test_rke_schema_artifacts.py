@@ -519,6 +519,61 @@ def test_stock_price_proxy_readiness_contract_rejects_count_drift(
     assert any("stock_proxy_label_ready_count" in failure for failure in record.failures)
 
 
+def test_extraction_report_contract_accepts_current_public_artifact(tmp_path: Path):
+    _copy_report_intelligence_registry(tmp_path)
+
+    record = _extraction_report_contract_record(tmp_path)
+
+    assert record.accepted
+    assert record.item_count > 1000
+    assert record.failures == ()
+
+
+def test_extraction_report_contract_rejects_readiness_count_drift(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    report_path = registry / "extraction_report.json"
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    report["stock_price_proxy_labelable_window_rows"] += 1
+    report["outcome_label_rows"] += 1
+    report_path.write_text(
+        json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _extraction_report_contract_record(tmp_path)
+
+    assert not record.accepted
+    assert any(
+        "stock_price_proxy_labelable_window_rows" in failure
+        for failure in record.failures
+    )
+    assert any("outcome_label_rows" in failure for failure in record.failures)
+
+
+def test_extraction_report_contract_rejects_private_or_absolute_output(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    report_path = registry / "extraction_report.json"
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    report["root"] = "/home/hap/Project/MOSAIC-RKE"
+    report["outputs"]["summary"] = "/tmp/extraction_report.json"
+    report["title"] = "private source title"
+    report_path.write_text(
+        json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _extraction_report_contract_record(tmp_path)
+
+    assert not record.accepted
+    assert any("root" in failure for failure in record.failures)
+    assert any("outputs.summary" in failure for failure in record.failures)
+    assert any("private/source text field forbidden" in failure for failure in record.failures)
+
+
 def test_recipe_paper_trading_summary_rejects_profile_weight_promotion(
     tmp_path: Path,
 ):
@@ -711,6 +766,16 @@ def _stock_price_proxy_readiness_record(tmp_path: Path):
         for record in records
         if record.schema_path
         == "schemas/report_intelligence_stock_price_proxy_readiness_rules"
+    )
+
+
+def _extraction_report_contract_record(tmp_path: Path):
+    records = validate_report_intelligence_semantics(tmp_path)
+    return next(
+        record
+        for record in records
+        if record.schema_path
+        == "schemas/report_intelligence_extraction_report_contract_rules"
     )
 
 
