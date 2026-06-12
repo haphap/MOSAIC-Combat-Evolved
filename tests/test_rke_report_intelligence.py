@@ -9458,6 +9458,8 @@ def test_apply_analytical_footprint_review_import_rejects_stale_or_leaky_rows(
             "reviewer": "footprint-reviewer",
             "review_date": "2026-06-07",
             "review_notes": "fixture rejection",
+            "claim_text": "claim prose must not enter footprint review import",
+            "pdf_path": "registry/report_intelligence/pdfs/private.pdf",
             "source_text": "full source text must not enter review import",
             "target_row_hash": "sha256:stale",
         }
@@ -9472,6 +9474,8 @@ def test_apply_analytical_footprint_review_import_rejects_stale_or_leaky_rows(
 
     assert not report.accepted
     assert "target_row_hash does not match target review row" in reasons
+    assert "claim_text forbidden in analytical footprint review import" in reasons
+    assert "pdf_path forbidden in analytical footprint review import" in reasons
     assert "source_text forbidden in analytical footprint review import" in reasons
     assert report.applied_rows == 0
 

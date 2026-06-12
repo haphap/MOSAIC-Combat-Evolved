@@ -245,6 +245,11 @@ def test_apply_gold_set_review_import_rejects_forbidden_source_text_fields(tmp_p
         _load_jsonl(tmp_path / "registry/review_batches/gold_set_next_import_template.jsonl")[0]
     )
     row["abstract"] = "long source text must stay out of sparse manual imports"
+    row["claim_text"] = "source-grounded claim text must stay private"
+    row["metadata"] = {
+        "pdf_url": "https://private.example/report.pdf",
+        "markdown_path": "registry/report_intelligence/markdown/private.md",
+    }
     _write_jsonl(import_path, [row])
 
     report = apply_gold_set_review_import(tmp_path, import_path)
@@ -252,6 +257,9 @@ def test_apply_gold_set_review_import_rejects_forbidden_source_text_fields(tmp_p
 
     assert not report.accepted
     assert "abstract forbidden in manual review import" in reasons
+    assert "claim_text forbidden in manual review import" in reasons
+    assert "metadata.pdf_url forbidden in manual review import" in reasons
+    assert "metadata.markdown_path forbidden in manual review import" in reasons
 
 
 def test_apply_gold_set_review_import_rejects_nested_forbidden_source_text_fields(tmp_path: Path):
@@ -492,6 +500,8 @@ def test_apply_license_review_import_rejects_forbidden_source_text_fields(tmp_pa
         _load_jsonl(tmp_path / "registry/review_batches/source_license_next_import_template.jsonl")[0]
     )
     row["source_text"] = "long source text must stay out of sparse manual imports"
+    row["retrieval_locator"] = "private://source/report"
+    row["source_metadata"] = {"URL": "https://private.example/report"}
     _write_jsonl(import_path, [row])
 
     report = apply_source_license_review_import(tmp_path, import_path)
@@ -499,6 +509,8 @@ def test_apply_license_review_import_rejects_forbidden_source_text_fields(tmp_pa
 
     assert not report.accepted
     assert "source_text forbidden in manual review import" in reasons
+    assert "retrieval_locator forbidden in manual review import" in reasons
+    assert "source_metadata.URL forbidden in manual review import" in reasons
 
 
 def test_apply_license_review_import_rejects_nested_forbidden_source_text_fields(tmp_path: Path):

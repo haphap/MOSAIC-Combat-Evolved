@@ -55,11 +55,18 @@ GOLD_IMPORT_TEMPLATE_ONLY_FIELDS = (
 MANUAL_REVIEW_IMPORT_FORBIDDEN_FIELDS = frozenset(
     {
         "abstract",
+        "claim_text",
+        "markdown_path",
+        "original_markdown",
+        "pdf_path",
+        "pdf_url",
+        "retrieval_locator",
         "source_text",
         "source_span_text",
         "span_text",
         "span_preview",
         "full_text",
+        "url",
     }
 )
 STALE_TARGET_ROW_HASH_REASON = "target_row_hash does not match target review row"
@@ -72,7 +79,7 @@ def manual_review_forbidden_field_paths(value: Any, prefix: str = "") -> tuple[s
         for key, item in value.items():
             key_path = str(key)
             path = f"{prefix}.{key_path}" if prefix else key_path
-            if key_path in MANUAL_REVIEW_IMPORT_FORBIDDEN_FIELDS:
+            if key_path.strip().lower() in MANUAL_REVIEW_IMPORT_FORBIDDEN_FIELDS:
                 paths.append(path)
             paths.extend(manual_review_forbidden_field_paths(item, path))
     elif isinstance(value, (list, tuple)):
