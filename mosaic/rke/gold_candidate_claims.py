@@ -66,6 +66,11 @@ SENTENCE_RE = re.compile(r"[^。！？!?；;\n]{12,260}[。！？!?；;]?")
 RISK_WARNING_PREFIX_RE = re.compile(
     r"^\s*(?:风险提示|风险因素|风险声明|免责声明)\s*[:：]"
 )
+GENERIC_RISK_ENUM_RE = re.compile(
+    r"^\s*(?:\d+[、.)）]|[（(]\d+[）)]|[一二三四五六七八九十]+[、.)）])?\s*"
+    r".{0,24}(?:不及预期|低于预期|超预期变化|大盘系统性风险|业绩不达预期|数据误差|竞争加剧|客户依赖|政策落地)"
+    r"(?:.*风险)?\s*[。；;]?\s*$"
+)
 CLAIM_MECHANISM_TERMS = (
     "预计",
     "预期",
@@ -237,7 +242,8 @@ def _short_hash(text: str) -> str:
 
 
 def _is_boilerplate_risk_warning(text: str) -> bool:
-    return bool(RISK_WARNING_PREFIX_RE.match(text.strip()))
+    stripped = text.strip()
+    return bool(RISK_WARNING_PREFIX_RE.match(stripped) or GENERIC_RISK_ENUM_RE.match(stripped))
 
 
 def _claim_sentence_score(sentence: str, keywords: Sequence[str]) -> int | None:

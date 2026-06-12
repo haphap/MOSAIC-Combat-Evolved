@@ -50,6 +50,19 @@ def test_source_sentences_prioritize_research_claims_over_descriptive_facts():
     ]
 
 
+def test_source_sentences_skip_risk_warning_section_enumerations():
+    sentences = _source_sentences(
+        "投资线索\n"
+        "若AI算力需求持续增长，计算机板块有望跑赢市场。\n"
+        "风险提示\n"
+        "1、政策落地不及预期；2、技术发展不及预期；3、市场竞争加剧。"
+    )
+
+    assert [row[2] for row in sentences] == [
+        "若AI算力需求持续增长，计算机板块有望跑赢市场。"
+    ]
+
+
 def test_variable_pair_does_not_infer_causes_from_metadata_context():
     known_variable_ids = {
         "bank_credit_supply",
@@ -221,6 +234,43 @@ def test_gold_candidate_claims_skip_boilerplate_risk_warning_report_claims(tmp_p
     first_claim = next(claim for claim in claims if claim.claim_id == first_review["claim_id"])
 
     assert not first_claim.claim_text.startswith("风险提示")
+    assert "original_markdown_forecast_claim" not in first_claim.review_risk_flags
+
+
+def test_gold_candidate_claims_skip_generic_risk_enumeration_report_claims(tmp_path: Path):
+    shutil.copytree(Path("registry"), tmp_path / "registry")
+    review_path = tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    review_rows = [json.loads(line) for line in review_path.read_text(encoding="utf-8").splitlines()]
+    first_review = review_rows[0]
+    source_id = first_review["source_id"]
+    report_claim_path = tmp_path / "registry/report_intelligence/forecast_claims.jsonl"
+    report_claim_path.parent.mkdir(parents=True, exist_ok=True)
+    report_claim_path.write_text(
+        json.dumps(
+            {
+                "claim_provenance": "source_grounded",
+                "claim_text": "1、政策落地不及预期；",
+                "direction": "negative",
+                "extraction_quality": {"mapping_gaps": []},
+                "forecast_claim_id": "FC-RISK-ENUM-001",
+                "forecast_testability": "testable",
+                "forecast_type": "risk_warning",
+                "metric_proxy_mapping": ["industry_policy_catalyst"],
+                "source_id": source_id,
+                "source_span_ids": [f"{source_id}:original_markdown:chunk-001"],
+                "target": {"target_id": "industry_etf_forward_return"},
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    claims = build_gold_candidate_claims(tmp_path)
+    first_claim = next(claim for claim in claims if claim.claim_id == first_review["claim_id"])
+
+    assert first_claim.claim_text != "1、政策落地不及预期；"
     assert "original_markdown_forecast_claim" not in first_claim.review_risk_flags
 
 
