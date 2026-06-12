@@ -181,6 +181,13 @@ def test_stock_report_outcome_status_doc_matches_public_artifacts():
             encoding="utf-8"
         )
     )
+    prompt_mutation_candidates = [
+        json.loads(line)
+        for line in Path(
+            "registry/report_intelligence/prompt_mutation_candidates.jsonl"
+        ).read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
     operator_readiness = json.loads(
         Path("registry/handoffs/rke_operator_readiness_report.json").read_text(
             encoding="utf-8"
@@ -214,6 +221,22 @@ def test_stock_report_outcome_status_doc_matches_public_artifacts():
     assert "qlib://..." in status_text
     assert "entry_lag_trading_days" in status_text
     assert "STOCK_PRICE_PROXY_ENTRY_LAG_TRADING_DAYS" in status_text
+    assert "11 shadow-only mutation candidates" in status_text
+    assert "production_prompt_change_allowed=false" in status_text
+    assert len(prompt_mutation_candidates) == 11
+    assert {
+        candidate["promotion_state"] for candidate in prompt_mutation_candidates
+    } == {"shadow_candidate_only"}
+    assert {
+        candidate["production_prompt_change_allowed"]
+        for candidate in prompt_mutation_candidates
+    } == {False}
+    assert {
+        candidate["private_text_included"] for candidate in prompt_mutation_candidates
+    } == {False}
+    assert {
+        candidate["manual_review_required"] for candidate in prompt_mutation_candidates
+    } == {True}
     assert "operator readiness currently passes 15/15 checks" in status_text
     assert operator_readiness["accepted"] is True
     assert operator_readiness["passed_count"] == operator_readiness["check_count"] == 15
