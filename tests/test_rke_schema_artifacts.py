@@ -701,6 +701,16 @@ def _operator_readiness_record(tmp_path: Path):
     )
 
 
+def _manual_review_bundle_manifest_record(tmp_path: Path):
+    records = validate_report_intelligence_semantics(tmp_path)
+    return next(
+        record
+        for record in records
+        if record.schema_path
+        == "schemas/report_intelligence_manual_review_bundle_manifest_rules"
+    )
+
+
 def _industry_etf_mapping_contract_record(tmp_path: Path):
     records = validate_report_intelligence_semantics(tmp_path)
     return next(
@@ -2111,6 +2121,70 @@ def test_operator_readiness_contract_rejects_false_acceptance(
     assert any("passed_count: expected 14" in item for item in record.failures)
     assert any("failure_count: expected 1" in item for item in record.failures)
     assert any("failure_count must be zero" in item for item in record.failures)
+
+
+def test_manual_review_bundle_manifest_contract_accepts_current_public_artifact(
+    tmp_path: Path,
+):
+    _copy_registry_for_manual_progress(tmp_path)
+
+    record = _manual_review_bundle_manifest_record(tmp_path)
+
+    assert record.accepted
+    assert record.item_count == 10
+    assert record.failures == ()
+
+
+def test_manual_review_bundle_manifest_contract_rejects_missing_artifact_role(
+    tmp_path: Path,
+):
+    registry = _copy_registry_for_manual_progress(tmp_path)
+    manifest_path = registry / "review_batches/manual_review_bundle_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["artifacts"] = [
+        artifact
+        for artifact in manifest["artifacts"]
+        if artifact["role"] != "promotion_dry_run_report"
+    ]
+    manifest["artifact_count"] = len(manifest["artifacts"])
+    manifest_path.write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _manual_review_bundle_manifest_record(tmp_path)
+
+    assert not record.accepted
+    assert any(
+        "missing roles: promotion_dry_run_report" in item
+        for item in record.failures
+    )
+    assert any("artifact_count: expected 10" in item for item in record.failures)
+
+
+def test_manual_review_bundle_manifest_contract_rejects_bad_hash_or_promotion(
+    tmp_path: Path,
+):
+    registry = _copy_registry_for_manual_progress(tmp_path)
+    manifest_path = registry / "review_batches/manual_review_bundle_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["artifacts"][0]["sha256"] = "sha256:not-a-real-digest"
+    manifest["artifacts"][0]["bytes"] = 0
+    manifest["promotion_dry_run"]["production_allowed_after_simulation"] = True
+    manifest_path.write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _manual_review_bundle_manifest_record(tmp_path)
+
+    assert not record.accepted
+    assert any(".bytes: must be positive" in item for item in record.failures)
+    assert any(".sha256: must be sha256:<64 hex>" in item for item in record.failures)
+    assert any(
+        "production_allowed_after_simulation: must be false" in item
+        for item in record.failures
+    )
 
 
 def test_schema_validation_accepts_public_registry_without_private_report_inputs(

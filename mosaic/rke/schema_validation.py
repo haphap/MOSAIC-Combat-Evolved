@@ -9,6 +9,7 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from .manual_review_bundle_manifest import MANUAL_REVIEW_BUNDLE_ARTIFACTS
 from .required_data import normalize_required_data_items
 
 
@@ -2716,6 +2717,109 @@ def _validate_operator_readiness_contract(root_path: Path) -> tuple[int, list[st
     return check_count, failures
 
 
+def _validate_manual_review_bundle_manifest_contract(
+    root_path: Path,
+) -> tuple[int, list[str]]:
+    manifest, manifest_failures = _read_mapping_json(
+        root_path / "registry/review_batches/manual_review_bundle_manifest.json",
+        "registry/review_batches/manual_review_bundle_manifest.json",
+    )
+    failures = list(manifest_failures)
+    artifacts: list[Mapping[str, Any]] = []
+    if not manifest:
+        return 0, failures
+
+    raw_artifacts = manifest.get("artifacts")
+    if not isinstance(raw_artifacts, Sequence) or isinstance(raw_artifacts, str):
+        failures.append("manual_review_bundle_manifest.artifacts: expected array")
+    else:
+        artifacts = [item for item in raw_artifacts if isinstance(item, Mapping)]
+        malformed_count = len(raw_artifacts) - len(artifacts)
+        if malformed_count:
+            failures.append(
+                f"manual_review_bundle_manifest.artifacts: {malformed_count} non-object artifacts"
+            )
+
+    expected_by_role = {
+        role: {"path": path, "format": artifact_format}
+        for role, path, artifact_format in MANUAL_REVIEW_BUNDLE_ARTIFACTS
+    }
+    artifacts_by_role = {str(item.get("role") or ""): item for item in artifacts}
+    duplicate_roles = sorted(
+        role
+        for role in artifacts_by_role
+        if [str(item.get("role") or "") for item in artifacts].count(role) > 1
+    )
+    if duplicate_roles:
+        failures.append(
+            "manual_review_bundle_manifest.artifacts duplicate roles: "
+            + ", ".join(duplicate_roles)
+        )
+    missing_roles = sorted(set(expected_by_role) - set(artifacts_by_role))
+    unexpected_roles = sorted(set(artifacts_by_role) - set(expected_by_role))
+    if missing_roles:
+        failures.append(
+            "manual_review_bundle_manifest.artifacts missing roles: "
+            + ", ".join(missing_roles)
+        )
+    if unexpected_roles:
+        failures.append(
+            "manual_review_bundle_manifest.artifacts unexpected roles: "
+            + ", ".join(unexpected_roles)
+        )
+
+    for role, expected in expected_by_role.items():
+        artifact = artifacts_by_role.get(role)
+        if artifact is None:
+            continue
+        row_label = f"manual_review_bundle_manifest.artifacts[{role}]"
+        if artifact.get("path") != expected["path"]:
+            failures.append(f"{row_label}.path: expected {expected['path']}")
+        if artifact.get("format") != expected["format"]:
+            failures.append(f"{row_label}.format: expected {expected['format']}")
+        if artifact.get("exists") is not True:
+            failures.append(f"{row_label}.exists: must be true")
+        if _int_or_none(artifact.get("bytes")) is None or int(artifact.get("bytes") or 0) <= 0:
+            failures.append(f"{row_label}.bytes: must be positive")
+        sha_value = str(artifact.get("sha256") or "")
+        if not SHA256_DIGEST_PATTERN.fullmatch(sha_value):
+            failures.append(f"{row_label}.sha256: must be sha256:<64 hex>")
+
+    if manifest.get("accepted") is not True:
+        failures.append("manual_review_bundle_manifest.accepted: must be true")
+    if manifest.get("artifact_count") != len(MANUAL_REVIEW_BUNDLE_ARTIFACTS):
+        failures.append(
+            "manual_review_bundle_manifest.artifact_count: expected "
+            + str(len(MANUAL_REVIEW_BUNDLE_ARTIFACTS))
+        )
+    blockers = _string_items(manifest.get("blockers"))
+    if blockers:
+        failures.append(
+            "manual_review_bundle_manifest.blockers: must be empty"
+        )
+
+    promotion = (
+        manifest.get("promotion_dry_run")
+        if isinstance(manifest.get("promotion_dry_run"), Mapping)
+        else {}
+    )
+    if not promotion:
+        failures.append("manual_review_bundle_manifest.promotion_dry_run: expected object")
+    else:
+        if promotion.get("production_allowed_after_simulation") is not False:
+            failures.append(
+                "manual_review_bundle_manifest.promotion_dry_run."
+                "production_allowed_after_simulation: must be false"
+            )
+        if promotion.get("staged_production_allowed_after_simulation") is not False:
+            failures.append(
+                "manual_review_bundle_manifest.promotion_dry_run."
+                "staged_production_allowed_after_simulation: must be false"
+            )
+
+    return len(artifacts), failures
+
+
 def validate_report_intelligence_semantics(
     root: str | Path,
 ) -> tuple[SchemaValidationRecord, ...]:
@@ -3426,6 +3530,19 @@ def validate_report_intelligence_semantics(
             item_count=operator_readiness_item_count,
             accepted=not operator_readiness_failures,
             failures=tuple(operator_readiness_failures),
+        )
+    )
+
+    bundle_manifest_item_count, bundle_manifest_failures = (
+        _validate_manual_review_bundle_manifest_contract(root_path)
+    )
+    records.append(
+        SchemaValidationRecord(
+            schema_path="schemas/report_intelligence_manual_review_bundle_manifest_rules",
+            artifact_path="registry/review_batches/manual_review_bundle_manifest.json",
+            item_count=bundle_manifest_item_count,
+            accepted=not bundle_manifest_failures,
+            failures=tuple(bundle_manifest_failures),
         )
     )
 
