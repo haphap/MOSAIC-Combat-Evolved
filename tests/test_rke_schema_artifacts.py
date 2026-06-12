@@ -203,6 +203,11 @@ def test_stock_report_outcome_status_doc_matches_public_artifacts():
     assert "lockbox 0/1" in status_text
     assert "labelability_summary" in status_text
     assert "outcome_labeling_readiness.industry_etf_proxy_readiness" in status_text
+    assert "124 labelable stock claims" in status_text
+    assert "593 pending future windows" in status_text
+    assert "qlib://..." in status_text
+    assert "entry_lag_trading_days" in status_text
+    assert "STOCK_PRICE_PROXY_ENTRY_LAG_TRADING_DAYS" in status_text
     assert (
         f"blocked; {evolution_gate['blocker_count']} blockers remain"
         in status_text

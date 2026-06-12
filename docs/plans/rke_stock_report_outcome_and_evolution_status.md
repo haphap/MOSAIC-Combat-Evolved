@@ -34,6 +34,7 @@ contracts.
 | `registry/report_intelligence/patch_v1_5_coverage_report.json` | public count-only fallback preserves aggregate evidence when private JSONL inputs are absent; Phase C now passes, while Phase B/D remain blocked by manual review and footprint quality gates; Phase G remains rollout-gated but now carries shadow paper-trading evidence counts from `recipe_paper_trading_summary.json` |
 | `registry/report_intelligence/industry_etf_proxy_map.jsonl` | 64 primary/governed mapping rows; `工业金属` maps to `SH560860` |
 | `registry/report_intelligence/industry_etf_proxy_pit_availability.json` | labelability summary is kept consistent with `outcome_labeling_readiness.industry_etf_proxy_readiness`: 146 eligible industry claims, 39 labelable claims, 87 labelable windows, 342 pending future windows |
+| `registry/report_intelligence/outcome_labeling_readiness.json` | stock readiness reports 220 eligible stock claims, 124 labelable stock claims, 279 labelable stock windows, and 593 pending future windows; public qlib source fields are redacted to `qlib://...` labels |
 | `registry/report_intelligence/recipe_paper_trading_runs.jsonl` | 1858 pre-registered shadow paper-trading runs |
 | `registry/report_intelligence/recipe_paper_trading_summary.json` | 20 recipes passed paper-trading validation; 561 recipes have direct or inferred PIT binding; after-cost paper-trading summary is computed from passed pre-registered runs only; 1838 recipes remain blocked by direct binding, effective-N, or shadow-tool readiness gaps |
 | `registry/report_intelligence/confidence_impact_monitor.json` | 20 paper-trading validated recipes are monitored; unvalidated confidence impact count is 0; alpha-decay and calibration-drift observations remain shadow-only |
@@ -60,7 +61,7 @@ contracts.
 
 ## Validation Commands
 
-Last local validation set:
+Last broad local validation set:
 
 ```bash
 MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run python -m pytest tests/test_rke_schema_artifacts.py -q --basetemp /home/hap/tmp/mosaic-rke/pytest-rke-schema-artifacts
@@ -72,6 +73,22 @@ git diff --check
 MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke review-progress --root .
 MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke operator-readiness --root .
 ```
+
+Most recent focused validation after the proxy entry-lag hardening:
+
+```bash
+MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run python -m pytest tests/test_rke_report_intelligence.py::test_report_intelligence_entry_calendar_index_uses_explicit_lag tests/test_rke_report_intelligence.py::test_report_intelligence_labels_industry_claims_with_etf_proxy_windows tests/test_rke_report_intelligence.py::test_report_intelligence_labels_stock_claims_with_qlib_price_windows tests/test_rke_report_intelligence.py::test_report_intelligence_pit_audit_rejects_t0_stock_entry -q --basetemp /home/hap/tmp/mosaic-rke/pytest-entry-lag-explicit
+uvx ruff@0.15.15 check mosaic/rke/report_intelligence.py tests/test_rke_report_intelligence.py
+MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run python scripts/check_prompt_leaks.py
+git diff --check
+MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke schema-status --root .
+```
+
+The helper that computes entry dates now requires an explicit
+`entry_lag_trading_days` argument. Industry proxy builders pass
+`INDUSTRY_ETF_ENTRY_LAG_TRADING_DAYS`; stock proxy builders pass
+`STOCK_PRICE_PROXY_ENTRY_LAG_TRADING_DAYS`. This keeps the T+1 entry invariant
+auditable if either channel later changes its lag policy.
 
 Current manual review evidence and scaffold commands:
 
