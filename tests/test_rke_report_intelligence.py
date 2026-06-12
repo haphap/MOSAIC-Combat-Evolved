@@ -4293,6 +4293,163 @@ def test_report_intelligence_prompt_mutation_candidates_track_evolution_threshol
     assert all(row["private_text_included"] is False for row in candidates)
 
 
+def test_report_intelligence_prompt_mutation_candidates_include_binding_gap_details():
+    candidates = build_prompt_mutation_candidates(
+        run_id="RIR-TEST-MUTATION",
+        outcome_labeling_readiness={
+            "mapping_gap_counts": {},
+            "stock_price_proxy_readiness": {"data_gap_counts": {}},
+            "industry_etf_proxy_readiness": {"data_gap_counts": {}},
+        },
+        tool_gap_rows=[],
+        recipe_paper_trading_runs=[
+            {
+                "analysis_recipe_id": "RECIPE-BLOCKED",
+                "paper_trading_status": "blocked",
+                "blocked_reasons": [
+                    "no_direct_recipe_outcome_binding",
+                    "insufficient_effective_n",
+                    "required_tools_not_shadow_implemented",
+                ],
+            }
+        ],
+        confidence_impact_observation_rows=[],
+        confidence_impact_monitor={"drift_status_counts": {}},
+        markdown_coverage_summary={"markdown_quality_gap_counts": {}},
+        industry_etf_proxy_pit_availability={"pit_gap_counts": {}},
+        recipe_paper_trading_summary={
+            "direct_pit_binding_diagnostics": {
+                "status": "blocked_no_direct_pit_binding",
+                "recipe_count": 1,
+                "direct_pit_bound_recipe_count": 0,
+                "no_direct_recipe_outcome_binding_count": 1,
+                "insufficient_effective_n_count": 1,
+                "required_tools_not_shadow_implemented_count": 1,
+                "next_actions": [
+                    "link recipes to source-grounded method patterns and PIT outcome labels"
+                ],
+                "binding_gap_details": {
+                    "diagnostic_version": "direct_pit_binding_gap_v1",
+                    "artifact_counts": {
+                        "analysis_recipe_rows": 1,
+                        "forecast_claim_rows": 0,
+                        "outcome_label_rows": 0,
+                        "analytical_footprint_rows": 1,
+                        "method_pattern_rows": 1,
+                    },
+                    "method_source_linkage": {
+                        "method_pattern_count": 1,
+                        "method_patterns_with_source_footprints": 1,
+                        "method_patterns_without_source_footprints": 0,
+                    },
+                    "forecast_outcome_linkage": {
+                        "forecast_claim_count": 0,
+                        "outcome_labels_with_forecast_claim_id": 0,
+                    },
+                    "footprint_source_linkage": {
+                        "analytical_footprint_count": 1,
+                        "footprints_with_source_or_report": 1,
+                    },
+                    "recipe_binding_linkage": {
+                        "recipe_count": 1,
+                        "recipes_with_direct_or_method_outcome_binding": 0,
+                    },
+                    "missing_artifact_flags": [
+                        "forecast_claims_absent",
+                        "outcome_labels_absent",
+                    ],
+                    "next_actions": [
+                        "keep forecast claims and analytical footprints available for derived refresh"
+                    ],
+                },
+            }
+        },
+    )
+
+    by_type = {row["candidate_type"]: row for row in candidates}
+    paper_rule = by_type["recipe_paper_trading_rule"]
+    assert {
+        "direct_pit_outcome_binding_required",
+        "effective_sample_expansion_required",
+        "requested_shadow_tools_required",
+        "private_forecast_claims_required",
+        "private_outcome_labels_required",
+    } <= set(paper_rule["blocked_by"])
+    diagnostic_evidence = [
+        row
+        for row in paper_rule["evidence_refs"]
+        if row["field"] == "direct_pit_binding_diagnostics"
+    ][0]
+    assert diagnostic_evidence["status"] == "blocked_no_direct_pit_binding"
+    assert diagnostic_evidence["binding_gap_details"]["artifact_counts"] == {
+        "analysis_recipe_rows": 1,
+        "analytical_footprint_rows": 1,
+        "forecast_claim_rows": 0,
+        "method_pattern_rows": 1,
+        "outcome_label_rows": 0,
+    }
+    assert diagnostic_evidence["binding_gap_details"]["missing_artifact_flags"] == [
+        "forecast_claims_absent",
+        "outcome_labels_absent",
+    ]
+    expansion = by_type["recipe_paper_trading_expansion_rule"]
+    assert any(
+        row["field"] == "direct_pit_binding_diagnostics"
+        for row in expansion["evidence_refs"]
+    )
+    dump = json.dumps(candidates, ensure_ascii=False)
+    assert "claim_text" not in dump
+    assert "source_span_ids" not in dump
+    assert all(row["production_prompt_change_allowed"] is False for row in candidates)
+    assert all(row["private_text_included"] is False for row in candidates)
+
+
+def test_report_intelligence_prompt_mutation_candidates_use_public_outcome_gate_fallback():
+    candidates = build_prompt_mutation_candidates(
+        run_id="RIR-TEST-MUTATION",
+        outcome_labeling_readiness={
+            "mapping_gap_counts": {},
+            "stock_price_proxy_readiness": {"data_gap_counts": {}},
+            "industry_etf_proxy_readiness": {"data_gap_counts": {}},
+        },
+        tool_gap_rows=[],
+        recipe_paper_trading_runs=[],
+        confidence_impact_observation_rows=[],
+        confidence_impact_monitor={"drift_status_counts": {}},
+        markdown_coverage_summary={"markdown_quality_gap_counts": {}},
+        industry_etf_proxy_pit_availability={"pit_gap_counts": {}},
+        forecast_rows=[],
+        outcome_label_rows=[],
+        evolution_readiness_gate={
+            "checks": [
+                {
+                    "check_id": "RI-EVOL-01",
+                    "passed": False,
+                    "evidence": {
+                        "forecast_claim_count": 189,
+                        "unique_outcome_claim_count": 49,
+                        "stock_proxy_unique_claim_count": 37,
+                        "industry_proxy_unique_claim_count": 12,
+                    },
+                }
+            ]
+        },
+    )
+
+    by_type = {row["candidate_type"]: row for row in candidates}
+    outcome = by_type["outcome_coverage_expansion_rule"]
+    evidence = outcome["evidence_refs"][0]
+    assert evidence["forecast_claim_count"] == 189
+    assert evidence["unique_outcome_claim_count"] == 49
+    assert evidence["stock_proxy_unique_claim_count"] == 37
+    assert evidence["industry_proxy_unique_claim_count"] == 12
+    assert evidence["threshold_gaps"] == {
+        "industry_proxy_unique_claim_count": 18,
+        "stock_proxy_unique_claim_count": 0,
+        "unique_outcome_claim_count": 51,
+    }
+
+
 def test_report_intelligence_prompt_mutation_candidates_track_gate_remediation():
     candidates = build_prompt_mutation_candidates(
         run_id="RIR-TEST-MUTATION",

@@ -12007,6 +12007,11 @@ def write_report_intelligence_evolution_readiness_gate(
         label="confidence_impact_monitor",
         blockers=blockers,
     )
+    recipe_paper_trading_summary = _read_registry_json(
+        registry_path / "recipe_paper_trading_summary.json",
+        label="recipe_paper_trading_summary",
+        blockers=blockers,
+    )
     markdown_coverage_summary = _read_registry_json(
         registry_path / "markdown_coverage_summary.json",
         label="markdown_coverage_summary",
@@ -12111,6 +12116,19 @@ def _count_mapping_values(mapping: Mapping[str, Any]) -> dict[str, int]:
     return counts
 
 
+def _integer_mapping_values(mapping: Mapping[str, Any]) -> dict[str, int]:
+    values: dict[str, int] = {}
+    for key, value in mapping.items():
+        key_text = str(key).strip()
+        if not key_text:
+            continue
+        try:
+            values[key_text] = int(value)
+        except (TypeError, ValueError):
+            continue
+    return dict(sorted(values.items()))
+
+
 def _add_prompt_mutation_candidate(
     candidates: list[dict[str, Any]],
     *,
@@ -12179,6 +12197,101 @@ def _paper_trading_blocker_counts(
     return counts
 
 
+def _paper_trading_summary_diagnostic_evidence(
+    recipe_paper_trading_summary: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    summary = _ensure_mapping(recipe_paper_trading_summary)
+    diagnostics = _ensure_mapping(summary.get("direct_pit_binding_diagnostics"))
+    if not diagnostics:
+        return {}
+    evidence: dict[str, Any] = {
+        "artifact_path": "registry/report_intelligence/recipe_paper_trading_summary.json",
+        "field": "direct_pit_binding_diagnostics",
+        "status": str(diagnostics.get("status") or ""),
+        "recipe_count": int(diagnostics.get("recipe_count") or 0),
+        "direct_pit_bound_recipe_count": int(
+            diagnostics.get("direct_pit_bound_recipe_count") or 0
+        ),
+        "no_direct_recipe_outcome_binding_count": int(
+            diagnostics.get("no_direct_recipe_outcome_binding_count") or 0
+        ),
+        "insufficient_effective_n_count": int(
+            diagnostics.get("insufficient_effective_n_count") or 0
+        ),
+        "required_tools_not_shadow_implemented_count": int(
+            diagnostics.get("required_tools_not_shadow_implemented_count") or 0
+        ),
+        "next_actions": [
+            str(action)
+            for action in _ensure_list(diagnostics.get("next_actions"))
+            if str(action).strip()
+        ],
+    }
+    details = _ensure_mapping(diagnostics.get("binding_gap_details"))
+    if details:
+        evidence["binding_gap_details"] = {
+            "diagnostic_version": str(details.get("diagnostic_version") or ""),
+            "artifact_counts": _integer_mapping_values(
+                _ensure_mapping(details.get("artifact_counts"))
+            ),
+            "method_source_linkage": _integer_mapping_values(
+                _ensure_mapping(details.get("method_source_linkage"))
+            ),
+            "forecast_outcome_linkage": _integer_mapping_values(
+                _ensure_mapping(details.get("forecast_outcome_linkage"))
+            ),
+            "footprint_source_linkage": _integer_mapping_values(
+                _ensure_mapping(details.get("footprint_source_linkage"))
+            ),
+            "recipe_binding_linkage": _integer_mapping_values(
+                _ensure_mapping(details.get("recipe_binding_linkage"))
+            ),
+            "missing_artifact_flags": [
+                str(flag)
+                for flag in _ensure_list(details.get("missing_artifact_flags"))
+                if str(flag).strip()
+            ],
+            "next_actions": [
+                str(action)
+                for action in _ensure_list(details.get("next_actions"))
+                if str(action).strip()
+            ],
+        }
+    return evidence
+
+
+def _paper_trading_summary_diagnostic_blockers(
+    recipe_paper_trading_summary: Mapping[str, Any] | None,
+) -> list[str]:
+    diagnostics = _ensure_mapping(
+        _ensure_mapping(recipe_paper_trading_summary).get(
+            "direct_pit_binding_diagnostics"
+        )
+    )
+    blockers: list[str] = []
+    if str(diagnostics.get("status") or "") == "blocked_no_direct_pit_binding":
+        blockers.append("direct_pit_outcome_binding_required")
+    if int(diagnostics.get("insufficient_effective_n_count") or 0):
+        blockers.append("effective_sample_expansion_required")
+    if int(diagnostics.get("required_tools_not_shadow_implemented_count") or 0):
+        blockers.append("requested_shadow_tools_required")
+    details = _ensure_mapping(diagnostics.get("binding_gap_details"))
+    missing_flags = {
+        str(flag)
+        for flag in _ensure_list(details.get("missing_artifact_flags"))
+        if str(flag).strip()
+    }
+    if "forecast_claims_absent" in missing_flags:
+        blockers.append("private_forecast_claims_required")
+    if "outcome_labels_absent" in missing_flags:
+        blockers.append("private_outcome_labels_required")
+    if "analytical_footprints_absent" in missing_flags:
+        blockers.append("private_analytical_footprints_required")
+    if "method_source_footprints_empty" in missing_flags:
+        blockers.append("method_source_footprint_links_required")
+    return list(dict.fromkeys(blockers))
+
+
 def _outcome_coverage_counts(
     outcome_label_rows: Sequence[Mapping[str, Any]],
 ) -> dict[str, int]:
@@ -12245,6 +12358,7 @@ def build_prompt_mutation_candidates(
     industry_etf_proxy_pit_availability: Mapping[str, Any],
     forecast_rows: Sequence[Mapping[str, Any]] = (),
     outcome_label_rows: Sequence[Mapping[str, Any]] = (),
+    recipe_paper_trading_summary: Mapping[str, Any] | None = None,
     evolution_readiness_gate: Mapping[str, Any] | None = None,
     gold_review_summary: Mapping[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
@@ -12287,6 +12401,18 @@ def build_prompt_mutation_candidates(
         _ensure_mapping(readiness.get("industry_cycle_regime_counts"))
     )
     outcome_counts = _outcome_coverage_counts(outcome_label_rows)
+    outcome_gate_check = _evolution_gate_check_by_id(evolution_gate, "RI-EVOL-01")
+    outcome_gate_evidence = _ensure_mapping(outcome_gate_check.get("evidence"))
+    if not outcome_label_rows and outcome_gate_evidence:
+        for key in (
+            "unique_outcome_claim_count",
+            "stock_proxy_unique_claim_count",
+            "industry_proxy_unique_claim_count",
+        ):
+            try:
+                outcome_counts[key] = int(outcome_gate_evidence.get(key) or 0)
+            except (TypeError, ValueError):
+                pass
     outcome_threshold_gaps = {
         "unique_outcome_claim_count": max(
             EVOLUTION_GATE_MIN_UNIQUE_OUTCOME_CLAIMS
@@ -12326,7 +12452,10 @@ def build_prompt_mutation_candidates(
                 {
                     "artifact_path": "registry/report_intelligence/evolution_readiness_gate.json",
                     "field": "checks.RI-EVOL-01.evidence",
-                    "forecast_claim_count": len(forecast_rows),
+                    "forecast_claim_count": int(
+                        outcome_gate_evidence.get("forecast_claim_count")
+                        or len(forecast_rows)
+                    ),
                     **outcome_counts,
                     "thresholds": {
                         "min_unique_outcome_claims": (
@@ -12723,8 +12852,23 @@ def build_prompt_mutation_candidates(
             severity="medium",
             blocked_by=["data_engineering_review_required"],
         )
+    paper_diagnostic_evidence = _paper_trading_summary_diagnostic_evidence(
+        recipe_paper_trading_summary
+    )
+    paper_diagnostic_blockers = _paper_trading_summary_diagnostic_blockers(
+        recipe_paper_trading_summary
+    )
     paper_blocker_counts = _paper_trading_blocker_counts(recipe_paper_trading_runs)
     if paper_blocker_counts:
+        evidence_refs = [
+            {
+                "artifact_path": "registry/report_intelligence/recipe_paper_trading_runs.jsonl",
+                "field": "blocked_reasons",
+                "blocker_counts": dict(sorted(paper_blocker_counts.items())),
+            }
+        ]
+        if paper_diagnostic_evidence:
+            evidence_refs.append(paper_diagnostic_evidence)
         _add_prompt_mutation_candidate(
             candidates,
             run_id=run_id,
@@ -12739,18 +12883,16 @@ def build_prompt_mutation_candidates(
             trigger_sources=[
                 "recipe_paper_trading_runs",
                 "confidence_impact_monitor",
+                "recipe_paper_trading_summary",
             ],
-            evidence_refs=[
-                {
-                    "artifact_path": "registry/report_intelligence/recipe_paper_trading_runs.jsonl",
-                    "field": "blocked_reasons",
-                    "blocker_counts": dict(sorted(paper_blocker_counts.items())),
-                }
-            ],
+            evidence_refs=evidence_refs,
             severity="high"
             if paper_blocker_counts.get("required_tools_not_shadow_implemented", 0)
             else "medium",
-            blocked_by=["paper_trading_validation_required"],
+            blocked_by=[
+                "paper_trading_validation_required",
+                *paper_diagnostic_blockers,
+            ],
         )
     paper_run_count = len(recipe_paper_trading_runs)
     paper_pass_count = sum(
@@ -12762,6 +12904,33 @@ def build_prompt_mutation_candidates(
         paper_run_count < EVOLUTION_GATE_MIN_PAPER_TRADING_RECIPES
         or paper_pass_count < EVOLUTION_GATE_MIN_PAPER_TRADING_RECIPES
     ):
+        evidence_refs = [
+            {
+                "artifact_path": "registry/report_intelligence/recipe_paper_trading_summary.json",
+                "field": "paper_trading_run_count.validation_pass_count",
+                "paper_trading_run_count": paper_run_count,
+                "validation_pass_count": paper_pass_count,
+                "thresholds": {
+                    "min_paper_trading_recipes": (
+                        EVOLUTION_GATE_MIN_PAPER_TRADING_RECIPES
+                    )
+                },
+                "threshold_gaps": {
+                    "paper_trading_run_count": max(
+                        EVOLUTION_GATE_MIN_PAPER_TRADING_RECIPES
+                        - paper_run_count,
+                        0,
+                    ),
+                    "validation_pass_count": max(
+                        EVOLUTION_GATE_MIN_PAPER_TRADING_RECIPES
+                        - paper_pass_count,
+                        0,
+                    ),
+                },
+            }
+        ]
+        if paper_diagnostic_evidence:
+            evidence_refs.append(paper_diagnostic_evidence)
         _add_prompt_mutation_candidate(
             candidates,
             run_id=run_id,
@@ -12778,35 +12947,11 @@ def build_prompt_mutation_candidates(
                 "recipe_paper_trading_summary",
                 "evolution_readiness_gate",
             ],
-            evidence_refs=[
-                {
-                    "artifact_path": "registry/report_intelligence/recipe_paper_trading_summary.json",
-                    "field": "paper_trading_run_count.validation_pass_count",
-                    "paper_trading_run_count": paper_run_count,
-                    "validation_pass_count": paper_pass_count,
-                    "thresholds": {
-                        "min_paper_trading_recipes": (
-                            EVOLUTION_GATE_MIN_PAPER_TRADING_RECIPES
-                        )
-                    },
-                    "threshold_gaps": {
-                        "paper_trading_run_count": max(
-                            EVOLUTION_GATE_MIN_PAPER_TRADING_RECIPES
-                            - paper_run_count,
-                            0,
-                        ),
-                        "validation_pass_count": max(
-                            EVOLUTION_GATE_MIN_PAPER_TRADING_RECIPES
-                            - paper_pass_count,
-                            0,
-                        ),
-                    },
-                }
-            ],
+            evidence_refs=evidence_refs,
             severity="high",
             blocked_by=[
-                "direct_pit_outcome_binding_required",
                 "paper_trading_validation_required",
+                *paper_diagnostic_blockers,
             ],
         )
     drift_counts = _count_mapping_values(
@@ -13071,6 +13216,11 @@ def write_report_intelligence_prompt_mutation_candidates(
         label="confidence_impact_monitor",
         blockers=blockers,
     )
+    recipe_paper_trading_summary = _read_registry_json(
+        registry_path / "recipe_paper_trading_summary.json",
+        label="recipe_paper_trading_summary",
+        blockers=blockers,
+    )
     markdown_coverage_summary = _read_registry_json(
         registry_path / "markdown_coverage_summary.json",
         label="markdown_coverage_summary",
@@ -13112,6 +13262,7 @@ def write_report_intelligence_prompt_mutation_candidates(
         industry_etf_proxy_pit_availability=industry_etf_proxy_pit_availability,
         forecast_rows=forecast_rows,
         outcome_label_rows=outcome_label_rows,
+        recipe_paper_trading_summary=recipe_paper_trading_summary,
         evolution_readiness_gate=evolution_readiness_gate,
     )
     if blockers and not rows:
@@ -18875,6 +19026,7 @@ def run_report_intelligence_derived_refresh(
         industry_etf_proxy_pit_availability=industry_etf_proxy_pit_availability,
         forecast_rows=forecast_rows,
         outcome_label_rows=outcome_label_rows,
+        recipe_paper_trading_summary=recipe_paper_trading_summary,
     )
     weighted_research_context_rows = build_weighted_research_contexts(
         forecast_rows=forecast_rows,
@@ -19073,6 +19225,7 @@ def run_report_intelligence_derived_refresh(
         industry_etf_proxy_pit_availability=industry_etf_proxy_pit_availability,
         forecast_rows=forecast_rows,
         outcome_label_rows=outcome_label_rows,
+        recipe_paper_trading_summary=recipe_paper_trading_summary,
         evolution_readiness_gate=evolution_readiness_gate,
         gold_review_summary=gold_review_summary,
     )
@@ -19875,6 +20028,7 @@ def run_report_intelligence_refresh(
         confidence_impact_monitor=confidence_impact_monitor,
         markdown_coverage_summary=markdown_coverage_summary,
         industry_etf_proxy_pit_availability=industry_etf_proxy_pit_availability,
+        recipe_paper_trading_summary=recipe_paper_trading_summary,
     )
     weighted_research_context_rows = build_weighted_research_contexts(
         forecast_rows=forecast_rows,
@@ -20072,6 +20226,7 @@ def run_report_intelligence_refresh(
         industry_etf_proxy_pit_availability=industry_etf_proxy_pit_availability,
         forecast_rows=forecast_rows,
         outcome_label_rows=outcome_label_rows,
+        recipe_paper_trading_summary=recipe_paper_trading_summary,
         evolution_readiness_gate=evolution_readiness_gate,
         gold_review_summary=gold_review_summary,
     )
