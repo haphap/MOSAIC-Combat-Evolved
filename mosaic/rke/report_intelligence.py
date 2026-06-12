@@ -198,6 +198,11 @@ DEFAULT_MINERU_ENV = {
 FORECAST_CLAIM_RISK_WARNING_PREFIX_RE = re.compile(
     r"^\s*(?:风险提示|风险因素|风险声明|免责声明)\s*[:：]"
 )
+GENERIC_RISK_WARNING_ENUM_RE = re.compile(
+    r"^\s*(?:\d+[、.)）]|[（(]\d+[）)]|[一二三四五六七八九十]+[、.)）])?\s*"
+    r".{0,24}(?:不及预期|低于预期|超预期变化|大盘系统性风险|业绩不达预期|数据误差|竞争加剧|客户依赖|政策落地)"
+    r"(?:.*风险)?\s*[。；;]?\s*$"
+)
 FORECAST_CLAIM_MECHANISM_TERMS = (
     "预计",
     "预期",
@@ -4448,6 +4453,49 @@ def _footprint_review_metric_mapping_suggestion(row: Mapping[str, Any]) -> bool:
     return bool(_ensure_list(row.get("indicator_mentions_review_preview")))
 
 
+def _is_boilerplate_risk_warning_text(text: str) -> bool:
+    stripped = text.strip()
+    return bool(
+        FORECAST_CLAIM_RISK_WARNING_PREFIX_RE.match(stripped)
+        or GENERIC_RISK_WARNING_ENUM_RE.match(stripped)
+    )
+
+
+def _is_boilerplate_risk_footprint(row: Mapping[str, Any]) -> bool:
+    texts = [
+        str(row.get("topic_preview") or ""),
+        *[str(item or "") for item in _ensure_list(row.get("analysis_patterns_review_preview"))],
+        *[str(item or "") for item in _ensure_list(row.get("target_entity_candidates"))],
+    ]
+    normalized = " ".join(text for text in texts if text.strip())
+    if any(_is_boilerplate_risk_warning_text(text) for text in texts):
+        return True
+    risk_title = any(
+        text.strip() in {"风险提示", "行业风险提示", "宏观经济风险提示", "投资建议与风险提示"}
+        or text.strip().endswith("风险提示")
+        for text in texts
+    )
+    risk_workflow_only = (
+        risk_title
+        and any(term in normalized for term in ("风险因素", "风险列举", "风险识别", "风险管理"))
+        and not any(
+            term in normalized
+            for term in (
+                "供需",
+                "景气",
+                "盈利",
+                "估值",
+                "目标价",
+                "投资逻辑",
+                "需求展望",
+                "政策影响",
+                "产业链供需",
+            )
+        )
+    )
+    return risk_workflow_only
+
+
 def _footprint_review_evidence_row(
     index: int,
     row: Mapping[str, Any],
@@ -4469,15 +4517,18 @@ def _footprint_review_evidence_row(
     has_span_evidence = bool(snippets and markdown_exists)
     has_patterns = bool(_ensure_list(row.get("analysis_patterns_review_preview")))
     has_indicators = _footprint_review_metric_mapping_suggestion(row)
+    boilerplate_risk_footprint = _is_boilerplate_risk_footprint(row)
     suggested_decision = {
-        "footprint_correct": True if has_span_evidence and has_patterns else None,
+        "footprint_correct": False if boilerplate_risk_footprint else (True if has_span_evidence and has_patterns else None),
         "source_span_supports_footprint": True if has_span_evidence else None,
-        "metric_mapping_correct": has_indicators,
-        "inferred_steps_tagged_correctly": True if has_patterns else None,
+        "metric_mapping_correct": False if boilerplate_risk_footprint else has_indicators,
+        "inferred_steps_tagged_correctly": False if boilerplate_risk_footprint else (True if has_patterns else None),
         "unknowns_used_when_uncertain": True,
         "no_proprietary_text_leakage": True,
     }
     suggested_tags: list[str] = []
+    if boilerplate_risk_footprint:
+        suggested_tags.append("boilerplate_risk_warning_footprint")
     if not markdown_exists:
         suggested_tags.append("markdown_missing")
     if not has_indicators:

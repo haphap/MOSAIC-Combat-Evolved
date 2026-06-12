@@ -9426,6 +9426,36 @@ def test_write_analytical_footprint_review_evidence_is_private_not_import(
     assert "not an import file" in markdown
 
 
+def test_analytical_footprint_review_evidence_flags_risk_warning_footprints(
+    tmp_path: Path,
+):
+    source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
+    run_report_intelligence_refresh(
+        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        downloader=_fake_downloader,
+        converter=_fake_converter,
+        llm_extractor=_fake_llm,
+    )
+    template_path = tmp_path / "registry/report_intelligence/analytical_footprint_review_template.jsonl"
+    rows = _read_jsonl(template_path)
+    rows[0]["topic_preview"] = "风险提示"
+    rows[0]["analysis_patterns_review_preview"] = ["风险因素列举"]
+    rows[0]["indicator_mentions_review_preview"] = []
+    rows[0]["target_entity_candidates"] = ["风险管理师", "投资者"]
+    _write_jsonl(template_path, rows)
+
+    report = write_analytical_footprint_review_evidence(tmp_path, limit=1)
+    evidence_rows = _read_jsonl(tmp_path / report.jsonl_path)
+    decision = evidence_rows[0]["suggested_review_decision"]
+
+    assert "boilerplate_risk_warning_footprint" in evidence_rows[0][
+        "suggested_manual_error_tags"
+    ]
+    assert decision["footprint_correct"] is False
+    assert decision["metric_mapping_correct"] is False
+    assert decision["inferred_steps_tagged_correctly"] is False
+
+
 def test_analytical_footprint_review_evidence_supports_offset_batches(
     tmp_path: Path,
 ):
