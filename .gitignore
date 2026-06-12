@@ -58,6 +58,8 @@ registry/review_batches/gold_set_full_import_template.jsonl
 registry/review_batches/gold_set_review_workbook.md
 registry/review_batches/gold_set_review_assist.jsonl
 registry/review_batches/gold_set_review_assist.md
+registry/review_batches/gold_set_review_evidence.jsonl
+registry/review_batches/gold_set_review_evidence.md
 registry/review_batches/source_license_policy_reviewed.json
 registry/review_batches/source_license_policy_import.jsonl
 registry/review_batches/source_license_next_import_template.jsonl

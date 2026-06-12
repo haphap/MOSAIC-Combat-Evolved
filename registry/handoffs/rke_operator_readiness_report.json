@@ -17,7 +17,7 @@
     {
       "blocker": "",
       "check_id": "handoff_command_sequence_complete",
-      "evidence": "steps=18, first=review-progress-preflight, last=promotion-status-final",
+      "evidence": "steps=19, first=review-progress-preflight, last=promotion-status-final",
       "passed": true
     },
     {
@@ -103,6 +103,8 @@
     "registry/review_batches/gold_set_review_workbook.md",
     "registry/review_batches/gold_set_review_assist.jsonl",
     "registry/review_batches/gold_set_review_assist.md",
+    "registry/review_batches/gold_set_review_evidence.jsonl",
+    "registry/review_batches/gold_set_review_evidence.md",
     "registry/report_intelligence/analytical_footprint_review_assist.jsonl",
     "registry/report_intelligence/analytical_footprint_review_evidence.jsonl",
     "registry/report_intelligence/analytical_footprint_review_evidence.md",

@@ -17,6 +17,14 @@
       "step_id": "prepare-gold-review"
     },
     {
+      "action": "Write private gold-set evidence draft files.",
+      "command": "mosaic-rke write-gold-review-evidence --root . --limit 50",
+      "expected_result": "Private evidence Markdown is registry/review_batches/gold_set_review_evidence.md and evidence JSONL is registry/review_batches/gold_set_review_evidence.jsonl.",
+      "manual_input_path": "",
+      "phase": "gold_set",
+      "step_id": "write-gold-review-evidence"
+    },
+    {
       "action": "Fill the gold-set reviewed scratch file.",
       "command": "",
       "expected_result": "All 500 claim rows have required manual fields and preserved provenance hashes.",
@@ -157,7 +165,7 @@
       "full_import_template_path": "registry/review_batches/gold_set_full_import_template.jsonl",
       "gate_id": "PG02",
       "import_template_path": "registry/review_batches/gold_set_next_import_template.jsonl",
-      "operator_note": "Run prepare-gold-review --full, fill the reviewed scratch JSONL, use registry/review_batches/gold_set_review_workbook.md as the read-only claim checklist, and use registry/review_batches/gold_set_review_assist.md as non-import machine assistance, then dry-run before applying the 500-claim gold set.",
+      "operator_note": "Run prepare-gold-review --full, fill the reviewed scratch JSONL, use registry/review_batches/gold_set_review_workbook.md as the read-only claim checklist, and use registry/review_batches/gold_set_review_assist.md as non-import machine assistance, use registry/review_batches/gold_set_review_evidence.md as private source evidence draft, then dry-run before applying the 500-claim gold set.",
       "passed": false,
       "pending_rows": 500,
       "policy_template_path": "",
@@ -274,6 +282,8 @@
     "registry/review_batches/gold_set_review_workbook.md",
     "registry/review_batches/gold_set_review_assist.jsonl",
     "registry/review_batches/gold_set_review_assist.md",
+    "registry/review_batches/gold_set_review_evidence.jsonl",
+    "registry/review_batches/gold_set_review_evidence.md",
     "registry/review_batches/source_license_next_import_template.jsonl",
     "registry/review_batches/source_license_review_workbook.md",
     "registry/review_batches/source_license_policy_template.json",
@@ -302,6 +312,7 @@
   "run_order": [
     "review-progress-preflight",
     "prepare-gold-review",
+    "write-gold-review-evidence",
     "fill-gold-review",
     "dry-run-gold-review",
     "apply-gold-review",

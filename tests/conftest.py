@@ -35,6 +35,10 @@ _RKE_MANUAL_REVIEW_SCRATCH = frozenset(
     {
         "gold_set_reviewed.jsonl",
         "gold_set_full_reviewed.jsonl",
+        "gold_set_review_assist.jsonl",
+        "gold_set_review_assist.md",
+        "gold_set_review_evidence.jsonl",
+        "gold_set_review_evidence.md",
         "analytical_footprint_review_assist.jsonl",
         "analytical_footprint_review_evidence.jsonl",
         "analytical_footprint_review_evidence.md",

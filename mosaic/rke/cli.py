@@ -45,6 +45,7 @@ from .manual_review_batches import (
     GOLD_FULL_REVIEWED_IMPORT_PATH,
     GOLD_REVIEWED_IMPORT_PATH,
     build_manual_review_batch_status,
+    write_gold_review_evidence,
     write_gold_review_starter,
     write_manual_review_batches,
 )
@@ -453,6 +454,20 @@ def build_parser() -> argparse.ArgumentParser:
         "--force",
         action="store_true",
         help="Overwrite an existing reviewed gold-set starter.",
+    )
+
+    write_gold_review_evidence = subparsers.add_parser(
+        "write-gold-review-evidence",
+        help="Write private gold-set evidence snippets and draft review suggestions.",
+    )
+    write_gold_review_evidence.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
+    write_gold_review_evidence.add_argument(
+        "--limit",
+        type=int,
+        default=50,
+        help="Maximum pending rows to include. Defaults to 50.",
     )
 
     apply_license_review = subparsers.add_parser(
@@ -1304,6 +1319,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         _print_json(asdict(result))
         return 0 if result.written else 2
+    if args.command == "write-gold-review-evidence":
+        result = write_gold_review_evidence(root, limit=args.limit)
+        _print_json(result)
+        return 0 if result["blockers"] == 0 else 2
     if args.command == "apply-license-review":
         report = apply_source_license_review_import(
             root, args.input, dry_run=args.dry_run

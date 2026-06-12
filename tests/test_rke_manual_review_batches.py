@@ -8,12 +8,15 @@ from mosaic.rke import (
     apply_gold_set_review_import,
     apply_source_license_review_import,
     build_gold_review_assist,
+    build_gold_review_evidence,
     build_manual_review_bundle_manifest,
     build_manual_review_batch_status,
     build_gold_review_workbook,
     render_gold_review_assist_markdown,
+    render_gold_review_evidence_markdown,
     build_source_license_review_workbook,
     write_gold_review_assist,
+    write_gold_review_evidence,
     write_gold_review_starter,
     write_gold_review_workbook,
     write_manual_review_bundle_manifest,
@@ -206,6 +209,47 @@ def test_gold_review_assist_is_non_import_review_aid(tmp_path: Path):
     )
 
 
+def test_gold_review_evidence_is_private_non_import_review_aid(tmp_path: Path):
+    _copy_registry(tmp_path)
+
+    result = write_gold_review_evidence(tmp_path, limit=2)
+    summary, rows = build_gold_review_evidence(tmp_path, limit=2)
+    markdown = render_gold_review_evidence_markdown(summary, rows)
+    written_rows = _load_jsonl(
+        tmp_path / "registry/review_batches/gold_set_review_evidence.jsonl"
+    )
+
+    assert result["rows"] == 2
+    assert result["evidence_rows"] == 2
+    assert summary.row_count == 2
+    assert summary.evidence_rows == 2
+    assert summary.blockers == ()
+    assert len(rows) == 2
+    assert len(written_rows) == 2
+    assert rows[0]["evidence_kind"] == "gold_review_evidence_not_import"
+    assert rows[0]["not_apply_gold_review_input"] is True
+    assert rows[0]["human_review_required"] is True
+    assert rows[0]["evidence_snippets"]
+    assert rows[0]["suggested_review_decision"]["unsupported_field_false_grounded"] is False
+    assert "manual_claim_text" not in rows[0]
+    assert markdown.startswith("# RKE Gold Review Evidence Draft")
+    assert "not an import file" in markdown
+    assert (tmp_path / "registry/review_batches/gold_set_review_evidence.md").exists()
+
+    import_report = apply_gold_set_review_import(
+        tmp_path,
+        tmp_path / "registry/review_batches/gold_set_review_evidence.jsonl",
+        dry_run=True,
+    )
+
+    assert not import_report.accepted
+    assert import_report.rejected_rows == 2
+    assert any(
+        "evidence_kind unexpected in manual review import" in reason
+        for reason in import_report.invalid_rows[0].reasons
+    )
+
+
 def test_gold_review_workbook_is_read_only_claim_checklist(tmp_path: Path):
     _copy_registry(tmp_path)
 
@@ -385,6 +429,8 @@ def test_manual_review_bundle_manifest_hashes_review_artifacts(tmp_path: Path):
     assert "registry/review_batches/gold_set_review_workbook.md" not in artifacts
     assert "registry/review_batches/gold_set_review_assist.jsonl" not in artifacts
     assert "registry/review_batches/gold_set_review_assist.md" not in artifacts
+    assert "registry/review_batches/gold_set_review_evidence.jsonl" not in artifacts
+    assert "registry/review_batches/gold_set_review_evidence.md" not in artifacts
     assert "registry/review_batches/source_license_review_workbook.md" not in artifacts
     assert "registry/review_batches/source_license_next_import_template.jsonl" not in artifacts
     assert artifacts["registry/promotion/rke_promotion_dry_run_report.json"]["format"] == "json"

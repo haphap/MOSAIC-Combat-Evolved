@@ -30,9 +30,9 @@ def test_operator_handoff_summarizes_remaining_manual_gates():
     assert handoff.run_order[:5] == (
         "review-progress-preflight",
         "prepare-gold-review",
+        "write-gold-review-evidence",
         "fill-gold-review",
         "dry-run-gold-review",
-        "apply-gold-review",
     )
     assert handoff.run_order[-3:] == (
         "promotion-dry-run",
@@ -52,6 +52,11 @@ def test_operator_handoff_summarizes_remaining_manual_gates():
     assert any(
         step.step_id == "write-footprint-review-evidence"
         and step.command == "mosaic-rke write-footprint-review-evidence --root . --limit 50"
+        for step in handoff.command_sequence
+    )
+    assert any(
+        step.step_id == "write-gold-review-evidence"
+        and step.command == "mosaic-rke write-gold-review-evidence --root . --limit 50"
         for step in handoff.command_sequence
     )
     assert {gate.review_kind for gate in handoff.gates} == {
@@ -261,6 +266,8 @@ def test_write_operator_handoff_outputs_json_markdown_and_lockbox_template(
     assert license_gate["workbook_path"] == "registry/review_batches/source_license_review_workbook.md"
     assert "registry/review_batches/gold_set_review_assist.jsonl" in payload["generated_paths"]
     assert "registry/review_batches/gold_set_review_assist.md" in payload["generated_paths"]
+    assert "registry/review_batches/gold_set_review_evidence.jsonl" in payload["generated_paths"]
+    assert "registry/review_batches/gold_set_review_evidence.md" in payload["generated_paths"]
     assert "registry/review_batches/source_license_review_workbook.md" in payload["generated_paths"]
     assert (
         "registry/report_intelligence/analytical_footprint_review_assist.jsonl"
@@ -297,6 +304,7 @@ def test_write_operator_handoff_outputs_json_markdown_and_lockbox_template(
     assert "prepare-lockbox-review" in markdown
     assert "gold_set_review_workbook.md" in markdown
     assert "gold_set_review_assist.md" in markdown
+    assert "gold_set_review_evidence.md" in markdown
     assert "gold_set_full_reviewed.jsonl" in markdown
     assert "gold_set_full_import_template.jsonl" in markdown
     assert "lockbox_reviewed.json" in markdown

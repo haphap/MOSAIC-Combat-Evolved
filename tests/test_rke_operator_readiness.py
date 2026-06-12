@@ -83,6 +83,8 @@ def test_operator_readiness_accepts_current_review_bundle():
     assert "registry/review_batches/gold_set_review_workbook.md" in report.generated_paths
     assert "registry/review_batches/gold_set_review_assist.jsonl" in report.generated_paths
     assert "registry/review_batches/gold_set_review_assist.md" in report.generated_paths
+    assert "registry/review_batches/gold_set_review_evidence.jsonl" in report.generated_paths
+    assert "registry/review_batches/gold_set_review_evidence.md" in report.generated_paths
     assert "registry/review_batches/source_license_review_workbook.md" in report.generated_paths
     assert (
         "registry/report_intelligence/analytical_footprint_review_assist.jsonl"
@@ -106,7 +108,7 @@ def test_operator_readiness_accepts_current_review_bundle():
     assert checks["required_registry_valid"].passed
     assert checks["handoff_ready_for_operator"].passed
     assert checks["handoff_command_sequence_complete"].passed
-    assert "steps=18" in checks["handoff_command_sequence_complete"].evidence
+    assert "steps=19" in checks["handoff_command_sequence_complete"].evidence
     assert checks["manual_batch_templates_match_status"].passed
     assert checks["manual_import_templates_are_sparse"].passed
     assert checks["manual_import_templates_have_provenance"].passed
@@ -480,6 +482,8 @@ def test_write_operator_readiness_report_outputs_registry_artifact(tmp_path: Pat
     assert "registry/review_batches/gold_set_review_workbook.md" in payload["generated_paths"]
     assert "registry/review_batches/gold_set_review_assist.jsonl" in payload["generated_paths"]
     assert "registry/review_batches/gold_set_review_assist.md" in payload["generated_paths"]
+    assert "registry/review_batches/gold_set_review_evidence.jsonl" in payload["generated_paths"]
+    assert "registry/review_batches/gold_set_review_evidence.md" in payload["generated_paths"]
     assert "registry/review_batches/source_license_review_workbook.md" in payload["generated_paths"]
     assert (
         "registry/report_intelligence/analytical_footprint_review_assist.jsonl"

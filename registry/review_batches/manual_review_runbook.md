@@ -30,6 +30,8 @@ Reviewed scratch files are operator-local decision files. Do not commit them unl
 ## Read-Only Checklists
 
 - Gold-set workbook: `registry/review_batches/gold_set_review_workbook.md`
+- Gold-set evidence draft Markdown: `registry/review_batches/gold_set_review_evidence.md`
+- Gold-set evidence draft JSONL: `registry/review_batches/gold_set_review_evidence.jsonl`
 - Gold-set packet JSON: `registry/gold_sets/tushare_research_reports.review_packet.json`
 - Gold-set packet Markdown: `registry/gold_sets/tushare_research_reports.review_packet.md`
 - Source-license workbook: `registry/review_batches/source_license_review_workbook.md`
@@ -49,6 +51,7 @@ These checklist files are not import files. Use them to inspect IDs, hashes, cou
 
 Gold-set review is accepted only when all current 500 claim rows are completed and the dry run accepts the import.
 Each gold-set row must keep the template IDs and hashes intact and must fill `manual_claim_text`, `reviewer`, `review_date`, `claim_correct`, `source_span_supports_claim`, `direction_correct`, `target_correct`, `horizon_correct`, `variable_mapping_correct`, and `unsupported_field_false_grounded`.
+Use `mosaic-rke write-gold-review-evidence --root . --limit 50` to regenerate the private source-evidence draft before filling the reviewed gold-set scratch file.
 The resulting gold-set summary must satisfy the code-defined gate: at least 50 documents, at least 500 claims, claim precision >= 0.85, span-support precision >= 0.90, direction accuracy >= 0.85, target accuracy >= 0.85, horizon accuracy >= 0.85, variable mapping accuracy >= 0.80, and unsupported-field false grounding <= 0.05.
 
 Analytical-footprint review is accepted only when every footprint row is completed, the import dry run accepts it, and the review summary quality gate passes.

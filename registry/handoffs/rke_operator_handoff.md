@@ -12,6 +12,7 @@
 
 - review-progress-preflight
 - prepare-gold-review
+- write-gold-review-evidence
 - fill-gold-review
 - dry-run-gold-review
 - apply-gold-review
@@ -48,6 +49,14 @@ Dry-run command: `mosaic-rke promotion-dry-run --root . --gold-input registry/re
 - Command: `mosaic-rke prepare-gold-review --root . --full`
 - Manual input: none
 - Expected result: Reviewer scratch target is registry/review_batches/gold_set_full_reviewed.jsonl.
+
+### write-gold-review-evidence
+
+- Phase: gold_set
+- Action: Write private gold-set evidence draft files.
+- Command: `mosaic-rke write-gold-review-evidence --root . --limit 50`
+- Manual input: none
+- Expected result: Private evidence Markdown is registry/review_batches/gold_set_review_evidence.md and evidence JSONL is registry/review_batches/gold_set_review_evidence.jsonl.
 
 ### fill-gold-review
 
@@ -195,7 +204,7 @@ Dry-run command: `mosaic-rke promotion-dry-run --root . --gold-input registry/re
 - Exported rows: 500
 - Dry run: `mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl --dry-run`
 - Apply: `mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl`
-- Note: Run prepare-gold-review --full, fill the reviewed scratch JSONL, use registry/review_batches/gold_set_review_workbook.md as the read-only claim checklist, and use registry/review_batches/gold_set_review_assist.md as non-import machine assistance, then dry-run before applying the 500-claim gold set.
+- Note: Run prepare-gold-review --full, fill the reviewed scratch JSONL, use registry/review_batches/gold_set_review_workbook.md as the read-only claim checklist, and use registry/review_batches/gold_set_review_assist.md as non-import machine assistance, use registry/review_batches/gold_set_review_evidence.md as private source evidence draft, then dry-run before applying the 500-claim gold set.
 
 ### RI-FOOTPRINT-REVIEW footprint_review
 

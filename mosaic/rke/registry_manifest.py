@@ -27,6 +27,8 @@ PRIVATE_LOCAL_REGISTRY_FILES = frozenset(
         "registry/review_batches/gold_set_next_import_template.jsonl",
         "registry/review_batches/gold_set_review_assist.jsonl",
         "registry/review_batches/gold_set_review_assist.md",
+        "registry/review_batches/gold_set_review_evidence.jsonl",
+        "registry/review_batches/gold_set_review_evidence.md",
         "registry/review_batches/gold_set_review_workbook.md",
         "registry/review_batches/source_license_next_import_template.jsonl",
         "registry/review_batches/source_license_review_workbook.md",

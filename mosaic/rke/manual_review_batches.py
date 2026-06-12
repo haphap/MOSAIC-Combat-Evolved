@@ -9,6 +9,7 @@ the generated rows and import them with the controlled apply commands.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Literal, Mapping, Sequence
@@ -29,6 +30,8 @@ GOLD_FULL_IMPORT_TEMPLATE_PATH = "registry/review_batches/gold_set_full_import_t
 GOLD_REVIEW_WORKBOOK_MD_PATH = "registry/review_batches/gold_set_review_workbook.md"
 GOLD_REVIEW_ASSIST_JSONL_PATH = "registry/review_batches/gold_set_review_assist.jsonl"
 GOLD_REVIEW_ASSIST_MD_PATH = "registry/review_batches/gold_set_review_assist.md"
+GOLD_REVIEW_EVIDENCE_JSONL_PATH = "registry/review_batches/gold_set_review_evidence.jsonl"
+GOLD_REVIEW_EVIDENCE_MD_PATH = "registry/review_batches/gold_set_review_evidence.md"
 GOLD_REVIEWED_IMPORT_PATH = "registry/review_batches/gold_set_reviewed.jsonl"
 GOLD_FULL_REVIEWED_IMPORT_PATH = "registry/review_batches/gold_set_full_reviewed.jsonl"
 LICENSE_REVIEW_TEMPLATE_PATH = "registry/compliance/tushare_license_review_template.jsonl"
@@ -98,6 +101,20 @@ class GoldReviewAssistSummary:
     reviewed_import_path: str
     row_count: int
     pending_rows: int
+    blockers: Sequence[str]
+
+
+@dataclass(frozen=True)
+class GoldReviewEvidenceSummary:
+    evidence_id: str
+    jsonl_path: str
+    markdown_path: str
+    review_template_path: str
+    reviewed_import_path: str
+    requested_limit: int
+    row_count: int
+    evidence_rows: int
+    missing_markdown_rows: int
     blockers: Sequence[str]
 
 
@@ -551,6 +568,402 @@ def write_gold_review_assist(root: str | Path = ".") -> dict[str, Any]:
         "jsonl": str(jsonl_result["path"]),
         "markdown": str(md_path),
         "rows": len(rows),
+        "blockers": len(summary.blockers),
+    }
+
+
+def _load_jsonl_mapping_rows(path: Path) -> tuple[list[Mapping[str, Any]], tuple[str, ...]]:
+    if not path.exists():
+        return [], (f"{path} missing",)
+    rows: list[Mapping[str, Any]] = []
+    blockers: list[str] = []
+    with path.open("r", encoding="utf-8") as handle:
+        for line_number, line in enumerate(handle, 1):
+            text = line.strip()
+            if not text:
+                continue
+            try:
+                row = json.loads(text)
+            except json.JSONDecodeError as exc:
+                blockers.append(f"{path} row {line_number} must contain valid JSON: {exc.msg}")
+                continue
+            if not isinstance(row, Mapping):
+                blockers.append(f"{path} row {line_number} must be object")
+                continue
+            rows.append(row)
+    return rows, tuple(blockers)
+
+
+def _gold_evidence_priority_score(row: Mapping[str, Any]) -> int:
+    score = 0
+    risk_flags = tuple(str(flag) for flag in row.get("proposed_review_risk_flags") or ())
+    if "manual_review_required" in risk_flags:
+        score += 2
+    if "sentence_fallback_requires_context_synthesis" in risk_flags:
+        score += 2
+    if str(row.get("proposed_direction") or "") in {"ambiguous", "neutral"}:
+        score += 2
+    if str(row.get("proposed_extraction_confidence_bin") or "") == "low":
+        score += 1
+    if not row.get("proposed_target_variables"):
+        score += 1
+    if not row.get("proposed_cause_variables"):
+        score += 1
+    return score
+
+
+def _gold_evidence_terms(row: Mapping[str, Any]) -> tuple[str, ...]:
+    raw_terms: list[str] = []
+    for value in (
+        row.get("proposed_claim_text"),
+        row.get("gold_set_domain"),
+        row.get("proposed_claim_type"),
+        row.get("proposed_direction"),
+        *(row.get("proposed_cause_variables") or ()),
+        *(row.get("proposed_target_variables") or ()),
+    ):
+        text = str(value or "").strip()
+        if not text:
+            continue
+        raw_terms.extend(re.findall(r"[\u4e00-\u9fff]{2,}|[A-Za-z][A-Za-z0-9_\-/ ]{2,}", text))
+    seen: list[str] = []
+    for term in raw_terms:
+        normalized = " ".join(str(term or "").split())
+        if not normalized or normalized in seen or len(normalized) > 64:
+            continue
+        seen.append(normalized)
+    return tuple(seen[:24])
+
+
+def _gold_source_offset_snippet(
+    source_row: Mapping[str, Any],
+    row: Mapping[str, Any],
+    *,
+    max_chars: int = 900,
+) -> dict[str, Any] | None:
+    abstract = str(source_row.get("abstract") or "")
+    if not abstract:
+        return None
+    start_raw = row.get("proposed_source_start_char")
+    end_raw = row.get("proposed_source_end_char")
+    try:
+        start = int(start_raw)
+        end = int(end_raw)
+    except (TypeError, ValueError):
+        start = -1
+        end = -1
+    if start < 0 or end <= start or start >= len(abstract):
+        start = 0
+        end = min(len(abstract), max_chars)
+    snippet_start = max(0, start - max_chars // 3)
+    snippet_end = min(len(abstract), max(end + max_chars // 3, snippet_start + max_chars))
+    return {
+        "source": "tushare_abstract_offsets",
+        "start_char": snippet_start,
+        "end_char": snippet_end,
+        "snippet": " ".join(abstract[snippet_start:snippet_end].split()),
+    }
+
+
+def _gold_markdown_snippets(
+    markdown_text: str,
+    terms: Sequence[str],
+    *,
+    max_snippets: int = 1,
+    max_chars: int = 900,
+) -> tuple[dict[str, Any], ...]:
+    snippets: list[dict[str, Any]] = []
+    for term in terms:
+        match = re.search(re.escape(term), markdown_text, re.IGNORECASE)
+        if match is None:
+            continue
+        start = max(0, int(match.start()) - max_chars // 3)
+        end = min(len(markdown_text), int(match.end()) + max_chars)
+        snippets.append(
+            {
+                "source": "local_markdown",
+                "matched_term": term,
+                "start_char": start,
+                "end_char": end,
+                "snippet": " ".join(markdown_text[start:end].split()),
+            }
+        )
+        if len(snippets) >= max_snippets:
+            break
+    return tuple(snippets)
+
+
+def _gold_markdown_text(
+    root_path: Path,
+    metadata_row: Mapping[str, Any] | None,
+) -> tuple[str, str, bool]:
+    if metadata_row is None:
+        return "", "", False
+    markdown = metadata_row.get("markdown")
+    if not isinstance(markdown, Mapping):
+        return "", "", False
+    markdown_path_text = str(markdown.get("path") or "")
+    if not markdown_path_text:
+        return "", "", False
+    markdown_path = Path(markdown_path_text)
+    if not markdown_path.is_absolute():
+        markdown_path = root_path / markdown_path
+    if not markdown_path.exists():
+        return markdown_path_text, "", False
+    return markdown_path_text, markdown_path.read_text(encoding="utf-8", errors="ignore"), True
+
+
+def _gold_evidence_row(
+    index: int,
+    row: Mapping[str, Any],
+    *,
+    root_path: Path,
+    source_by_id: Mapping[str, Mapping[str, Any]],
+    metadata_by_source: Mapping[str, Mapping[str, Any]],
+) -> dict[str, Any]:
+    source_id = str(row.get("source_id") or "")
+    source_row = source_by_id.get(source_id, {})
+    metadata_row = metadata_by_source.get(source_id)
+    markdown_path_text, markdown_text, markdown_exists = _gold_markdown_text(root_path, metadata_row)
+    terms = _gold_evidence_terms(row)
+    abstract_snippet = _gold_source_offset_snippet(source_row, row)
+    snippets: list[dict[str, Any]] = []
+    if abstract_snippet is not None:
+        snippets.append(abstract_snippet)
+    snippets.extend(_gold_markdown_snippets(markdown_text, terms))
+    has_source_evidence = bool(snippets)
+    proposed_claim_text = str(row.get("proposed_claim_text") or "").strip()
+    proposed_direction = str(row.get("proposed_direction") or "").strip()
+    suggested_decision = {
+        "claim_correct": True if has_source_evidence and proposed_claim_text else None,
+        "source_span_supports_claim": True if has_source_evidence else None,
+        "direction_correct": None if proposed_direction in {"", "ambiguous"} else True,
+        "target_correct": None,
+        "horizon_correct": None,
+        "variable_mapping_correct": None,
+        "unsupported_field_false_grounded": False,
+    }
+    tags: list[str] = []
+    if not has_source_evidence:
+        tags.append("source_evidence_unverified")
+    if not markdown_exists:
+        tags.append("markdown_missing")
+    if proposed_direction == "ambiguous":
+        tags.append("direction_ambiguous")
+    if "sentence_fallback_requires_context_synthesis" in tuple(row.get("proposed_review_risk_flags") or ()):
+        tags.append("context_synthesis_required")
+    return {
+        "evidence_kind": "gold_review_evidence_not_import",
+        "not_apply_gold_review_input": True,
+        "human_review_required": True,
+        "index": index,
+        "priority_score": _gold_evidence_priority_score(row),
+        "claim_id": str(row.get("claim_id") or ""),
+        TARGET_ROW_HASH_FIELD: review_row_fingerprint(row),
+        "source_id": source_id,
+        "source_span_id": str(row.get("source_span_id") or ""),
+        "document_id": str(row.get("document_id") or row.get("source_id") or ""),
+        "gold_set_domain": str(row.get("gold_set_domain") or "other"),
+        "proposed_claim_text": proposed_claim_text,
+        "proposed_claim_type": row.get("proposed_claim_type"),
+        "proposed_direction": proposed_direction,
+        "proposed_cause_variables": tuple(row.get("proposed_cause_variables") or ()),
+        "proposed_target_variables": tuple(row.get("proposed_target_variables") or ()),
+        "proposed_review_risk_flags": tuple(row.get("proposed_review_risk_flags") or ()),
+        "proposed_source_offsets": (
+            f"{row.get('proposed_source_start_char')}-{row.get('proposed_source_end_char')}"
+        ),
+        "proposed_source_text_hash": str(row.get("proposed_source_text_hash") or ""),
+        "metadata_title_preview": _short_review_preview(
+            (metadata_row or source_row).get("title"),
+            max_chars=160,
+        ),
+        "markdown_path": markdown_path_text,
+        "markdown_exists": markdown_exists,
+        "evidence_terms": terms,
+        "evidence_snippets": tuple(snippets),
+        "suggested_manual_claim_text": proposed_claim_text,
+        "suggested_review_decision": suggested_decision,
+        "suggested_manual_error_tags": tuple(tags),
+        "suggested_review_notes": (
+            "Review local abstract/markdown evidence before copying decisions into "
+            "gold_set_full_reviewed.jsonl. Draft suggestion only; not an import row."
+        ),
+        "reviewed_import_path": GOLD_FULL_REVIEWED_IMPORT_PATH,
+    }
+
+
+def build_gold_review_evidence(
+    root: str | Path = ".",
+    *,
+    limit: int = 50,
+) -> tuple[GoldReviewEvidenceSummary, tuple[Mapping[str, Any], ...]]:
+    root_path = Path(root)
+    raw_rows, template_rows, invalid_rows, parse_blockers, _ = _load_review_rows(
+        root_path,
+        GOLD_REVIEW_TEMPLATE_PATH,
+        label="gold-set review",
+    )
+    reviewed_path = root_path / GOLD_FULL_REVIEWED_IMPORT_PATH
+    if reviewed_path.exists():
+        reviewed_rows, reviewed_blockers = _load_jsonl_mapping_rows(reviewed_path)
+    else:
+        reviewed_rows, reviewed_blockers = [], ()
+    source_rows, source_blockers = _load_jsonl_mapping_rows(
+        root_path / "registry/sources/tushare_research_reports.jsonl"
+    )
+    metadata_rows, metadata_blockers = _load_jsonl_mapping_rows(
+        root_path / "registry/report_intelligence/report_metadata.jsonl"
+    )
+    reviewed_by_id = {
+        str(row.get("claim_id") or ""): row
+        for row in reviewed_rows
+        if str(row.get("claim_id") or "").strip()
+    }
+    source_by_id = {
+        str(row.get("source_id") or ""): row
+        for row in source_rows
+        if str(row.get("source_id") or "").strip()
+    }
+    metadata_by_source = {
+        str(row.get("source_id") or ""): row
+        for row in metadata_rows
+        if str(row.get("source_id") or "").strip()
+    }
+    pending_rows = [
+        row
+        for row in template_rows
+        if not _gold_row_complete(reviewed_by_id.get(str(row.get("claim_id") or ""), row))
+    ]
+    prioritized_rows = sorted(
+        enumerate(pending_rows, 1),
+        key=lambda item: (-_gold_evidence_priority_score(item[1]), item[0]),
+    )[: max(0, int(limit))]
+    evidence_rows = tuple(
+        _gold_evidence_row(
+            index,
+            row,
+            root_path=root_path,
+            source_by_id=source_by_id,
+            metadata_by_source=metadata_by_source,
+        )
+        for index, row in prioritized_rows
+    )
+    blockers: list[str] = [*parse_blockers, *reviewed_blockers, *source_blockers, *metadata_blockers]
+    if invalid_rows:
+        blockers.append(
+            "gold-set review row must be object at row(s): "
+            + ", ".join(str(row_number) for row_number in invalid_rows)
+        )
+    if not raw_rows:
+        blockers.append("gold-set review template is missing or empty")
+    elif not template_rows:
+        blockers.append("gold-set review template has no valid review rows")
+    if not source_rows:
+        blockers.append("tushare research report source rows are missing or empty")
+    missing_markdown_rows = sum(1 for row in evidence_rows if not row.get("markdown_exists"))
+    return (
+        GoldReviewEvidenceSummary(
+            evidence_id="RKE-GOLD-REVIEW-EVIDENCE-20260612",
+            jsonl_path=GOLD_REVIEW_EVIDENCE_JSONL_PATH,
+            markdown_path=GOLD_REVIEW_EVIDENCE_MD_PATH,
+            review_template_path=GOLD_REVIEW_TEMPLATE_PATH,
+            reviewed_import_path=GOLD_FULL_REVIEWED_IMPORT_PATH,
+            requested_limit=max(0, int(limit)),
+            row_count=len(evidence_rows),
+            evidence_rows=sum(1 for row in evidence_rows if row.get("evidence_snippets")),
+            missing_markdown_rows=missing_markdown_rows,
+            blockers=tuple(blockers),
+        ),
+        evidence_rows,
+    )
+
+
+def render_gold_review_evidence_markdown(
+    summary: GoldReviewEvidenceSummary,
+    rows: Sequence[Mapping[str, Any]],
+) -> str:
+    lines = [
+        "# RKE Gold Review Evidence Draft",
+        "",
+        f"- Evidence ID: {summary.evidence_id}",
+        f"- Rows: {summary.row_count}",
+        f"- Review template: `{summary.review_template_path}`",
+        f"- Reviewed import target: `{summary.reviewed_import_path}`",
+        "",
+        "This private file contains local source snippets and machine suggestions for human review. It is not an import file.",
+        "Do not commit this file. Confirm decisions before copying them into the reviewed JSONL scratch file.",
+        "",
+    ]
+    if summary.blockers:
+        lines.extend(["## Blockers", ""])
+        lines.extend(f"- {blocker}" for blocker in summary.blockers)
+        lines.append("")
+    for row in rows:
+        lines.extend(
+            [
+                f"## {row.get('index')}. {row.get('claim_id')}",
+                "",
+                f"- Source: `{row.get('source_id')}`",
+                f"- Domain: {row.get('gold_set_domain') or '-'}",
+                f"- Direction: {row.get('proposed_direction') or '-'}",
+                f"- Priority score: {row.get('priority_score')}",
+                f"- Suggested tags: {_markdown_cell(row.get('suggested_manual_error_tags'), max_chars=200)}",
+                "",
+                "Suggested manual claim text:",
+                "",
+                "> " + _short_review_preview(row.get("suggested_manual_claim_text"), max_chars=900),
+                "",
+                "Suggested decision:",
+                "",
+                "```json",
+                json.dumps(row.get("suggested_review_decision"), ensure_ascii=False, indent=2),
+                "```",
+                "",
+                "Evidence snippets:",
+                "",
+            ]
+        )
+        snippets = tuple(row.get("evidence_snippets") or ())
+        if not snippets:
+            lines.append("- No local evidence snippet found.")
+        for snippet in snippets:
+            snippet_map = dict(snippet) if isinstance(snippet, Mapping) else {}
+            label = snippet_map.get("source") or "unknown"
+            term = snippet_map.get("matched_term")
+            if term:
+                label = f"{label}; matched `{term}`"
+            lines.extend(
+                [
+                    f"- {label}",
+                    "",
+                    "> " + _short_review_preview(snippet_map.get("snippet"), max_chars=900),
+                    "",
+                ]
+            )
+    return "\n".join(lines)
+
+
+def write_gold_review_evidence(
+    root: str | Path = ".",
+    *,
+    limit: int = 50,
+) -> dict[str, Any]:
+    root_path = Path(root)
+    summary, rows = build_gold_review_evidence(root_path, limit=limit)
+    jsonl_result = _write_jsonl(root_path / GOLD_REVIEW_EVIDENCE_JSONL_PATH, rows)
+    md_path = root_path / GOLD_REVIEW_EVIDENCE_MD_PATH
+    md_path.parent.mkdir(parents=True, exist_ok=True)
+    md_path.write_text(
+        render_gold_review_evidence_markdown(summary, rows) + "\n",
+        encoding="utf-8",
+    )
+    return {
+        "jsonl": str(jsonl_result["path"]),
+        "markdown": str(md_path),
+        "rows": len(rows),
+        "evidence_rows": summary.evidence_rows,
+        "missing_markdown_rows": summary.missing_markdown_rows,
         "blockers": len(summary.blockers),
     }
 

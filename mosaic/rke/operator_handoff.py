@@ -25,6 +25,8 @@ from .manual_review_batches import (
     GOLD_FULL_REVIEWED_IMPORT_PATH,
     GOLD_REVIEW_ASSIST_JSONL_PATH,
     GOLD_REVIEW_ASSIST_MD_PATH,
+    GOLD_REVIEW_EVIDENCE_JSONL_PATH,
+    GOLD_REVIEW_EVIDENCE_MD_PATH,
     GOLD_REVIEW_WORKBOOK_MD_PATH,
     build_manual_review_batch_status,
     write_manual_review_batches,
@@ -258,6 +260,17 @@ def _operator_command_sequence(
             command=gold.prepare_command,
             manual_input_path="",
             expected_result=f"Reviewer scratch target is {GOLD_FULL_REVIEWED_IMPORT_PATH}.",
+        ),
+        OperatorCommandStep(
+            step_id="write-gold-review-evidence",
+            phase="gold_set",
+            action="Write private gold-set evidence draft files.",
+            command="mosaic-rke write-gold-review-evidence --root . --limit 50",
+            manual_input_path="",
+            expected_result=(
+                f"Private evidence Markdown is {GOLD_REVIEW_EVIDENCE_MD_PATH} "
+                f"and evidence JSONL is {GOLD_REVIEW_EVIDENCE_JSONL_PATH}."
+            ),
         ),
         OperatorCommandStep(
             step_id="fill-gold-review",
@@ -568,6 +581,7 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
                 "Run prepare-gold-review --full, fill the reviewed scratch JSONL, "
                 f"use {GOLD_REVIEW_WORKBOOK_MD_PATH} as the read-only claim checklist, "
                 f"and use {GOLD_REVIEW_ASSIST_MD_PATH} as non-import machine assistance, "
+                f"use {GOLD_REVIEW_EVIDENCE_MD_PATH} as private source evidence draft, "
                 "then dry-run before applying the 500-claim gold set."
             ),
         ),
@@ -657,6 +671,8 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
         GOLD_REVIEW_WORKBOOK_MD_PATH,
         GOLD_REVIEW_ASSIST_JSONL_PATH,
         GOLD_REVIEW_ASSIST_MD_PATH,
+        GOLD_REVIEW_EVIDENCE_JSONL_PATH,
+        GOLD_REVIEW_EVIDENCE_MD_PATH,
         source_license.import_template_path,
         SOURCE_LICENSE_REVIEW_WORKBOOK_MD_PATH,
         SOURCE_LICENSE_POLICY_TEMPLATE_PATH,
