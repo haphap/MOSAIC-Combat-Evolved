@@ -12,6 +12,7 @@ from mosaic.rke import (
     write_operator_handoff,
 )
 from mosaic.rke.cli import main
+from mosaic.rke.operator_handoff import RKE_OPERATOR_TMP_ENV_PREFIX
 
 
 def _copy_registry(dst_root: Path) -> None:
@@ -40,23 +41,27 @@ def test_operator_handoff_summarizes_remaining_manual_gates():
         "promotion-status-final",
     )
     assert "promotion-dry-run" in handoff.promotion_dry_run_command
-    assert handoff.command_sequence[0].command == "mosaic-rke review-progress --root ."
+    assert handoff.command_sequence[0].command == (
+        f"{RKE_OPERATOR_TMP_ENV_PREFIX} mosaic-rke review-progress --root ."
+    )
     assert not any(
         step.phase == "source_license" for step in handoff.command_sequence
     )
     assert any(
         step.step_id == "promotion-status-before-lockbox"
-        and step.command == "mosaic-rke promotion-status --root ."
+        and step.command == f"{RKE_OPERATOR_TMP_ENV_PREFIX} mosaic-rke promotion-status --root ."
         for step in handoff.command_sequence
     )
     assert any(
         step.step_id == "write-footprint-review-evidence"
-        and step.command == "mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 0"
+        and step.command
+        == f"{RKE_OPERATOR_TMP_ENV_PREFIX} mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 0"
         for step in handoff.command_sequence
     )
     assert any(
         step.step_id == "write-gold-review-evidence"
-        and step.command == "mosaic-rke write-gold-review-evidence --root . --limit 50 --offset 0"
+        and step.command
+        == f"{RKE_OPERATOR_TMP_ENV_PREFIX} mosaic-rke write-gold-review-evidence --root . --limit 50 --offset 0"
         for step in handoff.command_sequence
     )
     assert {gate.review_kind for gate in handoff.gates} == {
@@ -79,7 +84,9 @@ def test_operator_handoff_summarizes_remaining_manual_gates():
         gold.full_import_template_path
         == "registry/review_batches/gold_set_full_import_template.jsonl"
     )
-    assert gold.prepare_command == "mosaic-rke prepare-gold-review --root . --full"
+    assert gold.prepare_command == (
+        f"{RKE_OPERATOR_TMP_ENV_PREFIX} mosaic-rke prepare-gold-review --root . --full"
+    )
     assert gold.reviewed_policy_path == "registry/review_batches/gold_set_full_reviewed.jsonl"
     assert gold.exported_rows == 0
     assert "gold_set_full_reviewed.jsonl" in gold.dry_run_command
@@ -119,7 +126,9 @@ def test_operator_handoff_summarizes_remaining_manual_gates():
         license_gate.reviewed_policy_path
         == "registry/review_batches/source_license_policy_reviewed.json"
     )
-    assert license_gate.prepare_command == "mosaic-rke prepare-license-policy-review --root ."
+    assert license_gate.prepare_command == (
+        f"{RKE_OPERATOR_TMP_ENV_PREFIX} mosaic-rke prepare-license-policy-review --root ."
+    )
     assert "source_license_policy_reviewed.json" in license_gate.dry_run_command
     assert "build-license-review-import" in license_gate.apply_command
     assert "source_license_policy_reviewed.json" in license_gate.apply_command
@@ -130,7 +139,9 @@ def test_operator_handoff_summarizes_remaining_manual_gates():
         == "registry/review_batches/lockbox_review_next_import_template.json"
     )
     assert lockbox.reviewed_policy_path == "registry/review_batches/lockbox_reviewed.json"
-    assert lockbox.prepare_command == "mosaic-rke prepare-lockbox-review --root ."
+    assert lockbox.prepare_command == (
+        f"{RKE_OPERATOR_TMP_ENV_PREFIX} mosaic-rke prepare-lockbox-review --root ."
+    )
     assert "apply-lockbox-review" in lockbox.dry_run_command
     assert "lockbox_reviewed.json" in lockbox.dry_run_command
     assert "lockbox_reviewed.json" in handoff.promotion_dry_run_command
@@ -230,9 +241,13 @@ def test_write_operator_handoff_outputs_json_markdown_and_lockbox_template(
     gold_gate = next(gate for gate in payload["gates"] if gate["review_kind"] == "gold_set")
     footprint_gate = next(gate for gate in payload["gates"] if gate["review_kind"] == "footprint_review")
     lockbox_gate = next(gate for gate in payload["gates"] if gate["review_kind"] == "lockbox")
-    assert gold_gate["prepare_command"] == "mosaic-rke prepare-gold-review --root . --full"
+    assert gold_gate["prepare_command"] == (
+        f"{RKE_OPERATOR_TMP_ENV_PREFIX} mosaic-rke prepare-gold-review --root . --full"
+    )
     assert gold_gate["reviewed_policy_path"] == "registry/review_batches/gold_set_full_reviewed.jsonl"
-    assert license_gate["prepare_command"] == "mosaic-rke prepare-license-policy-review --root ."
+    assert license_gate["prepare_command"] == (
+        f"{RKE_OPERATOR_TMP_ENV_PREFIX} mosaic-rke prepare-license-policy-review --root ."
+    )
     assert "build-license-review-import" in license_gate["apply_command"]
     assert "source_license_policy_reviewed.json" in license_gate["apply_command"]
     assert "prepare-footprint-review" in footprint_gate["prepare_command"]
@@ -247,7 +262,9 @@ def test_write_operator_handoff_outputs_json_markdown_and_lockbox_template(
     )
     assert "gold_set_reviewed.jsonl" in gold_gate["operator_note"]
     assert "analytical_footprint_review_batch.jsonl" in footprint_gate["operator_note"]
-    assert lockbox_gate["prepare_command"] == "mosaic-rke prepare-lockbox-review --root ."
+    assert lockbox_gate["prepare_command"] == (
+        f"{RKE_OPERATOR_TMP_ENV_PREFIX} mosaic-rke prepare-lockbox-review --root ."
+    )
     assert lockbox_gate["reviewed_policy_path"] == "registry/review_batches/lockbox_reviewed.json"
     assert len(payload["gates"]) == 4
     assert lockbox_template["result"] == ""

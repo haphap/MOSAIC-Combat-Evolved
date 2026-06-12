@@ -30,7 +30,7 @@
 - apply-lockbox-review
 - promotion-status-final
 
-Dry-run command: `mosaic-rke promotion-dry-run --root . --gold-input registry/review_batches/gold_set_full_reviewed.jsonl --footprint-input registry/report_intelligence/analytical_footprint_reviewed.jsonl --lockbox-input registry/review_batches/lockbox_reviewed.json`
+Dry-run command: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke promotion-dry-run --root . --gold-input registry/review_batches/gold_set_full_reviewed.jsonl --footprint-input registry/report_intelligence/analytical_footprint_reviewed.jsonl --lockbox-input registry/review_batches/lockbox_reviewed.json`
 
 ## Command Sequence
 
@@ -38,7 +38,7 @@ Dry-run command: `mosaic-rke promotion-dry-run --root . --gold-input registry/re
 
 - Phase: preflight
 - Action: Inspect current manual-gate status.
-- Command: `mosaic-rke review-progress --root .`
+- Command: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke review-progress --root .`
 - Manual input: none
 - Expected result: Shows current blockers without applying reviewer decisions.
 
@@ -46,7 +46,7 @@ Dry-run command: `mosaic-rke promotion-dry-run --root . --gold-input registry/re
 
 - Phase: gold_set
 - Action: Write the full gold-set import starter and workbook.
-- Command: `mosaic-rke prepare-gold-review --root . --full`
+- Command: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-gold-review --root . --full`
 - Manual input: none
 - Expected result: Reviewer scratch target is registry/review_batches/gold_set_full_reviewed.jsonl.
 
@@ -54,7 +54,7 @@ Dry-run command: `mosaic-rke promotion-dry-run --root . --gold-input registry/re
 
 - Phase: gold_set
 - Action: Write private gold-set evidence draft files.
-- Command: `mosaic-rke write-gold-review-evidence --root . --limit 50 --offset 0`
+- Command: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-gold-review-evidence --root . --limit 50 --offset 0`
 - Manual input: none
 - Expected result: Private evidence Markdown is registry/review_batches/gold_set_review_evidence.md and evidence JSONL is registry/review_batches/gold_set_review_evidence.jsonl.
 
@@ -70,7 +70,7 @@ Dry-run command: `mosaic-rke promotion-dry-run --root . --gold-input registry/re
 
 - Phase: gold_set
 - Action: Validate the reviewed gold-set scratch file.
-- Command: `mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl --dry-run`
+- Command: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl --dry-run`
 - Manual input: registry/review_batches/gold_set_full_reviewed.jsonl
 - Expected result: Import is accepted and gold-set quality thresholds pass.
 
@@ -78,7 +78,7 @@ Dry-run command: `mosaic-rke promotion-dry-run --root . --gold-input registry/re
 
 - Phase: gold_set
 - Action: Apply accepted gold-set review decisions.
-- Command: `mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl`
+- Command: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl`
 - Manual input: registry/review_batches/gold_set_full_reviewed.jsonl
 - Expected result: Gold-set summaries and downstream gates are recomputed.
 
@@ -86,7 +86,7 @@ Dry-run command: `mosaic-rke promotion-dry-run --root . --gold-input registry/re
 
 - Phase: footprint_review
 - Action: Write the analytical-footprint review starter.
-- Command: `mosaic-rke prepare-footprint-review --root . --output registry/report_intelligence/analytical_footprint_reviewed.jsonl --overwrite`
+- Command: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --output registry/report_intelligence/analytical_footprint_reviewed.jsonl --overwrite`
 - Manual input: none
 - Expected result: Reviewer scratch target is registry/report_intelligence/analytical_footprint_reviewed.jsonl.
 
@@ -94,7 +94,7 @@ Dry-run command: `mosaic-rke promotion-dry-run --root . --gold-input registry/re
 
 - Phase: footprint_review
 - Action: Write private analytical-footprint review assist files.
-- Command: `mosaic-rke write-footprint-review-assist --root .`
+- Command: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .`
 - Manual input: none
 - Expected result: Private workbook is registry/report_intelligence/analytical_footprint_review_workbook.md and JSONL assist is registry/report_intelligence/analytical_footprint_review_assist.jsonl.
 
@@ -102,7 +102,7 @@ Dry-run command: `mosaic-rke promotion-dry-run --root . --gold-input registry/re
 
 - Phase: footprint_review
 - Action: Write private analytical-footprint evidence draft files.
-- Command: `mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 0`
+- Command: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 0`
 - Manual input: none
 - Expected result: Private evidence Markdown is registry/report_intelligence/analytical_footprint_review_evidence.md and evidence JSONL is registry/report_intelligence/analytical_footprint_review_evidence.jsonl.
 
@@ -118,7 +118,7 @@ Dry-run command: `mosaic-rke promotion-dry-run --root . --gold-input registry/re
 
 - Phase: footprint_review
 - Action: Validate the reviewed analytical-footprint scratch file.
-- Command: `mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_reviewed.jsonl --dry-run`
+- Command: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_reviewed.jsonl --dry-run`
 - Manual input: registry/report_intelligence/analytical_footprint_reviewed.jsonl
 - Expected result: Import is accepted and footprint quality thresholds pass.
 
@@ -126,7 +126,7 @@ Dry-run command: `mosaic-rke promotion-dry-run --root . --gold-input registry/re
 
 - Phase: footprint_review
 - Action: Apply accepted analytical-footprint review decisions.
-- Command: `mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_reviewed.jsonl`
+- Command: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_reviewed.jsonl`
 - Manual input: registry/report_intelligence/analytical_footprint_reviewed.jsonl
 - Expected result: Footprint summaries and downstream gates are recomputed.
 
@@ -134,7 +134,7 @@ Dry-run command: `mosaic-rke promotion-dry-run --root . --gold-input registry/re
 
 - Phase: promotion
 - Action: Confirm only the final lockbox gate remains before opening it.
-- Command: `mosaic-rke promotion-status --root .`
+- Command: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke promotion-status --root .`
 - Manual input: none
 - Expected result: Gold-set, footprint, and source-license criteria pass; lockbox remains not opened.
 
@@ -142,7 +142,7 @@ Dry-run command: `mosaic-rke promotion-dry-run --root . --gold-input registry/re
 
 - Phase: lockbox
 - Action: Write the one-time lockbox review starter.
-- Command: `mosaic-rke prepare-lockbox-review --root .`
+- Command: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-lockbox-review --root .`
 - Manual input: none
 - Expected result: Reviewer scratch target is registry/review_batches/lockbox_reviewed.json.
 
@@ -158,7 +158,7 @@ Dry-run command: `mosaic-rke promotion-dry-run --root . --gold-input registry/re
 
 - Phase: lockbox
 - Action: Validate the signed lockbox review.
-- Command: `mosaic-rke apply-lockbox-review --root . --input registry/review_batches/lockbox_reviewed.json --dry-run`
+- Command: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-lockbox-review --root . --input registry/review_batches/lockbox_reviewed.json --dry-run`
 - Manual input: registry/review_batches/lockbox_reviewed.json
 - Expected result: Lockbox import is accepted and production decision is eligible.
 
@@ -166,7 +166,7 @@ Dry-run command: `mosaic-rke promotion-dry-run --root . --gold-input registry/re
 
 - Phase: promotion
 - Action: Simulate the complete reviewed bundle before final apply.
-- Command: `mosaic-rke promotion-dry-run --root . --gold-input registry/review_batches/gold_set_full_reviewed.jsonl --footprint-input registry/report_intelligence/analytical_footprint_reviewed.jsonl --lockbox-input registry/review_batches/lockbox_reviewed.json`
+- Command: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke promotion-dry-run --root . --gold-input registry/review_batches/gold_set_full_reviewed.jsonl --footprint-input registry/report_intelligence/analytical_footprint_reviewed.jsonl --lockbox-input registry/review_batches/lockbox_reviewed.json`
 - Manual input: none
 - Expected result: Simulation accepts all required reviewed inputs without mutating the original registry.
 
@@ -174,7 +174,7 @@ Dry-run command: `mosaic-rke promotion-dry-run --root . --gold-input registry/re
 
 - Phase: lockbox
 - Action: Apply the accepted one-time lockbox review.
-- Command: `mosaic-rke apply-lockbox-review --root . --input registry/review_batches/lockbox_reviewed.json`
+- Command: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-lockbox-review --root . --input registry/review_batches/lockbox_reviewed.json`
 - Manual input: registry/review_batches/lockbox_reviewed.json
 - Expected result: Lockbox review is recorded and downstream promotion gates are recomputed.
 
@@ -182,7 +182,7 @@ Dry-run command: `mosaic-rke promotion-dry-run --root . --gold-input registry/re
 
 - Phase: promotion
 - Action: Inspect final staged-promotion state.
-- Command: `mosaic-rke promotion-status --root .`
+- Command: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke promotion-status --root .`
 - Manual input: none
 - Expected result: Promotion status reflects the applied manual reviews and lockbox decision.
 
@@ -199,11 +199,11 @@ Dry-run command: `mosaic-rke promotion-dry-run --root . --gold-input registry/re
 - Full import template: registry/review_batches/gold_set_full_import_template.jsonl
 - Policy template: none
 - Reviewed policy/input: registry/review_batches/gold_set_full_reviewed.jsonl
-- Prepare: `mosaic-rke prepare-gold-review --root . --full`
+- Prepare: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-gold-review --root . --full`
 - Pending rows: 500
 - Exported rows: 500
-- Dry run: `mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl --dry-run`
-- Apply: `mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl`
+- Dry run: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl --dry-run`
+- Apply: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl`
 - Note: Run prepare-gold-review --full, fill the reviewed scratch JSONL, use registry/review_batches/gold_set_review_workbook.md as the read-only claim checklist, and use registry/review_batches/gold_set_review_assist.md as non-import machine assistance, use registry/review_batches/gold_set_review_evidence.md as private source evidence draft, then dry-run before applying the 500-claim gold set. For batch work, prepare registry/review_batches/gold_set_reviewed.jsonl with --gold-batch-size/--offset, dry-run it, and apply accepted batches to accumulate progress.
 
 ### RI-FOOTPRINT-REVIEW footprint_review
@@ -217,11 +217,11 @@ Dry-run command: `mosaic-rke promotion-dry-run --root . --gold-input registry/re
 - Full import template: registry/report_intelligence/analytical_footprint_review_template.jsonl
 - Policy template: none
 - Reviewed policy/input: registry/report_intelligence/analytical_footprint_reviewed.jsonl
-- Prepare: `mosaic-rke prepare-footprint-review --root . --output registry/report_intelligence/analytical_footprint_reviewed.jsonl --overwrite`
+- Prepare: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --output registry/report_intelligence/analytical_footprint_reviewed.jsonl --overwrite`
 - Pending rows: 1001
 - Exported rows: 1001
-- Dry run: `mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_reviewed.jsonl --dry-run`
-- Apply: `mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_reviewed.jsonl`
+- Dry run: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_reviewed.jsonl --dry-run`
+- Apply: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_reviewed.jsonl`
 - Note: Generate the private footprint review assist/workbook and evidence draft, fill the reviewed scratch JSONL, keep hashes intact, and dry-run before applying. For batch work, prepare registry/report_intelligence/analytical_footprint_review_batch.jsonl with --limit/--offset, dry-run it, and apply accepted batches to accumulate progress.
 
 ### PG03 source_license
@@ -235,11 +235,11 @@ Dry-run command: `mosaic-rke promotion-dry-run --root . --gold-input registry/re
 - Full import template: registry/review_batches/source_license_policy_import.jsonl
 - Policy template: registry/review_batches/source_license_policy_template.json
 - Reviewed policy/input: registry/review_batches/source_license_policy_reviewed.json
-- Prepare: `mosaic-rke prepare-license-policy-review --root .`
+- Prepare: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-license-policy-review --root .`
 - Pending rows: 0
 - Exported rows: 0
-- Dry run: `mosaic-rke build-license-review-import --root . --policy registry/review_batches/source_license_policy_reviewed.json --output registry/review_batches/source_license_policy_import.jsonl && mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_policy_import.jsonl --dry-run`
-- Apply: `mosaic-rke build-license-review-import --root . --policy registry/review_batches/source_license_policy_reviewed.json --output registry/review_batches/source_license_policy_import.jsonl && mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_policy_import.jsonl`
+- Dry run: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke build-license-review-import --root . --policy registry/review_batches/source_license_policy_reviewed.json --output registry/review_batches/source_license_policy_import.jsonl && MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_policy_import.jsonl --dry-run`
+- Apply: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke build-license-review-import --root . --policy registry/review_batches/source_license_policy_reviewed.json --output registry/review_batches/source_license_policy_import.jsonl && MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_policy_import.jsonl`
 - Note: Compliance approval is required before production runtime retrieval. Use registry/review_batches/source_license_review_workbook.md as the read-only source-class checklist. Copy registry/review_batches/source_license_policy_template.json to registry/review_batches/source_license_policy_reviewed.json, fill and sign the reviewed policy, then expand it instead of editing every source row manually.
 
 ### PG09 lockbox
@@ -253,11 +253,11 @@ Dry-run command: `mosaic-rke promotion-dry-run --root . --gold-input registry/re
 - Full import template: none
 - Policy template: none
 - Reviewed policy/input: registry/review_batches/lockbox_reviewed.json
-- Prepare: `mosaic-rke prepare-lockbox-review --root .`
+- Prepare: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-lockbox-review --root .`
 - Pending rows: None
 - Exported rows: 1
-- Dry run: `mosaic-rke apply-lockbox-review --root . --input registry/review_batches/lockbox_reviewed.json --dry-run`
-- Apply: `mosaic-rke apply-lockbox-review --root . --input registry/review_batches/lockbox_reviewed.json`
+- Dry run: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-lockbox-review --root . --input registry/review_batches/lockbox_reviewed.json --dry-run`
+- Apply: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-lockbox-review --root . --input registry/review_batches/lockbox_reviewed.json`
 - Note: Run prepare-lockbox-review only after manual gold and license gates pass, fill the reviewed scratch JSON, then dry-run before applying the one-time lockbox review.
 
 ## Remaining Blockers

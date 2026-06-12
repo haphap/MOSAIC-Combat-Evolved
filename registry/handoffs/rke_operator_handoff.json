@@ -2,7 +2,7 @@
   "command_sequence": [
     {
       "action": "Inspect current manual-gate status.",
-      "command": "mosaic-rke review-progress --root .",
+      "command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke review-progress --root .",
       "expected_result": "Shows current blockers without applying reviewer decisions.",
       "manual_input_path": "",
       "phase": "preflight",
@@ -10,7 +10,7 @@
     },
     {
       "action": "Write the full gold-set import starter and workbook.",
-      "command": "mosaic-rke prepare-gold-review --root . --full",
+      "command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-gold-review --root . --full",
       "expected_result": "Reviewer scratch target is registry/review_batches/gold_set_full_reviewed.jsonl.",
       "manual_input_path": "",
       "phase": "gold_set",
@@ -18,7 +18,7 @@
     },
     {
       "action": "Write private gold-set evidence draft files.",
-      "command": "mosaic-rke write-gold-review-evidence --root . --limit 50 --offset 0",
+      "command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-gold-review-evidence --root . --limit 50 --offset 0",
       "expected_result": "Private evidence Markdown is registry/review_batches/gold_set_review_evidence.md and evidence JSONL is registry/review_batches/gold_set_review_evidence.jsonl.",
       "manual_input_path": "",
       "phase": "gold_set",
@@ -34,7 +34,7 @@
     },
     {
       "action": "Validate the reviewed gold-set scratch file.",
-      "command": "mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl --dry-run",
+      "command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl --dry-run",
       "expected_result": "Import is accepted and gold-set quality thresholds pass.",
       "manual_input_path": "registry/review_batches/gold_set_full_reviewed.jsonl",
       "phase": "gold_set",
@@ -42,7 +42,7 @@
     },
     {
       "action": "Apply accepted gold-set review decisions.",
-      "command": "mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl",
+      "command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl",
       "expected_result": "Gold-set summaries and downstream gates are recomputed.",
       "manual_input_path": "registry/review_batches/gold_set_full_reviewed.jsonl",
       "phase": "gold_set",
@@ -50,7 +50,7 @@
     },
     {
       "action": "Write the analytical-footprint review starter.",
-      "command": "mosaic-rke prepare-footprint-review --root . --output registry/report_intelligence/analytical_footprint_reviewed.jsonl --overwrite",
+      "command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --output registry/report_intelligence/analytical_footprint_reviewed.jsonl --overwrite",
       "expected_result": "Reviewer scratch target is registry/report_intelligence/analytical_footprint_reviewed.jsonl.",
       "manual_input_path": "",
       "phase": "footprint_review",
@@ -58,7 +58,7 @@
     },
     {
       "action": "Write private analytical-footprint review assist files.",
-      "command": "mosaic-rke write-footprint-review-assist --root .",
+      "command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .",
       "expected_result": "Private workbook is registry/report_intelligence/analytical_footprint_review_workbook.md and JSONL assist is registry/report_intelligence/analytical_footprint_review_assist.jsonl.",
       "manual_input_path": "",
       "phase": "footprint_review",
@@ -66,7 +66,7 @@
     },
     {
       "action": "Write private analytical-footprint evidence draft files.",
-      "command": "mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 0",
+      "command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 0",
       "expected_result": "Private evidence Markdown is registry/report_intelligence/analytical_footprint_review_evidence.md and evidence JSONL is registry/report_intelligence/analytical_footprint_review_evidence.jsonl.",
       "manual_input_path": "",
       "phase": "footprint_review",
@@ -82,7 +82,7 @@
     },
     {
       "action": "Validate the reviewed analytical-footprint scratch file.",
-      "command": "mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_reviewed.jsonl --dry-run",
+      "command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_reviewed.jsonl --dry-run",
       "expected_result": "Import is accepted and footprint quality thresholds pass.",
       "manual_input_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
       "phase": "footprint_review",
@@ -90,7 +90,7 @@
     },
     {
       "action": "Apply accepted analytical-footprint review decisions.",
-      "command": "mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+      "command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_reviewed.jsonl",
       "expected_result": "Footprint summaries and downstream gates are recomputed.",
       "manual_input_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
       "phase": "footprint_review",
@@ -98,7 +98,7 @@
     },
     {
       "action": "Confirm only the final lockbox gate remains before opening it.",
-      "command": "mosaic-rke promotion-status --root .",
+      "command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke promotion-status --root .",
       "expected_result": "Gold-set, footprint, and source-license criteria pass; lockbox remains not opened.",
       "manual_input_path": "",
       "phase": "promotion",
@@ -106,7 +106,7 @@
     },
     {
       "action": "Write the one-time lockbox review starter.",
-      "command": "mosaic-rke prepare-lockbox-review --root .",
+      "command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-lockbox-review --root .",
       "expected_result": "Reviewer scratch target is registry/review_batches/lockbox_reviewed.json.",
       "manual_input_path": "",
       "phase": "lockbox",
@@ -122,7 +122,7 @@
     },
     {
       "action": "Validate the signed lockbox review.",
-      "command": "mosaic-rke apply-lockbox-review --root . --input registry/review_batches/lockbox_reviewed.json --dry-run",
+      "command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-lockbox-review --root . --input registry/review_batches/lockbox_reviewed.json --dry-run",
       "expected_result": "Lockbox import is accepted and production decision is eligible.",
       "manual_input_path": "registry/review_batches/lockbox_reviewed.json",
       "phase": "lockbox",
@@ -130,7 +130,7 @@
     },
     {
       "action": "Simulate the complete reviewed bundle before final apply.",
-      "command": "mosaic-rke promotion-dry-run --root . --gold-input registry/review_batches/gold_set_full_reviewed.jsonl --footprint-input registry/report_intelligence/analytical_footprint_reviewed.jsonl --lockbox-input registry/review_batches/lockbox_reviewed.json",
+      "command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke promotion-dry-run --root . --gold-input registry/review_batches/gold_set_full_reviewed.jsonl --footprint-input registry/report_intelligence/analytical_footprint_reviewed.jsonl --lockbox-input registry/review_batches/lockbox_reviewed.json",
       "expected_result": "Simulation accepts all required reviewed inputs without mutating the original registry.",
       "manual_input_path": "",
       "phase": "promotion",
@@ -138,7 +138,7 @@
     },
     {
       "action": "Apply the accepted one-time lockbox review.",
-      "command": "mosaic-rke apply-lockbox-review --root . --input registry/review_batches/lockbox_reviewed.json",
+      "command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-lockbox-review --root . --input registry/review_batches/lockbox_reviewed.json",
       "expected_result": "Lockbox review is recorded and downstream promotion gates are recomputed.",
       "manual_input_path": "registry/review_batches/lockbox_reviewed.json",
       "phase": "lockbox",
@@ -146,7 +146,7 @@
     },
     {
       "action": "Inspect final staged-promotion state.",
-      "command": "mosaic-rke promotion-status --root .",
+      "command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke promotion-status --root .",
       "expected_result": "Promotion status reflects the applied manual reviews and lockbox decision.",
       "manual_input_path": "",
       "phase": "promotion",
@@ -156,9 +156,9 @@
   "direct_production_forbidden": true,
   "gates": [
     {
-      "apply_command": "mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl",
+      "apply_command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl",
       "blocker": "manual gold-set review still required",
-      "dry_run_command": "mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl --dry-run",
+      "dry_run_command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl --dry-run",
       "evidence": "0 / 500 gold-set claims reviewed",
       "evidence_path": "registry/gold_sets/tushare_research_reports.review_summary.json",
       "exported_rows": 500,
@@ -169,7 +169,7 @@
       "passed": false,
       "pending_rows": 500,
       "policy_template_path": "",
-      "prepare_command": "mosaic-rke prepare-gold-review --root . --full",
+      "prepare_command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-gold-review --root . --full",
       "required_manual_fields": [
         "manual_claim_text",
         "claim_correct",
@@ -189,9 +189,9 @@
       "workbook_path": "registry/review_batches/gold_set_review_workbook.md"
     },
     {
-      "apply_command": "mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+      "apply_command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_reviewed.jsonl",
       "blocker": "1001 analytical footprint review rows still pending; footprint_precision unavailable; span_support_precision unavailable; metric_mapping_accuracy unavailable; inferred_step_tagging_accuracy unavailable; unknown_on_ambiguity_rate unavailable; proprietary_leakage_free_rate unavailable",
-      "dry_run_command": "mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_reviewed.jsonl --dry-run",
+      "dry_run_command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_reviewed.jsonl --dry-run",
       "evidence": "0 / 1001 analytical footprints reviewed",
       "evidence_path": "registry/report_intelligence/analytical_footprint_review_summary.json",
       "exported_rows": 1001,
@@ -202,7 +202,7 @@
       "passed": false,
       "pending_rows": 1001,
       "policy_template_path": "",
-      "prepare_command": "mosaic-rke prepare-footprint-review --root . --output registry/report_intelligence/analytical_footprint_reviewed.jsonl --overwrite",
+      "prepare_command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --output registry/report_intelligence/analytical_footprint_reviewed.jsonl --overwrite",
       "required_manual_fields": [
         "reviewer",
         "review_date",
@@ -220,9 +220,9 @@
       "workbook_path": "registry/report_intelligence/analytical_footprint_review_workbook.md"
     },
     {
-      "apply_command": "mosaic-rke build-license-review-import --root . --policy registry/review_batches/source_license_policy_reviewed.json --output registry/review_batches/source_license_policy_import.jsonl && mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_policy_import.jsonl",
+      "apply_command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke build-license-review-import --root . --policy registry/review_batches/source_license_policy_reviewed.json --output registry/review_batches/source_license_policy_import.jsonl && MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_policy_import.jsonl",
       "blocker": "",
-      "dry_run_command": "mosaic-rke build-license-review-import --root . --policy registry/review_batches/source_license_policy_reviewed.json --output registry/review_batches/source_license_policy_import.jsonl && mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_policy_import.jsonl --dry-run",
+      "dry_run_command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke build-license-review-import --root . --policy registry/review_batches/source_license_policy_reviewed.json --output registry/review_batches/source_license_policy_import.jsonl && MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_policy_import.jsonl --dry-run",
       "evidence": "17529 / 17529 sources approved for production runtime",
       "evidence_path": "registry/compliance/tushare_license_review_summary.json",
       "exported_rows": 0,
@@ -233,7 +233,7 @@
       "passed": true,
       "pending_rows": 0,
       "policy_template_path": "registry/review_batches/source_license_policy_template.json",
-      "prepare_command": "mosaic-rke prepare-license-policy-review --root .",
+      "prepare_command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-license-policy-review --root .",
       "required_manual_fields": [
         "approved_for_derived_claim_storage",
         "approved_for_production_runtime",
@@ -247,9 +247,9 @@
       "workbook_path": "registry/review_batches/source_license_review_workbook.md"
     },
     {
-      "apply_command": "mosaic-rke apply-lockbox-review --root . --input registry/review_batches/lockbox_reviewed.json",
+      "apply_command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-lockbox-review --root . --input registry/review_batches/lockbox_reviewed.json",
       "blocker": "lockbox has not been opened",
-      "dry_run_command": "mosaic-rke apply-lockbox-review --root . --input registry/review_batches/lockbox_reviewed.json --dry-run",
+      "dry_run_command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-lockbox-review --root . --input registry/review_batches/lockbox_reviewed.json --dry-run",
       "evidence": "lockbox_state=not_ready, next_state=paper_trading, payload_errors=0",
       "evidence_path": "registry/lockbox/central_bank_lockbox_review.json",
       "exported_rows": 1,
@@ -260,7 +260,7 @@
       "passed": false,
       "pending_rows": null,
       "policy_template_path": "",
-      "prepare_command": "mosaic-rke prepare-lockbox-review --root .",
+      "prepare_command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-lockbox-review --root .",
       "required_manual_fields": [
         "opened_at",
         "opened_by",
@@ -302,7 +302,7 @@
   "next_state": "paper_trading",
   "paper_trading_allowed": true,
   "production_allowed": false,
-  "promotion_dry_run_command": "mosaic-rke promotion-dry-run --root . --gold-input registry/review_batches/gold_set_full_reviewed.jsonl --footprint-input registry/report_intelligence/analytical_footprint_reviewed.jsonl --lockbox-input registry/review_batches/lockbox_reviewed.json",
+  "promotion_dry_run_command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke promotion-dry-run --root . --gold-input registry/review_batches/gold_set_full_reviewed.jsonl --footprint-input registry/report_intelligence/analytical_footprint_reviewed.jsonl --lockbox-input registry/review_batches/lockbox_reviewed.json",
   "ready_for_operator_review": true,
   "remaining_blockers": [
     "manual gold-set review still required",

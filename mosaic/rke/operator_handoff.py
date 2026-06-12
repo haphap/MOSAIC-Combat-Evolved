@@ -56,6 +56,18 @@ LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH = (
 LOCKBOX_REVIEWED_IMPORT_PATH = "registry/review_batches/lockbox_reviewed.json"
 MANUAL_REVIEW_PROGRESS_REPORT_PATH = "registry/review_batches/manual_review_progress_report.json"
 MANUAL_REVIEW_RUNBOOK_MD_PATH = "registry/review_batches/manual_review_runbook.md"
+RKE_OPERATOR_TMPDIR = "/home/hap/tmp/mosaic-rke"
+RKE_OPERATOR_TMP_ENV_PREFIX = (
+    f"MOSAIC_RKE_TMPDIR={RKE_OPERATOR_TMPDIR} TMPDIR={RKE_OPERATOR_TMPDIR}"
+)
+
+
+def _operator_command(command: str) -> str:
+    return " && ".join(
+        f"{RKE_OPERATOR_TMP_ENV_PREFIX} {segment.strip()}"
+        for segment in command.split(" && ")
+        if segment.strip()
+    )
 
 
 @dataclass(frozen=True)
@@ -204,7 +216,7 @@ def _footprint_review_gate(root_path: Path) -> OperatorGateHandoff:
         full_import_template_path=ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH,
         policy_template_path="",
         reviewed_policy_path=ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH,
-        prepare_command=(
+        prepare_command=_operator_command(
             "mosaic-rke prepare-footprint-review --root . "
             f"--output {ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH} --overwrite"
         ),
@@ -221,11 +233,11 @@ def _footprint_review_gate(root_path: Path) -> OperatorGateHandoff:
             "unknowns_used_when_uncertain",
             "no_proprietary_text_leakage",
         ),
-        dry_run_command=(
+        dry_run_command=_operator_command(
             "mosaic-rke apply-footprint-review --root . "
             f"--input {ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH} --dry-run"
         ),
-        apply_command=(
+        apply_command=_operator_command(
             "mosaic-rke apply-footprint-review --root . "
             f"--input {ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH}"
         ),
@@ -253,7 +265,7 @@ def _operator_command_sequence(
             step_id="review-progress-preflight",
             phase="preflight",
             action="Inspect current manual-gate status.",
-            command="mosaic-rke review-progress --root .",
+            command=_operator_command("mosaic-rke review-progress --root ."),
             manual_input_path="",
             expected_result="Shows current blockers without applying reviewer decisions.",
         ),
@@ -269,7 +281,9 @@ def _operator_command_sequence(
             step_id="write-gold-review-evidence",
             phase="gold_set",
             action="Write private gold-set evidence draft files.",
-            command="mosaic-rke write-gold-review-evidence --root . --limit 50 --offset 0",
+            command=_operator_command(
+                "mosaic-rke write-gold-review-evidence --root . --limit 50 --offset 0"
+            ),
             manual_input_path="",
             expected_result=(
                 f"Private evidence Markdown is {GOLD_REVIEW_EVIDENCE_MD_PATH} "
@@ -314,7 +328,7 @@ def _operator_command_sequence(
             step_id="write-footprint-review-assist",
             phase="footprint_review",
             action="Write private analytical-footprint review assist files.",
-            command="mosaic-rke write-footprint-review-assist --root .",
+            command=_operator_command("mosaic-rke write-footprint-review-assist --root ."),
             manual_input_path="",
             expected_result=(
                 f"Private workbook is {ANALYTICAL_FOOTPRINT_REVIEW_WORKBOOK_MD_PATH} "
@@ -325,7 +339,9 @@ def _operator_command_sequence(
             step_id="write-footprint-review-evidence",
             phase="footprint_review",
             action="Write private analytical-footprint evidence draft files.",
-            command="mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 0",
+            command=_operator_command(
+                "mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 0"
+            ),
             manual_input_path="",
             expected_result=(
                 f"Private evidence Markdown is {ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_MD_PATH} "
@@ -400,7 +416,7 @@ def _operator_command_sequence(
             step_id="promotion-status-before-lockbox",
             phase="promotion",
             action="Confirm only the final lockbox gate remains before opening it.",
-            command="mosaic-rke promotion-status --root .",
+            command=_operator_command("mosaic-rke promotion-status --root ."),
             manual_input_path="",
             expected_result="Gold-set, footprint, and source-license criteria pass; lockbox remains not opened.",
         ),
@@ -448,7 +464,7 @@ def _operator_command_sequence(
             step_id="promotion-status-final",
             phase="promotion",
             action="Inspect final staged-promotion state.",
-            command="mosaic-rke promotion-status --root .",
+            command=_operator_command("mosaic-rke promotion-status --root ."),
             manual_input_path="",
             expected_result="Promotion status reflects the applied manual reviews and lockbox decision.",
         ),
@@ -569,15 +585,15 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
             full_import_template_path=gold.full_import_template_path,
             policy_template_path="",
             reviewed_policy_path=GOLD_FULL_REVIEWED_IMPORT_PATH,
-            prepare_command="mosaic-rke prepare-gold-review --root . --full",
+            prepare_command=_operator_command("mosaic-rke prepare-gold-review --root . --full"),
             pending_rows=gold.pending_rows,
             exported_rows=gold.pending_rows,
             required_manual_fields=tuple(gold.required_manual_fields),
-            dry_run_command=(
+            dry_run_command=_operator_command(
                 "mosaic-rke apply-gold-review --root . "
                 f"--input {GOLD_FULL_REVIEWED_IMPORT_PATH} --dry-run"
             ),
-            apply_command=(
+            apply_command=_operator_command(
                 "mosaic-rke apply-gold-review --root . "
                 f"--input {GOLD_FULL_REVIEWED_IMPORT_PATH}"
             ),
@@ -607,14 +623,14 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
             pending_rows=source_license.pending_rows,
             exported_rows=source_license.exported_rows,
             required_manual_fields=tuple(source_license.required_manual_fields),
-            dry_run_command=(
+            dry_run_command=_operator_command(
                 "mosaic-rke build-license-review-import --root . "
                 f"--policy {SOURCE_LICENSE_REVIEWED_POLICY_PATH} "
                 f"--output {DEFAULT_LICENSE_POLICY_IMPORT_PATH} && "
                 "mosaic-rke apply-license-review --root . "
                 f"--input {DEFAULT_LICENSE_POLICY_IMPORT_PATH} --dry-run"
             ),
-            apply_command=(
+            apply_command=_operator_command(
                 "mosaic-rke build-license-review-import --root . "
                 f"--policy {SOURCE_LICENSE_REVIEWED_POLICY_PATH} "
                 f"--output {DEFAULT_LICENSE_POLICY_IMPORT_PATH} && "
@@ -630,7 +646,9 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
                 "policy, then expand it instead of editing every source row manually."
             ),
             reviewed_policy_path=SOURCE_LICENSE_REVIEWED_POLICY_PATH,
-            prepare_command="mosaic-rke prepare-license-policy-review --root .",
+            prepare_command=_operator_command(
+                "mosaic-rke prepare-license-policy-review --root ."
+            ),
         ),
         OperatorGateHandoff(
             gate_id="PG09",
@@ -645,7 +663,7 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
             full_import_template_path="",
             policy_template_path="",
             reviewed_policy_path=LOCKBOX_REVIEWED_IMPORT_PATH,
-            prepare_command="mosaic-rke prepare-lockbox-review --root .",
+            prepare_command=_operator_command("mosaic-rke prepare-lockbox-review --root ."),
             pending_rows=None,
             exported_rows=1,
             required_manual_fields=(
@@ -657,11 +675,11 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
                 "rule_design_after_open",
                 "notes",
             ),
-            dry_run_command=(
+            dry_run_command=_operator_command(
                 "mosaic-rke apply-lockbox-review --root . "
                 f"--input {LOCKBOX_REVIEWED_IMPORT_PATH} --dry-run"
             ),
-            apply_command=(
+            apply_command=_operator_command(
                 "mosaic-rke apply-lockbox-review --root . "
                 f"--input {LOCKBOX_REVIEWED_IMPORT_PATH}"
             ),
@@ -696,14 +714,14 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
     source_license_gate = next(gate for gate in gates if gate.review_kind == "source_license")
     footprint_arg = f"--footprint-input {ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH}"
     if source_license_gate.passed:
-        promotion_dry_run_command = (
+        promotion_dry_run_command = _operator_command(
             "mosaic-rke promotion-dry-run --root . "
             f"--gold-input {GOLD_FULL_REVIEWED_IMPORT_PATH} "
             f"{footprint_arg} "
             f"--lockbox-input {LOCKBOX_REVIEWED_IMPORT_PATH}"
         )
     else:
-        promotion_dry_run_command = (
+        promotion_dry_run_command = _operator_command(
             "mosaic-rke build-license-review-import --root . "
             f"--policy {SOURCE_LICENSE_REVIEWED_POLICY_PATH} "
             f"--output {DEFAULT_LICENSE_POLICY_IMPORT_PATH} && "
