@@ -3689,6 +3689,13 @@ def validate_report_intelligence_semantics(
         "registry/report_intelligence/patch_v1_5_coverage_report.json",
     )
     patch_coverage_failures.extend(patch_coverage_errors)
+    recipe_paper_trading_summary, recipe_paper_trading_summary_errors = (
+        _read_mapping_json(
+            root_path / "registry/report_intelligence/recipe_paper_trading_summary.json",
+            "registry/report_intelligence/recipe_paper_trading_summary.json",
+        )
+    )
+    patch_coverage_failures.extend(recipe_paper_trading_summary_errors)
     phase_records = []
     requirement_checklist = []
     if patch_coverage_report:
@@ -3777,6 +3784,73 @@ def validate_report_intelligence_semantics(
             patch_coverage_failures.append(
                 "shadow_tooling coverage must defer Phase G and Phase H by rollout"
             )
+        after_cost_paper_trading_summary = (
+            recipe_paper_trading_summary.get("after_cost_paper_trading_summary")
+            if isinstance(
+                recipe_paper_trading_summary.get("after_cost_paper_trading_summary"),
+                Mapping,
+            )
+            else {}
+        )
+        expected_phase_g_counts = {
+            "shadow_paper_trading_run_count": int(
+                recipe_paper_trading_summary.get("paper_trading_run_count")
+                or recipe_paper_trading_summary.get("recipe_count")
+                or 0
+            ),
+            "paper_trading_validation_pass_count": int(
+                recipe_paper_trading_summary.get("validation_pass_count") or 0
+            ),
+            "paper_trading_blocked_count": int(
+                recipe_paper_trading_summary.get("blocked_count") or 0
+            ),
+            "after_cost_summary_status": str(
+                after_cost_paper_trading_summary.get("status") or ""
+            ),
+        }
+        expected_phase_g_positive_count = int(
+            after_cost_paper_trading_summary.get(
+                "positive_after_cost_recipe_count"
+            )
+            or 0
+        )
+        phase_g_records = [
+            item for item in phase_records if str(item.get("phase_id") or "") == "G"
+        ]
+        checklist_g_records = [
+            item
+            for item in requirement_checklist
+            if str(item.get("check_id") or "") == "RI15-G-G1"
+        ]
+        for row_label, rows in (
+            ("Phase G", phase_g_records),
+            ("RI15-G-G1", checklist_g_records),
+        ):
+            if not rows:
+                continue
+            evidence_counts = rows[0].get("evidence_counts")
+            if not isinstance(evidence_counts, Mapping):
+                patch_coverage_failures.append(
+                    f"patch_v1_5_coverage_report {row_label}: evidence_counts must be object"
+                )
+                continue
+            for field, expected in expected_phase_g_counts.items():
+                observed = evidence_counts.get(field)
+                if observed != expected:
+                    patch_coverage_failures.append(
+                        f"patch_v1_5_coverage_report {row_label}: "
+                        f"evidence_counts.{field} expected {expected}"
+                    )
+            if (
+                row_label == "Phase G"
+                and evidence_counts.get("after_cost_positive_recipe_count")
+                != expected_phase_g_positive_count
+            ):
+                patch_coverage_failures.append(
+                    "patch_v1_5_coverage_report Phase G: "
+                    "evidence_counts.after_cost_positive_recipe_count expected "
+                    f"{expected_phase_g_positive_count}"
+                )
         for item in phase_records:
             phase_id = str(item.get("phase_id") or "")
             status = str(item.get("status") or "")
