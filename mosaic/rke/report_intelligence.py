@@ -6054,6 +6054,18 @@ def _resolve_qlib_stock_dir(root_path: Path, qlib_stock_dir: str | Path) -> Path
     return _resolve_qlib_data_dir(root_path, qlib_stock_dir)
 
 
+def _public_qlib_source_label(qlib_dir: str | Path) -> str:
+    raw = str(qlib_dir or "").strip()
+    normalized = raw.rstrip("/")
+    if normalized == DEFAULT_Q_LIB_ETF_PATH:
+        return "qlib://cn_etf"
+    if normalized == DEFAULT_Q_LIB_STOCK_PATH:
+        return "qlib://cn_data"
+    name = Path(os.path.expanduser(raw)).name or "custom"
+    safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", name).strip("._-") or "custom"
+    return f"qlib://custom/{safe_name}"
+
+
 def _qlib_symbol(symbol: str) -> str:
     cleaned = str(symbol or "").strip()
     if "." in cleaned:
@@ -7625,6 +7637,7 @@ def build_industry_etf_proxy_pit_availability(
     windows_days: Sequence[int] = INDUSTRY_ETF_PROXY_WINDOWS_DAYS,
 ) -> dict[str, Any]:
     qlib_dir = _resolve_qlib_etf_dir(root_path, qlib_etf_dir)
+    qlib_source_label = _public_qlib_source_label(qlib_etf_dir)
     calendar = _read_trading_calendar(qlib_dir)
     benchmark_cache: dict[str, tuple[int, list[float]]] = {}
 
@@ -7686,7 +7699,7 @@ def build_industry_etf_proxy_pit_availability(
                 "benchmark_family": str(
                     row.get("benchmark_family") or INDUSTRY_ETF_BENCHMARK_FAMILY
                 ),
-                "calendar_source": str(qlib_etf_dir),
+                "calendar_source": qlib_source_label,
                 "earliest_price_date": available_dates[0] if available_dates else "",
                 "latest_price_date": available_dates[-1] if available_dates else "",
                 "latest_calendar_date": calendar[-1] if calendar else "",
@@ -7787,7 +7800,7 @@ def build_industry_etf_proxy_pit_availability(
             "Each sector-to-ETF mapping records PIT price availability and "
             "labelability gaps before industry outcome labels are generated."
         ),
-        "qlib_etf_dir_configured": str(qlib_etf_dir),
+        "qlib_etf_dir_configured": qlib_source_label,
         "windows_days": [int(value) for value in windows_days],
         "mapping_count": len(mapping_records),
         "mapping_records": mapping_records,

@@ -1312,6 +1312,10 @@ def _validate_industry_etf_mapping_contract(
                         f"{row_label}.mapping_id: no matching industry ETF mapping"
                     )
                     continue
+                if not str(record.get("calendar_source") or "").startswith("qlib://"):
+                    failures.append(
+                        f"{row_label}.calendar_source: must use public qlib source label"
+                    )
                 for field in (
                     "mapping_version",
                     "sector_name",
@@ -1437,6 +1441,13 @@ def _validate_industry_etf_mapping_contract(
         if availability.get("mapping_count") != len(mapping_rows):
             failures.append(
                 "industry_etf_proxy_pit_availability.mapping_count mismatch"
+            )
+        if not str(availability.get("qlib_etf_dir_configured") or "").startswith(
+            "qlib://"
+        ):
+            failures.append(
+                "industry_etf_proxy_pit_availability.qlib_etf_dir_configured: "
+                "must use public qlib source label"
             )
         pit_available_count = sum(
             1 for record in availability_records if record.get("pit_available") is True

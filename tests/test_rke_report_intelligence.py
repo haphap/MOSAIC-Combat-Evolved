@@ -5300,6 +5300,12 @@ def test_report_intelligence_labels_industry_claims_with_etf_proxy_windows(
     ]
     assert labelability["data_gap_counts"] == proxy_readiness["data_gap_counts"]
     availability_dump = json.dumps(pit_availability, ensure_ascii=False)
+    assert "/home/hap" not in availability_dump
+    assert pit_availability["qlib_etf_dir_configured"].startswith("qlib://")
+    assert all(
+        row["calendar_source"].startswith("qlib://")
+        for row in pit_availability["mapping_records"]
+    )
     assert source_id not in availability_dump
     assert "Liquidity report" not in availability_dump
     assert readiness["blocked_count"] == 0

@@ -1040,6 +1040,34 @@ def test_industry_etf_mapping_contract_requires_plan_pit_record_fields(
     assert any("latest_calendar_date: required" in item for item in record.failures)
 
 
+def test_industry_etf_mapping_contract_rejects_local_calendar_paths(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    availability_path = registry / "industry_etf_proxy_pit_availability.json"
+    availability = json.loads(availability_path.read_text(encoding="utf-8"))
+    availability["qlib_etf_dir_configured"] = "/home/hap/.qlib/qlib_data/cn_etf"
+    availability["mapping_records"][0]["calendar_source"] = (
+        "/home/hap/.qlib/qlib_data/cn_etf"
+    )
+    availability_path.write_text(
+        json.dumps(availability, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _industry_etf_mapping_contract_record(tmp_path)
+
+    assert not record.accepted
+    assert any(
+        "calendar_source: must use public qlib source label" in item
+        for item in record.failures
+    )
+    assert any(
+        "qlib_etf_dir_configured: must use public qlib source label" in item
+        for item in record.failures
+    )
+
+
 def test_industry_etf_mapping_contract_rejects_labelability_readiness_drift(
     tmp_path: Path,
 ):
