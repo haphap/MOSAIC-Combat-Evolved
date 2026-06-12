@@ -2050,6 +2050,40 @@ def test_evolution_refresh_history_rejects_accepted_aggregate_calibration_drift(
     )
 
 
+def test_evolution_refresh_history_rejects_stale_gap_distribution_state(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    history_path = registry / "gap_distribution_history.jsonl"
+    rows = [
+        json.loads(line)
+        for line in history_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    rows[0]["gap_counts"] = {"horizon": 10}
+    rows[0]["total_gap_count"] = 1
+    rows[0]["max_gap_name"] = "target"
+    rows[0]["max_gap_share"] = 0.10
+    rows[0]["stable"] = True
+    rows[0]["accepted"] = True
+    rows[0]["private_text_included"] = True
+    history_path.write_text(
+        "\n".join(json.dumps(row, ensure_ascii=False, sort_keys=True) for row in rows)
+        + "\n",
+        encoding="utf-8",
+    )
+
+    record = _evolution_refresh_history_record(tmp_path)
+
+    assert not record.accepted
+    assert any("total_gap_count: expected 10" in item for item in record.failures)
+    assert any("max_gap_name: expected horizon" in item for item in record.failures)
+    assert any("max_gap_share: expected 1.0" in item for item in record.failures)
+    assert any("stable: expected False" in item for item in record.failures)
+    assert any("accepted: expected False" in item for item in record.failures)
+    assert any("private_text_included: must be false" in item for item in record.failures)
+
+
 def test_evolution_refresh_history_requires_data_vintage_hash(tmp_path: Path):
     cases = (
         ("monitor_refresh_history.jsonl", "monitor_refresh_history row 1"),

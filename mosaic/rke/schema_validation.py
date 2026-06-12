@@ -844,6 +844,7 @@ EVOLUTION_GATE_EXPECTED_THRESHOLDS = {
     "min_consecutive_audit_refreshes": 3,
     "min_gap_distribution_refreshes": 3,
 }
+GAP_DISTRIBUTION_MAX_STABLE_SHARE = 0.80
 
 GOLD_REVIEW_GATE_EXPECTED_REVIEW_PATH = (
     "registry/gold_sets/tushare_research_reports.review_template.jsonl"
@@ -3019,6 +3020,43 @@ def _validate_evolution_refresh_history_contract(
             failures.append(
                 f"{row_label}.history_type: must be mapping_gap_distribution"
             )
+        gap_counts = _count_mapping(
+            row.get("gap_counts"),
+            row_label=f"{row_label}.gap_counts",
+            failures=failures,
+        )
+        total_gap_count = sum(gap_counts.values())
+        if _int_or_none(row.get("total_gap_count")) != total_gap_count:
+            failures.append(f"{row_label}.total_gap_count: expected {total_gap_count}")
+        expected_max_gap_name = ""
+        expected_max_gap_share = 0.0
+        if total_gap_count:
+            expected_max_gap_name, max_gap_count = max(
+                gap_counts.items(),
+                key=lambda item: item[1],
+            )
+            expected_max_gap_share = round(max_gap_count / total_gap_count, 6)
+        if str(row.get("max_gap_name") or "") != expected_max_gap_name:
+            failures.append(
+                f"{row_label}.max_gap_name: expected {expected_max_gap_name}"
+            )
+        max_gap_share = _float_or_none(row.get("max_gap_share"))
+        if max_gap_share is None:
+            failures.append(f"{row_label}.max_gap_share: expected number")
+        elif not _nearly_equal(max_gap_share, expected_max_gap_share):
+            failures.append(
+                f"{row_label}.max_gap_share: expected {expected_max_gap_share}"
+            )
+        expected_stable = (
+            total_gap_count == 0
+            or expected_max_gap_share <= GAP_DISTRIBUTION_MAX_STABLE_SHARE
+        )
+        if row.get("stable") is not expected_stable:
+            failures.append(f"{row_label}.stable: expected {expected_stable}")
+        if row.get("accepted") is not expected_stable:
+            failures.append(f"{row_label}.accepted: expected {expected_stable}")
+        if row.get("private_text_included") is not False:
+            failures.append(f"{row_label}.private_text_included: must be false")
     return len(monitor_rows) + len(audit_rows) + len(gap_rows), failures
 
 
