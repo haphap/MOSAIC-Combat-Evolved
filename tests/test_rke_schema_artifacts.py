@@ -2969,6 +2969,48 @@ def test_promotion_dry_run_contract_accepts_current_public_artifact(
     assert record.failures == ()
 
 
+def test_promotion_dry_run_contract_accepts_completed_simulation(
+    tmp_path: Path,
+):
+    registry = _copy_registry_for_manual_progress(tmp_path)
+    report_path = registry / "promotion/rke_promotion_dry_run_report.json"
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    report.update(
+        {
+            "accepted": True,
+            "after_blockers": [],
+            "after_next_state": "production",
+            "production_allowed_after_simulation": True,
+            "staged_production_allowed_after_simulation": True,
+        }
+    )
+    for step in report["steps"]:
+        step["accepted"] = True
+        step["blockers"] = []
+        if step["review_kind"] == "source_license":
+            step["applied"] = False
+            step["changed_rows"] = 0
+            step["provided"] = False
+            step["result"] = "already_applied"
+            step["input_path"] = ""
+        else:
+            step["applied"] = True
+            step["changed_rows"] = 1
+            step["provided"] = True
+            step["result"] = "accepted"
+            step["input_path"] = f"registry/review_batches/{step['review_kind']}.jsonl"
+    report_path.write_text(
+        json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _promotion_dry_run_record(tmp_path)
+
+    assert record.accepted
+    assert record.item_count == 4
+    assert record.failures == ()
+
+
 def test_promotion_dry_run_contract_rejects_production_bypass(
     tmp_path: Path,
 ):
@@ -2980,7 +3022,7 @@ def test_promotion_dry_run_contract_rejects_production_bypass(
     report["staged_production_allowed_after_simulation"] = True
     report["mutated_original_registry"] = True
     report["before_next_state"] = "staged_production"
-    report["after_next_state"] = "production"
+    report["after_next_state"] = "paper_trading"
     report_path.write_text(
         json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
@@ -2991,12 +3033,12 @@ def test_promotion_dry_run_contract_rejects_production_bypass(
     assert not record.accepted
     assert any("accepted mismatch with steps" in item for item in record.failures)
     assert any(
-        "production_allowed_after_simulation: current public baseline must be false"
+        "production_allowed_after_simulation: expected False"
         in item
         for item in record.failures
     )
     assert any(
-        "staged_production_allowed_after_simulation: current public baseline must be false"
+        "staged_production_allowed_after_simulation: expected False"
         in item
         for item in record.failures
     )
@@ -3004,8 +3046,6 @@ def test_promotion_dry_run_contract_rejects_production_bypass(
         "mutated_original_registry: must be false" in item
         for item in record.failures
     )
-    assert any("before_next_state: expected paper_trading" in item for item in record.failures)
-    assert any("after_next_state: expected paper_trading" in item for item in record.failures)
 
 
 def test_promotion_dry_run_contract_rejects_step_inconsistency(

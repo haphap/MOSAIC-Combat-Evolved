@@ -885,6 +885,12 @@ PROMOTION_DRY_RUN_EXPECTED_REVIEW_KINDS = {
     "source_license",
     "lockbox",
 }
+PROMOTION_NEXT_STATES = {
+    "candidate",
+    "paper_trading",
+    "staged_production",
+    "production",
+}
 OPERATOR_HANDOFF_EXPECTED_STEP_IDS = (
     "review-progress-preflight",
     "prepare-gold-review",
@@ -4285,22 +4291,48 @@ def _validate_promotion_dry_run_contract(
         failures.append(
             "promotion_dry_run_report.mutated_original_registry: must be false"
         )
-    if report.get("production_allowed_after_simulation") is not False:
+    before_next_state = str(report.get("before_next_state") or "")
+    after_next_state = str(report.get("after_next_state") or "")
+    production_after = report.get("production_allowed_after_simulation")
+    staged_after = report.get("staged_production_allowed_after_simulation")
+    if before_next_state not in PROMOTION_NEXT_STATES:
         failures.append(
-            "promotion_dry_run_report.production_allowed_after_simulation: current public baseline must be false"
+            "promotion_dry_run_report.before_next_state: unexpected state "
+            + before_next_state
         )
-    if report.get("staged_production_allowed_after_simulation") is not False:
+    if after_next_state not in PROMOTION_NEXT_STATES:
         failures.append(
-            "promotion_dry_run_report.staged_production_allowed_after_simulation: current public baseline must be false"
+            "promotion_dry_run_report.after_next_state: unexpected state "
+            + after_next_state
         )
-    if report.get("before_next_state") != "paper_trading":
-        failures.append("promotion_dry_run_report.before_next_state: expected paper_trading")
-    if report.get("after_next_state") != "paper_trading":
-        failures.append("promotion_dry_run_report.after_next_state: expected paper_trading")
-    if not _string_items(report.get("before_blockers")):
-        failures.append("promotion_dry_run_report.before_blockers: must be non-empty")
-    if not _string_items(report.get("after_blockers")):
-        failures.append("promotion_dry_run_report.after_blockers: must be non-empty")
+    expected_production_after = after_next_state == "production"
+    expected_staged_after = after_next_state in {"staged_production", "production"}
+    if production_after is not expected_production_after:
+        failures.append(
+            "promotion_dry_run_report.production_allowed_after_simulation: "
+            f"expected {expected_production_after}"
+        )
+    if staged_after is not expected_staged_after:
+        failures.append(
+            "promotion_dry_run_report.staged_production_allowed_after_simulation: "
+            f"expected {expected_staged_after}"
+        )
+    before_blockers = _string_items(report.get("before_blockers"))
+    after_blockers = _string_items(report.get("after_blockers"))
+    if before_next_state == "production" and before_blockers:
+        failures.append(
+            "promotion_dry_run_report.before_blockers: production state must be empty"
+        )
+    if after_next_state == "production" and after_blockers:
+        failures.append(
+            "promotion_dry_run_report.after_blockers: production state must be empty"
+        )
+    if after_next_state != "production" and report.get("accepted") is True and after_blockers:
+        failures.append(
+            "promotion_dry_run_report.after_blockers: accepted dry-run must not block"
+        )
+    if report.get("accepted") is False and not after_blockers:
+        failures.append("promotion_dry_run_report.after_blockers: rejected dry-run must block")
 
     return len(steps), failures
 
