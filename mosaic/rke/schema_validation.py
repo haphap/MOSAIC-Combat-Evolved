@@ -2538,6 +2538,91 @@ def _validate_prompt_mutation_candidate_contract(
     return len(candidate_rows), failures
 
 
+def _manual_progress_forbidden_text_failures(
+    value: Any,
+    *,
+    path: str,
+) -> list[str]:
+    failures: list[str] = []
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            normalized_key = str(key).strip().lower()
+            child_path = f"{path}.{key}"
+            if (
+                normalized_key in REPORT_INTELLIGENCE_PUBLIC_FORBIDDEN_TEXT_KEYS
+                and bool(item)
+            ):
+                allowed_missing_field_count = (
+                    ".missing_required_fields." in child_path
+                    and type(item) is int
+                )
+                if not allowed_missing_field_count:
+                    failures.append(
+                        f"{child_path}: private/source text field forbidden"
+                    )
+                    continue
+            failures.extend(
+                _manual_progress_forbidden_text_failures(item, path=child_path)
+            )
+    elif isinstance(value, Sequence) and not isinstance(value, str):
+        for index, item in enumerate(value):
+            failures.extend(
+                _manual_progress_forbidden_text_failures(
+                    item,
+                    path=f"{path}[{index}]",
+                )
+            )
+    return failures
+
+
+def _validate_manual_review_progress_privacy_contract(
+    root_path: Path,
+) -> tuple[int, list[str]]:
+    report, report_failures = _read_mapping_json(
+        root_path / "registry/review_batches/manual_review_progress_report.json",
+        "registry/review_batches/manual_review_progress_report.json",
+    )
+    failures = list(report_failures)
+    gates = []
+    if report:
+        failures.extend(
+            _manual_progress_forbidden_text_failures(
+                report,
+                path="manual_review_progress_report",
+            )
+        )
+        gates_payload = report.get("gates")
+        if not isinstance(gates_payload, Sequence) or isinstance(gates_payload, str):
+            failures.append("manual_review_progress_report.gates: expected array")
+        else:
+            gates = [gate for gate in gates_payload if isinstance(gate, Mapping)]
+            gate_kinds = {str(gate.get("review_kind") or "") for gate in gates}
+            expected_gate_kinds = {
+                "gold_set",
+                "footprint_review",
+                "source_license",
+                "lockbox",
+            }
+            missing_gate_kinds = sorted(expected_gate_kinds - gate_kinds)
+            if missing_gate_kinds:
+                failures.append(
+                    "manual_review_progress_report.gates missing review_kind: "
+                    + ", ".join(missing_gate_kinds)
+                )
+            for index, gate in enumerate(gates, 1):
+                current_batch_status = gate.get("current_batch_status")
+                if current_batch_status and not isinstance(
+                    current_batch_status,
+                    Mapping,
+                ):
+                    failures.append(
+                        "manual_review_progress_report.gates"
+                        f"[{index}].current_batch_status: expected object"
+                    )
+
+    return len(gates), failures
+
+
 def validate_report_intelligence_semantics(
     root: str | Path,
 ) -> tuple[SchemaValidationRecord, ...]:
@@ -3221,6 +3306,20 @@ def validate_report_intelligence_semantics(
             item_count=prompt_mutation_candidate_item_count,
             accepted=not prompt_mutation_candidate_failures,
             failures=tuple(prompt_mutation_candidate_failures),
+        )
+    )
+
+    (
+        manual_review_progress_item_count,
+        manual_review_progress_failures,
+    ) = _validate_manual_review_progress_privacy_contract(root_path)
+    records.append(
+        SchemaValidationRecord(
+            schema_path="schemas/report_intelligence_manual_review_progress_privacy_rules",
+            artifact_path="registry/review_batches/manual_review_progress_report.json",
+            item_count=manual_review_progress_item_count,
+            accepted=not manual_review_progress_failures,
+            failures=tuple(manual_review_progress_failures),
         )
     )
 

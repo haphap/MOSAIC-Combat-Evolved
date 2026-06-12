@@ -681,6 +681,16 @@ def _prompt_mutation_candidate_contract_record(tmp_path: Path):
     )
 
 
+def _manual_review_progress_privacy_record(tmp_path: Path):
+    records = validate_report_intelligence_semantics(tmp_path)
+    return next(
+        record
+        for record in records
+        if record.schema_path
+        == "schemas/report_intelligence_manual_review_progress_privacy_rules"
+    )
+
+
 def _industry_etf_mapping_contract_record(tmp_path: Path):
     records = validate_report_intelligence_semantics(tmp_path)
     return next(
@@ -1966,6 +1976,67 @@ def test_prompt_mutation_candidate_contract_requires_manual_blocked_shadow_revie
     assert not record.accepted
     assert any("manual_review_required: must be true" in item for item in record.failures)
     assert any("blocked_by: required while evolution gate is blocked" in item for item in record.failures)
+
+
+def _copy_registry_for_manual_progress(tmp_path: Path) -> Path:
+    registry = tmp_path / "registry"
+    shutil.copytree(Path("registry"), registry, dirs_exist_ok=True)
+    return registry
+
+
+def test_manual_review_progress_privacy_accepts_current_public_artifact(
+    tmp_path: Path,
+):
+    _copy_registry_for_manual_progress(tmp_path)
+
+    record = _manual_review_progress_privacy_record(tmp_path)
+
+    assert record.accepted
+    assert record.item_count == 4
+    assert record.failures == ()
+
+
+def test_manual_review_progress_privacy_allows_missing_field_count_names(
+    tmp_path: Path,
+):
+    registry = _copy_registry_for_manual_progress(tmp_path)
+    progress_path = registry / "review_batches/manual_review_progress_report.json"
+    progress = json.loads(progress_path.read_text(encoding="utf-8"))
+    progress["gates"][0]["current_batch_status"]["missing_required_fields"][
+        "manual_claim_text"
+    ] = 500
+    progress_path.write_text(
+        json.dumps(progress, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _manual_review_progress_privacy_record(tmp_path)
+
+    assert record.accepted
+
+
+def test_manual_review_progress_privacy_rejects_private_text_fields(
+    tmp_path: Path,
+):
+    registry = _copy_registry_for_manual_progress(tmp_path)
+    progress_path = registry / "review_batches/manual_review_progress_report.json"
+    progress = json.loads(progress_path.read_text(encoding="utf-8"))
+    progress["gates"][0]["claim_text"] = "private licensed report prose"
+    progress["gates"][0]["current_batch_status"]["manual_claim_text"] = (
+        "private reviewer text"
+    )
+    progress["gates"][0]["source_span_ids"] = ["span-private-1"]
+    progress_path.write_text(
+        json.dumps(progress, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _manual_review_progress_privacy_record(tmp_path)
+
+    assert not record.accepted
+    assert any("claim_text: private/source text field forbidden" in item for item in record.failures)
+    assert any("manual_claim_text: private/source text field forbidden" in item for item in record.failures)
+    assert any("source_span_ids: private/source text field forbidden" in item for item in record.failures)
 
 
 def test_schema_validation_accepts_public_registry_without_private_report_inputs(
