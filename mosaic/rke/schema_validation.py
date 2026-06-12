@@ -932,6 +932,13 @@ STOCK_PROXY_SURVIVORSHIP_CHECKS = {
     STOCK_PROXY_SURVIVORSHIP_AUDITED_CHECK,
 }
 STOCK_PROXY_TRADABILITY_CHECK = "positive_volume_and_limit_lock_screen"
+STOCK_PROXY_READINESS_WINDOWS = (5, 20, 60, 120)
+STOCK_PROXY_BLOCKING_GAPS = {
+    "stock_entry_suspended",
+    "entry_limit_locked",
+    "exit_limit_locked",
+    "stock_delisted_before_exit",
+}
 REPORT_INTELLIGENCE_PUBLIC_FORBIDDEN_TEXT_KEYS = {
     "abstract",
     "claim_text",
@@ -1623,6 +1630,267 @@ def _validate_industry_etf_mapping_contract(
         + (1 if availability else 0)
     )
     return item_count, failures
+
+
+def _validate_stock_price_proxy_readiness_contract(
+    root_path: Path,
+    outcome_label_rows: Sequence[Mapping[str, Any]],
+) -> tuple[int, list[str]]:
+    readiness_report, readiness_errors = _read_mapping_json(
+        root_path / "registry/report_intelligence/outcome_labeling_readiness.json",
+        "registry/report_intelligence/outcome_labeling_readiness.json",
+    )
+    failures = list(readiness_errors)
+    if not readiness_report:
+        return 0, failures
+
+    stock_readiness = readiness_report.get("stock_price_proxy_readiness")
+    if not isinstance(stock_readiness, Mapping):
+        return 0, [
+            *failures,
+            "outcome_labeling_readiness.stock_price_proxy_readiness: expected object",
+        ]
+
+    for field in (
+        "qlib_stock_dir_configured",
+        "qlib_benchmark_dir_configured",
+    ):
+        if not str(stock_readiness.get(field) or "").startswith("qlib://"):
+            failures.append(
+                "outcome_labeling_readiness.stock_price_proxy_readiness."
+                f"{field}: must use public qlib source label"
+            )
+    if stock_readiness.get("outcome_label_source") != "pit_stock_price_window":
+        failures.append(
+            "outcome_labeling_readiness.stock_price_proxy_readiness."
+            "outcome_label_source: must be pit_stock_price_window"
+        )
+    if stock_readiness.get("llm_outcome_labeling_allowed") is not False:
+        failures.append(
+            "outcome_labeling_readiness.stock_price_proxy_readiness."
+            "llm_outcome_labeling_allowed: must be false"
+        )
+    if _int_or_none(stock_readiness.get("entry_lag_trading_days")) != 1:
+        failures.append(
+            "outcome_labeling_readiness.stock_price_proxy_readiness."
+            "entry_lag_trading_days: must be 1"
+        )
+    if tuple(_int_items(stock_readiness.get("windows_days"))) != STOCK_PROXY_READINESS_WINDOWS:
+        failures.append(
+            "outcome_labeling_readiness.stock_price_proxy_readiness."
+            f"windows_days: must be {list(STOCK_PROXY_READINESS_WINDOWS)}"
+        )
+    for field, expected in (
+        ("benchmark_symbol", "SH510300"),
+        ("benchmark_source", "cn_etf"),
+        ("benchmark_family", "CSI300_ETF_PROXY"),
+        ("cost_model_id", "single_stock_round_trip_20bps_v1"),
+    ):
+        if stock_readiness.get(field) != expected:
+            failures.append(
+                "outcome_labeling_readiness.stock_price_proxy_readiness."
+                f"{field}: must be {expected}"
+            )
+
+    pit_policy = stock_readiness.get("pit_realism_policy")
+    if not isinstance(pit_policy, Mapping):
+        failures.append(
+            "outcome_labeling_readiness.stock_price_proxy_readiness."
+            "pit_realism_policy: expected object"
+        )
+        pit_policy = {}
+    for field in (
+        "entry_suspension_blocks_label",
+        "entry_limit_locked_blocks_label",
+        "exit_missing_or_delisted_blocks_label",
+    ):
+        if pit_policy.get(field) is not True:
+            failures.append(
+                "outcome_labeling_readiness.stock_price_proxy_readiness."
+                f"pit_realism_policy.{field}: must be true"
+            )
+    if pit_policy.get("company_name_fuzzy_mapping_enabled") is not False:
+        failures.append(
+            "outcome_labeling_readiness.stock_price_proxy_readiness."
+            "pit_realism_policy.company_name_fuzzy_mapping_enabled: must be false"
+        )
+    if pit_policy.get("benchmark_alignment") != "date_key_cross_qlib_dir":
+        failures.append(
+            "outcome_labeling_readiness.stock_price_proxy_readiness."
+            "pit_realism_policy.benchmark_alignment: must be date_key_cross_qlib_dir"
+        )
+    if pit_policy.get("survivorship_unverified") is not True:
+        failures.append(
+            "outcome_labeling_readiness.stock_price_proxy_readiness."
+            "pit_realism_policy.survivorship_unverified: current public baseline must be true"
+        )
+    if pit_policy.get("survivorship_status") != "survivorship_unverified":
+        failures.append(
+            "outcome_labeling_readiness.stock_price_proxy_readiness."
+            "pit_realism_policy.survivorship_status: must be survivorship_unverified"
+        )
+    survivorship_basis = str(pit_policy.get("survivorship_basis") or "")
+    if "delisted-inclusive universe audit" not in survivorship_basis:
+        failures.append(
+            "outcome_labeling_readiness.stock_price_proxy_readiness."
+            "pit_realism_policy.survivorship_basis: must document the delisted-inclusive audit blocker"
+        )
+
+    gap_counts = stock_readiness.get("data_gap_counts")
+    if not isinstance(gap_counts, Mapping):
+        failures.append(
+            "outcome_labeling_readiness.stock_price_proxy_readiness."
+            "data_gap_counts: expected object"
+        )
+        gap_counts = {}
+    for gap_name, value in gap_counts.items():
+        parsed = _int_or_none(value)
+        if parsed is None or parsed < 0:
+            failures.append(
+                "outcome_labeling_readiness.stock_price_proxy_readiness."
+                f"data_gap_counts.{gap_name}: must be nonnegative integer"
+            )
+    leaked_blocking_gaps = sorted(
+        gap
+        for gap in STOCK_PROXY_BLOCKING_GAPS
+        if (_int_or_none(gap_counts.get(gap)) or 0) > 0
+    )
+    if leaked_blocking_gaps:
+        failures.append(
+            "outcome_labeling_readiness.stock_price_proxy_readiness."
+            "data_gap_counts: generated public baseline must not carry blocked stock "
+            "tradability/delisting gaps without blocking labels: "
+            + ", ".join(leaked_blocking_gaps)
+        )
+
+    stock_labels = [
+        row for row in outcome_label_rows if row.get("label_type") == "stock_price_proxy"
+    ]
+    stock_claim_ids = {
+        str(row.get("forecast_claim_id") or "")
+        for row in stock_labels
+        if str(row.get("forecast_claim_id") or "").strip()
+    }
+    labelable_ids = {
+        str(item)
+        for item in _string_items(stock_readiness.get("labelable_forecast_claim_ids"))
+        if str(item).strip()
+    }
+    eligible_ids = {
+        str(item)
+        for item in _string_items(stock_readiness.get("eligible_forecast_claim_ids"))
+        if str(item).strip()
+    }
+    pending_ids = {
+        str(item)
+        for item in _string_items(
+            stock_readiness.get("pending_future_forecast_claim_ids")
+        )
+        if str(item).strip()
+    }
+    if stock_claim_ids and labelable_ids != stock_claim_ids:
+        failures.append(
+            "outcome_labeling_readiness.stock_price_proxy_readiness."
+            "labelable_forecast_claim_ids: must match stock outcome label claim ids"
+        )
+    if not labelable_ids.issubset(eligible_ids):
+        failures.append(
+            "outcome_labeling_readiness.stock_price_proxy_readiness."
+            "labelable_forecast_claim_ids: must be a subset of eligible_forecast_claim_ids"
+        )
+    if not pending_ids.issubset(eligible_ids):
+        failures.append(
+            "outcome_labeling_readiness.stock_price_proxy_readiness."
+            "pending_future_forecast_claim_ids: must be a subset of eligible_forecast_claim_ids"
+        )
+    if labelable_ids & pending_ids:
+        failures.append(
+            "outcome_labeling_readiness.stock_price_proxy_readiness."
+            "labelable and pending future claim ids must be disjoint"
+        )
+
+    expected_counts = {
+        "eligible_claim_count": len(eligible_ids),
+        "labelable_forecast_claim_count": len(labelable_ids),
+        "pending_future_forecast_claim_count": len(pending_ids),
+    }
+    for field, expected in expected_counts.items():
+        if _int_or_none(stock_readiness.get(field)) != expected:
+            failures.append(
+                "outcome_labeling_readiness.stock_price_proxy_readiness."
+                f"{field}: expected {expected}"
+            )
+    labelable_window_count = _int_or_none(stock_readiness.get("labelable_window_count"))
+    if labelable_window_count is None or labelable_window_count < 0:
+        failures.append(
+            "outcome_labeling_readiness.stock_price_proxy_readiness."
+            "labelable_window_count: expected nonnegative integer"
+        )
+    elif stock_labels and labelable_window_count != len(stock_labels):
+        failures.append(
+            "outcome_labeling_readiness.stock_price_proxy_readiness."
+            f"labelable_window_count: expected {len(stock_labels)}"
+        )
+    if _int_or_none(readiness_report.get("stock_proxy_label_ready_count")) != len(
+        labelable_ids
+    ):
+        failures.append(
+            "outcome_labeling_readiness.stock_proxy_label_ready_count mismatch"
+        )
+    if _int_or_none(readiness_report.get("stock_proxy_label_pending_count")) != len(
+        pending_ids
+    ):
+        failures.append(
+            "outcome_labeling_readiness.stock_proxy_label_pending_count mismatch"
+        )
+    if _int_or_none(stock_readiness.get("pending_future_window_count")) is None:
+        failures.append(
+            "outcome_labeling_readiness.stock_price_proxy_readiness."
+            "pending_future_window_count: expected integer"
+        )
+
+    coverage_summary = stock_readiness.get("stock_series_coverage_summary")
+    if not isinstance(coverage_summary, Mapping):
+        failures.append(
+            "outcome_labeling_readiness.stock_price_proxy_readiness."
+            "stock_series_coverage_summary: expected object"
+        )
+    else:
+        target_count = _int_or_none(coverage_summary.get("target_series_count"))
+        missing_count = _int_or_none(
+            coverage_summary.get("target_series_missing_count")
+        )
+        lifecycle_counts = coverage_summary.get("series_lifecycle_status_counts")
+        if target_count is None or target_count < 0:
+            failures.append(
+                "outcome_labeling_readiness.stock_price_proxy_readiness."
+                "stock_series_coverage_summary.target_series_count: must be nonnegative integer"
+            )
+        if missing_count is None or missing_count < 0:
+            failures.append(
+                "outcome_labeling_readiness.stock_price_proxy_readiness."
+                "stock_series_coverage_summary.target_series_missing_count: must be nonnegative integer"
+            )
+        if target_count == 0 and labelable_ids:
+            failures.append(
+                "outcome_labeling_readiness.stock_price_proxy_readiness."
+                "stock_series_coverage_summary.target_series_count: cannot be zero when labels exist"
+            )
+        if isinstance(lifecycle_counts, Mapping):
+            lifecycle_total = sum(
+                (_int_or_none(value) or 0) for value in lifecycle_counts.values()
+            )
+            if (
+                target_count is not None
+                and missing_count is not None
+                and lifecycle_total + missing_count != target_count
+            ):
+                failures.append(
+                    "outcome_labeling_readiness.stock_price_proxy_readiness."
+                    "stock_series_coverage_summary lifecycle counts must add to target_series_count"
+                )
+
+    return len(stock_labels) + len(eligible_ids), failures
 
 
 RECIPE_PAPER_TRADING_PROTOCOL_VERSION = "recipe_shadow_paper_trading_v1"
@@ -3755,6 +4023,20 @@ def validate_report_intelligence_semantics(
             item_count=industry_etf_mapping_contract_item_count,
             accepted=not industry_etf_mapping_contract_failures,
             failures=tuple(industry_etf_mapping_contract_failures),
+        )
+    )
+
+    (
+        stock_price_proxy_readiness_item_count,
+        stock_price_proxy_readiness_failures,
+    ) = _validate_stock_price_proxy_readiness_contract(root_path, outcome_label_rows)
+    records.append(
+        SchemaValidationRecord(
+            schema_path="schemas/report_intelligence_stock_price_proxy_readiness_rules",
+            artifact_path="registry/report_intelligence/outcome_labeling_readiness.json",
+            item_count=stock_price_proxy_readiness_item_count,
+            accepted=not stock_price_proxy_readiness_failures,
+            failures=tuple(stock_price_proxy_readiness_failures),
         )
     )
 

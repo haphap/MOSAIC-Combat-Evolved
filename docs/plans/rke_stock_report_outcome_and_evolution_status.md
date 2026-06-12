@@ -34,7 +34,7 @@ contracts.
 | `registry/report_intelligence/patch_v1_5_coverage_report.json` | public count-only fallback preserves aggregate evidence when private JSONL inputs are absent; Phase C now passes, while Phase B/D remain blocked by manual review and footprint quality gates; Phase G remains rollout-gated but now carries shadow paper-trading evidence counts from `recipe_paper_trading_summary.json` |
 | `registry/report_intelligence/industry_etf_proxy_map.jsonl` | 64 primary/governed mapping rows; `工业金属` maps to `SH560860` |
 | `registry/report_intelligence/industry_etf_proxy_pit_availability.json` | labelability summary is kept consistent with `outcome_labeling_readiness.industry_etf_proxy_readiness`: 146 eligible industry claims, 39 labelable claims, 87 labelable windows, 342 pending future windows |
-| `registry/report_intelligence/outcome_labeling_readiness.json` | stock readiness reports 220 eligible stock claims, 124 labelable stock claims, 279 labelable stock windows, and 593 pending future windows; public qlib source fields are redacted to `qlib://...` labels |
+| `registry/report_intelligence/outcome_labeling_readiness.json` | stock readiness reports 220 eligible stock claims, 124 labelable stock claims, 279 labelable stock windows, and 593 pending future windows; public qlib source fields are redacted to `qlib://...` labels. Semantic validation now passes as `schemas/report_intelligence_stock_price_proxy_readiness_rules`, which hard-checks stock PIT realism policy, benchmark/cost defaults, T+1 windows, public qlib redaction, labelable/pending claim counts, and stock series lifecycle totals. |
 | `registry/report_intelligence/recipe_paper_trading_runs.jsonl` | 1858 pre-registered shadow paper-trading runs |
 | `registry/report_intelligence/recipe_paper_trading_summary.json` | 20 recipes passed paper-trading validation; 561 recipes have direct or inferred PIT binding; after-cost paper-trading summary is computed from passed pre-registered runs only; 1838 recipes remain blocked by direct binding, effective-N, or shadow-tool readiness gaps |
 | `registry/report_intelligence/confidence_impact_monitor.json` | 20 paper-trading validated recipes are monitored; unvalidated confidence impact count is 0; alpha-decay and calibration-drift observations remain shadow-only |
@@ -53,7 +53,7 @@ contracts.
 | P0 stock evaluation data contract | Implemented | `ReportIntelligenceConfig.qlib_stock_dir`, `--qlib-stock-dir`, stock target resolution, target conflict gaps |
 | P1 stock proxy outcome labeler | Implemented | `build_stock_price_proxy_readiness()`, `build_stock_price_proxy_outcome_labels()` |
 | P2 stock scoring logic | Implemented | stock/benchmark return, relative alpha, after-cost alpha, directional hit fields in stock labels |
-| P3 artifacts, schemas, audits | Implemented | outcome-label/readiness schema updates; PIT, provenance, statistical, recipe, runtime audits pass |
+| P3 artifacts, schemas, audits | Implemented | outcome-label/readiness schema updates; stock proxy readiness semantic contract; PIT, provenance, statistical, recipe, runtime audits pass |
 | P4 core tests | Implemented | `tests/test_rke_report_intelligence.py` stock label/readiness/PIT tests pass |
 | P5 evolution loop | Partially implemented | mutation candidates, tool-gap prioritization, paper-trading and monitor inputs exist; promotion remains blocked by manual review gates |
 | P6 decisions | Implemented for default path | default benchmark `SH510300` from `cn_etf`; stock cost 20 bps; stock windows 5/20/60/120; no company-name fuzzy mapping |

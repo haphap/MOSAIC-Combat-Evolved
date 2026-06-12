@@ -410,6 +410,13 @@
     },
     {
       "accepted": true,
+      "artifact_path": "registry/report_intelligence/outcome_labeling_readiness.json",
+      "failures": [],
+      "item_count": 499,
+      "schema_path": "schemas/report_intelligence_stock_price_proxy_readiness_rules"
+    },
+    {
+      "accepted": true,
       "artifact_path": "registry/report_intelligence/markdown_coverage_summary.json",
       "failures": [],
       "item_count": 1,

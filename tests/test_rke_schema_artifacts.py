@@ -456,6 +456,69 @@ def test_outcome_labeling_readiness_rejects_proxy_llm_labeling(
     assert any("llm_outcome_labeling_allowed" in failure for failure in record.failures)
 
 
+def test_stock_price_proxy_readiness_contract_accepts_current_public_artifact(
+    tmp_path: Path,
+):
+    _copy_report_intelligence_registry(tmp_path)
+
+    record = _stock_price_proxy_readiness_record(tmp_path)
+
+    assert record.accepted
+    assert record.item_count >= 220
+    assert record.failures == ()
+
+
+def test_stock_price_proxy_readiness_contract_rejects_pit_policy_drift(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    readiness_path = registry / "outcome_labeling_readiness.json"
+    readiness = json.loads(readiness_path.read_text(encoding="utf-8"))
+    stock_readiness = readiness["stock_price_proxy_readiness"]
+    stock_readiness["pit_realism_policy"]["survivorship_unverified"] = False
+    stock_readiness["pit_realism_policy"]["company_name_fuzzy_mapping_enabled"] = True
+    stock_readiness["pit_realism_policy"]["entry_limit_locked_blocks_label"] = False
+    stock_readiness["data_gap_counts"]["entry_limit_locked"] = 1
+    readiness_path.write_text(
+        json.dumps(readiness, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _stock_price_proxy_readiness_record(tmp_path)
+
+    assert not record.accepted
+    assert any("survivorship_unverified" in failure for failure in record.failures)
+    assert any(
+        "company_name_fuzzy_mapping_enabled" in failure
+        for failure in record.failures
+    )
+    assert any("entry_limit_locked_blocks_label" in failure for failure in record.failures)
+    assert any("entry_limit_locked" in failure for failure in record.failures)
+
+
+def test_stock_price_proxy_readiness_contract_rejects_count_drift(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    readiness_path = registry / "outcome_labeling_readiness.json"
+    readiness = json.loads(readiness_path.read_text(encoding="utf-8"))
+    stock_readiness = readiness["stock_price_proxy_readiness"]
+    stock_readiness["labelable_window_count"] = -1
+    stock_readiness["labelable_forecast_claim_ids"].append("FC-not-in-labels")
+    readiness["stock_proxy_label_ready_count"] = 0
+    readiness_path.write_text(
+        json.dumps(readiness, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _stock_price_proxy_readiness_record(tmp_path)
+
+    assert not record.accepted
+    assert any("labelable_window_count" in failure for failure in record.failures)
+    assert any("labelable_forecast_claim_ids" in failure for failure in record.failures)
+    assert any("stock_proxy_label_ready_count" in failure for failure in record.failures)
+
+
 def test_recipe_paper_trading_summary_rejects_profile_weight_promotion(
     tmp_path: Path,
 ):
@@ -638,6 +701,16 @@ def _proxy_outcome_contract_record(tmp_path: Path):
         for record in records
         if record.schema_path
         == "schemas/report_intelligence_proxy_outcome_label_contract_rules"
+    )
+
+
+def _stock_price_proxy_readiness_record(tmp_path: Path):
+    records = validate_report_intelligence_semantics(tmp_path)
+    return next(
+        record
+        for record in records
+        if record.schema_path
+        == "schemas/report_intelligence_stock_price_proxy_readiness_rules"
     )
 
 
