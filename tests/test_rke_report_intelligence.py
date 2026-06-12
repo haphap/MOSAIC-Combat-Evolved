@@ -1857,6 +1857,17 @@ def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
         for row in patch_coverage["phase_records"]
         if row["phase_id"] in {"G", "H"}
     } == {"G": "deferred_by_rollout", "H": "deferred_by_rollout"}
+    phase_g = next(
+        row for row in patch_coverage["phase_records"] if row["phase_id"] == "G"
+    )
+    assert (
+        "registry/report_intelligence/recipe_paper_trading_summary.json"
+        in phase_g["evidence_artifacts"]
+    )
+    assert phase_g["evidence_counts"]["paper_trading_recipe_count"] == 0
+    assert phase_g["evidence_counts"]["shadow_paper_trading_run_count"] == 1
+    assert phase_g["evidence_counts"]["paper_trading_validation_pass_count"] == 0
+    assert phase_g["evidence_counts"]["paper_trading_blocked_count"] == 1
     assert alpha_decay["unmonitored_production_recipe_ids"] == []
     confidence_monitoring = monitoring["confidence_impact_monitoring"]
     assert confidence_monitoring["observation_count"] == 1

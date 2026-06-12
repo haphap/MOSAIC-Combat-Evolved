@@ -1,6 +1,6 @@
 {
   "accepted": false,
-  "as_of_datetime": "2026-06-12T03:46:39+00:00",
+  "as_of_datetime": "2026-06-12T09:28:32+00:00",
   "blocked_phase_ids": [
     "B",
     "D"
@@ -231,13 +231,19 @@
       "deferred_reason": "current rollout is shadow_tooling; Phase G is intentionally gated",
       "evidence_artifacts": [
         "registry/report_intelligence/recipe_validation_audit.json",
-        "registry/report_intelligence/monitoring_report.json"
+        "registry/report_intelligence/monitoring_report.json",
+        "registry/report_intelligence/recipe_paper_trading_summary.json"
       ],
       "evidence_counts": {
+        "after_cost_positive_recipe_count": 20,
+        "after_cost_summary_status": "computed",
         "alpha_decay_monitor_ready": true,
+        "paper_trading_blocked_count": 1838,
         "paper_trading_recipe_count": 0,
+        "paper_trading_validation_pass_count": 20,
         "recipe_validation_audit_accepted": true,
         "rollout_mode": "shadow_tooling",
+        "shadow_paper_trading_run_count": 1858,
         "unmonitored_paper_trading_recipe_ids": []
       },
       "failure_count": 0,
@@ -465,12 +471,17 @@
       "check_type": "rollout_gate",
       "evidence_artifacts": [
         "registry/report_intelligence/recipe_validation_audit.json",
-        "registry/report_intelligence/monitoring_report.json"
+        "registry/report_intelligence/monitoring_report.json",
+        "registry/report_intelligence/recipe_paper_trading_summary.json"
       ],
       "evidence_counts": {
+        "after_cost_summary_status": "computed",
         "alpha_decay_monitor_ready": true,
+        "paper_trading_blocked_count": 1838,
         "paper_trading_recipe_count": 0,
-        "rollout_mode": "shadow_tooling"
+        "paper_trading_validation_pass_count": 20,
+        "rollout_mode": "shadow_tooling",
+        "shadow_paper_trading_run_count": 1858
       },
       "phase_id": "G",
       "requirement": "Paper trading integration remains gated until selected recipes have paper-trading validation, after-cost/calibration monitoring, and confidence-impact checks.",

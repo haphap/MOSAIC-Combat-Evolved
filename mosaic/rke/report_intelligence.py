@@ -18228,6 +18228,7 @@ def build_report_intelligence_patch_v1_5_coverage_report(
     footprint_review_summary: Mapping[str, Any],
     footprint_error_taxonomy: Mapping[str, Any],
     gold_review_summary: Mapping[str, Any] | None = None,
+    recipe_paper_trading_summary: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     flags = _ensure_mapping(feature_flags.get("flags"))
     rollout_mode = str(feature_flags.get("rollout_mode") or "")
@@ -18246,6 +18247,25 @@ def build_report_intelligence_patch_v1_5_coverage_report(
         footprint_review_summary.get("quality_gate_passed") is True
     )
     gold_review_summary = _ensure_mapping(gold_review_summary)
+    paper_trading_summary = _ensure_mapping(recipe_paper_trading_summary)
+    after_cost_paper_trading_summary = _ensure_mapping(
+        paper_trading_summary.get("after_cost_paper_trading_summary")
+    )
+    shadow_paper_trading_run_count = int(
+        paper_trading_summary.get("paper_trading_run_count")
+        or paper_trading_summary.get("recipe_count")
+        or 0
+    )
+    paper_trading_validation_pass_count = int(
+        paper_trading_summary.get("validation_pass_count") or 0
+    )
+    paper_trading_blocked_count = int(paper_trading_summary.get("blocked_count") or 0)
+    after_cost_summary_status = str(
+        after_cost_paper_trading_summary.get("status") or ""
+    )
+    after_cost_positive_recipe_count = int(
+        after_cost_paper_trading_summary.get("positive_after_cost_recipe_count") or 0
+    )
     gold_review_metrics = _ensure_mapping(gold_review_summary.get("metrics"))
     gold_review_passed = (
         gold_review_summary.get("passed") is True
@@ -18649,10 +18669,18 @@ def build_report_intelligence_patch_v1_5_coverage_report(
             evidence_artifacts=[
                 "registry/report_intelligence/recipe_validation_audit.json",
                 "registry/report_intelligence/monitoring_report.json",
+                "registry/report_intelligence/recipe_paper_trading_summary.json",
             ],
             evidence_counts={
                 "rollout_mode": rollout_mode,
                 "paper_trading_recipe_count": paper_recipe_count,
+                "shadow_paper_trading_run_count": shadow_paper_trading_run_count,
+                "paper_trading_validation_pass_count": (
+                    paper_trading_validation_pass_count
+                ),
+                "paper_trading_blocked_count": paper_trading_blocked_count,
+                "after_cost_summary_status": after_cost_summary_status,
+                "after_cost_positive_recipe_count": after_cost_positive_recipe_count,
                 "recipe_validation_audit_accepted": recipe_validation_accepted,
                 "alpha_decay_monitor_ready": alpha_decay.get(
                     "alpha_decay_monitor_ready"
@@ -19035,10 +19063,17 @@ def build_report_intelligence_patch_v1_5_coverage_report(
             evidence_artifacts=[
                 "registry/report_intelligence/recipe_validation_audit.json",
                 "registry/report_intelligence/monitoring_report.json",
+                "registry/report_intelligence/recipe_paper_trading_summary.json",
             ],
             evidence_counts={
                 "rollout_mode": rollout_mode,
                 "paper_trading_recipe_count": paper_recipe_count,
+                "shadow_paper_trading_run_count": shadow_paper_trading_run_count,
+                "paper_trading_validation_pass_count": (
+                    paper_trading_validation_pass_count
+                ),
+                "paper_trading_blocked_count": paper_trading_blocked_count,
+                "after_cost_summary_status": after_cost_summary_status,
                 "alpha_decay_monitor_ready": alpha_decay.get(
                     "alpha_decay_monitor_ready"
                 ),
@@ -19263,6 +19298,11 @@ def write_report_intelligence_patch_v1_5_coverage_report(
         label="recipe_validation_audit",
         blockers=blockers,
     )
+    recipe_paper_trading_summary = _read_registry_json(
+        registry_path / "recipe_paper_trading_summary.json",
+        label="recipe_paper_trading_summary",
+        blockers=[],
+    )
     footprint_review_summary = _read_registry_json(
         registry_path / "analytical_footprint_review_summary.json",
         label="analytical_footprint_review_summary",
@@ -19351,6 +19391,7 @@ def write_report_intelligence_patch_v1_5_coverage_report(
         footprint_review_summary=footprint_review_summary,
         footprint_error_taxonomy=footprint_error_taxonomy,
         gold_review_summary=gold_review_summary,
+        recipe_paper_trading_summary=recipe_paper_trading_summary,
     )
     if count_only_public_fallbacks:
         report = dict(report)
@@ -20108,6 +20149,7 @@ def run_report_intelligence_derived_refresh(
             footprint_review_summary=footprint_review_summary,
             footprint_error_taxonomy=footprint_error_taxonomy,
             gold_review_summary=gold_review_summary,
+            recipe_paper_trading_summary=recipe_paper_trading_summary,
         )
     )
     schema_validation_report = _read_schema_validation_report(root_path)
@@ -21113,6 +21155,7 @@ def run_report_intelligence_refresh(
             footprint_review_summary=footprint_review_summary,
             footprint_error_taxonomy=footprint_error_taxonomy,
             gold_review_summary=gold_review_summary,
+            recipe_paper_trading_summary=recipe_paper_trading_summary,
         )
     )
     schema_validation_report = _read_schema_validation_report(root_path)
