@@ -2237,6 +2237,10 @@ CONFIDENCE_IMPACT_REQUIRED_OBSERVATION_FIELDS = (
 SHA256_DIGEST_PATTERN = re.compile(r"sha256:[0-9a-f]{64}")
 
 
+def _file_sha256(path: Path) -> str:
+    return "sha256:" + sha256(path.read_bytes()).hexdigest()
+
+
 def _expected_recipe_paper_trading_protocol() -> dict[str, Any]:
     return {
         "entry_semantics": "T+1_or_more_conservative",
@@ -4139,11 +4143,27 @@ def _validate_manual_review_bundle_manifest_contract(
             failures.append(f"{row_label}.format: expected {expected['format']}")
         if artifact.get("exists") is not True:
             failures.append(f"{row_label}.exists: must be true")
-        if _int_or_none(artifact.get("bytes")) is None or int(artifact.get("bytes") or 0) <= 0:
+        reported_bytes = _int_or_none(artifact.get("bytes"))
+        if reported_bytes is None or int(artifact.get("bytes") or 0) <= 0:
             failures.append(f"{row_label}.bytes: must be positive")
         sha_value = str(artifact.get("sha256") or "")
         if not SHA256_DIGEST_PATTERN.fullmatch(sha_value):
             failures.append(f"{row_label}.sha256: must be sha256:<64 hex>")
+        artifact_path = root_path / expected["path"]
+        if not artifact_path.exists():
+            failures.append(f"{row_label}.path: referenced artifact missing")
+            continue
+        actual_bytes = artifact_path.stat().st_size
+        if reported_bytes is not None and reported_bytes != actual_bytes:
+            failures.append(
+                f"{row_label}.bytes: expected current file size {actual_bytes}"
+            )
+        if SHA256_DIGEST_PATTERN.fullmatch(sha_value):
+            actual_sha = _file_sha256(artifact_path)
+            if sha_value != actual_sha:
+                failures.append(
+                    f"{row_label}.sha256: expected current file digest {actual_sha}"
+                )
 
     if manifest.get("accepted") is not True:
         failures.append("manual_review_bundle_manifest.accepted: must be true")

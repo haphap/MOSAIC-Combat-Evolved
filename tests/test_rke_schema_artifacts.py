@@ -2905,6 +2905,32 @@ def test_manual_review_bundle_manifest_contract_rejects_bad_hash_or_promotion(
     )
 
 
+def test_manual_review_bundle_manifest_contract_rejects_stale_file_digest(
+    tmp_path: Path,
+):
+    registry = _copy_registry_for_manual_progress(tmp_path)
+    handoff_markdown_path = registry / "handoffs/rke_operator_handoff.md"
+    handoff_markdown_path.write_text(
+        handoff_markdown_path.read_text(encoding="utf-8")
+        + "\nStale manifest fixture line.\n",
+        encoding="utf-8",
+    )
+
+    record = _manual_review_bundle_manifest_record(tmp_path)
+
+    assert not record.accepted
+    assert any(
+        "artifacts[operator_handoff_markdown].bytes: expected current file size"
+        in item
+        for item in record.failures
+    )
+    assert any(
+        "artifacts[operator_handoff_markdown].sha256: expected current file digest"
+        in item
+        for item in record.failures
+    )
+
+
 def test_promotion_dry_run_contract_accepts_current_public_artifact(
     tmp_path: Path,
 ):
