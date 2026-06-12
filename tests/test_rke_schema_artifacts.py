@@ -1550,6 +1550,29 @@ def test_recipe_paper_trading_contract_rejects_instability_without_gap(
     )
 
 
+def test_patch_coverage_rules_reject_stale_public_corpus_counts(tmp_path: Path):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    coverage_path = registry / "patch_v1_5_coverage_report.json"
+    coverage = json.loads(coverage_path.read_text(encoding="utf-8"))
+    coverage["corpus_counts"]["method_pattern_rows"] = 0
+    coverage_path.write_text(
+        json.dumps(coverage, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = next(
+        item
+        for item in validate_report_intelligence_semantics(tmp_path)
+        if item.schema_path == "schemas/report_intelligence_patch_v1_5_coverage_rules"
+    )
+
+    assert not record.accepted
+    assert any(
+        "corpus_counts.method_pattern_rows: expected" in failure
+        for failure in record.failures
+    )
+
+
 def test_evolution_refresh_history_rejects_accepted_aggregate_calibration_drift(
     tmp_path: Path,
 ):

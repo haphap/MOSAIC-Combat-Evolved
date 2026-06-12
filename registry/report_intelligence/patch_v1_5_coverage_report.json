@@ -1,6 +1,6 @@
 {
   "accepted": false,
-  "as_of_datetime": "2026-06-11T22:54:14+00:00",
+  "as_of_datetime": "2026-06-11T23:47:07+00:00",
   "blocked_phase_ids": [
     "B",
     "D"
@@ -19,7 +19,7 @@
     "analytical_footprint_rows": 200,
     "forecast_claim_rows": 189,
     "metadata_rows": 352,
-    "method_pattern_rows": 110,
+    "method_pattern_rows": 118,
     "metric_candidate_rows": 305,
     "outcome_label_rows": 184,
     "runtime_tool_gap_observation_rows": 884,
@@ -161,7 +161,7 @@
         "analytical_footprint_rows": 200,
         "footprint_quality_passed": false,
         "footprint_review_accepted": false,
-        "method_pattern_rows": 110,
+        "method_pattern_rows": 118,
         "metric_candidate_rows": 305
       },
       "failure_count": 1,
@@ -411,7 +411,7 @@
       ],
       "evidence_counts": {
         "analytical_footprint_rows": 200,
-        "method_pattern_rows": 110,
+        "method_pattern_rows": 118,
         "metric_candidate_rows": 305
       },
       "phase_id": "D",
@@ -510,6 +510,6 @@
       "status": "deferred_by_rollout"
     }
   ],
-  "run_id": "RIR-PATCH-COVERAGE-20260612",
+  "run_id": "RIR-PUBLIC-PATCH-COVERAGE-COUNT-SYNC-20260612",
   "source_plan_path": "MOSAIC_RKE_REPORT_INTELLIGENCE_LOOP_PATCH_V1_5_MERGED.md"
 }

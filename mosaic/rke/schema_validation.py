@@ -3614,6 +3614,30 @@ def validate_report_intelligence_semantics(
     phase_records = []
     requirement_checklist = []
     if patch_coverage_report:
+        corpus_counts = patch_coverage_report.get("corpus_counts")
+        if not isinstance(corpus_counts, Mapping):
+            patch_coverage_failures.append(
+                "patch_v1_5_coverage_report corpus_counts: expected object"
+            )
+            corpus_counts = {}
+        public_corpus_count_artifacts = {
+            "method_pattern_rows": "registry/report_intelligence/method_patterns.jsonl",
+            "metric_candidate_rows": "registry/report_intelligence/metric_candidates.jsonl",
+            "runtime_tool_gap_observation_rows": (
+                "registry/report_intelligence/runtime_tool_gap_observations.jsonl"
+            ),
+            "tool_gap_rows": "registry/report_intelligence/tool_gaps.jsonl",
+        }
+        for count_field, artifact_path in public_corpus_count_artifacts.items():
+            rows, load_failures = _load_mapping_jsonl(root_path, artifact_path)
+            patch_coverage_failures.extend(load_failures)
+            observed_count = _float_or_none(corpus_counts.get(count_field))
+            expected_count = len(rows)
+            if observed_count is None or int(observed_count) != expected_count:
+                patch_coverage_failures.append(
+                    "patch_v1_5_coverage_report corpus_counts."
+                    f"{count_field}: expected {expected_count}"
+                )
         phase_records = [
             item
             for item in patch_coverage_report.get("phase_records", [])
