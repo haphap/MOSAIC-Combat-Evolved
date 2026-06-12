@@ -59,6 +59,10 @@ from .temp_paths import rke_temporary_directory
 MANUAL_REVIEW_PROGRESS_REPORT_ID = "RKE-MANUAL-REVIEW-PROGRESS-20260606"
 MANUAL_REVIEW_PROGRESS_REPORT_PATH = "registry/review_batches/manual_review_progress_report.json"
 MANUAL_REVIEW_RUNBOOK_MD_PATH = "registry/review_batches/manual_review_runbook.md"
+RKE_OPERATOR_TMPDIR = "/home/hap/tmp/mosaic-rke"
+RKE_OPERATOR_TMP_ENV_PREFIX = (
+    f"MOSAIC_RKE_TMPDIR={RKE_OPERATOR_TMPDIR} TMPDIR={RKE_OPERATOR_TMPDIR}"
+)
 
 ReviewProgressKind = Literal["gold_set", "source_license", "lockbox", "footprint_review"]
 
@@ -129,6 +133,14 @@ def _json_object_exists(path: Path) -> int:
 
 def _dedupe(items: Sequence[str]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(str(item) for item in items if str(item).strip()))
+
+
+def _operator_command(command: str) -> str:
+    return " && ".join(
+        f"{RKE_OPERATOR_TMP_ENV_PREFIX} {segment.strip()}"
+        for segment in command.split(" && ")
+        if segment.strip()
+    )
 
 
 GOLD_BATCH_REQUIRED_FIELDS = (
@@ -287,14 +299,22 @@ def _gold_next_batch_commands(pending_rows: int) -> dict[str, str]:
         return {}
     batch_size = min(50, int(pending_rows))
     return {
-        "evidence": f"mosaic-rke write-gold-review-evidence --root . --limit {batch_size} --offset 0",
-        "prepare": (
-            "mosaic-rke prepare-gold-review --root . "
-            f"--gold-batch-size {batch_size} --offset 0 --force "
-            "--reviewer <name> --review-date <YYYY-MM-DD>"
+        "evidence": _operator_command(
+            f"mosaic-rke write-gold-review-evidence --root . --limit {batch_size} --offset 0"
         ),
-        "dry_run": f"mosaic-rke apply-gold-review --root . --input {GOLD_REVIEWED_IMPORT_PATH} --dry-run",
-        "apply": f"mosaic-rke apply-gold-review --root . --input {GOLD_REVIEWED_IMPORT_PATH}",
+        "prepare": (
+            _operator_command(
+                "mosaic-rke prepare-gold-review --root . "
+                f"--gold-batch-size {batch_size} --offset 0 --force "
+                "--reviewer <name> --review-date <YYYY-MM-DD>"
+            )
+        ),
+        "dry_run": _operator_command(
+            f"mosaic-rke apply-gold-review --root . --input {GOLD_REVIEWED_IMPORT_PATH} --dry-run"
+        ),
+        "apply": _operator_command(
+            f"mosaic-rke apply-gold-review --root . --input {GOLD_REVIEWED_IMPORT_PATH}"
+        ),
     }
 
 
@@ -303,18 +323,22 @@ def _footprint_next_batch_commands(pending_rows: int) -> dict[str, str]:
         return {}
     batch_size = min(50, int(pending_rows))
     return {
-        "assist": "mosaic-rke write-footprint-review-assist --root .",
-        "evidence": f"mosaic-rke write-footprint-review-evidence --root . --limit {batch_size} --offset 0",
-        "prepare": (
-            "mosaic-rke prepare-footprint-review --root . "
-            f"--limit {batch_size} --offset 0 "
-            "--reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
+        "assist": _operator_command("mosaic-rke write-footprint-review-assist --root ."),
+        "evidence": _operator_command(
+            f"mosaic-rke write-footprint-review-evidence --root . --limit {batch_size} --offset 0"
         ),
-        "dry_run": (
+        "prepare": (
+            _operator_command(
+                "mosaic-rke prepare-footprint-review --root . "
+                f"--limit {batch_size} --offset 0 "
+                "--reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
+            )
+        ),
+        "dry_run": _operator_command(
             "mosaic-rke apply-footprint-review --root . "
             f"--input {ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH} --dry-run"
         ),
-        "apply": (
+        "apply": _operator_command(
             "mosaic-rke apply-footprint-review --root . "
             f"--input {ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH}"
         ),
@@ -377,16 +401,24 @@ def _gold_progress(root_path: Path) -> ManualReviewGateProgress:
             simulation_accepted=True,
             ready_for_promotion=True,
             blockers=(),
-            prepare_command="mosaic-rke prepare-gold-review --root . --full",
-            dry_run_command=f"mosaic-rke apply-gold-review --root . --input {input_path} --dry-run",
-            apply_command=f"mosaic-rke apply-gold-review --root . --input {input_path}",
+            prepare_command=_operator_command("mosaic-rke prepare-gold-review --root . --full"),
+            dry_run_command=_operator_command(
+                f"mosaic-rke apply-gold-review --root . --input {input_path} --dry-run"
+            ),
+            apply_command=_operator_command(
+                f"mosaic-rke apply-gold-review --root . --input {input_path}"
+            ),
             current_batch_status=current_batch_status,
         )
     target_rows = build_manual_review_batch_status(root_path)[0].gold_set.pending_rows
     resolved_input = _resolve(root_path, input_path)
-    prepare_command = "mosaic-rke prepare-gold-review --root . --full"
-    dry_run_command = f"mosaic-rke apply-gold-review --root . --input {input_path} --dry-run"
-    apply_command = f"mosaic-rke apply-gold-review --root . --input {input_path}"
+    prepare_command = _operator_command("mosaic-rke prepare-gold-review --root . --full")
+    dry_run_command = _operator_command(
+        f"mosaic-rke apply-gold-review --root . --input {input_path} --dry-run"
+    )
+    apply_command = _operator_command(
+        f"mosaic-rke apply-gold-review --root . --input {input_path}"
+    )
     if not resolved_input.exists():
         return _missing_gate(
             review_kind="gold_set",
@@ -429,13 +461,13 @@ def _source_license_progress(root_path: Path) -> ManualReviewGateProgress:
     input_path = SOURCE_LICENSE_REVIEWED_POLICY_PATH
     target_rows = build_manual_review_batch_status(root_path)[0].source_license.pending_rows
     resolved_input = _resolve(root_path, input_path)
-    prepare_command = "mosaic-rke prepare-license-policy-review --root ."
-    dry_run_command = (
+    prepare_command = _operator_command("mosaic-rke prepare-license-policy-review --root .")
+    dry_run_command = _operator_command(
         "mosaic-rke build-license-review-import --root . "
         f"--policy {input_path} --output {DEFAULT_LICENSE_POLICY_IMPORT_PATH} && "
         f"mosaic-rke apply-license-review --root . --input {DEFAULT_LICENSE_POLICY_IMPORT_PATH} --dry-run"
     )
-    apply_command = (
+    apply_command = _operator_command(
         "mosaic-rke build-license-review-import --root . "
         f"--policy {input_path} --output {DEFAULT_LICENSE_POLICY_IMPORT_PATH} && "
         f"mosaic-rke apply-license-review --root . --input {DEFAULT_LICENSE_POLICY_IMPORT_PATH}"
@@ -508,9 +540,13 @@ def _lockbox_progress(root_path: Path) -> ManualReviewGateProgress:
     input_path = LOCKBOX_REVIEWED_IMPORT_PATH
     current_batch_status = _lockbox_decision_status(root_path)
     resolved_input = _resolve(root_path, input_path)
-    prepare_command = "mosaic-rke prepare-lockbox-review --root ."
-    dry_run_command = f"mosaic-rke apply-lockbox-review --root . --input {input_path} --dry-run"
-    apply_command = f"mosaic-rke apply-lockbox-review --root . --input {input_path}"
+    prepare_command = _operator_command("mosaic-rke prepare-lockbox-review --root .")
+    dry_run_command = _operator_command(
+        f"mosaic-rke apply-lockbox-review --root . --input {input_path} --dry-run"
+    )
+    apply_command = _operator_command(
+        f"mosaic-rke apply-lockbox-review --root . --input {input_path}"
+    )
     if not resolved_input.exists():
         return _missing_gate(
             review_kind="lockbox",
@@ -572,13 +608,17 @@ def _footprint_review_progress(root_path: Path) -> ManualReviewGateProgress:
     summary = _footprint_review_summary(root_path)
     target_rows = _footprint_review_target_rows(root_path, summary)
     prepare_command = (
-        "mosaic-rke prepare-footprint-review --root . "
-        f"--output {input_path} --overwrite"
+        _operator_command(
+            "mosaic-rke prepare-footprint-review --root . "
+            f"--output {input_path} --overwrite"
+        )
     )
-    dry_run_command = (
+    dry_run_command = _operator_command(
         f"mosaic-rke apply-footprint-review --root . --input {input_path} --dry-run"
     )
-    apply_command = f"mosaic-rke apply-footprint-review --root . --input {input_path}"
+    apply_command = _operator_command(
+        f"mosaic-rke apply-footprint-review --root . --input {input_path}"
+    )
     if summary.get("accepted") is True and summary.get("review_complete") is True:
         return ManualReviewGateProgress(
             review_kind="footprint_review",
@@ -768,7 +808,7 @@ def render_manual_review_runbook_markdown(report: ManualReviewProgressReport) ->
         "",
         "## Prepare Commands",
         "",
-        "- Temp workspace: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke` keeps review-progress and promotion dry-run registry copies out of system `/tmp`.",
+        f"- Temp workspace: `{RKE_OPERATOR_TMP_ENV_PREFIX}` keeps review-progress and promotion dry-run registry copies out of system `/tmp`; generated commands below include this prefix.",
         f"- Gold-set: `{gold.prepare_command}`",
         f"- Analytical-footprint: `{footprint.prepare_command}`",
         f"- Source-license: `{source_license.prepare_command}`",
@@ -853,14 +893,18 @@ def render_manual_review_runbook_markdown(report: ManualReviewProgressReport) ->
         "## Promotion Dry Run",
         "",
         (
-            "`mosaic-rke build-license-review-import --root . "
-            f"--policy {SOURCE_LICENSE_REVIEWED_POLICY_PATH} "
-            f"--output {DEFAULT_LICENSE_POLICY_IMPORT_PATH} && "
-            "mosaic-rke promotion-dry-run --root . "
-            f"--gold-input {GOLD_FULL_REVIEWED_IMPORT_PATH} "
-            f"--footprint-input {ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH} "
-            f"--license-input {DEFAULT_LICENSE_POLICY_IMPORT_PATH} "
-            f"--lockbox-input {LOCKBOX_REVIEWED_IMPORT_PATH}`"
+            "`"
+            + _operator_command(
+                "mosaic-rke build-license-review-import --root . "
+                f"--policy {SOURCE_LICENSE_REVIEWED_POLICY_PATH} "
+                f"--output {DEFAULT_LICENSE_POLICY_IMPORT_PATH} && "
+                "mosaic-rke promotion-dry-run --root . "
+                f"--gold-input {GOLD_FULL_REVIEWED_IMPORT_PATH} "
+                f"--footprint-input {ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH} "
+                f"--license-input {DEFAULT_LICENSE_POLICY_IMPORT_PATH} "
+                f"--lockbox-input {LOCKBOX_REVIEWED_IMPORT_PATH}"
+            )
+            + "`"
         ),
         "",
     ]

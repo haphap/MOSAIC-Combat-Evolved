@@ -30,22 +30,22 @@
       "sha256": "sha256:9180c2e7dfa375008bab6fec36335d301e6e42b69635fd534fd8eb748f285670"
     },
     {
-      "bytes": 9156,
+      "bytes": 10881,
       "exists": true,
       "format": "json",
       "path": "registry/review_batches/manual_review_progress_report.json",
       "role": "manual_review_progress_report",
       "row_count": null,
-      "sha256": "sha256:060ffcc38b4aa80146459d77775cbb6b032a95b321652682f36d6a2a4d4a436c"
+      "sha256": "sha256:f98ad8c858d67b738f9486df4ead356b9297801b4633177f6eaf5d7fc62b4002"
     },
     {
-      "bytes": 13774,
+      "bytes": 15727,
       "exists": true,
       "format": "markdown",
       "path": "registry/review_batches/manual_review_runbook.md",
       "role": "manual_review_runbook_markdown",
       "row_count": null,
-      "sha256": "sha256:2c4ada9e63d02d74598d997fd50462385386d0a1b17386a3e084a02dad89a294"
+      "sha256": "sha256:7d089bffcd13423938c2cfb2d2a97b40465853fc1b00eb43203e95cbfbd97344"
     },
     {
       "bytes": 1339,

@@ -9,6 +9,7 @@ from mosaic.rke.manual_review_batches import write_manual_review_batches
 from mosaic.rke.license_policy_import import build_source_license_policy_template
 from mosaic.rke.operator_handoff import build_lockbox_review_import_template
 from mosaic.rke.review_progress import (
+    RKE_OPERATOR_TMP_ENV_PREFIX,
     build_manual_review_progress,
     render_manual_review_runbook_markdown,
     write_manual_review_progress_report,
@@ -197,11 +198,20 @@ def test_review_progress_reports_missing_scratch_files(tmp_path: Path, capsys):
         gate for gate in output["gates"] if gate["review_kind"] == "footprint_review"
     )
     assert gold_gate["next_batch_commands"]["prepare"].startswith(
+        RKE_OPERATOR_TMP_ENV_PREFIX
+    )
+    assert (
         "mosaic-rke prepare-gold-review --root . --gold-batch-size 50 --offset 0"
+        in gold_gate["next_batch_commands"]["prepare"]
+    )
+    expected_footprint_dry_run = (
+        f"{RKE_OPERATOR_TMP_ENV_PREFIX} "
+        "mosaic-rke apply-footprint-review --root . "
+        "--input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run"
     )
     assert (
         footprint_gate["next_batch_commands"]["dry_run"]
-        == "mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run"
+        == expected_footprint_dry_run
     )
     assert gold_gate["current_batch_status"]["exists"] is False
     assert (
