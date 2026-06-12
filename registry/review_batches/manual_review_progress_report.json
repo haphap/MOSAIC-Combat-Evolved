@@ -45,6 +45,24 @@
         "500 gold-set claim review rows still pending"
       ],
       "complete_rows": 0,
+      "current_batch_status": {
+        "complete_rows": 0,
+        "exists": true,
+        "malformed_rows": 0,
+        "missing_required_fields": {
+          "claim_correct": 50,
+          "direction_correct": 50,
+          "horizon_correct": 50,
+          "manual_claim_text": 50,
+          "source_span_supports_claim": 50,
+          "target_correct": 50,
+          "unsupported_field_false_grounded": 50,
+          "variable_mapping_correct": 50
+        },
+        "path": "registry/review_batches/gold_set_reviewed.jsonl",
+        "pending_rows": 50,
+        "rows": 50
+      },
       "dry_run_command": "mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl --dry-run",
       "input_exists": true,
       "input_path": "registry/review_batches/gold_set_full_reviewed.jsonl",
@@ -75,6 +93,23 @@
         "proprietary_leakage_free_rate unavailable"
       ],
       "complete_rows": 0,
+      "current_batch_status": {
+        "complete_rows": 0,
+        "exists": true,
+        "malformed_rows": 0,
+        "missing_required_fields": {
+          "footprint_correct": 50,
+          "inferred_steps_tagged_correctly": 50,
+          "metric_mapping_correct": 50,
+          "no_proprietary_text_leakage": 50,
+          "review_notes": 50,
+          "source_span_supports_footprint": 50,
+          "unknowns_used_when_uncertain": 50
+        },
+        "path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+        "pending_rows": 50,
+        "rows": 50
+      },
       "dry_run_command": "mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_reviewed.jsonl --dry-run",
       "input_exists": true,
       "input_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
@@ -97,6 +132,7 @@
       "apply_command": "mosaic-rke build-license-review-import --root . --policy registry/review_batches/source_license_policy_reviewed.json --output registry/review_batches/source_license_policy_import.jsonl && mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_policy_import.jsonl",
       "blockers": [],
       "complete_rows": 17529,
+      "current_batch_status": {},
       "dry_run_command": "mosaic-rke build-license-review-import --root . --policy registry/review_batches/source_license_policy_reviewed.json --output registry/review_batches/source_license_policy_import.jsonl && mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_policy_import.jsonl --dry-run",
       "input_exists": true,
       "input_path": "registry/review_batches/source_license_policy_reviewed.json",
@@ -121,6 +157,7 @@
         "lockbox has not been opened"
       ],
       "complete_rows": 0,
+      "current_batch_status": {},
       "dry_run_command": "mosaic-rke apply-lockbox-review --root . --input registry/review_batches/lockbox_reviewed.json --dry-run",
       "input_exists": true,
       "input_path": "registry/review_batches/lockbox_reviewed.json",

@@ -11,6 +11,14 @@ It records paths, commands, row counts, acceptance criteria, and current blocker
 - Source-license review: 17529/17529 complete; scratch exists: true; simulation accepted: true
 - Lockbox review: 0/1 complete; scratch exists: true; simulation accepted: false
 
+## Current Batch Scratch
+
+This section reports aggregate completion counts for the current local batch files only; it does not include source text, claim text, or reviewer notes.
+- Gold-set batch: `registry/review_batches/gold_set_reviewed.jsonl`; exists: true; rows: 50; complete: 0; pending: 50; malformed: 0
+  Missing required fields: `claim_correct`=50, `direction_correct`=50, `horizon_correct`=50, `manual_claim_text`=50, `source_span_supports_claim`=50, `target_correct`=50, `unsupported_field_false_grounded`=50, `variable_mapping_correct`=50
+- Analytical-footprint batch: `registry/report_intelligence/analytical_footprint_review_batch.jsonl`; exists: true; rows: 50; complete: 0; pending: 50; malformed: 0
+  Missing required fields: `footprint_correct`=50, `inferred_steps_tagged_correctly`=50, `metric_mapping_correct`=50, `no_proprietary_text_leakage`=50, `review_notes`=50, `source_span_supports_footprint`=50, `unknowns_used_when_uncertain`=50
+
 ## Prepare Commands
 
 - Temp workspace: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke` keeps review-progress and promotion dry-run registry copies out of system `/tmp`.

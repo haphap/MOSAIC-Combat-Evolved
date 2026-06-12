@@ -28,14 +28,18 @@ from .manual_review_batches import (
     build_manual_review_batch_status,
 )
 from .manual_review_import import (
+    GOLD_BOOL_FIELDS,
     apply_gold_set_review_import,
 )
 from .operator_handoff import LOCKBOX_REVIEWED_IMPORT_PATH
+from .phase_minus1 import load_jsonl_with_errors
 from .report_intelligence import (
     ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH,
     ANALYTICAL_FOOTPRINT_REVIEW_ASSIST_JSONL_PATH,
+    ANALYTICAL_FOOTPRINT_REVIEW_BOOLEAN_FIELDS,
     ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_JSONL_PATH,
     ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_MD_PATH,
+    ANALYTICAL_FOOTPRINT_REVIEW_REQUIRED_FIELDS,
     ANALYTICAL_FOOTPRINT_REVIEW_SUMMARY_PATH,
     ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH,
     ANALYTICAL_FOOTPRINT_REVIEW_WORKBOOK_MD_PATH,
@@ -70,6 +74,7 @@ class ManualReviewGateProgress:
     dry_run_command: str
     apply_command: str
     next_batch_commands: Mapping[str, str] = field(default_factory=dict)
+    current_batch_status: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -119,6 +124,101 @@ def _json_object_exists(path: Path) -> int:
 
 def _dedupe(items: Sequence[str]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(str(item) for item in items if str(item).strip()))
+
+
+GOLD_BATCH_REQUIRED_FIELDS = (
+    "manual_claim_text",
+    *GOLD_BOOL_FIELDS,
+    "reviewer",
+    "review_date",
+)
+
+
+def _is_missing_review_field(
+    row: Mapping[str, Any],
+    field: str,
+    *,
+    boolean_fields: Sequence[str],
+) -> bool:
+    if field in boolean_fields:
+        return not isinstance(row.get(field), bool)
+    return not str(row.get(field) or "").strip()
+
+
+def _review_batch_status(
+    root_path: Path,
+    relative_path: str,
+    *,
+    required_fields: Sequence[str],
+    boolean_fields: Sequence[str],
+) -> Mapping[str, Any]:
+    path = _resolve(root_path, relative_path)
+    status: dict[str, Any] = {
+        "path": relative_path,
+        "exists": path.exists(),
+        "rows": 0,
+        "complete_rows": 0,
+        "pending_rows": 0,
+        "malformed_rows": 0,
+        "missing_required_fields": {},
+    }
+    if not path.exists():
+        return status
+
+    rows, errors = load_jsonl_with_errors(path, label=relative_path)
+    malformed_rows = len(errors)
+    valid_rows: list[Mapping[str, Any]] = []
+    for row in rows:
+        if isinstance(row, Mapping):
+            valid_rows.append(row)
+        else:
+            malformed_rows += 1
+
+    missing_required_fields: dict[str, int] = {}
+    complete_rows = 0
+    for row in valid_rows:
+        missing_fields = [
+            field
+            for field in required_fields
+            if _is_missing_review_field(row, field, boolean_fields=boolean_fields)
+        ]
+        if not missing_fields:
+            complete_rows += 1
+            continue
+        for missing_field in missing_fields:
+            missing_required_fields[missing_field] = (
+                missing_required_fields.get(missing_field, 0) + 1
+            )
+
+    total_rows = len(valid_rows) + malformed_rows
+    status.update(
+        {
+            "rows": total_rows,
+            "complete_rows": complete_rows,
+            "pending_rows": max(total_rows - complete_rows, 0),
+            "malformed_rows": malformed_rows,
+            "missing_required_fields": dict(sorted(missing_required_fields.items())),
+        }
+    )
+    return status
+
+
+def _gold_batch_status(root_path: Path) -> Mapping[str, Any]:
+    return _review_batch_status(
+        root_path,
+        GOLD_REVIEWED_IMPORT_PATH,
+        required_fields=GOLD_BATCH_REQUIRED_FIELDS,
+        boolean_fields=GOLD_BOOL_FIELDS,
+    )
+
+
+def _footprint_batch_status(root_path: Path) -> Mapping[str, Any]:
+    return _review_batch_status(
+        root_path,
+        ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH,
+        required_fields=ANALYTICAL_FOOTPRINT_REVIEW_REQUIRED_FIELDS,
+        boolean_fields=ANALYTICAL_FOOTPRINT_REVIEW_BOOLEAN_FIELDS,
+    )
 
 
 def _gold_next_batch_commands(pending_rows: int) -> dict[str, str]:
@@ -178,6 +278,7 @@ def _missing_gate(
     dry_run_command: str,
     apply_command: str,
     next_batch_commands: Mapping[str, str] | None = None,
+    current_batch_status: Mapping[str, Any] | None = None,
 ) -> ManualReviewGateProgress:
     return ManualReviewGateProgress(
         review_kind=review_kind,
@@ -194,11 +295,13 @@ def _missing_gate(
         dry_run_command=dry_run_command,
         apply_command=apply_command,
         next_batch_commands=dict(next_batch_commands or {}),
+        current_batch_status=dict(current_batch_status or {}),
     )
 
 
 def _gold_progress(root_path: Path) -> ManualReviewGateProgress:
     input_path = GOLD_FULL_REVIEWED_IMPORT_PATH
+    current_batch_status = _gold_batch_status(root_path)
     current_summary = summarize_gold_set_review(root_path)
     if current_summary.passed and current_summary.review_complete:
         resolved_input = _resolve(root_path, input_path)
@@ -216,6 +319,7 @@ def _gold_progress(root_path: Path) -> ManualReviewGateProgress:
             prepare_command="mosaic-rke prepare-gold-review --root . --full",
             dry_run_command=f"mosaic-rke apply-gold-review --root . --input {input_path} --dry-run",
             apply_command=f"mosaic-rke apply-gold-review --root . --input {input_path}",
+            current_batch_status=current_batch_status,
         )
     target_rows = build_manual_review_batch_status(root_path)[0].gold_set.pending_rows
     resolved_input = _resolve(root_path, input_path)
@@ -231,6 +335,7 @@ def _gold_progress(root_path: Path) -> ManualReviewGateProgress:
             dry_run_command=dry_run_command,
             apply_command=apply_command,
             next_batch_commands=_gold_next_batch_commands(target_rows),
+            current_batch_status=current_batch_status,
         )
 
     input_rows = _jsonl_row_count(resolved_input)
@@ -255,6 +360,7 @@ def _gold_progress(root_path: Path) -> ManualReviewGateProgress:
         dry_run_command=dry_run_command,
         apply_command=apply_command,
         next_batch_commands=_gold_next_batch_commands(summary.pending_claims),
+        current_batch_status=current_batch_status,
     )
 
 
@@ -397,6 +503,7 @@ def _footprint_review_target_rows(root_path: Path, summary: Mapping[str, Any]) -
 
 def _footprint_review_progress(root_path: Path) -> ManualReviewGateProgress:
     input_path = ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH
+    current_batch_status = _footprint_batch_status(root_path)
     resolved_input = _resolve(root_path, input_path)
     summary = _footprint_review_summary(root_path)
     target_rows = _footprint_review_target_rows(root_path, summary)
@@ -423,6 +530,7 @@ def _footprint_review_progress(root_path: Path) -> ManualReviewGateProgress:
             prepare_command=prepare_command,
             dry_run_command=dry_run_command,
             apply_command=apply_command,
+            current_batch_status=current_batch_status,
         )
     if not resolved_input.exists():
         return _missing_gate(
@@ -433,6 +541,7 @@ def _footprint_review_progress(root_path: Path) -> ManualReviewGateProgress:
             dry_run_command=dry_run_command,
             apply_command=apply_command,
             next_batch_commands=_footprint_next_batch_commands(target_rows),
+            current_batch_status=current_batch_status,
         )
 
     input_rows = _jsonl_row_count(resolved_input)
@@ -475,7 +584,31 @@ def _footprint_review_progress(root_path: Path) -> ManualReviewGateProgress:
         dry_run_command=dry_run_command,
         apply_command=apply_command,
         next_batch_commands=_footprint_next_batch_commands(pending_rows),
+        current_batch_status=current_batch_status,
     )
+
+
+def _render_batch_status_lines(label: str, status: Mapping[str, Any]) -> list[str]:
+    if not status:
+        return [f"- {label}: no current batch scratch configured"]
+    lines = [
+        (
+            f"- {label}: `{status.get('path')}`; "
+            f"exists: {str(bool(status.get('exists'))).lower()}; "
+            f"rows: {int(status.get('rows') or 0)}; "
+            f"complete: {int(status.get('complete_rows') or 0)}; "
+            f"pending: {int(status.get('pending_rows') or 0)}; "
+            f"malformed: {int(status.get('malformed_rows') or 0)}"
+        )
+    ]
+    missing_required_fields = status.get("missing_required_fields")
+    if isinstance(missing_required_fields, Mapping) and missing_required_fields:
+        missing = ", ".join(
+            f"`{field}`={int(count)}"
+            for field, count in sorted(missing_required_fields.items())
+        )
+        lines.append(f"  Missing required fields: {missing}")
+    return lines
 
 
 def build_manual_review_progress(root: str | Path = ".") -> ManualReviewProgressReport:
@@ -550,6 +683,15 @@ def render_manual_review_runbook_markdown(report: ManualReviewProgressReport) ->
             f"{lockbox.complete_rows}/{lockbox.target_rows} complete; "
             f"scratch exists: {str(lockbox.input_exists).lower()}; "
             f"simulation accepted: {str(lockbox.simulation_accepted).lower()}"
+        ),
+        "",
+        "## Current Batch Scratch",
+        "",
+        "This section reports aggregate completion counts for the current local batch files only; it does not include source text, claim text, or reviewer notes.",
+        *_render_batch_status_lines("Gold-set batch", gold.current_batch_status),
+        *_render_batch_status_lines(
+            "Analytical-footprint batch",
+            footprint.current_batch_status,
         ),
         "",
         "## Prepare Commands",

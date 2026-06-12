@@ -24,6 +24,14 @@ def _copy_registry(dst_root: Path) -> None:
     )
     if footprint_reviewed.exists():
         footprint_reviewed.unlink()
+    footprint_batch = (
+        dst_root / "registry/report_intelligence/analytical_footprint_review_batch.jsonl"
+    )
+    if footprint_batch.exists():
+        footprint_batch.unlink()
+    gold_batch = dst_root / "registry/review_batches/gold_set_reviewed.jsonl"
+    if gold_batch.exists():
+        gold_batch.unlink()
     gold_path = dst_root / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
     gold_rows = _load_jsonl(gold_path)
     for row in gold_rows:
@@ -192,12 +200,69 @@ def test_review_progress_reports_missing_scratch_files(tmp_path: Path, capsys):
         footprint_gate["next_batch_commands"]["dry_run"]
         == "mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run"
     )
+    assert gold_gate["current_batch_status"]["exists"] is False
+    assert (
+        gold_gate["current_batch_status"]["path"]
+        == "registry/review_batches/gold_set_reviewed.jsonl"
+    )
+    assert footprint_gate["current_batch_status"]["exists"] is False
+    assert (
+        footprint_gate["current_batch_status"]["path"]
+        == "registry/report_intelligence/analytical_footprint_review_batch.jsonl"
+    )
     assert all(gate["input_exists"] is False for gate in output["gates"])
     assert any("prepare-gold-review" in blocker for blocker in output["blockers"])
     assert any("prepare-footprint-review" in blocker for blocker in output["blockers"])
     assert any("prepare-license-policy-review" in blocker for blocker in output["blockers"])
     assert any("prepare-lockbox-review" in blocker for blocker in output["blockers"])
     assert (tmp_path / "registry/review_batches/manual_review_progress_report.json").exists()
+
+
+def test_review_progress_reports_current_batch_scratch_status(tmp_path: Path):
+    _copy_registry(tmp_path)
+    gold_rows = _accepted_gold_rows(tmp_path)[:2]
+    gold_rows[1]["manual_claim_text"] = ""
+    gold_rows[1]["claim_correct"] = None
+    _write_jsonl(
+        tmp_path / "registry/review_batches/gold_set_reviewed.jsonl",
+        gold_rows,
+    )
+    footprint_rows = _accepted_footprint_rows(tmp_path)[:2]
+    footprint_rows[0]["review_notes"] = ""
+    footprint_rows[1]["metric_mapping_correct"] = None
+    _write_jsonl(
+        tmp_path / "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+        footprint_rows,
+    )
+
+    report = build_manual_review_progress(tmp_path)
+    gates = {gate.review_kind: gate for gate in report.gates}
+    gold_batch = gates["gold_set"].current_batch_status
+    footprint_batch = gates["footprint_review"].current_batch_status
+    markdown = render_manual_review_runbook_markdown(report)
+
+    assert gold_batch["exists"] is True
+    assert gold_batch["rows"] == 2
+    assert gold_batch["complete_rows"] == 1
+    assert gold_batch["pending_rows"] == 1
+    assert gold_batch["missing_required_fields"] == {
+        "claim_correct": 1,
+        "manual_claim_text": 1,
+    }
+    assert footprint_batch["exists"] is True
+    assert footprint_batch["rows"] == 2
+    assert footprint_batch["complete_rows"] == 0
+    assert footprint_batch["pending_rows"] == 2
+    assert footprint_batch["missing_required_fields"] == {
+        "metric_mapping_correct": 1,
+        "review_notes": 1,
+    }
+    assert "## Current Batch Scratch" in markdown
+    assert "Gold-set batch" in markdown
+    assert "Analytical-footprint batch" in markdown
+    assert "`manual_claim_text`=1" in markdown
+    assert "`review_notes`=1" in markdown
+    assert "fixture approval" not in markdown
 
 
 def test_write_manual_review_progress_report_outputs_registry_artifact(tmp_path: Path):
