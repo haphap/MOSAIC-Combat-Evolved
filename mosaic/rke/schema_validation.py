@@ -4084,6 +4084,54 @@ def _validate_operator_handoff_contract(root_path: Path) -> tuple[int, list[str]
     return len(steps), failures
 
 
+def _promotion_dry_run_summary_from_report(
+    payload: Mapping[str, Any],
+) -> dict[str, Any]:
+    steps = payload.get("steps") if isinstance(payload.get("steps"), list) else []
+    step_rows = [step for step in steps if isinstance(step, Mapping)]
+    return {
+        "accepted": (
+            payload.get("accepted") if isinstance(payload.get("accepted"), bool) else None
+        ),
+        "after_next_state": str(payload.get("after_next_state") or ""),
+        "production_allowed_after_simulation": (
+            payload.get("production_allowed_after_simulation")
+            if isinstance(payload.get("production_allowed_after_simulation"), bool)
+            else None
+        ),
+        "staged_production_allowed_after_simulation": (
+            payload.get("staged_production_allowed_after_simulation")
+            if isinstance(payload.get("staged_production_allowed_after_simulation"), bool)
+            else None
+        ),
+        "provided_steps": [
+            str(step.get("review_kind") or "")
+            for step in step_rows
+            if step.get("provided") is True
+        ],
+        "accepted_steps": [
+            str(step.get("review_kind") or "")
+            for step in step_rows
+            if step.get("accepted") is True
+        ],
+        "rejected_steps": [
+            str(step.get("review_kind") or "")
+            for step in step_rows
+            if step.get("accepted") is False
+        ],
+        "already_applied_steps": [
+            str(step.get("review_kind") or "")
+            for step in step_rows
+            if step.get("result") == "already_applied"
+        ],
+        "missing_steps": [
+            str(step.get("review_kind") or "")
+            for step in step_rows
+            if step.get("result") == "not_provided"
+        ],
+    }
+
+
 def _validate_manual_review_bundle_manifest_contract(
     root_path: Path,
 ) -> tuple[int, list[str]]:
@@ -4189,16 +4237,53 @@ def _validate_manual_review_bundle_manifest_contract(
     if not promotion:
         failures.append("manual_review_bundle_manifest.promotion_dry_run: expected object")
     else:
-        if promotion.get("production_allowed_after_simulation") is not False:
+        after_next_state = str(promotion.get("after_next_state") or "")
+        if after_next_state not in PROMOTION_NEXT_STATES:
             failures.append(
                 "manual_review_bundle_manifest.promotion_dry_run."
-                "production_allowed_after_simulation: must be false"
+                "after_next_state: unexpected state " + after_next_state
             )
-        if promotion.get("staged_production_allowed_after_simulation") is not False:
+        expected_production = after_next_state == "production"
+        expected_staged = after_next_state in {"staged_production", "production"}
+        if promotion.get("production_allowed_after_simulation") is not expected_production:
             failures.append(
                 "manual_review_bundle_manifest.promotion_dry_run."
-                "staged_production_allowed_after_simulation: must be false"
+                f"production_allowed_after_simulation: expected {expected_production}"
             )
+        if promotion.get("staged_production_allowed_after_simulation") is not expected_staged:
+            failures.append(
+                "manual_review_bundle_manifest.promotion_dry_run."
+                f"staged_production_allowed_after_simulation: expected {expected_staged}"
+            )
+        missing_steps = _string_items(promotion.get("missing_steps"))
+        rejected_steps = _string_items(promotion.get("rejected_steps"))
+        if promotion.get("accepted") is True and (missing_steps or rejected_steps):
+            failures.append(
+                "manual_review_bundle_manifest.promotion_dry_run: accepted summary "
+                "must not have missing or rejected steps"
+            )
+        if (expected_staged or expected_production) and (missing_steps or rejected_steps):
+            failures.append(
+                "manual_review_bundle_manifest.promotion_dry_run: promoted summary "
+                "must not have missing or rejected steps"
+            )
+        if promotion.get("accepted") is False and not (missing_steps or rejected_steps):
+            failures.append(
+                "manual_review_bundle_manifest.promotion_dry_run: rejected summary "
+                "requires missing or rejected steps"
+            )
+        dry_run_payload, dry_run_errors = _read_mapping_json(
+            root_path / "registry/promotion/rke_promotion_dry_run_report.json",
+            "registry/promotion/rke_promotion_dry_run_report.json",
+        )
+        failures.extend(dry_run_errors)
+        if dry_run_payload:
+            expected_summary = _promotion_dry_run_summary_from_report(dry_run_payload)
+            if dict(promotion) != expected_summary:
+                failures.append(
+                    "manual_review_bundle_manifest.promotion_dry_run: "
+                    "must match current promotion dry-run report"
+                )
 
     return len(artifacts), failures
 

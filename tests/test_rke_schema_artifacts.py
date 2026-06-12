@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import shutil
+from hashlib import sha256
 from pathlib import Path
 
 from mosaic.rke import (
@@ -2879,6 +2880,77 @@ def test_manual_review_bundle_manifest_contract_accepts_current_public_artifact(
     assert record.failures == ()
 
 
+def test_manual_review_bundle_manifest_contract_accepts_completed_promotion_summary(
+    tmp_path: Path,
+):
+    registry = _copy_registry_for_manual_progress(tmp_path)
+    report_path = registry / "promotion/rke_promotion_dry_run_report.json"
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    report.update(
+        {
+            "accepted": True,
+            "after_blockers": [],
+            "after_next_state": "production",
+            "production_allowed_after_simulation": True,
+            "staged_production_allowed_after_simulation": True,
+        }
+    )
+    for step in report["steps"]:
+        step["accepted"] = True
+        step["blockers"] = []
+        if step["review_kind"] == "source_license":
+            step["applied"] = False
+            step["changed_rows"] = 0
+            step["provided"] = False
+            step["result"] = "already_applied"
+            step["input_path"] = ""
+        else:
+            step["applied"] = True
+            step["changed_rows"] = 1
+            step["provided"] = True
+            step["result"] = "accepted"
+            step["input_path"] = f"registry/review_batches/{step['review_kind']}.jsonl"
+    report_path.write_text(
+        json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    manifest_path = registry / "review_batches/manual_review_bundle_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["promotion_dry_run"] = {
+        "accepted": True,
+        "accepted_steps": [
+            "gold_set",
+            "footprint_review",
+            "source_license",
+            "lockbox",
+        ],
+        "after_next_state": "production",
+        "already_applied_steps": ["source_license"],
+        "missing_steps": [],
+        "production_allowed_after_simulation": True,
+        "provided_steps": ["gold_set", "footprint_review", "lockbox"],
+        "rejected_steps": [],
+        "staged_production_allowed_after_simulation": True,
+    }
+    report_bytes = report_path.stat().st_size
+    report_sha = "sha256:" + sha256(report_path.read_bytes()).hexdigest()
+    for artifact in manifest["artifacts"]:
+        if artifact["role"] == "promotion_dry_run_report":
+            artifact["bytes"] = report_bytes
+            artifact["sha256"] = report_sha
+    manifest_path.write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _manual_review_bundle_manifest_record(tmp_path)
+
+    assert record.accepted
+    assert record.item_count == 10
+    assert record.failures == ()
+
+
 def test_manual_review_bundle_manifest_contract_rejects_missing_artifact_role(
     tmp_path: Path,
 ):
@@ -2926,7 +2998,11 @@ def test_manual_review_bundle_manifest_contract_rejects_bad_hash_or_promotion(
     assert any(".bytes: must be positive" in item for item in record.failures)
     assert any(".sha256: must be sha256:<64 hex>" in item for item in record.failures)
     assert any(
-        "production_allowed_after_simulation: must be false" in item
+        "production_allowed_after_simulation: expected False" in item
+        for item in record.failures
+    )
+    assert any(
+        "must match current promotion dry-run report" in item
         for item in record.failures
     )
 
