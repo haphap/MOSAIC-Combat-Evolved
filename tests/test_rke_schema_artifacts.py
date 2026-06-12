@@ -671,6 +671,16 @@ def _evolution_readiness_gate_record(tmp_path: Path):
     )
 
 
+def _prompt_mutation_candidate_contract_record(tmp_path: Path):
+    records = validate_report_intelligence_semantics(tmp_path)
+    return next(
+        record
+        for record in records
+        if record.schema_path
+        == "schemas/report_intelligence_prompt_mutation_candidate_contract_rules"
+    )
+
+
 def _industry_etf_mapping_contract_record(tmp_path: Path):
     records = validate_report_intelligence_semantics(tmp_path)
     return next(
@@ -1874,6 +1884,88 @@ def test_evolution_readiness_gate_contract_rejects_blocker_count_mismatch(
     assert any("blocker_count: expected" in item for item in record.failures)
     assert any("gate_status: expected blocked" in item for item in record.failures)
     assert any("passed: must be False based on blockers" in item for item in record.failures)
+
+
+def _read_prompt_mutation_candidates(path: Path) -> list[dict[str, object]]:
+    return [
+        json.loads(line)
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+
+
+def _write_prompt_mutation_candidates(
+    path: Path,
+    rows: list[dict[str, object]],
+) -> None:
+    path.write_text(
+        "\n".join(json.dumps(row, ensure_ascii=False, sort_keys=True) for row in rows)
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def test_prompt_mutation_candidate_contract_accepts_current_public_artifact(
+    tmp_path: Path,
+):
+    _copy_report_intelligence_registry(tmp_path)
+
+    record = _prompt_mutation_candidate_contract_record(tmp_path)
+
+    assert record.accepted
+    assert record.item_count == 11
+    assert record.failures == ()
+
+
+def test_prompt_mutation_candidate_contract_rejects_production_prompt_bypass(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    candidates_path = registry / "prompt_mutation_candidates.jsonl"
+    candidates = _read_prompt_mutation_candidates(candidates_path)
+    candidates[0]["production_prompt_change_allowed"] = True
+    candidates[0]["promotion_state"] = "ready_for_production"
+    _write_prompt_mutation_candidates(candidates_path, candidates)
+
+    record = _prompt_mutation_candidate_contract_record(tmp_path)
+
+    assert not record.accepted
+    assert any("production_prompt_change_allowed: must be false" in item for item in record.failures)
+    assert any("promotion_state: must remain shadow_candidate_only" in item for item in record.failures)
+
+
+def test_prompt_mutation_candidate_contract_rejects_private_source_text(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    candidates_path = registry / "prompt_mutation_candidates.jsonl"
+    candidates = _read_prompt_mutation_candidates(candidates_path)
+    candidates[0]["private_text_included"] = True
+    candidates[0]["claim_text"] = "private licensed report prose"
+    _write_prompt_mutation_candidates(candidates_path, candidates)
+
+    record = _prompt_mutation_candidate_contract_record(tmp_path)
+
+    assert not record.accepted
+    assert any("private_text_included: must be false" in item for item in record.failures)
+    assert any("claim_text: private/source text field forbidden" in item for item in record.failures)
+
+
+def test_prompt_mutation_candidate_contract_requires_manual_blocked_shadow_review(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    candidates_path = registry / "prompt_mutation_candidates.jsonl"
+    candidates = _read_prompt_mutation_candidates(candidates_path)
+    candidates[0]["manual_review_required"] = False
+    candidates[0]["blocked_by"] = []
+    _write_prompt_mutation_candidates(candidates_path, candidates)
+
+    record = _prompt_mutation_candidate_contract_record(tmp_path)
+
+    assert not record.accepted
+    assert any("manual_review_required: must be true" in item for item in record.failures)
+    assert any("blocked_by: required while evolution gate is blocked" in item for item in record.failures)
 
 
 def test_schema_validation_accepts_public_registry_without_private_report_inputs(

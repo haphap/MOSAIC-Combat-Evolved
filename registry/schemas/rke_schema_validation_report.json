@@ -479,6 +479,13 @@
     },
     {
       "accepted": true,
+      "artifact_path": "registry/report_intelligence/prompt_mutation_candidates.jsonl",
+      "failures": [],
+      "item_count": 11,
+      "schema_path": "schemas/report_intelligence_prompt_mutation_candidate_contract_rules"
+    },
+    {
+      "accepted": true,
       "artifact_path": "registry/report_intelligence/report_forecast_ledger.jsonl",
       "failures": [],
       "item_count": 424,

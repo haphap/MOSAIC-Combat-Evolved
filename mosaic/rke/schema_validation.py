@@ -2500,6 +2500,44 @@ def _validate_evolution_readiness_gate_contract(
     return len(checks), failures
 
 
+def _validate_prompt_mutation_candidate_contract(
+    root_path: Path,
+) -> tuple[int, list[str]]:
+    candidate_rows, candidate_failures = _load_mapping_jsonl(
+        root_path,
+        "registry/report_intelligence/prompt_mutation_candidates.jsonl",
+    )
+    gate, gate_failures = _read_mapping_json(
+        root_path / "registry/report_intelligence/evolution_readiness_gate.json",
+        "registry/report_intelligence/evolution_readiness_gate.json",
+    )
+    failures = [*candidate_failures, *gate_failures]
+    gate_status = str(gate.get("gate_status") or "") if gate else ""
+    gate_blocked = gate_status != "passed"
+
+    for index, row in enumerate(candidate_rows, 1):
+        row_label = f"prompt_mutation_candidates row {index}"
+        if row.get("promotion_state") != "shadow_candidate_only":
+            failures.append(
+                f"{row_label}.promotion_state: must remain shadow_candidate_only"
+            )
+        if row.get("production_prompt_change_allowed") is not False:
+            failures.append(
+                f"{row_label}.production_prompt_change_allowed: must be false"
+            )
+        if row.get("private_text_included") is not False:
+            failures.append(f"{row_label}.private_text_included: must be false")
+        if row.get("manual_review_required") is not True:
+            failures.append(f"{row_label}.manual_review_required: must be true")
+        if gate_blocked and not _string_items(row.get("blocked_by")):
+            failures.append(
+                f"{row_label}.blocked_by: required while evolution gate is blocked"
+            )
+        failures.extend(_public_forbidden_text_failures(row, path=row_label))
+
+    return len(candidate_rows), failures
+
+
 def validate_report_intelligence_semantics(
     root: str | Path,
 ) -> tuple[SchemaValidationRecord, ...]:
@@ -3169,6 +3207,20 @@ def validate_report_intelligence_semantics(
             item_count=evolution_readiness_gate_item_count,
             accepted=not evolution_readiness_gate_failures,
             failures=tuple(evolution_readiness_gate_failures),
+        )
+    )
+
+    (
+        prompt_mutation_candidate_item_count,
+        prompt_mutation_candidate_failures,
+    ) = _validate_prompt_mutation_candidate_contract(root_path)
+    records.append(
+        SchemaValidationRecord(
+            schema_path="schemas/report_intelligence_prompt_mutation_candidate_contract_rules",
+            artifact_path="registry/report_intelligence/prompt_mutation_candidates.jsonl",
+            item_count=prompt_mutation_candidate_item_count,
+            accepted=not prompt_mutation_candidate_failures,
+            failures=tuple(prompt_mutation_candidate_failures),
         )
     )
 
