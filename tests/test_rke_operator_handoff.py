@@ -12,7 +12,7 @@ from mosaic.rke import (
     write_operator_handoff,
 )
 from mosaic.rke.cli import main
-from mosaic.rke.operator_handoff import RKE_OPERATOR_TMP_ENV_PREFIX
+from mosaic.rke.temp_paths import RKE_OPERATOR_TMP_ENV_PREFIX
 
 
 def _copy_registry(dst_root: Path) -> None:

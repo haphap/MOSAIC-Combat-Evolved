@@ -9,13 +9,16 @@ from mosaic.rke.manual_review_batches import write_manual_review_batches
 from mosaic.rke.license_policy_import import build_source_license_policy_template
 from mosaic.rke.operator_handoff import build_lockbox_review_import_template
 from mosaic.rke.review_progress import (
-    RKE_OPERATOR_TMP_ENV_PREFIX,
     build_manual_review_progress,
     render_manual_review_runbook_markdown,
     write_manual_review_progress_report,
     write_manual_review_runbook,
 )
-from mosaic.rke.temp_paths import rke_temporary_directory
+from mosaic.rke.temp_paths import (
+    RKE_OPERATOR_TMP_ENV_PREFIX,
+    operator_command,
+    rke_temporary_directory,
+)
 
 
 def _copy_registry(dst_root: Path) -> None:
@@ -97,6 +100,15 @@ def test_rke_temporary_directory_honors_rke_tmpdir(tmp_path: Path, monkeypatch):
         assert tmp_path_obj.exists()
 
     assert tmp_parent.exists()
+
+
+def test_operator_command_prefixes_each_shell_segment():
+    command = operator_command("mosaic-rke first --root . && mosaic-rke second --root .")
+
+    assert command == (
+        f"{RKE_OPERATOR_TMP_ENV_PREFIX} mosaic-rke first --root . && "
+        f"{RKE_OPERATOR_TMP_ENV_PREFIX} mosaic-rke second --root ."
+    )
 
 
 def _license_review_source_count(root: Path) -> int:
