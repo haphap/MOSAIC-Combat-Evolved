@@ -42,6 +42,7 @@ contracts.
 | `registry/report_intelligence/prompt_mutation_candidates.jsonl` | 11 shadow-only mutation candidates exist across forecast extraction, confidence gating, paper-trading recipe validation, industry mapping, refresh stability, calibration, tool-gap prioritization, and Markdown quality; all have `promotion_state=shadow_candidate_only`, `manual_review_required=true`, `production_prompt_change_allowed=false`, and `private_text_included=false` |
 | `registry/review_batches/manual_review_progress_report.json` | public baseline: gold-set 0/500, analytical-footprint review 0/1001, source license 17529/17529, lockbox 0/1; Synthetic pytest fixtures can mark manual rows complete for contract tests, but current target hashes in the real scratch still require human review. The report now includes source-text-free `current_batch_status` for the active local 50-row gold-set, analytical-footprint, and lockbox scratch files. Current gold batch status is 50 rows, 0 complete, 50 pending, 0 malformed; missing required fields are aggregate counts only. Current analytical-footprint batch status is 50 rows, 0 complete, 50 pending, 0 malformed; missing required fields are aggregate counts only. Current lockbox decision status is 1 row, 0 complete, 1 pending, 0 malformed; missing required fields are aggregate counts only. Full gold-set and footprint review imports still require human decisions before promotion dry-run. |
 | `registry/handoffs/rke_operator_readiness_report.json` | operator readiness currently passes 15/15 checks: required registry valid, handoff command sequence complete, manual import templates sparse and provenance-tagged, blank gold/lockbox/source-license templates rejected, blank bundle dry-run does not promote, manual review bundle manifest current, and promotion gate still blocks production |
+| `registry/promotion/rke_production_promotion_gate.json` | production promotion gate semantic validation now passes as `schemas/report_intelligence_production_promotion_gate_rules`: PG01-PG10 are complete, failed criteria carry blockers, blocker summaries match criteria, and the current public baseline remains `paper_trading` only with staged/production disabled |
 
 ## Plan Coverage
 
@@ -75,6 +76,12 @@ git diff --check
 MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke review-progress --root .
 MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke operator-readiness --root .
 ```
+
+The repository pytest default is also configured to keep its `--basetemp` under
+`/home/hap/tmp/mosaic-rke/pytest-mosaic-rke`; `tests/conftest.py` uses the same
+home tmp root for the private Tushare fixture lock file. This prevents ordinary
+test runs from placing large registry copies or fixture locks in system `/tmp`
+or under the repository checkout.
 
 Most recent focused validation after the proxy entry-lag hardening:
 
@@ -131,8 +138,9 @@ currently exits with code 2 by design. The current failing semantic records are
 footprint review gate, Phase B human gold-set review, and Phase D footprint
 quality gates have not passed. All ordinary schema records, proxy outcome
 contracts, mapping/PIT availability contracts, recipe paper-trading contracts,
-runtime guards, PIT/provenance/statistical/tooling audits, and refresh-history
-contracts pass in the current public artifact set.
+runtime guards, PIT/provenance/statistical/tooling audits, refresh-history
+contracts, and production-promotion gate semantic rules pass in the current
+public artifact set.
 
 ## Remaining Gates
 

@@ -98,5 +98,5 @@ include = ["mosaic*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q --basetemp=/tmp/pytest-mosaic-rke"
+addopts = "-q --basetemp=/home/hap/tmp/mosaic-rke/pytest-mosaic-rke"
 tmp_path_retention_count = 0

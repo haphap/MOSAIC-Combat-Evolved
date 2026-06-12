@@ -10,6 +10,7 @@ explicitly via ``monkeypatch.setenv`` (which runs after this autouse fixture).
 from __future__ import annotations
 
 import json
+import os
 import fcntl
 import shutil
 import subprocess
@@ -691,7 +692,11 @@ def _ensure_private_tushare_test_fixture(tmp_path_factory):
     root_path = Path.cwd()
     backup_root = tmp_path_factory.mktemp("rke-private-tushare-backup")
     moved_paths: list[tuple[Path, Path]] = []
-    lock_path = Path("/tmp/mosaic-rke-private-tushare-fixture.lock")
+    tmp_root = Path(
+        os.environ.get("MOSAIC_RKE_TMPDIR") or "/home/hap/tmp/mosaic-rke"
+    ).expanduser()
+    tmp_root.mkdir(parents=True, exist_ok=True)
+    lock_path = tmp_root / "mosaic-rke-private-tushare-fixture.lock"
     lock_handle = lock_path.open("w", encoding="utf-8")
     fcntl.flock(lock_handle, fcntl.LOCK_EX)
 
