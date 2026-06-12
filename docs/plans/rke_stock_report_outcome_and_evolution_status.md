@@ -34,11 +34,12 @@ contracts.
 | `registry/report_intelligence/extraction_report.json` | current public-safe artifact reports 184 outcome labels: 36 industry ETF proxy, 148 stock price proxy |
 | `registry/report_intelligence/patch_v1_5_coverage_report.json` | public count-only fallback preserves aggregate evidence when private JSONL inputs are absent; Phase C now passes, while Phase B/D remain blocked by manual review and footprint quality gates |
 | `registry/report_intelligence/industry_etf_proxy_map.jsonl` | 64 primary/governed mapping rows; `工业金属` maps to `SH560860` |
+| `registry/report_intelligence/industry_etf_proxy_pit_availability.json` | labelability summary is kept consistent with `outcome_labeling_readiness.industry_etf_proxy_readiness`: 94 eligible industry claims, 12 labelable claims, 36 labelable windows, 228 pending future windows |
 | `registry/report_intelligence/recipe_paper_trading_runs.jsonl` | 110 pre-registered shadow paper-trading runs |
 | `registry/report_intelligence/recipe_paper_trading_summary.json` | 0 recipes passed paper-trading validation; direct PIT binding diagnostics show 110 recipes still lack direct recipe-outcome binding; method source linkage improved to 9/118 method patterns with `source_footprint_ids`, while current public-safe inputs still have 0 forecast-claim rows and 0 outcome-label rows, and 110 recipes remain blocked by requested-tool placeholders |
 | `registry/report_intelligence/confidence_impact_monitor.json` | 0 paper-trading validated recipes; confidence impact remains blocked until recipe validation passes |
 | `registry/report_intelligence/evolution_readiness_gate.json` | blocked; 16 blockers remain across manual review, outcome-count, paper-trading, schema/audit, and audit-history readiness; public count-only fallback preserves outcome coverage when private label JSONL is absent |
-| `registry/review_batches/manual_review_progress_report.json` | public baseline: gold-set 0/500, source license 0/1216, lockbox 0/1; synthetic fixture: gold-set 500/500, source license 50/50, lockbox 0/1 |
+| `registry/review_batches/manual_review_progress_report.json` | public baseline: gold-set 0/500, source license 17529/17529, lockbox 0/1; gold-set scratch rows currently have stale `target_row_hash` and must be regenerated before manual filling; synthetic fixture: gold-set 500/500, source license 50/50, lockbox 0/1 |
 
 ## Plan Coverage
 
@@ -54,7 +55,7 @@ contracts.
 | P7 implementation breakdown | Implemented | qlib helpers, readiness builder, label builder, derived refresh integration, audits, schemas, tests |
 | P8 acceptance matrix | Automated acceptance passes except manual review / coverage gates | ruff, report-intelligence tests, schema-artifact tests, prompt leak guard, diff check pass; `schema-status` intentionally exits 2 until analytical footprint review, Phase B gold-set review, and Phase D footprint quality gates pass; `prepare-footprint-review` now creates a gitignored import scaffold for the footprint gate |
 | P9 PDF/Markdown coverage expansion | Implemented for current sample pool | public coverage summary exists and passes privacy rules; private PDF/Markdown/cache paths remain gitignored |
-| P10 industry ETF mapping/PIT availability | Implemented | 64-row mapping registry, PIT availability artifact, mapping contract tests; `工业金属 -> SH560860` pinned |
+| P10 industry ETF mapping/PIT availability | Implemented | 64-row mapping registry, PIT availability artifact, mapping contract tests; `工业金属 -> SH560860` pinned; semantic validation now rejects drift between PIT availability `labelability_summary` and `outcome_labeling_readiness` |
 | P11 recipe paper-trading | Implemented | pre-registration hash, OOS chronological split, required data contracts, cost/benchmark protocol, paper-trading runs and summary |
 | P12 confidence impact monitor | Implemented | monitor rows gate confidence impact on paper-trading validation; alpha decay and calibration drift actions are tracked |
 
@@ -69,6 +70,7 @@ uv run python -m pytest tests/test_rke_*.py -q --basetemp /tmp/pytest-rke-all-cu
 uvx ruff@0.15.15 check mosaic/rke/report_intelligence.py mosaic/rke/schema_validation.py tests/conftest.py tests/test_rke_report_intelligence.py tests/test_rke_schema_artifacts.py
 uv run python scripts/check_prompt_leaks.py
 git diff --check
+uv run mosaic-rke review-progress --root .
 ```
 
 Current analytical-footprint review scaffold command:
@@ -97,9 +99,12 @@ even when private report-intelligence JSONL files are absent.
 The objective is not complete until the evolution readiness gate passes. Current
 blocker families include:
 
-1. Manual/operator gates: lockbox review remains pending, and schema-status
-   still reports analytical-footprint review and patch coverage semantic blockers.
-   The footprint review handoff can now be prepared with
+1. Manual/operator gates: gold-set review and lockbox review remain pending, and
+   schema-status still reports analytical-footprint review and patch coverage
+   semantic blockers. Source-license review is ready in the current public
+   progress report. The gold-set scratch file has stale target hashes; rerun
+   `mosaic-rke prepare-gold-review --root . --full --force` before filling
+   reviewer decisions. The footprint review handoff can now be prepared with
    `mosaic-rke prepare-footprint-review`, filled by a reviewer, validated with
    `mosaic-rke apply-footprint-review --dry-run`, then applied through the same
    import path.
