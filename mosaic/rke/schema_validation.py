@@ -2477,6 +2477,27 @@ def _validate_evolution_readiness_gate_contract(
         elif value != expected:
             failures.append(f"{value_label}: expected {expected}")
 
+    def require_float_threshold(
+        evidence: Mapping[str, Any],
+        field: str,
+        threshold: float,
+        row_label: str,
+        *,
+        maximum: bool = False,
+    ) -> None:
+        value_label = (
+            f"{row_label}.{field}"
+            if ".evidence" in row_label
+            else f"{row_label}.evidence.{field}"
+        )
+        value = _float_or_none(evidence.get(field))
+        if value is None:
+            failures.append(f"{value_label}: expected number")
+        elif maximum and value > threshold:
+            failures.append(f"{value_label}: expected <= {threshold}")
+        elif not maximum and value < threshold:
+            failures.append(f"{value_label}: expected >= {threshold}")
+
     checks = gate.get("checks")
     aggregate_blockers: list[str] = []
     observed_check_ids: list[str] = []
@@ -2660,6 +2681,84 @@ def _validate_evolution_readiness_gate_contract(
             min_refreshes,
             row_label,
         )
+
+    check_05 = checks_by_id.get("RI-EVOL-05")
+    if check_05 and check_05.get("passed") is True:
+        row_label = "evolution_readiness_gate.checks[RI-EVOL-05]"
+        evidence = evidence_mapping(check_05, row_label)
+        if evidence.get("gold_set_passed") is not True:
+            failures.append(f"{row_label}.evidence.gold_set_passed: must be true")
+        if evidence.get("review_complete") is not True:
+            failures.append(f"{row_label}.evidence.review_complete: must be true")
+        require_int_equal(evidence, "pending_claims", 0, row_label)
+        gold_thresholds = evidence.get("thresholds")
+        if not isinstance(gold_thresholds, Mapping):
+            failures.append(f"{row_label}.evidence.thresholds: expected object")
+            gold_thresholds = {}
+        require_int_at_least(
+            evidence,
+            "reviewed_claims",
+            int(gold_thresholds.get("min_reviewed_claims") or 0),
+            row_label,
+        )
+        require_int_at_least(
+            evidence,
+            "total_documents",
+            int(gold_thresholds.get("min_documents") or 0),
+            row_label,
+        )
+        gold_metrics = evidence.get("metrics")
+        if not isinstance(gold_metrics, Mapping):
+            failures.append(f"{row_label}.evidence.metrics: expected object")
+            gold_metrics = {}
+        for metric in (
+            "claim_precision",
+            "direction_accuracy",
+            "horizon_accuracy",
+            "source_span_support_precision",
+            "target_accuracy",
+            "variable_mapping_accuracy",
+        ):
+            require_float_threshold(
+                gold_metrics,
+                metric,
+                float(gold_thresholds.get(f"{metric}_min") or 0.0),
+                row_label + ".evidence.metrics",
+            )
+        require_float_threshold(
+            gold_metrics,
+            "unsupported_field_false_grounding_rate",
+            float(
+                gold_thresholds.get(
+                    "unsupported_field_false_grounding_rate_max",
+                )
+                or 0.0
+            ),
+            row_label + ".evidence.metrics",
+            maximum=True,
+        )
+        stock_target_conflict_count = _int_or_none(
+            evidence.get("stock_target_conflict_count")
+        )
+        if (
+            stock_target_conflict_count is not None
+            and stock_target_conflict_count > 0
+            and evidence.get("stock_target_conflict_explained") is not True
+        ):
+            failures.append(
+                f"{row_label}.evidence.stock_target_conflict_explained: must be true when conflicts exist"
+            )
+        stock_target_conflict_reviewed_count = _int_or_none(
+            evidence.get("stock_target_conflict_reviewed_count")
+        )
+        if (
+            stock_target_conflict_count is not None
+            and stock_target_conflict_reviewed_count is not None
+            and stock_target_conflict_reviewed_count < stock_target_conflict_count
+        ):
+            failures.append(
+                f"{row_label}.evidence.stock_target_conflict_reviewed_count: expected >= stock_target_conflict_count"
+            )
 
     check_06 = checks_by_id.get("RI-EVOL-06")
     if check_06:

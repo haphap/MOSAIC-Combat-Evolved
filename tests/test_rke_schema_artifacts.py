@@ -2019,6 +2019,103 @@ def test_evolution_readiness_gate_contract_rejects_tampered_monitor_stability(
     )
 
 
+def test_evolution_readiness_gate_contract_rejects_tampered_gold_metrics(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    gate_path = registry / "evolution_readiness_gate.json"
+    gate = json.loads(gate_path.read_text(encoding="utf-8"))
+    gold_check = next(
+        check for check in gate["checks"] if check["check_id"] == "RI-EVOL-05"
+    )
+    original_blockers = set(gold_check["blockers"])
+    gold_check["blockers"] = []
+    gold_check["passed"] = True
+    gold_check["evidence"]["gold_set_passed"] = True
+    gold_check["evidence"]["review_complete"] = True
+    gold_check["evidence"]["pending_claims"] = 0
+    gold_check["evidence"]["reviewed_claims"] = 500
+    gold_check["evidence"]["metrics"]["claim_precision"] = 0.50
+    gold_check["evidence"]["metrics"]["unsupported_field_false_grounding_rate"] = 0.20
+    gate["blockers"] = [
+        blocker
+        for blocker in gate["blockers"]
+        if blocker not in original_blockers
+    ]
+    gate["blocker_count"] = len(gate["blockers"])
+    gate_path.write_text(
+        json.dumps(gate, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _evolution_readiness_gate_record(tmp_path)
+
+    assert not record.accepted
+    assert any(
+        "RI-EVOL-05].evidence.metrics.claim_precision: expected >= 0.85" in item
+        for item in record.failures
+    )
+    assert any(
+        "unsupported_field_false_grounding_rate: expected <= 0.05" in item
+        for item in record.failures
+    )
+
+
+def test_evolution_readiness_gate_contract_rejects_unexplained_stock_conflicts(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    gate_path = registry / "evolution_readiness_gate.json"
+    gate = json.loads(gate_path.read_text(encoding="utf-8"))
+    gold_check = next(
+        check for check in gate["checks"] if check["check_id"] == "RI-EVOL-05"
+    )
+    original_blockers = set(gold_check["blockers"])
+    gold_check["blockers"] = []
+    gold_check["passed"] = True
+    gold_check["evidence"]["gold_set_passed"] = True
+    gold_check["evidence"]["review_complete"] = True
+    gold_check["evidence"]["pending_claims"] = 0
+    gold_check["evidence"]["reviewed_claims"] = 500
+    gold_check["evidence"]["stock_target_conflict_count"] = 2
+    gold_check["evidence"]["stock_target_conflict_reviewed_count"] = 1
+    gold_check["evidence"]["stock_target_conflict_explained"] = False
+    for metric, value in {
+        "claim_precision": 0.90,
+        "direction_accuracy": 0.90,
+        "horizon_accuracy": 0.90,
+        "source_span_support_precision": 0.95,
+        "target_accuracy": 0.90,
+        "unsupported_field_false_grounding_rate": 0.01,
+        "variable_mapping_accuracy": 0.85,
+    }.items():
+        gold_check["evidence"]["metrics"][metric] = value
+    gate["blockers"] = [
+        blocker
+        for blocker in gate["blockers"]
+        if blocker not in original_blockers
+    ]
+    gate["blocker_count"] = len(gate["blockers"])
+    gate_path.write_text(
+        json.dumps(gate, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _evolution_readiness_gate_record(tmp_path)
+
+    assert not record.accepted
+    assert any(
+        "stock_target_conflict_explained: must be true when conflicts exist"
+        in item
+        for item in record.failures
+    )
+    assert any(
+        "stock_target_conflict_reviewed_count: expected >= stock_target_conflict_count"
+        in item
+        for item in record.failures
+    )
+
+
 def _read_prompt_mutation_candidates(path: Path) -> list[dict[str, object]]:
     return [
         json.loads(line)
