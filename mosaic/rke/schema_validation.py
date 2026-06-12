@@ -1247,7 +1247,15 @@ def _validate_industry_etf_mapping_contract(
         root_path / "registry/report_intelligence/industry_etf_proxy_pit_availability.json",
         "registry/report_intelligence/industry_etf_proxy_pit_availability.json",
     )
-    failures = [*mapping_failures, *availability_failures]
+    outcome_readiness, outcome_readiness_failures = _read_mapping_json(
+        root_path / "registry/report_intelligence/outcome_labeling_readiness.json",
+        "registry/report_intelligence/outcome_labeling_readiness.json",
+    )
+    failures = [
+        *mapping_failures,
+        *availability_failures,
+        *outcome_readiness_failures,
+    ]
 
     mappings_by_id: dict[str, Mapping[str, Any]] = {}
     for index, row in enumerate(mapping_rows, 1):
@@ -1368,6 +1376,64 @@ def _validate_industry_etf_mapping_contract(
                 failures.append(
                     f"industry_etf_proxy_pit_availability.labelability_summary.{field}: must be >= 0"
                 )
+        industry_readiness = (
+            outcome_readiness.get("industry_etf_proxy_readiness")
+            if isinstance(outcome_readiness, Mapping)
+            else None
+        )
+        if isinstance(industry_readiness, Mapping):
+            expected_labelability_fields = {
+                "eligible_claim_count": "eligible_claim_count",
+                "labelable_claim_count": "labelable_forecast_claim_count",
+                "labelable_window_count": "labelable_window_count",
+                "pending_future_window_count": "pending_future_window_count",
+            }
+            for summary_field, readiness_field in expected_labelability_fields.items():
+                if _int_or_none(labelability_summary.get(summary_field)) != _int_or_none(
+                    industry_readiness.get(readiness_field)
+                ):
+                    failures.append(
+                        "industry_etf_proxy_pit_availability.labelability_summary."
+                        f"{summary_field}: outcome_labeling_readiness mismatch"
+                    )
+            summary_gap_counts = labelability_summary.get("data_gap_counts")
+            readiness_gap_counts = industry_readiness.get("data_gap_counts")
+            if isinstance(summary_gap_counts, Mapping) and isinstance(
+                readiness_gap_counts,
+                Mapping,
+            ):
+                normalized_summary_gaps = {
+                    str(key): _int_or_none(value)
+                    for key, value in summary_gap_counts.items()
+                }
+                normalized_readiness_gaps = {
+                    str(key): _int_or_none(value)
+                    for key, value in readiness_gap_counts.items()
+                }
+                if normalized_summary_gaps != normalized_readiness_gaps:
+                    failures.append(
+                        "industry_etf_proxy_pit_availability.labelability_summary."
+                        "data_gap_counts: outcome_labeling_readiness mismatch"
+                    )
+            for summary_field, gap_key in (
+                ("sector_etf_mapping_missing_count", "sector_etf_mapping_missing"),
+                ("proxy_series_missing_count", "proxy_series_missing"),
+                ("benchmark_series_missing_count", "benchmark_series_missing"),
+            ):
+                expected_count = (
+                    _int_or_none(readiness_gap_counts.get(gap_key))
+                    if isinstance(readiness_gap_counts, Mapping)
+                    else 0
+                ) or 0
+                if _int_or_none(labelability_summary.get(summary_field)) != expected_count:
+                    failures.append(
+                        "industry_etf_proxy_pit_availability.labelability_summary."
+                        f"{summary_field}: outcome_labeling_readiness mismatch"
+                    )
+        else:
+            failures.append(
+                "outcome_labeling_readiness.industry_etf_proxy_readiness: expected object"
+            )
         if availability.get("mapping_count") != len(mapping_rows):
             failures.append(
                 "industry_etf_proxy_pit_availability.mapping_count mismatch"

@@ -1039,6 +1039,50 @@ def test_industry_etf_mapping_contract_requires_plan_pit_record_fields(
     assert any("latest_calendar_date: required" in item for item in record.failures)
 
 
+def test_industry_etf_mapping_contract_rejects_labelability_readiness_drift(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    availability_path = registry / "industry_etf_proxy_pit_availability.json"
+    availability = json.loads(availability_path.read_text(encoding="utf-8"))
+    availability["labelability_summary"]["eligible_claim_count"] += 1
+    availability_path.write_text(
+        json.dumps(availability, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _industry_etf_mapping_contract_record(tmp_path)
+
+    assert not record.accepted
+    assert any(
+        "labelability_summary.eligible_claim_count: "
+        "outcome_labeling_readiness mismatch" in item
+        for item in record.failures
+    )
+
+
+def test_industry_etf_mapping_contract_rejects_labelability_gap_count_drift(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    availability_path = registry / "industry_etf_proxy_pit_availability.json"
+    availability = json.loads(availability_path.read_text(encoding="utf-8"))
+    availability["labelability_summary"]["data_gap_counts"] = {}
+    availability_path.write_text(
+        json.dumps(availability, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _industry_etf_mapping_contract_record(tmp_path)
+
+    assert not record.accepted
+    assert any(
+        "labelability_summary.data_gap_counts: outcome_labeling_readiness mismatch"
+        in item
+        for item in record.failures
+    )
+
+
 def test_industry_etf_mapping_contract_rejects_unavailable_mapping_label(
     tmp_path: Path,
 ):
