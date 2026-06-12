@@ -341,10 +341,22 @@ def test_rke_cli_prepare_gold_review_supports_full_and_protects_existing_file(
     _copy_registry(tmp_path)
     reviewed_path = tmp_path / "registry/review_batches/gold_set_full_reviewed.jsonl"
 
-    code = main(("prepare-gold-review", "--root", str(tmp_path), "--full"))
+    code = main(
+        (
+            "prepare-gold-review",
+            "--root",
+            str(tmp_path),
+            "--full",
+            "--reviewer",
+            "hap",
+            "--review-date",
+            "2026-06-12",
+        )
+    )
     output = json.loads(capsys.readouterr().out)
     second_code = main(("prepare-gold-review", "--root", str(tmp_path), "--full"))
     second_output = json.loads(capsys.readouterr().out)
+    rows = _load_jsonl(reviewed_path)
 
     assert code == 0
     assert output["written"] is True
@@ -352,6 +364,9 @@ def test_rke_cli_prepare_gold_review_supports_full_and_protects_existing_file(
     assert output["rows"] == 500
     assert output["path"] == str(reviewed_path)
     assert reviewed_path.exists()
+    assert rows[0]["reviewer"] == "hap"
+    assert rows[0]["review_date"] == "2026-06-12"
+    assert rows[0]["claim_correct"] is None
     assert second_code == 2
     assert second_output["written"] is False
     assert "already exists" in second_output["blockers"][0]

@@ -199,7 +199,7 @@ def test_stock_report_outcome_status_doc_matches_public_artifacts():
     assert "private evidence draft covers 1001 rows with 0 missing local markdown rows" in status_text
     assert "Synthetic pytest fixtures" in status_text
     assert "current target hashes" in status_text
-    assert "500 rows still require reviewer fields" in status_text
+    assert "500 rows still require manual claim text and boolean review decisions" in status_text
     assert "lockbox 0/1" in status_text
     assert "labelability_summary" in status_text
     assert "outcome_labeling_readiness.industry_etf_proxy_readiness" in status_text

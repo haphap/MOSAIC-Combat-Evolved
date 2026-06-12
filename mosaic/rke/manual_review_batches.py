@@ -1213,6 +1213,8 @@ def write_gold_review_starter(
     full: bool = False,
     force: bool = False,
     gold_batch_size: int = 50,
+    reviewer: str = "",
+    review_date: str = "",
 ) -> GoldReviewStarterResult:
     """Write a reviewer-editable gold-set JSONL starter without clobbering reviews."""
     if gold_batch_size <= 0:
@@ -1244,6 +1246,17 @@ def write_gold_review_starter(
             gold_batch_size=gold_batch_size,
         )
         template_path = GOLD_BATCH_IMPORT_TEMPLATE_PATH
+    reviewer_text = str(reviewer or "").strip()
+    review_date_text = str(review_date or "").strip()
+    if reviewer_text or review_date_text:
+        rows = tuple(
+            {
+                **dict(row),
+                **({"reviewer": reviewer_text} if reviewer_text else {}),
+                **({"review_date": review_date_text} if review_date_text else {}),
+            }
+            for row in rows
+        )
 
     exists = resolved_output_path.exists()
     blockers: list[str] = []

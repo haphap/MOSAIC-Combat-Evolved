@@ -455,6 +455,16 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Overwrite an existing reviewed gold-set starter.",
     )
+    prepare_gold_review.add_argument(
+        "--reviewer",
+        default="",
+        help="Optional reviewer name to prefill in each starter row.",
+    )
+    prepare_gold_review.add_argument(
+        "--review-date",
+        default="",
+        help="Optional YYYY-MM-DD review date to prefill in each starter row.",
+    )
 
     write_gold_review_evidence = subparsers.add_parser(
         "write-gold-review-evidence",
@@ -1316,6 +1326,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             full=args.full,
             force=args.force,
             gold_batch_size=args.gold_batch_size,
+            reviewer=args.reviewer,
+            review_date=args.review_date,
         )
         _print_json(asdict(result))
         return 0 if result.written else 2

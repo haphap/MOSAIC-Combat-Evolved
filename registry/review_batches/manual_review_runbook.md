@@ -51,6 +51,7 @@ These checklist files are not import files. Use them to inspect IDs, hashes, cou
 
 Gold-set review is accepted only when all current 500 claim rows are completed and the dry run accepts the import.
 Each gold-set row must keep the template IDs and hashes intact and must fill `manual_claim_text`, `reviewer`, `review_date`, `claim_correct`, `source_span_supports_claim`, `direction_correct`, `target_correct`, `horizon_correct`, `variable_mapping_correct`, and `unsupported_field_false_grounded`.
+Use `mosaic-rke prepare-gold-review --root . --full --force --reviewer <name> --review-date <YYYY-MM-DD>` to prefill reviewer identity and date only; claim text and boolean review decisions remain human judgments.
 Use `mosaic-rke write-gold-review-evidence --root . --limit 50` to regenerate the private source-evidence draft before filling the reviewed gold-set scratch file.
 The resulting gold-set summary must satisfy the code-defined gate: at least 50 documents, at least 500 claims, claim precision >= 0.85, span-support precision >= 0.90, direction accuracy >= 0.85, target accuracy >= 0.85, horizon accuracy >= 0.85, variable mapping accuracy >= 0.80, and unsupported-field false grounding <= 0.05.
 
@@ -97,15 +98,14 @@ A promotion dry run is ready only when all manual gates above report ready for p
 
 - gold_set: 0/500 ready
 - gold_set: 500 review rows failed validation
-- gold_set: 500 review rows: reviewer required
-- gold_set: 500 review rows: review_date required
 - gold_set: 500 review rows: manual_claim_text required
 - gold_set: 500 review rows: claim_correct must be boolean
 - gold_set: 500 review rows: source_span_supports_claim must be boolean
 - gold_set: 500 review rows: direction_correct must be boolean
 - gold_set: 500 review rows: target_correct must be boolean
 - gold_set: 500 review rows: horizon_correct must be boolean
-- gold_set: 2 additional validation reason(s) suppressed
+- gold_set: 500 review rows: variable_mapping_correct must be boolean
+- gold_set: 500 review rows: unsupported_field_false_grounded must be boolean
 - gold_set: 500 gold-set claim review rows still pending
 - footprint_review: 0/1001 ready
 - footprint_review: 1001 analytical footprint review rows failed validation

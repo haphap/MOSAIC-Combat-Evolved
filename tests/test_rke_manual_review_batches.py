@@ -352,7 +352,13 @@ def test_write_gold_review_starter_full_force_overwrites(tmp_path: Path):
     reviewed_path = tmp_path / "registry/review_batches/gold_set_full_reviewed.jsonl"
     _write_jsonl(reviewed_path, [{"reviewer": "stale"}])
 
-    result = write_gold_review_starter(tmp_path, full=True, force=True)
+    result = write_gold_review_starter(
+        tmp_path,
+        full=True,
+        force=True,
+        reviewer="hap",
+        review_date="2026-06-12",
+    )
     rows = _load_jsonl(reviewed_path)
 
     assert result.written
@@ -361,7 +367,10 @@ def test_write_gold_review_starter_full_force_overwrites(tmp_path: Path):
     assert result.rows == 500
     assert result.template_path == "registry/review_batches/gold_set_full_import_template.jsonl"
     assert len(rows) == 500
-    assert rows[0]["reviewer"] == ""
+    assert rows[0]["reviewer"] == "hap"
+    assert rows[0]["review_date"] == "2026-06-12"
+    assert rows[0]["claim_correct"] is None
+    assert rows[0]["source_span_supports_claim"] is None
     assert rows[0]["target_row_hash"].startswith("sha256:")
 
 
