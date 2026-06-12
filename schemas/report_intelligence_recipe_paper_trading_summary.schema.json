@@ -246,7 +246,12 @@
         "slippage_model_id": {"const": "included_in_round_trip_cost_20bps_v1"},
         "round_trip_cost_includes_slippage": {"type": "boolean", "const": true},
         "backtest_window_policy": {"const": "chronological_pre_oos_exit_windows_v1"},
-        "out_of_sample_window_policy": {"const": "chronological_last_20pct_exit_windows_v1"},
+        "out_of_sample_window_policy": {
+          "enum": [
+            "chronological_last_20pct_exit_windows_v1",
+            "chronological_last_20pct_min_effective_n_exit_windows_v1"
+          ]
+        },
         "out_of_sample_fraction": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
         "minimum_out_of_sample_effective_n": {"type": "number", "minimum": 0},
         "parameter_lock_policy": {

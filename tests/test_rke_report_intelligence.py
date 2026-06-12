@@ -55,7 +55,9 @@ from mosaic.rke.report_intelligence import (
     _markdown_quality_gap,
     _normalize_method_patterns,
     _normalize_forecast_claims,
+    _max_non_positive_after_cost_exit_date_streak,
     _paper_trading_chronological_split_metrics,
+    _paper_trading_train_oos_split_items,
     _user_prompt,
     _refresh_forecast_mapping_governance,
     _infer_claim_component_roles,
@@ -2665,7 +2667,7 @@ def test_report_intelligence_recipe_paper_trading_requires_direct_pit_evidence()
         "chronological_pre_oos_exit_windows_v1"
     )
     assert runs[0]["pre_registered_protocol"]["out_of_sample_window_policy"] == (
-        "chronological_last_20pct_exit_windows_v1"
+        "chronological_last_20pct_min_effective_n_exit_windows_v1"
     )
     assert runs[0]["pre_registered_protocol"][
         "minimum_out_of_sample_effective_n"
@@ -3355,6 +3357,72 @@ def test_report_intelligence_paper_trading_split_sorts_exit_datetime():
     assert metrics["end_exit_datetime"] == "2026-01-14"
     assert metrics["effective_n"] == 4.0
     assert metrics["cost_adjusted_alpha"] == 0.005
+
+
+def test_paper_trading_oos_split_extends_to_min_effective_weight():
+    items = [
+        {
+            "exit_datetime": "2026-01-10",
+            "after_cost": 0.01,
+            "hit": 1.0,
+            "weight": 1.0,
+        },
+        {
+            "exit_datetime": "2026-01-12",
+            "after_cost": 0.02,
+            "hit": 1.0,
+            "weight": 1.0,
+        },
+        {
+            "exit_datetime": "2026-01-14",
+            "after_cost": 0.03,
+            "hit": 1.0,
+            "weight": 0.4,
+        },
+        {
+            "exit_datetime": "2026-01-15",
+            "after_cost": 0.04,
+            "hit": 1.0,
+            "weight": 0.5,
+        },
+    ]
+
+    backtest_items, oos_items = _paper_trading_train_oos_split_items(items)
+
+    assert [row["exit_datetime"] for row in backtest_items] == ["2026-01-10"]
+    assert [row["exit_datetime"] for row in oos_items] == [
+        "2026-01-12",
+        "2026-01-14",
+        "2026-01-15",
+    ]
+    assert sum(row["weight"] for row in oos_items) == 1.9
+
+
+def test_paper_trading_exit_date_streak_deduplicates_same_day_labels():
+    items = [
+        {
+            "exit_datetime": "2026-01-10",
+            "after_cost": -0.02,
+            "weight": 1.0,
+        },
+        {
+            "exit_datetime": "2026-01-10",
+            "after_cost": -0.01,
+            "weight": 1.0,
+        },
+        {
+            "exit_datetime": "2026-01-11",
+            "after_cost": 0.01,
+            "weight": 1.0,
+        },
+        {
+            "exit_datetime": "2026-01-12",
+            "after_cost": -0.03,
+            "weight": 1.0,
+        },
+    ]
+
+    assert _max_non_positive_after_cost_exit_date_streak(items) == 1
 
 
 def test_report_intelligence_recipe_paper_trading_flags_alpha_decay_fail():

@@ -9164,7 +9164,7 @@ RECIPE_PAPER_TRADING_MIN_OUT_OF_SAMPLE_EFFECTIVE_N = 1.0
 RECIPE_PAPER_TRADING_SLIPPAGE_MODEL_ID = "included_in_round_trip_cost_20bps_v1"
 RECIPE_PAPER_TRADING_BACKTEST_WINDOW_POLICY = "chronological_pre_oos_exit_windows_v1"
 RECIPE_PAPER_TRADING_OUT_OF_SAMPLE_WINDOW_POLICY = (
-    "chronological_last_20pct_exit_windows_v1"
+    "chronological_last_20pct_min_effective_n_exit_windows_v1"
 )
 RECIPE_PAPER_TRADING_PARAMETER_LOCK_POLICY = (
     "pre_registration_hash_locks_required_data_protocol_cost_benchmark_windows_v1"
@@ -9586,6 +9586,65 @@ def _label_market_regime_types(label: Mapping[str, Any]) -> list[str]:
     return list(dict.fromkeys(parts or [text]))
 
 
+def _paper_trading_effective_weight(
+    items: Sequence[Mapping[str, Any]],
+) -> float:
+    return sum(
+        max(_float_or_none(item.get("weight")) or 0.0, 0.0)
+        for item in items
+    )
+
+
+def _paper_trading_train_oos_split_items(
+    items: Sequence[Mapping[str, Any]],
+) -> tuple[list[Mapping[str, Any]], list[Mapping[str, Any]]]:
+    ordered = sorted(items, key=lambda row: str(row.get("exit_datetime") or ""))
+    if not ordered:
+        return [], []
+    oos_count = max(
+        1,
+        int(
+            len(ordered)
+            * RECIPE_PAPER_TRADING_OUT_OF_SAMPLE_FRACTION
+            + 0.999999
+        ),
+    )
+    split_index = max(0, len(ordered) - oos_count)
+    oos_items = list(ordered[split_index:])
+    while (
+        split_index > 0
+        and _paper_trading_effective_weight(oos_items)
+        < RECIPE_PAPER_TRADING_MIN_OUT_OF_SAMPLE_EFFECTIVE_N
+    ):
+        split_index -= 1
+        oos_items.insert(0, ordered[split_index])
+    return list(ordered[:split_index]), oos_items
+
+
+def _max_non_positive_after_cost_exit_date_streak(
+    items: Sequence[Mapping[str, Any]],
+) -> int:
+    buckets: dict[str, list[tuple[float, float]]] = {}
+    for item in items:
+        after_cost = _float_or_none(item.get("after_cost"))
+        if after_cost is None:
+            continue
+        exit_datetime = str(item.get("exit_datetime") or "")
+        buckets.setdefault(exit_datetime, []).append(
+            (after_cost, max(_float_or_none(item.get("weight")) or 0.0, 0.0))
+        )
+    max_streak = 0
+    current_streak = 0
+    for exit_datetime in sorted(buckets):
+        date_alpha = _weighted_mean(buckets[exit_datetime], default=None)
+        if date_alpha is not None and date_alpha <= 0:
+            current_streak += 1
+            max_streak = max(max_streak, current_streak)
+        else:
+            current_streak = 0
+    return max_streak
+
+
 def _paper_trading_metric_summary(
     labels: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
@@ -9665,17 +9724,9 @@ def _paper_trading_metric_summary(
         else None
     )
     alpha_values = [value for value, _weight in weighted_after_cost]
-    max_non_positive_streak = 0
-    current_non_positive_streak = 0
-    for value in alpha_values:
-        if value <= 0:
-            current_non_positive_streak += 1
-            max_non_positive_streak = max(
-                max_non_positive_streak,
-                current_non_positive_streak,
-            )
-        else:
-            current_non_positive_streak = 0
+    max_non_positive_streak = _max_non_positive_after_cost_exit_date_streak(
+        chronological_items
+    )
     if len(alpha_values) >= 2:
         midpoint = max(1, len(alpha_values) // 2)
         first = sum(alpha_values[:midpoint]) / len(alpha_values[:midpoint])
@@ -9692,18 +9743,9 @@ def _paper_trading_metric_summary(
         )
         if variance > 0:
             sharpe = mean_alpha / (variance**0.5)
-    oos_count = 0
-    if chronological_items:
-        oos_count = max(
-            1,
-            int(
-                len(chronological_items)
-                * RECIPE_PAPER_TRADING_OUT_OF_SAMPLE_FRACTION
-                + 0.999999
-            ),
-        )
-    oos_items = chronological_items[-oos_count:] if oos_count else []
-    backtest_items = chronological_items[:-oos_count] if oos_count else []
+    backtest_items, oos_items = _paper_trading_train_oos_split_items(
+        chronological_items
+    )
     backtest_metrics = _paper_trading_chronological_split_metrics(backtest_items)
     oos_metrics = _paper_trading_chronological_split_metrics(oos_items)
     return {
