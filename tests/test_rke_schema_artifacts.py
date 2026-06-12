@@ -3335,6 +3335,66 @@ def test_report_intelligence_monitoring_rejects_confidence_impact_drift(
     )
 
 
+def test_report_intelligence_monitoring_rejects_corpus_or_tooling_drift(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    monitoring_path = registry / "monitoring_report.json"
+    monitoring = json.loads(monitoring_path.read_text(encoding="utf-8"))
+    monitoring["report_corpus"]["outcome_label_rows"] = 0
+    tooling = monitoring["tooling_loop_monitoring"]
+    tooling["tool_gap_open_count"] = 0
+    tooling["tool_gap_priority_counts"] = {"medium": 1}
+    tooling["evidence_coverage"]["metric_candidate_count"] = 0
+    monitoring_path.write_text(
+        json.dumps(monitoring, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    records = validate_report_intelligence_semantics(tmp_path)
+    monitoring_record = next(
+        record
+        for record in records
+        if record.schema_path
+        == "schemas/report_intelligence_alpha_decay_monitoring_rules"
+    )
+
+    assert not monitoring_record.accepted
+    assert any("report_corpus outcome_label_rows mismatch" in item for item in monitoring_record.failures)
+    assert any("tool_gap_open_count" in item for item in monitoring_record.failures)
+    assert any("tool_gap_priority_counts mismatch" in item for item in monitoring_record.failures)
+    assert any("metric_candidate_count mismatch" in item for item in monitoring_record.failures)
+
+
+def test_report_intelligence_monitoring_rejects_weighting_summary_drift(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    monitoring_path = registry / "monitoring_report.json"
+    monitoring = json.loads(monitoring_path.read_text(encoding="utf-8"))
+    weighting = monitoring["report_weighting_monitoring"]
+    weighting["effective_n_by_source"]["profile_count"] = 0
+    weighting["effective_n_by_viewpoint"]["max_effective_n"] = 999.0
+    weighting["source_weight_drift"]["non_neutral_profile_count"] = 0
+    monitoring_path.write_text(
+        json.dumps(monitoring, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    records = validate_report_intelligence_semantics(tmp_path)
+    monitoring_record = next(
+        record
+        for record in records
+        if record.schema_path
+        == "schemas/report_intelligence_alpha_decay_monitoring_rules"
+    )
+
+    assert not monitoring_record.accepted
+    assert any("effective_n_by_source.profile_count" in item for item in monitoring_record.failures)
+    assert any("effective_n_by_viewpoint.max_effective_n" in item for item in monitoring_record.failures)
+    assert any("non_neutral_profile_count mismatch" in item for item in monitoring_record.failures)
+
+
 def test_schema_validation_rejects_missing_required_field(tmp_path: Path):
     schema_dir = tmp_path / "schemas"
     artifact_dir = tmp_path / "registry/sources"

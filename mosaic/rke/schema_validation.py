@@ -1095,6 +1095,51 @@ def _count_mapping(
     return counts
 
 
+def _profile_effective_n(row: Mapping[str, Any], *, profile_kind: str) -> float:
+    if profile_kind == "method":
+        source_support = row.get("source_support")
+        if isinstance(source_support, Mapping):
+            return _float_or_none(source_support.get("n_effective_reports")) or 0.0
+        return 0.0
+    return _float_or_none(row.get("n_effective")) or 0.0
+
+
+def _profile_weight_value(row: Mapping[str, Any], *, profile_kind: str) -> float:
+    if profile_kind == "viewpoint":
+        return _float_or_none(row.get("viewpoint_weight_multiplier")) or 1.0
+    if profile_kind == "method":
+        return 1.0
+    return _float_or_none(row.get("weight_multiplier")) or 1.0
+
+
+def _profile_effective_n_summary(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    profile_kind: str,
+) -> dict[str, int | float]:
+    effective_values = [
+        _profile_effective_n(row, profile_kind=profile_kind) for row in rows
+    ]
+    max_effective_n = max(effective_values, default=0.0)
+    return {
+        "profile_count": len(rows),
+        "nonzero_effective_n_count": sum(1 for value in effective_values if value > 0),
+        "max_effective_n": round(max_effective_n, 8),
+    }
+
+
+def _profile_non_neutral_count(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    profile_kind: str,
+) -> int:
+    return sum(
+        1
+        for row in rows
+        if abs(_profile_weight_value(row, profile_kind=profile_kind) - 1.0) > 1e-9
+    )
+
+
 def _jsonable(value: Any) -> Any:
     if isinstance(value, Mapping):
         return {str(key): _jsonable(item) for key, item in value.items()}
@@ -5138,6 +5183,50 @@ def validate_report_intelligence_semantics(
         "registry/report_intelligence/confidence_impact_monitor.json",
     )
     monitoring_failures.extend(confidence_impact_monitor_errors)
+    extraction_report, extraction_report_errors = _read_mapping_json(
+        root_path / "registry/report_intelligence/extraction_report.json",
+        "registry/report_intelligence/extraction_report.json",
+    )
+    monitoring_failures.extend(extraction_report_errors)
+    source_profile_rows, source_profile_failures = _load_mapping_jsonl(
+        root_path,
+        "registry/report_intelligence/source_performance_profiles.jsonl",
+    )
+    viewpoint_profile_rows, viewpoint_profile_failures = _load_mapping_jsonl(
+        root_path,
+        "registry/report_intelligence/viewpoint_performance_profiles.jsonl",
+    )
+    method_profile_rows, method_profile_failures = _load_mapping_jsonl(
+        root_path,
+        "registry/report_intelligence/method_performance_profiles.jsonl",
+    )
+    tool_gap_rows, tool_gap_failures = _load_mapping_jsonl(
+        root_path,
+        "registry/report_intelligence/tool_gaps.jsonl",
+    )
+    data_proposal_rows, data_proposal_failures = _load_mapping_jsonl(
+        root_path,
+        "registry/report_intelligence/data_acquisition_proposals.jsonl",
+    )
+    metric_candidate_rows, metric_candidate_failures = _load_mapping_jsonl(
+        root_path,
+        "registry/report_intelligence/metric_candidates.jsonl",
+    )
+    tool_coverage_rows, tool_coverage_failures = _load_mapping_jsonl(
+        root_path,
+        "registry/report_intelligence/tool_coverage_matches.jsonl",
+    )
+    monitoring_failures.extend(
+        [
+            *source_profile_failures,
+            *viewpoint_profile_failures,
+            *method_profile_failures,
+            *tool_gap_failures,
+            *data_proposal_failures,
+            *metric_candidate_failures,
+            *tool_coverage_failures,
+        ]
+    )
     expected_decay_metrics = {
         "rolling_after_cost_alpha",
         "rolling_hit_rate",
@@ -5219,6 +5308,164 @@ def validate_report_intelligence_semantics(
             monitoring_failures.append(
                 "monitoring_report alpha_decay_monitoring must be object"
             )
+        report_corpus = (
+            monitoring_report.get("report_corpus")
+            if isinstance(monitoring_report.get("report_corpus"), Mapping)
+            else {}
+        )
+        if not report_corpus:
+            monitoring_failures.append("monitoring_report report_corpus must be object")
+        if extraction_report:
+            for report_field, extraction_field in (
+                ("metadata_rows", "metadata_rows"),
+                ("forecast_claim_rows", "forecast_claim_rows"),
+                ("outcome_label_rows", "outcome_label_rows"),
+            ):
+                if _int_or_none(report_corpus.get(report_field)) != _int_or_none(
+                    extraction_report.get(extraction_field)
+                ):
+                    monitoring_failures.append(
+                        f"monitoring_report.report_corpus {report_field} mismatch"
+                    )
+        tooling_loop = (
+            monitoring_report.get("tooling_loop_monitoring")
+            if isinstance(monitoring_report.get("tooling_loop_monitoring"), Mapping)
+            else {}
+        )
+        if not tooling_loop:
+            monitoring_failures.append(
+                "monitoring_report tooling_loop_monitoring must be object"
+            )
+        else:
+            expected_tooling_counts = {
+                "tool_gap_open_count": len(tool_gap_rows),
+                "data_proposal_open_count": len(data_proposal_rows),
+                "runtime_fallback_observation_count": len(gap_observation_rows),
+                "shadow_recipe_count": len(recipe_rows),
+            }
+            for field, expected in expected_tooling_counts.items():
+                if _int_or_none(tooling_loop.get(field)) != expected:
+                    monitoring_failures.append(
+                        f"tooling_loop_monitoring {field}: expected {expected}"
+                    )
+            expected_priority_counts: dict[str, int] = {}
+            for row in tool_gap_rows:
+                bucket = str(row.get("priority_bucket") or "").strip()
+                if bucket:
+                    expected_priority_counts[bucket] = (
+                        expected_priority_counts.get(bucket, 0) + 1
+                    )
+            observed_priority_counts = _count_mapping(
+                tooling_loop.get("tool_gap_priority_counts"),
+                row_label="tooling_loop_monitoring.tool_gap_priority_counts",
+                failures=monitoring_failures,
+            )
+            if observed_priority_counts != dict(sorted(expected_priority_counts.items())):
+                monitoring_failures.append(
+                    "tooling_loop_monitoring tool_gap_priority_counts mismatch"
+                )
+            evidence_coverage = (
+                tooling_loop.get("evidence_coverage")
+                if isinstance(tooling_loop.get("evidence_coverage"), Mapping)
+                else {}
+            )
+            if not evidence_coverage:
+                monitoring_failures.append(
+                    "tooling_loop_monitoring.evidence_coverage must be object"
+                )
+            else:
+                if _int_or_none(evidence_coverage.get("metric_candidate_count")) != len(
+                    metric_candidate_rows
+                ):
+                    monitoring_failures.append(
+                        "tooling_loop_monitoring.evidence_coverage metric_candidate_count mismatch"
+                    )
+                expected_coverage_counts: dict[str, int] = {}
+                for row in tool_coverage_rows:
+                    status = str(row.get("coverage_status") or "").strip()
+                    if status:
+                        expected_coverage_counts[status] = (
+                            expected_coverage_counts.get(status, 0) + 1
+                        )
+                observed_coverage_counts = _count_mapping(
+                    evidence_coverage.get("tool_coverage_status_counts"),
+                    row_label=(
+                        "tooling_loop_monitoring.evidence_coverage."
+                        "tool_coverage_status_counts"
+                    ),
+                    failures=monitoring_failures,
+                )
+                if observed_coverage_counts != dict(
+                    sorted(expected_coverage_counts.items())
+                ):
+                    monitoring_failures.append(
+                        "tooling_loop_monitoring.evidence_coverage "
+                        "tool_coverage_status_counts mismatch"
+                    )
+        weighting_monitoring = (
+            monitoring_report.get("report_weighting_monitoring")
+            if isinstance(monitoring_report.get("report_weighting_monitoring"), Mapping)
+            else {}
+        )
+        if not weighting_monitoring:
+            monitoring_failures.append(
+                "monitoring_report report_weighting_monitoring must be object"
+            )
+        else:
+            for field, rows, profile_kind in (
+                ("effective_n_by_source", source_profile_rows, "source"),
+                ("effective_n_by_viewpoint", viewpoint_profile_rows, "viewpoint"),
+                ("effective_n_by_method", method_profile_rows, "method"),
+            ):
+                summary = (
+                    weighting_monitoring.get(field)
+                    if isinstance(weighting_monitoring.get(field), Mapping)
+                    else {}
+                )
+                expected_summary = _profile_effective_n_summary(
+                    rows,
+                    profile_kind=profile_kind,
+                )
+                for summary_field, expected in expected_summary.items():
+                    observed = _float_or_none(summary.get(summary_field))
+                    if observed is None or not _nearly_equal(float(observed), float(expected)):
+                        monitoring_failures.append(
+                            f"report_weighting_monitoring.{field}.{summary_field}: "
+                            f"expected {expected}"
+                        )
+            source_weight_drift = (
+                weighting_monitoring.get("source_weight_drift")
+                if isinstance(weighting_monitoring.get("source_weight_drift"), Mapping)
+                else {}
+            )
+            if not source_weight_drift:
+                monitoring_failures.append(
+                    "report_weighting_monitoring.source_weight_drift must be object"
+                )
+            else:
+                source_summary = _profile_effective_n_summary(
+                    source_profile_rows,
+                    profile_kind="source",
+                )
+                if not _nearly_equal(
+                    float(_float_or_none(source_weight_drift.get("max_effective_n")) or 0.0),
+                    float(source_summary["max_effective_n"]),
+                ):
+                    monitoring_failures.append(
+                        "report_weighting_monitoring.source_weight_drift.max_effective_n mismatch"
+                    )
+                expected_non_neutral = _profile_non_neutral_count(
+                    source_profile_rows,
+                    profile_kind="source",
+                )
+                if (
+                    _int_or_none(source_weight_drift.get("non_neutral_profile_count"))
+                    != expected_non_neutral
+                ):
+                    monitoring_failures.append(
+                        "report_weighting_monitoring.source_weight_drift."
+                        "non_neutral_profile_count mismatch"
+                    )
         observed_metrics = {
             str(item)
             for item in alpha_decay.get("required_decay_metrics", [])
