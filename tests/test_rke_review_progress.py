@@ -218,6 +218,8 @@ def test_manual_review_runbook_renders_operator_checklist_without_source_text(tm
     assert "mosaic-rke prepare-gold-review --root . --full" in markdown
     assert "mosaic-rke write-gold-review-evidence --root . --limit 50 --offset 0" in markdown
     assert "mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --dry-run" in markdown
+    assert "rerun with `--offset 0` because completed rows leave the pending set" in markdown
+    assert "higher offsets only when preparing multiple un-applied batches at once" in markdown
     assert "mosaic-rke prepare-footprint-review --root ." in markdown
     assert "mosaic-rke write-footprint-review-assist --root ." in markdown
     assert "mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 0" in markdown
