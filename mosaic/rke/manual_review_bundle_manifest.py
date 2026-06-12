@@ -8,6 +8,8 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any, Literal, Mapping, Sequence
 
+from .promotion_dry_run import write_promotion_dry_run_report
+
 MANUAL_REVIEW_BUNDLE_MANIFEST_PATH = "registry/review_batches/manual_review_bundle_manifest.json"
 
 BundleArtifactFormat = Literal["json", "jsonl", "markdown"]
@@ -228,6 +230,7 @@ def build_manual_review_bundle_manifest(root: str | Path = ".") -> ManualReviewB
 
 def write_manual_review_bundle_manifest(root: str | Path = ".") -> dict[str, Any]:
     root_path = Path(root)
+    write_promotion_dry_run_report(root_path)
     manifest = build_manual_review_bundle_manifest(root_path)
     result = _write_json(root_path / MANUAL_REVIEW_BUNDLE_MANIFEST_PATH, asdict(manifest))
     return {

@@ -1,8 +1,8 @@
 # RKE Operator Handoff
 
-- Next state: staged_production
+- Next state: paper_trading
 - Paper trading allowed: true
-- Staged production allowed: true
+- Staged production allowed: false
 - Production allowed: false
 - Direct production forbidden: true
 
@@ -15,6 +15,10 @@
 - fill-gold-review
 - dry-run-gold-review
 - apply-gold-review
+- prepare-footprint-review
+- fill-footprint-review
+- dry-run-footprint-review
+- apply-footprint-review
 - promotion-status-before-lockbox
 - prepare-lockbox-review
 - fill-lockbox-review
@@ -23,7 +27,7 @@
 - apply-lockbox-review
 - promotion-status-final
 
-Dry-run command: `mosaic-rke promotion-dry-run --root . --gold-input registry/review_batches/gold_set_full_reviewed.jsonl --lockbox-input registry/review_batches/lockbox_reviewed.json`
+Dry-run command: `mosaic-rke promotion-dry-run --root . --gold-input registry/review_batches/gold_set_full_reviewed.jsonl --footprint-input registry/report_intelligence/analytical_footprint_reviewed.jsonl --lockbox-input registry/review_batches/lockbox_reviewed.json`
 
 ## Command Sequence
 
@@ -67,13 +71,45 @@ Dry-run command: `mosaic-rke promotion-dry-run --root . --gold-input registry/re
 - Manual input: registry/review_batches/gold_set_full_reviewed.jsonl
 - Expected result: Gold-set summaries and downstream gates are recomputed.
 
+### prepare-footprint-review
+
+- Phase: footprint_review
+- Action: Write the analytical-footprint review starter.
+- Command: `mosaic-rke prepare-footprint-review --root . --output registry/report_intelligence/analytical_footprint_reviewed.jsonl --overwrite`
+- Manual input: none
+- Expected result: Reviewer scratch target is registry/report_intelligence/analytical_footprint_reviewed.jsonl.
+
+### fill-footprint-review
+
+- Phase: footprint_review
+- Action: Fill the analytical-footprint reviewed scratch file.
+- Command: manual
+- Manual input: registry/report_intelligence/analytical_footprint_reviewed.jsonl
+- Expected result: All footprint rows have required manual fields and preserved provenance hashes.
+
+### dry-run-footprint-review
+
+- Phase: footprint_review
+- Action: Validate the reviewed analytical-footprint scratch file.
+- Command: `mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_reviewed.jsonl --dry-run`
+- Manual input: registry/report_intelligence/analytical_footprint_reviewed.jsonl
+- Expected result: Import is accepted and footprint quality thresholds pass.
+
+### apply-footprint-review
+
+- Phase: footprint_review
+- Action: Apply accepted analytical-footprint review decisions.
+- Command: `mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_reviewed.jsonl`
+- Manual input: registry/report_intelligence/analytical_footprint_reviewed.jsonl
+- Expected result: Footprint summaries and downstream gates are recomputed.
+
 ### promotion-status-before-lockbox
 
 - Phase: promotion
 - Action: Confirm only the final lockbox gate remains before opening it.
 - Command: `mosaic-rke promotion-status --root .`
 - Manual input: none
-- Expected result: Gold-set and source-license criteria pass; lockbox remains not opened.
+- Expected result: Gold-set, footprint, and source-license criteria pass; lockbox remains not opened.
 
 ### prepare-lockbox-review
 
@@ -103,7 +139,7 @@ Dry-run command: `mosaic-rke promotion-dry-run --root . --gold-input registry/re
 
 - Phase: promotion
 - Action: Simulate the complete reviewed bundle before final apply.
-- Command: `mosaic-rke promotion-dry-run --root . --gold-input registry/review_batches/gold_set_full_reviewed.jsonl --lockbox-input registry/review_batches/lockbox_reviewed.json`
+- Command: `mosaic-rke promotion-dry-run --root . --gold-input registry/review_batches/gold_set_full_reviewed.jsonl --footprint-input registry/report_intelligence/analytical_footprint_reviewed.jsonl --lockbox-input registry/review_batches/lockbox_reviewed.json`
 - Manual input: none
 - Expected result: Simulation accepts all required reviewed inputs without mutating the original registry.
 
@@ -127,9 +163,9 @@ Dry-run command: `mosaic-rke promotion-dry-run --root . --gold-input registry/re
 
 ### PG02 gold_set
 
-- Passed: true
-- Blocker: none
-- Evidence: 500 / 500 gold-set claims reviewed
+- Passed: false
+- Blocker: manual gold-set review still required
+- Evidence: 0 / 500 gold-set claims reviewed
 - Review packet: registry/gold_sets/tushare_research_reports.review_packet.json
 - Review workbook: registry/review_batches/gold_set_review_workbook.md
 - Import template: registry/review_batches/gold_set_next_import_template.jsonl
@@ -137,11 +173,29 @@ Dry-run command: `mosaic-rke promotion-dry-run --root . --gold-input registry/re
 - Policy template: none
 - Reviewed policy/input: registry/review_batches/gold_set_full_reviewed.jsonl
 - Prepare: `mosaic-rke prepare-gold-review --root . --full`
-- Pending rows: 0
-- Exported rows: 0
+- Pending rows: 500
+- Exported rows: 500
 - Dry run: `mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl --dry-run`
 - Apply: `mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl`
 - Note: Run prepare-gold-review --full, fill the reviewed scratch JSONL, use registry/review_batches/gold_set_review_workbook.md as the read-only claim checklist, and use registry/review_batches/gold_set_review_assist.md as non-import machine assistance, then dry-run before applying the 500-claim gold set.
+
+### RI-FOOTPRINT-REVIEW footprint_review
+
+- Passed: false
+- Blocker: 1001 analytical footprint review rows still pending; footprint_precision unavailable; span_support_precision unavailable; metric_mapping_accuracy unavailable; inferred_step_tagging_accuracy unavailable; unknown_on_ambiguity_rate unavailable; proprietary_leakage_free_rate unavailable
+- Evidence: 0 / 1001 analytical footprints reviewed
+- Review packet: registry/report_intelligence/analytical_footprint_review_template.jsonl
+- Review workbook: none
+- Import template: registry/report_intelligence/analytical_footprint_review_template.jsonl
+- Full import template: registry/report_intelligence/analytical_footprint_review_template.jsonl
+- Policy template: none
+- Reviewed policy/input: registry/report_intelligence/analytical_footprint_reviewed.jsonl
+- Prepare: `mosaic-rke prepare-footprint-review --root . --output registry/report_intelligence/analytical_footprint_reviewed.jsonl --overwrite`
+- Pending rows: 1001
+- Exported rows: 1001
+- Dry run: `mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_reviewed.jsonl --dry-run`
+- Apply: `mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_reviewed.jsonl`
+- Note: Fill the analytical-footprint reviewed scratch JSONL after inspecting the private template; keep hashes intact and dry-run before applying.
 
 ### PG03 source_license
 
@@ -181,4 +235,6 @@ Dry-run command: `mosaic-rke promotion-dry-run --root . --gold-input registry/re
 
 ## Remaining Blockers
 
+- manual gold-set review still required
 - lockbox has not been opened
+- 1001 analytical footprint review rows still pending; footprint_precision unavailable; span_support_precision unavailable; metric_mapping_accuracy unavailable; inferred_step_tagging_accuracy unavailable; unknown_on_ambiguity_rate unavailable; proprietary_leakage_free_rate unavailable

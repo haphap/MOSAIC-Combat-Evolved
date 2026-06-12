@@ -574,6 +574,7 @@ def render_manual_review_runbook_markdown(report: ManualReviewProgressReport) ->
             f"--output {DEFAULT_LICENSE_POLICY_IMPORT_PATH} && "
             "mosaic-rke promotion-dry-run --root . "
             f"--gold-input {GOLD_FULL_REVIEWED_IMPORT_PATH} "
+            f"--footprint-input {ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH} "
             f"--license-input {DEFAULT_LICENSE_POLICY_IMPORT_PATH} "
             f"--lockbox-input {LOCKBOX_REVIEWED_IMPORT_PATH}`"
         ),

@@ -51,12 +51,16 @@ def test_operator_handoff_summarizes_remaining_manual_gates():
     )
     assert {gate.review_kind for gate in handoff.gates} == {
         "gold_set",
+        "footprint_review",
         "source_license",
         "lockbox",
     }
     gold = next(gate for gate in handoff.gates if gate.review_kind == "gold_set")
     license_gate = next(
         gate for gate in handoff.gates if gate.review_kind == "source_license"
+    )
+    footprint = next(
+        gate for gate in handoff.gates if gate.review_kind == "footprint_review"
     )
     lockbox = next(gate for gate in handoff.gates if gate.review_kind == "lockbox")
     assert gold.pending_rows == 0
@@ -71,6 +75,20 @@ def test_operator_handoff_summarizes_remaining_manual_gates():
     assert "gold_set_full_reviewed.jsonl" in gold.dry_run_command
     assert "gold_set_full_reviewed.jsonl" in handoff.promotion_dry_run_command
     assert "gold_set_full_import_template.jsonl" not in handoff.promotion_dry_run_command
+    assert footprint.pending_rows == 1001
+    assert not footprint.passed
+    assert (
+        footprint.import_template_path
+        == "registry/report_intelligence/analytical_footprint_review_template.jsonl"
+    )
+    assert (
+        footprint.reviewed_policy_path
+        == "registry/report_intelligence/analytical_footprint_reviewed.jsonl"
+    )
+    assert "prepare-footprint-review" in footprint.prepare_command
+    assert "apply-footprint-review" in footprint.dry_run_command
+    assert "analytical_footprint_reviewed.jsonl" in footprint.dry_run_command
+    assert "analytical_footprint_reviewed.jsonl" in handoff.promotion_dry_run_command
     assert license_gate.pending_rows == 0
     assert license_gate.passed
     assert (
@@ -190,18 +208,26 @@ def test_write_operator_handoff_outputs_json_markdown_and_lockbox_template(
     assert "gold_set_full_reviewed.jsonl" in payload["promotion_dry_run_command"]
     assert "source_license_policy_import.jsonl" not in payload["promotion_dry_run_command"]
     assert "source_license_policy_reviewed.json" not in payload["promotion_dry_run_command"]
+    assert "analytical_footprint_reviewed.jsonl" in payload["promotion_dry_run_command"]
     assert "lockbox_reviewed.json" in payload["promotion_dry_run_command"]
     license_gate = next(gate for gate in payload["gates"] if gate["review_kind"] == "source_license")
     gold_gate = next(gate for gate in payload["gates"] if gate["review_kind"] == "gold_set")
+    footprint_gate = next(gate for gate in payload["gates"] if gate["review_kind"] == "footprint_review")
     lockbox_gate = next(gate for gate in payload["gates"] if gate["review_kind"] == "lockbox")
     assert gold_gate["prepare_command"] == "mosaic-rke prepare-gold-review --root . --full"
     assert gold_gate["reviewed_policy_path"] == "registry/review_batches/gold_set_full_reviewed.jsonl"
     assert license_gate["prepare_command"] == "mosaic-rke prepare-license-policy-review --root ."
     assert "build-license-review-import" in license_gate["apply_command"]
     assert "source_license_policy_reviewed.json" in license_gate["apply_command"]
+    assert "prepare-footprint-review" in footprint_gate["prepare_command"]
+    assert "apply-footprint-review" in footprint_gate["dry_run_command"]
+    assert (
+        footprint_gate["reviewed_policy_path"]
+        == "registry/report_intelligence/analytical_footprint_reviewed.jsonl"
+    )
     assert lockbox_gate["prepare_command"] == "mosaic-rke prepare-lockbox-review --root ."
     assert lockbox_gate["reviewed_policy_path"] == "registry/review_batches/lockbox_reviewed.json"
-    assert len(payload["gates"]) == 3
+    assert len(payload["gates"]) == 4
     assert lockbox_template["result"] == ""
     assert lockbox_template["target_row_hash"].startswith("sha256:")
     assert lockbox_template["review_context_hash"].startswith("sha256:")

@@ -1,5 +1,6 @@
 {
   "blockers": [
+    "manual gold-set review still required",
     "lockbox has not been opened"
   ],
   "criteria": [
@@ -12,12 +13,12 @@
       "passed": true
     },
     {
-      "blocker": "",
+      "blocker": "manual gold-set review still required",
       "criterion_id": "PG02",
       "description": "Manual gold-set review passed before staged production.",
-      "evidence": "500 / 500 gold-set claims reviewed",
+      "evidence": "0 / 500 gold-set claims reviewed",
       "evidence_path": "registry/gold_sets/tushare_research_reports.review_summary.json",
-      "passed": true
+      "passed": false
     },
     {
       "blocker": "",
@@ -85,9 +86,9 @@
     }
   ],
   "direct_production_forbidden": true,
-  "next_state": "staged_production",
+  "next_state": "paper_trading",
   "paper_trading_allowed": true,
   "production_allowed": false,
   "report_id": "RKE-PRODUCTION-PROMOTION-GATE-20260606",
-  "staged_production_allowed": true
+  "staged_production_allowed": false
 }

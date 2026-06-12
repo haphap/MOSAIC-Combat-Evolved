@@ -116,6 +116,28 @@ def _license_import_rows(root: Path) -> list[dict]:
     ]
 
 
+def _footprint_import_rows(root: Path) -> list[dict]:
+    rows = _load_jsonl(
+        root / "registry/report_intelligence/analytical_footprint_review_template.jsonl"
+    )
+    for row in rows:
+        row.update(
+            {
+                "footprint_correct": True,
+                "source_span_supports_footprint": True,
+                "metric_mapping_correct": True,
+                "inferred_steps_tagged_correctly": True,
+                "unknowns_used_when_uncertain": True,
+                "no_proprietary_text_leakage": True,
+                "manual_error_tags": [],
+                "reviewer": "reviewer-a",
+                "review_date": "2026-06-06",
+                "review_notes": "fixture approval",
+            }
+        )
+    return rows
+
+
 def _passed_lockbox_review(root: Path) -> dict:
     return {
         **build_lockbox_review_import_template(root),
@@ -136,15 +158,18 @@ def test_promotion_dry_run_simulates_full_manual_gate_pass_without_mutating_root
     lockbox_target = tmp_path / "registry/lockbox/central_bank_lockbox_review.json"
     original_lockbox = lockbox_target.read_text(encoding="utf-8")
     gold_input = tmp_path / "gold_import.jsonl"
+    footprint_input = tmp_path / "footprint_import.jsonl"
     license_input = tmp_path / "license_import.jsonl"
     lockbox_input = tmp_path / "lockbox_import.json"
     _write_jsonl(gold_input, _gold_import_rows(tmp_path))
+    _write_jsonl(footprint_input, _footprint_import_rows(tmp_path))
     _write_jsonl(license_input, _license_import_rows(tmp_path))
     _write_json(lockbox_input, _passed_lockbox_review(tmp_path))
 
     report = build_promotion_dry_run_report(
         tmp_path,
         gold_input=gold_input,
+        footprint_input=footprint_input,
         license_input=license_input,
         lockbox_input=lockbox_input,
     )
@@ -158,6 +183,7 @@ def test_promotion_dry_run_simulates_full_manual_gate_pass_without_mutating_root
     assert report.after_blockers == ()
     assert {step.review_kind for step in report.steps} == {
         "gold_set",
+        "footprint_review",
         "source_license",
         "lockbox",
     }
@@ -170,10 +196,11 @@ def test_promotion_dry_run_reports_missing_inputs():
 
     assert not report.accepted
     assert not report.production_allowed_after_simulation
-    assert set(steps) == {"gold_set", "source_license", "lockbox"}
+    assert set(steps) == {"gold_set", "footprint_review", "source_license", "lockbox"}
     assert all(not step.provided for step in report.steps)
     assert steps["gold_set"].result == "already_applied"
     assert steps["gold_set"].accepted
+    assert steps["footprint_review"].result == "not_provided"
     assert steps["source_license"].result == "already_applied"
     assert steps["source_license"].accepted
     assert steps["lockbox"].result == "not_provided"
@@ -190,6 +217,8 @@ def test_promotion_dry_run_rejects_partial_valid_bundle(tmp_path: Path):
     assert not report.accepted
     assert steps["gold_set"].provided
     assert steps["gold_set"].accepted
+    assert not steps["footprint_review"].provided
+    assert steps["footprint_review"].result == "not_provided"
     assert not steps["source_license"].provided
     assert steps["source_license"].accepted
     assert steps["source_license"].result == "already_applied"
@@ -200,13 +229,16 @@ def test_promotion_dry_run_rejects_partial_valid_bundle(tmp_path: Path):
 def test_promotion_dry_run_uses_already_applied_source_license_gate(tmp_path: Path):
     _copy_registry(tmp_path)
     gold_input = tmp_path / "gold_import.jsonl"
+    footprint_input = tmp_path / "footprint_import.jsonl"
     lockbox_input = tmp_path / "lockbox_import.json"
     _write_jsonl(gold_input, _gold_import_rows(tmp_path))
+    _write_jsonl(footprint_input, _footprint_import_rows(tmp_path))
     _write_json(lockbox_input, _passed_lockbox_review(tmp_path))
 
     report = build_promotion_dry_run_report(
         tmp_path,
         gold_input=gold_input,
+        footprint_input=footprint_input,
         lockbox_input=lockbox_input,
     )
     steps = {step.review_kind: step for step in report.steps}
@@ -237,9 +269,11 @@ def test_write_promotion_dry_run_report_outputs_file(tmp_path: Path):
 def test_cli_promotion_dry_run_validates_inputs(tmp_path: Path, capsys):
     _copy_registry(tmp_path)
     gold_input = tmp_path / "gold_import.jsonl"
+    footprint_input = tmp_path / "footprint_import.jsonl"
     license_input = tmp_path / "license_import.jsonl"
     lockbox_input = tmp_path / "lockbox_import.json"
     _write_jsonl(gold_input, _gold_import_rows(tmp_path))
+    _write_jsonl(footprint_input, _footprint_import_rows(tmp_path))
     _write_jsonl(license_input, _license_import_rows(tmp_path))
     _write_json(lockbox_input, _passed_lockbox_review(tmp_path))
 
@@ -250,6 +284,8 @@ def test_cli_promotion_dry_run_validates_inputs(tmp_path: Path, capsys):
             str(tmp_path),
             "--gold-input",
             str(gold_input),
+            "--footprint-input",
+            str(footprint_input),
             "--license-input",
             str(license_input),
             "--lockbox-input",

@@ -17,11 +17,10 @@ Markdown paths, source spans, reviewer notes, or private Tushare rows.
 - Outcome labels are shadow-only. `llm_outcome_labeling_allowed=false` remains
   required; LLM output extracts claims and methods only.
 - Evolution is not promotable yet. The current public aggregate evidence still
-  has manual review, paper-trading, and audit-history readiness blockers. The
-  checked-in public baseline still has gold-set, source-license, and lockbox
-  promotion blockers; the synthetic pytest fixture can mark
-  gold-set/source-license rows complete for contract tests, but that does not
-  open the real promotion gate.
+  has manual review and audit-history readiness blockers. The checked-in public
+  baseline still has gold-set, analytical-footprint, and lockbox manual blockers;
+  source-license review is ready. Synthetic pytest fixtures can mark manual rows
+  complete for contract tests, but that does not open the real promotion gate.
 
 Current public aggregate evidence. Private report-intelligence JSONL files such
 as `report_metadata.jsonl`, `forecast_claims.jsonl`, and
@@ -39,7 +38,7 @@ contracts.
 | `registry/report_intelligence/recipe_paper_trading_summary.json` | 20 recipes passed paper-trading validation; 561 recipes have direct or inferred PIT binding; after-cost paper-trading summary is computed from passed pre-registered runs only; 1838 recipes remain blocked by direct binding, effective-N, or shadow-tool readiness gaps |
 | `registry/report_intelligence/confidence_impact_monitor.json` | 20 paper-trading validated recipes are monitored; unvalidated confidence impact count is 0; alpha-decay and calibration-drift observations remain shadow-only |
 | `registry/report_intelligence/evolution_readiness_gate.json` | blocked; 13 blockers remain, limited to manual forecast gold-set quality metrics and current schema/audit-history readiness |
-| `registry/review_batches/manual_review_progress_report.json` | public baseline: gold-set 0/500, analytical-footprint review 0/1001, source license 17529/17529, lockbox 0/1; gold-set scratch rows have current target hashes after `prepare-gold-review --full --force`, but all 500 rows still require reviewer fields; analytical-footprint scratch rows were regenerated from the current template and still require boolean reviewer fields plus notes; synthetic fixture: gold-set 500/500, analytical-footprint review complete, source license 50/50, lockbox 0/1 |
+| `registry/review_batches/manual_review_progress_report.json` | public baseline: gold-set 0/500, analytical-footprint review 0/1001, source license 17529/17529, lockbox 0/1; gold-set scratch rows have current target hashes after `prepare-gold-review --full --force`, but all 500 rows still require reviewer fields; analytical-footprint scratch rows were regenerated from the current template and still require boolean reviewer fields plus notes; promotion dry-run and operator handoff now require `--footprint-input` alongside gold/license/lockbox inputs |
 
 ## Plan Coverage
 
@@ -71,16 +70,17 @@ uvx ruff@0.15.15 check mosaic/rke/report_intelligence.py mosaic/rke/schema_valid
 uv run python scripts/check_prompt_leaks.py
 git diff --check
 uv run mosaic-rke review-progress --root .
+uv run mosaic-rke operator-readiness --root .
 ```
 
 Current analytical-footprint review scaffold command:
 
 ```bash
-uv run mosaic-rke prepare-footprint-review --root . --output /tmp/rke_footprint_review_scaffold_20260612.jsonl --reviewer hap --review-date 2026-06-12 --overwrite
+uv run mosaic-rke prepare-footprint-review --root . --output registry/report_intelligence/analytical_footprint_reviewed.jsonl --reviewer hap --review-date 2026-06-12 --overwrite
 ```
 
-This writes a private, gitignored/manual handoff file outside the checkout. The
-latest run prepared 3 rows and reported the remaining required fields:
+This writes a private, gitignored/manual handoff file. The latest run prepared
+1001 rows and reported the remaining required fields:
 `footprint_correct`, `source_span_supports_footprint`,
 `metric_mapping_correct`, `inferred_steps_tagged_correctly`,
 `unknowns_used_when_uncertain`, `no_proprietary_text_leakage`, and

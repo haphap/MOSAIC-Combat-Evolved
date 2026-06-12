@@ -3,49 +3,49 @@
   "artifact_count": 10,
   "artifacts": [
     {
-      "bytes": 11823,
+      "bytes": 16517,
       "exists": true,
       "format": "json",
       "path": "registry/handoffs/rke_operator_handoff.json",
       "role": "operator_handoff_json",
       "row_count": null,
-      "sha256": "sha256:171097fd338e3d08a828c8b1985bca5418f4b6f6bd88355e1da928b0a4ee9854"
+      "sha256": "sha256:79bb90392595564c766e85bc2ccae07a31b370260fbccb061496326b191ef6e6"
     },
     {
-      "bytes": 8411,
+      "bytes": 12004,
       "exists": true,
       "format": "markdown",
       "path": "registry/handoffs/rke_operator_handoff.md",
       "role": "operator_handoff_markdown",
       "row_count": null,
-      "sha256": "sha256:2f2e8fc004df425e39acef43cd48afcc33c70afad70d383c60736d8b0e75f95a"
+      "sha256": "sha256:46a3754b78bc37bf2dca35320e39b43ae82605e820d878392286e49f36cb857f"
     },
     {
-      "bytes": 2829,
+      "bytes": 3011,
       "exists": true,
       "format": "json",
       "path": "registry/review_batches/manual_review_batch_status.json",
       "role": "manual_review_batch_status",
       "row_count": null,
-      "sha256": "sha256:c015e299666ebf58b40ea3b41ce7bd3a8d93ab2e77255a025c280681cebc06f5"
+      "sha256": "sha256:9180c2e7dfa375008bab6fec36335d301e6e42b69635fd534fd8eb748f285670"
     },
     {
-      "bytes": 4998,
+      "bytes": 6307,
       "exists": true,
       "format": "json",
       "path": "registry/review_batches/manual_review_progress_report.json",
       "role": "manual_review_progress_report",
       "row_count": null,
-      "sha256": "sha256:fcf21dfb17dbcf267ff063424f119da329feccf2f81eed1bcb80dd765426bd8c"
+      "sha256": "sha256:cf38f0e076deed57caf053186a6115ff24b6bf370a5c7cd472241d3d655918a6"
     },
     {
-      "bytes": 7284,
+      "bytes": 8951,
       "exists": true,
       "format": "markdown",
       "path": "registry/review_batches/manual_review_runbook.md",
       "role": "manual_review_runbook_markdown",
       "row_count": null,
-      "sha256": "sha256:54d1a8a6a02ac4519ea41e45f624893bc2d6bde3596ead5bdbc8143e29278042"
+      "sha256": "sha256:14a6f24873666fe552e42aa596dd13f2835dc259f2e0980dcb042a77c613988b"
     },
     {
       "bytes": 1339,
@@ -84,13 +84,13 @@
       "sha256": "sha256:ccd4ec73bfdf2da39a4689070f5fb6605702ac379e21d44cdf6551bc898af7c8"
     },
     {
-      "bytes": 1205,
+      "bytes": 1620,
       "exists": true,
       "format": "json",
       "path": "registry/promotion/rke_promotion_dry_run_report.json",
       "role": "promotion_dry_run_report",
       "row_count": null,
-      "sha256": "sha256:41322009b8674141158755f962215f6f0480b245616b7e1efdb5d9616f029e5c"
+      "sha256": "sha256:9b2edc59c3fa48f81b418d566e3c332310f999a766e2ff73fb78e24a8958a89b"
     }
   ],
   "blockers": [],
@@ -98,22 +98,24 @@
   "promotion_dry_run": {
     "accepted": false,
     "accepted_steps": [
-      "gold_set",
       "source_license"
     ],
-    "after_next_state": "staged_production",
+    "after_next_state": "paper_trading",
     "already_applied_steps": [
-      "gold_set",
       "source_license"
     ],
     "missing_steps": [
+      "gold_set",
+      "footprint_review",
       "lockbox"
     ],
     "production_allowed_after_simulation": false,
     "provided_steps": [],
     "rejected_steps": [
+      "gold_set",
+      "footprint_review",
       "lockbox"
     ],
-    "staged_production_allowed_after_simulation": true
+    "staged_production_allowed_after_simulation": false
   }
 }

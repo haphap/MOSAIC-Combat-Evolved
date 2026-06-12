@@ -1,5 +1,7 @@
 {
-  "blockers": [],
+  "blockers": [
+    "500 gold-set review rows still pending"
+  ],
   "generated_paths": [
     "registry/review_batches/gold_set_next_import_template.jsonl",
     "registry/review_batches/gold_set_full_import_template.jsonl",
@@ -15,17 +17,19 @@
     "apply_command": "mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_next_import_template.jsonl",
     "batch_size": 50,
     "dry_run_command": "mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_next_import_template.jsonl --dry-run",
-    "exported_rows": 0,
-    "first_pending_id": null,
+    "exported_rows": 50,
+    "first_pending_id": "GOLD-SRC-TSRR-20260605-566dea13371dfb10-001",
     "full_import_template_path": "registry/review_batches/gold_set_full_import_template.jsonl",
     "import_template_path": "registry/review_batches/gold_set_next_import_template.jsonl",
-    "last_pending_id": null,
-    "pending_rows": 0,
+    "last_pending_id": "GOLD-SRC-TSRR-20260513-4ff62fd16f361f99-010",
+    "pending_rows": 500,
     "required_manual_fields": [
       "manual_claim_text",
       "claim_correct",
       "source_span_supports_claim",
       "direction_correct",
+      "target_correct",
+      "horizon_correct",
       "variable_mapping_correct",
       "unsupported_field_false_grounded",
       "reviewer",

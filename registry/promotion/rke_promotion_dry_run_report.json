@@ -1,29 +1,45 @@
 {
   "accepted": false,
   "after_blockers": [
+    "manual gold-set review still required",
     "lockbox has not been opened"
   ],
-  "after_next_state": "staged_production",
+  "after_next_state": "paper_trading",
   "before_blockers": [
+    "manual gold-set review still required",
     "lockbox has not been opened"
   ],
-  "before_next_state": "staged_production",
+  "before_next_state": "paper_trading",
   "mutated_original_registry": false,
   "production_allowed_after_simulation": false,
   "report_id": "RKE-PROMOTION-DRY-RUN-REPORT-20260606",
   "root": ".",
   "simulated": true,
-  "staged_production_allowed_after_simulation": true,
+  "staged_production_allowed_after_simulation": false,
   "steps": [
     {
-      "accepted": true,
+      "accepted": false,
       "applied": false,
-      "blockers": [],
-      "changed_rows": 0,
+      "blockers": [
+        "gold_set input not provided"
+      ],
+      "changed_rows": null,
       "input_path": "",
       "provided": false,
-      "result": "already_applied",
+      "result": "not_provided",
       "review_kind": "gold_set"
+    },
+    {
+      "accepted": false,
+      "applied": false,
+      "blockers": [
+        "footprint_review input not provided"
+      ],
+      "changed_rows": null,
+      "input_path": "",
+      "provided": false,
+      "result": "not_provided",
+      "review_kind": "footprint_review"
     },
     {
       "accepted": true,

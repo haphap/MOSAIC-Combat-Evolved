@@ -345,7 +345,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     promotion_dry_run = subparsers.add_parser(
         "promotion-dry-run",
-        help="Simulate reviewed gold/license/lockbox inputs without mutating the registry.",
+        help="Simulate reviewed gold/footprint/license/lockbox inputs without mutating the registry.",
     )
     promotion_dry_run.add_argument(
         "--root", default=".", help="Repository root. Defaults to current directory."
@@ -355,6 +355,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     promotion_dry_run.add_argument(
         "--license-input", help="Reviewed source-license JSONL input."
+    )
+    promotion_dry_run.add_argument(
+        "--footprint-input", help="Reviewed analytical-footprint JSONL input."
     )
     promotion_dry_run.add_argument(
         "--lockbox-input", help="Reviewed lockbox JSON input."
@@ -1176,12 +1179,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             write_promotion_dry_run_report(
                 root,
                 gold_input=args.gold_input,
+                footprint_input=args.footprint_input,
                 license_input=args.license_input,
                 lockbox_input=args.lockbox_input,
             )
         result = build_promotion_dry_run_report(
             root,
             gold_input=args.gold_input,
+            footprint_input=args.footprint_input,
             license_input=args.license_input,
             lockbox_input=args.lockbox_input,
         )

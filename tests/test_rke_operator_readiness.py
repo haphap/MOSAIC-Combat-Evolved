@@ -68,10 +68,16 @@ def _append_jsonl_value(path: Path, value) -> None:
 
 
 def test_operator_readiness_accepts_current_review_bundle():
+    write_manual_review_batches(".")
     report = build_operator_readiness_report(".")
     checks = {check.check_id: check for check in report.checks}
 
-    assert report.accepted
+    failures = {
+        check.check_id: {"evidence": check.evidence, "blocker": check.blocker}
+        for check in report.checks
+        if not check.passed
+    }
+    assert report.accepted, failures
     assert report.failure_count == 0
     assert report.check_count == 15
     assert "registry/review_batches/gold_set_review_workbook.md" in report.generated_paths
@@ -84,7 +90,7 @@ def test_operator_readiness_accepts_current_review_bundle():
     assert checks["required_registry_valid"].passed
     assert checks["handoff_ready_for_operator"].passed
     assert checks["handoff_command_sequence_complete"].passed
-    assert "steps=12" in checks["handoff_command_sequence_complete"].evidence
+    assert "steps=16" in checks["handoff_command_sequence_complete"].evidence
     assert checks["manual_batch_templates_match_status"].passed
     assert checks["manual_import_templates_are_sparse"].passed
     assert checks["manual_import_templates_have_provenance"].passed

@@ -41,9 +41,41 @@
       "step_id": "apply-gold-review"
     },
     {
+      "action": "Write the analytical-footprint review starter.",
+      "command": "mosaic-rke prepare-footprint-review --root . --output registry/report_intelligence/analytical_footprint_reviewed.jsonl --overwrite",
+      "expected_result": "Reviewer scratch target is registry/report_intelligence/analytical_footprint_reviewed.jsonl.",
+      "manual_input_path": "",
+      "phase": "footprint_review",
+      "step_id": "prepare-footprint-review"
+    },
+    {
+      "action": "Fill the analytical-footprint reviewed scratch file.",
+      "command": "",
+      "expected_result": "All footprint rows have required manual fields and preserved provenance hashes.",
+      "manual_input_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+      "phase": "footprint_review",
+      "step_id": "fill-footprint-review"
+    },
+    {
+      "action": "Validate the reviewed analytical-footprint scratch file.",
+      "command": "mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_reviewed.jsonl --dry-run",
+      "expected_result": "Import is accepted and footprint quality thresholds pass.",
+      "manual_input_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+      "phase": "footprint_review",
+      "step_id": "dry-run-footprint-review"
+    },
+    {
+      "action": "Apply accepted analytical-footprint review decisions.",
+      "command": "mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+      "expected_result": "Footprint summaries and downstream gates are recomputed.",
+      "manual_input_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+      "phase": "footprint_review",
+      "step_id": "apply-footprint-review"
+    },
+    {
       "action": "Confirm only the final lockbox gate remains before opening it.",
       "command": "mosaic-rke promotion-status --root .",
-      "expected_result": "Gold-set and source-license criteria pass; lockbox remains not opened.",
+      "expected_result": "Gold-set, footprint, and source-license criteria pass; lockbox remains not opened.",
       "manual_input_path": "",
       "phase": "promotion",
       "step_id": "promotion-status-before-lockbox"
@@ -74,7 +106,7 @@
     },
     {
       "action": "Simulate the complete reviewed bundle before final apply.",
-      "command": "mosaic-rke promotion-dry-run --root . --gold-input registry/review_batches/gold_set_full_reviewed.jsonl --lockbox-input registry/review_batches/lockbox_reviewed.json",
+      "command": "mosaic-rke promotion-dry-run --root . --gold-input registry/review_batches/gold_set_full_reviewed.jsonl --footprint-input registry/report_intelligence/analytical_footprint_reviewed.jsonl --lockbox-input registry/review_batches/lockbox_reviewed.json",
       "expected_result": "Simulation accepts all required reviewed inputs without mutating the original registry.",
       "manual_input_path": "",
       "phase": "promotion",
@@ -101,17 +133,17 @@
   "gates": [
     {
       "apply_command": "mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl",
-      "blocker": "",
+      "blocker": "manual gold-set review still required",
       "dry_run_command": "mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl --dry-run",
-      "evidence": "500 / 500 gold-set claims reviewed",
+      "evidence": "0 / 500 gold-set claims reviewed",
       "evidence_path": "registry/gold_sets/tushare_research_reports.review_summary.json",
-      "exported_rows": 0,
+      "exported_rows": 500,
       "full_import_template_path": "registry/review_batches/gold_set_full_import_template.jsonl",
       "gate_id": "PG02",
       "import_template_path": "registry/review_batches/gold_set_next_import_template.jsonl",
       "operator_note": "Run prepare-gold-review --full, fill the reviewed scratch JSONL, use registry/review_batches/gold_set_review_workbook.md as the read-only claim checklist, and use registry/review_batches/gold_set_review_assist.md as non-import machine assistance, then dry-run before applying the 500-claim gold set.",
-      "passed": true,
-      "pending_rows": 0,
+      "passed": false,
+      "pending_rows": 500,
       "policy_template_path": "",
       "prepare_command": "mosaic-rke prepare-gold-review --root . --full",
       "required_manual_fields": [
@@ -119,6 +151,8 @@
         "claim_correct",
         "source_span_supports_claim",
         "direction_correct",
+        "target_correct",
+        "horizon_correct",
         "variable_mapping_correct",
         "unsupported_field_false_grounded",
         "reviewer",
@@ -129,6 +163,37 @@
       "review_packet_path": "registry/gold_sets/tushare_research_reports.review_packet.json",
       "reviewed_policy_path": "registry/review_batches/gold_set_full_reviewed.jsonl",
       "workbook_path": "registry/review_batches/gold_set_review_workbook.md"
+    },
+    {
+      "apply_command": "mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+      "blocker": "1001 analytical footprint review rows still pending; footprint_precision unavailable; span_support_precision unavailable; metric_mapping_accuracy unavailable; inferred_step_tagging_accuracy unavailable; unknown_on_ambiguity_rate unavailable; proprietary_leakage_free_rate unavailable",
+      "dry_run_command": "mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_reviewed.jsonl --dry-run",
+      "evidence": "0 / 1001 analytical footprints reviewed",
+      "evidence_path": "registry/report_intelligence/analytical_footprint_review_summary.json",
+      "exported_rows": 1001,
+      "full_import_template_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl",
+      "gate_id": "RI-FOOTPRINT-REVIEW",
+      "import_template_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl",
+      "operator_note": "Fill the analytical-footprint reviewed scratch JSONL after inspecting the private template; keep hashes intact and dry-run before applying.",
+      "passed": false,
+      "pending_rows": 1001,
+      "policy_template_path": "",
+      "prepare_command": "mosaic-rke prepare-footprint-review --root . --output registry/report_intelligence/analytical_footprint_reviewed.jsonl --overwrite",
+      "required_manual_fields": [
+        "reviewer",
+        "review_date",
+        "review_notes",
+        "footprint_correct",
+        "source_span_supports_footprint",
+        "metric_mapping_correct",
+        "inferred_steps_tagged_correctly",
+        "unknowns_used_when_uncertain",
+        "no_proprietary_text_leakage"
+      ],
+      "review_kind": "footprint_review",
+      "review_packet_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl",
+      "reviewed_policy_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+      "workbook_path": ""
     },
     {
       "apply_command": "mosaic-rke build-license-review-import --root . --policy registry/review_batches/source_license_policy_reviewed.json --output registry/review_batches/source_license_policy_import.jsonl && mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_policy_import.jsonl",
@@ -196,6 +261,7 @@
     "registry/review_batches/source_license_next_import_template.jsonl",
     "registry/review_batches/source_license_review_workbook.md",
     "registry/review_batches/source_license_policy_template.json",
+    "registry/report_intelligence/analytical_footprint_review_template.jsonl",
     "registry/review_batches/manual_review_progress_report.json",
     "registry/review_batches/manual_review_runbook.md",
     "registry/review_batches/lockbox_review_next_import_template.json",
@@ -203,13 +269,15 @@
     "registry/handoffs/rke_operator_handoff.md"
   ],
   "handoff_id": "RKE-OPERATOR-HANDOFF-20260606",
-  "next_state": "staged_production",
+  "next_state": "paper_trading",
   "paper_trading_allowed": true,
   "production_allowed": false,
-  "promotion_dry_run_command": "mosaic-rke promotion-dry-run --root . --gold-input registry/review_batches/gold_set_full_reviewed.jsonl --lockbox-input registry/review_batches/lockbox_reviewed.json",
+  "promotion_dry_run_command": "mosaic-rke promotion-dry-run --root . --gold-input registry/review_batches/gold_set_full_reviewed.jsonl --footprint-input registry/report_intelligence/analytical_footprint_reviewed.jsonl --lockbox-input registry/review_batches/lockbox_reviewed.json",
   "ready_for_operator_review": true,
   "remaining_blockers": [
-    "lockbox has not been opened"
+    "manual gold-set review still required",
+    "lockbox has not been opened",
+    "1001 analytical footprint review rows still pending; footprint_precision unavailable; span_support_precision unavailable; metric_mapping_accuracy unavailable; inferred_step_tagging_accuracy unavailable; unknown_on_ambiguity_rate unavailable; proprietary_leakage_free_rate unavailable"
   ],
   "run_order": [
     "review-progress-preflight",
@@ -217,6 +285,10 @@
     "fill-gold-review",
     "dry-run-gold-review",
     "apply-gold-review",
+    "prepare-footprint-review",
+    "fill-footprint-review",
+    "dry-run-footprint-review",
+    "apply-footprint-review",
     "promotion-status-before-lockbox",
     "prepare-lockbox-review",
     "fill-lockbox-review",
@@ -225,5 +297,5 @@
     "apply-lockbox-review",
     "promotion-status-final"
   ],
-  "staged_production_allowed": true
+  "staged_production_allowed": false
 }

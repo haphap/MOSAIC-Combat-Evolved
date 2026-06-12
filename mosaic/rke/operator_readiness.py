@@ -305,6 +305,10 @@ def _handoff_command_sequence_complete(handoff: Any) -> tuple[bool, str, str]:
         "fill-gold-review",
         "dry-run-gold-review",
         "apply-gold-review",
+        "prepare-footprint-review",
+        "fill-footprint-review",
+        "dry-run-footprint-review",
+        "apply-footprint-review",
         *source_license_steps,
         "promotion-status-before-lockbox",
         "prepare-lockbox-review",
@@ -326,6 +330,9 @@ def _handoff_command_sequence_complete(handoff: Any) -> tuple[bool, str, str]:
 
     fill_expectations = {
         "fill-gold-review": "registry/review_batches/gold_set_full_reviewed.jsonl",
+        "fill-footprint-review": (
+            "registry/report_intelligence/analytical_footprint_reviewed.jsonl"
+        ),
         "fill-lockbox-review": "registry/review_batches/lockbox_reviewed.json",
     }
     if not source_license_already_passed:
@@ -359,6 +366,7 @@ def _handoff_command_sequence_complete(handoff: Any) -> tuple[bool, str, str]:
     if (
         "promotion-dry-run" not in promotion_dry_run_command
         or "gold_set_full_reviewed.jsonl" not in promotion_dry_run_command
+        or "analytical_footprint_reviewed.jsonl" not in promotion_dry_run_command
         or "lockbox_reviewed.json" not in promotion_dry_run_command
     ):
         failures.append("promotion dry-run must use all required reviewed inputs")
@@ -377,11 +385,13 @@ def _handoff_command_sequence_complete(handoff: Any) -> tuple[bool, str, str]:
 
     expected_before_promotion = (
         "dry-run-gold-review",
+        "dry-run-footprint-review",
         "dry-run-lockbox-review",
     )
     if not source_license_already_passed:
         expected_before_promotion = (
             "dry-run-gold-review",
+            "dry-run-footprint-review",
             "dry-run-source-license-review",
             "dry-run-lockbox-review",
         )
@@ -435,7 +445,8 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
         _check(
             "handoff_ready_for_operator",
             handoff.ready_for_operator_review
-            and gate_kinds == {"gold_set", "source_license", "lockbox"}
+            and gate_kinds
+            == {"gold_set", "footprint_review", "source_license", "lockbox"}
             and handoff.direct_production_forbidden
             and not handoff.production_allowed,
             f"gates={sorted(gate_kinds)}, next_state={handoff.next_state}",

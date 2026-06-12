@@ -33,6 +33,11 @@ from .promotion_gate import (
     build_production_promotion_gate_report,
     write_production_promotion_gate_report,
 )
+from .report_intelligence import (
+    ANALYTICAL_FOOTPRINT_REVIEW_SUMMARY_PATH,
+    ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH,
+    ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH,
+)
 
 
 OPERATOR_HANDOFF_JSON_PATH = "registry/handoffs/rke_operator_handoff.json"
@@ -151,6 +156,78 @@ def _criterion_by_id(criteria: Sequence[Any], criterion_id: str) -> Mapping[str,
     return {}
 
 
+def _footprint_review_gate(root_path: Path) -> OperatorGateHandoff:
+    summary_path = root_path / ANALYTICAL_FOOTPRINT_REVIEW_SUMMARY_PATH
+    summary: Mapping[str, Any] = {}
+    if summary_path.exists():
+        try:
+            payload = _read_json(summary_path)
+            if isinstance(payload, Mapping):
+                summary = payload
+        except json.JSONDecodeError:
+            summary = {}
+    passed = (
+        summary.get("accepted") is True
+        and summary.get("review_complete") is True
+        and summary.get("quality_gate_passed") is True
+    )
+    blockers = [
+        str(item)
+        for item in (
+            *(summary.get("blockers") or ()),
+            *(summary.get("quality_gate_blockers") or ()),
+        )
+        if str(item).strip()
+    ]
+    return OperatorGateHandoff(
+        gate_id="RI-FOOTPRINT-REVIEW",
+        review_kind="footprint_review",
+        passed=passed,
+        blocker="; ".join(dict.fromkeys(blockers))
+        or "analytical-footprint review still required",
+        evidence_path=ANALYTICAL_FOOTPRINT_REVIEW_SUMMARY_PATH,
+        evidence=(
+            f"{int(summary.get('complete_rows') or 0)} / "
+            f"{int(summary.get('total_rows') or 0)} analytical footprints reviewed"
+        ),
+        review_packet_path=ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH,
+        workbook_path="",
+        import_template_path=ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH,
+        full_import_template_path=ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH,
+        policy_template_path="",
+        reviewed_policy_path=ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH,
+        prepare_command=(
+            "mosaic-rke prepare-footprint-review --root . "
+            f"--output {ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH} --overwrite"
+        ),
+        pending_rows=int(summary.get("pending_rows") or 0),
+        exported_rows=int(summary.get("total_rows") or 0),
+        required_manual_fields=(
+            "reviewer",
+            "review_date",
+            "review_notes",
+            "footprint_correct",
+            "source_span_supports_footprint",
+            "metric_mapping_correct",
+            "inferred_steps_tagged_correctly",
+            "unknowns_used_when_uncertain",
+            "no_proprietary_text_leakage",
+        ),
+        dry_run_command=(
+            "mosaic-rke apply-footprint-review --root . "
+            f"--input {ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH} --dry-run"
+        ),
+        apply_command=(
+            "mosaic-rke apply-footprint-review --root . "
+            f"--input {ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH}"
+        ),
+        operator_note=(
+            "Fill the analytical-footprint reviewed scratch JSONL after inspecting "
+            "the private template; keep hashes intact and dry-run before applying."
+        ),
+    )
+
+
 def _operator_command_sequence(
     gates: Sequence[OperatorGateHandoff],
     *,
@@ -158,6 +235,7 @@ def _operator_command_sequence(
 ) -> tuple[OperatorCommandStep, ...]:
     gate_by_kind = {gate.review_kind: gate for gate in gates}
     gold = gate_by_kind["gold_set"]
+    footprint = gate_by_kind["footprint_review"]
     source_license = gate_by_kind["source_license"]
     lockbox = gate_by_kind["lockbox"]
     steps: list[OperatorCommandStep] = [
@@ -200,6 +278,40 @@ def _operator_command_sequence(
             command=gold.apply_command,
             manual_input_path=GOLD_FULL_REVIEWED_IMPORT_PATH,
             expected_result="Gold-set summaries and downstream gates are recomputed.",
+        ),
+        OperatorCommandStep(
+            step_id="prepare-footprint-review",
+            phase="footprint_review",
+            action="Write the analytical-footprint review starter.",
+            command=footprint.prepare_command,
+            manual_input_path="",
+            expected_result=(
+                f"Reviewer scratch target is {ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH}."
+            ),
+        ),
+        OperatorCommandStep(
+            step_id="fill-footprint-review",
+            phase="footprint_review",
+            action="Fill the analytical-footprint reviewed scratch file.",
+            command="",
+            manual_input_path=ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH,
+            expected_result="All footprint rows have required manual fields and preserved provenance hashes.",
+        ),
+        OperatorCommandStep(
+            step_id="dry-run-footprint-review",
+            phase="footprint_review",
+            action="Validate the reviewed analytical-footprint scratch file.",
+            command=footprint.dry_run_command,
+            manual_input_path=ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH,
+            expected_result="Import is accepted and footprint quality thresholds pass.",
+        ),
+        OperatorCommandStep(
+            step_id="apply-footprint-review",
+            phase="footprint_review",
+            action="Apply accepted analytical-footprint review decisions.",
+            command=footprint.apply_command,
+            manual_input_path=ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH,
+            expected_result="Footprint summaries and downstream gates are recomputed.",
         ),
     ]
     if not source_license.passed:
@@ -247,7 +359,7 @@ def _operator_command_sequence(
             action="Confirm only the final lockbox gate remains before opening it.",
             command="mosaic-rke promotion-status --root .",
             manual_input_path="",
-            expected_result="Gold-set and source-license criteria pass; lockbox remains not opened.",
+            expected_result="Gold-set, footprint, and source-license criteria pass; lockbox remains not opened.",
         ),
             OperatorCommandStep(
             step_id="prepare-lockbox-review",
@@ -433,6 +545,7 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
                 "then dry-run before applying the 500-claim gold set."
             ),
         ),
+        _footprint_review_gate(root_path),
         OperatorGateHandoff(
             gate_id="PG03",
             review_kind="source_license",
@@ -521,6 +634,7 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
         source_license.import_template_path,
         SOURCE_LICENSE_REVIEW_WORKBOOK_MD_PATH,
         SOURCE_LICENSE_POLICY_TEMPLATE_PATH,
+        ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH,
         MANUAL_REVIEW_PROGRESS_REPORT_PATH,
         MANUAL_REVIEW_RUNBOOK_MD_PATH,
         LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH,
@@ -528,10 +642,12 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
         OPERATOR_HANDOFF_MD_PATH,
     )
     source_license_gate = next(gate for gate in gates if gate.review_kind == "source_license")
+    footprint_arg = f"--footprint-input {ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH}"
     if source_license_gate.passed:
         promotion_dry_run_command = (
             "mosaic-rke promotion-dry-run --root . "
             f"--gold-input {GOLD_FULL_REVIEWED_IMPORT_PATH} "
+            f"{footprint_arg} "
             f"--lockbox-input {LOCKBOX_REVIEWED_IMPORT_PATH}"
         )
     else:
@@ -541,12 +657,23 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
             f"--output {DEFAULT_LICENSE_POLICY_IMPORT_PATH} && "
             "mosaic-rke promotion-dry-run --root . "
             f"--gold-input {GOLD_FULL_REVIEWED_IMPORT_PATH} "
+            f"{footprint_arg} "
             f"--license-input {DEFAULT_LICENSE_POLICY_IMPORT_PATH} "
             f"--lockbox-input {LOCKBOX_REVIEWED_IMPORT_PATH}"
         )
     command_sequence = _operator_command_sequence(
         gates,
         promotion_dry_run_command=promotion_dry_run_command,
+    )
+    remaining_blockers = tuple(
+        dict.fromkeys(
+            blocker
+            for blocker in (
+                *promotion.blockers,
+                *(gate.blocker for gate in gates if not gate.passed),
+            )
+            if str(blocker).strip()
+        )
     )
     return OperatorHandoff(
         handoff_id="RKE-OPERATOR-HANDOFF-20260606",
@@ -556,7 +683,7 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
         next_state=promotion.next_state,
         direct_production_forbidden=promotion.direct_production_forbidden,
         ready_for_operator_review=bool(batch_status.ready_for_manual_review),
-        remaining_blockers=tuple(promotion.blockers),
+        remaining_blockers=remaining_blockers,
         gates=gates,
         generated_paths=generated_paths,
         command_sequence=command_sequence,
