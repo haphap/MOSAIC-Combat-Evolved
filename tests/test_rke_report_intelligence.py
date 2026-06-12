@@ -4881,6 +4881,20 @@ def test_report_intelligence_labels_industry_claims_with_etf_proxy_windows(
     )
     assert industrial_metals["pit_available"] is True
     assert industrial_metals["available_window_days"] == [20, 60, 120]
+    labelability = pit_availability["labelability_summary"]
+    assert labelability["eligible_claim_count"] == proxy_readiness[
+        "eligible_claim_count"
+    ]
+    assert labelability["labelable_claim_count"] == proxy_readiness[
+        "labelable_forecast_claim_count"
+    ]
+    assert labelability["labelable_window_count"] == proxy_readiness[
+        "labelable_window_count"
+    ]
+    assert labelability["pending_future_window_count"] == proxy_readiness[
+        "pending_future_window_count"
+    ]
+    assert labelability["data_gap_counts"] == proxy_readiness["data_gap_counts"]
     availability_dump = json.dumps(pit_availability, ensure_ascii=False)
     assert source_id not in availability_dump
     assert "Liquidity report" not in availability_dump

@@ -2,13 +2,17 @@
   "availability_id": "RKE-REPORT-INDUSTRY-ETF-PROXY-PIT-AVAILABILITY",
   "labelability_summary": {
     "benchmark_series_missing_count": 0,
-    "data_gap_counts": {},
-    "eligible_claim_count": 0,
-    "labelable_claim_count": 0,
-    "labelable_window_count": 0,
-    "pending_future_window_count": 0,
+    "data_gap_counts": {
+      "direction_missing_or_unsupported": 11,
+      "entry_date_after_latest_calendar": 6,
+      "sector_etf_mapping_missing": 2
+    },
+    "eligible_claim_count": 94,
+    "labelable_claim_count": 12,
+    "labelable_window_count": 36,
+    "pending_future_window_count": 228,
     "proxy_series_missing_count": 0,
-    "sector_etf_mapping_missing_count": 0
+    "sector_etf_mapping_missing_count": 2
   },
   "mapping_count": 64,
   "mapping_records": [

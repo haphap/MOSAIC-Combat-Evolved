@@ -7126,6 +7126,53 @@ def build_industry_etf_proxy_pit_availability(
     }
 
 
+def _industry_pit_labelability_summary_from_readiness(
+    industry_etf_proxy_readiness: Mapping[str, Any],
+) -> dict[str, Any]:
+    readiness = _ensure_mapping(industry_etf_proxy_readiness)
+    data_gap_counts = _count_mapping_values(
+        _ensure_mapping(readiness.get("data_gap_counts"))
+    )
+    return {
+        "eligible_claim_count": int(readiness.get("eligible_claim_count") or 0),
+        "labelable_claim_count": int(
+            readiness.get("labelable_forecast_claim_count") or 0
+        ),
+        "labelable_window_count": int(
+            readiness.get("labelable_window_count") or 0
+        ),
+        "pending_future_window_count": int(
+            readiness.get("pending_future_window_count") or 0
+        ),
+        "sector_etf_mapping_missing_count": data_gap_counts.get(
+            "sector_etf_mapping_missing",
+            0,
+        ),
+        "proxy_series_missing_count": data_gap_counts.get(
+            "proxy_series_missing",
+            0,
+        ),
+        "benchmark_series_missing_count": data_gap_counts.get(
+            "benchmark_series_missing",
+            0,
+        ),
+        "data_gap_counts": data_gap_counts,
+    }
+
+
+def _with_industry_pit_labelability_summary(
+    pit_availability: Mapping[str, Any],
+    industry_etf_proxy_readiness: Mapping[str, Any],
+) -> dict[str, Any]:
+    updated = dict(pit_availability)
+    updated["labelability_summary"] = (
+        _industry_pit_labelability_summary_from_readiness(
+            industry_etf_proxy_readiness
+        )
+    )
+    return updated
+
+
 def build_industry_etf_proxy_readiness(
     *,
     root_path: Path,
@@ -18951,6 +18998,10 @@ def run_report_intelligence_derived_refresh(
         mapping_rows=industry_etf_proxy_map_rows,
         pit_availability=industry_etf_proxy_pit_availability,
     )
+    industry_etf_proxy_pit_availability = _with_industry_pit_labelability_summary(
+        industry_etf_proxy_pit_availability,
+        industry_etf_proxy_readiness,
+    )
     stock_price_proxy_readiness = build_stock_price_proxy_readiness(
         root_path=root_path,
         qlib_stock_dir=cfg.qlib_stock_dir,
@@ -19954,6 +20005,10 @@ def run_report_intelligence_refresh(
         metadata_rows=metadata_rows,
         mapping_rows=industry_etf_proxy_map_rows,
         pit_availability=industry_etf_proxy_pit_availability,
+    )
+    industry_etf_proxy_pit_availability = _with_industry_pit_labelability_summary(
+        industry_etf_proxy_pit_availability,
+        industry_etf_proxy_readiness,
     )
     stock_price_proxy_readiness = build_stock_price_proxy_readiness(
         root_path=root_path,
