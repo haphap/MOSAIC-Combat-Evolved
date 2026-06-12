@@ -2190,6 +2190,39 @@ def test_report_intelligence_alpha_decay_monitoring_requires_metric_contract(
     assert any("unmonitored recipes" in item for item in monitoring_record.failures)
 
 
+def test_report_intelligence_monitoring_rejects_confidence_impact_drift(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    monitoring_path = registry / "monitoring_report.json"
+    monitoring = json.loads(monitoring_path.read_text(encoding="utf-8"))
+    confidence = monitoring["confidence_impact_monitoring"]
+    confidence["observation_count"] = 0
+    confidence["recommended_action_counts"] = {"keep_shadow": 1}
+    monitoring_path.write_text(
+        json.dumps(monitoring, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    records = validate_report_intelligence_semantics(tmp_path)
+    monitoring_record = next(
+        record
+        for record in records
+        if record.schema_path
+        == "schemas/report_intelligence_alpha_decay_monitoring_rules"
+    )
+
+    assert not monitoring_record.accepted
+    assert any(
+        "confidence_impact_monitoring observation_count mismatch" in item
+        for item in monitoring_record.failures
+    )
+    assert any(
+        "confidence_impact_monitoring recommended_action_counts mismatch" in item
+        for item in monitoring_record.failures
+    )
+
+
 def test_schema_validation_rejects_missing_required_field(tmp_path: Path):
     schema_dir = tmp_path / "schemas"
     artifact_dir = tmp_path / "registry/sources"

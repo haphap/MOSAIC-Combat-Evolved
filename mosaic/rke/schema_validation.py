@@ -3384,6 +3384,11 @@ def validate_report_intelligence_semantics(
         "registry/report_intelligence/monitoring_report.json",
     )
     monitoring_failures.extend(monitoring_report_errors)
+    confidence_impact_monitor, confidence_impact_monitor_errors = _read_mapping_json(
+        root_path / "registry/report_intelligence/confidence_impact_monitor.json",
+        "registry/report_intelligence/confidence_impact_monitor.json",
+    )
+    monitoring_failures.extend(confidence_impact_monitor_errors)
     expected_decay_metrics = {
         "rolling_after_cost_alpha",
         "rolling_hit_rate",
@@ -3405,6 +3410,62 @@ def validate_report_intelligence_semantics(
             if isinstance(monitoring_report.get("alpha_decay_monitoring"), Mapping)
             else {}
         )
+        confidence_impact_monitoring = (
+            monitoring_report.get("confidence_impact_monitoring")
+            if isinstance(
+                monitoring_report.get("confidence_impact_monitoring"),
+                Mapping,
+            )
+            else {}
+        )
+        if not confidence_impact_monitoring:
+            monitoring_failures.append(
+                "monitoring_report confidence_impact_monitoring must be object"
+            )
+        monitor_count_fields = (
+            "observation_count",
+            "paper_trading_validated_recipe_count",
+            "unvalidated_confidence_impact_count",
+            "alpha_decay_watch_count",
+            "alpha_decay_fail_count",
+            "cost_decay_fail_count",
+            "calibration_drift_count",
+            "aggregate_calibration_drift_count",
+            "regime_fragile_alpha_count",
+        )
+        for field in monitor_count_fields:
+            if confidence_impact_monitoring.get(field) != confidence_impact_monitor.get(
+                field
+            ):
+                monitoring_failures.append(
+                    f"confidence_impact_monitoring {field} mismatch"
+                )
+        for field in (
+            "monitor_id",
+            "confidence_alpha_correlation",
+            "confidence_alpha_correlation_status",
+            "production_decision_impact_allowed",
+        ):
+            if confidence_impact_monitoring.get(field) != confidence_impact_monitor.get(
+                field
+            ):
+                monitoring_failures.append(
+                    f"confidence_impact_monitoring {field} mismatch"
+                )
+        observed_action_counts = _count_mapping(
+            confidence_impact_monitoring.get("recommended_action_counts"),
+            row_label="confidence_impact_monitoring.recommended_action_counts",
+            failures=monitoring_failures,
+        )
+        expected_action_counts = _count_mapping(
+            confidence_impact_monitor.get("recommended_action_counts"),
+            row_label="confidence_impact_monitor.recommended_action_counts",
+            failures=monitoring_failures,
+        )
+        if observed_action_counts != expected_action_counts:
+            monitoring_failures.append(
+                "confidence_impact_monitoring recommended_action_counts mismatch"
+            )
         if not alpha_decay:
             monitoring_failures.append(
                 "monitoring_report alpha_decay_monitoring must be object"
