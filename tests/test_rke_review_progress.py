@@ -18,6 +18,11 @@ from mosaic.rke.review_progress import (
 
 def _copy_registry(dst_root: Path) -> None:
     shutil.copytree(Path("registry"), dst_root / "registry")
+    footprint_reviewed = (
+        dst_root / "registry/report_intelligence/analytical_footprint_reviewed.jsonl"
+    )
+    if footprint_reviewed.exists():
+        footprint_reviewed.unlink()
     gold_path = dst_root / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
     gold_rows = _load_jsonl(gold_path)
     for row in gold_rows:
@@ -108,6 +113,28 @@ def _accepted_license_policy(root: Path) -> dict:
     return policy
 
 
+def _accepted_footprint_rows(root: Path) -> list[dict]:
+    rows = _load_jsonl(
+        root / "registry/report_intelligence/analytical_footprint_review_template.jsonl"
+    )
+    for row in rows:
+        row.update(
+            {
+                "footprint_correct": True,
+                "source_span_supports_footprint": True,
+                "metric_mapping_correct": True,
+                "inferred_steps_tagged_correctly": True,
+                "unknowns_used_when_uncertain": True,
+                "no_proprietary_text_leakage": True,
+                "manual_error_tags": [],
+                "reviewer": "reviewer-a",
+                "review_date": "2026-06-06",
+                "review_notes": "fixture approval",
+            }
+        )
+    return rows
+
+
 def _accepted_lockbox(root: Path) -> dict:
     row = dict(build_lockbox_review_import_template(root))
     row.update(
@@ -137,11 +164,13 @@ def test_review_progress_reports_missing_scratch_files(tmp_path: Path, capsys):
     assert output["ready_for_promotion_dry_run"] is False
     assert {gate["review_kind"] for gate in output["gates"]} == {
         "gold_set",
+        "footprint_review",
         "source_license",
         "lockbox",
     }
     assert all(gate["input_exists"] is False for gate in output["gates"])
     assert any("prepare-gold-review" in blocker for blocker in output["blockers"])
+    assert any("prepare-footprint-review" in blocker for blocker in output["blockers"])
     assert any("prepare-license-policy-review" in blocker for blocker in output["blockers"])
     assert any("prepare-lockbox-review" in blocker for blocker in output["blockers"])
     assert (tmp_path / "registry/review_batches/manual_review_progress_report.json").exists()
@@ -156,8 +185,9 @@ def test_write_manual_review_progress_report_outputs_registry_artifact(tmp_path:
     assert result["ready_for_promotion_dry_run"] is False
     assert result["blocker_count"] >= 3
     assert payload["ready_for_promotion_dry_run"] is False
-    assert len(payload["gates"]) == 3
+    assert len(payload["gates"]) == 4
     assert payload["gates"][0]["review_kind"] == "gold_set"
+    assert payload["gates"][1]["review_kind"] == "footprint_review"
 
 
 def test_manual_review_runbook_renders_operator_checklist_without_source_text(tmp_path: Path):
@@ -173,9 +203,11 @@ def test_manual_review_runbook_renders_operator_checklist_without_source_text(tm
     assert result["path"].endswith("registry/review_batches/manual_review_runbook.md")
     assert result["ready_for_promotion_dry_run"] is False
     assert "mosaic-rke prepare-gold-review --root . --full" in markdown
+    assert "mosaic-rke prepare-footprint-review --root ." in markdown
     assert "mosaic-rke prepare-license-policy-review --root ." in markdown
     assert "mosaic-rke prepare-lockbox-review --root ." in markdown
     assert "registry/review_batches/gold_set_full_reviewed.jsonl" in markdown
+    assert "registry/report_intelligence/analytical_footprint_reviewed.jsonl" in markdown
     assert "registry/review_batches/source_license_policy_reviewed.json" in markdown
     assert "registry/review_batches/lockbox_reviewed.json" in markdown
     assert "registry/review_batches/gold_set_review_workbook.md" in markdown
@@ -187,6 +219,8 @@ def test_manual_review_runbook_renders_operator_checklist_without_source_text(tm
     assert "direction accuracy >= 0.85" in markdown
     assert "variable mapping accuracy >= 0.80" in markdown
     assert "unsupported-field false grounding <= 0.05" in markdown
+    assert "footprint_correct" in markdown
+    assert "no_proprietary_text_leakage" in markdown
     assert "approved_for_production_runtime=true" in markdown
     assert "matched_rows_fingerprint" in markdown
     assert "result=passed" in markdown
@@ -203,6 +237,11 @@ def test_review_progress_accepts_complete_reviewed_scratch_files(tmp_path: Path,
     _write_jsonl(
         tmp_path / "registry/review_batches/gold_set_full_reviewed.jsonl",
         _accepted_gold_rows(tmp_path),
+    )
+    footprint_rows = _accepted_footprint_rows(tmp_path)
+    _write_jsonl(
+        tmp_path / "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+        footprint_rows,
     )
     _write_json(
         tmp_path / "registry/review_batches/source_license_policy_reviewed.json",
@@ -223,6 +262,8 @@ def test_review_progress_accepts_complete_reviewed_scratch_files(tmp_path: Path,
     assert output["blockers"] == []
     assert gates["gold_set"]["complete_rows"] == 500
     assert gates["gold_set"]["ready_for_promotion"] is True
+    assert gates["footprint_review"]["complete_rows"] == len(footprint_rows)
+    assert gates["footprint_review"]["ready_for_promotion"] is True
     assert gates["source_license"]["complete_rows"] == _license_review_source_count(tmp_path)
     assert gates["source_license"]["ready_for_promotion"] is True
     assert gates["lockbox"]["complete_rows"] == 1

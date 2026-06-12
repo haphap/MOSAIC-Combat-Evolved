@@ -3991,7 +3991,8 @@ def write_analytical_footprint_review_artifacts(
     )
     summary = build_analytical_footprint_review_summary(review_rows)
     taxonomy = build_analytical_footprint_error_taxonomy()
-    if preserve_existing_summary and summary_path.exists():
+    preserve_summary = preserve_existing_summary and summary_path.exists() and not review_rows
+    if preserve_summary:
         summary_output = {"path": summary_path}
     else:
         summary_output = _write_json(summary_path, summary)

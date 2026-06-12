@@ -39,7 +39,7 @@ contracts.
 | `registry/report_intelligence/recipe_paper_trading_summary.json` | 20 recipes passed paper-trading validation; 561 recipes have direct or inferred PIT binding; after-cost paper-trading summary is computed from passed pre-registered runs only; 1838 recipes remain blocked by direct binding, effective-N, or shadow-tool readiness gaps |
 | `registry/report_intelligence/confidence_impact_monitor.json` | 20 paper-trading validated recipes are monitored; unvalidated confidence impact count is 0; alpha-decay and calibration-drift observations remain shadow-only |
 | `registry/report_intelligence/evolution_readiness_gate.json` | blocked; 13 blockers remain, limited to manual forecast gold-set quality metrics and current schema/audit-history readiness |
-| `registry/review_batches/manual_review_progress_report.json` | public baseline: gold-set 0/500, source license 17529/17529, lockbox 0/1; gold-set scratch rows have current target hashes after `prepare-gold-review --full --force`, but all 500 rows still require reviewer fields; synthetic fixture: gold-set 500/500, source license 50/50, lockbox 0/1 |
+| `registry/review_batches/manual_review_progress_report.json` | public baseline: gold-set 0/500, analytical-footprint review 0/1001, source license 17529/17529, lockbox 0/1; gold-set scratch rows have current target hashes after `prepare-gold-review --full --force`, but all 500 rows still require reviewer fields; analytical-footprint scratch rows were regenerated from the current template and still require boolean reviewer fields plus notes; synthetic fixture: gold-set 500/500, analytical-footprint review complete, source license 50/50, lockbox 0/1 |
 
 ## Plan Coverage
 
@@ -91,24 +91,28 @@ design. The failing semantic records are
 `schemas/report_intelligence_analytical_footprint_review_rules` and
 `schemas/report_intelligence_patch_v1_5_coverage_rules`, because the analytical
 footprint review gate, Phase B human gold-set review, and Phase D footprint
-quality gates have not passed. Phase C now passes from public aggregate counts
-even when private report-intelligence JSONL files are absent.
+quality gates have not passed. The analytical-footprint review summary now
+tracks the current 1001-row template instead of the stale 3-row summary. Phase C
+now passes from public aggregate counts even when private report-intelligence
+JSONL files are absent.
 
 ## Remaining Gates
 
 The objective is not complete until the evolution readiness gate passes. Current
 blocker families include:
 
-1. Manual/operator gates: gold-set review and lockbox review remain pending, and
-   schema-status still reports analytical-footprint review and patch coverage
-   semantic blockers. Source-license review is ready in the current public
+1. Manual/operator gates: gold-set review, analytical-footprint review, and
+   lockbox review remain pending, and schema-status still reports
+   analytical-footprint review and patch coverage semantic blockers.
+   Source-license review is ready in the current public
    progress report. The gold-set scratch file was regenerated with
    `mosaic-rke prepare-gold-review --root . --full --force`; the remaining
    gold-set blockers are the 500 required human review rows. The footprint
-   review handoff can now be prepared with
-   `mosaic-rke prepare-footprint-review`, filled by a reviewer, validated with
-   `mosaic-rke apply-footprint-review --dry-run`, then applied through the same
-   import path.
+   reviewed scratch file was regenerated with
+   `mosaic-rke prepare-footprint-review --root . --output registry/report_intelligence/analytical_footprint_reviewed.jsonl --overwrite`;
+   the remaining footprint blockers are the 1001 required human review rows.
+   Validate with `mosaic-rke apply-footprint-review --dry-run`, then apply
+   through the same import path.
 2. P9 coverage watchlist: current public gate reports `coverage_gate_status=passed`
    with no P9 coverage blockers. Continue monitoring the watchlist, but it is
    not currently blocking evolution readiness.
