@@ -38,7 +38,7 @@ contracts.
 | `registry/report_intelligence/recipe_paper_trading_summary.json` | 20 recipes passed paper-trading validation; 561 recipes have direct or inferred PIT binding; after-cost paper-trading summary is computed from passed pre-registered runs only; 1838 recipes remain blocked by direct binding, effective-N, or shadow-tool readiness gaps |
 | `registry/report_intelligence/confidence_impact_monitor.json` | 20 paper-trading validated recipes are monitored; unvalidated confidence impact count is 0; alpha-decay and calibration-drift observations remain shadow-only |
 | `registry/report_intelligence/evolution_readiness_gate.json` | blocked; 13 blockers remain, limited to manual forecast gold-set quality metrics and current schema/audit-history readiness |
-| `registry/review_batches/manual_review_progress_report.json` | public baseline: gold-set 0/500, analytical-footprint review 0/1001, source license 17529/17529, lockbox 0/1; gold-set scratch rows have current target hashes after `prepare-gold-review --full --force`, but all 500 rows still require reviewer fields; analytical-footprint scratch rows were regenerated from the current template and still require boolean reviewer fields plus notes; private footprint review assist/workbook now cover 1001 pending rows; promotion dry-run and operator handoff require `--footprint-input` alongside gold/license/lockbox inputs |
+| `registry/review_batches/manual_review_progress_report.json` | public baseline: gold-set 0/500, analytical-footprint review 0/1001, source license 17529/17529, lockbox 0/1; gold-set scratch rows have current target hashes after `prepare-gold-review --full --force`, but all 500 rows still require reviewer fields; analytical-footprint scratch rows were regenerated from the current template and still require boolean reviewer fields plus notes; private footprint review assist/workbook cover 1001 pending rows, and the private evidence draft can prioritize local markdown snippets for human review; promotion dry-run and operator handoff require `--footprint-input` alongside gold/license/lockbox inputs |
 
 ## Plan Coverage
 
@@ -78,6 +78,7 @@ Current analytical-footprint review scaffold command:
 ```bash
 uv run mosaic-rke prepare-footprint-review --root . --output registry/report_intelligence/analytical_footprint_reviewed.jsonl --reviewer hap --review-date 2026-06-12 --overwrite
 uv run mosaic-rke write-footprint-review-assist --root .
+uv run mosaic-rke write-footprint-review-evidence --root . --limit 50
 ```
 
 This writes a private, gitignored/manual handoff file. The latest run prepared
@@ -88,7 +89,12 @@ This writes a private, gitignored/manual handoff file. The latest run prepared
 `review_notes`. The assist command writes private, gitignored helper files at
 `registry/report_intelligence/analytical_footprint_review_assist.jsonl` and
 `registry/report_intelligence/analytical_footprint_review_workbook.md`; these
-are not import files and do not satisfy the review gate by themselves.
+are not import files and do not satisfy the review gate by themselves. The
+evidence command writes private, gitignored local-markdown snippets and draft
+review suggestions at
+`registry/report_intelligence/analytical_footprint_review_evidence.jsonl` and
+`registry/report_intelligence/analytical_footprint_review_evidence.md`; these
+also are not import files.
 
 `uv run mosaic-rke schema-status --root .` currently exits with code 2 by
 design. The failing semantic records are

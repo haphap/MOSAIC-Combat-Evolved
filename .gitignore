@@ -69,6 +69,8 @@ registry/review_batches/lockbox_reviewed.json
 registry/report_intelligence/pdfs/
 registry/report_intelligence/markdown/
 registry/report_intelligence/mineru/
+registry/report_intelligence/analytical_footprint_review_evidence.jsonl
+registry/report_intelligence/analytical_footprint_review_evidence.md
 
 # RKE Tushare research-report corpus and source-derived review artifacts are
 # private/local data. Keep them in the local registry or cache, not in Git.

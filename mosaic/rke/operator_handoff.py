@@ -35,6 +35,8 @@ from .promotion_gate import (
 )
 from .report_intelligence import (
     ANALYTICAL_FOOTPRINT_REVIEW_ASSIST_JSONL_PATH,
+    ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_JSONL_PATH,
+    ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_MD_PATH,
     ANALYTICAL_FOOTPRINT_REVIEW_SUMMARY_PATH,
     ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH,
     ANALYTICAL_FOOTPRINT_REVIEW_WORKBOOK_MD_PATH,
@@ -224,8 +226,8 @@ def _footprint_review_gate(root_path: Path) -> OperatorGateHandoff:
             f"--input {ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH}"
         ),
         operator_note=(
-            "Generate the private footprint review assist/workbook, fill the "
-            "reviewed scratch JSONL, keep hashes intact, and dry-run before applying."
+            "Generate the private footprint review assist/workbook and evidence draft, "
+            "fill the reviewed scratch JSONL, keep hashes intact, and dry-run before applying."
         ),
     )
 
@@ -300,6 +302,17 @@ def _operator_command_sequence(
             expected_result=(
                 f"Private workbook is {ANALYTICAL_FOOTPRINT_REVIEW_WORKBOOK_MD_PATH} "
                 f"and JSONL assist is {ANALYTICAL_FOOTPRINT_REVIEW_ASSIST_JSONL_PATH}."
+            ),
+        ),
+        OperatorCommandStep(
+            step_id="write-footprint-review-evidence",
+            phase="footprint_review",
+            action="Write private analytical-footprint evidence draft files.",
+            command="mosaic-rke write-footprint-review-evidence --root . --limit 50",
+            manual_input_path="",
+            expected_result=(
+                f"Private evidence Markdown is {ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_MD_PATH} "
+                f"and evidence JSONL is {ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_JSONL_PATH}."
             ),
         ),
         OperatorCommandStep(
@@ -648,6 +661,8 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
         SOURCE_LICENSE_REVIEW_WORKBOOK_MD_PATH,
         SOURCE_LICENSE_POLICY_TEMPLATE_PATH,
         ANALYTICAL_FOOTPRINT_REVIEW_ASSIST_JSONL_PATH,
+        ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_JSONL_PATH,
+        ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_MD_PATH,
         ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH,
         ANALYTICAL_FOOTPRINT_REVIEW_WORKBOOK_MD_PATH,
         MANUAL_REVIEW_PROGRESS_REPORT_PATH,

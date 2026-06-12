@@ -17,6 +17,7 @@
 - apply-gold-review
 - prepare-footprint-review
 - write-footprint-review-assist
+- write-footprint-review-evidence
 - fill-footprint-review
 - dry-run-footprint-review
 - apply-footprint-review
@@ -87,6 +88,14 @@ Dry-run command: `mosaic-rke promotion-dry-run --root . --gold-input registry/re
 - Command: `mosaic-rke write-footprint-review-assist --root .`
 - Manual input: none
 - Expected result: Private workbook is registry/report_intelligence/analytical_footprint_review_workbook.md and JSONL assist is registry/report_intelligence/analytical_footprint_review_assist.jsonl.
+
+### write-footprint-review-evidence
+
+- Phase: footprint_review
+- Action: Write private analytical-footprint evidence draft files.
+- Command: `mosaic-rke write-footprint-review-evidence --root . --limit 50`
+- Manual input: none
+- Expected result: Private evidence Markdown is registry/report_intelligence/analytical_footprint_review_evidence.md and evidence JSONL is registry/report_intelligence/analytical_footprint_review_evidence.jsonl.
 
 ### fill-footprint-review
 
@@ -204,7 +213,7 @@ Dry-run command: `mosaic-rke promotion-dry-run --root . --gold-input registry/re
 - Exported rows: 1001
 - Dry run: `mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_reviewed.jsonl --dry-run`
 - Apply: `mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_reviewed.jsonl`
-- Note: Generate the private footprint review assist/workbook, fill the reviewed scratch JSONL, keep hashes intact, and dry-run before applying.
+- Note: Generate the private footprint review assist/workbook and evidence draft, fill the reviewed scratch JSONL, keep hashes intact, and dry-run before applying.
 
 ### PG03 source_license
 

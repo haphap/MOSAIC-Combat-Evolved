@@ -104,6 +104,7 @@ from .report_intelligence import (
     prepare_analytical_footprint_review_import,
     run_report_intelligence_refresh,
     write_analytical_footprint_review_assist,
+    write_analytical_footprint_review_evidence,
     write_report_intelligence_evolution_readiness_gate,
     write_report_intelligence_prompt_mutation_candidates,
 )
@@ -1013,6 +1014,23 @@ def build_parser() -> argparse.ArgumentParser:
         "--root", default=".", help="Repository root. Defaults to current directory."
     )
 
+    write_footprint_review_evidence = subparsers.add_parser(
+        "write-footprint-review-evidence",
+        help=(
+            "Write private analytical-footprint evidence snippets and draft "
+            "review suggestions."
+        ),
+    )
+    write_footprint_review_evidence.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
+    write_footprint_review_evidence.add_argument(
+        "--limit",
+        type=int,
+        default=25,
+        help="Maximum pending rows to include. Defaults to 25.",
+    )
+
     validate = subparsers.add_parser(
         "validate-required", help="Validate required registry files."
     )
@@ -1479,6 +1497,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0 if report.accepted else 2
     if args.command == "write-footprint-review-assist":
         report = write_analytical_footprint_review_assist(root)
+        _print_json(asdict(report))
+        return 0 if not report.blockers else 2
+    if args.command == "write-footprint-review-evidence":
+        report = write_analytical_footprint_review_evidence(root, limit=args.limit)
         _print_json(asdict(report))
         return 0 if not report.blockers else 2
     if args.command == "validate-required":

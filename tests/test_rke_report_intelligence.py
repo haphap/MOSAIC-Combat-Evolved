@@ -13,6 +13,8 @@ from mosaic.rke.cli import main
 from mosaic.rke.registry_manifest import PRIVATE_LOCAL_REGISTRY_FILES
 from mosaic.rke.report_intelligence import (
     ANALYTICAL_FOOTPRINT_REVIEW_ASSIST_JSONL_PATH,
+    ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_JSONL_PATH,
+    ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_MD_PATH,
     ANALYTICAL_FOOTPRINT_REVIEW_WORKBOOK_MD_PATH,
     DEFAULT_MINERU_ARGS_TEMPLATE,
     DEFAULT_VLLM_TIMEOUT_SECONDS,
@@ -48,6 +50,7 @@ from mosaic.rke.report_intelligence import (
     run_report_intelligence_refresh,
     run_report_intelligence_derived_refresh,
     write_analytical_footprint_review_assist,
+    write_analytical_footprint_review_evidence,
     write_report_intelligence_evolution_readiness_gate,
     write_report_intelligence_patch_v1_5_coverage_report,
     _append_evolution_history_record,
@@ -9167,6 +9170,44 @@ def test_write_analytical_footprint_review_assist_is_private_not_import(
     assert "source_span_ids" not in assist_rows[0]
     markdown = (tmp_path / report.markdown_path).read_text(encoding="utf-8")
     assert "RKE Analytical Footprint Review Workbook" in markdown
+    assert "not an import file" in markdown
+
+
+def test_write_analytical_footprint_review_evidence_is_private_not_import(
+    tmp_path: Path,
+):
+    source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
+    run_report_intelligence_refresh(
+        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        downloader=_fake_downloader,
+        converter=_fake_converter,
+        llm_extractor=_fake_llm,
+    )
+
+    report = write_analytical_footprint_review_evidence(tmp_path, limit=1)
+
+    assert report.row_count == 1
+    assert report.evidence_rows == 1
+    assert report.blockers == ()
+    assert report.jsonl_path == ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_JSONL_PATH
+    assert report.markdown_path == ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_MD_PATH
+    assert report.jsonl_path in REPORT_INTELLIGENCE_PRIVATE_OUTPUT_PATHS
+    assert report.markdown_path in REPORT_INTELLIGENCE_PRIVATE_OUTPUT_PATHS
+    assert report.jsonl_path in PRIVATE_LOCAL_REGISTRY_FILES
+    assert report.markdown_path in PRIVATE_LOCAL_REGISTRY_FILES
+
+    evidence_rows = _read_jsonl(tmp_path / report.jsonl_path)
+    assert evidence_rows[0]["not_apply_footprint_review_input"] is True
+    assert evidence_rows[0]["human_review_required"] is True
+    assert evidence_rows[0]["evidence_kind"].endswith("_not_import")
+    assert isinstance(
+        evidence_rows[0]["suggested_review_decision"]["metric_mapping_correct"],
+        bool,
+    )
+    assert evidence_rows[0]["evidence_snippets"]
+    assert "source_span_ids" not in evidence_rows[0]
+    markdown = (tmp_path / report.markdown_path).read_text(encoding="utf-8")
+    assert "RKE Analytical Footprint Review Evidence Draft" in markdown
     assert "not an import file" in markdown
 
 

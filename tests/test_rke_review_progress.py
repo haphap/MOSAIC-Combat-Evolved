@@ -205,12 +205,15 @@ def test_manual_review_runbook_renders_operator_checklist_without_source_text(tm
     assert "mosaic-rke prepare-gold-review --root . --full" in markdown
     assert "mosaic-rke prepare-footprint-review --root ." in markdown
     assert "mosaic-rke write-footprint-review-assist --root ." in markdown
+    assert "mosaic-rke write-footprint-review-evidence --root . --limit 50" in markdown
     assert "mosaic-rke prepare-license-policy-review --root ." in markdown
     assert "mosaic-rke prepare-lockbox-review --root ." in markdown
     assert "registry/review_batches/gold_set_full_reviewed.jsonl" in markdown
     assert "registry/report_intelligence/analytical_footprint_reviewed.jsonl" in markdown
     assert "registry/report_intelligence/analytical_footprint_review_assist.jsonl" in markdown
     assert "registry/report_intelligence/analytical_footprint_review_workbook.md" in markdown
+    assert "registry/report_intelligence/analytical_footprint_review_evidence.jsonl" in markdown
+    assert "registry/report_intelligence/analytical_footprint_review_evidence.md" in markdown
     assert "registry/review_batches/source_license_policy_reviewed.json" in markdown
     assert "registry/review_batches/lockbox_reviewed.json" in markdown
     assert "registry/review_batches/gold_set_review_workbook.md" in markdown

@@ -57,6 +57,14 @@
       "step_id": "write-footprint-review-assist"
     },
     {
+      "action": "Write private analytical-footprint evidence draft files.",
+      "command": "mosaic-rke write-footprint-review-evidence --root . --limit 50",
+      "expected_result": "Private evidence Markdown is registry/report_intelligence/analytical_footprint_review_evidence.md and evidence JSONL is registry/report_intelligence/analytical_footprint_review_evidence.jsonl.",
+      "manual_input_path": "",
+      "phase": "footprint_review",
+      "step_id": "write-footprint-review-evidence"
+    },
+    {
       "action": "Fill the analytical-footprint reviewed scratch file.",
       "command": "",
       "expected_result": "All footprint rows have required manual fields and preserved provenance hashes.",
@@ -182,7 +190,7 @@
       "full_import_template_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl",
       "gate_id": "RI-FOOTPRINT-REVIEW",
       "import_template_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl",
-      "operator_note": "Generate the private footprint review assist/workbook, fill the reviewed scratch JSONL, keep hashes intact, and dry-run before applying.",
+      "operator_note": "Generate the private footprint review assist/workbook and evidence draft, fill the reviewed scratch JSONL, keep hashes intact, and dry-run before applying.",
       "passed": false,
       "pending_rows": 1001,
       "policy_template_path": "",
@@ -270,6 +278,8 @@
     "registry/review_batches/source_license_review_workbook.md",
     "registry/review_batches/source_license_policy_template.json",
     "registry/report_intelligence/analytical_footprint_review_assist.jsonl",
+    "registry/report_intelligence/analytical_footprint_review_evidence.jsonl",
+    "registry/report_intelligence/analytical_footprint_review_evidence.md",
     "registry/report_intelligence/analytical_footprint_review_template.jsonl",
     "registry/report_intelligence/analytical_footprint_review_workbook.md",
     "registry/review_batches/manual_review_progress_report.json",
@@ -297,6 +307,7 @@
     "apply-gold-review",
     "prepare-footprint-review",
     "write-footprint-review-assist",
+    "write-footprint-review-evidence",
     "fill-footprint-review",
     "dry-run-footprint-review",
     "apply-footprint-review",

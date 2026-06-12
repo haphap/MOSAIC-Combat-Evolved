@@ -56,6 +56,12 @@ ANALYTICAL_FOOTPRINT_REVIEW_ASSIST_JSONL_PATH = (
 ANALYTICAL_FOOTPRINT_REVIEW_WORKBOOK_MD_PATH = (
     "registry/report_intelligence/analytical_footprint_review_workbook.md"
 )
+ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_JSONL_PATH = (
+    "registry/report_intelligence/analytical_footprint_review_evidence.jsonl"
+)
+ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_MD_PATH = (
+    "registry/report_intelligence/analytical_footprint_review_evidence.md"
+)
 ANALYTICAL_FOOTPRINT_ERROR_TAXONOMY_PATH = (
     "registry/report_intelligence/analytical_footprint_error_taxonomy.json"
 )
@@ -110,6 +116,8 @@ REPORT_INTELLIGENCE_EVOLUTION_READINESS_GATE_PATH = (
 REPORT_INTELLIGENCE_PRIVATE_OUTPUT_PATHS = frozenset(
     {
         ANALYTICAL_FOOTPRINT_REVIEW_ASSIST_JSONL_PATH,
+        ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_JSONL_PATH,
+        ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_MD_PATH,
         ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH,
         ANALYTICAL_FOOTPRINT_REVIEW_WORKBOOK_MD_PATH,
         ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH,
@@ -837,6 +845,20 @@ class AnalyticalFootprintReviewAssistReport:
     markdown_path: str
     row_count: int
     pending_rows: int
+    blockers: Sequence[str]
+
+
+@dataclass(frozen=True)
+class AnalyticalFootprintReviewEvidenceReport:
+    report_id: str
+    target_path: str
+    reviewed_import_path: str
+    jsonl_path: str
+    markdown_path: str
+    requested_limit: int
+    row_count: int
+    evidence_rows: int
+    missing_markdown_rows: int
     blockers: Sequence[str]
 
 
@@ -4290,6 +4312,344 @@ def write_analytical_footprint_review_assist(
     markdown_path.parent.mkdir(parents=True, exist_ok=True)
     markdown_path.write_text(
         render_analytical_footprint_review_workbook_markdown(report, rows) + "\n",
+        encoding="utf-8",
+    )
+    return report
+
+
+def _footprint_review_priority_score(row: Mapping[str, Any]) -> int:
+    score = 0
+    indicator_mentions = _ensure_list(row.get("indicator_mentions_review_preview"))
+    analysis_patterns = _ensure_list(row.get("analysis_patterns_review_preview"))
+    if not indicator_mentions:
+        score += 3
+    if len(analysis_patterns) >= 3:
+        score += 2
+    if not _ensure_list(row.get("target_entity_candidates")):
+        score += 2
+    if not _ensure_list(row.get("target_agent_candidates")):
+        score += 1
+    if len(_ensure_list(row.get("source_span_ids"))) > 3:
+        score += 1
+    return score
+
+
+def _footprint_review_evidence_terms(row: Mapping[str, Any]) -> tuple[str, ...]:
+    raw_terms: list[str] = []
+    for value in (
+        row.get("sector"),
+        row.get("topic_preview"),
+        *_ensure_list(row.get("analysis_patterns_review_preview")),
+        *_ensure_list(row.get("indicator_mentions_review_preview")),
+        *_ensure_list(row.get("target_entity_candidates")),
+    ):
+        text = str(value or "").strip()
+        if not text:
+            continue
+        raw_terms.append(text)
+        raw_terms.extend(re.findall(r"[\u4e00-\u9fff]{2,}|[A-Za-z][A-Za-z0-9+\-/ ]{2,}", text))
+    raw_terms.extend(
+        [
+            "营收",
+            "归母净利润",
+            "毛利率",
+            "净利率",
+            "同比",
+            "环比",
+            "销售额",
+            "销量",
+            "均价",
+            "价格",
+            "市场",
+            "行业",
+            "需求",
+            "供给",
+            "产量",
+            "库存",
+            "利润",
+            "估值",
+            "PE",
+            "ROE",
+            "PMI",
+            "政策",
+            "产业链",
+            "竞争",
+            "风险",
+        ]
+    )
+    seen: list[str] = []
+    for term in raw_terms:
+        normalized = " ".join(str(term or "").split())
+        if not normalized or normalized in seen or len(normalized) > 96:
+            continue
+        seen.append(normalized)
+    return tuple(seen)
+
+
+def _footprint_review_evidence_snippets(
+    markdown_text: str,
+    terms: Sequence[str],
+    *,
+    max_snippets: int = 2,
+    max_chars: int = 900,
+) -> tuple[dict[str, Any], ...]:
+    snippets: list[dict[str, Any]] = []
+    used_offsets: list[int] = []
+    for term in terms:
+        match = re.search(re.escape(term), markdown_text, re.IGNORECASE)
+        if match is None:
+            continue
+        offset = int(match.start())
+        if any(abs(offset - used) < max_chars for used in used_offsets):
+            continue
+        start = max(0, offset - max_chars // 3)
+        end = min(len(markdown_text), offset + max_chars)
+        snippets.append(
+            {
+                "matched_term": term,
+                "start_char": start,
+                "end_char": end,
+                "snippet": " ".join(markdown_text[start:end].split()),
+            }
+        )
+        used_offsets.append(offset)
+        if len(snippets) >= max_snippets:
+            break
+    if not snippets and markdown_text:
+        snippets.append(
+            {
+                "matched_term": "document_head",
+                "start_char": 0,
+                "end_char": min(len(markdown_text), max_chars),
+                "snippet": " ".join(markdown_text[:max_chars].split()),
+            }
+        )
+    return tuple(snippets)
+
+
+def _footprint_review_metric_mapping_suggestion(row: Mapping[str, Any]) -> bool:
+    return bool(_ensure_list(row.get("indicator_mentions_review_preview")))
+
+
+def _footprint_review_evidence_row(
+    index: int,
+    row: Mapping[str, Any],
+    *,
+    metadata_by_source: Mapping[str, Mapping[str, Any]],
+    root_path: Path,
+) -> dict[str, Any]:
+    source_id = str(row.get("source_id") or "")
+    metadata = metadata_by_source.get(source_id, {})
+    markdown_info = _ensure_mapping(metadata.get("markdown"))
+    markdown_path_text = str(markdown_info.get("path") or "")
+    markdown_path = Path(markdown_path_text)
+    if markdown_path_text and not markdown_path.is_absolute():
+        markdown_path = root_path / markdown_path
+    markdown_exists = bool(markdown_path_text and markdown_path.exists())
+    markdown_text = markdown_path.read_text(encoding="utf-8", errors="ignore") if markdown_exists else ""
+    terms = _footprint_review_evidence_terms(row)
+    snippets = _footprint_review_evidence_snippets(markdown_text, terms)
+    has_span_evidence = bool(snippets and markdown_exists)
+    has_patterns = bool(_ensure_list(row.get("analysis_patterns_review_preview")))
+    has_indicators = _footprint_review_metric_mapping_suggestion(row)
+    suggested_decision = {
+        "footprint_correct": True if has_span_evidence and has_patterns else None,
+        "source_span_supports_footprint": True if has_span_evidence else None,
+        "metric_mapping_correct": has_indicators,
+        "inferred_steps_tagged_correctly": True if has_patterns else None,
+        "unknowns_used_when_uncertain": True,
+        "no_proprietary_text_leakage": True,
+    }
+    suggested_tags: list[str] = []
+    if not markdown_exists:
+        suggested_tags.append("markdown_missing")
+    if not has_indicators:
+        suggested_tags.append("metric_mapping_missing")
+    if not has_patterns:
+        suggested_tags.append("analysis_pattern_missing")
+    if not has_span_evidence:
+        suggested_tags.append("source_span_evidence_unverified")
+    return {
+        "evidence_kind": "analytical_footprint_review_evidence_not_import",
+        "not_apply_footprint_review_input": True,
+        "human_review_required": True,
+        "index": index,
+        "priority_score": _footprint_review_priority_score(row),
+        "footprint_id": str(row.get("footprint_id") or ""),
+        "target_row_hash": str(row.get("target_row_hash") or ""),
+        "source_id": source_id,
+        "report_id": str(row.get("report_id") or ""),
+        "sector": str(row.get("sector") or ""),
+        "topic_preview": _review_assist_preview(row.get("topic_preview"), max_chars=160),
+        "indicator_mentions_preview": _review_assist_preview_list(
+            row.get("indicator_mentions_review_preview"),
+            max_items=6,
+            max_chars=120,
+        ),
+        "analysis_patterns_preview": _review_assist_preview_list(
+            row.get("analysis_patterns_review_preview"),
+            max_items=6,
+            max_chars=120,
+        ),
+        "target_entity_candidates": tuple(
+            _review_assist_preview(item, max_chars=80)
+            for item in _ensure_list(row.get("target_entity_candidates"))[:8]
+            if str(item or "").strip()
+        ),
+        "metadata_title_preview": _review_assist_preview(metadata.get("title"), max_chars=160),
+        "markdown_path": markdown_path_text,
+        "markdown_exists": markdown_exists,
+        "evidence_terms": terms[:16],
+        "evidence_snippets": snippets,
+        "suggested_review_decision": suggested_decision,
+        "suggested_manual_error_tags": tuple(suggested_tags),
+        "suggested_review_notes": (
+            "Review against local markdown evidence. Draft suggestion only; copy decisions "
+            "to analytical_footprint_reviewed.jsonl only after human approval."
+        ),
+        "reviewed_import_path": ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH,
+    }
+
+
+def build_analytical_footprint_review_evidence(
+    root: str | Path = ".",
+    *,
+    limit: int = 25,
+) -> tuple[AnalyticalFootprintReviewEvidenceReport, tuple[Mapping[str, Any], ...]]:
+    root_path = Path(root)
+    target_path = root_path / ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH
+    metadata_path = root_path / "registry/report_intelligence/report_metadata.jsonl"
+    target_rows_raw, target_parse_blockers = load_jsonl_with_errors(
+        target_path,
+        label="analytical footprint target review",
+    )
+    metadata_rows_raw, metadata_parse_blockers = load_jsonl_with_errors(
+        metadata_path,
+        label="analytical footprint evidence report metadata",
+    )
+    target_rows, invalid_target_rows = _split_mapping_rows(target_rows_raw)
+    metadata_rows, invalid_metadata_rows = _split_mapping_rows(metadata_rows_raw)
+    metadata_by_source = {
+        str(row.get("source_id") or ""): row
+        for row in metadata_rows
+        if str(row.get("source_id") or "").strip()
+    }
+    pending_rows = [row for row in target_rows if not _footprint_review_row_complete(row)]
+    prioritized_rows = sorted(
+        enumerate(pending_rows, 1),
+        key=lambda item: (-_footprint_review_priority_score(item[1]), item[0]),
+    )[: max(0, int(limit))]
+    evidence_rows = tuple(
+        _footprint_review_evidence_row(
+            index,
+            row,
+            metadata_by_source=metadata_by_source,
+            root_path=root_path,
+        )
+        for index, row in prioritized_rows
+    )
+    blockers: list[str] = [*target_parse_blockers, *metadata_parse_blockers]
+    if invalid_target_rows:
+        blockers.append(
+            "analytical footprint target review row must be object at row(s): "
+            + ", ".join(str(row_number) for row_number in invalid_target_rows)
+        )
+    if invalid_metadata_rows:
+        blockers.append(
+            "report metadata row must be object at row(s): "
+            + ", ".join(str(row_number) for row_number in invalid_metadata_rows)
+        )
+    if not target_rows:
+        blockers.append("analytical footprint review template has no valid rows")
+    if not metadata_rows:
+        blockers.append("report metadata has no valid rows")
+    missing_markdown_rows = sum(1 for row in evidence_rows if not row.get("markdown_exists"))
+    return (
+        AnalyticalFootprintReviewEvidenceReport(
+            report_id="RKE-REPORT-INTELLIGENCE-FOOTPRINT-REVIEW-EVIDENCE",
+            target_path=ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH,
+            reviewed_import_path=ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH,
+            jsonl_path=ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_JSONL_PATH,
+            markdown_path=ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_MD_PATH,
+            requested_limit=max(0, int(limit)),
+            row_count=len(evidence_rows),
+            evidence_rows=sum(1 for row in evidence_rows if row.get("evidence_snippets")),
+            missing_markdown_rows=missing_markdown_rows,
+            blockers=tuple(blockers),
+        ),
+        evidence_rows,
+    )
+
+
+def render_analytical_footprint_review_evidence_markdown(
+    report: AnalyticalFootprintReviewEvidenceReport,
+    rows: Sequence[Mapping[str, Any]],
+) -> str:
+    lines = [
+        "# RKE Analytical Footprint Review Evidence Draft",
+        "",
+        f"- Evidence ID: {report.report_id}",
+        f"- Rows: {report.row_count}",
+        f"- Review template: `{report.target_path}`",
+        f"- Reviewed import target: `{report.reviewed_import_path}`",
+        "",
+        "This private file contains local source snippets and machine suggestions for human review. It is not an import file.",
+        "Do not commit this file. Confirm decisions before copying them into the reviewed JSONL scratch file.",
+        "",
+    ]
+    if report.blockers:
+        lines.extend(["## Blockers", ""])
+        lines.extend(f"- {blocker}" for blocker in report.blockers)
+        lines.append("")
+    for row in rows:
+        lines.extend(
+            [
+                f"## {row.get('index')}. {row.get('footprint_id')}",
+                "",
+                f"- Source: `{row.get('source_id')}`",
+                f"- Sector: {row.get('sector') or '-'}",
+                f"- Topic: {row.get('topic_preview') or '-'}",
+                f"- Priority score: {row.get('priority_score')}",
+                f"- Suggested tags: {_markdown_table_cell(row.get('suggested_manual_error_tags'), max_chars=200)}",
+                "",
+                "Suggested decision:",
+                "",
+                "```json",
+                json.dumps(row.get("suggested_review_decision"), ensure_ascii=False, indent=2),
+                "```",
+                "",
+                "Evidence snippets:",
+                "",
+            ]
+        )
+        snippets = _ensure_list(row.get("evidence_snippets"))
+        if not snippets:
+            lines.append("- No local markdown evidence snippet found.")
+        for snippet in snippets:
+            snippet_map = _ensure_mapping(snippet)
+            lines.extend(
+                [
+                    f"- Matched term: `{snippet_map.get('matched_term')}`",
+                    "",
+                    "> " + _review_assist_preview(snippet_map.get("snippet"), max_chars=900),
+                    "",
+                ]
+            )
+    return "\n".join(lines)
+
+
+def write_analytical_footprint_review_evidence(
+    root: str | Path = ".",
+    *,
+    limit: int = 25,
+) -> AnalyticalFootprintReviewEvidenceReport:
+    root_path = Path(root)
+    report, rows = build_analytical_footprint_review_evidence(root_path, limit=limit)
+    _write_jsonl(root_path / ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_JSONL_PATH, rows)
+    markdown_path = root_path / ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_MD_PATH
+    markdown_path.parent.mkdir(parents=True, exist_ok=True)
+    markdown_path.write_text(
+        render_analytical_footprint_review_evidence_markdown(report, rows) + "\n",
         encoding="utf-8",
     )
     return report

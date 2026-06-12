@@ -49,6 +49,11 @@ def test_operator_handoff_summarizes_remaining_manual_gates():
         and step.command == "mosaic-rke promotion-status --root ."
         for step in handoff.command_sequence
     )
+    assert any(
+        step.step_id == "write-footprint-review-evidence"
+        and step.command == "mosaic-rke write-footprint-review-evidence --root . --limit 50"
+        for step in handoff.command_sequence
+    )
     assert {gate.review_kind for gate in handoff.gates} == {
         "gold_set",
         "footprint_review",
@@ -259,6 +264,14 @@ def test_write_operator_handoff_outputs_json_markdown_and_lockbox_template(
     assert "registry/review_batches/source_license_review_workbook.md" in payload["generated_paths"]
     assert (
         "registry/report_intelligence/analytical_footprint_review_assist.jsonl"
+        in payload["generated_paths"]
+    )
+    assert (
+        "registry/report_intelligence/analytical_footprint_review_evidence.jsonl"
+        in payload["generated_paths"]
+    )
+    assert (
+        "registry/report_intelligence/analytical_footprint_review_evidence.md"
         in payload["generated_paths"]
     )
     assert (

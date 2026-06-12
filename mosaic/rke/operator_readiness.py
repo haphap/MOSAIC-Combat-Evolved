@@ -58,6 +58,8 @@ from .promotion_gate import build_production_promotion_gate_report
 from .registry_manifest import validate_required_registry, validate_required_registry_content
 from .report_intelligence import (
     ANALYTICAL_FOOTPRINT_REVIEW_ASSIST_JSONL_PATH,
+    ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_JSONL_PATH,
+    ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_MD_PATH,
     ANALYTICAL_FOOTPRINT_REVIEW_WORKBOOK_MD_PATH,
 )
 from .review_progress import (
@@ -311,6 +313,7 @@ def _handoff_command_sequence_complete(handoff: Any) -> tuple[bool, str, str]:
         "apply-gold-review",
         "prepare-footprint-review",
         "write-footprint-review-assist",
+        "write-footprint-review-evidence",
         "fill-footprint-review",
         "dry-run-footprint-review",
         "apply-footprint-review",
@@ -777,6 +780,8 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
         GOLD_REVIEW_ASSIST_JSONL_PATH,
         GOLD_REVIEW_ASSIST_MD_PATH,
         ANALYTICAL_FOOTPRINT_REVIEW_ASSIST_JSONL_PATH,
+        ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_JSONL_PATH,
+        ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_MD_PATH,
         ANALYTICAL_FOOTPRINT_REVIEW_WORKBOOK_MD_PATH,
         GOLD_REVIEW_IMPORT_REPORT_PATH,
         LICENSE_BATCH_IMPORT_TEMPLATE_PATH,

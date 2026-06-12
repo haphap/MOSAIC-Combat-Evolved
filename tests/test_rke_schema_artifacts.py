@@ -194,7 +194,8 @@ def test_stock_report_outcome_status_doc_matches_public_artifacts():
     assert "public baseline: gold-set 0/500" in status_text
     assert "analytical-footprint review 0/1001" in status_text
     assert "source license 17529/17529" in status_text
-    assert "private footprint review assist/workbook now cover 1001 pending rows" in status_text
+    assert "private footprint review assist/workbook cover 1001 pending rows" in status_text
+    assert "private evidence draft can prioritize local markdown snippets" in status_text
     assert "Synthetic pytest fixtures" in status_text
     assert "current target hashes" in status_text
     assert "500 rows still require reviewer fields" in status_text
