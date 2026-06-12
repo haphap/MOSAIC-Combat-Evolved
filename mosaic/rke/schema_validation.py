@@ -1814,21 +1814,34 @@ def _validate_stock_price_proxy_readiness_contract(
             "outcome_labeling_readiness.stock_price_proxy_readiness."
             "pit_realism_policy.benchmark_alignment: must be date_key_cross_qlib_dir"
         )
-    if pit_policy.get("survivorship_unverified") is not True:
+    survivorship_unverified = pit_policy.get("survivorship_unverified")
+    survivorship_status = str(pit_policy.get("survivorship_status") or "")
+    if survivorship_unverified is True:
+        expected_survivorship_status = "survivorship_unverified"
+    elif survivorship_unverified is False:
+        expected_survivorship_status = STOCK_PROXY_SURVIVORSHIP_AUDITED_CHECK
+    else:
+        expected_survivorship_status = ""
         failures.append(
             "outcome_labeling_readiness.stock_price_proxy_readiness."
-            "pit_realism_policy.survivorship_unverified: current public baseline must be true"
+            "pit_realism_policy.survivorship_unverified: must be boolean"
         )
-    if pit_policy.get("survivorship_status") != "survivorship_unverified":
+    if survivorship_status != expected_survivorship_status:
         failures.append(
             "outcome_labeling_readiness.stock_price_proxy_readiness."
-            "pit_realism_policy.survivorship_status: must be survivorship_unverified"
+            "pit_realism_policy.survivorship_status: expected "
+            + expected_survivorship_status
         )
     survivorship_basis = str(pit_policy.get("survivorship_basis") or "")
-    if "delisted-inclusive universe audit" not in survivorship_basis:
+    if survivorship_unverified is True and "delisted-inclusive universe audit" not in survivorship_basis:
         failures.append(
             "outcome_labeling_readiness.stock_price_proxy_readiness."
             "pit_realism_policy.survivorship_basis: must document the delisted-inclusive audit blocker"
+        )
+    if survivorship_unverified is False and "delisted-inclusive universe audit passed" not in survivorship_basis:
+        failures.append(
+            "outcome_labeling_readiness.stock_price_proxy_readiness."
+            "pit_realism_policy.survivorship_basis: must document the delisted-inclusive audit pass"
         )
 
     gap_counts = stock_readiness.get("data_gap_counts")

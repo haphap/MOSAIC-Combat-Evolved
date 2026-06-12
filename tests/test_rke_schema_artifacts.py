@@ -470,6 +470,31 @@ def test_stock_price_proxy_readiness_contract_accepts_current_public_artifact(
     assert record.failures == ()
 
 
+def test_stock_price_proxy_readiness_contract_accepts_audited_survivorship_state(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    readiness_path = registry / "outcome_labeling_readiness.json"
+    readiness = json.loads(readiness_path.read_text(encoding="utf-8"))
+    pit_policy = readiness["stock_price_proxy_readiness"]["pit_realism_policy"]
+    pit_policy["survivorship_unverified"] = False
+    pit_policy["survivorship_status"] = "delisted_inclusive_universe_audit_passed"
+    pit_policy["survivorship_basis"] = (
+        "delisted-inclusive universe audit passed; qlib cn_data stock proxy labels "
+        "may mark survivorship_safe only when label-level checks also use the audited status"
+    )
+    readiness_path.write_text(
+        json.dumps(readiness, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _stock_price_proxy_readiness_record(tmp_path)
+
+    assert record.accepted
+    assert record.item_count >= 220
+    assert record.failures == ()
+
+
 def test_stock_price_proxy_readiness_contract_rejects_pit_policy_drift(
     tmp_path: Path,
 ):
@@ -478,6 +503,7 @@ def test_stock_price_proxy_readiness_contract_rejects_pit_policy_drift(
     readiness = json.loads(readiness_path.read_text(encoding="utf-8"))
     stock_readiness = readiness["stock_price_proxy_readiness"]
     stock_readiness["pit_realism_policy"]["survivorship_unverified"] = False
+    stock_readiness["pit_realism_policy"]["survivorship_status"] = "survivorship_unverified"
     stock_readiness["pit_realism_policy"]["company_name_fuzzy_mapping_enabled"] = True
     stock_readiness["pit_realism_policy"]["entry_limit_locked_blocks_label"] = False
     stock_readiness["pit_realism_policy"][
@@ -493,7 +519,8 @@ def test_stock_price_proxy_readiness_contract_rejects_pit_policy_drift(
     record = _stock_price_proxy_readiness_record(tmp_path)
 
     assert not record.accepted
-    assert any("survivorship_unverified" in failure for failure in record.failures)
+    assert any("survivorship_status" in failure for failure in record.failures)
+    assert any("survivorship_basis" in failure for failure in record.failures)
     assert any(
         "company_name_fuzzy_mapping_enabled" in failure
         for failure in record.failures
