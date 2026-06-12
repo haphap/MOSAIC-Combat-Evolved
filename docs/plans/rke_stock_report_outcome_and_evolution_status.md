@@ -31,14 +31,14 @@ contracts.
 
 | Artifact | Evidence |
 | --- | --- |
-| `registry/report_intelligence/extraction_report.json` | current public-safe artifact reports 184 outcome labels: 36 industry ETF proxy, 148 stock price proxy |
+| `registry/report_intelligence/extraction_report.json` | current public-safe artifact reports 366 outcome labels: 87 industry ETF proxy, 279 stock price proxy |
 | `registry/report_intelligence/patch_v1_5_coverage_report.json` | public count-only fallback preserves aggregate evidence when private JSONL inputs are absent; Phase C now passes, while Phase B/D remain blocked by manual review and footprint quality gates |
 | `registry/report_intelligence/industry_etf_proxy_map.jsonl` | 64 primary/governed mapping rows; `工业金属` maps to `SH560860` |
-| `registry/report_intelligence/industry_etf_proxy_pit_availability.json` | labelability summary is kept consistent with `outcome_labeling_readiness.industry_etf_proxy_readiness`: 94 eligible industry claims, 12 labelable claims, 36 labelable windows, 228 pending future windows |
-| `registry/report_intelligence/recipe_paper_trading_runs.jsonl` | 110 pre-registered shadow paper-trading runs |
-| `registry/report_intelligence/recipe_paper_trading_summary.json` | 0 recipes passed paper-trading validation; direct PIT binding diagnostics show 110 recipes still lack direct recipe-outcome binding; method source linkage improved to 9/118 method patterns with `source_footprint_ids`, while current public-safe inputs still have 0 forecast-claim rows and 0 outcome-label rows, and 110 recipes remain blocked by requested-tool placeholders |
-| `registry/report_intelligence/confidence_impact_monitor.json` | 0 paper-trading validated recipes; confidence impact remains blocked until recipe validation passes |
-| `registry/report_intelligence/evolution_readiness_gate.json` | blocked; 16 blockers remain across manual review, outcome-count, paper-trading, schema/audit, and audit-history readiness; public count-only fallback preserves outcome coverage when private label JSONL is absent |
+| `registry/report_intelligence/industry_etf_proxy_pit_availability.json` | labelability summary is kept consistent with `outcome_labeling_readiness.industry_etf_proxy_readiness`: 146 eligible industry claims, 39 labelable claims, 87 labelable windows, 342 pending future windows |
+| `registry/report_intelligence/recipe_paper_trading_runs.jsonl` | 1858 pre-registered shadow paper-trading runs |
+| `registry/report_intelligence/recipe_paper_trading_summary.json` | 20 recipes passed paper-trading validation; 561 recipes have direct or inferred PIT binding; after-cost paper-trading summary is computed from passed pre-registered runs only; 1838 recipes remain blocked by direct binding, effective-N, or shadow-tool readiness gaps |
+| `registry/report_intelligence/confidence_impact_monitor.json` | 20 paper-trading validated recipes are monitored; unvalidated confidence impact count is 0; alpha-decay and calibration-drift observations remain shadow-only |
+| `registry/report_intelligence/evolution_readiness_gate.json` | blocked; 13 blockers remain, limited to manual forecast gold-set quality metrics and current schema/audit-history readiness |
 | `registry/review_batches/manual_review_progress_report.json` | public baseline: gold-set 0/500, source license 17529/17529, lockbox 0/1; gold-set scratch rows have current target hashes after `prepare-gold-review --full --force`, but all 500 rows still require reviewer fields; synthetic fixture: gold-set 500/500, source license 50/50, lockbox 0/1 |
 
 ## Plan Coverage
@@ -56,8 +56,8 @@ contracts.
 | P8 acceptance matrix | Automated acceptance passes except manual review / coverage gates | ruff, report-intelligence tests, schema-artifact tests, prompt leak guard, diff check pass; `schema-status` intentionally exits 2 until analytical footprint review, Phase B gold-set review, and Phase D footprint quality gates pass; `prepare-footprint-review` now creates a gitignored import scaffold for the footprint gate |
 | P9 PDF/Markdown coverage expansion | Implemented for current sample pool | public coverage summary exists and passes privacy rules; private PDF/Markdown/cache paths remain gitignored |
 | P10 industry ETF mapping/PIT availability | Implemented | 64-row mapping registry, PIT availability artifact, mapping contract tests; `工业金属 -> SH560860` pinned; semantic validation now rejects drift between PIT availability `labelability_summary` and `outcome_labeling_readiness` |
-| P11 recipe paper-trading | Implemented | pre-registration hash, OOS chronological split, required data contracts, cost/benchmark protocol, paper-trading runs and summary |
-| P12 confidence impact monitor | Implemented | monitor rows gate confidence impact on paper-trading validation; alpha decay and calibration drift actions are tracked |
+| P11 recipe paper-trading | Implemented and threshold-cleared for current aggregate evidence | pre-registration hash, OOS chronological split, required data contracts, cost/benchmark protocol, 1858 paper-trading runs, 20 validated recipes |
+| P12 confidence impact monitor | Implemented and threshold-cleared for current aggregate evidence | monitor rows gate confidence impact on paper-trading validation; 20 validated recipes are monitored; alpha decay and calibration drift actions are tracked |
 
 ## Validation Commands
 
@@ -112,24 +112,19 @@ blocker families include:
 2. P9 coverage watchlist: current public gate reports `coverage_gate_status=passed`
    with no P9 coverage blockers. Continue monitoring the watchlist, but it is
    not currently blocking evolution readiness.
-3. Outcome evidence: `industry_proxy_claim_count_below_threshold` remains
-   (`12/30`), and total unique PIT outcome labels are below the evolution
-   threshold (`49/100`); stock proxy labels now clear the minimum stock
-   threshold (`37/30`).
-4. Paper-trading evidence: `paper_trading_run_count_below_threshold` and
-   `paper_trading_validated_recipe_count_below_threshold` remain. The
-   after-cost summary object is now present, but it is marked
-   `insufficient_validated_runs` until enough pre-registered recipes pass.
-   `direct_pit_binding_diagnostics.status=blocked_no_direct_pit_binding`
-   records that profile weights are not being used as a substitute for direct
-   PIT recipe validation. The binding gap details currently identify the
-   remaining concrete missing links: public-safe refresh has 0 forecast-claim
-   rows and 0 outcome-label rows. Method source linkage is no longer completely
-   empty: 9/118 method patterns now carry `source_footprint_ids`, leaving
-   109/118 method patterns without footprint provenance.
-5. Refresh-history stability: audit history must satisfy the trailing-vintage
+3. Outcome evidence: current gate thresholds are cleared: 159 unique PIT outcome
+   claims, 39 industry proxy claims, and 124 stock proxy claims.
+4. Paper-trading evidence: current gate thresholds are cleared: 1858
+   pre-registered runs, 20 validated recipes, and an after-cost summary computed
+   from passed pre-registered runs only. Remaining recipe rows stay blocked or
+   shadow-only when direct PIT binding, effective N, or shadow-tool readiness is
+   insufficient.
+5. Confidence impact monitor: current gate thresholds are cleared with 20
+   monitored validated recipes and no unvalidated confidence impact. Alpha decay
+   and calibration drift observations are tracked but remain shadow-only.
+6. Refresh-history stability: audit history must satisfy the trailing-vintage
    gate; monitor and gap-distribution trailing-vintage gates currently pass.
-6. Re-run `mosaic-rke review-progress --root .`, promotion dry-run, and
+7. Re-run `mosaic-rke review-progress --root .`, promotion dry-run, and
    `mosaic-rke schema-status --root .`.
 
 Until those gates pass, evolution outputs remain shadow candidates and must not

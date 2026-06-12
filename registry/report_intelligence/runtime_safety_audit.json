@@ -1,10 +1,10 @@
 {
   "accepted": true,
-  "as_of_datetime": "2026-06-11T00:54:09+00:00",
+  "as_of_datetime": "2026-06-12T03:46:39+00:00",
   "audit_id": "RKE-REPORT-INTELLIGENCE-RUNTIME-SAFETY-AUDIT",
   "blocker_count": 0,
   "blockers": [],
-  "checked_item_count": 2367,
+  "checked_item_count": 6333,
   "checks": [
     {
       "accepted": true,
@@ -62,7 +62,7 @@
       "accepted": true,
       "check_id": "RI-SAFE-04",
       "evidence": {
-        "retrieved_footprint_rows": 200
+        "retrieved_footprint_rows": 1001
       },
       "failure_count": 0,
       "failures": [],
@@ -72,14 +72,16 @@
       "accepted": true,
       "check_id": "RI-SAFE-05",
       "evidence": {
-        "forecast_claim_count": 189,
-        "low_weight_retained_count": 3,
+        "forecast_claim_count": 424,
+        "low_weight_retained_count": 5,
         "sample_low_weight_retained_ids": [
-          "FC-157e918170bb36ee",
-          "FC-5e8d7203eae9cb52",
-          "FC-9108dea8db3469ac"
+          "FC-077853e0de7126ef",
+          "FC-478effb64fb10ea7",
+          "FC-522b56e0d2368405",
+          "FC-7e32163c34317567",
+          "FC-e25b0707dd51958d"
         ],
-        "unique_retrieved_claim_count": 189
+        "unique_retrieved_claim_count": 424
       },
       "failure_count": 0,
       "failures": [],
@@ -91,7 +93,7 @@
       "evidence": {
         "max_allowed_weight": 1.2,
         "min_allowed_weight": 0.0,
-        "retrieved_claim_rows": 189
+        "retrieved_claim_rows": 424
       },
       "failure_count": 0,
       "failures": [],
@@ -101,9 +103,9 @@
       "accepted": true,
       "check_id": "RI-SAFE-07",
       "evidence": {
-        "consensus_cluster_count": 189,
-        "forecast_ledger_rows": 189,
-        "retrieved_claim_rows": 189
+        "consensus_cluster_count": 424,
+        "forecast_ledger_rows": 424,
+        "retrieved_claim_rows": 424
       },
       "failure_count": 0,
       "failures": [],
@@ -124,8 +126,8 @@
       "accepted": true,
       "check_id": "RI-SAFE-09",
       "evidence": {
-        "analysis_recipe_rows": 110,
-        "method_pattern_rows": 110
+        "analysis_recipe_rows": 1858,
+        "method_pattern_rows": 1858
       },
       "failure_count": 0,
       "failures": [],
@@ -133,5 +135,5 @@
     }
   ],
   "policy": "report intelligence may rank research priors, recipes, and tool gaps in shadow mode only; it cannot create current market evidence, actionable recommendations, sector scores, sizing, orders, or contrarian signals without current tool data, validation, paper trading, and promotion gates",
-  "run_id": "RIR-DERIVED-20260611T005408+0000"
+  "run_id": "RIR-DERIVED-20260612T034638+0000"
 }

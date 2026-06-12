@@ -1,6 +1,6 @@
 {
-  "as_of_datetime": "2026-06-11T23:15:56+00:00",
-  "blocker_count": 16,
+  "as_of_datetime": "2026-06-12T03:46:39+00:00",
+  "blocker_count": 13,
   "blockers": [
     "audit_refresh_history_below_threshold",
     "claim_precision_missing",
@@ -11,51 +11,43 @@
     "gold_pending_claims_remaining",
     "gold_reviewed_claims_below_threshold",
     "horizon_accuracy_missing",
-    "industry_proxy_claim_count_below_threshold",
-    "paper_trading_validated_recipe_count_below_threshold",
     "source_span_support_precision_missing",
     "target_accuracy_missing",
-    "unique_outcome_claim_count_below_threshold",
     "unsupported_field_false_grounding_rate_missing",
     "variable_mapping_accuracy_missing"
   ],
   "checks": [
     {
-      "blockers": [
-        "unique_outcome_claim_count_below_threshold",
-        "industry_proxy_claim_count_below_threshold"
-      ],
+      "blockers": [],
       "check_id": "RI-EVOL-01",
       "evidence": {
-        "forecast_claim_count": 189,
-        "industry_proxy_unique_claim_count": 12,
-        "stock_proxy_unique_claim_count": 37,
-        "unique_outcome_claim_count": 49
+        "forecast_claim_count": 424,
+        "industry_proxy_unique_claim_count": 39,
+        "stock_proxy_unique_claim_count": 124,
+        "unique_outcome_claim_count": 159
       },
-      "passed": false,
+      "passed": true,
       "requirement": "Evolution requires enough stock and industry PIT outcome coverage before prompt mutation candidates can influence prompts."
     },
     {
-      "blockers": [
-        "paper_trading_validated_recipe_count_below_threshold"
-      ],
+      "blockers": [],
       "check_id": "RI-EVOL-02",
       "evidence": {
         "after_cost_paper_trading_summary": {
-          "max_after_cost_alpha": null,
-          "mean_after_cost_alpha": null,
-          "median_after_cost_alpha": null,
-          "min_after_cost_alpha": null,
+          "max_after_cost_alpha": 0.11857003,
+          "mean_after_cost_alpha": 0.05279134,
+          "median_after_cost_alpha": 0.05182377,
+          "min_after_cost_alpha": 0.03046739,
           "policy": "computed from passed pre-registered paper-trading runs only; blocked or profile-only recipes are excluded",
-          "positive_after_cost_recipe_count": 0,
-          "status": "insufficient_validated_runs",
-          "validated_recipe_count": 0
+          "positive_after_cost_recipe_count": 20,
+          "status": "computed",
+          "validated_recipe_count": 20
         },
-        "mean_cost_adjusted_alpha": null,
-        "paper_trading_run_count": 110,
-        "validation_pass_count": 0
+        "mean_cost_adjusted_alpha": -0.01574181,
+        "paper_trading_run_count": 1858,
+        "validation_pass_count": 20
       },
-      "passed": false,
+      "passed": true,
       "requirement": "At least 20 pre-registered recipes need passed after-cost paper-trading before evolution can use recipe evidence."
     },
     {
@@ -63,12 +55,12 @@
       "check_id": "RI-EVOL-03",
       "evidence": {
         "aggregate_calibration_drift_count": 0,
-        "blocked_recipe_count": 110,
-        "calibration_drift_count": 0,
+        "blocked_recipe_count": 1838,
+        "calibration_drift_count": 13,
         "calibration_drift_rule_counts": {},
-        "data_vintage_hash": "sha256:b3ee277ef6c4dcdbd9686c0d958faa6d94cff36c14dfb72e9f83c751903cdaf4",
+        "data_vintage_hash": "sha256:df9b02eeb1f2492bea5cdb009efa79d3c3a152b585b1efa748e8b74bcec081fd",
         "distinct_data_vintage_required": true,
-        "monitor_observation_count": 110,
+        "monitor_observation_count": 1858,
         "trailing_monitor_distinct_vintage_count": 35,
         "trailing_monitor_pass_count": 35,
         "unvalidated_confidence_impact_count": 0
@@ -83,7 +75,7 @@
       ],
       "check_id": "RI-EVOL-04",
       "evidence": {
-        "data_vintage_hash": "sha256:b3ee277ef6c4dcdbd9686c0d958faa6d94cff36c14dfb72e9f83c751903cdaf4",
+        "data_vintage_hash": "sha256:df9b02eeb1f2492bea5cdb009efa79d3c3a152b585b1efa748e8b74bcec081fd",
         "distinct_data_vintage_required": true,
         "pit_accepted": true,
         "provenance_accepted": true,
@@ -147,13 +139,21 @@
       "blockers": [],
       "check_id": "RI-EVOL-06",
       "evidence": {
-        "current_mapping_gap_counts": {
-          "benchmark": 109,
-          "direction": 4,
-          "horizon": 178
+        "current_all_mapping_gap_counts": {
+          "benchmark": 27,
+          "direction": 12,
+          "horizon": 293,
+          "target": 5
         },
-        "data_vintage_hash": "sha256:b3ee277ef6c4dcdbd9686c0d958faa6d94cff36c14dfb72e9f83c751903cdaf4",
+        "current_mapping_gap_counts": {
+          "benchmark": 1,
+          "direction": 12,
+          "horizon": 44,
+          "target": 3
+        },
+        "data_vintage_hash": "sha256:df9b02eeb1f2492bea5cdb009efa79d3c3a152b585b1efa748e8b74bcec081fd",
         "distinct_data_vintage_required": true,
+        "gap_count_basis": "unlabelable_mapping_gap_counts",
         "trailing_gap_distribution_distinct_vintage_count": 6,
         "trailing_gap_distribution_stable_count": 6
       },
@@ -183,21 +183,21 @@
           },
           "llm_extraction_processed_count": {
             "blocker": "llm_extraction_processed_count_below_p9_target",
-            "current": 139,
+            "current": 229,
             "next_action": "run_llm_extraction_on_quality_passed_markdown",
             "remaining": 0,
             "target": 100
           },
           "markdown_quality_pass_count": {
             "blocker": "markdown_quality_pass_count_below_p9_target",
-            "current": 352,
+            "current": 361,
             "next_action": "resolve_markdown_quality_gaps_before_llm_extraction",
             "remaining": 0,
             "target": 300
           },
           "markdown_ready_count": {
             "blocker": "markdown_ready_count_below_p9_target",
-            "current": 352,
+            "current": 361,
             "next_action": "download_pdfs_and_convert_quality_gated_markdown",
             "remaining": 0,
             "target": 300
@@ -211,7 +211,7 @@
           },
           "selected_report_count": {
             "blocker": "selected_report_count_below_p9_target",
-            "current": 352,
+            "current": 362,
             "next_action": "add_stratified_real_reports_to_private_source_pool",
             "remaining": 0,
             "target": 300
@@ -225,7 +225,7 @@
           },
           "stock_report_count": {
             "blocker": "stock_report_count_below_p9_target",
-            "current": 151,
+            "current": 159,
             "next_action": "add_more_stock_research_reports_with_ts_code",
             "remaining": 0,
             "target": 80
@@ -268,46 +268,47 @@
           "stock_report_count_min": 80
         },
         "evaluability_bucket_counts": {
-          "industry_proxy_candidate": 35,
-          "llm_extraction_pending": 213,
-          "mapping_gap_candidate": 58,
-          "no_forecast_claim_extracted": 80,
-          "stock_proxy_candidate": 26
+          "industry_proxy_candidate": 65,
+          "llm_extraction_pending": 132,
+          "mapping_gap_candidate": 117,
+          "markdown_not_ready": 1,
+          "no_forecast_claim_extracted": 94,
+          "stock_proxy_candidate": 78
         },
         "industry_report_count": 201,
         "institution_bucket_counts": {
-          "head_institution": 110,
-          "long_tail_institution": 242
+          "head_institution": 114,
+          "long_tail_institution": 248
         },
-        "llm_extraction_processed_count": 139,
+        "llm_extraction_processed_count": 229,
         "markdown_false_positive_review_queue_count": 0,
-        "markdown_quality_pass_count": 352,
+        "markdown_quality_pass_count": 361,
         "markdown_quality_review_queue_count": 0,
         "markdown_quality_spot_check_required": false,
-        "markdown_ready_count": 352,
+        "markdown_ready_count": 361,
         "report_horizon_bucket_counts": {
-          "20d": 51,
-          "5d": 26,
-          "60d": 51,
-          "long_horizon": 59,
-          "no_extracted_forecast_horizon": 293,
-          "unknown": 58
+          "20d": 69,
+          "5d": 24,
+          "60d": 59,
+          "long_horizon": 130,
+          "no_extracted_forecast_horizon": 225,
+          "unknown": 116
         },
         "sector_bucket_below_min_count": 0,
         "sector_bucket_coverage_gaps": [],
-        "selected_report_count": 352,
+        "selected_report_count": 362,
         "stock_outcome_120d_ready_report_count": 47,
         "stock_outcome_age_bucket_counts": {
           "stock_outcome_120d_calendar_ready": 47,
-          "stock_outcome_20d_calendar_ready": 8,
-          "stock_outcome_5d_calendar_ready": 16,
+          "stock_outcome_20d_calendar_ready": 15,
+          "stock_outcome_5d_calendar_ready": 19,
           "stock_outcome_60d_calendar_ready": 18,
-          "stock_outcome_pending": 62
+          "stock_outcome_pending": 60
         },
-        "stock_report_count": 151,
+        "stock_report_count": 159,
         "time_bucket_counts": {
           "long_cycle_history": 27,
-          "recent_1y": 278,
+          "recent_1y": 288,
           "recent_3y": 47
         }
       },
@@ -315,14 +316,10 @@
       "requirement": "Markdown coverage must pass P9 corpus thresholds before evolution depends on report-derived Markdown evidence."
     }
   ],
-  "count_only_public_fallbacks": [
-    "report_outcome_labels"
-  ],
-  "data_vintage_hash": "sha256:b3ee277ef6c4dcdbd9686c0d958faa6d94cff36c14dfb72e9f83c751903cdaf4",
+  "data_vintage_hash": "sha256:df9b02eeb1f2492bea5cdb009efa79d3c3a152b585b1efa748e8b74bcec081fd",
   "gate_id": "RKE-REPORT-INTELLIGENCE-EVOLUTION-READINESS-GATE",
   "gate_status": "blocked",
   "policy": "Prompt and agent evolution remains blocked until governed aggregate PIT outcome coverage, paper-trading, monitor stability, audit history, gold-set quality, gap stability, and Markdown coverage gates pass; this artifact stores aggregate evidence only and cannot change production prompts.",
-  "private_input_fallback_policy": "When private outcome-label JSONL is absent, the public evolution gate uses labelable forecast-claim ids/counts from outcome_labeling_readiness.json; fallback rows contain no report prose, titles, abstracts, URLs, source spans, reviewer text, or price-window returns.",
   "private_text_included": false,
   "production_prompt_change_allowed": false,
   "promotion_state": "blocked_before_prompt_evolution",
@@ -330,7 +327,7 @@
     "after_cost_paper_trading_summary": {
       "blocker": "",
       "next_action": "increase_validated_recipe_count_until_after_cost_summary_is_computed",
-      "status": "insufficient_validated_runs"
+      "status": "computed"
     },
     "audit_distinct_vintage_count": {
       "blocker": "audit_refresh_history_below_threshold",
@@ -375,9 +372,9 @@
     },
     "industry_proxy_unique_claim_count": {
       "blocker": "industry_proxy_claim_count_below_threshold",
-      "current": 12,
+      "current": 39,
       "next_action": "run_industry_etf_proxy_labels_for_mapped_industry_reports",
-      "remaining": 18,
+      "remaining": 0,
       "target": 30
     },
     "markdown_coverage": {
@@ -397,21 +394,21 @@
       },
       "llm_extraction_processed_count": {
         "blocker": "llm_extraction_processed_count_below_p9_target",
-        "current": 139,
+        "current": 229,
         "next_action": "run_llm_extraction_on_quality_passed_markdown",
         "remaining": 0,
         "target": 100
       },
       "markdown_quality_pass_count": {
         "blocker": "markdown_quality_pass_count_below_p9_target",
-        "current": 352,
+        "current": 361,
         "next_action": "resolve_markdown_quality_gaps_before_llm_extraction",
         "remaining": 0,
         "target": 300
       },
       "markdown_ready_count": {
         "blocker": "markdown_ready_count_below_p9_target",
-        "current": 352,
+        "current": 361,
         "next_action": "download_pdfs_and_convert_quality_gated_markdown",
         "remaining": 0,
         "target": 300
@@ -425,7 +422,7 @@
       },
       "selected_report_count": {
         "blocker": "selected_report_count_below_p9_target",
-        "current": 352,
+        "current": 362,
         "next_action": "add_stratified_real_reports_to_private_source_pool",
         "remaining": 0,
         "target": 300
@@ -439,7 +436,7 @@
       },
       "stock_report_count": {
         "blocker": "stock_report_count_below_p9_target",
-        "current": 151,
+        "current": 159,
         "next_action": "add_more_stock_research_reports_with_ts_code",
         "remaining": 0,
         "target": 80
@@ -461,34 +458,34 @@
     },
     "paper_trading_run_count": {
       "blocker": "paper_trading_run_count_below_threshold",
-      "current": 110,
+      "current": 1858,
       "next_action": "pre_register_more_analysis_recipes_for_shadow_paper_trading",
       "remaining": 0,
       "target": 20
     },
     "paper_trading_validated_recipe_count": {
       "blocker": "paper_trading_validated_recipe_count_below_threshold",
-      "current": 0,
+      "current": 20,
       "next_action": "bind_recipe_runs_to_direct_pit_outcomes_and_after_cost_metrics",
-      "remaining": 20,
+      "remaining": 0,
       "target": 20
     },
     "stock_proxy_unique_claim_count": {
       "blocker": "stock_proxy_claim_count_below_threshold",
-      "current": 37,
+      "current": 124,
       "next_action": "run_stock_price_proxy_labels_for_historical_stock_reports",
       "remaining": 0,
       "target": 30
     },
     "unique_outcome_claim_count": {
       "blocker": "unique_outcome_claim_count_below_threshold",
-      "current": 49,
+      "current": 159,
       "next_action": "produce_more_non_llm_pit_outcome_labels",
-      "remaining": 51,
+      "remaining": 0,
       "target": 100
     }
   },
-  "run_id": "RIR-PUBLIC-EVOLUTION-GATE-20260612D",
+  "run_id": "RIR-DERIVED-20260612T034638+0000",
   "thresholds": {
     "min_consecutive_audit_refreshes": 3,
     "min_consecutive_monitor_refreshes": 3,

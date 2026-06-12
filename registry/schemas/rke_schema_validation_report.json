@@ -90,28 +90,28 @@
       "accepted": true,
       "artifact_path": "registry/report_intelligence/report_metadata.jsonl",
       "failures": [],
-      "item_count": 1,
+      "item_count": 362,
       "schema_path": "schemas/report_intelligence_report_metadata.schema.json"
     },
     {
       "accepted": true,
       "artifact_path": "registry/report_intelligence/forecast_claims.jsonl",
       "failures": [],
-      "item_count": 0,
+      "item_count": 424,
       "schema_path": "schemas/report_intelligence_forecast_claim.schema.json"
     },
     {
       "accepted": true,
       "artifact_path": "registry/report_intelligence/analytical_footprints.jsonl",
       "failures": [],
-      "item_count": 3,
+      "item_count": 1001,
       "schema_path": "schemas/report_intelligence_analytical_footprint.schema.json"
     },
     {
       "accepted": true,
       "artifact_path": "registry/report_intelligence/report_forecast_ledger.jsonl",
       "failures": [],
-      "item_count": 189,
+      "item_count": 424,
       "schema_path": "schemas/report_intelligence_report_forecast_ledger.schema.json"
     },
     {
@@ -146,7 +146,7 @@
       "accepted": true,
       "artifact_path": "registry/report_intelligence/report_outcome_labels.jsonl",
       "failures": [],
-      "item_count": 0,
+      "item_count": 366,
       "schema_path": "schemas/report_intelligence_report_outcome_label.schema.json"
     },
     {
@@ -160,42 +160,42 @@
       "accepted": true,
       "artifact_path": "registry/report_intelligence/source_performance_profiles.jsonl",
       "failures": [],
-      "item_count": 878,
+      "item_count": 905,
       "schema_path": "schemas/report_intelligence_source_performance_profile.schema.json"
     },
     {
       "accepted": true,
       "artifact_path": "registry/report_intelligence/viewpoint_performance_profiles.jsonl",
       "failures": [],
-      "item_count": 110,
+      "item_count": 351,
       "schema_path": "schemas/report_intelligence_viewpoint_performance_profile.schema.json"
     },
     {
       "accepted": true,
       "artifact_path": "registry/report_intelligence/method_performance_profiles.jsonl",
       "failures": [],
-      "item_count": 110,
+      "item_count": 1858,
       "schema_path": "schemas/report_intelligence_method_performance_profile.schema.json"
     },
     {
       "accepted": true,
       "artifact_path": "registry/report_intelligence/metric_candidates.jsonl",
       "failures": [],
-      "item_count": 305,
+      "item_count": 306,
       "schema_path": "schemas/report_intelligence_metric_candidate.schema.json"
     },
     {
       "accepted": true,
       "artifact_path": "registry/report_intelligence/method_patterns.jsonl",
       "failures": [],
-      "item_count": 118,
+      "item_count": 1858,
       "schema_path": "schemas/report_intelligence_method_pattern.schema.json"
     },
     {
       "accepted": true,
       "artifact_path": "registry/report_intelligence/tool_coverage_matches.jsonl",
       "failures": [],
-      "item_count": 305,
+      "item_count": 306,
       "schema_path": "schemas/report_intelligence_tool_coverage_match.schema.json"
     },
     {
@@ -209,28 +209,28 @@
       "accepted": true,
       "artifact_path": "registry/report_intelligence/data_acquisition_proposals.jsonl",
       "failures": [],
-      "item_count": 884,
+      "item_count": 659,
       "schema_path": "schemas/report_intelligence_data_acquisition_proposal.schema.json"
     },
     {
       "accepted": true,
       "artifact_path": "registry/report_intelligence/tool_design_proposals.jsonl",
       "failures": [],
-      "item_count": 884,
+      "item_count": 659,
       "schema_path": "schemas/report_intelligence_tool_design_proposal.schema.json"
     },
     {
       "accepted": true,
       "artifact_path": "registry/report_intelligence/analysis_recipes.jsonl",
       "failures": [],
-      "item_count": 110,
+      "item_count": 1858,
       "schema_path": "schemas/report_intelligence_analysis_recipe.schema.json"
     },
     {
       "accepted": true,
       "artifact_path": "registry/report_intelligence/recipe_paper_trading_runs.jsonl",
       "failures": [],
-      "item_count": 110,
+      "item_count": 1858,
       "schema_path": "schemas/report_intelligence_recipe_paper_trading_run.schema.json"
     },
     {
@@ -244,7 +244,7 @@
       "accepted": true,
       "artifact_path": "registry/report_intelligence/confidence_impact_observations.jsonl",
       "failures": [],
-      "item_count": 110,
+      "item_count": 1858,
       "schema_path": "schemas/report_intelligence_confidence_impact_observation.schema.json"
     },
     {
@@ -258,21 +258,21 @@
       "accepted": true,
       "artifact_path": "registry/report_intelligence/monitor_refresh_history.jsonl",
       "failures": [],
-      "item_count": 34,
+      "item_count": 35,
       "schema_path": "schemas/report_intelligence_evolution_refresh_history.schema.json"
     },
     {
       "accepted": true,
       "artifact_path": "registry/report_intelligence/audit_refresh_history.jsonl",
       "failures": [],
-      "item_count": 19,
+      "item_count": 20,
       "schema_path": "schemas/report_intelligence_evolution_refresh_history.schema.json"
     },
     {
       "accepted": true,
       "artifact_path": "registry/report_intelligence/gap_distribution_history.jsonl",
       "failures": [],
-      "item_count": 19,
+      "item_count": 20,
       "schema_path": "schemas/report_intelligence_evolution_refresh_history.schema.json"
     },
     {
@@ -286,7 +286,7 @@
       "accepted": true,
       "artifact_path": "registry/report_intelligence/prompt_mutation_candidates.jsonl",
       "failures": [],
-      "item_count": 10,
+      "item_count": 11,
       "schema_path": "schemas/report_intelligence_prompt_mutation_candidate.schema.json"
     },
     {
@@ -391,21 +391,21 @@
       "accepted": true,
       "artifact_path": "registry/report_intelligence",
       "failures": [],
-      "item_count": 3,
+      "item_count": 1425,
       "schema_path": "schemas/report_intelligence_provenance_rules"
     },
     {
       "accepted": true,
       "artifact_path": "registry/report_intelligence/report_outcome_labels.jsonl",
       "failures": [],
-      "item_count": 0,
+      "item_count": 366,
       "schema_path": "schemas/report_intelligence_proxy_outcome_label_contract_rules"
     },
     {
       "accepted": true,
       "artifact_path": "registry/report_intelligence",
       "failures": [],
-      "item_count": 129,
+      "item_count": 216,
       "schema_path": "schemas/report_intelligence_industry_etf_mapping_contract_rules"
     },
     {
@@ -460,14 +460,14 @@
       "accepted": true,
       "artifact_path": "registry/report_intelligence",
       "failures": [],
-      "item_count": 222,
+      "item_count": 3718,
       "schema_path": "schemas/report_intelligence_recipe_paper_trading_contract_rules"
     },
     {
       "accepted": true,
       "artifact_path": "registry/report_intelligence/*_refresh_history.jsonl",
       "failures": [],
-      "item_count": 72,
+      "item_count": 75,
       "schema_path": "schemas/report_intelligence_evolution_refresh_history_rules"
     },
     {
@@ -481,21 +481,21 @@
       "accepted": true,
       "artifact_path": "registry/report_intelligence/report_forecast_ledger.jsonl",
       "failures": [],
-      "item_count": 189,
+      "item_count": 424,
       "schema_path": "schemas/report_intelligence_forecast_readiness_rules"
     },
     {
       "accepted": true,
       "artifact_path": "registry/report_intelligence",
       "failures": [],
-      "item_count": 1113,
+      "item_count": 4601,
       "schema_path": "schemas/report_intelligence_runtime_guard_rules"
     },
     {
       "accepted": true,
       "artifact_path": "registry/report_intelligence/monitoring_report.json",
       "failures": [],
-      "item_count": 110,
+      "item_count": 1858,
       "schema_path": "schemas/report_intelligence_alpha_decay_monitoring_rules"
     },
     {
@@ -516,7 +516,7 @@
       "accepted": true,
       "artifact_path": "registry/report_intelligence",
       "failures": [],
-      "item_count": 2652,
+      "item_count": 2202,
       "schema_path": "schemas/report_intelligence_tooling_readiness_rules"
     },
     {

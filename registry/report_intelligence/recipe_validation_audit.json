@@ -1,10 +1,10 @@
 {
   "accepted": true,
-  "as_of_datetime": "2026-06-11T00:54:09+00:00",
+  "as_of_datetime": "2026-06-12T03:46:39+00:00",
   "audit_id": "RKE-REPORT-INTELLIGENCE-RECIPE-VALIDATION-AUDIT",
   "blocker_count": 0,
   "blockers": [],
-  "checked_item_count": 1105,
+  "checked_item_count": 4601,
   "checks": [
     {
       "accepted": true,
@@ -20,8 +20,8 @@
       "accepted": true,
       "check_id": "RI-RECIPE-01",
       "evidence": {
-        "analysis_recipe_rows": 110,
-        "method_pattern_rows": 110
+        "analysis_recipe_rows": 1858,
+        "method_pattern_rows": 1858
       },
       "failure_count": 0,
       "failures": [],
@@ -40,10 +40,10 @@
           "deprecated"
         ],
         "runtime_mode_counts": {
-          "shadow_only": 110
+          "shadow_only": 1858
         },
         "validation_status_counts": {
-          "candidate": 110
+          "candidate": 1858
         }
       },
       "failure_count": 0,
@@ -98,7 +98,7 @@
       "accepted": true,
       "check_id": "RI-RECIPE-07",
       "evidence": {
-        "checked_recipe_rows": 110,
+        "checked_recipe_rows": 1858,
         "production_use_of_weighted_reports": false,
         "rollout_mode": "shadow_tooling"
       },
@@ -108,5 +108,5 @@
     }
   ],
   "policy": "report-intelligence analysis recipes must move through candidate, shadow_only, validation_candidate, paper_trading, limited_production, and production gates without skipping evidence; report-derived recipes remain research-only until current data, tool correctness, PIT validation, paper trading, monitoring, and rollback are proven",
-  "run_id": "RIR-DERIVED-20260611T005408+0000"
+  "run_id": "RIR-DERIVED-20260612T034638+0000"
 }

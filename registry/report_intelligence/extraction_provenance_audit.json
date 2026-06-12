@@ -1,10 +1,10 @@
 {
   "accepted": true,
-  "as_of_datetime": "2026-06-11T00:54:09+00:00",
+  "as_of_datetime": "2026-06-12T03:46:39+00:00",
   "audit_id": "RKE-REPORT-INTELLIGENCE-EXTRACTION-PROVENANCE-AUDIT",
   "blocker_count": 0,
   "blockers": [],
-  "checked_item_count": 1067,
+  "checked_item_count": 2521,
   "checks": [
     {
       "accepted": true,
@@ -20,8 +20,8 @@
       "accepted": true,
       "check_id": "RI-PROV-01",
       "evidence": {
-        "forecast_claim_rows": 189,
-        "source_grounded_claim_count": 182
+        "forecast_claim_rows": 424,
+        "source_grounded_claim_count": 415
       },
       "failure_count": 0,
       "failures": [],
@@ -31,9 +31,9 @@
       "accepted": true,
       "check_id": "RI-PROV-02",
       "evidence": {
-        "analytical_footprint_rows": 200,
-        "source_grounded_indicator_count": 22,
-        "source_grounded_or_mixed_footprint_count": 200
+        "analytical_footprint_rows": 1001,
+        "source_grounded_indicator_count": 104,
+        "source_grounded_or_mixed_footprint_count": 1001
       },
       "failure_count": 0,
       "failures": [],
@@ -47,8 +47,8 @@
           "analyst_or_llm_hypothesis",
           "inferred_hypothesis"
         ],
-        "inferred_failure_mode_count": 309,
-        "inferred_indicator_count": 408
+        "inferred_failure_mode_count": 934,
+        "inferred_indicator_count": 1542
       },
       "failure_count": 0,
       "failures": [],
@@ -58,13 +58,14 @@
       "accepted": true,
       "check_id": "RI-PROV-04",
       "evidence": {
-        "forecast_ledger_rows": 189,
-        "industry_etf_proxy_outcome_claim_count": 12,
-        "outcome_label_rows": 184,
-        "ready_for_outcome_labeling_count": 7,
-        "standard_blocked_forecast_count": 182,
-        "stock_price_proxy_outcome_claim_count": 37,
-        "unlabelable_forecast_count": 133
+        "forecast_ledger_rows": 424,
+        "industry_etf_proxy_outcome_claim_count": 39,
+        "outcome_label_rows": 366,
+        "proxy_label_pending_only_count": 151,
+        "ready_for_outcome_labeling_count": 121,
+        "standard_blocked_forecast_count": 303,
+        "stock_price_proxy_outcome_claim_count": 124,
+        "unlabelable_forecast_count": 49
       },
       "failure_count": 0,
       "failures": [],
@@ -74,7 +75,7 @@
       "accepted": true,
       "check_id": "RI-PROV-05",
       "evidence": {
-        "metric_candidate_rows": 305,
+        "metric_candidate_rows": 306,
         "promoted_unknown_raw_source_metric_count": 0,
         "unknown_raw_source_metric_count": 189
       },
@@ -84,5 +85,5 @@
     }
   ],
   "policy": "source-grounded forecast claims and analytical footprints must cite spans; inferred fields must stay tagged as hypotheses; unmapped forecasts and unknown-source metrics cannot be scored or promoted",
-  "run_id": "RIR-DERIVED-20260611T005408+0000"
+  "run_id": "RIR-DERIVED-20260612T034638+0000"
 }

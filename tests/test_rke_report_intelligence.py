@@ -1583,7 +1583,10 @@ def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
         "monetary_liquidity_condition": 1
     }
     assert readiness["as_of_date_macro_regime_counts"] == {"us_rate_cut_cycle": 1}
-    assert readiness["macro_regime_source_counts"] == {"as_of_date": 1, "source_text": 1}
+    assert readiness["macro_regime_source_counts"] == {
+        "as_of_date": 1,
+        "report_text": 1,
+    }
     assert readiness["industry_cycle_regime_counts"] == {}
     assert readiness["regime_gap_counts"] == {}
     assert readiness["regime_gap_forecast_claim_ids"] == []

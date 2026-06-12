@@ -5255,8 +5255,8 @@ def build_outcome_labeling_readiness_report(
                 source_text_macro_regime_counts[key] = (
                     source_text_macro_regime_counts.get(key, 0) + 1
                 )
-                macro_regime_source_counts["source_text"] = (
-                    macro_regime_source_counts.get("source_text", 0) + 1
+                macro_regime_source_counts["report_text"] = (
+                    macro_regime_source_counts.get("report_text", 0) + 1
                 )
         for regime_type in _ensure_list(
             component_roles.get("as_of_date_macro_regime_context_types")
@@ -5436,7 +5436,7 @@ def build_outcome_labeling_readiness_report(
         ),
         "as_of_date_macro_regime_policy": (
             "macro regime may be supplemented from PIT as_of_datetime using "
-            "predefined historical regime windows; source_text and as_of_date "
+            "predefined historical regime windows; report_text and as_of_date "
             "macro regime counts are tracked separately"
         ),
         "industry_etf_proxy_readiness": industry_proxy,

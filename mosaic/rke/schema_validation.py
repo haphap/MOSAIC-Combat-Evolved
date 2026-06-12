@@ -1524,7 +1524,7 @@ RECIPE_PAPER_TRADING_MIN_OUT_OF_SAMPLE_EFFECTIVE_N = 1.0
 RECIPE_PAPER_TRADING_SLIPPAGE_MODEL_ID = "included_in_round_trip_cost_20bps_v1"
 RECIPE_PAPER_TRADING_BACKTEST_WINDOW_POLICY = "chronological_pre_oos_exit_windows_v1"
 RECIPE_PAPER_TRADING_OUT_OF_SAMPLE_WINDOW_POLICY = (
-    "chronological_last_20pct_exit_windows_v1"
+    "chronological_last_20pct_min_effective_n_exit_windows_v1"
 )
 RECIPE_PAPER_TRADING_PARAMETER_LOCK_POLICY = (
     "pre_registration_hash_locks_required_data_protocol_cost_benchmark_windows_v1"
@@ -3160,6 +3160,15 @@ def validate_report_intelligence_semantics(
         )
         if str(claim_id).strip()
     }
+    proxy_label_pending_ids = {
+        str(claim_id)
+        for claim_id in (
+            readiness_report.get("proxy_label_pending_forecast_claim_ids", [])
+            if readiness_report
+            else []
+        )
+        if str(claim_id).strip()
+    }
     for index, row in enumerate(ledger_rows, 1):
         row_label = f"report_forecast_ledger row {index}"
         if row.get("immutable") is not True:
@@ -3180,7 +3189,10 @@ def validate_report_intelligence_semantics(
             ready_count += 1
         else:
             standard_blocked_count += 1
-            if claim_id not in proxy_label_ready_ids:
+            if (
+                claim_id not in proxy_label_ready_ids
+                and claim_id not in proxy_label_pending_ids
+            ):
                 unlabelable_count += 1
         if ready and test_status != "ready_for_outcome_labeling":
             readiness_failures.append(
