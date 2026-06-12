@@ -102,6 +102,26 @@ def test_rke_temporary_directory_honors_rke_tmpdir(tmp_path: Path, monkeypatch):
     assert tmp_parent.exists()
 
 
+def test_rke_temporary_directory_defaults_to_operator_tmpdir(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from mosaic.rke import temp_paths
+
+    tmp_parent = tmp_path / "operator-tmp"
+    monkeypatch.delenv("MOSAIC_RKE_TMPDIR", raising=False)
+    monkeypatch.setattr(temp_paths, "RKE_OPERATOR_TMPDIR", str(tmp_parent))
+
+    with temp_paths.rke_temporary_directory(
+        prefix="mosaic-rke-review-progress-"
+    ) as tmp_dir:
+        tmp_path_obj = Path(tmp_dir)
+        assert tmp_path_obj.parent == tmp_parent
+        assert tmp_path_obj.exists()
+
+    assert tmp_parent.exists()
+
+
 def test_operator_command_prefixes_each_shell_segment():
     command = operator_command("mosaic-rke first --root . && mosaic-rke second --root .")
 
