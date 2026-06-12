@@ -125,13 +125,14 @@ blocker families include:
    analytical-footprint review and patch coverage semantic blockers.
    Source-license review is ready in the current public
    progress report. The gold-set scratch file was regenerated with
-   `mosaic-rke prepare-gold-review --root . --full --force`; the remaining
+   `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke prepare-gold-review --root . --full --force`; the remaining
    gold-set blockers are the 500 required human review rows. The footprint
    reviewed scratch file was regenerated with
-   `mosaic-rke prepare-footprint-review --root . --output registry/report_intelligence/analytical_footprint_reviewed.jsonl --overwrite`;
+   `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke prepare-footprint-review --root . --output registry/report_intelligence/analytical_footprint_reviewed.jsonl --overwrite`;
    the remaining footprint blockers are the 1001 required human review rows.
-   Validate with `mosaic-rke apply-footprint-review --dry-run`, then apply
-   through the same import path.
+   Validate with
+   `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run`,
+   then apply through the same import path.
 2. P9 coverage watchlist: current public gate reports `coverage_gate_status=passed`
    with no P9 coverage blockers. Continue monitoring the watchlist, but it is
    not currently blocking evolution readiness.
@@ -147,8 +148,10 @@ blocker families include:
    and calibration drift observations are tracked but remain shadow-only.
 6. Refresh-history stability: audit history must satisfy the trailing-vintage
    gate; monitor and gap-distribution trailing-vintage gates currently pass.
-7. Re-run `mosaic-rke review-progress --root .`, promotion dry-run, and
-   `mosaic-rke schema-status --root .`.
+7. Re-run
+   `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke review-progress --root .`,
+   promotion dry-run, and
+   `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke schema-status --root .`.
 
 Until those gates pass, evolution outputs remain shadow candidates and must not
 modify production prompts or production trading decisions.
