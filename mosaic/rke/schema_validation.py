@@ -1779,6 +1779,7 @@ def _validate_stock_price_proxy_readiness_contract(
     for field in (
         "entry_suspension_blocks_label",
         "entry_limit_locked_blocks_label",
+        "exit_liquidity_unverified_blocks_label",
         "exit_missing_or_delisted_blocks_label",
     ):
         if pit_policy.get(field) is not True:

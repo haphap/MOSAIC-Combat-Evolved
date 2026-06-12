@@ -296,6 +296,7 @@
           "required": [
             "entry_suspension_blocks_label",
             "entry_limit_locked_blocks_label",
+            "exit_liquidity_unverified_blocks_label",
             "exit_missing_or_delisted_blocks_label",
             "benchmark_alignment",
             "company_name_fuzzy_mapping_enabled",
@@ -306,6 +307,7 @@
           "properties": {
             "entry_suspension_blocks_label": {"const": true},
             "entry_limit_locked_blocks_label": {"const": true},
+            "exit_liquidity_unverified_blocks_label": {"const": true},
             "exit_missing_or_delisted_blocks_label": {"const": true},
             "benchmark_alignment": {"const": "date_key_cross_qlib_dir"},
             "company_name_fuzzy_mapping_enabled": {"const": false},

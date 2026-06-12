@@ -2384,6 +2384,7 @@
       "company_name_fuzzy_mapping_enabled": false,
       "entry_limit_locked_blocks_label": true,
       "entry_suspension_blocks_label": true,
+      "exit_liquidity_unverified_blocks_label": true,
       "exit_missing_or_delisted_blocks_label": true,
       "survivorship_basis": "qlib cn_data price windows observe entry and exit prices, but the local universe may exclude delisted stocks; stock proxy labels remain shadow-only until a delisted-inclusive universe audit passes",
       "survivorship_status": "survivorship_unverified",

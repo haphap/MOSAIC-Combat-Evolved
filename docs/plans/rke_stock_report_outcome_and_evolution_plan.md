@@ -197,7 +197,7 @@ uvx ruff@0.15.15 check mosaic tests
 - 入场日价格缺失、成交量为 0 或可识别停牌时，记录 `stock_entry_suspended`。
 - 窗口内连续缺价或成交量为 0 超过阈值时，记录 `stock_long_suspension_window`。
 - 退出日前股票缺失或退市，记录 `stock_delisted_before_exit`。
-- 可检测的涨停不可买入或跌停不可卖出，记录 `entry_limit_locked` 或 `exit_limit_locked`；首轮无法精确识别涨跌停制度时，记录 `entry_liquidity_unverified`。
+- 可检测的涨停不可买入或跌停不可卖出，记录 `entry_limit_locked` 或 `exit_limit_locked`；首轮无法精确识别入场端或退出端流动性时，分别记录 `entry_liquidity_unverified` 或 `exit_liquidity_unverified`。
 - 不允许 hardcode `survivorship_safe=true`；若 qlib 股票 universe 可能缺退市股票，必须在 readiness 或 monitoring 中记录 `survivorship_unverified`。
 
 ### P7.2 配置和 CLI
@@ -291,6 +291,7 @@ uvx ruff@0.15.15 check mosaic tests
 - `entry_limit_locked`
 - `exit_limit_locked`
 - `entry_liquidity_unverified`
+- `exit_liquidity_unverified`
 - `survivorship_unverified`
 - `direction_missing_or_unsupported`
 

@@ -479,6 +479,9 @@ def test_stock_price_proxy_readiness_contract_rejects_pit_policy_drift(
     stock_readiness["pit_realism_policy"]["survivorship_unverified"] = False
     stock_readiness["pit_realism_policy"]["company_name_fuzzy_mapping_enabled"] = True
     stock_readiness["pit_realism_policy"]["entry_limit_locked_blocks_label"] = False
+    stock_readiness["pit_realism_policy"][
+        "exit_liquidity_unverified_blocks_label"
+    ] = False
     stock_readiness["data_gap_counts"]["entry_limit_locked"] = 1
     stock_readiness["data_gap_counts"]["exit_liquidity_unverified"] = 1
     readiness_path.write_text(
@@ -495,6 +498,10 @@ def test_stock_price_proxy_readiness_contract_rejects_pit_policy_drift(
         for failure in record.failures
     )
     assert any("entry_limit_locked_blocks_label" in failure for failure in record.failures)
+    assert any(
+        "exit_liquidity_unverified_blocks_label" in failure
+        for failure in record.failures
+    )
     assert any("entry_limit_locked" in failure for failure in record.failures)
     assert any("exit_liquidity_unverified" in failure for failure in record.failures)
 

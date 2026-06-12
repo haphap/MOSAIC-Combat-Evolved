@@ -8356,6 +8356,7 @@ def build_stock_price_proxy_readiness(
         "pit_realism_policy": {
             "entry_suspension_blocks_label": True,
             "entry_limit_locked_blocks_label": True,
+            "exit_liquidity_unverified_blocks_label": True,
             "exit_missing_or_delisted_blocks_label": True,
             "benchmark_alignment": "date_key_cross_qlib_dir",
             "company_name_fuzzy_mapping_enabled": False,
