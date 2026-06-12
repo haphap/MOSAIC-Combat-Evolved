@@ -844,6 +844,24 @@ EVOLUTION_GATE_EXPECTED_THRESHOLDS = {
     "min_gap_distribution_refreshes": 3,
 }
 
+OPERATOR_READINESS_EXPECTED_CHECK_IDS = {
+    "required_registry_valid",
+    "handoff_ready_for_operator",
+    "handoff_command_sequence_complete",
+    "manual_batch_templates_match_status",
+    "manual_import_templates_are_sparse",
+    "manual_import_templates_have_provenance",
+    "blank_full_gold_set_import_is_rejected",
+    "lockbox_template_requires_human_decision",
+    "blank_lockbox_import_is_rejected",
+    "source_license_policy_template_requires_human_decision",
+    "blank_source_license_policy_import_is_rejected",
+    "blank_bundle_dry_run_does_not_promote",
+    "manual_review_bundle_manifest_current",
+    "promotion_gate_still_blocks_production",
+    "source_text_redaction_clean",
+}
+
 STOCK_PROXY_SURVIVORSHIP_UNVERIFIED_CHECK = "survivorship_unverified_qlib_cn_data"
 STOCK_PROXY_SURVIVORSHIP_AUDITED_CHECK = "delisted_inclusive_universe_audit_passed"
 STOCK_PROXY_SURVIVORSHIP_CHECKS = {
@@ -2623,6 +2641,81 @@ def _validate_manual_review_progress_privacy_contract(
     return len(gates), failures
 
 
+def _validate_operator_readiness_contract(root_path: Path) -> tuple[int, list[str]]:
+    report, report_failures = _read_mapping_json(
+        root_path / "registry/handoffs/rke_operator_readiness_report.json",
+        "registry/handoffs/rke_operator_readiness_report.json",
+    )
+    failures = list(report_failures)
+    checks: list[Mapping[str, Any]] = []
+    if not report:
+        return 0, failures
+
+    raw_checks = report.get("checks")
+    if not isinstance(raw_checks, Sequence) or isinstance(raw_checks, str):
+        failures.append("operator_readiness_report.checks: expected array")
+    else:
+        checks = [check for check in raw_checks if isinstance(check, Mapping)]
+        malformed_count = len(raw_checks) - len(checks)
+        if malformed_count:
+            failures.append(
+                f"operator_readiness_report.checks: {malformed_count} non-object checks"
+            )
+
+    check_ids = [str(check.get("check_id") or "") for check in checks]
+    duplicate_check_ids = sorted(
+        check_id for check_id in set(check_ids) if check_ids.count(check_id) > 1
+    )
+    if duplicate_check_ids:
+        failures.append(
+            "operator_readiness_report.checks duplicate check_ids: "
+            + ", ".join(duplicate_check_ids)
+        )
+    observed_ids = set(check_ids)
+    missing_ids = sorted(OPERATOR_READINESS_EXPECTED_CHECK_IDS - observed_ids)
+    unexpected_ids = sorted(observed_ids - OPERATOR_READINESS_EXPECTED_CHECK_IDS)
+    if missing_ids:
+        failures.append(
+            "operator_readiness_report.checks missing check_ids: "
+            + ", ".join(missing_ids)
+        )
+    if unexpected_ids:
+        failures.append(
+            "operator_readiness_report.checks unexpected check_ids: "
+            + ", ".join(unexpected_ids)
+        )
+
+    failed_checks = [
+        str(check.get("check_id") or f"<check-{index}>")
+        for index, check in enumerate(checks, 1)
+        if check.get("passed") is not True
+    ]
+    if failed_checks:
+        failures.append(
+            "operator_readiness_report failed checks: "
+            + ", ".join(sorted(failed_checks))
+        )
+    if report.get("accepted") is not True:
+        failures.append("operator_readiness_report.accepted: must be true")
+    check_count = len(checks)
+    if report.get("check_count") != check_count:
+        failures.append(f"operator_readiness_report.check_count: expected {check_count}")
+    passed_count = sum(1 for check in checks if check.get("passed") is True)
+    if report.get("passed_count") != passed_count:
+        failures.append(
+            f"operator_readiness_report.passed_count: expected {passed_count}"
+        )
+    failure_count = check_count - passed_count
+    if report.get("failure_count") != failure_count:
+        failures.append(
+            f"operator_readiness_report.failure_count: expected {failure_count}"
+        )
+    if failure_count:
+        failures.append("operator_readiness_report.failure_count must be zero")
+
+    return check_count, failures
+
+
 def validate_report_intelligence_semantics(
     root: str | Path,
 ) -> tuple[SchemaValidationRecord, ...]:
@@ -3320,6 +3413,19 @@ def validate_report_intelligence_semantics(
             item_count=manual_review_progress_item_count,
             accepted=not manual_review_progress_failures,
             failures=tuple(manual_review_progress_failures),
+        )
+    )
+
+    operator_readiness_item_count, operator_readiness_failures = (
+        _validate_operator_readiness_contract(root_path)
+    )
+    records.append(
+        SchemaValidationRecord(
+            schema_path="schemas/report_intelligence_operator_readiness_rules",
+            artifact_path="registry/handoffs/rke_operator_readiness_report.json",
+            item_count=operator_readiness_item_count,
+            accepted=not operator_readiness_failures,
+            failures=tuple(operator_readiness_failures),
         )
     )
 

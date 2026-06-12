@@ -691,6 +691,16 @@ def _manual_review_progress_privacy_record(tmp_path: Path):
     )
 
 
+def _operator_readiness_record(tmp_path: Path):
+    records = validate_report_intelligence_semantics(tmp_path)
+    return next(
+        record
+        for record in records
+        if record.schema_path
+        == "schemas/report_intelligence_operator_readiness_rules"
+    )
+
+
 def _industry_etf_mapping_contract_record(tmp_path: Path):
     records = validate_report_intelligence_semantics(tmp_path)
     return next(
@@ -2037,6 +2047,70 @@ def test_manual_review_progress_privacy_rejects_private_text_fields(
     assert any("claim_text: private/source text field forbidden" in item for item in record.failures)
     assert any("manual_claim_text: private/source text field forbidden" in item for item in record.failures)
     assert any("source_span_ids: private/source text field forbidden" in item for item in record.failures)
+
+
+def test_operator_readiness_contract_accepts_current_public_artifact(
+    tmp_path: Path,
+):
+    _copy_registry_for_manual_progress(tmp_path)
+
+    record = _operator_readiness_record(tmp_path)
+
+    assert record.accepted
+    assert record.item_count == 15
+    assert record.failures == ()
+
+
+def test_operator_readiness_contract_rejects_missing_gate_check(
+    tmp_path: Path,
+):
+    registry = _copy_registry_for_manual_progress(tmp_path)
+    readiness_path = registry / "handoffs/rke_operator_readiness_report.json"
+    readiness = json.loads(readiness_path.read_text(encoding="utf-8"))
+    readiness["checks"] = [
+        check
+        for check in readiness["checks"]
+        if check["check_id"] != "blank_bundle_dry_run_does_not_promote"
+    ]
+    readiness["check_count"] = len(readiness["checks"])
+    readiness["passed_count"] = len(readiness["checks"])
+    readiness_path.write_text(
+        json.dumps(readiness, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _operator_readiness_record(tmp_path)
+
+    assert not record.accepted
+    assert any(
+        "missing check_ids: blank_bundle_dry_run_does_not_promote" in item
+        for item in record.failures
+    )
+
+
+def test_operator_readiness_contract_rejects_false_acceptance(
+    tmp_path: Path,
+):
+    registry = _copy_registry_for_manual_progress(tmp_path)
+    readiness_path = registry / "handoffs/rke_operator_readiness_report.json"
+    readiness = json.loads(readiness_path.read_text(encoding="utf-8"))
+    readiness["checks"][0]["passed"] = False
+    readiness["checks"][0]["blocker"] = "fixture blocker"
+    readiness["accepted"] = True
+    readiness["passed_count"] = readiness["check_count"]
+    readiness["failure_count"] = 0
+    readiness_path.write_text(
+        json.dumps(readiness, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _operator_readiness_record(tmp_path)
+
+    assert not record.accepted
+    assert any("failed checks: required_registry_valid" in item for item in record.failures)
+    assert any("passed_count: expected 14" in item for item in record.failures)
+    assert any("failure_count: expected 1" in item for item in record.failures)
+    assert any("failure_count must be zero" in item for item in record.failures)
 
 
 def test_schema_validation_accepts_public_registry_without_private_report_inputs(
