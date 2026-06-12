@@ -711,6 +711,15 @@ def _manual_review_bundle_manifest_record(tmp_path: Path):
     )
 
 
+def _promotion_dry_run_record(tmp_path: Path):
+    records = validate_report_intelligence_semantics(tmp_path)
+    return next(
+        record
+        for record in records
+        if record.schema_path == "schemas/report_intelligence_promotion_dry_run_rules"
+    )
+
+
 def _production_promotion_gate_record(tmp_path: Path):
     records = validate_report_intelligence_semantics(tmp_path)
     return next(
@@ -2385,6 +2394,85 @@ def test_manual_review_bundle_manifest_contract_rejects_bad_hash_or_promotion(
         "production_allowed_after_simulation: must be false" in item
         for item in record.failures
     )
+
+
+def test_promotion_dry_run_contract_accepts_current_public_artifact(
+    tmp_path: Path,
+):
+    _copy_registry_for_manual_progress(tmp_path)
+
+    record = _promotion_dry_run_record(tmp_path)
+
+    assert record.accepted
+    assert record.item_count == 4
+    assert record.failures == ()
+
+
+def test_promotion_dry_run_contract_rejects_production_bypass(
+    tmp_path: Path,
+):
+    registry = _copy_registry_for_manual_progress(tmp_path)
+    report_path = registry / "promotion/rke_promotion_dry_run_report.json"
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    report["accepted"] = True
+    report["production_allowed_after_simulation"] = True
+    report["staged_production_allowed_after_simulation"] = True
+    report["mutated_original_registry"] = True
+    report["before_next_state"] = "staged_production"
+    report["after_next_state"] = "production"
+    report_path.write_text(
+        json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _promotion_dry_run_record(tmp_path)
+
+    assert not record.accepted
+    assert any("accepted mismatch with steps" in item for item in record.failures)
+    assert any(
+        "production_allowed_after_simulation: current public baseline must be false"
+        in item
+        for item in record.failures
+    )
+    assert any(
+        "staged_production_allowed_after_simulation: current public baseline must be false"
+        in item
+        for item in record.failures
+    )
+    assert any(
+        "mutated_original_registry: must be false" in item
+        for item in record.failures
+    )
+    assert any("before_next_state: expected paper_trading" in item for item in record.failures)
+    assert any("after_next_state: expected paper_trading" in item for item in record.failures)
+
+
+def test_promotion_dry_run_contract_rejects_step_inconsistency(
+    tmp_path: Path,
+):
+    registry = _copy_registry_for_manual_progress(tmp_path)
+    report_path = registry / "promotion/rke_promotion_dry_run_report.json"
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    report["steps"][0]["accepted"] = True
+    report["steps"][0]["blockers"] = ["gold_set input not provided"]
+    report["steps"][0]["provided"] = False
+    report["steps"][0]["input_path"] = "registry/review_batches/gold.jsonl"
+    report["steps"][1]["accepted"] = False
+    report["steps"][1]["blockers"] = []
+    report["steps"][2]["result"] = "already_applied"
+    report["steps"][2]["applied"] = True
+    report_path.write_text(
+        json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _promotion_dry_run_record(tmp_path)
+
+    assert not record.accepted
+    assert any("accepted step must not block" in item for item in record.failures)
+    assert any("input_path: must be empty when not provided" in item for item in record.failures)
+    assert any("rejected step requires blocker" in item for item in record.failures)
+    assert any("already_applied must be false" in item for item in record.failures)
 
 
 def test_production_promotion_gate_contract_accepts_current_public_artifact(

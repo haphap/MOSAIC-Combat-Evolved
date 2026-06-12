@@ -863,6 +863,12 @@ OPERATOR_READINESS_EXPECTED_CHECK_IDS = {
     "source_text_redaction_clean",
 }
 PROMOTION_GATE_EXPECTED_CRITERION_IDS = {f"PG{index:02d}" for index in range(1, 11)}
+PROMOTION_DRY_RUN_EXPECTED_REVIEW_KINDS = {
+    "gold_set",
+    "footprint_review",
+    "source_license",
+    "lockbox",
+}
 
 STOCK_PROXY_SURVIVORSHIP_UNVERIFIED_CHECK = "survivorship_unverified_qlib_cn_data"
 STOCK_PROXY_SURVIVORSHIP_AUDITED_CHECK = "delisted_inclusive_universe_audit_passed"
@@ -3091,6 +3097,114 @@ def _validate_manual_review_bundle_manifest_contract(
     return len(artifacts), failures
 
 
+def _validate_promotion_dry_run_contract(
+    root_path: Path,
+) -> tuple[int, list[str]]:
+    report, report_failures = _read_mapping_json(
+        root_path / "registry/promotion/rke_promotion_dry_run_report.json",
+        "registry/promotion/rke_promotion_dry_run_report.json",
+    )
+    failures = list(report_failures)
+    steps: list[Mapping[str, Any]] = []
+    if not report:
+        return 0, failures
+
+    raw_steps = report.get("steps")
+    if not isinstance(raw_steps, Sequence) or isinstance(raw_steps, str):
+        failures.append("promotion_dry_run_report.steps: expected array")
+    else:
+        steps = [step for step in raw_steps if isinstance(step, Mapping)]
+        malformed_count = len(raw_steps) - len(steps)
+        if malformed_count:
+            failures.append(
+                f"promotion_dry_run_report.steps: {malformed_count} non-object steps"
+            )
+
+    review_kinds = [str(step.get("review_kind") or "") for step in steps]
+    duplicate_review_kinds = sorted(
+        kind for kind in set(review_kinds) if review_kinds.count(kind) > 1
+    )
+    if duplicate_review_kinds:
+        failures.append(
+            "promotion_dry_run_report.steps duplicate review_kind: "
+            + ", ".join(duplicate_review_kinds)
+        )
+    observed_kinds = set(review_kinds)
+    missing_kinds = sorted(PROMOTION_DRY_RUN_EXPECTED_REVIEW_KINDS - observed_kinds)
+    unexpected_kinds = sorted(observed_kinds - PROMOTION_DRY_RUN_EXPECTED_REVIEW_KINDS)
+    if missing_kinds:
+        failures.append(
+            "promotion_dry_run_report.steps missing review_kind: "
+            + ", ".join(missing_kinds)
+        )
+    if unexpected_kinds:
+        failures.append(
+            "promotion_dry_run_report.steps unexpected review_kind: "
+            + ", ".join(unexpected_kinds)
+        )
+
+    for index, step in enumerate(steps, 1):
+        row_label = f"promotion_dry_run_report.steps[{index}]"
+        accepted = step.get("accepted")
+        applied = step.get("applied")
+        provided = step.get("provided")
+        blockers = _string_items(step.get("blockers"))
+        result = str(step.get("result") or "").strip()
+        if not isinstance(accepted, bool):
+            failures.append(f"{row_label}.accepted: must be boolean")
+        elif accepted and blockers:
+            failures.append(f"{row_label}.blockers: accepted step must not block")
+        elif not accepted and not blockers:
+            failures.append(f"{row_label}.blockers: rejected step requires blocker")
+        if not isinstance(applied, bool):
+            failures.append(f"{row_label}.applied: must be boolean")
+        elif applied and accepted is not True:
+            failures.append(f"{row_label}.applied: requires accepted step")
+        if not isinstance(provided, bool):
+            failures.append(f"{row_label}.provided: must be boolean")
+        elif provided is False and str(step.get("input_path") or "").strip():
+            failures.append(f"{row_label}.input_path: must be empty when not provided")
+        if not result:
+            failures.append(f"{row_label}.result: must be non-empty")
+        if result == "already_applied":
+            if accepted is not True:
+                failures.append(f"{row_label}.accepted: already_applied must be true")
+            if applied is not False:
+                failures.append(f"{row_label}.applied: already_applied must be false")
+            if _int_or_none(step.get("changed_rows")) != 0:
+                failures.append(f"{row_label}.changed_rows: already_applied expected 0")
+        if result == "not_provided" and provided is not False:
+            failures.append(f"{row_label}.provided: not_provided must be false")
+
+    accepted_steps = sum(1 for step in steps if step.get("accepted") is True)
+    if report.get("accepted") is not (accepted_steps == len(steps) and bool(steps)):
+        failures.append("promotion_dry_run_report.accepted mismatch with steps")
+    if report.get("simulated") is not True:
+        failures.append("promotion_dry_run_report.simulated: must be true")
+    if report.get("mutated_original_registry") is not False:
+        failures.append(
+            "promotion_dry_run_report.mutated_original_registry: must be false"
+        )
+    if report.get("production_allowed_after_simulation") is not False:
+        failures.append(
+            "promotion_dry_run_report.production_allowed_after_simulation: current public baseline must be false"
+        )
+    if report.get("staged_production_allowed_after_simulation") is not False:
+        failures.append(
+            "promotion_dry_run_report.staged_production_allowed_after_simulation: current public baseline must be false"
+        )
+    if report.get("before_next_state") != "paper_trading":
+        failures.append("promotion_dry_run_report.before_next_state: expected paper_trading")
+    if report.get("after_next_state") != "paper_trading":
+        failures.append("promotion_dry_run_report.after_next_state: expected paper_trading")
+    if not _string_items(report.get("before_blockers")):
+        failures.append("promotion_dry_run_report.before_blockers: must be non-empty")
+    if not _string_items(report.get("after_blockers")):
+        failures.append("promotion_dry_run_report.after_blockers: must be non-empty")
+
+    return len(steps), failures
+
+
 def _validate_production_promotion_gate_contract(
     root_path: Path,
 ) -> tuple[int, list[str]]:
@@ -3927,6 +4041,19 @@ def validate_report_intelligence_semantics(
             item_count=bundle_manifest_item_count,
             accepted=not bundle_manifest_failures,
             failures=tuple(bundle_manifest_failures),
+        )
+    )
+
+    promotion_dry_run_item_count, promotion_dry_run_failures = (
+        _validate_promotion_dry_run_contract(root_path)
+    )
+    records.append(
+        SchemaValidationRecord(
+            schema_path="schemas/report_intelligence_promotion_dry_run_rules",
+            artifact_path="registry/promotion/rke_promotion_dry_run_report.json",
+            item_count=promotion_dry_run_item_count,
+            accepted=not promotion_dry_run_failures,
+            failures=tuple(promotion_dry_run_failures),
         )
     )
 
