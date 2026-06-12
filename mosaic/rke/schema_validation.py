@@ -869,6 +869,27 @@ PROMOTION_DRY_RUN_EXPECTED_REVIEW_KINDS = {
     "source_license",
     "lockbox",
 }
+OPERATOR_HANDOFF_EXPECTED_STEP_IDS = (
+    "review-progress-preflight",
+    "prepare-gold-review",
+    "write-gold-review-evidence",
+    "fill-gold-review",
+    "dry-run-gold-review",
+    "apply-gold-review",
+    "prepare-footprint-review",
+    "write-footprint-review-assist",
+    "write-footprint-review-evidence",
+    "fill-footprint-review",
+    "dry-run-footprint-review",
+    "apply-footprint-review",
+    "promotion-status-before-lockbox",
+    "prepare-lockbox-review",
+    "fill-lockbox-review",
+    "dry-run-lockbox-review",
+    "promotion-dry-run",
+    "apply-lockbox-review",
+    "promotion-status-final",
+)
 
 STOCK_PROXY_SURVIVORSHIP_UNVERIFIED_CHECK = "survivorship_unverified_qlib_cn_data"
 STOCK_PROXY_SURVIVORSHIP_AUDITED_CHECK = "delisted_inclusive_universe_audit_passed"
@@ -2994,6 +3015,127 @@ def _validate_operator_readiness_contract(root_path: Path) -> tuple[int, list[st
     return check_count, failures
 
 
+def _validate_operator_handoff_contract(root_path: Path) -> tuple[int, list[str]]:
+    handoff, handoff_failures = _read_mapping_json(
+        root_path / "registry/handoffs/rke_operator_handoff.json",
+        "registry/handoffs/rke_operator_handoff.json",
+    )
+    failures = list(handoff_failures)
+    steps: list[Mapping[str, Any]] = []
+    if not handoff:
+        return 0, failures
+
+    raw_steps = handoff.get("command_sequence")
+    if not isinstance(raw_steps, Sequence) or isinstance(raw_steps, str):
+        failures.append("operator_handoff.command_sequence: expected array")
+    else:
+        steps = [step for step in raw_steps if isinstance(step, Mapping)]
+        malformed_count = len(raw_steps) - len(steps)
+        if malformed_count:
+            failures.append(
+                f"operator_handoff.command_sequence: {malformed_count} non-object steps"
+            )
+
+    step_ids = [str(step.get("step_id") or "") for step in steps]
+    if tuple(step_ids) != OPERATOR_HANDOFF_EXPECTED_STEP_IDS:
+        failures.append("operator_handoff.command_sequence step_id order mismatch")
+    duplicate_step_ids = sorted(
+        step_id for step_id in set(step_ids) if step_ids.count(step_id) > 1
+    )
+    if duplicate_step_ids:
+        failures.append(
+            "operator_handoff.command_sequence duplicate step_ids: "
+            + ", ".join(duplicate_step_ids)
+        )
+
+    for index, step in enumerate(steps, 1):
+        row_label = f"operator_handoff.command_sequence[{index}]"
+        step_id = str(step.get("step_id") or "")
+        command = str(step.get("command") or "")
+        manual_input_path = str(step.get("manual_input_path") or "")
+        for field in ("action", "expected_result", "phase", "step_id"):
+            if not str(step.get(field) or "").strip():
+                failures.append(f"{row_label}.{field}: must be non-empty")
+        if command:
+            if "mosaic-rke " not in command:
+                failures.append(f"{row_label}.command: must invoke mosaic-rke")
+            if "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke" not in command:
+                failures.append(f"{row_label}.command: missing MOSAIC_RKE_TMPDIR prefix")
+            if "TMPDIR=/home/hap/tmp/mosaic-rke" not in command:
+                failures.append(f"{row_label}.command: missing TMPDIR prefix")
+        elif not step_id.startswith("fill-"):
+            failures.append(f"{row_label}.command: empty only allowed for fill steps")
+        if step_id.startswith("fill-") and not manual_input_path:
+            failures.append(f"{row_label}.manual_input_path: required for fill step")
+
+    step_by_id = {str(step.get("step_id") or ""): step for step in steps}
+    expected_manual_inputs = {
+        "fill-gold-review": "registry/review_batches/gold_set_full_reviewed.jsonl",
+        "dry-run-gold-review": "registry/review_batches/gold_set_full_reviewed.jsonl",
+        "apply-gold-review": "registry/review_batches/gold_set_full_reviewed.jsonl",
+        "fill-footprint-review": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+        "dry-run-footprint-review": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+        "apply-footprint-review": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+        "fill-lockbox-review": "registry/review_batches/lockbox_reviewed.json",
+        "dry-run-lockbox-review": "registry/review_batches/lockbox_reviewed.json",
+        "apply-lockbox-review": "registry/review_batches/lockbox_reviewed.json",
+    }
+    for step_id, expected_path in expected_manual_inputs.items():
+        step = step_by_id.get(step_id)
+        if not step:
+            continue
+        if step.get("manual_input_path") != expected_path:
+            failures.append(
+                f"operator_handoff.command_sequence[{step_id}].manual_input_path: expected {expected_path}"
+            )
+        command = str(step.get("command") or "")
+        if command and expected_path not in command:
+            failures.append(
+                f"operator_handoff.command_sequence[{step_id}].command: expected {expected_path}"
+            )
+
+    promotion_step = step_by_id.get("promotion-dry-run")
+    if promotion_step:
+        command = str(promotion_step.get("command") or "")
+        for expected_path in (
+            "registry/review_batches/gold_set_full_reviewed.jsonl",
+            "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+            "registry/review_batches/lockbox_reviewed.json",
+        ):
+            if expected_path not in command:
+                failures.append(
+                    "operator_handoff.command_sequence[promotion-dry-run].command: "
+                    f"expected {expected_path}"
+                )
+        for forbidden_path in (
+            "gold_set_full_import_template.jsonl",
+            "analytical_footprint_review_template.jsonl",
+            "lockbox_review_next_import_template.json",
+        ):
+            if forbidden_path in command:
+                failures.append(
+                    "operator_handoff.command_sequence[promotion-dry-run].command: "
+                    f"must not use {forbidden_path}"
+                )
+        if "--license-input" in command:
+            failures.append(
+                "operator_handoff.command_sequence[promotion-dry-run].command: "
+                "must not pass source-license input while source-license gate is already applied"
+            )
+
+    if handoff.get("production_allowed") is not False:
+        failures.append("operator_handoff.production_allowed: must be false")
+    if handoff.get("direct_production_forbidden") is not True:
+        failures.append("operator_handoff.direct_production_forbidden: must be true")
+    if handoff.get("ready_for_operator_review") is not True:
+        failures.append("operator_handoff.ready_for_operator_review: must be true")
+    run_order = tuple(str(item) for item in _string_items(handoff.get("run_order")))
+    if run_order and run_order != tuple(step_ids):
+        failures.append("operator_handoff.run_order mismatch with command_sequence")
+
+    return len(steps), failures
+
+
 def _validate_manual_review_bundle_manifest_contract(
     root_path: Path,
 ) -> tuple[int, list[str]]:
@@ -4015,6 +4157,19 @@ def validate_report_intelligence_semantics(
             item_count=manual_review_progress_item_count,
             accepted=not manual_review_progress_failures,
             failures=tuple(manual_review_progress_failures),
+        )
+    )
+
+    operator_handoff_item_count, operator_handoff_failures = (
+        _validate_operator_handoff_contract(root_path)
+    )
+    records.append(
+        SchemaValidationRecord(
+            schema_path="schemas/report_intelligence_operator_handoff_rules",
+            artifact_path="registry/handoffs/rke_operator_handoff.json",
+            item_count=operator_handoff_item_count,
+            accepted=not operator_handoff_failures,
+            failures=tuple(operator_handoff_failures),
         )
     )
 

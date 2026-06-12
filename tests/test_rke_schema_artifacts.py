@@ -701,6 +701,15 @@ def _operator_readiness_record(tmp_path: Path):
     )
 
 
+def _operator_handoff_record(tmp_path: Path):
+    records = validate_report_intelligence_semantics(tmp_path)
+    return next(
+        record
+        for record in records
+        if record.schema_path == "schemas/report_intelligence_operator_handoff_rules"
+    )
+
+
 def _manual_review_bundle_manifest_record(tmp_path: Path):
     records = validate_report_intelligence_semantics(tmp_path)
     return next(
@@ -2330,6 +2339,84 @@ def test_operator_readiness_contract_rejects_false_acceptance(
     assert any("passed_count: expected 14" in item for item in record.failures)
     assert any("failure_count: expected 1" in item for item in record.failures)
     assert any("failure_count must be zero" in item for item in record.failures)
+
+
+def test_operator_handoff_contract_accepts_current_public_artifact(
+    tmp_path: Path,
+):
+    _copy_registry_for_manual_progress(tmp_path)
+
+    record = _operator_handoff_record(tmp_path)
+
+    assert record.accepted
+    assert record.item_count == 19
+    assert record.failures == ()
+
+
+def test_operator_handoff_contract_rejects_template_or_license_promotion_inputs(
+    tmp_path: Path,
+):
+    registry = _copy_registry_for_manual_progress(tmp_path)
+    handoff_path = registry / "handoffs/rke_operator_handoff.json"
+    handoff = json.loads(handoff_path.read_text(encoding="utf-8"))
+    promotion_step = next(
+        step for step in handoff["command_sequence"] if step["step_id"] == "promotion-dry-run"
+    )
+    promotion_step["command"] = (
+        promotion_step["command"].replace(
+            "registry/review_batches/gold_set_full_reviewed.jsonl",
+            "registry/review_batches/gold_set_full_import_template.jsonl",
+        )
+        + " --license-input registry/review_batches/source_license_policy_reviewed.json"
+    )
+    handoff_path.write_text(
+        json.dumps(handoff, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _operator_handoff_record(tmp_path)
+
+    assert not record.accepted
+    assert any(
+        "expected registry/review_batches/gold_set_full_reviewed.jsonl" in item
+        for item in record.failures
+    )
+    assert any(
+        "must not use gold_set_full_import_template.jsonl" in item
+        for item in record.failures
+    )
+    assert any(
+        "must not pass source-license input" in item for item in record.failures
+    )
+
+
+def test_operator_handoff_contract_rejects_step_order_or_tmp_prefix_drift(
+    tmp_path: Path,
+):
+    registry = _copy_registry_for_manual_progress(tmp_path)
+    handoff_path = registry / "handoffs/rke_operator_handoff.json"
+    handoff = json.loads(handoff_path.read_text(encoding="utf-8"))
+    handoff["command_sequence"][0], handoff["command_sequence"][1] = (
+        handoff["command_sequence"][1],
+        handoff["command_sequence"][0],
+    )
+    handoff["command_sequence"][0]["command"] = "mosaic-rke prepare-gold-review --root ."
+    handoff["run_order"] = [
+        step["step_id"] for step in handoff["command_sequence"]
+    ]
+    handoff["production_allowed"] = True
+    handoff_path.write_text(
+        json.dumps(handoff, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _operator_handoff_record(tmp_path)
+
+    assert not record.accepted
+    assert any("step_id order mismatch" in item for item in record.failures)
+    assert any("missing MOSAIC_RKE_TMPDIR prefix" in item for item in record.failures)
+    assert any("missing TMPDIR prefix" in item for item in record.failures)
+    assert any("production_allowed: must be false" in item for item in record.failures)
 
 
 def test_manual_review_bundle_manifest_contract_accepts_current_public_artifact(
