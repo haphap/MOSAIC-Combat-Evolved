@@ -48,6 +48,7 @@ from mosaic.rke.report_intelligence import (
     write_report_intelligence_evolution_readiness_gate,
     write_report_intelligence_patch_v1_5_coverage_report,
     _append_evolution_history_record,
+    _append_unique_method_patterns,
     _backfill_tool_gaps_from_metric_candidates,
     _direct_pit_binding_gap_details,
     _read_industry_etf_proxy_map_rows,
@@ -2462,6 +2463,71 @@ def test_report_intelligence_method_patterns_keep_source_footprint_refs():
         "check valuation and liquidity",
     }
     assert all(row["steps"] for row in methods)
+
+
+def test_report_intelligence_method_pattern_ids_use_canonical_key():
+    first = _normalize_method_patterns(
+        {
+            "method_patterns": [
+                {"name": "Peer comparison", "steps": ["compare peers"]},
+                {"name": "Peer-comparison", "steps": ["compare peer group"]},
+            ]
+        },
+        [],
+        run_id="RIR-TEST",
+        model="test-model",
+    )
+    reversed_order = _normalize_method_patterns(
+        {
+            "method_patterns": [
+                {"name": "Peer-comparison", "steps": ["compare peer group"]},
+                {"name": "Peer comparison", "steps": ["compare peers"]},
+            ]
+        },
+        [],
+        run_id="RIR-TEST",
+        model="test-model",
+    )
+
+    assert len(first) == 1
+    assert len(reversed_order) == 1
+    assert first[0]["canonical_name"] == "peer_comparison"
+    assert reversed_order[0]["canonical_name"] == "peer_comparison"
+    assert first[0]["method_pattern_id"] == reversed_order[0]["method_pattern_id"]
+    assert first[0]["steps"] == ["compare peers", "compare peer group"]
+    assert reversed_order[0]["steps"] == ["compare peer group", "compare peers"]
+
+
+def test_report_intelligence_method_pattern_merge_upgrades_legacy_ids():
+    rows = [
+        {
+            "method_pattern_id": "METHOD-legacy",
+            "name": "Peer comparison",
+            "steps": ["compare peers"],
+            "source_footprint_ids": ["AFP-1"],
+        }
+    ]
+
+    _append_unique_method_patterns(
+        rows,
+        [
+            {
+                "method_pattern_id": "METHOD-new",
+                "canonical_name": "peer_comparison",
+                "name": "Peer-comparison",
+                "steps": ["compare peer group"],
+                "source_footprint_ids": ["AFP-2"],
+            }
+        ],
+    )
+
+    assert len(rows) == 1
+    assert rows[0]["method_pattern_id"] != "METHOD-legacy"
+    assert rows[0]["method_pattern_id"] != "METHOD-new"
+    assert rows[0]["method_pattern_id"].startswith("METHOD-")
+    assert rows[0]["canonical_name"] == "peer_comparison"
+    assert rows[0]["steps"] == ["compare peers", "compare peer group"]
+    assert rows[0]["source_footprint_ids"] == ["AFP-1", "AFP-2"]
 
 
 def test_report_intelligence_recipe_paper_trading_requires_direct_pit_evidence():

@@ -4493,7 +4493,8 @@ def _normalize_method_patterns(
         existing = deduped.setdefault(
             key,
             {
-                "method_pattern_id": _stable_id("METHOD", {"name": name}),
+                "method_pattern_id": _stable_id("METHOD", {"canonical_name": key}),
+                "canonical_name": key,
                 "name": name,
                 "description": str(item.get("description") or ""),
                 "source_footprint_ids": [],
@@ -18690,10 +18691,42 @@ METHOD_PATTERN_MERGE_LIST_FIELDS = (
 )
 
 
+def _method_pattern_canonical_name(record: Mapping[str, Any]) -> str:
+    return (
+        str(record.get("canonical_name") or "").strip()
+        or _canonical_metric_name(record.get("name"))
+    )
+
+
+def _canonicalize_method_pattern_record(record: Mapping[str, Any]) -> dict[str, Any]:
+    canonical = _method_pattern_canonical_name(record)
+    normalized = dict(record)
+    if canonical:
+        normalized["canonical_name"] = canonical
+        normalized["method_pattern_id"] = _stable_id(
+            "METHOD",
+            {"canonical_name": canonical},
+        )
+    return normalized
+
+
+def _method_pattern_identity_keys(record: Mapping[str, Any]) -> list[str]:
+    keys: list[str] = []
+    method_id = str(record.get("method_pattern_id") or "").strip()
+    if method_id:
+        keys.append(f"id:{method_id}")
+    canonical = _method_pattern_canonical_name(record)
+    if canonical:
+        keys.append(f"canonical:{canonical}")
+    return keys
+
+
 def _merge_method_pattern_record(
     existing: Mapping[str, Any],
     incoming: Mapping[str, Any],
 ) -> dict[str, Any]:
+    existing = _canonicalize_method_pattern_record(existing)
+    incoming = _canonicalize_method_pattern_record(incoming)
     merged = dict(existing)
     for field in METHOD_PATTERN_MERGE_LIST_FIELDS:
         merged[field] = _merge_unique_values(
@@ -18712,7 +18745,7 @@ def _merge_method_pattern_record(
         incoming.get("extractor")
     ):
         merged["extractor"] = dict(_ensure_mapping(incoming.get("extractor")))
-    return merged
+    return _canonicalize_method_pattern_record(merged)
 
 
 def _append_unique_method_patterns(
@@ -18721,26 +18754,37 @@ def _append_unique_method_patterns(
     *,
     replace_existing: bool = False,
 ) -> None:
-    seen = {
-        str(record.get("method_pattern_id") or ""): index
-        for index, record in enumerate(target)
-        if str(record.get("method_pattern_id") or "")
-    }
-    for record in records:
-        value = str(record.get("method_pattern_id") or "")
-        if not value:
-            continue
-        if value in seen:
-            if replace_existing:
-                target[seen[value]] = record
+    compacted: list[dict[str, Any]] = []
+    seen: dict[str, int] = {}
+
+    def append_one(record: Mapping[str, Any], *, replace: bool) -> None:
+        normalized = _canonicalize_method_pattern_record(record)
+        if not str(normalized.get("method_pattern_id") or "").strip():
+            return
+        keys = _method_pattern_identity_keys(normalized)
+        existing_indexes = [seen[key] for key in keys if key in seen]
+        if existing_indexes:
+            index = min(existing_indexes)
+            if replace:
+                compacted[index] = normalized
             else:
-                target[seen[value]] = _merge_method_pattern_record(
-                    target[seen[value]],
-                    record,
-                )
-            continue
-        target.append(record)
-        seen[value] = len(target) - 1
+                compacted[index] = _merge_method_pattern_record(
+                    compacted[index],
+                    normalized,
+            )
+            for key in _method_pattern_identity_keys(compacted[index]):
+                seen[key] = index
+            return
+        compacted.append(normalized)
+        index = len(compacted) - 1
+        for key in keys:
+            seen[key] = index
+
+    for record in target:
+        append_one(record, replace=False)
+    for record in records:
+        append_one(record, replace=replace_existing)
+    target[:] = compacted
 
 
 REPORT_INTELLIGENCE_BATCH_MERGE_JSONL_KEYS: Mapping[str, str] = {
