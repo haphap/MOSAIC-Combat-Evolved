@@ -60,6 +60,7 @@ from mosaic.rke.report_intelligence import (
     _append_unique_method_patterns,
     _backfill_tool_gaps_from_metric_candidates,
     _direct_pit_binding_gap_details,
+    _entry_calendar_index,
     _read_industry_etf_proxy_map_rows,
     _markdown_quality_gap,
     _normalize_method_patterns,
@@ -76,6 +77,27 @@ from mosaic.rke.report_intelligence import (
 
 def _sha(path: Path) -> str:
     return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def test_report_intelligence_entry_calendar_index_uses_explicit_lag():
+    calendar = ["2026-01-02", "2026-01-05", "2026-01-06", "2026-01-07"]
+
+    assert (
+        _entry_calendar_index(
+            calendar,
+            "2026-01-02T15:00:00+08:00",
+            entry_lag_trading_days=1,
+        )
+        == 1
+    )
+    assert (
+        _entry_calendar_index(
+            calendar,
+            "2026-01-02T15:00:00+08:00",
+            entry_lag_trading_days=2,
+        )
+        == 2
+    )
 
 
 def test_call_vllm_extractor_sends_authorization_header(monkeypatch):

@@ -6167,7 +6167,12 @@ def _next_calendar_index(calendar: Sequence[str], date_value: str) -> int | None
     return None
 
 
-def _entry_calendar_index(calendar: Sequence[str], signal_datetime: str) -> int | None:
+def _entry_calendar_index(
+    calendar: Sequence[str],
+    signal_datetime: str,
+    *,
+    entry_lag_trading_days: int,
+) -> int | None:
     date_key = _date_key(signal_datetime)
     if not date_key:
         return None
@@ -6178,17 +6183,23 @@ def _entry_calendar_index(calendar: Sequence[str], signal_datetime: str) -> int 
             break
     if first_strictly_after_signal is None:
         return None
-    entry_index = first_strictly_after_signal + max(
-        0,
-        INDUSTRY_ETF_ENTRY_LAG_TRADING_DAYS - 1,
-    )
+    entry_index = first_strictly_after_signal + max(0, entry_lag_trading_days - 1)
     if entry_index >= len(calendar):
         return None
     return entry_index
 
 
-def _entry_calendar_date(calendar: Sequence[str], signal_datetime: str) -> str:
-    entry_index = _entry_calendar_index(calendar, signal_datetime)
+def _entry_calendar_date(
+    calendar: Sequence[str],
+    signal_datetime: str,
+    *,
+    entry_lag_trading_days: int,
+) -> str:
+    entry_index = _entry_calendar_index(
+        calendar,
+        signal_datetime,
+        entry_lag_trading_days=entry_lag_trading_days,
+    )
     return calendar[entry_index] if entry_index is not None else ""
 
 
@@ -7742,6 +7753,7 @@ def build_industry_etf_proxy_pit_availability(
         entry_index = _entry_calendar_index(
             calendar,
             str(claim.get("signal_datetime") or ""),
+            entry_lag_trading_days=INDUSTRY_ETF_ENTRY_LAG_TRADING_DAYS,
         )
         if entry_index is None:
             _increment_count(label_gap_counts, "entry_date_after_latest_calendar")
@@ -7956,6 +7968,7 @@ def build_industry_etf_proxy_readiness(
         entry_index = _entry_calendar_index(
             calendar,
             str(claim.get("signal_datetime") or ""),
+            entry_lag_trading_days=INDUSTRY_ETF_ENTRY_LAG_TRADING_DAYS,
         )
         if entry_index is None:
             add_gap("entry_date_after_latest_calendar")
@@ -8140,6 +8153,7 @@ def build_stock_price_proxy_readiness(
         entry_index = _entry_calendar_index(
             stock_calendar,
             str(claim.get("signal_datetime") or ""),
+            entry_lag_trading_days=STOCK_PRICE_PROXY_ENTRY_LAG_TRADING_DAYS,
         )
         if entry_index is None:
             add_gap("entry_date_after_latest_calendar")
@@ -8428,6 +8442,7 @@ def build_industry_etf_proxy_outcome_labels(
         entry_index = _entry_calendar_index(
             calendar,
             str(claim.get("signal_datetime") or ""),
+            entry_lag_trading_days=INDUSTRY_ETF_ENTRY_LAG_TRADING_DAYS,
         )
         if entry_index is None:
             continue
@@ -8645,6 +8660,7 @@ def build_stock_price_proxy_outcome_labels(
         entry_index = _entry_calendar_index(
             stock_calendar,
             str(claim.get("signal_datetime") or ""),
+            entry_lag_trading_days=STOCK_PRICE_PROXY_ENTRY_LAG_TRADING_DAYS,
         )
         if entry_index is None:
             continue
