@@ -299,6 +299,39 @@ def test_gold_review_evidence_uses_local_markdown_cache_without_metadata(
     assert "markdown_missing" not in rows[0]["suggested_manual_error_tags"]
 
 
+def test_gold_review_evidence_does_not_auto_accept_unavailable_candidate(
+    tmp_path: Path,
+):
+    _copy_registry(tmp_path)
+    template_path = (
+        tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    )
+    rows = _load_jsonl(template_path)
+    rows[0]["proposed_claim_text"] = (
+        "Candidate extraction did not find a source-grounded mechanism sentence; "
+        "manual claim required."
+    )
+    rows[0]["proposed_review_risk_flags"] = [
+        "manual_review_required",
+        "candidate_unavailable",
+    ]
+    rows[0]["proposed_source_start_char"] = 0
+    rows[0]["proposed_source_end_char"] = 0
+    _write_jsonl(template_path, rows)
+
+    _summary, evidence_rows = build_gold_review_evidence(tmp_path, limit=1)
+    decision = evidence_rows[0]["suggested_review_decision"]
+
+    assert evidence_rows[0]["suggested_manual_claim_text"] == ""
+    assert "candidate_unavailable_requires_manual_rewrite" in evidence_rows[0][
+        "suggested_manual_error_tags"
+    ]
+    assert decision["claim_correct"] is None
+    assert decision["source_span_supports_claim"] is None
+    assert decision["direction_correct"] is None
+    assert decision["unsupported_field_false_grounded"] is None
+
+
 def test_gold_review_workbook_is_read_only_claim_checklist(tmp_path: Path):
     _copy_registry(tmp_path)
 

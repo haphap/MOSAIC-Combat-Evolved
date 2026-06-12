@@ -749,23 +749,33 @@ def _gold_evidence_row(
     has_source_evidence = bool(snippets)
     proposed_claim_text = str(row.get("proposed_claim_text") or "").strip()
     proposed_direction = str(row.get("proposed_direction") or "").strip()
+    proposed_flags = tuple(str(flag) for flag in row.get("proposed_review_risk_flags") or ())
+    proposed_start = row.get("proposed_source_start_char")
+    proposed_end = row.get("proposed_source_end_char")
+    candidate_unavailable = (
+        "candidate_unavailable" in proposed_flags
+        or "manual claim required" in proposed_claim_text.lower()
+        or (proposed_start == 0 and proposed_end == 0)
+    )
     suggested_decision = {
-        "claim_correct": True if has_source_evidence and proposed_claim_text else None,
-        "source_span_supports_claim": True if has_source_evidence else None,
-        "direction_correct": None if proposed_direction in {"", "ambiguous"} else True,
+        "claim_correct": None if candidate_unavailable else (True if has_source_evidence and proposed_claim_text else None),
+        "source_span_supports_claim": None if candidate_unavailable else (True if has_source_evidence else None),
+        "direction_correct": None if candidate_unavailable or proposed_direction in {"", "ambiguous"} else True,
         "target_correct": None,
         "horizon_correct": None,
         "variable_mapping_correct": None,
-        "unsupported_field_false_grounded": False,
+        "unsupported_field_false_grounded": None if candidate_unavailable else False,
     }
     tags: list[str] = []
+    if candidate_unavailable:
+        tags.append("candidate_unavailable_requires_manual_rewrite")
     if not has_source_evidence:
         tags.append("source_evidence_unverified")
     if not markdown_exists:
         tags.append("markdown_missing")
     if proposed_direction == "ambiguous":
         tags.append("direction_ambiguous")
-    if "sentence_fallback_requires_context_synthesis" in tuple(row.get("proposed_review_risk_flags") or ()):
+    if "sentence_fallback_requires_context_synthesis" in proposed_flags:
         tags.append("context_synthesis_required")
     return {
         "evidence_kind": "gold_review_evidence_not_import",
@@ -797,7 +807,7 @@ def _gold_evidence_row(
         "markdown_exists": markdown_exists,
         "evidence_terms": terms,
         "evidence_snippets": tuple(snippets),
-        "suggested_manual_claim_text": proposed_claim_text,
+        "suggested_manual_claim_text": "" if candidate_unavailable else proposed_claim_text,
         "suggested_review_decision": suggested_decision,
         "suggested_manual_error_tags": tuple(tags),
         "suggested_review_notes": (
