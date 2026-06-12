@@ -875,7 +875,7 @@ OPERATOR_READINESS_EXPECTED_CHECK_IDS = {
     "blank_source_license_policy_import_is_rejected",
     "blank_bundle_dry_run_does_not_promote",
     "manual_review_bundle_manifest_current",
-    "promotion_gate_still_blocks_production",
+    "promotion_gate_state_consistent",
     "source_text_redaction_clean",
 }
 PROMOTION_GATE_EXPECTED_CRITERION_IDS = {f"PG{index:02d}" for index in range(1, 11)}

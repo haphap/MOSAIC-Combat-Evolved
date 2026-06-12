@@ -139,6 +139,54 @@ def _check(check_id: str, passed: bool, evidence: str, blocker: str = "") -> Ope
     )
 
 
+def _promotion_gate_state_consistency(
+    promotion: Any,
+) -> tuple[bool, str, str]:
+    criteria = tuple(getattr(promotion, "criteria", ()) or ())
+    passed_by_id = {
+        str(getattr(criterion, "criterion_id", "") or ""): getattr(criterion, "passed", None) is True
+        for criterion in criteria
+    }
+    missing = sorted({f"PG{index:02d}" for index in range(1, 11)} - set(passed_by_id))
+    staged_expected = all(passed_by_id.get(f"PG{index:02d}") is True for index in range(1, 9))
+    production_expected = staged_expected and all(
+        passed_by_id.get(f"PG{index:02d}") is True for index in range(9, 11)
+    )
+    direct_forbidden_expected = not production_expected
+    if production_expected:
+        next_state_expected = "production"
+    elif staged_expected:
+        next_state_expected = "staged_production"
+    elif getattr(promotion, "paper_trading_allowed", None) is True:
+        next_state_expected = "paper_trading"
+    else:
+        next_state_expected = "candidate"
+
+    blockers = tuple(getattr(promotion, "blockers", ()) or ())
+    consistent = (
+        not missing
+        and getattr(promotion, "staged_production_allowed", None) is staged_expected
+        and getattr(promotion, "production_allowed", None) is production_expected
+        and getattr(promotion, "direct_production_forbidden", None) is direct_forbidden_expected
+        and getattr(promotion, "next_state", None) == next_state_expected
+        and (not production_expected or not blockers)
+    )
+    evidence = (
+        f"next_state={getattr(promotion, 'next_state', None)}, "
+        f"expected_next_state={next_state_expected}, "
+        f"staged={getattr(promotion, 'staged_production_allowed', None)}/{staged_expected}, "
+        f"production={getattr(promotion, 'production_allowed', None)}/{production_expected}, "
+        f"direct_forbidden={getattr(promotion, 'direct_production_forbidden', None)}/{direct_forbidden_expected}, "
+        f"blockers={len(blockers)}, missing={len(missing)}"
+    )
+    blocker = (
+        "promotion gate state is inconsistent with PG01-PG10 criteria"
+        if not missing
+        else f"promotion gate missing criteria: {', '.join(missing)}"
+    )
+    return consistent, evidence, blocker
+
+
 def _load_jsonl_template_rows(root_path: Path, relative_path: str) -> tuple[list[tuple[int, Any]], tuple[str, ...]]:
     path = root_path / relative_path
     if not path.exists():
@@ -743,14 +791,15 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
     )
 
     promotion = build_production_promotion_gate_report(root_path)
+    promotion_ok, promotion_evidence, promotion_blocker = _promotion_gate_state_consistency(
+        promotion
+    )
     checks.append(
         _check(
-            "promotion_gate_still_blocks_production",
-            promotion.paper_trading_allowed
-            and not promotion.production_allowed
-            and promotion.direct_production_forbidden,
-            f"next_state={promotion.next_state}, blockers={len(promotion.blockers)}",
-            "promotion gate no longer blocks direct production",
+            "promotion_gate_state_consistent",
+            promotion_ok,
+            promotion_evidence,
+            promotion_blocker,
         )
     )
 

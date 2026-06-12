@@ -244,7 +244,7 @@ def test_stock_report_outcome_status_doc_matches_public_artifacts():
     assert {
         "blank_full_gold_set_import_is_rejected",
         "blank_bundle_dry_run_does_not_promote",
-        "promotion_gate_still_blocks_production",
+        "promotion_gate_state_consistent",
     } <= operator_check_ids
     assert (
         f"blocked; {evolution_gate['blocker_count']} blockers remain"

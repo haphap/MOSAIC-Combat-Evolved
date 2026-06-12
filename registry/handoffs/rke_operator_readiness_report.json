@@ -82,8 +82,8 @@
     },
     {
       "blocker": "",
-      "check_id": "promotion_gate_still_blocks_production",
-      "evidence": "next_state=paper_trading, blockers=2",
+      "check_id": "promotion_gate_state_consistent",
+      "evidence": "next_state=paper_trading, expected_next_state=paper_trading, staged=False/False, production=False/False, direct_forbidden=True/True, blockers=2, missing=0",
       "passed": true
     },
     {

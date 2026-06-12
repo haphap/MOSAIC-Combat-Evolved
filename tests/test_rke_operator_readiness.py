@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import shutil
 from pathlib import Path
+from types import SimpleNamespace
 
 from mosaic.rke import (
     build_operator_readiness_report,
@@ -10,6 +11,7 @@ from mosaic.rke import (
     write_operator_readiness_report,
 )
 from mosaic.rke.cli import main
+from mosaic.rke.operator_readiness import _promotion_gate_state_consistency
 
 
 def _copy_registry(dst_root: Path) -> None:
@@ -67,9 +69,9 @@ def _append_jsonl_value(path: Path, value) -> None:
         handle.write(json.dumps(value, ensure_ascii=False, sort_keys=True) + "\n")
 
 
-def test_operator_readiness_accepts_current_review_bundle():
-    write_manual_review_batches(".")
-    report = build_operator_readiness_report(".")
+def test_operator_readiness_accepts_current_review_bundle(tmp_path: Path):
+    _copy_registry(tmp_path)
+    report = build_operator_readiness_report(tmp_path)
     checks = {check.check_id: check for check in report.checks}
 
     failures = {
@@ -119,8 +121,48 @@ def test_operator_readiness_accepts_current_review_bundle():
     assert checks["blank_source_license_policy_import_is_rejected"].passed
     assert checks["blank_bundle_dry_run_does_not_promote"].passed
     assert checks["manual_review_bundle_manifest_current"].passed
-    assert checks["promotion_gate_still_blocks_production"].passed
+    assert checks["promotion_gate_state_consistent"].passed
     assert checks["source_text_redaction_clean"].passed
+
+
+def test_promotion_gate_state_consistency_accepts_future_production_state():
+    promotion = SimpleNamespace(
+        criteria=tuple(
+            SimpleNamespace(criterion_id=f"PG{index:02d}", passed=True)
+            for index in range(1, 11)
+        ),
+        paper_trading_allowed=True,
+        staged_production_allowed=True,
+        production_allowed=True,
+        direct_production_forbidden=False,
+        next_state="production",
+        blockers=(),
+    )
+
+    passed, evidence, blocker = _promotion_gate_state_consistency(promotion)
+
+    assert passed, {"evidence": evidence, "blocker": blocker}
+
+
+def test_promotion_gate_state_consistency_rejects_bypassed_production_state():
+    promotion = SimpleNamespace(
+        criteria=tuple(
+            SimpleNamespace(criterion_id=f"PG{index:02d}", passed=(index < 9))
+            for index in range(1, 11)
+        ),
+        paper_trading_allowed=True,
+        staged_production_allowed=True,
+        production_allowed=True,
+        direct_production_forbidden=False,
+        next_state="production",
+        blockers=("lockbox has not passed",),
+    )
+
+    passed, evidence, blocker = _promotion_gate_state_consistency(promotion)
+
+    assert not passed
+    assert "expected_next_state=staged_production" in evidence
+    assert blocker == "promotion gate state is inconsistent with PG01-PG10 criteria"
 
 
 def test_operator_readiness_reports_malformed_required_registry_artifact(tmp_path: Path):
