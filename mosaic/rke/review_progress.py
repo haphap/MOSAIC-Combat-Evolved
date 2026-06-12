@@ -15,7 +15,12 @@ from .license_policy_import import (
     SOURCE_LICENSE_REVIEW_WORKBOOK_MD_PATH,
     build_source_license_policy_import,
 )
-from .lockbox_review_import import apply_lockbox_review_import
+from .lockbox_review_import import (
+    LOCKBOX_BOOL_FIELDS,
+    LOCKBOX_REQUIRED_FIELDS,
+    LOCKBOX_RESULTS,
+    apply_lockbox_review_import,
+)
 from .manual_review_batches import (
     GOLD_BATCH_IMPORT_TEMPLATE_PATH,
     GOLD_FULL_IMPORT_TEMPLATE_PATH,
@@ -219,6 +224,62 @@ def _footprint_batch_status(root_path: Path) -> Mapping[str, Any]:
         required_fields=ANALYTICAL_FOOTPRINT_REVIEW_REQUIRED_FIELDS,
         boolean_fields=ANALYTICAL_FOOTPRINT_REVIEW_BOOLEAN_FIELDS,
     )
+
+
+def _lockbox_missing_field(row: Mapping[str, Any], field: str) -> bool:
+    if field in LOCKBOX_BOOL_FIELDS:
+        return not isinstance(row.get(field), bool)
+    if field == "open_count":
+        return type(row.get(field)) is not int
+    return not str(row.get(field) or "").strip()
+
+
+def _lockbox_decision_status(root_path: Path) -> Mapping[str, Any]:
+    path = _resolve(root_path, LOCKBOX_REVIEWED_IMPORT_PATH)
+    status: dict[str, Any] = {
+        "path": LOCKBOX_REVIEWED_IMPORT_PATH,
+        "exists": path.exists(),
+        "rows": 0,
+        "complete_rows": 0,
+        "pending_rows": 0,
+        "malformed_rows": 0,
+        "missing_required_fields": {},
+        "invalid_required_fields": {},
+    }
+    if not path.exists():
+        return status
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        status.update({"rows": 1, "pending_rows": 1, "malformed_rows": 1})
+        return status
+    if not isinstance(payload, Mapping):
+        status.update({"rows": 1, "pending_rows": 1, "malformed_rows": 1})
+        return status
+
+    required_fields = (*LOCKBOX_REQUIRED_FIELDS, *LOCKBOX_BOOL_FIELDS)
+    missing_required_fields = {
+        field: 1 for field in required_fields if _lockbox_missing_field(payload, field)
+    }
+    invalid_required_fields: dict[str, int] = {}
+    if not missing_required_fields:
+        if str(payload.get("result") or "") not in LOCKBOX_RESULTS - {"not_opened"}:
+            invalid_required_fields["result"] = 1
+        if type(payload.get("open_count")) is int and int(payload.get("open_count") or 0) < 1:
+            invalid_required_fields["open_count"] = 1
+
+    complete_rows = 0 if missing_required_fields or invalid_required_fields else 1
+    status.update(
+        {
+            "rows": 1,
+            "complete_rows": complete_rows,
+            "pending_rows": 1 - complete_rows,
+            "malformed_rows": 0,
+            "missing_required_fields": dict(sorted(missing_required_fields.items())),
+            "invalid_required_fields": dict(sorted(invalid_required_fields.items())),
+        }
+    )
+    return status
 
 
 def _gold_next_batch_commands(pending_rows: int) -> dict[str, str]:
@@ -445,6 +506,7 @@ def _source_license_progress(root_path: Path) -> ManualReviewGateProgress:
 
 def _lockbox_progress(root_path: Path) -> ManualReviewGateProgress:
     input_path = LOCKBOX_REVIEWED_IMPORT_PATH
+    current_batch_status = _lockbox_decision_status(root_path)
     resolved_input = _resolve(root_path, input_path)
     prepare_command = "mosaic-rke prepare-lockbox-review --root ."
     dry_run_command = f"mosaic-rke apply-lockbox-review --root . --input {input_path} --dry-run"
@@ -457,6 +519,7 @@ def _lockbox_progress(root_path: Path) -> ManualReviewGateProgress:
             prepare_command=prepare_command,
             dry_run_command=dry_run_command,
             apply_command=apply_command,
+            current_batch_status=current_batch_status,
         )
 
     input_rows = _json_object_exists(resolved_input)
@@ -480,6 +543,7 @@ def _lockbox_progress(root_path: Path) -> ManualReviewGateProgress:
         prepare_command=prepare_command,
         dry_run_command=dry_run_command,
         apply_command=apply_command,
+        current_batch_status=current_batch_status,
     )
 
 
@@ -608,6 +672,13 @@ def _render_batch_status_lines(label: str, status: Mapping[str, Any]) -> list[st
             for field, count in sorted(missing_required_fields.items())
         )
         lines.append(f"  Missing required fields: {missing}")
+    invalid_required_fields = status.get("invalid_required_fields")
+    if isinstance(invalid_required_fields, Mapping) and invalid_required_fields:
+        invalid = ", ".join(
+            f"`{field}`={int(count)}"
+            for field, count in sorted(invalid_required_fields.items())
+        )
+        lines.append(f"  Invalid required fields: {invalid}")
     return lines
 
 
@@ -687,12 +758,13 @@ def render_manual_review_runbook_markdown(report: ManualReviewProgressReport) ->
         "",
         "## Current Batch Scratch",
         "",
-        "This section reports aggregate completion counts for the current local batch files only; it does not include source text, claim text, or reviewer notes.",
+        "This section reports aggregate completion counts for the current local batch or decision files only; it does not include source text, claim text, or reviewer notes.",
         *_render_batch_status_lines("Gold-set batch", gold.current_batch_status),
         *_render_batch_status_lines(
             "Analytical-footprint batch",
             footprint.current_batch_status,
         ),
+        *_render_batch_status_lines("Lockbox decision", lockbox.current_batch_status),
         "",
         "## Prepare Commands",
         "",

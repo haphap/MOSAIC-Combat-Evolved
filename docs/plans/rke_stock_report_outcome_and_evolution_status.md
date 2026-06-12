@@ -37,8 +37,8 @@ contracts.
 | `registry/report_intelligence/recipe_paper_trading_runs.jsonl` | 1858 pre-registered shadow paper-trading runs |
 | `registry/report_intelligence/recipe_paper_trading_summary.json` | 20 recipes passed paper-trading validation; 561 recipes have direct or inferred PIT binding; after-cost paper-trading summary is computed from passed pre-registered runs only; 1838 recipes remain blocked by direct binding, effective-N, or shadow-tool readiness gaps |
 | `registry/report_intelligence/confidence_impact_monitor.json` | 20 paper-trading validated recipes are monitored; unvalidated confidence impact count is 0; alpha-decay and calibration-drift observations remain shadow-only |
-| `registry/report_intelligence/evolution_readiness_gate.json` | blocked; current blockers are limited to schema/audit-history readiness and manual forecast gold-set quality metrics |
-| `registry/review_batches/manual_review_progress_report.json` | public baseline: gold-set 0/500, analytical-footprint review 0/1001, source license 17529/17529, lockbox 0/1; the report now includes source-text-free `current_batch_status` for the active local 50-row gold-set and analytical-footprint batch scratch files. Current gold batch status is 50 rows, 0 complete, 50 pending, 0 malformed; missing required fields are aggregate counts only. Current analytical-footprint batch status is 50 rows, 0 complete, 50 pending, 0 malformed; missing required fields are aggregate counts only. Full gold-set and footprint review imports still require human decisions before promotion dry-run. |
+| `registry/report_intelligence/evolution_readiness_gate.json` | blocked; 13 blockers remain, limited to schema/audit-history readiness and manual forecast gold-set quality metrics |
+| `registry/review_batches/manual_review_progress_report.json` | public baseline: gold-set 0/500, analytical-footprint review 0/1001, source license 17529/17529, lockbox 0/1; Synthetic pytest fixtures can mark manual rows complete for contract tests, but current target hashes in the real scratch still require human review. The report now includes source-text-free `current_batch_status` for the active local 50-row gold-set, analytical-footprint, and lockbox scratch files. Current gold batch status is 50 rows, 0 complete, 50 pending, 0 malformed; missing required fields are aggregate counts only. Current analytical-footprint batch status is 50 rows, 0 complete, 50 pending, 0 malformed; missing required fields are aggregate counts only. Current lockbox decision status is 1 row, 0 complete, 1 pending, 0 malformed; missing required fields are aggregate counts only. Full gold-set and footprint review imports still require human decisions before promotion dry-run. |
 
 ## Plan Coverage
 
@@ -90,20 +90,20 @@ MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv ru
 These commands write private, gitignored manual handoff files. The current
 active gold-set batch has 50 pending rows and aggregate missing-field counts for
 `manual_claim_text`, the seven boolean review fields, and reviewer decision
-fields where applicable. The current active analytical-footprint batch has 50
-pending rows and aggregate missing-field counts for `footprint_correct`,
+fields where applicable. The private gold-set evidence draft now covers 500 rows
+with 0 missing local markdown rows after cache fallback; 500 rows still require manual claim text and boolean review decisions. The current active
+analytical-footprint batch has 50 pending rows and aggregate missing-field counts
+for `footprint_correct`,
 `source_span_supports_footprint`, `metric_mapping_correct`,
 `inferred_steps_tagged_correctly`, `unknowns_used_when_uncertain`,
 `no_proprietary_text_leakage`, and `review_notes`. The assist command writes
 private, gitignored helper files at
 `registry/report_intelligence/analytical_footprint_review_assist.jsonl` and
-`registry/report_intelligence/analytical_footprint_review_workbook.md`; these
-are not import files and do not satisfy the review gate by themselves. The
-evidence command writes private, gitignored local-markdown snippets and draft
-review suggestions at
+`registry/report_intelligence/analytical_footprint_review_workbook.md`; private footprint review assist/workbook cover 1001 pending rows. These files are not import files and do not satisfy the review gate by themselves. The evidence command writes private, gitignored local-markdown snippets and draft review suggestions at
 `registry/report_intelligence/analytical_footprint_review_evidence.jsonl` and
-`registry/report_intelligence/analytical_footprint_review_evidence.md`; these
-also are not import files.
+`registry/report_intelligence/analytical_footprint_review_evidence.md`; the
+private evidence draft covers 1001 rows with 0 missing local markdown rows.
+These also are not import files.
 
 `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke schema-status --root .`
 currently exits with code 2 by design. The current failing semantic records are

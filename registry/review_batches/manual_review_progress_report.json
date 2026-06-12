@@ -157,7 +157,21 @@
         "lockbox has not been opened"
       ],
       "complete_rows": 0,
-      "current_batch_status": {},
+      "current_batch_status": {
+        "complete_rows": 0,
+        "exists": true,
+        "invalid_required_fields": {},
+        "malformed_rows": 0,
+        "missing_required_fields": {
+          "open_count": 1,
+          "opened_at": 1,
+          "opened_by": 1,
+          "result": 1
+        },
+        "path": "registry/review_batches/lockbox_reviewed.json",
+        "pending_rows": 1,
+        "rows": 1
+      },
       "dry_run_command": "mosaic-rke apply-lockbox-review --root . --input registry/review_batches/lockbox_reviewed.json --dry-run",
       "input_exists": true,
       "input_path": "registry/review_batches/lockbox_reviewed.json",

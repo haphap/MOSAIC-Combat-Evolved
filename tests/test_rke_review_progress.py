@@ -32,6 +32,9 @@ def _copy_registry(dst_root: Path) -> None:
     gold_batch = dst_root / "registry/review_batches/gold_set_reviewed.jsonl"
     if gold_batch.exists():
         gold_batch.unlink()
+    lockbox_reviewed = dst_root / "registry/review_batches/lockbox_reviewed.json"
+    if lockbox_reviewed.exists():
+        lockbox_reviewed.unlink()
     gold_path = dst_root / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
     gold_rows = _load_jsonl(gold_path)
     for row in gold_rows:
@@ -210,6 +213,12 @@ def test_review_progress_reports_missing_scratch_files(tmp_path: Path, capsys):
         footprint_gate["current_batch_status"]["path"]
         == "registry/report_intelligence/analytical_footprint_review_batch.jsonl"
     )
+    lockbox_gate = next(gate for gate in output["gates"] if gate["review_kind"] == "lockbox")
+    assert lockbox_gate["current_batch_status"]["exists"] is False
+    assert (
+        lockbox_gate["current_batch_status"]["path"]
+        == "registry/review_batches/lockbox_reviewed.json"
+    )
     assert all(gate["input_exists"] is False for gate in output["gates"])
     assert any("prepare-gold-review" in blocker for blocker in output["blockers"])
     assert any("prepare-footprint-review" in blocker for blocker in output["blockers"])
@@ -234,11 +243,28 @@ def test_review_progress_reports_current_batch_scratch_status(tmp_path: Path):
         tmp_path / "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
         footprint_rows,
     )
+    lockbox_row = dict(build_lockbox_review_import_template(tmp_path))
+    lockbox_row.update(
+        {
+            "opened_at": "",
+            "opened_by": "",
+            "open_count": None,
+            "result": "",
+            "parameter_search_after_open": False,
+            "rule_design_after_open": False,
+            "notes": "operator-only scratch text must not be rendered",
+        }
+    )
+    _write_json(
+        tmp_path / "registry/review_batches/lockbox_reviewed.json",
+        lockbox_row,
+    )
 
     report = build_manual_review_progress(tmp_path)
     gates = {gate.review_kind: gate for gate in report.gates}
     gold_batch = gates["gold_set"].current_batch_status
     footprint_batch = gates["footprint_review"].current_batch_status
+    lockbox_status = gates["lockbox"].current_batch_status
     markdown = render_manual_review_runbook_markdown(report)
 
     assert gold_batch["exists"] is True
@@ -257,12 +283,25 @@ def test_review_progress_reports_current_batch_scratch_status(tmp_path: Path):
         "metric_mapping_correct": 1,
         "review_notes": 1,
     }
+    assert lockbox_status["exists"] is True
+    assert lockbox_status["rows"] == 1
+    assert lockbox_status["complete_rows"] == 0
+    assert lockbox_status["pending_rows"] == 1
+    assert lockbox_status["missing_required_fields"] == {
+        "open_count": 1,
+        "opened_at": 1,
+        "opened_by": 1,
+        "result": 1,
+    }
     assert "## Current Batch Scratch" in markdown
     assert "Gold-set batch" in markdown
     assert "Analytical-footprint batch" in markdown
+    assert "Lockbox decision" in markdown
     assert "`manual_claim_text`=1" in markdown
     assert "`review_notes`=1" in markdown
+    assert "`open_count`=1" in markdown
     assert "fixture approval" not in markdown
+    assert "operator-only scratch text" not in markdown
 
 
 def test_write_manual_review_progress_report_outputs_registry_artifact(tmp_path: Path):
@@ -306,6 +345,7 @@ def test_manual_review_runbook_renders_operator_checklist_without_source_text(tm
     assert "mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run" in markdown
     assert "mosaic-rke prepare-license-policy-review --root ." in markdown
     assert "mosaic-rke prepare-lockbox-review --root ." in markdown
+    assert "Lockbox decision" in markdown
     assert "registry/review_batches/gold_set_full_reviewed.jsonl" in markdown
     assert "registry/report_intelligence/analytical_footprint_reviewed.jsonl" in markdown
     assert "registry/review_batches/gold_set_review_evidence.jsonl" in markdown
