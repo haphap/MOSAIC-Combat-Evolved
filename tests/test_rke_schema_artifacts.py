@@ -2634,6 +2634,33 @@ def test_manual_review_progress_contract_accepts_current_public_artifact(
     assert record.failures == ()
 
 
+def test_manual_review_progress_contract_accepts_completed_gate_state(
+    tmp_path: Path,
+):
+    registry = _copy_registry_for_manual_progress(tmp_path)
+    progress_path = registry / "review_batches/manual_review_progress_report.json"
+    progress = json.loads(progress_path.read_text(encoding="utf-8"))
+    progress["ready_for_promotion_dry_run"] = True
+    progress["blockers"] = []
+    for gate in progress["gates"]:
+        gate["complete_rows"] = gate["target_rows"]
+        gate["pending_rows"] = 0
+        gate["ready_for_promotion"] = True
+        gate["simulation_accepted"] = True
+        gate["blockers"] = []
+        gate["current_batch_status"] = {}
+    progress_path.write_text(
+        json.dumps(progress, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _manual_review_progress_contract_record(tmp_path)
+
+    assert record.accepted
+    assert record.item_count == 4
+    assert record.failures == ()
+
+
 def test_manual_review_progress_contract_rejects_tampered_ready_state(
     tmp_path: Path,
 ):
@@ -2654,12 +2681,12 @@ def test_manual_review_progress_contract_rejects_tampered_ready_state(
 
     assert not record.accepted
     assert any(
-        "ready_for_promotion_dry_run: current public baseline must be false" in item
+        "ready_for_promotion_dry_run: expected False" in item
         for item in record.failures
     )
     assert any("blockers: must be non-empty" in item for item in record.failures)
     assert any(
-        "gates[gold_set].ready_for_promotion: expected False" in item
+        "gates[gold_set].pending_rows: ready gate must be zero" in item
         for item in record.failures
     )
     assert any("ready gate must not block" in item for item in record.failures)
@@ -2688,7 +2715,6 @@ def test_manual_review_progress_contract_rejects_count_or_command_drift(
     record = _manual_review_progress_contract_record(tmp_path)
 
     assert not record.accepted
-    assert any("gates[footprint_review].pending_rows: expected 1001" in item for item in record.failures)
     assert any("complete_rows + pending_rows must equal target_rows" in item for item in record.failures)
     assert any("prepare_command: missing MOSAIC_RKE_TMPDIR prefix" in item for item in record.failures)
     assert any("prepare_command: missing TMPDIR prefix" in item for item in record.failures)

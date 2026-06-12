@@ -909,35 +909,15 @@ OPERATOR_HANDOFF_EXPECTED_STEP_IDS = (
 MANUAL_REVIEW_PROGRESS_EXPECTED_GATES = {
     "gold_set": {
         "input_path": "registry/review_batches/gold_set_full_reviewed.jsonl",
-        "pending_rows": 500,
-        "complete_rows": 0,
-        "target_rows": 500,
-        "ready_for_promotion": False,
-        "simulation_accepted": False,
     },
     "footprint_review": {
         "input_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
-        "pending_rows": 1001,
-        "complete_rows": 0,
-        "target_rows": 1001,
-        "ready_for_promotion": False,
-        "simulation_accepted": False,
     },
     "source_license": {
         "input_path": "registry/review_batches/source_license_policy_reviewed.json",
-        "pending_rows": 0,
-        "complete_rows": 17529,
-        "target_rows": 17529,
-        "ready_for_promotion": True,
-        "simulation_accepted": True,
     },
     "lockbox": {
         "input_path": "registry/review_batches/lockbox_reviewed.json",
-        "pending_rows": 1,
-        "complete_rows": 0,
-        "target_rows": 1,
-        "ready_for_promotion": False,
-        "simulation_accepted": False,
     },
 }
 
@@ -3840,6 +3820,17 @@ def _validate_manual_review_progress_contract(
             failures.append(f"{row_label}.blockers: ready gate must not block")
         if ready is False and not blockers:
             failures.append(f"{row_label}.blockers: blocked gate requires blockers")
+        if ready is True:
+            if pending_rows not in (0, None):
+                failures.append(f"{row_label}.pending_rows: ready gate must be zero")
+            if (
+                complete_rows is not None
+                and target_rows is not None
+                and complete_rows != target_rows
+            ):
+                failures.append(
+                    f"{row_label}.complete_rows: ready gate must equal target_rows"
+                )
         if simulation_accepted is not ready:
             failures.append(
                 f"{row_label}.simulation_accepted: must match ready_for_promotion"
@@ -3874,12 +3865,18 @@ def _validate_manual_review_progress_contract(
                     f"{row_label}.current_batch_status: complete + pending + malformed must equal rows"
                 )
 
-    if report.get("ready_for_promotion_dry_run") is not False:
+    expected_ready_for_promotion = bool(gates) and all(
+        gate.get("ready_for_promotion") is True for gate in gates
+    )
+    if report.get("ready_for_promotion_dry_run") is not expected_ready_for_promotion:
         failures.append(
-            "manual_review_progress_report.ready_for_promotion_dry_run: current public baseline must be false"
+            "manual_review_progress_report.ready_for_promotion_dry_run: "
+            f"expected {expected_ready_for_promotion}"
         )
     report_blockers = _string_items(report.get("blockers"))
-    if not report_blockers:
+    if expected_ready_for_promotion and report_blockers:
+        failures.append("manual_review_progress_report.blockers: ready report must be empty")
+    if not expected_ready_for_promotion and not report_blockers:
         failures.append("manual_review_progress_report.blockers: must be non-empty")
 
     return len(gates), failures
