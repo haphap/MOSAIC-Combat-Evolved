@@ -204,7 +204,7 @@ Dry-run command: `mosaic-rke promotion-dry-run --root . --gold-input registry/re
 - Exported rows: 500
 - Dry run: `mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl --dry-run`
 - Apply: `mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl`
-- Note: Run prepare-gold-review --full, fill the reviewed scratch JSONL, use registry/review_batches/gold_set_review_workbook.md as the read-only claim checklist, and use registry/review_batches/gold_set_review_assist.md as non-import machine assistance, use registry/review_batches/gold_set_review_evidence.md as private source evidence draft, then dry-run before applying the 500-claim gold set.
+- Note: Run prepare-gold-review --full, fill the reviewed scratch JSONL, use registry/review_batches/gold_set_review_workbook.md as the read-only claim checklist, and use registry/review_batches/gold_set_review_assist.md as non-import machine assistance, use registry/review_batches/gold_set_review_evidence.md as private source evidence draft, then dry-run before applying the 500-claim gold set. For batch work, prepare registry/review_batches/gold_set_reviewed.jsonl with --gold-batch-size/--offset, dry-run it, and apply accepted batches to accumulate progress.
 
 ### RI-FOOTPRINT-REVIEW footprint_review
 
@@ -222,7 +222,7 @@ Dry-run command: `mosaic-rke promotion-dry-run --root . --gold-input registry/re
 - Exported rows: 1001
 - Dry run: `mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_reviewed.jsonl --dry-run`
 - Apply: `mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_reviewed.jsonl`
-- Note: Generate the private footprint review assist/workbook and evidence draft, fill the reviewed scratch JSONL, keep hashes intact, and dry-run before applying.
+- Note: Generate the private footprint review assist/workbook and evidence draft, fill the reviewed scratch JSONL, keep hashes intact, and dry-run before applying. For batch work, prepare registry/report_intelligence/analytical_footprint_review_batch.jsonl with --limit/--offset, dry-run it, and apply accepted batches to accumulate progress.
 
 ### PG03 source_license
 

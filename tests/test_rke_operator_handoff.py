@@ -103,6 +103,8 @@ def test_operator_handoff_summarizes_remaining_manual_gates():
     assert "apply-footprint-review" in footprint.dry_run_command
     assert "analytical_footprint_reviewed.jsonl" in footprint.dry_run_command
     assert "analytical_footprint_reviewed.jsonl" in handoff.promotion_dry_run_command
+    assert "gold_set_reviewed.jsonl" in gold.operator_note
+    assert "analytical_footprint_review_batch.jsonl" in footprint.operator_note
     assert license_gate.pending_rows == 0
     assert license_gate.passed
     assert (
@@ -243,6 +245,8 @@ def test_write_operator_handoff_outputs_json_markdown_and_lockbox_template(
         footprint_gate["reviewed_policy_path"]
         == "registry/report_intelligence/analytical_footprint_reviewed.jsonl"
     )
+    assert "gold_set_reviewed.jsonl" in gold_gate["operator_note"]
+    assert "analytical_footprint_review_batch.jsonl" in footprint_gate["operator_note"]
     assert lockbox_gate["prepare_command"] == "mosaic-rke prepare-lockbox-review --root ."
     assert lockbox_gate["reviewed_policy_path"] == "registry/review_batches/lockbox_reviewed.json"
     assert len(payload["gates"]) == 4

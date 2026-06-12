@@ -23,6 +23,7 @@ from .lockbox_review_import import (
 from .manual_review_import import TARGET_ROW_HASH_FIELD, review_row_fingerprint
 from .manual_review_batches import (
     GOLD_FULL_REVIEWED_IMPORT_PATH,
+    GOLD_REVIEWED_IMPORT_PATH,
     GOLD_REVIEW_ASSIST_JSONL_PATH,
     GOLD_REVIEW_ASSIST_MD_PATH,
     GOLD_REVIEW_EVIDENCE_JSONL_PATH,
@@ -36,6 +37,7 @@ from .promotion_gate import (
     write_production_promotion_gate_report,
 )
 from .report_intelligence import (
+    ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH,
     ANALYTICAL_FOOTPRINT_REVIEW_ASSIST_JSONL_PATH,
     ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_JSONL_PATH,
     ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_MD_PATH,
@@ -229,7 +231,9 @@ def _footprint_review_gate(root_path: Path) -> OperatorGateHandoff:
         ),
         operator_note=(
             "Generate the private footprint review assist/workbook and evidence draft, "
-            "fill the reviewed scratch JSONL, keep hashes intact, and dry-run before applying."
+            "fill the reviewed scratch JSONL, keep hashes intact, and dry-run before applying. "
+            f"For batch work, prepare {ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH} "
+            "with --limit/--offset, dry-run it, and apply accepted batches to accumulate progress."
         ),
     )
 
@@ -582,7 +586,9 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
                 f"use {GOLD_REVIEW_WORKBOOK_MD_PATH} as the read-only claim checklist, "
                 f"and use {GOLD_REVIEW_ASSIST_MD_PATH} as non-import machine assistance, "
                 f"use {GOLD_REVIEW_EVIDENCE_MD_PATH} as private source evidence draft, "
-                "then dry-run before applying the 500-claim gold set."
+                "then dry-run before applying the 500-claim gold set. For batch work, "
+                f"prepare {GOLD_REVIEWED_IMPORT_PATH} with --gold-batch-size/--offset, "
+                "dry-run it, and apply accepted batches to accumulate progress."
             ),
         ),
         _footprint_review_gate(root_path),
