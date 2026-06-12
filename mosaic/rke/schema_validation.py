@@ -845,6 +845,21 @@ EVOLUTION_GATE_EXPECTED_THRESHOLDS = {
     "min_gap_distribution_refreshes": 3,
 }
 
+GOLD_REVIEW_GATE_EXPECTED_REVIEW_PATH = (
+    "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+)
+GOLD_REVIEW_GATE_MIN_REVIEWED_CLAIMS = 500
+GOLD_REVIEW_GATE_MIN_DOCUMENTS = 50
+GOLD_REVIEW_GATE_METRIC_THRESHOLDS = {
+    "claim_precision": (">=", 0.85),
+    "source_span_support_precision": (">=", 0.90),
+    "target_accuracy": (">=", 0.85),
+    "direction_accuracy": (">=", 0.85),
+    "horizon_accuracy": (">=", 0.85),
+    "variable_mapping_accuracy": (">=", 0.80),
+    "unsupported_field_false_grounding_rate": ("<=", 0.05),
+}
+
 OPERATOR_READINESS_EXPECTED_CHECK_IDS = {
     "required_registry_valid",
     "handoff_ready_for_operator",
@@ -3351,6 +3366,162 @@ def _validate_evolution_readiness_gate_contract(
     return len(checks), failures
 
 
+def _validate_gold_review_gate_contract(root_path: Path) -> tuple[int, list[str]]:
+    summary_path = (
+        root_path / "registry/gold_sets/tushare_research_reports.review_summary.json"
+    )
+    if not summary_path.exists():
+        return 0, []
+    summary, summary_failures = _read_mapping_json(
+        summary_path,
+        "registry/gold_sets/tushare_research_reports.review_summary.json",
+    )
+    failures = list(summary_failures)
+    if not summary:
+        return 0, failures
+
+    row_label = "gold_review_summary"
+    required_fields = (
+        "summary_id",
+        "review_path",
+        "total_claims",
+        "reviewed_claims",
+        "pending_claims",
+        "total_documents",
+        "review_complete",
+        "passed",
+        "blockers",
+        "metrics",
+    )
+    failures.extend(
+        _required_field_failures(
+            summary,
+            row_label=row_label,
+            required_fields=required_fields,
+        )
+    )
+
+    review_path = str(summary.get("review_path") or "").strip()
+    review_parts = Path(review_path).parts
+    if review_path != GOLD_REVIEW_GATE_EXPECTED_REVIEW_PATH:
+        failures.append(
+            f"{row_label}.review_path: expected "
+            f"{GOLD_REVIEW_GATE_EXPECTED_REVIEW_PATH}"
+        )
+    if Path(review_path).is_absolute() or ".." in review_parts:
+        failures.append(f"{row_label}.review_path: must be repo-relative")
+
+    counts: dict[str, int | None] = {}
+    for field in (
+        "total_claims",
+        "reviewed_claims",
+        "pending_claims",
+        "total_documents",
+    ):
+        value = _int_or_none(summary.get(field))
+        counts[field] = value
+        if value is None:
+            failures.append(f"{row_label}.{field}: expected integer")
+        elif value < 0:
+            failures.append(f"{row_label}.{field}: must be non-negative")
+
+    total_claims = counts["total_claims"]
+    reviewed_claims = counts["reviewed_claims"]
+    pending_claims = counts["pending_claims"]
+    total_documents = counts["total_documents"]
+    if None not in (total_claims, reviewed_claims, pending_claims) and (
+        int(reviewed_claims or 0) + int(pending_claims or 0)
+        != int(total_claims or 0)
+    ):
+        failures.append(
+            f"{row_label}: reviewed_claims + pending_claims must equal total_claims"
+        )
+
+    expected_review_complete = (
+        pending_claims == 0
+        and reviewed_claims == total_claims
+        and (total_claims or 0) > 0
+    )
+    review_complete = summary.get("review_complete")
+    if not isinstance(review_complete, bool):
+        failures.append(f"{row_label}.review_complete: must be boolean")
+    elif review_complete is not expected_review_complete:
+        failures.append(
+            f"{row_label}.review_complete: expected {expected_review_complete}"
+        )
+
+    passed = summary.get("passed")
+    if not isinstance(passed, bool):
+        failures.append(f"{row_label}.passed: must be boolean")
+        passed = False
+
+    blockers = _string_items(summary.get("blockers"))
+    if summary.get("blockers") is not None and (
+        not isinstance(summary.get("blockers"), Sequence)
+        or isinstance(summary.get("blockers"), str)
+    ):
+        failures.append(f"{row_label}.blockers: expected array")
+
+    metrics_payload = summary.get("metrics")
+    metric_failures: list[str] = []
+    if metrics_payload is None:
+        if review_complete is True or passed is True:
+            metric_failures.append(f"{row_label}.metrics: expected object")
+    elif not isinstance(metrics_payload, Mapping):
+        metric_failures.append(f"{row_label}.metrics: expected object")
+    else:
+        for field, (operator, threshold) in GOLD_REVIEW_GATE_METRIC_THRESHOLDS.items():
+            value = _float_or_none(metrics_payload.get(field))
+            if value is None:
+                metric_failures.append(f"{row_label}.metrics.{field}: expected number")
+            elif operator == ">=" and value < threshold:
+                metric_failures.append(
+                    f"{row_label}.metrics.{field}: expected >= {threshold}"
+                )
+            elif operator == "<=" and value > threshold:
+                metric_failures.append(
+                    f"{row_label}.metrics.{field}: expected <= {threshold}"
+                )
+    failures.extend(metric_failures)
+
+    review_is_complete = review_complete is True and expected_review_complete
+    has_pending = pending_claims is None or pending_claims > 0
+    below_minimum = (
+        reviewed_claims is None
+        or reviewed_claims < GOLD_REVIEW_GATE_MIN_REVIEWED_CLAIMS
+        or total_documents is None
+        or total_documents < GOLD_REVIEW_GATE_MIN_DOCUMENTS
+    )
+    blocked_state = has_pending or not review_is_complete or below_minimum or bool(
+        metric_failures
+    )
+    if blocked_state and not blockers:
+        failures.append(f"{row_label}.blockers: blocked review requires blockers")
+    if passed is True:
+        if blockers:
+            failures.append(f"{row_label}.blockers: passed review must not block")
+        if not review_is_complete:
+            failures.append(f"{row_label}.passed: requires review_complete=true")
+        if pending_claims != 0:
+            failures.append(f"{row_label}.passed: requires pending_claims=0")
+        if reviewed_claims is None or reviewed_claims < GOLD_REVIEW_GATE_MIN_REVIEWED_CLAIMS:
+            failures.append(
+                f"{row_label}.reviewed_claims: expected >= "
+                f"{GOLD_REVIEW_GATE_MIN_REVIEWED_CLAIMS}"
+            )
+        if total_documents is None or total_documents < GOLD_REVIEW_GATE_MIN_DOCUMENTS:
+            failures.append(
+                f"{row_label}.total_documents: expected >= "
+                f"{GOLD_REVIEW_GATE_MIN_DOCUMENTS}"
+            )
+        if metric_failures:
+            failures.append(f"{row_label}.passed: requires threshold-clean metrics")
+    elif passed is False and not blocked_state and blockers:
+        failures.append(f"{row_label}.blockers: stale blockers for complete review")
+
+    return 1, failures
+
+
 def _validate_prompt_mutation_candidate_contract(
     root_path: Path,
 ) -> tuple[int, list[str]]:
@@ -4820,6 +4991,19 @@ def validate_report_intelligence_semantics(
             item_count=evolution_readiness_gate_item_count,
             accepted=not evolution_readiness_gate_failures,
             failures=tuple(evolution_readiness_gate_failures),
+        )
+    )
+
+    gold_review_gate_item_count, gold_review_gate_failures = (
+        _validate_gold_review_gate_contract(root_path)
+    )
+    records.append(
+        SchemaValidationRecord(
+            schema_path="schemas/report_intelligence_gold_review_gate_rules",
+            artifact_path="registry/gold_sets/tushare_research_reports.review_summary.json",
+            item_count=gold_review_gate_item_count,
+            accepted=not gold_review_gate_failures,
+            failures=tuple(gold_review_gate_failures),
         )
     )
 

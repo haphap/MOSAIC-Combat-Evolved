@@ -307,6 +307,7 @@ def test_schema_validation_report_accepts_current_registry():
         "schemas/report_intelligence_recipe_paper_trading_contract_rules",
         "schemas/report_intelligence_evolution_refresh_history_rules",
         "schemas/report_intelligence_evolution_readiness_gate_rules",
+        "schemas/report_intelligence_gold_review_gate_rules",
         "schemas/report_intelligence_alpha_decay_monitoring_rules",
         "schemas/report_intelligence_tooling_readiness_rules",
         "schemas/report_intelligence_patch_v1_5_coverage_rules",
@@ -806,6 +807,43 @@ def _evolution_readiness_gate_record(tmp_path: Path):
         for record in records
         if record.schema_path
         == "schemas/report_intelligence_evolution_readiness_gate_rules"
+    )
+
+
+def _copy_gold_review_summary(tmp_path: Path) -> Path:
+    gold_dir = tmp_path / "registry/gold_sets"
+    gold_dir.mkdir(parents=True, exist_ok=True)
+    summary_path = gold_dir / "tushare_research_reports.review_summary.json"
+    summary_path.write_text(
+        json.dumps(
+            {
+                "blockers": ["500 gold-set claim review rows still pending"],
+                "metrics": None,
+                "passed": False,
+                "pending_claims": 500,
+                "review_complete": False,
+                "review_path": "registry/gold_sets/tushare_research_reports.review_template.jsonl",
+                "reviewed_claims": 0,
+                "summary_id": "RKE-GOLD-SET-REVIEW-SUMMARY-20260606",
+                "total_claims": 500,
+                "total_documents": 50,
+            },
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return summary_path
+
+
+def _gold_review_gate_record(tmp_path: Path):
+    records = validate_report_intelligence_semantics(tmp_path)
+    return next(
+        record
+        for record in records
+        if record.schema_path == "schemas/report_intelligence_gold_review_gate_rules"
     )
 
 
@@ -2277,6 +2315,79 @@ def test_evolution_readiness_gate_contract_rejects_unexplained_stock_conflicts(
     assert any(
         "stock_target_conflict_reviewed_count: expected >= stock_target_conflict_count"
         in item
+        for item in record.failures
+    )
+
+
+def test_gold_review_gate_contract_accepts_current_public_artifact(tmp_path: Path):
+    _copy_gold_review_summary(tmp_path)
+
+    record = _gold_review_gate_record(tmp_path)
+
+    assert record.accepted
+    assert record.item_count == 1
+    assert record.failures == ()
+
+
+def test_gold_review_gate_contract_rejects_false_pass(tmp_path: Path):
+    summary_path = _copy_gold_review_summary(tmp_path)
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    summary["passed"] = True
+    summary["blockers"] = []
+    summary_path.write_text(
+        json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _gold_review_gate_record(tmp_path)
+
+    assert not record.accepted
+    assert any("blocked review requires blockers" in item for item in record.failures)
+    assert any("passed: requires review_complete=true" in item for item in record.failures)
+    assert any("passed: requires pending_claims=0" in item for item in record.failures)
+    assert any("metrics: expected object" in item for item in record.failures)
+
+
+def test_gold_review_gate_contract_rejects_count_or_metric_drift(tmp_path: Path):
+    summary_path = _copy_gold_review_summary(tmp_path)
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    summary.update(
+        {
+            "blockers": [],
+            "metrics": {
+                "claim_precision": 0.50,
+                "direction_accuracy": 0.90,
+                "horizon_accuracy": 0.90,
+                "source_span_support_precision": 0.95,
+                "target_accuracy": 0.90,
+                "unsupported_field_false_grounding_rate": 0.20,
+                "variable_mapping_accuracy": 0.85,
+            },
+            "passed": True,
+            "pending_claims": 0,
+            "review_complete": True,
+            "reviewed_claims": 499,
+            "total_claims": 500,
+            "total_documents": 49,
+        }
+    )
+    summary_path.write_text(
+        json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _gold_review_gate_record(tmp_path)
+
+    assert not record.accepted
+    assert any(
+        "reviewed_claims + pending_claims must equal total_claims" in item
+        for item in record.failures
+    )
+    assert any("reviewed_claims: expected >= 500" in item for item in record.failures)
+    assert any("total_documents: expected >= 50" in item for item in record.failures)
+    assert any("metrics.claim_precision: expected >= 0.85" in item for item in record.failures)
+    assert any(
+        "unsupported_field_false_grounding_rate: expected <= 0.05" in item
         for item in record.failures
     )
 

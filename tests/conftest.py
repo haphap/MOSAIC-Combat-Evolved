@@ -414,6 +414,15 @@ def _ensure_synthetic_private_tushare_registry(root_path: Path) -> None:
             "pending_claims": 0,
             "review_complete": True,
             "passed": True,
+            "metrics": {
+                "claim_precision": 1.0,
+                "direction_accuracy": 1.0,
+                "horizon_accuracy": 1.0,
+                "source_span_support_precision": 1.0,
+                "target_accuracy": 1.0,
+                "unsupported_field_false_grounding_rate": 0.0,
+                "variable_mapping_accuracy": 1.0,
+            },
             "blockers": [],
         },
     )
