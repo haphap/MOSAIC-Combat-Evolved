@@ -691,6 +691,15 @@ def _manual_review_progress_privacy_record(tmp_path: Path):
     )
 
 
+def _manual_review_progress_contract_record(tmp_path: Path):
+    records = validate_report_intelligence_semantics(tmp_path)
+    return next(
+        record
+        for record in records
+        if record.schema_path == "schemas/report_intelligence_manual_review_progress_rules"
+    )
+
+
 def _operator_readiness_record(tmp_path: Path):
     records = validate_report_intelligence_semantics(tmp_path)
     return next(
@@ -2275,6 +2284,83 @@ def test_manual_review_progress_privacy_rejects_private_text_fields(
     assert any("claim_text: private/source text field forbidden" in item for item in record.failures)
     assert any("manual_claim_text: private/source text field forbidden" in item for item in record.failures)
     assert any("source_span_ids: private/source text field forbidden" in item for item in record.failures)
+
+
+def test_manual_review_progress_contract_accepts_current_public_artifact(
+    tmp_path: Path,
+):
+    _copy_registry_for_manual_progress(tmp_path)
+
+    record = _manual_review_progress_contract_record(tmp_path)
+
+    assert record.accepted
+    assert record.item_count == 4
+    assert record.failures == ()
+
+
+def test_manual_review_progress_contract_rejects_tampered_ready_state(
+    tmp_path: Path,
+):
+    registry = _copy_registry_for_manual_progress(tmp_path)
+    progress_path = registry / "review_batches/manual_review_progress_report.json"
+    progress = json.loads(progress_path.read_text(encoding="utf-8"))
+    progress["ready_for_promotion_dry_run"] = True
+    progress["blockers"] = []
+    progress["gates"][0]["ready_for_promotion"] = True
+    progress["gates"][0]["simulation_accepted"] = True
+    progress["gates"][0]["blockers"] = ["still blocked"]
+    progress_path.write_text(
+        json.dumps(progress, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _manual_review_progress_contract_record(tmp_path)
+
+    assert not record.accepted
+    assert any(
+        "ready_for_promotion_dry_run: current public baseline must be false" in item
+        for item in record.failures
+    )
+    assert any("blockers: must be non-empty" in item for item in record.failures)
+    assert any(
+        "gates[gold_set].ready_for_promotion: expected False" in item
+        for item in record.failures
+    )
+    assert any("ready gate must not block" in item for item in record.failures)
+
+
+def test_manual_review_progress_contract_rejects_count_or_command_drift(
+    tmp_path: Path,
+):
+    registry = _copy_registry_for_manual_progress(tmp_path)
+    progress_path = registry / "review_batches/manual_review_progress_report.json"
+    progress = json.loads(progress_path.read_text(encoding="utf-8"))
+    progress["gates"][1]["pending_rows"] = 0
+    progress["gates"][1]["complete_rows"] = 1
+    progress["gates"][1]["target_rows"] = 1001
+    progress["gates"][1]["prepare_command"] = "mosaic-rke prepare-footprint-review --root ."
+    progress["gates"][1]["dry_run_command"] = (
+        "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke "
+        "mosaic-rke apply-footprint-review --root ."
+    )
+    progress["gates"][1]["current_batch_status"]["pending_rows"] = 49
+    progress_path.write_text(
+        json.dumps(progress, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _manual_review_progress_contract_record(tmp_path)
+
+    assert not record.accepted
+    assert any("gates[footprint_review].pending_rows: expected 1001" in item for item in record.failures)
+    assert any("complete_rows + pending_rows must equal target_rows" in item for item in record.failures)
+    assert any("prepare_command: missing MOSAIC_RKE_TMPDIR prefix" in item for item in record.failures)
+    assert any("prepare_command: missing TMPDIR prefix" in item for item in record.failures)
+    assert any("dry_run_command: must include --dry-run" in item for item in record.failures)
+    assert any(
+        "current_batch_status: complete + pending + malformed must equal rows" in item
+        for item in record.failures
+    )
 
 
 def test_operator_readiness_contract_accepts_current_public_artifact(

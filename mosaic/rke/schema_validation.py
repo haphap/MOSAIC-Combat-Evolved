@@ -890,6 +890,40 @@ OPERATOR_HANDOFF_EXPECTED_STEP_IDS = (
     "apply-lockbox-review",
     "promotion-status-final",
 )
+MANUAL_REVIEW_PROGRESS_EXPECTED_GATES = {
+    "gold_set": {
+        "input_path": "registry/review_batches/gold_set_full_reviewed.jsonl",
+        "pending_rows": 500,
+        "complete_rows": 0,
+        "target_rows": 500,
+        "ready_for_promotion": False,
+        "simulation_accepted": False,
+    },
+    "footprint_review": {
+        "input_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+        "pending_rows": 1001,
+        "complete_rows": 0,
+        "target_rows": 1001,
+        "ready_for_promotion": False,
+        "simulation_accepted": False,
+    },
+    "source_license": {
+        "input_path": "registry/review_batches/source_license_policy_reviewed.json",
+        "pending_rows": 0,
+        "complete_rows": 17529,
+        "target_rows": 17529,
+        "ready_for_promotion": True,
+        "simulation_accepted": True,
+    },
+    "lockbox": {
+        "input_path": "registry/review_batches/lockbox_reviewed.json",
+        "pending_rows": 1,
+        "complete_rows": 0,
+        "target_rows": 1,
+        "ready_for_promotion": False,
+        "simulation_accepted": False,
+    },
+}
 
 STOCK_PROXY_SURVIVORSHIP_UNVERIFIED_CHECK = "survivorship_unverified_qlib_cn_data"
 STOCK_PROXY_SURVIVORSHIP_AUDITED_CHECK = "delisted_inclusive_universe_audit_passed"
@@ -2940,6 +2974,136 @@ def _validate_manual_review_progress_privacy_contract(
     return len(gates), failures
 
 
+def _validate_manual_review_progress_contract(
+    root_path: Path,
+) -> tuple[int, list[str]]:
+    report, report_failures = _read_mapping_json(
+        root_path / "registry/review_batches/manual_review_progress_report.json",
+        "registry/review_batches/manual_review_progress_report.json",
+    )
+    failures = list(report_failures)
+    gates: list[Mapping[str, Any]] = []
+    if not report:
+        return 0, failures
+
+    raw_gates = report.get("gates")
+    if not isinstance(raw_gates, Sequence) or isinstance(raw_gates, str):
+        failures.append("manual_review_progress_report.gates: expected array")
+    else:
+        gates = [gate for gate in raw_gates if isinstance(gate, Mapping)]
+        malformed_count = len(raw_gates) - len(gates)
+        if malformed_count:
+            failures.append(
+                f"manual_review_progress_report.gates: {malformed_count} non-object gates"
+            )
+
+    gate_kinds = [str(gate.get("review_kind") or "") for gate in gates]
+    duplicate_gate_kinds = sorted(
+        kind for kind in set(gate_kinds) if gate_kinds.count(kind) > 1
+    )
+    if duplicate_gate_kinds:
+        failures.append(
+            "manual_review_progress_report.gates duplicate review_kind: "
+            + ", ".join(duplicate_gate_kinds)
+        )
+    observed_kinds = set(gate_kinds)
+    expected_kinds = set(MANUAL_REVIEW_PROGRESS_EXPECTED_GATES)
+    missing_kinds = sorted(expected_kinds - observed_kinds)
+    unexpected_kinds = sorted(observed_kinds - expected_kinds)
+    if missing_kinds:
+        failures.append(
+            "manual_review_progress_report.gates missing review_kind: "
+            + ", ".join(missing_kinds)
+        )
+    if unexpected_kinds:
+        failures.append(
+            "manual_review_progress_report.gates unexpected review_kind: "
+            + ", ".join(unexpected_kinds)
+        )
+
+    for gate in gates:
+        review_kind = str(gate.get("review_kind") or "")
+        row_label = f"manual_review_progress_report.gates[{review_kind}]"
+        expected = MANUAL_REVIEW_PROGRESS_EXPECTED_GATES.get(review_kind)
+        if expected is None:
+            continue
+        for field in ("input_rows", "target_rows", "complete_rows", "pending_rows"):
+            value = _int_or_none(gate.get(field))
+            if value is None:
+                failures.append(f"{row_label}.{field}: expected integer")
+            elif value < 0:
+                failures.append(f"{row_label}.{field}: must be non-negative")
+        complete_rows = _int_or_none(gate.get("complete_rows"))
+        pending_rows = _int_or_none(gate.get("pending_rows"))
+        target_rows = _int_or_none(gate.get("target_rows"))
+        if (
+            complete_rows is not None
+            and pending_rows is not None
+            and target_rows is not None
+            and complete_rows + pending_rows != target_rows
+        ):
+            failures.append(
+                f"{row_label}: complete_rows + pending_rows must equal target_rows"
+            )
+        for field, expected_value in expected.items():
+            if gate.get(field) != expected_value:
+                failures.append(f"{row_label}.{field}: expected {expected_value}")
+        blockers = _string_items(gate.get("blockers"))
+        ready = gate.get("ready_for_promotion")
+        simulation_accepted = gate.get("simulation_accepted")
+        if not isinstance(ready, bool):
+            failures.append(f"{row_label}.ready_for_promotion: must be boolean")
+        if not isinstance(simulation_accepted, bool):
+            failures.append(f"{row_label}.simulation_accepted: must be boolean")
+        if ready is True and blockers:
+            failures.append(f"{row_label}.blockers: ready gate must not block")
+        if ready is False and not blockers:
+            failures.append(f"{row_label}.blockers: blocked gate requires blockers")
+        if simulation_accepted is not ready:
+            failures.append(
+                f"{row_label}.simulation_accepted: must match ready_for_promotion"
+            )
+        for command_field in ("prepare_command", "dry_run_command", "apply_command"):
+            command = str(gate.get(command_field) or "")
+            if not command:
+                failures.append(f"{row_label}.{command_field}: must be non-empty")
+                continue
+            if "mosaic-rke " not in command:
+                failures.append(f"{row_label}.{command_field}: must invoke mosaic-rke")
+            if "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke" not in command:
+                failures.append(
+                    f"{row_label}.{command_field}: missing MOSAIC_RKE_TMPDIR prefix"
+                )
+            if "TMPDIR=/home/hap/tmp/mosaic-rke" not in command:
+                failures.append(f"{row_label}.{command_field}: missing TMPDIR prefix")
+        dry_run_command = str(gate.get("dry_run_command") or "")
+        if "--dry-run" not in dry_run_command:
+            failures.append(f"{row_label}.dry_run_command: must include --dry-run")
+        batch_status = gate.get("current_batch_status")
+        if isinstance(batch_status, Mapping) and batch_status:
+            rows = _int_or_none(batch_status.get("rows"))
+            complete = _int_or_none(batch_status.get("complete_rows"))
+            pending = _int_or_none(batch_status.get("pending_rows"))
+            malformed = _int_or_none(batch_status.get("malformed_rows"))
+            if None not in (rows, complete, pending, malformed) and (
+                int(complete or 0) + int(pending or 0) + int(malformed or 0)
+                != int(rows or 0)
+            ):
+                failures.append(
+                    f"{row_label}.current_batch_status: complete + pending + malformed must equal rows"
+                )
+
+    if report.get("ready_for_promotion_dry_run") is not False:
+        failures.append(
+            "manual_review_progress_report.ready_for_promotion_dry_run: current public baseline must be false"
+        )
+    report_blockers = _string_items(report.get("blockers"))
+    if not report_blockers:
+        failures.append("manual_review_progress_report.blockers: must be non-empty")
+
+    return len(gates), failures
+
+
 def _validate_operator_readiness_contract(root_path: Path) -> tuple[int, list[str]]:
     report, report_failures = _read_mapping_json(
         root_path / "registry/handoffs/rke_operator_readiness_report.json",
@@ -4157,6 +4321,19 @@ def validate_report_intelligence_semantics(
             item_count=manual_review_progress_item_count,
             accepted=not manual_review_progress_failures,
             failures=tuple(manual_review_progress_failures),
+        )
+    )
+
+    manual_review_progress_contract_item_count, manual_review_progress_contract_failures = (
+        _validate_manual_review_progress_contract(root_path)
+    )
+    records.append(
+        SchemaValidationRecord(
+            schema_path="schemas/report_intelligence_manual_review_progress_rules",
+            artifact_path="registry/review_batches/manual_review_progress_report.json",
+            item_count=manual_review_progress_contract_item_count,
+            accepted=not manual_review_progress_contract_failures,
+            failures=tuple(manual_review_progress_contract_failures),
         )
     )
 

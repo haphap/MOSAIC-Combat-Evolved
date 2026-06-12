@@ -493,6 +493,13 @@
     },
     {
       "accepted": true,
+      "artifact_path": "registry/review_batches/manual_review_progress_report.json",
+      "failures": [],
+      "item_count": 4,
+      "schema_path": "schemas/report_intelligence_manual_review_progress_rules"
+    },
+    {
+      "accepted": true,
       "artifact_path": "registry/handoffs/rke_operator_handoff.json",
       "failures": [],
       "item_count": 19,
