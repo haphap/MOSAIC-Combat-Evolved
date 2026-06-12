@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import shutil
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Literal, Mapping, Sequence
 
@@ -20,6 +20,7 @@ from .manual_review_batches import (
     GOLD_BATCH_IMPORT_TEMPLATE_PATH,
     GOLD_FULL_IMPORT_TEMPLATE_PATH,
     GOLD_FULL_REVIEWED_IMPORT_PATH,
+    GOLD_REVIEWED_IMPORT_PATH,
     GOLD_REVIEW_EVIDENCE_JSONL_PATH,
     GOLD_REVIEW_EVIDENCE_MD_PATH,
     GOLD_REVIEW_WORKBOOK_MD_PATH,
@@ -31,6 +32,7 @@ from .manual_review_import import (
 )
 from .operator_handoff import LOCKBOX_REVIEWED_IMPORT_PATH
 from .report_intelligence import (
+    ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH,
     ANALYTICAL_FOOTPRINT_REVIEW_ASSIST_JSONL_PATH,
     ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_JSONL_PATH,
     ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_MD_PATH,
@@ -67,6 +69,7 @@ class ManualReviewGateProgress:
     prepare_command: str
     dry_run_command: str
     apply_command: str
+    next_batch_commands: Mapping[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -118,6 +121,45 @@ def _dedupe(items: Sequence[str]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(str(item) for item in items if str(item).strip()))
 
 
+def _gold_next_batch_commands(pending_rows: int) -> dict[str, str]:
+    if pending_rows <= 0:
+        return {}
+    batch_size = min(50, int(pending_rows))
+    return {
+        "evidence": f"mosaic-rke write-gold-review-evidence --root . --limit {batch_size} --offset 0",
+        "prepare": (
+            "mosaic-rke prepare-gold-review --root . "
+            f"--gold-batch-size {batch_size} --offset 0 --force "
+            "--reviewer <name> --review-date <YYYY-MM-DD>"
+        ),
+        "dry_run": f"mosaic-rke apply-gold-review --root . --input {GOLD_REVIEWED_IMPORT_PATH} --dry-run",
+        "apply": f"mosaic-rke apply-gold-review --root . --input {GOLD_REVIEWED_IMPORT_PATH}",
+    }
+
+
+def _footprint_next_batch_commands(pending_rows: int) -> dict[str, str]:
+    if pending_rows <= 0:
+        return {}
+    batch_size = min(50, int(pending_rows))
+    return {
+        "assist": "mosaic-rke write-footprint-review-assist --root .",
+        "evidence": f"mosaic-rke write-footprint-review-evidence --root . --limit {batch_size} --offset 0",
+        "prepare": (
+            "mosaic-rke prepare-footprint-review --root . "
+            f"--limit {batch_size} --offset 0 "
+            "--reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
+        ),
+        "dry_run": (
+            "mosaic-rke apply-footprint-review --root . "
+            f"--input {ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH} --dry-run"
+        ),
+        "apply": (
+            "mosaic-rke apply-footprint-review --root . "
+            f"--input {ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH}"
+        ),
+    }
+
+
 def _write_json(path: Path, payload: Mapping[str, Any]) -> dict[str, Any]:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
@@ -135,6 +177,7 @@ def _missing_gate(
     prepare_command: str,
     dry_run_command: str,
     apply_command: str,
+    next_batch_commands: Mapping[str, str] | None = None,
 ) -> ManualReviewGateProgress:
     return ManualReviewGateProgress(
         review_kind=review_kind,
@@ -150,6 +193,7 @@ def _missing_gate(
         prepare_command=prepare_command,
         dry_run_command=dry_run_command,
         apply_command=apply_command,
+        next_batch_commands=dict(next_batch_commands or {}),
     )
 
 
@@ -186,6 +230,7 @@ def _gold_progress(root_path: Path) -> ManualReviewGateProgress:
             prepare_command=prepare_command,
             dry_run_command=dry_run_command,
             apply_command=apply_command,
+            next_batch_commands=_gold_next_batch_commands(target_rows),
         )
 
     input_rows = _jsonl_row_count(resolved_input)
@@ -209,6 +254,7 @@ def _gold_progress(root_path: Path) -> ManualReviewGateProgress:
         prepare_command=prepare_command,
         dry_run_command=dry_run_command,
         apply_command=apply_command,
+        next_batch_commands=_gold_next_batch_commands(summary.pending_claims),
     )
 
 
@@ -243,6 +289,7 @@ def _source_license_progress(root_path: Path) -> ManualReviewGateProgress:
             prepare_command=prepare_command,
             dry_run_command=dry_run_command,
             apply_command=apply_command,
+            next_batch_commands=_footprint_next_batch_commands(target_rows),
         )
     if not resolved_input.exists():
         return _missing_gate(
@@ -286,6 +333,7 @@ def _source_license_progress(root_path: Path) -> ManualReviewGateProgress:
         prepare_command=prepare_command,
         dry_run_command=dry_run_command,
         apply_command=apply_command,
+        next_batch_commands=_footprint_next_batch_commands(pending_rows),
     )
 
 
@@ -384,6 +432,7 @@ def _footprint_review_progress(root_path: Path) -> ManualReviewGateProgress:
             prepare_command=prepare_command,
             dry_run_command=dry_run_command,
             apply_command=apply_command,
+            next_batch_commands=_footprint_next_batch_commands(target_rows),
         )
 
     input_rows = _jsonl_row_count(resolved_input)
@@ -425,6 +474,7 @@ def _footprint_review_progress(root_path: Path) -> ManualReviewGateProgress:
         prepare_command=prepare_command,
         dry_run_command=dry_run_command,
         apply_command=apply_command,
+        next_batch_commands=_footprint_next_batch_commands(pending_rows),
     )
 
 
@@ -599,9 +649,24 @@ def render_manual_review_runbook_markdown(report: ManualReviewProgressReport) ->
             f"--lockbox-input {LOCKBOX_REVIEWED_IMPORT_PATH}`"
         ),
         "",
-        "## Current Blockers",
-        "",
     ]
+    lines.extend(
+        [
+            "## Next Batch Commands",
+            "",
+            "These commands operate on the current pending set. After applying an accepted batch, rerun review-progress and use the refreshed commands.",
+            "",
+        ]
+    )
+    for gate in (gold, footprint):
+        if not gate.next_batch_commands:
+            continue
+        lines.append(f"### {gate.review_kind}")
+        lines.append("")
+        for command_name, command in gate.next_batch_commands.items():
+            lines.append(f"- {command_name}: `{command}`")
+        lines.append("")
+    lines.extend(["## Current Blockers", ""])
     if report.blockers:
         lines.extend(f"- {blocker}" for blocker in report.blockers)
     else:

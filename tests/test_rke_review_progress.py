@@ -181,6 +181,17 @@ def test_review_progress_reports_missing_scratch_files(tmp_path: Path, capsys):
         "source_license",
         "lockbox",
     }
+    gold_gate = next(gate for gate in output["gates"] if gate["review_kind"] == "gold_set")
+    footprint_gate = next(
+        gate for gate in output["gates"] if gate["review_kind"] == "footprint_review"
+    )
+    assert gold_gate["next_batch_commands"]["prepare"].startswith(
+        "mosaic-rke prepare-gold-review --root . --gold-batch-size 50 --offset 0"
+    )
+    assert (
+        footprint_gate["next_batch_commands"]["dry_run"]
+        == "mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run"
+    )
     assert all(gate["input_exists"] is False for gate in output["gates"])
     assert any("prepare-gold-review" in blocker for blocker in output["blockers"])
     assert any("prepare-footprint-review" in blocker for blocker in output["blockers"])
@@ -216,6 +227,10 @@ def test_manual_review_runbook_renders_operator_checklist_without_source_text(tm
     assert result["path"].endswith("registry/review_batches/manual_review_runbook.md")
     assert result["ready_for_promotion_dry_run"] is False
     assert "mosaic-rke prepare-gold-review --root . --full" in markdown
+    assert "## Next Batch Commands" in markdown
+    assert "### gold_set" in markdown
+    assert "### footprint_review" in markdown
+    assert "After applying an accepted batch, rerun review-progress" in markdown
     assert "mosaic-rke write-gold-review-evidence --root . --limit 50 --offset 0" in markdown
     assert "mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --dry-run" in markdown
     assert "rerun with `--offset 0` because completed rows leave the pending set" in markdown

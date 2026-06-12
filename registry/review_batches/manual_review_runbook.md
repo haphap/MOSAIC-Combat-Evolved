@@ -99,6 +99,25 @@ A promotion dry run is ready only when all manual gates above report ready for p
 
 `mosaic-rke build-license-review-import --root . --policy registry/review_batches/source_license_policy_reviewed.json --output registry/review_batches/source_license_policy_import.jsonl && mosaic-rke promotion-dry-run --root . --gold-input registry/review_batches/gold_set_full_reviewed.jsonl --footprint-input registry/report_intelligence/analytical_footprint_reviewed.jsonl --license-input registry/review_batches/source_license_policy_import.jsonl --lockbox-input registry/review_batches/lockbox_reviewed.json`
 
+## Next Batch Commands
+
+These commands operate on the current pending set. After applying an accepted batch, rerun review-progress and use the refreshed commands.
+
+### gold_set
+
+- evidence: `mosaic-rke write-gold-review-evidence --root . --limit 50 --offset 0`
+- prepare: `mosaic-rke prepare-gold-review --root . --gold-batch-size 50 --offset 0 --force --reviewer <name> --review-date <YYYY-MM-DD>`
+- dry_run: `mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --dry-run`
+- apply: `mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl`
+
+### footprint_review
+
+- assist: `mosaic-rke write-footprint-review-assist --root .`
+- evidence: `mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 0`
+- prepare: `mosaic-rke prepare-footprint-review --root . --limit 50 --offset 0 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite`
+- dry_run: `mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run`
+- apply: `mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl`
+
 ## Current Blockers
 
 - gold_set: 0/500 ready

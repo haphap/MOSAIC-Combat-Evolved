@@ -49,6 +49,12 @@
       "input_exists": true,
       "input_path": "registry/review_batches/gold_set_full_reviewed.jsonl",
       "input_rows": 500,
+      "next_batch_commands": {
+        "apply": "mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl",
+        "dry_run": "mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --dry-run",
+        "evidence": "mosaic-rke write-gold-review-evidence --root . --limit 50 --offset 0",
+        "prepare": "mosaic-rke prepare-gold-review --root . --gold-batch-size 50 --offset 0 --force --reviewer <name> --review-date <YYYY-MM-DD>"
+      },
       "pending_rows": 500,
       "prepare_command": "mosaic-rke prepare-gold-review --root . --full",
       "ready_for_promotion": false,
@@ -73,6 +79,13 @@
       "input_exists": true,
       "input_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
       "input_rows": 1001,
+      "next_batch_commands": {
+        "apply": "mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+        "assist": "mosaic-rke write-footprint-review-assist --root .",
+        "dry_run": "mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
+        "evidence": "mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 0",
+        "prepare": "mosaic-rke prepare-footprint-review --root . --limit 50 --offset 0 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
+      },
       "pending_rows": 1001,
       "prepare_command": "mosaic-rke prepare-footprint-review --root . --output registry/report_intelligence/analytical_footprint_reviewed.jsonl --overwrite",
       "ready_for_promotion": false,
@@ -88,6 +101,7 @@
       "input_exists": true,
       "input_path": "registry/review_batches/source_license_policy_reviewed.json",
       "input_rows": 1,
+      "next_batch_commands": {},
       "pending_rows": 0,
       "prepare_command": "mosaic-rke prepare-license-policy-review --root .",
       "ready_for_promotion": true,
@@ -111,6 +125,7 @@
       "input_exists": true,
       "input_path": "registry/review_batches/lockbox_reviewed.json",
       "input_rows": 1,
+      "next_batch_commands": {},
       "pending_rows": 1,
       "prepare_command": "mosaic-rke prepare-lockbox-review --root .",
       "ready_for_promotion": false,
