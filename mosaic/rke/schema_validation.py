@@ -956,6 +956,36 @@ STOCK_PROXY_BLOCKING_GAPS = {
     "exit_limit_locked",
     "stock_delisted_before_exit",
 }
+PROMPT_MUTATION_REQUIRED_VALIDATION_REQUIREMENTS = (
+    "gold_set_review_pass",
+    "pit_outcome_replay_pass",
+    "schema_validation_pass",
+    "provenance_audit_pass",
+    "statistical_robustness_audit_pass",
+    "shadow_paper_trading_pass",
+)
+PROMPT_MUTATION_PUBLIC_EVIDENCE_PREFIXES = (
+    "registry/report_intelligence/",
+    "registry/gold_sets/",
+    "registry/review_batches/",
+)
+PROMPT_MUTATION_PRIVATE_EVIDENCE_PATH_MARKERS = (
+    "/pdfs/",
+    "/markdown/",
+    "/mineru/",
+    "registry/report_intelligence/report_metadata.jsonl",
+    "registry/report_intelligence/forecast_claims.jsonl",
+    "registry/report_intelligence/analytical_footprints.jsonl",
+    "registry/report_intelligence/report_outcome_labels.jsonl",
+    "registry/report_intelligence/weighted_research_contexts.jsonl",
+    "registry/report_intelligence/processing_status.jsonl",
+    "registry/report_intelligence/analytical_footprint_review_template.jsonl",
+    "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+    "registry/sources/tushare_research_reports",
+    "registry/gold_sets/tushare_research_reports.candidate",
+    "registry/gold_sets/tushare_research_reports.review_template",
+    "registry/compliance/tushare_license_review",
+)
 EXTRACTION_REPORT_PUBLIC_JSONL_COUNT_FIELDS = (
     ("forecast_ledger_rows", "registry/report_intelligence/report_forecast_ledger.jsonl"),
     ("source_performance_profile_rows", "registry/report_intelligence/source_performance_profiles.jsonl"),
@@ -3558,6 +3588,41 @@ def _validate_prompt_mutation_candidate_contract(
             failures.append(
                 f"{row_label}.blocked_by: required while evolution gate is blocked"
             )
+        validation_requirements = tuple(_string_items(row.get("validation_requirements")))
+        if validation_requirements != PROMPT_MUTATION_REQUIRED_VALIDATION_REQUIREMENTS:
+            failures.append(
+                f"{row_label}.validation_requirements: must be "
+                + ", ".join(PROMPT_MUTATION_REQUIRED_VALIDATION_REQUIREMENTS)
+            )
+        evidence_refs = row.get("evidence_refs")
+        if not isinstance(evidence_refs, Sequence) or isinstance(evidence_refs, str):
+            failures.append(f"{row_label}.evidence_refs: expected array")
+        else:
+            for evidence_index, evidence in enumerate(evidence_refs, 1):
+                evidence_label = f"{row_label}.evidence_refs[{evidence_index}]"
+                if not isinstance(evidence, Mapping):
+                    failures.append(f"{evidence_label}: expected object")
+                    continue
+                artifact_path = str(evidence.get("artifact_path") or "").strip()
+                if not artifact_path:
+                    failures.append(f"{evidence_label}.artifact_path: required")
+                    continue
+                artifact_parts = Path(artifact_path).parts
+                if Path(artifact_path).is_absolute() or ".." in artifact_parts:
+                    failures.append(
+                        f"{evidence_label}.artifact_path: must be repo-relative"
+                    )
+                if not artifact_path.startswith(PROMPT_MUTATION_PUBLIC_EVIDENCE_PREFIXES):
+                    failures.append(
+                        f"{evidence_label}.artifact_path: must point to a public RKE aggregate artifact"
+                    )
+                if any(
+                    marker in artifact_path
+                    for marker in PROMPT_MUTATION_PRIVATE_EVIDENCE_PATH_MARKERS
+                ):
+                    failures.append(
+                        f"{evidence_label}.artifact_path: private evidence path forbidden"
+                    )
         failures.extend(_public_forbidden_text_failures(row, path=row_label))
 
     return len(candidate_rows), failures

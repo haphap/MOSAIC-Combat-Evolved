@@ -2483,6 +2483,50 @@ def test_prompt_mutation_candidate_contract_requires_manual_blocked_shadow_revie
     assert any("blocked_by: required while evolution gate is blocked" in item for item in record.failures)
 
 
+def test_prompt_mutation_candidate_contract_requires_full_validation_matrix(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    candidates_path = registry / "prompt_mutation_candidates.jsonl"
+    candidates = _read_prompt_mutation_candidates(candidates_path)
+    candidates[0]["validation_requirements"] = [
+        requirement
+        for requirement in candidates[0]["validation_requirements"]
+        if requirement != "shadow_paper_trading_pass"
+    ]
+    _write_prompt_mutation_candidates(candidates_path, candidates)
+
+    record = _prompt_mutation_candidate_contract_record(tmp_path)
+
+    assert not record.accepted
+    assert any("validation_requirements: must be" in item for item in record.failures)
+    assert any("shadow_paper_trading_pass" in item for item in record.failures)
+
+
+def test_prompt_mutation_candidate_contract_rejects_private_evidence_paths(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    candidates_path = registry / "prompt_mutation_candidates.jsonl"
+    candidates = _read_prompt_mutation_candidates(candidates_path)
+    candidates[0]["evidence_refs"] = [
+        {"artifact_path": "registry/report_intelligence/forecast_claims.jsonl"},
+        {"artifact_path": "registry/report_intelligence/markdown/private.md"},
+        {"artifact_path": "/home/hap/private/report.json"},
+    ]
+    _write_prompt_mutation_candidates(candidates_path, candidates)
+
+    record = _prompt_mutation_candidate_contract_record(tmp_path)
+
+    assert not record.accepted
+    assert any("private evidence path forbidden" in item for item in record.failures)
+    assert any("artifact_path: must be repo-relative" in item for item in record.failures)
+    assert any(
+        "artifact_path: must point to a public RKE aggregate artifact" in item
+        for item in record.failures
+    )
+
+
 def _copy_registry_for_manual_progress(tmp_path: Path) -> Path:
     registry = tmp_path / "registry"
     shutil.copytree(Path("registry"), registry, dirs_exist_ok=True)
