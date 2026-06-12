@@ -4430,21 +4430,25 @@ def _validate_production_promotion_gate_contract(
         failures.append(
             "production_promotion_gate.direct_production_forbidden mismatch"
         )
-    if gate.get("direct_production_forbidden") is not True:
+    if not paper_allowed:
         failures.append(
-            "production_promotion_gate.direct_production_forbidden: must be true"
+            "production_promotion_gate.paper_trading_allowed: must be true"
         )
-    if gate.get("paper_trading_allowed") is not True:
+    if staged_allowed and not all(
+        item.get("passed") is True
+        for item in criteria
+        if str(item.get("criterion_id") or "") in {f"PG{idx:02d}" for idx in range(1, 9)}
+    ):
         failures.append(
-            "production_promotion_gate.paper_trading_allowed: current public baseline must be true"
+            "production_promotion_gate.staged_production_allowed: requires PG01-PG08"
         )
-    if production_allowed:
+    if production_allowed and not all(item.get("passed") is True for item in criteria):
         failures.append(
-            "production_promotion_gate.production_allowed: current public baseline must be false"
+            "production_promotion_gate.production_allowed: requires all criteria passed"
         )
-    if staged_allowed:
+    if production_allowed and blockers:
         failures.append(
-            "production_promotion_gate.staged_production_allowed: current public baseline must be false"
+            "production_promotion_gate.blockers: production state must be empty"
         )
 
     return len(criteria), failures

@@ -3088,6 +3088,37 @@ def test_production_promotion_gate_contract_accepts_current_public_artifact(
     assert record.failures == ()
 
 
+def test_production_promotion_gate_contract_accepts_completed_state(
+    tmp_path: Path,
+):
+    registry = _copy_registry_for_manual_progress(tmp_path)
+    gate_path = registry / "promotion/rke_production_promotion_gate.json"
+    gate = json.loads(gate_path.read_text(encoding="utf-8"))
+    for criterion in gate["criteria"]:
+        criterion["passed"] = True
+        criterion["blocker"] = ""
+    gate.update(
+        {
+            "blockers": [],
+            "direct_production_forbidden": False,
+            "next_state": "production",
+            "paper_trading_allowed": True,
+            "production_allowed": True,
+            "staged_production_allowed": True,
+        }
+    )
+    gate_path.write_text(
+        json.dumps(gate, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _production_promotion_gate_record(tmp_path)
+
+    assert record.accepted
+    assert record.item_count == 10
+    assert record.failures == ()
+
+
 def test_production_promotion_gate_contract_rejects_missing_criterion(
     tmp_path: Path,
 ):
@@ -3137,7 +3168,6 @@ def test_production_promotion_gate_contract_rejects_production_bypass(
     registry = _copy_registry_for_manual_progress(tmp_path)
     gate_path = registry / "promotion/rke_production_promotion_gate.json"
     gate = json.loads(gate_path.read_text(encoding="utf-8"))
-    gate["paper_trading_allowed"] = False
     gate["staged_production_allowed"] = True
     gate["production_allowed"] = True
     gate["direct_production_forbidden"] = False
@@ -3151,19 +3181,15 @@ def test_production_promotion_gate_contract_rejects_production_bypass(
 
     assert not record.accepted
     assert any(
-        "direct_production_forbidden: must be true" in item
+        "production_allowed: requires all criteria passed" in item
         for item in record.failures
     )
     assert any(
-        "paper_trading_allowed: current public baseline must be true" in item
+        "blockers: production state must be empty" in item
         for item in record.failures
     )
     assert any(
-        "production_allowed: current public baseline must be false" in item
-        for item in record.failures
-    )
-    assert any(
-        "staged_production_allowed: current public baseline must be false" in item
+        "staged_production_allowed: requires PG01-PG08" in item
         for item in record.failures
     )
 
