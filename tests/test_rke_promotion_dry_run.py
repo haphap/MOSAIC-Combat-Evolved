@@ -53,6 +53,8 @@ def _reset_gold_review_rows(path: Path) -> None:
         row["claim_correct"] = None
         row["source_span_supports_claim"] = None
         row["direction_correct"] = None
+        row["target_correct"] = None
+        row["horizon_correct"] = None
         row["variable_mapping_correct"] = None
         row["unsupported_field_false_grounded"] = None
         row["reviewer"] = ""
@@ -77,6 +79,8 @@ def _gold_import_rows(root: Path) -> list[dict]:
             "claim_correct": True,
             "source_span_supports_claim": True,
             "direction_correct": True,
+            "target_correct": True,
+            "horizon_correct": True,
             "variable_mapping_correct": True,
             "unsupported_field_false_grounded": False,
             "reviewer": "reviewer-a",

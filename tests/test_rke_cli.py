@@ -20,6 +20,8 @@ GOLD_MANUAL_FIELDS = (
     "claim_correct",
     "source_span_supports_claim",
     "direction_correct",
+    "target_correct",
+    "horizon_correct",
     "variable_mapping_correct",
     "unsupported_field_false_grounded",
     "reviewer",
@@ -62,6 +64,8 @@ def _reset_gold_review_rows(path: Path) -> None:
         row["claim_correct"] = None
         row["source_span_supports_claim"] = None
         row["direction_correct"] = None
+        row["target_correct"] = None
+        row["horizon_correct"] = None
         row["variable_mapping_correct"] = None
         row["unsupported_field_false_grounded"] = None
         row["reviewer"] = ""
@@ -193,6 +197,8 @@ def test_rke_cli_refresh_preserves_reviews(tmp_path: Path, capsys):
     rows[0]["claim_correct"] = True
     rows[0]["source_span_supports_claim"] = True
     rows[0]["direction_correct"] = True
+    rows[0]["target_correct"] = True
+    rows[0]["horizon_correct"] = True
     rows[0]["variable_mapping_correct"] = True
     rows[0]["unsupported_field_false_grounded"] = True
     rows[0]["reviewer"] = "tester"

@@ -119,6 +119,8 @@ def summarize_gold_set_review(
             "claim_precision": gold_set.claim_precision,
             "source_span_support_precision": gold_set.source_span_support_precision,
             "direction_accuracy": gold_set.direction_accuracy,
+            "target_accuracy": gold_set.target_accuracy,
+            "horizon_accuracy": gold_set.horizon_accuracy,
             "variable_mapping_accuracy": gold_set.variable_mapping_accuracy,
             "unsupported_field_false_grounding_rate": gold_set.unsupported_field_false_grounding_rate,
         }

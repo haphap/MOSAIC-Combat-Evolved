@@ -61,6 +61,8 @@ def _reset_gold_review_rows(path: Path) -> None:
         row["claim_correct"] = None
         row["source_span_supports_claim"] = None
         row["direction_correct"] = None
+        row["target_correct"] = None
+        row["horizon_correct"] = None
         row["variable_mapping_correct"] = None
         row["unsupported_field_false_grounded"] = None
         row["reviewer"] = ""
@@ -82,6 +84,8 @@ def _accepted_gold_template_row(row: dict) -> dict:
             "claim_correct": True,
             "source_span_supports_claim": True,
             "direction_correct": True,
+            "target_correct": True,
+            "horizon_correct": True,
             "variable_mapping_correct": True,
             "unsupported_field_false_grounded": False,
             "reviewer": "reviewer-a",
@@ -213,10 +217,12 @@ def test_apply_gold_set_review_import_rejects_legacy_import_without_provenance(t
     legacy = {
         "claim_id": target_row["claim_id"],
         "manual_claim_text": target_row.get("proposed_claim_text") or "manual claim",
-        "claim_correct": True,
-        "source_span_supports_claim": True,
-        "direction_correct": True,
-        "variable_mapping_correct": True,
+            "claim_correct": True,
+            "source_span_supports_claim": True,
+            "direction_correct": True,
+            "target_correct": True,
+            "horizon_correct": True,
+            "variable_mapping_correct": True,
         "unsupported_field_false_grounded": False,
         "reviewer": "reviewer-a",
         "review_date": "2026-06-06",

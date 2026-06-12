@@ -269,6 +269,8 @@ class ClaimExtractionGoldSet:
     direction_accuracy: float
     variable_mapping_accuracy: float
     unsupported_field_false_grounding_rate: float
+    target_accuracy: float = 0.0
+    horizon_accuracy: float = 0.0
 
     def gate_failures(self) -> tuple[str, ...]:
         failures: list[str] = []
@@ -282,6 +284,10 @@ class ClaimExtractionGoldSet:
             failures.append("source_span_support_precision below 0.90")
         if self.direction_accuracy < 0.85:
             failures.append("direction_accuracy below 0.85")
+        if self.target_accuracy < 0.85:
+            failures.append("target_accuracy below 0.85")
+        if self.horizon_accuracy < 0.85:
+            failures.append("horizon_accuracy below 0.85")
         if self.variable_mapping_accuracy < 0.80:
             failures.append("variable_mapping_accuracy below 0.80")
         if self.unsupported_field_false_grounding_rate > 0.05:

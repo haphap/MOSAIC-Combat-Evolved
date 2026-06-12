@@ -59,6 +59,8 @@ def test_p0_04_claim_gold_set_and_span_verifier_gate_compilation():
         claim_precision=0.87,
         source_span_support_precision=0.92,
         direction_accuracy=0.86,
+        target_accuracy=0.86,
+        horizon_accuracy=0.86,
         variable_mapping_accuracy=0.81,
         unsupported_field_false_grounding_rate=0.03,
     )

@@ -154,6 +154,8 @@ class GoldSetReviewRecord:
     claim_correct: bool
     source_span_supports_claim: bool
     direction_correct: bool
+    target_correct: bool
+    horizon_correct: bool
     variable_mapping_correct: bool
     unsupported_field_false_grounded: bool
 
@@ -433,6 +435,8 @@ def build_gold_set_review_template(
                     "claim_correct": None,
                     "source_span_supports_claim": None,
                     "direction_correct": None,
+                    "target_correct": None,
+                    "horizon_correct": None,
                     "variable_mapping_correct": None,
                     "unsupported_field_false_grounded": None,
                     "reviewer": "",
@@ -477,6 +481,8 @@ def _normalize_gold_review_records(records: Sequence[Any]) -> list[dict[str, Any
                 "claim_correct": False,
                 "source_span_supports_claim": False,
                 "direction_correct": False,
+                "target_correct": False,
+                "horizon_correct": False,
                 "variable_mapping_correct": False,
                 "unsupported_field_false_grounded": True,
             }
@@ -499,6 +505,8 @@ def evaluate_gold_set_reviews(
             claim_precision=0.0,
             source_span_support_precision=0.0,
             direction_accuracy=0.0,
+            target_accuracy=0.0,
+            horizon_accuracy=0.0,
             variable_mapping_accuracy=0.0,
             unsupported_field_false_grounding_rate=1.0,
         )
@@ -514,6 +522,8 @@ def evaluate_gold_set_reviews(
         claim_precision=rate("claim_correct"),
         source_span_support_precision=rate("source_span_supports_claim"),
         direction_accuracy=rate("direction_correct"),
+        target_accuracy=rate("target_correct"),
+        horizon_accuracy=rate("horizon_correct"),
         variable_mapping_accuracy=rate("variable_mapping_correct"),
         unsupported_field_false_grounding_rate=round(
             sum(record.get("unsupported_field_false_grounded") is True for record in normalized) / n,

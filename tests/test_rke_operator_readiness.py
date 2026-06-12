@@ -41,6 +41,8 @@ def _reset_gold_review_rows(path: Path) -> None:
         row["claim_correct"] = None
         row["source_span_supports_claim"] = None
         row["direction_correct"] = None
+        row["target_correct"] = None
+        row["horizon_correct"] = None
         row["variable_mapping_correct"] = None
         row["unsupported_field_false_grounded"] = None
         row["reviewer"] = ""

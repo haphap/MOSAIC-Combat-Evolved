@@ -308,6 +308,8 @@ def _ensure_synthetic_private_tushare_registry(root_path: Path) -> None:
                 "claim_correct": True,
                 "source_span_supports_claim": True,
                 "direction_correct": True,
+                "target_correct": True,
+                "horizon_correct": True,
                 "variable_mapping_correct": True,
                 "unsupported_field_false_grounded": False,
                 "proposed_claim_text": claim["claim_text"],

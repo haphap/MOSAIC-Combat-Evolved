@@ -232,6 +232,8 @@ def _gold_template_row(row: Mapping[str, Any]) -> dict[str, Any]:
         "claim_correct": None,
         "source_span_supports_claim": None,
         "direction_correct": None,
+        "target_correct": None,
+        "horizon_correct": None,
         "variable_mapping_correct": None,
         "unsupported_field_false_grounded": None,
         "reviewer": "",

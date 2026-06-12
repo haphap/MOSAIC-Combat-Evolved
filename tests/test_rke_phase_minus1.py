@@ -167,6 +167,8 @@ def test_phase_minus1_gold_set_template_and_gate(tmp_path):
             claim_correct=True,
             source_span_supports_claim=True,
             direction_correct=True,
+            target_correct=True,
+            horizon_correct=True,
             variable_mapping_correct=True,
             unsupported_field_false_grounded=False,
         )
@@ -178,6 +180,8 @@ def test_phase_minus1_gold_set_template_and_gate(tmp_path):
     assert len(template) == 500
     assert out["rows"] == 500
     assert template[0]["claim_correct"] is None
+    assert template[0]["target_correct"] is None
+    assert template[0]["horizon_correct"] is None
     assert "gold_set_domain_scores" in template[0]
     assert "gold_set_domain_matches" in template[0]
     assert gold_set.sample_size_documents == 50
@@ -215,6 +219,8 @@ def test_phase_minus1_gold_set_gate_counts_malformed_review_rows_as_failures():
     assert gold_set.claim_precision == 0.0
     assert gold_set.source_span_support_precision == 0.0
     assert gold_set.direction_accuracy == 0.0
+    assert gold_set.target_accuracy == 0.0
+    assert gold_set.horizon_accuracy == 0.0
     assert gold_set.variable_mapping_accuracy == 0.0
     assert gold_set.unsupported_field_false_grounding_rate == 1.0
     assert "claim_precision below 0.85" in gold_set.gate_failures()

@@ -41,6 +41,8 @@ def _completed_gold_review_rows(path: Path) -> list[dict]:
                 "claim_correct": True,
                 "source_span_supports_claim": True,
                 "direction_correct": True,
+                "target_correct": True,
+                "horizon_correct": True,
                 "variable_mapping_correct": True,
                 "unsupported_field_false_grounded": False,
                 "reviewer": "reviewer-a",

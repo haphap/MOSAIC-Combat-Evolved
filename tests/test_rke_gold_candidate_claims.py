@@ -389,6 +389,8 @@ def test_gold_candidate_claim_writer_outputs_claims_summary_and_review_fields(tm
         row["claim_correct"] = None
         row["source_span_supports_claim"] = None
         row["direction_correct"] = None
+        row["target_correct"] = None
+        row["horizon_correct"] = None
         row["variable_mapping_correct"] = None
         row["unsupported_field_false_grounded"] = None
         row["reviewer"] = ""

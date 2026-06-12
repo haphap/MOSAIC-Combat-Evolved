@@ -10,6 +10,8 @@ GOLD_REVIEW_FIELDS = (
     "claim_correct",
     "source_span_supports_claim",
     "direction_correct",
+    "target_correct",
+    "horizon_correct",
     "variable_mapping_correct",
     "unsupported_field_false_grounded",
 )
