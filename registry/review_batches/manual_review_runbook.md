@@ -37,6 +37,8 @@ Reviewed scratch files are operator-local decision files. Do not commit them unl
 - Source-license packet Markdown: `registry/compliance/tushare_license_review_packet.md`
 - Source-license policy template: `registry/review_batches/source_license_policy_template.json`
 - Analytical-footprint review template: `registry/report_intelligence/analytical_footprint_review_template.jsonl`
+- Analytical-footprint review workbook: `registry/report_intelligence/analytical_footprint_review_workbook.md`
+- Analytical-footprint review assist JSONL: `registry/report_intelligence/analytical_footprint_review_assist.jsonl`
 - Lockbox policy packet: `registry/evaluation/lockbox/lockbox_policy.json`
 
 These checklist files are not import files. Use them to inspect IDs, hashes, counts, and short previews only.
@@ -49,6 +51,7 @@ The resulting gold-set summary must satisfy the code-defined gate: at least 50 d
 
 Analytical-footprint review is accepted only when every footprint row is completed, the import dry run accepts it, and the review summary quality gate passes.
 Each analytical-footprint row must keep target IDs and hashes intact and must fill `reviewer`, `review_date`, `review_notes`, `footprint_correct`, `source_span_supports_footprint`, `metric_mapping_correct`, `inferred_steps_tagged_correctly`, `unknowns_used_when_uncertain`, and `no_proprietary_text_leakage`.
+Use `mosaic-rke write-footprint-review-assist --root .` to regenerate the private analytical-footprint workbook and JSONL assist before filling the reviewed scratch file.
 
 Source-license review is accepted only when the reviewed policy expands to all current source rows and both the build step and license import dry run accept it.
 The reviewed policy must fill `reviewer`, `review_date`, `approved_for_derived_claim_storage`, and `approved_for_production_runtime`; production promotion requires `approved_for_production_runtime=true` for every matched current source.

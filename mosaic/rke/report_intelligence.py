@@ -50,6 +50,12 @@ ANALYTICAL_FOOTPRINT_REVIEW_IMPORT_REPORT_PATH = (
 ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH = (
     "registry/report_intelligence/analytical_footprint_reviewed.jsonl"
 )
+ANALYTICAL_FOOTPRINT_REVIEW_ASSIST_JSONL_PATH = (
+    "registry/report_intelligence/analytical_footprint_review_assist.jsonl"
+)
+ANALYTICAL_FOOTPRINT_REVIEW_WORKBOOK_MD_PATH = (
+    "registry/report_intelligence/analytical_footprint_review_workbook.md"
+)
 ANALYTICAL_FOOTPRINT_ERROR_TAXONOMY_PATH = (
     "registry/report_intelligence/analytical_footprint_error_taxonomy.json"
 )
@@ -103,7 +109,9 @@ REPORT_INTELLIGENCE_EVOLUTION_READINESS_GATE_PATH = (
 )
 REPORT_INTELLIGENCE_PRIVATE_OUTPUT_PATHS = frozenset(
     {
+        ANALYTICAL_FOOTPRINT_REVIEW_ASSIST_JSONL_PATH,
         ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH,
+        ANALYTICAL_FOOTPRINT_REVIEW_WORKBOOK_MD_PATH,
         ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH,
         "registry/report_intelligence/analytical_footprints.jsonl",
         "registry/report_intelligence/forecast_claims.jsonl",
@@ -817,6 +825,18 @@ class AnalyticalFootprintReviewPrepareReport:
     complete_rows: int
     pending_rows: int
     pending_required_fields: Mapping[str, int]
+    blockers: Sequence[str]
+
+
+@dataclass(frozen=True)
+class AnalyticalFootprintReviewAssistReport:
+    report_id: str
+    target_path: str
+    reviewed_import_path: str
+    jsonl_path: str
+    markdown_path: str
+    row_count: int
+    pending_rows: int
     blockers: Sequence[str]
 
 
@@ -4086,6 +4106,191 @@ def prepare_analytical_footprint_review_import(
             scaffold_rows
         ),
         blockers=tuple(blockers),
+    )
+    return report
+
+
+def _review_assist_preview(value: Any, *, max_chars: int = 96) -> str:
+    text = " ".join(str(value or "").split())
+    if len(text) <= max_chars:
+        return text
+    return text[: max_chars - 3].rstrip() + "..."
+
+
+def _review_assist_preview_list(
+    value: Any,
+    *,
+    max_items: int = 3,
+    max_chars: int = 96,
+) -> tuple[str, ...]:
+    return tuple(
+        _review_assist_preview(item, max_chars=max_chars)
+        for item in _ensure_list(value)[:max_items]
+        if str(item or "").strip()
+    )
+
+
+def _markdown_table_cell(value: Any, *, max_chars: int = 96) -> str:
+    if isinstance(value, Mapping):
+        text = json.dumps(dict(value), ensure_ascii=False, sort_keys=True)
+    elif isinstance(value, (list, tuple, set)):
+        text = ", ".join(str(item) for item in value)
+    else:
+        text = str(value or "")
+    return _review_assist_preview(text, max_chars=max_chars).replace("|", "\\|") or "-"
+
+
+def _footprint_review_assist_row(index: int, row: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "assist_kind": "analytical_footprint_review_assist_not_import",
+        "not_apply_footprint_review_input": True,
+        "index": index,
+        "footprint_id": str(row.get("footprint_id") or ""),
+        "target_row_hash": str(row.get("target_row_hash") or ""),
+        "source_id": str(row.get("source_id") or ""),
+        "report_id": str(row.get("report_id") or ""),
+        "sector": str(row.get("sector") or ""),
+        "extraction_type": str(row.get("extraction_type") or ""),
+        "topic_preview": _review_assist_preview(row.get("topic_preview"), max_chars=96),
+        "indicator_mentions_preview": _review_assist_preview_list(
+            row.get("indicator_mentions_review_preview"),
+            max_items=3,
+            max_chars=80,
+        ),
+        "analysis_patterns_preview": _review_assist_preview_list(
+            row.get("analysis_patterns_review_preview"),
+            max_items=3,
+            max_chars=80,
+        ),
+        "target_entity_candidates": tuple(
+            _review_assist_preview(item, max_chars=48)
+            for item in _ensure_list(row.get("target_entity_candidates"))[:5]
+            if str(item or "").strip()
+        ),
+        "target_agent_candidates": tuple(
+            _review_assist_preview(item, max_chars=48)
+            for item in _ensure_list(row.get("target_agent_candidates"))[:5]
+            if str(item or "").strip()
+        ),
+        "source_span_count": len(_ensure_list(row.get("source_span_ids"))),
+        "review_context_ref": str(row.get("review_context_ref") or ""),
+        "target_review_path": ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH,
+        "reviewed_import_path": ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH,
+        "human_required_fields": (
+            *ANALYTICAL_FOOTPRINT_REVIEW_REQUIRED_FIELDS,
+            "manual_error_tags",
+        ),
+        "human_review_required": True,
+    }
+
+
+def build_analytical_footprint_review_assist(
+    root: str | Path = ".",
+) -> tuple[AnalyticalFootprintReviewAssistReport, tuple[Mapping[str, Any], ...]]:
+    root_path = Path(root)
+    target_path = root_path / ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH
+    target_rows_raw, target_parse_blockers = load_jsonl_with_errors(
+        target_path,
+        label="analytical footprint target review",
+    )
+    target_rows, invalid_target_rows = _split_mapping_rows(target_rows_raw)
+    pending_rows = [row for row in target_rows if not _footprint_review_row_complete(row)]
+    assist_rows = tuple(
+        _footprint_review_assist_row(index, row)
+        for index, row in enumerate(pending_rows, 1)
+    )
+    blockers: list[str] = [*target_parse_blockers]
+    if invalid_target_rows:
+        blockers.append(
+            "analytical footprint target review row must be object at row(s): "
+            + ", ".join(str(row_number) for row_number in invalid_target_rows)
+        )
+    if not target_rows_raw:
+        blockers.append("analytical footprint review template is empty")
+    elif not target_rows:
+        blockers.append("analytical footprint review template has no valid rows")
+    return (
+        AnalyticalFootprintReviewAssistReport(
+            report_id="RKE-REPORT-INTELLIGENCE-FOOTPRINT-REVIEW-ASSIST",
+            target_path=ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH,
+            reviewed_import_path=ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH,
+            jsonl_path=ANALYTICAL_FOOTPRINT_REVIEW_ASSIST_JSONL_PATH,
+            markdown_path=ANALYTICAL_FOOTPRINT_REVIEW_WORKBOOK_MD_PATH,
+            row_count=len(assist_rows),
+            pending_rows=len(pending_rows),
+            blockers=tuple(blockers),
+        ),
+        assist_rows,
+    )
+
+
+def render_analytical_footprint_review_workbook_markdown(
+    report: AnalyticalFootprintReviewAssistReport,
+    rows: Sequence[Mapping[str, Any]],
+) -> str:
+    lines = [
+        "# RKE Analytical Footprint Review Workbook",
+        "",
+        f"- Assist ID: {report.report_id}",
+        f"- Pending rows: {report.pending_rows}",
+        f"- Review template: `{report.target_path}`",
+        f"- Reviewed import target: `{report.reviewed_import_path}`",
+        f"- JSONL assist: `{report.jsonl_path}`",
+        "",
+        "This workbook is private review assistance only. It is not an import file and does not satisfy the analytical-footprint review gate.",
+        "Fill reviewer decisions only in the reviewed JSONL scratch file, then dry-run `mosaic-rke apply-footprint-review`.",
+        "",
+    ]
+    if report.blockers:
+        lines.extend(["## Blockers", ""])
+        lines.extend(f"- {blocker}" for blocker in report.blockers)
+        lines.append("")
+    lines.extend(
+        [
+            "## Pending Footprints",
+            "",
+            (
+                "| # | footprint_id | target_hash | source_id | sector | type | "
+                "source_spans | topic | indicators | analysis_patterns | entities | agents |"
+            ),
+            "|---|---|---|---|---|---|---|---|---|---|---|---|",
+        ]
+    )
+    for row in rows:
+        lines.append(
+            "| "
+            + " | ".join(
+                (
+                    _markdown_table_cell(row.get("index"), max_chars=12),
+                    _markdown_table_cell(row.get("footprint_id"), max_chars=48),
+                    _markdown_table_cell(row.get("target_row_hash"), max_chars=24),
+                    _markdown_table_cell(row.get("source_id"), max_chars=48),
+                    _markdown_table_cell(row.get("sector"), max_chars=32),
+                    _markdown_table_cell(row.get("extraction_type"), max_chars=24),
+                    _markdown_table_cell(row.get("source_span_count"), max_chars=12),
+                    _markdown_table_cell(row.get("topic_preview"), max_chars=96),
+                    _markdown_table_cell(row.get("indicator_mentions_preview"), max_chars=96),
+                    _markdown_table_cell(row.get("analysis_patterns_preview"), max_chars=96),
+                    _markdown_table_cell(row.get("target_entity_candidates"), max_chars=72),
+                    _markdown_table_cell(row.get("target_agent_candidates"), max_chars=72),
+                )
+            )
+            + " |"
+        )
+    return "\n".join(lines)
+
+
+def write_analytical_footprint_review_assist(
+    root: str | Path = ".",
+) -> AnalyticalFootprintReviewAssistReport:
+    root_path = Path(root)
+    report, rows = build_analytical_footprint_review_assist(root_path)
+    _write_jsonl(root_path / ANALYTICAL_FOOTPRINT_REVIEW_ASSIST_JSONL_PATH, rows)
+    markdown_path = root_path / ANALYTICAL_FOOTPRINT_REVIEW_WORKBOOK_MD_PATH
+    markdown_path.parent.mkdir(parents=True, exist_ok=True)
+    markdown_path.write_text(
+        render_analytical_footprint_review_workbook_markdown(report, rows) + "\n",
+        encoding="utf-8",
     )
     return report
 

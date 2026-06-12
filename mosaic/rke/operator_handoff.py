@@ -34,8 +34,10 @@ from .promotion_gate import (
     write_production_promotion_gate_report,
 )
 from .report_intelligence import (
+    ANALYTICAL_FOOTPRINT_REVIEW_ASSIST_JSONL_PATH,
     ANALYTICAL_FOOTPRINT_REVIEW_SUMMARY_PATH,
     ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH,
+    ANALYTICAL_FOOTPRINT_REVIEW_WORKBOOK_MD_PATH,
     ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH,
 )
 
@@ -191,7 +193,7 @@ def _footprint_review_gate(root_path: Path) -> OperatorGateHandoff:
             f"{int(summary.get('total_rows') or 0)} analytical footprints reviewed"
         ),
         review_packet_path=ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH,
-        workbook_path="",
+        workbook_path=ANALYTICAL_FOOTPRINT_REVIEW_WORKBOOK_MD_PATH,
         import_template_path=ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH,
         full_import_template_path=ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH,
         policy_template_path="",
@@ -222,8 +224,8 @@ def _footprint_review_gate(root_path: Path) -> OperatorGateHandoff:
             f"--input {ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH}"
         ),
         operator_note=(
-            "Fill the analytical-footprint reviewed scratch JSONL after inspecting "
-            "the private template; keep hashes intact and dry-run before applying."
+            "Generate the private footprint review assist/workbook, fill the "
+            "reviewed scratch JSONL, keep hashes intact, and dry-run before applying."
         ),
     )
 
@@ -287,6 +289,17 @@ def _operator_command_sequence(
             manual_input_path="",
             expected_result=(
                 f"Reviewer scratch target is {ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH}."
+            ),
+        ),
+        OperatorCommandStep(
+            step_id="write-footprint-review-assist",
+            phase="footprint_review",
+            action="Write private analytical-footprint review assist files.",
+            command="mosaic-rke write-footprint-review-assist --root .",
+            manual_input_path="",
+            expected_result=(
+                f"Private workbook is {ANALYTICAL_FOOTPRINT_REVIEW_WORKBOOK_MD_PATH} "
+                f"and JSONL assist is {ANALYTICAL_FOOTPRINT_REVIEW_ASSIST_JSONL_PATH}."
             ),
         ),
         OperatorCommandStep(
@@ -634,7 +647,9 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
         source_license.import_template_path,
         SOURCE_LICENSE_REVIEW_WORKBOOK_MD_PATH,
         SOURCE_LICENSE_POLICY_TEMPLATE_PATH,
+        ANALYTICAL_FOOTPRINT_REVIEW_ASSIST_JSONL_PATH,
         ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH,
+        ANALYTICAL_FOOTPRINT_REVIEW_WORKBOOK_MD_PATH,
         MANUAL_REVIEW_PROGRESS_REPORT_PATH,
         MANUAL_REVIEW_RUNBOOK_MD_PATH,
         LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH,

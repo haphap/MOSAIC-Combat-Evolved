@@ -86,6 +86,10 @@ def test_operator_handoff_summarizes_remaining_manual_gates():
         == "registry/report_intelligence/analytical_footprint_reviewed.jsonl"
     )
     assert "prepare-footprint-review" in footprint.prepare_command
+    assert (
+        footprint.workbook_path
+        == "registry/report_intelligence/analytical_footprint_review_workbook.md"
+    )
     assert "apply-footprint-review" in footprint.dry_run_command
     assert "analytical_footprint_reviewed.jsonl" in footprint.dry_run_command
     assert "analytical_footprint_reviewed.jsonl" in handoff.promotion_dry_run_command
@@ -220,6 +224,10 @@ def test_write_operator_handoff_outputs_json_markdown_and_lockbox_template(
     assert "build-license-review-import" in license_gate["apply_command"]
     assert "source_license_policy_reviewed.json" in license_gate["apply_command"]
     assert "prepare-footprint-review" in footprint_gate["prepare_command"]
+    assert (
+        footprint_gate["workbook_path"]
+        == "registry/report_intelligence/analytical_footprint_review_workbook.md"
+    )
     assert "apply-footprint-review" in footprint_gate["dry_run_command"]
     assert (
         footprint_gate["reviewed_policy_path"]
@@ -249,6 +257,14 @@ def test_write_operator_handoff_outputs_json_markdown_and_lockbox_template(
     assert "registry/review_batches/gold_set_review_assist.jsonl" in payload["generated_paths"]
     assert "registry/review_batches/gold_set_review_assist.md" in payload["generated_paths"]
     assert "registry/review_batches/source_license_review_workbook.md" in payload["generated_paths"]
+    assert (
+        "registry/report_intelligence/analytical_footprint_review_assist.jsonl"
+        in payload["generated_paths"]
+    )
+    assert (
+        "registry/report_intelligence/analytical_footprint_review_workbook.md"
+        in payload["generated_paths"]
+    )
     assert "registry/review_batches/manual_review_progress_report.json" in payload["generated_paths"]
     assert "registry/review_batches/manual_review_runbook.md" in payload["generated_paths"]
     assert paths["manual_review_runbook"].endswith(

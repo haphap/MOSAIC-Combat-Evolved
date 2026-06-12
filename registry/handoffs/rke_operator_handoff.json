@@ -49,6 +49,14 @@
       "step_id": "prepare-footprint-review"
     },
     {
+      "action": "Write private analytical-footprint review assist files.",
+      "command": "mosaic-rke write-footprint-review-assist --root .",
+      "expected_result": "Private workbook is registry/report_intelligence/analytical_footprint_review_workbook.md and JSONL assist is registry/report_intelligence/analytical_footprint_review_assist.jsonl.",
+      "manual_input_path": "",
+      "phase": "footprint_review",
+      "step_id": "write-footprint-review-assist"
+    },
+    {
       "action": "Fill the analytical-footprint reviewed scratch file.",
       "command": "",
       "expected_result": "All footprint rows have required manual fields and preserved provenance hashes.",
@@ -174,7 +182,7 @@
       "full_import_template_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl",
       "gate_id": "RI-FOOTPRINT-REVIEW",
       "import_template_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl",
-      "operator_note": "Fill the analytical-footprint reviewed scratch JSONL after inspecting the private template; keep hashes intact and dry-run before applying.",
+      "operator_note": "Generate the private footprint review assist/workbook, fill the reviewed scratch JSONL, keep hashes intact, and dry-run before applying.",
       "passed": false,
       "pending_rows": 1001,
       "policy_template_path": "",
@@ -193,7 +201,7 @@
       "review_kind": "footprint_review",
       "review_packet_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl",
       "reviewed_policy_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
-      "workbook_path": ""
+      "workbook_path": "registry/report_intelligence/analytical_footprint_review_workbook.md"
     },
     {
       "apply_command": "mosaic-rke build-license-review-import --root . --policy registry/review_batches/source_license_policy_reviewed.json --output registry/review_batches/source_license_policy_import.jsonl && mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_policy_import.jsonl",
@@ -261,7 +269,9 @@
     "registry/review_batches/source_license_next_import_template.jsonl",
     "registry/review_batches/source_license_review_workbook.md",
     "registry/review_batches/source_license_policy_template.json",
+    "registry/report_intelligence/analytical_footprint_review_assist.jsonl",
     "registry/report_intelligence/analytical_footprint_review_template.jsonl",
+    "registry/report_intelligence/analytical_footprint_review_workbook.md",
     "registry/review_batches/manual_review_progress_report.json",
     "registry/review_batches/manual_review_runbook.md",
     "registry/review_batches/lockbox_review_next_import_template.json",
@@ -286,6 +296,7 @@
     "dry-run-gold-review",
     "apply-gold-review",
     "prepare-footprint-review",
+    "write-footprint-review-assist",
     "fill-footprint-review",
     "dry-run-footprint-review",
     "apply-footprint-review",

@@ -30,8 +30,10 @@ from .manual_review_import import (
 )
 from .operator_handoff import LOCKBOX_REVIEWED_IMPORT_PATH
 from .report_intelligence import (
+    ANALYTICAL_FOOTPRINT_REVIEW_ASSIST_JSONL_PATH,
     ANALYTICAL_FOOTPRINT_REVIEW_SUMMARY_PATH,
     ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH,
+    ANALYTICAL_FOOTPRINT_REVIEW_WORKBOOK_MD_PATH,
     ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH,
     apply_analytical_footprint_review_import,
 )
@@ -522,6 +524,8 @@ def render_manual_review_runbook_markdown(report: ManualReviewProgressReport) ->
         "- Source-license packet Markdown: `registry/compliance/tushare_license_review_packet.md`",
         f"- Source-license policy template: `{SOURCE_LICENSE_POLICY_TEMPLATE_PATH}`",
         f"- Analytical-footprint review template: `{ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH}`",
+        f"- Analytical-footprint review workbook: `{ANALYTICAL_FOOTPRINT_REVIEW_WORKBOOK_MD_PATH}`",
+        f"- Analytical-footprint review assist JSONL: `{ANALYTICAL_FOOTPRINT_REVIEW_ASSIST_JSONL_PATH}`",
         "- Lockbox policy packet: `registry/evaluation/lockbox/lockbox_policy.json`",
         "",
         "These checklist files are not import files. Use them to inspect IDs, hashes, counts, and short previews only.",
@@ -534,6 +538,7 @@ def render_manual_review_runbook_markdown(report: ManualReviewProgressReport) ->
         "",
         "Analytical-footprint review is accepted only when every footprint row is completed, the import dry run accepts it, and the review summary quality gate passes.",
         "Each analytical-footprint row must keep target IDs and hashes intact and must fill `reviewer`, `review_date`, `review_notes`, `footprint_correct`, `source_span_supports_footprint`, `metric_mapping_correct`, `inferred_steps_tagged_correctly`, `unknowns_used_when_uncertain`, and `no_proprietary_text_leakage`.",
+        "Use `mosaic-rke write-footprint-review-assist --root .` to regenerate the private analytical-footprint workbook and JSONL assist before filling the reviewed scratch file.",
         "",
         "Source-license review is accepted only when the reviewed policy expands to all current source rows and both the build step and license import dry run accept it.",
         "The reviewed policy must fill `reviewer`, `review_date`, `approved_for_derived_claim_storage`, and `approved_for_production_runtime`; production promotion requires `approved_for_production_runtime=true` for every matched current source.",

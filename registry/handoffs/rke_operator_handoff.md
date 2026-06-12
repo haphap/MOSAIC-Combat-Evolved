@@ -16,6 +16,7 @@
 - dry-run-gold-review
 - apply-gold-review
 - prepare-footprint-review
+- write-footprint-review-assist
 - fill-footprint-review
 - dry-run-footprint-review
 - apply-footprint-review
@@ -78,6 +79,14 @@ Dry-run command: `mosaic-rke promotion-dry-run --root . --gold-input registry/re
 - Command: `mosaic-rke prepare-footprint-review --root . --output registry/report_intelligence/analytical_footprint_reviewed.jsonl --overwrite`
 - Manual input: none
 - Expected result: Reviewer scratch target is registry/report_intelligence/analytical_footprint_reviewed.jsonl.
+
+### write-footprint-review-assist
+
+- Phase: footprint_review
+- Action: Write private analytical-footprint review assist files.
+- Command: `mosaic-rke write-footprint-review-assist --root .`
+- Manual input: none
+- Expected result: Private workbook is registry/report_intelligence/analytical_footprint_review_workbook.md and JSONL assist is registry/report_intelligence/analytical_footprint_review_assist.jsonl.
 
 ### fill-footprint-review
 
@@ -185,7 +194,7 @@ Dry-run command: `mosaic-rke promotion-dry-run --root . --gold-input registry/re
 - Blocker: 1001 analytical footprint review rows still pending; footprint_precision unavailable; span_support_precision unavailable; metric_mapping_accuracy unavailable; inferred_step_tagging_accuracy unavailable; unknown_on_ambiguity_rate unavailable; proprietary_leakage_free_rate unavailable
 - Evidence: 0 / 1001 analytical footprints reviewed
 - Review packet: registry/report_intelligence/analytical_footprint_review_template.jsonl
-- Review workbook: none
+- Review workbook: registry/report_intelligence/analytical_footprint_review_workbook.md
 - Import template: registry/report_intelligence/analytical_footprint_review_template.jsonl
 - Full import template: registry/report_intelligence/analytical_footprint_review_template.jsonl
 - Policy template: none
@@ -195,7 +204,7 @@ Dry-run command: `mosaic-rke promotion-dry-run --root . --gold-input registry/re
 - Exported rows: 1001
 - Dry run: `mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_reviewed.jsonl --dry-run`
 - Apply: `mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_reviewed.jsonl`
-- Note: Fill the analytical-footprint reviewed scratch JSONL after inspecting the private template; keep hashes intact and dry-run before applying.
+- Note: Generate the private footprint review assist/workbook, fill the reviewed scratch JSONL, keep hashes intact, and dry-run before applying.
 
 ### PG03 source_license
 

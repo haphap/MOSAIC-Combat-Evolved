@@ -103,6 +103,7 @@ from .report_intelligence import (
     merge_report_intelligence_batch_outputs,
     prepare_analytical_footprint_review_import,
     run_report_intelligence_refresh,
+    write_analytical_footprint_review_assist,
     write_report_intelligence_evolution_readiness_gate,
     write_report_intelligence_prompt_mutation_candidates,
 )
@@ -1004,6 +1005,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Overwrite an existing output scaffold.",
     )
 
+    write_footprint_review_assist = subparsers.add_parser(
+        "write-footprint-review-assist",
+        help="Write private analytical-footprint review assist JSONL and workbook files.",
+    )
+    write_footprint_review_assist.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
+
     validate = subparsers.add_parser(
         "validate-required", help="Validate required registry files."
     )
@@ -1468,6 +1477,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         _print_json(asdict(report))
         return 0 if report.accepted else 2
+    if args.command == "write-footprint-review-assist":
+        report = write_analytical_footprint_review_assist(root)
+        _print_json(asdict(report))
+        return 0 if not report.blockers else 2
     if args.command == "validate-required":
         missing, empty = validate_required_registry(root)
         invalid = validate_required_registry_content(root)

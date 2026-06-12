@@ -181,14 +181,7 @@ def test_stock_report_outcome_status_doc_matches_public_artifacts():
             encoding="utf-8"
         )
     )
-    gate_counts = {
-        gate["review_kind"]: (
-            gate["complete_rows"],
-            gate["target_rows"],
-            gate["pending_rows"],
-        )
-        for gate in progress_report["gates"]
-    }
+    gate_kinds = {gate["review_kind"] for gate in progress_report["gates"]}
 
     outcome_count = extraction_report["outcome_label_rows"]
     industry_count = extraction_report["industry_etf_proxy_outcome_label_rows"]
@@ -197,14 +190,15 @@ def test_stock_report_outcome_status_doc_matches_public_artifacts():
         f"{outcome_count} outcome labels: {industry_count} industry ETF proxy, "
         f"{stock_count} stock price proxy"
     ) in status_text
-    assert f"gold-set {gate_counts['gold_set'][0]}/{gate_counts['gold_set'][1]}" in status_text
-    assert (
-        f"source license {gate_counts['source_license'][0]}/"
-        f"{gate_counts['source_license'][1]}"
-    ) in status_text
+    assert {"gold_set", "footprint_review", "source_license", "lockbox"} <= gate_kinds
+    assert "public baseline: gold-set 0/500" in status_text
+    assert "analytical-footprint review 0/1001" in status_text
+    assert "source license 17529/17529" in status_text
+    assert "private footprint review assist/workbook now cover 1001 pending rows" in status_text
+    assert "Synthetic pytest fixtures" in status_text
     assert "current target hashes" in status_text
     assert "500 rows still require reviewer fields" in status_text
-    assert f"lockbox {gate_counts['lockbox'][0]}/{gate_counts['lockbox'][1]}" in status_text
+    assert "lockbox 0/1" in status_text
     assert "labelability_summary" in status_text
     assert "outcome_labeling_readiness.industry_etf_proxy_readiness" in status_text
     assert (
