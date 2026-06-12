@@ -11339,6 +11339,18 @@ def _gap_distribution_record_stable(row: Mapping[str, Any]) -> bool:
     return max_gap_share is not None and max_gap_share <= 0.80
 
 
+def _evolution_gap_distribution_counts(
+    outcome_labeling_readiness: Mapping[str, Any],
+) -> dict[str, int]:
+    readiness = _ensure_mapping(outcome_labeling_readiness)
+    unlabelable = _count_mapping_values(
+        _ensure_mapping(readiness.get("unlabelable_mapping_gap_counts"))
+    )
+    if unlabelable:
+        return unlabelable
+    return _count_mapping_values(_ensure_mapping(readiness.get("mapping_gap_counts")))
+
+
 def _trailing_gap_distribution_stable_count(
     rows: Sequence[Mapping[str, Any]],
 ) -> int:
@@ -11490,10 +11502,10 @@ def _gap_distribution_history_record(
     data_vintage_hash: str,
     outcome_labeling_readiness: Mapping[str, Any],
 ) -> dict[str, Any]:
-    gap_counts = _count_mapping_values(
-        _ensure_mapping(
-            _ensure_mapping(outcome_labeling_readiness).get("mapping_gap_counts")
-        )
+    readiness = _ensure_mapping(outcome_labeling_readiness)
+    gap_counts = _evolution_gap_distribution_counts(readiness)
+    all_mapping_gap_counts = _count_mapping_values(
+        _ensure_mapping(readiness.get("mapping_gap_counts"))
     )
     total_gap_count = sum(gap_counts.values())
     max_gap_name = ""
@@ -11514,6 +11526,14 @@ def _gap_distribution_history_record(
         "accepted": stable,
         "stable": stable,
         "gap_counts": gap_counts,
+        "all_mapping_gap_counts": all_mapping_gap_counts,
+        "gap_count_basis": (
+            "unlabelable_mapping_gap_counts"
+            if _count_mapping_values(
+                _ensure_mapping(readiness.get("unlabelable_mapping_gap_counts"))
+            )
+            else "mapping_gap_counts"
+        ),
         "total_gap_count": total_gap_count,
         "max_gap_name": max_gap_name,
         "max_gap_share": round(max_gap_share, 6),
@@ -11856,7 +11876,8 @@ def build_report_intelligence_evolution_readiness_gate(
     )
 
     readiness = _ensure_mapping(outcome_labeling_readiness)
-    current_gap_counts = _count_mapping_values(
+    current_gap_counts = _evolution_gap_distribution_counts(readiness)
+    all_mapping_gap_counts = _count_mapping_values(
         _ensure_mapping(readiness.get("mapping_gap_counts"))
     )
     current_gap_record = _gap_distribution_history_record(
@@ -11888,6 +11909,16 @@ def build_report_intelligence_evolution_readiness_gate(
                 "data_vintage_hash": data_vintage_hash,
                 "distinct_data_vintage_required": True,
                 "current_mapping_gap_counts": current_gap_counts,
+                "current_all_mapping_gap_counts": all_mapping_gap_counts,
+                "gap_count_basis": (
+                    "unlabelable_mapping_gap_counts"
+                    if _count_mapping_values(
+                        _ensure_mapping(
+                            readiness.get("unlabelable_mapping_gap_counts")
+                        )
+                    )
+                    else "mapping_gap_counts"
+                ),
             },
             blockers=gap_blockers,
         )

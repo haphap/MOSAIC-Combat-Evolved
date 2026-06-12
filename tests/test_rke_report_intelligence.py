@@ -3748,6 +3748,75 @@ def test_report_intelligence_evolution_gate_blocks_until_objective_thresholds_pa
     assert "source_span_ids" not in gate_dump
 
 
+def test_report_intelligence_evolution_gate_uses_unlabelable_gap_basis():
+    forecast_rows, outcome_rows = _full_evolution_outcome_fixture()
+    clean_monitor = {
+        "observation_count": 20,
+        "blocked_recipe_count": 0,
+        "unvalidated_confidence_impact_count": 0,
+        "alpha_decay_fail_count": 0,
+        "calibration_drift_count": 0,
+        "blocker_counts": {},
+    }
+    accepted_audit = {
+        "schema_accepted": True,
+        "pit_accepted": True,
+        "provenance_accepted": True,
+        "statistical_accepted": True,
+    }
+    previous_vintage_1 = "sha256:" + "1" * 64
+    previous_vintage_2 = "sha256:" + "2" * 64
+
+    gate = build_report_intelligence_evolution_readiness_gate(
+        run_id="RIR-TEST-EVOLUTION-UNLABELABLE-GAPS",
+        forecast_rows=forecast_rows,
+        outcome_label_rows=outcome_rows,
+        recipe_paper_trading_summary=_passing_recipe_paper_trading_summary(),
+        confidence_impact_monitor=clean_monitor,
+        markdown_coverage_summary={
+            "coverage_gate_status": "passed",
+            "coverage_gate_blockers": [],
+            "coverage_targets": {
+                "selected_report_count_min": 300,
+                "markdown_ready_count_min": 300,
+            },
+        },
+        pit_leakage_audit={"accepted": True},
+        extraction_provenance_audit={"accepted": True},
+        statistical_robustness_audit={"accepted": True},
+        schema_validation_report={"accepted": True},
+        gold_review_summary=_passing_forecast_gold_review_summary(),
+        outcome_labeling_readiness={
+            "mapping_gap_counts": {"horizon": 100, "target": 1},
+            "unlabelable_mapping_gap_counts": {"target": 1, "direction": 1},
+        },
+        monitor_refresh_history_rows=[
+            {**clean_monitor, "data_vintage_hash": previous_vintage_1},
+            {**clean_monitor, "data_vintage_hash": previous_vintage_2},
+        ],
+        audit_refresh_history_rows=[
+            {**accepted_audit, "data_vintage_hash": previous_vintage_1},
+            {**accepted_audit, "data_vintage_hash": previous_vintage_2},
+        ],
+        gap_distribution_history_rows=[
+            {"stable": True, "data_vintage_hash": previous_vintage_1},
+            {"stable": True, "data_vintage_hash": previous_vintage_2},
+        ],
+    )
+
+    gap_check = next(row for row in gate["checks"] if row["check_id"] == "RI-EVOL-06")
+    assert gap_check["passed"] is True
+    assert gap_check["evidence"]["gap_count_basis"] == "unlabelable_mapping_gap_counts"
+    assert gap_check["evidence"]["current_mapping_gap_counts"] == {
+        "direction": 1,
+        "target": 1,
+    }
+    assert gap_check["evidence"]["current_all_mapping_gap_counts"] == {
+        "horizon": 100,
+        "target": 1,
+    }
+
+
 def test_report_intelligence_evolution_gate_requires_gold_precision_and_conflict_review():
     gate = build_report_intelligence_evolution_readiness_gate(
         run_id="RIR-TEST-EVOLUTION-GOLD-GATE",
