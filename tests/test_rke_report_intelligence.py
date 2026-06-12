@@ -9094,6 +9094,8 @@ def test_prepare_analytical_footprint_review_import_scaffold(tmp_path: Path):
 
     assert report.accepted
     assert report.output_rows == 1
+    assert report.requested_limit is None
+    assert report.requested_offset == 0
     assert report.complete_rows == 0
     assert report.pending_rows == 1
     assert report.pending_required_fields["review_notes"] == 1
@@ -9138,6 +9140,43 @@ def test_prepare_analytical_footprint_review_import_scaffold(tmp_path: Path):
 
     assert apply_report.accepted
     assert apply_report.applied_rows == 1
+
+
+def test_prepare_analytical_footprint_review_import_supports_offset_batches(
+    tmp_path: Path,
+):
+    source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
+    run_report_intelligence_refresh(
+        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        downloader=_fake_downloader,
+        converter=_fake_converter,
+        llm_extractor=_fake_llm,
+    )
+    template_path = tmp_path / "registry/report_intelligence/analytical_footprint_review_template.jsonl"
+    rows = _read_jsonl(template_path)
+    duplicate = dict(rows[0])
+    duplicate["footprint_id"] = f"{rows[0]['footprint_id']}-B"
+    rows.append(duplicate)
+    _write_jsonl(template_path, rows)
+    output_path = tmp_path / "footprint_review_scaffold_batch.jsonl"
+
+    report = prepare_analytical_footprint_review_import(
+        tmp_path,
+        output_path,
+        reviewer="footprint-reviewer",
+        review_date="2026-06-12",
+        limit=1,
+        offset=1,
+    )
+    scaffold_rows = _read_jsonl(output_path)
+
+    assert report.accepted
+    assert report.requested_limit == 1
+    assert report.requested_offset == 1
+    assert report.output_rows == 1
+    assert scaffold_rows[0]["footprint_id"] == duplicate["footprint_id"]
+    assert scaffold_rows[0]["reviewer"] == "footprint-reviewer"
+    assert scaffold_rows[0]["review_date"] == "2026-06-12"
 
 
 def test_write_analytical_footprint_review_assist_is_private_not_import(

@@ -74,6 +74,7 @@ class GoldReviewStarterResult:
     template_path: str
     full: bool
     force: bool
+    offset: int
     written: bool
     overwritten: bool
     rows: int
@@ -1218,6 +1219,7 @@ def write_gold_review_starter(
     full: bool = False,
     force: bool = False,
     gold_batch_size: int = 50,
+    offset: int = 0,
     reviewer: str = "",
     review_date: str = "",
 ) -> GoldReviewStarterResult:
@@ -1237,18 +1239,20 @@ def write_gold_review_starter(
     if not resolved_output_path.is_absolute():
         resolved_output_path = root_path / resolved_output_path
 
+    _, gold_rows, _, _, _ = _load_review_rows(
+        root_path,
+        GOLD_REVIEW_TEMPLATE_PATH,
+        label="gold-set review",
+    )
+    pending_rows = [row for row in gold_rows if not _gold_row_complete(row)]
+    offset_value = 0 if full else max(0, int(offset))
     if full:
-        _, gold_rows, _, _, _ = _load_review_rows(
-            root_path,
-            GOLD_REVIEW_TEMPLATE_PATH,
-            label="gold-set review",
-        )
-        rows = tuple(_gold_template_row(row) for row in gold_rows if not _gold_row_complete(row))
+        rows = tuple(_gold_template_row(row) for row in pending_rows)
         template_path = GOLD_FULL_IMPORT_TEMPLATE_PATH
     else:
-        _, rows, _ = build_manual_review_batch_status(
-            root_path,
-            gold_batch_size=gold_batch_size,
+        rows = tuple(
+            _gold_template_row(row)
+            for row in pending_rows[offset_value : offset_value + gold_batch_size]
         )
         template_path = GOLD_BATCH_IMPORT_TEMPLATE_PATH
     reviewer_text = str(reviewer or "").strip()
@@ -1274,6 +1278,7 @@ def write_gold_review_starter(
         template_path=template_path,
         full=full,
         force=force,
+        offset=offset_value,
         written=not blockers,
         overwritten=exists and force and not blockers,
         rows=len(rows),

@@ -77,7 +77,9 @@ Current manual review evidence and scaffold commands:
 
 ```bash
 uv run mosaic-rke write-gold-review-evidence --root . --limit 50 --offset 0
+uv run mosaic-rke prepare-gold-review --root . --gold-batch-size 50 --offset 0 --force --reviewer hap --review-date 2026-06-12
 uv run mosaic-rke prepare-gold-review --root . --full --force --reviewer hap --review-date 2026-06-12
+uv run mosaic-rke prepare-footprint-review --root . --limit 50 --offset 0 --reviewer hap --review-date 2026-06-12 --overwrite
 uv run mosaic-rke prepare-footprint-review --root . --output registry/report_intelligence/analytical_footprint_reviewed.jsonl --reviewer hap --review-date 2026-06-12 --overwrite
 uv run mosaic-rke write-footprint-review-assist --root .
 uv run mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 0

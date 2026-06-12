@@ -829,6 +829,8 @@ class AnalyticalFootprintReviewPrepareReport:
     output_path: str
     accepted: bool
     overwrite: bool
+    requested_limit: int | None
+    requested_offset: int
     output_rows: int
     complete_rows: int
     pending_rows: int
@@ -4076,6 +4078,8 @@ def prepare_analytical_footprint_review_import(
     *,
     reviewer: str = "",
     review_date: str = "",
+    limit: int | None = None,
+    offset: int = 0,
     overwrite: bool = False,
 ) -> AnalyticalFootprintReviewPrepareReport:
     root_path = Path(root)
@@ -4099,8 +4103,14 @@ def prepare_analytical_footprint_review_import(
     blockers.extend(target_parse_blockers)
     if resolved_output_path.exists() and not overwrite:
         blockers.append(f"output_path already exists: {resolved_output_path}")
+    offset_value = max(0, int(offset))
+    limit_value = None if limit is None else max(0, int(limit))
+    if limit_value is None:
+        selected_target_rows = target_rows[offset_value:] if offset_value else target_rows
+    else:
+        selected_target_rows = target_rows[offset_value : offset_value + limit_value]
     scaffold_rows: list[dict[str, Any]] = []
-    for row in target_rows:
+    for row in selected_target_rows:
         scaffold = dict(row)
         if reviewer:
             scaffold["reviewer"] = reviewer
@@ -4122,6 +4132,8 @@ def prepare_analytical_footprint_review_import(
         output_path=str(resolved_output_path),
         accepted=not blockers,
         overwrite=overwrite,
+        requested_limit=limit_value,
+        requested_offset=offset_value,
         output_rows=len(scaffold_rows),
         complete_rows=complete_rows,
         pending_rows=len(scaffold_rows) - complete_rows,

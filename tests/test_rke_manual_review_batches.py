@@ -362,6 +362,35 @@ def test_write_gold_review_starter_defaults_to_next_batch_and_preserves_existing
     assert preserved[0]["reviewer"] == "manual reviewer"
 
 
+def test_write_gold_review_starter_supports_offset_batches(tmp_path: Path):
+    _copy_registry(tmp_path)
+    first_path = tmp_path / "registry/review_batches/gold_set_reviewed_batch_1.jsonl"
+    second_path = tmp_path / "registry/review_batches/gold_set_reviewed_batch_2.jsonl"
+
+    first = write_gold_review_starter(
+        tmp_path,
+        output_path=first_path,
+        gold_batch_size=1,
+        offset=0,
+    )
+    second = write_gold_review_starter(
+        tmp_path,
+        output_path=second_path,
+        gold_batch_size=1,
+        offset=1,
+    )
+    first_rows = _load_jsonl(first_path)
+    second_rows = _load_jsonl(second_path)
+
+    assert first.written
+    assert second.written
+    assert first.offset == 0
+    assert second.offset == 1
+    assert first.rows == 1
+    assert second.rows == 1
+    assert first_rows[0]["claim_id"] != second_rows[0]["claim_id"]
+
+
 def test_write_gold_review_starter_full_force_overwrites(tmp_path: Path):
     _copy_registry(tmp_path)
     reviewed_path = tmp_path / "registry/review_batches/gold_set_full_reviewed.jsonl"

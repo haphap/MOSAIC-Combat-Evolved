@@ -451,6 +451,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Rows for the next-batch starter when --full is not used. Defaults to 50.",
     )
     prepare_gold_review.add_argument(
+        "--offset",
+        type=int,
+        default=0,
+        help="Pending-row offset when --full is not used. Use with --gold-batch-size for review batches.",
+    )
+    prepare_gold_review.add_argument(
         "--force",
         action="store_true",
         help="Overwrite an existing reviewed gold-set starter.",
@@ -1032,6 +1038,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional YYYY-MM-DD review date to prefill in each scaffold row.",
     )
     prepare_footprint_review.add_argument(
+        "--limit",
+        type=int,
+        help="Maximum rows to scaffold. Omit for all rows.",
+    )
+    prepare_footprint_review.add_argument(
+        "--offset",
+        type=int,
+        default=0,
+        help="Review-row offset before applying --limit. Defaults to 0.",
+    )
+    prepare_footprint_review.add_argument(
         "--overwrite",
         action="store_true",
         help="Overwrite an existing output scaffold.",
@@ -1338,6 +1355,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             full=args.full,
             force=args.force,
             gold_batch_size=args.gold_batch_size,
+            offset=args.offset,
             reviewer=args.reviewer,
             review_date=args.review_date,
         )
@@ -1534,6 +1552,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.output,
             reviewer=args.reviewer,
             review_date=args.review_date,
+            limit=args.limit,
+            offset=args.offset,
             overwrite=args.overwrite,
         )
         _print_json(asdict(report))

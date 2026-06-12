@@ -53,11 +53,13 @@ These checklist files are not import files. Use them to inspect IDs, hashes, cou
 Gold-set review is accepted only when all current 500 claim rows are completed and the dry run accepts the import.
 Each gold-set row must keep the template IDs and hashes intact and must fill `manual_claim_text`, `reviewer`, `review_date`, `claim_correct`, `source_span_supports_claim`, `direction_correct`, `target_correct`, `horizon_correct`, `variable_mapping_correct`, and `unsupported_field_false_grounded`.
 Use `mosaic-rke prepare-gold-review --root . --full --force --reviewer <name> --review-date <YYYY-MM-DD>` to prefill reviewer identity and date only; claim text and boolean review decisions remain human judgments.
+For batch work, use `mosaic-rke prepare-gold-review --root . --gold-batch-size 50 --offset 0 --force --reviewer <name> --review-date <YYYY-MM-DD>` and increase `--offset` by 50 for later batches.
 Use `mosaic-rke write-gold-review-evidence --root . --limit 50 --offset 0` to regenerate a private source-evidence draft batch; increase `--offset` by 50 for later batches.
 The resulting gold-set summary must satisfy the code-defined gate: at least 50 documents, at least 500 claims, claim precision >= 0.85, span-support precision >= 0.90, direction accuracy >= 0.85, target accuracy >= 0.85, horizon accuracy >= 0.85, variable mapping accuracy >= 0.80, and unsupported-field false grounding <= 0.05.
 
 Analytical-footprint review is accepted only when every footprint row is completed, the import dry run accepts it, and the review summary quality gate passes.
 Each analytical-footprint row must keep target IDs and hashes intact and must fill `reviewer`, `review_date`, `review_notes`, `footprint_correct`, `source_span_supports_footprint`, `metric_mapping_correct`, `inferred_steps_tagged_correctly`, `unknowns_used_when_uncertain`, and `no_proprietary_text_leakage`.
+For batch work, use `mosaic-rke prepare-footprint-review --root . --limit 50 --offset 0 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite` and increase `--offset` by 50 for later batches.
 Use `mosaic-rke write-footprint-review-assist --root .` and `mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 0` to regenerate a private analytical-footprint evidence batch; increase `--offset` by 50 for later batches.
 
 Source-license review is accepted only when the reviewed policy expands to all current source rows and both the build step and license import dry run accept it.
