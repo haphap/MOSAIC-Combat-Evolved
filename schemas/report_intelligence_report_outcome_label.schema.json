@@ -31,6 +31,8 @@
           "performance_value_basis",
           "direction_evaluated",
           "decision_basis",
+          "window_role",
+          "source_horizon_days",
           "source_horizon_bucket",
           "claim_window_alignment",
           "evaluation_policy",
@@ -92,6 +94,8 @@
           "performance_value_basis",
           "direction_evaluated",
           "decision_basis",
+          "window_role",
+          "source_horizon_days",
           "source_horizon_bucket",
           "claim_window_alignment",
           "evaluation_policy"

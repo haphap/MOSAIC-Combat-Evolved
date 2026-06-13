@@ -749,6 +749,8 @@ STOCK_PROXY_REQUIRED_LABEL_FIELDS = (
     "performance_value_basis",
     "direction_evaluated",
     "decision_basis",
+    "window_role",
+    "source_horizon_days",
     "source_horizon_bucket",
     "claim_window_alignment",
     "evaluation_policy",
@@ -788,10 +790,27 @@ INDUSTRY_PROXY_REQUIRED_LABEL_FIELDS = (
     "performance_value_basis",
     "direction_evaluated",
     "decision_basis",
+    "window_role",
+    "source_horizon_days",
     "source_horizon_bucket",
     "claim_window_alignment",
     "evaluation_policy",
 )
+
+INDUSTRY_ETF_DECISION_BASIS = "absolute_proxy_return_direction"
+INDUSTRY_ETF_EVALUATION_POLICY = (
+    "industry_etf_t_plus_1_multi_window_proxy_retains_long_horizon_evidence"
+)
+STOCK_PRICE_PROXY_DECISION_BASIS = "directional_stock_return_and_relative_alpha"
+STOCK_PRICE_PROXY_EVALUATION_POLICY = (
+    "stock_t_plus_1_multi_window_proxy_retains_long_horizon_evidence"
+)
+PROXY_CLAIM_WINDOW_ALIGNMENTS = {
+    "within_source_horizon",
+    "shorter_than_source_horizon",
+    "beyond_source_horizon",
+    "fixed_window_no_source_horizon",
+}
 
 INDUSTRY_ETF_PIT_AVAILABILITY_RECORD_REQUIRED_FIELDS = (
     "mapping_id",
@@ -1270,6 +1289,28 @@ def _validate_proxy_outcome_label_contract(row: Mapping[str, Any], row_label: st
         failures.append(
             f"{row_label}.performance_value_basis: must be directional_after_cost_return"
         )
+    horizon_days = _int_or_none(row.get("horizon_days"))
+    if horizon_days is None:
+        failures.append(f"{row_label}.horizon_days: expected integer")
+    elif horizon_days <= 0:
+        failures.append(f"{row_label}.horizon_days: must be > 0")
+    else:
+        expected_window_role = (
+            "short" if horizon_days <= 20 else "medium" if horizon_days <= 60 else "long"
+        )
+        if row.get("window_role") != expected_window_role:
+            failures.append(
+                f"{row_label}.window_role: must be {expected_window_role} for horizon_days={horizon_days}"
+            )
+    source_horizon_days = row.get("source_horizon_days")
+    if source_horizon_days is not None:
+        parsed_source_horizon_days = _int_or_none(source_horizon_days)
+        if parsed_source_horizon_days is None:
+            failures.append(f"{row_label}.source_horizon_days: expected integer or null")
+        elif parsed_source_horizon_days < 0:
+            failures.append(f"{row_label}.source_horizon_days: must be >= 0")
+    if str(row.get("claim_window_alignment") or "") not in PROXY_CLAIM_WINDOW_ALIGNMENTS:
+        failures.append(f"{row_label}.claim_window_alignment: unsupported alignment")
     try:
         entry_lag = int(row.get("entry_lag_trading_days"))
     except (TypeError, ValueError):
@@ -1371,6 +1412,14 @@ def _validate_proxy_outcome_label_contract(row: Mapping[str, Any], row_label: st
                 f"{row_label}.relative_directional_hit: must match direction_evaluated and relative_alpha"
             )
     if label_type == "stock_price_proxy":
+        if row.get("decision_basis") != STOCK_PRICE_PROXY_DECISION_BASIS:
+            failures.append(
+                f"{row_label}.decision_basis: must be {STOCK_PRICE_PROXY_DECISION_BASIS}"
+            )
+        if row.get("evaluation_policy") != STOCK_PRICE_PROXY_EVALUATION_POLICY:
+            failures.append(
+                f"{row_label}.evaluation_policy: must be {STOCK_PRICE_PROXY_EVALUATION_POLICY}"
+            )
         if row.get("outcome_label_source") != "pit_stock_price_window":
             failures.append(
                 f"{row_label}.outcome_label_source: must be pit_stock_price_window"
@@ -1424,6 +1473,14 @@ def _validate_proxy_outcome_label_contract(row: Mapping[str, Any], row_label: st
             )
         )
     elif label_type == "industry_etf_proxy":
+        if row.get("decision_basis") != INDUSTRY_ETF_DECISION_BASIS:
+            failures.append(
+                f"{row_label}.decision_basis: must be {INDUSTRY_ETF_DECISION_BASIS}"
+            )
+        if row.get("evaluation_policy") != INDUSTRY_ETF_EVALUATION_POLICY:
+            failures.append(
+                f"{row_label}.evaluation_policy: must be {INDUSTRY_ETF_EVALUATION_POLICY}"
+            )
         if row.get("outcome_label_source") != "pit_industry_etf_price_window":
             failures.append(
                 f"{row_label}.outcome_label_source: must be pit_industry_etf_price_window"

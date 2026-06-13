@@ -1105,7 +1105,11 @@ def _base_outcome_label(label_type: str) -> dict[str, object]:
         "llm_outcome_labeling_allowed": False,
         "performance_value_basis": "directional_after_cost_return",
         "direction_evaluated": "positive",
-        "decision_basis": "market_price_proxy",
+        "decision_basis": "directional_stock_return_and_relative_alpha"
+        if label_type == "stock_price_proxy"
+        else "absolute_proxy_return_direction",
+        "window_role": "short",
+        "source_horizon_days": 20,
         "source_horizon_bucket": "short",
         "claim_window_alignment": "within_source_horizon",
         "evaluation_policy": "stock_t_plus_1_multi_window_proxy_retains_long_horizon_evidence"
@@ -1220,6 +1224,28 @@ def test_report_outcome_label_semantics_reject_cross_label_type_id_collisions(
         "overlap_group_id" in failure and "crosses label_type namespace" in failure
         for failure in record.failures
     )
+
+
+def test_report_outcome_label_semantics_reject_bad_window_policy_fields(
+    tmp_path: Path,
+):
+    stock_label = _base_outcome_label("stock_price_proxy")
+    stock_label["horizon_days"] = 60
+    stock_label["window_role"] = "short"
+    stock_label["source_horizon_days"] = -1
+    stock_label["claim_window_alignment"] = "llm_inferred_alignment"
+    stock_label["decision_basis"] = "market_price_proxy"
+    stock_label["evaluation_policy"] = "collapse_to_single_window"
+    _write_proxy_outcome_labels(tmp_path, [stock_label])
+
+    record = _proxy_outcome_contract_record(tmp_path)
+
+    assert record.accepted is False
+    assert any("window_role: must be medium" in failure for failure in record.failures)
+    assert any("source_horizon_days: must be >= 0" in failure for failure in record.failures)
+    assert any("claim_window_alignment" in failure for failure in record.failures)
+    assert any("decision_basis" in failure for failure in record.failures)
+    assert any("evaluation_policy" in failure for failure in record.failures)
 
 
 def test_report_outcome_label_semantics_reject_missing_label_type(

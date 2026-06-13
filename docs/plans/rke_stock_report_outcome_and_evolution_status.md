@@ -31,7 +31,7 @@ contracts.
 | Artifact | Evidence |
 | --- | --- |
 | `registry/report_intelligence/extraction_report.json` | current public-safe artifact reports 366 outcome labels: 87 industry ETF proxy, 279 stock price proxy. Semantic validation now passes as `schemas/report_intelligence_extraction_report_contract_rules`, which checks repo-relative output paths, public-text redaction, blocker-free aggregate status, public JSONL row counts, Markdown coverage counts, proxy readiness counts, and industry+stock outcome total consistency. |
-| `registry/report_intelligence/report_outcome_labels.jsonl` | proxy outcome label semantic validation now requires `claim_window_set_id` on both stock and industry proxy labels and rejects any `outcome_id`, `claim_window_set_id`, or `overlap_group_id` shared across `label_type` namespaces. This keeps stock-price and industry-ETF proxy outcomes stratified even when forecast claims, horizons, or proxy symbols overlap. |
+| `registry/report_intelligence/report_outcome_labels.jsonl` | proxy outcome label semantic validation now requires `claim_window_set_id`, `window_role`, and `source_horizon_days` on both stock and industry proxy labels and rejects any `outcome_id`, `claim_window_set_id`, or `overlap_group_id` shared across `label_type` namespaces. It also checks `window_role` against `horizon_days`, validates `source_horizon_days`, and pins channel-specific `decision_basis` and `evaluation_policy` values. This keeps stock-price and industry-ETF proxy outcomes stratified even when forecast claims, horizons, or proxy symbols overlap. |
 | `registry/report_intelligence/patch_v1_5_coverage_report.json` | public count-only fallback preserves aggregate evidence when private JSONL inputs are absent; Phase C now passes, while Phase B/D remain blocked by manual review and footprint quality gates; Phase G remains rollout-gated but now carries shadow paper-trading evidence counts from `recipe_paper_trading_summary.json` |
 | `registry/report_intelligence/industry_etf_proxy_map.jsonl` | 64 primary/governed mapping rows; `工业金属` maps to `SH560860` |
 | `registry/report_intelligence/industry_etf_proxy_pit_availability.json` | labelability summary is kept consistent with `outcome_labeling_readiness.industry_etf_proxy_readiness`: 146 eligible industry claims, 39 labelable claims, 87 labelable windows, 342 pending future windows |
@@ -129,6 +129,19 @@ MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv ru
 `schema-status` still exits 2 only for the existing analytical-footprint review
 and patch v1.5 manual coverage gates; the evolution readiness gate semantic
 record is accepted.
+
+Most recent focused validation after proxy outcome window-policy hardening:
+
+```bash
+MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run python -m pytest tests/test_rke_schema_artifacts.py::test_report_outcome_label_semantics_accept_complete_proxy_contracts tests/test_rke_schema_artifacts.py::test_report_outcome_label_semantics_reject_bad_window_policy_fields -q --basetemp /home/hap/tmp/mosaic-rke/pytest-window-policy-contract
+MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run python -m pytest tests/test_rke_schema_artifacts.py -q --basetemp /home/hap/tmp/mosaic-rke/pytest-rke-schema-window-policy
+uvx ruff@0.15.15 check mosaic/rke/schema_validation.py tests/test_rke_schema_artifacts.py
+MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke schema-status --root .
+```
+
+`schema-status` still exits 2 only for the existing analytical-footprint review
+and patch v1.5 manual coverage gates; the proxy outcome label contract record is
+accepted.
 
 Current manual review evidence and scaffold commands:
 
