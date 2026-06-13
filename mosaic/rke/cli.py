@@ -493,6 +493,13 @@ def build_parser() -> argparse.ArgumentParser:
         default=0,
         help="Pending-row offset after priority sorting. Use with --limit for review batches.",
     )
+    write_gold_review_evidence.add_argument(
+        "--review-input",
+        help=(
+            "Optional reviewed JSONL scratch file. When set, evidence rows follow "
+            "this input order and are matched back to the full gold review template."
+        ),
+    )
 
     apply_license_review = subparsers.add_parser(
         "apply-license-review",
@@ -1085,6 +1092,13 @@ def build_parser() -> argparse.ArgumentParser:
         default=0,
         help="Pending-row offset after priority sorting. Use with --limit for review batches.",
     )
+    write_footprint_review_evidence.add_argument(
+        "--review-input",
+        help=(
+            "Optional reviewed JSONL scratch file. When set, evidence rows follow "
+            "this input order and are matched back to the full footprint review template."
+        ),
+    )
 
     validate = subparsers.add_parser(
         "validate-required", help="Validate required registry files."
@@ -1363,7 +1377,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         _print_json(asdict(result))
         return 0 if result.written else 2
     if args.command == "write-gold-review-evidence":
-        result = write_gold_review_evidence(root, limit=args.limit, offset=args.offset)
+        result = write_gold_review_evidence(
+            root,
+            limit=args.limit,
+            offset=args.offset,
+            review_input_path=args.review_input,
+        )
         _print_json(result)
         return 0 if result["blockers"] == 0 else 2
     if args.command == "apply-license-review":
@@ -1574,6 +1593,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             root,
             limit=args.limit,
             offset=args.offset,
+            review_input_path=args.review_input,
         )
         _print_json(asdict(report))
         return 0 if not report.blockers else 2

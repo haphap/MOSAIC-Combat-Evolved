@@ -271,6 +271,45 @@ def test_gold_review_evidence_supports_offset_batches(tmp_path: Path):
     assert first_rows[0]["claim_id"] != second_rows[0]["claim_id"]
 
 
+def test_gold_review_evidence_can_follow_review_input_batch(tmp_path: Path):
+    _copy_registry(tmp_path)
+    result = write_gold_review_starter(
+        tmp_path,
+        force=True,
+        gold_batch_size=3,
+        offset=0,
+    )
+    result_path = Path(result.path)
+    if not result_path.is_absolute():
+        result_path = tmp_path / result_path
+    review_input = result_path.relative_to(tmp_path)
+    review_rows = _load_jsonl(tmp_path / review_input)
+
+    summary, evidence_rows = build_gold_review_evidence(
+        tmp_path,
+        limit=1,
+        offset=99,
+        review_input_path=review_input,
+    )
+    write_result = write_gold_review_evidence(
+        tmp_path,
+        limit=1,
+        offset=99,
+        review_input_path=review_input,
+    )
+
+    assert summary.selection_source == "review_input"
+    assert summary.review_input_path == str(review_input)
+    assert write_result["selection_source"] == "review_input"
+    assert write_result["review_input_path"] == str(review_input)
+    assert [row["claim_id"] for row in evidence_rows] == [
+        row["claim_id"] for row in review_rows
+    ]
+    assert [row["target_row_hash"] for row in evidence_rows] == [
+        row["target_row_hash"] for row in review_rows
+    ]
+
+
 def test_gold_review_evidence_uses_local_markdown_cache_without_metadata(
     tmp_path: Path,
 ):

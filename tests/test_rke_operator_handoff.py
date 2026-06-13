@@ -55,13 +55,21 @@ def test_operator_handoff_summarizes_remaining_manual_gates():
     assert any(
         step.step_id == "write-footprint-review-evidence"
         and step.command
-        == f"{RKE_OPERATOR_TMP_ENV_PREFIX} mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 0"
+        == (
+            f"{RKE_OPERATOR_TMP_ENV_PREFIX} mosaic-rke write-footprint-review-evidence "
+            "--root . --limit 50 --offset 0 --review-input "
+            "registry/report_intelligence/analytical_footprint_review_batch.jsonl"
+        )
         for step in handoff.command_sequence
     )
     assert any(
         step.step_id == "write-gold-review-evidence"
         and step.command
-        == f"{RKE_OPERATOR_TMP_ENV_PREFIX} mosaic-rke write-gold-review-evidence --root . --limit 50 --offset 0"
+        == (
+            f"{RKE_OPERATOR_TMP_ENV_PREFIX} mosaic-rke write-gold-review-evidence "
+            "--root . --limit 50 --offset 0 --review-input "
+            "registry/review_batches/gold_set_reviewed.jsonl"
+        )
         for step in handoff.command_sequence
     )
     assert {gate.review_kind for gate in handoff.gates} == {

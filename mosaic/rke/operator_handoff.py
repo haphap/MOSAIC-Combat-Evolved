@@ -273,7 +273,8 @@ def _operator_command_sequence(
             phase="gold_set",
             action="Write private gold-set evidence draft files.",
             command=operator_command(
-                "mosaic-rke write-gold-review-evidence --root . --limit 50 --offset 0"
+                "mosaic-rke write-gold-review-evidence --root . --limit 50 --offset 0 "
+                f"--review-input {GOLD_REVIEWED_IMPORT_PATH}"
             ),
             manual_input_path="",
             expected_result=(
@@ -331,7 +332,8 @@ def _operator_command_sequence(
             phase="footprint_review",
             action="Write private analytical-footprint evidence draft files.",
             command=operator_command(
-                "mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 0"
+                "mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 0 "
+                f"--review-input {ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH}"
             ),
             manual_input_path="",
             expected_result=(
@@ -495,9 +497,24 @@ def write_lockbox_review_import_template(root: str | Path = ".") -> dict[str, An
 
 def render_lockbox_review_checklist(root: str | Path = ".") -> str:
     root_path = Path(root)
-    target = _read_mapping_json(root_path / LOCKBOX_REVIEW_PATH, "lockbox target")
-    policy = _read_mapping_json(root_path / LOCKBOX_POLICY_PATH, "lockbox policy")
-    template = build_lockbox_review_import_template(root_path)
+    try:
+        target = _read_mapping_json(root_path / LOCKBOX_REVIEW_PATH, "lockbox target")
+        policy = _read_mapping_json(root_path / LOCKBOX_POLICY_PATH, "lockbox policy")
+        template = build_lockbox_review_import_template(root_path)
+    except ValueError as exc:
+        return "\n".join(
+            [
+                "# RKE Lockbox Review Checklist",
+                "",
+                "The lockbox checklist could not be rendered because the target or policy input is invalid.",
+                "",
+                "## Blockers",
+                "",
+                f"- {exc}",
+                "",
+                "Regenerate the lockbox target/policy artifact before preparing a reviewer scratch file.",
+            ]
+        ).rstrip()
     lines = [
         "# RKE Lockbox Review Checklist",
         "",

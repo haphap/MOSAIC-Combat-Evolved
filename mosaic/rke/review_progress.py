@@ -294,7 +294,8 @@ def _gold_next_batch_commands(pending_rows: int) -> dict[str, str]:
     batch_size = min(50, int(pending_rows))
     return {
         "evidence": operator_command(
-            f"mosaic-rke write-gold-review-evidence --root . --limit {batch_size} --offset 0"
+            "mosaic-rke write-gold-review-evidence --root . "
+            f"--limit {batch_size} --offset 0 --review-input {GOLD_REVIEWED_IMPORT_PATH}"
         ),
         "prepare": (
             operator_command(
@@ -319,7 +320,8 @@ def _footprint_next_batch_commands(pending_rows: int) -> dict[str, str]:
     return {
         "assist": operator_command("mosaic-rke write-footprint-review-assist --root ."),
         "evidence": operator_command(
-            f"mosaic-rke write-footprint-review-evidence --root . --limit {batch_size} --offset 0"
+            "mosaic-rke write-footprint-review-evidence --root . "
+            f"--limit {batch_size} --offset 0 --review-input {ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH}"
         ),
         "prepare": (
             operator_command(
@@ -356,7 +358,8 @@ def _manual_review_batch_plan(
             commands = {
                 "evidence": operator_command(
                     "mosaic-rke write-gold-review-evidence --root . "
-                    f"--limit {limit} --offset {offset}"
+                    f"--limit {limit} --offset {offset} "
+                    f"--review-input {GOLD_REVIEWED_IMPORT_PATH}"
                 ),
                 "prepare": operator_command(
                     "mosaic-rke prepare-gold-review --root . "
@@ -375,7 +378,8 @@ def _manual_review_batch_plan(
                 "assist": operator_command("mosaic-rke write-footprint-review-assist --root ."),
                 "evidence": operator_command(
                     "mosaic-rke write-footprint-review-evidence --root . "
-                    f"--limit {limit} --offset {offset}"
+                    f"--limit {limit} --offset {offset} "
+                    f"--review-input {ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH}"
                 ),
                 "prepare": operator_command(
                     "mosaic-rke prepare-footprint-review --root . "
@@ -886,7 +890,8 @@ def render_manual_review_runbook_markdown(report: ManualReviewProgressReport) ->
         f"mosaic-rke apply-gold-review --root . --input {GOLD_REVIEWED_IMPORT_PATH}"
     )
     gold_evidence = operator_command(
-        "mosaic-rke write-gold-review-evidence --root . --limit 50 --offset 0"
+        "mosaic-rke write-gold-review-evidence --root . --limit 50 --offset 0 "
+        f"--review-input {GOLD_REVIEWED_IMPORT_PATH}"
     )
     footprint_batch_prepare = operator_command(
         "mosaic-rke prepare-footprint-review --root . --limit 50 --offset 0 "
@@ -902,7 +907,8 @@ def render_manual_review_runbook_markdown(report: ManualReviewProgressReport) ->
     )
     footprint_assist = operator_command("mosaic-rke write-footprint-review-assist --root .")
     footprint_evidence = operator_command(
-        "mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 0"
+        "mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 0 "
+        f"--review-input {ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH}"
     )
     lines = [
         "# RKE Manual Review Runbook",
@@ -992,14 +998,14 @@ def render_manual_review_runbook_markdown(report: ManualReviewProgressReport) ->
         f"Use `{gold_full_prepare}` to prefill reviewer identity and date only; claim text and boolean review decisions remain human judgments.",
         f"For batch work, use `{gold_batch_prepare}`; after applying that batch, rerun with `--offset 0` because completed rows leave the pending set.",
         f"Batch gold-set imports use `{gold_batch_dry_run}`, then `{gold_batch_apply}` after the batch is accepted.",
-        f"Use `{gold_evidence}` to regenerate the current private source-evidence draft batch; use higher offsets only when preparing multiple un-applied batches at once.",
+        f"Use `{gold_evidence}` after preparing the current gold scratch batch to regenerate a batch-aligned private source-evidence draft.",
         "The resulting gold-set summary must satisfy the code-defined gate: at least 50 documents, at least 500 claims, claim precision >= 0.85, span-support precision >= 0.90, direction accuracy >= 0.85, target accuracy >= 0.85, horizon accuracy >= 0.85, variable mapping accuracy >= 0.80, and unsupported-field false grounding <= 0.05.",
         "",
         "Analytical-footprint review is accepted only when every footprint row is completed, the import dry run accepts it, and the review summary quality gate passes.",
         "Each analytical-footprint row must keep target IDs and hashes intact and must fill `reviewer`, `review_date`, `review_notes`, `footprint_correct`, `source_span_supports_footprint`, `metric_mapping_correct`, `inferred_steps_tagged_correctly`, `unknowns_used_when_uncertain`, and `no_proprietary_text_leakage`.",
         f"For batch work, use `{footprint_batch_prepare}`; after applying that batch, rerun with `--offset 0` because completed rows leave the pending set.",
         f"Batch analytical-footprint imports use `{footprint_batch_dry_run}`, then `{footprint_batch_apply}` after the batch is accepted.",
-        f"Use `{footprint_assist}` and `{footprint_evidence}` to regenerate the current private analytical-footprint evidence batch; use higher offsets only when preparing multiple un-applied batches at once.",
+        f"Use `{footprint_assist}` and `{footprint_evidence}` after preparing the current footprint scratch batch to regenerate a batch-aligned private evidence draft.",
         "",
         "Source-license review is accepted only when the reviewed policy expands to all current source rows and both the build step and license import dry run accept it.",
         "The reviewed policy must fill `reviewer`, `review_date`, `approved_for_derived_claim_storage`, and `approved_for_production_runtime`; production promotion requires `approved_for_production_runtime=true` for every matched current source.",

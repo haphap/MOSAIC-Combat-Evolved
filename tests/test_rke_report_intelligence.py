@@ -9615,6 +9615,52 @@ def test_analytical_footprint_review_evidence_supports_offset_batches(
     assert first_rows[0]["footprint_id"] != second_rows[0]["footprint_id"]
 
 
+def test_analytical_footprint_review_evidence_can_follow_review_input_batch(
+    tmp_path: Path,
+):
+    source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
+    run_report_intelligence_refresh(
+        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        downloader=_fake_downloader,
+        converter=_fake_converter,
+        llm_extractor=_fake_llm,
+    )
+    template_path = tmp_path / "registry/report_intelligence/analytical_footprint_review_template.jsonl"
+    rows = _read_jsonl(template_path)
+    duplicate = dict(rows[0])
+    duplicate["footprint_id"] = f"{rows[0]['footprint_id']}-B"
+    rows.append(duplicate)
+    _write_jsonl(template_path, rows)
+    review_input_path = tmp_path / ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH
+    review_input_path.parent.mkdir(parents=True, exist_ok=True)
+    review_input_rows = [rows[1], rows[0]]
+    _write_jsonl(review_input_path, review_input_rows)
+
+    summary, evidence_rows = build_analytical_footprint_review_evidence(
+        tmp_path,
+        limit=1,
+        offset=99,
+        review_input_path=ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH,
+    )
+    written_report = write_analytical_footprint_review_evidence(
+        tmp_path,
+        limit=1,
+        offset=99,
+        review_input_path=ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH,
+    )
+
+    assert summary.selection_source == "review_input"
+    assert summary.review_input_path == ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH
+    assert written_report.selection_source == "review_input"
+    assert written_report.review_input_path == ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH
+    assert [row["footprint_id"] for row in evidence_rows] == [
+        row["footprint_id"] for row in review_input_rows
+    ]
+    assert [row["target_row_hash"] for row in evidence_rows] == [
+        row["target_row_hash"] for row in review_input_rows
+    ]
+
+
 def test_analytical_footprint_review_summary_requires_quality_thresholds(
     tmp_path: Path,
 ):

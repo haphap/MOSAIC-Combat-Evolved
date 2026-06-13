@@ -4620,6 +4620,10 @@ def _validate_manual_review_progress_contract(
                     failures.append(f"{batch_label}.commands.prepare: offset mismatch")
                 if limit is not None and f"--limit {limit}" not in evidence_command:
                     failures.append(f"{batch_label}.commands.evidence: limit mismatch")
+                if f"--review-input {expected_batch_input}" not in evidence_command:
+                    failures.append(
+                        f"{batch_label}.commands.evidence: expected review input {expected_batch_input}"
+                    )
                 if review_kind == "gold_set":
                     if (
                         limit is not None

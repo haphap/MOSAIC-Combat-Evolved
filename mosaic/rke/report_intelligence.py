@@ -893,6 +893,8 @@ class AnalyticalFootprintReviewEvidenceReport:
     evidence_rows: int
     missing_markdown_rows: int
     blockers: Sequence[str]
+    selection_source: str = "priority_sorted_pending"
+    review_input_path: str = ""
 
 
 @dataclass(frozen=True)
@@ -4886,6 +4888,7 @@ def build_analytical_footprint_review_evidence(
     *,
     limit: int = 25,
     offset: int = 0,
+    review_input_path: str | Path | None = None,
 ) -> tuple[AnalyticalFootprintReviewEvidenceReport, tuple[Mapping[str, Any], ...]]:
     root_path = Path(root)
     target_path = root_path / ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH
@@ -4906,10 +4909,68 @@ def build_analytical_footprint_review_evidence(
         if str(row.get("source_id") or "").strip()
     }
     pending_rows = [row for row in target_rows if not _footprint_review_row_complete(row)]
-    prioritized_rows = sorted(
-        enumerate(pending_rows, 1),
-        key=lambda item: (-_footprint_review_priority_score(item[1]), item[0]),
-    )[max(0, int(offset)) : max(0, int(offset)) + max(0, int(limit))]
+    blockers: list[str] = [*target_parse_blockers, *metadata_parse_blockers]
+    selection_source = "priority_sorted_pending"
+    review_input_text = ""
+    target_by_id = {
+        str(row.get("footprint_id") or ""): row
+        for row in target_rows
+        if str(row.get("footprint_id") or "").strip()
+    }
+    if review_input_path is not None:
+        selection_source = "review_input"
+        review_input = Path(review_input_path)
+        review_input_text = str(review_input)
+        input_rows_raw, input_parse_blockers = load_jsonl_with_errors(
+            root_path / review_input,
+            label="analytical footprint review input",
+        )
+        input_rows, invalid_input_rows = _split_mapping_rows(input_rows_raw)
+        blockers.extend(input_parse_blockers)
+        if invalid_input_rows:
+            blockers.append(
+                "analytical footprint review input row must be object at row(s): "
+                + ", ".join(str(row_number) for row_number in invalid_input_rows)
+            )
+        if not input_rows_raw:
+            blockers.append("analytical footprint review input is missing or empty")
+        selected_rows: list[Mapping[str, Any]] = []
+        seen_footprint_ids: set[str] = set()
+        for row_index, input_row in enumerate(input_rows, 1):
+            footprint_id = str(input_row.get("footprint_id") or "").strip()
+            if not footprint_id:
+                blockers.append(
+                    f"analytical footprint review input row {row_index}.footprint_id: required"
+                )
+                continue
+            if footprint_id in seen_footprint_ids:
+                blockers.append(
+                    "analytical footprint review input row "
+                    f"{row_index}.footprint_id: duplicate {footprint_id}"
+                )
+                continue
+            seen_footprint_ids.add(footprint_id)
+            target_row = target_by_id.get(footprint_id)
+            if target_row is None:
+                blockers.append(
+                    "analytical footprint review input row "
+                    f"{row_index}.footprint_id: no matching target review row"
+                )
+                continue
+            input_hash = str(input_row.get("target_row_hash") or "").strip()
+            target_hash = str(target_row.get("target_row_hash") or "").strip()
+            if input_hash and target_hash and input_hash != target_hash:
+                blockers.append(
+                    "analytical footprint review input row "
+                    f"{row_index}.target_row_hash: does not match target review row"
+                )
+            selected_rows.append(target_row)
+        prioritized_rows = tuple(enumerate(selected_rows, 1))
+    else:
+        prioritized_rows = sorted(
+            enumerate(pending_rows, 1),
+            key=lambda item: (-_footprint_review_priority_score(item[1]), item[0]),
+        )[max(0, int(offset)) : max(0, int(offset)) + max(0, int(limit))]
     evidence_rows = tuple(
         _footprint_review_evidence_row(
             index,
@@ -4919,7 +4980,6 @@ def build_analytical_footprint_review_evidence(
         )
         for index, row in prioritized_rows
     )
-    blockers: list[str] = [*target_parse_blockers, *metadata_parse_blockers]
     if invalid_target_rows:
         blockers.append(
             "analytical footprint target review row must be object at row(s): "
@@ -4948,6 +5008,8 @@ def build_analytical_footprint_review_evidence(
             evidence_rows=sum(1 for row in evidence_rows if row.get("evidence_snippets")),
             missing_markdown_rows=missing_markdown_rows,
             blockers=tuple(blockers),
+            selection_source=selection_source,
+            review_input_path=review_input_text,
         ),
         evidence_rows,
     )
@@ -5088,12 +5150,14 @@ def write_analytical_footprint_review_evidence(
     *,
     limit: int = 25,
     offset: int = 0,
+    review_input_path: str | Path | None = None,
 ) -> AnalyticalFootprintReviewEvidenceReport:
     root_path = Path(root)
     report, rows = build_analytical_footprint_review_evidence(
         root_path,
         limit=limit,
         offset=offset,
+        review_input_path=review_input_path,
     )
     _write_jsonl(root_path / ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_JSONL_PATH, rows)
     markdown_path = root_path / ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_MD_PATH

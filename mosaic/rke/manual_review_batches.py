@@ -119,6 +119,8 @@ class GoldReviewEvidenceSummary:
     evidence_rows: int
     missing_markdown_rows: int
     blockers: Sequence[str]
+    selection_source: str = "priority_sorted_pending"
+    review_input_path: str = ""
 
 
 def _jsonable(value: Any) -> Any:
@@ -876,7 +878,9 @@ def _gold_evidence_row(
         "index": index,
         "priority_score": _gold_evidence_priority_score(row),
         "claim_id": str(row.get("claim_id") or ""),
-        TARGET_ROW_HASH_FIELD: review_row_fingerprint(row),
+        TARGET_ROW_HASH_FIELD: str(
+            row.get(TARGET_ROW_HASH_FIELD) or review_row_fingerprint(row)
+        ),
         "source_id": source_id,
         "source_span_id": str(row.get("source_span_id") or ""),
         "document_id": str(row.get("document_id") or row.get("source_id") or ""),
@@ -916,6 +920,7 @@ def build_gold_review_evidence(
     *,
     limit: int = 50,
     offset: int = 0,
+    review_input_path: str | Path | None = None,
 ) -> tuple[GoldReviewEvidenceSummary, tuple[Mapping[str, Any], ...]]:
     root_path = Path(root)
     raw_rows, template_rows, invalid_rows, parse_blockers, _ = _load_review_rows(
@@ -954,10 +959,68 @@ def build_gold_review_evidence(
         for row in template_rows
         if not _gold_row_complete(reviewed_by_id.get(str(row.get("claim_id") or ""), row))
     ]
-    prioritized_rows = sorted(
-        enumerate(pending_rows, 1),
-        key=lambda item: (-_gold_evidence_priority_score(item[1]), item[0]),
-    )[max(0, int(offset)) : max(0, int(offset)) + max(0, int(limit))]
+    blockers: list[str] = [*parse_blockers, *reviewed_blockers, *source_blockers, *metadata_blockers]
+    selection_source = "priority_sorted_pending"
+    review_input_text = ""
+    template_by_id = {
+        str(row.get("claim_id") or ""): row
+        for row in template_rows
+        if str(row.get("claim_id") or "").strip()
+    }
+    if review_input_path is not None:
+        selection_source = "review_input"
+        review_input = Path(review_input_path)
+        review_input_text = str(review_input)
+        input_raw, input_rows, input_invalid_rows, input_parse_blockers, _ = (
+            _load_review_rows(
+                root_path,
+                review_input_text,
+                label="gold-set review input",
+            )
+        )
+        blockers.extend(input_parse_blockers)
+        if input_invalid_rows:
+            blockers.append(
+                "gold-set review input row must be object at row(s): "
+                + ", ".join(str(row_number) for row_number in input_invalid_rows)
+            )
+        if not input_raw:
+            blockers.append("gold-set review input is missing or empty")
+        selected_rows: list[Mapping[str, Any]] = []
+        seen_claim_ids: set[str] = set()
+        for row_index, input_row in enumerate(input_rows, 1):
+            claim_id = str(input_row.get("claim_id") or "").strip()
+            if not claim_id:
+                blockers.append(
+                    f"gold-set review input row {row_index}.claim_id: required"
+                )
+                continue
+            if claim_id in seen_claim_ids:
+                blockers.append(
+                    f"gold-set review input row {row_index}.claim_id: duplicate {claim_id}"
+                )
+                continue
+            seen_claim_ids.add(claim_id)
+            template_row = template_by_id.get(claim_id)
+            if template_row is None:
+                blockers.append(
+                    f"gold-set review input row {row_index}.claim_id: no matching target review row"
+                )
+                continue
+            expected_hash = review_row_fingerprint(template_row)
+            input_hash = str(input_row.get(TARGET_ROW_HASH_FIELD) or "").strip()
+            if input_hash and input_hash != expected_hash:
+                blockers.append(
+                    f"gold-set review input row {row_index}.{TARGET_ROW_HASH_FIELD}: "
+                    "does not match target review row"
+                )
+            selected_rows.append(template_row)
+        prioritized_rows = tuple(enumerate(selected_rows, 1))
+    else:
+        prioritized_rows = sorted(
+            enumerate(pending_rows, 1),
+            key=lambda item: (-_gold_evidence_priority_score(item[1]), item[0]),
+        )[max(0, int(offset)) : max(0, int(offset)) + max(0, int(limit))]
     evidence_rows = tuple(
         _gold_evidence_row(
             index,
@@ -968,7 +1031,6 @@ def build_gold_review_evidence(
         )
         for index, row in prioritized_rows
     )
-    blockers: list[str] = [*parse_blockers, *reviewed_blockers, *source_blockers, *metadata_blockers]
     if invalid_rows:
         blockers.append(
             "gold-set review row must be object at row(s): "
@@ -994,6 +1056,8 @@ def build_gold_review_evidence(
             evidence_rows=sum(1 for row in evidence_rows if row.get("evidence_snippets")),
             missing_markdown_rows=missing_markdown_rows,
             blockers=tuple(blockers),
+            selection_source=selection_source,
+            review_input_path=review_input_text,
         ),
         evidence_rows,
     )
@@ -1131,9 +1195,15 @@ def write_gold_review_evidence(
     *,
     limit: int = 50,
     offset: int = 0,
+    review_input_path: str | Path | None = None,
 ) -> dict[str, Any]:
     root_path = Path(root)
-    summary, rows = build_gold_review_evidence(root_path, limit=limit, offset=offset)
+    summary, rows = build_gold_review_evidence(
+        root_path,
+        limit=limit,
+        offset=offset,
+        review_input_path=review_input_path,
+    )
     jsonl_result = _write_jsonl(root_path / GOLD_REVIEW_EVIDENCE_JSONL_PATH, rows)
     md_path = root_path / GOLD_REVIEW_EVIDENCE_MD_PATH
     md_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1146,6 +1216,8 @@ def write_gold_review_evidence(
         "markdown": str(md_path),
         "rows": len(rows),
         "offset": summary.requested_offset,
+        "selection_source": summary.selection_source,
+        "review_input_path": summary.review_input_path,
         "evidence_rows": summary.evidence_rows,
         "missing_markdown_rows": summary.missing_markdown_rows,
         "blockers": len(summary.blockers),

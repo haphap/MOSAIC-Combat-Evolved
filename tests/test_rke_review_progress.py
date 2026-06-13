@@ -408,13 +408,21 @@ def test_manual_review_runbook_renders_operator_checklist_without_source_text(tm
     assert "### gold_set" in markdown
     assert "### footprint_review" in markdown
     assert "After applying an accepted batch, rerun review-progress" in markdown
-    assert "mosaic-rke write-gold-review-evidence --root . --limit 50 --offset 0" in markdown
+    assert (
+        "mosaic-rke write-gold-review-evidence --root . --limit 50 --offset 0 "
+        "--review-input registry/review_batches/gold_set_reviewed.jsonl"
+        in markdown
+    )
     assert "mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --dry-run" in markdown
     assert "rerun with `--offset 0` because completed rows leave the pending set" in markdown
-    assert "higher offsets only when preparing multiple un-applied batches at once" in markdown
+    assert "batch-aligned private source-evidence draft" in markdown
     assert "mosaic-rke prepare-footprint-review --root ." in markdown
     assert "mosaic-rke write-footprint-review-assist --root ." in markdown
-    assert "mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 0" in markdown
+    assert (
+        "mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 0 "
+        "--review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl"
+        in markdown
+    )
     assert "mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run" in markdown
     assert "mosaic-rke prepare-license-policy-review --root ." in markdown
     assert "mosaic-rke prepare-lockbox-review --root ." in markdown
