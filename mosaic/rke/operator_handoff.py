@@ -758,8 +758,9 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
                 f"--input {LOCKBOX_REVIEWED_IMPORT_PATH}"
             ),
             operator_note=(
-                "Run prepare-lockbox-review only after manual gold and license gates pass, "
-                "fill the reviewed scratch JSON, then dry-run before applying the one-time lockbox review."
+                "Run prepare-lockbox-review only after gold-set, analytical-footprint, "
+                "and source-license gates pass; fill the reviewed scratch JSON, "
+                "then dry-run before applying the one-time lockbox review."
             ),
         ),
     )
