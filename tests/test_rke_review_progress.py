@@ -6,9 +6,23 @@ from pathlib import Path
 
 from mosaic.rke import review_progress as review_progress_module
 from mosaic.rke.cli import main
-from mosaic.rke.manual_review_batches import write_manual_review_batches
+from mosaic.rke.lockbox_review_import import (
+    LOCKBOX_BOOL_FIELDS,
+    LOCKBOX_REQUIRED_FIELDS,
+    LOCKBOX_RESULTS,
+)
 from mosaic.rke.license_policy_import import build_source_license_policy_template
+from mosaic.rke.manual_review_aids import manual_review_field_contract
+from mosaic.rke.manual_review_batches import write_manual_review_batches
+from mosaic.rke.manual_review_import import (
+    GOLD_BOOL_FIELDS,
+    LICENSE_IMPORTED_FIELDS,
+)
 from mosaic.rke.operator_handoff import build_lockbox_review_import_template
+from mosaic.rke.report_intelligence import (
+    ANALYTICAL_FOOTPRINT_REVIEW_BOOLEAN_FIELDS,
+    ANALYTICAL_FOOTPRINT_REVIEW_REQUIRED_FIELDS,
+)
 from mosaic.rke.review_progress import (
     build_manual_review_action_queue,
     build_manual_review_progress,
@@ -98,6 +112,40 @@ def _write_json(path: Path, payload: dict) -> None:
         json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+
+
+def test_manual_review_field_contracts_match_import_validators():
+    gold = manual_review_field_contract("gold_set")
+    assert gold["boolean_fields"] == list(GOLD_BOOL_FIELDS)
+    assert gold["required_fields"] == [
+        "manual_claim_text",
+        *GOLD_BOOL_FIELDS,
+        "reviewer",
+        "review_date",
+    ]
+    assert gold["optional_fields"] == ["review_notes"]
+
+    footprint = manual_review_field_contract("footprint_review")
+    assert footprint["boolean_fields"] == list(
+        ANALYTICAL_FOOTPRINT_REVIEW_BOOLEAN_FIELDS
+    )
+    assert footprint["required_fields"] == list(
+        ANALYTICAL_FOOTPRINT_REVIEW_REQUIRED_FIELDS
+    )
+    assert footprint["optional_fields"] == []
+
+    source_license = manual_review_field_contract("source_license")
+    assert source_license["required_fields"] == list(LICENSE_IMPORTED_FIELDS[:-1])
+    assert source_license["optional_fields"] == ["notes"]
+    assert source_license["boolean_fields"] == list(LICENSE_IMPORTED_FIELDS[:2])
+
+    lockbox = manual_review_field_contract("lockbox")
+    assert lockbox["required_fields"] == [
+        *LOCKBOX_REQUIRED_FIELDS,
+        *LOCKBOX_BOOL_FIELDS,
+    ]
+    assert lockbox["boolean_fields"] == list(LOCKBOX_BOOL_FIELDS)
+    assert lockbox["allowed_results"] == sorted(LOCKBOX_RESULTS - {"not_opened"})
 
 
 def test_rke_temporary_directory_honors_rke_tmpdir(tmp_path: Path, monkeypatch):

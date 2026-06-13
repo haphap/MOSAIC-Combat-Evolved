@@ -314,6 +314,9 @@ optional fields, boolean fields with `true`/`false` values, date format
 requirements, and fields that must be preserved. This makes the gold-set
 `review_notes` optional but analytical-footprint `review_notes` required
 distinction explicit in both JSON action output and the Markdown runbook.
+`tests/test_rke_review_progress.py` now asserts that these public-safe contracts
+stay aligned with the gold-set, footprint, source-license, and lockbox import
+validator constants.
 
 `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke schema-status --root .`
 currently exits with code 2 by design. The current failing semantic records are
