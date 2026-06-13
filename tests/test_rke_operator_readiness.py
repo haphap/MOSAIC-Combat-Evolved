@@ -5,6 +5,7 @@ import shutil
 from pathlib import Path
 from types import SimpleNamespace
 
+import mosaic.rke.operator_readiness as operator_readiness_module
 from mosaic.rke import (
     build_operator_readiness_report,
     write_manual_review_batches,
@@ -81,7 +82,7 @@ def test_operator_readiness_accepts_current_review_bundle(tmp_path: Path):
     }
     assert report.accepted, failures
     assert report.failure_count == 0
-    assert report.check_count == 16
+    assert report.check_count == 17
     assert "registry/review_batches/gold_set_review_workbook.md" in report.generated_paths
     assert "registry/review_batches/gold_set_review_assist.jsonl" in report.generated_paths
     assert "registry/review_batches/gold_set_review_assist.md" in report.generated_paths
@@ -119,6 +120,7 @@ def test_operator_readiness_accepts_current_review_bundle(tmp_path: Path):
     assert checks["blank_full_gold_set_import_is_rejected"].passed
     assert checks["lockbox_template_requires_human_decision"].passed
     assert checks["blank_lockbox_import_is_rejected"].passed
+    assert checks["lockbox_upstream_cli_guard_enforced"].passed
     assert checks["source_license_policy_template_requires_human_decision"].passed
     assert checks["blank_source_license_policy_import_is_rejected"].passed
     assert checks["blank_bundle_dry_run_does_not_promote"].passed
@@ -501,6 +503,26 @@ def test_operator_readiness_rejects_blank_lockbox_import(tmp_path: Path):
     assert import_report["dry_run"] is True
     assert import_report["next_state"] == "paper_trading"
     assert "result required" in import_report["rejected_reasons"]
+
+
+def test_operator_readiness_detects_lockbox_upstream_guard_drift(tmp_path: Path, monkeypatch):
+    _copy_registry(tmp_path)
+    monkeypatch.setattr(
+        operator_readiness_module,
+        "lockbox_upstream_review_blockers",
+        lambda _root: (),
+    )
+
+    report = build_operator_readiness_report(tmp_path)
+    guard = next(
+        check
+        for check in report.checks
+        if check.check_id == "lockbox_upstream_cli_guard_enforced"
+    )
+
+    assert not report.accepted
+    assert not guard.passed
+    assert guard.blocker == "lockbox upstream CLI guard does not match manual gate readiness"
 
 
 def test_write_operator_readiness_report_outputs_registry_artifact(tmp_path: Path):

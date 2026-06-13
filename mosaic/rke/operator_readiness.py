@@ -47,12 +47,14 @@ from .lockbox_review_import import (
     apply_lockbox_review_import,
 )
 from .operator_handoff import (
+    LOCKBOX_UPSTREAM_REVIEW_KINDS,
     LOCKBOX_REVIEW_CHECKLIST_MD_PATH,
     LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH,
     OPERATOR_HANDOFF_JSON_PATH,
     OPERATOR_HANDOFF_MD_PATH,
     build_lockbox_review_import_template,
     build_operator_handoff,
+    lockbox_upstream_review_blockers,
     write_operator_handoff,
 )
 from .promotion_dry_run import (
@@ -71,6 +73,7 @@ from .report_intelligence import (
 from .review_progress import (
     MANUAL_REVIEW_PROGRESS_REPORT_PATH,
     MANUAL_REVIEW_RUNBOOK_MD_PATH,
+    build_manual_review_progress,
     write_manual_review_progress_report,
     write_manual_review_runbook,
 )
@@ -545,6 +548,41 @@ def _manual_batch_promotion_inputs_separated(
     return not failures and checked_gates == 2, evidence, "; ".join(failures)
 
 
+def _lockbox_upstream_guard_consistent(root_path: Path) -> tuple[bool, str, str]:
+    report = build_manual_review_progress(root_path)
+    gate_by_kind = {gate.review_kind: gate for gate in report.gates}
+    expected_blockers = tuple(
+        f"{review_kind} gate must be ready before opening lockbox review"
+        for review_kind in LOCKBOX_UPSTREAM_REVIEW_KINDS
+        if not gate_by_kind.get(review_kind, None)
+        or not gate_by_kind[review_kind].ready_for_promotion
+    )
+    actual_blockers = lockbox_upstream_review_blockers(root_path)
+    ready_kinds = tuple(
+        review_kind
+        for review_kind in LOCKBOX_UPSTREAM_REVIEW_KINDS
+        if gate_by_kind.get(review_kind, None)
+        and gate_by_kind[review_kind].ready_for_promotion
+    )
+    pending_kinds = tuple(
+        review_kind
+        for review_kind in LOCKBOX_UPSTREAM_REVIEW_KINDS
+        if review_kind not in ready_kinds
+    )
+    evidence = (
+        "pending="
+        + (",".join(pending_kinds) if pending_kinds else "none")
+        + "; ready="
+        + (",".join(ready_kinds) if ready_kinds else "none")
+        + f"; blockers={len(actual_blockers)}"
+    )
+    return (
+        actual_blockers == expected_blockers,
+        evidence,
+        "lockbox upstream CLI guard does not match manual gate readiness",
+    )
+
+
 def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadinessReport:
     root_path = Path(root)
     if not (root_path / GOLD_REVIEW_ASSIST_JSONL_PATH).exists() or not (
@@ -770,6 +808,19 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
                 f"rejections={len(blank_lockbox.rejected_reasons)}"
             ),
             "blank lockbox import unexpectedly passes",
+        )
+    )
+    (
+        lockbox_guard_ok,
+        lockbox_guard_evidence,
+        lockbox_guard_blocker,
+    ) = _lockbox_upstream_guard_consistent(root_path)
+    checks.append(
+        _check(
+            "lockbox_upstream_cli_guard_enforced",
+            lockbox_guard_ok,
+            lockbox_guard_evidence,
+            lockbox_guard_blocker,
         )
     )
 

@@ -256,7 +256,7 @@
       "full_import_template_path": "",
       "gate_id": "PG09",
       "import_template_path": "registry/review_batches/lockbox_review_next_import_template.json",
-      "operator_note": "Run prepare-lockbox-review only after manual gold and license gates pass, fill the reviewed scratch JSON, then dry-run before applying the one-time lockbox review.",
+      "operator_note": "Run prepare-lockbox-review only after gold-set, analytical-footprint, and source-license gates pass; fill the reviewed scratch JSON, then dry-run before applying the one-time lockbox review.",
       "passed": false,
       "pending_rows": null,
       "policy_template_path": "",

@@ -205,7 +205,7 @@ def test_dashboard_report_summarizes_completion_and_monitoring():
     assert report["operator_handoff"]["remaining_blocker_count"] == 3
     assert report["operator_handoff"]["gate_count"] == 4
     assert report["operator_readiness"]["accepted"] is True
-    assert report["operator_readiness"]["check_count"] == 16
+    assert report["operator_readiness"]["check_count"] == 17
     assert report["operator_readiness"]["failure_count"] == 0
     assert report["audit_trace"]["complete"] is True
     assert report["audit_trace"]["node_count"] == 8
@@ -263,7 +263,7 @@ def test_dashboard_markdown_renders_blockers():
     assert "MVP exit blocked sections: none" in markdown
     assert "Final acceptance blocked: 0" in markdown
     assert "Final acceptance blocked sections: none" in markdown
-    assert "Promotion next state: staged_production" in markdown
+    assert "Promotion next state: paper_trading" in markdown
     assert "Promotion production allowed: False" in markdown
     assert "Validation ablations accepted: True" in markdown
     assert "Validation statistical significance accepted: True" in markdown
@@ -282,7 +282,7 @@ def test_dashboard_markdown_renders_blockers():
     assert "Gold review packet spans:" in markdown
     assert "Gold candidate claims: 500" in markdown
     assert "License review packet pending sources:" in markdown
-    assert "Next gold review batch rows: 0" in markdown
+    assert "Next gold review batch rows: 50" in markdown
     assert (
         "Full gold review import template: registry/review_batches/gold_set_full_import_template.jsonl"
         in markdown

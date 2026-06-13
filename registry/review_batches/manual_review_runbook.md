@@ -10,6 +10,7 @@ It records paths, commands, row counts, acceptance criteria, and current blocker
 - Analytical-footprint review: 0/1001 complete; scratch exists: true; simulation accepted: false
 - Source-license review: 17529/17529 complete; scratch exists: true; simulation accepted: true
 - Lockbox review: 0/1 complete; scratch exists: true; simulation accepted: false
+- Lockbox dependency status: waiting_on gold_set, footprint_review
 
 ## Current Batch Scratch
 
@@ -29,7 +30,7 @@ This section reports aggregate completion counts for the current local batch or 
 - Gold-set: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-gold-review --root . --full`
 - Analytical-footprint: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --output registry/report_intelligence/analytical_footprint_reviewed.jsonl --overwrite`
 - Source-license: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-license-policy-review --root .`
-- Lockbox: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-lockbox-review --root .`
+- Lockbox: wait for upstream gates before running `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-lockbox-review --root .`
 
 ## Reviewer Inputs
 

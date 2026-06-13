@@ -914,6 +914,7 @@ OPERATOR_READINESS_EXPECTED_CHECK_IDS = {
     "blank_full_gold_set_import_is_rejected",
     "lockbox_template_requires_human_decision",
     "blank_lockbox_import_is_rejected",
+    "lockbox_upstream_cli_guard_enforced",
     "source_license_policy_template_requires_human_decision",
     "blank_source_license_policy_import_is_rejected",
     "blank_bundle_dry_run_does_not_promote",

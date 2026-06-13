@@ -258,7 +258,7 @@ Dry-run command: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tm
 - Exported rows: 1
 - Dry run: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-lockbox-review --root . --input registry/review_batches/lockbox_reviewed.json --dry-run`
 - Apply: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-lockbox-review --root . --input registry/review_batches/lockbox_reviewed.json`
-- Note: Run prepare-lockbox-review only after manual gold and license gates pass, fill the reviewed scratch JSON, then dry-run before applying the one-time lockbox review.
+- Note: Run prepare-lockbox-review only after gold-set, analytical-footprint, and source-license gates pass; fill the reviewed scratch JSON, then dry-run before applying the one-time lockbox review.
 
 ## Remaining Blockers
 

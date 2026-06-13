@@ -3,22 +3,22 @@
   "artifact_count": 11,
   "artifacts": [
     {
-      "bytes": 21618,
+      "bytes": 21645,
       "exists": true,
       "format": "json",
       "path": "registry/handoffs/rke_operator_handoff.json",
       "role": "operator_handoff_json",
       "row_count": null,
-      "sha256": "sha256:9bd9d35d253b22fecc02482f00cd7a19c5d552119a909200f9f1a85ce23630c4"
+      "sha256": "sha256:ad2b8f6d994420e14bf6a99c7e86cd1c47010e6481a1d2dd20e6e8b65303eaa9"
     },
     {
-      "bytes": 16384,
+      "bytes": 16411,
       "exists": true,
       "format": "markdown",
       "path": "registry/handoffs/rke_operator_handoff.md",
       "role": "operator_handoff_markdown",
       "row_count": null,
-      "sha256": "sha256:83c490cc812473a9deb78a75ddba11e535270c006fb8d4197b596e9fb5a5c39b"
+      "sha256": "sha256:08173e3e910fd9c47bab4c4208c3171a1ae462cd196fe2dcbcadd3eb094aed70"
     },
     {
       "bytes": 3011,
@@ -39,13 +39,13 @@
       "sha256": "sha256:7471eeef451827a8c00537223b93dc2076ae529b41b4bd230bd9006d364a334b"
     },
     {
-      "bytes": 53857,
+      "bytes": 53963,
       "exists": true,
       "format": "markdown",
       "path": "registry/review_batches/manual_review_runbook.md",
       "role": "manual_review_runbook_markdown",
       "row_count": null,
-      "sha256": "sha256:ce19fa6e876ba0036fcf709fd543f701a88d27f4ac6a3befd3c6bb5382f3c8c2"
+      "sha256": "sha256:42790c98fbab817eadf65f2e03c893796bf2e6285db21d22c36dd2d5e2b7b74a"
     },
     {
       "bytes": 1339,
