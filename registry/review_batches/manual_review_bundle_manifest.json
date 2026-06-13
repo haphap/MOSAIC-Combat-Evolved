@@ -3,22 +3,22 @@
   "artifact_count": 10,
   "artifacts": [
     {
-      "bytes": 21361,
+      "bytes": 21471,
       "exists": true,
       "format": "json",
       "path": "registry/handoffs/rke_operator_handoff.json",
       "role": "operator_handoff_json",
       "row_count": null,
-      "sha256": "sha256:ae6daf48f9c39abfa95fa66aa460fd36663132cc872687bc3ffdd344623e4f64"
+      "sha256": "sha256:2ae65c06031175478952f0b9384a751192dbf8b6129695385f57e3212b8beda6"
     },
     {
-      "bytes": 16190,
+      "bytes": 16237,
       "exists": true,
       "format": "markdown",
       "path": "registry/handoffs/rke_operator_handoff.md",
       "role": "operator_handoff_markdown",
       "row_count": null,
-      "sha256": "sha256:977da9bc132d8bbdb7197eeb8fe2f94cd802fe520106460b76c7e070a2194683"
+      "sha256": "sha256:db0697d5b4a4ba7ddfde2a70b93e002a315520943b3574f673711ea59036fc91"
     },
     {
       "bytes": 3011,

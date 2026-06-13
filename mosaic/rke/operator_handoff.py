@@ -55,6 +55,7 @@ LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH = (
     "registry/review_batches/lockbox_review_next_import_template.json"
 )
 LOCKBOX_REVIEWED_IMPORT_PATH = "registry/review_batches/lockbox_reviewed.json"
+LOCKBOX_REVIEW_CHECKLIST_MD_PATH = "registry/review_batches/lockbox_review_checklist.md"
 MANUAL_REVIEW_PROGRESS_REPORT_PATH = "registry/review_batches/manual_review_progress_report.json"
 MANUAL_REVIEW_RUNBOOK_MD_PATH = "registry/review_batches/manual_review_runbook.md"
 
@@ -113,6 +114,7 @@ class OperatorHandoff:
 class LockboxReviewStarterResult:
     path: str
     template_path: str
+    checklist_path: str
     force: bool
     written: bool
     overwritten: bool
@@ -491,6 +493,70 @@ def write_lockbox_review_import_template(root: str | Path = ".") -> dict[str, An
     )
 
 
+def render_lockbox_review_checklist(root: str | Path = ".") -> str:
+    root_path = Path(root)
+    target = _read_mapping_json(root_path / LOCKBOX_REVIEW_PATH, "lockbox target")
+    policy = _read_mapping_json(root_path / LOCKBOX_POLICY_PATH, "lockbox policy")
+    template = build_lockbox_review_import_template(root_path)
+    lines = [
+        "# RKE Lockbox Review Checklist",
+        "",
+        "Use this checklist only after gold-set, analytical-footprint, and source-license gates pass.",
+        "The lockbox is a one-time final holdout gate; do not open it while other manual gates are still pending.",
+        "",
+        "## Target",
+        "",
+        f"- Experiment family: `{target.get('experiment_family_id') or ''}`",
+        f"- Experiment ID: `{target.get('experiment_id') or ''}`",
+        f"- Current result: `{target.get('result') or ''}`",
+        f"- Current open count: `{target.get('open_count')}`",
+        f"- Target review path: `{LOCKBOX_REVIEW_PATH}`",
+        f"- Target row hash: `{template.get(TARGET_ROW_HASH_FIELD) or ''}`",
+        "",
+        "## Policy",
+        "",
+        f"- Policy path: `{LOCKBOX_POLICY_PATH}`",
+        f"- Policy status: `{policy.get('policy_status') or ''}`",
+        f"- Direct production allowed: `{str(policy.get('direct_production_allowed')).lower()}`",
+        f"- Lockbox required for final promotion: `{str(policy.get('lockbox_required_for_final_promotion')).lower()}`",
+        f"- Review context hash: `{template.get(LOCKBOX_REVIEW_CONTEXT_HASH_FIELD) or ''}`",
+        "",
+        "## Required Manual Fields",
+        "",
+        "- `opened_at`: ISO-8601 datetime with timezone.",
+        "- `opened_by`: reviewer identity.",
+        "- `open_count`: integer; production requires this to be `1` for the first opening.",
+        "- `result`: `passed` or `failed`; production requires `passed`.",
+        "- `parameter_search_after_open`: must stay `false` for production.",
+        "- `rule_design_after_open`: must stay `false` for production.",
+        "- `notes`: concise reviewer note; no source prose.",
+        "",
+        "## Commands",
+        "",
+        f"- Prepare scratch: `{operator_command('mosaic-rke prepare-lockbox-review --root .')}`",
+        f"- Reviewed scratch: `{LOCKBOX_REVIEWED_IMPORT_PATH}`",
+        f"- Dry run: `{operator_command(f'mosaic-rke apply-lockbox-review --root . --input {LOCKBOX_REVIEWED_IMPORT_PATH} --dry-run')}`",
+        f"- Apply: `{operator_command(f'mosaic-rke apply-lockbox-review --root . --input {LOCKBOX_REVIEWED_IMPORT_PATH}')}`",
+        "",
+        "## Do Not Proceed If",
+        "",
+        "- Gold-set review has pending rows or failed metrics.",
+        "- Analytical-footprint review has pending rows or failed quality metrics.",
+        "- Source-license policy is not accepted.",
+        "- The target or policy hash in the reviewed scratch differs from this checklist.",
+        "- Any parameter search or rule design happened after opening the lockbox.",
+    ]
+    return "\n".join(lines).rstrip()
+
+
+def write_lockbox_review_checklist(root: str | Path = ".") -> dict[str, Any]:
+    root_path = Path(root)
+    path = root_path / LOCKBOX_REVIEW_CHECKLIST_MD_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(render_lockbox_review_checklist(root_path) + "\n", encoding="utf-8")
+    return {"path": str(path), "rows": 1}
+
+
 def write_lockbox_review_starter(
     root: str | Path = ".",
     *,
@@ -509,9 +575,11 @@ def write_lockbox_review_starter(
         blockers.append(f"{resolved_output_path} already exists; pass --force to overwrite")
     if not blockers:
         _write_json(resolved_output_path, template)
+        write_lockbox_review_checklist(root_path)
     return LockboxReviewStarterResult(
         path=str(resolved_output_path),
         template_path=LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH,
+        checklist_path=LOCKBOX_REVIEW_CHECKLIST_MD_PATH,
         force=force,
         written=not blockers,
         overwritten=exists and force and not blockers,
@@ -647,7 +715,7 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
             evidence_path=str(pg09.get("evidence_path") or ""),
             evidence=str(pg09.get("evidence") or ""),
             review_packet_path="registry/evaluation/lockbox/lockbox_policy.json",
-            workbook_path="",
+            workbook_path=LOCKBOX_REVIEW_CHECKLIST_MD_PATH,
             import_template_path=LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH,
             full_import_template_path="",
             policy_template_path="",
@@ -696,6 +764,7 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
         ANALYTICAL_FOOTPRINT_REVIEW_WORKBOOK_MD_PATH,
         MANUAL_REVIEW_PROGRESS_REPORT_PATH,
         MANUAL_REVIEW_RUNBOOK_MD_PATH,
+        LOCKBOX_REVIEW_CHECKLIST_MD_PATH,
         LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH,
         OPERATOR_HANDOFF_JSON_PATH,
         OPERATOR_HANDOFF_MD_PATH,
@@ -823,6 +892,7 @@ def write_operator_handoff(root: str | Path = ".") -> dict[str, Any]:
     progress = write_manual_review_progress_report(root_path)
     runbook = write_manual_review_runbook(root_path)
     lockbox_template = _write_lockbox_review_import_template_or_error(root_path)
+    lockbox_checklist = write_lockbox_review_checklist(root_path)
     write_production_promotion_gate_report(root_path)
     handoff = build_operator_handoff(root_path)
     json_result = _write_json(root_path / OPERATOR_HANDOFF_JSON_PATH, asdict(handoff))
@@ -853,4 +923,5 @@ def write_operator_handoff(root: str | Path = ".") -> dict[str, Any]:
         "source_license_policy_template": str(policy_template["path"]),
         "manual_review_progress_report": str(progress["path"]),
         "manual_review_runbook": str(runbook["path"]),
+        "lockbox_review_checklist": str(lockbox_checklist["path"]),
     }

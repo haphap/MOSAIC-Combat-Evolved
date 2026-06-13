@@ -388,7 +388,14 @@ def test_rke_cli_prepare_lockbox_review_protects_existing_file(tmp_path: Path, c
         output["template_path"]
         == "registry/review_batches/lockbox_review_next_import_template.json"
     )
+    assert (
+        output["checklist_path"]
+        == "registry/review_batches/lockbox_review_checklist.md"
+    )
     assert reviewed_path.exists()
+    checklist = tmp_path / "registry/review_batches/lockbox_review_checklist.md"
+    assert checklist.exists()
+    assert "RKE Lockbox Review Checklist" in checklist.read_text(encoding="utf-8")
     starter = json.loads(reviewed_path.read_text(encoding="utf-8"))
     assert starter["result"] == ""
     assert starter["target_row_hash"].startswith("sha256:")

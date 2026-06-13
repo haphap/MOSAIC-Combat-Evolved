@@ -248,7 +248,7 @@ Dry-run command: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tm
 - Blocker: lockbox has not been opened
 - Evidence: lockbox_state=not_ready, next_state=paper_trading, payload_errors=0
 - Review packet: registry/evaluation/lockbox/lockbox_policy.json
-- Review workbook: none
+- Review workbook: registry/review_batches/lockbox_review_checklist.md
 - Import template: registry/review_batches/lockbox_review_next_import_template.json
 - Full import template: none
 - Policy template: none

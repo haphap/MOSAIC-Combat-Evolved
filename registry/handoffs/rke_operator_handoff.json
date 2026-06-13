@@ -273,7 +273,7 @@
       "review_kind": "lockbox",
       "review_packet_path": "registry/evaluation/lockbox/lockbox_policy.json",
       "reviewed_policy_path": "registry/review_batches/lockbox_reviewed.json",
-      "workbook_path": ""
+      "workbook_path": "registry/review_batches/lockbox_review_checklist.md"
     }
   ],
   "generated_paths": [
@@ -294,6 +294,7 @@
     "registry/report_intelligence/analytical_footprint_review_workbook.md",
     "registry/review_batches/manual_review_progress_report.json",
     "registry/review_batches/manual_review_runbook.md",
+    "registry/review_batches/lockbox_review_checklist.md",
     "registry/review_batches/lockbox_review_next_import_template.json",
     "registry/handoffs/rke_operator_handoff.json",
     "registry/handoffs/rke_operator_handoff.md"

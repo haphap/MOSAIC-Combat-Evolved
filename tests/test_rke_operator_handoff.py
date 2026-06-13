@@ -138,6 +138,7 @@ def test_operator_handoff_summarizes_remaining_manual_gates():
         lockbox.import_template_path
         == "registry/review_batches/lockbox_review_next_import_template.json"
     )
+    assert lockbox.workbook_path == "registry/review_batches/lockbox_review_checklist.md"
     assert lockbox.reviewed_policy_path == "registry/review_batches/lockbox_reviewed.json"
     assert lockbox.prepare_command == (
         f"{RKE_OPERATOR_TMP_ENV_PREFIX} mosaic-rke prepare-lockbox-review --root ."
@@ -265,6 +266,7 @@ def test_write_operator_handoff_outputs_json_markdown_and_lockbox_template(
     assert lockbox_gate["prepare_command"] == (
         f"{RKE_OPERATOR_TMP_ENV_PREFIX} mosaic-rke prepare-lockbox-review --root ."
     )
+    assert lockbox_gate["workbook_path"] == "registry/review_batches/lockbox_review_checklist.md"
     assert lockbox_gate["reviewed_policy_path"] == "registry/review_batches/lockbox_reviewed.json"
     assert len(payload["gates"]) == 4
     assert lockbox_template["result"] == ""
@@ -308,6 +310,17 @@ def test_write_operator_handoff_outputs_json_markdown_and_lockbox_template(
     )
     assert "registry/review_batches/manual_review_progress_report.json" in payload["generated_paths"]
     assert "registry/review_batches/manual_review_runbook.md" in payload["generated_paths"]
+    assert "registry/review_batches/lockbox_review_checklist.md" in payload["generated_paths"]
+    assert paths["lockbox_review_checklist"].endswith(
+        "registry/review_batches/lockbox_review_checklist.md"
+    )
+    lockbox_checklist = (
+        tmp_path / "registry/review_batches/lockbox_review_checklist.md"
+    )
+    assert lockbox_checklist.exists()
+    assert "one-time final holdout gate" in lockbox_checklist.read_text(
+        encoding="utf-8"
+    )
     assert paths["manual_review_runbook"].endswith(
         "registry/review_batches/manual_review_runbook.md"
     )
@@ -328,6 +341,7 @@ def test_write_operator_handoff_outputs_json_markdown_and_lockbox_template(
     assert "gold_set_review_evidence.md" in markdown
     assert "gold_set_full_reviewed.jsonl" in markdown
     assert "gold_set_full_import_template.jsonl" in markdown
+    assert "lockbox_review_checklist.md" in markdown
     assert "lockbox_reviewed.json" in markdown
     assert markdown.startswith("# RKE Operator Handoff")
 
