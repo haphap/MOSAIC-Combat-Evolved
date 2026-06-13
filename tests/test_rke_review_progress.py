@@ -575,6 +575,55 @@ def test_review_progress_actions_only_filters_review_kind(
     assert set(output["actions"][0]["commands"]) == {"dry_run", "apply"}
 
 
+def test_review_progress_actions_only_filters_action_state(
+    tmp_path: Path,
+    capsys,
+):
+    _copy_registry_without_license_reset(tmp_path)
+
+    code = main(
+        (
+            "review-progress",
+            "--root",
+            str(tmp_path),
+            "--actions-only",
+            "--no-write",
+            "--action-state",
+            "ready_to_apply",
+        )
+    )
+    output = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert output["ready_for_promotion_dry_run"] is True
+    assert output["total_ready_for_promotion_dry_run"] is False
+    assert output["reported_action_states"] == ["ready_to_apply"]
+    assert output["action_count"] >= 1
+    assert {action["action_state"] for action in output["actions"]} == {"ready_to_apply"}
+
+
+def test_review_progress_action_state_requires_actions_only(tmp_path: Path, capsys):
+    _copy_registry(tmp_path)
+
+    code = main(
+        (
+            "review-progress",
+            "--root",
+            str(tmp_path),
+            "--summary",
+            "--action-state",
+            "needs_human_review_fields",
+        )
+    )
+    output = json.loads(capsys.readouterr().out)
+
+    assert code == 2
+    assert output == {
+        "accepted": False,
+        "blockers": ["--action-state requires --actions-only"],
+    }
+
+
 def test_manual_review_action_queue_is_public_safe_compact(tmp_path: Path):
     _copy_registry(tmp_path)
     report = build_manual_review_progress(tmp_path)

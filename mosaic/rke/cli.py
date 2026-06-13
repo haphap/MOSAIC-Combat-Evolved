@@ -113,6 +113,7 @@ from .report_intelligence import (
     write_report_intelligence_prompt_mutation_candidates,
 )
 from .review_progress import (
+    ACTION_QUEUE_STATES,
     build_manual_review_action_queue,
     build_manual_review_progress_summary,
     build_manual_review_progress,
@@ -690,6 +691,14 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Limit --summary or --actions-only output to one review kind. "
             "May be repeated."
+        ),
+    )
+    review_progress.add_argument(
+        "--action-state",
+        action="append",
+        choices=ACTION_QUEUE_STATES,
+        help=(
+            "Limit --actions-only output to one action_state. May be repeated."
         ),
     )
 
@@ -1558,6 +1567,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                 }
             )
             return 2
+        if args.action_state and not args.actions_only:
+            _print_json(
+                {
+                    "accepted": False,
+                    "blockers": ["--action-state requires --actions-only"],
+                }
+            )
+            return 2
         report = build_manual_review_progress(root)
         if args.no_write:
             result = {"path": str(root / "registry/review_batches/manual_review_progress_report.json")}
@@ -1571,6 +1588,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 path=result["path"],
                 runbook_path=runbook["path"],
                 review_kinds=tuple(args.review_kind or ()),
+                action_states=tuple(args.action_state or ()),
             )
             _print_json(action_queue)
             return 0 if bool(action_queue["ready_for_promotion_dry_run"]) else 2

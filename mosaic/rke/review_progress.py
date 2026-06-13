@@ -83,6 +83,16 @@ TEMP_COPY_IGNORED_PRIVATE_REGISTRY_PATHS = frozenset(
 )
 
 ReviewProgressKind = Literal["gold_set", "source_license", "lockbox", "footprint_review"]
+ACTION_QUEUE_STATES = (
+    "ready_to_apply",
+    "needs_human_review_fields",
+    "needs_evidence_repair",
+    "needs_prepare",
+    "needs_policy_review",
+    "waiting_on_dependencies",
+    "needs_lockbox_decision",
+    "needs_operator_inspection",
+)
 
 
 @dataclass(frozen=True)
@@ -1321,17 +1331,17 @@ def build_manual_review_action_queue(
     path: str = MANUAL_REVIEW_PROGRESS_REPORT_PATH,
     runbook_path: str = MANUAL_REVIEW_RUNBOOK_MD_PATH,
     review_kinds: Sequence[ReviewProgressKind] | None = None,
+    action_states: Sequence[str] | None = None,
 ) -> Mapping[str, Any]:
     """Return the next public-safe operator actions without full gate payloads."""
     requested_kinds = tuple(review_kinds or ())
     requested_kind_set = set(requested_kinds)
+    requested_states = tuple(str(state) for state in (action_states or ()) if str(state))
+    requested_state_set = set(requested_states)
     selected_gates = tuple(
         gate
         for gate in report.gates
         if not requested_kind_set or gate.review_kind in requested_kind_set
-    )
-    selected_ready_for_promotion = bool(selected_gates) and all(
-        gate.ready_for_promotion for gate in selected_gates
     )
     actions: list[Mapping[str, Any]] = []
     for gate in selected_gates:
@@ -1349,12 +1359,15 @@ def build_manual_review_action_queue(
             gate,
             dependency_blockers=dependency_blockers,
         )
+        action_state = _action_queue_state(action)
+        if requested_state_set and action_state not in requested_state_set:
+            continue
         current_batch_path = str(current.get("path") or "")
         actions.append(
             {
                 "review_kind": gate.review_kind,
                 "next_manual_action": action,
-                "action_state": _action_queue_state(action),
+                "action_state": action_state,
                 "operator_hint": _action_queue_hint(action),
                 "ready_for_promotion": gate.ready_for_promotion,
                 "blocked_by_review_kinds": list(dependency_blockers),
@@ -1375,6 +1388,9 @@ def build_manual_review_action_queue(
                 "commands": dict(_action_queue_commands(gate, action)),
             }
         )
+    selected_ready_for_promotion = bool(actions) and all(
+        bool(action.get("ready_for_promotion")) for action in actions
+    )
     return {
         "path": path,
         "runbook_path": runbook_path,
@@ -1382,7 +1398,8 @@ def build_manual_review_action_queue(
         "total_ready_for_promotion_dry_run": report.ready_for_promotion_dry_run,
         "action_count": len(actions),
         "total_gate_count": len(report.gates),
-        "reported_review_kinds": [gate.review_kind for gate in selected_gates],
+        "reported_review_kinds": [str(action["review_kind"]) for action in actions],
+        "reported_action_states": list(requested_states),
         "actions": actions,
     }
 
