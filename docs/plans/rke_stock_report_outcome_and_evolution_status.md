@@ -149,7 +149,11 @@ MVP-D3 `schema validation report accepted must be true` blocker traceable to the
 underlying manual review gates without editing master-plan coverage artifacts
 directly. `promotion-status --no-write` now also includes public-safe
 `next_actions` for PG02 manual gold-set review and PG09 lockbox review, with
-lockbox commands explicitly marked as dependent on upstream manual gates.
+lockbox commands explicitly marked as dependent on upstream manual gates. Its
+promotion dry-run action now follows the same source-license input policy as
+operator handoff: when PG03 source-license review already passes, it omits
+`--license-input` and does not rebuild `source_license_policy_import.jsonl`;
+only an unpassed PG03 path includes the license-import build step.
 `evolution-readiness --no-write` also exits 2 when
 `gate_status=blocked` and includes `blocked_check_ids` / `blocked_checks` in
 stdout so operators can see that RI-EVOL-04 and RI-EVOL-05 are the active

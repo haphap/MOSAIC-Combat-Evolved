@@ -350,6 +350,10 @@ def _master_plan_status_next_actions(root: str | Path, result: Any) -> list[dict
 
 def _promotion_status_next_actions(result: Any) -> list[dict[str, Any]]:
     """Map failed promotion criteria to public-safe operator commands."""
+    criteria_by_id = {
+        str(getattr(criterion, "criterion_id", "") or ""): criterion
+        for criterion in getattr(result, "criteria", ())
+    }
     failed_criteria = {
         str(getattr(criterion, "criterion_id", "") or ""): str(
             getattr(criterion, "blocker", "") or ""
@@ -381,6 +385,28 @@ def _promotion_status_next_actions(result: Any) -> list[dict[str, Any]]:
         if field_contract:
             action["field_contract"] = dict(field_contract)
         actions.append(action)
+
+    source_license_passed = (
+        getattr(criteria_by_id.get("PG03"), "passed", False) is True
+    )
+    if source_license_passed:
+        promotion_dry_run_after_all_reviews = operator_command(
+            "mosaic-rke promotion-dry-run --root . "
+            f"--gold-input {GOLD_FULL_REVIEWED_IMPORT_PATH} "
+            f"--footprint-input {ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH} "
+            f"--lockbox-input {LOCKBOX_REVIEWED_IMPORT_PATH}"
+        )
+    else:
+        promotion_dry_run_after_all_reviews = operator_command(
+            "mosaic-rke build-license-review-import --root . "
+            f"--policy {SOURCE_LICENSE_REVIEWED_POLICY_PATH} "
+            f"--output {DEFAULT_LICENSE_POLICY_IMPORT_PATH} && "
+            "mosaic-rke promotion-dry-run --root . "
+            f"--gold-input {GOLD_FULL_REVIEWED_IMPORT_PATH} "
+            f"--footprint-input {ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH} "
+            f"--license-input {DEFAULT_LICENSE_POLICY_IMPORT_PATH} "
+            f"--lockbox-input {LOCKBOX_REVIEWED_IMPORT_PATH}"
+        )
 
     if "PG02" in failed_criteria:
         add_action(
@@ -440,15 +466,8 @@ def _promotion_status_next_actions(result: Any) -> list[dict[str, Any]]:
                     f"mosaic-rke apply-lockbox-review --root . --input "
                     f"{LOCKBOX_REVIEWED_IMPORT_PATH} --dry-run"
                 ),
-                "promotion_dry_run_after_all_reviews": operator_command(
-                    "mosaic-rke build-license-review-import --root . "
-                    f"--policy {SOURCE_LICENSE_REVIEWED_POLICY_PATH} "
-                    f"--output {DEFAULT_LICENSE_POLICY_IMPORT_PATH} && "
-                    "mosaic-rke promotion-dry-run --root . "
-                    f"--gold-input {GOLD_FULL_REVIEWED_IMPORT_PATH} "
-                    f"--footprint-input {ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH} "
-                    f"--license-input {DEFAULT_LICENSE_POLICY_IMPORT_PATH} "
-                    f"--lockbox-input {LOCKBOX_REVIEWED_IMPORT_PATH}"
+                "promotion_dry_run_after_all_reviews": (
+                    promotion_dry_run_after_all_reviews
                 ),
             },
             notes=(

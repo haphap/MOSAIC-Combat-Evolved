@@ -764,6 +764,18 @@ def test_rke_cli_promotion_status_writes_report(tmp_path: Path, capsys):
             "promotion_dry_run_after_all_reviews"
         ]
     )
+    assert (
+        "--license-input"
+        not in next_actions["prepare_lockbox_after_upstream_manual_gates"][
+            "commands"
+        ]["promotion_dry_run_after_all_reviews"]
+    )
+    assert (
+        "build-license-review-import"
+        not in next_actions["prepare_lockbox_after_upstream_manual_gates"][
+            "commands"
+        ]["promotion_dry_run_after_all_reviews"]
+    )
     assert (tmp_path / "registry/promotion/rke_production_promotion_gate.json").exists()
 
 
