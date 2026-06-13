@@ -2403,6 +2403,68 @@ def test_evolution_readiness_gate_contract_rejects_tampered_monitor_stability(
     )
 
 
+def test_evolution_readiness_gate_contract_rejects_missing_current_audit_blocker(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    gate_path = registry / "evolution_readiness_gate.json"
+    gate = json.loads(gate_path.read_text(encoding="utf-8"))
+    audit_check = next(
+        check for check in gate["checks"] if check["check_id"] == "RI-EVOL-04"
+    )
+    audit_check["evidence"]["schema_accepted"] = False
+    audit_check["blockers"] = [
+        blocker
+        for blocker in audit_check["blockers"]
+        if blocker != "current_schema_or_audit_gate_blocked"
+    ]
+    gate["blockers"] = sorted(
+        {
+            blocker
+            for check in gate["checks"]
+            for blocker in check.get("blockers", [])
+        }
+    )
+    gate["blocker_count"] = len(gate["blockers"])
+    gate_path.write_text(
+        json.dumps(gate, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _evolution_readiness_gate_record(tmp_path)
+
+    assert not record.accepted
+    assert any(
+        "must include current_schema_or_audit_gate_blocked" in item
+        for item in record.failures
+    )
+
+
+def test_evolution_readiness_gate_contract_rejects_stale_audit_history_blocker(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    gate_path = registry / "evolution_readiness_gate.json"
+    gate = json.loads(gate_path.read_text(encoding="utf-8"))
+    audit_check = next(
+        check for check in gate["checks"] if check["check_id"] == "RI-EVOL-04"
+    )
+    audit_check["evidence"]["trailing_audit_distinct_vintage_count"] = 3
+    audit_check["evidence"]["trailing_audit_pass_count"] = 3
+    gate_path.write_text(
+        json.dumps(gate, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _evolution_readiness_gate_record(tmp_path)
+
+    assert not record.accepted
+    assert any(
+        "audit_refresh_history_below_threshold not allowed" in item
+        for item in record.failures
+    )
+
+
 def test_evolution_readiness_gate_contract_rejects_tampered_gold_metrics(
     tmp_path: Path,
 ):

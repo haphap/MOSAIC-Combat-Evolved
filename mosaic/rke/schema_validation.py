@@ -3367,30 +3367,87 @@ def _validate_evolution_readiness_gate_contract(
         require_int_equal(evidence, "aggregate_calibration_drift_count", 0, row_label)
 
     check_04 = checks_by_id.get("RI-EVOL-04")
-    if check_04 and check_04.get("passed") is True:
+    if check_04:
         row_label = "evolution_readiness_gate.checks[RI-EVOL-04]"
         evidence = evidence_mapping(check_04, row_label)
-        for field in (
+        blockers = set(_string_items(check_04.get("blockers")))
+        audit_fields = (
             "schema_accepted",
             "pit_accepted",
             "provenance_accepted",
             "statistical_accepted",
+        )
+        current_audit_accepted = all(
+            evidence.get(field) is True for field in audit_fields
+        )
+        if (
+            current_audit_accepted
+            and "current_schema_or_audit_gate_blocked" in blockers
         ):
-            if evidence.get(field) is not True:
+            failures.append(
+                f"{row_label}.blockers: current_schema_or_audit_gate_blocked "
+                "not allowed when current schema/PIT/provenance/statistical "
+                "evidence all pass"
+            )
+        if (
+            not current_audit_accepted
+            and "current_schema_or_audit_gate_blocked" not in blockers
+        ):
+            failures.append(
+                f"{row_label}.blockers: must include "
+                "current_schema_or_audit_gate_blocked when current "
+                "schema/PIT/provenance/statistical evidence is not all true"
+            )
+        for field in audit_fields:
+            if check_04.get("passed") is True and evidence.get(field) is not True:
                 failures.append(f"{row_label}.evidence.{field}: must be true")
         min_refreshes = int(thresholds.get("min_consecutive_audit_refreshes") or 0)
-        require_int_at_least(
-            evidence,
-            "trailing_audit_distinct_vintage_count",
-            min_refreshes,
-            row_label,
+        trailing_distinct = _int_or_none(
+            evidence.get("trailing_audit_distinct_vintage_count")
         )
-        require_int_at_least(
-            evidence,
-            "trailing_audit_pass_count",
-            min_refreshes,
-            row_label,
+        trailing_pass = _int_or_none(evidence.get("trailing_audit_pass_count"))
+        if trailing_distinct is None:
+            failures.append(
+                f"{row_label}.evidence.trailing_audit_distinct_vintage_count: "
+                "expected integer"
+            )
+        if trailing_pass is None:
+            failures.append(
+                f"{row_label}.evidence.trailing_audit_pass_count: expected integer"
+            )
+        audit_history_ready = (
+            trailing_distinct is not None
+            and trailing_pass is not None
+            and trailing_distinct >= min_refreshes
+            and trailing_pass >= min_refreshes
         )
+        if audit_history_ready and "audit_refresh_history_below_threshold" in blockers:
+            failures.append(
+                f"{row_label}.blockers: audit_refresh_history_below_threshold "
+                "not allowed when trailing audit distinct/pass counts meet threshold"
+            )
+        if (
+            not audit_history_ready
+            and "audit_refresh_history_below_threshold" not in blockers
+        ):
+            failures.append(
+                f"{row_label}.blockers: must include "
+                "audit_refresh_history_below_threshold when trailing audit "
+                "distinct/pass counts are below threshold"
+            )
+        if check_04.get("passed") is True:
+            require_int_at_least(
+                evidence,
+                "trailing_audit_distinct_vintage_count",
+                min_refreshes,
+                row_label,
+            )
+            require_int_at_least(
+                evidence,
+                "trailing_audit_pass_count",
+                min_refreshes,
+                row_label,
+            )
 
     check_05 = checks_by_id.get("RI-EVOL-05")
     if check_05 and check_05.get("passed") is True:
