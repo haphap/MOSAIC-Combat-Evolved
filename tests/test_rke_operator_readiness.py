@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import shutil
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -12,7 +13,12 @@ from mosaic.rke import (
     write_operator_readiness_report,
 )
 from mosaic.rke.cli import main
-from mosaic.rke.operator_readiness import _promotion_gate_state_consistency
+from mosaic.rke.operator_handoff import build_operator_handoff
+from mosaic.rke.operator_readiness import (
+    _handoff_command_sequence_complete,
+    _promotion_gate_state_consistency,
+)
+from mosaic.rke.temp_paths import RKE_OPERATOR_TMP_ENV_PREFIX
 
 
 def _copy_registry(dst_root: Path) -> None:
@@ -523,6 +529,23 @@ def test_operator_readiness_detects_lockbox_upstream_guard_drift(tmp_path: Path,
     assert not report.accepted
     assert not guard.passed
     assert guard.blocker == "lockbox upstream CLI guard does not match manual gate readiness"
+
+
+def test_operator_readiness_requires_actions_only_preflight():
+    handoff = build_operator_handoff(".")
+    stale_preflight = replace(
+        handoff.command_sequence[0],
+        command=f"{RKE_OPERATOR_TMP_ENV_PREFIX} mosaic-rke review-progress --root .",
+    )
+    stale_handoff = replace(
+        handoff,
+        command_sequence=(stale_preflight, *handoff.command_sequence[1:]),
+    )
+
+    sequence_ok, _, sequence_blocker = _handoff_command_sequence_complete(stale_handoff)
+
+    assert not sequence_ok
+    assert "review-progress preflight must use the action queue" in sequence_blocker
 
 
 def test_write_operator_readiness_report_outputs_registry_artifact(tmp_path: Path):

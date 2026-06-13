@@ -394,6 +394,14 @@ def _handoff_command_sequence_complete(handoff: Any) -> tuple[bool, str, str]:
     if run_order != step_ids:
         failures.append("run_order must mirror command_sequence step_id order")
 
+    preflight = by_id.get("review-progress-preflight")
+    preflight_command = str(getattr(preflight, "command", "") or "")
+    if (
+        "review-progress --root . --actions-only --no-write"
+        not in preflight_command
+    ):
+        failures.append("review-progress preflight must use the action queue")
+
     fill_expectations = {
         "fill-gold-review": "registry/review_batches/gold_set_full_reviewed.jsonl",
         "fill-footprint-review": (

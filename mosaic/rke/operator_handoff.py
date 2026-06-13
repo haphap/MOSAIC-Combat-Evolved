@@ -258,10 +258,12 @@ def _operator_command_sequence(
         OperatorCommandStep(
             step_id="review-progress-preflight",
             phase="preflight",
-            action="Inspect current manual-gate status.",
-            command=operator_command("mosaic-rke review-progress --root ."),
+            action="Inspect the next manual-gate action queue.",
+            command=operator_command(
+                "mosaic-rke review-progress --root . --actions-only --no-write"
+            ),
             manual_input_path="",
-            expected_result="Shows current blockers without applying reviewer decisions.",
+            expected_result="Shows current next actions without writing artifacts or applying reviewer decisions.",
         ),
         OperatorCommandStep(
             step_id="prepare-gold-review",

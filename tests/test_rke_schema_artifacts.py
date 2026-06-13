@@ -3517,6 +3517,32 @@ def test_operator_handoff_contract_rejects_step_order_or_tmp_prefix_drift(
     assert any("production_allowed: must be false" in item for item in record.failures)
 
 
+def test_operator_handoff_contract_requires_actions_only_preflight(
+    tmp_path: Path,
+):
+    registry = _copy_registry_for_manual_progress(tmp_path)
+    handoff_path = registry / "handoffs/rke_operator_handoff.json"
+    handoff = json.loads(handoff_path.read_text(encoding="utf-8"))
+    preflight = next(
+        step
+        for step in handoff["command_sequence"]
+        if step["step_id"] == "review-progress-preflight"
+    )
+    preflight["command"] = (
+        "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke "
+        "TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke review-progress --root ."
+    )
+    handoff_path.write_text(
+        json.dumps(handoff, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _operator_handoff_record(tmp_path)
+
+    assert not record.accepted
+    assert any("must use actions-only no-write preflight" in item for item in record.failures)
+
+
 def test_manual_review_bundle_manifest_contract_accepts_current_public_artifact(
     tmp_path: Path,
 ):

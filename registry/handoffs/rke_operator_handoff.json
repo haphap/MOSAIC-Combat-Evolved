@@ -1,9 +1,9 @@
 {
   "command_sequence": [
     {
-      "action": "Inspect current manual-gate status.",
-      "command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke review-progress --root .",
-      "expected_result": "Shows current blockers without applying reviewer decisions.",
+      "action": "Inspect the next manual-gate action queue.",
+      "command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke review-progress --root . --actions-only --no-write",
+      "expected_result": "Shows current next actions without writing artifacts or applying reviewer decisions.",
       "manual_input_path": "",
       "phase": "preflight",
       "step_id": "review-progress-preflight"

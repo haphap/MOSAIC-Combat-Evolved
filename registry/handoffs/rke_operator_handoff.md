@@ -37,10 +37,10 @@ Dry-run command: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tm
 ### review-progress-preflight
 
 - Phase: preflight
-- Action: Inspect current manual-gate status.
-- Command: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke review-progress --root .`
+- Action: Inspect the next manual-gate action queue.
+- Command: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke review-progress --root . --actions-only --no-write`
 - Manual input: none
-- Expected result: Shows current blockers without applying reviewer decisions.
+- Expected result: Shows current next actions without writing artifacts or applying reviewer decisions.
 
 ### prepare-gold-review
 

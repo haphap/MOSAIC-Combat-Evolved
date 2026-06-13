@@ -42,7 +42,8 @@ def test_operator_handoff_summarizes_remaining_manual_gates():
     )
     assert "promotion-dry-run" in handoff.promotion_dry_run_command
     assert handoff.command_sequence[0].command == (
-        f"{RKE_OPERATOR_TMP_ENV_PREFIX} mosaic-rke review-progress --root ."
+        f"{RKE_OPERATOR_TMP_ENV_PREFIX} mosaic-rke review-progress --root . "
+        "--actions-only --no-write"
     )
     assert not any(
         step.phase == "source_license" for step in handoff.command_sequence
@@ -243,6 +244,10 @@ def test_write_operator_handoff_outputs_json_markdown_and_lockbox_template(
     assert "promotion-dry-run" in payload["promotion_dry_run_command"]
     assert payload["run_order"] == [step["step_id"] for step in payload["command_sequence"]]
     assert payload["run_order"][0] == "review-progress-preflight"
+    assert payload["command_sequence"][0]["command"] == (
+        f"{RKE_OPERATOR_TMP_ENV_PREFIX} mosaic-rke review-progress --root . "
+        "--actions-only --no-write"
+    )
     assert payload["run_order"][-1] == "promotion-status-final"
     assert "gold_set_full_reviewed.jsonl" in payload["promotion_dry_run_command"]
     assert "source_license_policy_import.jsonl" not in payload["promotion_dry_run_command"]

@@ -5009,6 +5009,18 @@ def _validate_operator_handoff_contract(root_path: Path) -> tuple[int, list[str]
                 f"operator_handoff.command_sequence[{step_id}].command: expected {expected_path}"
             )
 
+    preflight_step = step_by_id.get("review-progress-preflight")
+    if preflight_step:
+        preflight_command = str(preflight_step.get("command") or "")
+        if (
+            "review-progress --root . --actions-only --no-write"
+            not in preflight_command
+        ):
+            failures.append(
+                "operator_handoff.command_sequence[review-progress-preflight].command: "
+                "must use actions-only no-write preflight"
+            )
+
     promotion_step = step_by_id.get("promotion-dry-run")
     if promotion_step:
         command = str(promotion_step.get("command") or "")
