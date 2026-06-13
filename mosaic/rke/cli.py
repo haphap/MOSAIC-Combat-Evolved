@@ -52,6 +52,7 @@ from .manual_review_batches import (
 from .operator_handoff import (
     LOCKBOX_REVIEWED_IMPORT_PATH,
     build_operator_handoff,
+    lockbox_upstream_review_blockers,
     write_lockbox_review_starter,
     write_operator_handoff,
 )
@@ -572,6 +573,14 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Validate without changing the lockbox record.",
     )
+    apply_lockbox_review.add_argument(
+        "--allow-pending-upstream",
+        action="store_true",
+        help=(
+            "Allow validating or applying the lockbox review before gold-set, "
+            "analytical-footprint, and source-license gates are ready."
+        ),
+    )
 
     prepare_lockbox_review = subparsers.add_parser(
         "prepare-lockbox-review",
@@ -589,6 +598,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--force",
         action="store_true",
         help="Overwrite an existing reviewed lockbox starter.",
+    )
+    prepare_lockbox_review.add_argument(
+        "--allow-pending-upstream",
+        action="store_true",
+        help=(
+            "Allow writing the lockbox starter before gold-set, "
+            "analytical-footprint, and source-license gates are ready."
+        ),
     )
 
     review_batches = subparsers.add_parser(
@@ -1455,6 +1472,22 @@ def main(argv: Sequence[str] | None = None) -> int:
         _print_json(asdict(result))
         return 0 if result.written else 2
     if args.command == "apply-lockbox-review":
+        upstream_blockers = (
+            ()
+            if args.allow_pending_upstream
+            else lockbox_upstream_review_blockers(root)
+        )
+        if upstream_blockers:
+            _print_json(
+                {
+                    "accepted": False,
+                    "applied": False,
+                    "allow_pending_upstream": False,
+                    "rejected_reasons": list(upstream_blockers),
+                    "upstream_blockers": list(upstream_blockers),
+                }
+            )
+            return 2
         report = apply_lockbox_review_import(root, args.input, dry_run=args.dry_run)
         _print_json(asdict(report))
         return 0 if report.accepted else 2
@@ -1463,6 +1496,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             root,
             output_path=args.output,
             force=args.force,
+            allow_pending_upstream=args.allow_pending_upstream,
         )
         _print_json(asdict(result))
         return 0 if result.written else 2

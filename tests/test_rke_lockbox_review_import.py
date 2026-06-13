@@ -271,11 +271,32 @@ def test_apply_lockbox_review_import_rejects_reopening_existing_lockbox(tmp_path
 
 def test_cli_apply_lockbox_review_import(tmp_path: Path, capsys):
     _copy_registry(tmp_path)
+    target = tmp_path / "registry/lockbox/central_bank_lockbox_review.json"
+    original = target.read_text(encoding="utf-8")
     import_path = tmp_path / "lockbox_review.json"
     _write_json(import_path, _passed_lockbox_review(tmp_path))
 
-    code = main(
+    blocked_code = main(
         ("apply-lockbox-review", "--root", str(tmp_path), "--input", str(import_path))
+    )
+    blocked_output = json.loads(capsys.readouterr().out)
+    assert blocked_code == 2
+    assert blocked_output["accepted"] is False
+    assert blocked_output["applied"] is False
+    assert "footprint_review gate must be ready before opening lockbox review" in (
+        blocked_output["upstream_blockers"]
+    )
+    assert target.read_text(encoding="utf-8") == original
+
+    code = main(
+        (
+            "apply-lockbox-review",
+            "--root",
+            str(tmp_path),
+            "--input",
+            str(import_path),
+            "--allow-pending-upstream",
+        )
     )
     output = json.loads(capsys.readouterr().out)
 

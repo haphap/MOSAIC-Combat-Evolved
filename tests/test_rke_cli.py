@@ -375,14 +375,45 @@ def test_rke_cli_prepare_gold_review_supports_full_and_protects_existing_file(
 def test_rke_cli_prepare_lockbox_review_protects_existing_file(tmp_path: Path, capsys):
     _copy_registry(tmp_path)
     reviewed_path = tmp_path / "registry/review_batches/lockbox_reviewed.json"
+    if reviewed_path.exists():
+        reviewed_path.unlink()
 
-    code = main(("prepare-lockbox-review", "--root", str(tmp_path)))
+    blocked_code = main(("prepare-lockbox-review", "--root", str(tmp_path)))
+    blocked_output = json.loads(capsys.readouterr().out)
+    assert blocked_code == 2
+    assert blocked_output["written"] is False
+    assert blocked_output["allow_pending_upstream"] is False
+    assert "gold_set gate must be ready before opening lockbox review" in (
+        blocked_output["upstream_blockers"]
+    )
+    assert "footprint_review gate must be ready before opening lockbox review" in (
+        blocked_output["upstream_blockers"]
+    )
+    assert not reviewed_path.exists()
+
+    code = main(
+        (
+            "prepare-lockbox-review",
+            "--root",
+            str(tmp_path),
+            "--allow-pending-upstream",
+        )
+    )
     output = json.loads(capsys.readouterr().out)
-    second_code = main(("prepare-lockbox-review", "--root", str(tmp_path)))
+    second_code = main(
+        (
+            "prepare-lockbox-review",
+            "--root",
+            str(tmp_path),
+            "--allow-pending-upstream",
+        )
+    )
     second_output = json.loads(capsys.readouterr().out)
 
     assert code == 0
     assert output["written"] is True
+    assert output["allow_pending_upstream"] is True
+    assert output["upstream_blockers"] == []
     assert output["path"] == str(reviewed_path)
     assert (
         output["template_path"]

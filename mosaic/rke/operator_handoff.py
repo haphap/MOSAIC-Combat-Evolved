@@ -58,6 +58,7 @@ LOCKBOX_REVIEWED_IMPORT_PATH = "registry/review_batches/lockbox_reviewed.json"
 LOCKBOX_REVIEW_CHECKLIST_MD_PATH = "registry/review_batches/lockbox_review_checklist.md"
 MANUAL_REVIEW_PROGRESS_REPORT_PATH = "registry/review_batches/manual_review_progress_report.json"
 MANUAL_REVIEW_RUNBOOK_MD_PATH = "registry/review_batches/manual_review_runbook.md"
+LOCKBOX_UPSTREAM_REVIEW_KINDS = ("gold_set", "footprint_review", "source_license")
 
 
 @dataclass(frozen=True)
@@ -116,8 +117,10 @@ class LockboxReviewStarterResult:
     template_path: str
     checklist_path: str
     force: bool
+    allow_pending_upstream: bool
     written: bool
     overwritten: bool
+    upstream_blockers: Sequence[str]
     blockers: Sequence[str]
 
 
@@ -574,11 +577,27 @@ def write_lockbox_review_checklist(root: str | Path = ".") -> dict[str, Any]:
     return {"path": str(path), "rows": 1}
 
 
+def lockbox_upstream_review_blockers(root_path: Path) -> tuple[str, ...]:
+    from .review_progress import build_manual_review_progress
+
+    report = build_manual_review_progress(root_path)
+    gate_by_kind = {gate.review_kind: gate for gate in report.gates}
+    blockers: list[str] = []
+    for review_kind in LOCKBOX_UPSTREAM_REVIEW_KINDS:
+        gate = gate_by_kind.get(review_kind)
+        if gate is None or not gate.ready_for_promotion:
+            blockers.append(
+                f"{review_kind} gate must be ready before opening lockbox review"
+            )
+    return tuple(blockers)
+
+
 def write_lockbox_review_starter(
     root: str | Path = ".",
     *,
     output_path: str | Path = LOCKBOX_REVIEWED_IMPORT_PATH,
     force: bool = False,
+    allow_pending_upstream: bool = False,
 ) -> LockboxReviewStarterResult:
     """Write a reviewer-editable lockbox JSON starter without clobbering reviews."""
     root_path = Path(root)
@@ -590,6 +609,12 @@ def write_lockbox_review_starter(
     blockers: list[str] = []
     if exists and not force:
         blockers.append(f"{resolved_output_path} already exists; pass --force to overwrite")
+    upstream_blockers = (
+        ()
+        if allow_pending_upstream
+        else lockbox_upstream_review_blockers(root_path)
+    )
+    blockers.extend(upstream_blockers)
     if not blockers:
         _write_json(resolved_output_path, template)
         write_lockbox_review_checklist(root_path)
@@ -598,8 +623,10 @@ def write_lockbox_review_starter(
         template_path=LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH,
         checklist_path=LOCKBOX_REVIEW_CHECKLIST_MD_PATH,
         force=force,
+        allow_pending_upstream=allow_pending_upstream,
         written=not blockers,
         overwritten=exists and force and not blockers,
+        upstream_blockers=upstream_blockers,
         blockers=tuple(blockers),
     )
 
