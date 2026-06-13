@@ -709,6 +709,9 @@ def test_rke_cli_promotion_status_writes_report(tmp_path: Path, capsys):
     assert next_actions["complete_manual_forecast_gold_review"]["review_aids"][
         "fill_import_path"
     ] == "registry/review_batches/gold_set_reviewed.jsonl"
+    assert next_actions["complete_manual_forecast_gold_review"][
+        "field_contract"
+    ]["optional_fields"] == ["review_notes"]
     assert (
         "review-progress --root . --actions-only --no-write --review-kind lockbox"
         in next_actions["prepare_lockbox_after_upstream_manual_gates"]["commands"][
@@ -723,6 +726,12 @@ def test_rke_cli_promotion_status_writes_report(tmp_path: Path, capsys):
     assert next_actions["prepare_lockbox_after_upstream_manual_gates"]["review_aids"][
         "lockbox"
     ]["fill_import_path"] == "registry/review_batches/lockbox_reviewed.json"
+    assert "passed" in next_actions[
+        "prepare_lockbox_after_upstream_manual_gates"
+    ]["field_contract"]["lockbox"]["allowed_results"]
+    assert "review_notes" in next_actions[
+        "prepare_lockbox_after_upstream_manual_gates"
+    ]["field_contract"]["footprint_review"]["required_fields"]
     assert (
         "promotion-dry-run --root ."
         in next_actions["prepare_lockbox_after_upstream_manual_gates"]["commands"][

@@ -21,7 +21,7 @@ from .lockbox_review_import import (
     LOCKBOX_RESULTS,
     apply_lockbox_review_import,
 )
-from .manual_review_aids import manual_review_aid_paths
+from .manual_review_aids import manual_review_aid_paths, manual_review_field_contract
 from .manual_review_batches import (
     GOLD_BATCH_IMPORT_TEMPLATE_PATH,
     GOLD_FULL_IMPORT_TEMPLATE_PATH,
@@ -1207,76 +1207,7 @@ def _review_aid_paths(gate: ManualReviewGateProgress) -> Mapping[str, Any]:
 
 
 def _review_field_contract(gate: ManualReviewGateProgress) -> Mapping[str, Any]:
-    if gate.review_kind == "gold_set":
-        return {
-            "policy": "human_decisions_only_preserve_ids_hashes_and_context_refs",
-            "required_fields": [
-                "manual_claim_text",
-                *GOLD_BOOL_FIELDS,
-                "reviewer",
-                "review_date",
-            ],
-            "optional_fields": ["review_notes"],
-            "boolean_fields": list(GOLD_BOOL_FIELDS),
-            "boolean_allowed_values": [True, False],
-            "date_fields": {"review_date": "YYYY-MM-DD"},
-            "text_fields": ["manual_claim_text", "reviewer", "review_notes"],
-            "preserve_fields": [
-                "claim_id",
-                TARGET_ROW_HASH_FIELD,
-                "review_context_ref",
-                "target_review_path",
-            ],
-        }
-    if gate.review_kind == "footprint_review":
-        return {
-            "policy": "human_decisions_only_preserve_ids_hashes_and_context_refs",
-            "required_fields": list(ANALYTICAL_FOOTPRINT_REVIEW_REQUIRED_FIELDS),
-            "optional_fields": [],
-            "boolean_fields": list(ANALYTICAL_FOOTPRINT_REVIEW_BOOLEAN_FIELDS),
-            "boolean_allowed_values": [True, False],
-            "date_fields": {"review_date": "YYYY-MM-DD"},
-            "text_fields": ["reviewer", "review_date", "review_notes"],
-            "preserve_fields": [
-                "footprint_id",
-                TARGET_ROW_HASH_FIELD,
-                "review_context_ref",
-                "target_review_path",
-            ],
-        }
-    if gate.review_kind == "source_license":
-        return {
-            "policy": "policy_decision_fields_only_preserve_source_ids",
-            "required_fields": [
-                "approved_for_derived_claim_storage",
-                "approved_for_production_runtime",
-                "reviewer",
-                "review_date",
-            ],
-            "optional_fields": ["notes"],
-            "boolean_fields": [
-                "approved_for_derived_claim_storage",
-                "approved_for_production_runtime",
-            ],
-            "boolean_allowed_values": [True, False],
-            "date_fields": {"review_date": "YYYY-MM-DD"},
-            "text_fields": ["reviewer", "review_date", "notes"],
-            "preserve_fields": ["source_id", TARGET_ROW_HASH_FIELD],
-        }
-    if gate.review_kind == "lockbox":
-        return {
-            "policy": "only_fill_after_upstream_manual_gates_are_ready",
-            "required_fields": [*LOCKBOX_REQUIRED_FIELDS, *LOCKBOX_BOOL_FIELDS],
-            "optional_fields": ["notes"],
-            "boolean_fields": list(LOCKBOX_BOOL_FIELDS),
-            "boolean_allowed_values": [True, False],
-            "allowed_results": sorted(LOCKBOX_RESULTS - {"not_opened"}),
-            "date_fields": {"opened_at": "ISO-8601 datetime or date"},
-            "text_fields": ["opened_by", "result", "notes"],
-            "numeric_fields": ["open_count"],
-            "preserve_fields": [],
-        }
-    return {}
+    return manual_review_field_contract(gate.review_kind)
 
 
 def _lockbox_dependency_blockers(

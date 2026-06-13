@@ -28,7 +28,7 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any, Callable, Literal, Mapping, Sequence
 
-from .manual_review_aids import manual_review_aid_paths
+from .manual_review_aids import manual_review_aid_paths, manual_review_field_contract
 from .manual_review_import import manual_review_forbidden_field_paths
 from .phase_minus1 import load_jsonl_with_errors
 from .required_data import (
@@ -13662,6 +13662,7 @@ def _evolution_gate_cli_next_actions(
         commands: Mapping[str, str],
         notes: Sequence[str] = (),
         review_aids: Mapping[str, Any] | None = None,
+        field_contract: Mapping[str, Any] | None = None,
     ) -> None:
         if any(action["action_id"] == action_id for action in actions):
             return
@@ -13673,6 +13674,8 @@ def _evolution_gate_cli_next_actions(
         }
         if review_aids:
             action["review_aids"] = dict(review_aids)
+        if field_contract:
+            action["field_contract"] = dict(field_contract)
         actions.append(action)
 
     if "RI-EVOL-05" in blocked_by_id:
@@ -13705,6 +13708,7 @@ def _evolution_gate_cli_next_actions(
                 "gold-set batch is complete.",
             ),
             review_aids=manual_review_aid_paths("gold_set"),
+            field_contract=manual_review_field_contract("gold_set"),
         )
 
     audit_blockers = blocked_by_id.get("RI-EVOL-04", set())
@@ -13743,6 +13747,7 @@ def _evolution_gate_cli_next_actions(
                 "after every footprint batch is complete.",
             ),
             review_aids=manual_review_aid_paths("footprint_review"),
+            field_contract=manual_review_field_contract("footprint_review"),
         )
         add_action(
             action_id="clear_current_schema_and_audit_blockers",
@@ -13768,6 +13773,10 @@ def _evolution_gate_cli_next_actions(
             review_aids={
                 "gold_set": manual_review_aid_paths("gold_set"),
                 "footprint_review": manual_review_aid_paths("footprint_review"),
+            },
+            field_contract={
+                "gold_set": manual_review_field_contract("gold_set"),
+                "footprint_review": manual_review_field_contract("footprint_review"),
             },
         )
     if "audit_refresh_history_below_threshold" in audit_blockers:

@@ -302,9 +302,9 @@ review aids unless explicitly listed as `fill_import_path` or
 `promotion_import_path`.
 The higher-level `schema-status --failures-only --no-write`,
 `evolution-readiness --no-write`, and `promotion-status --no-write`
-`next_actions` also include the same `review_aids` maps, so an operator can
-move from a blocked gate to the exact private aid/import paths without running
-an additional discovery command.
+`next_actions` also include the same `review_aids` and `field_contract` maps,
+so an operator can move from a blocked gate to the exact private aid/import
+paths and manual field rules without running an additional discovery command.
 Lockbox actions also expose their reviewed JSON path as a path-only aid, but
 the lockbox policy remains `wait_for_prior_manual_gates_before_opening` until
 gold-set, analytical-footprint, and source-license gates are ready.

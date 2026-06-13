@@ -7998,6 +7998,9 @@ def test_report_intelligence_evolution_gate_writer_preserves_stock_coverage_evid
     assert next_actions["complete_manual_forecast_gold_review"]["review_aids"][
         "evidence_markdown"
     ] == "registry/review_batches/gold_set_review_evidence.md"
+    assert "manual_claim_text" in next_actions[
+        "complete_manual_forecast_gold_review"
+    ]["field_contract"]["required_fields"]
     assert (
         "schema-status --root . --failures-only --no-write"
         in next_actions["clear_current_schema_and_audit_blockers"]["commands"][
@@ -8009,6 +8012,9 @@ def test_report_intelligence_evolution_gate_writer_preserves_stock_coverage_evid
     ]["evidence_markdown"] == (
         "registry/report_intelligence/analytical_footprint_review_evidence.md"
     )
+    assert next_actions["clear_current_schema_and_audit_blockers"][
+        "field_contract"
+    ]["footprint_review"]["optional_fields"] == []
     assert (
         "review-progress --root . --actions-only --no-write --review-kind footprint_review"
         in next_actions["complete_manual_analytical_footprint_review"]["commands"][
@@ -8020,6 +8026,9 @@ def test_report_intelligence_evolution_gate_writer_preserves_stock_coverage_evid
     ]["fill_import_path"] == (
         "registry/report_intelligence/analytical_footprint_review_batch.jsonl"
     )
+    assert "review_notes" in next_actions[
+        "complete_manual_analytical_footprint_review"
+    ]["field_contract"]["required_fields"]
     assert (
         "apply-footprint-review --root . --input registry/report_intelligence/"
         "analytical_footprint_review_batch.jsonl --dry-run"

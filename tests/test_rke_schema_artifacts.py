@@ -4807,6 +4807,9 @@ def test_schema_status_cli_filters_failures_without_writing(tmp_path: Path, caps
     ]["evidence_markdown"] == (
         "registry/report_intelligence/analytical_footprint_review_evidence.md"
     )
+    assert "review_notes" in next_actions[
+        "complete_manual_analytical_footprint_review"
+    ]["field_contract"]["required_fields"]
     assert (
         "review-progress --root . --actions-only --no-write --review-kind gold_set"
         in next_actions["clear_patch_v1_5_manual_review_coverage"]["commands"][
@@ -4821,6 +4824,12 @@ def test_schema_status_cli_filters_failures_without_writing(tmp_path: Path, caps
     ]["fill_import_path"] == (
         "registry/report_intelligence/analytical_footprint_review_batch.jsonl"
     )
+    assert next_actions["clear_patch_v1_5_manual_review_coverage"][
+        "field_contract"
+    ]["gold_set"]["optional_fields"] == ["review_notes"]
+    assert "metric_mapping_correct" in next_actions[
+        "clear_patch_v1_5_manual_review_coverage"
+    ]["field_contract"]["footprint_review"]["boolean_fields"]
     assert all(record["accepted"] is False for record in output["records"])
     assert not (registry_dir / "schemas/rke_schema_validation_report.json").exists()
 

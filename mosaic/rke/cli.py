@@ -38,7 +38,7 @@ from .license_policy_import import (
     write_source_license_reviewed_policy_starter,
 )
 from .lockbox_review_import import apply_lockbox_review_import
-from .manual_review_aids import manual_review_aid_paths
+from .manual_review_aids import manual_review_aid_paths, manual_review_field_contract
 from .manual_review_import import (
     apply_gold_set_review_import,
     apply_source_license_review_import,
@@ -185,6 +185,7 @@ def _schema_status_next_actions(records: Sequence[Any]) -> list[dict[str, Any]]:
         commands: dict[str, str],
         notes: Sequence[str] = (),
         review_aids: Mapping[str, Any] | None = None,
+        field_contract: Mapping[str, Any] | None = None,
     ) -> None:
         if any(action["action_id"] == action_id for action in actions):
             return
@@ -196,6 +197,8 @@ def _schema_status_next_actions(records: Sequence[Any]) -> list[dict[str, Any]]:
         }
         if review_aids:
             action["review_aids"] = dict(review_aids)
+        if field_contract:
+            action["field_contract"] = dict(field_contract)
         actions.append(action)
 
     if "schemas/report_intelligence_analytical_footprint_review_rules" in failed_schema_paths:
@@ -232,6 +235,7 @@ def _schema_status_next_actions(records: Sequence[Any]) -> list[dict[str, Any]]:
                 "The full reviewed import is used only after all footprint batches are complete.",
             ),
             review_aids=manual_review_aid_paths("footprint_review"),
+            field_contract=manual_review_field_contract("footprint_review"),
         )
 
     if "schemas/report_intelligence_patch_v1_5_coverage_rules" in failed_schema_paths:
@@ -265,6 +269,10 @@ def _schema_status_next_actions(records: Sequence[Any]) -> list[dict[str, Any]]:
                 "gold_set": manual_review_aid_paths("gold_set"),
                 "footprint_review": manual_review_aid_paths("footprint_review"),
             },
+            field_contract={
+                "gold_set": manual_review_field_contract("gold_set"),
+                "footprint_review": manual_review_field_contract("footprint_review"),
+            },
         )
 
     return actions
@@ -288,6 +296,7 @@ def _promotion_status_next_actions(result: Any) -> list[dict[str, Any]]:
         commands: dict[str, str],
         notes: Sequence[str] = (),
         review_aids: Mapping[str, Any] | None = None,
+        field_contract: Mapping[str, Any] | None = None,
     ) -> None:
         if any(action["action_id"] == action_id for action in actions):
             return
@@ -299,6 +308,8 @@ def _promotion_status_next_actions(result: Any) -> list[dict[str, Any]]:
         }
         if review_aids:
             action["review_aids"] = dict(review_aids)
+        if field_contract:
+            action["field_contract"] = dict(field_contract)
         actions.append(action)
 
     if "PG02" in failed_criteria:
@@ -330,6 +341,7 @@ def _promotion_status_next_actions(result: Any) -> list[dict[str, Any]]:
                 "required human review fields.",
             ),
             review_aids=manual_review_aid_paths("gold_set"),
+            field_contract=manual_review_field_contract("gold_set"),
         )
 
     if "PG09" in failed_criteria:
@@ -379,6 +391,11 @@ def _promotion_status_next_actions(result: Any) -> list[dict[str, Any]]:
                 "gold_set": manual_review_aid_paths("gold_set"),
                 "footprint_review": manual_review_aid_paths("footprint_review"),
                 "lockbox": manual_review_aid_paths("lockbox"),
+            },
+            field_contract={
+                "gold_set": manual_review_field_contract("gold_set"),
+                "footprint_review": manual_review_field_contract("footprint_review"),
+                "lockbox": manual_review_field_contract("lockbox"),
             },
         )
 
