@@ -537,7 +537,7 @@
       "accepted": true,
       "artifact_path": "registry/review_batches/manual_review_bundle_manifest.json",
       "failures": [],
-      "item_count": 10,
+      "item_count": 11,
       "schema_path": "schemas/report_intelligence_manual_review_bundle_manifest_rules"
     },
     {

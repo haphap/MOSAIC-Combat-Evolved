@@ -22,6 +22,7 @@ MANUAL_REVIEW_BUNDLE_ARTIFACTS: tuple[tuple[str, str, BundleArtifactFormat], ...
     ("manual_review_runbook_markdown", "registry/review_batches/manual_review_runbook.md", "markdown"),
     ("license_policy_template", "registry/review_batches/source_license_policy_template.json", "json"),
     ("license_policy_blank_import_report", "registry/review_batches/source_license_policy_import_report.json", "json"),
+    ("lockbox_review_checklist", "registry/review_batches/lockbox_review_checklist.md", "markdown"),
     ("lockbox_import_template", "registry/review_batches/lockbox_review_next_import_template.json", "json"),
     ("lockbox_blank_import_report", "registry/lockbox/central_bank_lockbox_review_import_report.json", "json"),
     ("promotion_dry_run_report", "registry/promotion/rke_promotion_dry_run_report.json", "json"),

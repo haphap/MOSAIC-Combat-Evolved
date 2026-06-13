@@ -77,7 +77,7 @@
     {
       "blocker": "",
       "check_id": "manual_review_bundle_manifest_current",
-      "evidence": "artifact_count=10, blockers=0, dry_run_accepted=False",
+      "evidence": "artifact_count=11, blockers=0, dry_run_accepted=False",
       "passed": true
     },
     {
@@ -116,6 +116,7 @@
     "registry/review_batches/source_license_policy_import_report.json",
     "registry/review_batches/manual_review_progress_report.json",
     "registry/review_batches/manual_review_runbook.md",
+    "registry/review_batches/lockbox_review_checklist.md",
     "registry/review_batches/lockbox_review_next_import_template.json",
     "registry/lockbox/central_bank_lockbox_review_import_report.json",
     "registry/review_batches/manual_review_bundle_manifest.json"

@@ -46,6 +46,7 @@ from .lockbox_review_import import (
     apply_lockbox_review_import,
 )
 from .operator_handoff import (
+    LOCKBOX_REVIEW_CHECKLIST_MD_PATH,
     LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH,
     OPERATOR_HANDOFF_JSON_PATH,
     OPERATOR_HANDOFF_MD_PATH,
@@ -844,6 +845,7 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
         LICENSE_POLICY_IMPORT_REPORT_PATH,
         MANUAL_REVIEW_PROGRESS_REPORT_PATH,
         MANUAL_REVIEW_RUNBOOK_MD_PATH,
+        LOCKBOX_REVIEW_CHECKLIST_MD_PATH,
         LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH,
         LOCKBOX_REVIEW_IMPORT_REPORT_PATH,
         MANUAL_REVIEW_BUNDLE_MANIFEST_PATH,

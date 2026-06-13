@@ -1,6 +1,6 @@
 {
   "accepted": true,
-  "artifact_count": 10,
+  "artifact_count": 11,
   "artifacts": [
     {
       "bytes": 21471,
@@ -64,6 +64,15 @@
       "role": "license_policy_blank_import_report",
       "row_count": null,
       "sha256": "sha256:41cd02824912d25f633a9b5c54eccfc4e4bf0a2417fe6eac0d16edcb89335dc3"
+    },
+    {
+      "bytes": 2228,
+      "exists": true,
+      "format": "markdown",
+      "path": "registry/review_batches/lockbox_review_checklist.md",
+      "role": "lockbox_review_checklist",
+      "row_count": null,
+      "sha256": "sha256:cee19ef2e025afd4579b7834da5f768207dd84e25f779f14341fe31721d50131"
     },
     {
       "bytes": 613,

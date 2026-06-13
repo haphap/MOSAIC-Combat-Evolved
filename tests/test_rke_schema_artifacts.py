@@ -2903,7 +2903,7 @@ def test_manual_review_bundle_manifest_contract_accepts_current_public_artifact(
     record = _manual_review_bundle_manifest_record(tmp_path)
 
     assert record.accepted
-    assert record.item_count == 10
+    assert record.item_count == 11
     assert record.failures == ()
 
 
@@ -2974,7 +2974,7 @@ def test_manual_review_bundle_manifest_contract_accepts_completed_promotion_summ
     record = _manual_review_bundle_manifest_record(tmp_path)
 
     assert record.accepted
-    assert record.item_count == 10
+    assert record.item_count == 11
     assert record.failures == ()
 
 
@@ -3002,7 +3002,7 @@ def test_manual_review_bundle_manifest_contract_rejects_missing_artifact_role(
         "missing roles: promotion_dry_run_report" in item
         for item in record.failures
     )
-    assert any("artifact_count: expected 10" in item for item in record.failures)
+    assert any("artifact_count: expected 11" in item for item in record.failures)
 
 
 def test_manual_review_bundle_manifest_contract_rejects_bad_hash_or_promotion(
