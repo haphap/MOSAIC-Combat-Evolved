@@ -126,11 +126,15 @@ uv run mosaic-rke schema-status --root . --failures-only --no-write
 `review-progress --actions-only --no-write` now reports source-license as
 `already_applied` with `can_run_now=false` and no commands; runnable action
 items remain the active gold-set and analytical-footprint review batches.
-`review-progress --summary --no-write` now includes a compact public-safe
+`review-progress --summary --no-write` and
+`review-progress --actions-only --no-write` now include a compact public-safe
 `batch_overview` per review gate, so operators can see total batch count,
 current batch size/path, evidence alignment, final-batch size, and the
 requirement to rerun `review-progress` after each accepted batch without
-expanding the full batch plan.
+expanding the full batch plan. If a gate is already ready for promotion while
+an older scratch batch file still contains blank fields, the action queue uses
+the promotion input path and marks that scratch as stale instead of showing its
+missing fields as current work.
 `master-plan-status --no-write` and `schema-status --failures-only --no-write`
 still exit 2 only because the same manual review-derived schema and patch
 coverage gates remain open. `evolution-readiness --no-write` also exits 2 when

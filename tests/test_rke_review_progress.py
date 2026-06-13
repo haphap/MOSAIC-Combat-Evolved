@@ -515,6 +515,12 @@ def test_review_progress_actions_only_reports_next_manual_work(
         actions["gold_set"]["current_batch_path"]
         == "registry/review_batches/gold_set_reviewed.jsonl"
     )
+    assert actions["gold_set"]["batch_overview"]["batch_count"] == 10
+    assert actions["gold_set"]["batch_overview"]["next_batch_limit"] == 50
+    assert (
+        actions["gold_set"]["batch_overview"]["current_batch_path"]
+        == "registry/review_batches/gold_set_reviewed.jsonl"
+    )
     assert (
         actions["gold_set"]["manual_input_path"]
         == "registry/review_batches/gold_set_reviewed.jsonl"
@@ -541,6 +547,8 @@ def test_review_progress_actions_only_reports_next_manual_work(
         "fill_current_batch_review_fields_then_dry_run",
         "prepare_next_review_batch",
     }
+    assert actions["footprint_review"]["batch_overview"]["batch_count"] == 21
+    assert actions["footprint_review"]["batch_overview"]["final_batch_limit"] == 1
     assert "apply" not in actions["footprint_review"]["commands"]
     assert (
         actions["source_license"]["next_manual_action"]
@@ -557,6 +565,7 @@ def test_review_progress_actions_only_reports_next_manual_work(
     assert actions["lockbox"]["action_state"] == "waiting_on_dependencies"
     assert actions["lockbox"]["can_run_now"] is False
     assert actions["lockbox"]["blocks_promotion"] is True
+    assert actions["lockbox"]["batch_overview"] == {}
     assert actions["lockbox"]["blocked_by_review_kinds"] == [
         "gold_set",
         "footprint_review",
@@ -1050,15 +1059,40 @@ def test_review_progress_accepts_already_applied_gold_with_stale_scratch(
         tmp_path / "registry/review_batches/gold_set_full_reviewed.jsonl",
         [stale_row],
     )
+    stale_batch_row = dict(target_row)
+    stale_batch_row["manual_claim_text"] = ""
+    stale_batch_row["claim_correct"] = None
+    _write_jsonl(
+        tmp_path / "registry/review_batches/gold_set_reviewed.jsonl",
+        [stale_batch_row],
+    )
 
     report = build_manual_review_progress(tmp_path)
     gold = next(gate for gate in report.gates if gate.review_kind == "gold_set")
+    action_queue = build_manual_review_action_queue(report, review_kinds=("gold_set",))
+    action = action_queue["actions"][0]
 
     assert gold.ready_for_promotion is True
     assert gold.simulation_accepted is True
     assert gold.complete_rows == gold.target_rows
     assert gold.pending_rows == 0
     assert gold.blockers == ()
+    assert action["action_state"] == "ready_to_apply"
+    assert action["manual_input_path"] == "registry/review_batches/gold_set_full_reviewed.jsonl"
+    assert action["current_batch_path"] == "registry/review_batches/gold_set_reviewed.jsonl"
+    assert action["current_batch_pending_rows"] == 0
+    assert action["current_batch_stale_after_promotion_ready"] is True
+    assert action["missing_required_fields"] == {}
+    assert action["evidence_aligned"] is None
+    assert action["batch_overview"] == {
+        "batch_count": 0,
+        "current_batch_stale_after_promotion_ready": True,
+        "pending_rows": 0,
+        "promotion_input_path": "registry/review_batches/gold_set_full_reviewed.jsonl",
+        "rerun_review_progress_after_batch_apply": False,
+        "stale_current_batch_path": "registry/review_batches/gold_set_reviewed.jsonl",
+        "stale_current_batch_pending_rows": 1,
+    }
 
 
 def test_review_progress_reports_partial_gold_scratch(tmp_path: Path):

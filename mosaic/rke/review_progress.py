@@ -1122,13 +1122,43 @@ def _compact_current_batch_status(status: Mapping[str, Any]) -> Mapping[str, Any
     return compact
 
 
+def _current_batch_stale_after_promotion_ready(
+    gate: ManualReviewGateProgress,
+) -> bool:
+    current = (
+        gate.current_batch_status
+        if isinstance(gate.current_batch_status, Mapping)
+        else {}
+    )
+    return (
+        gate.ready_for_promotion
+        and bool(current.get("exists"))
+        and int(current.get("pending_rows") or 0) > 0
+    )
+
+
 def _compact_batch_overview(gate: ManualReviewGateProgress) -> Mapping[str, Any]:
     if gate.review_kind not in {"gold_set", "footprint_review"}:
         return {}
+    current = _compact_current_batch_status(gate.current_batch_status)
+    stale_current_batch = _current_batch_stale_after_promotion_ready(gate)
+    if gate.ready_for_promotion:
+        return {
+            "batch_count": 0,
+            "pending_rows": 0,
+            "promotion_input_path": gate.input_path,
+            "current_batch_stale_after_promotion_ready": stale_current_batch,
+            "stale_current_batch_path": (
+                str(current.get("path") or "") if stale_current_batch else ""
+            ),
+            "stale_current_batch_pending_rows": (
+                int(current.get("pending_rows") or 0) if stale_current_batch else 0
+            ),
+            "rerun_review_progress_after_batch_apply": False,
+        }
     batches = tuple(
         batch for batch in gate.batch_plan if isinstance(batch, Mapping)
     )
-    current = _compact_current_batch_status(gate.current_batch_status)
     evidence = (
         current.get("evidence_status")
         if isinstance(current.get("evidence_status"), Mapping)
@@ -1440,6 +1470,12 @@ def build_manual_review_action_queue(
             dependency_blockers=dependency_blockers,
         )
         current_batch_path = str(current.get("path") or "")
+        stale_current_batch = _current_batch_stale_after_promotion_ready(gate)
+        active_manual_input_path = (
+            gate.input_path
+            if gate.ready_for_promotion
+            else current_batch_path or gate.input_path
+        )
         actions.append(
             {
                 "action_rank": action_rank,
@@ -1454,17 +1490,23 @@ def build_manual_review_action_queue(
                 "complete_rows": gate.complete_rows,
                 "pending_rows": gate.pending_rows,
                 "target_rows": gate.target_rows,
-                "manual_input_path": current_batch_path or gate.input_path,
+                "manual_input_path": active_manual_input_path,
                 "promotion_input_path": gate.input_path,
                 "current_batch_path": current_batch_path,
-                "current_batch_pending_rows": int(current.get("pending_rows") or 0),
+                "current_batch_pending_rows": (
+                    0
+                    if stale_current_batch
+                    else int(current.get("pending_rows") or 0)
+                ),
                 "current_batch_malformed_rows": int(
                     current.get("malformed_rows") or 0
                 ),
+                "current_batch_stale_after_promotion_ready": stale_current_batch,
+                "batch_overview": _compact_batch_overview(gate),
                 "missing_required_fields": dict(
-                    current.get("missing_required_fields") or {}
+                    {} if stale_current_batch else current.get("missing_required_fields") or {}
                 ),
-                "evidence_aligned": evidence_aligned,
+                "evidence_aligned": None if stale_current_batch else evidence_aligned,
                 "commands": dict(_action_queue_commands(gate, action)),
             }
         )
