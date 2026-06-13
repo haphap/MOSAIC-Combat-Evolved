@@ -245,6 +245,14 @@ def test_review_progress_reports_missing_scratch_files(tmp_path: Path, capsys):
         footprint_gate["next_batch_commands"]["dry_run"]
         == expected_footprint_dry_run
     )
+    assert len(gold_gate["batch_plan"]) == 10
+    assert gold_gate["batch_plan"][0]["offset"] == 0
+    assert gold_gate["batch_plan"][-1]["offset"] == 450
+    assert len(footprint_gate["batch_plan"]) == 21
+    assert footprint_gate["batch_plan"][-1]["offset"] == 1000
+    assert footprint_gate["batch_plan"][-1]["limit"] == 1
+    assert "source_id" not in json.dumps(gold_gate["batch_plan"])
+    assert "footprint_id" not in json.dumps(footprint_gate["batch_plan"])
     assert gold_gate["current_batch_status"]["exists"] is False
     assert (
         gold_gate["current_batch_status"]["path"]
@@ -374,6 +382,9 @@ def test_manual_review_runbook_renders_operator_checklist_without_source_text(tm
     assert result["ready_for_promotion_dry_run"] is False
     assert "mosaic-rke prepare-gold-review --root . --full" in markdown
     assert "## Next Batch Commands" in markdown
+    assert "## Full Pending Batch Plan" in markdown
+    assert "Batch 10: pending rows 451-500; limit=50; offset=450" in markdown
+    assert "Batch 21: pending rows 1001-1001; limit=1; offset=1000" in markdown
     assert "### gold_set" in markdown
     assert "### footprint_review" in markdown
     assert "After applying an accepted batch, rerun review-progress" in markdown

@@ -83,6 +83,7 @@ class ManualReviewGateProgress:
     dry_run_command: str
     apply_command: str
     next_batch_commands: Mapping[str, str] = field(default_factory=dict)
+    batch_plan: Sequence[Mapping[str, Any]] = field(default_factory=tuple)
     current_batch_status: Mapping[str, Any] = field(default_factory=dict)
 
 
@@ -337,6 +338,72 @@ def _footprint_next_batch_commands(pending_rows: int) -> dict[str, str]:
     }
 
 
+def _manual_review_batch_plan(
+    review_kind: ReviewProgressKind,
+    pending_rows: int,
+    *,
+    batch_size: int = 50,
+) -> tuple[Mapping[str, Any], ...]:
+    if review_kind not in {"gold_set", "footprint_review"} or pending_rows <= 0:
+        return ()
+    rows_remaining = int(pending_rows)
+    size = max(1, int(batch_size))
+    batches: list[Mapping[str, Any]] = []
+    for batch_index, offset in enumerate(range(0, rows_remaining, size), 1):
+        limit = min(size, rows_remaining - offset)
+        if review_kind == "gold_set":
+            commands = {
+                "evidence": operator_command(
+                    "mosaic-rke write-gold-review-evidence --root . "
+                    f"--limit {limit} --offset {offset}"
+                ),
+                "prepare": operator_command(
+                    "mosaic-rke prepare-gold-review --root . "
+                    f"--gold-batch-size {limit} --offset {offset} --force "
+                    "--reviewer <name> --review-date <YYYY-MM-DD>"
+                ),
+                "dry_run": operator_command(
+                    f"mosaic-rke apply-gold-review --root . --input {GOLD_REVIEWED_IMPORT_PATH} --dry-run"
+                ),
+                "apply": operator_command(
+                    f"mosaic-rke apply-gold-review --root . --input {GOLD_REVIEWED_IMPORT_PATH}"
+                ),
+            }
+        else:
+            commands = {
+                "assist": operator_command("mosaic-rke write-footprint-review-assist --root ."),
+                "evidence": operator_command(
+                    "mosaic-rke write-footprint-review-evidence --root . "
+                    f"--limit {limit} --offset {offset}"
+                ),
+                "prepare": operator_command(
+                    "mosaic-rke prepare-footprint-review --root . "
+                    f"--limit {limit} --offset {offset} "
+                    "--reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
+                ),
+                "dry_run": operator_command(
+                    "mosaic-rke apply-footprint-review --root . "
+                    f"--input {ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH} --dry-run"
+                ),
+                "apply": operator_command(
+                    "mosaic-rke apply-footprint-review --root . "
+                    f"--input {ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH}"
+                ),
+            }
+        batches.append(
+            {
+                "batch_index": batch_index,
+                "offset": offset,
+                "limit": limit,
+                "pending_row_start": offset + 1,
+                "pending_row_end": offset + limit,
+                "mode": "pending_offset_batch_before_applying_any_batch",
+                "commands": commands,
+            }
+        )
+    return tuple(batches)
+
+
 def _write_json(path: Path, payload: Mapping[str, Any]) -> dict[str, Any]:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
@@ -355,6 +422,7 @@ def _missing_gate(
     dry_run_command: str,
     apply_command: str,
     next_batch_commands: Mapping[str, str] | None = None,
+    batch_plan: Sequence[Mapping[str, Any]] | None = None,
     current_batch_status: Mapping[str, Any] | None = None,
 ) -> ManualReviewGateProgress:
     return ManualReviewGateProgress(
@@ -372,6 +440,7 @@ def _missing_gate(
         dry_run_command=dry_run_command,
         apply_command=apply_command,
         next_batch_commands=dict(next_batch_commands or {}),
+        batch_plan=tuple(batch_plan or ()),
         current_batch_status=dict(current_batch_status or {}),
     )
 
@@ -400,6 +469,7 @@ def _gold_progress(root_path: Path) -> ManualReviewGateProgress:
             apply_command=operator_command(
                 f"mosaic-rke apply-gold-review --root . --input {input_path}"
             ),
+            batch_plan=(),
             current_batch_status=current_batch_status,
         )
     target_rows = build_manual_review_batch_status(root_path)[0].gold_set.pending_rows
@@ -420,6 +490,7 @@ def _gold_progress(root_path: Path) -> ManualReviewGateProgress:
             dry_run_command=dry_run_command,
             apply_command=apply_command,
             next_batch_commands=_gold_next_batch_commands(target_rows),
+            batch_plan=_manual_review_batch_plan("gold_set", target_rows),
             current_batch_status=current_batch_status,
         )
 
@@ -445,6 +516,7 @@ def _gold_progress(root_path: Path) -> ManualReviewGateProgress:
         dry_run_command=dry_run_command,
         apply_command=apply_command,
         next_batch_commands=_gold_next_batch_commands(summary.pending_claims),
+        batch_plan=_manual_review_batch_plan("gold_set", summary.pending_claims),
         current_batch_status=current_batch_status,
     )
 
@@ -547,6 +619,7 @@ def _lockbox_progress(root_path: Path) -> ManualReviewGateProgress:
             prepare_command=prepare_command,
             dry_run_command=dry_run_command,
             apply_command=apply_command,
+            batch_plan=(),
             current_batch_status=current_batch_status,
         )
 
@@ -637,6 +710,7 @@ def _footprint_review_progress(root_path: Path) -> ManualReviewGateProgress:
             dry_run_command=dry_run_command,
             apply_command=apply_command,
             next_batch_commands=_footprint_next_batch_commands(target_rows),
+            batch_plan=_manual_review_batch_plan("footprint_review", target_rows),
             current_batch_status=current_batch_status,
         )
 
@@ -680,6 +754,7 @@ def _footprint_review_progress(root_path: Path) -> ManualReviewGateProgress:
         dry_run_command=dry_run_command,
         apply_command=apply_command,
         next_batch_commands=_footprint_next_batch_commands(pending_rows),
+        batch_plan=_manual_review_batch_plan("footprint_review", pending_rows),
         current_batch_status=current_batch_status,
     )
 
@@ -711,6 +786,29 @@ def _render_batch_status_lines(label: str, status: Mapping[str, Any]) -> list[st
             for field, count in sorted(invalid_required_fields.items())
         )
         lines.append(f"  Invalid required fields: {invalid}")
+    return lines
+
+
+def _render_batch_plan_lines(label: str, batch_plan: Sequence[Mapping[str, Any]]) -> list[str]:
+    if not batch_plan:
+        return [f"- {label}: no pending review batches."]
+    lines = [f"### {label}", ""]
+    for batch in batch_plan:
+        commands = batch.get("commands")
+        command_map = commands if isinstance(commands, Mapping) else {}
+        lines.extend(
+            [
+                (
+                    f"- Batch {batch.get('batch_index')}: pending rows "
+                    f"{batch.get('pending_row_start')}-{batch.get('pending_row_end')}; "
+                    f"limit={batch.get('limit')}; offset={batch.get('offset')}"
+                ),
+            ]
+        )
+        for command_name in ("assist", "evidence", "prepare", "dry_run", "apply"):
+            command = command_map.get(command_name)
+            if str(command or "").strip():
+                lines.append(f"  - {command_name}: `{command}`")
     return lines
 
 
@@ -935,6 +1033,14 @@ def render_manual_review_runbook_markdown(report: ManualReviewProgressReport) ->
     ]
     lines.extend(
         [
+            "## Full Pending Batch Plan",
+            "",
+            "This plan slices the current pending set before any new batch is applied. If you apply one accepted batch, rerun `review-progress` and use the refreshed offsets.",
+            "",
+            *_render_batch_plan_lines("Gold-set review", gold.batch_plan),
+            "",
+            *_render_batch_plan_lines("Analytical-footprint review", footprint.batch_plan),
+            "",
             "## Next Batch Commands",
             "",
             "These commands operate on the current pending set. After applying an accepted batch, rerun review-progress and use the refreshed commands.",

@@ -2677,6 +2677,7 @@ def test_manual_review_progress_contract_accepts_completed_gate_state(
         gate["simulation_accepted"] = True
         gate["blockers"] = []
         gate["current_batch_status"] = {}
+        gate["batch_plan"] = []
     progress_path.write_text(
         json.dumps(progress, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
@@ -2735,6 +2736,13 @@ def test_manual_review_progress_contract_rejects_count_or_command_drift(
         "mosaic-rke apply-footprint-review --root ."
     )
     progress["gates"][1]["current_batch_status"]["pending_rows"] = 49
+    progress["gates"][1]["batch_plan"][0]["offset"] = 50
+    progress["gates"][1]["batch_plan"][0]["commands"]["evidence"] = (
+        progress["gates"][1]["batch_plan"][0]["commands"]["evidence"].replace(
+            "--offset 0",
+            "--offset 50",
+        )
+    )
     progress_path.write_text(
         json.dumps(progress, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
@@ -2751,6 +2759,7 @@ def test_manual_review_progress_contract_rejects_count_or_command_drift(
         "current_batch_status: complete + pending + malformed must equal rows" in item
         for item in record.failures
     )
+    assert any("batch_plan[1].offset: expected 0" in item for item in record.failures)
 
 
 def test_operator_readiness_contract_accepts_current_public_artifact(

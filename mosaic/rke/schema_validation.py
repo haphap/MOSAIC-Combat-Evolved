@@ -3883,6 +3883,101 @@ def _validate_manual_review_progress_contract(
                 failures.append(
                     f"{row_label}.current_batch_status: complete + pending + malformed must equal rows"
                 )
+        raw_batch_plan = gate.get("batch_plan")
+        if raw_batch_plan is None:
+            failures.append(f"{row_label}.batch_plan: expected array")
+        elif not isinstance(raw_batch_plan, Sequence) or isinstance(raw_batch_plan, str):
+            failures.append(f"{row_label}.batch_plan: expected array")
+        else:
+            batch_plan = [item for item in raw_batch_plan if isinstance(item, Mapping)]
+            malformed_batch_count = len(raw_batch_plan) - len(batch_plan)
+            if malformed_batch_count:
+                failures.append(
+                    f"{row_label}.batch_plan: {malformed_batch_count} non-object batches"
+                )
+            expected_batch_count = 0
+            if review_kind in {"gold_set", "footprint_review"} and pending_rows:
+                expected_batch_count = (int(pending_rows) + 49) // 50
+            if len(batch_plan) != expected_batch_count:
+                failures.append(
+                    f"{row_label}.batch_plan: expected {expected_batch_count} batches"
+                )
+            for batch_index, batch in enumerate(batch_plan, 1):
+                batch_label = f"{row_label}.batch_plan[{batch_index}]"
+                offset = _int_or_none(batch.get("offset"))
+                limit = _int_or_none(batch.get("limit"))
+                pending_start = _int_or_none(batch.get("pending_row_start"))
+                pending_end = _int_or_none(batch.get("pending_row_end"))
+                if batch.get("batch_index") != batch_index:
+                    failures.append(f"{batch_label}.batch_index: expected {batch_index}")
+                expected_offset = (batch_index - 1) * 50
+                if offset != expected_offset:
+                    failures.append(f"{batch_label}.offset: expected {expected_offset}")
+                if limit is None or limit <= 0 or limit > 50:
+                    failures.append(f"{batch_label}.limit: must be 1..50")
+                if None not in (offset, limit, pending_start, pending_end):
+                    if pending_start != int(offset) + 1:
+                        failures.append(
+                            f"{batch_label}.pending_row_start: must equal offset + 1"
+                        )
+                    if pending_end != int(offset) + int(limit):
+                        failures.append(
+                            f"{batch_label}.pending_row_end: must equal offset + limit"
+                        )
+                    if pending_rows is not None and int(pending_end) > int(pending_rows):
+                        failures.append(
+                            f"{batch_label}.pending_row_end: exceeds pending_rows"
+                        )
+                if batch.get("mode") != "pending_offset_batch_before_applying_any_batch":
+                    failures.append(
+                        f"{batch_label}.mode: expected pending_offset_batch_before_applying_any_batch"
+                    )
+                commands = batch.get("commands")
+                if not isinstance(commands, Mapping):
+                    failures.append(f"{batch_label}.commands: expected object")
+                    continue
+                required_commands = (
+                    ("evidence", "prepare", "dry_run", "apply")
+                    if review_kind == "gold_set"
+                    else ("assist", "evidence", "prepare", "dry_run", "apply")
+                )
+                for command_name in required_commands:
+                    command = str(commands.get(command_name) or "")
+                    if not command:
+                        failures.append(
+                            f"{batch_label}.commands.{command_name}: must be non-empty"
+                        )
+                        continue
+                    if "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke" not in command:
+                        failures.append(
+                            f"{batch_label}.commands.{command_name}: missing MOSAIC_RKE_TMPDIR prefix"
+                        )
+                    if "TMPDIR=/home/hap/tmp/mosaic-rke" not in command:
+                        failures.append(
+                            f"{batch_label}.commands.{command_name}: missing TMPDIR prefix"
+                        )
+                    if "mosaic-rke " not in command:
+                        failures.append(
+                            f"{batch_label}.commands.{command_name}: must invoke mosaic-rke"
+                        )
+                evidence_command = str(commands.get("evidence") or "")
+                prepare_command_for_batch = str(commands.get("prepare") or "")
+                if offset is not None and f"--offset {offset}" not in evidence_command:
+                    failures.append(f"{batch_label}.commands.evidence: offset mismatch")
+                if offset is not None and f"--offset {offset}" not in prepare_command_for_batch:
+                    failures.append(f"{batch_label}.commands.prepare: offset mismatch")
+                if limit is not None and f"--limit {limit}" not in evidence_command:
+                    failures.append(f"{batch_label}.commands.evidence: limit mismatch")
+                if review_kind == "gold_set":
+                    if (
+                        limit is not None
+                        and f"--gold-batch-size {limit}" not in prepare_command_for_batch
+                    ):
+                        failures.append(
+                            f"{batch_label}.commands.prepare: gold batch-size mismatch"
+                        )
+                elif limit is not None and f"--limit {limit}" not in prepare_command_for_batch:
+                    failures.append(f"{batch_label}.commands.prepare: limit mismatch")
 
     expected_ready_for_promotion = bool(gates) and all(
         gate.get("ready_for_promotion") is True for gate in gates
