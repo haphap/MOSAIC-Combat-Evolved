@@ -207,6 +207,15 @@ def test_normalize_forecast_claims_filters_boilerplate_and_descriptive_facts():
                     "claim_provenance": "source_grounded",
                 },
                 {
+                    "claim_text": "1、政策落地不及预期；",
+                    "claim_provenance": "source_grounded",
+                    "direction": "negative",
+                    "forecast_testability": "testable",
+                    "forecast_type": "risk_warning",
+                    "metric_proxy_mapping": ["industry_policy_catalyst"],
+                    "target": {"target_id": "有色金属", "target_type": "sector"},
+                },
+                {
                     "claim_text": "黑钨精矿65%国产的价格涨跌幅为600%。",
                     "claim_provenance": "source_grounded",
                 },
@@ -262,6 +271,39 @@ def test_normalize_forecast_claims_filters_boilerplate_and_descriptive_facts():
     assert [record["claim_text"] for record in records] == [
         "若供给约束延续且库存继续下降，有色金属景气周期有望推动板块后续跑赢市场。"
     ]
+
+
+def test_normalize_forecast_claims_keeps_long_risk_regime_mechanism_claims():
+    claim_text = (
+        "在监管政策趋严、息差收窄、信用风险暴露及行业竞争加剧的背景下，"
+        "租赁公司通过向产业化业务转型并强化资产筛选机制，有望改善资产质量并提升盈利韧性。"
+    )
+
+    records = _normalize_forecast_claims(
+        {
+            "forecast_claims": [
+                {
+                    "claim_text": claim_text,
+                    "claim_provenance": "source_grounded",
+                    "direction": "positive",
+                    "forecast_testability": "testable",
+                    "forecast_type": "sector_outlook",
+                    "metric_proxy_mapping": ["industry_etf_forward_return"],
+                    "target": {"target_id": "多元金融", "target_type": "sector"},
+                }
+            ]
+        },
+        {
+            "source_id": "SRC-LONG-RISK-REGIME",
+            "publish_date": "2026-06-11",
+        },
+        run_id="RUN-LONG-RISK-REGIME",
+        model="fake-vllm",
+        report_id="RPT-LONG-RISK-REGIME",
+        chunk_span_id="SRC-LONG-RISK-REGIME:chunk-1",
+    )
+
+    assert [record["claim_text"] for record in records] == [claim_text]
 
 
 def test_normalize_forecast_claims_infers_horizon_and_metric_proxy_mapping():

@@ -2442,7 +2442,7 @@ def _bounded_claim_text(text: str) -> tuple[str, bool]:
 
 def _is_forecast_claim_candidate_text(text: str) -> bool:
     normalized = re.sub(r"\s+", " ", text).strip()
-    if not normalized or FORECAST_CLAIM_RISK_WARNING_PREFIX_RE.match(normalized):
+    if not normalized or _is_boilerplate_risk_warning_text(normalized):
         return False
     lowered = normalized.lower()
     mechanism_hits = sum(
@@ -4455,10 +4455,9 @@ def _footprint_review_metric_mapping_suggestion(row: Mapping[str, Any]) -> bool:
 
 def _is_boilerplate_risk_warning_text(text: str) -> bool:
     stripped = text.strip()
-    return bool(
-        FORECAST_CLAIM_RISK_WARNING_PREFIX_RE.match(stripped)
-        or GENERIC_RISK_WARNING_ENUM_RE.match(stripped)
-    )
+    if FORECAST_CLAIM_RISK_WARNING_PREFIX_RE.match(stripped):
+        return True
+    return len(stripped) <= 80 and bool(GENERIC_RISK_WARNING_ENUM_RE.match(stripped))
 
 
 def _is_boilerplate_risk_footprint(row: Mapping[str, Any]) -> bool:
