@@ -141,10 +141,16 @@ coverage gates remain open. The schema-status failure payload now includes
 public-safe `next_actions` for the analytical-footprint review summary gate and
 patch v1.5 manual coverage gate, so operators can jump from the failed schema
 records back to the review-progress/evidence/dry-run commands without editing
-coverage artifacts directly. `promotion-status --no-write` now also includes
-public-safe `next_actions` for PG02 manual gold-set review and PG09 lockbox
-review, with lockbox commands explicitly marked as dependent on upstream manual
-gates. `evolution-readiness --no-write` also exits 2 when
+coverage artifacts directly. `master-plan-status --no-write` now also includes
+public-safe `next_actions` that point to `schema-status --failures-only`,
+`review-progress --actions-only`, and `evolution-readiness --no-write`, then
+reuses the same schema/manual-review actions and field contracts. This makes the
+MVP-D3 `schema validation report accepted must be true` blocker traceable to the
+underlying manual review gates without editing master-plan coverage artifacts
+directly. `promotion-status --no-write` now also includes public-safe
+`next_actions` for PG02 manual gold-set review and PG09 lockbox review, with
+lockbox commands explicitly marked as dependent on upstream manual gates.
+`evolution-readiness --no-write` also exits 2 when
 `gate_status=blocked` and includes `blocked_check_ids` / `blocked_checks` in
 stdout so operators can see that RI-EVOL-04 and RI-EVOL-05 are the active
 readiness blockers. The same read-only output now includes public-safe

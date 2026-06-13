@@ -278,6 +278,76 @@ def _schema_status_next_actions(records: Sequence[Any]) -> list[dict[str, Any]]:
     return actions
 
 
+def _master_plan_status_next_actions(root: str | Path, result: Any) -> list[dict[str, Any]]:
+    """Map incomplete master-plan coverage to public-safe operator commands."""
+    records = [
+        *getattr(result, "records", ()),
+        *getattr(result, "mvp_deliverable_records", ()),
+        *getattr(result, "mvp_exit_records", ()),
+        *getattr(result, "final_acceptance_records", ()),
+    ]
+    blockers = [
+        str(getattr(record, "blocker", "") or "")
+        for record in records
+        if str(getattr(record, "status", "") or "") != "passed"
+    ]
+    if not blockers:
+        return []
+
+    actions: list[dict[str, Any]] = [
+        {
+            "action_id": "inspect_master_plan_schema_blockers",
+            "reason": (
+                "Master-plan coverage is incomplete; current known blockers are "
+                "downstream of schema-status and manual review gates."
+            ),
+            "commands": {
+                "master_plan_status": operator_command(
+                    "mosaic-rke master-plan-status --root . --no-write"
+                ),
+                "schema_failures": operator_command(
+                    "mosaic-rke schema-status --root . --failures-only --no-write"
+                ),
+                "manual_queue": operator_command(
+                    "mosaic-rke review-progress --root . --actions-only --no-write"
+                ),
+                "evolution_readiness": operator_command(
+                    "mosaic-rke evolution-readiness --root . --no-write"
+                ),
+            },
+            "notes": [
+                "Do not edit master-plan coverage artifacts directly.",
+                "Clear the underlying schema/manual-review gates, then rerun master-plan-status.",
+            ],
+            "review_aids": {
+                "gold_set": manual_review_aid_paths("gold_set"),
+                "footprint_review": manual_review_aid_paths("footprint_review"),
+            },
+            "field_contract": {
+                "gold_set": manual_review_field_contract("gold_set"),
+                "footprint_review": manual_review_field_contract("footprint_review"),
+            },
+        }
+    ]
+
+    if any(
+        "schema validation report accepted must be true" in blocker
+        or "patch_v1_5_coverage_report" in blocker
+        for blocker in blockers
+    ):
+        schema_report = build_schema_validation_report(root)
+        failed_records = [
+            record
+            for record in schema_report.records
+            if not record.accepted or record.failures
+        ]
+        for action in _schema_status_next_actions(failed_records):
+            if not any(existing["action_id"] == action["action_id"] for existing in actions):
+                actions.append(action)
+
+    return actions
+
+
 def _promotion_status_next_actions(result: Any) -> list[dict[str, Any]]:
     """Map failed promotion criteria to public-safe operator commands."""
     failed_criteria = {
@@ -1498,7 +1568,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             write_completion_audit(root)
             write_master_plan_coverage_report(root)
         result = build_master_plan_coverage_report(root)
-        _print_json(asdict(result))
+        _print_json(
+            {
+                **asdict(result),
+                "next_actions": _master_plan_status_next_actions(root, result),
+            }
+        )
         return 0 if result.coverage_complete else 2
     if args.command == "dashboard":
         result = write_dashboard_reports(root)

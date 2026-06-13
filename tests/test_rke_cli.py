@@ -149,6 +149,24 @@ def test_rke_cli_master_plan_status_writes_coverage(tmp_path: Path, capsys):
     assert output["ready_for_broad_rollout"] is False
     assert output["blocked_count"] == 0
     assert output["missing_count"] == 1
+    next_actions = {action["action_id"]: action for action in output["next_actions"]}
+    assert {
+        "inspect_master_plan_schema_blockers",
+        "complete_manual_analytical_footprint_review",
+        "clear_patch_v1_5_manual_review_coverage",
+    } <= set(next_actions)
+    assert (
+        "schema-status --root . --failures-only --no-write"
+        in next_actions["inspect_master_plan_schema_blockers"]["commands"][
+            "schema_failures"
+        ]
+    )
+    assert next_actions["inspect_master_plan_schema_blockers"]["review_aids"][
+        "gold_set"
+    ]["fill_import_path"] == "registry/review_batches/gold_set_reviewed.jsonl"
+    assert "review_notes" in next_actions[
+        "complete_manual_analytical_footprint_review"
+    ]["field_contract"]["required_fields"]
     assert (tmp_path / "registry/audits/rke_master_plan_coverage_report.json").exists()
 
 
@@ -177,6 +195,14 @@ def test_rke_cli_master_plan_status_no_write_preserves_artifacts(
 
     assert code == 2
     assert output["coverage_complete"] is False
+    next_actions = {action["action_id"]: action for action in output["next_actions"]}
+    assert "inspect_master_plan_schema_blockers" in next_actions
+    assert (
+        "review-progress --root . --actions-only --no-write"
+        in next_actions["inspect_master_plan_schema_blockers"]["commands"][
+            "manual_queue"
+        ]
+    )
     for path, sentinel in sentinel_by_path.items():
         assert path.read_text(encoding="utf-8") == sentinel
 
