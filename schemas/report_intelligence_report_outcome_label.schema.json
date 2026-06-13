@@ -37,6 +37,8 @@
           "claim_window_alignment",
           "evaluation_policy",
           "target_resolution_source",
+          "metadata_ts_code",
+          "llm_target_id",
           "survivorship_check",
           "entry_tradable",
           "exit_tradable",

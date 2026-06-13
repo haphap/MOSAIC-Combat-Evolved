@@ -1131,6 +1131,8 @@ def _base_outcome_label(label_type: str) -> dict[str, object]:
                 "benchmark_alignment": "date_key_cross_qlib_dir",
                 "stock_return": 0.02,
                 "target_resolution_source": "metadata_ts_code",
+                "metadata_ts_code": "000001.SZ",
+                "llm_target_id": "",
                 "survivorship_check": "survivorship_unverified_qlib_cn_data",
                 "entry_tradable": True,
                 "exit_tradable": True,
@@ -1371,6 +1373,61 @@ def test_report_outcome_label_semantics_reject_window_set_weight_sum_above_one(
     assert record.accepted is False
     assert any(
         "effective_n_weight sum 1.300000 exceeds 1" in failure
+        for failure in record.failures
+    )
+
+
+def test_report_outcome_label_semantics_accept_metadata_and_llm_stock_resolution(
+    tmp_path: Path,
+):
+    stock_label = _base_outcome_label("stock_price_proxy")
+    stock_label["target_resolution_source"] = "metadata_and_llm_target_id"
+    stock_label["metadata_ts_code"] = "000001.SZ"
+    stock_label["llm_target_id"] = "000001.SZ"
+    _write_proxy_outcome_labels(tmp_path, [stock_label])
+
+    record = _proxy_outcome_contract_record(tmp_path)
+
+    assert record.accepted
+    assert record.failures == ()
+
+
+def test_report_outcome_label_semantics_reject_bad_stock_target_resolution(
+    tmp_path: Path,
+):
+    metadata_conflict = _base_outcome_label("stock_price_proxy")
+    metadata_conflict["metadata_ts_code"] = "600000.SH"
+    llm_conflict = _base_outcome_label("stock_price_proxy")
+    llm_conflict["outcome_id"] = "OUT-stock-llm-conflict"
+    llm_conflict["claim_window_set_id"] = "WSET-stock-llm-conflict"
+    llm_conflict["overlap_group_id"] = "OVL-stock-llm-conflict"
+    llm_conflict["target_resolution_source"] = "llm_target_id"
+    llm_conflict["metadata_ts_code"] = "600000.SH"
+    llm_conflict["llm_target_id"] = "000001.SZ"
+    fund_like_proxy = _base_outcome_label("stock_price_proxy")
+    fund_like_proxy["outcome_id"] = "OUT-stock-fund-like-proxy"
+    fund_like_proxy["claim_window_set_id"] = "WSET-stock-fund-like-proxy"
+    fund_like_proxy["overlap_group_id"] = "OVL-stock-fund-like-proxy"
+    fund_like_proxy["proxy_symbol"] = "510300.SH"
+    fund_like_proxy["metadata_ts_code"] = "510300.SH"
+    _write_proxy_outcome_labels(
+        tmp_path,
+        [metadata_conflict, llm_conflict, fund_like_proxy],
+    )
+
+    record = _proxy_outcome_contract_record(tmp_path)
+
+    assert record.accepted is False
+    assert any(
+        "metadata_ts_code: must equal proxy_symbol" in failure
+        for failure in record.failures
+    )
+    assert any(
+        "conflicting ts_code cannot generate stock label" in failure
+        for failure in record.failures
+    )
+    assert any(
+        "proxy_symbol: must be ordinary stock ts_code" in failure
         for failure in record.failures
     )
 

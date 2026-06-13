@@ -755,6 +755,8 @@ STOCK_PROXY_REQUIRED_LABEL_FIELDS = (
     "claim_window_alignment",
     "evaluation_policy",
     "target_resolution_source",
+    "metadata_ts_code",
+    "llm_target_id",
     "survivorship_check",
     "entry_tradable",
     "exit_tradable",
@@ -1076,6 +1078,23 @@ def _has_nonempty_source_spans(row: Mapping[str, Any]) -> bool:
     return isinstance(span_ids, list) and any(str(item).strip() for item in span_ids)
 
 
+def _normalize_ts_code(value: Any) -> str:
+    raw = str(value or "").strip().upper()
+    match = re.fullmatch(r"([0-9]{6})[.](SH|SZ|BJ)", raw)
+    if not match:
+        return ""
+    return f"{match.group(1)}.{match.group(2)}"
+
+
+def _is_ordinary_stock_ts_code(value: Any) -> bool:
+    ts_code = _normalize_ts_code(value)
+    if not ts_code:
+        return False
+    code, exchange = ts_code.split(".", 1)
+    allowed_prefixes = STOCK_PROXY_CODE_POLICY["allowed_prefixes"].get(exchange, [])
+    return any(code.startswith(prefix) for prefix in allowed_prefixes)
+
+
 def _numeric_contract_value(
     row: Mapping[str, Any],
     field: str,
@@ -1086,7 +1105,7 @@ def _numeric_contract_value(
         return float(row.get(field))
     except (TypeError, ValueError):
         failures.append(f"{row_label}.{field}: expected number")
-        return None
+    return None
 
 
 def _nearly_equal(left: float, right: float, *, tolerance: float = 1e-6) -> bool:
@@ -1160,6 +1179,69 @@ def _validate_stock_target_price_contract(
             failures.append(
                 f"{row_label}.target_price_hit: must match direction_evaluated and target_price_eval_price"
             )
+    return failures
+
+
+def _validate_stock_target_resolution_contract(
+    row: Mapping[str, Any],
+    *,
+    row_label: str,
+) -> list[str]:
+    failures: list[str] = []
+    proxy_symbol = _normalize_ts_code(row.get("proxy_symbol"))
+    if not proxy_symbol or not _is_ordinary_stock_ts_code(proxy_symbol):
+        failures.append(
+            f"{row_label}.proxy_symbol: must be ordinary stock ts_code per policy"
+        )
+        return failures
+
+    source = str(row.get("target_resolution_source") or "").strip()
+    metadata_ts_code = _normalize_ts_code(row.get("metadata_ts_code"))
+    llm_target_id = _normalize_ts_code(row.get("llm_target_id"))
+    raw_llm_target_id = str(row.get("llm_target_id") or "").strip()
+    if source == "metadata_and_llm_target_id":
+        if not metadata_ts_code:
+            failures.append(
+                f"{row_label}.metadata_ts_code: required for metadata_and_llm_target_id"
+            )
+        if not llm_target_id:
+            failures.append(
+                f"{row_label}.llm_target_id: valid ts_code required for metadata_and_llm_target_id"
+            )
+        if metadata_ts_code and metadata_ts_code != proxy_symbol:
+            failures.append(
+                f"{row_label}.metadata_ts_code: must equal proxy_symbol for metadata_and_llm_target_id"
+            )
+        if llm_target_id and llm_target_id != proxy_symbol:
+            failures.append(
+                f"{row_label}.llm_target_id: must equal proxy_symbol for metadata_and_llm_target_id"
+            )
+    elif source == "metadata_ts_code":
+        if not metadata_ts_code:
+            failures.append(f"{row_label}.metadata_ts_code: required")
+        elif metadata_ts_code != proxy_symbol:
+            failures.append(f"{row_label}.metadata_ts_code: must equal proxy_symbol")
+        if llm_target_id and llm_target_id != proxy_symbol:
+            failures.append(
+                f"{row_label}.llm_target_id: conflicting ts_code cannot generate stock label"
+            )
+    elif source == "llm_target_id":
+        if not llm_target_id:
+            failures.append(f"{row_label}.llm_target_id: valid ts_code required")
+        elif llm_target_id != proxy_symbol:
+            failures.append(f"{row_label}.llm_target_id: must equal proxy_symbol")
+        if metadata_ts_code and metadata_ts_code != proxy_symbol:
+            failures.append(
+                f"{row_label}.metadata_ts_code: conflicting ts_code cannot generate stock label"
+            )
+    else:
+        failures.append(
+            f"{row_label}.target_resolution_source: unsupported stock target resolution"
+        )
+    if raw_llm_target_id and llm_target_id and not _is_ordinary_stock_ts_code(llm_target_id):
+        failures.append(
+            f"{row_label}.llm_target_id: must use ordinary stock ts_code when present"
+        )
     return failures
 
 
@@ -1465,14 +1547,9 @@ def _validate_proxy_outcome_label_contract(row: Mapping[str, Any], row_label: st
             failures.append(
                 f"{row_label}.benchmark_alignment: must be date_key_cross_qlib_dir"
             )
-        if str(row.get("target_resolution_source") or "") not in {
-            "metadata_and_llm_target_id",
-            "metadata_ts_code",
-            "llm_target_id",
-        }:
-            failures.append(
-                f"{row_label}.target_resolution_source: unsupported stock target resolution"
-            )
+        failures.extend(
+            _validate_stock_target_resolution_contract(row, row_label=row_label)
+        )
         survivorship_check = str(row.get("survivorship_check") or "").strip()
         if survivorship_check not in STOCK_PROXY_SURVIVORSHIP_CHECKS:
             failures.append(
