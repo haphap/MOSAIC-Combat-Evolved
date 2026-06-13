@@ -864,6 +864,64 @@ def test_rke_cli_fetch_tushare_reports_accepts_local_input_path(
     assert captured["corpus_profile"] is None
 
 
+def test_rke_cli_evolution_readiness_alias_rebuilds_gate(
+    tmp_path: Path,
+    capsys,
+    monkeypatch,
+):
+    captured = {}
+
+    def fake_write_gate(registry_dir, *, run_id):
+        captured["gate_registry_dir"] = str(registry_dir)
+        captured["gate_run_id"] = run_id
+        return {
+            "evolution_readiness_gate": "registry/report_intelligence/evolution_readiness_gate.json",
+            "gate_status": "blocked",
+            "blocker_count": 1,
+            "input_load_blockers": [],
+        }
+
+    def fake_write_mutations(registry_dir, *, run_id):
+        captured["mutations_registry_dir"] = str(registry_dir)
+        captured["mutations_run_id"] = run_id
+        return {
+            "prompt_mutation_candidates": "registry/report_intelligence/prompt_mutation_candidates.jsonl",
+            "prompt_mutation_candidate_count": 2,
+        }
+
+    monkeypatch.setattr(
+        "mosaic.rke.cli.write_report_intelligence_evolution_readiness_gate",
+        fake_write_gate,
+    )
+    monkeypatch.setattr(
+        "mosaic.rke.cli.write_report_intelligence_prompt_mutation_candidates",
+        fake_write_mutations,
+    )
+
+    code = main(
+        (
+            "evolution-readiness",
+            "--root",
+            str(tmp_path),
+            "--run-id",
+            "RIR-ALIAS-TEST",
+            "--refresh-prompt-mutations",
+        )
+    )
+    output = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert captured == {
+        "gate_registry_dir": str(tmp_path / "registry/report_intelligence"),
+        "gate_run_id": "RIR-ALIAS-TEST",
+        "mutations_registry_dir": str(tmp_path / "registry/report_intelligence"),
+        "mutations_run_id": "RIR-ALIAS-TEST",
+    }
+    assert output["gate_status"] == "blocked"
+    assert output["blocker_count"] == 1
+    assert output["prompt_mutation_candidate_count"] == 2
+
+
 def test_pyproject_exposes_mosaic_rke_console_script():
     text = Path("pyproject.toml").read_text(encoding="utf-8")
 

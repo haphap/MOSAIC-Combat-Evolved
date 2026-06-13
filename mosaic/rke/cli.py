@@ -972,6 +972,26 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Also rebuild prompt mutation candidates after writing the gate.",
     )
+    evolution_readiness = subparsers.add_parser(
+        "evolution-readiness",
+        help=(
+            "Alias for report-intelligence-evolution-gate; rebuild evolution "
+            "readiness gate artifacts from existing registry evidence."
+        ),
+    )
+    evolution_readiness.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
+    evolution_readiness.add_argument(
+        "--run-id",
+        default="RIR-PUBLIC-EVOLUTION-GATE",
+        help="Run id to stamp on the rebuilt evolution gate.",
+    )
+    evolution_readiness.add_argument(
+        "--refresh-prompt-mutations",
+        action="store_true",
+        help="Also rebuild prompt mutation candidates after writing the gate.",
+    )
     merge_report_batches = subparsers.add_parser(
         "merge-report-intelligence-batches",
         help=(
@@ -1529,7 +1549,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         _print_json(asdict(result))
         return 0 if result.blocker_count == 0 else 2
-    if args.command == "report-intelligence-evolution-gate":
+    if args.command in {"report-intelligence-evolution-gate", "evolution-readiness"}:
         registry_dir = root / "registry/report_intelligence"
         result = write_report_intelligence_evolution_readiness_gate(
             registry_dir,

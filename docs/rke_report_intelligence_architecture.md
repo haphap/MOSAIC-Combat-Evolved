@@ -234,7 +234,7 @@ stateDiagram-v2
   [*] --> ShadowOnly
   ShadowOnly --> ReviewBlocked: manual review gates incomplete
   ReviewBlocked --> SchemaBlocked: schema-status semantic gates fail
-  SchemaBlocked --> EvolutionBlocked: outcome / paper-trading thresholds unmet
+  SchemaBlocked --> EvolutionBlocked: schema/audit pass; evolution gate still blocked
   EvolutionBlocked --> StagedProduction: all non-lockbox gates pass
   StagedProduction --> ProductionBlocked: lockbox not opened
   ProductionBlocked --> ProductionEligible: lockbox passed
@@ -247,15 +247,15 @@ stateDiagram-v2
   ProductionBlocked: direct production forbidden
 ```
 
-当前 rollout 的关键状态（2026-06-12）：
+当前 rollout 的关键状态（2026-06-13）：
 
 | Gate | 当前结果 |
 |---|---|
 | `report-intelligence --refresh-derived-only` | public-safe mode refuses to overwrite committed derived artifacts when required private inputs are absent; with local private snapshots it can recompute derived artifacts, but those private inputs must not be committed |
 | `schema-status` | exits 2 by design until analytical footprint review and patch v1.5 coverage semantic gates pass |
-| `review-progress` | source-license review ready; gold-set remains 0/500 complete after stale target hashes were regenerated; lockbox remains 0/1 |
-| `evolution_readiness_gate` | blocked by manual gold-set metrics, insufficient unique outcome coverage, industry proxy coverage, zero validated paper-trading recipes, and audit-history readiness |
-| `recipe_paper_trading_summary` | committed public-safe summary has no validated recipes; local private snapshot replay can reach partial direct PIT binding, but still lacks enough direct PIT samples and implemented shadow tools |
+| `review-progress` | source-license review ready; gold-set remains 0/500 complete, analytical-footprint review remains 0/1001 complete, and lockbox remains 0/1; active 50-row gold and footprint batches have aligned private evidence drafts but still require human decisions |
+| `evolution_readiness_gate` | blocked by manual forecast gold-set metrics, analytical-footprint quality gates, schema/coverage blockers downstream of manual review, and audit trailing-vintage dependency while schema is not accepted; outcome and paper-trading thresholds are currently cleared |
+| `recipe_paper_trading_summary` | committed public-safe summary has 1858 pre-registered shadow runs and 20 validated recipes; remaining recipe rows stay shadow-blocked when direct PIT binding, effective N, or shadow-tool readiness is insufficient |
 | production impact | forbidden; report-derived signals remain shadow-only until schema/audit, manual review, paper-trading, confidence-impact, and lockbox gates all pass |
 
 ## 8. CLI 运行方式
