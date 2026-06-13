@@ -1074,12 +1074,12 @@ def _base_outcome_label(label_type: str) -> dict[str, object]:
         "claim_window_set_id": f"WSET-{label_type}",
         "entry_datetime": "2026-01-03T00:00:00+08:00",
         "exit_datetime": "2026-01-08T00:00:00+08:00",
-        "horizon_days": 5,
+        "horizon_days": 5 if label_type == "stock_price_proxy" else 20,
         "relative_alpha": 0.01,
         "directional_hit": True,
         "after_cost_alpha": 0.008 if label_type == "stock_price_proxy" else 0.009,
         "overlap_group_id": f"OVL-{label_type}",
-        "effective_n_weight": 0.2,
+        "effective_n_weight": 0.2 if label_type == "stock_price_proxy" else 0.25,
         "pit_valid": True,
         "survivorship_safe": label_type != "stock_price_proxy",
         "label_type": label_type,
@@ -1246,6 +1246,56 @@ def test_report_outcome_label_semantics_reject_bad_window_policy_fields(
     assert any("claim_window_alignment" in failure for failure in record.failures)
     assert any("decision_basis" in failure for failure in record.failures)
     assert any("evaluation_policy" in failure for failure in record.failures)
+
+
+def test_report_outcome_label_semantics_reject_bad_effective_n_weights(
+    tmp_path: Path,
+):
+    stock_label = _base_outcome_label("stock_price_proxy")
+    industry_label = _base_outcome_label("industry_etf_proxy")
+    stock_label["effective_n_weight"] = 0.9
+    industry_label["effective_n_weight"] = 0.9
+    _write_proxy_outcome_labels(tmp_path, [stock_label, industry_label])
+
+    record = _proxy_outcome_contract_record(tmp_path)
+
+    assert record.accepted is False
+    assert any(
+        "stock horizon_days=5" in failure and "must be 0.2" in failure
+        for failure in record.failures
+    )
+    assert any(
+        "industry window_role=short" in failure and "must be 0.25" in failure
+        for failure in record.failures
+    )
+
+
+def test_report_outcome_label_semantics_reject_window_set_weight_sum_above_one(
+    tmp_path: Path,
+):
+    labels = []
+    for horizon_days, window_role, weight in (
+        (5, "short", 0.2),
+        (20, "short", 0.25),
+        (60, "medium", 0.25),
+        (120, "long", 0.3),
+        (120, "long", 0.3),
+    ):
+        label = _base_outcome_label("stock_price_proxy")
+        label["outcome_id"] = f"OUT-stock_price_proxy-{horizon_days}-{len(labels)}"
+        label["horizon_days"] = horizon_days
+        label["window_role"] = window_role
+        label["effective_n_weight"] = weight
+        labels.append(label)
+    _write_proxy_outcome_labels(tmp_path, labels)
+
+    record = _proxy_outcome_contract_record(tmp_path)
+
+    assert record.accepted is False
+    assert any(
+        "effective_n_weight sum 1.300000 exceeds 1" in failure
+        for failure in record.failures
+    )
 
 
 def test_report_outcome_label_semantics_reject_missing_label_type(

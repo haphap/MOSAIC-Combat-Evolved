@@ -805,6 +805,17 @@ STOCK_PRICE_PROXY_DECISION_BASIS = "directional_stock_return_and_relative_alpha"
 STOCK_PRICE_PROXY_EVALUATION_POLICY = (
     "stock_t_plus_1_multi_window_proxy_retains_long_horizon_evidence"
 )
+INDUSTRY_ETF_PROXY_WINDOW_EFFECTIVE_WEIGHTS: Mapping[str, float] = {
+    "short": 0.25,
+    "medium": 0.35,
+    "long": 0.40,
+}
+STOCK_PRICE_PROXY_WINDOW_EFFECTIVE_WEIGHTS: Mapping[int, float] = {
+    5: 0.20,
+    20: 0.25,
+    60: 0.25,
+    120: 0.30,
+}
 PROXY_CLAIM_WINDOW_ALIGNMENTS = {
     "within_source_horizon",
     "shorter_than_source_horizon",
@@ -1289,6 +1300,11 @@ def _validate_proxy_outcome_label_contract(row: Mapping[str, Any], row_label: st
         failures.append(
             f"{row_label}.performance_value_basis: must be directional_after_cost_return"
         )
+    effective_n_weight = _float_or_none(row.get("effective_n_weight"))
+    if effective_n_weight is None:
+        failures.append(f"{row_label}.effective_n_weight: expected number")
+    elif effective_n_weight <= 0.0 or effective_n_weight > 1.0:
+        failures.append(f"{row_label}.effective_n_weight: must be in (0, 1]")
     horizon_days = _int_or_none(row.get("horizon_days"))
     if horizon_days is None:
         failures.append(f"{row_label}.horizon_days: expected integer")
@@ -1424,6 +1440,22 @@ def _validate_proxy_outcome_label_contract(row: Mapping[str, Any], row_label: st
             failures.append(
                 f"{row_label}.outcome_label_source: must be pit_stock_price_window"
             )
+        expected_weight = (
+            STOCK_PRICE_PROXY_WINDOW_EFFECTIVE_WEIGHTS.get(horizon_days)
+            if horizon_days is not None
+            else None
+        )
+        if expected_weight is None:
+            failures.append(
+                f"{row_label}.horizon_days: unsupported stock proxy window"
+            )
+        elif effective_n_weight is not None and not _nearly_equal(
+            effective_n_weight,
+            expected_weight,
+        ):
+            failures.append(
+                f"{row_label}.effective_n_weight: must be {expected_weight} for stock horizon_days={horizon_days}"
+            )
         if row.get("benchmark_alignment") != "date_key_cross_qlib_dir":
             failures.append(
                 f"{row_label}.benchmark_alignment: must be date_key_cross_qlib_dir"
@@ -1485,6 +1517,18 @@ def _validate_proxy_outcome_label_contract(row: Mapping[str, Any], row_label: st
             failures.append(
                 f"{row_label}.outcome_label_source: must be pit_industry_etf_price_window"
             )
+        expected_weight = INDUSTRY_ETF_PROXY_WINDOW_EFFECTIVE_WEIGHTS.get(
+            str(row.get("window_role") or "")
+        )
+        if expected_weight is None:
+            failures.append(f"{row_label}.window_role: unsupported industry ETF role")
+        elif effective_n_weight is not None and not _nearly_equal(
+            effective_n_weight,
+            expected_weight,
+        ):
+            failures.append(
+                f"{row_label}.effective_n_weight: must be {expected_weight} for industry window_role={row.get('window_role')}"
+            )
         if not str(row.get("mapping_id") or "").strip():
             failures.append(f"{row_label}.mapping_id: required")
         try:
@@ -1525,6 +1569,35 @@ def _validate_proxy_outcome_label_id_namespaces(
             "report_outcome_labels."
             f"{field}: {value} crosses label_type namespace ({namespace_detail})"
         )
+    return failures
+
+
+def _validate_proxy_outcome_label_effective_n_sets(
+    outcome_label_rows: Sequence[Mapping[str, Any]],
+) -> list[str]:
+    failures: list[str] = []
+    grouped_weights: dict[str, list[tuple[int, float]]] = {}
+    for index, row in enumerate(outcome_label_rows, 1):
+        label_type = str(row.get("label_type") or "").strip()
+        if label_type not in {"stock_price_proxy", "industry_etf_proxy"}:
+            continue
+        group_id = str(row.get("claim_window_set_id") or "").strip()
+        if not group_id:
+            continue
+        weight = _float_or_none(row.get("effective_n_weight"))
+        if weight is None:
+            continue
+        grouped_weights.setdefault(group_id, []).append((index, weight))
+
+    for group_id, rows_and_weights in sorted(grouped_weights.items()):
+        total_weight = sum(weight for _, weight in rows_and_weights)
+        if total_weight > 1.000001:
+            rows = [index for index, _ in rows_and_weights]
+            failures.append(
+                "report_outcome_labels.claim_window_set_id: "
+                f"{group_id} effective_n_weight sum {total_weight:.6f} "
+                f"exceeds 1 across rows {rows}"
+            )
     return failures
 
 
@@ -5142,6 +5215,9 @@ def validate_report_intelligence_semantics(
         )
     outcome_label_failures.extend(
         _validate_proxy_outcome_label_id_namespaces(outcome_label_rows)
+    )
+    outcome_label_failures.extend(
+        _validate_proxy_outcome_label_effective_n_sets(outcome_label_rows)
     )
     records.append(
         SchemaValidationRecord(
