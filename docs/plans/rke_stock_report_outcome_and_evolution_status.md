@@ -133,8 +133,9 @@ coverage gates remain open. `evolution-readiness --no-write` also exits 2 when
 stdout so operators can see that RI-EVOL-04 and RI-EVOL-05 are the active
 readiness blockers. The same read-only output now includes public-safe
 `next_actions` with temp-prefixed commands for the current gold-set review
-batch, the schema/audit blocker inspection path, and the distinct
-`data_vintage_hash` refresh-history requirement.
+batch, the current analytical-footprint review batch, the schema/audit blocker
+inspection path, and the distinct `data_vintage_hash` refresh-history
+requirement.
 
 Most recent focused validation after proxy outcome ID namespace hardening:
 

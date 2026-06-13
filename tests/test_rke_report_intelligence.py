@@ -7948,6 +7948,7 @@ def test_report_intelligence_evolution_gate_writer_preserves_stock_coverage_evid
     next_actions = {action["action_id"]: action for action in result["next_actions"]}
     assert {
         "complete_manual_forecast_gold_review",
+        "complete_manual_analytical_footprint_review",
         "clear_current_schema_and_audit_blockers",
         "build_distinct_clean_audit_refresh_history",
         "expand_quality_gated_markdown_coverage",
@@ -7964,6 +7965,19 @@ def test_report_intelligence_evolution_gate_writer_preserves_stock_coverage_evid
         "schema-status --root . --failures-only --no-write"
         in next_actions["clear_current_schema_and_audit_blockers"]["commands"][
             "schema_failures"
+        ]
+    )
+    assert (
+        "review-progress --root . --actions-only --no-write --review-kind footprint_review"
+        in next_actions["complete_manual_analytical_footprint_review"]["commands"][
+            "inspect"
+        ]
+    )
+    assert (
+        "apply-footprint-review --root . --input registry/report_intelligence/"
+        "analytical_footprint_review_batch.jsonl --dry-run"
+        in next_actions["complete_manual_analytical_footprint_review"]["commands"][
+            "dry_run_current_batch"
         ]
     )
     assert (

@@ -13656,6 +13656,40 @@ def _evolution_gate_cli_next_actions(
     audit_blockers = blocked_by_id.get("RI-EVOL-04", set())
     if "current_schema_or_audit_gate_blocked" in audit_blockers:
         add_action(
+            action_id="complete_manual_analytical_footprint_review",
+            reason=(
+                "Analytical-footprint review quality gates feed the current "
+                "schema/audit blocker and must pass before clean audit history "
+                "can accumulate."
+            ),
+            commands={
+                "inspect": operator_command(
+                    "mosaic-rke review-progress --root . --actions-only "
+                    "--no-write --review-kind footprint_review"
+                ),
+                "write_assist": operator_command(
+                    "mosaic-rke write-footprint-review-assist --root ."
+                ),
+                "write_evidence": operator_command(
+                    "mosaic-rke write-footprint-review-evidence --root . "
+                    "--limit 50 --offset 0 --review-input "
+                    "registry/report_intelligence/"
+                    "analytical_footprint_review_batch.jsonl"
+                ),
+                "dry_run_current_batch": operator_command(
+                    "mosaic-rke apply-footprint-review --root . --input "
+                    "registry/report_intelligence/"
+                    "analytical_footprint_review_batch.jsonl --dry-run"
+                ),
+            },
+            notes=(
+                "Assist and evidence files are review aids only; final decisions "
+                "must be copied into the reviewed footprint import by a human.",
+                "Promotion uses the full analytical-footprint reviewed import "
+                "after every footprint batch is complete.",
+            ),
+        )
+        add_action(
             action_id="clear_current_schema_and_audit_blockers",
             reason=(
                 "Audit refresh history does not count until the current schema, "
