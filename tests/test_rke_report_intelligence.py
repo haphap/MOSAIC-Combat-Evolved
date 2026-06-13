@@ -193,6 +193,8 @@ def test_user_prompt_requires_context_synthesized_forecast_claims():
     assert "Make the economic mechanism explicit" in prompt
     assert "price/cost pass-through" in prompt
     assert "macro regime" in prompt
+    assert "do not leave indicator_mentions empty" in prompt
+    assert "canonical metric candidate" in prompt
     assert "industry-cycle regime" in prompt
     assert "rate-cut cycle" in prompt
     assert "global copper supply is structurally tight" in prompt
@@ -9500,6 +9502,43 @@ def test_analytical_footprint_review_evidence_flags_risk_warning_footprints(
     assert decision["footprint_correct"] is False
     assert decision["metric_mapping_correct"] is False
     assert decision["inferred_steps_tagged_correctly"] is False
+
+
+def test_analytical_footprint_review_evidence_suggests_missing_metric_mapping(
+    tmp_path: Path,
+):
+    source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
+    run_report_intelligence_refresh(
+        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        downloader=_fake_downloader,
+        converter=_fake_converter,
+        llm_extractor=_fake_llm,
+    )
+    template_path = tmp_path / "registry/report_intelligence/analytical_footprint_review_template.jsonl"
+    rows = _read_jsonl(template_path)
+    rows[0]["topic_preview"] = "Company Financial Forecasting"
+    rows[0]["analysis_patterns_review_preview"] = [
+        "earnings_forecast",
+        "valuation_multiple_analysis",
+    ]
+    rows[0]["indicator_mentions_review_preview"] = []
+    _write_jsonl(template_path, rows)
+
+    report = write_analytical_footprint_review_evidence(tmp_path, limit=1)
+    evidence_rows = _read_jsonl(tmp_path / report.jsonl_path)
+    row = evidence_rows[0]
+
+    assert row["suggested_review_decision"]["metric_mapping_correct"] is False
+    assert "metric_mapping_missing" in row["suggested_manual_error_tags"]
+    assert "metric_mapping_inference_available" in row["suggested_manual_error_tags"]
+    assert row["inferred_indicator_suggestions"]
+    suggestion = row["inferred_indicator_suggestions"][0]
+    assert suggestion["canonical_metric_candidate"] == "forecast_net_profit"
+    assert suggestion["source_grounded"] is False
+    assert suggestion["inference_source"] == "review_evidence_context_rule"
+    markdown = (tmp_path / report.markdown_path).read_text(encoding="utf-8")
+    assert "Suggested indicator mapping candidates" in markdown
+    assert "forecast_net_profit" in markdown
 
 
 def test_analytical_footprint_review_evidence_supports_offset_batches(

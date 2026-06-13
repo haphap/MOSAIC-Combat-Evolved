@@ -2287,7 +2287,12 @@ def _user_prompt(
         "no finance/fundamental/return proxy in the source text.\n"
         "analytical_footprints fields: topic, indicator_mentions, "
         "analysis_patterns, target_agent_candidates. Mark each mention/step "
-        "with source_grounded true/false when possible.\n"
+        "with source_grounded true/false when possible. For analytical_footprints, "
+        "do not leave indicator_mentions empty when the footprint depends on "
+        "measurable evidence, validation data, or market/fundamental proxies; "
+        "name the indicator, canonical metric candidate, data source, frequency, "
+        "transformation, role in the argument, and whether it is directly "
+        "source-grounded. Use unknown only for fields that are truly absent.\n"
         "metric_candidates fields: canonical_name, aliases, metric_family, "
         "raw_data_requirements, default_transformation, target_agents.\n"
         "method_patterns fields: name, steps, required_current_data, "
@@ -4454,6 +4459,181 @@ def _footprint_review_metric_mapping_suggestion(row: Mapping[str, Any]) -> bool:
     return bool(_ensure_list(row.get("indicator_mentions_review_preview")))
 
 
+FOOTPRINT_REVIEW_INDICATOR_SUGGESTION_RULES: tuple[
+    tuple[str, Mapping[str, str]], ...
+] = (
+    (
+        r"earnings|盈利预测|财务预测|业绩|利润|profit",
+        {
+            "indicator_text": "forecast_net_profit_or_eps",
+            "canonical_metric_candidate": "forecast_net_profit",
+            "data_source_mentioned": "report_financial_forecast_or_company_financials",
+            "frequency": "annual_or_quarterly",
+            "transformation": "growth_rate_or_forecast_revision",
+            "role_in_argument": "earnings_forecast_metric",
+            "confidence": "medium",
+        },
+    ),
+    (
+        r"revenue|营收|收入|sales|销售额|销量|sell-through|transaction volume|成交|需求|market[_\s-]*sizing",
+        {
+            "indicator_text": "revenue_sales_or_demand_growth",
+            "canonical_metric_candidate": "demand_or_revenue_growth",
+            "data_source_mentioned": "company_financials_or_industry_operation_data",
+            "frequency": "monthly_or_quarterly",
+            "transformation": "growth_rate",
+            "role_in_argument": "demand_growth_proxy",
+            "confidence": "medium",
+        },
+    ),
+    (
+        r"valuation|估值|pe\b|pb\b|相对估值|目标价|multiple",
+        {
+            "indicator_text": "valuation_multiple_or_target_price",
+            "canonical_metric_candidate": "valuation_multiple",
+            "data_source_mentioned": "market_valuation_data_or_report_valuation_model",
+            "frequency": "daily_or_point_in_time",
+            "transformation": "valuation_ratio_or_model_output",
+            "role_in_argument": "valuation_proxy",
+            "confidence": "medium",
+        },
+    ),
+    (
+        r"margin|毛利率|净利率|盈利能力",
+        {
+            "indicator_text": "gross_margin_or_net_margin",
+            "canonical_metric_candidate": "margin_profitability",
+            "data_source_mentioned": "company_financials_or_report_forecast",
+            "frequency": "quarterly_or_annual",
+            "transformation": "level_or_change",
+            "role_in_argument": "profitability_metric",
+            "confidence": "medium",
+        },
+    ),
+    (
+        r"supply|供给|供需|capacity|产能|库存|inventory|价格|price|commodity|uranium|铜|铝|锂|光伏",
+        {
+            "indicator_text": "commodity_price_supply_demand_inventory",
+            "canonical_metric_candidate": "commodity_price_cycle",
+            "data_source_mentioned": "commodity_price_supply_demand_inventory_data",
+            "frequency": "daily_or_weekly_or_monthly",
+            "transformation": "price_return_or_inventory_change",
+            "role_in_argument": "supply_demand_cycle_proxy",
+            "confidence": "medium",
+        },
+    ),
+    (
+        r"policy|政策|regulat|监管|利率|rate|liquidity|流动性|credit|融资|capital",
+        {
+            "indicator_text": "policy_liquidity_credit_condition",
+            "canonical_metric_candidate": "liquidity_credit_condition",
+            "data_source_mentioned": "policy_announcement_or_money_credit_data",
+            "frequency": "event_driven_or_monthly",
+            "transformation": "event_flag_or_growth_rate",
+            "role_in_argument": "policy_or_liquidity_transmission_proxy",
+            "confidence": "low",
+        },
+    ),
+    (
+        r"return|performance|涨跌幅|相对表现|ranking|指数|etf|benchmark",
+        {
+            "indicator_text": "stock_or_sector_relative_return",
+            "canonical_metric_candidate": "relative_alpha",
+            "data_source_mentioned": "stock_etf_or_index_price",
+            "frequency": "daily",
+            "transformation": "forward_return_minus_benchmark",
+            "role_in_argument": "market_outcome_proxy",
+            "confidence": "medium",
+        },
+    ),
+    (
+        r"cash[_\s-]*flow|现金流",
+        {
+            "indicator_text": "operating_cash_flow",
+            "canonical_metric_candidate": "operating_cash_flow",
+            "data_source_mentioned": "company_cash_flow_statement",
+            "frequency": "quarterly_or_annual",
+            "transformation": "level_or_growth",
+            "role_in_argument": "cash_generation_metric",
+            "confidence": "medium",
+        },
+    ),
+    (
+        r"capex|r&d|研发|投产|实验室|产线|扩产",
+        {
+            "indicator_text": "capex_rd_or_capacity_release",
+            "canonical_metric_candidate": "capex_rd_capacity_release",
+            "data_source_mentioned": "company_disclosure_or_financials",
+            "frequency": "quarterly_or_event_driven",
+            "transformation": "level_or_milestone_event",
+            "role_in_argument": "capacity_or_innovation_execution_metric",
+            "confidence": "low",
+        },
+    ),
+)
+
+
+def _footprint_review_indicator_suggestion_context(row: Mapping[str, Any]) -> str:
+    values: list[str] = []
+    for value in (
+        row.get("sector"),
+        row.get("topic_preview"),
+        *_ensure_list(row.get("analysis_patterns_review_preview")),
+        *_ensure_list(row.get("target_entity_candidates")),
+        *_ensure_list(row.get("target_agent_candidates")),
+    ):
+        text = str(value or "").strip()
+        if text:
+            values.append(text)
+    return " ".join(values)
+
+
+def _footprint_review_inferred_indicator_suggestions(
+    row: Mapping[str, Any],
+    *,
+    max_items: int = 5,
+) -> tuple[dict[str, Any], ...]:
+    if _ensure_list(row.get("indicator_mentions_review_preview")):
+        return ()
+    context = _footprint_review_indicator_suggestion_context(row)
+    if not context:
+        return ()
+    suggestions: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for pattern, metadata in FOOTPRINT_REVIEW_INDICATOR_SUGGESTION_RULES:
+        if not re.search(pattern, context, flags=re.IGNORECASE):
+            continue
+        canonical = str(metadata.get("canonical_metric_candidate") or "unknown")
+        indicator_text = str(metadata.get("indicator_text") or canonical)
+        key = (indicator_text, canonical)
+        if key in seen:
+            continue
+        seen.add(key)
+        suggestions.append(
+            {
+                "indicator_text": indicator_text,
+                "canonical_metric_candidate": canonical,
+                "data_source_mentioned": str(
+                    metadata.get("data_source_mentioned") or "unknown"
+                ),
+                "frequency": str(metadata.get("frequency") or "unknown"),
+                "lookback_window": {},
+                "transformation": str(metadata.get("transformation") or "unknown"),
+                "role_in_argument": str(metadata.get("role_in_argument") or "unknown"),
+                "source_grounded": False,
+                "inference_source": "review_evidence_context_rule",
+                "confidence": str(metadata.get("confidence") or "low"),
+                "review_note": (
+                    "Suggested from footprint topic/pattern metadata only; reviewer must "
+                    "confirm against local markdown before importing a decision."
+                ),
+            }
+        )
+        if len(suggestions) >= max_items:
+            break
+    return tuple(suggestions)
+
+
 def _is_boilerplate_risk_warning_text(text: str) -> bool:
     stripped = text.strip()
     if FORECAST_CLAIM_RISK_WARNING_PREFIX_RE.match(stripped):
@@ -4518,6 +4698,11 @@ def _footprint_review_evidence_row(
     has_patterns = bool(_ensure_list(row.get("analysis_patterns_review_preview")))
     has_indicators = _footprint_review_metric_mapping_suggestion(row)
     boilerplate_risk_footprint = _is_boilerplate_risk_footprint(row)
+    inferred_indicator_suggestions = (
+        ()
+        if boilerplate_risk_footprint
+        else _footprint_review_inferred_indicator_suggestions(row)
+    )
     suggested_decision = {
         "footprint_correct": False if boilerplate_risk_footprint else (True if has_span_evidence and has_patterns else None),
         "source_span_supports_footprint": True if has_span_evidence else None,
@@ -4533,6 +4718,8 @@ def _footprint_review_evidence_row(
         suggested_tags.append("markdown_missing")
     if not has_indicators:
         suggested_tags.append("metric_mapping_missing")
+    if inferred_indicator_suggestions:
+        suggested_tags.append("metric_mapping_inference_available")
     if not has_patterns:
         suggested_tags.append("analysis_pattern_missing")
     if not has_span_evidence:
@@ -4554,6 +4741,7 @@ def _footprint_review_evidence_row(
             max_items=6,
             max_chars=120,
         ),
+        "inferred_indicator_suggestions": inferred_indicator_suggestions,
         "analysis_patterns_preview": _review_assist_preview_list(
             row.get("analysis_patterns_review_preview"),
             max_items=6,
@@ -4738,10 +4926,21 @@ def render_analytical_footprint_review_evidence_markdown(
                 json.dumps(row.get("suggested_review_decision"), ensure_ascii=False, indent=2),
                 "```",
                 "",
-                "Evidence snippets:",
-                "",
             ]
         )
+        indicator_suggestions = _ensure_list(row.get("inferred_indicator_suggestions"))
+        if indicator_suggestions:
+            lines.extend(
+                [
+                    "Suggested indicator mapping candidates:",
+                    "",
+                    "```json",
+                    json.dumps(indicator_suggestions, ensure_ascii=False, indent=2),
+                    "```",
+                    "",
+                ]
+            )
+        lines.extend(["Evidence snippets:", ""])
         snippets = _ensure_list(row.get("evidence_snippets"))
         if not snippets:
             lines.append("- No local markdown evidence snippet found.")
