@@ -13428,6 +13428,7 @@ def write_report_intelligence_evolution_readiness_gate(
                 "evolution_readiness_gate": str(gate_path),
                 "gate_status": str(existing_gate.get("gate_status") or ""),
                 "blocker_count": int(existing_gate.get("blocker_count") or 0),
+                **_evolution_gate_cli_summary(existing_gate),
                 "input_load_blockers": blockers,
                 "preserved_existing_gate": True,
             }
@@ -13544,10 +13545,46 @@ def write_report_intelligence_evolution_readiness_gate(
         "evolution_readiness_gate": written_path,
         "gate_status": str(gate.get("gate_status") or ""),
         "blocker_count": int(gate.get("blocker_count") or 0),
+        **_evolution_gate_cli_summary(gate),
         "input_load_blockers": blockers,
         "count_only_public_fallbacks": sorted(public_fallbacks),
         "preserved_existing_gate": False,
         "written": write,
+    }
+
+
+def _evolution_gate_cli_summary(gate: Mapping[str, Any]) -> dict[str, Any]:
+    checks = [
+        check for check in _ensure_list(gate.get("checks")) if isinstance(check, Mapping)
+    ]
+    blocked_checks: list[dict[str, Any]] = []
+    passed_check_ids: list[str] = []
+    for check in checks:
+        check_id = str(check.get("check_id") or "")
+        if not check_id:
+            continue
+        if check.get("passed") is True:
+            passed_check_ids.append(check_id)
+            continue
+        blocked_checks.append(
+            {
+                "check_id": check_id,
+                "blockers": [
+                    str(blocker)
+                    for blocker in _ensure_list(check.get("blockers"))
+                    if str(blocker)
+                ],
+            }
+        )
+    return {
+        "blockers": [
+            str(blocker)
+            for blocker in _ensure_list(gate.get("blockers"))
+            if str(blocker)
+        ],
+        "blocked_check_ids": [row["check_id"] for row in blocked_checks],
+        "passed_check_ids": passed_check_ids,
+        "blocked_checks": blocked_checks,
     }
 
 

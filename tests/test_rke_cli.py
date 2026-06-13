@@ -955,6 +955,12 @@ def test_rke_cli_evolution_readiness_alias_rebuilds_gate(
             "evolution_readiness_gate": "registry/report_intelligence/evolution_readiness_gate.json",
             "gate_status": "blocked",
             "blocker_count": 1,
+            "blockers": ["manual_review_pending"],
+            "blocked_check_ids": ["RI-EVOL-05"],
+            "passed_check_ids": ["RI-EVOL-01"],
+            "blocked_checks": [
+                {"check_id": "RI-EVOL-05", "blockers": ["manual_review_pending"]}
+            ],
             "input_load_blockers": [],
         }
 
@@ -987,7 +993,7 @@ def test_rke_cli_evolution_readiness_alias_rebuilds_gate(
     )
     output = json.loads(capsys.readouterr().out)
 
-    assert code == 0
+    assert code == 2
     assert captured == {
         "gate_registry_dir": str(tmp_path / "registry/report_intelligence"),
         "gate_run_id": "RIR-ALIAS-TEST",
@@ -996,6 +1002,10 @@ def test_rke_cli_evolution_readiness_alias_rebuilds_gate(
     }
     assert output["gate_status"] == "blocked"
     assert output["blocker_count"] == 1
+    assert output["blocked_check_ids"] == ["RI-EVOL-05"]
+    assert output["blocked_checks"] == [
+        {"check_id": "RI-EVOL-05", "blockers": ["manual_review_pending"]}
+    ]
     assert output["prompt_mutation_candidate_count"] == 2
 
 
@@ -1014,6 +1024,12 @@ def test_rke_cli_evolution_readiness_no_write_uses_read_only_gate(
             "evolution_readiness_gate": "registry/report_intelligence/evolution_readiness_gate.json",
             "gate_status": "blocked",
             "blocker_count": 1,
+            "blockers": ["manual_review_pending"],
+            "blocked_check_ids": ["RI-EVOL-05"],
+            "passed_check_ids": ["RI-EVOL-01"],
+            "blocked_checks": [
+                {"check_id": "RI-EVOL-05", "blockers": ["manual_review_pending"]}
+            ],
             "input_load_blockers": [],
             "written": write,
         }
@@ -1035,13 +1051,14 @@ def test_rke_cli_evolution_readiness_no_write_uses_read_only_gate(
     )
     output = json.loads(capsys.readouterr().out)
 
-    assert code == 0
+    assert code == 2
     assert captured == {
         "registry_dir": str(tmp_path / "registry/report_intelligence"),
         "run_id": "RIR-READ-ONLY",
         "write": False,
     }
     assert output["written"] is False
+    assert output["blocked_check_ids"] == ["RI-EVOL-05"]
 
 
 def test_rke_cli_evolution_readiness_no_write_rejects_prompt_mutation_refresh(

@@ -119,6 +119,7 @@ uv run mosaic-rke review-progress --root . --actions-only --no-write
 uv run mosaic-rke operator-readiness --root . --no-write
 uv run mosaic-rke master-plan-status --root . --no-write
 uv run mosaic-rke promotion-status --root . --no-write
+uv run mosaic-rke evolution-readiness --root . --no-write
 uv run mosaic-rke schema-status --root . --failures-only --no-write
 ```
 
@@ -127,7 +128,10 @@ uv run mosaic-rke schema-status --root . --failures-only --no-write
 items remain the active gold-set and analytical-footprint review batches.
 `master-plan-status --no-write` and `schema-status --failures-only --no-write`
 still exit 2 only because the same manual review-derived schema and patch
-coverage gates remain open.
+coverage gates remain open. `evolution-readiness --no-write` also exits 2 when
+`gate_status=blocked` and includes `blocked_check_ids` / `blocked_checks` in
+stdout so operators can see that RI-EVOL-04 and RI-EVOL-05 are the active
+readiness blockers.
 
 Most recent focused validation after proxy outcome ID namespace hardening:
 

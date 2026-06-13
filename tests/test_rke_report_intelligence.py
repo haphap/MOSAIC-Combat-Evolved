@@ -7941,6 +7941,10 @@ def test_report_intelligence_evolution_gate_writer_preserves_stock_coverage_evid
 
     assert result["input_load_blockers"] == []
     assert result["count_only_public_fallbacks"] == ["report_outcome_labels"]
+    assert set(result["blocked_check_ids"]) >= {"RI-EVOL-05", "RI-EVOL-07"}
+    assert any(
+        row["check_id"] == "RI-EVOL-05" for row in result["blocked_checks"]
+    )
     gate = json.loads(
         (registry_dir / "evolution_readiness_gate.json").read_text(encoding="utf-8")
     )
@@ -7968,6 +7972,7 @@ def test_report_intelligence_evolution_gate_writer_preserves_stock_coverage_evid
     )
 
     assert no_write_result["written"] is False
+    assert set(no_write_result["blocked_check_ids"]) >= {"RI-EVOL-05", "RI-EVOL-07"}
     assert gate_path.read_text(encoding="utf-8") == before_no_write
 
 
@@ -8015,6 +8020,8 @@ def test_report_intelligence_evolution_gate_writer_preserves_existing_gate_witho
     assert result["preserved_existing_gate"] is True
     assert result["gate_status"] == "blocked"
     assert result["blocker_count"] == 1
+    assert result["blockers"] == ["manual_review_pending"]
+    assert result["blocked_check_ids"] == ["RI-EVOL-01"]
     assert "report_outcome_labels: missing_or_empty_private_input" in result[
         "input_load_blockers"
     ]

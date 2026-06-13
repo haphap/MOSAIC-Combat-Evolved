@@ -1756,7 +1756,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                 ),
             }
         _print_json(result)
-        return 0 if not result.get("input_load_blockers") else 2
+        return (
+            0
+            if not result.get("input_load_blockers")
+            and result.get("gate_status") == "passed"
+            else 2
+        )
     if args.command == "merge-report-intelligence-batches":
         result = merge_report_intelligence_batch_outputs(
             root=root,
