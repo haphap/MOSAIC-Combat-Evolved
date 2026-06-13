@@ -4712,18 +4712,111 @@ def _footprint_review_evidence_row(
         "no_proprietary_text_leakage": True,
     }
     suggested_tags: list[str] = []
+    suggested_rationales: list[dict[str, Any]] = []
     if boilerplate_risk_footprint:
         suggested_tags.append("boilerplate_risk_warning_footprint")
+        suggested_rationales.append(
+            {
+                "field": "footprint_correct",
+                "suggested_value": False,
+                "reason": "footprint appears to be a generic risk-warning workflow rather than reusable analytical logic",
+                "requires_human_confirmation": True,
+            }
+        )
     if not markdown_exists:
         suggested_tags.append("markdown_missing")
+        suggested_rationales.append(
+            {
+                "field": "source_span_supports_footprint",
+                "suggested_value": None,
+                "reason": "local markdown evidence is missing, so span support cannot be verified",
+                "requires_human_confirmation": True,
+            }
+        )
+    elif has_span_evidence:
+        suggested_rationales.append(
+            {
+                "field": "source_span_supports_footprint",
+                "suggested_value": True,
+                "reason": "local markdown snippets were found for the footprint topic, indicators, patterns, or target entities",
+                "requires_human_confirmation": True,
+            }
+        )
+    else:
+        suggested_rationales.append(
+            {
+                "field": "source_span_supports_footprint",
+                "suggested_value": None,
+                "reason": "local markdown exists but no matching snippet was found for the review terms",
+                "requires_human_confirmation": True,
+            }
+        )
     if not has_indicators:
         suggested_tags.append("metric_mapping_missing")
+        suggested_rationales.append(
+            {
+                "field": "metric_mapping_correct",
+                "suggested_value": False if boilerplate_risk_footprint else has_indicators,
+                "reason": "extracted footprint has no source-grounded indicator mentions",
+                "requires_human_confirmation": True,
+            }
+        )
     if inferred_indicator_suggestions:
         suggested_tags.append("metric_mapping_inference_available")
+        suggested_rationales.append(
+            {
+                "field": "metric_mapping_correct",
+                "suggested_value": False,
+                "reason": "context-derived indicator candidates are available, but they are review aids and not source-grounded mappings",
+                "requires_human_confirmation": True,
+            }
+        )
     if not has_patterns:
         suggested_tags.append("analysis_pattern_missing")
+        suggested_rationales.append(
+            {
+                "field": "inferred_steps_tagged_correctly",
+                "suggested_value": None if not boilerplate_risk_footprint else False,
+                "reason": "extracted footprint has no analysis pattern steps to review",
+                "requires_human_confirmation": True,
+            }
+        )
+    elif not boilerplate_risk_footprint:
+        suggested_rationales.append(
+            {
+                "field": "inferred_steps_tagged_correctly",
+                "suggested_value": True,
+                "reason": "analysis patterns are present; reviewer should verify the steps match local evidence",
+                "requires_human_confirmation": True,
+            }
+        )
     if not has_span_evidence:
         suggested_tags.append("source_span_evidence_unverified")
+    if not boilerplate_risk_footprint and has_span_evidence and has_patterns:
+        suggested_rationales.append(
+            {
+                "field": "footprint_correct",
+                "suggested_value": True,
+                "reason": "footprint has local evidence snippets and analysis patterns; reviewer should confirm it is meaningful analytical logic",
+                "requires_human_confirmation": True,
+            }
+        )
+    suggested_rationales.append(
+        {
+            "field": "unknowns_used_when_uncertain",
+            "suggested_value": True,
+            "reason": "draft suggestion preserves null/unknown decisions when metric, span, or pattern support is not proven",
+            "requires_human_confirmation": True,
+        }
+    )
+    suggested_rationales.append(
+        {
+            "field": "no_proprietary_text_leakage",
+            "suggested_value": True,
+            "reason": "evidence row is private and not an import row; reviewer still must keep proprietary snippets out of reviewed imports",
+            "requires_human_confirmation": True,
+        }
+    )
     return {
         "evidence_kind": "analytical_footprint_review_evidence_not_import",
         "not_apply_footprint_review_input": True,
@@ -4758,6 +4851,7 @@ def _footprint_review_evidence_row(
         "evidence_terms": terms[:16],
         "evidence_snippets": snippets,
         "suggested_review_decision": suggested_decision,
+        "suggested_review_rationales": tuple(suggested_rationales),
         "suggested_manual_error_tags": tuple(suggested_tags),
         "suggested_review_notes": (
             "Review against local markdown evidence. Draft suggestion only; copy decisions "
@@ -4928,6 +5022,18 @@ def render_analytical_footprint_review_evidence_markdown(
                 "",
             ]
         )
+        rationales = _ensure_list(row.get("suggested_review_rationales"))
+        if rationales:
+            lines.extend(
+                [
+                    "Suggested decision rationales:",
+                    "",
+                    "```json",
+                    json.dumps(rationales, ensure_ascii=False, indent=2),
+                    "```",
+                    "",
+                ]
+            )
         indicator_suggestions = _ensure_list(row.get("inferred_indicator_suggestions"))
         if indicator_suggestions:
             lines.extend(

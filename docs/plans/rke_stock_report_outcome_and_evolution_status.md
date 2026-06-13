@@ -131,8 +131,11 @@ private, gitignored helper files at
 `registry/report_intelligence/analytical_footprint_review_workbook.md`; private footprint review assist/workbook cover 1001 pending rows. These files are not import files and do not satisfy the review gate by themselves. The evidence command writes private, gitignored local-markdown snippets and draft review suggestions at
 `registry/report_intelligence/analytical_footprint_review_evidence.jsonl` and
 `registry/report_intelligence/analytical_footprint_review_evidence.md`; the
-private evidence draft covers 1001 rows with 0 missing local markdown rows.
-These also are not import files.
+private evidence draft covers 1001 rows with 0 missing local markdown rows. It
+now emits structured `suggested_review_rationales` for span support, metric
+mapping, inferred step tagging, uncertainty handling, and leakage checks, plus
+review-only inferred indicator candidates for missing metric mappings. These
+also are not import files.
 
 `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke schema-status --root .`
 currently exits with code 2 by design. The current failing semantic records are

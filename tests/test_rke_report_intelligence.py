@@ -9459,6 +9459,7 @@ def test_write_analytical_footprint_review_evidence_is_private_not_import(
     assert evidence_rows[0]["not_apply_footprint_review_input"] is True
     assert evidence_rows[0]["human_review_required"] is True
     assert evidence_rows[0]["evidence_kind"].endswith("_not_import")
+    assert evidence_rows[0]["suggested_review_rationales"]
     assert isinstance(
         evidence_rows[0]["suggested_review_decision"]["metric_mapping_correct"],
         bool,
@@ -9471,6 +9472,7 @@ def test_write_analytical_footprint_review_evidence_is_private_not_import(
     assert "Suggested tag counts" in markdown
     assert "Sector counts" in markdown
     assert "Suggested decision counts" in markdown
+    assert "Suggested decision rationales" in markdown
     assert "not an import file" in markdown
 
 
@@ -9502,6 +9504,12 @@ def test_analytical_footprint_review_evidence_flags_risk_warning_footprints(
     assert decision["footprint_correct"] is False
     assert decision["metric_mapping_correct"] is False
     assert decision["inferred_steps_tagged_correctly"] is False
+    assert any(
+        item["field"] == "footprint_correct"
+        and item["suggested_value"] is False
+        and "risk-warning" in item["reason"]
+        for item in evidence_rows[0]["suggested_review_rationales"]
+    )
 
 
 def test_analytical_footprint_review_evidence_suggests_missing_metric_mapping(
@@ -9536,6 +9544,11 @@ def test_analytical_footprint_review_evidence_suggests_missing_metric_mapping(
     assert suggestion["canonical_metric_candidate"] == "forecast_net_profit"
     assert suggestion["source_grounded"] is False
     assert suggestion["inference_source"] == "review_evidence_context_rule"
+    assert any(
+        item["field"] == "metric_mapping_correct"
+        and "review aids" in item["reason"]
+        for item in row["suggested_review_rationales"]
+    )
     markdown = (tmp_path / report.markdown_path).read_text(encoding="utf-8")
     assert "Suggested indicator mapping candidates" in markdown
     assert "forecast_net_profit" in markdown
