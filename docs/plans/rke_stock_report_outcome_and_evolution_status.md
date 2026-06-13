@@ -316,7 +316,10 @@ requirements, and fields that must be preserved. This makes the gold-set
 distinction explicit in both JSON action output and the Markdown runbook.
 `tests/test_rke_review_progress.py` now asserts that these public-safe contracts
 stay aligned with the gold-set, footprint, source-license, and lockbox import
-validator constants.
+validator constants. It also asserts that the public-safe `review_aids` path
+maps stay aligned with the source import, evidence, assist, workbook, and
+lockbox artifact constants, so operator-facing action output cannot silently
+drift to stale manual-review paths.
 
 `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke schema-status --root .`
 currently exits with code 2 by design. The current failing semantic records are

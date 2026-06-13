@@ -11,17 +11,43 @@ from mosaic.rke.lockbox_review_import import (
     LOCKBOX_REQUIRED_FIELDS,
     LOCKBOX_RESULTS,
 )
-from mosaic.rke.license_policy_import import build_source_license_policy_template
-from mosaic.rke.manual_review_aids import manual_review_field_contract
-from mosaic.rke.manual_review_batches import write_manual_review_batches
+from mosaic.rke.license_policy_import import (
+    SOURCE_LICENSE_POLICY_TEMPLATE_PATH,
+    SOURCE_LICENSE_REVIEWED_POLICY_PATH,
+    SOURCE_LICENSE_REVIEW_WORKBOOK_MD_PATH,
+    build_source_license_policy_template,
+)
+from mosaic.rke.manual_review_aids import (
+    manual_review_aid_paths,
+    manual_review_field_contract,
+)
+from mosaic.rke.manual_review_batches import (
+    GOLD_FULL_REVIEWED_IMPORT_PATH,
+    GOLD_REVIEWED_IMPORT_PATH,
+    GOLD_REVIEW_ASSIST_JSONL_PATH,
+    GOLD_REVIEW_ASSIST_MD_PATH,
+    GOLD_REVIEW_EVIDENCE_JSONL_PATH,
+    GOLD_REVIEW_EVIDENCE_MD_PATH,
+    GOLD_REVIEW_WORKBOOK_MD_PATH,
+    write_manual_review_batches,
+)
 from mosaic.rke.manual_review_import import (
     GOLD_BOOL_FIELDS,
     LICENSE_IMPORTED_FIELDS,
 )
-from mosaic.rke.operator_handoff import build_lockbox_review_import_template
+from mosaic.rke.operator_handoff import (
+    LOCKBOX_REVIEWED_IMPORT_PATH,
+    build_lockbox_review_import_template,
+)
 from mosaic.rke.report_intelligence import (
     ANALYTICAL_FOOTPRINT_REVIEW_BOOLEAN_FIELDS,
+    ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH,
+    ANALYTICAL_FOOTPRINT_REVIEW_ASSIST_JSONL_PATH,
+    ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH,
+    ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_JSONL_PATH,
+    ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_MD_PATH,
     ANALYTICAL_FOOTPRINT_REVIEW_REQUIRED_FIELDS,
+    ANALYTICAL_FOOTPRINT_REVIEW_WORKBOOK_MD_PATH,
 )
 from mosaic.rke.review_progress import (
     build_manual_review_action_queue,
@@ -146,6 +172,51 @@ def test_manual_review_field_contracts_match_import_validators():
     ]
     assert lockbox["boolean_fields"] == list(LOCKBOX_BOOL_FIELDS)
     assert lockbox["allowed_results"] == sorted(LOCKBOX_RESULTS - {"not_opened"})
+
+
+def test_manual_review_aid_paths_match_artifact_constants():
+    gold = manual_review_aid_paths("gold_set")
+    assert gold["fill_import_path"] == GOLD_REVIEWED_IMPORT_PATH
+    assert gold["promotion_import_path"] == GOLD_FULL_REVIEWED_IMPORT_PATH
+    assert gold["assist_jsonl"] == GOLD_REVIEW_ASSIST_JSONL_PATH
+    assert gold["assist_markdown"] == GOLD_REVIEW_ASSIST_MD_PATH
+    assert gold["evidence_jsonl"] == GOLD_REVIEW_EVIDENCE_JSONL_PATH
+    assert gold["evidence_markdown"] == GOLD_REVIEW_EVIDENCE_MD_PATH
+    assert gold["batch_workbook_markdown"] == GOLD_REVIEW_WORKBOOK_MD_PATH
+
+    footprint = manual_review_aid_paths("footprint_review")
+    assert (
+        footprint["fill_import_path"]
+        == ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH
+    )
+    assert (
+        footprint["promotion_import_path"]
+        == ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH
+    )
+    assert (
+        footprint["assist_jsonl"]
+        == ANALYTICAL_FOOTPRINT_REVIEW_ASSIST_JSONL_PATH
+    )
+    assert (
+        footprint["assist_workbook_markdown"]
+        == ANALYTICAL_FOOTPRINT_REVIEW_WORKBOOK_MD_PATH
+    )
+    assert (
+        footprint["evidence_jsonl"]
+        == ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_JSONL_PATH
+    )
+    assert (
+        footprint["evidence_markdown"]
+        == ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_MD_PATH
+    )
+
+    source_license = manual_review_aid_paths("source_license")
+    assert source_license["fill_policy_path"] == SOURCE_LICENSE_REVIEWED_POLICY_PATH
+    assert source_license["policy_template_path"] == SOURCE_LICENSE_POLICY_TEMPLATE_PATH
+    assert source_license["workbook_markdown"] == SOURCE_LICENSE_REVIEW_WORKBOOK_MD_PATH
+
+    lockbox = manual_review_aid_paths("lockbox")
+    assert lockbox["fill_import_path"] == LOCKBOX_REVIEWED_IMPORT_PATH
 
 
 def test_rke_temporary_directory_honors_rke_tmpdir(tmp_path: Path, monkeypatch):
