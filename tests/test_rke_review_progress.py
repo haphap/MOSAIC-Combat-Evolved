@@ -324,6 +324,40 @@ def test_review_progress_summary_omits_full_batch_plan(tmp_path: Path, capsys):
     )
 
 
+def test_review_progress_no_write_does_not_rewrite_artifacts(
+    tmp_path: Path,
+    capsys,
+):
+    _copy_registry(tmp_path)
+    progress_path = tmp_path / "registry/review_batches/manual_review_progress_report.json"
+    runbook_path = tmp_path / "registry/review_batches/manual_review_runbook.md"
+    if progress_path.exists():
+        progress_path.unlink()
+    if runbook_path.exists():
+        runbook_path.unlink()
+
+    code = main(
+        (
+            "review-progress",
+            "--root",
+            str(tmp_path),
+            "--summary",
+            "--no-write",
+        )
+    )
+    output = json.loads(capsys.readouterr().out)
+
+    assert code == 2
+    assert output["path"].endswith(
+        "registry/review_batches/manual_review_progress_report.json"
+    )
+    assert output["runbook_path"].endswith(
+        "registry/review_batches/manual_review_runbook.md"
+    )
+    assert not progress_path.exists()
+    assert not runbook_path.exists()
+
+
 def test_review_progress_reports_current_batch_scratch_status(tmp_path: Path):
     _copy_registry(tmp_path)
     gold_rows = _accepted_gold_rows(tmp_path)[:2]

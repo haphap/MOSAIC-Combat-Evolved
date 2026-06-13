@@ -642,6 +642,14 @@ def build_parser() -> argparse.ArgumentParser:
             "batch plan payload."
         ),
     )
+    review_progress.add_argument(
+        "--no-write",
+        action="store_true",
+        help=(
+            "Do not rewrite manual review progress or runbook artifacts; print "
+            "the current in-memory check result only."
+        ),
+    )
 
     fetch_reports = subparsers.add_parser(
         "fetch-tushare-reports",
@@ -1473,9 +1481,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         _print_json({"path": result["path"], **asdict(report)})
         return 0 if report.accepted else 2
     if args.command == "review-progress":
-        result = write_manual_review_progress_report(root)
-        runbook = write_manual_review_runbook(root)
         report = build_manual_review_progress(root)
+        if args.no_write:
+            result = {"path": str(root / "registry/review_batches/manual_review_progress_report.json")}
+            runbook = {"path": str(root / "registry/review_batches/manual_review_runbook.md")}
+        else:
+            result = write_manual_review_progress_report(root)
+            runbook = write_manual_review_runbook(root)
         if args.summary:
             _print_json(
                 build_manual_review_progress_summary(
