@@ -491,9 +491,21 @@ def test_review_progress_actions_only_reports_next_manual_work(
         "fill_current_batch_review_fields_then_dry_run",
         "prepare_next_review_batch",
     }
+    assert actions["gold_set"]["action_state"] in {
+        "needs_human_review_fields",
+        "needs_prepare",
+    }
     assert (
         actions["gold_set"]["current_batch_path"]
         == "registry/review_batches/gold_set_reviewed.jsonl"
+    )
+    assert (
+        actions["gold_set"]["manual_input_path"]
+        == "registry/review_batches/gold_set_reviewed.jsonl"
+    )
+    assert (
+        actions["gold_set"]["promotion_input_path"]
+        == "registry/review_batches/gold_set_full_reviewed.jsonl"
     )
     assert actions["gold_set"]["commands"]["prepare"].startswith(
         RKE_OPERATOR_TMP_ENV_PREFIX
@@ -506,7 +518,16 @@ def test_review_progress_actions_only_reports_next_manual_work(
         "ready_for_promotion_apply",
         "review_or_apply_source_license_policy",
     }
+    assert actions["source_license"]["action_state"] in {
+        "ready_to_apply",
+        "needs_policy_review",
+    }
+    assert (
+        actions["source_license"]["manual_input_path"]
+        == "registry/review_batches/source_license_policy_reviewed.json"
+    )
     assert actions["lockbox"]["next_manual_action"] == "wait_for_prior_manual_gates"
+    assert actions["lockbox"]["action_state"] == "waiting_on_dependencies"
     assert actions["lockbox"]["blocked_by_review_kinds"] == [
         "gold_set",
         "footprint_review",
@@ -540,6 +561,7 @@ def test_review_progress_actions_only_filters_review_kind(
     assert output["reported_review_kinds"] == ["source_license"]
     assert [action["review_kind"] for action in output["actions"]] == ["source_license"]
     assert output["actions"][0]["next_manual_action"] == "ready_for_promotion_apply"
+    assert output["actions"][0]["action_state"] == "ready_to_apply"
 
 
 def test_manual_review_action_queue_is_public_safe_compact(tmp_path: Path):

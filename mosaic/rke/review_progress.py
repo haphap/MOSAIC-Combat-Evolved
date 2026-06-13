@@ -1285,6 +1285,21 @@ def _action_queue_hint(action: str) -> str:
     return hints.get(action, "Inspect gate blockers before proceeding.")
 
 
+def _action_queue_state(action: str) -> str:
+    states = {
+        "ready_for_promotion_apply": "ready_to_apply",
+        "fill_current_batch_review_fields_then_dry_run": "needs_human_review_fields",
+        "repair_current_batch_evidence_alignment": "needs_evidence_repair",
+        "prepare_next_review_batch": "needs_prepare",
+        "run_prepare_command": "needs_prepare",
+        "review_or_apply_source_license_policy": "needs_policy_review",
+        "wait_for_prior_manual_gates": "waiting_on_dependencies",
+        "complete_lockbox_decision_then_dry_run": "needs_lockbox_decision",
+        "prepare_lockbox_review": "needs_prepare",
+    }
+    return states.get(action, "needs_operator_inspection")
+
+
 def build_manual_review_action_queue(
     report: ManualReviewProgressReport,
     *,
@@ -1319,17 +1334,21 @@ def build_manual_review_action_queue(
             gate,
             dependency_blockers=dependency_blockers,
         )
+        current_batch_path = str(current.get("path") or "")
         actions.append(
             {
                 "review_kind": gate.review_kind,
                 "next_manual_action": action,
+                "action_state": _action_queue_state(action),
                 "operator_hint": _action_queue_hint(action),
                 "ready_for_promotion": gate.ready_for_promotion,
                 "blocked_by_review_kinds": list(dependency_blockers),
                 "complete_rows": gate.complete_rows,
                 "pending_rows": gate.pending_rows,
                 "target_rows": gate.target_rows,
-                "current_batch_path": str(current.get("path") or ""),
+                "manual_input_path": current_batch_path or gate.input_path,
+                "promotion_input_path": gate.input_path,
+                "current_batch_path": current_batch_path,
                 "current_batch_pending_rows": int(current.get("pending_rows") or 0),
                 "current_batch_malformed_rows": int(
                     current.get("malformed_rows") or 0
