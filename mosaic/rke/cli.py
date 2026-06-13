@@ -269,6 +269,16 @@ def build_parser() -> argparse.ArgumentParser:
     schema_status.add_argument(
         "--root", default=".", help="Repository root. Defaults to current directory."
     )
+    schema_status.add_argument(
+        "--failures-only",
+        action="store_true",
+        help="Print only schema records that failed validation.",
+    )
+    schema_status.add_argument(
+        "--no-write",
+        action="store_true",
+        help="Do not rewrite schema validation report artifacts.",
+    )
 
     rule_pack_status = subparsers.add_parser(
         "rule-pack-status",
@@ -1222,14 +1232,24 @@ def main(argv: Sequence[str] | None = None) -> int:
         _print_json(asdict(result))
         return 0 if result.accepted else 2
     if args.command == "schema-status":
-        write_schema_validation_report(root)
-        write_rule_pack_validation_report(root)
+        if not args.no_write:
+            write_schema_validation_report(root)
+            write_rule_pack_validation_report(root)
         result = build_schema_validation_report(root)
+        records = list(result.records)
+        if args.failures_only:
+            records = [
+                record
+                for record in records
+                if not record.accepted or record.failures
+            ]
         _print_json(
             {
                 "accepted": result.accepted,
                 "failure_count": result.failure_count,
-                "records": [asdict(record) for record in result.records],
+                "record_count": len(result.records),
+                "reported_record_count": len(records),
+                "records": [asdict(record) for record in records],
             }
         )
         return 0 if result.accepted else 2

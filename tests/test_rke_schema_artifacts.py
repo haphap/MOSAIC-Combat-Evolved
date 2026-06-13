@@ -4716,6 +4716,50 @@ def test_schema_status_cli_writes_report(capsys):
     assert Path("registry/schemas/rke_schema_validation_report.json").exists()
 
 
+def test_schema_status_cli_filters_failures_without_writing(tmp_path: Path, capsys):
+    schema_dir = tmp_path / "schemas"
+    registry_dir = tmp_path / "registry"
+    schema_dir.mkdir()
+    for path in Path("schemas").iterdir():
+        if path.is_file():
+            (schema_dir / path.name).write_text(
+                path.read_text(encoding="utf-8"), encoding="utf-8"
+            )
+    shutil.copytree(
+        Path("registry"),
+        registry_dir,
+        ignore=shutil.ignore_patterns("schemas"),
+        dirs_exist_ok=True,
+    )
+
+    code = main(
+        (
+            "schema-status",
+            "--root",
+            str(tmp_path),
+            "--failures-only",
+            "--no-write",
+        )
+    )
+    output = json.loads(capsys.readouterr().out)
+
+    assert code == 2
+    assert output["accepted"] is False
+    assert output["failure_count"] == (
+        len(EXPECTED_ANALYTICAL_FOOTPRINT_REVIEW_FAILURES)
+        + len(EXPECTED_PHASE_B_PATCH_COVERAGE_FAILURES)
+    )
+    assert output["record_count"] > output["reported_record_count"]
+    assert {
+        record["schema_path"] for record in output["records"]
+    } == {
+        "schemas/report_intelligence_analytical_footprint_review_rules",
+        "schemas/report_intelligence_patch_v1_5_coverage_rules",
+    }
+    assert all(record["accepted"] is False for record in output["records"])
+    assert not (registry_dir / "schemas/rke_schema_validation_report.json").exists()
+
+
 def test_schema_status_cli_reports_malformed_artifact(tmp_path: Path, capsys):
     schema_dir = tmp_path / "schemas"
     registry_dir = tmp_path / "registry"

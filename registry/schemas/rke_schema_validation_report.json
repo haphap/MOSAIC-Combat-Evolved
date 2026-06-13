@@ -537,7 +537,7 @@
       "accepted": true,
       "artifact_path": "registry/handoffs/rke_operator_readiness_report.json",
       "failures": [],
-      "item_count": 16,
+      "item_count": 17,
       "schema_path": "schemas/report_intelligence_operator_readiness_rules"
     },
     {
