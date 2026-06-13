@@ -4027,6 +4027,18 @@ def test_report_intelligence_evolution_gate_blocks_until_objective_thresholds_pa
     )
     assert audit_check["evidence"]["audit_history_dependency"] == {
         "blocking_components": [],
+        "current_failure_counts": {
+            "pit": 0,
+            "provenance": 0,
+            "schema": 0,
+            "statistical": 0,
+        },
+        "current_failure_refs": {
+            "pit": [],
+            "provenance": [],
+            "schema": [],
+            "statistical": [],
+        },
         "history_counts_only_passing_current_audits": True,
         "min_consecutive_audit_refreshes": 3,
         "next_action": "run_distinct_derived_refreshes_after_current_audits_pass",
@@ -4102,6 +4114,18 @@ def test_report_intelligence_evolution_gate_explains_schema_blocked_audit_histor
     } <= set(audit_check["blockers"])
     assert audit_check["evidence"]["audit_history_dependency"] == {
         "blocking_components": ["schema"],
+        "current_failure_counts": {
+            "pit": 0,
+            "provenance": 0,
+            "schema": 1,
+            "statistical": 0,
+        },
+        "current_failure_refs": {
+            "pit": [],
+            "provenance": [],
+            "schema": [],
+            "statistical": [],
+        },
         "history_counts_only_passing_current_audits": True,
         "min_consecutive_audit_refreshes": 3,
         "next_action": (

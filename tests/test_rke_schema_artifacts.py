@@ -2776,6 +2776,36 @@ def test_evolution_readiness_gate_contract_rejects_stale_audit_dependency(
     )
 
 
+def test_evolution_readiness_gate_contract_rejects_stale_audit_failure_summary(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    gate_path = registry / "evolution_readiness_gate.json"
+    gate = json.loads(gate_path.read_text(encoding="utf-8"))
+    audit_check = next(
+        check for check in gate["checks"] if check["check_id"] == "RI-EVOL-04"
+    )
+    dependency = audit_check["evidence"]["audit_history_dependency"]
+    dependency["current_failure_counts"]["schema"] = 0
+    dependency["current_failure_refs"]["pit"] = ["check:RI-PIT-STale"]
+    gate_path.write_text(
+        json.dumps(gate, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _evolution_readiness_gate_record(tmp_path)
+
+    assert not record.accepted
+    assert any(
+        "current_failure_counts.schema: expected positive count" in item
+        for item in record.failures
+    )
+    assert any(
+        "current_failure_refs.pit: expected empty refs" in item
+        for item in record.failures
+    )
+
+
 def test_evolution_readiness_gate_contract_rejects_stale_audit_history_blocker(
     tmp_path: Path,
 ):

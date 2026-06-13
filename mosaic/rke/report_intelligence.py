@@ -12720,6 +12720,43 @@ def _audit_refresh_history_record(
     return record
 
 
+def _audit_component_failure_summary(
+    report: Mapping[str, Any],
+) -> tuple[int, tuple[str, ...]]:
+    payload = _ensure_mapping(report)
+    if payload.get("accepted") is True:
+        return 0, ()
+
+    refs: list[str] = []
+    for index, record in enumerate(_ensure_list(payload.get("records")), 1):
+        row = _ensure_mapping(record)
+        if row.get("accepted") is True:
+            continue
+        schema_path = str(row.get("schema_path") or "").strip()
+        if schema_path:
+            refs.append(schema_path)
+        else:
+            refs.append(f"record:{index}")
+
+    for check in _ensure_list(payload.get("checks")):
+        row = _ensure_mapping(check)
+        failure_count = int(row.get("failure_count") or 0)
+        if row.get("accepted") is True and failure_count <= 0:
+            continue
+        check_id = str(row.get("check_id") or "").strip()
+        if check_id:
+            refs.append(f"check:{check_id}")
+
+    explicit_count = int(
+        payload.get("failure_count")
+        or payload.get("blocker_count")
+        or payload.get("failed_record_count")
+        or 0
+    )
+    failure_count = max(explicit_count, len(refs), 1)
+    return failure_count, tuple(dict.fromkeys(refs[:12]))
+
+
 def _gap_distribution_history_record(
     *,
     run_id: str,
@@ -12862,15 +12899,28 @@ def _audit_current_record(
     statistical_robustness_audit: Mapping[str, Any],
 ) -> dict[str, Any]:
     schema = _ensure_mapping(schema_validation_report)
+    pit = _ensure_mapping(pit_leakage_audit)
+    provenance = _ensure_mapping(extraction_provenance_audit)
+    statistical = _ensure_mapping(statistical_robustness_audit)
+    component_reports = {
+        "schema": schema,
+        "pit": pit,
+        "provenance": provenance,
+        "statistical": statistical,
+    }
+    failure_counts: dict[str, int] = {}
+    failure_refs: dict[str, list[str]] = {}
+    for component, report in component_reports.items():
+        count, refs = _audit_component_failure_summary(report)
+        failure_counts[component] = count
+        failure_refs[component] = list(refs)
     return {
         "schema_accepted": schema.get("accepted") is True,
-        "pit_accepted": _ensure_mapping(pit_leakage_audit).get("accepted") is True,
-        "provenance_accepted": (
-            _ensure_mapping(extraction_provenance_audit).get("accepted") is True
-        ),
-        "statistical_accepted": (
-            _ensure_mapping(statistical_robustness_audit).get("accepted") is True
-        ),
+        "pit_accepted": pit.get("accepted") is True,
+        "provenance_accepted": provenance.get("accepted") is True,
+        "statistical_accepted": statistical.get("accepted") is True,
+        "current_failure_counts": failure_counts,
+        "current_failure_refs": failure_refs,
     }
 
 
@@ -12905,6 +12955,21 @@ def _audit_history_dependency(
     return {
         "status": status,
         "blocking_components": blocking_components,
+        "current_failure_counts": _integer_mapping_values(
+            _ensure_mapping(current_audit_record.get("current_failure_counts"))
+        ),
+        "current_failure_refs": {
+            component: [
+                str(item)
+                for item in _ensure_list(refs)
+                if str(item).strip()
+            ]
+            for component, refs in sorted(
+                _ensure_mapping(
+                    current_audit_record.get("current_failure_refs")
+                ).items()
+            )
+        },
         "trailing_audit_pass_count": trailing_audit_pass_count,
         "min_consecutive_audit_refreshes": (
             EVOLUTION_GATE_MIN_CONSECUTIVE_AUDIT_REFRESHES

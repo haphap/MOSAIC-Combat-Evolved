@@ -3810,6 +3810,66 @@ def _validate_evolution_readiness_gate_contract(
                 f"{row_label}.evidence.audit_history_dependency."
                 f"min_consecutive_audit_refreshes: expected {min_refreshes}"
             )
+        failure_counts = _count_mapping(
+            dependency.get("current_failure_counts"),
+            row_label=f"{row_label}.evidence.audit_history_dependency.current_failure_counts",
+            failures=failures,
+        )
+        failure_refs_raw = dependency.get("current_failure_refs")
+        if not isinstance(failure_refs_raw, Mapping):
+            failures.append(
+                f"{row_label}.evidence.audit_history_dependency."
+                "current_failure_refs: expected object"
+            )
+            failure_refs_raw = {}
+        for component in ("schema", "pit", "provenance", "statistical"):
+            accepted_field = f"{component}_accepted"
+            if component == "provenance":
+                accepted_field = "provenance_accepted"
+            component_accepted = evidence.get(accepted_field) is True
+            failure_count = failure_counts.get(component)
+            if failure_count is None:
+                failures.append(
+                    f"{row_label}.evidence.audit_history_dependency."
+                    f"current_failure_counts.{component}: expected integer count"
+                )
+            elif component_accepted and failure_count != 0:
+                failures.append(
+                    f"{row_label}.evidence.audit_history_dependency."
+                    f"current_failure_counts.{component}: expected 0 when "
+                    f"{accepted_field} is true"
+                )
+            elif not component_accepted and failure_count <= 0:
+                failures.append(
+                    f"{row_label}.evidence.audit_history_dependency."
+                    f"current_failure_counts.{component}: expected positive "
+                    f"count when {accepted_field} is false"
+                )
+            refs = failure_refs_raw.get(component)
+            if refs is None:
+                failures.append(
+                    f"{row_label}.evidence.audit_history_dependency."
+                    f"current_failure_refs.{component}: expected array"
+                )
+                continue
+            if not isinstance(refs, Sequence) or isinstance(refs, str):
+                failures.append(
+                    f"{row_label}.evidence.audit_history_dependency."
+                    f"current_failure_refs.{component}: expected array"
+                )
+                continue
+            non_string_ref_count = sum(1 for item in refs if not isinstance(item, str))
+            if non_string_ref_count:
+                failures.append(
+                    f"{row_label}.evidence.audit_history_dependency."
+                    f"current_failure_refs.{component}: expected string refs"
+                )
+            elif component_accepted and _string_items(refs):
+                failures.append(
+                    f"{row_label}.evidence.audit_history_dependency."
+                    f"current_failure_refs.{component}: expected empty refs when "
+                    f"{accepted_field} is true"
+                )
         if audit_history_ready and "audit_refresh_history_below_threshold" in blockers:
             failures.append(
                 f"{row_label}.blockers: audit_refresh_history_below_threshold "
