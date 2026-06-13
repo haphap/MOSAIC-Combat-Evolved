@@ -305,6 +305,9 @@ def test_review_progress_summary_omits_full_batch_plan(tmp_path: Path, capsys):
     output = json.loads(capsys.readouterr().out)
     encoded = json.dumps(output, ensure_ascii=False)
     gold_gate = next(gate for gate in output["gates"] if gate["review_kind"] == "gold_set")
+    lockbox_gate = next(
+        gate for gate in output["gates"] if gate["review_kind"] == "lockbox"
+    )
 
     assert code == 2
     assert output["ready_for_promotion_dry_run"] is False
@@ -323,6 +326,12 @@ def test_review_progress_summary_omits_full_batch_plan(tmp_path: Path, capsys):
     assert gold_gate["promotion_commands"]["dry_run"].startswith(
         RKE_OPERATOR_TMP_ENV_PREFIX
     )
+    assert lockbox_gate["next_manual_action"] == "wait_for_prior_manual_gates"
+    assert lockbox_gate["blocked_by_review_kinds"] == [
+        "gold_set",
+        "footprint_review",
+        "source_license",
+    ]
 
 
 def test_review_progress_no_write_does_not_rewrite_artifacts(
@@ -423,6 +432,36 @@ def test_review_progress_summary_filter_exit_uses_selected_gate(
     assert output["gate_count"] == 1
     assert output["reported_review_kinds"] == ["source_license"]
     assert output["gates"][0]["ready_for_promotion"] is True
+
+
+def test_review_progress_summary_reports_lockbox_dependencies(
+    tmp_path: Path,
+    capsys,
+):
+    _copy_registry(tmp_path)
+
+    code = main(
+        (
+            "review-progress",
+            "--root",
+            str(tmp_path),
+            "--summary",
+            "--no-write",
+            "--review-kind",
+            "lockbox",
+        )
+    )
+    output = json.loads(capsys.readouterr().out)
+    lockbox_gate = output["gates"][0]
+
+    assert code == 2
+    assert lockbox_gate["review_kind"] == "lockbox"
+    assert lockbox_gate["next_manual_action"] == "wait_for_prior_manual_gates"
+    assert lockbox_gate["blocked_by_review_kinds"] == [
+        "gold_set",
+        "footprint_review",
+        "source_license",
+    ]
 
 
 def test_review_progress_review_kind_requires_summary(tmp_path: Path, capsys):

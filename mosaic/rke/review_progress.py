@@ -1101,7 +1101,30 @@ def _compact_current_batch_status(status: Mapping[str, Any]) -> Mapping[str, Any
     return compact
 
 
-def _next_manual_action(gate: ManualReviewGateProgress) -> str:
+def _lockbox_dependency_blockers(
+    gate: ManualReviewGateProgress,
+    gates: Sequence[ManualReviewGateProgress],
+) -> tuple[ReviewProgressKind, ...]:
+    if gate.review_kind != "lockbox":
+        return ()
+    dependency_order: tuple[ReviewProgressKind, ...] = (
+        "gold_set",
+        "footprint_review",
+        "source_license",
+    )
+    gate_by_kind = {item.review_kind: item for item in gates}
+    return tuple(
+        review_kind
+        for review_kind in dependency_order
+        if not gate_by_kind.get(review_kind, gate).ready_for_promotion
+    )
+
+
+def _next_manual_action(
+    gate: ManualReviewGateProgress,
+    *,
+    dependency_blockers: Sequence[ReviewProgressKind] = (),
+) -> str:
     if gate.ready_for_promotion:
         return "ready_for_promotion_apply"
     current = (
@@ -1112,6 +1135,8 @@ def _next_manual_action(gate: ManualReviewGateProgress) -> str:
     if gate.review_kind == "source_license":
         return "review_or_apply_source_license_policy"
     if gate.review_kind == "lockbox":
+        if dependency_blockers:
+            return "wait_for_prior_manual_gates"
         if current.get("exists"):
             return "complete_lockbox_decision_then_dry_run"
         return "prepare_lockbox_review"
@@ -1146,6 +1171,7 @@ def build_manual_review_progress_summary(
     selected_blockers: list[str] = []
     gate_summaries: list[Mapping[str, Any]] = []
     for gate in selected_gates:
+        dependency_blockers = _lockbox_dependency_blockers(gate, report.gates)
         if not gate.ready_for_promotion:
             selected_blockers.append(
                 f"{gate.review_kind}: {gate.complete_rows}/{gate.target_rows} ready"
@@ -1165,7 +1191,11 @@ def build_manual_review_progress_summary(
                 "simulation_accepted": gate.simulation_accepted,
                 "ready_for_promotion": gate.ready_for_promotion,
                 "blocker_count": len(gate.blockers),
-                "next_manual_action": _next_manual_action(gate),
+                "next_manual_action": _next_manual_action(
+                    gate,
+                    dependency_blockers=dependency_blockers,
+                ),
+                "blocked_by_review_kinds": list(dependency_blockers),
                 "current_batch_status": _compact_current_batch_status(
                     gate.current_batch_status
                 ),
