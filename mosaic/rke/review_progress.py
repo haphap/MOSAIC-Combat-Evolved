@@ -1032,6 +1032,115 @@ def write_manual_review_progress_report(root: str | Path = ".") -> dict[str, Any
     }
 
 
+def _compact_current_batch_status(status: Mapping[str, Any]) -> Mapping[str, Any]:
+    if not status:
+        return {}
+    compact: dict[str, Any] = {
+        "path": status.get("path"),
+        "exists": bool(status.get("exists")),
+        "rows": int(status.get("rows") or 0),
+        "complete_rows": int(status.get("complete_rows") or 0),
+        "pending_rows": int(status.get("pending_rows") or 0),
+        "malformed_rows": int(status.get("malformed_rows") or 0),
+    }
+    for field_name in ("missing_required_fields", "invalid_required_fields"):
+        value = status.get(field_name)
+        if isinstance(value, Mapping) and value:
+            compact[field_name] = {
+                str(key): int(count) for key, count in sorted(value.items())
+            }
+    evidence_status = status.get("evidence_status")
+    if isinstance(evidence_status, Mapping) and evidence_status:
+        compact["evidence_status"] = {
+            "path": evidence_status.get("path"),
+            "exists": bool(evidence_status.get("exists")),
+            "rows": int(evidence_status.get("rows") or 0),
+            "covered_review_rows": int(
+                evidence_status.get("covered_review_rows") or 0
+            ),
+            "review_input_rows": int(evidence_status.get("review_input_rows") or 0),
+            "same_order": bool(evidence_status.get("same_order")),
+            "aligned": bool(evidence_status.get("aligned")),
+            "missing_review_rows": int(
+                evidence_status.get("missing_review_rows") or 0
+            ),
+            "extra_evidence_rows": int(
+                evidence_status.get("extra_evidence_rows") or 0
+            ),
+            "target_row_hash_mismatch_count": int(
+                evidence_status.get("target_row_hash_mismatch_count") or 0
+            ),
+        }
+    return compact
+
+
+def _next_manual_action(gate: ManualReviewGateProgress) -> str:
+    if gate.ready_for_promotion:
+        return "ready_for_promotion_apply"
+    current = (
+        gate.current_batch_status
+        if isinstance(gate.current_batch_status, Mapping)
+        else {}
+    )
+    if gate.review_kind == "source_license":
+        return "review_or_apply_source_license_policy"
+    if gate.review_kind == "lockbox":
+        if current.get("exists"):
+            return "complete_lockbox_decision_then_dry_run"
+        return "prepare_lockbox_review"
+    if current.get("exists") and int(current.get("pending_rows") or 0) > 0:
+        evidence = current.get("evidence_status")
+        if isinstance(evidence, Mapping) and not bool(evidence.get("aligned")):
+            return "repair_current_batch_evidence_alignment"
+        return "fill_current_batch_review_fields_then_dry_run"
+    if gate.next_batch_commands:
+        return "prepare_next_review_batch"
+    return "run_prepare_command"
+
+
+def build_manual_review_progress_summary(
+    report: ManualReviewProgressReport,
+    *,
+    path: str = MANUAL_REVIEW_PROGRESS_REPORT_PATH,
+    runbook_path: str = MANUAL_REVIEW_RUNBOOK_MD_PATH,
+) -> Mapping[str, Any]:
+    """Return a public-safe compact progress view for operator CLI use."""
+    gate_summaries: list[Mapping[str, Any]] = []
+    for gate in report.gates:
+        gate_summaries.append(
+            {
+                "review_kind": gate.review_kind,
+                "input_path": gate.input_path,
+                "input_exists": gate.input_exists,
+                "target_rows": gate.target_rows,
+                "input_rows": gate.input_rows,
+                "complete_rows": gate.complete_rows,
+                "pending_rows": gate.pending_rows,
+                "simulation_accepted": gate.simulation_accepted,
+                "ready_for_promotion": gate.ready_for_promotion,
+                "blocker_count": len(gate.blockers),
+                "next_manual_action": _next_manual_action(gate),
+                "current_batch_status": _compact_current_batch_status(
+                    gate.current_batch_status
+                ),
+                "next_batch_commands": dict(gate.next_batch_commands),
+                "promotion_commands": {
+                    "prepare": gate.prepare_command,
+                    "dry_run": gate.dry_run_command,
+                    "apply": gate.apply_command,
+                },
+            }
+        )
+    return {
+        "path": path,
+        "runbook_path": runbook_path,
+        "ready_for_promotion_dry_run": report.ready_for_promotion_dry_run,
+        "blocker_count": len(report.blockers),
+        "gate_count": len(report.gates),
+        "gates": gate_summaries,
+    }
+
+
 def render_manual_review_runbook_markdown(report: ManualReviewProgressReport) -> str:
     gate_lookup = {gate.review_kind: gate for gate in report.gates}
     gold = gate_lookup["gold_set"]

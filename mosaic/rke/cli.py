@@ -112,6 +112,7 @@ from .report_intelligence import (
     write_report_intelligence_prompt_mutation_candidates,
 )
 from .review_progress import (
+    build_manual_review_progress_summary,
     build_manual_review_progress,
     write_manual_review_progress_report,
     write_manual_review_runbook,
@@ -632,6 +633,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     review_progress.add_argument(
         "--root", default=".", help="Repository root. Defaults to current directory."
+    )
+    review_progress.add_argument(
+        "--summary",
+        action="store_true",
+        help=(
+            "Print a compact public-safe summary instead of the full gate and "
+            "batch plan payload."
+        ),
     )
 
     fetch_reports = subparsers.add_parser(
@@ -1467,9 +1476,22 @@ def main(argv: Sequence[str] | None = None) -> int:
         result = write_manual_review_progress_report(root)
         runbook = write_manual_review_runbook(root)
         report = build_manual_review_progress(root)
-        _print_json(
-            {"path": result["path"], "runbook_path": runbook["path"], **asdict(report)}
-        )
+        if args.summary:
+            _print_json(
+                build_manual_review_progress_summary(
+                    report,
+                    path=result["path"],
+                    runbook_path=runbook["path"],
+                )
+            )
+        else:
+            _print_json(
+                {
+                    "path": result["path"],
+                    "runbook_path": runbook["path"],
+                    **asdict(report),
+                }
+            )
         return 0 if report.ready_for_promotion_dry_run else 2
     if args.command == "fetch-tushare-reports":
         _load_env_file(args.env_file)

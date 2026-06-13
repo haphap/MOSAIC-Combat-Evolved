@@ -10,6 +10,7 @@ from mosaic.rke.license_policy_import import build_source_license_policy_templat
 from mosaic.rke.operator_handoff import build_lockbox_review_import_template
 from mosaic.rke.review_progress import (
     build_manual_review_progress,
+    build_manual_review_progress_summary,
     render_manual_review_runbook_markdown,
     write_manual_review_progress_report,
     write_manual_review_runbook,
@@ -296,6 +297,33 @@ def test_review_progress_reports_missing_scratch_files(tmp_path: Path, capsys):
     assert (tmp_path / "registry/review_batches/manual_review_progress_report.json").exists()
 
 
+def test_review_progress_summary_omits_full_batch_plan(tmp_path: Path, capsys):
+    _copy_registry(tmp_path)
+
+    code = main(("review-progress", "--root", str(tmp_path), "--summary"))
+    output = json.loads(capsys.readouterr().out)
+    encoded = json.dumps(output, ensure_ascii=False)
+    gold_gate = next(gate for gate in output["gates"] if gate["review_kind"] == "gold_set")
+
+    assert code == 2
+    assert output["ready_for_promotion_dry_run"] is False
+    assert output["gate_count"] == 4
+    assert output["blocker_count"] > 0
+    assert "blockers" not in output
+    assert "batch_plan" not in encoded
+    assert gold_gate["blocker_count"] > 0
+    assert gold_gate["next_manual_action"] in {
+        "fill_current_batch_review_fields_then_dry_run",
+        "prepare_next_review_batch",
+    }
+    assert gold_gate["next_batch_commands"]["prepare"].startswith(
+        RKE_OPERATOR_TMP_ENV_PREFIX
+    )
+    assert gold_gate["promotion_commands"]["dry_run"].startswith(
+        RKE_OPERATOR_TMP_ENV_PREFIX
+    )
+
+
 def test_review_progress_reports_current_batch_scratch_status(tmp_path: Path):
     _copy_registry(tmp_path)
     gold_rows = _accepted_gold_rows(tmp_path)[:2]
@@ -356,6 +384,7 @@ def test_review_progress_reports_current_batch_scratch_status(tmp_path: Path):
     footprint_batch = gates["footprint_review"].current_batch_status
     lockbox_status = gates["lockbox"].current_batch_status
     markdown = render_manual_review_runbook_markdown(report)
+    summary = build_manual_review_progress_summary(report)
 
     assert gold_batch["exists"] is True
     assert gold_batch["rows"] == 2
@@ -381,6 +410,20 @@ def test_review_progress_reports_current_batch_scratch_status(tmp_path: Path):
     assert footprint_batch["evidence_status"]["covered_review_rows"] == 2
     assert footprint_batch["evidence_status"]["review_input_rows"] == 2
     assert footprint_batch["evidence_status"]["same_order"] is True
+    summary_gold = next(
+        gate for gate in summary["gates"] if gate["review_kind"] == "gold_set"
+    )
+    summary_footprint = next(
+        gate for gate in summary["gates"] if gate["review_kind"] == "footprint_review"
+    )
+    assert "batch_plan" not in json.dumps(summary, ensure_ascii=False)
+    assert summary_gold["current_batch_status"]["evidence_status"]["aligned"] is True
+    assert (
+        summary_footprint["current_batch_status"]["evidence_status"][
+            "covered_review_rows"
+        ]
+        == 2
+    )
     assert lockbox_status["exists"] is True
     assert lockbox_status["rows"] == 1
     assert lockbox_status["complete_rows"] == 0
