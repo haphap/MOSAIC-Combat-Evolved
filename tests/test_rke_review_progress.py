@@ -1011,6 +1011,17 @@ def test_manual_review_runbook_renders_operator_checklist_without_source_text(tm
     assert "registry/review_batches/lockbox_reviewed.json" in markdown
     assert "registry/review_batches/gold_set_review_workbook.md" in markdown
     assert "registry/review_batches/source_license_review_workbook.md" in markdown
+    assert "## Manual Field Contracts" in markdown
+    assert "### Gold-set review" in markdown
+    assert "- Optional fields: `review_notes`" in markdown
+    assert "### Analytical-footprint review" in markdown
+    assert (
+        "- Required fields: `footprint_correct`, `source_span_supports_footprint`, "
+        "`metric_mapping_correct`"
+        in markdown
+    )
+    assert "### Lockbox review" in markdown
+    assert "- Allowed results: `failed`, `passed`" in markdown
     assert "## Gate Acceptance Criteria" in markdown
     assert "manual_claim_text" in markdown
     assert "claim precision >= 0.85" in markdown

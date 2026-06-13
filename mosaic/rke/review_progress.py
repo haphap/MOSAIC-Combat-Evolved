@@ -1047,6 +1047,57 @@ def _render_batch_plan_lines(label: str, batch_plan: Sequence[Mapping[str, Any]]
     return lines
 
 
+def _render_contract_value(value: Any) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
+
+
+def _render_contract_list(values: Any) -> str:
+    if not isinstance(values, Sequence) or isinstance(values, str):
+        return "none"
+    items = [_render_contract_value(item) for item in values]
+    if not items:
+        return "none"
+    return ", ".join(f"`{item}`" for item in items)
+
+
+def _render_contract_mapping(values: Any) -> str:
+    if not isinstance(values, Mapping) or not values:
+        return "none"
+    return ", ".join(
+        f"`{key}`=`{_render_contract_value(value)}`"
+        for key, value in sorted(values.items())
+    )
+
+
+def _render_field_contract_lines(
+    title: str,
+    contract: Mapping[str, Any],
+) -> list[str]:
+    if not contract:
+        return []
+    lines = [f"### {title}", ""]
+    policy = str(contract.get("policy") or "").strip()
+    if policy:
+        lines.append(f"- Policy: `{policy}`")
+    lines.extend(
+        [
+            f"- Required fields: {_render_contract_list(contract.get('required_fields'))}",
+            f"- Optional fields: {_render_contract_list(contract.get('optional_fields'))}",
+            f"- Boolean fields: {_render_contract_list(contract.get('boolean_fields'))}",
+            f"- Boolean allowed values: {_render_contract_list(contract.get('boolean_allowed_values'))}",
+            f"- Date fields: {_render_contract_mapping(contract.get('date_fields'))}",
+            f"- Text fields: {_render_contract_list(contract.get('text_fields'))}",
+            f"- Numeric fields: {_render_contract_list(contract.get('numeric_fields'))}",
+            f"- Allowed results: {_render_contract_list(contract.get('allowed_results'))}",
+            f"- Preserve fields: {_render_contract_list(contract.get('preserve_fields'))}",
+            "",
+        ]
+    )
+    return lines
+
+
 def build_manual_review_progress(root: str | Path = ".") -> ManualReviewProgressReport:
     root_path = Path(root)
     gates = (
@@ -1676,6 +1727,26 @@ def render_manual_review_runbook_markdown(report: ManualReviewProgressReport) ->
         "",
         "These checklist files are not import files. Use them to inspect IDs, hashes, counts, and short previews only.",
         "",
+        "## Manual Field Contracts",
+        "",
+        "These contracts are public-safe field rules for reviewer-edited input files. They do not include source text, claim text, evidence snippets, or reviewer notes.",
+        "",
+        *_render_field_contract_lines(
+            "Gold-set review",
+            manual_review_field_contract("gold_set"),
+        ),
+        *_render_field_contract_lines(
+            "Analytical-footprint review",
+            manual_review_field_contract("footprint_review"),
+        ),
+        *_render_field_contract_lines(
+            "Source-license review",
+            manual_review_field_contract("source_license"),
+        ),
+        *_render_field_contract_lines(
+            "Lockbox review",
+            manual_review_field_contract("lockbox"),
+        ),
         "## Gate Acceptance Criteria",
         "",
         "Gold-set review is accepted only when all current 500 claim rows are completed and the dry run accepts the import.",
