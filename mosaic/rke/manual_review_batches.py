@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections import Counter
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Literal, Mapping, Sequence
@@ -910,6 +911,41 @@ def render_gold_review_evidence_markdown(
     summary: GoldReviewEvidenceSummary,
     rows: Sequence[Mapping[str, Any]],
 ) -> str:
+    suggested_tag_counts = Counter(
+        str(tag)
+        for row in rows
+        for tag in row.get("suggested_manual_error_tags") or ()
+        if str(tag).strip()
+    )
+    proposed_flag_counts = Counter(
+        str(flag)
+        for row in rows
+        for flag in row.get("proposed_review_risk_flags") or ()
+        if str(flag).strip()
+    )
+    decision_counts: dict[str, Counter[str]] = {
+        field: Counter()
+        for field in (
+            "claim_correct",
+            "source_span_supports_claim",
+            "direction_correct",
+            "target_correct",
+            "horizon_correct",
+            "variable_mapping_correct",
+            "unsupported_field_false_grounded",
+        )
+    }
+    for row in rows:
+        decision = row.get("suggested_review_decision")
+        decision_map = dict(decision) if isinstance(decision, Mapping) else {}
+        for field, counts in decision_counts.items():
+            value = decision_map.get(field)
+            if value is True:
+                counts["true"] += 1
+            elif value is False:
+                counts["false"] += 1
+            else:
+                counts["null"] += 1
     lines = [
         "# RKE Gold Review Evidence Draft",
         "",
@@ -922,6 +958,22 @@ def render_gold_review_evidence_markdown(
         "Do not commit this file. Confirm decisions before copying them into the reviewed JSONL scratch file.",
         "",
     ]
+    lines.extend(
+        [
+            "## Batch Triage Summary",
+            "",
+            "- Suggested tag counts: "
+            + _markdown_cell(dict(sorted(suggested_tag_counts.items())), max_chars=500),
+            "- Proposed risk flag counts: "
+            + _markdown_cell(dict(sorted(proposed_flag_counts.items())), max_chars=500),
+            "- Suggested decision counts: "
+            + _markdown_cell(
+                {field: dict(counts) for field, counts in decision_counts.items()},
+                max_chars=900,
+            ),
+            "",
+        ]
+    )
     if summary.blockers:
         lines.extend(["## Blockers", ""])
         lines.extend(f"- {blocker}" for blocker in summary.blockers)
