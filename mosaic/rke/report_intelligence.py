@@ -12222,14 +12222,18 @@ def _evolution_gate_requirement_shortfalls(
     }
 
     audit_evidence = _ensure_mapping(by_id.get("RI-EVOL-04", {}).get("evidence"))
+    audit_dependency = _ensure_mapping(
+        audit_evidence.get("audit_history_dependency")
+    )
+    audit_next_action = str(audit_dependency.get("next_action") or "").strip() or (
+        "refresh_distinct_data_vintages_until_schema_pit_provenance_"
+        "statistical_audits_pass_three_times"
+    )
     shortfalls["audit_distinct_vintage_count"] = _threshold_shortfall(
         current=int(audit_evidence.get("trailing_audit_distinct_vintage_count") or 0),
         target=EVOLUTION_GATE_MIN_CONSECUTIVE_AUDIT_REFRESHES,
         blocker="audit_refresh_history_below_threshold",
-        next_action=(
-            "refresh_distinct_data_vintages_until_schema_pit_provenance_"
-            "statistical_audits_pass_three_times"
-        ),
+        next_action=audit_next_action,
     )
 
     gold_evidence = _ensure_mapping(by_id.get("RI-EVOL-05", {}).get("evidence"))
@@ -12868,6 +12872,47 @@ def _audit_current_record(
     }
 
 
+def _audit_history_dependency(
+    *,
+    current_audit_record: Mapping[str, Any],
+    trailing_audit_pass_count: int,
+) -> dict[str, Any]:
+    audit_fields = (
+        "schema_accepted",
+        "pit_accepted",
+        "provenance_accepted",
+        "statistical_accepted",
+    )
+    blocking_components = [
+        field.removesuffix("_accepted")
+        for field in audit_fields
+        if current_audit_record.get(field) is not True
+    ]
+    if blocking_components:
+        status = "current_gate_blocked"
+        next_action = (
+            "clear_current_schema_pit_provenance_statistical_blockers_before_"
+            "counting_audit_refresh_history"
+        )
+    elif trailing_audit_pass_count < EVOLUTION_GATE_MIN_CONSECUTIVE_AUDIT_REFRESHES:
+        status = "history_below_threshold"
+        next_action = "run_distinct_derived_refreshes_after_current_audits_pass"
+    else:
+        status = "ready"
+        next_action = "none"
+    return {
+        "status": status,
+        "blocking_components": blocking_components,
+        "trailing_audit_pass_count": trailing_audit_pass_count,
+        "min_consecutive_audit_refreshes": (
+            EVOLUTION_GATE_MIN_CONSECUTIVE_AUDIT_REFRESHES
+        ),
+        "history_counts_only_passing_current_audits": True,
+        "refresh_without_current_audit_pass_can_satisfy_history": False,
+        "next_action": next_action,
+    }
+
+
 def build_report_intelligence_evolution_readiness_gate(
     *,
     run_id: str,
@@ -13071,6 +13116,10 @@ def build_report_intelligence_evolution_readiness_gate(
                 "trailing_audit_distinct_vintage_count": audit_trailing_pass_count,
                 "data_vintage_hash": data_vintage_hash,
                 "distinct_data_vintage_required": True,
+                "audit_history_dependency": _audit_history_dependency(
+                    current_audit_record=current_audit_record,
+                    trailing_audit_pass_count=audit_trailing_pass_count,
+                ),
             },
             blockers=audit_blockers,
         )

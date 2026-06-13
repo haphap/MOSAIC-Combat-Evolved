@@ -299,7 +299,11 @@ blocker families include:
    monitored validated recipes and no unvalidated confidence impact. Alpha decay
    and calibration drift observations are tracked but remain shadow-only.
 6. Refresh-history stability: audit history must satisfy the trailing-vintage
-   gate; monitor and gap-distribution trailing-vintage gates currently pass.
+   gate; monitor and gap-distribution trailing-vintage gates currently pass. The
+   current audit trailing blocker is downstream of `schema_accepted=false`, and
+   `evolution_readiness_gate.json` now records `audit_history_dependency` so
+   operators can see that distinct refreshes only count after the current
+   schema/PIT/provenance/statistical gates pass.
 7. Re-run
    `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke review-progress --root .`,
    `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke operator-readiness --root .`,

@@ -3747,6 +3747,66 @@ def _validate_evolution_readiness_gate_contract(
             and trailing_distinct >= min_refreshes
             and trailing_pass >= min_refreshes
         )
+        dependency = evidence.get("audit_history_dependency")
+        if not isinstance(dependency, Mapping):
+            failures.append(
+                f"{row_label}.evidence.audit_history_dependency: expected object"
+            )
+            dependency = {}
+        blocking_components = sorted(
+            field.removesuffix("_accepted")
+            for field in audit_fields
+            if evidence.get(field) is not True
+        )
+        expected_dependency_status = (
+            "current_gate_blocked"
+            if blocking_components
+            else "history_below_threshold"
+            if not audit_history_ready
+            else "ready"
+        )
+        observed_components = sorted(_string_items(dependency.get("blocking_components")))
+        if observed_components != blocking_components:
+            failures.append(
+                f"{row_label}.evidence.audit_history_dependency."
+                "blocking_components mismatch"
+            )
+        if dependency.get("status") != expected_dependency_status:
+            failures.append(
+                f"{row_label}.evidence.audit_history_dependency.status: "
+                f"expected {expected_dependency_status}"
+            )
+        expected_next_action = (
+            "clear_current_schema_pit_provenance_statistical_blockers_before_"
+            "counting_audit_refresh_history"
+            if blocking_components
+            else "run_distinct_derived_refreshes_after_current_audits_pass"
+            if not audit_history_ready
+            else "none"
+        )
+        if dependency.get("next_action") != expected_next_action:
+            failures.append(
+                f"{row_label}.evidence.audit_history_dependency.next_action: "
+                f"expected {expected_next_action}"
+            )
+        if dependency.get("history_counts_only_passing_current_audits") is not True:
+            failures.append(
+                f"{row_label}.evidence.audit_history_dependency."
+                "history_counts_only_passing_current_audits: must be true"
+            )
+        if (
+            dependency.get("refresh_without_current_audit_pass_can_satisfy_history")
+            is not False
+        ):
+            failures.append(
+                f"{row_label}.evidence.audit_history_dependency."
+                "refresh_without_current_audit_pass_can_satisfy_history: must be false"
+            )
+        if dependency.get("min_consecutive_audit_refreshes") != min_refreshes:
+            failures.append(
+                f"{row_label}.evidence.audit_history_dependency."
+                f"min_consecutive_audit_refreshes: expected {min_refreshes}"
+            )
         if audit_history_ready and "audit_refresh_history_below_threshold" in blockers:
             failures.append(
                 f"{row_label}.blockers: audit_refresh_history_below_threshold "

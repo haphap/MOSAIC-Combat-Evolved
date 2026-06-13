@@ -4022,10 +4022,100 @@ def test_report_intelligence_evolution_gate_blocks_until_objective_thresholds_pa
     assert gate["requirement_shortfalls"]["monitor_current_global_blocker_count"][
         "remaining"
     ] == 0
+    audit_check = next(
+        row for row in gate["checks"] if row["check_id"] == "RI-EVOL-04"
+    )
+    assert audit_check["evidence"]["audit_history_dependency"] == {
+        "blocking_components": [],
+        "history_counts_only_passing_current_audits": True,
+        "min_consecutive_audit_refreshes": 3,
+        "next_action": "run_distinct_derived_refreshes_after_current_audits_pass",
+        "refresh_without_current_audit_pass_can_satisfy_history": False,
+        "status": "history_below_threshold",
+        "trailing_audit_pass_count": 1,
+    }
     assert gate["requirement_shortfalls"]["markdown_coverage"] == {}
     gate_dump = json.dumps(gate, ensure_ascii=False)
     assert "claim_text" not in gate_dump
     assert "source_span_ids" not in gate_dump
+
+
+def test_report_intelligence_evolution_gate_explains_schema_blocked_audit_history():
+    forecast_rows, outcome_rows = _full_evolution_outcome_fixture()
+    clean_monitor = {
+        "observation_count": 20,
+        "blocked_recipe_count": 0,
+        "unvalidated_confidence_impact_count": 0,
+        "alpha_decay_fail_count": 0,
+        "calibration_drift_count": 0,
+        "blocker_counts": {},
+    }
+    accepted_audit = {
+        "schema_accepted": True,
+        "pit_accepted": True,
+        "provenance_accepted": True,
+        "statistical_accepted": True,
+    }
+    previous_vintage_1 = "sha256:" + "1" * 64
+    previous_vintage_2 = "sha256:" + "2" * 64
+
+    gate = build_report_intelligence_evolution_readiness_gate(
+        run_id="RIR-TEST-EVOLUTION-SCHEMA-BLOCKED-AUDIT-HISTORY",
+        forecast_rows=forecast_rows,
+        outcome_label_rows=outcome_rows,
+        recipe_paper_trading_summary=_passing_recipe_paper_trading_summary(),
+        confidence_impact_monitor=clean_monitor,
+        markdown_coverage_summary={
+            "coverage_gate_status": "passed",
+            "coverage_gate_blockers": [],
+            "coverage_targets": {
+                "selected_report_count_min": 300,
+                "markdown_ready_count_min": 300,
+            },
+        },
+        pit_leakage_audit={"accepted": True},
+        extraction_provenance_audit={"accepted": True},
+        statistical_robustness_audit={"accepted": True},
+        schema_validation_report={"accepted": False},
+        gold_review_summary=_passing_forecast_gold_review_summary(),
+        outcome_labeling_readiness={"mapping_gap_counts": {}},
+        monitor_refresh_history_rows=[
+            {**clean_monitor, "data_vintage_hash": previous_vintage_1},
+            {**clean_monitor, "data_vintage_hash": previous_vintage_2},
+        ],
+        audit_refresh_history_rows=[
+            {**accepted_audit, "data_vintage_hash": previous_vintage_1},
+            {**accepted_audit, "data_vintage_hash": previous_vintage_2},
+        ],
+        gap_distribution_history_rows=[
+            {"stable": True, "data_vintage_hash": previous_vintage_1},
+            {"stable": True, "data_vintage_hash": previous_vintage_2},
+        ],
+    )
+
+    audit_check = next(
+        row for row in gate["checks"] if row["check_id"] == "RI-EVOL-04"
+    )
+    assert {
+        "current_schema_or_audit_gate_blocked",
+        "audit_refresh_history_below_threshold",
+    } <= set(audit_check["blockers"])
+    assert audit_check["evidence"]["audit_history_dependency"] == {
+        "blocking_components": ["schema"],
+        "history_counts_only_passing_current_audits": True,
+        "min_consecutive_audit_refreshes": 3,
+        "next_action": (
+            "clear_current_schema_pit_provenance_statistical_blockers_before_"
+            "counting_audit_refresh_history"
+        ),
+        "refresh_without_current_audit_pass_can_satisfy_history": False,
+        "status": "current_gate_blocked",
+        "trailing_audit_pass_count": 0,
+    }
+    assert (
+        gate["requirement_shortfalls"]["audit_distinct_vintage_count"]["next_action"]
+        == audit_check["evidence"]["audit_history_dependency"]["next_action"]
+    )
 
 
 def test_report_intelligence_evolution_gate_uses_unlabelable_gap_basis():
@@ -4431,6 +4521,12 @@ def test_report_intelligence_evolution_gate_requires_distinct_data_vintages():
     )
     assert monitor_check["evidence"]["trailing_monitor_distinct_vintage_count"] == 1
     assert audit_check["evidence"]["trailing_audit_distinct_vintage_count"] == 1
+    assert audit_check["evidence"]["audit_history_dependency"]["status"] == (
+        "history_below_threshold"
+    )
+    assert audit_check["evidence"]["audit_history_dependency"]["next_action"] == (
+        "run_distinct_derived_refreshes_after_current_audits_pass"
+    )
     assert (
         gap_check["evidence"]["trailing_gap_distribution_distinct_vintage_count"]
         == 1

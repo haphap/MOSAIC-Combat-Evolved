@@ -2735,6 +2735,42 @@ def test_evolution_readiness_gate_contract_rejects_missing_current_audit_blocker
     )
 
 
+def test_evolution_readiness_gate_contract_rejects_stale_audit_dependency(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    gate_path = registry / "evolution_readiness_gate.json"
+    gate = json.loads(gate_path.read_text(encoding="utf-8"))
+    audit_check = next(
+        check for check in gate["checks"] if check["check_id"] == "RI-EVOL-04"
+    )
+    audit_check["evidence"]["audit_history_dependency"] = {
+        "blocking_components": [],
+        "history_counts_only_passing_current_audits": True,
+        "min_consecutive_audit_refreshes": 3,
+        "next_action": "run_distinct_derived_refreshes_after_current_audits_pass",
+        "refresh_without_current_audit_pass_can_satisfy_history": False,
+        "status": "history_below_threshold",
+        "trailing_audit_pass_count": 0,
+    }
+    gate_path.write_text(
+        json.dumps(gate, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _evolution_readiness_gate_record(tmp_path)
+
+    assert not record.accepted
+    assert any(
+        "audit_history_dependency.blocking_components mismatch" in item
+        for item in record.failures
+    )
+    assert any(
+        "audit_history_dependency.status: expected current_gate_blocked" in item
+        for item in record.failures
+    )
+
+
 def test_evolution_readiness_gate_contract_rejects_stale_audit_history_blocker(
     tmp_path: Path,
 ):

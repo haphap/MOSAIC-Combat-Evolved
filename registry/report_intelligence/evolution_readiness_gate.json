@@ -1,5 +1,5 @@
 {
-  "as_of_datetime": "2026-06-12T03:46:39+00:00",
+  "as_of_datetime": "2026-06-13T14:50:37+00:00",
   "blocker_count": 13,
   "blockers": [
     "audit_refresh_history_below_threshold",
@@ -75,6 +75,17 @@
       ],
       "check_id": "RI-EVOL-04",
       "evidence": {
+        "audit_history_dependency": {
+          "blocking_components": [
+            "schema"
+          ],
+          "history_counts_only_passing_current_audits": true,
+          "min_consecutive_audit_refreshes": 3,
+          "next_action": "clear_current_schema_pit_provenance_statistical_blockers_before_counting_audit_refresh_history",
+          "refresh_without_current_audit_pass_can_satisfy_history": false,
+          "status": "current_gate_blocked",
+          "trailing_audit_pass_count": 0
+        },
         "data_vintage_hash": "sha256:df9b02eeb1f2492bea5cdb009efa79d3c3a152b585b1efa748e8b74bcec081fd",
         "distinct_data_vintage_required": true,
         "pit_accepted": true,
@@ -332,7 +343,7 @@
     "audit_distinct_vintage_count": {
       "blocker": "audit_refresh_history_below_threshold",
       "current": 0,
-      "next_action": "refresh_distinct_data_vintages_until_schema_pit_provenance_statistical_audits_pass_three_times",
+      "next_action": "clear_current_schema_pit_provenance_statistical_blockers_before_counting_audit_refresh_history",
       "remaining": 3,
       "target": 3
     },
