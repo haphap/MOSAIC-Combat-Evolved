@@ -65,6 +65,13 @@ from .temp_paths import (
 MANUAL_REVIEW_PROGRESS_REPORT_ID = "RKE-MANUAL-REVIEW-PROGRESS-20260606"
 MANUAL_REVIEW_PROGRESS_REPORT_PATH = "registry/review_batches/manual_review_progress_report.json"
 MANUAL_REVIEW_RUNBOOK_MD_PATH = "registry/review_batches/manual_review_runbook.md"
+TEMP_COPY_IGNORED_PRIVATE_SOURCE_FILES = frozenset(
+    {
+        "registry/sources/tushare_research_reports.gold_candidates.jsonl",
+        "registry/sources/tushare_research_reports.jsonl",
+        "registry/sources/tushare_research_reports.manifest.json",
+    }
+)
 
 ReviewProgressKind = Literal["gold_set", "source_license", "lockbox", "footprint_review"]
 
@@ -108,7 +115,27 @@ def _jsonable(value: Any) -> Any:
 
 
 def _copy_registry(root_path: Path, temp_root: Path) -> None:
-    shutil.copytree(root_path / "registry", temp_root / "registry")
+    root_resolved = root_path.resolve()
+
+    def _ignore_private_source_files(directory: str, names: list[str]) -> set[str]:
+        ignored: set[str] = set()
+        directory_path = Path(directory)
+        for name in names:
+            try:
+                relative_path = (
+                    directory_path / name
+                ).resolve().relative_to(root_resolved).as_posix()
+            except ValueError:
+                continue
+            if relative_path in TEMP_COPY_IGNORED_PRIVATE_SOURCE_FILES:
+                ignored.add(name)
+        return ignored
+
+    shutil.copytree(
+        root_path / "registry",
+        temp_root / "registry",
+        ignore=_ignore_private_source_files,
+    )
     schemas_path = root_path / "schemas"
     if schemas_path.exists():
         shutil.copytree(schemas_path, temp_root / "schemas")
@@ -1103,10 +1130,29 @@ def build_manual_review_progress_summary(
     *,
     path: str = MANUAL_REVIEW_PROGRESS_REPORT_PATH,
     runbook_path: str = MANUAL_REVIEW_RUNBOOK_MD_PATH,
+    review_kinds: Sequence[ReviewProgressKind] | None = None,
 ) -> Mapping[str, Any]:
     """Return a public-safe compact progress view for operator CLI use."""
+    requested_kinds = tuple(review_kinds or ())
+    requested_kind_set = set(requested_kinds)
+    selected_gates = tuple(
+        gate
+        for gate in report.gates
+        if not requested_kind_set or gate.review_kind in requested_kind_set
+    )
+    selected_ready_for_promotion = bool(selected_gates) and all(
+        gate.ready_for_promotion for gate in selected_gates
+    )
+    selected_blockers: list[str] = []
     gate_summaries: list[Mapping[str, Any]] = []
-    for gate in report.gates:
+    for gate in selected_gates:
+        if not gate.ready_for_promotion:
+            selected_blockers.append(
+                f"{gate.review_kind}: {gate.complete_rows}/{gate.target_rows} ready"
+            )
+            selected_blockers.extend(
+                f"{gate.review_kind}: {blocker}" for blocker in gate.blockers
+            )
         gate_summaries.append(
             {
                 "review_kind": gate.review_kind,
@@ -1134,9 +1180,12 @@ def build_manual_review_progress_summary(
     return {
         "path": path,
         "runbook_path": runbook_path,
-        "ready_for_promotion_dry_run": report.ready_for_promotion_dry_run,
-        "blocker_count": len(report.blockers),
-        "gate_count": len(report.gates),
+        "ready_for_promotion_dry_run": selected_ready_for_promotion,
+        "total_ready_for_promotion_dry_run": report.ready_for_promotion_dry_run,
+        "blocker_count": len(_dedupe(selected_blockers)),
+        "gate_count": len(selected_gates),
+        "total_gate_count": len(report.gates),
+        "reported_review_kinds": [gate.review_kind for gate in selected_gates],
         "gates": gate_summaries,
     }
 

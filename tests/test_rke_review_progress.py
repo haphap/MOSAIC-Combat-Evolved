@@ -4,6 +4,7 @@ import json
 import shutil
 from pathlib import Path
 
+from mosaic.rke import review_progress as review_progress_module
 from mosaic.rke.cli import main
 from mosaic.rke.manual_review_batches import write_manual_review_batches
 from mosaic.rke.license_policy_import import build_source_license_policy_template
@@ -356,6 +357,118 @@ def test_review_progress_no_write_does_not_rewrite_artifacts(
     )
     assert not progress_path.exists()
     assert not runbook_path.exists()
+
+
+def test_review_progress_summary_filters_review_kind(tmp_path: Path, capsys):
+    _copy_registry(tmp_path)
+
+    code = main(
+        (
+            "review-progress",
+            "--root",
+            str(tmp_path),
+            "--summary",
+            "--no-write",
+            "--review-kind",
+            "footprint_review",
+        )
+    )
+    output = json.loads(capsys.readouterr().out)
+
+    assert code == 2
+    assert output["ready_for_promotion_dry_run"] is False
+    assert output["total_ready_for_promotion_dry_run"] is False
+    assert output["gate_count"] == 1
+    assert output["total_gate_count"] == 4
+    assert output["reported_review_kinds"] == ["footprint_review"]
+    assert [gate["review_kind"] for gate in output["gates"]] == ["footprint_review"]
+    assert "batch_plan" not in json.dumps(output, ensure_ascii=False)
+    assert output["gates"][0]["next_manual_action"] in {
+        "fill_current_batch_review_fields_then_dry_run",
+        "prepare_next_review_batch",
+    }
+
+
+def test_review_progress_summary_filter_exit_uses_selected_gate(
+    tmp_path: Path,
+    capsys,
+):
+    _copy_registry_without_license_reset(tmp_path)
+    for incomplete_gate_path in (
+        tmp_path / "registry/review_batches/gold_set_full_reviewed.jsonl",
+        tmp_path
+        / "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+        tmp_path / "registry/review_batches/lockbox_reviewed.json",
+    ):
+        if incomplete_gate_path.exists():
+            incomplete_gate_path.unlink()
+
+    code = main(
+        (
+            "review-progress",
+            "--root",
+            str(tmp_path),
+            "--summary",
+            "--no-write",
+            "--review-kind",
+            "source_license",
+        )
+    )
+    output = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert output["ready_for_promotion_dry_run"] is True
+    assert output["total_ready_for_promotion_dry_run"] is False
+    assert output["blocker_count"] == 0
+    assert output["gate_count"] == 1
+    assert output["reported_review_kinds"] == ["source_license"]
+    assert output["gates"][0]["ready_for_promotion"] is True
+
+
+def test_review_progress_review_kind_requires_summary(tmp_path: Path, capsys):
+    _copy_registry(tmp_path)
+
+    code = main(
+        (
+            "review-progress",
+            "--root",
+            str(tmp_path),
+            "--review-kind",
+            "gold_set",
+        )
+    )
+    output = json.loads(capsys.readouterr().out)
+
+    assert code == 2
+    assert output == {
+        "accepted": False,
+        "blockers": ["--review-kind requires --summary"],
+    }
+
+
+def test_review_progress_temp_copy_skips_private_raw_sources(tmp_path: Path):
+    _copy_registry(tmp_path)
+    temp_root = tmp_path / "temp-copy"
+
+    review_progress_module._copy_registry(tmp_path, temp_root)
+
+    assert not (
+        temp_root / "registry/sources/tushare_research_reports.jsonl"
+    ).exists()
+    assert not (
+        temp_root / "registry/sources/tushare_research_reports.manifest.json"
+    ).exists()
+    assert not (
+        temp_root / "registry/sources/tushare_research_reports.gold_candidates.jsonl"
+    ).exists()
+    assert (
+        temp_root
+        / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    ).exists()
+    assert (
+        temp_root
+        / "registry/report_intelligence/analytical_footprint_review_template.jsonl"
+    ).exists()
 
 
 def test_review_progress_reports_current_batch_scratch_status(tmp_path: Path):

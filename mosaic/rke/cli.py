@@ -650,6 +650,15 @@ def build_parser() -> argparse.ArgumentParser:
             "the current in-memory check result only."
         ),
     )
+    review_progress.add_argument(
+        "--review-kind",
+        action="append",
+        choices=("gold_set", "footprint_review", "source_license", "lockbox"),
+        help=(
+            "Limit --summary output to one review kind. May be repeated. "
+            "Requires --summary."
+        ),
+    )
 
     fetch_reports = subparsers.add_parser(
         "fetch-tushare-reports",
@@ -1481,6 +1490,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         _print_json({"path": result["path"], **asdict(report)})
         return 0 if report.accepted else 2
     if args.command == "review-progress":
+        if args.review_kind and not args.summary:
+            _print_json(
+                {
+                    "accepted": False,
+                    "blockers": ["--review-kind requires --summary"],
+                }
+            )
+            return 2
         report = build_manual_review_progress(root)
         if args.no_write:
             result = {"path": str(root / "registry/review_batches/manual_review_progress_report.json")}
@@ -1489,13 +1506,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             result = write_manual_review_progress_report(root)
             runbook = write_manual_review_runbook(root)
         if args.summary:
-            _print_json(
-                build_manual_review_progress_summary(
-                    report,
-                    path=result["path"],
-                    runbook_path=runbook["path"],
-                )
+            summary = build_manual_review_progress_summary(
+                report,
+                path=result["path"],
+                runbook_path=runbook["path"],
+                review_kinds=tuple(args.review_kind or ()),
             )
+            _print_json(summary)
+            return 0 if bool(summary["ready_for_promotion_dry_run"]) else 2
         else:
             _print_json(
                 {
