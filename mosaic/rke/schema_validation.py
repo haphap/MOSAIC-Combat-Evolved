@@ -3665,6 +3665,8 @@ def _validate_prompt_mutation_candidate_contract(
         evidence_refs = row.get("evidence_refs")
         if not isinstance(evidence_refs, Sequence) or isinstance(evidence_refs, str):
             failures.append(f"{row_label}.evidence_refs: expected array")
+        elif not evidence_refs:
+            failures.append(f"{row_label}.evidence_refs: at least one evidence ref required")
         else:
             for evidence_index, evidence in enumerate(evidence_refs, 1):
                 evidence_label = f"{row_label}.evidence_refs[{evidence_index}]"
@@ -3683,6 +3685,10 @@ def _validate_prompt_mutation_candidate_contract(
                 if not artifact_path.startswith(PROMPT_MUTATION_PUBLIC_EVIDENCE_PREFIXES):
                     failures.append(
                         f"{evidence_label}.artifact_path: must point to a public RKE aggregate artifact"
+                    )
+                elif not (root_path / artifact_path).exists():
+                    failures.append(
+                        f"{evidence_label}.artifact_path: referenced public evidence artifact must exist"
                     )
                 if any(
                     marker in artifact_path

@@ -2591,6 +2591,32 @@ def test_prompt_mutation_candidate_contract_requires_full_validation_matrix(
     assert any("shadow_paper_trading_pass" in item for item in record.failures)
 
 
+def test_prompt_mutation_candidate_contract_requires_existing_public_evidence(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    candidates_path = registry / "prompt_mutation_candidates.jsonl"
+    candidates = _read_prompt_mutation_candidates(candidates_path)
+    candidates[0]["evidence_refs"] = []
+    candidates[1]["evidence_refs"] = [
+        {
+            "artifact_path": (
+                "registry/report_intelligence/nonexistent_public_summary.json"
+            )
+        }
+    ]
+    _write_prompt_mutation_candidates(candidates_path, candidates)
+
+    record = _prompt_mutation_candidate_contract_record(tmp_path)
+
+    assert not record.accepted
+    assert any("evidence_refs: at least one evidence ref required" in item for item in record.failures)
+    assert any(
+        "referenced public evidence artifact must exist" in item
+        for item in record.failures
+    )
+
+
 def test_prompt_mutation_candidate_contract_rejects_private_evidence_paths(
     tmp_path: Path,
 ):
