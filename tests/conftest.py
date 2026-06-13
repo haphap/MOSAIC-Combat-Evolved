@@ -19,6 +19,13 @@ from pathlib import Path
 
 import pytest
 
+_RKE_DEFAULT_TMPDIR = Path(
+    os.environ.get("MOSAIC_RKE_TMPDIR") or "/home/hap/tmp/mosaic-rke"
+).expanduser()
+_RKE_DEFAULT_TMPDIR.mkdir(parents=True, exist_ok=True)
+os.environ.setdefault("MOSAIC_RKE_TMPDIR", str(_RKE_DEFAULT_TMPDIR))
+os.environ.setdefault("TMPDIR", str(_RKE_DEFAULT_TMPDIR))
+
 _LEAK_VARS = (
     "MOSAIC_PROMPTS_REPO",
     "MOSAIC_PROMPTS_ROOT",
