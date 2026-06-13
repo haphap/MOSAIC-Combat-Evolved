@@ -803,10 +803,17 @@ INDUSTRY_ETF_DECISION_BASIS = "absolute_proxy_return_direction"
 INDUSTRY_ETF_EVALUATION_POLICY = (
     "industry_etf_t_plus_1_multi_window_proxy_retains_long_horizon_evidence"
 )
+PROXY_BENCHMARK_SYMBOL = "SH510300"
+PROXY_BENCHMARK_SOURCE = "cn_etf"
+PROXY_BENCHMARK_FAMILY = "CSI300_ETF_PROXY"
+INDUSTRY_ETF_COST_MODEL_ID = "industry_etf_round_trip_10bps_v1"
+INDUSTRY_ETF_ROUND_TRIP_COST = 0.001
 STOCK_PRICE_PROXY_DECISION_BASIS = "directional_stock_return_and_relative_alpha"
 STOCK_PRICE_PROXY_EVALUATION_POLICY = (
     "stock_t_plus_1_multi_window_proxy_retains_long_horizon_evidence"
 )
+STOCK_PRICE_PROXY_COST_MODEL_ID = "single_stock_round_trip_20bps_v1"
+STOCK_PRICE_PROXY_ROUND_TRIP_COST = 0.002
 INDUSTRY_ETF_PROXY_WINDOW_EFFECTIVE_WEIGHTS: Mapping[str, float] = {
     "short": 0.25,
     "medium": 0.35,
@@ -1430,6 +1437,13 @@ def _validate_proxy_outcome_label_contract(row: Mapping[str, Any], row_label: st
     else:
         if round_trip_cost < 0:
             failures.append(f"{row_label}.round_trip_cost: must be >= 0")
+    for field, expected in (
+        ("benchmark_symbol", PROXY_BENCHMARK_SYMBOL),
+        ("benchmark_source", PROXY_BENCHMARK_SOURCE),
+        ("benchmark_family", PROXY_BENCHMARK_FAMILY),
+    ):
+        if row.get(field) != expected:
+            failures.append(f"{row_label}.{field}: must be {expected}")
     proxy_return_field = "stock_return" if label_type == "stock_price_proxy" else "proxy_return"
     proxy_return = _numeric_contract_value(
         row,
@@ -1523,6 +1537,17 @@ def _validate_proxy_outcome_label_contract(row: Mapping[str, Any], row_label: st
             failures.append(
                 f"{row_label}.evaluation_policy: must be {STOCK_PRICE_PROXY_EVALUATION_POLICY}"
             )
+        if row.get("cost_model_id") != STOCK_PRICE_PROXY_COST_MODEL_ID:
+            failures.append(
+                f"{row_label}.cost_model_id: must be {STOCK_PRICE_PROXY_COST_MODEL_ID}"
+            )
+        if round_trip_cost is not None and not _nearly_equal(
+            round_trip_cost,
+            STOCK_PRICE_PROXY_ROUND_TRIP_COST,
+        ):
+            failures.append(
+                f"{row_label}.round_trip_cost: must be {STOCK_PRICE_PROXY_ROUND_TRIP_COST}"
+            )
         if row.get("outcome_label_source") != "pit_stock_price_window":
             failures.append(
                 f"{row_label}.outcome_label_source: must be pit_stock_price_window"
@@ -1594,6 +1619,17 @@ def _validate_proxy_outcome_label_contract(row: Mapping[str, Any], row_label: st
         if row.get("evaluation_policy") != INDUSTRY_ETF_EVALUATION_POLICY:
             failures.append(
                 f"{row_label}.evaluation_policy: must be {INDUSTRY_ETF_EVALUATION_POLICY}"
+            )
+        if row.get("cost_model_id") != INDUSTRY_ETF_COST_MODEL_ID:
+            failures.append(
+                f"{row_label}.cost_model_id: must be {INDUSTRY_ETF_COST_MODEL_ID}"
+            )
+        if round_trip_cost is not None and not _nearly_equal(
+            round_trip_cost,
+            INDUSTRY_ETF_ROUND_TRIP_COST,
+        ):
+            failures.append(
+                f"{row_label}.round_trip_cost: must be {INDUSTRY_ETF_ROUND_TRIP_COST}"
             )
         if row.get("outcome_label_source") != "pit_industry_etf_price_window":
             failures.append(

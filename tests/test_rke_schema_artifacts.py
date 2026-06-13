@@ -1097,7 +1097,7 @@ def _base_outcome_label(label_type: str) -> dict[str, object]:
         else "SH512400",
         "benchmark_symbol": "SH510300",
         "benchmark_source": "cn_etf",
-        "benchmark_family": "csi300_etf_proxy",
+        "benchmark_family": "CSI300_ETF_PROXY",
         "benchmark_return": 0.01,
         "cost_model_id": "single_stock_round_trip_20bps_v1"
         if label_type == "stock_price_proxy"
@@ -1430,6 +1430,45 @@ def test_report_outcome_label_semantics_reject_bad_stock_target_resolution(
         "proxy_symbol: must be ordinary stock ts_code" in failure
         for failure in record.failures
     )
+
+
+def test_report_outcome_label_semantics_reject_bad_benchmark_and_cost_policy(
+    tmp_path: Path,
+):
+    stock_label = _base_outcome_label("stock_price_proxy")
+    stock_label["benchmark_symbol"] = "SH000300"
+    stock_label["benchmark_source"] = "index"
+    stock_label["benchmark_family"] = "CSI300_INDEX"
+    stock_label["cost_model_id"] = "single_stock_round_trip_5bps_v1"
+    stock_label["round_trip_cost"] = 0.0005
+    stock_label["after_cost_alpha"] = 0.0095
+    stock_label["directional_after_cost_return"] = 0.0195
+    industry_label = _base_outcome_label("industry_etf_proxy")
+    industry_label["cost_model_id"] = "industry_etf_round_trip_20bps_v1"
+    industry_label["round_trip_cost"] = 0.002
+    industry_label["after_cost_alpha"] = 0.008
+    industry_label["directional_after_cost_return"] = 0.018
+    _write_proxy_outcome_labels(tmp_path, [stock_label, industry_label])
+
+    record = _proxy_outcome_contract_record(tmp_path)
+
+    assert record.accepted is False
+    assert any("benchmark_symbol: must be SH510300" in failure for failure in record.failures)
+    assert any("benchmark_source: must be cn_etf" in failure for failure in record.failures)
+    assert any(
+        "benchmark_family: must be CSI300_ETF_PROXY" in failure
+        for failure in record.failures
+    )
+    assert any(
+        "cost_model_id: must be single_stock_round_trip_20bps_v1" in failure
+        for failure in record.failures
+    )
+    assert any("round_trip_cost: must be 0.002" in failure for failure in record.failures)
+    assert any(
+        "cost_model_id: must be industry_etf_round_trip_10bps_v1" in failure
+        for failure in record.failures
+    )
+    assert any("round_trip_cost: must be 0.001" in failure for failure in record.failures)
 
 
 def test_report_outcome_label_semantics_reject_missing_label_type(
