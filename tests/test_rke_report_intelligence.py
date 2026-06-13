@@ -7980,6 +7980,14 @@ def test_report_intelligence_evolution_gate_writer_preserves_stock_coverage_evid
     assert any(
         row["check_id"] == "RI-EVOL-05" for row in result["blocked_checks"]
     )
+    audit_blocked_check = next(
+        row for row in result["blocked_checks"] if row["check_id"] == "RI-EVOL-04"
+    )
+    audit_failure_summary = audit_blocked_check["current_audit_failure_summary"]
+    assert audit_failure_summary["dependency_status"] == "current_gate_blocked"
+    assert audit_failure_summary["blocking_components"] == ["schema"]
+    assert audit_failure_summary["current_failure_counts"]["schema"] == 1
+    assert audit_failure_summary["current_failure_refs"]["schema"] == []
     active_shortfalls = result["active_requirement_shortfalls"]
     assert {
         "audit_distinct_vintage_count",

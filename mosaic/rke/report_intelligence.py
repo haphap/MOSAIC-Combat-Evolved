@@ -13633,16 +13633,18 @@ def _evolution_gate_cli_summary(gate: Mapping[str, Any]) -> dict[str, Any]:
         if check.get("passed") is True:
             passed_check_ids.append(check_id)
             continue
-        blocked_checks.append(
-            {
-                "check_id": check_id,
-                "blockers": [
-                    str(blocker)
-                    for blocker in _ensure_list(check.get("blockers"))
-                    if str(blocker)
-                ],
-            }
-        )
+        blocked_check = {
+            "check_id": check_id,
+            "blockers": [
+                str(blocker)
+                for blocker in _ensure_list(check.get("blockers"))
+                if str(blocker)
+            ],
+        }
+        audit_summary = _evolution_gate_blocked_audit_failure_summary(check)
+        if audit_summary:
+            blocked_check["current_audit_failure_summary"] = audit_summary
+        blocked_checks.append(blocked_check)
     return {
         "blockers": [
             str(blocker)
@@ -13656,6 +13658,39 @@ def _evolution_gate_cli_summary(gate: Mapping[str, Any]) -> dict[str, Any]:
             _evolution_gate_active_requirement_shortfalls(gate, blocked_checks)
         ),
         "next_actions": _evolution_gate_cli_next_actions(blocked_checks),
+    }
+
+
+def _evolution_gate_blocked_audit_failure_summary(
+    check: Mapping[str, Any],
+) -> dict[str, Any]:
+    if str(check.get("check_id") or "") != "RI-EVOL-04":
+        return {}
+    evidence = _ensure_mapping(check.get("evidence"))
+    dependency = _ensure_mapping(evidence.get("audit_history_dependency"))
+    if not dependency:
+        return {}
+    failure_refs_raw = _ensure_mapping(dependency.get("current_failure_refs"))
+    failure_refs = {
+        str(component): [
+            str(item)
+            for item in _ensure_list(refs)
+            if str(item).strip()
+        ]
+        for component, refs in sorted(failure_refs_raw.items())
+    }
+    return {
+        "dependency_status": str(dependency.get("status") or ""),
+        "blocking_components": [
+            str(component)
+            for component in _ensure_list(dependency.get("blocking_components"))
+            if str(component).strip()
+        ],
+        "current_failure_counts": _integer_mapping_values(
+            _ensure_mapping(dependency.get("current_failure_counts"))
+        ),
+        "current_failure_refs": failure_refs,
+        "next_action": str(dependency.get("next_action") or ""),
     }
 
 
