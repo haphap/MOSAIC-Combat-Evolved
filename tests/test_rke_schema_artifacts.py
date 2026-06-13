@@ -2735,11 +2735,27 @@ def test_manual_review_progress_contract_rejects_count_or_command_drift(
         "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke "
         "mosaic-rke apply-footprint-review --root ."
     )
+    progress["gates"][1]["apply_command"] = (
+        "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke "
+        "mosaic-rke apply-footprint-review --root . "
+        "--input registry/report_intelligence/analytical_footprint_review_batch.jsonl"
+    )
     progress["gates"][1]["current_batch_status"]["pending_rows"] = 49
     progress["gates"][1]["batch_plan"][0]["offset"] = 50
     progress["gates"][1]["batch_plan"][0]["apply_effect"] = "replace_promotion_input"
     progress["gates"][1]["batch_plan"][0]["promotion_input_path"] = (
         "registry/report_intelligence/analytical_footprint_review_batch.jsonl"
+    )
+    progress["gates"][1]["batch_plan"][0]["commands"]["apply"] = (
+        "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke "
+        "mosaic-rke apply-footprint-review --root . "
+        "--input registry/report_intelligence/analytical_footprint_reviewed.jsonl"
+    )
+    progress["gates"][1]["batch_plan"][0]["commands"]["dry_run"] = (
+        progress["gates"][1]["batch_plan"][0]["commands"]["dry_run"].replace(
+            "--dry-run",
+            "",
+        )
     )
     progress["gates"][1]["batch_plan"][0]["commands"]["evidence"] = (
         progress["gates"][1]["batch_plan"][0]["commands"]["evidence"].replace(
@@ -2759,6 +2775,8 @@ def test_manual_review_progress_contract_rejects_count_or_command_drift(
     assert any("prepare_command: missing MOSAIC_RKE_TMPDIR prefix" in item for item in record.failures)
     assert any("prepare_command: missing TMPDIR prefix" in item for item in record.failures)
     assert any("dry_run_command: must include --dry-run" in item for item in record.failures)
+    assert any("dry_run_command: expected promotion input" in item for item in record.failures)
+    assert any("apply_command: expected promotion input" in item for item in record.failures)
     assert any(
         "current_batch_status: complete + pending + malformed must equal rows" in item
         for item in record.failures
@@ -2766,6 +2784,9 @@ def test_manual_review_progress_contract_rejects_count_or_command_drift(
     assert any("batch_plan[1].offset: expected 0" in item for item in record.failures)
     assert any("batch_plan[1].apply_effect" in item for item in record.failures)
     assert any("batch_plan[1].promotion_input_path" in item for item in record.failures)
+    assert any("batch_plan[1].commands.dry_run: must include --dry-run" in item for item in record.failures)
+    assert any("batch_plan[1].commands.apply: expected batch input" in item for item in record.failures)
+    assert any("batch_plan[1].commands.apply: must not use promotion input" in item for item in record.failures)
 
 
 def test_operator_readiness_contract_accepts_current_public_artifact(

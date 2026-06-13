@@ -3870,6 +3870,18 @@ def _validate_manual_review_progress_contract(
         dry_run_command = str(gate.get("dry_run_command") or "")
         if "--dry-run" not in dry_run_command:
             failures.append(f"{row_label}.dry_run_command: must include --dry-run")
+        if review_kind in {"gold_set", "footprint_review"}:
+            expected_gate_input = (
+                "registry/review_batches/gold_set_full_reviewed.jsonl"
+                if review_kind == "gold_set"
+                else "registry/report_intelligence/analytical_footprint_reviewed.jsonl"
+            )
+            for command_field in ("dry_run_command", "apply_command"):
+                command = str(gate.get(command_field) or "")
+                if f"--input {expected_gate_input}" not in command:
+                    failures.append(
+                        f"{row_label}.{command_field}: expected promotion input {expected_gate_input}"
+                    )
         batch_status = gate.get("current_batch_status")
         if isinstance(batch_status, Mapping) and batch_status:
             rows = _int_or_none(batch_status.get("rows"))
@@ -3991,6 +4003,22 @@ def _validate_manual_review_progress_contract(
                         failures.append(
                             f"{batch_label}.commands.{command_name}: must invoke mosaic-rke"
                         )
+                for command_name in ("dry_run", "apply"):
+                    command = str(commands.get(command_name) or "")
+                    if f"--input {expected_batch_input}" not in command:
+                        failures.append(
+                            f"{batch_label}.commands.{command_name}: expected batch input {expected_batch_input}"
+                        )
+                    if f"--input {expected_promotion_input}" in command:
+                        failures.append(
+                            f"{batch_label}.commands.{command_name}: must not use promotion input {expected_promotion_input}"
+                        )
+                batch_dry_run_command = str(commands.get("dry_run") or "")
+                if "--dry-run" not in batch_dry_run_command:
+                    failures.append(f"{batch_label}.commands.dry_run: must include --dry-run")
+                batch_apply_command = str(commands.get("apply") or "")
+                if "--dry-run" in batch_apply_command:
+                    failures.append(f"{batch_label}.commands.apply: must not include --dry-run")
                 evidence_command = str(commands.get("evidence") or "")
                 prepare_command_for_batch = str(commands.get("prepare") or "")
                 if offset is not None and f"--offset {offset}" not in evidence_command:
