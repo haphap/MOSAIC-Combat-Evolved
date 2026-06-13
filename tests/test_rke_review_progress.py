@@ -531,6 +531,18 @@ def test_review_progress_actions_only_reports_next_manual_work(
     )
     assert actions["gold_set"]["can_run_now"] is True
     assert actions["gold_set"]["blocks_promotion"] is True
+    assert actions["gold_set"]["review_aids"]["policy"] == (
+        "private_review_aids_only_not_import_files"
+    )
+    assert actions["gold_set"]["review_aids"]["assist_markdown"] == (
+        "registry/review_batches/gold_set_review_assist.md"
+    )
+    assert actions["gold_set"]["review_aids"]["evidence_markdown"] == (
+        "registry/review_batches/gold_set_review_evidence.md"
+    )
+    assert actions["gold_set"]["review_aids"]["fill_import_path"] == (
+        "registry/review_batches/gold_set_reviewed.jsonl"
+    )
     if actions["gold_set"]["action_state"] == "needs_human_review_fields":
         assert actions["gold_set"]["commands"]["dry_run"].startswith(
             RKE_OPERATOR_TMP_ENV_PREFIX
@@ -549,6 +561,15 @@ def test_review_progress_actions_only_reports_next_manual_work(
     }
     assert actions["footprint_review"]["batch_overview"]["batch_count"] == 21
     assert actions["footprint_review"]["batch_overview"]["final_batch_limit"] == 1
+    assert actions["footprint_review"]["review_aids"]["policy"] == (
+        "private_review_aids_only_not_import_files"
+    )
+    assert actions["footprint_review"]["review_aids"]["evidence_markdown"] == (
+        "registry/report_intelligence/analytical_footprint_review_evidence.md"
+    )
+    assert actions["footprint_review"]["review_aids"]["assist_workbook_markdown"] == (
+        "registry/report_intelligence/analytical_footprint_review_workbook.md"
+    )
     assert "apply" not in actions["footprint_review"]["commands"]
     assert (
         actions["source_license"]["next_manual_action"]

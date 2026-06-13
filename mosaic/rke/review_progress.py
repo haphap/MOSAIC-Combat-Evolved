@@ -27,6 +27,8 @@ from .manual_review_batches import (
     GOLD_FULL_REVIEWED_IMPORT_PATH,
     GOLD_REVIEW_TEMPLATE_PATH,
     GOLD_REVIEWED_IMPORT_PATH,
+    GOLD_REVIEW_ASSIST_JSONL_PATH,
+    GOLD_REVIEW_ASSIST_MD_PATH,
     GOLD_REVIEW_EVIDENCE_JSONL_PATH,
     GOLD_REVIEW_EVIDENCE_MD_PATH,
     GOLD_REVIEW_WORKBOOK_MD_PATH,
@@ -1201,6 +1203,38 @@ def _compact_batch_overview(gate: ManualReviewGateProgress) -> Mapping[str, Any]
     return overview
 
 
+def _review_aid_paths(gate: ManualReviewGateProgress) -> Mapping[str, Any]:
+    if gate.review_kind == "gold_set":
+        return {
+            "policy": "private_review_aids_only_not_import_files",
+            "fill_import_path": GOLD_REVIEWED_IMPORT_PATH,
+            "promotion_import_path": GOLD_FULL_REVIEWED_IMPORT_PATH,
+            "assist_jsonl": GOLD_REVIEW_ASSIST_JSONL_PATH,
+            "assist_markdown": GOLD_REVIEW_ASSIST_MD_PATH,
+            "evidence_jsonl": GOLD_REVIEW_EVIDENCE_JSONL_PATH,
+            "evidence_markdown": GOLD_REVIEW_EVIDENCE_MD_PATH,
+            "batch_workbook_markdown": GOLD_REVIEW_WORKBOOK_MD_PATH,
+        }
+    if gate.review_kind == "footprint_review":
+        return {
+            "policy": "private_review_aids_only_not_import_files",
+            "fill_import_path": ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH,
+            "promotion_import_path": ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH,
+            "assist_jsonl": ANALYTICAL_FOOTPRINT_REVIEW_ASSIST_JSONL_PATH,
+            "assist_workbook_markdown": ANALYTICAL_FOOTPRINT_REVIEW_WORKBOOK_MD_PATH,
+            "evidence_jsonl": ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_JSONL_PATH,
+            "evidence_markdown": ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_MD_PATH,
+        }
+    if gate.review_kind == "source_license":
+        return {
+            "policy": "private_review_aids_only_not_import_files",
+            "fill_policy_path": SOURCE_LICENSE_REVIEWED_POLICY_PATH,
+            "policy_template_path": SOURCE_LICENSE_POLICY_TEMPLATE_PATH,
+            "workbook_markdown": SOURCE_LICENSE_REVIEW_WORKBOOK_MD_PATH,
+        }
+    return {}
+
+
 def _lockbox_dependency_blockers(
     gate: ManualReviewGateProgress,
     gates: Sequence[ManualReviewGateProgress],
@@ -1302,6 +1336,7 @@ def build_manual_review_progress_summary(
                     gate.current_batch_status
                 ),
                 "batch_overview": _compact_batch_overview(gate),
+                "review_aids": _review_aid_paths(gate),
                 "next_batch_commands": dict(gate.next_batch_commands),
                 "promotion_commands": {
                     "prepare": gate.prepare_command,
@@ -1503,6 +1538,7 @@ def build_manual_review_action_queue(
                 ),
                 "current_batch_stale_after_promotion_ready": stale_current_batch,
                 "batch_overview": _compact_batch_overview(gate),
+                "review_aids": _review_aid_paths(gate),
                 "missing_required_fields": dict(
                     {} if stale_current_batch else current.get("missing_required_fields") or {}
                 ),

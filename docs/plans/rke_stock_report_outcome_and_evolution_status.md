@@ -293,6 +293,13 @@ review-only inferred indicator candidates for missing metric mappings. These
 also are not import files. Gold-set and analytical-footprint evidence commands
 now support `--review-input`, so the private evidence draft can follow the exact
 scratch batch order instead of priority sorting a different set of pending rows.
+`review-progress --summary --no-write` and
+`review-progress --actions-only --no-write` now include `review_aids` path maps
+for each manual gate, so operators can see the current private evidence
+Markdown/JSONL, assist workbook, fill import, and promotion import paths without
+opening the full runbook. These are path-only pointers and remain non-import
+review aids unless explicitly listed as `fill_import_path` or
+`promotion_import_path`.
 
 `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke schema-status --root .`
 currently exits with code 2 by design. The current failing semantic records are
