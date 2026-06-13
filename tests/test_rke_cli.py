@@ -152,6 +152,35 @@ def test_rke_cli_master_plan_status_writes_coverage(tmp_path: Path, capsys):
     assert (tmp_path / "registry/audits/rke_master_plan_coverage_report.json").exists()
 
 
+def test_rke_cli_master_plan_status_no_write_preserves_artifacts(
+    tmp_path: Path, capsys
+):
+    _copy_registry(tmp_path)
+    shutil.copytree(Path("docs"), tmp_path / "docs")
+    shutil.copytree(Path("schemas"), tmp_path / "schemas")
+
+    main(("master-plan-status", "--root", str(tmp_path)))
+    capsys.readouterr()
+
+    sentinel_by_path = {
+        tmp_path / "registry/audits/central_bank_mvp_audit_trace.json": '{"sentinel":"trace"}\n',
+        tmp_path / "registry/audits/central_bank_mvp_audit_view.json": '{"sentinel":"view"}\n',
+        tmp_path / "registry/audits/central_bank_mvp_audit_view.md": "sentinel view\n",
+        tmp_path / "registry/audits/rke_completion_audit.json": '{"sentinel":"completion"}\n',
+        tmp_path / "registry/audits/rke_master_plan_coverage_report.json": '{"sentinel":"coverage"}\n',
+    }
+    for path, sentinel in sentinel_by_path.items():
+        path.write_text(sentinel, encoding="utf-8")
+
+    code = main(("master-plan-status", "--root", str(tmp_path), "--no-write"))
+    output = json.loads(capsys.readouterr().out)
+
+    assert code == 2
+    assert output["coverage_complete"] is False
+    for path, sentinel in sentinel_by_path.items():
+        assert path.read_text(encoding="utf-8") == sentinel
+
+
 def test_rke_cli_audit_view_writes_trace_view(tmp_path: Path, capsys):
     _copy_registry(tmp_path)
 

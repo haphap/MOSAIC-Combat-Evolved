@@ -270,9 +270,9 @@ uv run mosaic-rke report-intelligence --root . --refresh-derived-only
 核心验证：
 
 ```bash
-uv run mosaic-rke schema-status --root .
-uv run mosaic-rke master-plan-status --root .
-uv run mosaic-rke operator-readiness --root .
+uv run mosaic-rke schema-status --root . --no-write
+uv run mosaic-rke master-plan-status --root . --no-write
+uv run mosaic-rke operator-readiness --root . --no-write
 uv run mosaic-rke promotion-status --root . --no-write
 uv run mosaic-rke manifest --root .
 uv run mosaic-rke validate-required --root .

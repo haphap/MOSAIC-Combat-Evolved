@@ -248,6 +248,11 @@ def build_parser() -> argparse.ArgumentParser:
     master_plan_status.add_argument(
         "--root", default=".", help="Repository root. Defaults to current directory."
     )
+    master_plan_status.add_argument(
+        "--no-write",
+        action="store_true",
+        help="Do not rewrite audit or master-plan coverage artifacts.",
+    )
 
     dashboard = subparsers.add_parser(
         "dashboard", help="Write dashboard JSON and Markdown reports."
@@ -1251,9 +1256,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 0 if view.complete else 2
     if args.command == "master-plan-status":
-        write_audit_trace_view(root)
-        write_completion_audit(root)
-        write_master_plan_coverage_report(root)
+        if not args.no_write:
+            write_audit_trace_view(root)
+            write_completion_audit(root)
+            write_master_plan_coverage_report(root)
         result = build_master_plan_coverage_report(root)
         _print_json(asdict(result))
         return 0 if result.coverage_complete else 2
