@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from .manual_review_bundle_manifest import MANUAL_REVIEW_BUNDLE_ARTIFACTS
+from .manual_review_aids import manual_review_aid_paths, manual_review_field_contract
 from .required_data import normalize_required_data_items
 
 
@@ -5069,6 +5070,37 @@ def _validate_operator_handoff_contract(root_path: Path) -> tuple[int, list[str]
     run_order = tuple(str(item) for item in _string_items(handoff.get("run_order")))
     if run_order and run_order != tuple(step_ids):
         failures.append("operator_handoff.run_order mismatch with command_sequence")
+
+    raw_gates = handoff.get("gates")
+    if not isinstance(raw_gates, Sequence) or isinstance(raw_gates, str):
+        failures.append("operator_handoff.gates: expected array")
+    else:
+        gates = [gate for gate in raw_gates if isinstance(gate, Mapping)]
+        gate_by_kind = {str(gate.get("review_kind") or ""): gate for gate in gates}
+        for review_kind in (
+            "gold_set",
+            "footprint_review",
+            "source_license",
+            "lockbox",
+        ):
+            gate = gate_by_kind.get(review_kind)
+            if not gate:
+                failures.append(f"operator_handoff.gates[{review_kind}]: missing")
+                continue
+            review_aids = gate.get("review_aids")
+            expected_review_aids = dict(manual_review_aid_paths(review_kind))
+            if review_aids != expected_review_aids:
+                failures.append(
+                    f"operator_handoff.gates[{review_kind}].review_aids: "
+                    "must match shared manual review aid paths"
+                )
+            field_contract = gate.get("field_contract")
+            expected_field_contract = dict(manual_review_field_contract(review_kind))
+            if field_contract != expected_field_contract:
+                failures.append(
+                    f"operator_handoff.gates[{review_kind}].field_contract: "
+                    "must match shared manual review field contract"
+                )
 
     return len(steps), failures
 

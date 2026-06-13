@@ -313,13 +313,20 @@ The same `field_contract` maps are also rendered into
 optional fields, boolean fields with `true`/`false` values, date format
 requirements, and fields that must be preserved. This makes the gold-set
 `review_notes` optional but analytical-footprint `review_notes` required
-distinction explicit in both JSON action output and the Markdown runbook.
+distinction explicit in JSON action output and the Markdown runbook.
+`registry/handoffs/rke_operator_handoff.json` and `.md` now expose the same
+public-safe `review_aids` and `field_contract` maps per manual gate, so the
+operator handoff entry point carries the same path and field rules as
+`review-progress`, `schema-status`, `evolution-readiness`, and
+`promotion-status`.
 `tests/test_rke_review_progress.py` now asserts that these public-safe contracts
 stay aligned with the gold-set, footprint, source-license, and lockbox import
 validator constants. It also asserts that the public-safe `review_aids` path
 maps stay aligned with the source import, evidence, assist, workbook, and
 lockbox artifact constants, so operator-facing action output cannot silently
 drift to stale manual-review paths.
+`tests/test_rke_operator_handoff.py` asserts the same maps appear in the
+operator handoff dataclasses, JSON output, and Markdown output.
 
 `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke schema-status --root .`
 currently exits with code 2 by design. The current failing semantic records are

@@ -20,6 +20,7 @@ from .lockbox_review_import import (
     LOCKBOX_REVIEW_CONTEXT_HASH_FIELD,
     LOCKBOX_REVIEW_PATH,
 )
+from .manual_review_aids import manual_review_aid_paths, manual_review_field_contract
 from .manual_review_import import TARGET_ROW_HASH_FIELD, review_row_fingerprint
 from .manual_review_batches import (
     GOLD_FULL_REVIEWED_IMPORT_PATH,
@@ -79,6 +80,8 @@ class OperatorGateHandoff:
     pending_rows: int | None
     exported_rows: int | None
     required_manual_fields: Sequence[str]
+    review_aids: Mapping[str, Any]
+    field_contract: Mapping[str, Any]
     dry_run_command: str
     apply_command: str
     operator_note: str
@@ -227,6 +230,8 @@ def _footprint_review_gate(root_path: Path) -> OperatorGateHandoff:
             "unknowns_used_when_uncertain",
             "no_proprietary_text_leakage",
         ),
+        review_aids=manual_review_aid_paths("footprint_review"),
+        field_contract=manual_review_field_contract("footprint_review"),
         dry_run_command=operator_command(
             "mosaic-rke apply-footprint-review --root . "
             f"--input {ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH} --dry-run"
@@ -692,6 +697,8 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
             pending_rows=gold.pending_rows,
             exported_rows=gold.pending_rows,
             required_manual_fields=tuple(gold.required_manual_fields),
+            review_aids=manual_review_aid_paths("gold_set"),
+            field_contract=manual_review_field_contract("gold_set"),
             dry_run_command=operator_command(
                 "mosaic-rke apply-gold-review --root . "
                 f"--input {GOLD_FULL_REVIEWED_IMPORT_PATH} --dry-run"
@@ -726,6 +733,8 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
             pending_rows=source_license.pending_rows,
             exported_rows=source_license.exported_rows,
             required_manual_fields=tuple(source_license.required_manual_fields),
+            review_aids=manual_review_aid_paths("source_license"),
+            field_contract=manual_review_field_contract("source_license"),
             dry_run_command=operator_command(
                 "mosaic-rke build-license-review-import --root . "
                 f"--policy {SOURCE_LICENSE_REVIEWED_POLICY_PATH} "
@@ -778,6 +787,8 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
                 "rule_design_after_open",
                 "notes",
             ),
+            review_aids=manual_review_aid_paths("lockbox"),
+            field_contract=manual_review_field_contract("lockbox"),
             dry_run_command=operator_command(
                 "mosaic-rke apply-lockbox-review --root . "
                 f"--input {LOCKBOX_REVIEWED_IMPORT_PATH} --dry-run"
@@ -867,6 +878,30 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
     )
 
 
+def _markdown_scalar(value: Any) -> str:
+    if isinstance(value, bool):
+        return str(value).lower()
+    if value is None:
+        return "none"
+    return str(value)
+
+
+def _markdown_value(value: Any) -> str:
+    if isinstance(value, Mapping):
+        return ", ".join(
+            f"{key}={_markdown_value(item)}" for key, item in value.items()
+        ) or "none"
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+        return ", ".join(_markdown_scalar(item) for item in value) or "none"
+    return _markdown_scalar(value)
+
+
+def _markdown_mapping(mapping: Mapping[str, Any]) -> str:
+    return "; ".join(
+        f"{key}: {_markdown_value(value)}" for key, value in mapping.items()
+    ) or "none"
+
+
 def render_operator_handoff_markdown(handoff: OperatorHandoff) -> str:
     lines = [
         "# RKE Operator Handoff",
@@ -917,6 +952,8 @@ def render_operator_handoff_markdown(handoff: OperatorHandoff) -> str:
                 f"- Prepare: `{gate.prepare_command}`" if gate.prepare_command else "- Prepare: none",
                 f"- Pending rows: {gate.pending_rows}",
                 f"- Exported rows: {gate.exported_rows}",
+                f"- Review aids: {_markdown_mapping(gate.review_aids)}",
+                f"- Field contract: {_markdown_mapping(gate.field_contract)}",
                 f"- Dry run: `{gate.dry_run_command}`",
                 f"- Apply: `{gate.apply_command}`",
                 f"- Note: {gate.operator_note}",

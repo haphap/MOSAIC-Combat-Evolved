@@ -99,6 +99,10 @@ def test_operator_handoff_summarizes_remaining_manual_gates():
     )
     assert gold.reviewed_policy_path == "registry/review_batches/gold_set_full_reviewed.jsonl"
     assert gold.exported_rows == 0
+    assert gold.review_aids["promotion_import_path"] == (
+        "registry/review_batches/gold_set_full_reviewed.jsonl"
+    )
+    assert "manual_claim_text" in gold.field_contract["required_fields"]
     assert "gold_set_full_reviewed.jsonl" in gold.dry_run_command
     assert "gold_set_full_reviewed.jsonl" in handoff.promotion_dry_run_command
     assert "gold_set_full_import_template.jsonl" not in handoff.promotion_dry_run_command
@@ -113,6 +117,10 @@ def test_operator_handoff_summarizes_remaining_manual_gates():
         == "registry/report_intelligence/analytical_footprint_reviewed.jsonl"
     )
     assert "prepare-footprint-review" in footprint.prepare_command
+    assert footprint.review_aids["fill_import_path"] == (
+        "registry/report_intelligence/analytical_footprint_review_batch.jsonl"
+    )
+    assert "review_notes" in footprint.field_contract["required_fields"]
     assert (
         footprint.workbook_path
         == "registry/report_intelligence/analytical_footprint_review_workbook.md"
@@ -139,6 +147,12 @@ def test_operator_handoff_summarizes_remaining_manual_gates():
     assert license_gate.prepare_command == (
         f"{RKE_OPERATOR_TMP_ENV_PREFIX} mosaic-rke prepare-license-policy-review --root ."
     )
+    assert license_gate.review_aids["fill_policy_path"] == (
+        "registry/review_batches/source_license_policy_reviewed.json"
+    )
+    assert "approved_for_production_runtime" in license_gate.field_contract[
+        "required_fields"
+    ]
     assert "source_license_policy_reviewed.json" in license_gate.dry_run_command
     assert "build-license-review-import" in license_gate.apply_command
     assert "source_license_policy_reviewed.json" in license_gate.apply_command
@@ -153,6 +167,10 @@ def test_operator_handoff_summarizes_remaining_manual_gates():
     assert lockbox.prepare_command == (
         f"{RKE_OPERATOR_TMP_ENV_PREFIX} mosaic-rke prepare-lockbox-review --root ."
     )
+    assert lockbox.review_aids["fill_import_path"] == (
+        "registry/review_batches/lockbox_reviewed.json"
+    )
+    assert lockbox.field_contract["allowed_results"] == ["failed", "passed"]
     assert "apply-lockbox-review" in lockbox.dry_run_command
     assert "lockbox_reviewed.json" in lockbox.dry_run_command
     assert "lockbox_reviewed.json" in handoff.promotion_dry_run_command
@@ -263,12 +281,26 @@ def test_write_operator_handoff_outputs_json_markdown_and_lockbox_template(
         f"{RKE_OPERATOR_TMP_ENV_PREFIX} mosaic-rke prepare-gold-review --root . --full"
     )
     assert gold_gate["reviewed_policy_path"] == "registry/review_batches/gold_set_full_reviewed.jsonl"
+    assert gold_gate["review_aids"]["promotion_import_path"] == (
+        "registry/review_batches/gold_set_full_reviewed.jsonl"
+    )
+    assert "manual_claim_text" in gold_gate["field_contract"]["required_fields"]
     assert license_gate["prepare_command"] == (
         f"{RKE_OPERATOR_TMP_ENV_PREFIX} mosaic-rke prepare-license-policy-review --root ."
     )
+    assert license_gate["review_aids"]["fill_policy_path"] == (
+        "registry/review_batches/source_license_policy_reviewed.json"
+    )
+    assert "approved_for_production_runtime" in license_gate["field_contract"][
+        "required_fields"
+    ]
     assert "build-license-review-import" in license_gate["apply_command"]
     assert "source_license_policy_reviewed.json" in license_gate["apply_command"]
     assert "prepare-footprint-review" in footprint_gate["prepare_command"]
+    assert footprint_gate["review_aids"]["fill_import_path"] == (
+        "registry/report_intelligence/analytical_footprint_review_batch.jsonl"
+    )
+    assert "review_notes" in footprint_gate["field_contract"]["required_fields"]
     assert (
         footprint_gate["workbook_path"]
         == "registry/report_intelligence/analytical_footprint_review_workbook.md"
@@ -283,6 +315,10 @@ def test_write_operator_handoff_outputs_json_markdown_and_lockbox_template(
     assert lockbox_gate["prepare_command"] == (
         f"{RKE_OPERATOR_TMP_ENV_PREFIX} mosaic-rke prepare-lockbox-review --root ."
     )
+    assert lockbox_gate["review_aids"]["fill_import_path"] == (
+        "registry/review_batches/lockbox_reviewed.json"
+    )
+    assert lockbox_gate["field_contract"]["allowed_results"] == ["failed", "passed"]
     assert lockbox_gate["workbook_path"] == "registry/review_batches/lockbox_review_checklist.md"
     assert lockbox_gate["reviewed_policy_path"] == "registry/review_batches/lockbox_reviewed.json"
     assert "gold-set, analytical-footprint, and source-license gates pass" in (
@@ -348,6 +384,10 @@ def test_write_operator_handoff_outputs_json_markdown_and_lockbox_template(
     assert "source_license_policy_template.json" in markdown
     assert "source_license_review_workbook.md" in markdown
     assert "manual_review_runbook.md" in markdown
+    assert "Review aids:" in markdown
+    assert "Field contract:" in markdown
+    assert "manual_claim_text" in markdown
+    assert "analytical_footprint_review_batch.jsonl" in markdown
     assert "## Command Sequence" in markdown
     assert "fill-source-license-policy" not in markdown
     assert "promotion-status-before-lockbox" in markdown

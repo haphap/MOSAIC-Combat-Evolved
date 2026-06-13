@@ -754,7 +754,9 @@
       "batch_plan": [],
       "blockers": [],
       "complete_rows": 17529,
-      "current_batch_status": {},
+      "current_batch_status": {
+        "already_applied": true
+      },
       "dry_run_command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke build-license-review-import --root . --policy registry/review_batches/source_license_policy_reviewed.json --output registry/review_batches/source_license_policy_import.jsonl && MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_policy_import.jsonl --dry-run",
       "input_exists": true,
       "input_path": "registry/review_batches/source_license_policy_reviewed.json",

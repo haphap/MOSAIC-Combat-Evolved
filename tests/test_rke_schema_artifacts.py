@@ -3454,6 +3454,29 @@ def test_operator_handoff_contract_accepts_current_public_artifact(
     assert record.failures == ()
 
 
+def test_operator_handoff_contract_rejects_manual_gate_contract_drift(
+    tmp_path: Path,
+):
+    registry = _copy_registry_for_manual_progress(tmp_path)
+    handoff_path = registry / "handoffs/rke_operator_handoff.json"
+    handoff = json.loads(handoff_path.read_text(encoding="utf-8"))
+    gold_gate = next(
+        gate for gate in handoff["gates"] if gate["review_kind"] == "gold_set"
+    )
+    gold_gate["review_aids"]["fill_import_path"] = "registry/review_batches/stale.jsonl"
+    gold_gate["field_contract"]["required_fields"] = ["reviewer"]
+    handoff_path.write_text(
+        json.dumps(handoff, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _operator_handoff_record(tmp_path)
+
+    assert not record.accepted
+    assert any("review_aids: must match shared manual review aid paths" in item for item in record.failures)
+    assert any("field_contract: must match shared manual review field contract" in item for item in record.failures)
+
+
 def test_operator_handoff_contract_rejects_template_or_license_promotion_inputs(
     tmp_path: Path,
 ):
