@@ -679,3 +679,25 @@ def test_cli_operator_readiness_no_write_preserves_existing_artifacts(
     assert output["accepted"] is True
     assert output["failure_count"] == 0
     assert {path: path.stat().st_mtime_ns for path in tracked_paths} == before_mtimes
+
+
+def test_cli_operator_readiness_no_write_skips_private_source_blobs(
+    tmp_path: Path,
+    capsys,
+):
+    _copy_registry(tmp_path)
+    main(("operator-readiness", "--root", str(tmp_path)))
+    capsys.readouterr()
+    for relative_path in (
+        "registry/sources/tushare_research_reports.jsonl",
+        "registry/sources/tushare_research_reports.manifest.json",
+        "registry/sources/tushare_research_reports.gold_candidates.jsonl",
+    ):
+        (tmp_path / relative_path).unlink()
+
+    code = main(("operator-readiness", "--root", str(tmp_path), "--no-write"))
+    output = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert output["accepted"] is True
+    assert output["failure_count"] == 0

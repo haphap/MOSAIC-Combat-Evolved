@@ -83,6 +83,24 @@ from .temp_paths import rke_temporary_directory
 
 
 OPERATOR_READINESS_REPORT_PATH = "registry/handoffs/rke_operator_readiness_report.json"
+OPERATOR_READINESS_TEMP_COPY_IGNORED_PATHS = frozenset(
+    {
+        "registry/report_intelligence/analytical_footprints.jsonl",
+        "registry/report_intelligence/forecast_claims.jsonl",
+        "registry/report_intelligence/processing_status.jsonl",
+        "registry/report_intelligence/report_metadata.jsonl",
+        "registry/report_intelligence/report_outcome_labels.jsonl",
+        "registry/report_intelligence/weighted_research_contexts.jsonl",
+        "registry/sources/tushare_research_reports.gold_candidates.jsonl",
+        "registry/sources/tushare_research_reports.jsonl",
+        "registry/sources/tushare_research_reports.manifest.json",
+    }
+)
+OPERATOR_READINESS_TEMP_COPY_IGNORED_PREFIXES = (
+    "registry/report_intelligence/markdown/",
+    "registry/report_intelligence/mineru/",
+    "registry/report_intelligence/pdfs/",
+)
 
 
 @dataclass(frozen=True)
@@ -140,12 +158,36 @@ def _operator_readiness_dry_run_root(
         return root_path, None
     temp_dir = rke_temporary_directory(prefix="mosaic-rke-operator-readiness-")
     temp_root = Path(temp_dir.name)
-    shutil.copytree(root_path / "registry", temp_root / "registry")
+    shutil.copytree(
+        root_path / "registry",
+        temp_root / "registry",
+        ignore=_operator_readiness_copy_ignore(root_path),
+    )
     for directory_name in ("schemas", "docs"):
         source_path = root_path / directory_name
         if source_path.exists():
             shutil.copytree(source_path, temp_root / directory_name)
     return temp_root, temp_dir
+
+
+def _operator_readiness_copy_ignore(root_path: Path):
+    def ignore(directory: str, names: Sequence[str]) -> set[str]:
+        ignored: set[str] = set()
+        directory_path = Path(directory)
+        for name in names:
+            candidate = directory_path / name
+            try:
+                relative = candidate.relative_to(root_path).as_posix()
+            except ValueError:
+                continue
+            if relative in OPERATOR_READINESS_TEMP_COPY_IGNORED_PATHS or any(
+                relative == prefix.rstrip("/") or relative.startswith(prefix)
+                for prefix in OPERATOR_READINESS_TEMP_COPY_IGNORED_PREFIXES
+            ):
+                ignored.add(name)
+        return ignored
+
+    return ignore
 
 
 def _write_json(path: Path, payload: Mapping[str, Any]) -> dict[str, Any]:

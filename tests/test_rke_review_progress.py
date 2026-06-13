@@ -1161,6 +1161,23 @@ def test_manual_review_runbook_renders_operator_checklist_without_source_text(tm
     assert "source_span_text" not in markdown
 
 
+def test_review_runbook_omits_license_input_when_source_license_already_applied(
+    tmp_path: Path,
+):
+    _copy_registry_without_license_reset(tmp_path)
+
+    report = build_manual_review_progress(tmp_path)
+    markdown = render_manual_review_runbook_markdown(report)
+    promotion_section = markdown.split("## Promotion Dry Run", 1)[1].split(
+        "## Full Pending Batch Plan",
+        1,
+    )[0]
+
+    assert "mosaic-rke promotion-dry-run --root ." in promotion_section
+    assert "--license-input" not in promotion_section
+    assert "build-license-review-import" not in promotion_section
+
+
 def test_review_progress_accepts_complete_reviewed_scratch_files(tmp_path: Path, capsys):
     _copy_registry(tmp_path)
     _write_jsonl(

@@ -89,6 +89,11 @@ The repository pytest default is also configured to keep its `--basetemp` under
 home tmp root for the private Tushare fixture lock file. This prevents ordinary
 test runs from placing large registry copies or fixture locks in system `/tmp`
 or under the repository checkout.
+`operator-readiness --no-write` also builds its temporary dry-run registry under
+`/home/hap/tmp/mosaic-rke` and now skips local-only Tushare source blobs and
+report Markdown/PDF/cache directories when copying the dry-run root. It still
+copies the manual review templates required for blank-import safety checks, but
+does not depend on copying private source JSONL/manifest files.
 
 Most recent focused validation after the proxy entry-lag hardening:
 
@@ -150,10 +155,11 @@ underlying manual review gates without editing master-plan coverage artifacts
 directly. `promotion-status --no-write` now also includes public-safe
 `next_actions` for PG02 manual gold-set review and PG09 lockbox review, with
 lockbox commands explicitly marked as dependent on upstream manual gates. Its
-promotion dry-run action now follows the same source-license input policy as
-operator handoff: when PG03 source-license review already passes, it omits
-`--license-input` and does not rebuild `source_license_policy_import.jsonl`;
-only an unpassed PG03 path includes the license-import build step.
+promotion dry-run action and the manual review runbook now follow the same
+source-license input policy as operator handoff: when PG03 source-license review
+already passes, they omit `--license-input` and do not rebuild
+`source_license_policy_import.jsonl`; only an unpassed PG03 path includes the
+license-import build step.
 `evolution-readiness --no-write` also exits 2 when
 `gate_status=blocked` and includes `blocked_check_ids` / `blocked_checks` in
 stdout so operators can see that RI-EVOL-04 and RI-EVOL-05 are the active

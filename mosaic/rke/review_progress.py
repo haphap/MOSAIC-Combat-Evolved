@@ -1098,6 +1098,26 @@ def _render_field_contract_lines(
     return lines
 
 
+def _promotion_dry_run_command(source_license: ManualReviewGateProgress) -> str:
+    if source_license.ready_for_promotion:
+        return operator_command(
+            "mosaic-rke promotion-dry-run --root . "
+            f"--gold-input {GOLD_FULL_REVIEWED_IMPORT_PATH} "
+            f"--footprint-input {ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH} "
+            f"--lockbox-input {LOCKBOX_REVIEWED_IMPORT_PATH}"
+        )
+    return operator_command(
+        "mosaic-rke build-license-review-import --root . "
+        f"--policy {SOURCE_LICENSE_REVIEWED_POLICY_PATH} "
+        f"--output {DEFAULT_LICENSE_POLICY_IMPORT_PATH} && "
+        "mosaic-rke promotion-dry-run --root . "
+        f"--gold-input {GOLD_FULL_REVIEWED_IMPORT_PATH} "
+        f"--footprint-input {ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH} "
+        f"--license-input {DEFAULT_LICENSE_POLICY_IMPORT_PATH} "
+        f"--lockbox-input {LOCKBOX_REVIEWED_IMPORT_PATH}"
+    )
+
+
 def build_manual_review_progress(root: str | Path = ".") -> ManualReviewProgressReport:
     root_path = Path(root)
     gates = (
@@ -1796,20 +1816,7 @@ def render_manual_review_runbook_markdown(report: ManualReviewProgressReport) ->
         "",
         "## Promotion Dry Run",
         "",
-        (
-            "`"
-            + operator_command(
-                "mosaic-rke build-license-review-import --root . "
-                f"--policy {SOURCE_LICENSE_REVIEWED_POLICY_PATH} "
-                f"--output {DEFAULT_LICENSE_POLICY_IMPORT_PATH} && "
-                "mosaic-rke promotion-dry-run --root . "
-                f"--gold-input {GOLD_FULL_REVIEWED_IMPORT_PATH} "
-                f"--footprint-input {ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH} "
-                f"--license-input {DEFAULT_LICENSE_POLICY_IMPORT_PATH} "
-                f"--lockbox-input {LOCKBOX_REVIEWED_IMPORT_PATH}"
-            )
-            + "`"
-        ),
+        f"`{_promotion_dry_run_command(source_license)}`",
         "",
     ]
     lines.extend(
