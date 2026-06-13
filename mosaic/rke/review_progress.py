@@ -1229,6 +1229,130 @@ def build_manual_review_progress_summary(
     }
 
 
+def _action_queue_commands(
+    gate: ManualReviewGateProgress,
+    action: str,
+) -> Mapping[str, str]:
+    if action == "ready_for_promotion_apply":
+        return {
+            "dry_run": gate.dry_run_command,
+            "apply": gate.apply_command,
+        }
+    if action in {
+        "fill_current_batch_review_fields_then_dry_run",
+        "repair_current_batch_evidence_alignment",
+        "prepare_next_review_batch",
+    }:
+        return dict(gate.next_batch_commands)
+    if action == "review_or_apply_source_license_policy":
+        return {
+            "prepare": gate.prepare_command,
+            "dry_run": gate.dry_run_command,
+            "apply": gate.apply_command,
+        }
+    if action in {"complete_lockbox_decision_then_dry_run", "prepare_lockbox_review"}:
+        return {
+            "prepare": gate.prepare_command,
+            "dry_run": gate.dry_run_command,
+            "apply": gate.apply_command,
+        }
+    return {}
+
+
+def _action_queue_hint(action: str) -> str:
+    hints = {
+        "ready_for_promotion_apply": "Gate is ready; run dry-run, then apply if accepted.",
+        "fill_current_batch_review_fields_then_dry_run": (
+            "Fill the current reviewed scratch fields, regenerate/check evidence, "
+            "then run the dry-run."
+        ),
+        "repair_current_batch_evidence_alignment": (
+            "Regenerate evidence for the current scratch batch before review."
+        ),
+        "prepare_next_review_batch": "Prepare the next review batch before filling fields.",
+        "run_prepare_command": "Run the prepare command to create the review input.",
+        "review_or_apply_source_license_policy": (
+            "Review the source-license policy, build the import, then dry-run/apply."
+        ),
+        "wait_for_prior_manual_gates": (
+            "Wait until listed upstream manual gates are ready."
+        ),
+        "complete_lockbox_decision_then_dry_run": (
+            "Fill the lockbox decision only after upstream gates are ready."
+        ),
+        "prepare_lockbox_review": "Prepare the lockbox review after upstream gates pass.",
+    }
+    return hints.get(action, "Inspect gate blockers before proceeding.")
+
+
+def build_manual_review_action_queue(
+    report: ManualReviewProgressReport,
+    *,
+    path: str = MANUAL_REVIEW_PROGRESS_REPORT_PATH,
+    runbook_path: str = MANUAL_REVIEW_RUNBOOK_MD_PATH,
+    review_kinds: Sequence[ReviewProgressKind] | None = None,
+) -> Mapping[str, Any]:
+    """Return the next public-safe operator actions without full gate payloads."""
+    requested_kinds = tuple(review_kinds or ())
+    requested_kind_set = set(requested_kinds)
+    selected_gates = tuple(
+        gate
+        for gate in report.gates
+        if not requested_kind_set or gate.review_kind in requested_kind_set
+    )
+    selected_ready_for_promotion = bool(selected_gates) and all(
+        gate.ready_for_promotion for gate in selected_gates
+    )
+    actions: list[Mapping[str, Any]] = []
+    for gate in selected_gates:
+        current = (
+            gate.current_batch_status
+            if isinstance(gate.current_batch_status, Mapping)
+            else {}
+        )
+        evidence = current.get("evidence_status")
+        evidence_aligned = (
+            bool(evidence.get("aligned")) if isinstance(evidence, Mapping) else None
+        )
+        dependency_blockers = _lockbox_dependency_blockers(gate, report.gates)
+        action = _next_manual_action(
+            gate,
+            dependency_blockers=dependency_blockers,
+        )
+        actions.append(
+            {
+                "review_kind": gate.review_kind,
+                "next_manual_action": action,
+                "operator_hint": _action_queue_hint(action),
+                "ready_for_promotion": gate.ready_for_promotion,
+                "blocked_by_review_kinds": list(dependency_blockers),
+                "complete_rows": gate.complete_rows,
+                "pending_rows": gate.pending_rows,
+                "target_rows": gate.target_rows,
+                "current_batch_path": str(current.get("path") or ""),
+                "current_batch_pending_rows": int(current.get("pending_rows") or 0),
+                "current_batch_malformed_rows": int(
+                    current.get("malformed_rows") or 0
+                ),
+                "missing_required_fields": dict(
+                    current.get("missing_required_fields") or {}
+                ),
+                "evidence_aligned": evidence_aligned,
+                "commands": dict(_action_queue_commands(gate, action)),
+            }
+        )
+    return {
+        "path": path,
+        "runbook_path": runbook_path,
+        "ready_for_promotion_dry_run": selected_ready_for_promotion,
+        "total_ready_for_promotion_dry_run": report.ready_for_promotion_dry_run,
+        "action_count": len(actions),
+        "total_gate_count": len(report.gates),
+        "reported_review_kinds": [gate.review_kind for gate in selected_gates],
+        "actions": actions,
+    }
+
+
 def render_manual_review_runbook_markdown(report: ManualReviewProgressReport) -> str:
     gate_lookup = {gate.review_kind: gate for gate in report.gates}
     gold = gate_lookup["gold_set"]

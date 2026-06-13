@@ -306,6 +306,7 @@ blocker families include:
    schema/PIT/provenance/statistical gates pass.
 7. Re-run
    `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke review-progress --root . --summary --no-write`,
+   `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke review-progress --root . --actions-only --no-write`,
    `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke operator-readiness --root .`,
    `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke evolution-readiness --root . --refresh-prompt-mutations`,
    promotion dry-run, and

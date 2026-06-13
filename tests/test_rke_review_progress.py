@@ -10,6 +10,7 @@ from mosaic.rke.manual_review_batches import write_manual_review_batches
 from mosaic.rke.license_policy_import import build_source_license_policy_template
 from mosaic.rke.operator_handoff import build_lockbox_review_import_template
 from mosaic.rke.review_progress import (
+    build_manual_review_action_queue,
     build_manual_review_progress,
     build_manual_review_progress_summary,
     render_manual_review_runbook_markdown,
@@ -469,6 +470,95 @@ def test_review_progress_summary_reports_lockbox_dependencies(
     ]
 
 
+def test_review_progress_actions_only_reports_next_manual_work(
+    tmp_path: Path,
+    capsys,
+):
+    _copy_registry(tmp_path)
+
+    code = main(("review-progress", "--root", str(tmp_path), "--actions-only", "--no-write"))
+    output = json.loads(capsys.readouterr().out)
+    encoded = json.dumps(output, ensure_ascii=False)
+    actions = {action["review_kind"]: action for action in output["actions"]}
+
+    assert code == 2
+    assert output["ready_for_promotion_dry_run"] is False
+    assert output["action_count"] == 4
+    assert output["total_gate_count"] == 4
+    assert "gates" not in output
+    assert "batch_plan" not in encoded
+    assert actions["gold_set"]["next_manual_action"] in {
+        "fill_current_batch_review_fields_then_dry_run",
+        "prepare_next_review_batch",
+    }
+    assert (
+        actions["gold_set"]["current_batch_path"]
+        == "registry/review_batches/gold_set_reviewed.jsonl"
+    )
+    assert actions["gold_set"]["commands"]["prepare"].startswith(
+        RKE_OPERATOR_TMP_ENV_PREFIX
+    )
+    assert actions["footprint_review"]["next_manual_action"] in {
+        "fill_current_batch_review_fields_then_dry_run",
+        "prepare_next_review_batch",
+    }
+    assert actions["source_license"]["next_manual_action"] in {
+        "ready_for_promotion_apply",
+        "review_or_apply_source_license_policy",
+    }
+    assert actions["lockbox"]["next_manual_action"] == "wait_for_prior_manual_gates"
+    assert actions["lockbox"]["blocked_by_review_kinds"] == [
+        "gold_set",
+        "footprint_review",
+        "source_license",
+    ]
+    assert actions["lockbox"]["commands"] == {}
+
+
+def test_review_progress_actions_only_filters_review_kind(
+    tmp_path: Path,
+    capsys,
+):
+    _copy_registry_without_license_reset(tmp_path)
+
+    code = main(
+        (
+            "review-progress",
+            "--root",
+            str(tmp_path),
+            "--actions-only",
+            "--no-write",
+            "--review-kind",
+            "source_license",
+        )
+    )
+    output = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert output["ready_for_promotion_dry_run"] is True
+    assert output["total_ready_for_promotion_dry_run"] is False
+    assert output["reported_review_kinds"] == ["source_license"]
+    assert [action["review_kind"] for action in output["actions"]] == ["source_license"]
+    assert output["actions"][0]["next_manual_action"] == "ready_for_promotion_apply"
+
+
+def test_manual_review_action_queue_is_public_safe_compact(tmp_path: Path):
+    _copy_registry(tmp_path)
+    report = build_manual_review_progress(tmp_path)
+
+    action_queue = build_manual_review_action_queue(report)
+    encoded = json.dumps(action_queue, ensure_ascii=False)
+
+    assert action_queue["action_count"] == 4
+    assert "gates" not in action_queue
+    assert "batch_plan" not in encoded
+    assert "source_span_ids" not in encoded
+    assert "source_text" not in encoded
+    assert "abstract" not in encoded
+    assert "pdf_url" not in encoded
+    assert "markdown_path" not in encoded
+
+
 def test_review_progress_review_kind_requires_summary(tmp_path: Path, capsys):
     _copy_registry(tmp_path)
 
@@ -486,7 +576,7 @@ def test_review_progress_review_kind_requires_summary(tmp_path: Path, capsys):
     assert code == 2
     assert output == {
         "accepted": False,
-        "blockers": ["--review-kind requires --summary"],
+        "blockers": ["--review-kind requires --summary or --actions-only"],
     }
 
 

@@ -113,6 +113,7 @@ from .report_intelligence import (
     write_report_intelligence_prompt_mutation_candidates,
 )
 from .review_progress import (
+    build_manual_review_action_queue,
     build_manual_review_progress_summary,
     build_manual_review_progress,
     write_manual_review_progress_report,
@@ -670,6 +671,11 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     review_progress.add_argument(
+        "--actions-only",
+        action="store_true",
+        help="Print only the next public-safe manual review action queue.",
+    )
+    review_progress.add_argument(
         "--no-write",
         action="store_true",
         help=(
@@ -682,8 +688,8 @@ def build_parser() -> argparse.ArgumentParser:
         action="append",
         choices=("gold_set", "footprint_review", "source_license", "lockbox"),
         help=(
-            "Limit --summary output to one review kind. May be repeated. "
-            "Requires --summary."
+            "Limit --summary or --actions-only output to one review kind. "
+            "May be repeated."
         ),
     )
 
@@ -1544,11 +1550,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         _print_json({"path": result["path"], **asdict(report)})
         return 0 if report.accepted else 2
     if args.command == "review-progress":
-        if args.review_kind and not args.summary:
+        if args.review_kind and not (args.summary or args.actions_only):
             _print_json(
                 {
                     "accepted": False,
-                    "blockers": ["--review-kind requires --summary"],
+                    "blockers": ["--review-kind requires --summary or --actions-only"],
                 }
             )
             return 2
@@ -1559,6 +1565,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         else:
             result = write_manual_review_progress_report(root)
             runbook = write_manual_review_runbook(root)
+        if args.actions_only:
+            action_queue = build_manual_review_action_queue(
+                report,
+                path=result["path"],
+                runbook_path=runbook["path"],
+                review_kinds=tuple(args.review_kind or ()),
+            )
+            _print_json(action_queue)
+            return 0 if bool(action_queue["ready_for_promotion_dry_run"]) else 2
         if args.summary:
             summary = build_manual_review_progress_summary(
                 report,
