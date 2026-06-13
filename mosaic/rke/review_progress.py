@@ -65,8 +65,17 @@ from .temp_paths import (
 MANUAL_REVIEW_PROGRESS_REPORT_ID = "RKE-MANUAL-REVIEW-PROGRESS-20260606"
 MANUAL_REVIEW_PROGRESS_REPORT_PATH = "registry/review_batches/manual_review_progress_report.json"
 MANUAL_REVIEW_RUNBOOK_MD_PATH = "registry/review_batches/manual_review_runbook.md"
-TEMP_COPY_IGNORED_PRIVATE_SOURCE_FILES = frozenset(
+TEMP_COPY_IGNORED_PRIVATE_REGISTRY_PATHS = frozenset(
     {
+        "registry/report_intelligence/analytical_footprints.jsonl",
+        "registry/report_intelligence/forecast_claims.jsonl",
+        "registry/report_intelligence/markdown",
+        "registry/report_intelligence/mineru",
+        "registry/report_intelligence/pdfs",
+        "registry/report_intelligence/processing_status.jsonl",
+        "registry/report_intelligence/report_metadata.jsonl",
+        "registry/report_intelligence/report_outcome_labels.jsonl",
+        "registry/report_intelligence/weighted_research_contexts.jsonl",
         "registry/sources/tushare_research_reports.gold_candidates.jsonl",
         "registry/sources/tushare_research_reports.jsonl",
         "registry/sources/tushare_research_reports.manifest.json",
@@ -127,7 +136,7 @@ def _copy_registry(root_path: Path, temp_root: Path) -> None:
                 ).resolve().relative_to(root_resolved).as_posix()
             except ValueError:
                 continue
-            if relative_path in TEMP_COPY_IGNORED_PRIVATE_SOURCE_FILES:
+            if relative_path in TEMP_COPY_IGNORED_PRIVATE_REGISTRY_PATHS:
                 ignored.add(name)
         return ignored
 
@@ -1226,6 +1235,20 @@ def render_manual_review_runbook_markdown(report: ManualReviewProgressReport) ->
     footprint = gate_lookup["footprint_review"]
     source_license = gate_lookup["source_license"]
     lockbox = gate_lookup["lockbox"]
+    lockbox_dependency_blockers = _lockbox_dependency_blockers(lockbox, report.gates)
+    lockbox_dependency_summary = (
+        "ready"
+        if not lockbox_dependency_blockers
+        else "waiting_on " + ", ".join(lockbox_dependency_blockers)
+    )
+    lockbox_prepare_line = (
+        f"- Lockbox: `{lockbox.prepare_command}`"
+        if not lockbox_dependency_blockers
+        else (
+            f"- Lockbox: wait for upstream gates before running "
+            f"`{lockbox.prepare_command}`"
+        )
+    )
     gold_full_prepare = operator_command(
         "mosaic-rke prepare-gold-review --root . --full --force "
         "--reviewer <name> --review-date <YYYY-MM-DD>"
@@ -1294,6 +1317,7 @@ def render_manual_review_runbook_markdown(report: ManualReviewProgressReport) ->
             f"scratch exists: {str(lockbox.input_exists).lower()}; "
             f"simulation accepted: {str(lockbox.simulation_accepted).lower()}"
         ),
+        f"- Lockbox dependency status: {lockbox_dependency_summary}",
         "",
         "## Current Batch Scratch",
         "",
@@ -1311,7 +1335,7 @@ def render_manual_review_runbook_markdown(report: ManualReviewProgressReport) ->
         f"- Gold-set: `{gold.prepare_command}`",
         f"- Analytical-footprint: `{footprint.prepare_command}`",
         f"- Source-license: `{source_license.prepare_command}`",
-        f"- Lockbox: `{lockbox.prepare_command}`",
+        lockbox_prepare_line,
         "",
         "## Reviewer Inputs",
         "",

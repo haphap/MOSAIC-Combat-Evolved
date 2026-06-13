@@ -487,6 +487,9 @@ def test_review_progress_review_kind_requires_summary(tmp_path: Path, capsys):
 
 def test_review_progress_temp_copy_skips_private_raw_sources(tmp_path: Path):
     _copy_registry(tmp_path)
+    private_cache_dir = tmp_path / "registry/report_intelligence/markdown"
+    private_cache_dir.mkdir(parents=True, exist_ok=True)
+    (private_cache_dir / "sample.md").write_text("private markdown", encoding="utf-8")
     temp_root = tmp_path / "temp-copy"
 
     review_progress_module._copy_registry(tmp_path, temp_root)
@@ -500,6 +503,16 @@ def test_review_progress_temp_copy_skips_private_raw_sources(tmp_path: Path):
     assert not (
         temp_root / "registry/sources/tushare_research_reports.gold_candidates.jsonl"
     ).exists()
+    for relative_path in (
+        "registry/report_intelligence/analytical_footprints.jsonl",
+        "registry/report_intelligence/forecast_claims.jsonl",
+        "registry/report_intelligence/markdown",
+        "registry/report_intelligence/processing_status.jsonl",
+        "registry/report_intelligence/report_metadata.jsonl",
+        "registry/report_intelligence/report_outcome_labels.jsonl",
+        "registry/report_intelligence/weighted_research_contexts.jsonl",
+    ):
+        assert not (temp_root / relative_path).exists()
     assert (
         temp_root
         / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
@@ -723,6 +736,8 @@ def test_manual_review_runbook_renders_operator_checklist_without_source_text(tm
     assert "mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run" in markdown
     assert "mosaic-rke prepare-license-policy-review --root ." in markdown
     assert "mosaic-rke prepare-lockbox-review --root ." in markdown
+    assert "Lockbox dependency status: waiting_on gold_set, footprint_review, source_license" in markdown
+    assert "Lockbox: wait for upstream gates before running" in markdown
     assert "Lockbox decision" in markdown
     assert "registry/review_batches/gold_set_full_reviewed.jsonl" in markdown
     assert "registry/report_intelligence/analytical_footprint_reviewed.jsonl" in markdown
