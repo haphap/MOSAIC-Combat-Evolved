@@ -729,6 +729,7 @@ def _has_mapping_gap(row: Mapping[str, Any]) -> bool:
 
 STOCK_PROXY_REQUIRED_LABEL_FIELDS = (
     "proxy_symbol",
+    "claim_window_set_id",
     "benchmark_symbol",
     "benchmark_source",
     "benchmark_family",
@@ -763,6 +764,7 @@ STOCK_PROXY_REQUIRED_LABEL_FIELDS = (
 
 INDUSTRY_PROXY_REQUIRED_LABEL_FIELDS = (
     "proxy_symbol",
+    "claim_window_set_id",
     "proxy_sector",
     "mapping_id",
     "mapping_version",
@@ -1435,6 +1437,37 @@ def _validate_proxy_outcome_label_contract(row: Mapping[str, Any], row_label: st
         else:
             if mapping_version < 1:
                 failures.append(f"{row_label}.mapping_version: must be >= 1")
+    return failures
+
+
+def _validate_proxy_outcome_label_id_namespaces(
+    outcome_label_rows: Sequence[Mapping[str, Any]],
+) -> list[str]:
+    failures: list[str] = []
+    id_fields = ("outcome_id", "claim_window_set_id", "overlap_group_id")
+    namespace_index: dict[tuple[str, str], dict[str, list[int]]] = {}
+    for index, row in enumerate(outcome_label_rows, 1):
+        label_type = str(row.get("label_type") or "").strip()
+        if label_type not in {"stock_price_proxy", "industry_etf_proxy"}:
+            continue
+        for field in id_fields:
+            value = str(row.get(field) or "").strip()
+            if not value:
+                continue
+            label_type_rows = namespace_index.setdefault((field, value), {})
+            label_type_rows.setdefault(label_type, []).append(index)
+
+    for (field, value), label_type_rows in sorted(namespace_index.items()):
+        if len(label_type_rows) <= 1:
+            continue
+        namespace_detail = ", ".join(
+            f"{label_type} rows {rows}"
+            for label_type, rows in sorted(label_type_rows.items())
+        )
+        failures.append(
+            "report_outcome_labels."
+            f"{field}: {value} crosses label_type namespace ({namespace_detail})"
+        )
     return failures
 
 
@@ -4993,6 +5026,9 @@ def validate_report_intelligence_semantics(
                 f"report_outcome_labels row {index}",
             )
         )
+    outcome_label_failures.extend(
+        _validate_proxy_outcome_label_id_namespaces(outcome_label_rows)
+    )
     records.append(
         SchemaValidationRecord(
             schema_path="schemas/report_intelligence_proxy_outcome_label_contract_rules",

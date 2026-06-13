@@ -31,6 +31,7 @@ contracts.
 | Artifact | Evidence |
 | --- | --- |
 | `registry/report_intelligence/extraction_report.json` | current public-safe artifact reports 366 outcome labels: 87 industry ETF proxy, 279 stock price proxy. Semantic validation now passes as `schemas/report_intelligence_extraction_report_contract_rules`, which checks repo-relative output paths, public-text redaction, blocker-free aggregate status, public JSONL row counts, Markdown coverage counts, proxy readiness counts, and industry+stock outcome total consistency. |
+| `registry/report_intelligence/report_outcome_labels.jsonl` | proxy outcome label semantic validation now requires `claim_window_set_id` on both stock and industry proxy labels and rejects any `outcome_id`, `claim_window_set_id`, or `overlap_group_id` shared across `label_type` namespaces. This keeps stock-price and industry-ETF proxy outcomes stratified even when forecast claims, horizons, or proxy symbols overlap. |
 | `registry/report_intelligence/patch_v1_5_coverage_report.json` | public count-only fallback preserves aggregate evidence when private JSONL inputs are absent; Phase C now passes, while Phase B/D remain blocked by manual review and footprint quality gates; Phase G remains rollout-gated but now carries shadow paper-trading evidence counts from `recipe_paper_trading_summary.json` |
 | `registry/report_intelligence/industry_etf_proxy_map.jsonl` | 64 primary/governed mapping rows; `工业金属` maps to `SH560860` |
 | `registry/report_intelligence/industry_etf_proxy_pit_availability.json` | labelability summary is kept consistent with `outcome_labeling_readiness.industry_etf_proxy_readiness`: 146 eligible industry claims, 39 labelable claims, 87 labelable windows, 342 pending future windows |
@@ -59,7 +60,7 @@ contracts.
 | P4 core tests | Implemented | `tests/test_rke_report_intelligence.py` stock label/readiness/PIT tests pass |
 | P5 evolution loop | Partially implemented | mutation candidates, tool-gap prioritization, paper-trading and monitor inputs exist; promotion remains blocked by manual review gates |
 | P6 decisions | Implemented for default path | default benchmark `SH510300` from `cn_etf`; stock cost 20 bps; stock windows 5/20/60/120; no company-name fuzzy mapping |
-| P7 implementation breakdown | Implemented | qlib helpers, readiness builder, label builder, derived refresh integration, audits, schemas, tests, and profile layer contracts that prevent cross-label-type/benchmark/cost aggregation from replacing stratified evidence |
+| P7 implementation breakdown | Implemented | qlib helpers, readiness builder, label builder, derived refresh integration, audits, schemas, tests, proxy outcome ID namespace contracts, and profile layer contracts that prevent cross-label-type/benchmark/cost aggregation from replacing stratified evidence |
 | P8 acceptance matrix | Automated acceptance passes except manual review / coverage gates | ruff, report-intelligence tests, schema-artifact tests, prompt leak guard, diff check pass; `schema-status` intentionally exits 2 until analytical footprint review, Phase B gold-set review, and Phase D footprint quality gates pass; `prepare-footprint-review` now creates a gitignored import scaffold for the footprint gate |
 | P9 PDF/Markdown coverage expansion | Implemented for current sample pool | public coverage summary exists and passes privacy rules; private PDF/Markdown/cache paths remain gitignored |
 | P10 industry ETF mapping/PIT availability | Implemented | 64-row mapping registry, PIT availability artifact, mapping contract tests; `工业金属 -> SH560860` pinned; semantic validation now rejects drift between PIT availability `labelability_summary` and `outcome_labeling_readiness` |
@@ -102,6 +103,19 @@ The helper that computes entry dates now requires an explicit
 `INDUSTRY_ETF_ENTRY_LAG_TRADING_DAYS`; stock proxy builders pass
 `STOCK_PRICE_PROXY_ENTRY_LAG_TRADING_DAYS`. This keeps the T+1 entry invariant
 auditable if either channel later changes its lag policy.
+
+Most recent focused validation after proxy outcome ID namespace hardening:
+
+```bash
+MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run python -m pytest tests/test_rke_schema_artifacts.py::test_report_outcome_label_semantics_accept_complete_proxy_contracts tests/test_rke_schema_artifacts.py::test_report_outcome_label_semantics_reject_cross_label_type_id_collisions -q --basetemp /home/hap/tmp/mosaic-rke/pytest-id-contract
+MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run python -m pytest tests/test_rke_schema_artifacts.py -q --basetemp /home/hap/tmp/mosaic-rke/pytest-rke-schema-id-contract
+uvx ruff@0.15.15 check mosaic/rke/schema_validation.py mosaic/rke/report_intelligence.py tests/test_rke_schema_artifacts.py
+MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke schema-status --root .
+```
+
+`schema-status` still exits 2 only for the existing analytical-footprint review
+and patch v1.5 manual coverage gates; the proxy outcome label contract record is
+accepted.
 
 Current manual review evidence and scaffold commands:
 

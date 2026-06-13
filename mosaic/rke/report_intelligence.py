@@ -8963,6 +8963,7 @@ def build_industry_etf_proxy_outcome_labels(
                     "overlap_group_id": _stable_id(
                         "OVL",
                         {
+                            "label_type": "industry_etf_proxy",
                             "proxy_symbol": etf_symbol,
                             "entry_date": calendar[entry_index],
                             "horizon_days": horizon_days,

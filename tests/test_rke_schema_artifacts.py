@@ -1071,6 +1071,7 @@ def _base_outcome_label(label_type: str) -> dict[str, object]:
         "outcome_id": f"OUT-{label_type}",
         "forecast_claim_id": "FC-PROXY-CONTRACT",
         "forecast_family_id": "FF-PROXY-CONTRACT",
+        "claim_window_set_id": f"WSET-{label_type}",
         "entry_datetime": "2026-01-03T00:00:00+08:00",
         "exit_datetime": "2026-01-08T00:00:00+08:00",
         "horizon_days": 5,
@@ -1196,6 +1197,29 @@ def test_report_outcome_label_semantics_accept_complete_proxy_contracts(
     assert record.accepted
     assert record.item_count == 2
     assert record.failures == ()
+
+
+def test_report_outcome_label_semantics_reject_cross_label_type_id_collisions(
+    tmp_path: Path,
+):
+    stock_label = _base_outcome_label("stock_price_proxy")
+    industry_label = _base_outcome_label("industry_etf_proxy")
+    industry_label["claim_window_set_id"] = stock_label["claim_window_set_id"]
+    industry_label["overlap_group_id"] = stock_label["overlap_group_id"]
+    _write_proxy_outcome_labels(tmp_path, [stock_label, industry_label])
+
+    record = _proxy_outcome_contract_record(tmp_path)
+
+    assert record.accepted is False
+    assert record.item_count == 2
+    assert any(
+        "claim_window_set_id" in failure and "crosses label_type namespace" in failure
+        for failure in record.failures
+    )
+    assert any(
+        "overlap_group_id" in failure and "crosses label_type namespace" in failure
+        for failure in record.failures
+    )
 
 
 def test_report_outcome_label_semantics_reject_missing_label_type(
