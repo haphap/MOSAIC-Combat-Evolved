@@ -156,7 +156,11 @@ blocker families include:
    Source-license review is ready in the current public
    progress report. The gold-set scratch file was regenerated with
    `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke prepare-gold-review --root . --full --force`; the remaining
-   gold-set blockers are the 500 required human review rows. The footprint
+   gold-set blockers are the 500 required human review rows. The private
+   gold review evidence draft now emits `suggested_review_rationales` and
+   aggregate triage tags for context synthesis, variable-mapping review,
+   mechanism-support review, and manual claim compaction; these remain
+   non-import review aids and do not fill any human decision fields. The footprint
    reviewed scratch file was regenerated with
    `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke prepare-footprint-review --root . --output registry/report_intelligence/analytical_footprint_reviewed.jsonl --overwrite`;
    the remaining footprint blockers are the 1001 required human review rows.

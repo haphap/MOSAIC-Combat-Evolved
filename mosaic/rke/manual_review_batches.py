@@ -768,16 +768,107 @@ def _gold_evidence_row(
         "unsupported_field_false_grounded": None if candidate_unavailable else False,
     }
     tags: list[str] = []
+    rationales: list[dict[str, Any]] = []
     if candidate_unavailable:
         tags.append("candidate_unavailable_requires_manual_rewrite")
+        rationales.append(
+            {
+                "field": "manual_claim_text",
+                "suggested_value": "",
+                "reason": "candidate unavailable or placeholder offsets require a human rewrite",
+                "requires_human_confirmation": True,
+            }
+        )
     if not has_source_evidence:
         tags.append("source_evidence_unverified")
+        rationales.append(
+            {
+                "field": "source_span_supports_claim",
+                "suggested_value": None,
+                "reason": "no abstract or local markdown snippet matched the candidate evidence terms",
+                "requires_human_confirmation": True,
+            }
+        )
+    elif not candidate_unavailable:
+        rationales.append(
+            {
+                "field": "source_span_supports_claim",
+                "suggested_value": True,
+                "reason": "candidate has local abstract or markdown evidence snippets for reviewer inspection",
+                "requires_human_confirmation": True,
+            }
+        )
     if not markdown_exists:
         tags.append("markdown_missing")
     if proposed_direction == "ambiguous":
         tags.append("direction_ambiguous")
+        rationales.append(
+            {
+                "field": "direction_correct",
+                "suggested_value": None,
+                "reason": "candidate direction is ambiguous and must be resolved from local evidence",
+                "requires_human_confirmation": True,
+            }
+        )
+    elif proposed_direction and not candidate_unavailable:
+        rationales.append(
+            {
+                "field": "direction_correct",
+                "suggested_value": True,
+                "reason": "candidate direction is explicit; reviewer should verify it against local evidence",
+                "requires_human_confirmation": True,
+            }
+        )
     if "sentence_fallback_requires_context_synthesis" in proposed_flags:
         tags.append("context_synthesis_required")
+        rationales.append(
+            {
+                "field": "manual_claim_text",
+                "suggested_value": "synthesize_from_context",
+                "reason": "candidate came from a sentence fallback and may need paragraph-level synthesis",
+                "requires_human_confirmation": True,
+            }
+        )
+    if "canonical_variable_mapping_needed" in proposed_flags:
+        tags.append("variable_mapping_needs_review")
+        rationales.append(
+            {
+                "field": "variable_mapping_correct",
+                "suggested_value": None,
+                "reason": "candidate lacks a governed canonical variable mapping or needs reviewer normalization",
+                "requires_human_confirmation": True,
+            }
+        )
+    if "forecast_mapping_insufficient" in proposed_flags:
+        tags.append("forecast_mapping_insufficient")
+        rationales.append(
+            {
+                "field": "target_correct",
+                "suggested_value": None,
+                "reason": "candidate forecast target/proxy mapping is insufficient for automatic acceptance",
+                "requires_human_confirmation": True,
+            }
+        )
+    if "low_mechanism_keyword_support" in proposed_flags:
+        tags.append("mechanism_support_needs_review")
+        rationales.append(
+            {
+                "field": "claim_correct",
+                "suggested_value": suggested_decision["claim_correct"],
+                "reason": "candidate has weak mechanism keyword support; reviewer should confirm economic logic is present",
+                "requires_human_confirmation": True,
+            }
+        )
+    if "long_candidate_sentence" in proposed_flags:
+        tags.append("manual_claim_text_needs_compaction")
+        rationales.append(
+            {
+                "field": "manual_claim_text",
+                "suggested_value": "compact_synthesis",
+                "reason": "candidate sentence is long and should be compacted without losing source-supported logic",
+                "requires_human_confirmation": True,
+            }
+        )
     return {
         "evidence_kind": "gold_review_evidence_not_import",
         "not_apply_gold_review_input": True,
@@ -810,6 +901,7 @@ def _gold_evidence_row(
         "evidence_snippets": tuple(snippets),
         "suggested_manual_claim_text": "" if candidate_unavailable else proposed_claim_text,
         "suggested_review_decision": suggested_decision,
+        "suggested_review_rationales": tuple(rationales),
         "suggested_manual_error_tags": tuple(tags),
         "suggested_review_notes": (
             "Review local abstract/markdown evidence before copying decisions into "
@@ -999,10 +1091,21 @@ def render_gold_review_evidence_markdown(
                 json.dumps(row.get("suggested_review_decision"), ensure_ascii=False, indent=2),
                 "```",
                 "",
-                "Evidence snippets:",
-                "",
             ]
         )
+        rationales = tuple(row.get("suggested_review_rationales") or ())
+        if rationales:
+            lines.extend(
+                [
+                    "Suggested decision rationales:",
+                    "",
+                    "```json",
+                    json.dumps(rationales, ensure_ascii=False, indent=2),
+                    "```",
+                    "",
+                ]
+            )
+        lines.extend(["Evidence snippets:", ""])
         snippets = tuple(row.get("evidence_snippets") or ())
         if not snippets:
             lines.append("- No local evidence snippet found.")

@@ -231,12 +231,14 @@ def test_gold_review_evidence_is_private_non_import_review_aid(tmp_path: Path):
     assert rows[0]["human_review_required"] is True
     assert rows[0]["evidence_snippets"]
     assert rows[0]["suggested_review_decision"]["unsupported_field_false_grounded"] is False
+    assert rows[0]["suggested_review_rationales"]
     assert "manual_claim_text" not in rows[0]
     assert markdown.startswith("# RKE Gold Review Evidence Draft")
     assert "## Batch Triage Summary" in markdown
     assert "Suggested tag counts" in markdown
     assert "Proposed risk flag counts" in markdown
     assert "Suggested decision counts" in markdown
+    assert "Suggested decision rationales" in markdown
     assert "not an import file" in markdown
     assert (tmp_path / "registry/review_batches/gold_set_review_evidence.md").exists()
 
@@ -330,6 +332,11 @@ def test_gold_review_evidence_does_not_auto_accept_unavailable_candidate(
     assert "candidate_unavailable_requires_manual_rewrite" in evidence_rows[0][
         "suggested_manual_error_tags"
     ]
+    assert any(
+        item["field"] == "manual_claim_text"
+        and item["reason"].startswith("candidate unavailable")
+        for item in evidence_rows[0]["suggested_review_rationales"]
+    )
     assert decision["claim_correct"] is None
     assert decision["source_span_supports_claim"] is None
     assert decision["direction_correct"] is None
