@@ -321,6 +321,14 @@ def test_review_progress_summary_omits_full_batch_plan(tmp_path: Path, capsys):
     assert "blockers" not in output
     assert "batch_plan" not in encoded
     assert gold_gate["blocker_count"] > 0
+    assert gold_gate["batch_overview"]["batch_count"] == 10
+    assert gold_gate["batch_overview"]["next_batch_offset"] == 0
+    assert gold_gate["batch_overview"]["next_batch_limit"] == 50
+    assert (
+        gold_gate["batch_overview"]["current_batch_path"]
+        == "registry/review_batches/gold_set_reviewed.jsonl"
+    )
+    assert gold_gate["batch_overview"]["rerun_review_progress_after_batch_apply"] is True
     assert gold_gate["next_manual_action"] in {
         "fill_current_batch_review_fields_then_dry_run",
         "prepare_next_review_batch",
@@ -331,7 +339,14 @@ def test_review_progress_summary_omits_full_batch_plan(tmp_path: Path, capsys):
     assert gold_gate["promotion_commands"]["dry_run"].startswith(
         RKE_OPERATOR_TMP_ENV_PREFIX
     )
+    footprint_gate = next(
+        gate for gate in output["gates"] if gate["review_kind"] == "footprint_review"
+    )
+    assert footprint_gate["batch_overview"]["batch_count"] == 21
+    assert footprint_gate["batch_overview"]["final_batch_offset"] == 1000
+    assert footprint_gate["batch_overview"]["final_batch_limit"] == 1
     assert lockbox_gate["next_manual_action"] == "wait_for_prior_manual_gates"
+    assert lockbox_gate["batch_overview"] == {}
     assert lockbox_gate["blocked_by_review_kinds"] == [
         "gold_set",
         "footprint_review",

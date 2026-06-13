@@ -1122,6 +1122,55 @@ def _compact_current_batch_status(status: Mapping[str, Any]) -> Mapping[str, Any
     return compact
 
 
+def _compact_batch_overview(gate: ManualReviewGateProgress) -> Mapping[str, Any]:
+    if gate.review_kind not in {"gold_set", "footprint_review"}:
+        return {}
+    batches = tuple(
+        batch for batch in gate.batch_plan if isinstance(batch, Mapping)
+    )
+    current = _compact_current_batch_status(gate.current_batch_status)
+    evidence = (
+        current.get("evidence_status")
+        if isinstance(current.get("evidence_status"), Mapping)
+        else {}
+    )
+    overview: dict[str, Any] = {
+        "batch_count": len(batches),
+        "pending_rows": gate.pending_rows,
+        "current_batch_path": current.get("path"),
+        "current_batch_rows": int(current.get("rows") or 0),
+        "current_batch_pending_rows": int(current.get("pending_rows") or 0),
+        "current_batch_evidence_aligned": (
+            bool(evidence.get("aligned")) if evidence else None
+        ),
+        "current_batch_evidence_path": (
+            str(evidence.get("path") or "") if evidence else ""
+        ),
+        "rerun_review_progress_after_batch_apply": True,
+    }
+    if batches:
+        first = batches[0]
+        last = batches[-1]
+        first_limit = int(first.get("limit") or 0)
+        overview.update(
+            {
+                "next_batch_offset": int(first.get("offset") or 0),
+                "next_batch_limit": first_limit,
+                "next_batch_pending_row_start": int(
+                    first.get("pending_row_start") or 0
+                ),
+                "next_batch_pending_row_end": int(first.get("pending_row_end") or 0),
+                "final_batch_offset": int(last.get("offset") or 0),
+                "final_batch_limit": int(last.get("limit") or 0),
+                "remaining_rows_after_next_batch": max(
+                    int(gate.pending_rows) - first_limit,
+                    0,
+                ),
+            }
+        )
+    return overview
+
+
 def _lockbox_dependency_blockers(
     gate: ManualReviewGateProgress,
     gates: Sequence[ManualReviewGateProgress],
@@ -1222,6 +1271,7 @@ def build_manual_review_progress_summary(
                 "current_batch_status": _compact_current_batch_status(
                     gate.current_batch_status
                 ),
+                "batch_overview": _compact_batch_overview(gate),
                 "next_batch_commands": dict(gate.next_batch_commands),
                 "promotion_commands": {
                     "prepare": gate.prepare_command,
