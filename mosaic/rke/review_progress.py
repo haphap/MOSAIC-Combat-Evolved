@@ -1233,29 +1233,44 @@ def _action_queue_commands(
     gate: ManualReviewGateProgress,
     action: str,
 ) -> Mapping[str, str]:
+    next_batch = dict(gate.next_batch_commands)
     if action == "ready_for_promotion_apply":
         return {
             "dry_run": gate.dry_run_command,
             "apply": gate.apply_command,
         }
-    if action in {
-        "fill_current_batch_review_fields_then_dry_run",
-        "repair_current_batch_evidence_alignment",
-        "prepare_next_review_batch",
-    }:
-        return dict(gate.next_batch_commands)
+    if action == "fill_current_batch_review_fields_then_dry_run":
+        return {
+            key: command
+            for key, command in next_batch.items()
+            if key in {"assist", "evidence", "dry_run"}
+        }
+    if action == "repair_current_batch_evidence_alignment":
+        return {
+            key: command
+            for key, command in next_batch.items()
+            if key in {"assist", "evidence"}
+        }
+    if action == "prepare_next_review_batch":
+        return {
+            key: command
+            for key, command in next_batch.items()
+            if key in {"assist", "prepare", "evidence"}
+        }
+    if action == "run_prepare_command":
+        return {"prepare": gate.prepare_command}
     if action == "review_or_apply_source_license_policy":
         return {
             "prepare": gate.prepare_command,
             "dry_run": gate.dry_run_command,
-            "apply": gate.apply_command,
         }
-    if action in {"complete_lockbox_decision_then_dry_run", "prepare_lockbox_review"}:
+    if action == "complete_lockbox_decision_then_dry_run":
         return {
             "prepare": gate.prepare_command,
             "dry_run": gate.dry_run_command,
-            "apply": gate.apply_command,
         }
+    if action == "prepare_lockbox_review":
+        return {"prepare": gate.prepare_command}
     return {}
 
 

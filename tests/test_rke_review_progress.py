@@ -507,13 +507,23 @@ def test_review_progress_actions_only_reports_next_manual_work(
         actions["gold_set"]["promotion_input_path"]
         == "registry/review_batches/gold_set_full_reviewed.jsonl"
     )
-    assert actions["gold_set"]["commands"]["prepare"].startswith(
-        RKE_OPERATOR_TMP_ENV_PREFIX
-    )
+    if actions["gold_set"]["action_state"] == "needs_human_review_fields":
+        assert actions["gold_set"]["commands"]["dry_run"].startswith(
+            RKE_OPERATOR_TMP_ENV_PREFIX
+        )
+        assert "evidence" in actions["gold_set"]["commands"]
+        assert "prepare" not in actions["gold_set"]["commands"]
+    else:
+        assert actions["gold_set"]["commands"]["prepare"].startswith(
+            RKE_OPERATOR_TMP_ENV_PREFIX
+        )
+        assert "dry_run" not in actions["gold_set"]["commands"]
+    assert "apply" not in actions["gold_set"]["commands"]
     assert actions["footprint_review"]["next_manual_action"] in {
         "fill_current_batch_review_fields_then_dry_run",
         "prepare_next_review_batch",
     }
+    assert "apply" not in actions["footprint_review"]["commands"]
     assert actions["source_license"]["next_manual_action"] in {
         "ready_for_promotion_apply",
         "review_or_apply_source_license_policy",
@@ -562,6 +572,7 @@ def test_review_progress_actions_only_filters_review_kind(
     assert [action["review_kind"] for action in output["actions"]] == ["source_license"]
     assert output["actions"][0]["next_manual_action"] == "ready_for_promotion_apply"
     assert output["actions"][0]["action_state"] == "ready_to_apply"
+    assert set(output["actions"][0]["commands"]) == {"dry_run", "apply"}
 
 
 def test_manual_review_action_queue_is_public_safe_compact(tmp_path: Path):
