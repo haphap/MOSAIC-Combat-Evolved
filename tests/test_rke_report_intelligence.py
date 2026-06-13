@@ -7881,6 +7881,17 @@ def test_report_intelligence_evolution_gate_writer_preserves_stock_coverage_evid
                 "stock_outcome_120d_ready_count_below_p9_target"
             ],
             "coverage_targets": {"stock_outcome_120d_ready_report_count_min": 30},
+            "coverage_shortfalls": {
+                "stock_outcome_120d_ready_report_count": {
+                    "blocker": "stock_outcome_120d_ready_count_below_p9_target",
+                    "current": 0,
+                    "next_action": (
+                        "prefer_historical_stock_reports_with_120d_outcome_windows"
+                    ),
+                    "remaining": 30,
+                    "target": 30,
+                }
+            },
             "coverage_strata_targets": {
                 "stock_outcome_age_bucket_required": [
                     "stock_outcome_120d_calendar_ready"
@@ -7945,6 +7956,29 @@ def test_report_intelligence_evolution_gate_writer_preserves_stock_coverage_evid
     assert any(
         row["check_id"] == "RI-EVOL-05" for row in result["blocked_checks"]
     )
+    active_shortfalls = result["active_requirement_shortfalls"]
+    assert {
+        "audit_distinct_vintage_count",
+        "gold_reviewed_claims",
+        "gold_quality_metric_gaps",
+        "markdown_coverage",
+    } <= set(active_shortfalls)
+    assert active_shortfalls["audit_distinct_vintage_count"]["blocker"] == (
+        "audit_refresh_history_below_threshold"
+    )
+    assert active_shortfalls["gold_reviewed_claims"]["blocker"] == (
+        "gold_reviewed_claims_below_threshold"
+    )
+    assert active_shortfalls["gold_quality_metric_gaps"]["blocker"] == (
+        "forecast_gold_set_gate_not_passed"
+    )
+    assert (
+        active_shortfalls["markdown_coverage"][
+            "stock_outcome_120d_ready_report_count"
+        ]["blocker"]
+        == "stock_outcome_120d_ready_count_below_p9_target"
+    )
+    assert "monitor_current_global_blocker_count" not in active_shortfalls
     next_actions = {action["action_id"]: action for action in result["next_actions"]}
     assert {
         "complete_manual_forecast_gold_review",
@@ -8013,6 +8047,10 @@ def test_report_intelligence_evolution_gate_writer_preserves_stock_coverage_evid
     assert no_write_result["written"] is False
     assert set(no_write_result["blocked_check_ids"]) >= {"RI-EVOL-05", "RI-EVOL-07"}
     assert no_write_result["next_actions"] == result["next_actions"]
+    assert (
+        no_write_result["active_requirement_shortfalls"]
+        == result["active_requirement_shortfalls"]
+    )
     assert gate_path.read_text(encoding="utf-8") == before_no_write
 
 
@@ -8062,6 +8100,7 @@ def test_report_intelligence_evolution_gate_writer_preserves_existing_gate_witho
     assert result["blocker_count"] == 1
     assert result["blockers"] == ["manual_review_pending"]
     assert result["blocked_check_ids"] == ["RI-EVOL-01"]
+    assert result["active_requirement_shortfalls"] == {}
     assert "report_outcome_labels: missing_or_empty_private_input" in result[
         "input_load_blockers"
     ]

@@ -13586,8 +13586,58 @@ def _evolution_gate_cli_summary(gate: Mapping[str, Any]) -> dict[str, Any]:
         "blocked_check_ids": [row["check_id"] for row in blocked_checks],
         "passed_check_ids": passed_check_ids,
         "blocked_checks": blocked_checks,
+        "active_requirement_shortfalls": (
+            _evolution_gate_active_requirement_shortfalls(gate, blocked_checks)
+        ),
         "next_actions": _evolution_gate_cli_next_actions(blocked_checks),
     }
+
+
+def _shortfall_remaining_positive(shortfall: Mapping[str, Any]) -> bool:
+    remaining = _float_or_none(shortfall.get("remaining"))
+    return remaining is not None and remaining > 0
+
+
+def _evolution_gate_active_requirement_shortfalls(
+    gate: Mapping[str, Any],
+    blocked_checks: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    active_blockers = {
+        str(blocker)
+        for blocker in _ensure_list(gate.get("blockers"))
+        if str(blocker).strip()
+    }
+    blocked_check_ids = {
+        str(check.get("check_id") or "")
+        for check in blocked_checks
+        if str(check.get("check_id") or "").strip()
+    }
+    shortfalls = _ensure_mapping(gate.get("requirement_shortfalls"))
+    active_shortfalls: dict[str, Any] = {}
+    for key, raw_value in sorted(shortfalls.items()):
+        value = _ensure_mapping(raw_value)
+        if not value:
+            continue
+        blocker = str(value.get("blocker") or "").strip()
+        if blocker and blocker in active_blockers:
+            active_shortfalls[str(key)] = dict(value)
+            continue
+        if str(key) != "markdown_coverage" or "RI-EVOL-07" not in blocked_check_ids:
+            continue
+        markdown_shortfalls: dict[str, Any] = {}
+        for nested_key, nested_raw_value in sorted(value.items()):
+            nested_value = _ensure_mapping(nested_raw_value)
+            if not nested_value:
+                continue
+            nested_blocker = str(nested_value.get("blocker") or "").strip()
+            if (
+                nested_blocker in active_blockers
+                or _shortfall_remaining_positive(nested_value)
+            ):
+                markdown_shortfalls[str(nested_key)] = dict(nested_value)
+        if markdown_shortfalls:
+            active_shortfalls[str(key)] = markdown_shortfalls
+    return active_shortfalls
 
 
 def _evolution_gate_cli_next_actions(
