@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -23,6 +24,7 @@ from .manual_review_batches import (
 from .manual_review_bundle_manifest import (
     MANUAL_REVIEW_BUNDLE_ARTIFACTS,
     MANUAL_REVIEW_BUNDLE_MANIFEST_PATH,
+    build_manual_review_bundle_manifest,
     write_manual_review_bundle_manifest,
 )
 from .manual_review_import import (
@@ -77,6 +79,7 @@ from .review_progress import (
     write_manual_review_progress_report,
     write_manual_review_runbook,
 )
+from .temp_paths import rke_temporary_directory
 
 
 OPERATOR_READINESS_REPORT_PATH = "registry/handoffs/rke_operator_readiness_report.json"
@@ -126,6 +129,23 @@ def _read_mapping_json(root_path: Path, relative_path: str) -> tuple[Mapping[str
     if not isinstance(payload, Mapping):
         return {}, (f"{relative_path} must be object",)
     return payload, ()
+
+
+def _operator_readiness_dry_run_root(
+    root_path: Path,
+    *,
+    write_supporting_artifacts: bool,
+) -> tuple[Path, Any | None]:
+    if write_supporting_artifacts:
+        return root_path, None
+    temp_dir = rke_temporary_directory(prefix="mosaic-rke-operator-readiness-")
+    temp_root = Path(temp_dir.name)
+    shutil.copytree(root_path / "registry", temp_root / "registry")
+    for directory_name in ("schemas", "docs"):
+        source_path = root_path / directory_name
+        if source_path.exists():
+            shutil.copytree(source_path, temp_root / directory_name)
+    return temp_root, temp_dir
 
 
 def _write_json(path: Path, payload: Mapping[str, Any]) -> dict[str, Any]:
@@ -591,15 +611,24 @@ def _lockbox_upstream_guard_consistent(root_path: Path) -> tuple[bool, str, str]
     )
 
 
-def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadinessReport:
+def build_operator_readiness_report(
+    root: str | Path = ".",
+    *,
+    write_supporting_artifacts: bool = True,
+) -> OperatorReadinessReport:
     root_path = Path(root)
-    if not (root_path / GOLD_REVIEW_ASSIST_JSONL_PATH).exists() or not (
-        root_path / GOLD_REVIEW_ASSIST_MD_PATH
-    ).exists():
-        write_gold_review_assist(root_path)
-    write_source_license_review_workbook(root_path)
-    write_manual_review_progress_report(root_path)
-    write_manual_review_runbook(root_path)
+    if write_supporting_artifacts:
+        if not (root_path / GOLD_REVIEW_ASSIST_JSONL_PATH).exists() or not (
+            root_path / GOLD_REVIEW_ASSIST_MD_PATH
+        ).exists():
+            write_gold_review_assist(root_path)
+        write_source_license_review_workbook(root_path)
+        write_manual_review_progress_report(root_path)
+        write_manual_review_runbook(root_path)
+    dry_run_root, dry_run_temp = _operator_readiness_dry_run_root(
+        root_path,
+        write_supporting_artifacts=write_supporting_artifacts,
+    )
     checks: list[OperatorReadinessCheck] = []
 
     missing, empty = validate_required_registry(root_path)
@@ -725,7 +754,7 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
     )
 
     blank_gold_full = apply_gold_set_review_import(
-        root_path,
+        dry_run_root,
         GOLD_FULL_IMPORT_TEMPLATE_PATH,
         dry_run=True,
     )
@@ -788,7 +817,7 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
     )
 
     blank_lockbox = apply_lockbox_review_import(
-        root_path,
+        dry_run_root,
         LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH,
         dry_run=True,
     )
@@ -862,7 +891,7 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
     )
 
     policy_dry_run = build_source_license_policy_import(
-        root_path,
+        dry_run_root,
         SOURCE_LICENSE_POLICY_TEMPLATE_PATH,
         output_path=DEFAULT_LICENSE_POLICY_IMPORT_PATH,
         dry_run=True,
@@ -891,7 +920,7 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
     )
 
     blank_dry_run = build_promotion_dry_run_report(
-        root_path,
+        dry_run_root,
         gold_input=GOLD_FULL_IMPORT_TEMPLATE_PATH,
         license_input=LICENSE_BATCH_IMPORT_TEMPLATE_PATH,
         lockbox_input=LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH,
@@ -910,8 +939,16 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
         )
     )
 
-    bundle_result = write_manual_review_bundle_manifest(root_path)
-    bundle_manifest = _read_json(root_path / MANUAL_REVIEW_BUNDLE_MANIFEST_PATH)
+    if write_supporting_artifacts:
+        bundle_result = write_manual_review_bundle_manifest(root_path)
+        bundle_manifest = _read_json(root_path / MANUAL_REVIEW_BUNDLE_MANIFEST_PATH)
+    else:
+        built_bundle_manifest = build_manual_review_bundle_manifest(root_path)
+        bundle_result = {
+            "accepted": built_bundle_manifest.accepted,
+            "artifact_count": built_bundle_manifest.artifact_count,
+        }
+        bundle_manifest = _jsonable(asdict(built_bundle_manifest))
     bundle_paths = {
         str(artifact.get("path") or "")
         for artifact in bundle_manifest.get("artifacts", ())
@@ -1000,6 +1037,8 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
         LOCKBOX_REVIEW_IMPORT_REPORT_PATH,
         MANUAL_REVIEW_BUNDLE_MANIFEST_PATH,
     )
+    if dry_run_temp is not None:
+        dry_run_temp.cleanup()
     return OperatorReadinessReport(
         report_id="RKE-OPERATOR-READINESS-REPORT-20260606",
         accepted=passed_count == len(checks),

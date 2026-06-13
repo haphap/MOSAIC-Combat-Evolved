@@ -655,6 +655,11 @@ def build_parser() -> argparse.ArgumentParser:
     operator_readiness.add_argument(
         "--root", default=".", help="Repository root. Defaults to current directory."
     )
+    operator_readiness.add_argument(
+        "--no-write",
+        action="store_true",
+        help="Do not rewrite operator handoff or readiness artifacts; print the current check result only.",
+    )
 
     review_progress = subparsers.add_parser(
         "review-progress",
@@ -1554,8 +1559,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         _print_json({"paths": paths, "handoff": asdict(handoff)})
         return 0 if handoff.ready_for_operator_review else 2
     if args.command == "operator-readiness":
-        result = write_operator_readiness_report(root)
-        report = build_operator_readiness_report(root)
+        if args.no_write:
+            result = {
+                "path": str(root / "registry/handoffs/rke_operator_readiness_report.json")
+            }
+            report = build_operator_readiness_report(
+                root,
+                write_supporting_artifacts=False,
+            )
+        else:
+            result = write_operator_readiness_report(root)
+            report = build_operator_readiness_report(root)
         _print_json({"path": result["path"], **asdict(report)})
         return 0 if report.accepted else 2
     if args.command == "review-progress":

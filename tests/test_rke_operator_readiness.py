@@ -632,3 +632,31 @@ def test_cli_operator_readiness_writes_report(tmp_path: Path, capsys):
     assert output["accepted"] is True
     assert output["failure_count"] == 0
     assert (tmp_path / "registry/handoffs/rke_operator_readiness_report.json").exists()
+
+
+def test_cli_operator_readiness_no_write_preserves_existing_artifacts(
+    tmp_path: Path, capsys
+):
+    _copy_registry(tmp_path)
+    main(("operator-readiness", "--root", str(tmp_path)))
+    capsys.readouterr()
+    tracked_paths = [
+        tmp_path / "registry/handoffs/rke_operator_readiness_report.json",
+        tmp_path / "registry/handoffs/rke_operator_handoff.json",
+        tmp_path / "registry/review_batches/manual_review_progress_report.json",
+        tmp_path / "registry/review_batches/manual_review_runbook.md",
+        tmp_path / "registry/review_batches/manual_review_bundle_manifest.json",
+        tmp_path / "registry/gold_sets/tushare_research_reports.review_import_report.json",
+        tmp_path / "registry/review_batches/source_license_policy_import_report.json",
+        tmp_path / "registry/lockbox/central_bank_lockbox_review_import_report.json",
+        tmp_path / "registry/promotion/rke_promotion_dry_run_report.json",
+    ]
+    before_mtimes = {path: path.stat().st_mtime_ns for path in tracked_paths}
+
+    code = main(("operator-readiness", "--root", str(tmp_path), "--no-write"))
+    output = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert output["accepted"] is True
+    assert output["failure_count"] == 0
+    assert {path: path.stat().st_mtime_ns for path in tracked_paths} == before_mtimes
