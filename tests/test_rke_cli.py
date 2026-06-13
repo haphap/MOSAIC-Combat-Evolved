@@ -665,6 +665,23 @@ def test_rke_cli_promotion_status_writes_report(tmp_path: Path, capsys):
     assert (tmp_path / "registry/promotion/rke_production_promotion_gate.json").exists()
 
 
+def test_rke_cli_promotion_status_no_write_preserves_report(tmp_path: Path, capsys):
+    _copy_registry(tmp_path)
+    main(("promotion-status", "--root", str(tmp_path)))
+    capsys.readouterr()
+    report_path = tmp_path / "registry/promotion/rke_production_promotion_gate.json"
+    before = report_path.read_text(encoding="utf-8")
+    before_mtime = report_path.stat().st_mtime_ns
+
+    code = main(("promotion-status", "--root", str(tmp_path), "--no-write"))
+    output = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert output["paper_trading_allowed"] is True
+    assert report_path.read_text(encoding="utf-8") == before
+    assert report_path.stat().st_mtime_ns == before_mtime
+
+
 def test_rke_cli_review_batches_writes_next_import_templates(tmp_path: Path, capsys):
     _copy_registry(tmp_path)
 

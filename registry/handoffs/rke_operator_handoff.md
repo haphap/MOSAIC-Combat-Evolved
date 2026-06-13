@@ -134,7 +134,7 @@ Dry-run command: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tm
 
 - Phase: promotion
 - Action: Confirm only the final lockbox gate remains before opening it.
-- Command: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke promotion-status --root .`
+- Command: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke promotion-status --root . --no-write`
 - Manual input: none
 - Expected result: Gold-set, footprint, and source-license criteria pass; lockbox remains not opened.
 
@@ -182,7 +182,7 @@ Dry-run command: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tm
 
 - Phase: promotion
 - Action: Inspect final staged-promotion state.
-- Command: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke promotion-status --root .`
+- Command: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke promotion-status --root . --no-write`
 - Manual input: none
 - Expected result: Promotion status reflects the applied manual reviews and lockbox decision.
 

@@ -50,7 +50,8 @@ def test_operator_handoff_summarizes_remaining_manual_gates():
     )
     assert any(
         step.step_id == "promotion-status-before-lockbox"
-        and step.command == f"{RKE_OPERATOR_TMP_ENV_PREFIX} mosaic-rke promotion-status --root ."
+        and step.command
+        == f"{RKE_OPERATOR_TMP_ENV_PREFIX} mosaic-rke promotion-status --root . --no-write"
         for step in handoff.command_sequence
     )
     assert any(

@@ -361,6 +361,11 @@ def build_parser() -> argparse.ArgumentParser:
     promotion_status.add_argument(
         "--root", default=".", help="Repository root. Defaults to current directory."
     )
+    promotion_status.add_argument(
+        "--no-write",
+        action="store_true",
+        help="Do not rewrite promotion gate artifacts; print the current check result only.",
+    )
 
     promotion_dry_run = subparsers.add_parser(
         "promotion-dry-run",
@@ -1379,7 +1384,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         _print_json({"path": result["path"], **asdict(report)})
         return 0 if report.accepted else 2
     if args.command == "promotion-status":
-        write_production_promotion_gate_report(root)
+        if not args.no_write:
+            write_production_promotion_gate_report(root)
         result = build_production_promotion_gate_report(root)
         _print_json(asdict(result))
         return 0 if result.paper_trading_allowed else 2

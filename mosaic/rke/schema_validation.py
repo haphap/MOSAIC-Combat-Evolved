@@ -5021,6 +5021,16 @@ def _validate_operator_handoff_contract(root_path: Path) -> tuple[int, list[str]
                 "must use actions-only no-write preflight"
             )
 
+    for step_id in ("promotion-status-before-lockbox", "promotion-status-final"):
+        promotion_status_step = step_by_id.get(step_id)
+        if promotion_status_step:
+            command = str(promotion_status_step.get("command") or "")
+            if "promotion-status --root . --no-write" not in command:
+                failures.append(
+                    f"operator_handoff.command_sequence[{step_id}].command: "
+                    "must use promotion-status no-write check"
+                )
+
     promotion_step = step_by_id.get("promotion-dry-run")
     if promotion_step:
         command = str(promotion_step.get("command") or "")

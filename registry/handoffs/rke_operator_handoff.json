@@ -98,7 +98,7 @@
     },
     {
       "action": "Confirm only the final lockbox gate remains before opening it.",
-      "command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke promotion-status --root .",
+      "command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke promotion-status --root . --no-write",
       "expected_result": "Gold-set, footprint, and source-license criteria pass; lockbox remains not opened.",
       "manual_input_path": "",
       "phase": "promotion",
@@ -146,7 +146,7 @@
     },
     {
       "action": "Inspect final staged-promotion state.",
-      "command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke promotion-status --root .",
+      "command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke promotion-status --root . --no-write",
       "expected_result": "Promotion status reflects the applied manual reviews and lockbox decision.",
       "manual_input_path": "",
       "phase": "promotion",

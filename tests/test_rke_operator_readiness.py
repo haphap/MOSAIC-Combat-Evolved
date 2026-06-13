@@ -548,6 +548,25 @@ def test_operator_readiness_requires_actions_only_preflight():
     assert "review-progress preflight must use the action queue" in sequence_blocker
 
 
+def test_operator_readiness_requires_no_write_promotion_status_steps():
+    handoff = build_operator_handoff(".")
+    stale_steps = tuple(
+        replace(
+            step,
+            command=f"{RKE_OPERATOR_TMP_ENV_PREFIX} mosaic-rke promotion-status --root .",
+        )
+        if step.step_id == "promotion-status-final"
+        else step
+        for step in handoff.command_sequence
+    )
+    stale_handoff = replace(handoff, command_sequence=stale_steps)
+
+    sequence_ok, _, sequence_blocker = _handoff_command_sequence_complete(stale_handoff)
+
+    assert not sequence_ok
+    assert "promotion-status-final must use promotion-status --no-write" in sequence_blocker
+
+
 def test_write_operator_readiness_report_outputs_registry_artifact(tmp_path: Path):
     _copy_registry(tmp_path)
 

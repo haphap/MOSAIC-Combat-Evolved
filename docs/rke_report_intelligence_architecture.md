@@ -273,7 +273,7 @@ uv run mosaic-rke report-intelligence --root . --refresh-derived-only
 uv run mosaic-rke schema-status --root .
 uv run mosaic-rke master-plan-status --root .
 uv run mosaic-rke operator-readiness --root .
-uv run mosaic-rke promotion-status --root .
+uv run mosaic-rke promotion-status --root . --no-write
 uv run mosaic-rke manifest --root .
 uv run mosaic-rke validate-required --root .
 ```

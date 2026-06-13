@@ -421,6 +421,13 @@ def _handoff_command_sequence_complete(handoff: Any) -> tuple[bool, str, str]:
         not in preflight_command
     ):
         failures.append("review-progress preflight must use the action queue")
+    for step_id in ("promotion-status-before-lockbox", "promotion-status-final"):
+        promotion_status_step = by_id.get(step_id)
+        promotion_status_command = str(
+            getattr(promotion_status_step, "command", "") or ""
+        )
+        if "promotion-status --root . --no-write" not in promotion_status_command:
+            failures.append(f"{step_id} must use promotion-status --no-write")
 
     fill_expectations = {
         "fill-gold-review": "registry/review_batches/gold_set_full_reviewed.jsonl",
