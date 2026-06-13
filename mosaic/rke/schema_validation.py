@@ -1071,6 +1071,11 @@ def _required_field_failures(
     return failures
 
 
+def _has_nonempty_source_spans(row: Mapping[str, Any]) -> bool:
+    span_ids = row.get("source_span_ids")
+    return isinstance(span_ids, list) and any(str(item).strip() for item in span_ids)
+
+
 def _numeric_contract_value(
     row: Mapping[str, Any],
     field: str,
@@ -1597,6 +1602,48 @@ def _validate_proxy_outcome_label_effective_n_sets(
                 "report_outcome_labels.claim_window_set_id: "
                 f"{group_id} effective_n_weight sum {total_weight:.6f} "
                 f"exceeds 1 across rows {rows}"
+            )
+    return failures
+
+
+def _validate_proxy_outcome_label_forecast_traceability(
+    outcome_label_rows: Sequence[Mapping[str, Any]],
+    forecast_rows: Sequence[Mapping[str, Any]],
+    *,
+    forecast_rows_present: bool,
+) -> list[str]:
+    if not forecast_rows_present:
+        return []
+    failures: list[str] = []
+    forecast_by_id: dict[str, Mapping[str, Any]] = {}
+    for index, row in enumerate(forecast_rows, 1):
+        claim_id = str(row.get("forecast_claim_id") or "").strip()
+        if not claim_id:
+            failures.append(f"forecast_claims row {index}.forecast_claim_id: required")
+            continue
+        if claim_id in forecast_by_id:
+            failures.append(
+                f"forecast_claims row {index}.forecast_claim_id: duplicate {claim_id}"
+            )
+            continue
+        forecast_by_id[claim_id] = row
+
+    for index, row in enumerate(outcome_label_rows, 1):
+        label_type = str(row.get("label_type") or "").strip()
+        if label_type not in {"stock_price_proxy", "industry_etf_proxy"}:
+            continue
+        row_label = f"report_outcome_labels row {index}"
+        claim_id = str(row.get("forecast_claim_id") or "").strip()
+        if not claim_id:
+            failures.append(f"{row_label}.forecast_claim_id: required")
+            continue
+        claim = forecast_by_id.get(claim_id)
+        if claim is None:
+            failures.append(f"{row_label}.forecast_claim_id: not found in forecast_claims")
+            continue
+        if label_type == "stock_price_proxy" and not _has_nonempty_source_spans(claim):
+            failures.append(
+                f"{row_label}.forecast_claim_id: stock proxy forecast claim must cite source_span_ids"
             )
     return failures
 
@@ -5128,10 +5175,7 @@ def validate_report_intelligence_semantics(
     provenance_failures = [*forecast_failures, *footprint_failures]
     for index, row in enumerate(forecast_rows, 1):
         row_label = f"forecast_claims row {index}"
-        span_ids = row.get("source_span_ids")
-        has_spans = isinstance(span_ids, list) and any(
-            str(item).strip() for item in span_ids
-        )
+        has_spans = _has_nonempty_source_spans(row)
         if (
             str(row.get("claim_provenance") or "") == "source_grounded"
             and not has_spans
@@ -5167,10 +5211,7 @@ def validate_report_intelligence_semantics(
     for index, row in enumerate(footprint_rows, 1):
         row_label = f"analytical_footprints row {index}"
         extraction_type = str(row.get("extraction_type") or "")
-        span_ids = row.get("source_span_ids")
-        has_spans = isinstance(span_ids, list) and any(
-            str(item).strip() for item in span_ids
-        )
+        has_spans = _has_nonempty_source_spans(row)
         if extraction_type in {"source_grounded", "mixed"} and not has_spans:
             provenance_failures.append(
                 f"{row_label}: source-grounded analytical footprint must cite source_span_ids"
@@ -5218,6 +5259,13 @@ def validate_report_intelligence_semantics(
     )
     outcome_label_failures.extend(
         _validate_proxy_outcome_label_effective_n_sets(outcome_label_rows)
+    )
+    outcome_label_failures.extend(
+        _validate_proxy_outcome_label_forecast_traceability(
+            outcome_label_rows,
+            forecast_rows,
+            forecast_rows_present=forecast_rows_present,
+        )
     )
     records.append(
         SchemaValidationRecord(

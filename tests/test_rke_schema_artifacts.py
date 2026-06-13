@@ -1066,6 +1066,15 @@ def _write_proxy_outcome_labels(tmp_path: Path, rows: list[dict[str, object]]) -
     )
 
 
+def _write_forecast_claims(tmp_path: Path, rows: list[dict[str, object]]) -> None:
+    registry = tmp_path / "registry/report_intelligence"
+    registry.mkdir(parents=True, exist_ok=True)
+    (registry / "forecast_claims.jsonl").write_text(
+        "\n".join(json.dumps(row, sort_keys=True) for row in rows) + "\n",
+        encoding="utf-8",
+    )
+
+
 def _base_outcome_label(label_type: str) -> dict[str, object]:
     row: dict[str, object] = {
         "outcome_id": f"OUT-{label_type}",
@@ -1201,6 +1210,74 @@ def test_report_outcome_label_semantics_accept_complete_proxy_contracts(
     assert record.accepted
     assert record.item_count == 2
     assert record.failures == ()
+
+
+def test_report_outcome_label_semantics_trace_proxy_labels_to_forecast_claims(
+    tmp_path: Path,
+):
+    stock_label = _base_outcome_label("stock_price_proxy")
+    industry_label = _base_outcome_label("industry_etf_proxy")
+    industry_label["forecast_claim_id"] = "FC-INDUSTRY-PROXY-CONTRACT"
+    industry_label["claim_window_set_id"] = "WSET-industry-trace"
+    _write_forecast_claims(
+        tmp_path,
+        [
+            {
+                "forecast_claim_id": stock_label["forecast_claim_id"],
+                "claim_provenance": "source_grounded",
+                "forecast_testability": "testable",
+                "source_span_ids": ["span-stock"],
+            },
+            {
+                "forecast_claim_id": industry_label["forecast_claim_id"],
+                "claim_provenance": "source_grounded",
+                "forecast_testability": "testable",
+                "source_span_ids": ["span-industry"],
+            },
+        ],
+    )
+    _write_proxy_outcome_labels(tmp_path, [stock_label, industry_label])
+
+    record = _proxy_outcome_contract_record(tmp_path)
+
+    assert record.accepted
+    assert record.failures == ()
+
+
+def test_report_outcome_label_semantics_reject_untraceable_stock_proxy_claim(
+    tmp_path: Path,
+):
+    stock_label = _base_outcome_label("stock_price_proxy")
+    missing_claim_label = dict(stock_label)
+    missing_claim_label["outcome_id"] = "OUT-stock-missing-claim"
+    missing_claim_label["forecast_claim_id"] = "FC-MISSING"
+    missing_claim_label["claim_window_set_id"] = "WSET-stock-missing-claim"
+    missing_claim_label["overlap_group_id"] = "OVL-stock-missing-claim"
+    no_span_claim_label = dict(stock_label)
+    no_span_claim_label["outcome_id"] = "OUT-stock-no-span-claim"
+    no_span_claim_label["claim_window_set_id"] = "WSET-stock-no-span-claim"
+    no_span_claim_label["overlap_group_id"] = "OVL-stock-no-span-claim"
+    _write_forecast_claims(
+        tmp_path,
+        [
+            {
+                "forecast_claim_id": stock_label["forecast_claim_id"],
+                "claim_provenance": "source_grounded",
+                "forecast_testability": "testable",
+                "source_span_ids": [],
+            },
+        ],
+    )
+    _write_proxy_outcome_labels(tmp_path, [missing_claim_label, no_span_claim_label])
+
+    record = _proxy_outcome_contract_record(tmp_path)
+
+    assert record.accepted is False
+    assert any("forecast_claim_id: not found" in failure for failure in record.failures)
+    assert any(
+        "stock proxy forecast claim must cite source_span_ids" in failure
+        for failure in record.failures
+    )
 
 
 def test_report_outcome_label_semantics_reject_cross_label_type_id_collisions(
