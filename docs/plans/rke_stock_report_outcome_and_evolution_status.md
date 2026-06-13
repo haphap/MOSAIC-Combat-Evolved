@@ -137,7 +137,11 @@ the promotion input path and marks that scratch as stale instead of showing its
 missing fields as current work.
 `master-plan-status --no-write` and `schema-status --failures-only --no-write`
 still exit 2 only because the same manual review-derived schema and patch
-coverage gates remain open. `evolution-readiness --no-write` also exits 2 when
+coverage gates remain open. The schema-status failure payload now includes
+public-safe `next_actions` for the analytical-footprint review summary gate and
+patch v1.5 manual coverage gate, so operators can jump from the failed schema
+records back to the review-progress/evidence/dry-run commands without editing
+coverage artifacts directly. `evolution-readiness --no-write` also exits 2 when
 `gate_status=blocked` and includes `blocked_check_ids` / `blocked_checks` in
 stdout so operators can see that RI-EVOL-04 and RI-EVOL-05 are the active
 readiness blockers. The same read-only output now includes public-safe

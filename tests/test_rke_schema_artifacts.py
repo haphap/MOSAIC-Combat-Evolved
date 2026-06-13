@@ -4785,6 +4785,29 @@ def test_schema_status_cli_filters_failures_without_writing(tmp_path: Path, caps
         "schemas/report_intelligence_analytical_footprint_review_rules",
         "schemas/report_intelligence_patch_v1_5_coverage_rules",
     }
+    next_actions = {action["action_id"]: action for action in output["next_actions"]}
+    assert {
+        "complete_manual_analytical_footprint_review",
+        "clear_patch_v1_5_manual_review_coverage",
+    } == set(next_actions)
+    assert (
+        "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke"
+        in next_actions["complete_manual_analytical_footprint_review"]["commands"][
+            "inspect"
+        ]
+    )
+    assert (
+        "schema-status --root . --failures-only --no-write"
+        in next_actions["complete_manual_analytical_footprint_review"]["commands"][
+            "schema_after_review"
+        ]
+    )
+    assert (
+        "review-progress --root . --actions-only --no-write --review-kind gold_set"
+        in next_actions["clear_patch_v1_5_manual_review_coverage"]["commands"][
+            "inspect_gold"
+        ]
+    )
     assert all(record["accepted"] is False for record in output["records"])
     assert not (registry_dir / "schemas/rke_schema_validation_report.json").exists()
 

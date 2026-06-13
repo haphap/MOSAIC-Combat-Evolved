@@ -138,6 +138,7 @@ from .source_text_redaction import (
     build_source_text_redaction_report,
     write_source_text_redaction_report,
 )
+from .temp_paths import operator_command
 from .tushare_reports import (
     P9_REPORT_INTELLIGENCE_CORPUS_PROFILE,
     refresh_tushare_research_report_registry,
@@ -163,6 +164,101 @@ def _jsonable(value: Any) -> Any:
 
 def _print_json(payload: Any) -> None:
     print(json.dumps(_jsonable(payload), ensure_ascii=False, indent=2, sort_keys=True))
+
+
+def _schema_status_next_actions(records: Sequence[Any]) -> list[dict[str, Any]]:
+    """Map known schema-status failures to public-safe operator commands."""
+    failed_schema_paths = {
+        str(getattr(record, "schema_path", "") or "")
+        for record in records
+        if getattr(record, "accepted", False) is not True
+        or bool(getattr(record, "failures", ()))
+    }
+    actions: list[dict[str, Any]] = []
+
+    def add_action(
+        *,
+        action_id: str,
+        reason: str,
+        commands: dict[str, str],
+        notes: Sequence[str] = (),
+    ) -> None:
+        if any(action["action_id"] == action_id for action in actions):
+            return
+        actions.append(
+            {
+                "action_id": action_id,
+                "reason": reason,
+                "commands": commands,
+                "notes": [str(note) for note in notes if str(note).strip()],
+            }
+        )
+
+    if "schemas/report_intelligence_analytical_footprint_review_rules" in failed_schema_paths:
+        add_action(
+            action_id="complete_manual_analytical_footprint_review",
+            reason=(
+                "Analytical-footprint review summary cannot pass until the "
+                "manual footprint review rows are completed, imported, and the "
+                "quality metrics are available."
+            ),
+            commands={
+                "inspect": operator_command(
+                    "mosaic-rke review-progress --root . --actions-only "
+                    "--no-write --review-kind footprint_review"
+                ),
+                "write_assist": operator_command(
+                    "mosaic-rke write-footprint-review-assist --root ."
+                ),
+                "write_evidence": operator_command(
+                    "mosaic-rke write-footprint-review-evidence --root . "
+                    "--limit 50 --offset 0 --review-input "
+                    f"{ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH}"
+                ),
+                "dry_run_current_batch": operator_command(
+                    "mosaic-rke apply-footprint-review --root . --input "
+                    f"{ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH} --dry-run"
+                ),
+                "schema_after_review": operator_command(
+                    "mosaic-rke schema-status --root . --failures-only --no-write"
+                ),
+            },
+            notes=(
+                "Assist and evidence outputs are private review aids, not import files.",
+                "The full reviewed import is used only after all footprint batches are complete.",
+            ),
+        )
+
+    if "schemas/report_intelligence_patch_v1_5_coverage_rules" in failed_schema_paths:
+        add_action(
+            action_id="clear_patch_v1_5_manual_review_coverage",
+            reason=(
+                "Patch v1.5 coverage remains blocked while Phase B gold-set "
+                "review or Phase D footprint quality gates are incomplete."
+            ),
+            commands={
+                "inspect_manual_queue": operator_command(
+                    "mosaic-rke review-progress --root . --actions-only --no-write"
+                ),
+                "inspect_gold": operator_command(
+                    "mosaic-rke review-progress --root . --actions-only "
+                    "--no-write --review-kind gold_set"
+                ),
+                "inspect_footprint": operator_command(
+                    "mosaic-rke review-progress --root . --actions-only "
+                    "--no-write --review-kind footprint_review"
+                ),
+                "check_evolution": operator_command(
+                    "mosaic-rke evolution-readiness --root . --no-write"
+                ),
+            },
+            notes=(
+                "Coverage status is downstream of manual review gates; do not "
+                "edit coverage artifacts directly.",
+            ),
+        )
+
+    return actions
 
 
 def _sampled_sequence(
@@ -1288,6 +1384,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             {
                 "accepted": result.accepted,
                 "failure_count": result.failure_count,
+                "next_actions": _schema_status_next_actions(records),
                 "record_count": len(result.records),
                 "reported_record_count": len(records),
                 "records": [asdict(record) for record in records],
