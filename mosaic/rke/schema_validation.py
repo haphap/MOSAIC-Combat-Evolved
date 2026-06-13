@@ -3702,6 +3702,150 @@ def _validate_prompt_mutation_candidate_contract(
     return len(candidate_rows), failures
 
 
+PROFILE_OUTCOME_LAYER_REQUIRED_SUMMARY_FIELDS = (
+    "label_type",
+    "benchmark_family",
+    "cost_model_id",
+    "n_nominal",
+    "n_effective",
+    "mean_after_cost_alpha",
+    "hit_rate",
+    "shrunk_after_cost_alpha",
+    "shrunk_hit_rate",
+    "statistical_reliability_bucket",
+)
+
+
+def _profile_layer_expected_effective_n(
+    profile: Mapping[str, Any],
+    profile_kind: str,
+) -> float:
+    if profile_kind == "method":
+        source_support = profile.get("source_support")
+        if not isinstance(source_support, Mapping):
+            return 0.0
+        return _float_or_none(source_support.get("n_effective_reports")) or 0.0
+    return _float_or_none(profile.get("n_effective")) or 0.0
+
+
+def _validate_profile_outcome_layer_support(
+    root_path: Path,
+) -> tuple[int, list[str]]:
+    profile_specs = (
+        (
+            "source",
+            "registry/report_intelligence/source_performance_profiles.jsonl",
+            "profile_id",
+        ),
+        (
+            "viewpoint",
+            "registry/report_intelligence/viewpoint_performance_profiles.jsonl",
+            "viewpoint_profile_id",
+        ),
+        (
+            "method",
+            "registry/report_intelligence/method_performance_profiles.jsonl",
+            "method_profile_id",
+        ),
+    )
+    failures: list[str] = []
+    item_count = 0
+    for profile_kind, artifact_path, id_field in profile_specs:
+        rows, row_failures = _load_mapping_jsonl(root_path, artifact_path)
+        failures.extend(row_failures)
+        item_count += len(rows)
+        for index, profile in enumerate(rows, 1):
+            profile_id = str(profile.get(id_field) or f"{profile_kind}-row-{index}")
+            row_label = f"{artifact_path} {profile_id}"
+            support = profile.get("outcome_layer_support")
+            if not isinstance(support, Mapping):
+                failures.append(f"{row_label}.outcome_layer_support: expected object")
+                continue
+            summaries = support.get("layer_summaries")
+            if not isinstance(summaries, Sequence) or isinstance(summaries, str):
+                failures.append(
+                    f"{row_label}.outcome_layer_support.layer_summaries: expected array"
+                )
+                summaries = []
+            keys = support.get("layer_keys")
+            if not isinstance(keys, Sequence) or isinstance(keys, str):
+                failures.append(
+                    f"{row_label}.outcome_layer_support.layer_keys: expected array"
+                )
+                keys = []
+            layer_count = _int_or_none(support.get("layer_count"))
+            if layer_count != len(summaries) or layer_count != len(keys):
+                failures.append(
+                    f"{row_label}.outcome_layer_support.layer_count: must match layer_summaries and layer_keys"
+                )
+            mixed_layer = support.get("mixed_layer_profile")
+            if mixed_layer is not (len(summaries) > 1):
+                failures.append(
+                    f"{row_label}.outcome_layer_support.mixed_layer_profile: must match layer_count > 1"
+                )
+            policy = str(support.get("layering_policy") or "")
+            for required_text in ("label_type", "benchmark_family", "cost_model_id"):
+                if required_text not in policy:
+                    failures.append(
+                        f"{row_label}.outcome_layer_support.layering_policy: must mention {required_text}"
+                    )
+            summary_keys: list[tuple[str, str, str]] = []
+            n_effective_sum = 0.0
+            for summary_index, summary in enumerate(summaries, 1):
+                summary_label = (
+                    f"{row_label}.outcome_layer_support.layer_summaries[{summary_index}]"
+                )
+                if not isinstance(summary, Mapping):
+                    failures.append(f"{summary_label}: expected object")
+                    continue
+                for field in PROFILE_OUTCOME_LAYER_REQUIRED_SUMMARY_FIELDS:
+                    if field not in summary:
+                        failures.append(f"{summary_label}.{field}: required")
+                key = (
+                    str(summary.get("label_type") or ""),
+                    str(summary.get("benchmark_family") or ""),
+                    str(summary.get("cost_model_id") or ""),
+                )
+                if not all(key):
+                    failures.append(
+                        f"{summary_label}: label_type, benchmark_family, and cost_model_id required"
+                    )
+                summary_keys.append(key)
+                n_effective = _float_or_none(summary.get("n_effective"))
+                if n_effective is None or n_effective < 0:
+                    failures.append(f"{summary_label}.n_effective: must be nonnegative")
+                else:
+                    n_effective_sum += n_effective
+            observed_keys: list[tuple[str, str, str]] = []
+            for key_index, key_row in enumerate(keys, 1):
+                key_label = (
+                    f"{row_label}.outcome_layer_support.layer_keys[{key_index}]"
+                )
+                if not isinstance(key_row, Mapping):
+                    failures.append(f"{key_label}: expected object")
+                    continue
+                key = (
+                    str(key_row.get("label_type") or ""),
+                    str(key_row.get("benchmark_family") or ""),
+                    str(key_row.get("cost_model_id") or ""),
+                )
+                if not all(key):
+                    failures.append(
+                        f"{key_label}: label_type, benchmark_family, and cost_model_id required"
+                    )
+                observed_keys.append(key)
+            if sorted(observed_keys) != sorted(summary_keys):
+                failures.append(
+                    f"{row_label}.outcome_layer_support.layer_keys: must match layer_summaries"
+                )
+            expected_n = _profile_layer_expected_effective_n(profile, profile_kind)
+            if not _nearly_equal(n_effective_sum, expected_n):
+                failures.append(
+                    f"{row_label}.outcome_layer_support.layer_summaries.n_effective: expected sum {expected_n}"
+                )
+    return item_count, failures
+
+
 def _manual_progress_forbidden_text_failures(
     value: Any,
     *,
@@ -4897,6 +5041,19 @@ def validate_report_intelligence_semantics(
             item_count=extraction_report_item_count,
             accepted=not extraction_report_failures,
             failures=tuple(extraction_report_failures),
+        )
+    )
+
+    profile_layer_item_count, profile_layer_failures = (
+        _validate_profile_outcome_layer_support(root_path)
+    )
+    records.append(
+        SchemaValidationRecord(
+            schema_path="schemas/report_intelligence_profile_outcome_layer_rules",
+            artifact_path="registry/report_intelligence/*_performance_profiles.jsonl",
+            item_count=profile_layer_item_count,
+            accepted=not profile_layer_failures,
+            failures=tuple(profile_layer_failures),
         )
     )
 

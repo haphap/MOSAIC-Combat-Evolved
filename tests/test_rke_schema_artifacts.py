@@ -583,6 +583,56 @@ def test_stock_price_proxy_readiness_contract_rejects_count_drift(
     assert any("stock_proxy_label_ready_count" in failure for failure in record.failures)
 
 
+def test_profile_outcome_layer_contract_accepts_current_public_artifacts(
+    tmp_path: Path,
+):
+    _copy_report_intelligence_registry(tmp_path)
+
+    record = _profile_outcome_layer_record(tmp_path)
+
+    assert record.accepted
+    assert record.item_count == 3114
+    assert record.failures == ()
+
+
+def test_profile_outcome_layer_contract_rejects_layer_drift(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    profiles_path = registry / "source_performance_profiles.jsonl"
+    profiles = [
+        json.loads(line)
+        for line in profiles_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    profile = next(
+        row
+        for row in profiles
+        if row["outcome_layer_support"]["layer_summaries"]
+    )
+    support = profile["outcome_layer_support"]
+    support["layer_count"] = 0
+    support["mixed_layer_profile"] = False
+    support["layer_keys"] = []
+    support["layer_summaries"][0]["n_effective"] = 0.0
+    support["layer_summaries"][0].pop("benchmark_family", None)
+    profiles_path.write_text(
+        "\n".join(
+            json.dumps(row, ensure_ascii=False, sort_keys=True) for row in profiles
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    record = _profile_outcome_layer_record(tmp_path)
+
+    assert not record.accepted
+    assert any("layer_count: must match" in failure for failure in record.failures)
+    assert any("benchmark_family" in failure for failure in record.failures)
+    assert any("layer_keys: must match" in failure for failure in record.failures)
+    assert any("n_effective: expected sum" in failure for failure in record.failures)
+
+
 def test_extraction_report_contract_accepts_current_public_artifact(tmp_path: Path):
     _copy_report_intelligence_registry(tmp_path)
 
@@ -840,6 +890,16 @@ def _extraction_report_contract_record(tmp_path: Path):
         for record in records
         if record.schema_path
         == "schemas/report_intelligence_extraction_report_contract_rules"
+    )
+
+
+def _profile_outcome_layer_record(tmp_path: Path):
+    records = validate_report_intelligence_semantics(tmp_path)
+    return next(
+        record
+        for record in records
+        if record.schema_path
+        == "schemas/report_intelligence_profile_outcome_layer_rules"
     )
 
 
