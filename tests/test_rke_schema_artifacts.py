@@ -3182,13 +3182,29 @@ def test_manual_review_progress_privacy_rejects_private_text_fields(
 def test_manual_review_progress_contract_accepts_current_public_artifact(
     tmp_path: Path,
 ):
-    _copy_registry_for_manual_progress(tmp_path)
+    registry = _copy_registry_for_manual_progress(tmp_path)
+    progress = json.loads(
+        (registry / "review_batches/manual_review_progress_report.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    gold_evidence = progress["gates"][0]["current_batch_status"]["evidence_status"]
+    footprint_evidence = progress["gates"][1]["current_batch_status"][
+        "evidence_status"
+    ]
 
     record = _manual_review_progress_contract_record(tmp_path)
 
     assert record.accepted
     assert record.item_count == 4
     assert record.failures == ()
+    assert gold_evidence["aligned"] is True
+    assert gold_evidence["covered_review_rows"] == gold_evidence["review_input_rows"]
+    assert footprint_evidence["aligned"] is True
+    assert (
+        footprint_evidence["covered_review_rows"]
+        == footprint_evidence["review_input_rows"]
+    )
 
 
 def test_manual_review_progress_contract_accepts_completed_gate_state(
@@ -3316,6 +3332,42 @@ def test_manual_review_progress_contract_rejects_count_or_command_drift(
     assert any("batch_plan[1].commands.dry_run: must include --dry-run" in item for item in record.failures)
     assert any("batch_plan[1].commands.apply: expected batch input" in item for item in record.failures)
     assert any("batch_plan[1].commands.apply: must not use promotion input" in item for item in record.failures)
+
+
+def test_manual_review_progress_contract_rejects_bad_evidence_alignment(
+    tmp_path: Path,
+):
+    registry = _copy_registry_for_manual_progress(tmp_path)
+    progress_path = registry / "review_batches/manual_review_progress_report.json"
+    progress = json.loads(progress_path.read_text(encoding="utf-8"))
+    evidence = progress["gates"][0]["current_batch_status"]["evidence_status"]
+    evidence["aligned"] = True
+    evidence["covered_review_rows"] = 49
+    evidence["missing_review_rows"] = 1
+    evidence["same_order"] = False
+    progress_path.write_text(
+        json.dumps(progress, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _manual_review_progress_contract_record(tmp_path)
+
+    assert not record.accepted
+    assert any(
+        "evidence_status.same_order: aligned evidence must be in review input order"
+        in item
+        for item in record.failures
+    )
+    assert any(
+        "evidence_status.covered_review_rows: aligned evidence must cover every review row"
+        in item
+        for item in record.failures
+    )
+    assert any(
+        "evidence_status.missing_review_rows: aligned evidence must have zero gaps"
+        in item
+        for item in record.failures
+    )
 
 
 def test_operator_readiness_contract_accepts_current_public_artifact(

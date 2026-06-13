@@ -229,6 +229,25 @@
       "complete_rows": 0,
       "current_batch_status": {
         "complete_rows": 0,
+        "evidence_status": {
+          "aligned": true,
+          "covered_review_rows": 50,
+          "duplicate_evidence_id_count": 0,
+          "duplicate_review_id_count": 0,
+          "exists": true,
+          "extra_evidence_rows": 0,
+          "id_field": "claim_id",
+          "malformed_rows": 0,
+          "missing_review_rows": 0,
+          "path": "registry/review_batches/gold_set_review_evidence.jsonl",
+          "review_input_exists": true,
+          "review_input_malformed_rows": 0,
+          "review_input_path": "registry/review_batches/gold_set_reviewed.jsonl",
+          "review_input_rows": 50,
+          "rows": 50,
+          "same_order": true,
+          "target_row_hash_mismatch_count": 0
+        },
         "exists": true,
         "malformed_rows": 0,
         "missing_required_fields": {
@@ -678,6 +697,25 @@
       "complete_rows": 0,
       "current_batch_status": {
         "complete_rows": 0,
+        "evidence_status": {
+          "aligned": true,
+          "covered_review_rows": 50,
+          "duplicate_evidence_id_count": 0,
+          "duplicate_review_id_count": 0,
+          "exists": true,
+          "extra_evidence_rows": 0,
+          "id_field": "footprint_id",
+          "malformed_rows": 0,
+          "missing_review_rows": 0,
+          "path": "registry/report_intelligence/analytical_footprint_review_evidence.jsonl",
+          "review_input_exists": true,
+          "review_input_malformed_rows": 0,
+          "review_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+          "review_input_rows": 50,
+          "rows": 50,
+          "same_order": true,
+          "target_row_hash_mismatch_count": 0
+        },
         "exists": true,
         "malformed_rows": 0,
         "missing_required_fields": {

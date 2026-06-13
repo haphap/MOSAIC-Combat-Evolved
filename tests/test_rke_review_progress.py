@@ -23,6 +23,13 @@ from mosaic.rke.temp_paths import (
 
 def _copy_registry(dst_root: Path) -> None:
     shutil.copytree(Path("registry"), dst_root / "registry")
+    for private_evidence in (
+        dst_root / "registry/review_batches/gold_set_review_evidence.jsonl",
+        dst_root
+        / "registry/report_intelligence/analytical_footprint_review_evidence.jsonl",
+    ):
+        if private_evidence.exists():
+            private_evidence.unlink()
     footprint_reviewed = (
         dst_root / "registry/report_intelligence/analytical_footprint_reviewed.jsonl"
     )
@@ -305,6 +312,27 @@ def test_review_progress_reports_current_batch_scratch_status(tmp_path: Path):
         tmp_path / "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
         footprint_rows,
     )
+    _write_jsonl(
+        tmp_path / "registry/review_batches/gold_set_review_evidence.jsonl",
+        [
+            {
+                "claim_id": row["claim_id"],
+                "target_row_hash": row["target_row_hash"],
+            }
+            for row in gold_rows[:2]
+        ],
+    )
+    _write_jsonl(
+        tmp_path
+        / "registry/report_intelligence/analytical_footprint_review_evidence.jsonl",
+        [
+            {
+                "footprint_id": row["footprint_id"],
+                "target_row_hash": row["target_row_hash"],
+            }
+            for row in footprint_rows
+        ],
+    )
     lockbox_row = dict(build_lockbox_review_import_template(tmp_path))
     lockbox_row.update(
         {
@@ -337,6 +365,10 @@ def test_review_progress_reports_current_batch_scratch_status(tmp_path: Path):
         "claim_correct": 1,
         "manual_claim_text": 1,
     }
+    assert gold_batch["evidence_status"]["aligned"] is True
+    assert gold_batch["evidence_status"]["covered_review_rows"] == 2
+    assert gold_batch["evidence_status"]["review_input_rows"] == 2
+    assert gold_batch["evidence_status"]["same_order"] is True
     assert footprint_batch["exists"] is True
     assert footprint_batch["rows"] == 2
     assert footprint_batch["complete_rows"] == 0
@@ -345,6 +377,10 @@ def test_review_progress_reports_current_batch_scratch_status(tmp_path: Path):
         "metric_mapping_correct": 1,
         "review_notes": 1,
     }
+    assert footprint_batch["evidence_status"]["aligned"] is True
+    assert footprint_batch["evidence_status"]["covered_review_rows"] == 2
+    assert footprint_batch["evidence_status"]["review_input_rows"] == 2
+    assert footprint_batch["evidence_status"]["same_order"] is True
     assert lockbox_status["exists"] is True
     assert lockbox_status["rows"] == 1
     assert lockbox_status["complete_rows"] == 0
@@ -361,9 +397,40 @@ def test_review_progress_reports_current_batch_scratch_status(tmp_path: Path):
     assert "Lockbox decision" in markdown
     assert "`manual_claim_text`=1" in markdown
     assert "`review_notes`=1" in markdown
+    assert "Evidence alignment:" in markdown
+    assert "covered: 2/2" in markdown
+    assert "aligned: true" in markdown
     assert "`open_count`=1" in markdown
     assert "fixture approval" not in markdown
     assert "operator-only scratch text" not in markdown
+
+
+def test_review_progress_evidence_alignment_counts_missing_ids(tmp_path: Path):
+    _copy_registry(tmp_path)
+    gold_rows = _accepted_gold_rows(tmp_path)[:2]
+    gold_rows[1]["claim_id"] = ""
+    _write_jsonl(
+        tmp_path / "registry/review_batches/gold_set_reviewed.jsonl",
+        gold_rows,
+    )
+    _write_jsonl(
+        tmp_path / "registry/review_batches/gold_set_review_evidence.jsonl",
+        [
+            {
+                "claim_id": gold_rows[0]["claim_id"],
+                "target_row_hash": gold_rows[0]["target_row_hash"],
+            }
+        ],
+    )
+
+    report = build_manual_review_progress(tmp_path)
+    gold_gate = next(gate for gate in report.gates if gate.review_kind == "gold_set")
+    evidence_status = gold_gate.current_batch_status["evidence_status"]
+
+    assert evidence_status["aligned"] is False
+    assert evidence_status["covered_review_rows"] == 1
+    assert evidence_status["missing_review_rows"] == 1
+    assert evidence_status["same_order"] is True
 
 
 def test_write_manual_review_progress_report_outputs_registry_artifact(tmp_path: Path):
@@ -416,6 +483,7 @@ def test_manual_review_runbook_renders_operator_checklist_without_source_text(tm
     assert "mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --dry-run" in markdown
     assert "rerun with `--offset 0` because completed rows leave the pending set" in markdown
     assert "batch-aligned private source-evidence draft" in markdown
+    assert "Evidence alignment:" in markdown
     assert "mosaic-rke prepare-footprint-review --root ." in markdown
     assert "mosaic-rke write-footprint-review-assist --root ." in markdown
     assert (

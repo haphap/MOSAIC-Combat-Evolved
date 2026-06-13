@@ -4548,6 +4548,148 @@ def _validate_manual_review_progress_contract(
                 failures.append(
                     f"{row_label}.current_batch_status: complete + pending + malformed must equal rows"
                 )
+            evidence_status = batch_status.get("evidence_status")
+            if review_kind in {"gold_set", "footprint_review"}:
+                if not isinstance(evidence_status, Mapping):
+                    failures.append(
+                        f"{row_label}.current_batch_status.evidence_status: "
+                        "expected object"
+                    )
+                else:
+                    evidence_label = (
+                        f"{row_label}.current_batch_status.evidence_status"
+                    )
+                    expected_evidence_path = (
+                        "registry/review_batches/gold_set_review_evidence.jsonl"
+                        if review_kind == "gold_set"
+                        else "registry/report_intelligence/"
+                        "analytical_footprint_review_evidence.jsonl"
+                    )
+                    expected_review_input_path = (
+                        "registry/review_batches/gold_set_reviewed.jsonl"
+                        if review_kind == "gold_set"
+                        else "registry/report_intelligence/"
+                        "analytical_footprint_review_batch.jsonl"
+                    )
+                    expected_id_field = (
+                        "claim_id" if review_kind == "gold_set" else "footprint_id"
+                    )
+                    if evidence_status.get("path") != expected_evidence_path:
+                        failures.append(
+                            f"{evidence_label}.path: expected {expected_evidence_path}"
+                        )
+                    if (
+                        evidence_status.get("review_input_path")
+                        != expected_review_input_path
+                    ):
+                        failures.append(
+                            f"{evidence_label}.review_input_path: "
+                            f"expected {expected_review_input_path}"
+                        )
+                    if evidence_status.get("id_field") != expected_id_field:
+                        failures.append(
+                            f"{evidence_label}.id_field: expected {expected_id_field}"
+                        )
+                    evidence_int_fields = (
+                        "rows",
+                        "review_input_rows",
+                        "covered_review_rows",
+                        "missing_review_rows",
+                        "extra_evidence_rows",
+                        "malformed_rows",
+                        "review_input_malformed_rows",
+                        "duplicate_review_id_count",
+                        "duplicate_evidence_id_count",
+                        "target_row_hash_mismatch_count",
+                    )
+                    evidence_values: dict[str, int] = {}
+                    for field in evidence_int_fields:
+                        value = _int_or_none(evidence_status.get(field))
+                        if value is None:
+                            failures.append(f"{evidence_label}.{field}: expected integer")
+                            continue
+                        if value < 0:
+                            failures.append(
+                                f"{evidence_label}.{field}: must be non-negative"
+                            )
+                        evidence_values[field] = value
+                    review_input_rows = evidence_values.get("review_input_rows")
+                    covered_review_rows = evidence_values.get("covered_review_rows")
+                    if (
+                        rows is not None
+                        and review_input_rows is not None
+                        and review_input_rows != int(rows)
+                    ):
+                        failures.append(
+                            f"{evidence_label}.review_input_rows: must match "
+                            "current batch rows"
+                        )
+                    if (
+                        review_input_rows is not None
+                        and covered_review_rows is not None
+                        and covered_review_rows > review_input_rows
+                    ):
+                        failures.append(
+                            f"{evidence_label}.covered_review_rows: cannot exceed "
+                            "review_input_rows"
+                        )
+                    for bool_field in (
+                        "exists",
+                        "review_input_exists",
+                        "same_order",
+                        "aligned",
+                    ):
+                        if not isinstance(evidence_status.get(bool_field), bool):
+                            failures.append(
+                                f"{evidence_label}.{bool_field}: expected boolean"
+                            )
+                    if evidence_status.get("aligned") is True:
+                        if evidence_status.get("exists") is not True:
+                            failures.append(
+                                f"{evidence_label}.exists: aligned evidence must exist"
+                            )
+                        if evidence_status.get("review_input_exists") is not True:
+                            failures.append(
+                                f"{evidence_label}.review_input_exists: "
+                                "aligned review input must exist"
+                            )
+                        if evidence_status.get("same_order") is not True:
+                            failures.append(
+                                f"{evidence_label}.same_order: aligned evidence "
+                                "must be in review input order"
+                            )
+                        if (
+                            evidence_values.get("rows") is not None
+                            and review_input_rows is not None
+                            and evidence_values["rows"] != review_input_rows
+                        ):
+                            failures.append(
+                                f"{evidence_label}.rows: aligned evidence rows "
+                                "must match review_input_rows"
+                            )
+                        if (
+                            covered_review_rows is not None
+                            and review_input_rows is not None
+                            and covered_review_rows != review_input_rows
+                        ):
+                            failures.append(
+                                f"{evidence_label}.covered_review_rows: aligned "
+                                "evidence must cover every review row"
+                            )
+                        for gap_field in (
+                            "missing_review_rows",
+                            "extra_evidence_rows",
+                            "malformed_rows",
+                            "review_input_malformed_rows",
+                            "duplicate_review_id_count",
+                            "duplicate_evidence_id_count",
+                            "target_row_hash_mismatch_count",
+                        ):
+                            if evidence_values.get(gap_field) not in (0, None):
+                                failures.append(
+                                    f"{evidence_label}.{gap_field}: aligned "
+                                    "evidence must have zero gaps"
+                                )
         raw_batch_plan = gate.get("batch_plan")
         if raw_batch_plan is None:
             failures.append(f"{row_label}.batch_plan: expected array")

@@ -35,6 +35,7 @@ from .manual_review_batches import (
 )
 from .manual_review_import import (
     GOLD_BOOL_FIELDS,
+    TARGET_ROW_HASH_FIELD,
     apply_gold_set_review_import,
 )
 from .operator_handoff import LOCKBOX_REVIEWED_IMPORT_PATH
@@ -214,22 +215,157 @@ def _review_batch_status(
     return status
 
 
-def _gold_batch_status(root_path: Path) -> Mapping[str, Any]:
-    return _review_batch_status(
-        root_path,
-        GOLD_REVIEWED_IMPORT_PATH,
-        required_fields=GOLD_BATCH_REQUIRED_FIELDS,
-        boolean_fields=GOLD_BOOL_FIELDS,
+def _review_evidence_alignment_status(
+    root_path: Path,
+    *,
+    review_input_path: str,
+    evidence_path: str,
+    id_field: str,
+) -> Mapping[str, Any]:
+    review_path = _resolve(root_path, review_input_path)
+    evidence_resolved = _resolve(root_path, evidence_path)
+    status: dict[str, Any] = {
+        "path": evidence_path,
+        "exists": evidence_resolved.exists(),
+        "review_input_path": review_input_path,
+        "review_input_exists": review_path.exists(),
+        "id_field": id_field,
+        "rows": 0,
+        "review_input_rows": 0,
+        "covered_review_rows": 0,
+        "missing_review_rows": 0,
+        "extra_evidence_rows": 0,
+        "malformed_rows": 0,
+        "review_input_malformed_rows": 0,
+        "duplicate_review_id_count": 0,
+        "duplicate_evidence_id_count": 0,
+        "target_row_hash_mismatch_count": 0,
+        "same_order": False,
+        "aligned": False,
+    }
+    if not review_path.exists() or not evidence_resolved.exists():
+        return status
+
+    review_raw_rows, review_errors = load_jsonl_with_errors(
+        review_path,
+        label=review_input_path,
     )
+    evidence_raw_rows, evidence_errors = load_jsonl_with_errors(
+        evidence_resolved,
+        label=evidence_path,
+    )
+    review_rows = [row for row in review_raw_rows if isinstance(row, Mapping)]
+    evidence_rows = [row for row in evidence_raw_rows if isinstance(row, Mapping)]
+    review_malformed = len(review_errors) + len(review_raw_rows) - len(review_rows)
+    evidence_malformed = (
+        len(evidence_errors) + len(evidence_raw_rows) - len(evidence_rows)
+    )
+    review_ids = [str(row.get(id_field) or "").strip() for row in review_rows]
+    evidence_ids = [str(row.get(id_field) or "").strip() for row in evidence_rows]
+    review_nonempty_ids = [item for item in review_ids if item]
+    evidence_nonempty_ids = [item for item in evidence_ids if item]
+    missing_review_id_count = len(review_ids) - len(review_nonempty_ids)
+    missing_evidence_id_count = len(evidence_ids) - len(evidence_nonempty_ids)
+    review_id_set = set(review_nonempty_ids)
+    evidence_id_set = set(evidence_nonempty_ids)
+    duplicate_review_id_count = len(review_nonempty_ids) - len(review_id_set)
+    duplicate_evidence_id_count = len(evidence_nonempty_ids) - len(evidence_id_set)
+    missing_review_rows = missing_review_id_count + sum(
+        1 for item in review_nonempty_ids if item not in evidence_id_set
+    )
+    extra_evidence_rows = missing_evidence_id_count + sum(
+        1 for item in evidence_nonempty_ids if item not in review_id_set
+    )
+    evidence_by_id = {
+        str(row.get(id_field) or "").strip(): row
+        for row in evidence_rows
+        if str(row.get(id_field) or "").strip()
+    }
+    hash_mismatch_count = 0
+    for row in review_rows:
+        row_id = str(row.get(id_field) or "").strip()
+        if not row_id:
+            continue
+        evidence_row = evidence_by_id.get(row_id)
+        if evidence_row is None:
+            continue
+        review_hash = str(row.get(TARGET_ROW_HASH_FIELD) or "").strip()
+        evidence_hash = str(evidence_row.get(TARGET_ROW_HASH_FIELD) or "").strip()
+        if review_hash and evidence_hash and review_hash != evidence_hash:
+            hash_mismatch_count += 1
+    same_order = (
+        bool(review_nonempty_ids)
+        and len(review_nonempty_ids) == len(evidence_nonempty_ids)
+        and review_nonempty_ids == evidence_nonempty_ids
+    )
+    aligned = (
+        bool(review_nonempty_ids)
+        and same_order
+        and review_malformed == 0
+        and evidence_malformed == 0
+        and missing_review_id_count == 0
+        and missing_evidence_id_count == 0
+        and duplicate_review_id_count == 0
+        and duplicate_evidence_id_count == 0
+        and missing_review_rows == 0
+        and extra_evidence_rows == 0
+        and hash_mismatch_count == 0
+    )
+    status.update(
+        {
+            "rows": len(evidence_rows) + evidence_malformed,
+            "review_input_rows": len(review_rows) + review_malformed,
+            "covered_review_rows": sum(
+                1 for item in review_nonempty_ids if item in evidence_id_set
+            ),
+            "missing_review_rows": missing_review_rows,
+            "extra_evidence_rows": extra_evidence_rows,
+            "malformed_rows": evidence_malformed,
+            "review_input_malformed_rows": review_malformed,
+            "duplicate_review_id_count": duplicate_review_id_count,
+            "duplicate_evidence_id_count": duplicate_evidence_id_count,
+            "target_row_hash_mismatch_count": hash_mismatch_count,
+            "same_order": same_order,
+            "aligned": aligned,
+        }
+    )
+    return status
+
+
+def _gold_batch_status(root_path: Path) -> Mapping[str, Any]:
+    status = dict(
+        _review_batch_status(
+            root_path,
+            GOLD_REVIEWED_IMPORT_PATH,
+            required_fields=GOLD_BATCH_REQUIRED_FIELDS,
+            boolean_fields=GOLD_BOOL_FIELDS,
+        )
+    )
+    status["evidence_status"] = _review_evidence_alignment_status(
+        root_path,
+        review_input_path=GOLD_REVIEWED_IMPORT_PATH,
+        evidence_path=GOLD_REVIEW_EVIDENCE_JSONL_PATH,
+        id_field="claim_id",
+    )
+    return status
 
 
 def _footprint_batch_status(root_path: Path) -> Mapping[str, Any]:
-    return _review_batch_status(
-        root_path,
-        ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH,
-        required_fields=ANALYTICAL_FOOTPRINT_REVIEW_REQUIRED_FIELDS,
-        boolean_fields=ANALYTICAL_FOOTPRINT_REVIEW_BOOLEAN_FIELDS,
+    status = dict(
+        _review_batch_status(
+            root_path,
+            ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH,
+            required_fields=ANALYTICAL_FOOTPRINT_REVIEW_REQUIRED_FIELDS,
+            boolean_fields=ANALYTICAL_FOOTPRINT_REVIEW_BOOLEAN_FIELDS,
+        )
     )
+    status["evidence_status"] = _review_evidence_alignment_status(
+        root_path,
+        review_input_path=ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH,
+        evidence_path=ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_JSONL_PATH,
+        id_field="footprint_id",
+    )
+    return status
 
 
 def _lockbox_missing_field(row: Mapping[str, Any], field: str) -> bool:
@@ -807,6 +943,33 @@ def _render_batch_status_lines(label: str, status: Mapping[str, Any]) -> list[st
             for field, count in sorted(invalid_required_fields.items())
         )
         lines.append(f"  Invalid required fields: {invalid}")
+    evidence_status = status.get("evidence_status")
+    if isinstance(evidence_status, Mapping) and evidence_status:
+        lines.append(
+            "  Evidence alignment: "
+            f"path=`{evidence_status.get('path')}`; "
+            f"exists: {str(bool(evidence_status.get('exists'))).lower()}; "
+            f"rows: {int(evidence_status.get('rows') or 0)}; "
+            f"covered: {int(evidence_status.get('covered_review_rows') or 0)}/"
+            f"{int(evidence_status.get('review_input_rows') or 0)}; "
+            f"same_order: {str(bool(evidence_status.get('same_order'))).lower()}; "
+            f"aligned: {str(bool(evidence_status.get('aligned'))).lower()}"
+        )
+        evidence_gaps: list[str] = []
+        for field in (
+            "missing_review_rows",
+            "extra_evidence_rows",
+            "target_row_hash_mismatch_count",
+            "malformed_rows",
+            "review_input_malformed_rows",
+            "duplicate_review_id_count",
+            "duplicate_evidence_id_count",
+        ):
+            count = int(evidence_status.get(field) or 0)
+            if count:
+                evidence_gaps.append(f"`{field}`={count}")
+        if evidence_gaps:
+            lines.append("  Evidence alignment gaps: " + ", ".join(evidence_gaps))
     return lines
 
 
