@@ -81,7 +81,7 @@ def test_operator_readiness_accepts_current_review_bundle(tmp_path: Path):
     }
     assert report.accepted, failures
     assert report.failure_count == 0
-    assert report.check_count == 15
+    assert report.check_count == 16
     assert "registry/review_batches/gold_set_review_workbook.md" in report.generated_paths
     assert "registry/review_batches/gold_set_review_assist.jsonl" in report.generated_paths
     assert "registry/review_batches/gold_set_review_assist.md" in report.generated_paths
@@ -113,6 +113,7 @@ def test_operator_readiness_accepts_current_review_bundle(tmp_path: Path):
     assert checks["handoff_command_sequence_complete"].passed
     assert "steps=19" in checks["handoff_command_sequence_complete"].evidence
     assert checks["manual_batch_templates_match_status"].passed
+    assert checks["manual_batch_promotion_inputs_separated"].passed
     assert checks["manual_import_templates_are_sparse"].passed
     assert checks["manual_import_templates_have_provenance"].passed
     assert checks["blank_full_gold_set_import_is_rejected"].passed

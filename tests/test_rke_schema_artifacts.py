@@ -238,12 +238,13 @@ def test_stock_report_outcome_status_doc_matches_public_artifacts():
     assert {
         candidate["manual_review_required"] for candidate in prompt_mutation_candidates
     } == {True}
-    assert "operator readiness currently passes 15/15 checks" in status_text
+    assert "operator readiness currently passes 16/16 checks" in status_text
     assert operator_readiness["accepted"] is True
-    assert operator_readiness["passed_count"] == operator_readiness["check_count"] == 15
+    assert operator_readiness["passed_count"] == operator_readiness["check_count"] == 16
     assert {
         "blank_full_gold_set_import_is_rejected",
         "blank_bundle_dry_run_does_not_promote",
+        "manual_batch_promotion_inputs_separated",
         "promotion_gate_state_consistent",
     } <= operator_check_ids
     assert (
@@ -2797,7 +2798,7 @@ def test_operator_readiness_contract_accepts_current_public_artifact(
     record = _operator_readiness_record(tmp_path)
 
     assert record.accepted
-    assert record.item_count == 15
+    assert record.item_count == 16
     assert record.failures == ()
 
 

@@ -866,6 +866,7 @@ OPERATOR_READINESS_EXPECTED_CHECK_IDS = {
     "handoff_ready_for_operator",
     "handoff_command_sequence_complete",
     "manual_batch_templates_match_status",
+    "manual_batch_promotion_inputs_separated",
     "manual_import_templates_are_sparse",
     "manual_import_templates_have_provenance",
     "blank_full_gold_set_import_is_rejected",

@@ -68,10 +68,10 @@ def test_dashboard_report_summarizes_completion_and_monitoring():
     assert report["lockbox"]["result"] == "not_opened"
     assert report["lockbox"]["production_allowed"] is False
     assert report["promotion_gate"]["paper_trading_allowed"] is True
-    assert report["promotion_gate"]["staged_production_allowed"] is True
+    assert report["promotion_gate"]["staged_production_allowed"] is False
     assert report["promotion_gate"]["production_allowed"] is False
-    assert report["promotion_gate"]["next_state"] == "staged_production"
-    assert report["promotion_gate"]["blocker_count"] == 1
+    assert report["promotion_gate"]["next_state"] == "paper_trading"
+    assert report["promotion_gate"]["blocker_count"] == 2
     assert report["validation_hardening"]["ablation_accepted"] is True
     assert report["validation_hardening"]["horizon_metric_failures"] == []
     assert report["validation_hardening"]["statistical_significance_accepted"] is True
@@ -153,10 +153,10 @@ def test_dashboard_report_summarizes_completion_and_monitoring():
         is True
     )
     assert (
-        report["manual_review_gates"]["review_batches"]["gold_set_pending_rows"] == 0
+        report["manual_review_gates"]["review_batches"]["gold_set_pending_rows"] == 500
     )
     assert (
-        report["manual_review_gates"]["review_batches"]["gold_set_exported_rows"] == 0
+        report["manual_review_gates"]["review_batches"]["gold_set_exported_rows"] == 50
     )
     assert (
         report["manual_review_gates"]["review_batches"]["gold_set_full_import_template"]
@@ -194,18 +194,18 @@ def test_dashboard_report_summarizes_completion_and_monitoring():
         report["manual_review_gates"]["review_progress"]["ready_for_promotion_dry_run"]
         is False
     )
-    assert report["manual_review_gates"]["review_progress"]["gate_count"] == 3
+    assert report["manual_review_gates"]["review_progress"]["gate_count"] == 4
     assert report["manual_review_gates"]["review_progress"]["blocker_count"] >= 3
     assert (
         report["manual_review_gates"]["review_progress"]["runbook_path"]
         == "registry/review_batches/manual_review_runbook.md"
     )
     assert report["operator_handoff"]["ready_for_operator_review"] is True
-    assert report["operator_handoff"]["next_state"] == "staged_production"
-    assert report["operator_handoff"]["remaining_blocker_count"] == 1
-    assert report["operator_handoff"]["gate_count"] == 3
+    assert report["operator_handoff"]["next_state"] == "paper_trading"
+    assert report["operator_handoff"]["remaining_blocker_count"] == 3
+    assert report["operator_handoff"]["gate_count"] == 4
     assert report["operator_readiness"]["accepted"] is True
-    assert report["operator_readiness"]["check_count"] == 15
+    assert report["operator_readiness"]["check_count"] == 16
     assert report["operator_readiness"]["failure_count"] == 0
     assert report["audit_trace"]["complete"] is True
     assert report["audit_trace"]["node_count"] == 8

@@ -14,6 +14,7 @@ from .manual_review_batches import (
     GOLD_REVIEW_ASSIST_MD_PATH,
     GOLD_REVIEW_EVIDENCE_JSONL_PATH,
     GOLD_REVIEW_EVIDENCE_MD_PATH,
+    GOLD_REVIEWED_IMPORT_PATH,
     GOLD_REVIEW_WORKBOOK_MD_PATH,
     LICENSE_BATCH_IMPORT_TEMPLATE_PATH,
     build_manual_review_batch_status,
@@ -60,9 +61,11 @@ from .promotion_dry_run import (
 from .promotion_gate import build_production_promotion_gate_report
 from .registry_manifest import validate_required_registry, validate_required_registry_content
 from .report_intelligence import (
+    ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH,
     ANALYTICAL_FOOTPRINT_REVIEW_ASSIST_JSONL_PATH,
     ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_JSONL_PATH,
     ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_MD_PATH,
+    ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH,
     ANALYTICAL_FOOTPRINT_REVIEW_WORKBOOK_MD_PATH,
 )
 from .review_progress import (
@@ -468,6 +471,80 @@ def _handoff_command_sequence_complete(handoff: Any) -> tuple[bool, str, str]:
     return not failures, evidence, "; ".join(failures)
 
 
+def _manual_batch_promotion_inputs_separated(
+    root_path: Path,
+) -> tuple[bool, str, str]:
+    progress, progress_errors = _read_mapping_json(
+        root_path,
+        MANUAL_REVIEW_PROGRESS_REPORT_PATH,
+    )
+    if progress_errors:
+        return False, "; ".join(progress_errors), "; ".join(progress_errors)
+
+    expected_paths = {
+        "gold_set": {
+            "batch": GOLD_REVIEWED_IMPORT_PATH,
+            "promotion": "registry/review_batches/gold_set_full_reviewed.jsonl",
+        },
+        "footprint_review": {
+            "batch": ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH,
+            "promotion": ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH,
+        },
+    }
+    failures: list[str] = []
+    checked_batches = 0
+    checked_gates = 0
+    gates = progress.get("gates")
+    if not isinstance(gates, Sequence) or isinstance(gates, str):
+        return False, "gates=invalid", "manual review progress gates must be an array"
+    for gate in gates:
+        if not isinstance(gate, Mapping):
+            failures.append("manual review progress gate must be object")
+            continue
+        review_kind = str(gate.get("review_kind") or "")
+        paths = expected_paths.get(review_kind)
+        if paths is None:
+            continue
+        checked_gates += 1
+        promotion_input = paths["promotion"]
+        for command_field in ("dry_run_command", "apply_command"):
+            command = str(gate.get(command_field) or "")
+            if f"--input {promotion_input}" not in command:
+                failures.append(f"{review_kind}.{command_field} must use {promotion_input}")
+        batch_plan = gate.get("batch_plan")
+        if not isinstance(batch_plan, Sequence) or isinstance(batch_plan, str):
+            failures.append(f"{review_kind}.batch_plan must be array")
+            continue
+        for batch in batch_plan:
+            if not isinstance(batch, Mapping):
+                failures.append(f"{review_kind}.batch_plan row must be object")
+                continue
+            checked_batches += 1
+            batch_input = paths["batch"]
+            if batch.get("batch_input_path") != batch_input:
+                failures.append(f"{review_kind}.batch_input_path must be {batch_input}")
+            if batch.get("promotion_input_path") != promotion_input:
+                failures.append(
+                    f"{review_kind}.promotion_input_path must be {promotion_input}"
+                )
+            commands = batch.get("commands")
+            if not isinstance(commands, Mapping):
+                failures.append(f"{review_kind}.batch.commands must be object")
+                continue
+            for command_name in ("dry_run", "apply"):
+                command = str(commands.get(command_name) or "")
+                if f"--input {batch_input}" not in command:
+                    failures.append(
+                        f"{review_kind}.batch.commands.{command_name} must use {batch_input}"
+                    )
+                if f"--input {promotion_input}" in command:
+                    failures.append(
+                        f"{review_kind}.batch.commands.{command_name} must not use {promotion_input}"
+                    )
+    evidence = f"gates={checked_gates}, batches={checked_batches}, failures={len(failures)}"
+    return not failures and checked_gates == 2, evidence, "; ".join(failures)
+
+
 def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadinessReport:
     root_path = Path(root)
     if not (root_path / GOLD_REVIEW_ASSIST_JSONL_PATH).exists() or not (
@@ -556,6 +633,20 @@ def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadiness
                 f"batch_blockers={len(batch_shape_blockers)}"
             ),
             batch_blocker or "manual batch templates do not match batch status",
+        )
+    )
+    (
+        batch_input_ok,
+        batch_input_evidence,
+        batch_input_blocker,
+    ) = _manual_batch_promotion_inputs_separated(root_path)
+    checks.append(
+        _check(
+            "manual_batch_promotion_inputs_separated",
+            batch_input_ok,
+            batch_input_evidence,
+            batch_input_blocker
+            or "manual review batch inputs and promotion inputs are not separated",
         )
     )
 
