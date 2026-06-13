@@ -691,6 +691,33 @@ def test_rke_cli_promotion_status_writes_report(tmp_path: Path, capsys):
     assert output["staged_production_allowed"] is False
     assert output["production_allowed"] is False
     assert output["next_state"] == "paper_trading"
+    next_actions = {action["action_id"]: action for action in output["next_actions"]}
+    assert {
+        "complete_manual_forecast_gold_review",
+        "prepare_lockbox_after_upstream_manual_gates",
+    } == set(next_actions)
+    assert (
+        "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke"
+        in next_actions["complete_manual_forecast_gold_review"]["commands"]["inspect"]
+    )
+    assert (
+        "promotion-status --root . --no-write"
+        in next_actions["complete_manual_forecast_gold_review"]["commands"][
+            "check_promotion_after_review"
+        ]
+    )
+    assert (
+        "review-progress --root . --actions-only --no-write --review-kind lockbox"
+        in next_actions["prepare_lockbox_after_upstream_manual_gates"]["commands"][
+            "inspect_lockbox_dependencies"
+        ]
+    )
+    assert (
+        "promotion-dry-run --root ."
+        in next_actions["prepare_lockbox_after_upstream_manual_gates"]["commands"][
+            "promotion_dry_run_after_all_reviews"
+        ]
+    )
     assert (tmp_path / "registry/promotion/rke_production_promotion_gate.json").exists()
 
 
@@ -707,6 +734,7 @@ def test_rke_cli_promotion_status_no_write_preserves_report(tmp_path: Path, caps
 
     assert code == 0
     assert output["paper_trading_allowed"] is True
+    assert output["next_actions"]
     assert report_path.read_text(encoding="utf-8") == before
     assert report_path.stat().st_mtime_ns == before_mtime
 

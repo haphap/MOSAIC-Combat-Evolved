@@ -32,6 +32,7 @@ from .license_review_packet import (
     write_license_review_packet,
 )
 from .license_policy_import import (
+    DEFAULT_LICENSE_POLICY_IMPORT_PATH,
     SOURCE_LICENSE_REVIEWED_POLICY_PATH,
     build_source_license_policy_import,
     write_source_license_reviewed_policy_starter,
@@ -255,6 +256,113 @@ def _schema_status_next_actions(records: Sequence[Any]) -> list[dict[str, Any]]:
             notes=(
                 "Coverage status is downstream of manual review gates; do not "
                 "edit coverage artifacts directly.",
+            ),
+        )
+
+    return actions
+
+
+def _promotion_status_next_actions(result: Any) -> list[dict[str, Any]]:
+    """Map failed promotion criteria to public-safe operator commands."""
+    failed_criteria = {
+        str(getattr(criterion, "criterion_id", "") or ""): str(
+            getattr(criterion, "blocker", "") or ""
+        )
+        for criterion in getattr(result, "criteria", ())
+        if getattr(criterion, "passed", False) is not True
+    }
+    actions: list[dict[str, Any]] = []
+
+    def add_action(
+        *,
+        action_id: str,
+        reason: str,
+        commands: dict[str, str],
+        notes: Sequence[str] = (),
+    ) -> None:
+        if any(action["action_id"] == action_id for action in actions):
+            return
+        actions.append(
+            {
+                "action_id": action_id,
+                "reason": reason,
+                "commands": commands,
+                "notes": [str(note) for note in notes if str(note).strip()],
+            }
+        )
+
+    if "PG02" in failed_criteria:
+        add_action(
+            action_id="complete_manual_forecast_gold_review",
+            reason=(
+                "PG02 blocks staged production until the manual gold-set review "
+                "passes and its summary metrics clear the configured thresholds."
+            ),
+            commands={
+                "inspect": operator_command(
+                    "mosaic-rke review-progress --root . --actions-only "
+                    "--no-write --review-kind gold_set"
+                ),
+                "write_evidence": operator_command(
+                    "mosaic-rke write-gold-review-evidence --root . --limit 50 "
+                    f"--offset 0 --review-input {GOLD_REVIEWED_IMPORT_PATH}"
+                ),
+                "dry_run_current_batch": operator_command(
+                    f"mosaic-rke apply-gold-review --root . --input "
+                    f"{GOLD_REVIEWED_IMPORT_PATH} --dry-run"
+                ),
+                "check_promotion_after_review": operator_command(
+                    "mosaic-rke promotion-status --root . --no-write"
+                ),
+            },
+            notes=(
+                "Evidence outputs are private review aids and do not fill the "
+                "required human review fields.",
+            ),
+        )
+
+    if "PG09" in failed_criteria:
+        add_action(
+            action_id="prepare_lockbox_after_upstream_manual_gates",
+            reason=(
+                "PG09 blocks final production until lockbox review passes; the "
+                "lockbox must stay closed while upstream manual review gates are "
+                "still pending."
+            ),
+            commands={
+                "inspect_lockbox_dependencies": operator_command(
+                    "mosaic-rke review-progress --root . --actions-only "
+                    "--no-write --review-kind lockbox"
+                ),
+                "inspect_manual_queue": operator_command(
+                    "mosaic-rke review-progress --root . --actions-only --no-write"
+                ),
+                "operator_readiness": operator_command(
+                    "mosaic-rke operator-readiness --root . --no-write"
+                ),
+                "prepare_lockbox_when_ready": operator_command(
+                    "mosaic-rke prepare-lockbox-review --root ."
+                ),
+                "dry_run_lockbox_when_ready": operator_command(
+                    f"mosaic-rke apply-lockbox-review --root . --input "
+                    f"{LOCKBOX_REVIEWED_IMPORT_PATH} --dry-run"
+                ),
+                "promotion_dry_run_after_all_reviews": operator_command(
+                    "mosaic-rke build-license-review-import --root . "
+                    f"--policy {SOURCE_LICENSE_REVIEWED_POLICY_PATH} "
+                    f"--output {DEFAULT_LICENSE_POLICY_IMPORT_PATH} && "
+                    "mosaic-rke promotion-dry-run --root . "
+                    f"--gold-input {GOLD_FULL_REVIEWED_IMPORT_PATH} "
+                    f"--footprint-input {ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH} "
+                    f"--license-input {DEFAULT_LICENSE_POLICY_IMPORT_PATH} "
+                    f"--lockbox-input {LOCKBOX_REVIEWED_IMPORT_PATH}"
+                ),
+            },
+            notes=(
+                "Run prepare/dry-run lockbox commands only after review-progress "
+                "shows gold-set, analytical-footprint, and source-license gates "
+                "ready.",
+                "Direct production remains forbidden until all PG01-PG10 criteria pass.",
             ),
         )
 
@@ -1490,7 +1598,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if not args.no_write:
             write_production_promotion_gate_report(root)
         result = build_production_promotion_gate_report(root)
-        _print_json(asdict(result))
+        _print_json({**asdict(result), "next_actions": _promotion_status_next_actions(result)})
         return 0 if result.paper_trading_allowed else 2
     if args.command == "promotion-dry-run":
         if args.write_report:
