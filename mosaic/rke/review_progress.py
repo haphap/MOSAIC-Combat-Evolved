@@ -745,7 +745,7 @@ def _source_license_progress(root_path: Path) -> ManualReviewGateProgress:
             prepare_command=prepare_command,
             dry_run_command=dry_run_command,
             apply_command=apply_command,
-            next_batch_commands=_footprint_next_batch_commands(target_rows),
+            next_batch_commands={},
         )
     if not resolved_input.exists():
         return _missing_gate(
@@ -789,7 +789,7 @@ def _source_license_progress(root_path: Path) -> ManualReviewGateProgress:
         prepare_command=prepare_command,
         dry_run_command=dry_run_command,
         apply_command=apply_command,
-        next_batch_commands=_footprint_next_batch_commands(pending_rows),
+        next_batch_commands={},
     )
 
 

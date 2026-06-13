@@ -238,6 +238,9 @@ def test_review_progress_reports_missing_scratch_files(tmp_path: Path, capsys):
     footprint_gate = next(
         gate for gate in output["gates"] if gate["review_kind"] == "footprint_review"
     )
+    source_license_gate = next(
+        gate for gate in output["gates"] if gate["review_kind"] == "source_license"
+    )
     assert gold_gate["next_batch_commands"]["prepare"].startswith(
         RKE_OPERATOR_TMP_ENV_PREFIX
     )
@@ -254,6 +257,7 @@ def test_review_progress_reports_missing_scratch_files(tmp_path: Path, capsys):
         footprint_gate["next_batch_commands"]["dry_run"]
         == expected_footprint_dry_run
     )
+    assert source_license_gate["next_batch_commands"] == {}
     assert len(gold_gate["batch_plan"]) == 10
     assert gold_gate["batch_plan"][0]["offset"] == 0
     assert (
@@ -432,6 +436,7 @@ def test_review_progress_summary_filter_exit_uses_selected_gate(
     assert output["gate_count"] == 1
     assert output["reported_review_kinds"] == ["source_license"]
     assert output["gates"][0]["ready_for_promotion"] is True
+    assert output["gates"][0]["next_batch_commands"] == {}
 
 
 def test_review_progress_summary_reports_lockbox_dependencies(
