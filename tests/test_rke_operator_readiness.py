@@ -88,7 +88,7 @@ def test_operator_readiness_accepts_current_review_bundle(tmp_path: Path):
     }
     assert report.accepted, failures
     assert report.failure_count == 0
-    assert report.check_count == 17
+    assert report.check_count == 18
     assert "registry/review_batches/gold_set_review_workbook.md" in report.generated_paths
     assert "registry/review_batches/gold_set_review_assist.jsonl" in report.generated_paths
     assert "registry/review_batches/gold_set_review_assist.md" in report.generated_paths
@@ -119,6 +119,11 @@ def test_operator_readiness_accepts_current_review_bundle(tmp_path: Path):
     assert checks["handoff_ready_for_operator"].passed
     assert checks["handoff_command_sequence_complete"].passed
     assert "steps=19" in checks["handoff_command_sequence_complete"].evidence
+    assert checks["manual_review_runbook_promotion_policy_consistent"].passed
+    assert (
+        "source_license_already_passed="
+        in checks["manual_review_runbook_promotion_policy_consistent"].evidence
+    )
     assert checks["manual_batch_templates_match_status"].passed
     assert checks["manual_batch_promotion_inputs_separated"].passed
     assert checks["manual_import_templates_are_sparse"].passed
@@ -565,6 +570,37 @@ def test_operator_readiness_requires_no_write_promotion_status_steps():
 
     assert not sequence_ok
     assert "promotion-status-final must use promotion-status --no-write" in sequence_blocker
+
+
+def test_operator_readiness_detects_stale_runbook_promotion_policy(
+    tmp_path: Path,
+):
+    _copy_registry(tmp_path)
+    write_operator_readiness_report(tmp_path)
+    runbook_path = tmp_path / "registry/review_batches/manual_review_runbook.md"
+    runbook = runbook_path.read_text(encoding="utf-8")
+    stale_runbook = runbook.replace(
+        " --license-input registry/review_batches/source_license_policy_import.jsonl ",
+        " ",
+        1,
+    )
+    assert stale_runbook != runbook
+    runbook_path.write_text(stale_runbook, encoding="utf-8")
+
+    report = build_operator_readiness_report(
+        tmp_path,
+        write_supporting_artifacts=False,
+    )
+    runbook_check = next(
+        check
+        for check in report.checks
+        if check.check_id == "manual_review_runbook_promotion_policy_consistent"
+    )
+
+    assert not report.accepted
+    assert not runbook_check.passed
+    assert "license_input=False" in runbook_check.evidence
+    assert "must be built and passed" in runbook_check.blocker
 
 
 def test_write_operator_readiness_report_outputs_registry_artifact(tmp_path: Path):

@@ -908,6 +908,7 @@ OPERATOR_READINESS_EXPECTED_CHECK_IDS = {
     "required_registry_valid",
     "handoff_ready_for_operator",
     "handoff_command_sequence_complete",
+    "manual_review_runbook_promotion_policy_consistent",
     "manual_batch_templates_match_status",
     "manual_batch_promotion_inputs_separated",
     "manual_import_templates_are_sparse",

@@ -11,6 +11,7 @@ from typing import Any, Mapping, Sequence
 from .manual_review_batches import (
     GOLD_BATCH_IMPORT_TEMPLATE_PATH,
     GOLD_FULL_IMPORT_TEMPLATE_PATH,
+    GOLD_FULL_REVIEWED_IMPORT_PATH,
     GOLD_REVIEW_ASSIST_JSONL_PATH,
     GOLD_REVIEW_ASSIST_MD_PATH,
     GOLD_REVIEW_EVIDENCE_JSONL_PATH,
@@ -52,6 +53,7 @@ from .operator_handoff import (
     LOCKBOX_UPSTREAM_REVIEW_KINDS,
     LOCKBOX_REVIEW_CHECKLIST_MD_PATH,
     LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH,
+    LOCKBOX_REVIEWED_IMPORT_PATH,
     OPERATOR_HANDOFF_JSON_PATH,
     OPERATOR_HANDOFF_MD_PATH,
     build_lockbox_review_import_template,
@@ -551,6 +553,60 @@ def _handoff_command_sequence_complete(handoff: Any) -> tuple[bool, str, str]:
     return not failures, evidence, "; ".join(failures)
 
 
+def _markdown_heading_section(text: str, heading: str) -> str:
+    marker = f"## {heading}"
+    start = text.find(marker)
+    if start < 0:
+        return ""
+    next_heading = text.find("\n## ", start + len(marker))
+    return text[start:] if next_heading < 0 else text[start:next_heading]
+
+
+def _manual_review_runbook_promotion_policy_consistent(
+    root_path: Path,
+    *,
+    source_license_already_passed: bool,
+) -> tuple[bool, str, str]:
+    path = root_path / MANUAL_REVIEW_RUNBOOK_MD_PATH
+    if not path.exists():
+        return False, f"{MANUAL_REVIEW_RUNBOOK_MD_PATH} missing", "manual review runbook is missing"
+    section = _markdown_heading_section(path.read_text(encoding="utf-8"), "Promotion Dry Run")
+    if not section:
+        return (
+            False,
+            "promotion_section=missing",
+            "manual review runbook is missing Promotion Dry Run section",
+        )
+
+    required_fragments = (
+        "mosaic-rke promotion-dry-run --root .",
+        f"--gold-input {GOLD_FULL_REVIEWED_IMPORT_PATH}",
+        f"--footprint-input {ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH}",
+        f"--lockbox-input {LOCKBOX_REVIEWED_IMPORT_PATH}",
+    )
+    missing_fragments = [fragment for fragment in required_fragments if fragment not in section]
+    has_license_input = "--license-input" in section
+    has_license_import = DEFAULT_LICENSE_POLICY_IMPORT_PATH in section
+    has_license_builder = "build-license-review-import" in section
+    failures = list(missing_fragments)
+    if source_license_already_passed:
+        if has_license_input or has_license_import or has_license_builder:
+            failures.append("source-license input must be omitted after the gate already passed")
+    elif not has_license_input or not has_license_import or not has_license_builder:
+        failures.append("source-license input must be built and passed before the gate has passed")
+
+    evidence = (
+        f"source_license_already_passed={source_license_already_passed}, "
+        f"license_input={has_license_input}, license_import={has_license_import}, "
+        f"license_builder={has_license_builder}, missing_fragments={len(missing_fragments)}"
+    )
+    return (
+        not failures,
+        evidence,
+        "; ".join(failures) or "manual review runbook promotion dry-run source-license policy drifted",
+    )
+
+
 def _manual_batch_promotion_inputs_separated(
     root_path: Path,
 ) -> tuple[bool, str, str]:
@@ -721,6 +777,31 @@ def build_operator_readiness_report(
             sequence_ok,
             sequence_evidence,
             sequence_blocker or "operator handoff command sequence is incomplete or unsafe",
+        )
+    )
+    manual_progress = build_manual_review_progress(root_path)
+    source_license_progress = next(
+        (
+            gate
+            for gate in tuple(getattr(manual_progress, "gates", ()) or ())
+            if gate.review_kind == "source_license"
+        ),
+        None,
+    )
+    runbook_ok, runbook_evidence, runbook_blocker = (
+        _manual_review_runbook_promotion_policy_consistent(
+            root_path,
+            source_license_already_passed=bool(
+                source_license_progress and source_license_progress.ready_for_promotion
+            ),
+        )
+    )
+    checks.append(
+        _check(
+            "manual_review_runbook_promotion_policy_consistent",
+            runbook_ok,
+            runbook_evidence,
+            runbook_blocker,
         )
     )
 
