@@ -1,6 +1,6 @@
 # RKE Stock Report Outcome and Evolution Status
 
-Status date: 2026-06-13
+Status date: 2026-06-14
 
 This document tracks implementation evidence for
 `docs/plans/rke_stock_report_outcome_and_evolution_plan.md`. It is public-safe:
@@ -19,8 +19,9 @@ Markdown paths, source spans, reviewer notes, or private Tushare rows.
 - Evolution is not promotable yet. The current public aggregate evidence still
   has manual review and audit-history readiness blockers. The checked-in public
   baseline still has gold-set, analytical-footprint, and lockbox manual blockers;
-  source-license review is ready. Synthetic pytest fixtures can mark manual rows
-  complete for contract tests, but that does not open the real promotion gate.
+  source-license review is already applied and no longer appears as a runnable
+  action. Synthetic pytest fixtures can mark manual rows complete for contract
+  tests, but that does not open the real promotion gate.
 
 Current public aggregate evidence. Private report-intelligence JSONL files such
 as `report_metadata.jsonl`, `forecast_claims.jsonl`, and
@@ -42,7 +43,7 @@ contracts.
 | `registry/report_intelligence/confidence_impact_monitor.json` and `registry/report_intelligence/monitoring_report.json` | 20 paper-trading validated recipes are monitored; unvalidated confidence impact count is 0; alpha-decay and calibration-drift observations remain shadow-only. `schemas/report_intelligence_alpha_decay_monitoring_rules` now also checks monitoring report corpus counts, tooling-loop counts, tool-gap priority counts, evidence-coverage counts, and source/viewpoint/method effective-N summaries against the underlying public registry artifacts. |
 | `registry/report_intelligence/evolution_readiness_gate.json` | blocked; 13 blockers remain, limited to schema/audit-history readiness and manual forecast gold-set quality metrics. The semantic contract now hard-checks P13 machine thresholds in the committed gate evidence, including outcome coverage, stock/industry proxy counts, paper-trading counts and after-cost summary, monitor stability, audit refresh evidence, gap-distribution stability, and P9 coverage status. RI-EVOL-04 now requires current schema/PIT/provenance/statistical evidence to match `current_schema_or_audit_gate_blocked`, and trailing audit distinct/pass counts to match `audit_refresh_history_below_threshold`, even while the gate is blocked. `gap_distribution_history.jsonl` is also semantically checked so `total_gap_count`, `max_gap_name`, `max_gap_share`, `stable`, and `accepted` must match the committed gap counts; a single-gap share above 0.80 cannot be marked stable. |
 | `registry/report_intelligence/prompt_mutation_candidates.jsonl` | 11 shadow-only mutation candidates exist across forecast extraction, confidence gating, paper-trading recipe validation, industry mapping, refresh stability, calibration, tool-gap prioritization, and Markdown quality; all have `promotion_state=shadow_candidate_only`, `manual_review_required=true`, `production_prompt_change_allowed=false`, and `private_text_included=false`. The semantic contract also requires the full offline validation matrix (`gold_set_review_pass`, PIT replay, schema, provenance, statistical robustness, and shadow paper-trading), rejects private or non-repo evidence paths in `evidence_refs`, and requires every referenced public evidence artifact to exist. |
-| `registry/review_batches/manual_review_progress_report.json` and `registry/gold_sets/tushare_research_reports.review_summary.json` | public baseline: gold-set 0/500, analytical-footprint review 0/1001, source license 17529/17529, lockbox 0/1. Semantic validation now passes as `schemas/report_intelligence_manual_review_progress_rules`, which checks input paths, ready/simulation consistency, blocker consistency, home-tmp command prefixes, dry-run mode, and source-text-free `current_batch_status` counts. It accepts both the current blocked state and a future completed state where all gates have zero pending rows and no blockers. The public gold-set review summary is also checked as `schemas/report_intelligence_gold_review_gate_rules`: current 0/500 pending state is accepted, but false pass states, count drift, missing metrics, and below-threshold human review metrics are rejected. Synthetic pytest fixtures can mark manual rows complete for contract tests, but current target hashes in the real scratch still require human review. The report now includes aggregate `current_batch_status` for the active local 50-row gold-set, analytical-footprint, and lockbox scratch files, plus a public-safe full pending `batch_plan`: 10 gold-set batches and 21 analytical-footprint batches at 50 rows per batch except the final 1-row footprint batch. Each batch explicitly records `apply_effect=merge_batch_into_target_review_template`, the transient `batch_input_path` for the 50-row import, the `target_review_template_path` it merges into, and the separate `promotion_input_path` used only after full human review; schema validation also rejects batch commands that use promotion inputs and promotion commands that use transient batch inputs. Current gold batch status is 50 rows, 0 complete, 50 pending, 0 malformed; missing required fields are aggregate counts only. Current analytical-footprint batch status is 50 rows, 0 complete, 50 pending, 0 malformed; missing required fields are aggregate counts only. Current lockbox decision status is 1 row, 0 complete, 1 pending, 0 malformed; missing required fields are aggregate counts only. Full gold-set and footprint review imports still require human decisions before promotion dry-run. |
+| `registry/review_batches/manual_review_progress_report.json` and `registry/gold_sets/tushare_research_reports.review_summary.json` | public baseline: gold-set 0/500, analytical-footprint review 0/1001, source license 17529/17529 already applied, lockbox 0/1. Semantic validation now passes as `schemas/report_intelligence_manual_review_progress_rules`, which checks input paths, ready/simulation consistency, blocker consistency, home-tmp command prefixes, dry-run mode, and source-text-free `current_batch_status` counts. It accepts both the current blocked state and a future completed state where all gates have zero pending rows and no blockers. The public gold-set review summary is also checked as `schemas/report_intelligence_gold_review_gate_rules`: current 0/500 pending state is accepted, but false pass states, count drift, missing metrics, and below-threshold human review metrics are rejected. Synthetic pytest fixtures can mark manual rows complete for contract tests, but current target hashes in the real scratch still require human review. The action queue distinguishes already-applied gates from runnable apply work: source-license now reports `action_state=already_applied`, `can_run_now=false`, and an empty command set. The report includes aggregate `current_batch_status` for the active local 50-row gold-set, analytical-footprint, and lockbox scratch files, plus a public-safe full pending `batch_plan`: 10 gold-set batches and 21 analytical-footprint batches at 50 rows per batch except the final 1-row footprint batch. Each batch explicitly records `apply_effect=merge_batch_into_target_review_template`, the transient `batch_input_path` for the 50-row import, the `target_review_template_path` it merges into, and the separate `promotion_input_path` used only after full human review; schema validation also rejects batch commands that use promotion inputs and promotion commands that use transient batch inputs. Current gold batch status is 50 rows, 0 complete, 50 pending, 0 malformed; missing required fields are aggregate counts only. Current analytical-footprint batch status is 50 rows, 0 complete, 50 pending, 0 malformed; missing required fields are aggregate counts only. Current lockbox decision status is 1 row, 0 complete, 1 pending, 0 malformed; missing required fields are aggregate counts only. Full gold-set and footprint review imports still require human decisions before promotion dry-run. |
 | `registry/handoffs/rke_operator_handoff.json` | operator handoff semantic validation now passes as `schemas/report_intelligence_operator_handoff_rules`: command sequence order, home-tmp prefixes, reviewed input paths, promotion dry-run inputs, and production-disabled state are checked directly against the handoff artifact |
 | `registry/handoffs/rke_operator_readiness_report.json` | operator readiness currently passes 17/17 checks: required registry valid, handoff command sequence complete, manual import templates sparse and provenance-tagged, batch inputs separated from promotion inputs, blank gold/lockbox/source-license templates rejected, lockbox upstream CLI guard matches manual gate readiness, blank bundle dry-run does not promote, manual review bundle manifest current, and promotion gate state matches PG01-PG10 criteria |
 | `registry/review_batches/manual_review_bundle_manifest.json` | manual review bundle manifest semantic validation now re-computes artifact bytes and SHA-256 digests, validates the embedded promotion dry-run summary against `registry/promotion/rke_promotion_dry_run_report.json`, and accepts both the current blocked dry-run summary and a future completed summary when all dry-run steps are accepted and no missing/rejected steps remain. |
@@ -79,7 +80,8 @@ uvx ruff@0.15.15 check mosaic/rke/report_intelligence.py mosaic/rke/schema_valid
 MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run python scripts/check_prompt_leaks.py
 git diff --check
 MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke review-progress --root .
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke operator-readiness --root .
+MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke operator-readiness --root . --no-write
+MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke master-plan-status --root . --no-write
 ```
 
 The repository pytest default is also configured to keep its `--basetemp` under
@@ -103,6 +105,29 @@ The helper that computes entry dates now requires an explicit
 `INDUSTRY_ETF_ENTRY_LAG_TRADING_DAYS`; stock proxy builders pass
 `STOCK_PRICE_PROXY_ENTRY_LAG_TRADING_DAYS`. This keeps the T+1 entry invariant
 auditable if either channel later changes its lag policy.
+
+Most recent focused validation after read-only status and action-queue
+hardening:
+
+```bash
+uv run python -m pytest tests/test_rke_cli.py::test_rke_cli_master_plan_status_writes_coverage tests/test_rke_cli.py::test_rke_cli_master_plan_status_no_write_preserves_artifacts -q --basetemp /home/hap/tmp/mosaic-rke/pytest-master-plan-no-write-cli-20260614
+uv run python -m pytest tests/test_rke_review_progress.py -q --basetemp /home/hap/tmp/mosaic-rke/pytest-review-progress-full-20260614
+uvx ruff@0.15.15 check mosaic/rke/cli.py mosaic/rke/review_progress.py tests/test_rke_cli.py tests/test_rke_review_progress.py
+uv run python scripts/check_prompt_leaks.py
+git diff --check
+uv run mosaic-rke review-progress --root . --actions-only --no-write
+uv run mosaic-rke operator-readiness --root . --no-write
+uv run mosaic-rke master-plan-status --root . --no-write
+uv run mosaic-rke promotion-status --root . --no-write
+uv run mosaic-rke schema-status --root . --failures-only --no-write
+```
+
+`review-progress --actions-only --no-write` now reports source-license as
+`already_applied` with `can_run_now=false` and no commands; runnable action
+items remain the active gold-set and analytical-footprint review batches.
+`master-plan-status --no-write` and `schema-status --failures-only --no-write`
+still exit 2 only because the same manual review-derived schema and patch
+coverage gates remain open.
 
 Most recent focused validation after proxy outcome ID namespace hardening:
 
@@ -271,8 +296,10 @@ blocker families include:
 1. Manual/operator gates: gold-set review, analytical-footprint review, and
    lockbox review remain pending, and schema-status still reports
    analytical-footprint review and patch coverage semantic blockers.
-   Source-license review is ready in the current public
-   progress report. The gold-set scratch file was regenerated with
+   Source-license review is already applied in the current public progress
+   report and `review-progress --actions-only --no-write` reports
+   `action_state=already_applied`, `can_run_now=false`, and no commands for
+   that gate. The gold-set scratch file was regenerated with
    `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke prepare-gold-review --root . --full --force`; the remaining
    gold-set blockers are the 500 required human review rows. The private
    gold review evidence draft now emits `suggested_review_rationales` and
@@ -307,11 +334,12 @@ blocker families include:
 7. Re-run
    `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke review-progress --root . --summary --no-write`,
    `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke review-progress --root . --actions-only --no-write`,
-   `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke operator-readiness --root .`,
+   `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke operator-readiness --root . --no-write`,
+   `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke master-plan-status --root . --no-write`,
    `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke evolution-readiness --root . --refresh-prompt-mutations`,
    promotion dry-run, and
    `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke schema-status --root . --failures-only --no-write`.
-   For focused manual work, add `--review-kind gold_set`, `--review-kind footprint_review`, `--review-kind source_license`, or `--review-kind lockbox` to the summary or action-queue command; add `--action-state needs_human_review_fields`, `--action-state ready_to_apply`, or `--action-state waiting_on_dependencies` to `--actions-only` when operators need one work class. The lockbox summary, runbook, operator handoff, and lockbox prepare/apply CLI paths are dependency-aware and should remain on `wait_for_prior_manual_gates` / `waiting_on ...` until the upstream manual review gates pass.
+   For focused manual work, add `--review-kind gold_set`, `--review-kind footprint_review`, `--review-kind source_license`, or `--review-kind lockbox` to the summary or action-queue command; add `--action-state needs_human_review_fields`, `--action-state ready_to_apply`, `--action-state already_applied`, or `--action-state waiting_on_dependencies` to `--actions-only` when operators need one work class. The lockbox summary, runbook, operator handoff, and lockbox prepare/apply CLI paths are dependency-aware and should remain on `wait_for_prior_manual_gates` / `waiting_on ...` until the upstream manual review gates pass.
 
 Until those gates pass, evolution outputs remain shadow candidates and must not
 modify production prompts or production trading decisions.

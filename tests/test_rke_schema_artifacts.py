@@ -208,6 +208,9 @@ def test_stock_report_outcome_status_doc_matches_public_artifacts():
     assert "public baseline: gold-set 0/500" in status_text
     assert "analytical-footprint review 0/1001" in status_text
     assert "source license 17529/17529" in status_text
+    assert "source license 17529/17529 already applied" in status_text
+    assert "action_state=already_applied" in status_text
+    assert "can_run_now=false" in status_text
     assert "private footprint review assist/workbook cover 1001 pending rows" in status_text
     assert "private gold-set evidence draft now covers 500 rows" in status_text
     assert "private evidence draft covers 1001 rows with 0 missing local markdown rows" in status_text
