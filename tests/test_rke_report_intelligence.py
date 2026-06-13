@@ -7958,6 +7958,17 @@ def test_report_intelligence_evolution_gate_writer_preserves_stock_coverage_evid
     assert markdown_check["evidence"]["stock_outcome_120d_ready_report_count"] == 0
     assert markdown_check["evidence"]["stock_outcome_age_bucket_counts"] == {}
     assert "stock_outcome_120d_ready_count_below_p9_target" in gate["blockers"]
+    gate_path = registry_dir / "evolution_readiness_gate.json"
+    before_no_write = gate_path.read_text(encoding="utf-8")
+
+    no_write_result = write_report_intelligence_evolution_readiness_gate(
+        registry_dir,
+        run_id="RIR-NO-WRITE-GATE",
+        write=False,
+    )
+
+    assert no_write_result["written"] is False
+    assert gate_path.read_text(encoding="utf-8") == before_no_write
 
 
 def test_report_intelligence_evolution_gate_writer_preserves_existing_gate_without_private_outcomes(

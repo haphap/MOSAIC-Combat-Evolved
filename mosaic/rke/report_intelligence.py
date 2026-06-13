@@ -13388,6 +13388,7 @@ def write_report_intelligence_evolution_readiness_gate(
     registry_dir: str | Path,
     *,
     run_id: str = "RIR-PUBLIC-EVOLUTION-GATE",
+    write: bool = True,
 ) -> dict[str, Any]:
     """Rebuild only the public evolution gate from existing registry artifacts."""
     registry_path = Path(registry_dir)
@@ -13535,14 +13536,18 @@ def write_report_intelligence_evolution_readiness_gate(
         gate["gate_status"] = "blocked"
         gate["promotion_state"] = "blocked_before_prompt_evolution"
         gate["private_text_included"] = _public_payload_private_text_included(gate)
-    written = _write_json(gate_path, gate)
+    if write:
+        written_path = str(_write_json(gate_path, gate)["path"])
+    else:
+        written_path = str(gate_path)
     return {
-        "evolution_readiness_gate": str(written["path"]),
+        "evolution_readiness_gate": written_path,
         "gate_status": str(gate.get("gate_status") or ""),
         "blocker_count": int(gate.get("blocker_count") or 0),
         "input_load_blockers": blockers,
         "count_only_public_fallbacks": sorted(public_fallbacks),
         "preserved_existing_gate": False,
+        "written": write,
     }
 
 

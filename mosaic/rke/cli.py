@@ -1045,6 +1045,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Also rebuild prompt mutation candidates after writing the gate.",
     )
+    evolution_gate.add_argument(
+        "--no-write",
+        action="store_true",
+        help="Do not rewrite evolution gate artifacts; print the current check result only.",
+    )
     evolution_readiness = subparsers.add_parser(
         "evolution-readiness",
         help=(
@@ -1064,6 +1069,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--refresh-prompt-mutations",
         action="store_true",
         help="Also rebuild prompt mutation candidates after writing the gate.",
+    )
+    evolution_readiness.add_argument(
+        "--no-write",
+        action="store_true",
+        help="Do not rewrite evolution gate artifacts; print the current check result only.",
     )
     merge_report_batches = subparsers.add_parser(
         "merge-report-intelligence-batches",
@@ -1703,11 +1713,28 @@ def main(argv: Sequence[str] | None = None) -> int:
         _print_json(asdict(result))
         return 0 if result.blocker_count == 0 else 2
     if args.command in {"report-intelligence-evolution-gate", "evolution-readiness"}:
+        if args.no_write and args.refresh_prompt_mutations:
+            _print_json(
+                {
+                    "accepted": False,
+                    "blockers": [
+                        "--no-write cannot be combined with --refresh-prompt-mutations"
+                    ],
+                }
+            )
+            return 2
         registry_dir = root / "registry/report_intelligence"
-        result = write_report_intelligence_evolution_readiness_gate(
-            registry_dir,
-            run_id=args.run_id,
-        )
+        if args.no_write:
+            result = write_report_intelligence_evolution_readiness_gate(
+                registry_dir,
+                run_id=args.run_id,
+                write=False,
+            )
+        else:
+            result = write_report_intelligence_evolution_readiness_gate(
+                registry_dir,
+                run_id=args.run_id,
+            )
         if args.refresh_prompt_mutations:
             result = {
                 **result,

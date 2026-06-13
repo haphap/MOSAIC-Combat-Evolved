@@ -953,6 +953,71 @@ def test_rke_cli_evolution_readiness_alias_rebuilds_gate(
     assert output["prompt_mutation_candidate_count"] == 2
 
 
+def test_rke_cli_evolution_readiness_no_write_uses_read_only_gate(
+    tmp_path: Path,
+    capsys,
+    monkeypatch,
+):
+    captured = {}
+
+    def fake_write_gate(registry_dir, *, run_id, write=True):
+        captured["registry_dir"] = str(registry_dir)
+        captured["run_id"] = run_id
+        captured["write"] = write
+        return {
+            "evolution_readiness_gate": "registry/report_intelligence/evolution_readiness_gate.json",
+            "gate_status": "blocked",
+            "blocker_count": 1,
+            "input_load_blockers": [],
+            "written": write,
+        }
+
+    monkeypatch.setattr(
+        "mosaic.rke.cli.write_report_intelligence_evolution_readiness_gate",
+        fake_write_gate,
+    )
+
+    code = main(
+        (
+            "evolution-readiness",
+            "--root",
+            str(tmp_path),
+            "--run-id",
+            "RIR-READ-ONLY",
+            "--no-write",
+        )
+    )
+    output = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert captured == {
+        "registry_dir": str(tmp_path / "registry/report_intelligence"),
+        "run_id": "RIR-READ-ONLY",
+        "write": False,
+    }
+    assert output["written"] is False
+
+
+def test_rke_cli_evolution_readiness_no_write_rejects_prompt_mutation_refresh(
+    tmp_path: Path,
+    capsys,
+):
+    code = main(
+        (
+            "evolution-readiness",
+            "--root",
+            str(tmp_path),
+            "--no-write",
+            "--refresh-prompt-mutations",
+        )
+    )
+    output = json.loads(capsys.readouterr().out)
+
+    assert code == 2
+    assert output["accepted"] is False
+    assert "--no-write cannot be combined" in output["blockers"][0]
+
+
 def test_pyproject_exposes_mosaic_rke_console_script():
     text = Path("pyproject.toml").read_text(encoding="utf-8")
 
