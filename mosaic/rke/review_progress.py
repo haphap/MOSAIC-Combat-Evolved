@@ -25,6 +25,7 @@ from .manual_review_batches import (
     GOLD_BATCH_IMPORT_TEMPLATE_PATH,
     GOLD_FULL_IMPORT_TEMPLATE_PATH,
     GOLD_FULL_REVIEWED_IMPORT_PATH,
+    GOLD_REVIEW_TEMPLATE_PATH,
     GOLD_REVIEWED_IMPORT_PATH,
     GOLD_REVIEW_EVIDENCE_JSONL_PATH,
     GOLD_REVIEW_EVIDENCE_MD_PATH,
@@ -398,6 +399,22 @@ def _manual_review_batch_plan(
                 "pending_row_start": offset + 1,
                 "pending_row_end": offset + limit,
                 "mode": "pending_offset_batch_before_applying_any_batch",
+                "apply_effect": "merge_batch_into_target_review_template",
+                "target_review_template_path": (
+                    GOLD_REVIEW_TEMPLATE_PATH
+                    if review_kind == "gold_set"
+                    else ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH
+                ),
+                "batch_input_path": (
+                    GOLD_REVIEWED_IMPORT_PATH
+                    if review_kind == "gold_set"
+                    else ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH
+                ),
+                "promotion_input_path": (
+                    GOLD_FULL_REVIEWED_IMPORT_PATH
+                    if review_kind == "gold_set"
+                    else ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH
+                ),
                 "commands": commands,
             }
         )
@@ -801,7 +818,9 @@ def _render_batch_plan_lines(label: str, batch_plan: Sequence[Mapping[str, Any]]
                 (
                     f"- Batch {batch.get('batch_index')}: pending rows "
                     f"{batch.get('pending_row_start')}-{batch.get('pending_row_end')}; "
-                    f"limit={batch.get('limit')}; offset={batch.get('offset')}"
+                    f"limit={batch.get('limit')}; offset={batch.get('offset')}; "
+                    f"batch input=`{batch.get('batch_input_path')}`; "
+                    f"promotion input=`{batch.get('promotion_input_path')}`"
                 ),
             ]
         )

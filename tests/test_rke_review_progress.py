@@ -247,6 +247,18 @@ def test_review_progress_reports_missing_scratch_files(tmp_path: Path, capsys):
     )
     assert len(gold_gate["batch_plan"]) == 10
     assert gold_gate["batch_plan"][0]["offset"] == 0
+    assert (
+        gold_gate["batch_plan"][0]["apply_effect"]
+        == "merge_batch_into_target_review_template"
+    )
+    assert (
+        gold_gate["batch_plan"][0]["batch_input_path"]
+        == "registry/review_batches/gold_set_reviewed.jsonl"
+    )
+    assert (
+        gold_gate["batch_plan"][0]["promotion_input_path"]
+        == "registry/review_batches/gold_set_full_reviewed.jsonl"
+    )
     assert gold_gate["batch_plan"][-1]["offset"] == 450
     assert len(footprint_gate["batch_plan"]) == 21
     assert footprint_gate["batch_plan"][-1]["offset"] == 1000
@@ -383,8 +395,16 @@ def test_manual_review_runbook_renders_operator_checklist_without_source_text(tm
     assert "mosaic-rke prepare-gold-review --root . --full" in markdown
     assert "## Next Batch Commands" in markdown
     assert "## Full Pending Batch Plan" in markdown
-    assert "Batch 10: pending rows 451-500; limit=50; offset=450" in markdown
-    assert "Batch 21: pending rows 1001-1001; limit=1; offset=1000" in markdown
+    assert (
+        "Batch 10: pending rows 451-500; limit=50; offset=450; "
+        "batch input=`registry/review_batches/gold_set_reviewed.jsonl`"
+        in markdown
+    )
+    assert (
+        "Batch 21: pending rows 1001-1001; limit=1; offset=1000; "
+        "batch input=`registry/report_intelligence/analytical_footprint_review_batch.jsonl`"
+        in markdown
+    )
     assert "### gold_set" in markdown
     assert "### footprint_review" in markdown
     assert "After applying an accepted batch, rerun review-progress" in markdown

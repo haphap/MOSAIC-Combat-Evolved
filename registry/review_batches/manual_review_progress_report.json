@@ -34,7 +34,9 @@
       "apply_command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl",
       "batch_plan": [
         {
+          "apply_effect": "merge_batch_into_target_review_template",
           "batch_index": 1,
+          "batch_input_path": "registry/review_batches/gold_set_reviewed.jsonl",
           "commands": {
             "apply": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl",
             "dry_run": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --dry-run",
@@ -45,10 +47,14 @@
           "mode": "pending_offset_batch_before_applying_any_batch",
           "offset": 0,
           "pending_row_end": 50,
-          "pending_row_start": 1
+          "pending_row_start": 1,
+          "promotion_input_path": "registry/review_batches/gold_set_full_reviewed.jsonl",
+          "target_review_template_path": "registry/gold_sets/tushare_research_reports.review_template.jsonl"
         },
         {
+          "apply_effect": "merge_batch_into_target_review_template",
           "batch_index": 2,
+          "batch_input_path": "registry/review_batches/gold_set_reviewed.jsonl",
           "commands": {
             "apply": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl",
             "dry_run": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --dry-run",
@@ -59,10 +65,14 @@
           "mode": "pending_offset_batch_before_applying_any_batch",
           "offset": 50,
           "pending_row_end": 100,
-          "pending_row_start": 51
+          "pending_row_start": 51,
+          "promotion_input_path": "registry/review_batches/gold_set_full_reviewed.jsonl",
+          "target_review_template_path": "registry/gold_sets/tushare_research_reports.review_template.jsonl"
         },
         {
+          "apply_effect": "merge_batch_into_target_review_template",
           "batch_index": 3,
+          "batch_input_path": "registry/review_batches/gold_set_reviewed.jsonl",
           "commands": {
             "apply": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl",
             "dry_run": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --dry-run",
@@ -73,10 +83,14 @@
           "mode": "pending_offset_batch_before_applying_any_batch",
           "offset": 100,
           "pending_row_end": 150,
-          "pending_row_start": 101
+          "pending_row_start": 101,
+          "promotion_input_path": "registry/review_batches/gold_set_full_reviewed.jsonl",
+          "target_review_template_path": "registry/gold_sets/tushare_research_reports.review_template.jsonl"
         },
         {
+          "apply_effect": "merge_batch_into_target_review_template",
           "batch_index": 4,
+          "batch_input_path": "registry/review_batches/gold_set_reviewed.jsonl",
           "commands": {
             "apply": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl",
             "dry_run": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --dry-run",
@@ -87,10 +101,14 @@
           "mode": "pending_offset_batch_before_applying_any_batch",
           "offset": 150,
           "pending_row_end": 200,
-          "pending_row_start": 151
+          "pending_row_start": 151,
+          "promotion_input_path": "registry/review_batches/gold_set_full_reviewed.jsonl",
+          "target_review_template_path": "registry/gold_sets/tushare_research_reports.review_template.jsonl"
         },
         {
+          "apply_effect": "merge_batch_into_target_review_template",
           "batch_index": 5,
+          "batch_input_path": "registry/review_batches/gold_set_reviewed.jsonl",
           "commands": {
             "apply": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl",
             "dry_run": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --dry-run",
@@ -101,10 +119,14 @@
           "mode": "pending_offset_batch_before_applying_any_batch",
           "offset": 200,
           "pending_row_end": 250,
-          "pending_row_start": 201
+          "pending_row_start": 201,
+          "promotion_input_path": "registry/review_batches/gold_set_full_reviewed.jsonl",
+          "target_review_template_path": "registry/gold_sets/tushare_research_reports.review_template.jsonl"
         },
         {
+          "apply_effect": "merge_batch_into_target_review_template",
           "batch_index": 6,
+          "batch_input_path": "registry/review_batches/gold_set_reviewed.jsonl",
           "commands": {
             "apply": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl",
             "dry_run": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --dry-run",
@@ -115,10 +137,14 @@
           "mode": "pending_offset_batch_before_applying_any_batch",
           "offset": 250,
           "pending_row_end": 300,
-          "pending_row_start": 251
+          "pending_row_start": 251,
+          "promotion_input_path": "registry/review_batches/gold_set_full_reviewed.jsonl",
+          "target_review_template_path": "registry/gold_sets/tushare_research_reports.review_template.jsonl"
         },
         {
+          "apply_effect": "merge_batch_into_target_review_template",
           "batch_index": 7,
+          "batch_input_path": "registry/review_batches/gold_set_reviewed.jsonl",
           "commands": {
             "apply": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl",
             "dry_run": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --dry-run",
@@ -129,10 +155,14 @@
           "mode": "pending_offset_batch_before_applying_any_batch",
           "offset": 300,
           "pending_row_end": 350,
-          "pending_row_start": 301
+          "pending_row_start": 301,
+          "promotion_input_path": "registry/review_batches/gold_set_full_reviewed.jsonl",
+          "target_review_template_path": "registry/gold_sets/tushare_research_reports.review_template.jsonl"
         },
         {
+          "apply_effect": "merge_batch_into_target_review_template",
           "batch_index": 8,
+          "batch_input_path": "registry/review_batches/gold_set_reviewed.jsonl",
           "commands": {
             "apply": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl",
             "dry_run": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --dry-run",
@@ -143,10 +173,14 @@
           "mode": "pending_offset_batch_before_applying_any_batch",
           "offset": 350,
           "pending_row_end": 400,
-          "pending_row_start": 351
+          "pending_row_start": 351,
+          "promotion_input_path": "registry/review_batches/gold_set_full_reviewed.jsonl",
+          "target_review_template_path": "registry/gold_sets/tushare_research_reports.review_template.jsonl"
         },
         {
+          "apply_effect": "merge_batch_into_target_review_template",
           "batch_index": 9,
+          "batch_input_path": "registry/review_batches/gold_set_reviewed.jsonl",
           "commands": {
             "apply": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl",
             "dry_run": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --dry-run",
@@ -157,10 +191,14 @@
           "mode": "pending_offset_batch_before_applying_any_batch",
           "offset": 400,
           "pending_row_end": 450,
-          "pending_row_start": 401
+          "pending_row_start": 401,
+          "promotion_input_path": "registry/review_batches/gold_set_full_reviewed.jsonl",
+          "target_review_template_path": "registry/gold_sets/tushare_research_reports.review_template.jsonl"
         },
         {
+          "apply_effect": "merge_batch_into_target_review_template",
           "batch_index": 10,
+          "batch_input_path": "registry/review_batches/gold_set_reviewed.jsonl",
           "commands": {
             "apply": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl",
             "dry_run": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --dry-run",
@@ -171,7 +209,9 @@
           "mode": "pending_offset_batch_before_applying_any_batch",
           "offset": 450,
           "pending_row_end": 500,
-          "pending_row_start": 451
+          "pending_row_start": 451,
+          "promotion_input_path": "registry/review_batches/gold_set_full_reviewed.jsonl",
+          "target_review_template_path": "registry/gold_sets/tushare_research_reports.review_template.jsonl"
         }
       ],
       "blockers": [
@@ -226,7 +266,9 @@
       "apply_command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_reviewed.jsonl",
       "batch_plan": [
         {
+          "apply_effect": "merge_batch_into_target_review_template",
           "batch_index": 1,
+          "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
           "commands": {
             "apply": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
             "assist": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .",
@@ -238,10 +280,14 @@
           "mode": "pending_offset_batch_before_applying_any_batch",
           "offset": 0,
           "pending_row_end": 50,
-          "pending_row_start": 1
+          "pending_row_start": 1,
+          "promotion_input_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+          "target_review_template_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl"
         },
         {
+          "apply_effect": "merge_batch_into_target_review_template",
           "batch_index": 2,
+          "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
           "commands": {
             "apply": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
             "assist": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .",
@@ -253,10 +299,14 @@
           "mode": "pending_offset_batch_before_applying_any_batch",
           "offset": 50,
           "pending_row_end": 100,
-          "pending_row_start": 51
+          "pending_row_start": 51,
+          "promotion_input_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+          "target_review_template_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl"
         },
         {
+          "apply_effect": "merge_batch_into_target_review_template",
           "batch_index": 3,
+          "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
           "commands": {
             "apply": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
             "assist": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .",
@@ -268,10 +318,14 @@
           "mode": "pending_offset_batch_before_applying_any_batch",
           "offset": 100,
           "pending_row_end": 150,
-          "pending_row_start": 101
+          "pending_row_start": 101,
+          "promotion_input_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+          "target_review_template_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl"
         },
         {
+          "apply_effect": "merge_batch_into_target_review_template",
           "batch_index": 4,
+          "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
           "commands": {
             "apply": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
             "assist": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .",
@@ -283,10 +337,14 @@
           "mode": "pending_offset_batch_before_applying_any_batch",
           "offset": 150,
           "pending_row_end": 200,
-          "pending_row_start": 151
+          "pending_row_start": 151,
+          "promotion_input_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+          "target_review_template_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl"
         },
         {
+          "apply_effect": "merge_batch_into_target_review_template",
           "batch_index": 5,
+          "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
           "commands": {
             "apply": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
             "assist": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .",
@@ -298,10 +356,14 @@
           "mode": "pending_offset_batch_before_applying_any_batch",
           "offset": 200,
           "pending_row_end": 250,
-          "pending_row_start": 201
+          "pending_row_start": 201,
+          "promotion_input_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+          "target_review_template_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl"
         },
         {
+          "apply_effect": "merge_batch_into_target_review_template",
           "batch_index": 6,
+          "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
           "commands": {
             "apply": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
             "assist": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .",
@@ -313,10 +375,14 @@
           "mode": "pending_offset_batch_before_applying_any_batch",
           "offset": 250,
           "pending_row_end": 300,
-          "pending_row_start": 251
+          "pending_row_start": 251,
+          "promotion_input_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+          "target_review_template_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl"
         },
         {
+          "apply_effect": "merge_batch_into_target_review_template",
           "batch_index": 7,
+          "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
           "commands": {
             "apply": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
             "assist": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .",
@@ -328,10 +394,14 @@
           "mode": "pending_offset_batch_before_applying_any_batch",
           "offset": 300,
           "pending_row_end": 350,
-          "pending_row_start": 301
+          "pending_row_start": 301,
+          "promotion_input_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+          "target_review_template_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl"
         },
         {
+          "apply_effect": "merge_batch_into_target_review_template",
           "batch_index": 8,
+          "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
           "commands": {
             "apply": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
             "assist": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .",
@@ -343,10 +413,14 @@
           "mode": "pending_offset_batch_before_applying_any_batch",
           "offset": 350,
           "pending_row_end": 400,
-          "pending_row_start": 351
+          "pending_row_start": 351,
+          "promotion_input_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+          "target_review_template_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl"
         },
         {
+          "apply_effect": "merge_batch_into_target_review_template",
           "batch_index": 9,
+          "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
           "commands": {
             "apply": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
             "assist": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .",
@@ -358,10 +432,14 @@
           "mode": "pending_offset_batch_before_applying_any_batch",
           "offset": 400,
           "pending_row_end": 450,
-          "pending_row_start": 401
+          "pending_row_start": 401,
+          "promotion_input_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+          "target_review_template_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl"
         },
         {
+          "apply_effect": "merge_batch_into_target_review_template",
           "batch_index": 10,
+          "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
           "commands": {
             "apply": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
             "assist": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .",
@@ -373,10 +451,14 @@
           "mode": "pending_offset_batch_before_applying_any_batch",
           "offset": 450,
           "pending_row_end": 500,
-          "pending_row_start": 451
+          "pending_row_start": 451,
+          "promotion_input_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+          "target_review_template_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl"
         },
         {
+          "apply_effect": "merge_batch_into_target_review_template",
           "batch_index": 11,
+          "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
           "commands": {
             "apply": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
             "assist": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .",
@@ -388,10 +470,14 @@
           "mode": "pending_offset_batch_before_applying_any_batch",
           "offset": 500,
           "pending_row_end": 550,
-          "pending_row_start": 501
+          "pending_row_start": 501,
+          "promotion_input_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+          "target_review_template_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl"
         },
         {
+          "apply_effect": "merge_batch_into_target_review_template",
           "batch_index": 12,
+          "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
           "commands": {
             "apply": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
             "assist": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .",
@@ -403,10 +489,14 @@
           "mode": "pending_offset_batch_before_applying_any_batch",
           "offset": 550,
           "pending_row_end": 600,
-          "pending_row_start": 551
+          "pending_row_start": 551,
+          "promotion_input_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+          "target_review_template_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl"
         },
         {
+          "apply_effect": "merge_batch_into_target_review_template",
           "batch_index": 13,
+          "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
           "commands": {
             "apply": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
             "assist": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .",
@@ -418,10 +508,14 @@
           "mode": "pending_offset_batch_before_applying_any_batch",
           "offset": 600,
           "pending_row_end": 650,
-          "pending_row_start": 601
+          "pending_row_start": 601,
+          "promotion_input_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+          "target_review_template_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl"
         },
         {
+          "apply_effect": "merge_batch_into_target_review_template",
           "batch_index": 14,
+          "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
           "commands": {
             "apply": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
             "assist": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .",
@@ -433,10 +527,14 @@
           "mode": "pending_offset_batch_before_applying_any_batch",
           "offset": 650,
           "pending_row_end": 700,
-          "pending_row_start": 651
+          "pending_row_start": 651,
+          "promotion_input_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+          "target_review_template_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl"
         },
         {
+          "apply_effect": "merge_batch_into_target_review_template",
           "batch_index": 15,
+          "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
           "commands": {
             "apply": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
             "assist": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .",
@@ -448,10 +546,14 @@
           "mode": "pending_offset_batch_before_applying_any_batch",
           "offset": 700,
           "pending_row_end": 750,
-          "pending_row_start": 701
+          "pending_row_start": 701,
+          "promotion_input_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+          "target_review_template_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl"
         },
         {
+          "apply_effect": "merge_batch_into_target_review_template",
           "batch_index": 16,
+          "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
           "commands": {
             "apply": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
             "assist": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .",
@@ -463,10 +565,14 @@
           "mode": "pending_offset_batch_before_applying_any_batch",
           "offset": 750,
           "pending_row_end": 800,
-          "pending_row_start": 751
+          "pending_row_start": 751,
+          "promotion_input_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+          "target_review_template_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl"
         },
         {
+          "apply_effect": "merge_batch_into_target_review_template",
           "batch_index": 17,
+          "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
           "commands": {
             "apply": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
             "assist": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .",
@@ -478,10 +584,14 @@
           "mode": "pending_offset_batch_before_applying_any_batch",
           "offset": 800,
           "pending_row_end": 850,
-          "pending_row_start": 801
+          "pending_row_start": 801,
+          "promotion_input_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+          "target_review_template_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl"
         },
         {
+          "apply_effect": "merge_batch_into_target_review_template",
           "batch_index": 18,
+          "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
           "commands": {
             "apply": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
             "assist": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .",
@@ -493,10 +603,14 @@
           "mode": "pending_offset_batch_before_applying_any_batch",
           "offset": 850,
           "pending_row_end": 900,
-          "pending_row_start": 851
+          "pending_row_start": 851,
+          "promotion_input_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+          "target_review_template_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl"
         },
         {
+          "apply_effect": "merge_batch_into_target_review_template",
           "batch_index": 19,
+          "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
           "commands": {
             "apply": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
             "assist": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .",
@@ -508,10 +622,14 @@
           "mode": "pending_offset_batch_before_applying_any_batch",
           "offset": 900,
           "pending_row_end": 950,
-          "pending_row_start": 901
+          "pending_row_start": 901,
+          "promotion_input_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+          "target_review_template_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl"
         },
         {
+          "apply_effect": "merge_batch_into_target_review_template",
           "batch_index": 20,
+          "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
           "commands": {
             "apply": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
             "assist": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .",
@@ -523,10 +641,14 @@
           "mode": "pending_offset_batch_before_applying_any_batch",
           "offset": 950,
           "pending_row_end": 1000,
-          "pending_row_start": 951
+          "pending_row_start": 951,
+          "promotion_input_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+          "target_review_template_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl"
         },
         {
+          "apply_effect": "merge_batch_into_target_review_template",
           "batch_index": 21,
+          "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
           "commands": {
             "apply": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
             "assist": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .",
@@ -538,7 +660,9 @@
           "mode": "pending_offset_batch_before_applying_any_batch",
           "offset": 1000,
           "pending_row_end": 1001,
-          "pending_row_start": 1001
+          "pending_row_start": 1001,
+          "promotion_input_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+          "target_review_template_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl"
         }
       ],
       "blockers": [

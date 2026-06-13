@@ -115,52 +115,52 @@ This plan slices the current pending set before any new batch is applied. If you
 
 ### Gold-set review
 
-- Batch 1: pending rows 1-50; limit=50; offset=0
+- Batch 1: pending rows 1-50; limit=50; offset=0; batch input=`registry/review_batches/gold_set_reviewed.jsonl`; promotion input=`registry/review_batches/gold_set_full_reviewed.jsonl`
   - evidence: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-gold-review-evidence --root . --limit 50 --offset 0`
   - prepare: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-gold-review --root . --gold-batch-size 50 --offset 0 --force --reviewer <name> --review-date <YYYY-MM-DD>`
   - dry_run: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --dry-run`
   - apply: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl`
-- Batch 2: pending rows 51-100; limit=50; offset=50
+- Batch 2: pending rows 51-100; limit=50; offset=50; batch input=`registry/review_batches/gold_set_reviewed.jsonl`; promotion input=`registry/review_batches/gold_set_full_reviewed.jsonl`
   - evidence: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-gold-review-evidence --root . --limit 50 --offset 50`
   - prepare: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-gold-review --root . --gold-batch-size 50 --offset 50 --force --reviewer <name> --review-date <YYYY-MM-DD>`
   - dry_run: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --dry-run`
   - apply: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl`
-- Batch 3: pending rows 101-150; limit=50; offset=100
+- Batch 3: pending rows 101-150; limit=50; offset=100; batch input=`registry/review_batches/gold_set_reviewed.jsonl`; promotion input=`registry/review_batches/gold_set_full_reviewed.jsonl`
   - evidence: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-gold-review-evidence --root . --limit 50 --offset 100`
   - prepare: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-gold-review --root . --gold-batch-size 50 --offset 100 --force --reviewer <name> --review-date <YYYY-MM-DD>`
   - dry_run: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --dry-run`
   - apply: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl`
-- Batch 4: pending rows 151-200; limit=50; offset=150
+- Batch 4: pending rows 151-200; limit=50; offset=150; batch input=`registry/review_batches/gold_set_reviewed.jsonl`; promotion input=`registry/review_batches/gold_set_full_reviewed.jsonl`
   - evidence: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-gold-review-evidence --root . --limit 50 --offset 150`
   - prepare: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-gold-review --root . --gold-batch-size 50 --offset 150 --force --reviewer <name> --review-date <YYYY-MM-DD>`
   - dry_run: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --dry-run`
   - apply: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl`
-- Batch 5: pending rows 201-250; limit=50; offset=200
+- Batch 5: pending rows 201-250; limit=50; offset=200; batch input=`registry/review_batches/gold_set_reviewed.jsonl`; promotion input=`registry/review_batches/gold_set_full_reviewed.jsonl`
   - evidence: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-gold-review-evidence --root . --limit 50 --offset 200`
   - prepare: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-gold-review --root . --gold-batch-size 50 --offset 200 --force --reviewer <name> --review-date <YYYY-MM-DD>`
   - dry_run: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --dry-run`
   - apply: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl`
-- Batch 6: pending rows 251-300; limit=50; offset=250
+- Batch 6: pending rows 251-300; limit=50; offset=250; batch input=`registry/review_batches/gold_set_reviewed.jsonl`; promotion input=`registry/review_batches/gold_set_full_reviewed.jsonl`
   - evidence: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-gold-review-evidence --root . --limit 50 --offset 250`
   - prepare: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-gold-review --root . --gold-batch-size 50 --offset 250 --force --reviewer <name> --review-date <YYYY-MM-DD>`
   - dry_run: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --dry-run`
   - apply: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl`
-- Batch 7: pending rows 301-350; limit=50; offset=300
+- Batch 7: pending rows 301-350; limit=50; offset=300; batch input=`registry/review_batches/gold_set_reviewed.jsonl`; promotion input=`registry/review_batches/gold_set_full_reviewed.jsonl`
   - evidence: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-gold-review-evidence --root . --limit 50 --offset 300`
   - prepare: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-gold-review --root . --gold-batch-size 50 --offset 300 --force --reviewer <name> --review-date <YYYY-MM-DD>`
   - dry_run: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --dry-run`
   - apply: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl`
-- Batch 8: pending rows 351-400; limit=50; offset=350
+- Batch 8: pending rows 351-400; limit=50; offset=350; batch input=`registry/review_batches/gold_set_reviewed.jsonl`; promotion input=`registry/review_batches/gold_set_full_reviewed.jsonl`
   - evidence: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-gold-review-evidence --root . --limit 50 --offset 350`
   - prepare: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-gold-review --root . --gold-batch-size 50 --offset 350 --force --reviewer <name> --review-date <YYYY-MM-DD>`
   - dry_run: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --dry-run`
   - apply: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl`
-- Batch 9: pending rows 401-450; limit=50; offset=400
+- Batch 9: pending rows 401-450; limit=50; offset=400; batch input=`registry/review_batches/gold_set_reviewed.jsonl`; promotion input=`registry/review_batches/gold_set_full_reviewed.jsonl`
   - evidence: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-gold-review-evidence --root . --limit 50 --offset 400`
   - prepare: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-gold-review --root . --gold-batch-size 50 --offset 400 --force --reviewer <name> --review-date <YYYY-MM-DD>`
   - dry_run: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --dry-run`
   - apply: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl`
-- Batch 10: pending rows 451-500; limit=50; offset=450
+- Batch 10: pending rows 451-500; limit=50; offset=450; batch input=`registry/review_batches/gold_set_reviewed.jsonl`; promotion input=`registry/review_batches/gold_set_full_reviewed.jsonl`
   - evidence: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-gold-review-evidence --root . --limit 50 --offset 450`
   - prepare: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-gold-review --root . --gold-batch-size 50 --offset 450 --force --reviewer <name> --review-date <YYYY-MM-DD>`
   - dry_run: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --dry-run`
@@ -168,127 +168,127 @@ This plan slices the current pending set before any new batch is applied. If you
 
 ### Analytical-footprint review
 
-- Batch 1: pending rows 1-50; limit=50; offset=0
+- Batch 1: pending rows 1-50; limit=50; offset=0; batch input=`registry/report_intelligence/analytical_footprint_review_batch.jsonl`; promotion input=`registry/report_intelligence/analytical_footprint_reviewed.jsonl`
   - assist: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .`
   - evidence: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 0`
   - prepare: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 0 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite`
   - dry_run: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run`
   - apply: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl`
-- Batch 2: pending rows 51-100; limit=50; offset=50
+- Batch 2: pending rows 51-100; limit=50; offset=50; batch input=`registry/report_intelligence/analytical_footprint_review_batch.jsonl`; promotion input=`registry/report_intelligence/analytical_footprint_reviewed.jsonl`
   - assist: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .`
   - evidence: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 50`
   - prepare: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 50 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite`
   - dry_run: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run`
   - apply: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl`
-- Batch 3: pending rows 101-150; limit=50; offset=100
+- Batch 3: pending rows 101-150; limit=50; offset=100; batch input=`registry/report_intelligence/analytical_footprint_review_batch.jsonl`; promotion input=`registry/report_intelligence/analytical_footprint_reviewed.jsonl`
   - assist: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .`
   - evidence: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 100`
   - prepare: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 100 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite`
   - dry_run: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run`
   - apply: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl`
-- Batch 4: pending rows 151-200; limit=50; offset=150
+- Batch 4: pending rows 151-200; limit=50; offset=150; batch input=`registry/report_intelligence/analytical_footprint_review_batch.jsonl`; promotion input=`registry/report_intelligence/analytical_footprint_reviewed.jsonl`
   - assist: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .`
   - evidence: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 150`
   - prepare: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 150 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite`
   - dry_run: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run`
   - apply: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl`
-- Batch 5: pending rows 201-250; limit=50; offset=200
+- Batch 5: pending rows 201-250; limit=50; offset=200; batch input=`registry/report_intelligence/analytical_footprint_review_batch.jsonl`; promotion input=`registry/report_intelligence/analytical_footprint_reviewed.jsonl`
   - assist: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .`
   - evidence: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 200`
   - prepare: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 200 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite`
   - dry_run: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run`
   - apply: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl`
-- Batch 6: pending rows 251-300; limit=50; offset=250
+- Batch 6: pending rows 251-300; limit=50; offset=250; batch input=`registry/report_intelligence/analytical_footprint_review_batch.jsonl`; promotion input=`registry/report_intelligence/analytical_footprint_reviewed.jsonl`
   - assist: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .`
   - evidence: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 250`
   - prepare: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 250 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite`
   - dry_run: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run`
   - apply: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl`
-- Batch 7: pending rows 301-350; limit=50; offset=300
+- Batch 7: pending rows 301-350; limit=50; offset=300; batch input=`registry/report_intelligence/analytical_footprint_review_batch.jsonl`; promotion input=`registry/report_intelligence/analytical_footprint_reviewed.jsonl`
   - assist: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .`
   - evidence: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 300`
   - prepare: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 300 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite`
   - dry_run: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run`
   - apply: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl`
-- Batch 8: pending rows 351-400; limit=50; offset=350
+- Batch 8: pending rows 351-400; limit=50; offset=350; batch input=`registry/report_intelligence/analytical_footprint_review_batch.jsonl`; promotion input=`registry/report_intelligence/analytical_footprint_reviewed.jsonl`
   - assist: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .`
   - evidence: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 350`
   - prepare: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 350 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite`
   - dry_run: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run`
   - apply: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl`
-- Batch 9: pending rows 401-450; limit=50; offset=400
+- Batch 9: pending rows 401-450; limit=50; offset=400; batch input=`registry/report_intelligence/analytical_footprint_review_batch.jsonl`; promotion input=`registry/report_intelligence/analytical_footprint_reviewed.jsonl`
   - assist: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .`
   - evidence: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 400`
   - prepare: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 400 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite`
   - dry_run: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run`
   - apply: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl`
-- Batch 10: pending rows 451-500; limit=50; offset=450
+- Batch 10: pending rows 451-500; limit=50; offset=450; batch input=`registry/report_intelligence/analytical_footprint_review_batch.jsonl`; promotion input=`registry/report_intelligence/analytical_footprint_reviewed.jsonl`
   - assist: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .`
   - evidence: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 450`
   - prepare: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 450 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite`
   - dry_run: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run`
   - apply: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl`
-- Batch 11: pending rows 501-550; limit=50; offset=500
+- Batch 11: pending rows 501-550; limit=50; offset=500; batch input=`registry/report_intelligence/analytical_footprint_review_batch.jsonl`; promotion input=`registry/report_intelligence/analytical_footprint_reviewed.jsonl`
   - assist: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .`
   - evidence: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 500`
   - prepare: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 500 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite`
   - dry_run: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run`
   - apply: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl`
-- Batch 12: pending rows 551-600; limit=50; offset=550
+- Batch 12: pending rows 551-600; limit=50; offset=550; batch input=`registry/report_intelligence/analytical_footprint_review_batch.jsonl`; promotion input=`registry/report_intelligence/analytical_footprint_reviewed.jsonl`
   - assist: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .`
   - evidence: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 550`
   - prepare: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 550 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite`
   - dry_run: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run`
   - apply: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl`
-- Batch 13: pending rows 601-650; limit=50; offset=600
+- Batch 13: pending rows 601-650; limit=50; offset=600; batch input=`registry/report_intelligence/analytical_footprint_review_batch.jsonl`; promotion input=`registry/report_intelligence/analytical_footprint_reviewed.jsonl`
   - assist: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .`
   - evidence: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 600`
   - prepare: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 600 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite`
   - dry_run: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run`
   - apply: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl`
-- Batch 14: pending rows 651-700; limit=50; offset=650
+- Batch 14: pending rows 651-700; limit=50; offset=650; batch input=`registry/report_intelligence/analytical_footprint_review_batch.jsonl`; promotion input=`registry/report_intelligence/analytical_footprint_reviewed.jsonl`
   - assist: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .`
   - evidence: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 650`
   - prepare: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 650 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite`
   - dry_run: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run`
   - apply: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl`
-- Batch 15: pending rows 701-750; limit=50; offset=700
+- Batch 15: pending rows 701-750; limit=50; offset=700; batch input=`registry/report_intelligence/analytical_footprint_review_batch.jsonl`; promotion input=`registry/report_intelligence/analytical_footprint_reviewed.jsonl`
   - assist: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .`
   - evidence: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 700`
   - prepare: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 700 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite`
   - dry_run: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run`
   - apply: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl`
-- Batch 16: pending rows 751-800; limit=50; offset=750
+- Batch 16: pending rows 751-800; limit=50; offset=750; batch input=`registry/report_intelligence/analytical_footprint_review_batch.jsonl`; promotion input=`registry/report_intelligence/analytical_footprint_reviewed.jsonl`
   - assist: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .`
   - evidence: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 750`
   - prepare: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 750 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite`
   - dry_run: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run`
   - apply: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl`
-- Batch 17: pending rows 801-850; limit=50; offset=800
+- Batch 17: pending rows 801-850; limit=50; offset=800; batch input=`registry/report_intelligence/analytical_footprint_review_batch.jsonl`; promotion input=`registry/report_intelligence/analytical_footprint_reviewed.jsonl`
   - assist: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .`
   - evidence: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 800`
   - prepare: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 800 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite`
   - dry_run: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run`
   - apply: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl`
-- Batch 18: pending rows 851-900; limit=50; offset=850
+- Batch 18: pending rows 851-900; limit=50; offset=850; batch input=`registry/report_intelligence/analytical_footprint_review_batch.jsonl`; promotion input=`registry/report_intelligence/analytical_footprint_reviewed.jsonl`
   - assist: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .`
   - evidence: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 850`
   - prepare: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 850 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite`
   - dry_run: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run`
   - apply: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl`
-- Batch 19: pending rows 901-950; limit=50; offset=900
+- Batch 19: pending rows 901-950; limit=50; offset=900; batch input=`registry/report_intelligence/analytical_footprint_review_batch.jsonl`; promotion input=`registry/report_intelligence/analytical_footprint_reviewed.jsonl`
   - assist: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .`
   - evidence: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 900`
   - prepare: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 900 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite`
   - dry_run: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run`
   - apply: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl`
-- Batch 20: pending rows 951-1000; limit=50; offset=950
+- Batch 20: pending rows 951-1000; limit=50; offset=950; batch input=`registry/report_intelligence/analytical_footprint_review_batch.jsonl`; promotion input=`registry/report_intelligence/analytical_footprint_reviewed.jsonl`
   - assist: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .`
   - evidence: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 950`
   - prepare: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 950 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite`
   - dry_run: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run`
   - apply: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl`
-- Batch 21: pending rows 1001-1001; limit=1; offset=1000
+- Batch 21: pending rows 1001-1001; limit=1; offset=1000; batch input=`registry/report_intelligence/analytical_footprint_review_batch.jsonl`; promotion input=`registry/report_intelligence/analytical_footprint_reviewed.jsonl`
   - assist: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .`
   - evidence: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 1 --offset 1000`
   - prepare: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 1 --offset 1000 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite`

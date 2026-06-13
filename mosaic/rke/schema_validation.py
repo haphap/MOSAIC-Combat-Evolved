@@ -3932,6 +3932,37 @@ def _validate_manual_review_progress_contract(
                     failures.append(
                         f"{batch_label}.mode: expected pending_offset_batch_before_applying_any_batch"
                     )
+                if batch.get("apply_effect") != "merge_batch_into_target_review_template":
+                    failures.append(
+                        f"{batch_label}.apply_effect: expected merge_batch_into_target_review_template"
+                    )
+                expected_target_template = (
+                    "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+                    if review_kind == "gold_set"
+                    else "registry/report_intelligence/analytical_footprint_review_template.jsonl"
+                )
+                expected_batch_input = (
+                    "registry/review_batches/gold_set_reviewed.jsonl"
+                    if review_kind == "gold_set"
+                    else "registry/report_intelligence/analytical_footprint_review_batch.jsonl"
+                )
+                expected_promotion_input = (
+                    "registry/review_batches/gold_set_full_reviewed.jsonl"
+                    if review_kind == "gold_set"
+                    else "registry/report_intelligence/analytical_footprint_reviewed.jsonl"
+                )
+                if batch.get("target_review_template_path") != expected_target_template:
+                    failures.append(
+                        f"{batch_label}.target_review_template_path: expected {expected_target_template}"
+                    )
+                if batch.get("batch_input_path") != expected_batch_input:
+                    failures.append(
+                        f"{batch_label}.batch_input_path: expected {expected_batch_input}"
+                    )
+                if batch.get("promotion_input_path") != expected_promotion_input:
+                    failures.append(
+                        f"{batch_label}.promotion_input_path: expected {expected_promotion_input}"
+                    )
                 commands = batch.get("commands")
                 if not isinstance(commands, Mapping):
                     failures.append(f"{batch_label}.commands: expected object")

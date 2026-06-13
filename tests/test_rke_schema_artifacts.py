@@ -2737,6 +2737,10 @@ def test_manual_review_progress_contract_rejects_count_or_command_drift(
     )
     progress["gates"][1]["current_batch_status"]["pending_rows"] = 49
     progress["gates"][1]["batch_plan"][0]["offset"] = 50
+    progress["gates"][1]["batch_plan"][0]["apply_effect"] = "replace_promotion_input"
+    progress["gates"][1]["batch_plan"][0]["promotion_input_path"] = (
+        "registry/report_intelligence/analytical_footprint_review_batch.jsonl"
+    )
     progress["gates"][1]["batch_plan"][0]["commands"]["evidence"] = (
         progress["gates"][1]["batch_plan"][0]["commands"]["evidence"].replace(
             "--offset 0",
@@ -2760,6 +2764,8 @@ def test_manual_review_progress_contract_rejects_count_or_command_drift(
         for item in record.failures
     )
     assert any("batch_plan[1].offset: expected 0" in item for item in record.failures)
+    assert any("batch_plan[1].apply_effect" in item for item in record.failures)
+    assert any("batch_plan[1].promotion_input_path" in item for item in record.failures)
 
 
 def test_operator_readiness_contract_accepts_current_public_artifact(
