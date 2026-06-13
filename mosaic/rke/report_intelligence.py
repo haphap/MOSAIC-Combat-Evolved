@@ -34,6 +34,7 @@ from .required_data import (
     canonical_metric_name as _canonical_metric_name,
     normalize_required_data_items,
 )
+from .temp_paths import operator_command
 
 
 TUSHARE_REPORT_SOURCE_PATH = "registry/sources/tushare_research_reports.jsonl"
@@ -13585,7 +13586,162 @@ def _evolution_gate_cli_summary(gate: Mapping[str, Any]) -> dict[str, Any]:
         "blocked_check_ids": [row["check_id"] for row in blocked_checks],
         "passed_check_ids": passed_check_ids,
         "blocked_checks": blocked_checks,
+        "next_actions": _evolution_gate_cli_next_actions(blocked_checks),
     }
+
+
+def _evolution_gate_cli_next_actions(
+    blocked_checks: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    """Return public-safe operator actions for the current evolution blockers."""
+    blocked_by_id = {
+        str(check.get("check_id") or ""): {
+            str(blocker)
+            for blocker in _ensure_list(check.get("blockers"))
+            if str(blocker).strip()
+        }
+        for check in blocked_checks
+    }
+    actions: list[dict[str, Any]] = []
+
+    def add_action(
+        *,
+        action_id: str,
+        reason: str,
+        commands: Mapping[str, str],
+        notes: Sequence[str] = (),
+    ) -> None:
+        if any(action["action_id"] == action_id for action in actions):
+            return
+        actions.append(
+            {
+                "action_id": action_id,
+                "reason": reason,
+                "commands": dict(commands),
+                "notes": [str(note) for note in notes if str(note).strip()],
+            }
+        )
+
+    if "RI-EVOL-05" in blocked_by_id:
+        add_action(
+            action_id="complete_manual_forecast_gold_review",
+            reason=(
+                "Manual forecast gold-set review must pass before extracted "
+                "target, direction, horizon, and variable mappings can drive "
+                "evolution."
+            ),
+            commands={
+                "inspect": operator_command(
+                    "mosaic-rke review-progress --root . --actions-only "
+                    "--no-write --review-kind gold_set"
+                ),
+                "write_evidence": operator_command(
+                    "mosaic-rke write-gold-review-evidence --root . --limit 50 "
+                    "--offset 0 --review-input "
+                    "registry/review_batches/gold_set_reviewed.jsonl"
+                ),
+                "dry_run_current_batch": operator_command(
+                    "mosaic-rke apply-gold-review --root . --input "
+                    "registry/review_batches/gold_set_reviewed.jsonl --dry-run"
+                ),
+            },
+            notes=(
+                "Evidence files are review aids only; human review fields still "
+                "must be filled in the reviewed import.",
+                "Promotion uses the full reviewed import only after every "
+                "gold-set batch is complete.",
+            ),
+        )
+
+    audit_blockers = blocked_by_id.get("RI-EVOL-04", set())
+    if "current_schema_or_audit_gate_blocked" in audit_blockers:
+        add_action(
+            action_id="clear_current_schema_and_audit_blockers",
+            reason=(
+                "Audit refresh history does not count until the current schema, "
+                "PIT, provenance, and statistical gates pass."
+            ),
+            commands={
+                "schema_failures": operator_command(
+                    "mosaic-rke schema-status --root . --failures-only --no-write"
+                ),
+                "manual_queue": operator_command(
+                    "mosaic-rke review-progress --root . --actions-only --no-write"
+                ),
+                "operator_readiness": operator_command(
+                    "mosaic-rke operator-readiness --root . --no-write"
+                ),
+            },
+            notes=(
+                "Current known schema blockers are downstream of manual "
+                "gold-set and analytical-footprint review gates.",
+            ),
+        )
+    if "audit_refresh_history_below_threshold" in audit_blockers:
+        add_action(
+            action_id="build_distinct_clean_audit_refresh_history",
+            reason=(
+                "RI-EVOL-04 requires three distinct data vintages whose current "
+                "schema, PIT, provenance, and statistical gates all pass."
+            ),
+            commands={
+                "refresh_derived": operator_command(
+                    "mosaic-rke report-intelligence --root . --refresh-derived-only"
+                ),
+                "check_evolution": operator_command(
+                    "mosaic-rke evolution-readiness --root . --no-write"
+                ),
+            },
+            notes=(
+                "Repeated refreshes on identical data_vintage_hash values are "
+                "deduplicated and do not satisfy the consecutive-vintage gate.",
+            ),
+        )
+
+    if "RI-EVOL-07" in blocked_by_id:
+        add_action(
+            action_id="expand_quality_gated_markdown_coverage",
+            reason=(
+                "P9 Markdown coverage must pass before evolution depends on "
+                "report-derived Markdown evidence."
+            ),
+            commands={
+                "inspect_coverage": operator_command(
+                    "mosaic-rke evolution-readiness --root . --no-write"
+                ),
+                "run_stratified_extraction": operator_command(
+                    "mosaic-rke report-intelligence --root . "
+                    "--selection-order stratified"
+                ),
+            },
+            notes=(
+                "PDF, Markdown, MinerU, and source-row artifacts are private and "
+                "must remain gitignored.",
+            ),
+        )
+
+    if "RI-EVOL-03" in blocked_by_id:
+        add_action(
+            action_id="stabilize_confidence_impact_monitor",
+            reason=(
+                "Confidence impact monitor must have no current blockers and "
+                "three distinct passing data vintages."
+            ),
+            commands={
+                "check_evolution": operator_command(
+                    "mosaic-rke evolution-readiness --root . --no-write"
+                ),
+                "refresh_derived": operator_command(
+                    "mosaic-rke report-intelligence --root . --refresh-derived-only"
+                ),
+            },
+            notes=(
+                "Unvalidated confidence impact, alpha decay, or calibration drift "
+                "keeps prompt evolution shadow-only.",
+            ),
+        )
+
+    return actions
 
 
 PROMPT_MUTATION_CANDIDATE_SCHEMA_VERSION = "prompt_mutation_candidate_v1"

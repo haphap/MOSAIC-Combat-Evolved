@@ -7931,7 +7931,7 @@ def test_report_intelligence_evolution_gate_writer_preserves_stock_coverage_evid
     )
     write_json(
         tmp_path / "registry/schemas/rke_schema_validation_report.json",
-        {"accepted": True, "failure_count": 0, "records": []},
+        {"accepted": False, "failure_count": 1, "records": []},
     )
 
     result = write_report_intelligence_evolution_readiness_gate(
@@ -7944,6 +7944,31 @@ def test_report_intelligence_evolution_gate_writer_preserves_stock_coverage_evid
     assert set(result["blocked_check_ids"]) >= {"RI-EVOL-05", "RI-EVOL-07"}
     assert any(
         row["check_id"] == "RI-EVOL-05" for row in result["blocked_checks"]
+    )
+    next_actions = {action["action_id"]: action for action in result["next_actions"]}
+    assert {
+        "complete_manual_forecast_gold_review",
+        "clear_current_schema_and_audit_blockers",
+        "build_distinct_clean_audit_refresh_history",
+        "expand_quality_gated_markdown_coverage",
+    } <= set(next_actions)
+    assert (
+        "review-progress --root . --actions-only --no-write --review-kind gold_set"
+        in next_actions["complete_manual_forecast_gold_review"]["commands"]["inspect"]
+    )
+    assert (
+        "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke"
+        in next_actions["complete_manual_forecast_gold_review"]["commands"]["inspect"]
+    )
+    assert (
+        "schema-status --root . --failures-only --no-write"
+        in next_actions["clear_current_schema_and_audit_blockers"]["commands"][
+            "schema_failures"
+        ]
+    )
+    assert (
+        "data_vintage_hash"
+        in next_actions["build_distinct_clean_audit_refresh_history"]["notes"][0]
     )
     gate = json.loads(
         (registry_dir / "evolution_readiness_gate.json").read_text(encoding="utf-8")
@@ -7973,6 +7998,7 @@ def test_report_intelligence_evolution_gate_writer_preserves_stock_coverage_evid
 
     assert no_write_result["written"] is False
     assert set(no_write_result["blocked_check_ids"]) >= {"RI-EVOL-05", "RI-EVOL-07"}
+    assert no_write_result["next_actions"] == result["next_actions"]
     assert gate_path.read_text(encoding="utf-8") == before_no_write
 
 

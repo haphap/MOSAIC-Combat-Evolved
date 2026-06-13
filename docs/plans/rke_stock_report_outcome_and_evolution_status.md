@@ -131,7 +131,10 @@ still exit 2 only because the same manual review-derived schema and patch
 coverage gates remain open. `evolution-readiness --no-write` also exits 2 when
 `gate_status=blocked` and includes `blocked_check_ids` / `blocked_checks` in
 stdout so operators can see that RI-EVOL-04 and RI-EVOL-05 are the active
-readiness blockers.
+readiness blockers. The same read-only output now includes public-safe
+`next_actions` with temp-prefixed commands for the current gold-set review
+batch, the schema/audit blocker inspection path, and the distinct
+`data_vintage_hash` refresh-history requirement.
 
 Most recent focused validation after proxy outcome ID namespace hardening:
 
