@@ -527,19 +527,17 @@ def test_review_progress_actions_only_reports_next_manual_work(
         "prepare_next_review_batch",
     }
     assert "apply" not in actions["footprint_review"]["commands"]
-    assert actions["source_license"]["next_manual_action"] in {
-        "ready_for_promotion_apply",
-        "review_or_apply_source_license_policy",
-    }
-    assert actions["source_license"]["action_state"] in {
-        "ready_to_apply",
-        "needs_policy_review",
-    }
+    assert (
+        actions["source_license"]["next_manual_action"]
+        == "review_or_apply_source_license_policy"
+    )
+    assert actions["source_license"]["action_state"] == "needs_policy_review"
     assert actions["source_license"]["can_run_now"] is True
     assert (
         actions["source_license"]["manual_input_path"]
         == "registry/review_batches/source_license_policy_reviewed.json"
     )
+    assert set(actions["source_license"]["commands"]) == {"prepare", "dry_run"}
     assert actions["lockbox"]["next_manual_action"] == "wait_for_prior_manual_gates"
     assert actions["lockbox"]["action_state"] == "waiting_on_dependencies"
     assert actions["lockbox"]["can_run_now"] is False
@@ -576,16 +574,21 @@ def test_review_progress_actions_only_filters_review_kind(
     assert output["total_ready_for_promotion_dry_run"] is False
     assert output["reported_review_kinds"] == ["source_license"]
     assert [action["review_kind"] for action in output["actions"]] == ["source_license"]
-    assert output["actions"][0]["next_manual_action"] == "ready_for_promotion_apply"
-    assert output["actions"][0]["action_state"] == "ready_to_apply"
-    assert set(output["actions"][0]["commands"]) == {"dry_run", "apply"}
+    assert output["actions"][0]["next_manual_action"] == "already_applied"
+    assert output["actions"][0]["action_state"] == "already_applied"
+    assert output["actions"][0]["can_run_now"] is False
+    assert output["actions"][0]["commands"] == {}
 
 
 def test_review_progress_actions_only_filters_action_state(
     tmp_path: Path,
     capsys,
 ):
-    _copy_registry_without_license_reset(tmp_path)
+    _copy_registry(tmp_path)
+    _write_json(
+        tmp_path / "registry/review_batches/source_license_policy_reviewed.json",
+        _accepted_license_policy(tmp_path),
+    )
 
     code = main(
         (
@@ -607,6 +610,8 @@ def test_review_progress_actions_only_filters_action_state(
     assert output["action_count"] >= 1
     assert {action["action_state"] for action in output["actions"]} == {"ready_to_apply"}
     assert all(action["can_run_now"] is True for action in output["actions"])
+    assert {action["review_kind"] for action in output["actions"]} == {"source_license"}
+    assert set(output["actions"][0]["commands"]) == {"dry_run", "apply"}
 
 
 def test_review_progress_action_state_requires_actions_only(tmp_path: Path, capsys):

@@ -85,6 +85,7 @@ TEMP_COPY_IGNORED_PRIVATE_REGISTRY_PATHS = frozenset(
 ReviewProgressKind = Literal["gold_set", "source_license", "lockbox", "footprint_review"]
 ACTION_QUEUE_STATES = (
     "ready_to_apply",
+    "already_applied",
     "needs_human_review_fields",
     "needs_evidence_repair",
     "needs_prepare",
@@ -756,6 +757,7 @@ def _source_license_progress(root_path: Path) -> ManualReviewGateProgress:
             dry_run_command=dry_run_command,
             apply_command=apply_command,
             next_batch_commands={},
+            current_batch_status={"already_applied": True},
         )
     if not resolved_input.exists():
         return _missing_gate(
@@ -1144,13 +1146,15 @@ def _next_manual_action(
     *,
     dependency_blockers: Sequence[ReviewProgressKind] = (),
 ) -> str:
-    if gate.ready_for_promotion:
-        return "ready_for_promotion_apply"
     current = (
         gate.current_batch_status
         if isinstance(gate.current_batch_status, Mapping)
         else {}
     )
+    if gate.ready_for_promotion:
+        if current.get("already_applied") is True:
+            return "already_applied"
+        return "ready_for_promotion_apply"
     if gate.review_kind == "source_license":
         return "review_or_apply_source_license_policy"
     if gate.review_kind == "lockbox":
@@ -1287,6 +1291,7 @@ def _action_queue_commands(
 def _action_queue_hint(action: str) -> str:
     hints = {
         "ready_for_promotion_apply": "Gate is ready; run dry-run, then apply if accepted.",
+        "already_applied": "Gate is already applied; no operator action is required.",
         "fill_current_batch_review_fields_then_dry_run": (
             "Fill the current reviewed scratch fields, regenerate/check evidence, "
             "then run the dry-run."
@@ -1313,6 +1318,7 @@ def _action_queue_hint(action: str) -> str:
 def _action_queue_state(action: str) -> str:
     states = {
         "ready_for_promotion_apply": "ready_to_apply",
+        "already_applied": "already_applied",
         "fill_current_batch_review_fields_then_dry_run": "needs_human_review_fields",
         "repair_current_batch_evidence_alignment": "needs_evidence_repair",
         "prepare_next_review_batch": "needs_prepare",
