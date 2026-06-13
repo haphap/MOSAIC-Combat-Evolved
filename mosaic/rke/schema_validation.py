@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import asdict, dataclass
+from datetime import date
 from hashlib import sha256
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -1093,6 +1094,18 @@ def _normalize_ts_code(value: Any) -> str:
     return f"{match.group(1)}.{match.group(2)}"
 
 
+def _date_key(value: Any) -> str:
+    text = str(value or "").strip()
+    if len(text) < 10:
+        return ""
+    candidate = text[:10]
+    try:
+        date.fromisoformat(candidate)
+    except ValueError:
+        return ""
+    return candidate
+
+
 def _is_ordinary_stock_ts_code(value: Any) -> bool:
     ts_code = _normalize_ts_code(value)
     if not ts_code:
@@ -1373,7 +1386,10 @@ def _int_items(value: Any) -> list[int]:
     return items
 
 
-def _validate_proxy_outcome_label_contract(row: Mapping[str, Any], row_label: str) -> list[str]:
+def _validate_proxy_outcome_label_contract(
+    row: Mapping[str, Any],
+    row_label: str,
+) -> list[str]:
     label_type = str(row.get("label_type") or "")
     if label_type not in {"stock_price_proxy", "industry_etf_proxy"}:
         return [
@@ -1393,6 +1409,16 @@ def _validate_proxy_outcome_label_contract(row: Mapping[str, Any], row_label: st
     if row.get("performance_value_basis") != "directional_after_cost_return":
         failures.append(
             f"{row_label}.performance_value_basis: must be directional_after_cost_return"
+        )
+    entry_date = _date_key(row.get("entry_datetime"))
+    exit_date = _date_key(row.get("exit_datetime"))
+    if not entry_date:
+        failures.append(f"{row_label}.entry_datetime: missing or invalid ISO date")
+    if not exit_date:
+        failures.append(f"{row_label}.exit_datetime: missing or invalid ISO date")
+    if entry_date and exit_date and exit_date <= entry_date:
+        failures.append(
+            f"{row_label}.exit_datetime: must be after entry_datetime date"
         )
     effective_n_weight = _float_or_none(row.get("effective_n_weight"))
     if effective_n_weight is None:
@@ -1754,6 +1780,16 @@ def _validate_proxy_outcome_label_forecast_traceability(
         if claim is None:
             failures.append(f"{row_label}.forecast_claim_id: not found in forecast_claims")
             continue
+        signal_date = _date_key(claim.get("signal_datetime"))
+        entry_date = _date_key(row.get("entry_datetime"))
+        if not signal_date:
+            failures.append(
+                f"{row_label}.forecast_claim_id: referenced claim signal_datetime missing or invalid"
+            )
+        elif entry_date and entry_date <= signal_date:
+            failures.append(
+                f"{row_label}.entry_datetime: must be after forecast signal_datetime date"
+            )
         if label_type == "stock_price_proxy" and not _has_nonempty_source_spans(claim):
             failures.append(
                 f"{row_label}.forecast_claim_id: stock proxy forecast claim must cite source_span_ids"

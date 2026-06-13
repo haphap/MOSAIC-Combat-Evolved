@@ -1228,12 +1228,14 @@ def test_report_outcome_label_semantics_trace_proxy_labels_to_forecast_claims(
                 "forecast_claim_id": stock_label["forecast_claim_id"],
                 "claim_provenance": "source_grounded",
                 "forecast_testability": "testable",
+                "signal_datetime": "2026-01-02T00:00:00+08:00",
                 "source_span_ids": ["span-stock"],
             },
             {
                 "forecast_claim_id": industry_label["forecast_claim_id"],
                 "claim_provenance": "source_grounded",
                 "forecast_testability": "testable",
+                "signal_datetime": "2026-01-02T00:00:00+08:00",
                 "source_span_ids": ["span-industry"],
             },
         ],
@@ -1266,6 +1268,7 @@ def test_report_outcome_label_semantics_reject_untraceable_stock_proxy_claim(
                 "forecast_claim_id": stock_label["forecast_claim_id"],
                 "claim_provenance": "source_grounded",
                 "forecast_testability": "testable",
+                "signal_datetime": "2026-01-02T00:00:00+08:00",
                 "source_span_ids": [],
             },
         ],
@@ -1278,6 +1281,49 @@ def test_report_outcome_label_semantics_reject_untraceable_stock_proxy_claim(
     assert any("forecast_claim_id: not found" in failure for failure in record.failures)
     assert any(
         "stock proxy forecast claim must cite source_span_ids" in failure
+        for failure in record.failures
+    )
+
+
+def test_report_outcome_label_semantics_reject_bad_entry_exit_timing(
+    tmp_path: Path,
+):
+    stock_label = _base_outcome_label("stock_price_proxy")
+    stock_label["exit_datetime"] = stock_label["entry_datetime"]
+    _write_proxy_outcome_labels(tmp_path, [stock_label])
+
+    record = _proxy_outcome_contract_record(tmp_path)
+
+    assert record.accepted is False
+    assert any(
+        "exit_datetime: must be after entry_datetime date" in failure
+        for failure in record.failures
+    )
+
+
+def test_report_outcome_label_semantics_reject_same_day_signal_entry(
+    tmp_path: Path,
+):
+    stock_label = _base_outcome_label("stock_price_proxy")
+    _write_forecast_claims(
+        tmp_path,
+        [
+            {
+                "forecast_claim_id": stock_label["forecast_claim_id"],
+                "claim_provenance": "source_grounded",
+                "forecast_testability": "testable",
+                "signal_datetime": stock_label["entry_datetime"],
+                "source_span_ids": ["span-stock"],
+            },
+        ],
+    )
+    _write_proxy_outcome_labels(tmp_path, [stock_label])
+
+    record = _proxy_outcome_contract_record(tmp_path)
+
+    assert record.accepted is False
+    assert any(
+        "entry_datetime: must be after forecast signal_datetime date" in failure
         for failure in record.failures
     )
 
