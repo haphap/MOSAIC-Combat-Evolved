@@ -66,4 +66,9 @@ def manual_review_aid_paths(review_kind: str) -> Mapping[str, Any]:
                 "registry/review_batches/source_license_review_workbook.md"
             ),
         }
+    if review_kind == "lockbox":
+        return {
+            "policy": "wait_for_prior_manual_gates_before_opening",
+            "fill_import_path": "registry/review_batches/lockbox_reviewed.json",
+        }
     return {}

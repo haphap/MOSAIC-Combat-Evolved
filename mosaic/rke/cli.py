@@ -378,10 +378,7 @@ def _promotion_status_next_actions(result: Any) -> list[dict[str, Any]]:
             review_aids={
                 "gold_set": manual_review_aid_paths("gold_set"),
                 "footprint_review": manual_review_aid_paths("footprint_review"),
-                "lockbox": {
-                    "fill_import_path": LOCKBOX_REVIEWED_IMPORT_PATH,
-                    "policy": "wait_for_prior_manual_gates_before_opening",
-                },
+                "lockbox": manual_review_aid_paths("lockbox"),
             },
         )
 

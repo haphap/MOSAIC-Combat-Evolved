@@ -592,6 +592,10 @@ def test_review_progress_actions_only_reports_next_manual_work(
         "footprint_review",
         "source_license",
     ]
+    assert actions["lockbox"]["review_aids"] == {
+        "fill_import_path": "registry/review_batches/lockbox_reviewed.json",
+        "policy": "wait_for_prior_manual_gates_before_opening",
+    }
     assert actions["lockbox"]["commands"] == {}
 
 

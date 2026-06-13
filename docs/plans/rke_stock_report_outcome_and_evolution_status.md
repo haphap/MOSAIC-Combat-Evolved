@@ -305,6 +305,9 @@ The higher-level `schema-status --failures-only --no-write`,
 `next_actions` also include the same `review_aids` maps, so an operator can
 move from a blocked gate to the exact private aid/import paths without running
 an additional discovery command.
+Lockbox actions also expose their reviewed JSON path as a path-only aid, but
+the lockbox policy remains `wait_for_prior_manual_gates_before_opening` until
+gold-set, analytical-footprint, and source-license gates are ready.
 
 `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke schema-status --root .`
 currently exits with code 2 by design. The current failing semantic records are
