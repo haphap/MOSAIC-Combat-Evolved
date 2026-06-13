@@ -7995,17 +7995,30 @@ def test_report_intelligence_evolution_gate_writer_preserves_stock_coverage_evid
         "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke"
         in next_actions["complete_manual_forecast_gold_review"]["commands"]["inspect"]
     )
+    assert next_actions["complete_manual_forecast_gold_review"]["review_aids"][
+        "evidence_markdown"
+    ] == "registry/review_batches/gold_set_review_evidence.md"
     assert (
         "schema-status --root . --failures-only --no-write"
         in next_actions["clear_current_schema_and_audit_blockers"]["commands"][
             "schema_failures"
         ]
     )
+    assert next_actions["clear_current_schema_and_audit_blockers"]["review_aids"][
+        "footprint_review"
+    ]["evidence_markdown"] == (
+        "registry/report_intelligence/analytical_footprint_review_evidence.md"
+    )
     assert (
         "review-progress --root . --actions-only --no-write --review-kind footprint_review"
         in next_actions["complete_manual_analytical_footprint_review"]["commands"][
             "inspect"
         ]
+    )
+    assert next_actions["complete_manual_analytical_footprint_review"][
+        "review_aids"
+    ]["fill_import_path"] == (
+        "registry/report_intelligence/analytical_footprint_review_batch.jsonl"
     )
     assert (
         "apply-footprint-review --root . --input registry/report_intelligence/"

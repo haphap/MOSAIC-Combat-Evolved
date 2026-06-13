@@ -4802,11 +4802,24 @@ def test_schema_status_cli_filters_failures_without_writing(tmp_path: Path, caps
             "schema_after_review"
         ]
     )
+    assert next_actions["complete_manual_analytical_footprint_review"][
+        "review_aids"
+    ]["evidence_markdown"] == (
+        "registry/report_intelligence/analytical_footprint_review_evidence.md"
+    )
     assert (
         "review-progress --root . --actions-only --no-write --review-kind gold_set"
         in next_actions["clear_patch_v1_5_manual_review_coverage"]["commands"][
             "inspect_gold"
         ]
+    )
+    assert next_actions["clear_patch_v1_5_manual_review_coverage"]["review_aids"][
+        "gold_set"
+    ]["fill_import_path"] == "registry/review_batches/gold_set_reviewed.jsonl"
+    assert next_actions["clear_patch_v1_5_manual_review_coverage"]["review_aids"][
+        "footprint_review"
+    ]["fill_import_path"] == (
+        "registry/report_intelligence/analytical_footprint_review_batch.jsonl"
     )
     assert all(record["accepted"] is False for record in output["records"])
     assert not (registry_dir / "schemas/rke_schema_validation_report.json").exists()

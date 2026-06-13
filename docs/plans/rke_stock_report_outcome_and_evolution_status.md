@@ -300,6 +300,11 @@ Markdown/JSONL, assist workbook, fill import, and promotion import paths without
 opening the full runbook. These are path-only pointers and remain non-import
 review aids unless explicitly listed as `fill_import_path` or
 `promotion_import_path`.
+The higher-level `schema-status --failures-only --no-write`,
+`evolution-readiness --no-write`, and `promotion-status --no-write`
+`next_actions` also include the same `review_aids` maps, so an operator can
+move from a blocked gate to the exact private aid/import paths without running
+an additional discovery command.
 
 `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke schema-status --root .`
 currently exits with code 2 by design. The current failing semantic records are

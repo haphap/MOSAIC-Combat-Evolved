@@ -7,7 +7,7 @@ import json
 import os
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
 from .audit_viewer import build_audit_trace_view, write_audit_trace_view
 from .claim_vocabulary import (
@@ -38,6 +38,7 @@ from .license_policy_import import (
     write_source_license_reviewed_policy_starter,
 )
 from .lockbox_review_import import apply_lockbox_review_import
+from .manual_review_aids import manual_review_aid_paths
 from .manual_review_import import (
     apply_gold_set_review_import,
     apply_source_license_review_import,
@@ -183,17 +184,19 @@ def _schema_status_next_actions(records: Sequence[Any]) -> list[dict[str, Any]]:
         reason: str,
         commands: dict[str, str],
         notes: Sequence[str] = (),
+        review_aids: Mapping[str, Any] | None = None,
     ) -> None:
         if any(action["action_id"] == action_id for action in actions):
             return
-        actions.append(
-            {
-                "action_id": action_id,
-                "reason": reason,
-                "commands": commands,
-                "notes": [str(note) for note in notes if str(note).strip()],
-            }
-        )
+        action = {
+            "action_id": action_id,
+            "reason": reason,
+            "commands": commands,
+            "notes": [str(note) for note in notes if str(note).strip()],
+        }
+        if review_aids:
+            action["review_aids"] = dict(review_aids)
+        actions.append(action)
 
     if "schemas/report_intelligence_analytical_footprint_review_rules" in failed_schema_paths:
         add_action(
@@ -228,6 +231,7 @@ def _schema_status_next_actions(records: Sequence[Any]) -> list[dict[str, Any]]:
                 "Assist and evidence outputs are private review aids, not import files.",
                 "The full reviewed import is used only after all footprint batches are complete.",
             ),
+            review_aids=manual_review_aid_paths("footprint_review"),
         )
 
     if "schemas/report_intelligence_patch_v1_5_coverage_rules" in failed_schema_paths:
@@ -257,6 +261,10 @@ def _schema_status_next_actions(records: Sequence[Any]) -> list[dict[str, Any]]:
                 "Coverage status is downstream of manual review gates; do not "
                 "edit coverage artifacts directly.",
             ),
+            review_aids={
+                "gold_set": manual_review_aid_paths("gold_set"),
+                "footprint_review": manual_review_aid_paths("footprint_review"),
+            },
         )
 
     return actions
@@ -279,17 +287,19 @@ def _promotion_status_next_actions(result: Any) -> list[dict[str, Any]]:
         reason: str,
         commands: dict[str, str],
         notes: Sequence[str] = (),
+        review_aids: Mapping[str, Any] | None = None,
     ) -> None:
         if any(action["action_id"] == action_id for action in actions):
             return
-        actions.append(
-            {
-                "action_id": action_id,
-                "reason": reason,
-                "commands": commands,
-                "notes": [str(note) for note in notes if str(note).strip()],
-            }
-        )
+        action = {
+            "action_id": action_id,
+            "reason": reason,
+            "commands": commands,
+            "notes": [str(note) for note in notes if str(note).strip()],
+        }
+        if review_aids:
+            action["review_aids"] = dict(review_aids)
+        actions.append(action)
 
     if "PG02" in failed_criteria:
         add_action(
@@ -319,6 +329,7 @@ def _promotion_status_next_actions(result: Any) -> list[dict[str, Any]]:
                 "Evidence outputs are private review aids and do not fill the "
                 "required human review fields.",
             ),
+            review_aids=manual_review_aid_paths("gold_set"),
         )
 
     if "PG09" in failed_criteria:
@@ -364,6 +375,14 @@ def _promotion_status_next_actions(result: Any) -> list[dict[str, Any]]:
                 "ready.",
                 "Direct production remains forbidden until all PG01-PG10 criteria pass.",
             ),
+            review_aids={
+                "gold_set": manual_review_aid_paths("gold_set"),
+                "footprint_review": manual_review_aid_paths("footprint_review"),
+                "lockbox": {
+                    "fill_import_path": LOCKBOX_REVIEWED_IMPORT_PATH,
+                    "policy": "wait_for_prior_manual_gates_before_opening",
+                },
+            },
         )
 
     return actions

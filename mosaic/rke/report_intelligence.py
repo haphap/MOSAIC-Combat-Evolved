@@ -28,6 +28,7 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any, Callable, Literal, Mapping, Sequence
 
+from .manual_review_aids import manual_review_aid_paths
 from .manual_review_import import manual_review_forbidden_field_paths
 from .phase_minus1 import load_jsonl_with_errors
 from .required_data import (
@@ -13660,17 +13661,19 @@ def _evolution_gate_cli_next_actions(
         reason: str,
         commands: Mapping[str, str],
         notes: Sequence[str] = (),
+        review_aids: Mapping[str, Any] | None = None,
     ) -> None:
         if any(action["action_id"] == action_id for action in actions):
             return
-        actions.append(
-            {
-                "action_id": action_id,
-                "reason": reason,
-                "commands": dict(commands),
-                "notes": [str(note) for note in notes if str(note).strip()],
-            }
-        )
+        action = {
+            "action_id": action_id,
+            "reason": reason,
+            "commands": dict(commands),
+            "notes": [str(note) for note in notes if str(note).strip()],
+        }
+        if review_aids:
+            action["review_aids"] = dict(review_aids)
+        actions.append(action)
 
     if "RI-EVOL-05" in blocked_by_id:
         add_action(
@@ -13701,6 +13704,7 @@ def _evolution_gate_cli_next_actions(
                 "Promotion uses the full reviewed import only after every "
                 "gold-set batch is complete.",
             ),
+            review_aids=manual_review_aid_paths("gold_set"),
         )
 
     audit_blockers = blocked_by_id.get("RI-EVOL-04", set())
@@ -13738,6 +13742,7 @@ def _evolution_gate_cli_next_actions(
                 "Promotion uses the full analytical-footprint reviewed import "
                 "after every footprint batch is complete.",
             ),
+            review_aids=manual_review_aid_paths("footprint_review"),
         )
         add_action(
             action_id="clear_current_schema_and_audit_blockers",
@@ -13760,6 +13765,10 @@ def _evolution_gate_cli_next_actions(
                 "Current known schema blockers are downstream of manual "
                 "gold-set and analytical-footprint review gates.",
             ),
+            review_aids={
+                "gold_set": manual_review_aid_paths("gold_set"),
+                "footprint_review": manual_review_aid_paths("footprint_review"),
+            },
         )
     if "audit_refresh_history_below_threshold" in audit_blockers:
         add_action(
