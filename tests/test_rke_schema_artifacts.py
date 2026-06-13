@@ -535,6 +535,31 @@ def test_stock_price_proxy_readiness_contract_rejects_pit_policy_drift(
     assert any("exit_liquidity_unverified" in failure for failure in record.failures)
 
 
+def test_stock_price_proxy_readiness_contract_rejects_stock_code_policy_drift(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    readiness_path = registry / "outcome_labeling_readiness.json"
+    readiness = json.loads(readiness_path.read_text(encoding="utf-8"))
+    stock_readiness = readiness["stock_price_proxy_readiness"]
+    stock_readiness["ordinary_stock_code_policy"]["allowed_prefixes"]["BJ"] = [
+        "83",
+        "92",
+    ]
+    stock_readiness["ordinary_stock_code_policy"]["rejected_code_families"] = [
+        "index"
+    ]
+    readiness_path.write_text(
+        json.dumps(readiness, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _stock_price_proxy_readiness_record(tmp_path)
+
+    assert not record.accepted
+    assert any("ordinary_stock_code_policy" in failure for failure in record.failures)
+
+
 def test_stock_price_proxy_readiness_contract_rejects_count_drift(
     tmp_path: Path,
 ):
@@ -2835,6 +2860,7 @@ def test_operator_readiness_contract_rejects_false_acceptance(
     registry = _copy_registry_for_manual_progress(tmp_path)
     readiness_path = registry / "handoffs/rke_operator_readiness_report.json"
     readiness = json.loads(readiness_path.read_text(encoding="utf-8"))
+    expected_passed_count = int(readiness["check_count"]) - 1
     readiness["checks"][0]["passed"] = False
     readiness["checks"][0]["blocker"] = "fixture blocker"
     readiness["accepted"] = True
@@ -2849,7 +2875,10 @@ def test_operator_readiness_contract_rejects_false_acceptance(
 
     assert not record.accepted
     assert any("failed checks: required_registry_valid" in item for item in record.failures)
-    assert any("passed_count: expected 14" in item for item in record.failures)
+    assert any(
+        f"passed_count: expected {expected_passed_count}" in item
+        for item in record.failures
+    )
     assert any("failure_count: expected 1" in item for item in record.failures)
     assert any("failure_count must be zero" in item for item in record.failures)
 

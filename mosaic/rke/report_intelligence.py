@@ -636,6 +636,26 @@ STOCK_PRICE_PROXY_SURVIVORSHIP_CHECKS = {
     STOCK_PRICE_PROXY_SURVIVORSHIP_AUDITED_CHECK,
 }
 STOCK_PRICE_PROXY_TRADABILITY_CHECK = "positive_volume_and_limit_lock_screen"
+STOCK_PRICE_PROXY_CODE_POLICY: Mapping[str, Any] = {
+    "policy_id": "ordinary_a_share_stock_codes_v1",
+    "allowed_prefixes": {
+        "SH": ["60", "68"],
+        "SZ": ["00", "30"],
+        "BJ": ["92"],
+    },
+    "rejected_code_families": [
+        "fund",
+        "etf",
+        "lof",
+        "index",
+        "legacy_bj_8_prefix",
+    ],
+    "fund_like_prefix_examples": {
+        "SH": ["50", "51", "52"],
+        "SZ": ["15", "16", "18"],
+    },
+    "fallback_action": "stock_target_mapping_missing",
+}
 MARKDOWN_COVERAGE_MIN_SELECTED_REPORTS = 300
 MARKDOWN_COVERAGE_MIN_MARKDOWN_READY = 300
 MARKDOWN_COVERAGE_MIN_QUALITY_PASS = 300
@@ -8737,6 +8757,7 @@ def build_stock_price_proxy_readiness(
         "benchmark_source": STOCK_PRICE_PROXY_BENCHMARK_SOURCE,
         "benchmark_family": STOCK_PRICE_PROXY_BENCHMARK_FAMILY,
         "cost_model_id": STOCK_PRICE_PROXY_COST_MODEL_ID,
+        "ordinary_stock_code_policy": STOCK_PRICE_PROXY_CODE_POLICY,
         "qlib_stock_dir_configured": stock_source_label,
         "qlib_benchmark_dir_configured": benchmark_source_label,
         "latest_calendar_date": stock_calendar[-1] if stock_calendar else "",

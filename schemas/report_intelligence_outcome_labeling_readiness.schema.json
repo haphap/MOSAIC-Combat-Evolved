@@ -211,6 +211,7 @@
         "benchmark_source",
         "benchmark_family",
         "cost_model_id",
+        "ordinary_stock_code_policy",
         "qlib_stock_dir_configured",
         "qlib_benchmark_dir_configured",
         "latest_calendar_date",
@@ -238,6 +239,55 @@
         "benchmark_source": {"type": "string", "minLength": 1},
         "benchmark_family": {"type": "string", "minLength": 1},
         "cost_model_id": {"type": "string", "minLength": 1},
+        "ordinary_stock_code_policy": {
+          "type": "object",
+          "required": [
+            "policy_id",
+            "allowed_prefixes",
+            "rejected_code_families",
+            "fund_like_prefix_examples",
+            "fallback_action"
+          ],
+          "properties": {
+            "policy_id": {"const": "ordinary_a_share_stock_codes_v1"},
+            "allowed_prefixes": {
+              "type": "object",
+              "required": ["SH", "SZ", "BJ"],
+              "properties": {
+                "SH": {
+                  "type": "array",
+                  "items": {"type": "string"},
+                  "minItems": 1
+                },
+                "SZ": {
+                  "type": "array",
+                  "items": {"type": "string"},
+                  "minItems": 1
+                },
+                "BJ": {
+                  "type": "array",
+                  "items": {"type": "string"},
+                  "minItems": 1
+                }
+              },
+              "additionalProperties": false
+            },
+            "rejected_code_families": {
+              "type": "array",
+              "items": {"type": "string"},
+              "minItems": 1
+            },
+            "fund_like_prefix_examples": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "array",
+                "items": {"type": "string"}
+              }
+            },
+            "fallback_action": {"const": "stock_target_mapping_missing"}
+          },
+          "additionalProperties": false
+        },
         "qlib_stock_dir_configured": {"type": "string", "minLength": 1},
         "qlib_benchmark_dir_configured": {"type": "string", "minLength": 1},
         "latest_calendar_date": {"type": "string"},

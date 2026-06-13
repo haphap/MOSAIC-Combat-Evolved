@@ -936,6 +936,26 @@ STOCK_PROXY_SURVIVORSHIP_CHECKS = {
 }
 STOCK_PROXY_TRADABILITY_CHECK = "positive_volume_and_limit_lock_screen"
 STOCK_PROXY_READINESS_WINDOWS = (5, 20, 60, 120)
+STOCK_PROXY_CODE_POLICY: Mapping[str, Any] = {
+    "policy_id": "ordinary_a_share_stock_codes_v1",
+    "allowed_prefixes": {
+        "SH": ["60", "68"],
+        "SZ": ["00", "30"],
+        "BJ": ["92"],
+    },
+    "rejected_code_families": [
+        "fund",
+        "etf",
+        "lof",
+        "index",
+        "legacy_bj_8_prefix",
+    ],
+    "fund_like_prefix_examples": {
+        "SH": ["50", "51", "52"],
+        "SZ": ["15", "16", "18"],
+    },
+    "fallback_action": "stock_target_mapping_missing",
+}
 STOCK_PROXY_BLOCKING_GAPS = {
     "stock_entry_suspended",
     "entry_liquidity_unverified",
@@ -1786,6 +1806,12 @@ def _validate_stock_price_proxy_readiness_contract(
                 "outcome_labeling_readiness.stock_price_proxy_readiness."
                 f"{field}: must be {expected}"
             )
+    if stock_readiness.get("ordinary_stock_code_policy") != STOCK_PROXY_CODE_POLICY:
+        failures.append(
+            "outcome_labeling_readiness.stock_price_proxy_readiness."
+            "ordinary_stock_code_policy: must restrict labels to ordinary "
+            "SH60/SH68, SZ00/SZ30, and BJ92 stock codes"
+        )
 
     pit_policy = stock_readiness.get("pit_realism_policy")
     if not isinstance(pit_policy, Mapping):

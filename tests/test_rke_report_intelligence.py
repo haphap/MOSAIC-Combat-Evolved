@@ -6242,6 +6242,26 @@ def test_report_intelligence_labels_stock_claims_with_qlib_price_windows(
     assert stock_readiness["labelable_forecast_claim_count"] == 1
     assert stock_readiness["labelable_window_count"] == 4
     assert stock_readiness["data_gap_counts"] == {}
+    assert stock_readiness["ordinary_stock_code_policy"] == {
+        "policy_id": "ordinary_a_share_stock_codes_v1",
+        "allowed_prefixes": {
+            "SH": ["60", "68"],
+            "SZ": ["00", "30"],
+            "BJ": ["92"],
+        },
+        "rejected_code_families": [
+            "fund",
+            "etf",
+            "lof",
+            "index",
+            "legacy_bj_8_prefix",
+        ],
+        "fund_like_prefix_examples": {
+            "SH": ["50", "51", "52"],
+            "SZ": ["15", "16", "18"],
+        },
+        "fallback_action": "stock_target_mapping_missing",
+    }
     assert stock_readiness["pit_realism_policy"]["survivorship_unverified"] is True
     assert (
         stock_readiness["pit_realism_policy"]["survivorship_status"]
