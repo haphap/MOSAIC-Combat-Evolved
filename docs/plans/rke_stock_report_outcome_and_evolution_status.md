@@ -308,6 +308,11 @@ an additional discovery command.
 Lockbox actions also expose their reviewed JSON path as a path-only aid, but
 the lockbox policy remains `wait_for_prior_manual_gates_before_opening` until
 gold-set, analytical-footprint, and source-license gates are ready.
+The same compact outputs now include `field_contract` maps that list required
+fields, optional fields, boolean fields with `true`/`false` values, date format
+requirements, and fields that must be preserved. This makes the gold-set
+`review_notes` optional but analytical-footprint `review_notes` required
+distinction explicit at the point of action.
 
 `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke schema-status --root .`
 currently exits with code 2 by design. The current failing semantic records are

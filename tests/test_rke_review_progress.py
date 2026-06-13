@@ -543,6 +543,16 @@ def test_review_progress_actions_only_reports_next_manual_work(
     assert actions["gold_set"]["review_aids"]["fill_import_path"] == (
         "registry/review_batches/gold_set_reviewed.jsonl"
     )
+    assert "manual_claim_text" in actions["gold_set"]["field_contract"][
+        "required_fields"
+    ]
+    assert actions["gold_set"]["field_contract"]["optional_fields"] == [
+        "review_notes"
+    ]
+    assert actions["gold_set"]["field_contract"]["boolean_allowed_values"] == [
+        True,
+        False,
+    ]
     if actions["gold_set"]["action_state"] == "needs_human_review_fields":
         assert actions["gold_set"]["commands"]["dry_run"].startswith(
             RKE_OPERATOR_TMP_ENV_PREFIX
@@ -570,6 +580,13 @@ def test_review_progress_actions_only_reports_next_manual_work(
     assert actions["footprint_review"]["review_aids"]["assist_workbook_markdown"] == (
         "registry/report_intelligence/analytical_footprint_review_workbook.md"
     )
+    assert "review_notes" in actions["footprint_review"]["field_contract"][
+        "required_fields"
+    ]
+    assert actions["footprint_review"]["field_contract"]["optional_fields"] == []
+    assert "metric_mapping_correct" in actions["footprint_review"][
+        "field_contract"
+    ]["boolean_fields"]
     assert "apply" not in actions["footprint_review"]["commands"]
     assert (
         actions["source_license"]["next_manual_action"]
@@ -596,6 +613,11 @@ def test_review_progress_actions_only_reports_next_manual_work(
         "fill_import_path": "registry/review_batches/lockbox_reviewed.json",
         "policy": "wait_for_prior_manual_gates_before_opening",
     }
+    assert actions["lockbox"]["field_contract"]["policy"] == (
+        "only_fill_after_upstream_manual_gates_are_ready"
+    )
+    assert "opened_by" in actions["lockbox"]["field_contract"]["required_fields"]
+    assert "passed" in actions["lockbox"]["field_contract"]["allowed_results"]
     assert actions["lockbox"]["commands"] == {}
 
 

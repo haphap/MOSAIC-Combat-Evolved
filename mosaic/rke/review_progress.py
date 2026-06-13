@@ -1206,6 +1206,79 @@ def _review_aid_paths(gate: ManualReviewGateProgress) -> Mapping[str, Any]:
     return manual_review_aid_paths(gate.review_kind)
 
 
+def _review_field_contract(gate: ManualReviewGateProgress) -> Mapping[str, Any]:
+    if gate.review_kind == "gold_set":
+        return {
+            "policy": "human_decisions_only_preserve_ids_hashes_and_context_refs",
+            "required_fields": [
+                "manual_claim_text",
+                *GOLD_BOOL_FIELDS,
+                "reviewer",
+                "review_date",
+            ],
+            "optional_fields": ["review_notes"],
+            "boolean_fields": list(GOLD_BOOL_FIELDS),
+            "boolean_allowed_values": [True, False],
+            "date_fields": {"review_date": "YYYY-MM-DD"},
+            "text_fields": ["manual_claim_text", "reviewer", "review_notes"],
+            "preserve_fields": [
+                "claim_id",
+                TARGET_ROW_HASH_FIELD,
+                "review_context_ref",
+                "target_review_path",
+            ],
+        }
+    if gate.review_kind == "footprint_review":
+        return {
+            "policy": "human_decisions_only_preserve_ids_hashes_and_context_refs",
+            "required_fields": list(ANALYTICAL_FOOTPRINT_REVIEW_REQUIRED_FIELDS),
+            "optional_fields": [],
+            "boolean_fields": list(ANALYTICAL_FOOTPRINT_REVIEW_BOOLEAN_FIELDS),
+            "boolean_allowed_values": [True, False],
+            "date_fields": {"review_date": "YYYY-MM-DD"},
+            "text_fields": ["reviewer", "review_date", "review_notes"],
+            "preserve_fields": [
+                "footprint_id",
+                TARGET_ROW_HASH_FIELD,
+                "review_context_ref",
+                "target_review_path",
+            ],
+        }
+    if gate.review_kind == "source_license":
+        return {
+            "policy": "policy_decision_fields_only_preserve_source_ids",
+            "required_fields": [
+                "approved_for_derived_claim_storage",
+                "approved_for_production_runtime",
+                "reviewer",
+                "review_date",
+            ],
+            "optional_fields": ["notes"],
+            "boolean_fields": [
+                "approved_for_derived_claim_storage",
+                "approved_for_production_runtime",
+            ],
+            "boolean_allowed_values": [True, False],
+            "date_fields": {"review_date": "YYYY-MM-DD"},
+            "text_fields": ["reviewer", "review_date", "notes"],
+            "preserve_fields": ["source_id", TARGET_ROW_HASH_FIELD],
+        }
+    if gate.review_kind == "lockbox":
+        return {
+            "policy": "only_fill_after_upstream_manual_gates_are_ready",
+            "required_fields": [*LOCKBOX_REQUIRED_FIELDS, *LOCKBOX_BOOL_FIELDS],
+            "optional_fields": ["notes"],
+            "boolean_fields": list(LOCKBOX_BOOL_FIELDS),
+            "boolean_allowed_values": [True, False],
+            "allowed_results": sorted(LOCKBOX_RESULTS - {"not_opened"}),
+            "date_fields": {"opened_at": "ISO-8601 datetime or date"},
+            "text_fields": ["opened_by", "result", "notes"],
+            "numeric_fields": ["open_count"],
+            "preserve_fields": [],
+        }
+    return {}
+
+
 def _lockbox_dependency_blockers(
     gate: ManualReviewGateProgress,
     gates: Sequence[ManualReviewGateProgress],
@@ -1308,6 +1381,7 @@ def build_manual_review_progress_summary(
                 ),
                 "batch_overview": _compact_batch_overview(gate),
                 "review_aids": _review_aid_paths(gate),
+                "field_contract": _review_field_contract(gate),
                 "next_batch_commands": dict(gate.next_batch_commands),
                 "promotion_commands": {
                     "prepare": gate.prepare_command,
@@ -1510,6 +1584,7 @@ def build_manual_review_action_queue(
                 "current_batch_stale_after_promotion_ready": stale_current_batch,
                 "batch_overview": _compact_batch_overview(gate),
                 "review_aids": _review_aid_paths(gate),
+                "field_contract": _review_field_contract(gate),
                 "missing_required_fields": dict(
                     {} if stale_current_batch else current.get("missing_required_fields") or {}
                 ),
