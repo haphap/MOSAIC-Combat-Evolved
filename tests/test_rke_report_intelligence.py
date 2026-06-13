@@ -9465,6 +9465,10 @@ def test_write_analytical_footprint_review_evidence_is_private_not_import(
     assert "source_span_ids" not in evidence_rows[0]
     markdown = (tmp_path / report.markdown_path).read_text(encoding="utf-8")
     assert "RKE Analytical Footprint Review Evidence Draft" in markdown
+    assert "## Batch Triage Summary" in markdown
+    assert "Suggested tag counts" in markdown
+    assert "Sector counts" in markdown
+    assert "Suggested decision counts" in markdown
     assert "not an import file" in markdown
 
 

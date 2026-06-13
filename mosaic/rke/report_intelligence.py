@@ -21,6 +21,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from collections import Counter
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timezone
 from hashlib import sha256
@@ -4654,6 +4655,37 @@ def render_analytical_footprint_review_evidence_markdown(
     report: AnalyticalFootprintReviewEvidenceReport,
     rows: Sequence[Mapping[str, Any]],
 ) -> str:
+    suggested_tag_counts = Counter(
+        str(tag)
+        for row in rows
+        for tag in _ensure_list(row.get("suggested_manual_error_tags"))
+        if str(tag).strip()
+    )
+    sector_counts = Counter(
+        str(row.get("sector") or "unknown") for row in rows if str(row.get("sector") or "").strip()
+    )
+    decision_counts: dict[str, Counter[str]] = {
+        field: Counter()
+        for field in (
+            "footprint_correct",
+            "source_span_supports_footprint",
+            "metric_mapping_correct",
+            "inferred_steps_tagged_correctly",
+            "unknowns_used_when_uncertain",
+            "no_proprietary_text_leakage",
+        )
+    }
+    for row in rows:
+        decision = row.get("suggested_review_decision")
+        decision_map = _ensure_mapping(decision)
+        for field, counts in decision_counts.items():
+            value = decision_map.get(field)
+            if value is True:
+                counts["true"] += 1
+            elif value is False:
+                counts["false"] += 1
+            else:
+                counts["null"] += 1
     lines = [
         "# RKE Analytical Footprint Review Evidence Draft",
         "",
@@ -4666,6 +4698,25 @@ def render_analytical_footprint_review_evidence_markdown(
         "Do not commit this file. Confirm decisions before copying them into the reviewed JSONL scratch file.",
         "",
     ]
+    lines.extend(
+        [
+            "## Batch Triage Summary",
+            "",
+            "- Suggested tag counts: "
+            + _markdown_table_cell(
+                dict(sorted(suggested_tag_counts.items())),
+                max_chars=500,
+            ),
+            "- Sector counts: "
+            + _markdown_table_cell(dict(sorted(sector_counts.items())), max_chars=500),
+            "- Suggested decision counts: "
+            + _markdown_table_cell(
+                {field: dict(counts) for field, counts in decision_counts.items()},
+                max_chars=900,
+            ),
+            "",
+        ]
+    )
     if report.blockers:
         lines.extend(["## Blockers", ""])
         lines.extend(f"- {blocker}" for blocker in report.blockers)
