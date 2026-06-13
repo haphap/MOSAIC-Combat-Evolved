@@ -1325,6 +1325,23 @@ def _action_queue_state(action: str) -> str:
     return states.get(action, "needs_operator_inspection")
 
 
+def _action_queue_can_run_now(
+    action_state: str,
+    *,
+    dependency_blockers: Sequence[ReviewProgressKind],
+) -> bool:
+    if dependency_blockers:
+        return False
+    return action_state in {
+        "ready_to_apply",
+        "needs_human_review_fields",
+        "needs_evidence_repair",
+        "needs_prepare",
+        "needs_policy_review",
+        "needs_lockbox_decision",
+    }
+
+
 def build_manual_review_action_queue(
     report: ManualReviewProgressReport,
     *,
@@ -1344,7 +1361,7 @@ def build_manual_review_action_queue(
         if not requested_kind_set or gate.review_kind in requested_kind_set
     )
     actions: list[Mapping[str, Any]] = []
-    for gate in selected_gates:
+    for action_rank, gate in enumerate(selected_gates, 1):
         current = (
             gate.current_batch_status
             if isinstance(gate.current_batch_status, Mapping)
@@ -1362,12 +1379,19 @@ def build_manual_review_action_queue(
         action_state = _action_queue_state(action)
         if requested_state_set and action_state not in requested_state_set:
             continue
+        can_run_now = _action_queue_can_run_now(
+            action_state,
+            dependency_blockers=dependency_blockers,
+        )
         current_batch_path = str(current.get("path") or "")
         actions.append(
             {
+                "action_rank": action_rank,
                 "review_kind": gate.review_kind,
                 "next_manual_action": action,
                 "action_state": action_state,
+                "can_run_now": can_run_now,
+                "blocks_promotion": not gate.ready_for_promotion,
                 "operator_hint": _action_queue_hint(action),
                 "ready_for_promotion": gate.ready_for_promotion,
                 "blocked_by_review_kinds": list(dependency_blockers),

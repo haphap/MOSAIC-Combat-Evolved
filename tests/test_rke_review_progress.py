@@ -487,6 +487,7 @@ def test_review_progress_actions_only_reports_next_manual_work(
     assert output["total_gate_count"] == 4
     assert "gates" not in output
     assert "batch_plan" not in encoded
+    assert actions["gold_set"]["action_rank"] == 1
     assert actions["gold_set"]["next_manual_action"] in {
         "fill_current_batch_review_fields_then_dry_run",
         "prepare_next_review_batch",
@@ -507,6 +508,8 @@ def test_review_progress_actions_only_reports_next_manual_work(
         actions["gold_set"]["promotion_input_path"]
         == "registry/review_batches/gold_set_full_reviewed.jsonl"
     )
+    assert actions["gold_set"]["can_run_now"] is True
+    assert actions["gold_set"]["blocks_promotion"] is True
     if actions["gold_set"]["action_state"] == "needs_human_review_fields":
         assert actions["gold_set"]["commands"]["dry_run"].startswith(
             RKE_OPERATOR_TMP_ENV_PREFIX
@@ -532,12 +535,15 @@ def test_review_progress_actions_only_reports_next_manual_work(
         "ready_to_apply",
         "needs_policy_review",
     }
+    assert actions["source_license"]["can_run_now"] is True
     assert (
         actions["source_license"]["manual_input_path"]
         == "registry/review_batches/source_license_policy_reviewed.json"
     )
     assert actions["lockbox"]["next_manual_action"] == "wait_for_prior_manual_gates"
     assert actions["lockbox"]["action_state"] == "waiting_on_dependencies"
+    assert actions["lockbox"]["can_run_now"] is False
+    assert actions["lockbox"]["blocks_promotion"] is True
     assert actions["lockbox"]["blocked_by_review_kinds"] == [
         "gold_set",
         "footprint_review",
@@ -600,6 +606,7 @@ def test_review_progress_actions_only_filters_action_state(
     assert output["reported_action_states"] == ["ready_to_apply"]
     assert output["action_count"] >= 1
     assert {action["action_state"] for action in output["actions"]} == {"ready_to_apply"}
+    assert all(action["can_run_now"] is True for action in output["actions"])
 
 
 def test_review_progress_action_state_requires_actions_only(tmp_path: Path, capsys):
