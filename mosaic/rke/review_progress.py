@@ -1767,6 +1767,11 @@ def build_manual_review_progress_summary(
     gate_summaries: list[Mapping[str, Any]] = []
     for gate in selected_gates:
         dependency_blockers = _lockbox_dependency_blockers(gate, report.gates)
+        next_manual_action = _next_manual_action(
+            gate,
+            dependency_blockers=dependency_blockers,
+        )
+        batch_overview = _compact_batch_overview(gate)
         if not gate.ready_for_promotion:
             selected_blockers.append(
                 f"{gate.review_kind}: {gate.complete_rows}/{gate.target_rows} ready"
@@ -1786,23 +1791,21 @@ def build_manual_review_progress_summary(
                 "simulation_accepted": gate.simulation_accepted,
                 "ready_for_promotion": gate.ready_for_promotion,
                 "blocker_count": len(gate.blockers),
-                "next_manual_action": _next_manual_action(
-                    gate,
-                    dependency_blockers=dependency_blockers,
-                ),
+                "next_manual_action": next_manual_action,
                 "blocked_by_review_kinds": list(dependency_blockers),
                 "current_batch_status": _compact_current_batch_status(
                     gate.current_batch_status
                 ),
-                "batch_overview": _compact_batch_overview(gate),
+                "batch_overview": batch_overview,
                 "review_aids": _review_aid_paths(gate),
                 "field_contract": _review_field_contract(gate),
                 "quality_gap_targets": _compact_quality_gap_targets(
                     gate.quality_gap_targets
                 ),
-                "next_batch_commands": _apply_backfill_command_policy(
+                "next_batch_commands": _summary_next_batch_commands(
                     gate,
-                    gate.next_batch_commands,
+                    next_manual_action=next_manual_action,
+                    batch_overview=batch_overview,
                 ),
                 "promotion_commands": {
                     "prepare": gate.prepare_command,
@@ -1846,6 +1849,23 @@ def _current_batch_evidence_command(
             f"--review-input {ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH}"
         )
     return ""
+
+
+def _summary_next_batch_commands(
+    gate: ManualReviewGateProgress,
+    *,
+    next_manual_action: str,
+    batch_overview: Mapping[str, Any],
+) -> dict[str, str]:
+    commands = _apply_backfill_command_policy(gate, gate.next_batch_commands)
+    if next_manual_action in {
+        "fill_current_batch_review_fields_then_dry_run",
+        "repair_current_batch_evidence_alignment",
+    }:
+        evidence_command = _current_batch_evidence_command(gate, batch_overview)
+        if evidence_command:
+            commands["evidence"] = evidence_command
+    return commands
 
 
 def _backfill_write_command_available(gate: ManualReviewGateProgress) -> bool:

@@ -472,7 +472,10 @@ gold action queue now includes a public-safe `backfill_status` for the active
 scratch batch and hides `backfill_write` when the dry-run finds no writable
 backfill. The current active batch matches 26 prior rows, but all 26 prior rows
 still lack required manual fields, so backfill remains diagnostic-only and the
-review fields must be filled manually. The promotion gold-set import remains not
+review fields must be filled manually. `review-progress --summary` and
+`--actions-only` now both emit the current-scratch evidence command with
+`--limit 26`, rather than the planned 48-row follow-up batch size. The promotion
+gold-set import remains not
 ready because the expanded current batch
 still requires manual decisions before the full reviewed import can be
 regenerated; after applying that current scratch, 22 target rows will still need

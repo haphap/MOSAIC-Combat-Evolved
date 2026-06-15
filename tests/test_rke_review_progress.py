@@ -603,7 +603,11 @@ def test_review_progress_prioritizes_pending_gold_quality_batch_fields(
     )
 
     report = build_manual_review_progress(tmp_path)
+    summary = build_manual_review_progress_summary(report)
     action_queue = build_manual_review_action_queue(report)
+    gold_summary = next(
+        gate for gate in summary["gates"] if gate["review_kind"] == "gold_set"
+    )
     gold_action = next(
         action
         for action in action_queue["actions"]
@@ -635,6 +639,11 @@ def test_review_progress_prioritizes_pending_gold_quality_batch_fields(
         in gold_action["commands"]["evidence"]
     )
     assert "prepare_reviewed_failures" not in gold_action["commands"]
+    assert (
+        "mosaic-rke write-gold-review-evidence --root . --limit 1 --offset 0 "
+        "--review-input registry/review_batches/gold_set_reviewed.jsonl"
+        in gold_summary["next_batch_commands"]["evidence"]
+    )
 
 
 def test_review_progress_summary_omits_full_batch_plan(tmp_path: Path, capsys):
