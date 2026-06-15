@@ -994,6 +994,8 @@ class AnalyticalFootprintReviewEvidenceReport:
     row_count: int
     evidence_rows: int
     missing_markdown_rows: int
+    selected_priority_score_counts: Mapping[str, int]
+    selected_priority_reason_counts: Mapping[str, int]
     blockers: Sequence[str]
     selection_source: str = "priority_sorted_pending"
     review_input_path: str = ""
@@ -6522,6 +6524,15 @@ def build_analytical_footprint_review_evidence(
             enumerate(pending_rows, 1),
             key=lambda item: (-_footprint_review_priority_score(item[1]), item[0]),
         )[max(0, int(offset)) : max(0, int(offset)) + max(0, int(limit))]
+    selected_rows = tuple(row for _, row in prioritized_rows)
+    priority_score_counts = Counter(
+        str(_footprint_review_priority_score(row)) for row in selected_rows
+    )
+    priority_reason_counts = Counter(
+        reason
+        for row in selected_rows
+        for reason in _footprint_review_priority_reasons(row)
+    )
     evidence_rows = tuple(
         _footprint_review_evidence_row(
             index,
@@ -6562,6 +6573,8 @@ def build_analytical_footprint_review_evidence(
             row_count=len(evidence_rows),
             evidence_rows=sum(1 for row in evidence_rows if row.get("evidence_snippets")),
             missing_markdown_rows=missing_markdown_rows,
+            selected_priority_score_counts=dict(sorted(priority_score_counts.items())),
+            selected_priority_reason_counts=dict(sorted(priority_reason_counts.items())),
             blockers=tuple(blockers),
             selection_source=selection_source,
             review_input_path=review_input_text,

@@ -11560,6 +11560,13 @@ def test_write_analytical_footprint_review_evidence_is_private_not_import(
     assert report.markdown_path in PRIVATE_LOCAL_REGISTRY_FILES
 
     evidence_rows = _read_jsonl(tmp_path / report.jsonl_path)
+    expected_score_counts = {str(evidence_rows[0]["priority_score"]): 1}
+    expected_reason_counts = {
+        str(reason): evidence_rows[0]["priority_reasons"].count(reason)
+        for reason in evidence_rows[0]["priority_reasons"]
+    }
+    assert report.selected_priority_score_counts == expected_score_counts
+    assert report.selected_priority_reason_counts == expected_reason_counts
     assert evidence_rows[0]["not_apply_footprint_review_input"] is True
     assert evidence_rows[0]["human_review_required"] is True
     assert evidence_rows[0]["evidence_kind"].endswith("_not_import")
