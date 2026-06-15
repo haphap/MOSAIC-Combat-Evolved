@@ -331,7 +331,10 @@ def _operator_command_sequence(
             step_id="write-footprint-review-assist",
             phase="footprint_review",
             action="Write private analytical-footprint review assist files.",
-            command=operator_command("mosaic-rke write-footprint-review-assist --root ."),
+            command=operator_command(
+                "mosaic-rke write-footprint-review-assist --root . --review-input "
+                f"{ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH}"
+            ),
             manual_input_path="",
             expected_result=(
                 f"Private workbook is {ANALYTICAL_FOOTPRINT_REVIEW_WORKBOOK_MD_PATH} "

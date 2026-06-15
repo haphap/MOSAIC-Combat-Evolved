@@ -3,22 +3,22 @@
   "artifact_count": 11,
   "artifacts": [
     {
-      "bytes": 26988,
+      "bytes": 27072,
       "exists": true,
       "format": "json",
       "path": "registry/handoffs/rke_operator_handoff.json",
       "role": "operator_handoff_json",
       "row_count": null,
-      "sha256": "sha256:90a1ef96bdc903eda6b52fc3d9322a81bf7cb54585c5165eac5234dbe12fa4e2"
+      "sha256": "sha256:1226ae8c402f55845696178ed4f5d49a42c3040feee39e905b6d2b5fad736802"
     },
     {
-      "bytes": 19629,
+      "bytes": 19713,
       "exists": true,
       "format": "markdown",
       "path": "registry/handoffs/rke_operator_handoff.md",
       "role": "operator_handoff_markdown",
       "row_count": null,
-      "sha256": "sha256:c52ed45b464eae65c65c65468abef674cf0436afd98862b3a58da71855418853"
+      "sha256": "sha256:43dd1911df50f2757ec8df46c405fccfe8977a4cdc0f429d20c5ef1f5c8dd61e"
     },
     {
       "bytes": 2878,
@@ -30,22 +30,22 @@
       "sha256": "sha256:b738c8f01e27542c552e602f117c543dd4cfd67b0fed199b52ce0a9563902885"
     },
     {
-      "bytes": 45857,
+      "bytes": 54170,
       "exists": true,
       "format": "json",
       "path": "registry/review_batches/manual_review_progress_report.json",
       "role": "manual_review_progress_report",
       "row_count": null,
-      "sha256": "sha256:181dc7df81a79e6407397fad5e9d09f8c279522fca25d77e2a51ac0f01ed5f49"
+      "sha256": "sha256:7903937896ca4bb6063f49263ce649c4ca87800ed62e0ec959170640fc4c20d9"
     },
     {
-      "bytes": 42324,
+      "bytes": 44598,
       "exists": true,
       "format": "markdown",
       "path": "registry/review_batches/manual_review_runbook.md",
       "role": "manual_review_runbook_markdown",
       "row_count": null,
-      "sha256": "sha256:c3b3e902396dace9ae8810628999371008e8dacfc07b22e183a0f6061f7403f0"
+      "sha256": "sha256:ebdec1b77ad93b9a0a79b7e5b6867ac374188ad366cce23c387b4d2a13cb2779"
     },
     {
       "bytes": 1339,

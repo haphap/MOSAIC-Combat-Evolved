@@ -58,7 +58,7 @@
     },
     {
       "action": "Write private analytical-footprint review assist files.",
-      "command": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-footprint-review-assist --root .",
+      "command": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-footprint-review-assist --root . --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
       "expected_result": "Private workbook is registry/report_intelligence/analytical_footprint_review_workbook.md and JSONL assist is registry/report_intelligence/analytical_footprint_review_assist.jsonl.",
       "manual_input_path": "",
       "phase": "footprint_review",

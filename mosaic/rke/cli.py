@@ -296,7 +296,8 @@ def _schema_status_next_actions(
                     "--no-write --review-kind footprint_review"
                 ),
                 "write_assist": operator_command(
-                    "mosaic-rke write-footprint-review-assist --root ."
+                    "mosaic-rke write-footprint-review-assist --root . "
+                    f"--review-input {ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH}"
                 ),
                 "write_evidence": operator_command(
                     "mosaic-rke write-footprint-review-evidence --root . "
@@ -1672,6 +1673,13 @@ def build_parser() -> argparse.ArgumentParser:
     write_footprint_review_assist.add_argument(
         "--root", default=".", help="Repository root. Defaults to current directory."
     )
+    write_footprint_review_assist.add_argument(
+        "--review-input",
+        help=(
+            "Optional reviewed JSONL scratch file. When set, assist rows follow "
+            "this input order and are matched back to the full footprint review template."
+        ),
+    )
 
     write_footprint_review_evidence = subparsers.add_parser(
         "write-footprint-review-evidence",
@@ -2338,7 +2346,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         _print_json(asdict(report))
         return 0 if report.accepted else 2
     if args.command == "write-footprint-review-assist":
-        report = write_analytical_footprint_review_assist(root)
+        report = write_analytical_footprint_review_assist(
+            root,
+            review_input_path=args.review_input,
+        )
         _print_json(asdict(report))
         return 0 if not report.blockers else 2
     if args.command == "write-footprint-review-evidence":

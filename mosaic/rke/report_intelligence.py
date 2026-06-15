@@ -969,6 +969,8 @@ class AnalyticalFootprintReviewAssistReport:
     row_count: int
     pending_rows: int
     blockers: Sequence[str]
+    selection_source: str = "pending_template"
+    review_input_path: str = ""
     quality_gap_targets: Mapping[str, Any] | None = None
 
 
@@ -4998,8 +5000,77 @@ def _footprint_review_assist_row(index: int, row: Mapping[str, Any]) -> dict[str
     }
 
 
+def _select_analytical_footprint_review_rows_for_input(
+    root_path: Path,
+    target_rows: Sequence[Mapping[str, Any]],
+    review_input_path: str | Path | None,
+) -> tuple[list[Mapping[str, Any]], list[str], str, str]:
+    if review_input_path is None:
+        return (
+            [row for row in target_rows if not _footprint_review_row_complete(row)],
+            [],
+            "pending_template",
+            "",
+        )
+
+    review_input_text = str(review_input_path)
+    input_rows_raw, input_parse_blockers = load_jsonl_with_errors(
+        root_path / review_input_text,
+        label="analytical footprint review input",
+    )
+    input_rows, invalid_input_rows = _split_mapping_rows(input_rows_raw)
+    blockers: list[str] = [*input_parse_blockers]
+    if invalid_input_rows:
+        blockers.append(
+            "analytical footprint review input row must be object at row(s): "
+            + ", ".join(str(row_number) for row_number in invalid_input_rows)
+        )
+    if not input_rows_raw:
+        blockers.append("analytical footprint review input is missing or empty")
+
+    target_by_id = {
+        str(row.get("footprint_id") or ""): row
+        for row in target_rows
+        if str(row.get("footprint_id") or "").strip()
+    }
+    selected_rows: list[Mapping[str, Any]] = []
+    seen_footprint_ids: set[str] = set()
+    for row_index, input_row in enumerate(input_rows, 1):
+        footprint_id = str(input_row.get("footprint_id") or "").strip()
+        if not footprint_id:
+            blockers.append(
+                f"analytical footprint review input row {row_index}.footprint_id: required"
+            )
+            continue
+        if footprint_id in seen_footprint_ids:
+            blockers.append(
+                "analytical footprint review input row "
+                f"{row_index}.footprint_id: duplicate {footprint_id}"
+            )
+            continue
+        seen_footprint_ids.add(footprint_id)
+        target_row = target_by_id.get(footprint_id)
+        if target_row is None:
+            blockers.append(
+                "analytical footprint review input row "
+                f"{row_index}.footprint_id: no matching target review row"
+            )
+            continue
+        input_hash = str(input_row.get("target_row_hash") or "").strip()
+        target_hash = str(target_row.get("target_row_hash") or "").strip()
+        if input_hash and target_hash and input_hash != target_hash:
+            blockers.append(
+                "analytical footprint review input row "
+                f"{row_index}.target_row_hash: does not match target review row"
+            )
+        selected_rows.append(target_row)
+    return selected_rows, blockers, "review_input", review_input_text
+
+
 def build_analytical_footprint_review_assist(
     root: str | Path = ".",
+    *,
+    review_input_path: str | Path | None = None,
 ) -> tuple[AnalyticalFootprintReviewAssistReport, tuple[Mapping[str, Any], ...]]:
     root_path = Path(root)
     target_path = root_path / ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH
@@ -5008,13 +5079,19 @@ def build_analytical_footprint_review_assist(
         label="analytical footprint target review",
     )
     target_rows, invalid_target_rows = _split_mapping_rows(target_rows_raw)
-    pending_rows = [row for row in target_rows if not _footprint_review_row_complete(row)]
+    pending_rows, input_blockers, selection_source, review_input_text = (
+        _select_analytical_footprint_review_rows_for_input(
+            root_path,
+            target_rows,
+            review_input_path,
+        )
+    )
     assist_rows = tuple(
         _footprint_review_assist_row(index, row)
         for index, row in enumerate(pending_rows, 1)
     )
     review_summary = build_analytical_footprint_review_summary(target_rows)
-    blockers: list[str] = [*target_parse_blockers]
+    blockers: list[str] = [*target_parse_blockers, *input_blockers]
     if invalid_target_rows:
         blockers.append(
             "analytical footprint target review row must be object at row(s): "
@@ -5034,6 +5111,8 @@ def build_analytical_footprint_review_assist(
             row_count=len(assist_rows),
             pending_rows=len(pending_rows),
             blockers=tuple(blockers),
+            selection_source=selection_source,
+            review_input_path=review_input_text,
             quality_gap_targets=review_summary.get("quality_gap_targets"),
         ),
         assist_rows,
@@ -5049,6 +5128,7 @@ def render_analytical_footprint_review_workbook_markdown(
         "",
         f"- Assist ID: {report.report_id}",
         f"- Pending rows: {report.pending_rows}",
+        f"- Selection source: `{report.selection_source}`",
         f"- Review template: `{report.target_path}`",
         f"- Reviewed import target: `{report.reviewed_import_path}`",
         f"- JSONL assist: `{report.jsonl_path}`",
@@ -5126,9 +5206,14 @@ def render_analytical_footprint_review_workbook_markdown(
 
 def write_analytical_footprint_review_assist(
     root: str | Path = ".",
+    *,
+    review_input_path: str | Path | None = None,
 ) -> AnalyticalFootprintReviewAssistReport:
     root_path = Path(root)
-    report, rows = build_analytical_footprint_review_assist(root_path)
+    report, rows = build_analytical_footprint_review_assist(
+        root_path,
+        review_input_path=review_input_path,
+    )
     _write_jsonl(root_path / ANALYTICAL_FOOTPRINT_REVIEW_ASSIST_JSONL_PATH, rows)
     markdown_path = root_path / ANALYTICAL_FOOTPRINT_REVIEW_WORKBOOK_MD_PATH
     markdown_path.parent.mkdir(parents=True, exist_ok=True)
@@ -5818,59 +5903,15 @@ def build_analytical_footprint_review_evidence(
     blockers: list[str] = [*target_parse_blockers, *metadata_parse_blockers]
     selection_source = "priority_sorted_pending"
     review_input_text = ""
-    target_by_id = {
-        str(row.get("footprint_id") or ""): row
-        for row in target_rows
-        if str(row.get("footprint_id") or "").strip()
-    }
     if review_input_path is not None:
-        selection_source = "review_input"
-        review_input = Path(review_input_path)
-        review_input_text = str(review_input)
-        input_rows_raw, input_parse_blockers = load_jsonl_with_errors(
-            root_path / review_input,
-            label="analytical footprint review input",
-        )
-        input_rows, invalid_input_rows = _split_mapping_rows(input_rows_raw)
-        blockers.extend(input_parse_blockers)
-        if invalid_input_rows:
-            blockers.append(
-                "analytical footprint review input row must be object at row(s): "
-                + ", ".join(str(row_number) for row_number in invalid_input_rows)
+        selected_rows, input_blockers, selection_source, review_input_text = (
+            _select_analytical_footprint_review_rows_for_input(
+                root_path,
+                target_rows,
+                review_input_path,
             )
-        if not input_rows_raw:
-            blockers.append("analytical footprint review input is missing or empty")
-        selected_rows: list[Mapping[str, Any]] = []
-        seen_footprint_ids: set[str] = set()
-        for row_index, input_row in enumerate(input_rows, 1):
-            footprint_id = str(input_row.get("footprint_id") or "").strip()
-            if not footprint_id:
-                blockers.append(
-                    f"analytical footprint review input row {row_index}.footprint_id: required"
-                )
-                continue
-            if footprint_id in seen_footprint_ids:
-                blockers.append(
-                    "analytical footprint review input row "
-                    f"{row_index}.footprint_id: duplicate {footprint_id}"
-                )
-                continue
-            seen_footprint_ids.add(footprint_id)
-            target_row = target_by_id.get(footprint_id)
-            if target_row is None:
-                blockers.append(
-                    "analytical footprint review input row "
-                    f"{row_index}.footprint_id: no matching target review row"
-                )
-                continue
-            input_hash = str(input_row.get("target_row_hash") or "").strip()
-            target_hash = str(target_row.get("target_row_hash") or "").strip()
-            if input_hash and target_hash and input_hash != target_hash:
-                blockers.append(
-                    "analytical footprint review input row "
-                    f"{row_index}.target_row_hash: does not match target review row"
-                )
-            selected_rows.append(target_row)
+        )
+        blockers.extend(input_blockers)
         prioritized_rows = tuple(enumerate(selected_rows, 1))
     else:
         prioritized_rows = sorted(
@@ -15604,7 +15645,9 @@ def _evolution_gate_cli_next_actions(
                     "--no-write --review-kind footprint_review"
                 ),
                 "write_assist": operator_command(
-                    "mosaic-rke write-footprint-review-assist --root ."
+                    "mosaic-rke write-footprint-review-assist --root . "
+                    "--review-input registry/report_intelligence/"
+                    "analytical_footprint_review_batch.jsonl"
                 ),
                 "write_evidence": operator_command(
                     "mosaic-rke write-footprint-review-evidence --root . "

@@ -55,6 +55,16 @@ def test_operator_handoff_summarizes_remaining_manual_gates():
         for step in handoff.command_sequence
     )
     assert any(
+        step.step_id == "write-footprint-review-assist"
+        and step.command
+        == (
+            f"{RKE_OPERATOR_TMP_ENV_PREFIX} mosaic-rke write-footprint-review-assist "
+            "--root . --review-input "
+            "registry/report_intelligence/analytical_footprint_review_batch.jsonl"
+        )
+        for step in handoff.command_sequence
+    )
+    assert any(
         step.step_id == "write-footprint-review-evidence"
         and step.command
         == (

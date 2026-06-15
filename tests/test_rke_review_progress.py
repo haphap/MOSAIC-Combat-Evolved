@@ -1397,7 +1397,11 @@ def test_manual_review_runbook_renders_operator_checklist_without_source_text(tm
     assert "batch-aligned private source-evidence draft" in markdown
     assert "Evidence alignment:" in markdown
     assert "mosaic-rke prepare-footprint-review --root ." in markdown
-    assert "mosaic-rke write-footprint-review-assist --root ." in markdown
+    assert (
+        "mosaic-rke write-footprint-review-assist --root . --review-input "
+        "registry/report_intelligence/analytical_footprint_review_batch.jsonl"
+        in markdown
+    )
     assert (
         "mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 0 "
         "--review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl"

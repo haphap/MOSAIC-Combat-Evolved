@@ -10758,6 +10758,8 @@ def test_write_analytical_footprint_review_assist_is_private_not_import(
     assert report.row_count == 1
     assert report.pending_rows == 1
     assert report.blockers == ()
+    assert report.selection_source == "pending_template"
+    assert report.review_input_path == ""
     assert report.jsonl_path == ANALYTICAL_FOOTPRINT_REVIEW_ASSIST_JSONL_PATH
     assert report.markdown_path == ANALYTICAL_FOOTPRINT_REVIEW_WORKBOOK_MD_PATH
     assert report.jsonl_path in REPORT_INTELLIGENCE_PRIVATE_OUTPUT_PATHS
@@ -10774,6 +10776,47 @@ def test_write_analytical_footprint_review_assist_is_private_not_import(
     markdown = (tmp_path / report.markdown_path).read_text(encoding="utf-8")
     assert "RKE Analytical Footprint Review Workbook" in markdown
     assert "not an import file" in markdown
+
+
+def test_analytical_footprint_review_assist_can_follow_review_input_batch(
+    tmp_path: Path,
+):
+    source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
+    run_report_intelligence_refresh(
+        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        downloader=_fake_downloader,
+        converter=_fake_converter,
+        llm_extractor=_fake_llm,
+    )
+    template_path = tmp_path / "registry/report_intelligence/analytical_footprint_review_template.jsonl"
+    rows = _read_jsonl(template_path)
+    duplicate = dict(rows[0])
+    duplicate["footprint_id"] = f"{rows[0]['footprint_id']}-B"
+    rows.append(duplicate)
+    _write_jsonl(template_path, rows)
+    review_input_path = tmp_path / ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH
+    review_input_path.parent.mkdir(parents=True, exist_ok=True)
+    review_input_rows = [rows[1], rows[0]]
+    _write_jsonl(review_input_path, review_input_rows)
+
+    report = write_analytical_footprint_review_assist(
+        tmp_path,
+        review_input_path=ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH,
+    )
+    assist_rows = _read_jsonl(tmp_path / report.jsonl_path)
+
+    assert report.row_count == 2
+    assert report.pending_rows == 2
+    assert report.selection_source == "review_input"
+    assert report.review_input_path == ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH
+    assert [row["footprint_id"] for row in assist_rows] == [
+        row["footprint_id"] for row in review_input_rows
+    ]
+    assert [row["target_row_hash"] for row in assist_rows] == [
+        row["target_row_hash"] for row in review_input_rows
+    ]
+    markdown = (tmp_path / report.markdown_path).read_text(encoding="utf-8")
+    assert "Selection source: `review_input`" in markdown
 
 
 def test_write_analytical_footprint_review_evidence_is_private_not_import(

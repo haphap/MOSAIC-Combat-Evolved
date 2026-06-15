@@ -94,7 +94,7 @@ Dry-run command: `MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke pr
 
 - Phase: footprint_review
 - Action: Write private analytical-footprint review assist files.
-- Command: `MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-footprint-review-assist --root .`
+- Command: `MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-footprint-review-assist --root . --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl`
 - Manual input: none
 - Expected result: Private workbook is registry/report_intelligence/analytical_footprint_review_workbook.md and JSONL assist is registry/report_intelligence/analytical_footprint_review_assist.jsonl.
 

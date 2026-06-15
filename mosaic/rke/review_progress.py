@@ -635,7 +635,10 @@ def _footprint_next_batch_commands(pending_rows: int) -> dict[str, str]:
         return {}
     batch_size = min(50, int(pending_rows))
     return {
-        "assist": operator_command("mosaic-rke write-footprint-review-assist --root ."),
+        "assist": operator_command(
+            "mosaic-rke write-footprint-review-assist --root . "
+            f"--review-input {ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH}"
+        ),
         "evidence": operator_command(
             "mosaic-rke write-footprint-review-evidence --root . "
             f"--limit {batch_size} --offset 0 --review-input {ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH}"
@@ -698,7 +701,10 @@ def _manual_review_batch_plan(
             }
         else:
             commands = {
-                "assist": operator_command("mosaic-rke write-footprint-review-assist --root ."),
+                "assist": operator_command(
+                    "mosaic-rke write-footprint-review-assist --root . "
+                    f"--review-input {ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH}"
+                ),
                 "evidence": operator_command(
                     "mosaic-rke write-footprint-review-evidence --root . "
                     f"--limit {limit} --offset {offset} "
@@ -1484,6 +1490,20 @@ def _review_field_contract(gate: ManualReviewGateProgress) -> Mapping[str, Any]:
     return manual_review_field_contract(gate.review_kind)
 
 
+def _compact_quality_gap_targets(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {
+            str(key): _compact_quality_gap_targets(item)
+            for key, item in value.items()
+            if str(key) != "policy"
+        }
+    if isinstance(value, tuple):
+        return tuple(_compact_quality_gap_targets(item) for item in value)
+    if isinstance(value, list):
+        return [_compact_quality_gap_targets(item) for item in value]
+    return value
+
+
 def _lockbox_dependency_blockers(
     gate: ManualReviewGateProgress,
     gates: Sequence[ManualReviewGateProgress],
@@ -1602,7 +1622,9 @@ def build_manual_review_progress_summary(
                 "batch_overview": _compact_batch_overview(gate),
                 "review_aids": _review_aid_paths(gate),
                 "field_contract": _review_field_contract(gate),
-                "quality_gap_targets": gate.quality_gap_targets,
+                "quality_gap_targets": _compact_quality_gap_targets(
+                    gate.quality_gap_targets
+                ),
                 "next_batch_commands": dict(gate.next_batch_commands),
                 "promotion_commands": {
                     "prepare": gate.prepare_command,
@@ -1826,7 +1848,9 @@ def build_manual_review_action_queue(
                 "batch_overview": _compact_batch_overview(gate),
                 "review_aids": _review_aid_paths(gate),
                 "field_contract": _review_field_contract(gate),
-                "quality_gap_targets": gate.quality_gap_targets,
+                "quality_gap_targets": _compact_quality_gap_targets(
+                    gate.quality_gap_targets
+                ),
                 "missing_required_fields": dict(
                     {} if stale_current_batch else current.get("missing_required_fields") or {}
                 ),
@@ -1900,7 +1924,10 @@ def render_manual_review_runbook_markdown(report: ManualReviewProgressReport) ->
         "mosaic-rke apply-footprint-review --root . "
         f"--input {ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH}"
     )
-    footprint_assist = operator_command("mosaic-rke write-footprint-review-assist --root .")
+    footprint_assist = operator_command(
+        "mosaic-rke write-footprint-review-assist --root . "
+        f"--review-input {ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH}"
+    )
     footprint_evidence = operator_command(
         "mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 0 "
         f"--review-input {ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH}"
