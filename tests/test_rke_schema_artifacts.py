@@ -3799,6 +3799,77 @@ def test_prompt_mutation_candidate_contract_rejects_mapping_markdown_confidence_
         assert any(fragment in item for item in record.failures)
 
 
+def test_prompt_mutation_candidate_contract_rejects_remaining_public_evidence_drift(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    candidates_path = registry / "prompt_mutation_candidates.jsonl"
+    candidates = _read_prompt_mutation_candidates(candidates_path)
+    gold = next(
+        row
+        for row in candidates
+        if row["candidate_type"] == "forecast_gold_set_review_rule"
+    )
+    regime = next(
+        row
+        for row in candidates
+        if row["candidate_type"] == "regime_mechanism_extraction_rule"
+    )
+    tool_gap = next(
+        row
+        for row in candidates
+        if row["candidate_type"] == "tool_gap_prioritization_rule"
+    )
+    paper = next(
+        row for row in candidates if row["candidate_type"] == "recipe_paper_trading_rule"
+    )
+
+    gold_evidence = gold["evidence_refs"][0]
+    regime_evidence = regime["evidence_refs"][0]
+    tool_gap_evidence = tool_gap["evidence_refs"][0]
+    paper_blockers = next(
+        row
+        for row in paper["evidence_refs"]
+        if isinstance(row, dict) and row.get("field") == "blocked_reasons"
+    )
+    paper_diagnostics = next(
+        row
+        for row in paper["evidence_refs"]
+        if isinstance(row, dict)
+        and row.get("field") == "direct_pit_binding_diagnostics"
+    )
+    assert isinstance(gold_evidence, dict)
+    assert isinstance(regime_evidence, dict)
+    assert isinstance(tool_gap_evidence, dict)
+    gold_evidence["reviewed_claims"] = 0
+    gold_evidence["blockers"] = []
+    regime_evidence["hard_gap_count"] = 0
+    regime_evidence["mechanism_gap_counts"] = {}
+    tool_gap_evidence["priority_counts"] = {}
+    tool_gap_evidence["top_tool_gap_ids"] = []
+    paper_blockers["blocker_counts"] = {}
+    paper_diagnostics["no_direct_recipe_outcome_binding_count"] = 0
+    paper_diagnostics["next_actions"] = []
+    _write_prompt_mutation_candidates(candidates_path, candidates)
+
+    record = _prompt_mutation_candidate_contract_record(tmp_path)
+
+    assert not record.accepted
+    expected_fragments = [
+        "forecast_gold_set_review_rule.evidence_refs.checks.RI-EVOL-05.evidence.reviewed_claims",
+        "forecast_gold_set_review_rule.evidence_refs.checks.RI-EVOL-05.evidence.blockers",
+        "regime_mechanism_extraction_rule.evidence_refs.regime_gap_counts.mechanism_gap_counts.hard_gap_count",
+        "regime_mechanism_extraction_rule.evidence_refs.regime_gap_counts.mechanism_gap_counts.mechanism_gap_counts",
+        "tool_gap_prioritization_rule.evidence_refs.priority_bucket.priority_counts",
+        "tool_gap_prioritization_rule.evidence_refs.priority_bucket.top_tool_gap_ids",
+        "recipe_paper_trading_rule.evidence_refs.blocked_reasons.blocker_counts",
+        "recipe_paper_trading_rule.evidence_refs.direct_pit_binding_diagnostics.no_direct_recipe_outcome_binding_count",
+        "recipe_paper_trading_rule.evidence_refs.direct_pit_binding_diagnostics.next_actions",
+    ]
+    for fragment in expected_fragments:
+        assert any(fragment in item for item in record.failures)
+
+
 def _copy_registry_for_manual_progress(tmp_path: Path) -> Path:
     registry = tmp_path / "registry"
     shutil.copytree(Path("registry"), registry, dirs_exist_ok=True)

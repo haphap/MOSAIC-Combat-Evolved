@@ -5041,6 +5041,17 @@ def _positive_integer_mapping_values(value: Any) -> dict[str, int]:
     return counts
 
 
+def _integer_mapping_values(value: Any) -> dict[str, int]:
+    if not isinstance(value, Mapping):
+        return {}
+    counts: dict[str, int] = {}
+    for key, raw_count in value.items():
+        count = _int_or_none(raw_count)
+        if count is not None:
+            counts[str(key)] = count
+    return counts
+
+
 def _evolution_gate_check(gate: Mapping[str, Any], check_id: str) -> Mapping[str, Any]:
     checks = gate.get("checks")
     if not isinstance(checks, Sequence) or isinstance(checks, str):
@@ -5202,6 +5213,47 @@ def _stability_prompt_candidate_expected_evidence_refs(
     return expected_refs
 
 
+def _forecast_gold_review_prompt_candidate_expected_evidence_refs(
+    gate: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    check = _evolution_gate_check(gate, "RI-EVOL-05")
+    evidence = check.get("evidence")
+    if not isinstance(evidence, Mapping):
+        return []
+    return [
+        {
+            "artifact_path": "registry/report_intelligence/evolution_readiness_gate.json",
+            "field": "checks.RI-EVOL-05.evidence",
+            "gold_set_passed": check.get("passed") is True,
+            "reviewed_claims": _int_or_none(evidence.get("reviewed_claims")) or 0,
+            "total_documents": _int_or_none(evidence.get("total_documents")) or 0,
+            "pending_claims": _int_or_none(evidence.get("pending_claims")) or 0,
+            "metrics": (
+                evidence.get("metrics")
+                if isinstance(evidence.get("metrics"), Mapping)
+                else {}
+            ),
+            "thresholds": (
+                evidence.get("thresholds")
+                if isinstance(evidence.get("thresholds"), Mapping)
+                else {}
+            ),
+            "stock_target_conflict_count": _int_or_none(
+                evidence.get("stock_target_conflict_count")
+            )
+            or 0,
+            "stock_target_conflict_reviewed_count": _int_or_none(
+                evidence.get("stock_target_conflict_reviewed_count")
+            )
+            or 0,
+            "stock_target_conflict_explained": (
+                evidence.get("stock_target_conflict_explained") is True
+            ),
+            "blockers": _string_items(check.get("blockers")),
+        }
+    ]
+
+
 def _industry_mapping_prompt_candidate_expected_evidence_refs(
     *,
     root_path: Path,
@@ -5277,6 +5329,74 @@ def _industry_mapping_prompt_candidate_expected_evidence_refs(
             )
             or 0,
         },
+    ]
+
+
+def _regime_mechanism_prompt_candidate_expected_evidence_refs(
+    *,
+    root_path: Path,
+    failures: list[str],
+) -> list[dict[str, Any]]:
+    readiness, readiness_failures = _read_mapping_json(
+        root_path / "registry/report_intelligence/outcome_labeling_readiness.json",
+        "registry/report_intelligence/outcome_labeling_readiness.json",
+    )
+    failures.extend(readiness_failures)
+    if not readiness:
+        return []
+    regime_gap_counts = _integer_mapping_values(readiness.get("regime_gap_counts"))
+    mechanism_gap_counts = _integer_mapping_values(
+        readiness.get("mechanism_gap_counts")
+    )
+    hard_regime_mechanism_gaps = {
+        "regime_context_missing",
+        "regime_context_unclassified",
+        "economic_mechanism_missing",
+        "mechanism_evaluable_impact_missing",
+        "possible_operational_only_mechanism",
+    }
+    hard_gap_count = sum(
+        count
+        for key, count in {
+            **regime_gap_counts,
+            **mechanism_gap_counts,
+        }.items()
+        if key in hard_regime_mechanism_gaps
+    )
+    return [
+        {
+            "artifact_path": "registry/report_intelligence/outcome_labeling_readiness.json",
+            "field": "regime_gap_counts.mechanism_gap_counts",
+            "regime_gap_counts": regime_gap_counts,
+            "mechanism_gap_counts": mechanism_gap_counts,
+            "macro_regime_counts": _integer_mapping_values(
+                readiness.get("macro_regime_counts")
+            ),
+            "source_text_macro_regime_counts": _integer_mapping_values(
+                readiness.get("source_text_macro_regime_counts")
+            ),
+            "as_of_date_macro_regime_counts": _integer_mapping_values(
+                readiness.get("as_of_date_macro_regime_counts")
+            ),
+            "macro_regime_source_counts": _integer_mapping_values(
+                readiness.get("macro_regime_source_counts")
+            ),
+            "industry_cycle_regime_counts": _integer_mapping_values(
+                readiness.get("industry_cycle_regime_counts")
+            ),
+            "regime_gap_forecast_claim_count": len(
+                set(_string_items(readiness.get("regime_gap_forecast_claim_ids")))
+            ),
+            "mechanism_gap_forecast_claim_count": len(
+                set(_string_items(readiness.get("mechanism_gap_forecast_claim_ids")))
+            ),
+            "hard_gap_count": hard_gap_count,
+            "diagnostic_gap_policy": (
+                "company_capability_only_no_regime_context is diagnostic; "
+                "missing or unclassified regime and missing mechanism are "
+                "prompt-evolution blockers"
+            ),
+        }
     ]
 
 
@@ -5498,6 +5618,137 @@ def _markdown_quality_prompt_candidate_expected_evidence_refs(
     ]
 
 
+def _tool_gap_prompt_candidate_expected_evidence_refs(
+    *,
+    root_path: Path,
+    failures: list[str],
+) -> list[dict[str, Any]]:
+    rows, row_failures = _load_mapping_jsonl(
+        root_path,
+        "registry/report_intelligence/tool_gaps.jsonl",
+    )
+    failures.extend(row_failures)
+    priority_counts: dict[str, int] = {}
+    for row in rows:
+        bucket = str(row.get("priority_bucket") or "").strip() or "unknown"
+        priority_counts[bucket] = priority_counts.get(bucket, 0) + 1
+    priority_rank = {"urgent": 0, "blocked": 1, "high": 2, "medium": 3, "low": 4}
+    ordered = sorted(
+        rows,
+        key=lambda row: (
+            priority_rank.get(str(row.get("priority_bucket") or "low"), 9),
+            str(row.get("tool_gap_id") or ""),
+        ),
+    )
+    return [
+        {
+            "artifact_path": "registry/report_intelligence/tool_gaps.jsonl",
+            "field": "priority_bucket",
+            "priority_counts": dict(sorted(priority_counts.items())),
+            "top_tool_gap_ids": [
+                str(row.get("tool_gap_id") or "")
+                for row in ordered[:10]
+                if str(row.get("tool_gap_id") or "").strip()
+            ],
+        }
+    ]
+
+
+def _paper_trading_diagnostic_evidence(
+    summary: Mapping[str, Any],
+) -> dict[str, Any]:
+    diagnostics = (
+        summary.get("direct_pit_binding_diagnostics")
+        if isinstance(summary.get("direct_pit_binding_diagnostics"), Mapping)
+        else {}
+    )
+    if not diagnostics:
+        return {}
+    evidence: dict[str, Any] = {
+        "artifact_path": "registry/report_intelligence/recipe_paper_trading_summary.json",
+        "field": "direct_pit_binding_diagnostics",
+        "status": str(diagnostics.get("status") or ""),
+        "recipe_count": _int_or_none(diagnostics.get("recipe_count")) or 0,
+        "direct_pit_bound_recipe_count": _int_or_none(
+            diagnostics.get("direct_pit_bound_recipe_count")
+        )
+        or 0,
+        "no_direct_recipe_outcome_binding_count": _int_or_none(
+            diagnostics.get("no_direct_recipe_outcome_binding_count")
+        )
+        or 0,
+        "insufficient_effective_n_count": _int_or_none(
+            diagnostics.get("insufficient_effective_n_count")
+        )
+        or 0,
+        "required_tools_not_shadow_implemented_count": _int_or_none(
+            diagnostics.get("required_tools_not_shadow_implemented_count")
+        )
+        or 0,
+        "next_actions": _string_items(diagnostics.get("next_actions")),
+    }
+    details = (
+        diagnostics.get("binding_gap_details")
+        if isinstance(diagnostics.get("binding_gap_details"), Mapping)
+        else {}
+    )
+    if details:
+        evidence["binding_gap_details"] = {
+            "diagnostic_version": str(details.get("diagnostic_version") or ""),
+            "artifact_counts": _integer_mapping_values(details.get("artifact_counts")),
+            "method_source_linkage": _integer_mapping_values(
+                details.get("method_source_linkage")
+            ),
+            "forecast_outcome_linkage": _integer_mapping_values(
+                details.get("forecast_outcome_linkage")
+            ),
+            "footprint_source_linkage": _integer_mapping_values(
+                details.get("footprint_source_linkage")
+            ),
+            "recipe_binding_linkage": _integer_mapping_values(
+                details.get("recipe_binding_linkage")
+            ),
+            "missing_artifact_flags": _string_items(
+                details.get("missing_artifact_flags")
+            ),
+            "next_actions": _string_items(details.get("next_actions")),
+        }
+    return evidence
+
+
+def _recipe_paper_trading_prompt_candidate_expected_evidence_refs(
+    *,
+    root_path: Path,
+    failures: list[str],
+) -> list[dict[str, Any]]:
+    runs, runs_failures = _load_mapping_jsonl(
+        root_path,
+        "registry/report_intelligence/recipe_paper_trading_runs.jsonl",
+    )
+    summary, summary_failures = _read_mapping_json(
+        root_path / "registry/report_intelligence/recipe_paper_trading_summary.json",
+        "registry/report_intelligence/recipe_paper_trading_summary.json",
+    )
+    failures.extend(runs_failures)
+    failures.extend(summary_failures)
+    blocker_counts: dict[str, int] = {}
+    for run in runs:
+        for reason in _string_items(run.get("blocked_reasons")):
+            blocker_counts[reason] = blocker_counts.get(reason, 0) + 1
+    expected_refs: list[dict[str, Any]] = [
+        {
+            "artifact_path": "registry/report_intelligence/recipe_paper_trading_runs.jsonl",
+            "field": "blocked_reasons",
+            "blocker_counts": dict(sorted(blocker_counts.items())),
+        }
+    ]
+    if summary:
+        diagnostic_evidence = _paper_trading_diagnostic_evidence(summary)
+        if diagnostic_evidence:
+            expected_refs.append(diagnostic_evidence)
+    return expected_refs
+
+
 def _prompt_mutation_matching_evidence_ref(
     row: Mapping[str, Any],
     *,
@@ -5526,6 +5777,39 @@ def _prompt_mutation_matching_evidence_ref(
             f"{row_label}.evidence_refs: duplicate {artifact_path} {field}"
         )
     return matches[0]
+
+
+def _validate_prompt_mutation_expected_refs(
+    row: Mapping[str, Any],
+    *,
+    row_label: str,
+    candidate_type: str,
+    expected_refs: Sequence[Mapping[str, Any]],
+    evidence_source: str,
+    failures: list[str],
+) -> None:
+    for expected in expected_refs:
+        field = str(expected["field"])
+        evidence = _prompt_mutation_matching_evidence_ref(
+            row,
+            artifact_path=str(expected["artifact_path"]),
+            field=field,
+            row_label=row_label,
+            failures=failures,
+        )
+        if evidence is None:
+            continue
+        for key, expected_value in expected.items():
+            if key in {"artifact_path", "field"}:
+                continue
+            if not _prompt_mutation_evidence_values_equal(
+                evidence.get(key),
+                expected_value,
+            ):
+                failures.append(
+                    f"{row_label}.{candidate_type}.evidence_refs.{field}.{key}: "
+                    f"must match {evidence_source} public evidence"
+                )
 
 
 def _validate_prompt_mutation_governed_evidence(
@@ -5644,6 +5928,30 @@ def _validate_prompt_mutation_governed_evidence(
                         f"{row_label}.{candidate_type}.evidence_refs.{field}.{key}: "
                         "must match current evolution readiness gate"
                     )
+    elif candidate_type == "forecast_gold_set_review_rule":
+        _validate_prompt_mutation_expected_refs(
+            row,
+            row_label=row_label,
+            candidate_type=candidate_type,
+            expected_refs=_forecast_gold_review_prompt_candidate_expected_evidence_refs(
+                gate
+            ),
+            evidence_source="RI-EVOL-05 gold review gate",
+            failures=failures,
+        )
+    elif candidate_type == "regime_mechanism_extraction_rule":
+        expected_refs = _regime_mechanism_prompt_candidate_expected_evidence_refs(
+            root_path=root_path,
+            failures=failures,
+        )
+        _validate_prompt_mutation_expected_refs(
+            row,
+            row_label=row_label,
+            candidate_type=candidate_type,
+            expected_refs=expected_refs,
+            evidence_source="outcome readiness regime/mechanism",
+            failures=failures,
+        )
     elif candidate_type == "industry_proxy_mapping_rule":
         expected_refs = _industry_mapping_prompt_candidate_expected_evidence_refs(
             root_path=root_path,
@@ -5750,6 +6058,32 @@ def _validate_prompt_mutation_governed_evidence(
                         f"{row_label}.{candidate_type}.evidence_refs.{field}.{key}: "
                         f"must match {evidence_source} public evidence"
                     )
+    elif candidate_type == "tool_gap_prioritization_rule":
+        expected_refs = _tool_gap_prompt_candidate_expected_evidence_refs(
+            root_path=root_path,
+            failures=failures,
+        )
+        _validate_prompt_mutation_expected_refs(
+            row,
+            row_label=row_label,
+            candidate_type=candidate_type,
+            expected_refs=expected_refs,
+            evidence_source="tool gap priority",
+            failures=failures,
+        )
+    elif candidate_type == "recipe_paper_trading_rule":
+        expected_refs = _recipe_paper_trading_prompt_candidate_expected_evidence_refs(
+            root_path=root_path,
+            failures=failures,
+        )
+        _validate_prompt_mutation_expected_refs(
+            row,
+            row_label=row_label,
+            candidate_type=candidate_type,
+            expected_refs=expected_refs,
+            evidence_source="recipe paper-trading",
+            failures=failures,
+        )
     return failures
 
 
