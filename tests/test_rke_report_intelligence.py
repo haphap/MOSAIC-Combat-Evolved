@@ -3237,6 +3237,7 @@ def test_report_intelligence_recipe_paper_trading_requires_direct_pit_evidence()
     assert runs[0]["metrics"]["max_regime_contribution_share"] == 0.4
     assert runs[0]["metrics"]["observed_regime_count"] == 3
     assert summary["validation_pass_count"] == 1
+    assert summary["paper_trading_validated_recipe_count"] == 1
     assert summary["after_cost_paper_trading_summary"] == {
         "status": "computed",
         "validated_recipe_count": 1,

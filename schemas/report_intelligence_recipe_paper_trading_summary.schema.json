@@ -10,6 +10,7 @@
     "recipe_count",
     "paper_trading_run_count",
     "validation_pass_count",
+    "paper_trading_validated_recipe_count",
     "blocked_count",
     "status_counts",
     "blocker_counts",
@@ -44,6 +45,7 @@
     "recipe_count": {"type": "integer", "minimum": 0},
     "paper_trading_run_count": {"type": "integer", "minimum": 0},
     "validation_pass_count": {"type": "integer", "minimum": 0},
+    "paper_trading_validated_recipe_count": {"type": "integer", "minimum": 0},
     "blocked_count": {"type": "integer", "minimum": 0},
     "status_counts": {
       "type": "object",

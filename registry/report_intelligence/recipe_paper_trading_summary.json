@@ -2644,6 +2644,7 @@
   "mean_cost_adjusted_alpha": -0.01857975,
   "minimum_effective_n": 3.0,
   "paper_trading_run_count": 2031,
+  "paper_trading_validated_recipe_count": 33,
   "passed_recipe_ids": [
     "RECIPE-0213478e2b9818bc",
     "RECIPE-0bcf7543b23b0001",

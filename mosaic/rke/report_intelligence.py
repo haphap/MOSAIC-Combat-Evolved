@@ -12757,6 +12757,7 @@ def build_recipe_paper_trading_summary(
         "recipe_count": len(recipe_paper_trading_runs),
         "paper_trading_run_count": len(recipe_paper_trading_runs),
         "validation_pass_count": len(passed_ids),
+        "paper_trading_validated_recipe_count": len(passed_ids),
         "blocked_count": len(blocked_ids),
         "status_counts": dict(sorted(status_counts.items())),
         "blocker_counts": dict(sorted(blocker_counts.items())),

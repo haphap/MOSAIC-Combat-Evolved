@@ -3268,6 +3268,7 @@ def _validate_recipe_paper_trading_contract(
             "recipe_count": len(run_rows),
             "paper_trading_run_count": len(run_rows),
             "validation_pass_count": len(passed_recipe_ids),
+            "paper_trading_validated_recipe_count": len(passed_recipe_ids),
             "blocked_count": len(blocked_recipe_ids),
             "profile_paper_trade_disagreement_count": disagreement_count,
             "recipe_instability_gap_count": instability_gap_count,

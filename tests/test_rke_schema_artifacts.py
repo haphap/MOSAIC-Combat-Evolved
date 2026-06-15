@@ -2270,6 +2270,30 @@ def test_recipe_paper_trading_contract_rejects_run_summary_mismatch(
     assert any("validation_pass_count" in item for item in record.failures)
 
 
+def test_recipe_paper_trading_contract_rejects_validated_count_alias_mismatch(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    summary_path = registry / "recipe_paper_trading_summary.json"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    summary["paper_trading_validated_recipe_count"] = (
+        int(summary["validation_pass_count"]) + 1
+    )
+    summary_path.write_text(
+        json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _recipe_paper_trading_contract_record(tmp_path)
+
+    assert not record.accepted
+    assert any(
+        "recipe_paper_trading_summary.paper_trading_validated_recipe_count"
+        in item
+        for item in record.failures
+    )
+
+
 def test_recipe_paper_trading_contract_rejects_summary_protocol_mismatch(
     tmp_path: Path,
 ):
