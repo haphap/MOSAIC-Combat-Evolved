@@ -72,6 +72,19 @@ User requirement: run MinerU in vLLM/VLM mode. Use `vlm-auto-engine` for PDF to
 Markdown conversion, not `pipeline`, and not `hybrid-auto-engine` for the normal
 macro/strategy batch path.
 
+Mode distinction:
+
+- `vlm-auto-engine` is MinerU local VLM mode. It uses local computing power
+  through MinerU's VLM engine and does not require the Docker vLLM OpenAI server
+  to be running. This mode has been smoke-tested locally.
+- `vlm-http-client` and `hybrid-http-client` are MinerU HTTP-client modes. These
+  require a compatible server URL via `--mineru-server-url` / MinerU `-u`, for
+  example `http://127.0.0.1:30000`. Start and health-check the Docker vLLM
+  service before using either HTTP-client backend.
+- The RKE extraction LLM endpoint on port `8020` is separate from MinerU local
+  VLM conversion. Do not infer that Docker vLLM is running just because
+  `vlm-auto-engine` succeeds.
+
 Preferred smoke command:
 
 ```bash
@@ -123,6 +136,41 @@ Operational rules:
   launching the VLM batch.
 
 ## MinerU Smoke Status
+
+Last completed VLM batch:
+
+```bash
+TMPDIR=.mosaic/tmp uv run mosaic-rke report-intelligence \
+  --root . \
+  --env-file .env \
+  --source-path registry/sources/local_macro_strategy_reports.jsonl \
+  --cache-dir .mosaic/rke/report_intelligence \
+  --registry-dir .mosaic/rke/report_intelligence/macro_vlm_batch_registry \
+  --selection-order stratified \
+  --limit 5 \
+  --mineru-command .venv/bin/mineru \
+  --mineru-backend vlm-auto-engine \
+  --mineru-timeout-seconds 3600 \
+  --mineru-batch-size 1 \
+  --mineru-batch-max-bytes 8000000 \
+  --skip-llm \
+  --overwrite
+```
+
+Result:
+
+- Run id: `RIR-20260615T003823+0000`
+- Selected reports: `5`
+- PDF ready: `5`
+- Markdown ready: `5`
+- Blockers: `0`
+- MinerU backend counts: `vlm-auto-engine=5`
+- Markdown status counts: `converted=5`
+- Markdown quality gate counts: `passed=5`
+- Markdown durations: `44.517s`, `38.151s`, `39.165s`, `35.995s`,
+  `52.435s`
+- Private outputs under `.mosaic/rke/report_intelligence/macro_vlm_batch_registry/`
+  are gitignored and must not be committed.
 
 Last completed vLLM/VLM smoke:
 
@@ -236,3 +284,6 @@ TMPDIR=.mosaic/tmp uv run mosaic-rke report-intelligence \
   `hybrid-auto-engine`; conversion passed with no blockers.
 - `2026-06-15`: Updated the required MinerU mode to `vlm-auto-engine`, then ran
   one macro PDF VLM smoke; conversion passed with no blockers.
+- `2026-06-15`: Clarified local MinerU `vlm-auto-engine` versus Docker-backed
+  HTTP client modes, then ran a 5-PDF local VLM batch; all five Markdown
+  conversions passed quality gates with no blockers.
