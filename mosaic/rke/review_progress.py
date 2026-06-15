@@ -394,6 +394,45 @@ def _review_field_workload_summary(workload: Mapping[str, Any]) -> Mapping[str, 
     return summary
 
 
+def _review_field_action_order(workload: Mapping[str, Any]) -> Mapping[str, Any]:
+    manual_fields: list[dict[str, Any]] = []
+    draft_fields: list[dict[str, Any]] = []
+    for field_name, item in sorted(workload.items()):
+        if not isinstance(item, Mapping):
+            continue
+        missing_rows = int(item.get("missing_required_rows") or 0)
+        draft_rows = int(item.get("draft_decision_available_rows") or 0)
+        manual_rows = int(item.get("manual_decision_required_rows") or 0)
+        field_summary = {
+            "field": str(field_name),
+            "missing_required_rows": missing_rows,
+            "draft_decision_available_rows": draft_rows,
+            "manual_decision_required_rows": manual_rows,
+        }
+        if manual_rows:
+            manual_fields.append(dict(field_summary))
+        if draft_rows:
+            draft_fields.append(dict(field_summary))
+    manual_fields.sort(
+        key=lambda item: (
+            -int(item["manual_decision_required_rows"]),
+            -int(item["missing_required_rows"]),
+            str(item["field"]),
+        )
+    )
+    draft_fields.sort(
+        key=lambda item: (
+            -int(item["draft_decision_available_rows"]),
+            -int(item["missing_required_rows"]),
+            str(item["field"]),
+        )
+    )
+    return {
+        "manual_review_required_fields": manual_fields,
+        "draft_decision_review_fields": draft_fields,
+    }
+
+
 def _missing_review_field_workload(
     review_rows: Sequence[Mapping[str, Any]],
     *,
@@ -1666,6 +1705,35 @@ def _render_batch_status_lines(label: str, status: Mapping[str, Any]) -> list[st
                     "fields_with_manual_review_required="
                     f"{int(workload_summary.get('fields_with_manual_review_required') or 0)}"
                 )
+                action_order = _review_field_action_order(workload)
+                manual_fields = action_order.get("manual_review_required_fields")
+                draft_fields = action_order.get("draft_decision_review_fields")
+                rendered_manual_fields = (
+                    ", ".join(
+                        f"`{item.get('field')}`="
+                        f"{int(item.get('manual_decision_required_rows') or 0)}"
+                        for item in manual_fields
+                        if isinstance(item, Mapping)
+                    )
+                    if isinstance(manual_fields, Sequence)
+                    else ""
+                )
+                rendered_draft_fields = (
+                    ", ".join(
+                        f"`{item.get('field')}`="
+                        f"{int(item.get('draft_decision_available_rows') or 0)}"
+                        for item in draft_fields
+                        if isinstance(item, Mapping)
+                    )
+                    if isinstance(draft_fields, Sequence)
+                    else ""
+                )
+                if rendered_manual_fields or rendered_draft_fields:
+                    lines.append(
+                        "  Review next fields: "
+                        f"manual_required: {rendered_manual_fields or 'none'}; "
+                        f"draft_available: {rendered_draft_fields or 'none'}"
+                    )
                 rendered_workload: list[str] = []
                 for field, item in sorted(workload.items()):
                     if not isinstance(item, Mapping):
@@ -1946,6 +2014,9 @@ def _compact_current_batch_status(status: Mapping[str, Any]) -> Mapping[str, Any
             compact["review_field_workload_summary"] = _review_field_workload_summary(
                 compact["review_field_workload"]
             )
+            compact["review_field_action_order"] = _review_field_action_order(
+                compact["review_field_workload"]
+            )
         else:
             missing_required = status.get("missing_required_fields")
             suggested_counts = compact["evidence_status"].get(
@@ -1963,6 +2034,9 @@ def _compact_current_batch_status(status: Mapping[str, Any]) -> Mapping[str, Any
                     compact["review_field_workload"] = fallback_workload
                     compact["review_field_workload_summary"] = (
                         _review_field_workload_summary(fallback_workload)
+                    )
+                    compact["review_field_action_order"] = (
+                        _review_field_action_order(fallback_workload)
                     )
     target_status = status.get("target_status")
     if isinstance(target_status, Mapping) and target_status:
@@ -2131,6 +2205,14 @@ def _compact_batch_overview(gate: ManualReviewGateProgress) -> Mapping[str, Any]
             }
             if isinstance(workload_summary, Mapping) and workload_summary
             else _review_field_workload_summary(
+                overview["current_batch_review_field_workload"]
+            )
+        )
+        action_order = current.get("review_field_action_order")
+        overview["current_batch_review_field_action_order"] = (
+            action_order
+            if isinstance(action_order, Mapping) and action_order
+            else _review_field_action_order(
                 overview["current_batch_review_field_workload"]
             )
         )

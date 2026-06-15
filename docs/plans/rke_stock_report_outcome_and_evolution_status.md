@@ -30,7 +30,10 @@ Markdown paths, source spans, reviewer notes, or private Tushare rows.
   50-row analytical-footprint batch has 350 missing required review cells, 300
   evidence-draft cells available for human verification, and 50 cells that
   still require manual input. These summaries are review aids only; they do not
-  auto-fill human decision fields.
+  auto-fill human decision fields. The same queue now includes
+  `current_batch_review_field_action_order`, which sorts fields that still need
+  manual input separately from fields with evidence-draft decisions available
+  for human verification.
 
 Current public aggregate evidence. Private report-intelligence JSONL files such
 as `report_metadata.jsonl`, `forecast_claims.jsonl`, and
