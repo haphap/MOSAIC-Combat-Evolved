@@ -1444,6 +1444,8 @@ def _next_manual_action(
         if current.get("exists"):
             return "complete_lockbox_decision_then_dry_run"
         return "prepare_lockbox_review"
+    if gate.pending_rows == 0 and gate.blockers:
+        return "address_quality_gate_blockers"
     target = current.get("target_status")
     if (
         current.get("exists")
@@ -1460,8 +1462,6 @@ def _next_manual_action(
         return "fill_current_batch_review_fields_then_dry_run"
     if gate.next_batch_commands:
         return "prepare_next_review_batch"
-    if gate.pending_rows == 0 and gate.blockers:
-        return "address_quality_gate_blockers"
     return "run_prepare_command"
 
 
