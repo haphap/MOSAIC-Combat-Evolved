@@ -1,6 +1,6 @@
 {
   "blockers": [
-    "gold_set: 158/206 ready",
+    "gold_set: 158/205 ready",
     "gold_set: 332 review ids are missing from target",
     "gold_set: 500 review rows failed validation",
     "gold_set: 168 review rows have stale target_row_hash; rerun `mosaic-rke prepare-gold-review --root . --full --force` before filling reviewer decisions",
@@ -13,7 +13,7 @@
     "gold_set: 500 review rows: variable_mapping_correct must be boolean",
     "gold_set: 500 review rows: unsupported_field_false_grounded must be boolean",
     "gold_set: 2 additional validation reason(s) suppressed",
-    "gold_set: 48 gold-set claim review rows still pending",
+    "gold_set: 47 gold-set claim review rows still pending",
     "footprint_review: 34/1051 ready",
     "footprint_review: 1001 analytical footprint review rows failed validation",
     "footprint_review: 1017 analytical footprint review rows still pending",
@@ -199,18 +199,6 @@
             },
             {
               "draft_decision_available_rows": 0,
-              "field": "review_date",
-              "manual_decision_required_rows": 26,
-              "missing_required_rows": 26
-            },
-            {
-              "draft_decision_available_rows": 0,
-              "field": "reviewer",
-              "manual_decision_required_rows": 26,
-              "missing_required_rows": 26
-            },
-            {
-              "draft_decision_available_rows": 0,
               "field": "target_correct",
               "manual_decision_required_rows": 26,
               "missing_required_rows": 26
@@ -294,20 +282,7 @@
               "missing_required_rows": 26
             }
           ],
-          "metadata_fields_need_fill": [
-            {
-              "draft_decision_available_rows": 0,
-              "field": "review_date",
-              "manual_decision_required_rows": 26,
-              "missing_required_rows": 26
-            },
-            {
-              "draft_decision_available_rows": 0,
-              "field": "reviewer",
-              "manual_decision_required_rows": 26,
-              "missing_required_rows": 26
-            }
-          ],
+          "metadata_fields_need_fill": [],
           "other_fields_need_fill": [],
           "text_fields_need_fill": [
             {
@@ -355,24 +330,6 @@
             "suggested_other_rows": 0,
             "suggested_true_rows": 0
           },
-          "review_date": {
-            "draft_decision_available_rows": 0,
-            "manual_decision_required_rows": 26,
-            "missing_required_rows": 26,
-            "suggested_false_rows": 0,
-            "suggested_null_rows": 0,
-            "suggested_other_rows": 0,
-            "suggested_true_rows": 0
-          },
-          "reviewer": {
-            "draft_decision_available_rows": 0,
-            "manual_decision_required_rows": 26,
-            "missing_required_rows": 26,
-            "suggested_false_rows": 0,
-            "suggested_null_rows": 0,
-            "suggested_other_rows": 0,
-            "suggested_true_rows": 0
-          },
           "source_span_supports_claim": {
             "draft_decision_available_rows": 26,
             "manual_decision_required_rows": 0,
@@ -412,11 +369,11 @@
         },
         "current_batch_review_field_workload_summary": {
           "draft_decision_available_cells": 97,
-          "field_count": 10,
+          "field_count": 8,
           "fields_with_draft_decisions": 4,
-          "fields_with_manual_review_required": 8,
-          "manual_review_required_cells": 163,
-          "missing_required_cells": 260,
+          "fields_with_manual_review_required": 6,
+          "manual_review_required_cells": 111,
+          "missing_required_cells": 208,
           "suggested_false_cells": 21,
           "suggested_null_cells": 85,
           "suggested_other_cells": 0,
@@ -426,14 +383,14 @@
         "current_batch_target_aligned": true,
         "current_batch_target_covered_rows": 26,
         "current_batch_target_hash_mismatch_count": 0,
-        "final_batch_limit": 48,
+        "final_batch_limit": 47,
         "final_batch_offset": 0,
-        "next_batch_limit": 48,
+        "next_batch_limit": 47,
         "next_batch_offset": 0,
-        "next_batch_pending_row_end": 48,
+        "next_batch_pending_row_end": 47,
         "next_batch_pending_row_start": 1,
-        "pending_rows": 48,
-        "remaining_rows_after_current_batch": 22,
+        "pending_rows": 47,
+        "remaining_rows_after_current_batch": 21,
         "remaining_rows_after_next_batch": 0,
         "rerun_review_progress_after_batch_apply": true
       },
@@ -447,13 +404,13 @@
             "backfill_dry_run": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke backfill-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl",
             "backfill_write": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke backfill-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --write",
             "dry_run": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --dry-run",
-            "evidence": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-gold-review-evidence --root . --limit 48 --offset 0 --review-input registry/review_batches/gold_set_reviewed.jsonl",
-            "prepare": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke prepare-gold-review --root . --gold-batch-size 48 --offset 0 --force --reviewer <name> --review-date <YYYY-MM-DD>"
+            "evidence": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-gold-review-evidence --root . --limit 47 --offset 0 --review-input registry/review_batches/gold_set_reviewed.jsonl",
+            "prepare": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke prepare-gold-review --root . --gold-batch-size 47 --offset 0 --force --reviewer <name> --review-date <YYYY-MM-DD>"
           },
-          "limit": 48,
+          "limit": 47,
           "mode": "pending_offset_batch_before_applying_any_batch",
           "offset": 0,
-          "pending_row_end": 48,
+          "pending_row_end": 47,
           "pending_row_start": 1,
           "promotion_input_path": "registry/review_batches/gold_set_full_reviewed.jsonl",
           "target_review_template_path": "registry/gold_sets/tushare_research_reports.review_template.jsonl"
@@ -472,7 +429,7 @@
         "500 review rows: variable_mapping_correct must be boolean",
         "500 review rows: unsupported_field_false_grounded must be boolean",
         "2 additional validation reason(s) suppressed",
-        "48 gold-set claim review rows still pending"
+        "47 gold-set claim review rows still pending"
       ],
       "complete_rows": 158,
       "current_batch_status": {
@@ -550,24 +507,6 @@
               "suggested_true_rows": 0
             },
             "manual_claim_text": {
-              "draft_decision_available_rows": 0,
-              "manual_decision_required_rows": 26,
-              "missing_required_rows": 26,
-              "suggested_false_rows": 0,
-              "suggested_null_rows": 0,
-              "suggested_other_rows": 0,
-              "suggested_true_rows": 0
-            },
-            "review_date": {
-              "draft_decision_available_rows": 0,
-              "manual_decision_required_rows": 26,
-              "missing_required_rows": 26,
-              "suggested_false_rows": 0,
-              "suggested_null_rows": 0,
-              "suggested_other_rows": 0,
-              "suggested_true_rows": 0
-            },
-            "reviewer": {
               "draft_decision_available_rows": 0,
               "manual_decision_required_rows": 26,
               "missing_required_rows": 26,
@@ -660,8 +599,6 @@
           "direction_correct": 26,
           "horizon_correct": 26,
           "manual_claim_text": 26,
-          "review_date": 26,
-          "reviewer": 26,
           "source_span_supports_claim": 26,
           "target_correct": 26,
           "unsupported_field_false_grounded": 26,
@@ -682,7 +619,7 @@
           "target_malformed_rows": 0,
           "target_path": "registry/gold_sets/tushare_research_reports.review_template.jsonl",
           "target_row_hash_mismatch_count": 0,
-          "target_rows": 206
+          "target_rows": 205
         }
       },
       "dry_run_command": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl --dry-run",
@@ -695,9 +632,9 @@
         "backfill_dry_run": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke backfill-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl",
         "dry_run": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --dry-run",
         "evidence": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-gold-review-evidence --root . --limit 26 --offset 0 --review-input registry/review_batches/gold_set_reviewed.jsonl",
-        "prepare": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke prepare-gold-review --root . --gold-batch-size 48 --offset 0 --force --reviewer <name> --review-date <YYYY-MM-DD>"
+        "prepare": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke prepare-gold-review --root . --gold-batch-size 47 --offset 0 --force --reviewer <name> --review-date <YYYY-MM-DD>"
       },
-      "pending_rows": 48,
+      "pending_rows": 47,
       "prepare_command": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke prepare-gold-review --root . --full",
       "quality_gap_targets": {
         "active_gap_count": 4,
@@ -801,7 +738,7 @@
       "ready_for_promotion": false,
       "review_kind": "gold_set",
       "simulation_accepted": false,
-      "target_rows": 206
+      "target_rows": 205
     },
     {
       "apply_command": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_reviewed.jsonl",

@@ -6,7 +6,7 @@ It records paths, commands, row counts, acceptance criteria, and current blocker
 ## Current Progress
 
 - Promotion dry-run ready: false
-- Gold-set review: 158/206 complete; scratch exists: true; simulation accepted: false
+- Gold-set review: 158/205 complete; scratch exists: true; simulation accepted: false
 - Analytical-footprint review: 34/1051 complete; scratch exists: true; simulation accepted: false
 - Source-license review: 17529/17529 complete; scratch exists: true; simulation accepted: true
 - Lockbox review: 0/1 complete; scratch exists: true; simulation accepted: false
@@ -16,7 +16,7 @@ It records paths, commands, row counts, acceptance criteria, and current blocker
 
 This section reports aggregate completion counts for the current local batch or decision files only; it does not include source text, claim text, or reviewer notes.
 - Gold-set batch: `registry/review_batches/gold_set_reviewed.jsonl`; exists: true; rows: 26; complete: 0; pending: 26; malformed: 0
-  Missing required fields: `claim_correct`=26, `direction_correct`=26, `horizon_correct`=26, `manual_claim_text`=26, `review_date`=26, `reviewer`=26, `source_span_supports_claim`=26, `target_correct`=26, `unsupported_field_false_grounded`=26, `variable_mapping_correct`=26
+  Missing required fields: `claim_correct`=26, `direction_correct`=26, `horizon_correct`=26, `manual_claim_text`=26, `source_span_supports_claim`=26, `target_correct`=26, `unsupported_field_false_grounded`=26, `variable_mapping_correct`=26
   Evidence alignment: path=`registry/review_batches/gold_set_review_evidence.jsonl`; exists: true; rows: 26; covered: 26/26; same_order: true; aligned: true
   Evidence quality: snippet_ready: 26; missing_markdown: 0
   Evidence priority metadata: reason_ready: 26; missing_reason_rows: 0; refresh_recommended: false
@@ -25,11 +25,11 @@ This section reports aggregate completion counts for the current local batch or 
   Evidence priority scores: `2`=1, `5`=25
   Evidence priority reasons: `context_synthesis_required`=20, `forecast_mapping_insufficient`=5, `low_extraction_confidence`=25, `manual_review_required`=26
   Suggested decision counts: `claim_correct`={true:26}; `direction_correct`={null:2,true:24}; `horizon_correct`={null:26}; `source_span_supports_claim`={true:26}; `target_correct`={null:26}; `unsupported_field_false_grounded`={false:21,null:5}; `variable_mapping_correct`={null:26}
-  Review workload summary: missing_required_cells=260; draft_decision_available_cells=97; manual_review_required_cells=163; fields_with_manual_review_required=8
-  Review next fields: manual_required: `horizon_correct`=26, `manual_claim_text`=26, `review_date`=26, `reviewer`=26, `target_correct`=26, `variable_mapping_correct`=26, `unsupported_field_false_grounded`=5, `direction_correct`=2; draft_available: `claim_correct`=26, `source_span_supports_claim`=26, `direction_correct`=24, `unsupported_field_false_grounded`=21
-  Review workflow groups: decision: `horizon_correct`=26, `target_correct`=26, `variable_mapping_correct`=26, `unsupported_field_false_grounded`=5, `direction_correct`=2; metadata: `review_date`=26, `reviewer`=26; text: `manual_claim_text`=26; draft_verify: `unsupported_field_false_grounded`=21, `direction_correct`=24, `claim_correct`=26, `source_span_supports_claim`=26
-  Review field workload: `claim_correct`=missing:26,draft:26,manual:0; `direction_correct`=missing:26,draft:24,manual:2; `horizon_correct`=missing:26,draft:0,manual:26; `manual_claim_text`=missing:26,draft:0,manual:26; `review_date`=missing:26,draft:0,manual:26; `reviewer`=missing:26,draft:0,manual:26; `source_span_supports_claim`=missing:26,draft:26,manual:0; `target_correct`=missing:26,draft:0,manual:26; `unsupported_field_false_grounded`=missing:26,draft:21,manual:5; `variable_mapping_correct`=missing:26,draft:0,manual:26
-- Gold-set batch coverage: current scratch covers 26/48 pending target rows; remaining after current apply: 22; covers planned next batch: false
+  Review workload summary: missing_required_cells=208; draft_decision_available_cells=97; manual_review_required_cells=111; fields_with_manual_review_required=6
+  Review next fields: manual_required: `horizon_correct`=26, `manual_claim_text`=26, `target_correct`=26, `variable_mapping_correct`=26, `unsupported_field_false_grounded`=5, `direction_correct`=2; draft_available: `claim_correct`=26, `source_span_supports_claim`=26, `direction_correct`=24, `unsupported_field_false_grounded`=21
+  Review workflow groups: decision: `horizon_correct`=26, `target_correct`=26, `variable_mapping_correct`=26, `unsupported_field_false_grounded`=5, `direction_correct`=2; metadata: none; text: `manual_claim_text`=26; draft_verify: `unsupported_field_false_grounded`=21, `direction_correct`=24, `claim_correct`=26, `source_span_supports_claim`=26
+  Review field workload: `claim_correct`=missing:26,draft:26,manual:0; `direction_correct`=missing:26,draft:24,manual:2; `horizon_correct`=missing:26,draft:0,manual:26; `manual_claim_text`=missing:26,draft:0,manual:26; `source_span_supports_claim`=missing:26,draft:26,manual:0; `target_correct`=missing:26,draft:0,manual:26; `unsupported_field_false_grounded`=missing:26,draft:21,manual:5; `variable_mapping_correct`=missing:26,draft:0,manual:26
+- Gold-set batch coverage: current scratch covers 26/47 pending target rows; remaining after current apply: 21; covers planned next batch: false
 - Gold-set batch quality-gap review focus: `variable_mapping_accuracy`->`variable_mapping_correct` manual=26,draft=0,focus=5; `unsupported_field_false_grounding_rate`->`unsupported_field_false_grounded` manual=5,draft=21,focus=5; `direction_accuracy`->`direction_correct` manual=2,draft=24,focus=2
 - Analytical-footprint batch: `registry/report_intelligence/analytical_footprint_review_batch.jsonl`; exists: true; rows: 50; complete: 0; pending: 50; malformed: 0
   Missing required fields: `footprint_correct`=50, `inferred_steps_tagged_correctly`=50, `metric_mapping_correct`=50, `no_proprietary_text_leakage`=50, `review_notes`=50, `source_span_supports_footprint`=50, `unknowns_used_when_uncertain`=50
@@ -200,9 +200,9 @@ This plan slices the current pending set before any new batch is applied. If you
 
 ### Gold-set review
 
-- Batch 1: pending rows 1-48; limit=48; offset=0; batch input=`registry/review_batches/gold_set_reviewed.jsonl`; promotion input=`registry/review_batches/gold_set_full_reviewed.jsonl`
-  - evidence: `MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-gold-review-evidence --root . --limit 48 --offset 0 --review-input registry/review_batches/gold_set_reviewed.jsonl`
-  - prepare: `MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke prepare-gold-review --root . --gold-batch-size 48 --offset 0 --force --reviewer <name> --review-date <YYYY-MM-DD>`
+- Batch 1: pending rows 1-47; limit=47; offset=0; batch input=`registry/review_batches/gold_set_reviewed.jsonl`; promotion input=`registry/review_batches/gold_set_full_reviewed.jsonl`
+  - evidence: `MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-gold-review-evidence --root . --limit 47 --offset 0 --review-input registry/review_batches/gold_set_reviewed.jsonl`
+  - prepare: `MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke prepare-gold-review --root . --gold-batch-size 47 --offset 0 --force --reviewer <name> --review-date <YYYY-MM-DD>`
   - backfill_dry_run: `MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke backfill-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl`
   - backfill_write: `MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke backfill-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --write`
   - dry_run: `MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --dry-run`
@@ -345,7 +345,7 @@ These commands operate on the current pending set. After applying an accepted ba
 
 - assist: `MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-gold-review-assist --root . --review-input registry/review_batches/gold_set_reviewed.jsonl`
 - evidence: `MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-gold-review-evidence --root . --limit 26 --offset 0 --review-input registry/review_batches/gold_set_reviewed.jsonl`
-- prepare: `MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke prepare-gold-review --root . --gold-batch-size 48 --offset 0 --force --reviewer <name> --review-date <YYYY-MM-DD>`
+- prepare: `MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke prepare-gold-review --root . --gold-batch-size 47 --offset 0 --force --reviewer <name> --review-date <YYYY-MM-DD>`
 - backfill_dry_run: `MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke backfill-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl`
 - dry_run: `MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --dry-run`
 - apply: `MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl`
@@ -360,7 +360,7 @@ These commands operate on the current pending set. After applying an accepted ba
 
 ## Current Blockers
 
-- gold_set: 158/206 ready
+- gold_set: 158/205 ready
 - gold_set: 332 review ids are missing from target
 - gold_set: 500 review rows failed validation
 - gold_set: 168 review rows have stale target_row_hash; rerun `mosaic-rke prepare-gold-review --root . --full --force` before filling reviewer decisions
@@ -373,7 +373,7 @@ These commands operate on the current pending set. After applying an accepted ba
 - gold_set: 500 review rows: variable_mapping_correct must be boolean
 - gold_set: 500 review rows: unsupported_field_false_grounded must be boolean
 - gold_set: 2 additional validation reason(s) suppressed
-- gold_set: 48 gold-set claim review rows still pending
+- gold_set: 47 gold-set claim review rows still pending
 - footprint_review: 34/1051 ready
 - footprint_review: 1001 analytical footprint review rows failed validation
 - footprint_review: 1017 analytical footprint review rows still pending

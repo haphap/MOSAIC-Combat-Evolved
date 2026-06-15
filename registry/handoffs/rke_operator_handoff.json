@@ -326,18 +326,6 @@
             },
             {
               "draft_decision_available_rows": 0,
-              "field": "review_date",
-              "manual_decision_required_rows": 26,
-              "missing_required_rows": 26
-            },
-            {
-              "draft_decision_available_rows": 0,
-              "field": "reviewer",
-              "manual_decision_required_rows": 26,
-              "missing_required_rows": 26
-            },
-            {
-              "draft_decision_available_rows": 0,
               "field": "target_correct",
               "manual_decision_required_rows": 26,
               "missing_required_rows": 26
@@ -421,20 +409,7 @@
               "missing_required_rows": 26
             }
           ],
-          "metadata_fields_need_fill": [
-            {
-              "draft_decision_available_rows": 0,
-              "field": "review_date",
-              "manual_decision_required_rows": 26,
-              "missing_required_rows": 26
-            },
-            {
-              "draft_decision_available_rows": 0,
-              "field": "reviewer",
-              "manual_decision_required_rows": 26,
-              "missing_required_rows": 26
-            }
-          ],
+          "metadata_fields_need_fill": [],
           "other_fields_need_fill": [],
           "text_fields_need_fill": [
             {
@@ -482,24 +457,6 @@
             "suggested_other_rows": 0,
             "suggested_true_rows": 0
           },
-          "review_date": {
-            "draft_decision_available_rows": 0,
-            "manual_decision_required_rows": 26,
-            "missing_required_rows": 26,
-            "suggested_false_rows": 0,
-            "suggested_null_rows": 0,
-            "suggested_other_rows": 0,
-            "suggested_true_rows": 0
-          },
-          "reviewer": {
-            "draft_decision_available_rows": 0,
-            "manual_decision_required_rows": 26,
-            "missing_required_rows": 26,
-            "suggested_false_rows": 0,
-            "suggested_null_rows": 0,
-            "suggested_other_rows": 0,
-            "suggested_true_rows": 0
-          },
           "source_span_supports_claim": {
             "draft_decision_available_rows": 26,
             "manual_decision_required_rows": 0,
@@ -539,11 +496,11 @@
         },
         "current_batch_review_field_workload_summary": {
           "draft_decision_available_cells": 97,
-          "field_count": 10,
+          "field_count": 8,
           "fields_with_draft_decisions": 4,
-          "fields_with_manual_review_required": 8,
-          "manual_review_required_cells": 163,
-          "missing_required_cells": 260,
+          "fields_with_manual_review_required": 6,
+          "manual_review_required_cells": 111,
+          "missing_required_cells": 208,
           "suggested_false_cells": 21,
           "suggested_null_cells": 85,
           "suggested_other_cells": 0,
@@ -553,14 +510,14 @@
         "current_batch_target_aligned": true,
         "current_batch_target_covered_rows": 26,
         "current_batch_target_hash_mismatch_count": 0,
-        "final_batch_limit": 48,
+        "final_batch_limit": 47,
         "final_batch_offset": 0,
-        "next_batch_limit": 48,
+        "next_batch_limit": 47,
         "next_batch_offset": 0,
-        "next_batch_pending_row_end": 48,
+        "next_batch_pending_row_end": 47,
         "next_batch_pending_row_start": 1,
-        "pending_rows": 48,
-        "remaining_rows_after_current_batch": 22,
+        "pending_rows": 47,
+        "remaining_rows_after_current_batch": 21,
         "remaining_rows_after_next_batch": 0,
         "rerun_review_progress_after_batch_apply": true
       },

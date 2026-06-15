@@ -90,6 +90,13 @@ INVESTMENT_RECOMMENDATION_RE = re.compile(
     r"^\s*(?:建议关注|建议重点关注|维持|给予|首次覆盖|上调至|下调至).{0,120}"
     r"(?:标的|公司|评级|买入|增持|推荐|目标价)"
 )
+TRAILING_RATING_SUFFIX_RE = re.compile(
+    r"(?:[，,；;。]\s*)?"
+    r"(?:(?:首次覆盖(?:[，,]\s*)?)|(?:维持|给予|上调至|下调至|调升至|调降至)\s*(?:至)?\s*)"
+    r"[“\"']?"
+    r"(?:强烈推荐|推荐|买入|增持|减持|中性|卖出|看好|看淡|优于大市|强于大市|跑赢市场|跑赢行业)"
+    r"[”\"']?\s*评级\s*[。；;]?\s*$"
+)
 SHORT_VIEW_SLOGAN_RE = re.compile(r"^\s*(?:关注|看好|建议关注).{0,24}(?:机会|主线|方向|标的)\s*[。；;]?\s*$")
 DESCRIPTIVE_NEWS_PREFIX_RE = re.compile(r"^\s*据.{0,32}消息[，,]")
 RESEARCH_CITATION_RE = re.compile(
@@ -134,6 +141,25 @@ FRAGMENT_SEPARATOR_TERMS = ("·", "+", " / ", "｜", "|")
 
 def _normalized_text(text: str) -> str:
     return re.sub(r"\s+", " ", str(text or "")).strip()
+
+
+def strip_trailing_rating_suffix(text: str) -> str:
+    """Remove trailing rating boilerplate while preserving the forecast clause."""
+
+    normalized = _normalized_text(text)
+    if not normalized:
+        return ""
+    cleaned = normalized
+    while True:
+        next_value = TRAILING_RATING_SUFFIX_RE.sub("", cleaned).strip()
+        if next_value == cleaned:
+            break
+        cleaned = next_value.rstrip("，,；;。 ")
+    if not cleaned:
+        return ""
+    if normalized.endswith(("。", "；", ";")) and not cleaned.endswith(("。", "；", ";")):
+        cleaned += "。"
+    return cleaned
 
 
 def _non_overlapping_risk_term_hits(text: str) -> tuple[str, ...]:

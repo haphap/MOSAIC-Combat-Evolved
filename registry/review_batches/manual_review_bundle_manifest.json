@@ -3,22 +3,22 @@
   "artifact_count": 11,
   "artifacts": [
     {
-      "bytes": 52573,
+      "bytes": 51069,
       "exists": true,
       "format": "json",
       "path": "registry/handoffs/rke_operator_handoff.json",
       "role": "operator_handoff_json",
       "row_count": null,
-      "sha256": "sha256:befaf68ce1fb46dcf276ead6419a2ba82b8bbf13f1db375a23cea5c34c7799a1"
+      "sha256": "sha256:e41542db8c8574af24f34f29a91d97f10f3e2648481f18f5f9100cdea7cca401"
     },
     {
-      "bytes": 21087,
+      "bytes": 21086,
       "exists": true,
       "format": "markdown",
       "path": "registry/handoffs/rke_operator_handoff.md",
       "role": "operator_handoff_markdown",
       "row_count": null,
-      "sha256": "sha256:a0e126f0d11d8fc1483569f0a2b12e03f54b254239472cd742f9315f0645086f"
+      "sha256": "sha256:5fc3fda4feaae51877b7daa1e19da6fb43b671d9fa434011e0f532cc97e843d1"
     },
     {
       "bytes": 3009,
@@ -27,25 +27,25 @@
       "path": "registry/review_batches/manual_review_batch_status.json",
       "role": "manual_review_batch_status",
       "row_count": null,
-      "sha256": "sha256:1742b0386bd805b2092616d1a50fdf0f4da82da6c2957476cb95f776b9cb7b8a"
+      "sha256": "sha256:67e06c3f49c14eccbae436d21d27a29f9b2af3afbf2bcc7fa162fe73cdfb2b14"
     },
     {
-      "bytes": 93524,
+      "bytes": 91270,
       "exists": true,
       "format": "json",
       "path": "registry/review_batches/manual_review_progress_report.json",
       "role": "manual_review_progress_report",
       "row_count": null,
-      "sha256": "sha256:5a4edbc0b971728f2ef6bee2c2ecd46f5a756db57019a25f578e8abedccb387a"
+      "sha256": "sha256:665fba4d0c993e30a8bc3affa407946f700717b78fae4ee3062e80fd3309cf27"
     },
     {
-      "bytes": 51838,
+      "bytes": 51660,
       "exists": true,
       "format": "markdown",
       "path": "registry/review_batches/manual_review_runbook.md",
       "role": "manual_review_runbook_markdown",
       "row_count": null,
-      "sha256": "sha256:bdb8fce6770374d39d2373228f46db17a222a8e436115630a87050970145eb5e"
+      "sha256": "sha256:0119875db236aa6e8b8e80fe304206881a95d13518a7f9a5e213229989683766"
     },
     {
       "bytes": 1339,

@@ -15,7 +15,7 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from .claim_text_filters import is_non_research_claim_text
+from .claim_text_filters import is_non_research_claim_text, strip_trailing_rating_suffix
 from .claim_vocabulary import load_claim_variable_vocabulary
 from .manual_review_batches import gold_candidate_reviewable
 from .phase_minus1 import build_gold_set_review_template, load_jsonl_with_errors
@@ -487,7 +487,8 @@ def _source_sentences(text: str) -> list[tuple[int, int, str, tuple[str, ...]]]:
     scored: list[tuple[int, int, int, str, tuple[str, ...]]] = []
     seen_keys: set[str] = set()
     for match in SENTENCE_RE.finditer(text):
-        sentence = match.group(0).strip()
+        raw_sentence = match.group(0).strip()
+        sentence = strip_trailing_rating_suffix(raw_sentence)
         claim_key = _normalized_claim_key(sentence)
         if not claim_key or claim_key in seen_keys:
             continue
@@ -1042,14 +1043,15 @@ def _candidate_claim_for_review_row(
         keywords = ()
         candidate_available = False
 
+    claim_text = strip_trailing_rating_suffix(sentence)
     cause_variables, target_variables, variable_flags = _variable_pair(
-        sentence,
+        claim_text,
         query_key=str(candidate.get("query_key") or ""),
         industry=str(candidate.get("industry") or ""),
         ts_code=str(candidate.get("ts_code") or ""),
         known_variable_ids=known_variable_ids,
     )
-    direction = _direction(sentence)
+    direction = _direction(claim_text)
     direction_flags = (
         ("direction_conflict_requires_review",)
         if direction not in TESTABLE_DIRECTIONS
@@ -1068,10 +1070,10 @@ def _candidate_claim_for_review_row(
         risk_flags.append("low_mechanism_keyword_support")
     if source_id not in approved_license_source_ids and str(candidate.get("license_status") or "") != "approved":
         risk_flags.append("license_pending")
-    if len(sentence) > 220:
+    if len(claim_text) > 220:
         risk_flags.append("long_candidate_sentence")
 
-    claim_type = _claim_type(sentence, keywords)
+    claim_type = _claim_type(claim_text, keywords)
     return GoldCandidateClaim(
         claim_id=str(review_row.get("claim_id") or f"GOLD-{source_id}-{row_index + 1:03d}"),
         source_id=source_id,
@@ -1085,10 +1087,10 @@ def _candidate_claim_for_review_row(
         source_span_ref_id=f"{source_span_id}:candidate-{row_index + 1:02d}",
         source_start_char=start_char,
         source_end_char=end_char,
-        source_text_hash=_short_hash(sentence),
+        source_text_hash=_short_hash(claim_text),
         candidate_available=candidate_available,
         claim_type=claim_type,
-        claim_text=sentence,
+        claim_text=claim_text,
         cause_variables=cause_variables,
         target_variables=target_variables,
         direction=direction,
@@ -1138,7 +1140,9 @@ def _source_report_claims(
     seen_by_source: dict[str, set[str]] = {}
     for row in rows:
         source_id = str(row.get("source_id") or "")
-        claim_text = str(row.get("claim_text") or "").strip()
+        claim_text = strip_trailing_rating_suffix(
+            str(row.get("claim_text") or "").strip()
+        )
         forecast_type = str(row.get("forecast_type") or "").lower()
         if any(term in forecast_type for term in ("rating", "recommendation")):
             continue
@@ -1155,7 +1159,7 @@ def _source_report_claims(
             and not _similar_to_existing_claim(claim_text, existing_claim_texts)
         ):
             seen_by_source[source_id].add(claim_key)
-            grouped.setdefault(source_id, []).append(row)
+            grouped.setdefault(source_id, []).append({**row, "claim_text": claim_text})
     blockers = list(parse_blockers)
     if invalid_rows:
         blockers.append(
@@ -1248,7 +1252,9 @@ def _candidate_claim_from_report_intelligence(
         or review_row.get("source_span_id")
         or f"{source_id}:original_markdown"
     )
-    claim_text = str(report_claim.get("claim_text") or "").strip()
+    claim_text = strip_trailing_rating_suffix(
+        str(report_claim.get("claim_text") or "").strip()
+    )
     span_ref_id = _source_span_ref_id_from_report_claim(
         report_claim,
         source_span_id,

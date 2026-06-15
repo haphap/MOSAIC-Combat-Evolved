@@ -21,7 +21,7 @@
     "first_pending_id": "GOLD-SRC-TSRR-20260605-842e9b173c8e3de2-001",
     "full_import_template_path": "registry/review_batches/gold_set_full_import_template.jsonl",
     "import_template_path": "registry/review_batches/gold_set_next_import_template.jsonl",
-    "last_pending_id": "GOLD-SRC-TSRR-20260605-1f1eba5b47730792-001",
+    "last_pending_id": "GOLD-SRC-TSRR-20260531-12c922ef7bc07448-002",
     "pending_rows": 26,
     "required_manual_fields": [
       "manual_claim_text",
@@ -39,7 +39,7 @@
     "review_kind": "gold_set",
     "review_packet_path": "registry/gold_sets/tushare_research_reports.review_packet.json",
     "target_path": "registry/gold_sets/tushare_research_reports.review_template.jsonl",
-    "total_rows": 206
+    "total_rows": 205
   },
   "ready_for_manual_review": true,
   "source_license": {

@@ -11,6 +11,7 @@ from mosaic.rke import (
     merge_candidate_claims_into_review_template,
     write_gold_candidate_claims,
 )
+from mosaic.rke.claim_text_filters import strip_trailing_rating_suffix
 from mosaic.rke.gold_candidate_claims import _direction, _source_sentences, _variable_pair
 from mosaic.rke.gold_candidate_claims import _candidate_claim_from_report_intelligence
 from mosaic.rke.manual_review_batches import gold_candidate_reviewable
@@ -1068,6 +1069,49 @@ def test_gold_candidate_claims_skip_rating_forecast_type_report_claims(
     assert "original_markdown_forecast_claim" not in first_claim.review_risk_flags
 
 
+def test_gold_candidate_claims_strip_trailing_rating_from_report_claim(
+    tmp_path: Path,
+):
+    shutil.copytree(Path("registry"), tmp_path / "registry")
+    review_path = tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    review_rows = [json.loads(line) for line in review_path.read_text(encoding="utf-8").splitlines()]
+    first_review = review_rows[0]
+    source_id = first_review["source_id"]
+    report_claim_path = tmp_path / "registry/report_intelligence/forecast_claims.jsonl"
+    report_claim_path.parent.mkdir(parents=True, exist_ok=True)
+    report_claim_path.write_text(
+        json.dumps(
+            {
+                "claim_provenance": "source_grounded",
+                "claim_text": "若铜矿开采周期性增长延续，公司锂电回收布局有望贡献增量，维持至“增持”评级。",
+                "direction": "positive",
+                "extraction_quality": {"mapping_gaps": []},
+                "forecast_claim_id": "FC-RATING-SUFFIX-001",
+                "forecast_testability": "testable",
+                "forecast_type": "causal_mechanism",
+                "metric_proxy_mapping": [
+                    "commodity_price_cycle",
+                    "stock_forward_excess_return",
+                ],
+                "source_id": source_id,
+                "source_span_ids": [f"{source_id}:original_markdown:chunk-001"],
+                "target": {"target_id": "stock_forward_excess_return"},
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    claims = build_gold_candidate_claims(tmp_path)
+    first_claim = next(claim for claim in claims if claim.claim_id == first_review["claim_id"])
+
+    assert first_claim.claim_text == "若铜矿开采周期性增长延续，公司锂电回收布局有望贡献增量。"
+    assert "评级" not in first_claim.claim_text
+    assert "original_markdown_forecast_claim" in first_claim.review_risk_flags
+
+
 def test_gold_candidate_claims_fallback_to_original_markdown_sentences(tmp_path: Path):
     shutil.copytree(Path("registry"), tmp_path / "registry")
     review_path = tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
@@ -1177,6 +1221,50 @@ def test_gold_candidate_claims_skip_disclaimer_and_rating_definition_markdown_se
     assert first_claim.claim_text == "原文Markdown句子显示，政策支持与流动性改善将推动行业景气提升。"
     assert "不构成投资建议" not in first_claim.claim_text
     assert "行业评级" not in first_claim.claim_text
+
+
+def test_gold_candidate_claims_strip_trailing_rating_from_markdown_sentence(
+    tmp_path: Path,
+):
+    assert (
+        strip_trailing_rating_suffix(
+            "看好下游铜矿开采端的周期性增长预期以及公司在锂电回收业务的布局，维持至“增持”评级。"
+        )
+        == "看好下游铜矿开采端的周期性增长预期以及公司在锂电回收业务的布局。"
+    )
+    shutil.copytree(Path("registry"), tmp_path / "registry")
+    review_path = tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    review_rows = [json.loads(line) for line in review_path.read_text(encoding="utf-8").splitlines()]
+    first_review = review_rows[0]
+    source_id = first_review["source_id"]
+    markdown_text = (
+        "看好下游铜矿开采端的周期性增长预期以及公司在锂电回收业务的布局，"
+        "维持至“增持”评级。"
+    )
+    markdown_path = tmp_path / ".mosaic/rke/report_intelligence/markdown" / f"{source_id}.md"
+    markdown_path.parent.mkdir(parents=True, exist_ok=True)
+    markdown_path.write_text(markdown_text, encoding="utf-8")
+    report_dir = tmp_path / "registry/report_intelligence"
+    report_dir.mkdir(parents=True, exist_ok=True)
+    (report_dir / "forecast_claims.jsonl").write_text("", encoding="utf-8")
+    (report_dir / "report_metadata.jsonl").write_text(
+        json.dumps(
+            {
+                "markdown": {"path": f".mosaic/rke/report_intelligence/markdown/{source_id}.md"},
+                "source_id": source_id,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    claims = build_gold_candidate_claims(tmp_path)
+    first_claim = next(claim for claim in claims if claim.claim_id == first_review["claim_id"])
+
+    assert first_claim.claim_text == "看好下游铜矿开采端的周期性增长预期以及公司在锂电回收业务的布局。"
+    assert "评级" not in first_claim.claim_text
 
 
 def test_gold_candidate_claims_report_malformed_rows_without_rewriting_review_template(tmp_path: Path):

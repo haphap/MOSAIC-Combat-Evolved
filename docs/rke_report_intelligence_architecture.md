@@ -302,11 +302,11 @@ uv run mosaic-rke validate-required --root .
 测试建议：
 
 ```bash
-MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke uv run pytest --basetemp=~/tmp/mosaic-rke/pytest-rke-full -q
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run pytest --basetemp=.mosaic/tmp/pytest-rke-full -q
 uvx ruff@0.15.15 check $(git diff --name-only -- '*.py')
 ```
 
-`--basetemp` 放在 repo 外并固定到 `~/tmp/mosaic-rke` 是为了避免大型 registry copy 留在仓库，也避免占用系统 `/tmp` tmpfs。
+`--basetemp` 固定到 repo-local 且被 gitignore 的 `.mosaic/tmp`，避免大型 registry copy 落到系统 `/tmp` tmpfs 或被误提交。
 
 ## 9. 与 RKE master plan 的关系
 
