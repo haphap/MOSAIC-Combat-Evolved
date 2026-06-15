@@ -991,6 +991,7 @@ class AnalyticalFootprintReviewEvidenceReport:
     blockers: Sequence[str]
     selection_source: str = "priority_sorted_pending"
     review_input_path: str = ""
+    quality_gap_targets: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -5113,6 +5114,9 @@ def build_analytical_footprint_review_assist(
         for index, row in enumerate(pending_rows, 1)
     )
     review_summary = build_analytical_footprint_review_summary(target_rows)
+    quality_gap_targets = _footprint_review_quality_gap_targets_from_summary(
+        review_summary
+    )
     blockers: list[str] = [*target_parse_blockers, *input_blockers]
     if invalid_target_rows:
         blockers.append(
@@ -5135,7 +5139,7 @@ def build_analytical_footprint_review_assist(
             blockers=tuple(blockers),
             selection_source=selection_source,
             review_input_path=review_input_text,
-            quality_gap_targets=review_summary.get("quality_gap_targets"),
+            quality_gap_targets=quality_gap_targets,
         ),
         assist_rows,
     )
@@ -5964,6 +5968,10 @@ def build_analytical_footprint_review_evidence(
     if not metadata_rows:
         blockers.append("report metadata has no valid rows")
     missing_markdown_rows = sum(1 for row in evidence_rows if not row.get("markdown_exists"))
+    review_summary = build_analytical_footprint_review_summary(target_rows)
+    quality_gap_targets = _footprint_review_quality_gap_targets_from_summary(
+        review_summary
+    )
     return (
         AnalyticalFootprintReviewEvidenceReport(
             report_id="RKE-REPORT-INTELLIGENCE-FOOTPRINT-REVIEW-EVIDENCE",
@@ -5979,6 +5987,7 @@ def build_analytical_footprint_review_evidence(
             blockers=tuple(blockers),
             selection_source=selection_source,
             review_input_path=review_input_text,
+            quality_gap_targets=quality_gap_targets,
         ),
         evidence_rows,
     )
@@ -6128,6 +6137,23 @@ def render_analytical_footprint_review_evidence_markdown(
     if report.blockers:
         lines.extend(["## Blockers", ""])
         lines.extend(f"- {blocker}" for blocker in report.blockers)
+        lines.append("")
+    if report.quality_gap_targets:
+        lines.extend(["## Quality Gate Gap Targets", ""])
+        lines.append(
+            "Aggregate only; these counts contain no source text and are not import decisions."
+        )
+        lines.append("")
+        metrics = report.quality_gap_targets.get("metrics", {})
+        if isinstance(metrics, Mapping):
+            for metric, target in metrics.items():
+                if not isinstance(target, Mapping) or target.get("is_passing") is True:
+                    continue
+                lines.append(
+                    "- "
+                    f"{metric}: {target.get('current_rate')} / {target.get('threshold')} "
+                    f"(need +{target.get('minimum_additional_pass_count_if_denominator_unchanged')})"
+                )
         lines.append("")
     for row in rows:
         lines.extend(

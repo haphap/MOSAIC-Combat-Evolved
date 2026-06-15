@@ -11264,9 +11264,21 @@ def test_analytical_footprint_review_summary_requires_quality_thresholds(
 
     assist_report = write_analytical_footprint_review_assist(tmp_path)
     markdown = (tmp_path / assist_report.markdown_path).read_text(encoding="utf-8")
+    evidence_report = write_analytical_footprint_review_evidence(tmp_path)
+    evidence_markdown = (tmp_path / evidence_report.markdown_path).read_text(
+        encoding="utf-8"
+    )
 
     assert assist_report.quality_gap_targets is not None
     assert "## Quality Gate Gap Targets" in markdown
+    assert evidence_report.quality_gap_targets is not None
+    assert (
+        evidence_report.quality_gap_targets["metrics"]["metric_mapping_accuracy"][
+            "minimum_additional_pass_count_if_denominator_unchanged"
+        ]
+        == metric_gap["minimum_additional_pass_count_if_denominator_unchanged"]
+    )
+    assert "## Quality Gate Gap Targets" in evidence_markdown
 
 
 def test_apply_analytical_footprint_review_import_rejects_stale_or_leaky_rows(

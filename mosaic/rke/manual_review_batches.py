@@ -136,6 +136,7 @@ class GoldReviewEvidenceSummary:
     blockers: Sequence[str]
     selection_source: str = "priority_sorted_pending"
     review_input_path: str = ""
+    quality_gap_targets: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -1512,6 +1513,11 @@ def build_gold_review_evidence(
     if not source_rows:
         blockers.append("tushare research report source rows are missing or empty")
     missing_markdown_rows = sum(1 for row in evidence_rows if not row.get("markdown_exists"))
+    gold_summary = summarize_gold_set_review(root_path)
+    quality_gap_targets = _gold_quality_gap_targets_from_summary(
+        root_path,
+        gold_summary,
+    )
     return (
         GoldReviewEvidenceSummary(
             evidence_id="RKE-GOLD-REVIEW-EVIDENCE-20260612",
@@ -1527,6 +1533,7 @@ def build_gold_review_evidence(
             blockers=tuple(blockers),
             selection_source=selection_source,
             review_input_path=review_input_text,
+            quality_gap_targets=quality_gap_targets,
         ),
         evidence_rows,
     )
@@ -1602,6 +1609,30 @@ def render_gold_review_evidence_markdown(
     if summary.blockers:
         lines.extend(["## Blockers", ""])
         lines.extend(f"- {blocker}" for blocker in summary.blockers)
+        lines.append("")
+    if summary.quality_gap_targets:
+        lines.extend(["## Quality Gate Gap Targets", ""])
+        lines.append(
+            "Aggregate only; these counts contain no source text and are not import decisions."
+        )
+        lines.append("")
+        metrics = summary.quality_gap_targets.get("metrics", {})
+        if isinstance(metrics, Mapping):
+            for metric, target in metrics.items():
+                if not isinstance(target, Mapping) or target.get("is_passing") is True:
+                    continue
+                if target.get("operator") == ">=":
+                    lines.append(
+                        "- "
+                        f"{metric}: {target.get('current_rate')} / {target.get('threshold')} "
+                        f"(need +{target.get('minimum_additional_pass_count_if_denominator_unchanged')})"
+                    )
+                else:
+                    lines.append(
+                        "- "
+                        f"{metric}: {target.get('current_rate')} / {target.get('threshold')} "
+                        f"(excess {target.get('minimum_excess_true_count_if_denominator_unchanged')})"
+                    )
         lines.append("")
     for row in rows:
         lines.extend(
@@ -1690,6 +1721,7 @@ def write_gold_review_evidence(
         "evidence_rows": summary.evidence_rows,
         "missing_markdown_rows": summary.missing_markdown_rows,
         "blockers": len(summary.blockers),
+        "quality_gap_targets": summary.quality_gap_targets,
     }
 
 

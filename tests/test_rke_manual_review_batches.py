@@ -326,8 +326,14 @@ def test_gold_review_evidence_is_private_non_import_review_aid(tmp_path: Path):
 
     assert result["rows"] == 2
     assert result["evidence_rows"] == 2
+    assert result["quality_gap_targets"]["metrics"]["direction_accuracy"][
+        "current_rate"
+    ] is not None
     assert summary.row_count == 2
     assert summary.evidence_rows == 2
+    assert summary.quality_gap_targets["metrics"]["variable_mapping_accuracy"][
+        "current_rate"
+    ] is not None
     assert summary.blockers == ()
     assert len(rows) == 2
     assert len(written_rows) == 2
@@ -343,6 +349,7 @@ def test_gold_review_evidence_is_private_non_import_review_aid(tmp_path: Path):
     assert "Suggested tag counts" in markdown
     assert "Proposed risk flag counts" in markdown
     assert "Suggested decision counts" in markdown
+    assert "## Quality Gate Gap Targets" in markdown
     assert "Suggested decision rationales" in markdown
     assert "not an import file" in markdown
     assert (tmp_path / "registry/review_batches/gold_set_review_evidence.md").exists()
