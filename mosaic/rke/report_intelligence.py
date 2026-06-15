@@ -14280,7 +14280,8 @@ def _forecast_gold_review_gate(
         or 0
     )
     stock_target_conflict_explained = (
-        gold.get("stock_target_conflict_explained") is True
+        stock_target_conflict_count == 0
+        or gold.get("stock_target_conflict_explained") is True
         or metrics.get("stock_target_conflict_explained") is True
         or (
             stock_target_conflict_count > 0
