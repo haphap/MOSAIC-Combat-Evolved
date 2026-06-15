@@ -39,13 +39,13 @@
       "sha256": "sha256:bd78ac0555ad033a9b11f4a19cc9d8d9bcd0091554375439ad9ace48188fb2ed"
     },
     {
-      "bytes": 46898,
+      "bytes": 47202,
       "exists": true,
       "format": "markdown",
       "path": "registry/review_batches/manual_review_runbook.md",
       "role": "manual_review_runbook_markdown",
       "row_count": null,
-      "sha256": "sha256:c0ff7a86b47ef76e6ad131536331f9d1cac69f227148f8e23e3ee384b08e27ad"
+      "sha256": "sha256:3c56fbf37b2da9db0aa0bcecaecabaecd92cd038e438300f6302a085606d8851"
     },
     {
       "bytes": 1339,

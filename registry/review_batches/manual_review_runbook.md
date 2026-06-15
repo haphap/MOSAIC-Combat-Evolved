@@ -18,9 +18,11 @@ This section reports aggregate completion counts for the current local batch or 
 - Gold-set batch: `registry/review_batches/gold_set_reviewed.jsonl`; exists: true; rows: 26; complete: 0; pending: 26; malformed: 0
   Missing required fields: `claim_correct`=26, `direction_correct`=26, `horizon_correct`=26, `manual_claim_text`=26, `review_date`=26, `reviewer`=26, `source_span_supports_claim`=26, `target_correct`=26, `unsupported_field_false_grounded`=26, `variable_mapping_correct`=26
   Evidence alignment: path=`registry/review_batches/gold_set_review_evidence.jsonl`; exists: true; rows: 26; covered: 26/26; same_order: true; aligned: true
+- Gold-set batch coverage: current scratch covers 26/48 pending target rows; remaining after current apply: 22; covers planned next batch: false
 - Analytical-footprint batch: `registry/report_intelligence/analytical_footprint_review_batch.jsonl`; exists: true; rows: 50; complete: 0; pending: 50; malformed: 0
   Missing required fields: `footprint_correct`=50, `inferred_steps_tagged_correctly`=50, `metric_mapping_correct`=50, `no_proprietary_text_leakage`=50, `review_notes`=50, `source_span_supports_footprint`=50, `unknowns_used_when_uncertain`=50
   Evidence alignment: path=`registry/report_intelligence/analytical_footprint_review_evidence.jsonl`; exists: true; rows: 50; covered: 50/50; same_order: true; aligned: true
+- Analytical-footprint batch coverage: current scratch covers 50/1017 pending target rows; remaining after current apply: 967; covers planned next batch: true
 - Lockbox decision: `registry/review_batches/lockbox_reviewed.json`; exists: true; rows: 1; complete: 0; pending: 1; malformed: 0
   Missing required fields: `open_count`=1, `opened_at`=1, `opened_by`=1, `result`=1
 

@@ -251,8 +251,9 @@ review template now has 206 rows, with 158 complete and 48 still pending. The
 stale full reviewed import must be regenerated after the expanded batch is
 manually filled. The action queue now reports both planned-batch and
 current-scratch coverage: the active 26-row scratch covers 26 of the 48 pending
-target rows, so `remaining_rows_after_current_batch=22` and
-`current_batch_covers_next_batch=false`.
+target rows, so `remaining_rows_after_current_batch=22`,
+`current_batch_covers_next_batch=false`, and
+`post_current_batch_action=apply_current_batch_then_rerun_review_progress`.
 The current local analytical-footprint scratch has 50 rows, 0 complete rows,
 and 50 pending rows; its evidence and target hashes are aligned. New
 analytical-footprint batches should be prepared with `--priority`, which sorts
@@ -457,7 +458,8 @@ rows; its private evidence draft is aligned with the same 26 scratch rows. The
 promotion gold-set import remains not ready because the expanded current batch
 still requires manual decisions before the full reviewed import can be
 regenerated; after applying that current scratch, 22 target rows will still need
-a refreshed batch. The previous stale
+a refreshed batch, so the action queue explicitly tells the operator to rerun
+`review-progress` after applying the current batch. The previous stale
 analytical-footprint scratch was backed up under `.mosaic/tmp/review-backups/`
 before overwrite. The current active analytical-footprint batch has 50 rows,
 0 complete rows, 50 pending rows, and no target-row-hash mismatches against the

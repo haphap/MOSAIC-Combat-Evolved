@@ -1637,6 +1637,7 @@ def test_review_progress_reports_partial_gold_scratch(tmp_path: Path):
     gold = next(gate for gate in report.gates if gate.review_kind == "gold_set")
     action_queue = build_manual_review_action_queue(report, review_kinds=("gold_set",))
     action = action_queue["actions"][0]
+    markdown = render_manual_review_runbook_markdown(report)
 
     assert not report.ready_for_promotion_dry_run
     assert gold.input_exists
@@ -1646,11 +1647,24 @@ def test_review_progress_reports_partial_gold_scratch(tmp_path: Path):
     assert not gold.ready_for_promotion
     assert any("450 gold-set claim review rows still pending" in blocker for blocker in gold.blockers)
     assert action["action_state"] == "needs_human_review_fields"
+    assert (
+        action["post_current_batch_action"]
+        == "apply_current_batch_then_rerun_review_progress"
+    )
+    assert "Current scratch covers 20 of 450 pending target rows" in action[
+        "operator_hint"
+    ]
+    assert "prepare the remaining 430 rows" in action["operator_hint"]
     assert action["batch_overview"]["current_batch_rows"] == 20
     assert action["batch_overview"]["current_batch_target_covered_rows"] == 20
     assert action["batch_overview"]["remaining_rows_after_current_batch"] == 430
     assert action["batch_overview"]["remaining_rows_after_next_batch"] == 400
     assert action["batch_overview"]["current_batch_covers_next_batch"] is False
+    assert (
+        "Gold-set batch coverage: current scratch covers 20/450 pending target rows; "
+        "remaining after current apply: 430; covers planned next batch: false"
+        in markdown
+    )
 
 
 def test_review_progress_reports_stale_gold_scratch_hashes(tmp_path: Path):

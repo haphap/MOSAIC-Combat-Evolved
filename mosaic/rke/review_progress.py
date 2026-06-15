@@ -1214,6 +1214,29 @@ def _render_batch_status_lines(label: str, status: Mapping[str, Any]) -> list[st
     return lines
 
 
+def _render_current_batch_coverage_lines(
+    label: str,
+    gate: ManualReviewGateProgress,
+) -> list[str]:
+    overview = _compact_batch_overview(gate)
+    if not overview or gate.ready_for_promotion:
+        return []
+    covered_rows = int(overview.get("current_batch_target_covered_rows") or 0)
+    pending_rows = int(overview.get("pending_rows") or 0)
+    if covered_rows <= 0 or pending_rows <= 0:
+        return []
+    remaining_rows = int(overview.get("remaining_rows_after_current_batch") or 0)
+    covers_next_batch = bool(overview.get("current_batch_covers_next_batch"))
+    return [
+        (
+            f"- {label} coverage: current scratch covers {covered_rows}/"
+            f"{pending_rows} pending target rows; remaining after current apply: "
+            f"{remaining_rows}; covers planned next batch: "
+            f"{str(covers_next_batch).lower()}"
+        )
+    ]
+
+
 def _render_batch_plan_lines(label: str, batch_plan: Sequence[Mapping[str, Any]]) -> list[str]:
     if not batch_plan:
         return [f"- {label}: no pending review batches."]
@@ -1745,7 +1768,26 @@ def _action_queue_commands(
     return {}
 
 
-def _action_queue_hint(action: str) -> str:
+def _post_current_batch_action(
+    action: str,
+    batch_overview: Mapping[str, Any],
+) -> str:
+    if action != "fill_current_batch_review_fields_then_dry_run":
+        return ""
+    covered_rows = int(batch_overview.get("current_batch_target_covered_rows") or 0)
+    if covered_rows <= 0:
+        return ""
+    remaining_rows = int(batch_overview.get("remaining_rows_after_current_batch") or 0)
+    if remaining_rows > 0:
+        return "apply_current_batch_then_rerun_review_progress"
+    return "apply_current_batch_then_prepare_promotion_import"
+
+
+def _action_queue_hint(
+    action: str,
+    *,
+    batch_overview: Mapping[str, Any] | None = None,
+) -> str:
     hints = {
         "ready_for_promotion_apply": "Gate is ready; run dry-run, then apply if accepted.",
         "already_applied": "Gate is already applied; no operator action is required.",
@@ -1773,7 +1815,25 @@ def _action_queue_hint(action: str) -> str:
         ),
         "prepare_lockbox_review": "Prepare the lockbox review after upstream gates pass.",
     }
-    return hints.get(action, "Inspect gate blockers before proceeding.")
+    hint = hints.get(action, "Inspect gate blockers before proceeding.")
+    if action != "fill_current_batch_review_fields_then_dry_run":
+        return hint
+    overview = batch_overview if isinstance(batch_overview, Mapping) else {}
+    covered_rows = int(overview.get("current_batch_target_covered_rows") or 0)
+    pending_rows = int(overview.get("pending_rows") or 0)
+    remaining_rows = int(overview.get("remaining_rows_after_current_batch") or 0)
+    if covered_rows <= 0 or pending_rows <= 0:
+        return hint
+    if remaining_rows > 0:
+        return (
+            f"{hint} Current scratch covers {covered_rows} of {pending_rows} "
+            f"pending target rows; after applying it, rerun review-progress and "
+            f"prepare the remaining {remaining_rows} rows."
+        )
+    return (
+        f"{hint} Current scratch covers all {pending_rows} pending target rows; "
+        "after applying it, rerun review-progress and prepare the promotion import."
+    )
 
 
 def _action_queue_state(action: str) -> str:
@@ -1859,6 +1919,7 @@ def build_manual_review_action_queue(
             if gate.ready_for_promotion
             else current_batch_path or gate.input_path
         )
+        batch_overview = _compact_batch_overview(gate)
         actions.append(
             {
                 "action_rank": action_rank,
@@ -1867,7 +1928,14 @@ def build_manual_review_action_queue(
                 "action_state": action_state,
                 "can_run_now": can_run_now,
                 "blocks_promotion": not gate.ready_for_promotion,
-                "operator_hint": _action_queue_hint(action),
+                "operator_hint": _action_queue_hint(
+                    action,
+                    batch_overview=batch_overview,
+                ),
+                "post_current_batch_action": _post_current_batch_action(
+                    action,
+                    batch_overview,
+                ),
                 "ready_for_promotion": gate.ready_for_promotion,
                 "blocked_by_review_kinds": list(dependency_blockers),
                 "complete_rows": gate.complete_rows,
@@ -1885,7 +1953,7 @@ def build_manual_review_action_queue(
                     current.get("malformed_rows") or 0
                 ),
                 "current_batch_stale_after_promotion_ready": stale_current_batch,
-                "batch_overview": _compact_batch_overview(gate),
+                "batch_overview": batch_overview,
                 "review_aids": _review_aid_paths(gate),
                 "field_contract": _review_field_contract(gate),
                 "quality_gap_targets": _compact_quality_gap_targets(
@@ -2011,9 +2079,14 @@ def render_manual_review_runbook_markdown(report: ManualReviewProgressReport) ->
         "",
         "This section reports aggregate completion counts for the current local batch or decision files only; it does not include source text, claim text, or reviewer notes.",
         *_render_batch_status_lines("Gold-set batch", gold.current_batch_status),
+        *_render_current_batch_coverage_lines("Gold-set batch", gold),
         *_render_batch_status_lines(
             "Analytical-footprint batch",
             footprint.current_batch_status,
+        ),
+        *_render_current_batch_coverage_lines(
+            "Analytical-footprint batch",
+            footprint,
         ),
         *_render_batch_status_lines("Lockbox decision", lockbox.current_batch_status),
         "",
