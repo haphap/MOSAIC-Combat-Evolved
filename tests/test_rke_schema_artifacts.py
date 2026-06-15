@@ -9,6 +9,7 @@ from mosaic.rke import (
     build_schema_validation_report,
     validate_json_schema_artifact,
 )
+import mosaic.rke.cli as cli_module
 from mosaic.rke.cli import _schema_status_next_actions, main
 from mosaic.rke.schema_validation import (
     SchemaValidationRecord,
@@ -5171,7 +5172,10 @@ def test_schema_status_cli_filters_failures_without_writing(tmp_path: Path, caps
     assert not (registry_dir / "schemas/rke_schema_validation_report.json").exists()
 
 
-def test_schema_status_next_actions_reports_gold_quality_gaps(tmp_path: Path):
+def test_schema_status_next_actions_reports_gold_quality_gaps(
+    tmp_path: Path,
+    monkeypatch,
+):
     summary_path = tmp_path / "registry/gold_sets/tushare_research_reports.review_summary.json"
     summary_path.parent.mkdir(parents=True, exist_ok=True)
     summary_path.write_text(
@@ -5208,6 +5212,35 @@ def test_schema_status_next_actions_reports_gold_quality_gaps(tmp_path: Path):
             failures=("direction_accuracy below threshold",),
         )
     ]
+    monkeypatch.setattr(cli_module, "build_manual_review_progress", lambda root: object())
+    monkeypatch.setattr(
+        cli_module,
+        "build_manual_review_action_queue",
+        lambda report, *, review_kinds: {
+            "actions": [
+                {
+                    "commands": {
+                        "assist": (
+                            f"{RKE_OPERATOR_TMP_ENV_PREFIX} mosaic-rke "
+                            "write-gold-review-assist --root . --review-input "
+                            "registry/review_batches/gold_set_reviewed.jsonl"
+                        ),
+                        "evidence": (
+                            f"{RKE_OPERATOR_TMP_ENV_PREFIX} mosaic-rke "
+                            "write-gold-review-evidence --root . --limit 12 "
+                            "--offset 0 --review-input "
+                            "registry/review_batches/gold_set_reviewed.jsonl"
+                        ),
+                        "dry_run": (
+                            f"{RKE_OPERATOR_TMP_ENV_PREFIX} mosaic-rke "
+                            "apply-gold-review --root . --input "
+                            "registry/review_batches/gold_set_reviewed.jsonl --dry-run"
+                        ),
+                    }
+                }
+            ]
+        },
+    )
 
     actions = {
         action["action_id"]: action
@@ -5216,6 +5249,7 @@ def test_schema_status_next_actions_reports_gold_quality_gaps(tmp_path: Path):
     gold_action = actions["complete_manual_forecast_gold_review"]
 
     assert gold_action["commands"]["inspect"].startswith(RKE_OPERATOR_TMP_ENV_PREFIX)
+    assert "--limit 12 --offset 0" in gold_action["commands"]["write_evidence"]
     assert gold_action["review_aids"]["fill_import_path"] == (
         "registry/review_batches/gold_set_reviewed.jsonl"
     )

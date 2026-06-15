@@ -8860,6 +8860,14 @@ def test_report_intelligence_evolution_gate_writer_preserves_stock_coverage_evid
         tmp_path / "registry/schemas/rke_schema_validation_report.json",
         {"accepted": False, "failure_count": 1, "records": []},
     )
+    _write_jsonl(
+        tmp_path / "registry/review_batches/gold_set_reviewed.jsonl",
+        [
+            {"claim_id": "GC-1", "target_row_hash": "sha256:" + "1" * 64},
+            {"claim_id": "GC-2", "target_row_hash": "sha256:" + "2" * 64},
+            {"claim_id": "GC-3", "target_row_hash": "sha256:" + "3" * 64},
+        ],
+    )
 
     result = write_report_intelligence_evolution_readiness_gate(
         registry_dir,
@@ -8923,6 +8931,13 @@ def test_report_intelligence_evolution_gate_writer_preserves_stock_coverage_evid
         "registry/review_batches/gold_set_reviewed.jsonl"
         in next_actions["complete_manual_forecast_gold_review"]["commands"][
             "write_assist"
+        ]
+    )
+    assert (
+        "write-gold-review-evidence --root . --limit 3 --offset 0 "
+        "--review-input registry/review_batches/gold_set_reviewed.jsonl"
+        in next_actions["complete_manual_forecast_gold_review"]["commands"][
+            "write_evidence"
         ]
     )
     assert next_actions["complete_manual_forecast_gold_review"]["review_aids"][

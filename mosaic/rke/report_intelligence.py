@@ -15349,6 +15349,7 @@ def write_report_intelligence_evolution_readiness_gate(
                 **_evolution_gate_cli_summary(
                     existing_gate,
                     quality_gap_targets=quality_gap_targets,
+                    root_path=root_path,
                 ),
                 "input_load_blockers": blockers,
                 "preserved_existing_gate": True,
@@ -15481,6 +15482,7 @@ def write_report_intelligence_evolution_readiness_gate(
         **_evolution_gate_cli_summary(
             gate,
             quality_gap_targets=quality_gap_targets,
+            root_path=root_path,
         ),
         "input_load_blockers": blockers,
         "count_only_public_fallbacks": sorted(public_fallbacks),
@@ -15489,10 +15491,29 @@ def write_report_intelligence_evolution_readiness_gate(
     }
 
 
+def _review_input_row_limit(
+    root_path: Path | None,
+    relative_path: str,
+    *,
+    default: int = 50,
+) -> int:
+    if root_path is None:
+        return default
+    path = root_path / relative_path
+    if not path.exists():
+        return default
+    rows, errors = load_jsonl_with_errors(path, label=relative_path)
+    mapping_row_count = sum(1 for row in rows if isinstance(row, Mapping))
+    if errors or mapping_row_count <= 0:
+        return default
+    return mapping_row_count
+
+
 def _evolution_gate_cli_summary(
     gate: Mapping[str, Any],
     *,
     quality_gap_targets: Mapping[str, Any] | None = None,
+    root_path: Path | None = None,
 ) -> dict[str, Any]:
     checks = [
         check for check in _ensure_list(gate.get("checks")) if isinstance(check, Mapping)
@@ -15538,6 +15559,7 @@ def _evolution_gate_cli_summary(
                     _evolution_gate_check_by_id(gate, "RI-EVOL-03").get("evidence")
                 ).get("recipe_level_monitor")
             ),
+            root_path=root_path,
         ),
     }
 
@@ -15627,6 +15649,7 @@ def _evolution_gate_cli_next_actions(
     *,
     quality_gap_targets: Mapping[str, Any] | None = None,
     monitor_recipe_level_actions: Mapping[str, Any] | None = None,
+    root_path: Path | None = None,
 ) -> list[dict[str, Any]]:
     """Return public-safe operator actions for blockers and P12 monitor queues."""
     blocked_by_id = {
@@ -15638,6 +15661,14 @@ def _evolution_gate_cli_next_actions(
         for check in blocked_checks
     }
     quality_gaps = _ensure_mapping(quality_gap_targets)
+    gold_evidence_limit = _review_input_row_limit(
+        root_path,
+        "registry/review_batches/gold_set_reviewed.jsonl",
+    )
+    footprint_evidence_limit = _review_input_row_limit(
+        root_path,
+        "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+    )
     actions: list[dict[str, Any]] = []
 
     def add_action(
@@ -15685,7 +15716,8 @@ def _evolution_gate_cli_next_actions(
                     "registry/review_batches/gold_set_reviewed.jsonl"
                 ),
                 "write_evidence": operator_command(
-                    "mosaic-rke write-gold-review-evidence --root . --limit 50 "
+                    "mosaic-rke write-gold-review-evidence --root . "
+                    f"--limit {gold_evidence_limit} "
                     "--offset 0 --review-input "
                     "registry/review_batches/gold_set_reviewed.jsonl"
                 ),
@@ -15744,7 +15776,7 @@ def _evolution_gate_cli_next_actions(
                 ),
                 "write_evidence": operator_command(
                     "mosaic-rke write-footprint-review-evidence --root . "
-                    "--limit 50 --offset 0 --review-input "
+                    f"--limit {footprint_evidence_limit} --offset 0 --review-input "
                     "registry/report_intelligence/"
                     "analytical_footprint_review_batch.jsonl"
                 ),

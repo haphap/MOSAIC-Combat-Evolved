@@ -254,6 +254,10 @@ current-scratch coverage: the active 26-row scratch covers 26 of the 48 pending
 target rows, so `remaining_rows_after_current_batch=22`,
 `current_batch_covers_next_batch=false`, and
 `post_current_batch_action=apply_current_batch_then_rerun_review_progress`.
+The current review-progress, evolution-readiness, and promotion-status evidence
+commands are scoped to the active 26-row scratch, not the full 48-row pending
+target, so regenerating review evidence does not expand the private evidence
+draft beyond the import rows being filled.
 The current local analytical-footprint scratch has 50 rows, 0 complete rows,
 and 50 pending rows; its evidence and target hashes are aligned. New
 analytical-footprint batches should be prepared with `--priority`, which sorts

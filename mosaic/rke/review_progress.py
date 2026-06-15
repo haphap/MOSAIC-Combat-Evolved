@@ -1706,9 +1706,35 @@ def build_manual_review_progress_summary(
     }
 
 
+def _current_batch_evidence_command(
+    gate: ManualReviewGateProgress,
+    batch_overview: Mapping[str, Any],
+) -> str:
+    current_batch_rows = int(
+        batch_overview.get("current_batch_target_covered_rows") or 0
+    )
+    if current_batch_rows <= 0:
+        return ""
+    if gate.review_kind == "gold_set":
+        return operator_command(
+            "mosaic-rke write-gold-review-evidence --root . "
+            f"--limit {current_batch_rows} --offset 0 "
+            f"--review-input {GOLD_REVIEWED_IMPORT_PATH}"
+        )
+    if gate.review_kind == "footprint_review":
+        return operator_command(
+            "mosaic-rke write-footprint-review-evidence --root . "
+            f"--limit {current_batch_rows} --offset 0 "
+            f"--review-input {ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH}"
+        )
+    return ""
+
+
 def _action_queue_commands(
     gate: ManualReviewGateProgress,
     action: str,
+    *,
+    batch_overview: Mapping[str, Any] | None = None,
 ) -> Mapping[str, str]:
     next_batch = dict(gate.next_batch_commands)
     if action == "ready_for_promotion_apply":
@@ -1717,17 +1743,31 @@ def _action_queue_commands(
             "apply": gate.apply_command,
         }
     if action == "fill_current_batch_review_fields_then_dry_run":
-        return {
+        commands = {
             key: command
             for key, command in next_batch.items()
             if key in {"assist", "evidence", "backfill_dry_run", "backfill_write", "dry_run"}
         }
+        evidence_command = _current_batch_evidence_command(
+            gate,
+            batch_overview or {},
+        )
+        if evidence_command:
+            commands["evidence"] = evidence_command
+        return commands
     if action == "repair_current_batch_evidence_alignment":
-        return {
+        commands = {
             key: command
             for key, command in next_batch.items()
             if key in {"assist", "evidence"}
         }
+        evidence_command = _current_batch_evidence_command(
+            gate,
+            batch_overview or {},
+        )
+        if evidence_command:
+            commands["evidence"] = evidence_command
+        return commands
     if action == "prepare_next_review_batch":
         return {
             key: command
@@ -1963,7 +2003,13 @@ def build_manual_review_action_queue(
                     {} if stale_current_batch else current.get("missing_required_fields") or {}
                 ),
                 "evidence_aligned": None if stale_current_batch else evidence_aligned,
-                "commands": dict(_action_queue_commands(gate, action)),
+                "commands": dict(
+                    _action_queue_commands(
+                        gate,
+                        action,
+                        batch_overview=batch_overview,
+                    )
+                ),
             }
         )
     selected_ready_for_promotion = bool(actions) and all(

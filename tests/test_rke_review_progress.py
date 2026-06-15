@@ -619,6 +619,11 @@ def test_review_progress_prioritizes_pending_gold_quality_batch_fields(
         "dry_run",
         "evidence",
     }
+    assert (
+        "mosaic-rke write-gold-review-evidence --root . --limit 1 --offset 0 "
+        "--review-input registry/review_batches/gold_set_reviewed.jsonl"
+        in gold_action["commands"]["evidence"]
+    )
     assert "prepare_reviewed_failures" not in gold_action["commands"]
 
 
@@ -1655,6 +1660,11 @@ def test_review_progress_reports_partial_gold_scratch(tmp_path: Path):
         "operator_hint"
     ]
     assert "prepare the remaining 430 rows" in action["operator_hint"]
+    assert (
+        "mosaic-rke write-gold-review-evidence --root . --limit 20 --offset 0 "
+        "--review-input registry/review_batches/gold_set_reviewed.jsonl"
+        in action["commands"]["evidence"]
+    )
     assert action["batch_overview"]["current_batch_rows"] == 20
     assert action["batch_overview"]["current_batch_target_covered_rows"] == 20
     assert action["batch_overview"]["remaining_rows_after_current_batch"] == 430

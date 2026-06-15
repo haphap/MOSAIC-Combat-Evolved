@@ -210,6 +210,38 @@ def _schema_status_quality_gap_targets(root: str | Path) -> dict[str, Any]:
     }
 
 
+def _current_review_action_command_overrides(
+    root: str | Path,
+    review_kind: str,
+) -> dict[str, str]:
+    try:
+        report = build_manual_review_progress(root)
+        action_queue = build_manual_review_action_queue(
+            report,
+            review_kinds=(review_kind,),
+        )
+    except Exception:
+        return {}
+    actions = action_queue.get("actions")
+    if not isinstance(actions, Sequence) or not actions:
+        return {}
+    action = actions[0]
+    if not isinstance(action, Mapping):
+        return {}
+    raw_commands = action.get("commands")
+    commands = raw_commands if isinstance(raw_commands, Mapping) else {}
+    key_map = {
+        "assist": "write_assist",
+        "evidence": "write_evidence",
+        "dry_run": "dry_run_current_batch",
+    }
+    return {
+        output_key: str(commands[source_key])
+        for source_key, output_key in key_map.items()
+        if str(commands.get(source_key) or "").strip()
+    }
+
+
 def _schema_status_next_actions(
     records: Sequence[Any],
     *,
@@ -223,6 +255,11 @@ def _schema_status_next_actions(
         or bool(getattr(record, "failures", ()))
     }
     quality_gaps = _schema_status_quality_gap_targets(root)
+    gold_current_commands = _current_review_action_command_overrides(root, "gold_set")
+    footprint_current_commands = _current_review_action_command_overrides(
+        root,
+        "footprint_review",
+    )
     actions: list[dict[str, Any]] = []
 
     def add_action(
@@ -292,7 +329,8 @@ def _schema_status_next_actions(
                 "schema_after_review": operator_command(
                     "mosaic-rke schema-status --root . --failures-only --no-write"
                 ),
-            },
+            }
+            | gold_current_commands,
             notes=(
                 "Assist and evidence outputs are private review aids, not import files.",
                 "If sample_size_documents is below threshold, refresh/merge private "
@@ -336,7 +374,8 @@ def _schema_status_next_actions(
                 "schema_after_review": operator_command(
                     "mosaic-rke schema-status --root . --failures-only --no-write"
                 ),
-            },
+            }
+            | footprint_current_commands,
             notes=(
                 "Assist and evidence outputs are private review aids, not import files.",
                 "The full reviewed import is used only after all footprint batches are complete.",
@@ -461,7 +500,11 @@ def _master_plan_status_next_actions(root: str | Path, result: Any) -> list[dict
     return actions
 
 
-def _promotion_status_next_actions(result: Any) -> list[dict[str, Any]]:
+def _promotion_status_next_actions(
+    result: Any,
+    *,
+    root: str | Path = ".",
+) -> list[dict[str, Any]]:
     """Map failed promotion criteria to public-safe operator commands."""
     criteria_by_id = {
         str(getattr(criterion, "criterion_id", "") or ""): criterion
@@ -502,6 +545,7 @@ def _promotion_status_next_actions(result: Any) -> list[dict[str, Any]]:
     source_license_passed = (
         getattr(criteria_by_id.get("PG03"), "passed", False) is True
     )
+    gold_current_commands = _current_review_action_command_overrides(root, "gold_set")
     if source_license_passed:
         promotion_dry_run_after_all_reviews = operator_command(
             "mosaic-rke promotion-dry-run --root . "
@@ -562,7 +606,8 @@ def _promotion_status_next_actions(result: Any) -> list[dict[str, Any]]:
                 "check_promotion_after_review": operator_command(
                     "mosaic-rke promotion-status --root . --no-write"
                 ),
-            },
+            }
+            | gold_current_commands,
             notes=(
                 "Evidence outputs are private review aids and do not fill the "
                 "required human review fields.",
@@ -1974,7 +2019,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         if not args.no_write:
             write_production_promotion_gate_report(root)
         result = build_production_promotion_gate_report(root)
-        _print_json({**asdict(result), "next_actions": _promotion_status_next_actions(result)})
+        _print_json(
+            {
+                **asdict(result),
+                "next_actions": _promotion_status_next_actions(result, root=root),
+            }
+        )
         return 0 if result.paper_trading_allowed else 2
     if args.command == "promotion-dry-run":
         if args.write_report:
