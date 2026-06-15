@@ -5631,6 +5631,62 @@ def test_report_intelligence_prompt_mutation_candidates_track_gate_remediation()
     assert all(row["private_text_included"] is False for row in candidates)
 
 
+def test_report_intelligence_prompt_mutation_candidates_track_industry_mapping_actions():
+    candidates = build_prompt_mutation_candidates(
+        run_id="RIR-TEST-MUTATION",
+        outcome_labeling_readiness={
+            "mapping_gap_counts": {},
+            "stock_price_proxy_readiness": {"data_gap_counts": {}},
+            "industry_etf_proxy_readiness": {
+                "data_gap_counts": {"sector_etf_mapping_missing": 3}
+            },
+        },
+        tool_gap_rows=[],
+        recipe_paper_trading_runs=[],
+        confidence_impact_observation_rows=[],
+        confidence_impact_monitor={"drift_status_counts": {}},
+        markdown_coverage_summary={"markdown_quality_gap_counts": {}},
+        industry_etf_proxy_pit_availability={
+            "pit_gap_counts": {"insufficient_window_history": 1},
+            "labelability_action_summary": {
+                "coverage_gate_status": "actionable_gaps_present",
+                "remaining_action_count": 4,
+                "sector_etf_mapping_missing_count": 3,
+                "pit_unavailable_mapping_count": 1,
+                "labelability_rate": 0.25,
+                "primary_mapping_coverage_rate": 0.7,
+                "next_actions": [
+                    "add_primary_etf_mapping_for_unmapped_industry_sectors",
+                    "refresh_or_replace_pit_unavailable_etf_mappings",
+                ],
+            },
+        },
+    )
+
+    candidates_by_type = {row["candidate_type"]: row for row in candidates}
+    industry = candidates_by_type["industry_proxy_mapping_rule"]
+    action_ref = next(
+        row
+        for row in industry["evidence_refs"]
+        if row["field"] == "labelability_action_summary"
+    )
+    assert action_ref["coverage_gate_status"] == "actionable_gaps_present"
+    assert action_ref["remaining_action_count"] == 4
+    assert action_ref["sector_etf_mapping_missing_count"] == 3
+    assert action_ref["pit_unavailable_mapping_count"] == 1
+    assert action_ref["next_actions"] == [
+        "add_primary_etf_mapping_for_unmapped_industry_sectors",
+        "refresh_or_replace_pit_unavailable_etf_mappings",
+    ]
+    assert {
+        "operator_mapping_review_required",
+        "add_primary_etf_mapping_for_unmapped_industry_sectors",
+        "refresh_or_replace_pit_unavailable_etf_mappings",
+    } <= set(industry["blocked_by"])
+    assert industry["production_prompt_change_allowed"] is False
+    assert industry["private_text_included"] is False
+
+
 def test_report_intelligence_prompt_mutation_candidates_track_calibration_drift():
     candidates = build_prompt_mutation_candidates(
         run_id="RIR-TEST-MUTATION",

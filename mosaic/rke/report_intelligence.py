@@ -16529,7 +16529,24 @@ def build_prompt_mutation_candidates(
     industry_pit = _ensure_mapping(industry_etf_proxy_pit_availability)
     pit_gap_counts = _count_mapping_values(_ensure_mapping(industry_pit.get("pit_gap_counts")))
     sector_gap_count = industry_gap_counts.get("sector_etf_mapping_missing", 0)
-    if sector_gap_count or pit_gap_counts:
+    action_summary = _ensure_mapping(industry_pit.get("labelability_action_summary"))
+    action_counts = _count_mapping_values(
+        {
+            "remaining_action_count": action_summary.get("remaining_action_count"),
+            "sector_etf_mapping_missing_count": action_summary.get(
+                "sector_etf_mapping_missing_count"
+            ),
+            "pit_unavailable_mapping_count": action_summary.get(
+                "pit_unavailable_mapping_count"
+            ),
+        }
+    )
+    action_next_actions = [
+        str(item).strip()
+        for item in _ensure_list(action_summary.get("next_actions"))
+        if str(item).strip()
+    ]
+    if sector_gap_count or pit_gap_counts or action_counts.get("remaining_action_count", 0):
         _add_prompt_mutation_candidate(
             candidates,
             run_id=run_id,
@@ -16547,6 +16564,30 @@ def build_prompt_mutation_candidates(
             evidence_refs=[
                 {
                     "artifact_path": "registry/report_intelligence/industry_etf_proxy_pit_availability.json",
+                    "field": "labelability_action_summary",
+                    "coverage_gate_status": str(
+                        action_summary.get("coverage_gate_status") or ""
+                    ),
+                    "remaining_action_count": action_counts.get(
+                        "remaining_action_count",
+                        0,
+                    ),
+                    "sector_etf_mapping_missing_count": action_counts.get(
+                        "sector_etf_mapping_missing_count",
+                        0,
+                    ),
+                    "pit_unavailable_mapping_count": action_counts.get(
+                        "pit_unavailable_mapping_count",
+                        0,
+                    ),
+                    "labelability_rate": action_summary.get("labelability_rate"),
+                    "primary_mapping_coverage_rate": action_summary.get(
+                        "primary_mapping_coverage_rate"
+                    ),
+                    "next_actions": action_next_actions,
+                },
+                {
+                    "artifact_path": "registry/report_intelligence/industry_etf_proxy_pit_availability.json",
                     "field": "pit_gap_counts",
                     "gap_counts": pit_gap_counts,
                 },
@@ -16557,7 +16598,10 @@ def build_prompt_mutation_candidates(
                 },
             ],
             severity="medium",
-            blocked_by=["operator_mapping_review_required"],
+            blocked_by=[
+                "operator_mapping_review_required",
+                *action_next_actions,
+            ],
         )
     priority_counts: dict[str, int] = {}
     for gap in tool_gap_rows:
