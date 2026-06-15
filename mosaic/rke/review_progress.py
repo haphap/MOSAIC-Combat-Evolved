@@ -591,6 +591,23 @@ def _gold_next_batch_commands(pending_rows: int) -> dict[str, str]:
     }
 
 
+def _gold_quality_gate_commands() -> dict[str, str]:
+    return {
+        "prepare_reviewed_failures": operator_command(
+            "mosaic-rke prepare-gold-review --root . --reviewed-failures "
+            "--gold-batch-size 50 --offset 0 --force "
+            "--reviewer <name> --review-date <YYYY-MM-DD>"
+        ),
+        "evidence": operator_command(
+            "mosaic-rke write-gold-review-evidence --root . "
+            f"--limit 50 --offset 0 --review-input {GOLD_REVIEWED_IMPORT_PATH}"
+        ),
+        "dry_run": operator_command(
+            f"mosaic-rke apply-gold-review --root . --input {GOLD_REVIEWED_IMPORT_PATH} --dry-run"
+        ),
+    }
+
+
 def _footprint_next_batch_commands(pending_rows: int) -> dict[str, str]:
     if pending_rows <= 0:
         return {}
@@ -767,6 +784,11 @@ def _gold_progress(root_path: Path) -> ManualReviewGateProgress:
             ),
             apply_command=operator_command(
                 f"mosaic-rke apply-gold-review --root . --input {input_path}"
+            ),
+            next_batch_commands=(
+                _gold_quality_gate_commands()
+                if not current_summary.passed
+                else {}
             ),
             batch_plan=(),
             current_batch_status=current_batch_status,
@@ -1444,8 +1466,6 @@ def _next_manual_action(
         if current.get("exists"):
             return "complete_lockbox_decision_then_dry_run"
         return "prepare_lockbox_review"
-    if gate.pending_rows == 0 and gate.blockers:
-        return "address_quality_gate_blockers"
     target = current.get("target_status")
     if (
         current.get("exists")
@@ -1460,6 +1480,8 @@ def _next_manual_action(
         if isinstance(evidence, Mapping) and not bool(evidence.get("aligned")):
             return "repair_current_batch_evidence_alignment"
         return "fill_current_batch_review_fields_then_dry_run"
+    if gate.pending_rows == 0 and gate.blockers:
+        return "address_quality_gate_blockers"
     if gate.next_batch_commands:
         return "prepare_next_review_batch"
     return "run_prepare_command"
@@ -1566,6 +1588,12 @@ def _action_queue_commands(
             for key, command in next_batch.items()
             if key in {"assist", "prepare", "evidence"}
         }
+    if action == "address_quality_gate_blockers":
+        return {
+            key: command
+            for key, command in next_batch.items()
+            if key in {"prepare_reviewed_failures", "evidence", "dry_run"}
+        }
     if action == "run_prepare_command":
         return {"prepare": gate.prepare_command}
     if action == "review_or_apply_source_license_policy":
@@ -1596,7 +1624,8 @@ def _action_queue_hint(action: str) -> str:
         ),
         "prepare_next_review_batch": "Prepare the next review batch before filling fields.",
         "address_quality_gate_blockers": (
-            "No review rows are pending; improve extraction quality or expand reviewed coverage."
+            "No pending rows remain; re-review failed gold labels or refresh the gold "
+            "candidate set to expand document coverage."
         ),
         "run_prepare_command": "Run the prepare command to create the review input.",
         "review_or_apply_source_license_policy": (
@@ -1643,6 +1672,7 @@ def _action_queue_can_run_now(
         "needs_evidence_repair",
         "needs_prepare",
         "needs_policy_review",
+        "needs_quality_gate_work",
         "needs_lockbox_decision",
     }
 

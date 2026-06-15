@@ -31,6 +31,7 @@ from mosaic.rke.manual_review_batches import (
     GOLD_REVIEW_EVIDENCE_JSONL_PATH,
     GOLD_REVIEW_EVIDENCE_MD_PATH,
     GOLD_REVIEW_WORKBOOK_MD_PATH,
+    write_gold_review_evidence,
     write_manual_review_batches,
 )
 from mosaic.rke.manual_review_import import (
@@ -481,7 +482,94 @@ def test_review_progress_reports_gold_quality_blockers_without_reapplying_stale_
     assert any("gold set requires >= 50 documents" in blocker for blocker in gold_gate.blockers)
     assert not any("claim_id missing from target review template" in blocker for blocker in gold_gate.blockers)
     assert gold_summary["next_manual_action"] == "address_quality_gate_blockers"
-    assert gold_summary["next_batch_commands"] == {}
+    assert set(gold_summary["next_batch_commands"]) == {
+        "dry_run",
+        "evidence",
+        "prepare_reviewed_failures",
+    }
+    assert "--reviewed-failures" in gold_summary["next_batch_commands"][
+        "prepare_reviewed_failures"
+    ]
+
+    action_queue = build_manual_review_action_queue(report)
+    gold_action = next(
+        action
+        for action in action_queue["actions"]
+        if action["review_kind"] == "gold_set"
+    )
+    assert gold_action["action_state"] == "needs_quality_gate_work"
+    assert gold_action["can_run_now"] is True
+    assert set(gold_action["commands"]) == {
+        "dry_run",
+        "evidence",
+        "prepare_reviewed_failures",
+    }
+
+
+def test_review_progress_prioritizes_pending_gold_quality_batch_fields(
+    tmp_path: Path,
+):
+    _copy_registry(tmp_path)
+    gold_path = tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    row = _load_jsonl(gold_path)[0]
+    row.update(
+        {
+            "manual_claim_text": "reviewed but low quality label",
+            "claim_correct": True,
+            "source_span_supports_claim": True,
+            "direction_correct": False,
+            "target_correct": True,
+            "horizon_correct": True,
+            "variable_mapping_correct": False,
+            "unsupported_field_false_grounded": True,
+            "reviewer": "reviewer-a",
+            "review_date": "2026-06-06",
+            "review_notes": "complete row with failing quality metrics",
+        }
+    )
+    _write_jsonl(gold_path, [row])
+    pending_import = {
+        "claim_id": row["claim_id"],
+        TARGET_ROW_HASH_FIELD: review_row_fingerprint(row),
+        "source_id": row.get("source_id", ""),
+        "source_span_id": row.get("source_span_id", ""),
+        "document_id": row.get("document_id") or row.get("source_id", ""),
+        "review_context_ref": GOLD_REVIEW_PACKET_PATH,
+        "target_review_path": GOLD_REVIEW_TEMPLATE_PATH,
+        "manual_claim_text": "",
+        "claim_correct": None,
+        "source_span_supports_claim": None,
+        "direction_correct": None,
+        "target_correct": None,
+        "horizon_correct": None,
+        "variable_mapping_correct": None,
+        "unsupported_field_false_grounded": None,
+        "reviewer": "hap",
+        "review_date": "2026-06-15",
+        "review_notes": "",
+    }
+    _write_jsonl(tmp_path / GOLD_REVIEWED_IMPORT_PATH, [pending_import])
+    evidence = write_gold_review_evidence(
+        tmp_path,
+        review_input_path=GOLD_REVIEWED_IMPORT_PATH,
+    )
+
+    report = build_manual_review_progress(tmp_path)
+    action_queue = build_manual_review_action_queue(report)
+    gold_action = next(
+        action
+        for action in action_queue["actions"]
+        if action["review_kind"] == "gold_set"
+    )
+
+    assert evidence["blockers"] == 0
+    assert gold_action["next_manual_action"] == (
+        "fill_current_batch_review_fields_then_dry_run"
+    )
+    assert gold_action["action_state"] == "needs_human_review_fields"
+    assert gold_action["current_batch_pending_rows"] == 1
+    assert set(gold_action["commands"]) == {"dry_run", "evidence"}
+    assert "prepare_reviewed_failures" not in gold_action["commands"]
 
 
 def test_review_progress_summary_omits_full_batch_plan(tmp_path: Path, capsys):

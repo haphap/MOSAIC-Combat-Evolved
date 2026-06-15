@@ -12,6 +12,7 @@ import json
 import re
 from collections import Counter
 from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal, Mapping, Sequence
 
@@ -23,6 +24,7 @@ from .license_policy_import import (
     write_source_license_review_workbook,
 )
 from .manual_review_import import GOLD_BOOL_FIELDS, TARGET_ROW_HASH_FIELD, review_row_fingerprint
+from .temp_paths import RKE_OPERATOR_TMPDIR
 
 
 GOLD_REVIEW_TEMPLATE_PATH = "registry/gold_sets/tushare_research_reports.review_template.jsonl"
@@ -83,6 +85,8 @@ class GoldReviewStarterResult:
     overwritten: bool
     rows: int
     blockers: Sequence[str]
+    backed_up_existing_output: bool = False
+    backup_path: str = ""
 
 
 @dataclass(frozen=True)
@@ -152,6 +156,17 @@ def _write_jsonl(path: Path, rows: Sequence[Mapping[str, Any]]) -> dict[str, Any
         encoding="utf-8",
     )
     return {"path": str(path), "rows": len(rows)}
+
+
+def _manual_review_backup_path(root_path: Path, source_path: Path) -> Path:
+    try:
+        relative = source_path.resolve().relative_to(root_path.resolve())
+        label = "__".join(relative.parts)
+    except ValueError:
+        label = source_path.name
+    safe_label = re.sub(r"[^A-Za-z0-9._-]+", "_", label)
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    return root_path / RKE_OPERATOR_TMPDIR / "review-backups" / f"{timestamp}_{safe_label}"
 
 
 def _load_review_rows(
@@ -1605,7 +1620,15 @@ def write_gold_review_starter(
     blockers: list[str] = []
     if exists and not force:
         blockers.append(f"{resolved_output_path} already exists; pass --force to overwrite")
+    backed_up_existing_output = False
+    backup_path = ""
     if not blockers:
+        if exists and force:
+            backup = _manual_review_backup_path(root_path, resolved_output_path)
+            backup.parent.mkdir(parents=True, exist_ok=True)
+            backup.write_bytes(resolved_output_path.read_bytes())
+            backed_up_existing_output = True
+            backup_path = str(backup)
         _write_jsonl(resolved_output_path, rows)
     return GoldReviewStarterResult(
         path=str(resolved_output_path),
@@ -1618,4 +1641,6 @@ def write_gold_review_starter(
         overwritten=exists and force and not blockers,
         rows=len(rows),
         blockers=tuple(blockers),
+        backed_up_existing_output=backed_up_existing_output,
+        backup_path=backup_path,
     )

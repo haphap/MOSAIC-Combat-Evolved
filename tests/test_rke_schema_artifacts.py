@@ -222,9 +222,11 @@ def test_stock_report_outcome_status_doc_matches_public_artifacts():
     assert "action_state=already_applied" in status_text
     assert "can_run_now=false" in status_text
     assert "private footprint review assist/workbook snapshot covers 1001 pending rows" in status_text
-    assert "gold-set scratch batch has 20 rows" in status_text
-    assert "all 20 have complete human-review fields" in status_text
-    assert "private evidence draft is aligned with the current 50-row scratch batch" in status_text
+    assert "gold-set quality re-review scratch batch has 17 rows" in status_text
+    assert "17 rows, 0 complete" in status_text
+    assert "17 pending rows" in status_text
+    assert "private evidence draft is aligned with the same 17 scratch" in status_text
+    assert "current active analytical-footprint batch has 50 rows" in status_text
     assert "Synthetic pytest fixtures" in status_text
     assert "current target hashes" in status_text
     assert "promotion gold-set import remains not ready" in status_text

@@ -15,8 +15,9 @@ It records paths, commands, row counts, acceptance criteria, and current blocker
 ## Current Batch Scratch
 
 This section reports aggregate completion counts for the current local batch or decision files only; it does not include source text, claim text, or reviewer notes.
-- Gold-set batch: `registry/review_batches/gold_set_reviewed.jsonl`; exists: true; rows: 20; complete: 20; pending: 0; malformed: 0
-  Evidence alignment: path=`registry/review_batches/gold_set_review_evidence.jsonl`; exists: true; rows: 20; covered: 20/20; same_order: true; aligned: true
+- Gold-set batch: `registry/review_batches/gold_set_reviewed.jsonl`; exists: true; rows: 17; complete: 0; pending: 17; malformed: 0
+  Missing required fields: `claim_correct`=17, `direction_correct`=17, `horizon_correct`=17, `manual_claim_text`=17, `source_span_supports_claim`=17, `target_correct`=17, `unsupported_field_false_grounded`=17, `variable_mapping_correct`=17
+  Evidence alignment: path=`registry/review_batches/gold_set_review_evidence.jsonl`; exists: true; rows: 17; covered: 17/17; same_order: true; aligned: true
 - Analytical-footprint batch: `registry/report_intelligence/analytical_footprint_review_batch.jsonl`; exists: true; rows: 50; complete: 0; pending: 50; malformed: 0
   Missing required fields: `footprint_correct`=50, `inferred_steps_tagged_correctly`=50, `metric_mapping_correct`=50, `no_proprietary_text_leakage`=50, `review_notes`=50, `source_span_supports_footprint`=50, `unknowns_used_when_uncertain`=50
   Evidence alignment: path=`registry/report_intelligence/analytical_footprint_review_evidence.jsonl`; exists: true; rows: 50; covered: 50/50; same_order: true; aligned: true
@@ -305,6 +306,12 @@ This plan slices the current pending set before any new batch is applied. If you
 ## Next Batch Commands
 
 These commands operate on the current pending set. After applying an accepted batch, rerun review-progress and use the refreshed commands.
+
+### gold_set
+
+- prepare_reviewed_failures: `MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke prepare-gold-review --root . --reviewed-failures --gold-batch-size 50 --offset 0 --force --reviewer <name> --review-date <YYYY-MM-DD>`
+- evidence: `MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-gold-review-evidence --root . --limit 50 --offset 0 --review-input registry/review_batches/gold_set_reviewed.jsonl`
+- dry_run: `MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --dry-run`
 
 ### footprint_review
 
