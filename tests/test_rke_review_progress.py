@@ -1038,6 +1038,7 @@ def test_review_progress_reports_current_batch_scratch_status(tmp_path: Path):
     assert gold_batch["evidence_status"]["covered_review_rows"] == 2
     assert gold_batch["evidence_status"]["review_input_rows"] == 2
     assert gold_batch["evidence_status"]["same_order"] is True
+    assert gold_batch["target_status"]["aligned"] is True
     assert footprint_batch["exists"] is True
     assert footprint_batch["rows"] == 2
     assert footprint_batch["complete_rows"] == 0
@@ -1050,6 +1051,7 @@ def test_review_progress_reports_current_batch_scratch_status(tmp_path: Path):
     assert footprint_batch["evidence_status"]["covered_review_rows"] == 2
     assert footprint_batch["evidence_status"]["review_input_rows"] == 2
     assert footprint_batch["evidence_status"]["same_order"] is True
+    assert footprint_batch["target_status"]["aligned"] is True
     summary_gold = next(
         gate for gate in summary["gates"] if gate["review_kind"] == "gold_set"
     )
@@ -1063,6 +1065,10 @@ def test_review_progress_reports_current_batch_scratch_status(tmp_path: Path):
             "covered_review_rows"
         ]
         == 2
+    )
+    assert (
+        summary_footprint["current_batch_status"]["target_status"]["aligned"]
+        is True
     )
     assert lockbox_status["exists"] is True
     assert lockbox_status["rows"] == 1
@@ -1114,6 +1120,51 @@ def test_review_progress_evidence_alignment_counts_missing_ids(tmp_path: Path):
     assert evidence_status["covered_review_rows"] == 1
     assert evidence_status["missing_review_rows"] == 1
     assert evidence_status["same_order"] is True
+
+
+def test_review_progress_reports_stale_footprint_batch_hashes(tmp_path: Path):
+    _copy_registry(tmp_path)
+    footprint_rows = _accepted_footprint_rows(tmp_path)[:2]
+    _write_jsonl(
+        tmp_path / "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+        footprint_rows,
+    )
+    _write_jsonl(
+        tmp_path
+        / "registry/report_intelligence/analytical_footprint_review_evidence.jsonl",
+        [
+            {
+                "footprint_id": row["footprint_id"],
+                "target_row_hash": row["target_row_hash"],
+            }
+            for row in footprint_rows
+        ],
+    )
+    template_path = (
+        tmp_path / "registry/report_intelligence/analytical_footprint_review_template.jsonl"
+    )
+    target_rows = _load_jsonl(template_path)
+    target_rows[0]["target_row_hash"] = "sha256:changed"
+    _write_jsonl(template_path, target_rows)
+
+    report = build_manual_review_progress(tmp_path)
+    footprint_gate = next(
+        gate for gate in report.gates if gate.review_kind == "footprint_review"
+    )
+    action_queue = build_manual_review_action_queue(
+        report,
+        review_kinds=("footprint_review",),
+    )
+    action = action_queue["actions"][0]
+    target_status = footprint_gate.current_batch_status["target_status"]
+
+    assert target_status["aligned"] is False
+    assert target_status["target_row_hash_mismatch_count"] == 1
+    assert footprint_gate.current_batch_status["evidence_status"]["aligned"] is True
+    assert action["next_manual_action"] == "prepare_next_review_batch"
+    assert action["action_state"] == "needs_prepare"
+    assert action["batch_overview"]["current_batch_target_aligned"] is False
+    assert action["batch_overview"]["current_batch_target_hash_mismatch_count"] == 1
 
 
 def test_write_manual_review_progress_report_outputs_registry_artifact(tmp_path: Path):

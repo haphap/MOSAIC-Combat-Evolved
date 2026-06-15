@@ -55,7 +55,21 @@
         "missing_required_fields": {},
         "path": "registry/review_batches/gold_set_reviewed.jsonl",
         "pending_rows": 0,
-        "rows": 20
+        "rows": 20,
+        "target_status": {
+          "aligned": false,
+          "exists": true,
+          "id_field": "claim_id",
+          "malformed_rows": 0,
+          "missing_target_rows": 0,
+          "review_input_exists": true,
+          "review_input_path": "registry/review_batches/gold_set_reviewed.jsonl",
+          "review_input_rows": 20,
+          "target_malformed_rows": 0,
+          "target_path": "registry/gold_sets/tushare_research_reports.review_template.jsonl",
+          "target_row_hash_mismatch_count": 20,
+          "target_rows": 158
+        }
       },
       "dry_run_command": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl --dry-run",
       "input_exists": true,
@@ -504,7 +518,21 @@
         "missing_required_fields": {},
         "path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
         "pending_rows": 0,
-        "rows": 50
+        "rows": 50,
+        "target_status": {
+          "aligned": false,
+          "exists": true,
+          "id_field": "footprint_id",
+          "malformed_rows": 0,
+          "missing_target_rows": 0,
+          "review_input_exists": true,
+          "review_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+          "review_input_rows": 50,
+          "target_malformed_rows": 0,
+          "target_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl",
+          "target_row_hash_mismatch_count": 16,
+          "target_rows": 1051
+        }
       },
       "dry_run_command": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_reviewed.jsonl --dry-run",
       "input_exists": true,

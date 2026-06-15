@@ -38,6 +38,7 @@ from .manual_review_import import (
     GOLD_BOOL_FIELDS,
     TARGET_ROW_HASH_FIELD,
     apply_gold_set_review_import,
+    review_row_fingerprint,
 )
 from .operator_handoff import LOCKBOX_REVIEWED_IMPORT_PATH
 from .phase_minus1 import load_jsonl_with_errors
@@ -380,6 +381,87 @@ def _review_evidence_alignment_status(
     return status
 
 
+def _review_target_alignment_status(
+    root_path: Path,
+    *,
+    review_input_path: str,
+    target_path: str,
+    id_field: str,
+) -> Mapping[str, Any]:
+    review_path = _resolve(root_path, review_input_path)
+    target_resolved = _resolve(root_path, target_path)
+    status: dict[str, Any] = {
+        "target_path": target_path,
+        "exists": target_resolved.exists(),
+        "review_input_path": review_input_path,
+        "review_input_exists": review_path.exists(),
+        "id_field": id_field,
+        "review_input_rows": 0,
+        "target_rows": 0,
+        "missing_target_rows": 0,
+        "target_row_hash_mismatch_count": 0,
+        "malformed_rows": 0,
+        "target_malformed_rows": 0,
+        "aligned": False,
+    }
+    if not review_path.exists() or not target_resolved.exists():
+        return status
+
+    review_raw_rows, review_errors = load_jsonl_with_errors(
+        review_path,
+        label=review_input_path,
+    )
+    target_raw_rows, target_errors = load_jsonl_with_errors(
+        target_resolved,
+        label=target_path,
+    )
+    review_rows = [row for row in review_raw_rows if isinstance(row, Mapping)]
+    target_rows = [row for row in target_raw_rows if isinstance(row, Mapping)]
+    review_malformed = len(review_errors) + len(review_raw_rows) - len(review_rows)
+    target_malformed = len(target_errors) + len(target_raw_rows) - len(target_rows)
+    target_by_id = {
+        str(row.get(id_field) or "").strip(): row
+        for row in target_rows
+        if str(row.get(id_field) or "").strip()
+    }
+    missing_target_rows = 0
+    hash_mismatch_count = 0
+    for row in review_rows:
+        row_id = str(row.get(id_field) or "").strip()
+        if not row_id:
+            missing_target_rows += 1
+            continue
+        target_row = target_by_id.get(row_id)
+        if target_row is None:
+            missing_target_rows += 1
+            continue
+        review_hash = str(row.get(TARGET_ROW_HASH_FIELD) or "").strip()
+        target_hash = str(target_row.get(TARGET_ROW_HASH_FIELD) or "").strip()
+        if not target_hash:
+            target_hash = review_row_fingerprint(target_row)
+        if review_hash != target_hash:
+            hash_mismatch_count += 1
+    aligned = (
+        bool(review_rows)
+        and review_malformed == 0
+        and target_malformed == 0
+        and missing_target_rows == 0
+        and hash_mismatch_count == 0
+    )
+    status.update(
+        {
+            "review_input_rows": len(review_rows) + review_malformed,
+            "target_rows": len(target_rows) + target_malformed,
+            "missing_target_rows": missing_target_rows,
+            "target_row_hash_mismatch_count": hash_mismatch_count,
+            "malformed_rows": review_malformed,
+            "target_malformed_rows": target_malformed,
+            "aligned": aligned,
+        }
+    )
+    return status
+
+
 def _gold_batch_status(root_path: Path) -> Mapping[str, Any]:
     status = dict(
         _review_batch_status(
@@ -393,6 +475,12 @@ def _gold_batch_status(root_path: Path) -> Mapping[str, Any]:
         root_path,
         review_input_path=GOLD_REVIEWED_IMPORT_PATH,
         evidence_path=GOLD_REVIEW_EVIDENCE_JSONL_PATH,
+        id_field="claim_id",
+    )
+    status["target_status"] = _review_target_alignment_status(
+        root_path,
+        review_input_path=GOLD_REVIEWED_IMPORT_PATH,
+        target_path=GOLD_REVIEW_TEMPLATE_PATH,
         id_field="claim_id",
     )
     return status
@@ -411,6 +499,12 @@ def _footprint_batch_status(root_path: Path) -> Mapping[str, Any]:
         root_path,
         review_input_path=ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH,
         evidence_path=ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_JSONL_PATH,
+        id_field="footprint_id",
+    )
+    status["target_status"] = _review_target_alignment_status(
+        root_path,
+        review_input_path=ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH,
+        target_path=ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH,
         id_field="footprint_id",
     )
     return status
@@ -1191,6 +1285,23 @@ def _compact_current_batch_status(status: Mapping[str, Any]) -> Mapping[str, Any
                 evidence_status.get("target_row_hash_mismatch_count") or 0
             ),
         }
+    target_status = status.get("target_status")
+    if isinstance(target_status, Mapping) and target_status:
+        compact["target_status"] = {
+            "target_path": target_status.get("target_path"),
+            "exists": bool(target_status.get("exists")),
+            "review_input_rows": int(target_status.get("review_input_rows") or 0),
+            "target_rows": int(target_status.get("target_rows") or 0),
+            "missing_target_rows": int(target_status.get("missing_target_rows") or 0),
+            "target_row_hash_mismatch_count": int(
+                target_status.get("target_row_hash_mismatch_count") or 0
+            ),
+            "malformed_rows": int(target_status.get("malformed_rows") or 0),
+            "target_malformed_rows": int(
+                target_status.get("target_malformed_rows") or 0
+            ),
+            "aligned": bool(target_status.get("aligned")),
+        }
     return compact
 
 
@@ -1236,6 +1347,11 @@ def _compact_batch_overview(gate: ManualReviewGateProgress) -> Mapping[str, Any]
         if isinstance(current.get("evidence_status"), Mapping)
         else {}
     )
+    target = (
+        current.get("target_status")
+        if isinstance(current.get("target_status"), Mapping)
+        else {}
+    )
     overview: dict[str, Any] = {
         "batch_count": len(batches),
         "pending_rows": gate.pending_rows,
@@ -1244,6 +1360,12 @@ def _compact_batch_overview(gate: ManualReviewGateProgress) -> Mapping[str, Any]
         "current_batch_pending_rows": int(current.get("pending_rows") or 0),
         "current_batch_evidence_aligned": (
             bool(evidence.get("aligned")) if evidence else None
+        ),
+        "current_batch_target_aligned": (
+            bool(target.get("aligned")) if target else None
+        ),
+        "current_batch_target_hash_mismatch_count": (
+            int(target.get("target_row_hash_mismatch_count") or 0) if target else 0
         ),
         "current_batch_evidence_path": (
             str(evidence.get("path") or "") if evidence else ""
@@ -1322,6 +1444,15 @@ def _next_manual_action(
         if current.get("exists"):
             return "complete_lockbox_decision_then_dry_run"
         return "prepare_lockbox_review"
+    target = current.get("target_status")
+    if (
+        current.get("exists")
+        and isinstance(target, Mapping)
+        and target.get("exists")
+        and int(target.get("review_input_rows") or 0) > 0
+        and not bool(target.get("aligned"))
+    ):
+        return "prepare_next_review_batch"
     if current.get("exists") and int(current.get("pending_rows") or 0) > 0:
         evidence = current.get("evidence_status")
         if isinstance(evidence, Mapping) and not bool(evidence.get("aligned")):
