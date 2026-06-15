@@ -1,5 +1,5 @@
 {
-  "as_of_datetime": "2026-06-15T07:21:47+00:00",
+  "as_of_datetime": "2026-06-15T12:37:31+00:00",
   "blocker_count": 7,
   "blockers": [
     "audit_refresh_history_below_threshold",
@@ -54,7 +54,7 @@
         "calibration_drift_count": 14,
         "calibration_drift_rule_counts": {},
         "cost_decay_fail_count": 0,
-        "data_vintage_hash": "sha256:a265c976aad6a51adc1081ac787474585b58c6ded822caad9a5177ff3416b937",
+        "data_vintage_hash": "sha256:abe32daa988c1c2bc71c67153febf91013611fd577a1dfbaab37c80501e5c6f9",
         "distinct_data_vintage_required": true,
         "monitor_observation_count": 2031,
         "profile_paper_trade_disagreement_count": 0,
@@ -78,8 +78,8 @@
           }
         },
         "regime_fragile_alpha_count": 5,
-        "trailing_monitor_distinct_vintage_count": 41,
-        "trailing_monitor_pass_count": 41,
+        "trailing_monitor_distinct_vintage_count": 42,
+        "trailing_monitor_pass_count": 42,
         "unvalidated_confidence_impact_count": 0
       },
       "passed": true,
@@ -99,7 +99,7 @@
           "current_failure_counts": {
             "pit": 0,
             "provenance": 0,
-            "schema": 28,
+            "schema": 23,
             "statistical": 0
           },
           "current_failure_refs": {
@@ -107,7 +107,6 @@
             "provenance": [],
             "schema": [
               "schemas/report_intelligence_analytical_footprint_review_rules",
-              "schemas/report_intelligence_evolution_readiness_gate_rules",
               "schemas/report_intelligence_gold_review_gate_rules",
               "schemas/report_intelligence_patch_v1_5_coverage_rules"
             ],
@@ -123,7 +122,7 @@
         "current_failure_counts": {
           "pit": 0,
           "provenance": 0,
-          "schema": 28,
+          "schema": 23,
           "statistical": 0
         },
         "current_failure_refs": {
@@ -131,13 +130,12 @@
           "provenance": [],
           "schema": [
             "schemas/report_intelligence_analytical_footprint_review_rules",
-            "schemas/report_intelligence_evolution_readiness_gate_rules",
             "schemas/report_intelligence_gold_review_gate_rules",
             "schemas/report_intelligence_patch_v1_5_coverage_rules"
           ],
           "statistical": []
         },
-        "data_vintage_hash": "sha256:a265c976aad6a51adc1081ac787474585b58c6ded822caad9a5177ff3416b937",
+        "data_vintage_hash": "sha256:abe32daa988c1c2bc71c67153febf91013611fd577a1dfbaab37c80501e5c6f9",
         "distinct_data_vintage_required": true,
         "pit_accepted": true,
         "provenance_accepted": true,
@@ -207,11 +205,11 @@
           "horizon": 41,
           "target": 3
         },
-        "data_vintage_hash": "sha256:a265c976aad6a51adc1081ac787474585b58c6ded822caad9a5177ff3416b937",
+        "data_vintage_hash": "sha256:abe32daa988c1c2bc71c67153febf91013611fd577a1dfbaab37c80501e5c6f9",
         "distinct_data_vintage_required": true,
         "gap_count_basis": "unlabelable_mapping_gap_counts",
-        "trailing_gap_distribution_distinct_vintage_count": 12,
-        "trailing_gap_distribution_stable_count": 12
+        "trailing_gap_distribution_distinct_vintage_count": 13,
+        "trailing_gap_distribution_stable_count": 13
       },
       "passed": true,
       "requirement": "Outcome and missing-gap distributions must be stable across recent refreshes before evolution changes prompts."
@@ -375,7 +373,7 @@
       "requirement": "Markdown coverage must pass P9 corpus thresholds before evolution depends on report-derived Markdown evidence."
     }
   ],
-  "data_vintage_hash": "sha256:a265c976aad6a51adc1081ac787474585b58c6ded822caad9a5177ff3416b937",
+  "data_vintage_hash": "sha256:abe32daa988c1c2bc71c67153febf91013611fd577a1dfbaab37c80501e5c6f9",
   "gate_id": "RKE-REPORT-INTELLIGENCE-EVOLUTION-READINESS-GATE",
   "gate_status": "blocked",
   "policy": "Prompt and agent evolution remains blocked until governed aggregate PIT outcome coverage, paper-trading, monitor stability, audit history, gold-set quality, gap stability, and Markdown coverage gates pass; this artifact stores aggregate evidence only and cannot change production prompts.",
@@ -397,7 +395,7 @@
     },
     "gap_distribution_distinct_vintage_count": {
       "blocker": "gap_distribution_history_below_threshold",
-      "current": 12,
+      "current": 13,
       "next_action": "refresh_distinct_data_vintages_until_gap_distribution_is_stable",
       "remaining": 0,
       "target": 3
@@ -506,7 +504,7 @@
     },
     "monitor_distinct_vintage_count": {
       "blocker": "confidence_impact_monitor_history_below_threshold",
-      "current": 41,
+      "current": 42,
       "next_action": "refresh_distinct_data_vintages_until_monitor_gate_passes_three_times",
       "remaining": 0,
       "target": 3

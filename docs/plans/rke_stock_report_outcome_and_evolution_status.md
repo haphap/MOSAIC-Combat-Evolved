@@ -179,7 +179,12 @@ readiness blockers. The same read-only output now includes public-safe
 `next_actions` with temp-prefixed commands for the current gold-set review
 batch, the current analytical-footprint review batch, the schema/audit blocker
 inspection path, and the distinct `data_vintage_hash` refresh-history
-requirement.
+requirement. RI-EVOL-04 audit blocker summaries now exclude the
+`schemas/report_intelligence_evolution_readiness_gate_rules` self-check from
+the current schema failure count and refs, so the current no-write output
+reports the 23 true external schema failures across footprint review, gold
+review, and patch coverage instead of recursively listing the evolution gate's
+own semantic rule.
 
 Most recent focused validation after proxy outcome ID namespace hardening:
 
@@ -353,6 +358,16 @@ uvx ruff@0.15.15 check mosaic/rke/schema_validation.py tests/test_rke_schema_art
 MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run mosaic-rke schema-status --root .
 ```
 
+Most recent focused validation after excluding evolution-readiness self-schema
+refs from RI-EVOL-04 current audit summaries:
+
+```bash
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run pytest tests/test_rke_report_intelligence.py::test_report_intelligence_evolution_gate_explains_schema_blocked_audit_history tests/test_rke_report_intelligence.py::test_report_intelligence_evolution_gate_ignores_self_schema_rule_for_current_audit tests/test_rke_report_intelligence.py::test_report_intelligence_evolution_gate_filters_self_schema_from_failure_refs -q --basetemp .mosaic/tmp/pytest-evolution-self-schema
+uvx ruff@0.15.15 check mosaic/rke/report_intelligence.py tests/test_rke_report_intelligence.py
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run mosaic-rke evolution-readiness --root . --no-write
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run mosaic-rke schema-status --root . --failures-only --no-write
+```
+
 `schema-status` still exits 2 only for the existing analytical-footprint review
 and patch v1.5 manual coverage gates; the evolution readiness gate semantic
 record is accepted.
@@ -474,10 +489,8 @@ backfill. The current active batch matches 26 prior rows, but all 26 prior rows
 still lack required manual fields, so backfill remains diagnostic-only and the
 review fields must be filled manually. `review-progress --summary` and
 `--actions-only` now both emit the current-scratch evidence command with
-`--limit 26`, rather than the planned 48-row follow-up batch size. The promotion
-gold-set import remains not
-ready because the expanded current batch
-still requires manual decisions before the full reviewed import can be
+`--limit 26`, rather than the planned 48-row follow-up batch size. The promotion gold-set import remains not ready because the expanded current batch still
+requires manual decisions before the full reviewed import can be
 regenerated; after applying that current scratch, 22 target rows will still need
 a refreshed batch, so the action queue explicitly tells the operator to rerun
 `review-progress` after applying the current batch. The previous stale

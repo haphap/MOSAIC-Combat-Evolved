@@ -27,7 +27,7 @@ from datetime import date, datetime, timezone
 from hashlib import sha256
 from math import ceil, floor
 from pathlib import Path
-from typing import Any, Callable, Literal, Mapping, Sequence
+from typing import Any, Callable, Container, Literal, Mapping, Sequence
 
 from .claim_text_filters import (
     is_boilerplate_risk_warning_text,
@@ -131,6 +131,9 @@ REPORT_INTELLIGENCE_PROMPT_MUTATION_CANDIDATES_PATH = (
 )
 REPORT_INTELLIGENCE_EVOLUTION_READINESS_GATE_PATH = (
     "registry/report_intelligence/evolution_readiness_gate.json"
+)
+REPORT_INTELLIGENCE_EVOLUTION_READINESS_GATE_SCHEMA_RULES = (
+    "schemas/report_intelligence_evolution_readiness_gate_rules"
 )
 REPORT_INTELLIGENCE_PRIVATE_OUTPUT_PATHS = frozenset(
     {
@@ -14586,21 +14589,34 @@ def _audit_refresh_history_record(
 
 def _audit_component_failure_summary(
     report: Mapping[str, Any],
+    *,
+    ignored_refs: Container[str] = frozenset(),
 ) -> tuple[int, tuple[str, ...]]:
     payload = _ensure_mapping(report)
     if payload.get("accepted") is True:
         return 0, ()
 
+    ignored_ref_set = {str(ref) for ref in ignored_refs if str(ref).strip()}
     refs: list[str] = []
+    observed_failure_counts: list[int] = []
+    ignored_failure_seen = False
     for index, record in enumerate(_ensure_list(payload.get("records")), 1):
         row = _ensure_mapping(record)
         if row.get("accepted") is True:
             continue
         schema_path = str(row.get("schema_path") or "").strip()
-        if schema_path:
-            refs.append(schema_path)
-        else:
-            refs.append(f"record:{index}")
+        ref = schema_path or f"record:{index}"
+        if ref in ignored_ref_set:
+            ignored_failure_seen = True
+            continue
+        refs.append(ref)
+        observed_failure_counts.append(
+            max(
+                int(row.get("failure_count") or 0),
+                len(_ensure_list(row.get("failures"))),
+                1,
+            )
+        )
 
     for check in _ensure_list(payload.get("checks")):
         row = _ensure_mapping(check)
@@ -14609,7 +14625,12 @@ def _audit_component_failure_summary(
             continue
         check_id = str(row.get("check_id") or "").strip()
         if check_id:
-            refs.append(f"check:{check_id}")
+            ref = f"check:{check_id}"
+            if ref in ignored_ref_set:
+                ignored_failure_seen = True
+                continue
+            refs.append(ref)
+        observed_failure_counts.append(max(failure_count, 1))
 
     explicit_count = int(
         payload.get("failure_count")
@@ -14617,7 +14638,12 @@ def _audit_component_failure_summary(
         or payload.get("failed_record_count")
         or 0
     )
-    failure_count = max(explicit_count, len(refs), 1)
+    if ignored_ref_set and (refs or observed_failure_counts):
+        failure_count = max(sum(observed_failure_counts), len(refs), 1)
+    elif ignored_ref_set and ignored_failure_seen and not refs and not observed_failure_counts:
+        failure_count = 0
+    else:
+        failure_count = max(explicit_count, len(refs), 1)
     return failure_count, tuple(dict.fromkeys(refs[:12]))
 
 
@@ -14775,14 +14801,22 @@ def _audit_current_record(
     failure_counts: dict[str, int] = {}
     failure_refs: dict[str, list[str]] = {}
     for component, report in component_reports.items():
-        count, refs = _audit_component_failure_summary(report)
+        ignored_refs = (
+            {REPORT_INTELLIGENCE_EVOLUTION_READINESS_GATE_SCHEMA_RULES}
+            if component == "schema"
+            else frozenset()
+        )
+        count, refs = _audit_component_failure_summary(
+            report,
+            ignored_refs=ignored_refs,
+        )
         failure_counts[component] = count
         failure_refs[component] = list(refs)
     return {
-        "schema_accepted": schema.get("accepted") is True,
-        "pit_accepted": pit.get("accepted") is True,
-        "provenance_accepted": provenance.get("accepted") is True,
-        "statistical_accepted": statistical.get("accepted") is True,
+        "schema_accepted": failure_counts["schema"] == 0,
+        "pit_accepted": failure_counts["pit"] == 0,
+        "provenance_accepted": failure_counts["provenance"] == 0,
+        "statistical_accepted": failure_counts["statistical"] == 0,
         "current_failure_counts": failure_counts,
         "current_failure_refs": failure_refs,
     }
