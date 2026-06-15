@@ -2992,6 +2992,8 @@ RECIPE_PAPER_TRADING_OUT_OF_SAMPLE_WINDOW_POLICY = (
 RECIPE_PAPER_TRADING_PARAMETER_LOCK_POLICY = (
     "pre_registration_hash_locks_required_data_protocol_cost_benchmark_windows_v1"
 )
+CONFIDENCE_IMPACT_HIGH_DELTA_THRESHOLD = 0.02
+CONFIDENCE_IMPACT_CALIBRATION_ERROR_THRESHOLD = 0.20
 RECIPE_PAPER_TRADING_REQUIRED_METRICS = (
     "annualized_return",
     "benchmark_return",
@@ -3122,6 +3124,84 @@ def _recipe_contract_stable_id(prefix: str, payload: Mapping[str, Any]) -> str:
         separators=(",", ":"),
     ).encode("utf-8")
     return f"{prefix}-{sha256(encoded).hexdigest()[:16]}"
+
+
+def _confidence_contract_pearson_correlation(
+    pairs: Sequence[tuple[float, float]],
+) -> float | None:
+    if len(pairs) < 2:
+        return None
+    xs = [item[0] for item in pairs]
+    ys = [item[1] for item in pairs]
+    x_mean = sum(xs) / len(xs)
+    y_mean = sum(ys) / len(ys)
+    x_var = sum((value - x_mean) ** 2 for value in xs)
+    y_var = sum((value - y_mean) ** 2 for value in ys)
+    if x_var <= 0 or y_var <= 0:
+        return None
+    covariance = sum((x - x_mean) * (y - y_mean) for x, y in pairs)
+    return covariance / ((x_var * y_var) ** 0.5)
+
+
+def _confidence_contract_delta_bucket(delta: float | None) -> str:
+    if delta is None or delta == 0:
+        return "zero"
+    if delta < 0:
+        return "negative"
+    if delta >= CONFIDENCE_IMPACT_HIGH_DELTA_THRESHOLD:
+        return "high_positive"
+    return "low_positive"
+
+
+def _confidence_contract_bucket_outcome_summary(
+    rows: Sequence[Mapping[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    grouped: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        delta = _float_or_none(row.get("confidence_delta"))
+        bucket = _confidence_contract_delta_bucket(delta)
+        item = grouped.setdefault(
+            bucket,
+            {
+                "count": 0,
+                "realized_alpha_values": [],
+                "hit_rate_values": [],
+            },
+        )
+        item["count"] += 1
+        realized_alpha = _float_or_none(
+            row.get("after_cost_realized_alpha")
+            if row.get("after_cost_realized_alpha") is not None
+            else row.get("realized_alpha")
+        )
+        hit_rate = _float_or_none(row.get("hit_rate_recent"))
+        if realized_alpha is not None:
+            item["realized_alpha_values"].append(realized_alpha)
+        if hit_rate is not None:
+            item["hit_rate_values"].append(hit_rate)
+    summary: dict[str, dict[str, Any]] = {}
+    for bucket, item in grouped.items():
+        alpha_values = item["realized_alpha_values"]
+        hit_values = item["hit_rate_values"]
+        summary[bucket] = {
+            "count": int(item["count"]),
+            "mean_realized_alpha": (
+                round(sum(alpha_values) / len(alpha_values), 8)
+                if alpha_values
+                else None
+            ),
+            "mean_hit_rate": (
+                round(sum(hit_values) / len(hit_values), 6) if hit_values else None
+            ),
+        }
+    return dict(sorted(summary.items()))
+
+
+def _confidence_contract_is_new_regime(row: Mapping[str, Any]) -> bool:
+    if row.get("regime_is_new") is True:
+        return True
+    regime_status = str(row.get("regime_status") or "").strip().lower()
+    return regime_status in {"new", "new_regime", "unseen_regime"}
 
 
 def _validate_recipe_paper_trading_contract(
@@ -3506,16 +3586,44 @@ def _validate_recipe_paper_trading_contract(
     alpha_decay_recipe_ids: list[str] = []
     cost_decay_recipe_ids: list[str] = []
     calibration_drift_recipe_ids: list[str] = []
+    aggregate_calibration_recipe_ids: list[str] = []
+    new_regime_miscalibration_recipe_ids: list[str] = []
     regime_fragile_recipe_ids: list[str] = []
+    profile_paper_trade_disagreement_recipe_ids: list[str] = []
+    calibration_rule_counts: dict[str, int] = {}
+    confidence_alpha_pairs: list[tuple[float, float]] = []
+    confidence_alpha_pair_recipe_ids: list[str] = []
+    unvalidated_impact_count = 0
+    confidence_observation_ids: dict[str, str] = {}
     for index, row in enumerate(confidence_rows, 1):
         row_label = f"confidence_impact_observations row {index}"
         for field in CONFIDENCE_IMPACT_REQUIRED_OBSERVATION_FIELDS:
             if field not in row:
                 failures.append(f"{row_label}.{field}: required")
         recipe_id = str(row.get("recipe_id") or "").strip()
+        observation_id = str(row.get("confidence_observation_id") or "").strip()
         if not recipe_id:
             failures.append(f"{row_label}.recipe_id: required")
             continue
+        if not observation_id:
+            failures.append(f"{row_label}.confidence_observation_id: required")
+        elif observation_id in confidence_observation_ids:
+            failures.append(
+                f"{row_label}.confidence_observation_id: duplicate {observation_id}"
+            )
+        else:
+            confidence_observation_ids[observation_id] = recipe_id
+        expected_observation_id = _recipe_contract_stable_id(
+            "CIMOBS",
+            {
+                "run_id": str(row.get("run_id") or ""),
+                "analysis_recipe_id": recipe_id,
+            },
+        )
+        if observation_id and observation_id != expected_observation_id:
+            failures.append(
+                f"{row_label}.confidence_observation_id: must bind run_id and recipe_id"
+            )
         confidence_tracked_recipe_ids.append(recipe_id)
         if recipe_id in confidence_by_recipe_id:
             failures.append(f"{row_label}.recipe_id: duplicate {recipe_id}")
@@ -3546,6 +3654,68 @@ def _validate_recipe_paper_trading_contract(
             failures.append(
                 f"{row_label}.confidence_delta: blocked or unvalidated recipe must stay zero"
             )
+        if run_status != "passed" and (confidence_delta or 0.0) != 0.0:
+            unvalidated_impact_count += 1
+        realized_alpha = _float_or_none(
+            row.get("after_cost_realized_alpha")
+            if row.get("after_cost_realized_alpha") is not None
+            else row.get("realized_alpha")
+        )
+        hit_rate_recent = _float_or_none(row.get("hit_rate_recent"))
+        hit_rate_baseline = _float_or_none(row.get("hit_rate_baseline"))
+        calibration_error = _float_or_none(row.get("calibration_error"))
+        if confidence_delta is not None and realized_alpha is not None:
+            confidence_alpha_pairs.append((confidence_delta, realized_alpha))
+            confidence_alpha_pair_recipe_ids.append(recipe_id)
+        if (
+            confidence_delta is not None
+            and confidence_delta > 0
+            and hit_rate_recent is not None
+            and hit_rate_baseline is not None
+            and hit_rate_recent <= hit_rate_baseline
+        ):
+            calibration_rule_counts["positive_confidence_hit_nonimprovement"] = (
+                calibration_rule_counts.get(
+                    "positive_confidence_hit_nonimprovement",
+                    0,
+                )
+                + 1
+            )
+            aggregate_calibration_recipe_ids.append(recipe_id)
+        if (
+            confidence_delta is not None
+            and confidence_delta >= CONFIDENCE_IMPACT_HIGH_DELTA_THRESHOLD
+            and (
+                (realized_alpha is not None and realized_alpha <= 0)
+                or (
+                    hit_rate_recent is not None
+                    and hit_rate_baseline is not None
+                    and hit_rate_recent < hit_rate_baseline
+                )
+            )
+        ):
+            calibration_rule_counts["high_confidence_underperformance"] = (
+                calibration_rule_counts.get("high_confidence_underperformance", 0)
+                + 1
+            )
+            aggregate_calibration_recipe_ids.append(recipe_id)
+        if _confidence_contract_is_new_regime(row) and (
+            (
+                calibration_error is not None
+                and calibration_error > CONFIDENCE_IMPACT_CALIBRATION_ERROR_THRESHOLD
+            )
+            or (
+                hit_rate_recent is not None
+                and hit_rate_baseline is not None
+                and hit_rate_recent < hit_rate_baseline
+            )
+            or (realized_alpha is not None and realized_alpha <= 0)
+        ):
+            calibration_rule_counts["new_regime_miscalibration"] = (
+                calibration_rule_counts.get("new_regime_miscalibration", 0) + 1
+            )
+            aggregate_calibration_recipe_ids.append(recipe_id)
+            new_regime_miscalibration_recipe_ids.append(recipe_id)
         drift_status = str(row.get("drift_status") or "")
         recommended_action = str(row.get("recommended_action") or "")
         if drift_status:
@@ -3671,6 +3841,8 @@ def _validate_recipe_paper_trading_contract(
             calibration_drift_recipe_ids.append(recipe_id)
         if drift_status == "regime_fragile_alpha":
             regime_fragile_recipe_ids.append(recipe_id)
+        if drift_status == "profile_paper_trade_disagreement":
+            profile_paper_trade_disagreement_recipe_ids.append(recipe_id)
 
     missing_confidence_ids = sorted(
         set(runs_by_recipe_id) - set(confidence_by_recipe_id)
@@ -3680,15 +3852,55 @@ def _validate_recipe_paper_trading_contract(
             "confidence_impact_observations missing recipe_ids: "
             + ", ".join(missing_confidence_ids[:20])
         )
+    confidence_alpha_correlation = _confidence_contract_pearson_correlation(
+        confidence_alpha_pairs
+    )
+    if confidence_alpha_correlation is not None and confidence_alpha_correlation < 0:
+        calibration_rule_counts["negative_confidence_alpha_correlation"] = (
+            calibration_rule_counts.get("negative_confidence_alpha_correlation", 0)
+            + 1
+        )
+        aggregate_calibration_recipe_ids.extend(confidence_alpha_pair_recipe_ids)
+    aggregate_calibration_recipe_ids = sorted(set(aggregate_calibration_recipe_ids))
+    calibration_drift_recipe_ids.extend(aggregate_calibration_recipe_ids)
+    manual_review_recipe_ids.extend(aggregate_calibration_recipe_ids)
     if monitor:
         expected_monitor_counts = {
             "recipe_count": len(run_rows),
             "observation_count": len(confidence_rows),
             "paper_trading_validated_recipe_count": len(passed_recipe_ids),
             "blocked_recipe_count": len(blocked_recipe_ids),
+            "unvalidated_confidence_impact_count": unvalidated_impact_count,
+            "alpha_decay_watch_count": confidence_drift_counts.get(
+                "alpha_decay_watch",
+                0,
+            ),
+            "alpha_decay_fail_count": confidence_drift_counts.get(
+                "alpha_decay_fail",
+                0,
+            ),
+            "cost_decay_fail_count": confidence_drift_counts.get(
+                "cost_decay_fail",
+                0,
+            ),
+            "calibration_drift_count": confidence_drift_counts.get(
+                "calibration_drift_watch",
+                0,
+            ),
+            "aggregate_calibration_drift_count": sum(
+                calibration_rule_counts.values()
+            ),
+            "regime_fragile_alpha_count": confidence_drift_counts.get(
+                "regime_fragile_alpha",
+                0,
+            ),
+            "profile_paper_trade_disagreement_count": confidence_drift_counts.get(
+                "profile_paper_trade_disagreement",
+                0,
+            ),
         }
         for field, expected in expected_monitor_counts.items():
-            if monitor.get(field) != expected:
+            if field in monitor and monitor.get(field) != expected:
                 failures.append(f"confidence_impact_monitor.{field}: expected {expected}")
         if monitor.get("production_decision_impact_allowed") is not False:
             failures.append(
@@ -3722,6 +3934,56 @@ def _validate_recipe_paper_trading_contract(
         )
         if observed_blocker_counts != expected_blocker_counts:
             failures.append("confidence_impact_monitor.blocker_counts mismatch")
+        expected_calibration_rule_counts = dict(sorted(calibration_rule_counts.items()))
+        observed_calibration_rule_counts = _count_mapping(
+            monitor.get("calibration_drift_rule_counts"),
+            row_label="confidence_impact_monitor.calibration_drift_rule_counts",
+            failures=failures,
+        )
+        if observed_calibration_rule_counts != expected_calibration_rule_counts:
+            failures.append(
+                "confidence_impact_monitor.calibration_drift_rule_counts mismatch"
+            )
+        observed_correlation = _float_or_none(
+            monitor.get("confidence_alpha_correlation")
+        )
+        expected_correlation = (
+            round(confidence_alpha_correlation, 8)
+            if confidence_alpha_correlation is not None
+            else None
+        )
+        if expected_correlation is None:
+            if monitor.get("confidence_alpha_correlation") is not None:
+                failures.append(
+                    "confidence_impact_monitor.confidence_alpha_correlation: expected null"
+                )
+        elif observed_correlation is None or not _nearly_equal(
+            observed_correlation,
+            expected_correlation,
+            tolerance=1e-8,
+        ):
+            failures.append(
+                "confidence_impact_monitor.confidence_alpha_correlation mismatch"
+            )
+        expected_correlation_status = (
+            "negative"
+            if confidence_alpha_correlation is not None
+            and confidence_alpha_correlation < 0
+            else "non_negative"
+            if confidence_alpha_correlation is not None
+            else "insufficient_data"
+        )
+        if monitor.get("confidence_alpha_correlation_status") != expected_correlation_status:
+            failures.append(
+                "confidence_impact_monitor.confidence_alpha_correlation_status mismatch"
+            )
+        expected_bucket_outcomes = _confidence_contract_bucket_outcome_summary(
+            confidence_rows
+        )
+        if monitor.get("confidence_delta_bucket_outcomes") != expected_bucket_outcomes:
+            failures.append(
+                "confidence_impact_monitor.confidence_delta_bucket_outcomes mismatch"
+            )
         expected_monitor_ids = {
             "tracked_recipe_ids": sorted(set(confidence_tracked_recipe_ids)),
             "reduce_confidence_impact_recipe_ids": sorted(
@@ -3731,23 +3993,20 @@ def _validate_recipe_paper_trading_contract(
             "retire_recipe_ids": sorted(set(retire_recipe_ids)),
             "alpha_decay_recipe_ids": sorted(set(alpha_decay_recipe_ids)),
             "cost_decay_recipe_ids": sorted(set(cost_decay_recipe_ids)),
+            "calibration_drift_recipe_ids": sorted(set(calibration_drift_recipe_ids)),
+            "aggregate_calibration_drift_recipe_ids": aggregate_calibration_recipe_ids,
+            "new_regime_miscalibration_recipe_ids": sorted(
+                set(new_regime_miscalibration_recipe_ids)
+            ),
             "regime_fragile_recipe_ids": sorted(set(regime_fragile_recipe_ids)),
+            "profile_paper_trade_disagreement_recipe_ids": sorted(
+                set(profile_paper_trade_disagreement_recipe_ids)
+            ),
+            "manual_review_recipe_ids": sorted(set(manual_review_recipe_ids)),
         }
         for field, expected_ids in expected_monitor_ids.items():
-            if _string_items(monitor.get(field)) != expected_ids:
+            if field in monitor and _string_items(monitor.get(field)) != expected_ids:
                 failures.append(f"confidence_impact_monitor.{field} mismatch")
-        observed_manual_review_ids = set(_string_items(monitor.get("manual_review_recipe_ids")))
-        if not set(manual_review_recipe_ids).issubset(observed_manual_review_ids):
-            failures.append(
-                "confidence_impact_monitor.manual_review_recipe_ids missing action recipes"
-            )
-        observed_calibration_ids = set(
-            _string_items(monitor.get("calibration_drift_recipe_ids"))
-        )
-        if not set(calibration_drift_recipe_ids).issubset(observed_calibration_ids):
-            failures.append(
-                "confidence_impact_monitor.calibration_drift_recipe_ids missing drift recipes"
-            )
     return item_count, failures
 
 

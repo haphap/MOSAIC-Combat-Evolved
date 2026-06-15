@@ -2307,6 +2307,41 @@ def test_recipe_paper_trading_contract_rejects_regime_monitor_mismatch(
     )
 
 
+def test_recipe_paper_trading_contract_rejects_confidence_observation_id_drift(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    observations_path = registry / "confidence_impact_observations.jsonl"
+    observations = [
+        json.loads(line)
+        for line in observations_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    observations[1]["confidence_observation_id"] = observations[0][
+        "confidence_observation_id"
+    ]
+    observations[2]["confidence_observation_id"] = "CIMOBS-posthoc-override"
+    observations_path.write_text(
+        "\n".join(
+            json.dumps(row, ensure_ascii=False, sort_keys=True)
+            for row in observations
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    record = _recipe_paper_trading_contract_record(tmp_path)
+
+    assert not record.accepted
+    assert any(
+        "confidence_observation_id: duplicate" in item for item in record.failures
+    )
+    assert any(
+        "confidence_observation_id: must bind run_id and recipe_id" in item
+        for item in record.failures
+    )
+
+
 def test_recipe_paper_trading_contract_rejects_monitor_action_mismatch(
     tmp_path: Path,
 ):
@@ -2325,6 +2360,44 @@ def test_recipe_paper_trading_contract_rejects_monitor_action_mismatch(
     assert not record.accepted
     assert any("recommended_action_counts mismatch" in item for item in record.failures)
     assert any("tracked_recipe_ids mismatch" in item for item in record.failures)
+
+
+def test_recipe_paper_trading_contract_rejects_monitor_derived_field_mismatch(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    monitor_path = registry / "confidence_impact_monitor.json"
+    monitor = json.loads(monitor_path.read_text(encoding="utf-8"))
+    monitor["unvalidated_confidence_impact_count"] = 99
+    monitor["alpha_decay_fail_count"] = 0
+    monitor["aggregate_calibration_drift_count"] = 1
+    monitor["confidence_alpha_correlation"] = -1.0
+    monitor["confidence_alpha_correlation_status"] = "negative"
+    monitor["confidence_delta_bucket_outcomes"] = {}
+    monitor["calibration_drift_rule_counts"] = {"manual_override": 1}
+    monitor["manual_review_recipe_ids"] = []
+    monitor["calibration_drift_recipe_ids"] = []
+    monitor_path.write_text(
+        json.dumps(monitor, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _recipe_paper_trading_contract_record(tmp_path)
+
+    assert not record.accepted
+    expected_fragments = [
+        "unvalidated_confidence_impact_count",
+        "alpha_decay_fail_count",
+        "aggregate_calibration_drift_count",
+        "confidence_alpha_correlation mismatch",
+        "confidence_alpha_correlation_status mismatch",
+        "confidence_delta_bucket_outcomes mismatch",
+        "calibration_drift_rule_counts mismatch",
+        "manual_review_recipe_ids mismatch",
+        "calibration_drift_recipe_ids mismatch",
+    ]
+    for fragment in expected_fragments:
+        assert any(fragment in item for item in record.failures)
 
 
 def test_recipe_paper_trading_contract_rejects_run_summary_mismatch(
