@@ -1014,6 +1014,12 @@ def test_rke_cli_promotion_status_writes_report(tmp_path: Path, capsys):
     assert next_actions["complete_manual_forecast_gold_review"][
         "field_contract"
     ]["optional_fields"] == ["review_notes"]
+    assert next_actions["complete_manual_forecast_gold_review"]["batch_overview"][
+        "current_batch_path"
+    ] == "registry/review_batches/gold_set_reviewed.jsonl"
+    assert next_actions["complete_manual_forecast_gold_review"][
+        "current_batch_pending_rows"
+    ] >= 0
     assert (
         "review-progress --root . --actions-only --no-write --review-kind lockbox"
         in next_actions["prepare_lockbox_after_upstream_manual_gates"]["commands"][
@@ -1034,6 +1040,20 @@ def test_rke_cli_promotion_status_writes_report(tmp_path: Path, capsys):
     assert "review_notes" in next_actions[
         "prepare_lockbox_after_upstream_manual_gates"
     ]["field_contract"]["footprint_review"]["required_fields"]
+    lockbox_gate_actions = next_actions["prepare_lockbox_after_upstream_manual_gates"][
+        "review_gate_actions"
+    ]
+    assert lockbox_gate_actions["gold_set"]["batch_overview"][
+        "current_batch_path"
+    ] == "registry/review_batches/gold_set_reviewed.jsonl"
+    assert lockbox_gate_actions["footprint_review"]["batch_overview"][
+        "current_batch_path"
+    ] == "registry/report_intelligence/analytical_footprint_review_batch.jsonl"
+    assert lockbox_gate_actions["lockbox"]["next_manual_action"] in {
+        "wait_for_prior_manual_gates",
+        "complete_lockbox_decision_then_dry_run",
+        "prepare_lockbox_review",
+    }
     assert (
         "promotion-dry-run --root ."
         in next_actions["prepare_lockbox_after_upstream_manual_gates"]["commands"][

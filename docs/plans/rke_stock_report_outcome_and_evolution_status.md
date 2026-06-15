@@ -50,6 +50,8 @@ Markdown paths, source spans, reviewer notes, or private Tushare rows.
   output, so bundle consumers see the same focus fields as the action queue.
   The manual review progress semantic contract now rejects batch-overview drift
   from the persisted current-batch status and pending batch plan.
+  `promotion-status --no-write` now also carries the same gold-set batch
+  overview and nested manual review gate actions for lockbox dependency work.
 
 Current public aggregate evidence. Private report-intelligence JSONL files such
 as `report_metadata.jsonl`, `forecast_claims.jsonl`, and

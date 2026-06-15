@@ -718,6 +718,8 @@ def _promotion_status_next_actions(
         notes: Sequence[str] = (),
         review_aids: Mapping[str, Any] | None = None,
         field_contract: Mapping[str, Any] | None = None,
+        review_action_context: Mapping[str, Any] | None = None,
+        review_gate_actions: Mapping[str, Mapping[str, Any]] | None = None,
     ) -> None:
         if any(action["action_id"] == action_id for action in actions):
             return
@@ -731,6 +733,16 @@ def _promotion_status_next_actions(
             action["review_aids"] = dict(review_aids)
         if field_contract:
             action["field_contract"] = dict(field_contract)
+        if review_action_context:
+            action.update(dict(review_action_context))
+        if review_gate_actions:
+            gate_actions = {
+                str(kind): dict(context)
+                for kind, context in review_gate_actions.items()
+                if context
+            }
+            if gate_actions:
+                action["review_gate_actions"] = gate_actions
         actions.append(action)
 
     source_license_passed = (
@@ -809,6 +821,10 @@ def _promotion_status_next_actions(
             ),
             review_aids=manual_review_aid_paths("gold_set"),
             field_contract=manual_review_field_contract("gold_set"),
+            review_action_context=_current_review_action_public_context(
+                root,
+                "gold_set",
+            ),
         )
 
     if "PG09" in failed_criteria:
@@ -856,6 +872,14 @@ def _promotion_status_next_actions(
                 "gold_set": manual_review_field_contract("gold_set"),
                 "footprint_review": manual_review_field_contract("footprint_review"),
                 "lockbox": manual_review_field_contract("lockbox"),
+            },
+            review_gate_actions={
+                "gold_set": _current_review_action_public_context(root, "gold_set"),
+                "footprint_review": _current_review_action_public_context(
+                    root,
+                    "footprint_review",
+                ),
+                "lockbox": _current_review_action_public_context(root, "lockbox"),
             },
         )
 
