@@ -87,6 +87,8 @@ class GoldReviewStarterResult:
     written: bool
     overwritten: bool
     rows: int
+    selected_priority_score_counts: Mapping[str, int]
+    selected_priority_reason_counts: Mapping[str, int]
     blockers: Sequence[str]
     backed_up_existing_output: bool = False
     backup_path: str = ""
@@ -133,6 +135,8 @@ class GoldReviewEvidenceSummary:
     row_count: int
     evidence_rows: int
     missing_markdown_rows: int
+    selected_priority_score_counts: Mapping[str, int]
+    selected_priority_reason_counts: Mapping[str, int]
     blockers: Sequence[str]
     selection_source: str = "priority_sorted_pending"
     review_input_path: str = ""
@@ -1067,22 +1071,55 @@ def _load_jsonl_mapping_rows(path: Path) -> tuple[list[Mapping[str, Any]], tuple
     return rows, tuple(blockers)
 
 
-def _gold_evidence_priority_score(row: Mapping[str, Any]) -> int:
-    score = 0
+def _gold_evidence_priority_reasons(row: Mapping[str, Any]) -> tuple[str, ...]:
+    reasons: list[str] = []
     risk_flags = tuple(str(flag) for flag in row.get("proposed_review_risk_flags") or ())
     if "manual_review_required" in risk_flags:
-        score += 2
+        reasons.append("manual_review_required")
     if "sentence_fallback_requires_context_synthesis" in risk_flags:
-        score += 2
+        reasons.append("context_synthesis_required")
+    if "forecast_mapping_insufficient" in risk_flags:
+        reasons.append("forecast_mapping_insufficient")
+    if "long_candidate_sentence" in risk_flags:
+        reasons.append("long_candidate_sentence")
     if str(row.get("proposed_direction") or "") in {"ambiguous", "neutral"}:
-        score += 2
+        reasons.append("ambiguous_or_neutral_direction")
     if str(row.get("proposed_extraction_confidence_bin") or "") == "low":
-        score += 1
+        reasons.append("low_extraction_confidence")
     if not row.get("proposed_target_variables"):
-        score += 1
+        reasons.append("missing_target_variables")
     if not row.get("proposed_cause_variables"):
-        score += 1
-    return score
+        reasons.append("missing_cause_variables")
+    return tuple(reasons)
+
+
+GOLD_EVIDENCE_PRIORITY_REASON_WEIGHTS: Mapping[str, int] = {
+    "manual_review_required": 2,
+    "context_synthesis_required": 2,
+    "forecast_mapping_insufficient": 2,
+    "ambiguous_or_neutral_direction": 2,
+    "long_candidate_sentence": 1,
+    "low_extraction_confidence": 1,
+    "missing_target_variables": 1,
+    "missing_cause_variables": 1,
+}
+
+
+def _gold_evidence_priority_score(row: Mapping[str, Any]) -> int:
+    return sum(
+        GOLD_EVIDENCE_PRIORITY_REASON_WEIGHTS.get(reason, 0)
+        for reason in _gold_evidence_priority_reasons(row)
+    )
+
+
+def _gold_priority_counts(
+    rows: Sequence[Mapping[str, Any]],
+) -> tuple[dict[str, int], dict[str, int]]:
+    score_counts = Counter(str(_gold_evidence_priority_score(row)) for row in rows)
+    reason_counts = Counter(
+        reason for row in rows for reason in _gold_evidence_priority_reasons(row)
+    )
+    return dict(sorted(score_counts.items())), dict(sorted(reason_counts.items()))
 
 
 def _gold_evidence_terms(row: Mapping[str, Any]) -> tuple[str, ...]:
@@ -1610,6 +1647,7 @@ def _gold_evidence_row(
         "human_review_required": True,
         "index": index,
         "priority_score": _gold_evidence_priority_score(row),
+        "priority_reasons": _gold_evidence_priority_reasons(row),
         "claim_id": str(row.get("claim_id") or ""),
         TARGET_ROW_HASH_FIELD: str(
             row.get(TARGET_ROW_HASH_FIELD) or review_row_fingerprint(row)
@@ -1760,6 +1798,8 @@ def build_gold_review_evidence(
             enumerate(pending_rows, 1),
             key=lambda item: (-_gold_evidence_priority_score(item[1]), item[0]),
         )[max(0, int(offset)) : max(0, int(offset)) + max(0, int(limit))]
+    selected_rows = tuple(row for _, row in prioritized_rows)
+    priority_score_counts, priority_reason_counts = _gold_priority_counts(selected_rows)
     evidence_rows = tuple(
         _gold_evidence_row(
             index,
@@ -1799,6 +1839,8 @@ def build_gold_review_evidence(
             row_count=len(evidence_rows),
             evidence_rows=sum(1 for row in evidence_rows if row.get("evidence_snippets")),
             missing_markdown_rows=missing_markdown_rows,
+            selected_priority_score_counts=priority_score_counts,
+            selected_priority_reason_counts=priority_reason_counts,
             blockers=tuple(blockers),
             selection_source=selection_source,
             review_input_path=review_input_text,
@@ -1817,6 +1859,16 @@ def render_gold_review_evidence_markdown(
         for row in rows
         for tag in row.get("suggested_manual_error_tags") or ()
         if str(tag).strip()
+    )
+    priority_score_counts = Counter(
+        str(row.get("priority_score") if row.get("priority_score") is not None else 0)
+        for row in rows
+    )
+    priority_reason_counts = Counter(
+        str(reason)
+        for row in rows
+        for reason in row.get("priority_reasons") or ()
+        if str(reason).strip()
     )
     proposed_flag_counts = Counter(
         str(flag)
@@ -1886,6 +1938,10 @@ def render_gold_review_evidence_markdown(
         [
             "## Batch Triage Summary",
             "",
+            "- Priority score counts: "
+            + _markdown_cell(dict(sorted(priority_score_counts.items())), max_chars=500),
+            "- Priority reason counts: "
+            + _markdown_cell(dict(sorted(priority_reason_counts.items())), max_chars=500),
             "- Suggested tag counts: "
             + _markdown_cell(dict(sorted(suggested_tag_counts.items())), max_chars=500),
             "- Proposed risk flag counts: "
@@ -1949,6 +2005,7 @@ def render_gold_review_evidence_markdown(
                 f"- Domain: {row.get('gold_set_domain') or '-'}",
                 f"- Direction: {row.get('proposed_direction') or '-'}",
                 f"- Priority score: {row.get('priority_score')}",
+                f"- Priority reasons: {_markdown_cell(row.get('priority_reasons'), max_chars=200)}",
                 f"- Suggested tags: {_markdown_cell(row.get('suggested_manual_error_tags'), max_chars=200)}",
                 f"- Quality-gap focus fields: {_markdown_cell(row.get('quality_gap_focus_fields'), max_chars=200)}",
                 "",
@@ -2051,6 +2108,8 @@ def write_gold_review_evidence(
         "review_input_path": summary.review_input_path,
         "evidence_rows": summary.evidence_rows,
         "missing_markdown_rows": summary.missing_markdown_rows,
+        "selected_priority_score_counts": summary.selected_priority_score_counts,
+        "selected_priority_reason_counts": summary.selected_priority_reason_counts,
         "blockers": len(summary.blockers),
         "quality_gap_targets": summary.quality_gap_targets,
     }
@@ -2323,14 +2382,17 @@ def write_gold_review_starter(
     )
     offset_value = 0 if full else max(0, int(offset))
     if full:
-        rows = tuple(_gold_template_row(row) for row in source_rows)
+        selected_source_rows = tuple(source_rows)
         template_path = GOLD_FULL_IMPORT_TEMPLATE_PATH
     else:
-        rows = tuple(
-            _gold_template_row(row)
-            for row in source_rows[offset_value : offset_value + gold_batch_size]
+        selected_source_rows = tuple(
+            source_rows[offset_value : offset_value + gold_batch_size]
         )
         template_path = GOLD_BATCH_IMPORT_TEMPLATE_PATH
+    priority_score_counts, priority_reason_counts = _gold_priority_counts(
+        selected_source_rows
+    )
+    rows = tuple(_gold_template_row(row) for row in selected_source_rows)
     reviewer_text = str(reviewer or "").strip()
     review_date_text = str(review_date or "").strip()
     if reviewer_text or review_date_text:
@@ -2367,6 +2429,8 @@ def write_gold_review_starter(
         written=not blockers,
         overwritten=exists and force and not blockers,
         rows=len(rows),
+        selected_priority_score_counts=priority_score_counts,
+        selected_priority_reason_counts=priority_reason_counts,
         blockers=tuple(blockers),
         backed_up_existing_output=backed_up_existing_output,
         backup_path=backup_path,

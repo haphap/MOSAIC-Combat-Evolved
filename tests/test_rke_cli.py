@@ -498,6 +498,8 @@ def test_rke_cli_prepare_gold_review_supports_full_and_protects_existing_file(
     assert output["rows"] == len(rows)
     assert output["rows"] > 0
     assert output["path"] == str(reviewed_path)
+    assert isinstance(output["selected_priority_score_counts"], dict)
+    assert isinstance(output["selected_priority_reason_counts"], dict)
     assert reviewed_path.exists()
     assert rows[0]["reviewer"] == "hap"
     assert rows[0]["review_date"] == "2026-06-12"

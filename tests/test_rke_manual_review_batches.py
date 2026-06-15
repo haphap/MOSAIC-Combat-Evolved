@@ -326,11 +326,19 @@ def test_gold_review_evidence_is_private_non_import_review_aid(tmp_path: Path):
 
     assert result["rows"] == 2
     assert result["evidence_rows"] == 2
+    assert result["selected_priority_score_counts"]
+    assert isinstance(result["selected_priority_reason_counts"], dict)
     assert result["quality_gap_targets"]["metrics"]["direction_accuracy"][
         "current_rate"
     ] is not None
     assert summary.row_count == 2
     assert summary.evidence_rows == 2
+    assert summary.selected_priority_score_counts == result[
+        "selected_priority_score_counts"
+    ]
+    assert summary.selected_priority_reason_counts == result[
+        "selected_priority_reason_counts"
+    ]
     assert summary.quality_gap_targets["metrics"]["variable_mapping_accuracy"][
         "current_rate"
     ] is not None
@@ -340,12 +348,16 @@ def test_gold_review_evidence_is_private_non_import_review_aid(tmp_path: Path):
     assert rows[0]["evidence_kind"] == "gold_review_evidence_not_import"
     assert rows[0]["not_apply_gold_review_input"] is True
     assert rows[0]["human_review_required"] is True
+    assert isinstance(rows[0]["priority_reasons"], tuple)
     assert rows[0]["evidence_snippets"]
     assert rows[0]["suggested_review_decision"]["unsupported_field_false_grounded"] is False
     assert rows[0]["suggested_review_rationales"]
     assert "manual_claim_text" not in rows[0]
     assert markdown.startswith("# RKE Gold Review Evidence Draft")
     assert "## Batch Triage Summary" in markdown
+    assert "Priority score counts" in markdown
+    assert "Priority reason counts" in markdown
+    assert "Priority reasons" in markdown
     assert "Suggested tag counts" in markdown
     assert "Proposed risk flag counts" in markdown
     assert "Suggested decision counts" in markdown
@@ -437,6 +449,8 @@ def test_gold_review_evidence_flags_direction_text_mismatch(tmp_path: Path):
         "missing_cause_variables",
         "missing_target_variables",
     )
+    assert "missing_cause_variables" in row["priority_reasons"]
+    assert "missing_target_variables" in row["priority_reasons"]
     assert "direction_correct" in row["quality_gap_focus_fields"]
     assert "variable_mapping_correct" in row["quality_gap_focus_fields"]
 
@@ -665,6 +679,45 @@ def test_write_gold_review_starter_supports_offset_batches(tmp_path: Path):
     assert first.rows == 1
     assert second.rows == 1
     assert first_rows[0]["claim_id"] != second_rows[0]["claim_id"]
+
+
+def test_write_gold_review_starter_reports_priority_reason_counts(tmp_path: Path):
+    _copy_registry(tmp_path)
+    review_path = (
+        tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    )
+    rows = _load_jsonl(review_path)
+    rows[0].update(
+        {
+            "proposed_claim_text": "政策催化持续提升行业需求，相关公司盈利有望改善。",
+            "proposed_direction": "positive",
+            "proposed_extraction_confidence_bin": "low",
+            "proposed_cause_variables": ["industry_policy_catalyst"],
+            "proposed_target_variables": ["company_forward_earnings"],
+            "proposed_review_risk_flags": [
+                "manual_review_required",
+                "sentence_fallback_requires_context_synthesis",
+                "forecast_mapping_insufficient",
+            ],
+        }
+    )
+    _write_jsonl(review_path, rows)
+
+    result = write_gold_review_starter(
+        tmp_path,
+        gold_batch_size=1,
+        force=True,
+    )
+
+    assert result.written
+    assert result.rows == 1
+    assert result.selected_priority_score_counts == {"7": 1}
+    assert result.selected_priority_reason_counts == {
+        "context_synthesis_required": 1,
+        "forecast_mapping_insufficient": 1,
+        "low_extraction_confidence": 1,
+        "manual_review_required": 1,
+    }
 
 
 def test_write_gold_review_starter_exports_reviewed_failures_for_targeted_rereview(tmp_path: Path):
