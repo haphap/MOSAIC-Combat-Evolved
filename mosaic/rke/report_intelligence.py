@@ -1667,7 +1667,44 @@ def _stratified_source_values(
                 corpus_as_of=corpus_as_of,
             ),
         ),
+        ("horizon_bucket", _source_row_horizon_bucket(row)),
+        ("evaluability_bucket", _source_row_evaluability_bucket(row)),
     )
+
+
+def _source_row_horizon_bucket(row: Mapping[str, Any]) -> str:
+    explicit_bucket = str(row.get("horizon_bucket") or "").strip()
+    if explicit_bucket:
+        return explicit_bucket
+    horizon = row.get("horizon")
+    if isinstance(horizon, Mapping):
+        bucket = _horizon_bucket(horizon)
+        if bucket != "unknown":
+            return bucket
+    elif horizon is not None:
+        bucket = _horizon_bucket({"preferred_days": horizon})
+        if bucket != "unknown":
+            return bucket
+    for field in (
+        "preferred_horizon_days",
+        "horizon_days",
+        "expected_horizon_days",
+        "preferred_days",
+        "max_horizon_days",
+        "min_horizon_days",
+    ):
+        bucket = _horizon_bucket({"preferred_days": row.get(field)})
+        if bucket != "unknown":
+            return bucket
+    return "no_source_horizon_hint"
+
+
+def _source_row_evaluability_bucket(row: Mapping[str, Any]) -> str:
+    for field in ("evaluability_bucket", "evaluability_status"):
+        value = str(row.get(field) or "").strip()
+        if value:
+            return value
+    return "source_evaluability_unknown"
 
 
 def _stratified_source_rows(
@@ -1685,6 +1722,8 @@ def _stratified_source_rows(
         "sector_bucket": set(),
         "stock_ts_code": set(),
         "stock_outcome_age_bucket": set(),
+        "horizon_bucket": set(),
+        "evaluability_bucket": set(),
     }
     corpus_as_of = _coverage_corpus_as_of(
         [{"publish_datetime": _source_publish_datetime(row)} for row in rows]

@@ -9362,6 +9362,88 @@ def test_report_intelligence_stratified_source_selection_covers_p9_buckets(
     assert coverage["industry_report_count"] == 1
 
 
+def test_report_intelligence_stratified_source_selection_uses_horizon_and_evaluability_hints(
+    tmp_path: Path,
+):
+    source_path = tmp_path / "registry/sources/tushare_research_reports.jsonl"
+    source_path.parent.mkdir(parents=True, exist_ok=True)
+
+    def row(
+        source_id: str,
+        *,
+        publish_date: str,
+        preferred_horizon_days: int,
+        evaluability_bucket: str,
+    ) -> dict[str, object]:
+        return {
+            "author": "Analyst A",
+            "discovered_at": f"{publish_date}T00:00:00+00:00",
+            "evaluability_bucket": evaluability_bucket,
+            "industry": "银行",
+            "institution": "Broker",
+            "license_status": "pending_review",
+            "point_in_time_available": True,
+            "preferred_horizon_days": preferred_horizon_days,
+            "publish_date": publish_date,
+            "query_key": "银行",
+            "report_type": "行业研报",
+            "source_hash": f"sha256:{source_id}",
+            "source_id": source_id,
+            "source_type": "tushare_research_report",
+            "title": f"行业研报 {source_id}",
+            "url": f"https://example.invalid/{source_id}.pdf",
+        }
+
+    rows = [
+        row(
+            "SRC-RECENT-STANDARD",
+            publish_date="2026-06-05",
+            preferred_horizon_days=5,
+            evaluability_bucket="standard_evaluable_candidate",
+        ),
+        row(
+            "SRC-MID-STANDARD",
+            publish_date="2026-06-04",
+            preferred_horizon_days=5,
+            evaluability_bucket="standard_evaluable_candidate",
+        ),
+        row(
+            "SRC-OLDER-LONG-STOCK",
+            publish_date="2026-06-03",
+            preferred_horizon_days=120,
+            evaluability_bucket="stock_proxy_candidate",
+        ),
+    ]
+    source_path.write_text(
+        "".join(
+            json.dumps(item, ensure_ascii=False, sort_keys=True) + "\n"
+            for item in rows
+        ),
+        encoding="utf-8",
+    )
+
+    result = run_report_intelligence_refresh(
+        ReportIntelligenceConfig(
+            root=tmp_path,
+            source_path=source_path,
+            limit=2,
+            selection_order="stratified",
+            skip_download=True,
+            skip_convert=True,
+            skip_llm=True,
+        )
+    )
+
+    assert result.selected_reports == 2
+    metadata = _read_jsonl(
+        tmp_path / "registry/report_intelligence/report_metadata.jsonl"
+    )
+    assert {row["source_id"] for row in metadata} == {
+        "SRC-RECENT-STANDARD",
+        "SRC-OLDER-LONG-STOCK",
+    }
+
+
 def test_report_intelligence_stratified_source_selection_covers_outcome_ready_stock(
     tmp_path: Path,
 ):

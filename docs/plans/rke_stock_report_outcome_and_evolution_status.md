@@ -63,7 +63,7 @@ contracts.
 | P6 decisions | Implemented for default path | default benchmark `SH510300` from `cn_etf`; stock cost 20 bps; stock windows 5/20/60/120; no company-name fuzzy mapping |
 | P7 implementation breakdown | Implemented | qlib helpers, readiness builder, label builder, derived refresh integration, audits, schemas, tests, proxy outcome ID namespace contracts, and profile layer contracts that prevent cross-label-type/benchmark/cost aggregation from replacing stratified evidence |
 | P8 acceptance matrix | Automated acceptance passes except manual review / coverage gates | ruff, report-intelligence tests, schema-artifact tests, prompt leak guard, diff check pass; `schema-status` intentionally exits 2 until analytical footprint review, gold-set quality/corpus review, and patch v1.5 Phase B/D coverage gates pass; `prepare-footprint-review` now creates a gitignored import scaffold for the footprint gate |
-| P9 PDF/Markdown coverage expansion | Implemented for current sample pool | public coverage summary exists, includes `macro_asset_proxy_candidate` coverage, and passes privacy rules; private PDF/Markdown/cache paths remain gitignored |
+| P9 PDF/Markdown coverage expansion | Implemented for current sample pool | public coverage summary exists, includes `macro_asset_proxy_candidate` coverage, and passes privacy rules; private PDF/Markdown/cache paths remain gitignored; stratified source selection now consumes source-row `horizon_bucket` / horizon-day hints and `evaluability_bucket` hints when present, matching the P9 required sampling dimensions while retaining safe fallbacks for raw Tushare rows |
 | P10 industry ETF mapping/PIT availability | Implemented with action watchlist | 64-row mapping registry, PIT availability artifact, mapping contract tests; `工业金属 -> SH560860` pinned; semantic validation now rejects drift between PIT availability `labelability_summary`, `labelability_action_summary`, PIT mapping counts, and `outcome_labeling_readiness` |
 | P11 recipe paper-trading | Implemented; current aggregate threshold cleared | pre-registration hash, OOS chronological split, required data contracts, cost/benchmark protocol, 2031 paper-trading runs, 33 validated recipes against the 20-recipe threshold |
 | P12 confidence impact monitor | Implemented; current validated-recipe count is above the evolution threshold | monitor rows gate confidence impact on paper-trading validation; 33 validated recipes are monitored across 2031 observations; alpha decay and calibration drift actions are tracked as shadow-only; RI-EVOL-03 now exposes recipe-level freeze/manual-review action counts while keeping production impact disabled; the calibration mutation candidate consumes the same recipe-level aggregate action counts so monitor actions feed the prompt-evolution queue; monitoring report aggregate counts are semantically checked against public registry artifacts |
@@ -216,6 +216,13 @@ Most recent focused validation after stock readiness gap semantics hardening:
 ```bash
 MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run pytest tests/test_rke_schema_artifacts.py::test_stock_price_proxy_readiness_contract_rejects_pit_policy_drift tests/test_rke_schema_artifacts.py::test_stock_price_proxy_readiness_contract_accepts_blocking_gap_counts tests/test_rke_schema_artifacts.py::test_report_outcome_label_semantics_reject_untradable_stock_label -q --basetemp .mosaic/tmp/pytest-stock-gap-semantics
 uvx ruff@0.15.15 check mosaic/rke/schema_validation.py tests/test_rke_schema_artifacts.py
+```
+
+Most recent focused validation after stratified source-selection hardening:
+
+```bash
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run pytest tests/test_rke_report_intelligence.py::test_report_intelligence_stratified_source_selection_covers_p9_buckets tests/test_rke_report_intelligence.py::test_report_intelligence_stratified_source_selection_uses_horizon_and_evaluability_hints tests/test_rke_report_intelligence.py::test_report_intelligence_stratified_source_selection_covers_outcome_ready_stock -q --basetemp .mosaic/tmp/pytest-stratified-horizon-eval
+uvx ruff@0.15.15 check mosaic/rke/report_intelligence.py tests/test_rke_report_intelligence.py
 ```
 
 Most recent focused validation after analytical-footprint indicator alias
