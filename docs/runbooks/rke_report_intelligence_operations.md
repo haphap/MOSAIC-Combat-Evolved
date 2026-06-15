@@ -139,6 +139,56 @@ Operational rules:
 
 Last completed Mimo extraction smoke from cached VLM Markdown:
 
+Batch smoke:
+
+```bash
+TMPDIR=.mosaic/tmp uv run mosaic-rke report-intelligence \
+  --root . \
+  --env-file .env \
+  --source-path registry/sources/local_macro_strategy_reports.jsonl \
+  --cache-dir .mosaic/rke/report_intelligence \
+  --registry-dir .mosaic/rke/report_intelligence/macro_mimo_vlm_extract_batch_registry \
+  --source-id SRC-LMSR-20260609-1f86ed80b00a4cf1 \
+  --source-id SRC-LMSR-20250320-9f1ef5bbbe651e02 \
+  --source-id SRC-LMSR-20260607-6f0accae6bdf3fc3 \
+  --source-id SRC-LMSR-20260606-2f9bf1c00d3b5a58 \
+  --source-id SRC-LMSR-20260527-f1b95cdfa63df9aa \
+  --require-cached-markdown \
+  --skip-download \
+  --skip-convert \
+  --limit 5 \
+  --mineru-backend vlm-auto-engine \
+  --vllm-timeout-seconds 300 \
+  --max-chunks 2 \
+  --chunk-chars 30000
+```
+
+Result:
+
+- Run id: `RIR-20260615T005011+0000`
+- Selected reports: `5`
+- Markdown ready: `5`
+- Markdown backend counts: `vlm-auto-engine=5`
+- LLM processed reports: `5`
+- LLM model counts: `mimo-v2.5-pro=5`
+- Forecast claim rows: `4`
+- Analytical footprint rows: `16`
+- Metric candidate rows: `72`
+- Method pattern rows: `61`
+- Analysis recipe rows: `61`
+- Macro asset proxy eligible claim rows: `1`
+- Macro asset proxy pending window rows: `4`
+- Tool coverage match rows: `72`
+- Tool gap rows: `122`
+- Data acquisition proposal rows: `121`
+- Tool design proposal rows: `121`
+- Blockers: `0`
+- Private extraction outputs under
+  `.mosaic/rke/report_intelligence/macro_mimo_vlm_extract_batch_registry/` are
+  gitignored and must not be committed.
+
+Single-report smoke:
+
 ```bash
 TMPDIR=.mosaic/tmp uv run mosaic-rke report-intelligence \
   --root . \
@@ -342,3 +392,6 @@ TMPDIR=.mosaic/tmp uv run mosaic-rke report-intelligence \
 - `2026-06-15`: Ran one cached-VLM-Markdown Mimo extraction smoke using
   `mimo-v2.5-pro`; extraction processed successfully with 2 forecast claims, 2
   analytical footprints, 7 method patterns, and no blockers.
+- `2026-06-15`: Ran a 5-report cached-VLM-Markdown Mimo extraction batch using
+  `mimo-v2.5-pro`; all 5 reports processed with no blockers, producing 4
+  forecast claims, 16 analytical footprints, and 61 method patterns.
