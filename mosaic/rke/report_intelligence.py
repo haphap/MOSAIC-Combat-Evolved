@@ -4797,7 +4797,12 @@ def prepare_analytical_footprint_review_import(
     if limit_value is None:
         selected_target_rows = target_rows[offset_value:] if offset_value else target_rows
     else:
-        selected_target_rows = target_rows[offset_value : offset_value + limit_value]
+        pending_target_rows = [
+            row for row in target_rows if not _footprint_review_row_complete(row)
+        ]
+        selected_target_rows = pending_target_rows[
+            offset_value : offset_value + limit_value
+        ]
     scaffold_rows: list[dict[str, Any]] = []
     for row in selected_target_rows:
         scaffold = dict(row)

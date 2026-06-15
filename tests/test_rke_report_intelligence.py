@@ -10264,6 +10264,56 @@ def test_prepare_analytical_footprint_review_import_supports_offset_batches(
     assert scaffold_rows[0]["review_date"] == "2026-06-12"
 
 
+def test_prepare_analytical_footprint_review_import_batches_pending_rows(
+    tmp_path: Path,
+):
+    source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
+    run_report_intelligence_refresh(
+        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        downloader=_fake_downloader,
+        converter=_fake_converter,
+        llm_extractor=_fake_llm,
+    )
+    template_path = tmp_path / "registry/report_intelligence/analytical_footprint_review_template.jsonl"
+    rows = _read_jsonl(template_path)
+    duplicate = dict(rows[0])
+    duplicate["footprint_id"] = f"{rows[0]['footprint_id']}-B"
+    rows.append(duplicate)
+    rows[0].update(
+        {
+            "footprint_correct": True,
+            "source_span_supports_footprint": True,
+            "metric_mapping_correct": True,
+            "inferred_steps_tagged_correctly": True,
+            "unknowns_used_when_uncertain": True,
+            "no_proprietary_text_leakage": True,
+            "manual_error_tags": [],
+            "reviewer": "footprint-reviewer",
+            "review_date": "2026-06-12",
+            "review_notes": "fixture approval",
+        }
+    )
+    _write_jsonl(template_path, rows)
+    output_path = tmp_path / "footprint_review_pending_batch.jsonl"
+
+    report = prepare_analytical_footprint_review_import(
+        tmp_path,
+        output_path,
+        reviewer="footprint-reviewer",
+        review_date="2026-06-12",
+        limit=1,
+        offset=0,
+    )
+    scaffold_rows = _read_jsonl(output_path)
+
+    assert report.accepted
+    assert report.requested_limit == 1
+    assert report.requested_offset == 0
+    assert report.output_rows == 1
+    assert scaffold_rows[0]["footprint_id"] == duplicate["footprint_id"]
+    assert scaffold_rows[0]["footprint_correct"] is None
+
+
 def test_prepare_footprint_review_cli_limit_defaults_to_batch_path(
     tmp_path: Path,
     capsys,
