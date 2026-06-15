@@ -18,7 +18,7 @@ from typing import Any, Mapping, Sequence
 from .claim_text_filters import is_non_research_claim_text
 from .claim_vocabulary import load_claim_variable_vocabulary
 from .manual_review_batches import gold_candidate_reviewable
-from .phase_minus1 import load_jsonl_with_errors
+from .phase_minus1 import build_gold_set_review_template, load_jsonl_with_errors
 from .review_integrity import license_review_row_complete
 
 
@@ -1535,6 +1535,74 @@ def merge_candidate_claims_into_review_template(
     }
 
 
+def _ensure_candidate_review_rows(root_path: Path) -> dict[str, Any]:
+    raw_candidates, candidate_parse_blockers = load_jsonl_with_errors(
+        root_path / GOLD_CANDIDATES_PATH,
+        label="gold candidate",
+    )
+    raw_review_rows, review_parse_blockers = load_jsonl_with_errors(
+        root_path / GOLD_REVIEW_TEMPLATE_PATH,
+        label="gold-set review",
+    )
+    candidates, invalid_candidate_rows = _split_mapping_rows(raw_candidates)
+    review_rows, invalid_review_rows = _split_mapping_rows(raw_review_rows)
+    blockers: list[str] = [*candidate_parse_blockers, *review_parse_blockers]
+    if invalid_candidate_rows:
+        blockers.append(_malformed_row_blocker("gold candidate", invalid_candidate_rows))
+    if invalid_review_rows:
+        blockers.append(_malformed_row_blocker("gold-set review", invalid_review_rows))
+
+    existing_document_ids = {
+        str(row.get("document_id") or row.get("source_id") or "")
+        for row in review_rows
+        if str(row.get("document_id") or row.get("source_id") or "").strip()
+    }
+    missing_candidates = [
+        candidate
+        for candidate in candidates
+        if str(candidate.get("source_id") or "").strip()
+        and str(candidate.get("source_id") or "") not in existing_document_ids
+    ]
+    starter_rows = build_gold_set_review_template(
+        missing_candidates,
+        claims_per_document=MAX_REVIEW_CLAIMS_PER_SOURCE,
+    )
+    existing_claim_ids = {
+        str(row.get("claim_id") or "")
+        for row in review_rows
+        if str(row.get("claim_id") or "").strip()
+    }
+    added_rows = [
+        row
+        for row in starter_rows
+        if str(row.get("claim_id") or "").strip()
+        and str(row.get("claim_id") or "") not in existing_claim_ids
+    ]
+    if not blockers and added_rows:
+        _write_jsonl(root_path / GOLD_REVIEW_TEMPLATE_PATH, [*review_rows, *added_rows])
+    return {
+        "path": GOLD_REVIEW_TEMPLATE_PATH,
+        "candidate_documents": len(
+            {
+                str(candidate.get("source_id") or "")
+                for candidate in candidates
+                if str(candidate.get("source_id") or "").strip()
+            }
+        ),
+        "existing_review_documents": len(existing_document_ids),
+        "candidate_review_documents_added": len(
+            {
+                str(row.get("document_id") or row.get("source_id") or "")
+                for row in added_rows
+                if str(row.get("document_id") or row.get("source_id") or "").strip()
+            }
+        ),
+        "candidate_review_rows_added": len(added_rows),
+        "applied": not blockers,
+        "blockers": tuple(blockers),
+    }
+
+
 def build_gold_candidate_claim_summary(
     root: str | Path = ".",
     *,
@@ -1570,16 +1638,27 @@ def build_gold_candidate_claim_summary(
     )
 
 
-def write_gold_candidate_claims(root: str | Path = ".") -> dict[str, Any]:
+def write_gold_candidate_claims(
+    root: str | Path = ".",
+    *,
+    ensure_candidate_review_rows: bool = False,
+) -> dict[str, Any]:
     root_path = Path(root)
+    ensure_result: Mapping[str, Any] = {}
+    ensure_blockers: tuple[str, ...] = ()
+    if ensure_candidate_review_rows:
+        ensure_result = _ensure_candidate_review_rows(root_path)
+        ensure_blockers = tuple(str(blocker) for blocker in ensure_result.get("blockers") or ())
     claims, build_blockers = _build_gold_candidate_claims_with_blockers(root_path)
     claims_result = _write_jsonl(root_path / GOLD_CANDIDATE_CLAIMS_PATH, [asdict(claim) for claim in claims])
     merge_result = merge_candidate_claims_into_review_template(
         root_path,
         candidate_claims=claims,
-        pre_merge_blockers=build_blockers,
+        pre_merge_blockers=(*ensure_blockers, *build_blockers),
     )
-    blockers = tuple(dict.fromkeys((*build_blockers, *(merge_result.get("blockers") or ()))))
+    blockers = tuple(
+        dict.fromkeys((*ensure_blockers, *build_blockers, *(merge_result.get("blockers") or ())))
+    )
     summary = build_gold_candidate_claim_summary(
         root_path,
         candidate_claims=claims,
@@ -1591,4 +1670,10 @@ def write_gold_candidate_claims(root: str | Path = ".") -> dict[str, Any]:
         "candidate_claims": str(claims_result["path"]),
         "summary": str(summary_result["path"]),
         "review_template": str(merge_result["path"]),
+        "ensure_candidate_review_rows": ensure_candidate_review_rows,
+        "candidate_review_documents_added": int(
+            ensure_result.get("candidate_review_documents_added") or 0
+        ),
+        "candidate_review_rows_added": int(ensure_result.get("candidate_review_rows_added") or 0),
+        "blockers": blockers,
     }

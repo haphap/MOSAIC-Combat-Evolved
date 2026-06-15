@@ -15,7 +15,7 @@ from mosaic.rke.gold_candidate_claims import _direction, _source_sentences, _var
 from mosaic.rke.gold_candidate_claims import _candidate_claim_from_report_intelligence
 from mosaic.rke.manual_review_batches import gold_candidate_reviewable
 from mosaic.rke.manual_review_batches import write_gold_review_starter
-from mosaic.rke.phase_minus1 import _gold_set_domain_evidence
+from mosaic.rke.phase_minus1 import _gold_set_domain_evidence, build_gold_set_review_template
 
 GOLD_REVIEW_BOOL_FIELDS = (
     "claim_correct",
@@ -1255,6 +1255,91 @@ def test_gold_candidate_claims_report_malformed_vocabulary_without_rewriting_rev
     assert summary["candidate_claim_count"] == len(claims)
     assert summary["missing_variable_mapping_count"] == len(claims)
     assert any("claim_variable_vocabulary.json must contain valid JSON" in blocker for blocker in summary["blockers"])
+
+
+def test_gold_candidate_claims_ensure_candidate_review_rows_preserves_manual_fields(
+    tmp_path: Path,
+):
+    shutil.copytree(Path("registry"), tmp_path / "registry")
+    candidates_path = (
+        tmp_path / "registry/sources/tushare_research_reports.gold_candidates.jsonl"
+    )
+    review_path = (
+        tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    )
+    source_candidates = [
+        json.loads(line)
+        for line in candidates_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    current_review_rows = [
+        json.loads(line)
+        for line in review_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    claim_source_ids = {
+        str(row.get("source_id") or row.get("document_id") or "")
+        for row in current_review_rows
+        if gold_candidate_reviewable(row)
+    }
+    candidates = [
+        row
+        for row in source_candidates
+        if str(row.get("source_id") or "") in claim_source_ids
+    ][:2]
+    assert len(candidates) == 2
+    candidates_path.write_text(
+        "".join(
+            json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n"
+            for row in candidates
+        ),
+        encoding="utf-8",
+    )
+    review_rows = build_gold_set_review_template(
+        [candidates[0]],
+        claims_per_document=1,
+    )
+    review_rows[0].update(
+        {
+            "manual_claim_text": "reviewed claim",
+            "claim_correct": True,
+            "source_span_supports_claim": True,
+            "direction_correct": True,
+            "target_correct": True,
+            "horizon_correct": True,
+            "variable_mapping_correct": True,
+            "unsupported_field_false_grounded": False,
+            "reviewer": "tester",
+            "review_date": "2026-06-15",
+        }
+    )
+    review_path.write_text(
+        "".join(
+            json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n"
+            for row in review_rows
+        ),
+        encoding="utf-8",
+    )
+
+    paths = write_gold_candidate_claims(
+        tmp_path,
+        ensure_candidate_review_rows=True,
+    )
+    merged_rows = [
+        json.loads(line)
+        for line in review_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+
+    assert paths["ensure_candidate_review_rows"] is True
+    assert paths["candidate_review_documents_added"] == 1
+    assert paths["candidate_review_rows_added"] == 3
+    retained = next(
+        row for row in merged_rows if row["claim_id"] == review_rows[0]["claim_id"]
+    )
+    assert retained["manual_claim_text"] == "reviewed claim"
+    assert retained["reviewer"] == "tester"
+    assert retained["claim_correct"] is True
 
 
 def test_gold_candidate_claim_writer_outputs_claims_summary_and_review_fields(tmp_path: Path):

@@ -81,7 +81,10 @@
         "backfill_write": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke backfill-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --write",
         "dry_run": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --dry-run",
         "evidence": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-gold-review-evidence --root . --limit 50 --offset 0 --review-input registry/review_batches/gold_set_reviewed.jsonl",
-        "prepare_reviewed_failures": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke prepare-gold-review --root . --reviewed-failures --gold-batch-size 50 --offset 0 --force --reviewer <name> --review-date <YYYY-MM-DD>"
+        "expand_candidate_review_rows": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke gold-candidate-claims --root . --ensure-candidate-review-rows",
+        "prepare_expanded_batch": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke prepare-gold-review --root . --gold-batch-size 50 --offset 0 --force --reviewer <name> --review-date <YYYY-MM-DD>",
+        "prepare_reviewed_failures": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke prepare-gold-review --root . --reviewed-failures --gold-batch-size 50 --offset 0 --force --reviewer <name> --review-date <YYYY-MM-DD>",
+        "refresh_source_candidates": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke fetch-tushare-reports --root . --p9-profile --start-date <YYYY-MM-DD> --end-date <YYYY-MM-DD> --merge-existing-source"
       },
       "pending_rows": 0,
       "prepare_command": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke prepare-gold-review --root . --full",

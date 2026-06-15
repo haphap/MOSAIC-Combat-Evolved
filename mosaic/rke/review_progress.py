@@ -92,6 +92,7 @@ ACTION_QUEUE_STATES = (
     "needs_human_review_fields",
     "needs_evidence_repair",
     "needs_prepare",
+    "needs_quality_gate_work",
     "needs_policy_review",
     "waiting_on_dependencies",
     "needs_lockbox_decision",
@@ -609,8 +610,22 @@ def _gold_quality_gate_commands() -> dict[str, str]:
             "mosaic-rke write-gold-review-assist --root . "
             f"--review-input {GOLD_REVIEWED_IMPORT_PATH}"
         ),
+        "refresh_source_candidates": operator_command(
+            "mosaic-rke fetch-tushare-reports --root . --p9-profile "
+            "--start-date <YYYY-MM-DD> --end-date <YYYY-MM-DD> "
+            "--merge-existing-source"
+        ),
+        "expand_candidate_review_rows": operator_command(
+            "mosaic-rke gold-candidate-claims --root . "
+            "--ensure-candidate-review-rows"
+        ),
         "prepare_reviewed_failures": operator_command(
             "mosaic-rke prepare-gold-review --root . --reviewed-failures "
+            "--gold-batch-size 50 --offset 0 --force "
+            "--reviewer <name> --review-date <YYYY-MM-DD>"
+        ),
+        "prepare_expanded_batch": operator_command(
+            "mosaic-rke prepare-gold-review --root . "
             "--gold-batch-size 50 --offset 0 --force "
             "--reviewer <name> --review-date <YYYY-MM-DD>"
         ),
@@ -1681,7 +1696,10 @@ def _action_queue_commands(
             if key
             in {
                 "assist",
+                "refresh_source_candidates",
+                "expand_candidate_review_rows",
                 "prepare_reviewed_failures",
+                "prepare_expanded_batch",
                 "evidence",
                 "backfill_dry_run",
                 "backfill_write",

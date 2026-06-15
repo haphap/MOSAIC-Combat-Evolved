@@ -265,6 +265,20 @@ def _schema_status_next_actions(
                     "mosaic-rke write-gold-review-evidence --root . --limit 50 "
                     f"--offset 0 --review-input {GOLD_REVIEWED_IMPORT_PATH}"
                 ),
+                "refresh_source_candidates": operator_command(
+                    "mosaic-rke fetch-tushare-reports --root . --p9-profile "
+                    "--start-date <YYYY-MM-DD> --end-date <YYYY-MM-DD> "
+                    "--merge-existing-source"
+                ),
+                "expand_candidate_review_rows": operator_command(
+                    "mosaic-rke gold-candidate-claims --root . "
+                    "--ensure-candidate-review-rows"
+                ),
+                "prepare_expanded_batch": operator_command(
+                    "mosaic-rke prepare-gold-review --root . "
+                    "--gold-batch-size 50 --offset 0 --force "
+                    "--reviewer <name> --review-date <YYYY-MM-DD>"
+                ),
                 "dry_run_current_batch": operator_command(
                     "mosaic-rke apply-gold-review --root . --input "
                     f"{GOLD_REVIEWED_IMPORT_PATH} --dry-run"
@@ -275,6 +289,10 @@ def _schema_status_next_actions(
             },
             notes=(
                 "Assist and evidence outputs are private review aids, not import files.",
+                "If sample_size_documents is below threshold, refresh/merge private "
+                "sources if needed, then run gold-candidate-claims with "
+                "--ensure-candidate-review-rows to append missing candidate rows "
+                "without overwriting existing manual review fields.",
                 "Promotion uses the full reviewed import only after every gold-set batch is complete.",
             ),
             review_aids=manual_review_aid_paths("gold_set"),
@@ -516,6 +534,20 @@ def _promotion_status_next_actions(result: Any) -> list[dict[str, Any]]:
                     "mosaic-rke write-gold-review-evidence --root . --limit 50 "
                     f"--offset 0 --review-input {GOLD_REVIEWED_IMPORT_PATH}"
                 ),
+                "refresh_source_candidates": operator_command(
+                    "mosaic-rke fetch-tushare-reports --root . --p9-profile "
+                    "--start-date <YYYY-MM-DD> --end-date <YYYY-MM-DD> "
+                    "--merge-existing-source"
+                ),
+                "expand_candidate_review_rows": operator_command(
+                    "mosaic-rke gold-candidate-claims --root . "
+                    "--ensure-candidate-review-rows"
+                ),
+                "prepare_expanded_batch": operator_command(
+                    "mosaic-rke prepare-gold-review --root . "
+                    "--gold-batch-size 50 --offset 0 --force "
+                    "--reviewer <name> --review-date <YYYY-MM-DD>"
+                ),
                 "dry_run_current_batch": operator_command(
                     f"mosaic-rke apply-gold-review --root . --input "
                     f"{GOLD_REVIEWED_IMPORT_PATH} --dry-run"
@@ -527,6 +559,10 @@ def _promotion_status_next_actions(result: Any) -> list[dict[str, Any]]:
             notes=(
                 "Evidence outputs are private review aids and do not fill the "
                 "required human review fields.",
+                "If document coverage is below threshold, append missing "
+                "candidate rows with gold-candidate-claims "
+                "--ensure-candidate-review-rows before preparing the next "
+                "gold review batch.",
             ),
             review_aids=manual_review_aid_paths("gold_set"),
             field_contract=manual_review_field_contract("gold_set"),
@@ -837,6 +873,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     gold_candidate_claims.add_argument(
         "--root", default=".", help="Repository root. Defaults to current directory."
+    )
+    gold_candidate_claims.add_argument(
+        "--ensure-candidate-review-rows",
+        action="store_true",
+        help=(
+            "Append blank review starter rows for gold candidates missing from "
+            "the review template before merging candidate claims. Existing "
+            "manual review fields are preserved."
+        ),
     )
 
     license_status = subparsers.add_parser(
@@ -1943,7 +1988,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 0
     if args.command == "gold-candidate-claims":
-        paths = write_gold_candidate_claims(root)
+        paths = write_gold_candidate_claims(
+            root,
+            ensure_candidate_review_rows=args.ensure_candidate_review_rows,
+        )
         summary = json.loads(Path(paths["summary"]).read_text(encoding="utf-8"))
         _print_json(
             {
@@ -1960,6 +2008,15 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "manual_fields_preserved": summary["manual_fields_preserved"],
                 "direction_counts": summary["direction_counts"],
                 "claim_type_counts": summary["claim_type_counts"],
+                "ensure_candidate_review_rows": paths[
+                    "ensure_candidate_review_rows"
+                ],
+                "candidate_review_documents_added": paths[
+                    "candidate_review_documents_added"
+                ],
+                "candidate_review_rows_added": paths[
+                    "candidate_review_rows_added"
+                ],
                 "blockers": summary.get("blockers", []),
             }
         )

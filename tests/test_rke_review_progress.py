@@ -505,7 +505,10 @@ def test_review_progress_reports_gold_quality_blockers_without_reapplying_stale_
         "backfill_write",
         "dry_run",
         "evidence",
+        "expand_candidate_review_rows",
+        "prepare_expanded_batch",
         "prepare_reviewed_failures",
+        "refresh_source_candidates",
     }
     assert "--reviewed-failures" in gold_summary["next_batch_commands"][
         "prepare_reviewed_failures"
@@ -528,8 +531,14 @@ def test_review_progress_reports_gold_quality_blockers_without_reapplying_stale_
         "backfill_write",
         "dry_run",
         "evidence",
+        "expand_candidate_review_rows",
+        "prepare_expanded_batch",
         "prepare_reviewed_failures",
+        "refresh_source_candidates",
     }
+    assert "--ensure-candidate-review-rows" in gold_action["commands"][
+        "expand_candidate_review_rows"
+    ]
 
 
 def test_review_progress_prioritizes_pending_gold_quality_batch_fields(

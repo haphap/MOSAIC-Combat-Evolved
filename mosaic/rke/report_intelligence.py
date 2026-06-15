@@ -15667,6 +15667,20 @@ def _evolution_gate_cli_next_actions(
                     "--offset 0 --review-input "
                     "registry/review_batches/gold_set_reviewed.jsonl"
                 ),
+                "refresh_source_candidates": operator_command(
+                    "mosaic-rke fetch-tushare-reports --root . --p9-profile "
+                    "--start-date <YYYY-MM-DD> --end-date <YYYY-MM-DD> "
+                    "--merge-existing-source"
+                ),
+                "expand_candidate_review_rows": operator_command(
+                    "mosaic-rke gold-candidate-claims --root . "
+                    "--ensure-candidate-review-rows"
+                ),
+                "prepare_expanded_batch": operator_command(
+                    "mosaic-rke prepare-gold-review --root . "
+                    "--gold-batch-size 50 --offset 0 --force "
+                    "--reviewer <name> --review-date <YYYY-MM-DD>"
+                ),
                 "dry_run_current_batch": operator_command(
                     "mosaic-rke apply-gold-review --root . --input "
                     "registry/review_batches/gold_set_reviewed.jsonl --dry-run"
@@ -15675,6 +15689,10 @@ def _evolution_gate_cli_next_actions(
             notes=(
                 "Evidence files are review aids only; human review fields still "
                 "must be filled in the reviewed import.",
+                "If document coverage is below threshold, append missing "
+                "candidate rows with gold-candidate-claims "
+                "--ensure-candidate-review-rows before preparing the next "
+                "gold review batch.",
                 "Promotion uses the full reviewed import only after every "
                 "gold-set batch is complete.",
             ),
