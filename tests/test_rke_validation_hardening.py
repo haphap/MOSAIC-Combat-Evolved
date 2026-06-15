@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 from mosaic.rke import (
@@ -149,14 +150,19 @@ def test_central_bank_statistical_significance_registry_is_parseable():
     assert payload["deflated_sharpe_ratio"] >= payload["minimum_deflated_sharpe_ratio"]
 
 
-def test_validation_status_cli_writes_reports(capsys):
-    code = main(("validation-status", "--root", "."))
+def test_validation_status_cli_writes_reports(tmp_path: Path, capsys):
+    shutil.copytree(Path("registry"), tmp_path / "registry")
+
+    code = main(("validation-status", "--root", str(tmp_path)))
     output = json.loads(capsys.readouterr().out)
 
     assert code == 0
     assert output["accepted"] is True
     assert output["statistical_significance"]["accepted"] is True
-    assert Path("registry/validation_hardening/central_bank_hardening_report.json").exists()
+    assert (
+        tmp_path / "registry/validation_hardening/central_bank_hardening_report.json"
+    ).exists()
     assert Path(
-        "registry/evaluation/statistical_significance/central_bank_after_cost_significance.json"
+        tmp_path
+        / "registry/evaluation/statistical_significance/central_bank_after_cost_significance.json"
     ).exists()

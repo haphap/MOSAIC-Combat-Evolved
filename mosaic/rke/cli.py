@@ -242,6 +242,22 @@ def _current_review_action_context(
             if str(commands.get(source_key) or "").strip()
         }
     }
+    for field in (
+        "next_manual_action",
+        "action_state",
+        "can_run_now",
+        "blocks_promotion",
+        "operator_hint",
+        "post_current_batch_action",
+        "blocked_by_review_kinds",
+        "manual_input_path",
+        "promotion_input_path",
+        "current_batch_path",
+        "current_batch_pending_rows",
+        "evidence_aligned",
+    ):
+        if field in action:
+            context[field] = action[field]
     batch_overview = action.get("batch_overview")
     if isinstance(batch_overview, Mapping) and batch_overview:
         context["batch_overview"] = dict(batch_overview)
@@ -276,6 +292,19 @@ def _current_review_action_command_overrides(
 ) -> dict[str, str]:
     commands, _, _ = _current_review_action_context_parts(root, review_kind)
     return commands
+
+
+def _current_review_action_public_context(
+    root: str | Path,
+    review_kind: str,
+) -> dict[str, Any]:
+    context = _current_review_action_context(root, review_kind)
+    return {
+        key: value
+        for key, value in context.items()
+        if key not in {"commands", "batch_overview", "after_dry_run_accepts"}
+        and value not in ("", None, [], {})
+    }
 
 
 def _schema_status_next_actions(
@@ -318,6 +347,8 @@ def _schema_status_next_actions(
         quality_gap_targets: Mapping[str, Any] | None = None,
         batch_overview: Mapping[str, Any] | None = None,
         after_dry_run_accepts: Mapping[str, str] | None = None,
+        review_action_context: Mapping[str, Any] | None = None,
+        review_gate_actions: Mapping[str, Mapping[str, Any]] | None = None,
     ) -> None:
         if any(action["action_id"] == action_id for action in actions):
             return
@@ -337,6 +368,16 @@ def _schema_status_next_actions(
             action["batch_overview"] = dict(batch_overview)
         if after_dry_run_accepts:
             action["after_dry_run_accepts"] = dict(after_dry_run_accepts)
+        if review_action_context:
+            action.update(dict(review_action_context))
+        if review_gate_actions:
+            gate_actions = {
+                str(kind): dict(context)
+                for kind, context in review_gate_actions.items()
+                if context
+            }
+            if gate_actions:
+                action["review_gate_actions"] = gate_actions
         actions.append(action)
 
     if "schemas/report_intelligence_gold_review_gate_rules" in failed_schema_paths:
@@ -396,6 +437,9 @@ def _schema_status_next_actions(
             quality_gap_targets=quality_gaps.get("gold_set"),
             batch_overview=gold_current_batch_overview,
             after_dry_run_accepts=gold_current_after_dry_run_accepts,
+            review_action_context=_current_review_action_public_context(
+                root, "gold_set"
+            ),
         )
 
     if "schemas/report_intelligence_analytical_footprint_review_rules" in failed_schema_paths:
@@ -438,6 +482,9 @@ def _schema_status_next_actions(
             quality_gap_targets=quality_gaps.get("footprint_review"),
             batch_overview=footprint_current_batch_overview,
             after_dry_run_accepts=footprint_current_after_dry_run_accepts,
+            review_action_context=_current_review_action_public_context(
+                root, "footprint_review"
+            ),
         )
 
     if "schemas/report_intelligence_patch_v1_5_coverage_rules" in failed_schema_paths:
@@ -479,6 +526,12 @@ def _schema_status_next_actions(
                 key: value
                 for key, value in quality_gaps.items()
                 if key in {"gold_set", "footprint_review"}
+            },
+            review_gate_actions={
+                "gold_set": _current_review_action_public_context(root, "gold_set"),
+                "footprint_review": _current_review_action_public_context(
+                    root, "footprint_review"
+                ),
             },
         )
 

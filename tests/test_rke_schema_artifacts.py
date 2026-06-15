@@ -155,6 +155,20 @@ def _copy_report_intelligence_registry(tmp_path: Path) -> Path:
     return registry
 
 
+def _remove_private_report_intelligence_inputs(registry: Path) -> None:
+    for name in (
+        "report_metadata.jsonl",
+        "forecast_claims.jsonl",
+        "analytical_footprints.jsonl",
+        "report_outcome_labels.jsonl",
+        "weighted_research_contexts.jsonl",
+        "processing_status.jsonl",
+    ):
+        path = registry / name
+        if path.exists():
+            path.unlink()
+
+
 def test_phase1_schema_artifacts_exist():
     schema_dir = Path("schemas")
 
@@ -347,8 +361,11 @@ def test_yaml_policy_schema_artifacts_pin_master_plan_defaults():
     assert "<layer>.<agent>.<rule_type>.<serial>" in rule_pack
 
 
-def test_schema_validation_report_accepts_current_registry():
-    report = build_schema_validation_report(".")
+def test_schema_validation_report_accepts_current_registry(tmp_path: Path):
+    shutil.copytree("schemas", tmp_path / "schemas")
+    shutil.copytree("registry", tmp_path / "registry")
+
+    report = build_schema_validation_report(tmp_path)
 
     assert not report.accepted
     _assert_only_phase_b_patch_coverage_failures(report)
@@ -520,6 +537,7 @@ def test_stock_price_proxy_readiness_contract_accepts_current_public_artifact(
     tmp_path: Path,
 ):
     registry = _copy_report_intelligence_registry(tmp_path)
+    _remove_private_report_intelligence_inputs(registry)
     readiness = json.loads(
         (registry / "outcome_labeling_readiness.json").read_text(encoding="utf-8")
     )
@@ -538,6 +556,7 @@ def test_stock_price_proxy_readiness_contract_accepts_audited_survivorship_state
     tmp_path: Path,
 ):
     registry = _copy_report_intelligence_registry(tmp_path)
+    _remove_private_report_intelligence_inputs(registry)
     readiness_path = registry / "outcome_labeling_readiness.json"
     readiness = json.loads(readiness_path.read_text(encoding="utf-8"))
     pit_policy = readiness["stock_price_proxy_readiness"]["pit_realism_policy"]
@@ -5512,14 +5531,29 @@ def test_rule_pack_schema_validation_rejects_non_object_rule(tmp_path: Path):
     assert "$.rules.bad_rule: expected object" in record.failures
 
 
-def test_schema_status_cli_writes_report(capsys):
-    code = main(("schema-status", "--root", "."))
+def test_schema_status_cli_writes_report(tmp_path: Path, capsys):
+    schema_dir = tmp_path / "schemas"
+    registry_dir = tmp_path / "registry"
+    schema_dir.mkdir()
+    for path in Path("schemas").iterdir():
+        if path.is_file():
+            (schema_dir / path.name).write_text(
+                path.read_text(encoding="utf-8"), encoding="utf-8"
+            )
+    shutil.copytree(
+        Path("registry"),
+        registry_dir,
+        ignore=shutil.ignore_patterns("schemas"),
+        dirs_exist_ok=True,
+    )
+
+    code = main(("schema-status", "--root", str(tmp_path)))
     output = json.loads(capsys.readouterr().out)
 
     assert code == 2
     assert output["accepted"] is False
     assert output["failure_count"] == _expected_schema_failure_count()
-    assert Path("registry/schemas/rke_schema_validation_report.json").exists()
+    assert (registry_dir / "schemas/rke_schema_validation_report.json").exists()
 
 
 def test_schema_status_cli_filters_failures_without_writing(tmp_path: Path, capsys):
@@ -5578,6 +5612,20 @@ def test_schema_status_cli_filters_failures_without_writing(tmp_path: Path, caps
     ]["evidence_markdown"] == (
         "registry/report_intelligence/analytical_footprint_review_evidence.md"
     )
+    footprint_action = next_actions["complete_manual_analytical_footprint_review"]
+    assert footprint_action["action_state"] in {
+        "needs_evidence_repair",
+        "needs_human_review_fields",
+    }
+    assert footprint_action["can_run_now"] is True
+    assert footprint_action["next_manual_action"] in {
+        "repair_current_batch_evidence_alignment",
+        "fill_current_batch_review_fields_then_dry_run",
+    }
+    if footprint_action["action_state"] == "needs_human_review_fields":
+        assert footprint_action["post_current_batch_action"] == (
+            "apply_current_batch_then_rerun_review_progress"
+        )
     assert "review_notes" in next_actions[
         "complete_manual_analytical_footprint_review"
     ]["field_contract"]["required_fields"]
@@ -5616,6 +5664,9 @@ def test_schema_status_cli_filters_failures_without_writing(tmp_path: Path, caps
     assert "footprint_review" in next_actions[
         "clear_patch_v1_5_manual_review_coverage"
     ]["quality_gap_targets"]
+    assert next_actions["clear_patch_v1_5_manual_review_coverage"][
+        "review_gate_actions"
+    ]["footprint_review"]["action_state"] == footprint_action["action_state"]
     assert all(record["accepted"] is False for record in output["records"])
     assert not (registry_dir / "schemas/rke_schema_validation_report.json").exists()
 
@@ -5703,6 +5754,23 @@ def test_schema_status_next_actions_reports_gold_quality_gaps(
                             "--review-kind gold_set"
                         ),
                     },
+                    "next_manual_action": (
+                        "fill_current_batch_review_fields_then_dry_run"
+                    ),
+                    "action_state": "needs_human_review_fields",
+                    "can_run_now": True,
+                    "blocks_promotion": True,
+                    "post_current_batch_action": (
+                        "apply_current_batch_then_rerun_review_progress"
+                    ),
+                    "manual_input_path": (
+                        "registry/review_batches/gold_set_reviewed.jsonl"
+                    ),
+                    "promotion_input_path": (
+                        "registry/review_batches/gold_set_full_reviewed.jsonl"
+                    ),
+                    "current_batch_pending_rows": 12,
+                    "evidence_aligned": True,
                 }
             ]
         },
@@ -5718,6 +5786,14 @@ def test_schema_status_next_actions_reports_gold_quality_gaps(
     assert "--limit 12 --offset 0" in gold_action["commands"]["write_evidence"]
     assert gold_action["batch_overview"]["current_batch_rows"] == 12
     assert gold_action["batch_overview"]["remaining_rows_after_current_batch"] == 3
+    assert gold_action["action_state"] == "needs_human_review_fields"
+    assert gold_action["can_run_now"] is True
+    assert gold_action["post_current_batch_action"] == (
+        "apply_current_batch_then_rerun_review_progress"
+    )
+    assert gold_action["manual_input_path"] == (
+        "registry/review_batches/gold_set_reviewed.jsonl"
+    )
     assert "apply-gold-review" in gold_action["after_dry_run_accepts"][
         "apply_current_batch"
     ]

@@ -84,8 +84,10 @@ def _redaction_source_text_count(root: Path) -> int:
     return int(payload["source_text_count"])
 
 
-def test_rke_cli_validate_required_success(capsys):
-    code = main(("validate-required", "--root", "."))
+def test_rke_cli_validate_required_success(tmp_path: Path, capsys):
+    _copy_registry(tmp_path)
+
+    code = main(("validate-required", "--root", str(tmp_path)))
     output = json.loads(capsys.readouterr().out)
 
     assert code == 0

@@ -286,7 +286,9 @@ def _synthetic_claim_row(source: dict, document_index: int, claim_index: int) ->
     }
 
 
-def _ensure_synthetic_private_tushare_registry(root_path: Path) -> None:
+def _ensure_synthetic_private_tushare_registry(
+    root_path: Path, *, force: bool = False
+) -> None:
     source_path = root_path / "registry" / _RKE_TUSHARE_SOURCE_PATH
     ri_fixture_paths = (
         root_path / "registry/report_intelligence/report_metadata.jsonl",
@@ -303,7 +305,11 @@ def _ensure_synthetic_private_tushare_registry(root_path: Path) -> None:
         root_path / "registry" / _RKE_TUSHARE_LICENSE_REVIEW_PATH,
         *ri_fixture_paths,
     ]
-    if source_path.exists() and all(path.exists() for path in required_fixture_paths):
+    if (
+        not force
+        and source_path.exists()
+        and all(path.exists() for path in required_fixture_paths)
+    ):
         return
 
     sources = _build_synthetic_tushare_rows()
@@ -716,7 +722,7 @@ def _ensure_synthetic_private_tushare_registry(root_path: Path) -> None:
     write_license_review_packet(root_path)
 
 
-@pytest.fixture(scope="session", autouse=True)
+@pytest.fixture(scope="session")
 def _ensure_private_tushare_test_fixture(tmp_path_factory):
     root_path = Path.cwd()
     backup_root = tmp_path_factory.mktemp("rke-private-tushare-backup")
@@ -771,7 +777,6 @@ def _ensure_private_tushare_test_fixture(tmp_path_factory):
 @pytest.fixture(scope="session", autouse=True)
 def _restore_tracked_rke_public_artifacts_after_tests(
     tmp_path_factory,
-    _ensure_private_tushare_test_fixture,
 ):
     """Let tests rewrite public reports without leaving generated diffs behind."""
 
@@ -963,6 +968,30 @@ def _ignore_rke_manual_review_scratch_in_registry_copies(monkeypatch):
         src_path = Path(src).resolve()
         dst_parts = Path(dst).parts
         should_trim_registry_copy = src_path == project_registry_path
+        ignore_excludes_private_report_inputs = False
+        if should_trim_registry_copy and ignore is not None:
+            ignored_report_intelligence = set(
+                ignore(
+                    str(project_registry_path / "report_intelligence"),
+                    [
+                        "report_metadata.jsonl",
+                        "forecast_claims.jsonl",
+                        "analytical_footprints.jsonl",
+                        "report_outcome_labels.jsonl",
+                        "weighted_research_contexts.jsonl",
+                    ],
+                )
+            )
+            ignored_sources = set(
+                ignore(
+                    str(project_registry_path / "sources"),
+                    ["tushare_research_reports.jsonl"],
+                )
+            )
+            ignore_excludes_private_report_inputs = bool(
+                ignored_report_intelligence
+                or "tushare_research_reports.jsonl" in ignored_sources
+            )
         should_ignore_review_scratch = should_trim_registry_copy and any(
             part == "pytest" or part.startswith("pytest-") for part in dst_parts
         )
@@ -988,8 +1017,12 @@ def _ignore_rke_manual_review_scratch_in_registry_copies(monkeypatch):
             ignore_dangling_symlinks=ignore_dangling_symlinks,
             dirs_exist_ok=dirs_exist_ok,
         )
-        if should_ignore_review_scratch:
+        if should_ignore_review_scratch and not ignore_excludes_private_report_inputs:
             sample_copied_tushare_registry(src_path, Path(copied_path))
+            _ensure_synthetic_private_tushare_registry(
+                Path(copied_path).parent,
+                force=True,
+            )
         return copied_path
 
     monkeypatch.setattr("shutil.copytree", copytree_without_review_scratch)

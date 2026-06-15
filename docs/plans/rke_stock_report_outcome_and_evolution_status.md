@@ -85,10 +85,15 @@ MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run mosaic-rke master-plan-s
 ```
 
 The repository pytest default is also configured to keep its `--basetemp` under
-`.mosaic/tmp/pytest-mosaic-rke`; `tests/conftest.py` uses the same
-repo-local gitignored tmp root for the private Tushare fixture lock file. This
-prevents ordinary test runs from placing large registry copies or fixture locks
-in system `/tmp` or under tracked repository paths.
+`.mosaic/tmp/pytest-mosaic-rke`; this prevents ordinary test runs from placing
+large registry copies in system `/tmp` or under tracked repository paths.
+Pytest's synthetic private Tushare fixture is now overlaid only onto temporary
+registry copies created under pytest basetemp; it no longer rewrites ignored
+working-tree registry files such as gold review summaries during the test
+session. A concurrent
+`schema-status --root . --failures-only --no-write` run now stays on the real
+local registry state and continues to report the current 23 manual-review
+failures while CLI tests are running.
 `operator-readiness --no-write` also builds its temporary dry-run registry under
 `.mosaic/tmp` and now skips local-only Tushare source blobs and
 report Markdown/PDF/cache directories when copying the dry-run root. It
@@ -167,7 +172,12 @@ from `review-progress`, so the failure entry point shows the active scratch
 path, batch coverage, evidence alignment, and remaining target rows without an
 extra discovery command. The same schema-status actions now carry the
 `after_dry_run_accepts` command block for the active manual batch, preserving the
-same dry-run-first sequencing from the lower-level action queue.
+same dry-run-first sequencing from the lower-level action queue. They also carry
+the current `review-progress` action-state context (`next_manual_action`,
+`action_state`, `can_run_now`, batch input paths, and post-batch action), and the
+patch v1.5 coverage action nests the current gold-set and analytical-footprint
+gate states under `review_gate_actions`, so schema failures cannot point
+operators at stale or ambiguous manual work.
 `master-plan-status --no-write` now also includes
 public-safe `next_actions` that point to `schema-status --failures-only`,
 `review-progress --actions-only`, and `evolution-readiness --no-write`, then
