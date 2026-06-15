@@ -15922,6 +15922,50 @@ def _gold_quality_prompt_repair_evidence(
     }
 
 
+def _footprint_quality_prompt_repair_evidence(
+    footprint_review_summary: Mapping[str, Any],
+) -> dict[str, Any]:
+    summary = _ensure_mapping(footprint_review_summary)
+    metrics = _ensure_mapping(summary.get("precision_recall_report"))
+    thresholds = _ensure_mapping(summary.get("quality_gate_thresholds"))
+    blockers = [
+        str(item)
+        for item in [
+            *_ensure_list(summary.get("quality_gate_blockers")),
+            *_ensure_list(summary.get("blockers")),
+        ]
+        if str(item).strip()
+    ]
+    metric_failures: dict[str, dict[str, Any]] = {}
+    for field, default_threshold in ANALYTICAL_FOOTPRINT_REVIEW_QUALITY_THRESHOLDS.items():
+        threshold = _float_or_none(thresholds.get(field))
+        if threshold is None:
+            threshold = default_threshold
+        current_rate = _float_or_none(metrics.get(field))
+        blocker = f"{field}_below_threshold"
+        if current_rate is None or current_rate < threshold or any(
+            str(item).startswith(field) for item in blockers
+        ):
+            metric_failures[field] = {
+                "operator": ">=",
+                "current_rate": current_rate,
+                "threshold": threshold,
+                "blocker": f"{field}_missing" if current_rate is None else blocker,
+            }
+    return {
+        "footprint_review_accepted": summary.get("accepted") is True,
+        "review_complete": summary.get("review_complete") is True,
+        "quality_gate_passed": summary.get("quality_gate_passed") is True,
+        "complete_rows": int(summary.get("complete_rows") or 0),
+        "pending_rows": int(summary.get("pending_rows") or 0),
+        "total_rows": int(summary.get("total_rows") or 0),
+        "metric_failures": metric_failures,
+        "metric_failure_count": len(metric_failures),
+        "quality_gate_blockers": sorted(set(blockers)),
+        "error_counts": _count_mapping_values(_ensure_mapping(summary.get("error_counts"))),
+    }
+
+
 def _add_prompt_mutation_candidate(
     candidates: list[dict[str, Any]],
     *,
@@ -16154,6 +16198,7 @@ def build_prompt_mutation_candidates(
     recipe_paper_trading_summary: Mapping[str, Any] | None = None,
     evolution_readiness_gate: Mapping[str, Any] | None = None,
     gold_review_summary: Mapping[str, Any] | None = None,
+    footprint_review_summary: Mapping[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     candidates: list[dict[str, Any]] = []
     readiness = _ensure_mapping(outcome_labeling_readiness)
@@ -16481,6 +16526,62 @@ def build_prompt_mutation_candidates(
             blocked_by=[
                 "three_distinct_clean_data_vintages_required",
                 "monitor_audit_gap_history_required",
+            ],
+        )
+    footprint_summary = _ensure_mapping(footprint_review_summary)
+    footprint_quality_evidence = (
+        _footprint_quality_prompt_repair_evidence(footprint_summary)
+        if footprint_summary
+        else {}
+    )
+    footprint_metric_failure_count = int(
+        footprint_quality_evidence.get("metric_failure_count") or 0
+    )
+    footprint_pending_rows = int(footprint_quality_evidence.get("pending_rows") or 0)
+    if footprint_summary and (
+        footprint_metric_failure_count
+        or footprint_pending_rows
+        or footprint_quality_evidence.get("quality_gate_passed") is False
+    ):
+        _add_prompt_mutation_candidate(
+            candidates,
+            run_id=run_id,
+            candidate_type="footprint_quality_prompt_repair_rule",
+            target_scope="report_intelligence.analytical_footprint_quality",
+            target_component="analytical_footprint_extraction_prompt",
+            proposed_change=(
+                "Use analytical-footprint review quality failures to tighten "
+                "indicator canonicalization, metric mapping, inferred-step "
+                "tagging, and uncertainty handling before method recipes can "
+                "drive prompt evolution."
+            ),
+            trigger_sources=[
+                "analytical_footprint_review_summary",
+                "analytical_footprint_error_taxonomy",
+            ],
+            evidence_refs=[
+                {
+                    "artifact_path": (
+                        "registry/report_intelligence/"
+                        "analytical_footprint_review_summary.json"
+                    ),
+                    "field": "precision_recall_report",
+                    **footprint_quality_evidence,
+                }
+            ],
+            severity="high" if footprint_metric_failure_count else "medium",
+            blocked_by=[
+                "analytical_footprint_quality_prompt_repair_required",
+                "manual_analytical_footprint_review_required",
+                "offline_footprint_replay_required",
+                *(
+                    ["footprint_metric_mapping_repair_required"]
+                    if "metric_mapping_accuracy"
+                    in _ensure_mapping(
+                        footprint_quality_evidence.get("metric_failures")
+                    )
+                    else []
+                ),
             ],
         )
     target_gap_keys = (
@@ -17140,6 +17241,11 @@ def write_report_intelligence_prompt_mutation_candidates(
         label="industry_etf_proxy_pit_availability",
         blockers=blockers,
     )
+    footprint_review_summary = _read_registry_json(
+        registry_path / "analytical_footprint_review_summary.json",
+        label="analytical_footprint_review_summary",
+        blockers=blockers,
+    )
     forecast_rows = _read_registry_jsonl(
         registry_path / "report_forecast_ledger.jsonl",
         label="report_forecast_ledger",
@@ -17173,6 +17279,7 @@ def write_report_intelligence_prompt_mutation_candidates(
         outcome_label_rows=outcome_label_rows,
         recipe_paper_trading_summary=recipe_paper_trading_summary,
         evolution_readiness_gate=evolution_readiness_gate,
+        footprint_review_summary=footprint_review_summary,
     )
     if blockers and not rows:
         _add_prompt_mutation_candidate(
@@ -23332,6 +23439,7 @@ def run_report_intelligence_derived_refresh(
         recipe_paper_trading_summary=recipe_paper_trading_summary,
         evolution_readiness_gate=evolution_readiness_gate,
         gold_review_summary=gold_review_summary,
+        footprint_review_summary=footprint_review_summary,
     )
 
     outputs = {
@@ -24368,6 +24476,7 @@ def run_report_intelligence_refresh(
         recipe_paper_trading_summary=recipe_paper_trading_summary,
         evolution_readiness_gate=evolution_readiness_gate,
         gold_review_summary=gold_review_summary,
+        footprint_review_summary=footprint_review_summary,
     )
 
     outputs = {

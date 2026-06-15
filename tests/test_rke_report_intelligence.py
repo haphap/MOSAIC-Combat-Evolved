@@ -5726,6 +5726,82 @@ def test_report_intelligence_prompt_mutation_candidates_track_gold_quality_failu
     assert "claim_text" not in json.dumps(repair, ensure_ascii=False)
 
 
+def test_report_intelligence_prompt_mutation_candidates_track_footprint_quality_failures():
+    candidates = build_prompt_mutation_candidates(
+        run_id="RIR-TEST-MUTATION",
+        outcome_labeling_readiness={
+            "mapping_gap_counts": {},
+            "stock_price_proxy_readiness": {"data_gap_counts": {}},
+            "industry_etf_proxy_readiness": {"data_gap_counts": {}},
+        },
+        tool_gap_rows=[],
+        recipe_paper_trading_runs=[],
+        confidence_impact_observation_rows=[],
+        confidence_impact_monitor={"drift_status_counts": {}},
+        markdown_coverage_summary={"markdown_quality_gap_counts": {}},
+        industry_etf_proxy_pit_availability={"pit_gap_counts": {}},
+        footprint_review_summary={
+            "accepted": False,
+            "review_complete": False,
+            "quality_gate_passed": False,
+            "complete_rows": 34,
+            "pending_rows": 1017,
+            "total_rows": 1051,
+            "precision_recall_report": {
+                "footprint_precision": 1.0,
+                "inferred_step_tagging_accuracy": 1.0,
+                "metric_mapping_accuracy": 0.558824,
+                "proprietary_leakage_free_rate": 1.0,
+                "span_support_precision": 1.0,
+                "unknown_on_ambiguity_rate": 0.941176,
+            },
+            "quality_gate_thresholds": {
+                "footprint_precision": 0.8,
+                "inferred_step_tagging_accuracy": 0.8,
+                "metric_mapping_accuracy": 0.8,
+                "proprietary_leakage_free_rate": 1.0,
+                "span_support_precision": 0.9,
+                "unknown_on_ambiguity_rate": 0.8,
+            },
+            "quality_gate_blockers": [
+                "metric_mapping_accuracy 0.558824 below threshold 0.80"
+            ],
+            "error_counts": {
+                "metric_mapping_incorrect": 15,
+                "unknown_indicator_should_use_alias_repair_candidate": 2,
+            },
+        },
+    )
+
+    by_type = {row["candidate_type"]: row for row in candidates}
+    repair = by_type["footprint_quality_prompt_repair_rule"]
+    assert repair["target_component"] == "analytical_footprint_extraction_prompt"
+    assert repair["severity"] == "high"
+    evidence = repair["evidence_refs"][0]
+    assert evidence["field"] == "precision_recall_report"
+    assert evidence["complete_rows"] == 34
+    assert evidence["pending_rows"] == 1017
+    assert evidence["metric_failure_count"] == 1
+    assert evidence["metric_failures"]["metric_mapping_accuracy"] == {
+        "blocker": "metric_mapping_accuracy_below_threshold",
+        "current_rate": 0.558824,
+        "operator": ">=",
+        "threshold": 0.8,
+    }
+    assert evidence["error_counts"] == {
+        "metric_mapping_incorrect": 15,
+        "unknown_indicator_should_use_alias_repair_candidate": 2,
+    }
+    assert {
+        "analytical_footprint_quality_prompt_repair_required",
+        "manual_analytical_footprint_review_required",
+        "footprint_metric_mapping_repair_required",
+    } <= set(repair["blocked_by"])
+    assert repair["production_prompt_change_allowed"] is False
+    assert repair["private_text_included"] is False
+    assert "source_span_ids" not in json.dumps(repair, ensure_ascii=False)
+
+
 def test_report_intelligence_prompt_mutation_candidates_track_industry_mapping_actions():
     candidates = build_prompt_mutation_candidates(
         run_id="RIR-TEST-MUTATION",
