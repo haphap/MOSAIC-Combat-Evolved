@@ -139,6 +139,67 @@ Operational rules:
 
 Last completed Mimo extraction smoke from cached VLM Markdown:
 
+16-report cached VLM Markdown coverage batch:
+
+The 16 quality-passed VLM Markdown reports from `macro_vlm_batch_registry` were
+processed through Mimo in serial small batches, not one large job. Use this
+combined result as the current coverage baseline. A failed no-network sandbox
+trial may exist under `macro_mimo_vlm_extract_16_registry`; do not use that
+directory for coverage statistics.
+
+Successful private registry directories:
+
+```text
+.mosaic/rke/report_intelligence/macro_mimo_vlm_extract_batch_registry
+.mosaic/rke/report_intelligence/macro_mimo_vlm_extract_smoke2_registry
+.mosaic/rke/report_intelligence/macro_mimo_vlm_extract_batch_03a_registry
+.mosaic/rke/report_intelligence/macro_mimo_vlm_extract_batch_03b_registry
+.mosaic/rke/report_intelligence/macro_mimo_vlm_extract_batch_03c_registry
+```
+
+Aggregate result:
+
+- Run ids:
+  `RIR-20260615T005011+0000`, `RIR-20260615T012448+0000`,
+  `RIR-20260615T024802+0000`, `RIR-20260615T025541+0000`,
+  `RIR-20260615T030129+0000`
+- Unique source ids: `16`
+- Selected reports: `16`
+- PDF ready: `16`
+- Markdown ready: `16`
+- Markdown backend counts: `vlm-auto-engine=16`
+- Markdown status counts: `cached=16`
+- Markdown quality gate counts: `passed=16`
+- LLM processed reports: `16`
+- LLM status counts: `processed=16`
+- LLM model counts: `mimo-v2.5-pro=16`
+- Forecast claim rows: `21`
+- Analytical footprint rows: `50`
+- Metric candidate rows: `241`
+- Method pattern rows: `191`
+- Analysis recipe rows: `191`
+- Macro asset proxy eligible claim rows: `4`
+- Macro asset proxy labelable window rows: `1`
+- Macro asset proxy outcome label rows: `1`
+- Macro asset proxy pending window rows: `15`
+- Outcome label rows: `1`
+- Tool coverage match rows: `241`
+- Tool gap rows: `371`
+- Data acquisition proposal rows: `366`
+- Tool design proposal rows: `366`
+- Runtime tool gap observation rows: `371`
+- Prompt mutation candidate rows: `53`
+- Blockers: `0`
+- Private extraction outputs under all five registry directories are gitignored
+  and must not be committed.
+
+Operational note: in restricted Codex/sandbox runs, set
+`UV_CACHE_DIR=.mosaic/tmp/uv-cache` along with `TMPDIR=.mosaic/tmp` so `uv` does
+not try to write under the home-level cache directory. Keep Mimo extraction
+batches small, typically 2-3 reports after the initial 5-report smoke, because
+some reports split into two chunks and can wait on the model endpoint for
+several minutes.
+
 Batch smoke:
 
 ```bash
@@ -395,3 +456,7 @@ TMPDIR=.mosaic/tmp uv run mosaic-rke report-intelligence \
 - `2026-06-15`: Ran a 5-report cached-VLM-Markdown Mimo extraction batch using
   `mimo-v2.5-pro`; all 5 reports processed with no blockers, producing 4
   forecast claims, 16 analytical footprints, and 61 method patterns.
+- `2026-06-15`: Extended cached-VLM-Markdown Mimo extraction to all 16
+  quality-passed VLM Markdown reports by merging 5+2+3+3+3 serial small-batch
+  runs; all 16 processed with no blockers, producing 21 forecast claims, 50
+  analytical footprints, and 191 method patterns.
