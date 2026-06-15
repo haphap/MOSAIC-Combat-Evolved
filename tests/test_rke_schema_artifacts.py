@@ -3354,6 +3354,60 @@ def test_prompt_mutation_candidate_contract_rejects_private_evidence_paths(
     )
 
 
+def test_prompt_mutation_candidate_contract_rejects_gold_quality_evidence_drift(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    candidates_path = registry / "prompt_mutation_candidates.jsonl"
+    candidates = _read_prompt_mutation_candidates(candidates_path)
+    repair = next(
+        row
+        for row in candidates
+        if row["candidate_type"] == "gold_quality_prompt_repair_rule"
+    )
+    evidence = repair["evidence_refs"][0]
+    assert isinstance(evidence, dict)
+    metric_failures = evidence["metric_failures"]
+    assert isinstance(metric_failures, dict)
+    direction_failure = metric_failures["direction_accuracy"]
+    assert isinstance(direction_failure, dict)
+    direction_failure["current_rate"] = 0.99
+    _write_prompt_mutation_candidates(candidates_path, candidates)
+
+    record = _prompt_mutation_candidate_contract_record(tmp_path)
+
+    assert not record.accepted
+    assert any(
+        "gold_quality_prompt_repair_rule.evidence_refs.metric_failures" in item
+        for item in record.failures
+    )
+
+
+def test_prompt_mutation_candidate_contract_rejects_footprint_quality_evidence_drift(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    candidates_path = registry / "prompt_mutation_candidates.jsonl"
+    candidates = _read_prompt_mutation_candidates(candidates_path)
+    repair = next(
+        row
+        for row in candidates
+        if row["candidate_type"] == "footprint_quality_prompt_repair_rule"
+    )
+    evidence = repair["evidence_refs"][0]
+    assert isinstance(evidence, dict)
+    evidence["pending_rows"] = 0
+    _write_prompt_mutation_candidates(candidates_path, candidates)
+
+    record = _prompt_mutation_candidate_contract_record(tmp_path)
+
+    assert not record.accepted
+    assert any(
+        "footprint_quality_prompt_repair_rule.evidence_refs.pending_rows" in item
+        for item in record.failures
+    )
+
+
 def _copy_registry_for_manual_progress(tmp_path: Path) -> Path:
     registry = tmp_path / "registry"
     shutil.copytree(Path("registry"), registry, dirs_exist_ok=True)

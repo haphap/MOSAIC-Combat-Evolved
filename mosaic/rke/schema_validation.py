@@ -4659,6 +4659,258 @@ def _validate_gold_review_gate_contract(root_path: Path) -> tuple[int, list[str]
     return 1, failures
 
 
+def _prompt_mutation_evidence_values_equal(left: Any, right: Any) -> bool:
+    if isinstance(left, bool) or isinstance(right, bool):
+        return left is right
+    if isinstance(left, int | float) and isinstance(right, int | float):
+        return _nearly_equal(float(left), float(right))
+    if isinstance(left, Mapping) and isinstance(right, Mapping):
+        if set(left) != set(right):
+            return False
+        return all(
+            _prompt_mutation_evidence_values_equal(left[key], right[key])
+            for key in left
+        )
+    if (
+        isinstance(left, Sequence)
+        and not isinstance(left, str)
+        and isinstance(right, Sequence)
+        and not isinstance(right, str)
+    ):
+        return len(left) == len(right) and all(
+            _prompt_mutation_evidence_values_equal(left_item, right_item)
+            for left_item, right_item in zip(left, right, strict=True)
+        )
+    return left == right
+
+
+def _positive_integer_mapping_values(value: Any) -> dict[str, int]:
+    if not isinstance(value, Mapping):
+        return {}
+    counts: dict[str, int] = {}
+    for key, raw_count in value.items():
+        count = _int_or_none(raw_count)
+        if count is not None and count > 0:
+            counts[str(key)] = count
+    return counts
+
+
+def _evolution_gate_check(gate: Mapping[str, Any], check_id: str) -> Mapping[str, Any]:
+    checks = gate.get("checks")
+    if not isinstance(checks, Sequence) or isinstance(checks, str):
+        return {}
+    for check in checks:
+        if isinstance(check, Mapping) and check.get("check_id") == check_id:
+            return check
+    return {}
+
+
+def _gold_quality_prompt_candidate_expected_evidence(
+    gate: Mapping[str, Any],
+) -> Mapping[str, Any]:
+    check = _evolution_gate_check(gate, "RI-EVOL-05")
+    evidence = check.get("evidence")
+    if not isinstance(evidence, Mapping):
+        return {}
+    blockers = set(_string_items(check.get("blockers")))
+    metrics = evidence.get("metrics") if isinstance(evidence.get("metrics"), Mapping) else {}
+    thresholds = (
+        evidence.get("thresholds")
+        if isinstance(evidence.get("thresholds"), Mapping)
+        else {}
+    )
+    metric_failures: dict[str, dict[str, Any]] = {}
+    for field, (operator, default_threshold) in GOLD_REVIEW_GATE_METRIC_THRESHOLDS.items():
+        suffix = "min" if operator == ">=" else "max"
+        threshold = _float_or_none(thresholds.get(f"{field}_{suffix}"))
+        if threshold is None:
+            threshold = default_threshold
+        current_rate = _float_or_none(metrics.get(field))
+        blocker = (
+            f"{field}_below_threshold"
+            if operator == ">="
+            else f"{field}_above_threshold"
+        )
+        if (
+            current_rate is None
+            or (operator == ">=" and current_rate < threshold)
+            or (operator == "<=" and current_rate > threshold)
+            or blocker in blockers
+        ):
+            metric_failures[field] = {
+                "operator": operator,
+                "current_rate": current_rate,
+                "threshold": threshold,
+                "blocker": f"{field}_missing" if current_rate is None else blocker,
+            }
+    total_documents = _int_or_none(evidence.get("total_documents")) or 0
+    min_documents = (
+        _int_or_none(thresholds.get("min_documents"))
+        or GOLD_REVIEW_GATE_MIN_DOCUMENTS
+    )
+    document_gap = max(0, min_documents - total_documents)
+    return {
+        "metric_failures": metric_failures,
+        "metric_failure_count": len(metric_failures),
+        "document_coverage_gap": {
+            "current_count": total_documents,
+            "threshold": min_documents,
+            "minimum_additional_count": document_gap,
+            "blocker": "gold_reviewed_documents_below_threshold" if document_gap else "",
+        },
+        "reviewed_claims": _int_or_none(evidence.get("reviewed_claims")) or 0,
+        "pending_claims": _int_or_none(evidence.get("pending_claims")) or 0,
+        "quality_blockers": sorted(blockers),
+    }
+
+
+def _footprint_quality_prompt_candidate_expected_evidence(
+    summary: Mapping[str, Any],
+) -> Mapping[str, Any]:
+    metrics = (
+        summary.get("precision_recall_report")
+        if isinstance(summary.get("precision_recall_report"), Mapping)
+        else {}
+    )
+    thresholds = (
+        summary.get("quality_gate_thresholds")
+        if isinstance(summary.get("quality_gate_thresholds"), Mapping)
+        else {}
+    )
+    blockers = [
+        str(item)
+        for item in [
+            *_string_items(summary.get("quality_gate_blockers")),
+            *_string_items(summary.get("blockers")),
+        ]
+        if str(item).strip()
+    ]
+    metric_failures: dict[str, dict[str, Any]] = {}
+    for field, threshold_value in thresholds.items():
+        threshold = _float_or_none(threshold_value)
+        if threshold is None:
+            continue
+        current_rate = _float_or_none(metrics.get(field))
+        blocker = f"{field}_below_threshold"
+        if current_rate is None or current_rate < threshold or any(
+            str(item).startswith(str(field)) for item in blockers
+        ):
+            metric_failures[str(field)] = {
+                "operator": ">=",
+                "current_rate": current_rate,
+                "threshold": threshold,
+                "blocker": f"{field}_missing" if current_rate is None else blocker,
+            }
+    return {
+        "footprint_review_accepted": summary.get("accepted") is True,
+        "review_complete": summary.get("review_complete") is True,
+        "quality_gate_passed": summary.get("quality_gate_passed") is True,
+        "complete_rows": _int_or_none(summary.get("complete_rows")) or 0,
+        "pending_rows": _int_or_none(summary.get("pending_rows")) or 0,
+        "total_rows": _int_or_none(summary.get("total_rows")) or 0,
+        "metric_failures": metric_failures,
+        "metric_failure_count": len(metric_failures),
+        "quality_gate_blockers": sorted(set(blockers)),
+        "error_counts": _positive_integer_mapping_values(summary.get("error_counts")),
+    }
+
+
+def _prompt_mutation_matching_evidence_ref(
+    row: Mapping[str, Any],
+    *,
+    artifact_path: str,
+    field: str,
+    row_label: str,
+    failures: list[str],
+) -> Mapping[str, Any] | None:
+    evidence_refs = row.get("evidence_refs")
+    if not isinstance(evidence_refs, Sequence) or isinstance(evidence_refs, str):
+        return None
+    matches = [
+        evidence
+        for evidence in evidence_refs
+        if isinstance(evidence, Mapping)
+        and evidence.get("artifact_path") == artifact_path
+        and evidence.get("field") == field
+    ]
+    if not matches:
+        failures.append(
+            f"{row_label}.evidence_refs: missing {artifact_path} {field}"
+        )
+        return None
+    if len(matches) > 1:
+        failures.append(
+            f"{row_label}.evidence_refs: duplicate {artifact_path} {field}"
+        )
+    return matches[0]
+
+
+def _validate_prompt_mutation_governed_evidence(
+    row: Mapping[str, Any],
+    *,
+    row_label: str,
+    gate: Mapping[str, Any],
+    root_path: Path,
+) -> list[str]:
+    failures: list[str] = []
+    candidate_type = str(row.get("candidate_type") or "")
+    if candidate_type == "gold_quality_prompt_repair_rule":
+        evidence = _prompt_mutation_matching_evidence_ref(
+            row,
+            artifact_path="registry/report_intelligence/evolution_readiness_gate.json",
+            field="checks.RI-EVOL-05.evidence",
+            row_label=row_label,
+            failures=failures,
+        )
+        if evidence is None:
+            return failures
+        expected = _gold_quality_prompt_candidate_expected_evidence(gate)
+        if not expected:
+            failures.append(
+                f"{row_label}.{candidate_type}: cannot locate RI-EVOL-05 evidence"
+            )
+            return failures
+        for field, expected_value in expected.items():
+            if not _prompt_mutation_evidence_values_equal(
+                evidence.get(field), expected_value
+            ):
+                failures.append(
+                    f"{row_label}.{candidate_type}.evidence_refs.{field}: "
+                    "must match RI-EVOL-05 public evidence"
+                )
+    elif candidate_type == "footprint_quality_prompt_repair_rule":
+        evidence = _prompt_mutation_matching_evidence_ref(
+            row,
+            artifact_path=(
+                "registry/report_intelligence/"
+                "analytical_footprint_review_summary.json"
+            ),
+            field="precision_recall_report",
+            row_label=row_label,
+            failures=failures,
+        )
+        if evidence is None:
+            return failures
+        summary, summary_failures = _read_mapping_json(
+            root_path
+            / "registry/report_intelligence/analytical_footprint_review_summary.json",
+            "registry/report_intelligence/analytical_footprint_review_summary.json",
+        )
+        failures.extend(summary_failures)
+        if not summary:
+            return failures
+        expected = _footprint_quality_prompt_candidate_expected_evidence(summary)
+        for field, expected_value in expected.items():
+            if not _prompt_mutation_evidence_values_equal(
+                evidence.get(field), expected_value
+            ):
+                failures.append(
+                    f"{row_label}.{candidate_type}.evidence_refs.{field}: "
+                    "must match analytical footprint review summary"
+                )
+    return failures
+
+
 def _validate_prompt_mutation_candidate_contract(
     root_path: Path,
 ) -> tuple[int, list[str]]:
@@ -4733,6 +4985,14 @@ def _validate_prompt_mutation_candidate_contract(
                     failures.append(
                         f"{evidence_label}.artifact_path: private evidence path forbidden"
                     )
+        failures.extend(
+            _validate_prompt_mutation_governed_evidence(
+                row,
+                row_label=row_label,
+                gate=gate or {},
+                root_path=root_path,
+            )
+        )
         failures.extend(_public_forbidden_text_failures(row, path=row_label))
 
     return len(candidate_rows), failures
