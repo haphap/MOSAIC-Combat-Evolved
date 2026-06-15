@@ -15867,6 +15867,61 @@ def _confidence_monitor_recipe_level_summary(
     }
 
 
+def _gold_quality_prompt_repair_evidence(
+    gold_evidence: Mapping[str, Any],
+    blockers: Sequence[str],
+) -> dict[str, Any]:
+    metrics = _ensure_mapping(gold_evidence.get("metrics"))
+    thresholds = _ensure_mapping(gold_evidence.get("thresholds"))
+    metric_failures: dict[str, dict[str, Any]] = {}
+    blocker_set = {str(item) for item in blockers}
+    for field, default_threshold in FORECAST_GOLD_REVIEW_MIN_METRICS.items():
+        threshold = _float_or_none(thresholds.get(f"{field}_min"))
+        if threshold is None:
+            threshold = default_threshold
+        current_rate = _float_or_none(metrics.get(field))
+        blocker = f"{field}_below_threshold"
+        missing_blocker = f"{field}_missing"
+        if current_rate is None or current_rate < threshold or blocker in blocker_set:
+            metric_failures[field] = {
+                "operator": ">=",
+                "current_rate": current_rate,
+                "threshold": threshold,
+                "blocker": missing_blocker if current_rate is None else blocker,
+            }
+    for field, default_threshold in FORECAST_GOLD_REVIEW_MAX_METRICS.items():
+        threshold = _float_or_none(thresholds.get(f"{field}_max"))
+        if threshold is None:
+            threshold = default_threshold
+        current_rate = _float_or_none(metrics.get(field))
+        blocker = f"{field}_above_threshold"
+        missing_blocker = f"{field}_missing"
+        if current_rate is None or current_rate > threshold or blocker in blocker_set:
+            metric_failures[field] = {
+                "operator": "<=",
+                "current_rate": current_rate,
+                "threshold": threshold,
+                "blocker": missing_blocker if current_rate is None else blocker,
+            }
+    total_documents = int(gold_evidence.get("total_documents") or 0)
+    document_gap = max(0, FORECAST_GOLD_MIN_DOCUMENTS - total_documents)
+    return {
+        "metric_failures": metric_failures,
+        "metric_failure_count": len(metric_failures),
+        "document_coverage_gap": {
+            "current_count": total_documents,
+            "threshold": FORECAST_GOLD_MIN_DOCUMENTS,
+            "minimum_additional_count": document_gap,
+            "blocker": (
+                "gold_reviewed_documents_below_threshold" if document_gap else ""
+            ),
+        },
+        "reviewed_claims": int(gold_evidence.get("reviewed_claims") or 0),
+        "pending_claims": int(gold_evidence.get("pending_claims") or 0),
+        "quality_blockers": sorted(blocker_set),
+    }
+
+
 def _add_prompt_mutation_candidate(
     candidates: list[dict[str, Any]],
     *,
@@ -16299,6 +16354,63 @@ def build_prompt_mutation_candidates(
                 "private_review_import_required",
             ],
         )
+        gold_quality_evidence = _gold_quality_prompt_repair_evidence(
+            gold_evidence_source,
+            gold_evidence_blockers,
+        )
+        metric_failure_count = int(
+            gold_quality_evidence.get("metric_failure_count") or 0
+        )
+        document_gap = _ensure_mapping(
+            gold_quality_evidence.get("document_coverage_gap")
+        )
+        if metric_failure_count or int(document_gap.get("minimum_additional_count") or 0):
+            _add_prompt_mutation_candidate(
+                candidates,
+                run_id=run_id,
+                candidate_type="gold_quality_prompt_repair_rule",
+                target_scope="report_intelligence.forecast_extraction_quality",
+                target_component="forecast_extraction_prompt",
+                proposed_change=(
+                    "Use human gold-set aggregate quality failures to tighten "
+                    "direction extraction, variable mapping, and unsupported-field "
+                    "discipline before any prompt mutation can be promoted."
+                ),
+                trigger_sources=[
+                    "evolution_readiness_gate",
+                    "gold_set_review_summary",
+                ],
+                evidence_refs=[
+                    {
+                        "artifact_path": (
+                            "registry/report_intelligence/evolution_readiness_gate.json"
+                            if gold_check
+                            else (
+                                "registry/gold_sets/"
+                                "tushare_research_reports.review_summary.json"
+                            )
+                        ),
+                        "field": (
+                            "checks.RI-EVOL-05.evidence"
+                            if gold_check
+                            else "forecast_gold_set_gate"
+                        ),
+                        **gold_quality_evidence,
+                    }
+                ],
+                severity="high" if metric_failure_count else "medium",
+                blocked_by=[
+                    "gold_quality_prompt_repair_required",
+                    "manual_forecast_gold_set_review_required",
+                    "offline_gold_set_replay_required",
+                    "pit_outcome_replay_required",
+                    *(
+                        ["document_coverage_expansion_required"]
+                        if int(document_gap.get("minimum_additional_count") or 0)
+                        else []
+                    ),
+                ],
+            )
     stability_checks = [
         _evolution_gate_check_by_id(evolution_gate, "RI-EVOL-03"),
         _evolution_gate_check_by_id(evolution_gate, "RI-EVOL-04"),

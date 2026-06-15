@@ -70,7 +70,7 @@
     "weighted_research_contexts": "registry/report_intelligence/weighted_research_contexts.jsonl"
   },
   "pdf_ready_count": 378,
-  "prompt_mutation_candidate_rows": 11,
+  "prompt_mutation_candidate_rows": 12,
   "root": "<repo_root>",
   "run_id": "RIR-DERIVED-20260615T040153+0000",
   "runtime_tool_gap_observation_rows": 1468,

@@ -5631,6 +5631,101 @@ def test_report_intelligence_prompt_mutation_candidates_track_gate_remediation()
     assert all(row["private_text_included"] is False for row in candidates)
 
 
+def test_report_intelligence_prompt_mutation_candidates_track_gold_quality_failures():
+    candidates = build_prompt_mutation_candidates(
+        run_id="RIR-TEST-MUTATION",
+        outcome_labeling_readiness={
+            "mapping_gap_counts": {},
+            "stock_price_proxy_readiness": {"data_gap_counts": {}},
+            "industry_etf_proxy_readiness": {"data_gap_counts": {}},
+        },
+        tool_gap_rows=[],
+        recipe_paper_trading_runs=[],
+        confidence_impact_observation_rows=[],
+        confidence_impact_monitor={"drift_status_counts": {}},
+        markdown_coverage_summary={"markdown_quality_gap_counts": {}},
+        industry_etf_proxy_pit_availability={"pit_gap_counts": {}},
+        evolution_readiness_gate={
+            "checks": [
+                {
+                    "check_id": "RI-EVOL-05",
+                    "passed": False,
+                    "blockers": [
+                        "forecast_gold_set_gate_not_passed",
+                        "gold_reviewed_documents_below_threshold",
+                        "direction_accuracy_below_threshold",
+                        "variable_mapping_accuracy_below_threshold",
+                        "unsupported_field_false_grounding_rate_above_threshold",
+                    ],
+                    "evidence": {
+                        "gold_set_passed": False,
+                        "reviewed_claims": 158,
+                        "pending_claims": 0,
+                        "total_documents": 37,
+                        "metrics": {
+                            "claim_precision": 0.917722,
+                            "direction_accuracy": 0.626582,
+                            "horizon_accuracy": 0.936709,
+                            "source_span_support_precision": 0.993671,
+                            "target_accuracy": 0.85443,
+                            "unsupported_field_false_grounding_rate": 0.227848,
+                            "variable_mapping_accuracy": 0.189873,
+                        },
+                        "thresholds": {
+                            "claim_precision_min": 0.85,
+                            "direction_accuracy_min": 0.85,
+                            "horizon_accuracy_min": 0.85,
+                            "min_documents": 50,
+                            "min_reviewed_claims": 100,
+                            "source_span_support_precision_min": 0.9,
+                            "target_accuracy_min": 0.85,
+                            "unsupported_field_false_grounding_rate_max": 0.05,
+                            "variable_mapping_accuracy_min": 0.8,
+                        },
+                    },
+                }
+            ]
+        },
+    )
+
+    by_type = {row["candidate_type"]: row for row in candidates}
+    repair = by_type["gold_quality_prompt_repair_rule"]
+    assert repair["target_component"] == "forecast_extraction_prompt"
+    assert repair["severity"] == "high"
+    evidence = repair["evidence_refs"][0]
+    assert evidence["field"] == "checks.RI-EVOL-05.evidence"
+    assert evidence["metric_failure_count"] == 3
+    assert evidence["metric_failures"]["direction_accuracy"] == {
+        "blocker": "direction_accuracy_below_threshold",
+        "current_rate": 0.626582,
+        "operator": ">=",
+        "threshold": 0.85,
+    }
+    assert evidence["metric_failures"]["variable_mapping_accuracy"] == {
+        "blocker": "variable_mapping_accuracy_below_threshold",
+        "current_rate": 0.189873,
+        "operator": ">=",
+        "threshold": 0.8,
+    }
+    assert evidence["metric_failures"][
+        "unsupported_field_false_grounding_rate"
+    ] == {
+        "blocker": "unsupported_field_false_grounding_rate_above_threshold",
+        "current_rate": 0.227848,
+        "operator": "<=",
+        "threshold": 0.05,
+    }
+    assert evidence["document_coverage_gap"]["minimum_additional_count"] == 13
+    assert {
+        "gold_quality_prompt_repair_required",
+        "offline_gold_set_replay_required",
+        "document_coverage_expansion_required",
+    } <= set(repair["blocked_by"])
+    assert repair["production_prompt_change_allowed"] is False
+    assert repair["private_text_included"] is False
+    assert "claim_text" not in json.dumps(repair, ensure_ascii=False)
+
+
 def test_report_intelligence_prompt_mutation_candidates_track_industry_mapping_actions():
     candidates = build_prompt_mutation_candidates(
         run_id="RIR-TEST-MUTATION",
