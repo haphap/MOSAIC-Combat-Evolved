@@ -6009,6 +6009,38 @@ def render_analytical_footprint_review_evidence_markdown(
                 counts["false"] += 1
             else:
                 counts["null"] += 1
+    quick_field_labels = (
+        ("footprint_correct", "footprint"),
+        ("source_span_supports_footprint", "span"),
+        ("metric_mapping_correct", "metric"),
+        ("inferred_steps_tagged_correctly", "steps"),
+        ("unknowns_used_when_uncertain", "unknowns"),
+        ("no_proprietary_text_leakage", "leakage"),
+    )
+
+    def quick_value(value: Any) -> str:
+        if value is True:
+            return "true"
+        if value is False:
+            return "false"
+        return "review"
+
+    quick_rows: list[str] = []
+    for row in rows:
+        decision_map = _ensure_mapping(row.get("suggested_review_decision"))
+        quick_cells = [
+            str(row.get("index") or ""),
+            f"`{row.get('footprint_id')}`",
+            _markdown_table_cell(row.get("sector") or "-", max_chars=40),
+            _markdown_table_cell(row.get("topic_preview") or "-", max_chars=60),
+        ]
+        quick_cells.extend(
+            quick_value(decision_map.get(field)) for field, _ in quick_field_labels
+        )
+        quick_cells.append(
+            _markdown_table_cell(row.get("suggested_manual_error_tags"), max_chars=120)
+        )
+        quick_rows.append("| " + " | ".join(quick_cells) + " |")
     lines = [
         "# RKE Analytical Footprint Review Evidence Draft",
         "",
@@ -6050,6 +6082,27 @@ def render_analytical_footprint_review_evidence_markdown(
             "",
         ]
     )
+    if rows:
+        quick_headers = [
+            "#",
+            "footprint_id",
+            "sector",
+            "topic",
+            *[label for _, label in quick_field_labels],
+            "tags",
+        ]
+        lines.extend(
+            [
+                "## Quick Fill Checklist",
+                "",
+                "Machine suggestions below are a navigation aid only. Confirm each field against the evidence snippets before copying values into the reviewed JSONL scratch.",
+                "",
+                "| " + " | ".join(quick_headers) + " |",
+                "| " + " | ".join("---" for _ in quick_headers) + " |",
+                *quick_rows,
+                "",
+            ]
+        )
     if report.blockers:
         lines.extend(["## Blockers", ""])
         lines.extend(f"- {blocker}" for blocker in report.blockers)

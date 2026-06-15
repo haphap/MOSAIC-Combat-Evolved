@@ -465,8 +465,11 @@ private, gitignored helper files at
 private evidence draft is aligned with the current 50-row scratch batch. It
 now emits structured `suggested_review_rationales` for span support, metric
 mapping, inferred step tagging, uncertainty handling, and leakage checks, plus
-review-only inferred indicator candidates for missing metric mappings. These
-also are not import files. Gold-set and analytical-footprint evidence commands
+review-only inferred indicator candidates for missing metric mappings. The
+private Markdown now also renders a top-level Quick Fill Checklist with compact
+machine-suggested boolean values and tags for the active 50-row scratch batch,
+while still requiring human confirmation before copying anything into the
+reviewed JSONL import. These also are not import files. Gold-set and analytical-footprint evidence commands
 now support `--review-input`, so the private evidence draft can follow the exact
 scratch batch order instead of priority sorting a different set of pending rows.
 `review-progress --summary --no-write` and

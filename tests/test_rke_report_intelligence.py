@@ -10859,8 +10859,12 @@ def test_write_analytical_footprint_review_evidence_is_private_not_import(
     assert "Suggested tag counts" in markdown
     assert "Sector counts" in markdown
     assert "Suggested decision counts" in markdown
+    assert "## Quick Fill Checklist" in markdown
+    assert "| # | footprint_id | sector | topic | footprint | span | metric | steps | unknowns | leakage | tags |" in markdown
+    assert "| 1 | `" in markdown
     assert "Suggested decision rationales" in markdown
     assert "not an import file" in markdown
+    assert "Confirm each field against the evidence snippets" in markdown
 
 
 def test_analytical_footprint_review_evidence_flags_risk_warning_footprints(
