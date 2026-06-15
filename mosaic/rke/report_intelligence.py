@@ -25,7 +25,7 @@ from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timezone
 from hashlib import sha256
-from math import ceil
+from math import ceil, floor
 from pathlib import Path
 from typing import Any, Callable, Literal, Mapping, Sequence
 
@@ -13580,6 +13580,171 @@ def _forecast_gold_review_gate(
     return not blockers, evidence, blockers
 
 
+def _gold_review_quality_gap_targets_from_summary(
+    gold_review_summary: Mapping[str, Any],
+) -> Mapping[str, Any] | None:
+    existing = _ensure_mapping(gold_review_summary.get("quality_gap_targets"))
+    if existing:
+        return existing
+    metrics = _ensure_mapping(gold_review_summary.get("metrics"))
+    denominator = int(gold_review_summary.get("reviewed_claims") or 0)
+    documents = int(gold_review_summary.get("total_documents") or 0)
+    document_gap = max(0, FORECAST_GOLD_MIN_DOCUMENTS - documents)
+    claim_gap = max(0, FORECAST_GOLD_MIN_REVIEWED_CLAIMS - denominator)
+    if denominator <= 0:
+        return {
+            "policy": "public_safe_aggregate_quality_gate_gap_targets_no_source_text",
+            "interpretation": (
+                "reviewed claim denominator is zero, so metric deltas are "
+                "unavailable; complete manual review rows before interpreting "
+                "quality-rate gaps"
+            ),
+            "sample_size_documents": {
+                "operator": ">=",
+                "threshold": FORECAST_GOLD_MIN_DOCUMENTS,
+                "current_count": documents,
+                "minimum_additional_count": document_gap,
+                "is_passing": document_gap == 0,
+            },
+            "sample_size_claims": {
+                "operator": ">=",
+                "threshold": FORECAST_GOLD_MIN_REVIEWED_CLAIMS,
+                "current_count": denominator,
+                "minimum_additional_count": claim_gap,
+                "is_passing": claim_gap == 0,
+            },
+            "metrics": {},
+            "active_gap_count": int(document_gap > 0) + int(claim_gap > 0),
+            "count_source": "summary_rate_estimate",
+        }
+    metric_targets: dict[str, Mapping[str, Any]] = {}
+    active_gap_count = 0
+    for metric, threshold in FORECAST_GOLD_REVIEW_MIN_METRICS.items():
+        current_rate = _gold_review_metric(gold_review_summary, metrics, metric)
+        if current_rate is None:
+            current_pass_count = 0
+        else:
+            current_pass_count = round(float(current_rate) * denominator)
+        required_pass_count = ceil((threshold * denominator) - 1e-12)
+        minimum_gap_count = max(0, required_pass_count - current_pass_count)
+        if minimum_gap_count:
+            active_gap_count += 1
+        metric_targets[metric] = {
+            "operator": ">=",
+            "threshold": threshold,
+            "current_rate": current_rate,
+            "denominator": denominator,
+            "current_pass_count": current_pass_count,
+            "required_pass_count": required_pass_count,
+            "minimum_additional_pass_count_if_denominator_unchanged": minimum_gap_count,
+            "is_passing": minimum_gap_count == 0,
+            "count_source": "summary_rate_estimate",
+        }
+    for metric, threshold in FORECAST_GOLD_REVIEW_MAX_METRICS.items():
+        current_rate = _gold_review_metric(gold_review_summary, metrics, metric)
+        if current_rate is None:
+            current_true_count = denominator
+        else:
+            current_true_count = round(float(current_rate) * denominator)
+        max_allowed_true_count = floor((threshold * denominator) + 1e-12)
+        excess_true_count = max(0, current_true_count - max_allowed_true_count)
+        if excess_true_count:
+            active_gap_count += 1
+        metric_targets[metric] = {
+            "operator": "<=",
+            "threshold": threshold,
+            "current_rate": current_rate,
+            "denominator": denominator,
+            "current_true_count": current_true_count,
+            "max_allowed_true_count": max_allowed_true_count,
+            "minimum_excess_true_count_if_denominator_unchanged": excess_true_count,
+            "is_passing": excess_true_count == 0,
+            "count_source": "summary_rate_estimate",
+        }
+    return {
+        "policy": "public_safe_aggregate_quality_gate_gap_targets_no_source_text",
+        "interpretation": (
+            "count deltas are estimated from public summary rates when exact "
+            "review-row counts are absent; use them to prioritize re-review or "
+            "candidate expansion, not as instructions to flip labels"
+        ),
+        "sample_size_documents": {
+            "operator": ">=",
+            "threshold": FORECAST_GOLD_MIN_DOCUMENTS,
+            "current_count": documents,
+            "minimum_additional_count": document_gap,
+            "is_passing": document_gap == 0,
+        },
+        "sample_size_claims": {
+            "operator": ">=",
+            "threshold": FORECAST_GOLD_MIN_REVIEWED_CLAIMS,
+            "current_count": denominator,
+            "minimum_additional_count": claim_gap,
+            "is_passing": claim_gap == 0,
+        },
+        "metrics": metric_targets,
+        "active_gap_count": active_gap_count
+        + int(document_gap > 0)
+        + int(claim_gap > 0),
+        "count_source": "summary_rate_estimate",
+    }
+
+
+def _footprint_review_quality_gap_targets_from_summary(
+    footprint_review_summary: Mapping[str, Any],
+) -> Mapping[str, Any] | None:
+    existing = _ensure_mapping(footprint_review_summary.get("quality_gap_targets"))
+    if existing:
+        return existing
+    precision_recall = _ensure_mapping(
+        footprint_review_summary.get("precision_recall_report")
+    )
+    denominator = int(
+        footprint_review_summary.get("complete_rows")
+        or footprint_review_summary.get("reviewed_rows")
+        or 0
+    )
+    if denominator <= 0 or not precision_recall:
+        return None
+    metric_targets: dict[str, Mapping[str, Any]] = {}
+    active_gap_count = 0
+    for metric, threshold in ANALYTICAL_FOOTPRINT_REVIEW_QUALITY_THRESHOLDS.items():
+        current_rate = _float_or_none(precision_recall.get(metric))
+        current_pass_count = (
+            0 if current_rate is None else round(float(current_rate) * denominator)
+        )
+        required_pass_count = ceil((threshold * denominator) - 1e-12)
+        minimum_gap_count = max(0, required_pass_count - current_pass_count)
+        if minimum_gap_count:
+            active_gap_count += 1
+        metric_targets[metric] = {
+            "operator": ">=",
+            "threshold": threshold,
+            "current_rate": current_rate,
+            "denominator": denominator,
+            "current_pass_count": current_pass_count,
+            "required_pass_count": required_pass_count,
+            "minimum_additional_pass_count_if_denominator_unchanged": minimum_gap_count,
+            "is_passing": minimum_gap_count == 0,
+            "count_source": "summary_rate_estimate",
+        }
+    return {
+        "policy": "public_safe_aggregate_quality_gate_gap_targets_no_source_text",
+        "interpretation": (
+            "count deltas are estimated from public summary rates when exact "
+            "review-row counts are absent; use them to prioritize re-review or "
+            "candidate expansion, not as instructions to flip labels"
+        ),
+        "sample_size_completed_rows": {
+            "current_count": denominator,
+            "pending_rows_are_excluded_from_metric_denominator": True,
+        },
+        "metrics": metric_targets,
+        "active_gap_count": active_gap_count,
+        "count_source": "summary_rate_estimate",
+    }
+
+
 def _evolution_gate_requirement_shortfalls(
     checks: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
@@ -14906,6 +15071,13 @@ def write_report_intelligence_evolution_readiness_gate(
     root_path = registry_path.parent.parent
     blockers: list[str] = []
     gate_path = registry_path / "evolution_readiness_gate.json"
+    quality_gap_read_blockers: list[str] = []
+    footprint_review_summary_for_actions = _read_registry_json(
+        registry_path / "analytical_footprint_review_summary.json",
+        label="analytical_footprint_review_summary",
+        blockers=quality_gap_read_blockers,
+    )
+    quality_gap_targets: dict[str, Any] = {}
     forecast_rows = _read_registry_jsonl(
         registry_path / "report_forecast_ledger.jsonl",
         label="report_forecast_ledger",
@@ -14939,7 +15111,10 @@ def write_report_intelligence_evolution_readiness_gate(
                 "evolution_readiness_gate": str(gate_path),
                 "gate_status": str(existing_gate.get("gate_status") or ""),
                 "blocker_count": int(existing_gate.get("blocker_count") or 0),
-                **_evolution_gate_cli_summary(existing_gate),
+                **_evolution_gate_cli_summary(
+                    existing_gate,
+                    quality_gap_targets=quality_gap_targets,
+                ),
                 "input_load_blockers": blockers,
                 "preserved_existing_gate": True,
             }
@@ -14995,6 +15170,18 @@ def write_report_intelligence_evolution_readiness_gate(
         label="gold_review_summary",
         blockers=blockers,
     )
+    quality_gap_targets = {
+        key: value
+        for key, value in {
+            "gold_set": _gold_review_quality_gap_targets_from_summary(
+                gold_review_summary
+            ),
+            "footprint_review": _footprint_review_quality_gap_targets_from_summary(
+                footprint_review_summary_for_actions
+            ),
+        }.items()
+        if value
+    }
     monitor_refresh_history_rows = _read_registry_jsonl(
         registry_path / "monitor_refresh_history.jsonl",
         label="monitor_refresh_history",
@@ -15056,7 +15243,10 @@ def write_report_intelligence_evolution_readiness_gate(
         "evolution_readiness_gate": written_path,
         "gate_status": str(gate.get("gate_status") or ""),
         "blocker_count": int(gate.get("blocker_count") or 0),
-        **_evolution_gate_cli_summary(gate),
+        **_evolution_gate_cli_summary(
+            gate,
+            quality_gap_targets=quality_gap_targets,
+        ),
         "input_load_blockers": blockers,
         "count_only_public_fallbacks": sorted(public_fallbacks),
         "preserved_existing_gate": False,
@@ -15064,7 +15254,11 @@ def write_report_intelligence_evolution_readiness_gate(
     }
 
 
-def _evolution_gate_cli_summary(gate: Mapping[str, Any]) -> dict[str, Any]:
+def _evolution_gate_cli_summary(
+    gate: Mapping[str, Any],
+    *,
+    quality_gap_targets: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     checks = [
         check for check in _ensure_list(gate.get("checks")) if isinstance(check, Mapping)
     ]
@@ -15101,7 +15295,10 @@ def _evolution_gate_cli_summary(gate: Mapping[str, Any]) -> dict[str, Any]:
         "active_requirement_shortfalls": (
             _evolution_gate_active_requirement_shortfalls(gate, blocked_checks)
         ),
-        "next_actions": _evolution_gate_cli_next_actions(blocked_checks),
+        "next_actions": _evolution_gate_cli_next_actions(
+            blocked_checks,
+            quality_gap_targets=quality_gap_targets,
+        ),
     }
 
 
@@ -15187,6 +15384,8 @@ def _evolution_gate_active_requirement_shortfalls(
 
 def _evolution_gate_cli_next_actions(
     blocked_checks: Sequence[Mapping[str, Any]],
+    *,
+    quality_gap_targets: Mapping[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Return public-safe operator actions for the current evolution blockers."""
     blocked_by_id = {
@@ -15197,6 +15396,7 @@ def _evolution_gate_cli_next_actions(
         }
         for check in blocked_checks
     }
+    quality_gaps = _ensure_mapping(quality_gap_targets)
     actions: list[dict[str, Any]] = []
 
     def add_action(
@@ -15207,6 +15407,7 @@ def _evolution_gate_cli_next_actions(
         notes: Sequence[str] = (),
         review_aids: Mapping[str, Any] | None = None,
         field_contract: Mapping[str, Any] | None = None,
+        action_quality_gap_targets: Mapping[str, Any] | None = None,
     ) -> None:
         if any(action["action_id"] == action_id for action in actions):
             return
@@ -15220,6 +15421,8 @@ def _evolution_gate_cli_next_actions(
             action["review_aids"] = dict(review_aids)
         if field_contract:
             action["field_contract"] = dict(field_contract)
+        if action_quality_gap_targets:
+            action["quality_gap_targets"] = dict(action_quality_gap_targets)
         actions.append(action)
 
     if "RI-EVOL-05" in blocked_by_id:
@@ -15258,6 +15461,7 @@ def _evolution_gate_cli_next_actions(
             ),
             review_aids=manual_review_aid_paths("gold_set"),
             field_contract=manual_review_field_contract("gold_set"),
+            action_quality_gap_targets=_ensure_mapping(quality_gaps.get("gold_set")),
         )
 
     audit_blockers = blocked_by_id.get("RI-EVOL-04", set())
@@ -15297,6 +15501,9 @@ def _evolution_gate_cli_next_actions(
             ),
             review_aids=manual_review_aid_paths("footprint_review"),
             field_contract=manual_review_field_contract("footprint_review"),
+            action_quality_gap_targets=_ensure_mapping(
+                quality_gaps.get("footprint_review")
+            ),
         )
         add_action(
             action_id="clear_current_schema_and_audit_blockers",
@@ -15326,6 +15533,16 @@ def _evolution_gate_cli_next_actions(
             field_contract={
                 "gold_set": manual_review_field_contract("gold_set"),
                 "footprint_review": manual_review_field_contract("footprint_review"),
+            },
+            action_quality_gap_targets={
+                key: value
+                for key, value in {
+                    "gold_set": _ensure_mapping(quality_gaps.get("gold_set")),
+                    "footprint_review": _ensure_mapping(
+                        quality_gaps.get("footprint_review")
+                    ),
+                }.items()
+                if value
             },
         )
     if "audit_refresh_history_below_threshold" in audit_blockers:

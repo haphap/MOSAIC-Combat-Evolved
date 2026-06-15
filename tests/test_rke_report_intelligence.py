@@ -8522,6 +8522,24 @@ def test_report_intelligence_evolution_gate_writer_preserves_stock_coverage_evid
     ):
         write_json(registry_dir / filename, {"accepted": True, "blockers": []})
     write_json(
+        registry_dir / "analytical_footprint_review_summary.json",
+        {
+            "accepted": False,
+            "review_complete": True,
+            "quality_gate_passed": False,
+            "complete_rows": 34,
+            "pending_rows": 0,
+            "precision_recall_report": {
+                "footprint_precision": 1.0,
+                "span_support_precision": 1.0,
+                "metric_mapping_accuracy": 0.558824,
+                "inferred_step_tagging_accuracy": 1.0,
+                "unknown_on_ambiguity_rate": 0.941176,
+                "proprietary_leakage_free_rate": 1.0,
+            },
+        },
+    )
+    write_json(
         registry_dir / "outcome_labeling_readiness.json",
         {
             "mapping_gap_counts": {},
@@ -8617,6 +8635,12 @@ def test_report_intelligence_evolution_gate_writer_preserves_stock_coverage_evid
     assert next_actions["complete_manual_forecast_gold_review"]["review_aids"][
         "evidence_markdown"
     ] == "registry/review_batches/gold_set_review_evidence.md"
+    assert next_actions["complete_manual_forecast_gold_review"][
+        "quality_gap_targets"
+    ]["sample_size_claims"]["minimum_additional_count"] == 100
+    assert next_actions["complete_manual_forecast_gold_review"][
+        "quality_gap_targets"
+    ]["sample_size_documents"]["minimum_additional_count"] == 50
     assert "manual_claim_text" in next_actions[
         "complete_manual_forecast_gold_review"
     ]["field_contract"]["required_fields"]
@@ -8648,6 +8672,14 @@ def test_report_intelligence_evolution_gate_writer_preserves_stock_coverage_evid
     assert "review_notes" in next_actions[
         "complete_manual_analytical_footprint_review"
     ]["field_contract"]["required_fields"]
+    footprint_gap = next_actions["complete_manual_analytical_footprint_review"][
+        "quality_gap_targets"
+    ]["metrics"]["metric_mapping_accuracy"]
+    assert footprint_gap["current_pass_count"] == 19
+    assert (
+        footprint_gap["minimum_additional_pass_count_if_denominator_unchanged"]
+        == 9
+    )
     assert (
         "apply-footprint-review --root . --input registry/report_intelligence/"
         "analytical_footprint_review_batch.jsonl --dry-run"
