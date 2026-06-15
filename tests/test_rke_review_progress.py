@@ -1605,14 +1605,38 @@ def test_review_progress_accepts_already_applied_gold_with_stale_scratch(
 
 def test_review_progress_reports_partial_gold_scratch(tmp_path: Path):
     _copy_registry(tmp_path)
-    partial_rows = _accepted_gold_rows(tmp_path)[:50]
+    accepted_rows = _accepted_gold_rows(tmp_path)
+    partial_rows = accepted_rows[:50]
     _write_jsonl(
         tmp_path / "registry/review_batches/gold_set_full_reviewed.jsonl",
         partial_rows,
     )
+    current_batch_rows = []
+    for row in accepted_rows[50:70]:
+        pending = dict(row)
+        pending.update(
+            {
+                "manual_claim_text": "",
+                "claim_correct": None,
+                "source_span_supports_claim": None,
+                "direction_correct": None,
+                "target_correct": None,
+                "horizon_correct": None,
+                "variable_mapping_correct": None,
+                "unsupported_field_false_grounded": None,
+                "reviewer": "",
+                "review_date": "",
+                "review_notes": "",
+            }
+        )
+        current_batch_rows.append(pending)
+    _write_jsonl(tmp_path / GOLD_REVIEWED_IMPORT_PATH, current_batch_rows)
+    write_gold_review_evidence(tmp_path, review_input_path=GOLD_REVIEWED_IMPORT_PATH)
 
     report = build_manual_review_progress(tmp_path)
     gold = next(gate for gate in report.gates if gate.review_kind == "gold_set")
+    action_queue = build_manual_review_action_queue(report, review_kinds=("gold_set",))
+    action = action_queue["actions"][0]
 
     assert not report.ready_for_promotion_dry_run
     assert gold.input_exists
@@ -1621,6 +1645,12 @@ def test_review_progress_reports_partial_gold_scratch(tmp_path: Path):
     assert gold.pending_rows == 450
     assert not gold.ready_for_promotion
     assert any("450 gold-set claim review rows still pending" in blocker for blocker in gold.blockers)
+    assert action["action_state"] == "needs_human_review_fields"
+    assert action["batch_overview"]["current_batch_rows"] == 20
+    assert action["batch_overview"]["current_batch_target_covered_rows"] == 20
+    assert action["batch_overview"]["remaining_rows_after_current_batch"] == 430
+    assert action["batch_overview"]["remaining_rows_after_next_batch"] == 400
+    assert action["batch_overview"]["current_batch_covers_next_batch"] is False
 
 
 def test_review_progress_reports_stale_gold_scratch_hashes(tmp_path: Path):

@@ -1458,12 +1458,25 @@ def _compact_batch_overview(gate: ManualReviewGateProgress) -> Mapping[str, Any]
         if isinstance(current.get("target_status"), Mapping)
         else {}
     )
+    current_batch_target_covered_rows = 0
+    if (
+        bool(current.get("exists"))
+        and int(current.get("malformed_rows") or 0) == 0
+        and target
+        and bool(target.get("aligned"))
+    ):
+        current_batch_target_covered_rows = int(current.get("rows") or 0)
     overview: dict[str, Any] = {
         "batch_count": len(batches),
         "pending_rows": gate.pending_rows,
         "current_batch_path": current.get("path"),
         "current_batch_rows": int(current.get("rows") or 0),
         "current_batch_pending_rows": int(current.get("pending_rows") or 0),
+        "current_batch_target_covered_rows": current_batch_target_covered_rows,
+        "remaining_rows_after_current_batch": max(
+            int(gate.pending_rows) - current_batch_target_covered_rows,
+            0,
+        ),
         "current_batch_evidence_aligned": (
             bool(evidence.get("aligned")) if evidence else None
         ),
@@ -1495,6 +1508,11 @@ def _compact_batch_overview(gate: ManualReviewGateProgress) -> Mapping[str, Any]
                 "remaining_rows_after_next_batch": max(
                     int(gate.pending_rows) - first_limit,
                     0,
+                ),
+                "current_batch_covers_next_batch": (
+                    current_batch_target_covered_rows >= first_limit
+                    if first_limit
+                    else False
                 ),
             }
         )
