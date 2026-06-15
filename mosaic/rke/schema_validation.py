@@ -5202,6 +5202,84 @@ def _stability_prompt_candidate_expected_evidence_refs(
     return expected_refs
 
 
+def _industry_mapping_prompt_candidate_expected_evidence_refs(
+    *,
+    root_path: Path,
+    failures: list[str],
+) -> list[dict[str, Any]]:
+    availability, availability_failures = _read_mapping_json(
+        root_path / "registry/report_intelligence/industry_etf_proxy_pit_availability.json",
+        "registry/report_intelligence/industry_etf_proxy_pit_availability.json",
+    )
+    readiness, readiness_failures = _read_mapping_json(
+        root_path / "registry/report_intelligence/outcome_labeling_readiness.json",
+        "registry/report_intelligence/outcome_labeling_readiness.json",
+    )
+    failures.extend(availability_failures)
+    failures.extend(readiness_failures)
+    if not availability or not readiness:
+        return []
+    action_summary = (
+        availability.get("labelability_action_summary")
+        if isinstance(availability.get("labelability_action_summary"), Mapping)
+        else {}
+    )
+    pit_gap_counts = _positive_integer_mapping_values(availability.get("pit_gap_counts"))
+    industry_readiness = (
+        readiness.get("industry_etf_proxy_readiness")
+        if isinstance(readiness.get("industry_etf_proxy_readiness"), Mapping)
+        else {}
+    )
+    readiness_gap_counts = (
+        industry_readiness.get("data_gap_counts")
+        if isinstance(industry_readiness.get("data_gap_counts"), Mapping)
+        else {}
+    )
+    return [
+        {
+            "artifact_path": (
+                "registry/report_intelligence/industry_etf_proxy_pit_availability.json"
+            ),
+            "field": "labelability_action_summary",
+            "coverage_gate_status": str(
+                action_summary.get("coverage_gate_status") or ""
+            ),
+            "remaining_action_count": _int_or_none(
+                action_summary.get("remaining_action_count")
+            )
+            or 0,
+            "sector_etf_mapping_missing_count": _int_or_none(
+                action_summary.get("sector_etf_mapping_missing_count")
+            )
+            or 0,
+            "pit_unavailable_mapping_count": _int_or_none(
+                action_summary.get("pit_unavailable_mapping_count")
+            )
+            or 0,
+            "labelability_rate": action_summary.get("labelability_rate"),
+            "primary_mapping_coverage_rate": action_summary.get(
+                "primary_mapping_coverage_rate"
+            ),
+            "next_actions": _string_items(action_summary.get("next_actions")),
+        },
+        {
+            "artifact_path": (
+                "registry/report_intelligence/industry_etf_proxy_pit_availability.json"
+            ),
+            "field": "pit_gap_counts",
+            "gap_counts": pit_gap_counts,
+        },
+        {
+            "artifact_path": "registry/report_intelligence/outcome_labeling_readiness.json",
+            "field": "industry_etf_proxy_readiness.data_gap_counts",
+            "sector_etf_mapping_missing_count": _int_or_none(
+                readiness_gap_counts.get("sector_etf_mapping_missing")
+            )
+            or 0,
+        },
+    ]
+
+
 def _prompt_mutation_matching_evidence_ref(
     row: Mapping[str, Any],
     *,
@@ -5347,6 +5425,33 @@ def _validate_prompt_mutation_governed_evidence(
                     failures.append(
                         f"{row_label}.{candidate_type}.evidence_refs.{field}.{key}: "
                         "must match current evolution readiness gate"
+                    )
+    elif candidate_type == "industry_proxy_mapping_rule":
+        expected_refs = _industry_mapping_prompt_candidate_expected_evidence_refs(
+            root_path=root_path,
+            failures=failures,
+        )
+        for expected in expected_refs:
+            field = str(expected["field"])
+            evidence = _prompt_mutation_matching_evidence_ref(
+                row,
+                artifact_path=str(expected["artifact_path"]),
+                field=field,
+                row_label=row_label,
+                failures=failures,
+            )
+            if evidence is None:
+                continue
+            for key, expected_value in expected.items():
+                if key in {"artifact_path", "field"}:
+                    continue
+                if not _prompt_mutation_evidence_values_equal(
+                    evidence.get(key),
+                    expected_value,
+                ):
+                    failures.append(
+                        f"{row_label}.{candidate_type}.evidence_refs.{field}.{key}: "
+                        "must match industry ETF PIT/readiness public evidence"
                     )
     return failures
 

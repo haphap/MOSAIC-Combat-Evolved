@@ -3667,6 +3667,52 @@ def test_prompt_mutation_candidate_contract_rejects_refresh_stability_evidence_d
     )
 
 
+def test_prompt_mutation_candidate_contract_rejects_industry_mapping_evidence_drift(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    candidates_path = registry / "prompt_mutation_candidates.jsonl"
+    candidates = _read_prompt_mutation_candidates(candidates_path)
+    mapping = next(
+        row for row in candidates if row["candidate_type"] == "industry_proxy_mapping_rule"
+    )
+    evidence_refs = mapping["evidence_refs"]
+    assert isinstance(evidence_refs, list)
+    action = next(
+        row
+        for row in evidence_refs
+        if isinstance(row, dict) and row.get("field") == "labelability_action_summary"
+    )
+    pit = next(
+        row
+        for row in evidence_refs
+        if isinstance(row, dict) and row.get("field") == "pit_gap_counts"
+    )
+    readiness = next(
+        row
+        for row in evidence_refs
+        if isinstance(row, dict)
+        and row.get("field") == "industry_etf_proxy_readiness.data_gap_counts"
+    )
+    action["remaining_action_count"] = 0
+    action["next_actions"] = []
+    pit["gap_counts"] = {}
+    readiness["sector_etf_mapping_missing_count"] = 0
+    _write_prompt_mutation_candidates(candidates_path, candidates)
+
+    record = _prompt_mutation_candidate_contract_record(tmp_path)
+
+    assert not record.accepted
+    expected_fragments = [
+        "industry_proxy_mapping_rule.evidence_refs.labelability_action_summary.remaining_action_count",
+        "industry_proxy_mapping_rule.evidence_refs.labelability_action_summary.next_actions",
+        "industry_proxy_mapping_rule.evidence_refs.pit_gap_counts.gap_counts",
+        "industry_proxy_mapping_rule.evidence_refs.industry_etf_proxy_readiness.data_gap_counts.sector_etf_mapping_missing_count",
+    ]
+    for fragment in expected_fragments:
+        assert any(fragment in item for item in record.failures)
+
+
 def _copy_registry_for_manual_progress(tmp_path: Path) -> Path:
     registry = tmp_path / "registry"
     shutil.copytree(Path("registry"), registry, dirs_exist_ok=True)
