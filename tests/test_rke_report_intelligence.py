@@ -8605,6 +8605,13 @@ def test_report_intelligence_evolution_gate_writer_preserves_stock_coverage_evid
     assert next_actions["complete_manual_forecast_gold_review"]["commands"][
         "inspect"
     ].startswith(RKE_OPERATOR_TMP_ENV_PREFIX)
+    assert (
+        "write-gold-review-assist --root . --review-input "
+        "registry/review_batches/gold_set_reviewed.jsonl"
+        in next_actions["complete_manual_forecast_gold_review"]["commands"][
+            "write_assist"
+        ]
+    )
     assert next_actions["complete_manual_forecast_gold_review"]["review_aids"][
         "evidence_markdown"
     ] == "registry/review_batches/gold_set_review_evidence.md"

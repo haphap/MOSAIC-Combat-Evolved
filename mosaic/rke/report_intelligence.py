@@ -15141,6 +15141,11 @@ def _evolution_gate_cli_next_actions(
                     "mosaic-rke review-progress --root . --actions-only "
                     "--no-write --review-kind gold_set"
                 ),
+                "write_assist": operator_command(
+                    "mosaic-rke write-gold-review-assist --root . "
+                    "--review-input "
+                    "registry/review_batches/gold_set_reviewed.jsonl"
+                ),
                 "write_evidence": operator_command(
                     "mosaic-rke write-gold-review-evidence --root . --limit 50 "
                     "--offset 0 --review-input "

@@ -768,6 +768,13 @@ def test_rke_cli_promotion_status_writes_report(tmp_path: Path, capsys):
         "inspect"
     ].startswith(RKE_OPERATOR_TMP_ENV_PREFIX)
     assert (
+        "write-gold-review-assist --root . --review-input "
+        "registry/review_batches/gold_set_reviewed.jsonl"
+        in next_actions["complete_manual_forecast_gold_review"]["commands"][
+            "write_assist"
+        ]
+    )
+    assert (
         "promotion-status --root . --no-write"
         in next_actions["complete_manual_forecast_gold_review"]["commands"][
             "check_promotion_after_review"

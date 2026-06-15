@@ -422,6 +422,10 @@ def _promotion_status_next_actions(result: Any) -> list[dict[str, Any]]:
                     "mosaic-rke review-progress --root . --actions-only "
                     "--no-write --review-kind gold_set"
                 ),
+                "write_assist": operator_command(
+                    "mosaic-rke write-gold-review-assist --root . "
+                    f"--review-input {GOLD_REVIEWED_IMPORT_PATH}"
+                ),
                 "write_evidence": operator_command(
                     "mosaic-rke write-gold-review-evidence --root . --limit 50 "
                     f"--offset 0 --review-input {GOLD_REVIEWED_IMPORT_PATH}"
