@@ -13831,6 +13831,30 @@ def _evolution_gate_requirement_shortfalls(
         "blocker": "confidence_impact_monitor_current_blocked",
         "next_action": "clear_unvalidated_confidence_impact_or_aggregate_calibration_drift_before_evolution",
     }
+    monitor_recipe_level = _ensure_mapping(
+        monitor_evidence.get("recipe_level_monitor")
+    )
+    recipe_level_action_count = int(
+        monitor_recipe_level.get("actionable_recipe_level_action_count") or 0
+    )
+    shortfalls["monitor_recipe_level_action_count"] = {
+        "current": recipe_level_action_count,
+        "target": 0,
+        "remaining": recipe_level_action_count,
+        "blocker": "confidence_monitor_recipe_level_actions_open",
+        "next_action": (
+            "review_freeze_manual_or_replay_recipe_level_confidence_monitor_actions"
+        ),
+        "recipe_level_risk_counts": _count_mapping_values(
+            _ensure_mapping(monitor_recipe_level.get("recipe_level_risk_counts"))
+        ),
+        "recommended_action_counts": _count_mapping_values(
+            _ensure_mapping(monitor_recipe_level.get("recommended_action_counts"))
+        ),
+        "global_blocker_policy": str(
+            monitor_recipe_level.get("global_blocker_policy") or ""
+        ),
+    }
 
     audit_evidence = _ensure_mapping(by_id.get("RI-EVOL-04", {}).get("evidence"))
     audit_dependency = _ensure_mapping(
@@ -14704,6 +14728,7 @@ def build_report_intelligence_evolution_readiness_gate(
     )
 
     monitor = _ensure_mapping(confidence_impact_monitor)
+    monitor_recipe_level_summary = _confidence_monitor_recipe_level_summary(monitor)
     current_monitor_record = _monitor_refresh_history_record(
         run_id=run_id,
         data_vintage_hash=data_vintage_hash,
@@ -14742,12 +14767,25 @@ def build_report_intelligence_evolution_readiness_gate(
                 "calibration_drift_count": int(
                     monitor.get("calibration_drift_count") or 0
                 ),
+                "alpha_decay_fail_count": int(
+                    monitor.get("alpha_decay_fail_count") or 0
+                ),
+                "cost_decay_fail_count": int(
+                    monitor.get("cost_decay_fail_count") or 0
+                ),
+                "regime_fragile_alpha_count": int(
+                    monitor.get("regime_fragile_alpha_count") or 0
+                ),
+                "profile_paper_trade_disagreement_count": int(
+                    monitor.get("profile_paper_trade_disagreement_count") or 0
+                ),
                 "aggregate_calibration_drift_count": int(
                     monitor.get("aggregate_calibration_drift_count") or 0
                 ),
                 "calibration_drift_rule_counts": _count_mapping_values(
                     _ensure_mapping(monitor.get("calibration_drift_rule_counts"))
                 ),
+                "recipe_level_monitor": monitor_recipe_level_summary,
                 "trailing_monitor_pass_count": monitor_trailing_pass_count,
                 "trailing_monitor_distinct_vintage_count": monitor_trailing_pass_count,
                 "data_vintage_hash": data_vintage_hash,
@@ -15298,6 +15336,11 @@ def _evolution_gate_cli_summary(
         "next_actions": _evolution_gate_cli_next_actions(
             blocked_checks,
             quality_gap_targets=quality_gap_targets,
+            monitor_recipe_level_actions=_ensure_mapping(
+                _ensure_mapping(
+                    _evolution_gate_check_by_id(gate, "RI-EVOL-03").get("evidence")
+                ).get("recipe_level_monitor")
+            ),
         ),
     }
 
@@ -15386,8 +15429,9 @@ def _evolution_gate_cli_next_actions(
     blocked_checks: Sequence[Mapping[str, Any]],
     *,
     quality_gap_targets: Mapping[str, Any] | None = None,
+    monitor_recipe_level_actions: Mapping[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
-    """Return public-safe operator actions for the current evolution blockers."""
+    """Return public-safe operator actions for blockers and P12 monitor queues."""
     blocked_by_id = {
         str(check.get("check_id") or ""): {
             str(blocker)
@@ -15609,6 +15653,63 @@ def _evolution_gate_cli_next_actions(
             ),
         )
 
+    monitor_recipe_actions = _ensure_mapping(monitor_recipe_level_actions)
+    if int(monitor_recipe_actions.get("actionable_recipe_level_action_count") or 0) > 0:
+        add_action(
+            action_id="review_confidence_monitor_recipe_actions",
+            reason=(
+                "P12 recipe-level alpha decay, calibration watch, or regime "
+                "fragility is present. These rows stay shadow-only through "
+                "freeze/manual/replay queues and must be reviewed before any "
+                "confidence impact is promoted."
+            ),
+            commands={
+                "inspect_evolution": operator_command(
+                    "mosaic-rke evolution-readiness --root . --no-write"
+                ),
+                "refresh_derived": operator_command(
+                    "mosaic-rke report-intelligence --root . --refresh-derived-only"
+                ),
+                "refresh_prompt_mutations": operator_command(
+                    "mosaic-rke evolution-readiness --root . "
+                    "--refresh-prompt-mutations"
+                ),
+            },
+            notes=(
+                "This is not a global RI-EVOL-03 blocker unless unvalidated "
+                "positive confidence impact or aggregate calibration drift is "
+                "present.",
+                "Prompt mutation candidates should include calibration_fix_required "
+                "evidence for these recipe-level monitor actions.",
+            ),
+            action_quality_gap_targets={
+                key: value
+                for key, value in {
+                    "recipe_level_risk_counts": _count_mapping_values(
+                        _ensure_mapping(
+                            monitor_recipe_actions.get("recipe_level_risk_counts")
+                        )
+                    ),
+                    "recommended_action_counts": _count_mapping_values(
+                        _ensure_mapping(
+                            monitor_recipe_actions.get("recommended_action_counts")
+                        )
+                    ),
+                    "actionable_recipe_level_action_counts": _count_mapping_values(
+                        _ensure_mapping(
+                            monitor_recipe_actions.get(
+                                "actionable_recipe_level_action_counts"
+                            )
+                        )
+                    ),
+                    "global_blocker_policy": str(
+                        monitor_recipe_actions.get("global_blocker_policy") or ""
+                    ),
+                }.items()
+                if value
+            },
+        )
+
     return actions
 
 
@@ -15638,6 +15739,51 @@ def _integer_mapping_values(mapping: Mapping[str, Any]) -> dict[str, int]:
         except (TypeError, ValueError):
             continue
     return dict(sorted(values.items()))
+
+
+def _confidence_monitor_recipe_level_summary(
+    monitor: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Summarize non-global confidence monitor actions for operator handoff."""
+    risk_counts = {
+        key: int(monitor.get(key) or 0)
+        for key in (
+            "alpha_decay_watch_count",
+            "alpha_decay_fail_count",
+            "cost_decay_fail_count",
+            "calibration_drift_count",
+            "regime_fragile_alpha_count",
+            "profile_paper_trade_disagreement_count",
+        )
+    }
+    action_counts = _count_mapping_values(
+        _ensure_mapping(monitor.get("recommended_action_counts"))
+    )
+    actionable_counts = {
+        key: int(action_counts.get(key, 0))
+        for key in (
+            "reduce_confidence_impact",
+            "freeze_recipe",
+            "send_to_manual_review",
+            "retire_recipe",
+        )
+        if int(action_counts.get(key, 0)) > 0
+    }
+    return {
+        "recipe_level_risk_counts": {
+            key: value for key, value in risk_counts.items() if value > 0
+        },
+        "recipe_level_risk_count": sum(risk_counts.values()),
+        "recommended_action_counts": action_counts,
+        "actionable_recipe_level_action_counts": actionable_counts,
+        "actionable_recipe_level_action_count": sum(actionable_counts.values()),
+        "global_blocker_policy": (
+            "unvalidated positive confidence impact, aggregate calibration "
+            "drift, and aggregate calibration rule breaches block RI-EVOL-03; "
+            "per-recipe alpha decay, calibration watch, and regime fragility "
+            "remain shadow-only through freeze/manual/replay action queues"
+        ),
+    }
 
 
 def _add_prompt_mutation_candidate(

@@ -17,7 +17,10 @@ from mosaic.rke.schema_validation import (
     validate_report_intelligence_semantics,
     validate_rule_pack_schema_artifact,
 )
-from mosaic.rke.report_intelligence import build_default_industry_etf_proxy_map_rows
+from mosaic.rke.report_intelligence import (
+    _evolution_gate_cli_summary,
+    build_default_industry_etf_proxy_map_rows,
+)
 from mosaic.rke.temp_paths import RKE_OPERATOR_TMP_ENV_PREFIX
 
 
@@ -2627,13 +2630,101 @@ def test_evolution_refresh_history_requires_data_vintage_hash(tmp_path: Path):
 def test_evolution_readiness_gate_contract_tracks_current_public_artifact(
     tmp_path: Path,
 ):
-    _copy_report_intelligence_registry(tmp_path)
+    registry = _copy_report_intelligence_registry(tmp_path)
 
     record = _evolution_readiness_gate_record(tmp_path)
+    gate = json.loads((registry / "evolution_readiness_gate.json").read_text(encoding="utf-8"))
+    monitor_check = next(
+        check for check in gate["checks"] if check["check_id"] == "RI-EVOL-03"
+    )
+    monitor_summary = monitor_check["evidence"]["recipe_level_monitor"]
 
     assert record.accepted
     assert record.item_count == 7
     assert record.failures == ()
+    assert isinstance(monitor_summary["recipe_level_risk_counts"], dict)
+    assert isinstance(monitor_summary["recommended_action_counts"], dict)
+    assert isinstance(monitor_summary["actionable_recipe_level_action_counts"], dict)
+    assert "global_blocker_policy" in monitor_summary
+
+
+def test_evolution_readiness_gate_cli_reports_monitor_recipe_actions(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    gate = json.loads((registry / "evolution_readiness_gate.json").read_text(encoding="utf-8"))
+    monitor_check = next(
+        check for check in gate["checks"] if check["check_id"] == "RI-EVOL-03"
+    )
+    monitor_check["evidence"]["recipe_level_monitor"] = {
+        "actionable_recipe_level_action_count": 2,
+        "actionable_recipe_level_action_counts": {"freeze_recipe": 2},
+        "global_blocker_policy": (
+            "per-recipe risks stay shadow-only unless aggregate blockers exist"
+        ),
+        "recipe_level_risk_count": 2,
+        "recipe_level_risk_counts": {"alpha_decay_fail_count": 2},
+        "recommended_action_counts": {"freeze_recipe": 2, "keep_shadow": 1},
+    }
+    cli_summary = _evolution_gate_cli_summary(gate)
+    next_actions = {action["action_id"]: action for action in cli_summary["next_actions"]}
+    monitor_action = next_actions["review_confidence_monitor_recipe_actions"]
+    assert monitor_action["quality_gap_targets"]["recommended_action_counts"][
+        "freeze_recipe"
+    ] > 0
+    assert (
+        "mosaic-rke evolution-readiness --root . --refresh-prompt-mutations"
+        in monitor_action["commands"]["refresh_prompt_mutations"]
+    )
+
+
+def test_evolution_readiness_gate_contract_rejects_missing_monitor_recipe_summary(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    gate_path = registry / "evolution_readiness_gate.json"
+    gate = json.loads(gate_path.read_text(encoding="utf-8"))
+    monitor_check = next(
+        check for check in gate["checks"] if check["check_id"] == "RI-EVOL-03"
+    )
+    monitor_check["evidence"].pop("recipe_level_monitor", None)
+    gate_path.write_text(
+        json.dumps(gate, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _evolution_readiness_gate_record(tmp_path)
+
+    assert not record.accepted
+    assert any(
+        "RI-EVOL-03].evidence.recipe_level_monitor: expected object" in item
+        for item in record.failures
+    )
+
+
+def test_evolution_readiness_gate_contract_rejects_monitor_recipe_count_mismatch(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    gate_path = registry / "evolution_readiness_gate.json"
+    gate = json.loads(gate_path.read_text(encoding="utf-8"))
+    monitor_check = next(
+        check for check in gate["checks"] if check["check_id"] == "RI-EVOL-03"
+    )
+    summary = monitor_check["evidence"]["recipe_level_monitor"]
+    summary["actionable_recipe_level_action_count"] = 0
+    gate_path.write_text(
+        json.dumps(gate, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _evolution_readiness_gate_record(tmp_path)
+
+    assert not record.accepted
+    assert any(
+        "actionable_recipe_level_action_count: mismatch" in item
+        for item in record.failures
+    )
 
 
 def test_evolution_readiness_gate_contract_requires_all_checks(tmp_path: Path):

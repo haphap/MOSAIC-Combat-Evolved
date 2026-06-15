@@ -4008,6 +4008,77 @@ def _validate_evolution_readiness_gate_contract(
         )
         require_int_equal(evidence, "unvalidated_confidence_impact_count", 0, row_label)
         require_int_equal(evidence, "aggregate_calibration_drift_count", 0, row_label)
+        for field in (
+            "alpha_decay_fail_count",
+            "cost_decay_fail_count",
+            "calibration_drift_count",
+            "regime_fragile_alpha_count",
+            "profile_paper_trade_disagreement_count",
+        ):
+            require_int_at_least(evidence, field, 0, row_label)
+        recipe_level = evidence.get("recipe_level_monitor")
+        recipe_level_label = f"{row_label}.evidence.recipe_level_monitor"
+        if not isinstance(recipe_level, Mapping):
+            failures.append(f"{recipe_level_label}: expected object")
+        else:
+            require_int_at_least(
+                recipe_level,
+                "recipe_level_risk_count",
+                0,
+                recipe_level_label,
+            )
+            require_int_at_least(
+                recipe_level,
+                "actionable_recipe_level_action_count",
+                0,
+                recipe_level_label,
+            )
+            risk_counts = recipe_level.get("recipe_level_risk_counts")
+            if not isinstance(risk_counts, Mapping):
+                failures.append(
+                    f"{recipe_level_label}.recipe_level_risk_counts: expected object"
+                )
+                risk_counts = {}
+            recommended_action_counts = recipe_level.get("recommended_action_counts")
+            if not isinstance(recommended_action_counts, Mapping):
+                failures.append(
+                    f"{recipe_level_label}.recommended_action_counts: expected object"
+                )
+                recommended_action_counts = {}
+            actionable_counts = recipe_level.get(
+                "actionable_recipe_level_action_counts"
+            )
+            if not isinstance(actionable_counts, Mapping):
+                failures.append(
+                    f"{recipe_level_label}.actionable_recipe_level_action_counts: "
+                    "expected object"
+                )
+                actionable_counts = {}
+            risk_total = sum(
+                value
+                for value in (_int_or_none(item) for item in risk_counts.values())
+                if value is not None
+            )
+            if _int_or_none(recipe_level.get("recipe_level_risk_count")) != risk_total:
+                failures.append(
+                    f"{recipe_level_label}.recipe_level_risk_count: mismatch with "
+                    "recipe_level_risk_counts"
+                )
+            action_total = sum(
+                value
+                for value in (_int_or_none(item) for item in actionable_counts.values())
+                if value is not None
+            )
+            if (
+                _int_or_none(recipe_level.get("actionable_recipe_level_action_count"))
+                != action_total
+            ):
+                failures.append(
+                    f"{recipe_level_label}.actionable_recipe_level_action_count: "
+                    "mismatch with actionable_recipe_level_action_counts"
+                )
+            if not str(recipe_level.get("global_blocker_policy") or "").strip():
+                failures.append(f"{recipe_level_label}.global_blocker_policy: required")
 
     check_04 = checks_by_id.get("RI-EVOL-04")
     if check_04:

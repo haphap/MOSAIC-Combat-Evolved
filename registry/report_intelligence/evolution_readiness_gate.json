@@ -1,5 +1,5 @@
 {
-  "as_of_datetime": "2026-06-15T04:27:40+00:00",
+  "as_of_datetime": "2026-06-15T07:21:47+00:00",
   "blocker_count": 7,
   "blockers": [
     "audit_refresh_history_below_threshold",
@@ -49,12 +49,35 @@
       "check_id": "RI-EVOL-03",
       "evidence": {
         "aggregate_calibration_drift_count": 0,
+        "alpha_decay_fail_count": 23,
         "blocked_recipe_count": 1998,
         "calibration_drift_count": 14,
         "calibration_drift_rule_counts": {},
+        "cost_decay_fail_count": 0,
         "data_vintage_hash": "sha256:a265c976aad6a51adc1081ac787474585b58c6ded822caad9a5177ff3416b937",
         "distinct_data_vintage_required": true,
         "monitor_observation_count": 2031,
+        "profile_paper_trade_disagreement_count": 0,
+        "recipe_level_monitor": {
+          "actionable_recipe_level_action_count": 42,
+          "actionable_recipe_level_action_counts": {
+            "freeze_recipe": 23,
+            "send_to_manual_review": 19
+          },
+          "global_blocker_policy": "unvalidated positive confidence impact, aggregate calibration drift, and aggregate calibration rule breaches block RI-EVOL-03; per-recipe alpha decay, calibration watch, and regime fragility remain shadow-only through freeze/manual/replay action queues",
+          "recipe_level_risk_count": 42,
+          "recipe_level_risk_counts": {
+            "alpha_decay_fail_count": 23,
+            "calibration_drift_count": 14,
+            "regime_fragile_alpha_count": 5
+          },
+          "recommended_action_counts": {
+            "freeze_recipe": 23,
+            "keep_shadow": 1989,
+            "send_to_manual_review": 19
+          }
+        },
+        "regime_fragile_alpha_count": 5,
         "trailing_monitor_distinct_vintage_count": 41,
         "trailing_monitor_pass_count": 41,
         "unvalidated_confidence_impact_count": 0
@@ -487,6 +510,24 @@
       "next_action": "refresh_distinct_data_vintages_until_monitor_gate_passes_three_times",
       "remaining": 0,
       "target": 3
+    },
+    "monitor_recipe_level_action_count": {
+      "blocker": "confidence_monitor_recipe_level_actions_open",
+      "current": 42,
+      "global_blocker_policy": "unvalidated positive confidence impact, aggregate calibration drift, and aggregate calibration rule breaches block RI-EVOL-03; per-recipe alpha decay, calibration watch, and regime fragility remain shadow-only through freeze/manual/replay action queues",
+      "next_action": "review_freeze_manual_or_replay_recipe_level_confidence_monitor_actions",
+      "recipe_level_risk_counts": {
+        "alpha_decay_fail_count": 23,
+        "calibration_drift_count": 14,
+        "regime_fragile_alpha_count": 5
+      },
+      "recommended_action_counts": {
+        "freeze_recipe": 23,
+        "keep_shadow": 1989,
+        "send_to_manual_review": 19
+      },
+      "remaining": 42,
+      "target": 0
     },
     "paper_trading_run_count": {
       "blocker": "paper_trading_run_count_below_threshold",
