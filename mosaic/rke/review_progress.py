@@ -433,6 +433,71 @@ def _review_field_action_order(workload: Mapping[str, Any]) -> Mapping[str, Any]
     }
 
 
+def _review_field_workflow_groups(
+    workload: Mapping[str, Any],
+    field_contract: Mapping[str, Any],
+) -> Mapping[str, Any]:
+    boolean_fields = {str(field) for field in field_contract.get("boolean_fields") or ()}
+    date_fields = {
+        str(field)
+        for field in (
+            field_contract.get("date_fields").keys()
+            if isinstance(field_contract.get("date_fields"), Mapping)
+            else ()
+        )
+    }
+    text_fields = {str(field) for field in field_contract.get("text_fields") or ()}
+    metadata_fields = date_fields | {
+        "opened_at",
+        "opened_by",
+        "open_count",
+        "review_date",
+        "reviewer",
+    }
+    groups: dict[str, list[dict[str, Any]]] = {
+        "decision_fields_need_review": [],
+        "metadata_fields_need_fill": [],
+        "text_fields_need_fill": [],
+        "other_fields_need_fill": [],
+        "draft_decision_fields_to_verify": [],
+    }
+    for field_name, item in sorted(workload.items()):
+        if not isinstance(item, Mapping):
+            continue
+        field = str(field_name)
+        field_summary = {
+            "field": field,
+            "missing_required_rows": int(item.get("missing_required_rows") or 0),
+            "draft_decision_available_rows": int(
+                item.get("draft_decision_available_rows") or 0
+            ),
+            "manual_decision_required_rows": int(
+                item.get("manual_decision_required_rows") or 0
+            ),
+        }
+        if field_summary["draft_decision_available_rows"] and field in boolean_fields:
+            groups["draft_decision_fields_to_verify"].append(dict(field_summary))
+        if not field_summary["manual_decision_required_rows"]:
+            continue
+        if field in boolean_fields:
+            groups["decision_fields_need_review"].append(dict(field_summary))
+        elif field in metadata_fields:
+            groups["metadata_fields_need_fill"].append(dict(field_summary))
+        elif field in text_fields:
+            groups["text_fields_need_fill"].append(dict(field_summary))
+        else:
+            groups["other_fields_need_fill"].append(dict(field_summary))
+    for group_items in groups.values():
+        group_items.sort(
+            key=lambda item: (
+                -int(item["manual_decision_required_rows"]),
+                -int(item["draft_decision_available_rows"]),
+                str(item["field"]),
+            )
+        )
+    return groups
+
+
 def _missing_review_field_workload(
     review_rows: Sequence[Mapping[str, Any]],
     *,
@@ -1575,7 +1640,12 @@ def _footprint_review_progress(root_path: Path) -> ManualReviewGateProgress:
     )
 
 
-def _render_batch_status_lines(label: str, status: Mapping[str, Any]) -> list[str]:
+def _render_batch_status_lines(
+    label: str,
+    status: Mapping[str, Any],
+    *,
+    review_kind: ReviewProgressKind | None = None,
+) -> list[str]:
     if not status:
         return [f"- {label}: no current batch scratch configured"]
     lines = [
@@ -1733,6 +1803,33 @@ def _render_batch_status_lines(label: str, status: Mapping[str, Any]) -> list[st
                         "  Review next fields: "
                         f"manual_required: {rendered_manual_fields or 'none'}; "
                         f"draft_available: {rendered_draft_fields or 'none'}"
+                    )
+                if review_kind:
+                    workflow_groups = _review_field_workflow_groups(
+                        workload,
+                        manual_review_field_contract(review_kind),
+                    )
+
+                    def _render_group(group_name: str, count_field: str) -> str:
+                        group = workflow_groups.get(group_name)
+                        if not isinstance(group, Sequence) or not group:
+                            return "none"
+                        return ", ".join(
+                            f"`{item.get('field')}`="
+                            f"{int(item.get(count_field) or 0)}"
+                            for item in group
+                            if isinstance(item, Mapping)
+                        )
+
+                    lines.append(
+                        "  Review workflow groups: "
+                        "decision: "
+                        f"{_render_group('decision_fields_need_review', 'manual_decision_required_rows')}; "
+                        "metadata: "
+                        f"{_render_group('metadata_fields_need_fill', 'manual_decision_required_rows')}; "
+                        f"text: {_render_group('text_fields_need_fill', 'manual_decision_required_rows')}; "
+                        "draft_verify: "
+                        f"{_render_group('draft_decision_fields_to_verify', 'draft_decision_available_rows')}"
                     )
                 rendered_workload: list[str] = []
                 for field, item in sorted(workload.items()):
@@ -2214,6 +2311,12 @@ def _compact_batch_overview(gate: ManualReviewGateProgress) -> Mapping[str, Any]
             if isinstance(action_order, Mapping) and action_order
             else _review_field_action_order(
                 overview["current_batch_review_field_workload"]
+            )
+        )
+        overview["current_batch_review_field_workflow_groups"] = (
+            _review_field_workflow_groups(
+                overview["current_batch_review_field_workload"],
+                _review_field_contract(gate),
             )
         )
     for field_name in (
@@ -2955,11 +3058,16 @@ def render_manual_review_runbook_markdown(report: ManualReviewProgressReport) ->
         "## Current Batch Scratch",
         "",
         "This section reports aggregate completion counts for the current local batch or decision files only; it does not include source text, claim text, or reviewer notes.",
-        *_render_batch_status_lines("Gold-set batch", gold.current_batch_status),
+        *_render_batch_status_lines(
+            "Gold-set batch",
+            gold.current_batch_status,
+            review_kind="gold_set",
+        ),
         *_render_current_batch_coverage_lines("Gold-set batch", gold),
         *_render_batch_status_lines(
             "Analytical-footprint batch",
             footprint.current_batch_status,
+            review_kind="footprint_review",
         ),
         *_render_current_batch_coverage_lines(
             "Analytical-footprint batch",

@@ -1597,6 +1597,29 @@ def test_review_progress_reports_current_batch_scratch_status(tmp_path: Path):
             "missing_required_rows": 1,
         }
     ]
+    assert actions["gold_set"]["batch_overview"][
+        "current_batch_review_field_workflow_groups"
+    ] == {
+        "decision_fields_need_review": [],
+        "draft_decision_fields_to_verify": [
+            {
+                "draft_decision_available_rows": 1,
+                "field": "claim_correct",
+                "manual_decision_required_rows": 0,
+                "missing_required_rows": 1,
+            }
+        ],
+        "metadata_fields_need_fill": [],
+        "other_fields_need_fill": [],
+        "text_fields_need_fill": [
+            {
+                "draft_decision_available_rows": 0,
+                "field": "manual_claim_text",
+                "manual_decision_required_rows": 1,
+                "missing_required_rows": 1,
+            }
+        ],
+    }
     assert actions["footprint_review"]["batch_overview"][
         "current_batch_review_field_workload_summary"
     ]["manual_review_required_cells"] == 1
@@ -1607,6 +1630,16 @@ def test_review_progress_reports_current_batch_scratch_status(tmp_path: Path):
             "draft_decision_available_rows": 1,
             "field": "metric_mapping_correct",
             "manual_decision_required_rows": 0,
+            "missing_required_rows": 1,
+        }
+    ]
+    assert actions["footprint_review"]["batch_overview"][
+        "current_batch_review_field_workflow_groups"
+    ]["text_fields_need_fill"] == [
+        {
+            "draft_decision_available_rows": 0,
+            "field": "review_notes",
+            "manual_decision_required_rows": 1,
             "missing_required_rows": 1,
         }
     ]
@@ -1670,6 +1703,11 @@ def test_review_progress_reports_current_batch_scratch_status(tmp_path: Path):
     assert "draft_available: `claim_correct`=1" in markdown
     assert "manual_required: `review_notes`=1" in markdown
     assert "draft_available: `metric_mapping_correct`=1" in markdown
+    assert "Review workflow groups:" in markdown
+    assert "text: `manual_claim_text`=1" in markdown
+    assert "draft_verify: `claim_correct`=1" in markdown
+    assert "text: `review_notes`=1" in markdown
+    assert "draft_verify: `metric_mapping_correct`=1" in markdown
     assert "Review field workload:" in markdown
     assert "`claim_correct`=missing:1,draft:1,manual:0" in markdown
     assert "`manual_claim_text`=missing:1,draft:0,manual:1" in markdown

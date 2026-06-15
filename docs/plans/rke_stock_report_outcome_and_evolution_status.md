@@ -33,7 +33,10 @@ Markdown paths, source spans, reviewer notes, or private Tushare rows.
   auto-fill human decision fields. The same queue now includes
   `current_batch_review_field_action_order`, which sorts fields that still need
   manual input separately from fields with evidence-draft decisions available
-  for human verification.
+  for human verification, and
+  `current_batch_review_field_workflow_groups`, which separates boolean
+  decision fields, reviewer/date metadata fields, free-text fields, and
+  draft-decision verification fields.
 
 Current public aggregate evidence. Private report-intelligence JSONL files such
 as `report_metadata.jsonl`, `forecast_claims.jsonl`, and
