@@ -1,10 +1,10 @@
 {
   "accepted": true,
-  "as_of_datetime": "2026-06-15T03:33:48+00:00",
+  "as_of_datetime": "2026-06-15T04:01:55+00:00",
   "audit_id": "RKE-REPORT-INTELLIGENCE-TOOL-FEASIBILITY-AUDIT",
   "blocker_count": 0,
   "blockers": [],
-  "checked_item_count": 8525,
+  "checked_item_count": 8511,
   "checks": [
     {
       "accepted": true,
@@ -21,8 +21,8 @@
       "check_id": "RI-TOOL-01",
       "evidence": {
         "coverage_status_counts": {
-          "exact_match": 100,
-          "missing": 445
+          "exact_match": 103,
+          "missing": 442
         },
         "metric_candidate_rows": 545,
         "required_coverage_detail_fields": [
@@ -53,10 +53,10 @@
         ],
         "gap_priority_counts": {
           "low": 87,
-          "medium": 1147,
-          "resolved": 234
+          "medium": 1140,
+          "resolved": 241
         },
-        "non_exact_coverage_rows": 445,
+        "non_exact_coverage_rows": 442,
         "tool_gap_rows": 1468
       },
       "failure_count": 0,
@@ -67,7 +67,7 @@
       "accepted": true,
       "check_id": "RI-TOOL-03",
       "evidence": {
-        "data_acquisition_proposal_rows": 1234,
+        "data_acquisition_proposal_rows": 1227,
         "tool_gap_rows": 1468
       },
       "failure_count": 0,
@@ -80,7 +80,7 @@
       "evidence": {
         "minimum_required_effective_n": 30,
         "minimum_shadow_runtime_days": 60,
-        "tool_design_proposal_rows": 1234,
+        "tool_design_proposal_rows": 1227,
         "tool_gap_rows": 1468
       },
       "failure_count": 0,
@@ -103,7 +103,7 @@
       "accepted": true,
       "check_id": "RI-TOOL-06",
       "evidence": {
-        "exact_coverage_count": 100,
+        "exact_coverage_count": 103,
         "paper_or_production_recipe_count": 0,
         "production_use_of_weighted_reports": false,
         "rollout_mode": "shadow_tooling"
@@ -114,5 +114,5 @@
     }
   ],
   "policy": "report-intelligence tool feasibility requires deterministic coverage records, explicit PIT and license requirements, gap-to-proposal lineage, checker-validatable output schemas, bounded fallback policy, and shadow-only runtime until tool correctness and promotion gates pass",
-  "run_id": "RIR-DERIVED-20260615T033346+0000"
+  "run_id": "RIR-DERIVED-20260615T040153+0000"
 }

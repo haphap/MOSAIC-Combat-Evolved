@@ -109,22 +109,9 @@ EXPECTED_ANALYTICAL_FOOTPRINT_REVIEW_FAILURES = {
         "metric_mapping_accuracy 0.558824 below threshold 0.80"
     ),
 }
-EXPECTED_EVOLUTION_READINESS_FAILURES = {
-    "evolution_readiness_gate.checks[RI-EVOL-02].evidence.validation_pass_count: expected >= 20",
-    (
-        "evolution_readiness_gate.checks[RI-EVOL-02].evidence."
-        "after_cost_paper_trading_summary.validated_recipe_count: expected >= 20"
-    ),
-    (
-        "evolution_readiness_gate.checks[RI-EVOL-02].evidence."
-        "after_cost_paper_trading_summary.positive_after_cost_recipe_count: expected >= 20"
-    ),
-}
-
 def _expected_schema_failure_count() -> int:
     return (
         len(EXPECTED_ANALYTICAL_FOOTPRINT_REVIEW_FAILURES)
-        + len(EXPECTED_EVOLUTION_READINESS_FAILURES)
         + len(EXPECTED_PHASE_B_PATCH_COVERAGE_FAILURES)
     )
 
@@ -135,7 +122,6 @@ def _assert_only_phase_b_patch_coverage_failures(report) -> None:
     }
     assert set(failed_records) == {
         "schemas/report_intelligence_analytical_footprint_review_rules",
-        "schemas/report_intelligence_evolution_readiness_gate_rules",
         "schemas/report_intelligence_patch_v1_5_coverage_rules",
     }
     assert (
@@ -145,14 +131,6 @@ def _assert_only_phase_b_patch_coverage_failures(report) -> None:
             ].failures
         )
         == EXPECTED_ANALYTICAL_FOOTPRINT_REVIEW_FAILURES
-    )
-    assert (
-        set(
-            failed_records[
-                "schemas/report_intelligence_evolution_readiness_gate_rules"
-            ].failures
-        )
-        == EXPECTED_EVOLUTION_READINESS_FAILURES
     )
     assert (
         set(
@@ -296,8 +274,9 @@ def test_stock_report_outcome_status_doc_matches_public_artifacts():
     )
     assert (
         "paper_trading_validated_recipe_count_below_threshold"
-        in evolution_gate["blockers"]
+        not in evolution_gate["blockers"]
     )
+    assert "RI-EVOL-02 now passes" in status_text
     for blocker in (
         "industry_proxy_claim_count_below_threshold",
         "evaluability_bucket_coverage_below_p9_target",
@@ -2623,9 +2602,9 @@ def test_evolution_readiness_gate_contract_tracks_current_public_artifact(
 
     record = _evolution_readiness_gate_record(tmp_path)
 
-    assert not record.accepted
+    assert record.accepted
     assert record.item_count == 7
-    assert set(record.failures) == EXPECTED_EVOLUTION_READINESS_FAILURES
+    assert record.failures == ()
 
 
 def test_evolution_readiness_gate_contract_requires_all_checks(tmp_path: Path):
@@ -4905,7 +4884,6 @@ def test_schema_status_cli_filters_failures_without_writing(tmp_path: Path, caps
         record["schema_path"] for record in output["records"]
     } == {
         "schemas/report_intelligence_analytical_footprint_review_rules",
-        "schemas/report_intelligence_evolution_readiness_gate_rules",
         "schemas/report_intelligence_patch_v1_5_coverage_rules",
     }
     next_actions = {action["action_id"]: action for action in output["next_actions"]}

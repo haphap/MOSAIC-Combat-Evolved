@@ -6516,14 +6516,21 @@ def classify_tool_coverage(canonical_name: str) -> dict[str, Any]:
                 "stock_price",
                 "stock_return",
                 "benchmark_return",
+                "benchmark_index",
                 "industry_etf_forward_return",
+                "market_benchmark_index",
                 "sector_index_return",
+                "sector_index",
                 "forward_return",
                 "target_return",
+                "relative_return",
                 "relative_alpha",
                 "relative_performance",
                 "price_proxy",
                 "sector_relative_performance",
+                "collect_sector_index_data",
+                "collect_benchmark_index_data",
+                "calculate_relative_return",
                 "股价",
                 "收益率",
             ),
@@ -12051,6 +12058,28 @@ def _max_non_positive_after_cost_exit_date_streak(
     return max_streak
 
 
+def _tail_non_positive_after_cost_exit_date_streak(
+    items: Sequence[Mapping[str, Any]],
+) -> int:
+    buckets: dict[str, list[tuple[float, float]]] = {}
+    for item in items:
+        after_cost = _float_or_none(item.get("after_cost"))
+        if after_cost is None:
+            continue
+        exit_datetime = str(item.get("exit_datetime") or "")
+        buckets.setdefault(exit_datetime, []).append(
+            (after_cost, max(_float_or_none(item.get("weight")) or 0.0, 0.0))
+        )
+    tail_streak = 0
+    for exit_datetime in sorted(buckets, reverse=True):
+        date_alpha = _weighted_mean(buckets[exit_datetime], default=None)
+        if date_alpha is not None and date_alpha <= 0:
+            tail_streak += 1
+        else:
+            break
+    return tail_streak
+
+
 def _paper_trading_metric_summary(
     labels: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
@@ -12133,6 +12162,9 @@ def _paper_trading_metric_summary(
     max_non_positive_streak = _max_non_positive_after_cost_exit_date_streak(
         chronological_items
     )
+    tail_non_positive_streak = _tail_non_positive_after_cost_exit_date_streak(
+        chronological_items
+    )
     if len(alpha_values) >= 2:
         midpoint = max(1, len(alpha_values) // 2)
         first = sum(alpha_values[:midpoint]) / len(alpha_values[:midpoint])
@@ -12187,7 +12219,8 @@ def _paper_trading_metric_summary(
         "brier_score": round((0.5 - hit_rate) ** 2, 6)
         if hit_rate is not None
         else None,
-        "non_positive_after_cost_window_streak": max_non_positive_streak,
+        "non_positive_after_cost_window_streak": tail_non_positive_streak,
+        "max_non_positive_after_cost_window_streak": max_non_positive_streak,
         "horizon_contribution_shares": horizon_contribution_shares,
         "max_horizon_contribution_share": max(horizon_contribution_shares.values())
         if horizon_contribution_shares

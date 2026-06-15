@@ -26,25 +26,25 @@
     "unmonitored_paper_trading_recipe_ids": [],
     "unmonitored_production_recipe_ids": []
   },
-  "as_of_datetime": "2026-06-15T03:33:47+00:00",
+  "as_of_datetime": "2026-06-15T04:01:55+00:00",
   "confidence_impact_monitoring": {
     "aggregate_calibration_drift_count": 0,
-    "alpha_decay_fail_count": 43,
+    "alpha_decay_fail_count": 23,
     "alpha_decay_watch_count": 0,
-    "calibration_drift_count": 13,
-    "confidence_alpha_correlation": null,
-    "confidence_alpha_correlation_status": "insufficient_data",
+    "calibration_drift_count": 14,
+    "confidence_alpha_correlation": 0.3049183,
+    "confidence_alpha_correlation_status": "non_negative",
     "cost_decay_fail_count": 0,
     "monitor_id": "RKE-REPORT-INTELLIGENCE-CONFIDENCE-IMPACT-MONITOR",
     "observation_count": 2031,
-    "paper_trading_validated_recipe_count": 13,
+    "paper_trading_validated_recipe_count": 33,
     "production_decision_impact_allowed": false,
     "recommended_action_counts": {
-      "freeze_recipe": 43,
-      "keep_shadow": 1971,
-      "send_to_manual_review": 17
+      "freeze_recipe": 23,
+      "keep_shadow": 1989,
+      "send_to_manual_review": 19
     },
-    "regime_fragile_alpha_count": 4,
+    "regime_fragile_alpha_count": 5,
     "unvalidated_confidence_impact_count": 0
   },
   "monitoring_id": "RKE-REPORT-INTELLIGENCE-MONITORING",
@@ -267,15 +267,15 @@
     "weighted_vs_unweighted_retrieval_difference": 0.035191
   },
   "rollout_mode": "shadow_tooling",
-  "run_id": "RIR-DERIVED-20260615T033346+0000",
+  "run_id": "RIR-DERIVED-20260615T040153+0000",
   "tooling_loop_monitoring": {
-    "data_proposal_open_count": 1234,
+    "data_proposal_open_count": 1227,
     "evidence_coverage": {
-      "exact_or_partial_coverage_rate": 0.183486,
+      "exact_or_partial_coverage_rate": 0.188991,
       "metric_candidate_count": 545,
       "tool_coverage_status_counts": {
-        "exact_match": 100,
-        "missing": 445
+        "exact_match": 103,
+        "missing": 442
       }
     },
     "high_priority_gap_aging_count": 0,
@@ -287,8 +287,8 @@
     "tool_gap_open_count": 1468,
     "tool_gap_priority_counts": {
       "low": 87,
-      "medium": 1147,
-      "resolved": 234
+      "medium": 1140,
+      "resolved": 241
     },
     "tool_proposal_acceptance_rate": 0.0
   }

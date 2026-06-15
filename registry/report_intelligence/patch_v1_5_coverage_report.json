@@ -1,6 +1,6 @@
 {
   "accepted": false,
-  "as_of_datetime": "2026-06-15T03:33:48+00:00",
+  "as_of_datetime": "2026-06-15T04:01:55+00:00",
   "blocked_phase_ids": [
     "B",
     "D"
@@ -178,16 +178,16 @@
         "registry/report_intelligence/tool_feasibility_audit.json"
       ],
       "evidence_counts": {
-        "active_tool_gap_rows": 1234,
-        "data_acquisition_proposal_rows": 1234,
+        "active_tool_gap_rows": 1227,
+        "data_acquisition_proposal_rows": 1227,
         "metric_candidate_rows": 545,
-        "retired_tool_gap_rows": 234,
+        "retired_tool_gap_rows": 241,
         "tool_coverage_match_rows": 545,
         "tool_coverage_status_counts": {
-          "exact_match": 100,
-          "missing": 445
+          "exact_match": 103,
+          "missing": 442
         },
-        "tool_design_proposal_rows": 1234,
+        "tool_design_proposal_rows": 1227,
         "tool_feasibility_audit_accepted": true,
         "tool_gap_rows": 1468
       },
@@ -235,12 +235,12 @@
         "registry/report_intelligence/recipe_paper_trading_summary.json"
       ],
       "evidence_counts": {
-        "after_cost_positive_recipe_count": 13,
+        "after_cost_positive_recipe_count": 33,
         "after_cost_summary_status": "computed",
         "alpha_decay_monitor_ready": true,
-        "paper_trading_blocked_count": 2018,
+        "paper_trading_blocked_count": 1998,
         "paper_trading_recipe_count": 0,
-        "paper_trading_validation_pass_count": 13,
+        "paper_trading_validation_pass_count": 33,
         "recipe_validation_audit_accepted": true,
         "rollout_mode": "shadow_tooling",
         "shadow_paper_trading_run_count": 2031,
@@ -430,10 +430,10 @@
         "registry/report_intelligence/tool_feasibility_audit.json"
       ],
       "evidence_counts": {
-        "data_acquisition_proposal_rows": 1234,
+        "data_acquisition_proposal_rows": 1227,
         "metric_candidate_rows": 545,
         "tool_coverage_match_rows": 545,
-        "tool_design_proposal_rows": 1234,
+        "tool_design_proposal_rows": 1227,
         "tool_gap_rows": 1468
       },
       "phase_id": "E",
@@ -477,9 +477,9 @@
       "evidence_counts": {
         "after_cost_summary_status": "computed",
         "alpha_decay_monitor_ready": true,
-        "paper_trading_blocked_count": 2018,
+        "paper_trading_blocked_count": 1998,
         "paper_trading_recipe_count": 0,
-        "paper_trading_validation_pass_count": 13,
+        "paper_trading_validation_pass_count": 33,
         "rollout_mode": "shadow_tooling",
         "shadow_paper_trading_run_count": 2031
       },
@@ -514,6 +514,6 @@
       "status": "deferred_by_rollout"
     }
   ],
-  "run_id": "RIR-DERIVED-20260615T033346+0000",
+  "run_id": "RIR-DERIVED-20260615T040153+0000",
   "source_plan_path": "MOSAIC_RKE_REPORT_INTELLIGENCE_LOOP_PATCH_V1_5_MERGED.md"
 }

@@ -67,6 +67,7 @@ from mosaic.rke.report_intelligence import (
     _normalize_method_patterns,
     _normalize_forecast_claims,
     _max_non_positive_after_cost_exit_date_streak,
+    _tail_non_positive_after_cost_exit_date_streak,
     _paper_trading_chronological_split_metrics,
     _paper_trading_train_oos_split_items,
     _select_report_forecast_claims,
@@ -3013,6 +3014,12 @@ def test_report_intelligence_analysis_recipes_pin_required_data():
     assert by_id["METHOD-INFERRED-DATA"]["required_data"] == [
         "metric:calculate_sector_index_return"
     ]
+    assert by_id["METHOD-INFERRED-DATA"]["required_tools"] == [
+        "market.price_proxy"
+    ]
+    assert by_id["METHOD-INFERRED-DATA"]["steps"][0]["tool"] == (
+        "market.price_proxy"
+    )
     assert by_id["METHOD-REASONING-STEP"]["required_tools"] == []
     assert by_id["METHOD-REASONING-STEP"]["required_data"] == [
         "metric:stock_price",
@@ -3964,6 +3971,7 @@ def test_paper_trading_exit_date_streak_deduplicates_same_day_labels():
     ]
 
     assert _max_non_positive_after_cost_exit_date_streak(items) == 1
+    assert _tail_non_positive_after_cost_exit_date_streak(items) == 1
 
 
 def test_report_intelligence_recipe_paper_trading_flags_alpha_decay_fail():
@@ -3980,9 +3988,9 @@ def test_report_intelligence_recipe_paper_trading_flags_alpha_decay_fail():
     labels = []
     for day, value, horizon, regime in (
         (10, 0.04, 5, "base"),
-        (11, -0.01, 20, "stress"),
-        (12, -0.02, 60, "recovery"),
-        (13, 0.04, 120, "base"),
+        (11, 0.03, 20, "stress"),
+        (12, -0.01, 60, "recovery"),
+        (13, -0.02, 120, "base"),
     ):
         labels.append(
             {
@@ -4029,6 +4037,51 @@ def test_report_intelligence_recipe_paper_trading_flags_alpha_decay_fail():
     assert monitor["alpha_decay_recipe_ids"] == ["RECIPE-DECAY-FAIL"]
     assert monitor["reduce_confidence_impact_recipe_ids"] == []
     assert monitor["freeze_recipe_ids"] == ["RECIPE-DECAY-FAIL"]
+
+
+def test_report_intelligence_recipe_paper_trading_keeps_recovered_long_window_alpha():
+    recipe = {
+        "analysis_recipe_id": "RECIPE-RECOVERED-ALPHA",
+        "method_pattern_id": "METHOD-RECOVERED-ALPHA",
+        "version": "0.1.0",
+        "runtime_mode": "shadow_only",
+        "required_tools": ["market.price_proxy"],
+        "required_data": ["stock_price", "benchmark_return"],
+        "steps": [{"step": 1, "tool": "market.price_proxy"}],
+        "output_signal": {"name": "recovered_alpha_score"},
+    }
+    labels = []
+    for day, value, horizon, regime in (
+        (10, 0.04, 5, "base"),
+        (11, -0.01, 20, "stress"),
+        (12, -0.02, 60, "recovery"),
+        (13, 0.04, 120, "base"),
+    ):
+        labels.append(
+            {
+                "analysis_recipe_id": "RECIPE-RECOVERED-ALPHA",
+                "method_pattern_id": "METHOD-RECOVERED-ALPHA",
+                "exit_datetime": f"2026-01-{day:02d}",
+                "directional_after_cost_return": value,
+                "benchmark_return": 0.001,
+                "directional_hit": True,
+                "horizon_days": horizon,
+                "market_regime": regime,
+                "effective_n_weight": 1.0,
+            }
+        )
+
+    runs = build_recipe_paper_trading_runs(
+        run_id="RIR-TEST-RECOVERED-ALPHA",
+        analysis_recipe_rows=[recipe],
+        outcome_label_rows=labels,
+        method_performance_profile_rows=[],
+    )
+
+    assert runs[0]["paper_trading_status"] == "passed"
+    assert runs[0]["metrics"]["max_non_positive_after_cost_window_streak"] == 2
+    assert runs[0]["metrics"]["non_positive_after_cost_window_streak"] == 0
+    assert "consecutive_non_positive_after_cost_windows" not in runs[0]["blocked_reasons"]
 
 
 def test_report_intelligence_recipe_paper_trading_flags_regime_fragile_alpha():
@@ -10948,6 +11001,12 @@ def test_report_intelligence_tool_coverage_classifier():
     sector_proxy = classify_tool_coverage("sector_relative_performance")
     assert sector_proxy["coverage_status"] == "exact_match"
     assert sector_proxy["existing_tool_ids"] == ["market.price_proxy"]
+    index_proxy = classify_tool_coverage("collect_sector_index_data")
+    assert index_proxy["coverage_status"] == "exact_match"
+    assert index_proxy["existing_tool_ids"] == ["market.price_proxy"]
+    relative_return_proxy = classify_tool_coverage("calculate_relative_return")
+    assert relative_return_proxy["coverage_status"] == "exact_match"
+    assert relative_return_proxy["existing_tool_ids"] == ["market.price_proxy"]
     assert classify_tool_coverage("missing_private_metric")["coverage_status"] == "missing"
 
 
