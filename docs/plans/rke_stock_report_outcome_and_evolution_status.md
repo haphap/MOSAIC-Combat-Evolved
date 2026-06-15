@@ -652,7 +652,13 @@ blocker families include:
    `selected_priority_reason_counts` and `selected_priority_score_counts`, so a
    reviewer can see whether the current batch is dominated by missing indicator
    mappings, complex multi-step patterns, missing target-agent/entity candidates,
-   or many source spans before opening the private evidence workbook. Prepare each
+   or many source spans before opening the private evidence workbook.
+   `review-progress`, `schema-status`, `evolution-readiness`, and
+   `master-plan-status` now also surface current-batch evidence priority score
+   counts, priority reason counts, and a `priority_metadata_refresh_recommended`
+   flag when older private evidence files have scores but lack reason metadata;
+   the corresponding action hint points reviewers to regenerate evidence before
+   filling the scratch. Prepare each
    footprint batch with
    `MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run mosaic-rke prepare-footprint-review --root . --limit 50 --offset 0 --priority --reviewer <name> --review-date <YYYY-MM-DD> --overwrite`,
    validate it with

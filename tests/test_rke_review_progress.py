@@ -1242,7 +1242,7 @@ def test_review_progress_reports_current_batch_scratch_status(tmp_path: Path):
                 "suggested_manual_error_tags": (
                     ["direction_text_needs_review"] if index == 1 else []
                 ),
-                "priority_score": 2 if index == 1 else 0,
+                "priority_score": 2 if index == 1 else 1,
                 "priority_reasons": (
                     ["context_synthesis_required"] if index == 1 else []
                 ),
@@ -1315,12 +1315,18 @@ def test_review_progress_reports_current_batch_scratch_status(tmp_path: Path):
         "direction_text_needs_review": 1
     }
     assert gold_batch["evidence_status"]["priority_score_counts"] == {
-        "0": 1,
+        "1": 1,
         "2": 1,
     }
     assert gold_batch["evidence_status"]["priority_reason_counts"] == {
         "context_synthesis_required": 1
     }
+    assert gold_batch["evidence_status"]["priority_reason_ready_rows"] == 1
+    assert gold_batch["evidence_status"]["priority_reason_missing_rows"] == 1
+    assert (
+        gold_batch["evidence_status"]["priority_metadata_refresh_recommended"]
+        is True
+    )
     assert gold_batch["target_status"]["aligned"] is True
     assert footprint_batch["exists"] is True
     assert footprint_batch["rows"] == 2
@@ -1346,6 +1352,12 @@ def test_review_progress_reports_current_batch_scratch_status(tmp_path: Path):
     assert footprint_batch["evidence_status"]["priority_reason_counts"] == {
         "missing_indicator_mentions": 2
     }
+    assert footprint_batch["evidence_status"]["priority_reason_ready_rows"] == 2
+    assert footprint_batch["evidence_status"]["priority_reason_missing_rows"] == 0
+    assert (
+        footprint_batch["evidence_status"]["priority_metadata_refresh_recommended"]
+        is False
+    )
     assert footprint_batch["target_status"]["aligned"] is True
     summary_gold = next(
         gate for gate in summary["gates"] if gate["review_kind"] == "gold_set"
@@ -1384,6 +1396,18 @@ def test_review_progress_reports_current_batch_scratch_status(tmp_path: Path):
             "priority_reason_counts"
         ]
         == {"context_synthesis_required": 1}
+    )
+    assert (
+        summary_gold["current_batch_status"]["evidence_status"][
+            "priority_reason_missing_rows"
+        ]
+        == 1
+    )
+    assert (
+        summary_gold["current_batch_status"]["evidence_status"][
+            "priority_metadata_refresh_recommended"
+        ]
+        is True
     )
     assert (
         summary_footprint["current_batch_status"]["evidence_status"][
@@ -1426,11 +1450,32 @@ def test_review_progress_reports_current_batch_scratch_status(tmp_path: Path):
         == {"context_synthesis_required": 1}
     )
     assert (
+        actions["gold_set"]["batch_overview"][
+            "current_batch_evidence_priority_reason_missing_rows"
+        ]
+        == 1
+    )
+    assert (
+        actions["gold_set"]["batch_overview"][
+            "current_batch_evidence_priority_metadata_refresh_recommended"
+        ]
+        is True
+    )
+    assert (
         actions["footprint_review"]["batch_overview"][
             "current_batch_evidence_priority_score_counts"
         ]
         == {"3": 2}
     )
+    assert (
+        actions["footprint_review"]["batch_overview"][
+            "current_batch_evidence_priority_reason_missing_rows"
+        ]
+        == 0
+    )
+    assert "Regenerate evidence first to populate priority reason metadata for 1 rows" in actions[
+        "gold_set"
+    ]["operator_hint"]
     assert lockbox_status["exists"] is True
     assert lockbox_status["rows"] == 1
     assert lockbox_status["complete_rows"] == 0
@@ -1456,6 +1501,9 @@ def test_review_progress_reports_current_batch_scratch_status(tmp_path: Path):
     assert "`3`=2" in markdown
     assert "Evidence priority reasons:" in markdown
     assert "`context_synthesis_required`=1" in markdown
+    assert "Evidence priority metadata:" in markdown
+    assert "missing_reason_rows: 1" in markdown
+    assert "refresh_recommended: true" in markdown
     assert "aligned: true" in markdown
     assert "`open_count`=1" in markdown
     assert "fixture approval" not in markdown

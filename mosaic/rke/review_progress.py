@@ -283,6 +283,20 @@ def _review_batch_status(
     return status
 
 
+def _priority_score_is_positive(value: Any) -> bool:
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, (int, float)):
+        return value > 0
+    text = str(value or "").strip()
+    if not text:
+        return False
+    try:
+        return float(text) > 0
+    except ValueError:
+        return True
+
+
 def _review_evidence_alignment_status(
     root_path: Path,
     *,
@@ -314,6 +328,9 @@ def _review_evidence_alignment_status(
         "suggested_tag_counts": {},
         "priority_score_counts": {},
         "priority_reason_counts": {},
+        "priority_reason_ready_rows": 0,
+        "priority_reason_missing_rows": 0,
+        "priority_metadata_refresh_recommended": False,
         "same_order": False,
         "aligned": False,
     }
@@ -381,6 +398,15 @@ def _review_evidence_alignment_status(
         for reason in row.get("priority_reasons") or ()
         if str(reason).strip()
     )
+    priority_reason_ready_rows = sum(
+        1 for row in evidence_rows if tuple(row.get("priority_reasons") or ())
+    )
+    priority_reason_missing_rows = sum(
+        1
+        for row in evidence_rows
+        if _priority_score_is_positive(row.get("priority_score"))
+        and not tuple(row.get("priority_reasons") or ())
+    )
     hash_mismatch_count = 0
     for row in review_rows:
         row_id = str(row.get(id_field) or "").strip()
@@ -433,6 +459,9 @@ def _review_evidence_alignment_status(
             "suggested_tag_counts": dict(sorted(suggested_tag_counts.items())),
             "priority_score_counts": dict(sorted(priority_score_counts.items())),
             "priority_reason_counts": dict(sorted(priority_reason_counts.items())),
+            "priority_reason_ready_rows": priority_reason_ready_rows,
+            "priority_reason_missing_rows": priority_reason_missing_rows,
+            "priority_metadata_refresh_recommended": priority_reason_missing_rows > 0,
             "same_order": same_order,
             "aligned": aligned,
         }
@@ -1371,6 +1400,22 @@ def _render_batch_status_lines(label: str, status: Mapping[str, Any]) -> list[st
             f"snippet_ready: {int(evidence_status.get('snippet_ready_rows') or 0)}; "
             f"missing_markdown: {int(evidence_status.get('missing_markdown_rows') or 0)}"
         )
+        priority_reason_missing_rows = int(
+            evidence_status.get("priority_reason_missing_rows") or 0
+        )
+        priority_reason_ready_rows = int(
+            evidence_status.get("priority_reason_ready_rows") or 0
+        )
+        if priority_reason_missing_rows or priority_reason_ready_rows:
+            refresh_recommended = str(
+                bool(evidence_status.get("priority_metadata_refresh_recommended"))
+            ).lower()
+            lines.append(
+                "  Evidence priority metadata: "
+                f"reason_ready: {priority_reason_ready_rows}; "
+                f"missing_reason_rows: {priority_reason_missing_rows}; "
+                f"refresh_recommended: {refresh_recommended}"
+            )
         quality_focus = evidence_status.get("quality_gap_focus_field_counts")
         if isinstance(quality_focus, Mapping) and quality_focus:
             focus = ", ".join(
@@ -1620,6 +1665,15 @@ def _compact_current_batch_status(status: Mapping[str, Any]) -> Mapping[str, Any
                 evidence_status.get("missing_markdown_rows") or 0
             ),
             "snippet_ready_rows": int(evidence_status.get("snippet_ready_rows") or 0),
+            "priority_reason_ready_rows": int(
+                evidence_status.get("priority_reason_ready_rows") or 0
+            ),
+            "priority_reason_missing_rows": int(
+                evidence_status.get("priority_reason_missing_rows") or 0
+            ),
+            "priority_metadata_refresh_recommended": bool(
+                evidence_status.get("priority_metadata_refresh_recommended")
+            ),
         }
         for field_name in (
             "quality_gap_focus_field_counts",
@@ -1767,6 +1821,17 @@ def _compact_batch_overview(gate: ManualReviewGateProgress) -> Mapping[str, Any]
         ),
         "current_batch_evidence_snippet_ready_rows": (
             int(evidence.get("snippet_ready_rows") or 0) if evidence else 0
+        ),
+        "current_batch_evidence_priority_reason_ready_rows": (
+            int(evidence.get("priority_reason_ready_rows") or 0) if evidence else 0
+        ),
+        "current_batch_evidence_priority_reason_missing_rows": (
+            int(evidence.get("priority_reason_missing_rows") or 0) if evidence else 0
+        ),
+        "current_batch_evidence_priority_metadata_refresh_recommended": (
+            bool(evidence.get("priority_metadata_refresh_recommended"))
+            if evidence
+            else False
         ),
         "rerun_review_progress_after_batch_apply": True,
     }
@@ -2207,17 +2272,26 @@ def _action_queue_hint(
     covered_rows = int(overview.get("current_batch_target_covered_rows") or 0)
     pending_rows = int(overview.get("pending_rows") or 0)
     remaining_rows = int(overview.get("remaining_rows_after_current_batch") or 0)
+    priority_missing_rows = int(
+        overview.get("current_batch_evidence_priority_reason_missing_rows") or 0
+    )
+    priority_hint = (
+        f" Regenerate evidence first to populate priority reason metadata for "
+        f"{priority_missing_rows} rows."
+        if priority_missing_rows > 0
+        else ""
+    )
     if covered_rows <= 0 or pending_rows <= 0:
-        return hint
+        return f"{hint}{priority_hint}"
     if remaining_rows > 0:
         return (
             f"{hint} Current scratch covers {covered_rows} of {pending_rows} "
             f"pending target rows; after applying it, rerun review-progress and "
-            f"prepare the remaining {remaining_rows} rows."
+            f"prepare the remaining {remaining_rows} rows.{priority_hint}"
         )
     return (
         f"{hint} Current scratch covers all {pending_rows} pending target rows; "
-        "after applying it, rerun review-progress and prepare the promotion import."
+        f"after applying it, rerun review-progress and prepare the promotion import.{priority_hint}"
     )
 
 
