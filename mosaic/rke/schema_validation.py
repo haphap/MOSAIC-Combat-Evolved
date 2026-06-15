@@ -5280,6 +5280,87 @@ def _industry_mapping_prompt_candidate_expected_evidence_refs(
     ]
 
 
+def _calibration_prompt_candidate_expected_evidence_refs(
+    *,
+    root_path: Path,
+    failures: list[str],
+) -> list[dict[str, Any]]:
+    monitor, monitor_failures = _read_mapping_json(
+        root_path / "registry/report_intelligence/confidence_impact_monitor.json",
+        "registry/report_intelligence/confidence_impact_monitor.json",
+    )
+    failures.extend(monitor_failures)
+    if not monitor:
+        return []
+    drift_status_counts = _count_mapping(
+        monitor.get("drift_status_counts"),
+        row_label="confidence_impact_monitor.drift_status_counts",
+        failures=failures,
+    )
+    calibration_rule_counts = _count_mapping(
+        monitor.get("calibration_drift_rule_counts"),
+        row_label="confidence_impact_monitor.calibration_drift_rule_counts",
+        failures=failures,
+    )
+    action_counts = _count_mapping(
+        monitor.get("recommended_action_counts"),
+        row_label="confidence_impact_monitor.recommended_action_counts",
+        failures=failures,
+    )
+    risk_counts = {
+        key: _int_or_none(monitor.get(key)) or 0
+        for key in (
+            "alpha_decay_watch_count",
+            "alpha_decay_fail_count",
+            "cost_decay_fail_count",
+            "calibration_drift_count",
+            "regime_fragile_alpha_count",
+            "profile_paper_trade_disagreement_count",
+        )
+    }
+    actionable_counts = {
+        key: int(action_counts.get(key, 0))
+        for key in (
+            "reduce_confidence_impact",
+            "freeze_recipe",
+            "send_to_manual_review",
+            "retire_recipe",
+        )
+        if int(action_counts.get(key, 0)) > 0
+    }
+    return [
+        {
+            "artifact_path": "registry/report_intelligence/confidence_impact_monitor.json",
+            "field": "drift_status_counts",
+            "drift_status_counts": drift_status_counts,
+            "calibration_drift_rule_counts": calibration_rule_counts,
+            "confidence_alpha_correlation": monitor.get(
+                "confidence_alpha_correlation"
+            ),
+            "confidence_alpha_correlation_status": str(
+                monitor.get("confidence_alpha_correlation_status") or ""
+            ),
+            "recipe_level_monitor": {
+                "recipe_level_risk_counts": {
+                    key: value for key, value in risk_counts.items() if value > 0
+                },
+                "recipe_level_risk_count": sum(risk_counts.values()),
+                "recommended_action_counts": action_counts,
+                "actionable_recipe_level_action_counts": actionable_counts,
+                "actionable_recipe_level_action_count": sum(
+                    actionable_counts.values()
+                ),
+                "global_blocker_policy": (
+                    "unvalidated positive confidence impact, aggregate calibration "
+                    "drift, and aggregate calibration rule breaches block RI-EVOL-03; "
+                    "per-recipe alpha decay, calibration watch, and regime fragility "
+                    "remain shadow-only through freeze/manual/replay action queues"
+                ),
+            },
+        }
+    ]
+
+
 def _prompt_mutation_matching_evidence_ref(
     row: Mapping[str, Any],
     *,
@@ -5452,6 +5533,33 @@ def _validate_prompt_mutation_governed_evidence(
                     failures.append(
                         f"{row_label}.{candidate_type}.evidence_refs.{field}.{key}: "
                         "must match industry ETF PIT/readiness public evidence"
+                    )
+    elif candidate_type == "calibration_fix_required":
+        expected_refs = _calibration_prompt_candidate_expected_evidence_refs(
+            root_path=root_path,
+            failures=failures,
+        )
+        for expected in expected_refs:
+            field = str(expected["field"])
+            evidence = _prompt_mutation_matching_evidence_ref(
+                row,
+                artifact_path=str(expected["artifact_path"]),
+                field=field,
+                row_label=row_label,
+                failures=failures,
+            )
+            if evidence is None:
+                continue
+            for key, expected_value in expected.items():
+                if key in {"artifact_path", "field"}:
+                    continue
+                if not _prompt_mutation_evidence_values_equal(
+                    evidence.get(key),
+                    expected_value,
+                ):
+                    failures.append(
+                        f"{row_label}.{candidate_type}.evidence_refs.{field}.{key}: "
+                        "must match confidence impact monitor public evidence"
                     )
     return failures
 

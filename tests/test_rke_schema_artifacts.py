@@ -3713,6 +3713,42 @@ def test_prompt_mutation_candidate_contract_rejects_industry_mapping_evidence_dr
         assert any(fragment in item for item in record.failures)
 
 
+def test_prompt_mutation_candidate_contract_rejects_calibration_evidence_drift(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    candidates_path = registry / "prompt_mutation_candidates.jsonl"
+    candidates = _read_prompt_mutation_candidates(candidates_path)
+    calibration = next(
+        row for row in candidates if row["candidate_type"] == "calibration_fix_required"
+    )
+    evidence_refs = calibration["evidence_refs"]
+    assert isinstance(evidence_refs, list)
+    evidence = next(
+        row
+        for row in evidence_refs
+        if isinstance(row, dict) and row.get("field") == "drift_status_counts"
+    )
+    evidence["drift_status_counts"] = {"stable_shadow": 1}
+    evidence["confidence_alpha_correlation_status"] = "negative"
+    recipe_level = evidence["recipe_level_monitor"]
+    assert isinstance(recipe_level, dict)
+    recipe_level["actionable_recipe_level_action_count"] = 0
+    recipe_level["actionable_recipe_level_action_counts"] = {}
+    _write_prompt_mutation_candidates(candidates_path, candidates)
+
+    record = _prompt_mutation_candidate_contract_record(tmp_path)
+
+    assert not record.accepted
+    expected_fragments = [
+        "calibration_fix_required.evidence_refs.drift_status_counts.drift_status_counts",
+        "calibration_fix_required.evidence_refs.drift_status_counts.confidence_alpha_correlation_status",
+        "calibration_fix_required.evidence_refs.drift_status_counts.recipe_level_monitor",
+    ]
+    for fragment in expected_fragments:
+        assert any(fragment in item for item in record.failures)
+
+
 def _copy_registry_for_manual_progress(tmp_path: Path) -> Path:
     registry = tmp_path / "registry"
     shutil.copytree(Path("registry"), registry, dirs_exist_ok=True)
