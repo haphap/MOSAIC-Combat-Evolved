@@ -136,9 +136,9 @@ flowchart LR
 
 - MinerU CLI 优先使用 `.venv/bin/mineru`；如果 shell `PATH` 中已有 `mineru`，
   两者应指向同一套虚拟环境。
-- PDF 到 Markdown 默认使用 MinerU 的 `hybrid-auto-engine`，需要纯 VLM 解析时
-  改用 `vlm-auto-engine`。除非明确要连 MinerU HTTP 服务，否则不要临时改成
-  `pipeline`。
+- PDF 到 Markdown 按当前运行约定使用 MinerU 的 `vlm-auto-engine`，也就是
+  VLM/vLLM 路径。`hybrid-auto-engine` 只保留为历史 smoke 或用户明确要求的
+  fallback；除非明确要连 MinerU HTTP 服务，否则不要临时改成 `pipeline`。
 - 本地 vLLM/Docker 服务优先检查并启动
   `rke-vllm-qwen36-27b-160k-20260610`，该容器的 vLLM OpenAI 兼容端口为
   `8020`。

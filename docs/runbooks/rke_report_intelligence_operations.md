@@ -11,8 +11,10 @@ Markdown excerpts here.
 - Private runtime/cache root: `.mosaic/rke/report_intelligence/`
 - Local temp root: `.mosaic/tmp/`
 - MinerU CLI: `.venv/bin/mineru`
-- Default MinerU backend: `hybrid-auto-engine`
-- VLM-only MinerU backend: `vlm-auto-engine`
+- Required MinerU backend for report conversion: `vlm-auto-engine`
+- Previous `hybrid-auto-engine` smoke is useful only as environment proof; do
+  not use it for the macro/strategy report batches unless the user explicitly
+  asks for hybrid mode.
 - Existing Docker vLLM container to inspect/start first:
   `rke-vllm-qwen36-27b-160k-20260610`
 - Docker vLLM port: `8020`
@@ -64,9 +66,96 @@ uv run mosaic-rke build-local-macro-report-sources \
   `宏观策略=329`, `A股=22`, `债券=7`, `商品=33`, `大类资产=20`,
   `海外=11`, `待分类=366`
 
+## MinerU Usage
+
+User requirement: run MinerU in vLLM/VLM mode. Use `vlm-auto-engine` for PDF to
+Markdown conversion, not `pipeline`, and not `hybrid-auto-engine` for the normal
+macro/strategy batch path.
+
+Preferred smoke command:
+
+```bash
+TMPDIR=.mosaic/tmp uv run mosaic-rke report-intelligence \
+  --root . \
+  --env-file .env \
+  --source-path registry/sources/local_macro_strategy_reports.jsonl \
+  --cache-dir .mosaic/rke/report_intelligence \
+  --registry-dir .mosaic/rke/report_intelligence/macro_vlm_smoke_registry \
+  --selection-order oldest \
+  --limit 1 \
+  --mineru-command .venv/bin/mineru \
+  --mineru-backend vlm-auto-engine \
+  --mineru-timeout-seconds 3600 \
+  --skip-llm \
+  --overwrite
+```
+
+Preferred batch command:
+
+```bash
+TMPDIR=.mosaic/tmp uv run mosaic-rke report-intelligence \
+  --root . \
+  --env-file .env \
+  --source-path registry/sources/local_macro_strategy_reports.jsonl \
+  --cache-dir .mosaic/rke/report_intelligence \
+  --registry-dir .mosaic/rke/report_intelligence/macro_vlm_batch_registry \
+  --selection-order stratified \
+  --limit 20 \
+  --mineru-command .venv/bin/mineru \
+  --mineru-backend vlm-auto-engine \
+  --mineru-timeout-seconds 3600 \
+  --mineru-batch-size 1 \
+  --mineru-batch-max-bytes 8000000 \
+  --skip-llm
+```
+
+Operational rules:
+
+- Start with `--limit 1` after any config change.
+- Use `--mineru-batch-size 1` for VLM mode unless a later runbook entry proves a
+  larger batch is stable.
+- Keep outputs under `.mosaic/` until quality is confirmed.
+- Do not reinstall MinerU or recreate the vLLM service before checking
+  `.venv/bin/mineru --help` and the existing Docker/container state.
+- Do not commit PDF, Markdown, MinerU output, or source-row JSONL artifacts.
+- If a previous `hybrid-auto-engine` run is still active, wait for it to return
+  or terminate only that specific `report-intelligence`/MinerU process before
+  launching the VLM batch.
+
 ## MinerU Smoke Status
 
-Last smoke run:
+Last completed vLLM/VLM smoke:
+
+```bash
+TMPDIR=.mosaic/tmp uv run mosaic-rke report-intelligence \
+  --root . \
+  --env-file .env \
+  --source-path registry/sources/local_macro_strategy_reports.jsonl \
+  --cache-dir .mosaic/rke/report_intelligence \
+  --registry-dir .mosaic/rke/report_intelligence/macro_vlm_smoke_registry \
+  --selection-order oldest \
+  --limit 1 \
+  --mineru-command .venv/bin/mineru \
+  --mineru-backend vlm-auto-engine \
+  --mineru-timeout-seconds 3600 \
+  --skip-llm \
+  --overwrite
+```
+
+Result:
+
+- Run id: `RIR-20260615T002746+0000`
+- Selected reports: `1`
+- PDF ready: `1`
+- Markdown ready: `1`
+- Blockers: `0`
+- Processing status: `markdown_status=converted`
+- MinerU backend: `vlm-auto-engine`
+- Markdown quality gate: `passed`
+- Markdown duration: `35.921s`
+
+Last completed smoke run used `hybrid-auto-engine` before the vLLM-only
+requirement was clarified:
 
 ```bash
 TMPDIR=.mosaic/tmp uv run mosaic-rke report-intelligence \
@@ -96,8 +185,10 @@ Result:
 - Markdown quality gate: `passed`
 - Markdown duration: `38.468s`
 
-This confirms that the existing MinerU environment can convert a local macro
-PDF to Markdown. The output registry was written under `.mosaic/` and is private.
+This confirms that the existing MinerU environment can convert a local macro PDF
+to Markdown. It does not replace the current requirement to use
+`vlm-auto-engine` for the next macro/strategy batches. The output registry was
+written under `.mosaic/` and is private.
 
 ## Resume Sequence
 
@@ -109,7 +200,7 @@ For the next macro run, use the existing source and runtime:
 wc -l registry/sources/local_macro_strategy_reports.jsonl
 ```
 
-2. Run a small Markdown conversion batch without LLM:
+2. Run a small VLM Markdown conversion batch without LLM:
 
 ```bash
 TMPDIR=.mosaic/tmp uv run mosaic-rke report-intelligence \
@@ -117,12 +208,13 @@ TMPDIR=.mosaic/tmp uv run mosaic-rke report-intelligence \
   --env-file .env \
   --source-path registry/sources/local_macro_strategy_reports.jsonl \
   --cache-dir .mosaic/rke/report_intelligence \
-  --registry-dir .mosaic/rke/report_intelligence/macro_batch_registry \
+  --registry-dir .mosaic/rke/report_intelligence/macro_vlm_batch_registry \
   --selection-order stratified \
   --limit 20 \
   --mineru-command .venv/bin/mineru \
-  --mineru-backend hybrid-auto-engine \
+  --mineru-backend vlm-auto-engine \
   --mineru-timeout-seconds 3600 \
+  --mineru-batch-size 1 \
   --skip-llm
 ```
 
@@ -142,3 +234,5 @@ TMPDIR=.mosaic/tmp uv run mosaic-rke report-intelligence \
   `.venv/bin/mineru` are resolved before subprocess working-directory changes.
 - `2026-06-15`: Ran MinerU smoke on one macro PDF with
   `hybrid-auto-engine`; conversion passed with no blockers.
+- `2026-06-15`: Updated the required MinerU mode to `vlm-auto-engine`, then ran
+  one macro PDF VLM smoke; conversion passed with no blockers.
