@@ -308,6 +308,12 @@ def _review_evidence_alignment_status(
         "duplicate_review_id_count": 0,
         "duplicate_evidence_id_count": 0,
         "target_row_hash_mismatch_count": 0,
+        "missing_markdown_rows": 0,
+        "snippet_ready_rows": 0,
+        "quality_gap_focus_field_counts": {},
+        "suggested_tag_counts": {},
+        "priority_score_counts": {},
+        "priority_reason_counts": {},
         "same_order": False,
         "aligned": False,
     }
@@ -365,6 +371,16 @@ def _review_evidence_alignment_status(
         for tag in row.get("suggested_manual_error_tags") or ()
         if str(tag).strip()
     )
+    priority_score_counts = Counter(
+        str(row.get("priority_score") if row.get("priority_score") is not None else 0)
+        for row in evidence_rows
+    )
+    priority_reason_counts = Counter(
+        str(reason)
+        for row in evidence_rows
+        for reason in row.get("priority_reasons") or ()
+        if str(reason).strip()
+    )
     hash_mismatch_count = 0
     for row in review_rows:
         row_id = str(row.get(id_field) or "").strip()
@@ -415,6 +431,8 @@ def _review_evidence_alignment_status(
                 sorted(quality_focus_counts.items())
             ),
             "suggested_tag_counts": dict(sorted(suggested_tag_counts.items())),
+            "priority_score_counts": dict(sorted(priority_score_counts.items())),
+            "priority_reason_counts": dict(sorted(priority_reason_counts.items())),
             "same_order": same_order,
             "aligned": aligned,
         }
@@ -1367,6 +1385,20 @@ def _render_batch_status_lines(label: str, status: Mapping[str, Any]) -> list[st
                 for tag, count in sorted(suggested_tags.items())
             )
             lines.append(f"  Suggested evidence tags: {tags}")
+        priority_scores = evidence_status.get("priority_score_counts")
+        if isinstance(priority_scores, Mapping) and priority_scores:
+            scores = ", ".join(
+                f"`{score}`={int(count)}"
+                for score, count in sorted(priority_scores.items())
+            )
+            lines.append(f"  Evidence priority scores: {scores}")
+        priority_reasons = evidence_status.get("priority_reason_counts")
+        if isinstance(priority_reasons, Mapping) and priority_reasons:
+            reasons = ", ".join(
+                f"`{reason}`={int(count)}"
+                for reason, count in sorted(priority_reasons.items())
+            )
+            lines.append(f"  Evidence priority reasons: {reasons}")
         evidence_gaps: list[str] = []
         for field in (
             "missing_review_rows",
@@ -1592,6 +1624,8 @@ def _compact_current_batch_status(status: Mapping[str, Any]) -> Mapping[str, Any
         for field_name in (
             "quality_gap_focus_field_counts",
             "suggested_tag_counts",
+            "priority_score_counts",
+            "priority_reason_counts",
         ):
             value = evidence_status.get(field_name)
             if isinstance(value, Mapping) and value:
@@ -1739,6 +1773,8 @@ def _compact_batch_overview(gate: ManualReviewGateProgress) -> Mapping[str, Any]
     for field_name in (
         "quality_gap_focus_field_counts",
         "suggested_tag_counts",
+        "priority_score_counts",
+        "priority_reason_counts",
     ):
         value = evidence.get(field_name) if evidence else None
         if isinstance(value, Mapping) and value:
