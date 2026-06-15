@@ -368,6 +368,79 @@ def test_gold_review_evidence_is_private_non_import_review_aid(tmp_path: Path):
     )
 
 
+def test_gold_review_evidence_flags_non_research_claim_text(tmp_path: Path):
+    _copy_registry(tmp_path)
+    template_path = (
+        tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    )
+    rows = _load_jsonl(template_path)
+    rows[0]["proposed_claim_text"] = (
+        "风险提示：宏观经济、货币政策超预期变化、数据误差等风险。"
+    )
+    rows[0]["proposed_direction"] = "positive"
+    rows[0]["proposed_review_risk_flags"] = [
+        "manual_review_required",
+        "original_markdown_forecast_claim",
+    ]
+    _write_jsonl(template_path, rows)
+    review_input = tmp_path / "gold_non_research_input.jsonl"
+    _write_jsonl(review_input, [{"claim_id": rows[0]["claim_id"]}])
+
+    summary, evidence_rows = build_gold_review_evidence(
+        tmp_path,
+        review_input_path=review_input.relative_to(tmp_path),
+    )
+    markdown = render_gold_review_evidence_markdown(summary, evidence_rows)
+    row = evidence_rows[0]
+
+    assert "non_research_claim_text" in row["suggested_manual_error_tags"]
+    assert row["suggested_review_decision"]["claim_correct"] is False
+    assert row["suggested_review_decision"]["direction_correct"] is None
+    assert row["suggested_review_decision"]["unsupported_field_false_grounded"] is True
+    assert row["unsupported_grounding_diagnostics"]["non_research_claim_text"] is True
+    assert "unsupported_field_false_grounded" in row["quality_gap_focus_fields"]
+    assert "Quality-gap focus field counts" in markdown
+    assert "Review diagnostics" in markdown
+
+
+def test_gold_review_evidence_flags_direction_text_mismatch(tmp_path: Path):
+    _copy_registry(tmp_path)
+    template_path = (
+        tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    )
+    rows = _load_jsonl(template_path)
+    rows[0]["proposed_claim_text"] = (
+        "需求下滑导致公司利润承压，后续股价表现可能弱于行业。"
+    )
+    rows[0]["proposed_direction"] = "positive"
+    rows[0]["proposed_cause_variables"] = []
+    rows[0]["proposed_target_variables"] = []
+    rows[0]["proposed_review_risk_flags"] = ["manual_review_required"]
+    _write_jsonl(template_path, rows)
+    review_input = tmp_path / "gold_direction_mismatch_input.jsonl"
+    _write_jsonl(review_input, [{"claim_id": rows[0]["claim_id"]}])
+
+    _summary, evidence_rows = build_gold_review_evidence(
+        tmp_path,
+        review_input_path=review_input.relative_to(tmp_path),
+    )
+    row = evidence_rows[0]
+
+    assert "direction_text_needs_review" in row["suggested_manual_error_tags"]
+    assert "variable_mapping_missing_cause" in row["suggested_manual_error_tags"]
+    assert "variable_mapping_missing_target" in row["suggested_manual_error_tags"]
+    assert row["suggested_review_decision"]["direction_correct"] is None
+    assert row["direction_text_diagnostics"]["status"] == (
+        "positive_label_negative_text"
+    )
+    assert row["variable_mapping_diagnostics"]["blockers"] == (
+        "missing_cause_variables",
+        "missing_target_variables",
+    )
+    assert "direction_correct" in row["quality_gap_focus_fields"]
+    assert "variable_mapping_correct" in row["quality_gap_focus_fields"]
+
+
 def test_gold_review_evidence_supports_offset_batches(tmp_path: Path):
     _copy_registry(tmp_path)
 

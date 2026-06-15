@@ -1108,6 +1108,179 @@ def _gold_evidence_terms(row: Mapping[str, Any]) -> tuple[str, ...]:
     return tuple(seen[:24])
 
 
+GOLD_POSITIVE_DIRECTION_TERMS = (
+    "看好",
+    "受益",
+    "有望",
+    "改善",
+    "修复",
+    "增长",
+    "提升",
+    "上行",
+    "上涨",
+    "扩张",
+    "回升",
+    "提振",
+    "跑赢",
+    "优于",
+    "强于",
+    "超额收益",
+)
+GOLD_NEGATIVE_DIRECTION_TERMS = (
+    "承压",
+    "下滑",
+    "下降",
+    "下行",
+    "回落",
+    "恶化",
+    "亏损",
+    "收窄",
+    "走弱",
+    "低于预期",
+    "不及预期",
+    "压力",
+    "拖累",
+    "压制",
+    "减弱",
+    "放缓",
+    "跑输",
+    "弱于",
+)
+GOLD_MAPPING_RISK_FLAGS = {
+    "canonical_variable_mapping_needed",
+    "forecast_mapping_insufficient",
+    "forecast_not_testable",
+}
+GOLD_GROUNDING_RISK_FLAGS = {
+    "forecast_mapping_insufficient",
+    "forecast_not_testable",
+    "not_source_grounded",
+}
+
+
+def _matched_gold_direction_terms(
+    text: str,
+    terms: Sequence[str],
+    *,
+    limit: int = 8,
+) -> tuple[str, ...]:
+    normalized = str(text or "")
+    hits: list[str] = []
+    for term in terms:
+        if term in normalized and term not in hits:
+            hits.append(term)
+        if len(hits) >= limit:
+            break
+    return tuple(hits)
+
+
+def _gold_direction_text_diagnostics(
+    text: str,
+    proposed_direction: str,
+) -> dict[str, Any]:
+    positive_hits = _matched_gold_direction_terms(text, GOLD_POSITIVE_DIRECTION_TERMS)
+    negative_hits = _matched_gold_direction_terms(text, GOLD_NEGATIVE_DIRECTION_TERMS)
+    direction = str(proposed_direction or "").strip()
+    if direction not in {"positive", "negative"}:
+        status = "unsupported_direction"
+        needs_review = True
+    elif positive_hits and negative_hits:
+        status = "mixed_direction_terms"
+        needs_review = True
+    elif direction == "positive" and negative_hits and not positive_hits:
+        status = "positive_label_negative_text"
+        needs_review = True
+    elif direction == "negative" and positive_hits and not negative_hits:
+        status = "negative_label_positive_text"
+        needs_review = True
+    elif not positive_hits and not negative_hits:
+        status = "no_explicit_direction_terms"
+        needs_review = False
+    else:
+        status = "text_terms_aligned"
+        needs_review = False
+    return {
+        "proposed_direction": direction,
+        "positive_term_hits": positive_hits,
+        "negative_term_hits": negative_hits,
+        "status": status,
+        "needs_review": needs_review,
+    }
+
+
+def _gold_variable_mapping_diagnostics(
+    row: Mapping[str, Any],
+    proposed_flags: Sequence[str],
+) -> dict[str, Any]:
+    cause_variables = tuple(
+        str(item)
+        for item in row.get("proposed_cause_variables") or ()
+        if str(item).strip()
+    )
+    target_variables = tuple(
+        str(item)
+        for item in row.get("proposed_target_variables") or ()
+        if str(item).strip()
+    )
+    flag_set = {str(flag) for flag in proposed_flags}
+    blockers = []
+    if not cause_variables:
+        blockers.append("missing_cause_variables")
+    if not target_variables:
+        blockers.append("missing_target_variables")
+    blockers.extend(sorted(flag_set & GOLD_MAPPING_RISK_FLAGS))
+    return {
+        "cause_variable_count": len(cause_variables),
+        "target_variable_count": len(target_variables),
+        "cause_variables": cause_variables,
+        "target_variables": target_variables,
+        "mapping_risk_flags": tuple(sorted(flag_set & GOLD_MAPPING_RISK_FLAGS)),
+        "blockers": tuple(dict.fromkeys(blockers)),
+        "needs_review": bool(blockers),
+    }
+
+
+def _gold_unsupported_grounding_diagnostics(
+    *,
+    non_research_claim: bool,
+    has_source_evidence: bool,
+    proposed_flags: Sequence[str],
+) -> dict[str, Any]:
+    flag_set = {str(flag) for flag in proposed_flags}
+    blockers = []
+    if non_research_claim:
+        blockers.append("non_research_claim_text")
+    if not has_source_evidence:
+        blockers.append("source_evidence_unverified")
+    blockers.extend(sorted(flag_set & GOLD_GROUNDING_RISK_FLAGS))
+    return {
+        "non_research_claim_text": non_research_claim,
+        "has_source_evidence": has_source_evidence,
+        "grounding_risk_flags": tuple(sorted(flag_set & GOLD_GROUNDING_RISK_FLAGS)),
+        "blockers": tuple(dict.fromkeys(blockers)),
+        "needs_review": bool(blockers),
+    }
+
+
+def _gold_quality_gap_focus_fields(
+    *,
+    non_research_claim: bool,
+    direction_diagnostics: Mapping[str, Any],
+    variable_diagnostics: Mapping[str, Any],
+    unsupported_diagnostics: Mapping[str, Any],
+) -> tuple[str, ...]:
+    fields: list[str] = []
+    if non_research_claim:
+        fields.extend(("claim_correct", "unsupported_field_false_grounded"))
+    if direction_diagnostics.get("needs_review") is True:
+        fields.append("direction_correct")
+    if variable_diagnostics.get("needs_review") is True:
+        fields.append("variable_mapping_correct")
+    if unsupported_diagnostics.get("needs_review") is True:
+        fields.append("unsupported_field_false_grounded")
+    return tuple(dict.fromkeys(fields))
+
+
 def _gold_source_offset_snippet(
     source_row: Mapping[str, Any],
     row: Mapping[str, Any],
@@ -1228,14 +1401,53 @@ def _gold_evidence_row(
         or "manual claim required" in proposed_claim_text.lower()
         or (proposed_start == 0 and proposed_end == 0)
     )
+    non_research_claim = is_non_research_claim_text(proposed_claim_text)
+    direction_diagnostics = _gold_direction_text_diagnostics(
+        proposed_claim_text,
+        proposed_direction,
+    )
+    variable_diagnostics = _gold_variable_mapping_diagnostics(row, proposed_flags)
+    unsupported_diagnostics = _gold_unsupported_grounding_diagnostics(
+        non_research_claim=non_research_claim,
+        has_source_evidence=has_source_evidence,
+        proposed_flags=proposed_flags,
+    )
+    direction_needs_review = (
+        direction_diagnostics.get("needs_review") is True
+        or "direction_conflict_requires_review" in proposed_flags
+    )
+    unsupported_needs_review = unsupported_diagnostics.get("needs_review") is True
     suggested_decision = {
-        "claim_correct": None if candidate_unavailable else (True if has_source_evidence and proposed_claim_text else None),
+        "claim_correct": (
+            False
+            if non_research_claim
+            else (
+                None
+                if candidate_unavailable
+                else (True if has_source_evidence and proposed_claim_text else None)
+            )
+        ),
         "source_span_supports_claim": None if candidate_unavailable else (True if has_source_evidence else None),
-        "direction_correct": None if candidate_unavailable or proposed_direction in {"", "ambiguous"} else True,
+        "direction_correct": (
+            None
+            if candidate_unavailable
+            or non_research_claim
+            or proposed_direction in {"", "ambiguous"}
+            or direction_needs_review
+            else True
+        ),
         "target_correct": None,
         "horizon_correct": None,
         "variable_mapping_correct": None,
-        "unsupported_field_false_grounded": None if candidate_unavailable else False,
+        "unsupported_field_false_grounded": (
+            True
+            if non_research_claim
+            else (
+                None
+                if candidate_unavailable or unsupported_needs_review
+                else False
+            )
+        ),
     }
     tags: list[str] = []
     rationales: list[dict[str, Any]] = []
@@ -1246,6 +1458,24 @@ def _gold_evidence_row(
                 "field": "manual_claim_text",
                 "suggested_value": "",
                 "reason": "candidate unavailable or placeholder offsets require a human rewrite",
+                "requires_human_confirmation": True,
+            }
+        )
+    if non_research_claim:
+        tags.append("non_research_claim_text")
+        rationales.append(
+            {
+                "field": "claim_correct",
+                "suggested_value": False,
+                "reason": "candidate text matches shared non-research filters such as risk warnings, disclaimers, ratings definitions, headings, or table-of-contents fragments",
+                "requires_human_confirmation": True,
+            }
+        )
+        rationales.append(
+            {
+                "field": "unsupported_field_false_grounded",
+                "suggested_value": True,
+                "reason": "non-research boilerplate should not be accepted as a source-grounded forecast claim",
                 "requires_human_confirmation": True,
             }
         )
@@ -1270,6 +1500,8 @@ def _gold_evidence_row(
         )
     if not markdown_exists:
         tags.append("markdown_missing")
+    if "direction_conflict_requires_review" in proposed_flags:
+        tags.append("direction_conflict_requires_review")
     if proposed_direction == "ambiguous":
         tags.append("direction_ambiguous")
         rationales.append(
@@ -1280,7 +1512,20 @@ def _gold_evidence_row(
                 "requires_human_confirmation": True,
             }
         )
-    elif proposed_direction and not candidate_unavailable:
+    elif direction_needs_review and not candidate_unavailable:
+        tags.append("direction_text_needs_review")
+        rationales.append(
+            {
+                "field": "direction_correct",
+                "suggested_value": None,
+                "reason": (
+                    "proposed direction should be rechecked because the claim text "
+                    f"diagnostic is {direction_diagnostics.get('status')}"
+                ),
+                "requires_human_confirmation": True,
+            }
+        )
+    elif proposed_direction and not candidate_unavailable and not non_research_claim:
         rationales.append(
             {
                 "field": "direction_correct",
@@ -1309,6 +1554,10 @@ def _gold_evidence_row(
                 "requires_human_confirmation": True,
             }
         )
+    if not variable_diagnostics.get("cause_variable_count"):
+        tags.append("variable_mapping_missing_cause")
+    if not variable_diagnostics.get("target_variable_count"):
+        tags.append("variable_mapping_missing_target")
     if "forecast_mapping_insufficient" in proposed_flags:
         tags.append("forecast_mapping_insufficient")
         rationales.append(
@@ -1316,6 +1565,16 @@ def _gold_evidence_row(
                 "field": "target_correct",
                 "suggested_value": None,
                 "reason": "candidate forecast target/proxy mapping is insufficient for automatic acceptance",
+                "requires_human_confirmation": True,
+            }
+        )
+    if unsupported_needs_review and not candidate_unavailable and not non_research_claim:
+        tags.append("unsupported_grounding_needs_review")
+        rationales.append(
+            {
+                "field": "unsupported_field_false_grounded",
+                "suggested_value": None,
+                "reason": "candidate has source-evidence or mapping risk flags that require reviewer grounding checks",
                 "requires_human_confirmation": True,
             }
         )
@@ -1339,6 +1598,12 @@ def _gold_evidence_row(
                 "requires_human_confirmation": True,
             }
         )
+    quality_gap_focus_fields = _gold_quality_gap_focus_fields(
+        non_research_claim=non_research_claim,
+        direction_diagnostics=direction_diagnostics,
+        variable_diagnostics=variable_diagnostics,
+        unsupported_diagnostics=unsupported_diagnostics,
+    )
     return {
         "evidence_kind": "gold_review_evidence_not_import",
         "not_apply_gold_review_input": True,
@@ -1371,6 +1636,10 @@ def _gold_evidence_row(
         "markdown_exists": markdown_exists,
         "evidence_terms": terms,
         "evidence_snippets": tuple(snippets),
+        "direction_text_diagnostics": direction_diagnostics,
+        "variable_mapping_diagnostics": variable_diagnostics,
+        "unsupported_grounding_diagnostics": unsupported_diagnostics,
+        "quality_gap_focus_fields": quality_gap_focus_fields,
         "suggested_manual_claim_text": "" if candidate_unavailable else proposed_claim_text,
         "suggested_review_decision": suggested_decision,
         "suggested_review_rationales": tuple(rationales),
@@ -1555,6 +1824,29 @@ def render_gold_review_evidence_markdown(
         for flag in row.get("proposed_review_risk_flags") or ()
         if str(flag).strip()
     )
+    quality_focus_counts = Counter(
+        str(field)
+        for row in rows
+        for field in row.get("quality_gap_focus_fields") or ()
+        if str(field).strip()
+    )
+    direction_diagnostic_counts = Counter(
+        str((row.get("direction_text_diagnostics") or {}).get("status") or "")
+        for row in rows
+        if isinstance(row.get("direction_text_diagnostics"), Mapping)
+    )
+    variable_blocker_counts = Counter(
+        str(blocker)
+        for row in rows
+        for blocker in (row.get("variable_mapping_diagnostics") or {}).get("blockers", ())
+        if str(blocker).strip()
+    )
+    unsupported_blocker_counts = Counter(
+        str(blocker)
+        for row in rows
+        for blocker in (row.get("unsupported_grounding_diagnostics") or {}).get("blockers", ())
+        if str(blocker).strip()
+    )
     decision_counts: dict[str, Counter[str]] = {
         field: Counter()
         for field in (
@@ -1598,6 +1890,20 @@ def render_gold_review_evidence_markdown(
             + _markdown_cell(dict(sorted(suggested_tag_counts.items())), max_chars=500),
             "- Proposed risk flag counts: "
             + _markdown_cell(dict(sorted(proposed_flag_counts.items())), max_chars=500),
+            "- Quality-gap focus field counts: "
+            + _markdown_cell(dict(sorted(quality_focus_counts.items())), max_chars=500),
+            "- Direction diagnostic counts: "
+            + _markdown_cell(
+                dict(sorted(direction_diagnostic_counts.items())),
+                max_chars=500,
+            ),
+            "- Variable mapping blocker counts: "
+            + _markdown_cell(dict(sorted(variable_blocker_counts.items())), max_chars=500),
+            "- Unsupported grounding blocker counts: "
+            + _markdown_cell(
+                dict(sorted(unsupported_blocker_counts.items())),
+                max_chars=500,
+            ),
             "- Suggested decision counts: "
             + _markdown_cell(
                 {field: dict(counts) for field, counts in decision_counts.items()},
@@ -1644,6 +1950,7 @@ def render_gold_review_evidence_markdown(
                 f"- Direction: {row.get('proposed_direction') or '-'}",
                 f"- Priority score: {row.get('priority_score')}",
                 f"- Suggested tags: {_markdown_cell(row.get('suggested_manual_error_tags'), max_chars=200)}",
+                f"- Quality-gap focus fields: {_markdown_cell(row.get('quality_gap_focus_fields'), max_chars=200)}",
                 "",
                 "Suggested manual claim text:",
                 "",
@@ -1669,6 +1976,30 @@ def render_gold_review_evidence_markdown(
                     "",
                 ]
             )
+        lines.extend(
+            [
+                "Review diagnostics:",
+                "",
+                "```json",
+                json.dumps(
+                    {
+                        "direction_text_diagnostics": row.get(
+                            "direction_text_diagnostics"
+                        ),
+                        "variable_mapping_diagnostics": row.get(
+                            "variable_mapping_diagnostics"
+                        ),
+                        "unsupported_grounding_diagnostics": row.get(
+                            "unsupported_grounding_diagnostics"
+                        ),
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                "```",
+                "",
+            ]
+        )
         lines.extend(["Evidence snippets:", ""])
         snippets = tuple(row.get("evidence_snippets") or ())
         if not snippets:
