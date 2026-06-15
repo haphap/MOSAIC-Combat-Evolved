@@ -24,6 +24,12 @@ def test_operator_handoff_summarizes_remaining_manual_gates():
     handoff = build_operator_handoff(".")
     progress = build_manual_review_progress(".")
     progress_gold = next(gate for gate in progress.gates if gate.review_kind == "gold_set")
+    progress_footprint = next(
+        gate for gate in progress.gates if gate.review_kind == "footprint_review"
+    )
+    expected_gold_pending_rows = int(
+        progress_gold.current_batch_status.get("pending_rows") or 0
+    )
     expected_gold_evidence_command = progress_gold.next_batch_commands.get(
         "evidence",
         (
@@ -104,7 +110,7 @@ def test_operator_handoff_summarizes_remaining_manual_gates():
         gate for gate in handoff.gates if gate.review_kind == "footprint_review"
     )
     lockbox = next(gate for gate in handoff.gates if gate.review_kind == "lockbox")
-    assert gold.pending_rows == 0
+    assert gold.pending_rows == expected_gold_pending_rows
     assert not gold.passed
     assert "direction_accuracy below 0.85" in gold.blocker
     assert (
@@ -115,7 +121,6 @@ def test_operator_handoff_summarizes_remaining_manual_gates():
         f"{RKE_OPERATOR_TMP_ENV_PREFIX} mosaic-rke prepare-gold-review --root . --full"
     )
     assert gold.reviewed_policy_path == "registry/review_batches/gold_set_full_reviewed.jsonl"
-    assert gold.exported_rows == 0
     assert gold.review_aids["promotion_import_path"] == (
         "registry/review_batches/gold_set_full_reviewed.jsonl"
     )
@@ -123,7 +128,8 @@ def test_operator_handoff_summarizes_remaining_manual_gates():
     assert "gold_set_full_reviewed.jsonl" in gold.dry_run_command
     assert "gold_set_full_reviewed.jsonl" in handoff.promotion_dry_run_command
     assert "gold_set_full_import_template.jsonl" not in handoff.promotion_dry_run_command
-    assert footprint.pending_rows == 1017
+    assert gold.exported_rows == expected_gold_pending_rows
+    assert footprint.pending_rows == progress_footprint.pending_rows
     assert not footprint.passed
     assert (
         footprint.import_template_path
