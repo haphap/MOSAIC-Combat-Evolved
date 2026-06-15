@@ -468,7 +468,12 @@ MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run mosaic-rke write-footpri
 These commands write private, gitignored manual handoff files. The current local
 expanded gold-set scratch batch has 26 rows, 0 complete rows, and 26 pending
 rows; its private evidence draft is aligned with the same 26 scratch rows. The
-promotion gold-set import remains not ready because the expanded current batch
+gold action queue now includes a public-safe `backfill_status` for the active
+scratch batch and hides `backfill_write` when the dry-run finds no writable
+backfill. The current active batch matches 26 prior rows, but all 26 prior rows
+still lack required manual fields, so backfill remains diagnostic-only and the
+review fields must be filled manually. The promotion gold-set import remains not
+ready because the expanded current batch
 still requires manual decisions before the full reviewed import can be
 regenerated; after applying that current scratch, 22 target rows will still need
 a refreshed batch, so the action queue explicitly tells the operator to rerun

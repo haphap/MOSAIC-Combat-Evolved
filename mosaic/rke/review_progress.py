@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import shutil
+from collections import Counter
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Literal, Mapping, Sequence
@@ -32,6 +33,7 @@ from .manual_review_batches import (
     GOLD_REVIEW_EVIDENCE_MD_PATH,
     GOLD_REVIEW_WORKBOOK_MD_PATH,
     LICENSE_BATCH_IMPORT_TEMPLATE_PATH,
+    backfill_gold_review_from_prior,
     build_manual_review_batch_status,
 )
 from .manual_review_import import (
@@ -479,6 +481,47 @@ def _review_target_alignment_status(
     return status
 
 
+def _gold_backfill_blocker_reason(blocker: str) -> str:
+    if "is missing required manual fields" in blocker:
+        return "prior_review_missing_required_manual_fields"
+    if "no prior reviewed row" in blocker:
+        return "prior_review_missing"
+    if "duplicate claim/document keys" in blocker:
+        return "prior_review_duplicate_keys"
+    if "must contain valid JSON" in blocker:
+        return "malformed_json"
+    if "row must be object" in blocker:
+        return "non_object_row"
+    if "claim_id: required" in blocker:
+        return "claim_id_required"
+    if "missing or empty" in blocker:
+        return "input_or_prior_missing_or_empty"
+    return "other"
+
+
+def _gold_backfill_status(root_path: Path) -> Mapping[str, Any]:
+    result = backfill_gold_review_from_prior(
+        root_path,
+        input_path=GOLD_REVIEWED_IMPORT_PATH,
+        dry_run=True,
+    )
+    reason_counts = Counter(
+        _gold_backfill_blocker_reason(blocker) for blocker in result.blockers
+    )
+    return {
+        "available": result.updated_rows > 0 and not result.blockers,
+        "write_command_available": result.updated_rows > 0 and not result.blockers,
+        "row_count": result.row_count,
+        "matched_prior_rows": result.matched_prior_rows,
+        "updated_rows": result.updated_rows,
+        "copied_field_count": result.copied_field_count,
+        "preserved_existing_field_count": result.preserved_existing_field_count,
+        "complete_after_backfill_rows": result.complete_after_backfill_rows,
+        "blocker_count": len(result.blockers),
+        "blocker_reason_counts": dict(sorted(reason_counts.items())),
+    }
+
+
 def _gold_batch_status(root_path: Path) -> Mapping[str, Any]:
     status = dict(
         _review_batch_status(
@@ -500,6 +543,7 @@ def _gold_batch_status(root_path: Path) -> Mapping[str, Any]:
         target_path=GOLD_REVIEW_TEMPLATE_PATH,
         id_field="claim_id",
     )
+    status["backfill_status"] = _gold_backfill_status(root_path)
     return status
 
 
@@ -1470,6 +1514,38 @@ def _compact_current_batch_status(status: Mapping[str, Any]) -> Mapping[str, Any
             ),
             "aligned": bool(target_status.get("aligned")),
         }
+    backfill_status = status.get("backfill_status")
+    if isinstance(backfill_status, Mapping) and backfill_status:
+        blocker_reason_counts = backfill_status.get("blocker_reason_counts")
+        compact["backfill_status"] = {
+            "available": bool(backfill_status.get("available")),
+            "write_command_available": bool(
+                backfill_status.get("write_command_available")
+            ),
+            "row_count": int(backfill_status.get("row_count") or 0),
+            "matched_prior_rows": int(
+                backfill_status.get("matched_prior_rows") or 0
+            ),
+            "updated_rows": int(backfill_status.get("updated_rows") or 0),
+            "copied_field_count": int(
+                backfill_status.get("copied_field_count") or 0
+            ),
+            "preserved_existing_field_count": int(
+                backfill_status.get("preserved_existing_field_count") or 0
+            ),
+            "complete_after_backfill_rows": int(
+                backfill_status.get("complete_after_backfill_rows") or 0
+            ),
+            "blocker_count": int(backfill_status.get("blocker_count") or 0),
+            "blocker_reason_counts": (
+                {
+                    str(key): int(count)
+                    for key, count in sorted(blocker_reason_counts.items())
+                }
+                if isinstance(blocker_reason_counts, Mapping)
+                else {}
+            ),
+        }
     return compact
 
 
@@ -1724,7 +1800,10 @@ def build_manual_review_progress_summary(
                 "quality_gap_targets": _compact_quality_gap_targets(
                     gate.quality_gap_targets
                 ),
-                "next_batch_commands": dict(gate.next_batch_commands),
+                "next_batch_commands": _apply_backfill_command_policy(
+                    gate,
+                    gate.next_batch_commands,
+                ),
                 "promotion_commands": {
                     "prepare": gate.prepare_command,
                     "dry_run": gate.dry_run_command,
@@ -1769,6 +1848,30 @@ def _current_batch_evidence_command(
     return ""
 
 
+def _backfill_write_command_available(gate: ManualReviewGateProgress) -> bool:
+    if gate.review_kind != "gold_set":
+        return True
+    current = (
+        gate.current_batch_status
+        if isinstance(gate.current_batch_status, Mapping)
+        else {}
+    )
+    backfill_status = current.get("backfill_status")
+    if not isinstance(backfill_status, Mapping):
+        return True
+    return bool(backfill_status.get("write_command_available"))
+
+
+def _apply_backfill_command_policy(
+    gate: ManualReviewGateProgress,
+    commands: Mapping[str, str],
+) -> dict[str, str]:
+    out = dict(commands)
+    if gate.review_kind == "gold_set" and not _backfill_write_command_available(gate):
+        out.pop("backfill_write", None)
+    return out
+
+
 def _action_queue_commands(
     gate: ManualReviewGateProgress,
     action: str,
@@ -1793,7 +1896,7 @@ def _action_queue_commands(
         )
         if evidence_command:
             commands["evidence"] = evidence_command
-        return commands
+        return _apply_backfill_command_policy(gate, commands)
     if action == "repair_current_batch_evidence_alignment":
         commands = {
             key: command
@@ -1814,7 +1917,7 @@ def _action_queue_commands(
             if key in {"assist", "prepare", "evidence"}
         }
     if action == "address_quality_gate_blockers":
-        return {
+        commands = {
             key: command
             for key, command in next_batch.items()
             if key
@@ -1830,6 +1933,7 @@ def _action_queue_commands(
                 "dry_run",
             }
         }
+        return _apply_backfill_command_policy(gate, commands)
     if action == "run_prepare_command":
         return {"prepare": gate.prepare_command}
     if action == "review_or_apply_source_license_policy":
@@ -1998,6 +2102,7 @@ def build_manual_review_action_queue(
             if gate.ready_for_promotion
             else current_batch_path or gate.input_path
         )
+        compact_current_batch_status = _compact_current_batch_status(current)
         batch_overview = _compact_batch_overview(gate)
         actions.append(
             {
@@ -2033,6 +2138,10 @@ def build_manual_review_action_queue(
                 ),
                 "current_batch_stale_after_promotion_ready": stale_current_batch,
                 "batch_overview": batch_overview,
+                "backfill_status": compact_current_batch_status.get(
+                    "backfill_status",
+                    {},
+                ),
                 "review_aids": _review_aid_paths(gate),
                 "field_contract": _review_field_contract(gate),
                 "quality_gap_targets": _compact_quality_gap_targets(

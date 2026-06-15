@@ -505,10 +505,15 @@ def test_review_progress_reports_gold_quality_blockers_without_reapplying_stale_
     assert gold_summary["quality_gap_targets"]["metrics"]["direction_accuracy"][
         "minimum_additional_pass_count_if_denominator_unchanged"
     ] == 1
+    assert gold_summary["current_batch_status"]["backfill_status"][
+        "write_command_available"
+    ] is False
+    assert gold_summary["current_batch_status"]["backfill_status"][
+        "updated_rows"
+    ] == 0
     assert set(gold_summary["next_batch_commands"]) == {
         "assist",
         "backfill_dry_run",
-        "backfill_write",
         "dry_run",
         "evidence",
         "expand_candidate_review_rows",
@@ -534,7 +539,6 @@ def test_review_progress_reports_gold_quality_blockers_without_reapplying_stale_
     assert set(gold_action["commands"]) == {
         "assist",
         "backfill_dry_run",
-        "backfill_write",
         "dry_run",
         "evidence",
         "expand_candidate_review_rows",
@@ -612,6 +616,12 @@ def test_review_progress_prioritizes_pending_gold_quality_batch_fields(
     )
     assert gold_action["action_state"] == "needs_human_review_fields"
     assert gold_action["current_batch_pending_rows"] == 1
+    assert gold_action["backfill_status"][
+        "write_command_available"
+    ] is True
+    assert gold_action["backfill_status"][
+        "updated_rows"
+    ] == 1
     assert set(gold_action["commands"]) == {
         "assist",
         "backfill_dry_run",
