@@ -4981,6 +4981,17 @@ def _indicator_review_summary(mentions: Any, *, preview_limit: int = 5) -> dict[
     }
 
 
+def _footprint_review_indicator_summary(row: Mapping[str, Any]) -> dict[str, Any]:
+    summary = _ensure_mapping(row.get("indicator_mentions_review_summary"))
+    if type(summary.get("mention_count")) is int:
+        out = dict(summary)
+        out.setdefault("summary_source", "indicator_mentions_review_summary")
+        return out
+    fallback = _indicator_review_summary(row.get("indicator_mentions_review_preview"))
+    fallback["summary_source"] = "indicator_mentions_review_preview"
+    return fallback
+
+
 def _analysis_pattern_review_preview(patterns: Any) -> list[str]:
     out: list[str] = []
     for pattern in _ensure_list(patterns)[:5]:
@@ -5489,9 +5500,7 @@ def _footprint_review_assist_row(index: int, row: Mapping[str, Any]) -> dict[str
             max_items=3,
             max_chars=80,
         ),
-        "indicator_mentions_summary": _ensure_mapping(
-            row.get("indicator_mentions_review_summary")
-        ),
+        "indicator_mentions_summary": _footprint_review_indicator_summary(row),
         "analysis_patterns_preview": _review_assist_preview_list(
             row.get("analysis_patterns_review_preview"),
             max_items=3,
@@ -5859,60 +5868,27 @@ def _footprint_review_evidence_snippets(
 def _footprint_review_metric_mapping_diagnostics(
     row: Mapping[str, Any],
 ) -> dict[str, Any]:
-    summary = _ensure_mapping(row.get("indicator_mentions_review_summary"))
-    if type(summary.get("mention_count")) is int:
-        mention_count = int(summary.get("mention_count") or 0)
-        unknown_count = int(summary.get("unknown_canonical_count") or 0)
-        ungrounded_count = int(summary.get("ungrounded_count") or 0)
-        complete_count = int(summary.get("complete_source_grounded_count") or 0)
-        return {
-            "mention_count": mention_count,
-            "preview_count": int(summary.get("preview_count") or 0),
-            "preview_limit": int(summary.get("preview_limit") or 0),
-            "hidden_count": int(summary.get("hidden_count") or 0),
-            "unknown_canonical_count": unknown_count,
-            "ungrounded_count": ungrounded_count,
-            "complete_source_grounded_count": complete_count,
-            "hidden_unknown_canonical_count": int(
-                summary.get("hidden_unknown_canonical_count") or 0
-            ),
-            "hidden_ungrounded_count": int(summary.get("hidden_ungrounded_count") or 0),
-            "mapping_complete": bool(mention_count)
-            and unknown_count == 0
-            and ungrounded_count == 0,
-            "diagnostic_source": "indicator_mentions_review_summary",
-        }
-    mentions = tuple(
-        _ensure_mapping(item)
-        for item in _ensure_list(row.get("indicator_mentions_review_preview"))
-        if isinstance(item, Mapping)
-    )
-    unknown_count = 0
-    ungrounded_count = 0
-    complete_count = 0
-    for mention in mentions:
-        canonical_unknown = _indicator_value_unknown(
-            mention.get("canonical_metric_candidate")
-        )
-        source_ungrounded = mention.get("source_grounded") is not True
-        if canonical_unknown:
-            unknown_count += 1
-        if source_ungrounded:
-            ungrounded_count += 1
-        if not canonical_unknown and not source_ungrounded:
-            complete_count += 1
+    summary = _footprint_review_indicator_summary(row)
+    mention_count = int(summary.get("mention_count") or 0)
+    unknown_count = int(summary.get("unknown_canonical_count") or 0)
+    ungrounded_count = int(summary.get("ungrounded_count") or 0)
+    complete_count = int(summary.get("complete_source_grounded_count") or 0)
     return {
-        "mention_count": len(mentions),
+        "mention_count": mention_count,
+        "preview_count": int(summary.get("preview_count") or 0),
+        "preview_limit": int(summary.get("preview_limit") or 0),
+        "hidden_count": int(summary.get("hidden_count") or 0),
         "unknown_canonical_count": unknown_count,
         "ungrounded_count": ungrounded_count,
         "complete_source_grounded_count": complete_count,
-        "hidden_count": 0,
-        "hidden_unknown_canonical_count": 0,
-        "hidden_ungrounded_count": 0,
-        "mapping_complete": bool(mentions)
+        "hidden_unknown_canonical_count": int(
+            summary.get("hidden_unknown_canonical_count") or 0
+        ),
+        "hidden_ungrounded_count": int(summary.get("hidden_ungrounded_count") or 0),
+        "mapping_complete": bool(mention_count)
         and unknown_count == 0
         and ungrounded_count == 0,
-        "diagnostic_source": "indicator_mentions_review_preview",
+        "diagnostic_source": str(summary.get("summary_source") or "unknown"),
     }
 
 
@@ -6400,9 +6376,7 @@ def _footprint_review_evidence_row(
             max_items=6,
             max_chars=120,
         ),
-        "indicator_mentions_summary": _ensure_mapping(
-            row.get("indicator_mentions_review_summary")
-        ),
+        "indicator_mentions_summary": _footprint_review_indicator_summary(row),
         "inferred_indicator_suggestions": inferred_indicator_suggestions,
         "analysis_patterns_preview": _review_assist_preview_list(
             row.get("analysis_patterns_review_preview"),

@@ -11778,6 +11778,71 @@ def test_analytical_footprint_review_evidence_flags_hidden_metric_mapping_gaps(
     assert rationale["diagnostics"]["hidden_ungrounded_count"] == 1
 
 
+def test_analytical_footprint_review_evidence_backfills_missing_indicator_summary(
+    tmp_path: Path,
+):
+    source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
+    run_report_intelligence_refresh(
+        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        downloader=_fake_downloader,
+        converter=_fake_converter,
+        llm_extractor=_fake_llm,
+    )
+    template_path = tmp_path / "registry/report_intelligence/analytical_footprint_review_template.jsonl"
+    rows = _read_jsonl(template_path)
+    rows[0]["topic_preview"] = "Legacy Footprint Batch"
+    rows[0]["analysis_patterns_review_preview"] = ["valuation tracking"]
+    rows[0]["indicator_mentions_review_preview"] = [
+        {
+            "indicator_text": "valuation_multiple",
+            "canonical_metric_candidate": "valuation_multiple",
+            "data_source_mentioned": "market_valuation_data_or_report_forecast",
+            "frequency": "daily_or_point_in_time",
+            "transformation": "valuation_ratio",
+            "source_grounded": True,
+        },
+        {
+            "indicator_text": "unmapped_metric",
+            "canonical_metric_candidate": "unknown",
+            "data_source_mentioned": "unknown",
+            "frequency": "unknown",
+            "transformation": "unknown",
+            "source_grounded": False,
+        },
+    ]
+    rows[0].pop("indicator_mentions_review_summary", None)
+    _write_jsonl(template_path, rows)
+
+    report = write_analytical_footprint_review_evidence(tmp_path, limit=1)
+    evidence_rows = _read_jsonl(tmp_path / report.jsonl_path)
+    row = evidence_rows[0]
+
+    assert row["indicator_mentions_summary"] == {
+        "complete_source_grounded_count": 1,
+        "hidden_count": 0,
+        "hidden_ungrounded_count": 0,
+        "hidden_unknown_canonical_count": 0,
+        "mapping_complete": False,
+        "mention_count": 2,
+        "preview_count": 2,
+        "preview_limit": 5,
+        "summary_source": "indicator_mentions_review_preview",
+        "ungrounded_count": 1,
+        "unknown_canonical_count": 1,
+    }
+    rationale = next(
+        item
+        for item in row["suggested_review_rationales"]
+        if item["field"] == "metric_mapping_correct"
+    )
+    assert rationale["diagnostics"]["diagnostic_source"] == (
+        "indicator_mentions_review_preview"
+    )
+    markdown = (tmp_path / report.markdown_path).read_text(encoding="utf-8")
+    assert "Indicator mapping summary" in markdown
+    assert "indicator_mentions_review_preview" in markdown
+
+
 def test_analytical_footprint_review_evidence_supports_offset_batches(
     tmp_path: Path,
 ):
