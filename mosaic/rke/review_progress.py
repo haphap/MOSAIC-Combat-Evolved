@@ -2193,10 +2193,25 @@ def build_manual_review_progress(root: str | Path = ".") -> ManualReviewProgress
     )
 
 
+def _manual_review_progress_report_payload(
+    report: ManualReviewProgressReport,
+) -> Mapping[str, Any]:
+    payload = _jsonable(report)
+    gates = payload.get("gates") if isinstance(payload, Mapping) else None
+    if isinstance(gates, list):
+        for gate_payload, gate in zip(gates, report.gates, strict=False):
+            if isinstance(gate_payload, dict):
+                gate_payload["batch_overview"] = _compact_batch_overview(gate)
+    return payload
+
+
 def write_manual_review_progress_report(root: str | Path = ".") -> dict[str, Any]:
     root_path = Path(root)
     report = build_manual_review_progress(root_path)
-    result = _write_json(root_path / MANUAL_REVIEW_PROGRESS_REPORT_PATH, asdict(report))
+    result = _write_json(
+        root_path / MANUAL_REVIEW_PROGRESS_REPORT_PATH,
+        _manual_review_progress_report_payload(report),
+    )
     return {
         "path": str(result["path"]),
         "ready_for_promotion_dry_run": report.ready_for_promotion_dry_run,

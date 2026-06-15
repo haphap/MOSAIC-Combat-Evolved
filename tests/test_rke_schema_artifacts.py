@@ -3952,6 +3952,32 @@ def test_manual_review_progress_privacy_allows_workload_field_count_names(
     assert record.accepted
 
 
+def test_manual_review_progress_privacy_allows_batch_overview_workload_counts(
+    tmp_path: Path,
+):
+    registry = _copy_registry_for_manual_progress(tmp_path)
+    progress_path = registry / "review_batches/manual_review_progress_report.json"
+    progress = json.loads(progress_path.read_text(encoding="utf-8"))
+    batch_overview = progress["gates"][0]["batch_overview"]
+    batch_overview["current_batch_review_field_workload"]["manual_claim_text"] = {
+        "draft_decision_available_rows": 0,
+        "manual_decision_required_rows": 500,
+        "missing_required_rows": 500,
+        "suggested_false_rows": 0,
+        "suggested_null_rows": 0,
+        "suggested_other_rows": 0,
+        "suggested_true_rows": 0,
+    }
+    progress_path.write_text(
+        json.dumps(progress, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _manual_review_progress_privacy_record(tmp_path)
+
+    assert record.accepted
+
+
 def test_manual_review_progress_privacy_rejects_private_text_fields(
     tmp_path: Path,
 ):

@@ -127,6 +127,7 @@ from .report_intelligence import (
 )
 from .review_progress import (
     ACTION_QUEUE_STATES,
+    _manual_review_progress_report_payload,
     build_manual_review_action_queue,
     build_manual_review_progress_summary,
     build_manual_review_progress,
@@ -2522,10 +2523,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 {
                     "path": result["path"],
                     "runbook_path": runbook["path"],
-                    **asdict(report),
+                    **_manual_review_progress_report_payload(report),
                 }
             )
-        return 0 if report.ready_for_promotion_dry_run else 2
+            return 0 if report.ready_for_promotion_dry_run else 2
     if args.command == "fetch-tushare-reports":
         _load_env_file(args.env_file)
         date_chunk_days = args.date_chunk_days

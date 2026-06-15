@@ -494,11 +494,13 @@ def test_review_progress_reports_missing_scratch_files(tmp_path: Path, capsys):
         gold_gate["current_batch_status"]["path"]
         == "registry/review_batches/gold_set_reviewed.jsonl"
     )
+    assert gold_gate["batch_overview"]["batch_count"] >= 1
     assert footprint_gate["current_batch_status"]["exists"] is False
     assert (
         footprint_gate["current_batch_status"]["path"]
         == "registry/report_intelligence/analytical_footprint_review_batch.jsonl"
     )
+    assert footprint_gate["batch_overview"]["batch_count"] >= 1
     lockbox_gate = next(gate for gate in output["gates"] if gate["review_kind"] == "lockbox")
     assert lockbox_gate["current_batch_status"]["exists"] is False
     assert (
@@ -1865,6 +1867,8 @@ def test_write_manual_review_progress_report_outputs_registry_artifact(tmp_path:
     assert len(payload["gates"]) == 4
     assert payload["gates"][0]["review_kind"] == "gold_set"
     assert payload["gates"][1]["review_kind"] == "footprint_review"
+    assert "batch_overview" in payload["gates"][0]
+    assert "batch_overview" in payload["gates"][1]
 
 
 def test_manual_review_runbook_renders_operator_checklist_without_source_text(tmp_path: Path):
@@ -2167,6 +2171,18 @@ def test_review_progress_reports_partial_gold_scratch(tmp_path: Path):
     assert action["batch_overview"]["remaining_rows_after_current_batch"] == 430
     assert action["batch_overview"]["remaining_rows_after_next_batch"] == 400
     assert action["batch_overview"]["current_batch_covers_next_batch"] is False
+
+    result = write_manual_review_progress_report(tmp_path)
+    payload = json.loads(Path(result["path"]).read_text(encoding="utf-8"))
+    persisted_gold = next(
+        gate for gate in payload["gates"] if gate["review_kind"] == "gold_set"
+    )
+    assert persisted_gold["batch_overview"] == action["batch_overview"]
+    if "current_batch_quality_gap_review_focus" in action["batch_overview"]:
+        assert (
+            persisted_gold["batch_overview"]["current_batch_quality_gap_review_focus"]
+            == action["batch_overview"]["current_batch_quality_gap_review_focus"]
+        )
     assert (
         "Gold-set batch coverage: current scratch covers 20/450 pending target rows; "
         "remaining after current apply: 430; covers planned next batch: false"

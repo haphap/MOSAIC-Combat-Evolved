@@ -45,6 +45,9 @@ Markdown paths, source spans, reviewer notes, or private Tushare rows.
   `unsupported_field_false_grounding_rate -> unsupported_field_false_grounded`,
   and `direction_accuracy -> direction_correct`; the current footprint focus is
   `metric_mapping_accuracy -> metric_mapping_correct`.
+  The same batch overview is now persisted in
+  `manual_review_progress_report.json` and emitted by default `review-progress`
+  output, so bundle consumers see the same focus fields as the action queue.
 
 Current public aggregate evidence. Private report-intelligence JSONL files such
 as `report_metadata.jsonl`, `forecast_claims.jsonl`, and

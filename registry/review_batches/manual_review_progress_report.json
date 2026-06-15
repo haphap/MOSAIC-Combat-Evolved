@@ -30,6 +30,413 @@
   "gates": [
     {
       "apply_command": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl",
+      "batch_overview": {
+        "batch_count": 1,
+        "current_batch_covers_next_batch": false,
+        "current_batch_evidence_aligned": true,
+        "current_batch_evidence_missing_markdown_rows": 0,
+        "current_batch_evidence_path": "registry/review_batches/gold_set_review_evidence.jsonl",
+        "current_batch_evidence_priority_metadata_refresh_recommended": false,
+        "current_batch_evidence_priority_reason_counts": {
+          "context_synthesis_required": 20,
+          "forecast_mapping_insufficient": 5,
+          "low_extraction_confidence": 25,
+          "manual_review_required": 26
+        },
+        "current_batch_evidence_priority_reason_missing_rows": 0,
+        "current_batch_evidence_priority_reason_ready_rows": 26,
+        "current_batch_evidence_priority_score_counts": {
+          "2": 1,
+          "5": 25
+        },
+        "current_batch_evidence_quality_gap_focus_field_counts": {
+          "direction_correct": 2,
+          "unsupported_field_false_grounded": 5,
+          "variable_mapping_correct": 5
+        },
+        "current_batch_evidence_snippet_ready_rows": 26,
+        "current_batch_evidence_suggested_review_decision_counts": {
+          "claim_correct": {
+            "true": 26
+          },
+          "direction_correct": {
+            "null": 2,
+            "true": 24
+          },
+          "horizon_correct": {
+            "null": 26
+          },
+          "source_span_supports_claim": {
+            "true": 26
+          },
+          "target_correct": {
+            "null": 26
+          },
+          "unsupported_field_false_grounded": {
+            "false": 21,
+            "null": 5
+          },
+          "variable_mapping_correct": {
+            "null": 26
+          }
+        },
+        "current_batch_evidence_suggested_tag_counts": {
+          "context_synthesis_required": 20,
+          "direction_text_needs_review": 2,
+          "forecast_mapping_insufficient": 5,
+          "unsupported_grounding_needs_review": 5
+        },
+        "current_batch_path": "registry/review_batches/gold_set_reviewed.jsonl",
+        "current_batch_pending_rows": 26,
+        "current_batch_quality_gap_review_focus": {
+          "active_metric_count": 3,
+          "items": [
+            {
+              "current_pass_count": 30,
+              "current_rate": 0.189873,
+              "draft_decision_available_rows": 0,
+              "evidence_focus_rows": 5,
+              "field": "variable_mapping_correct",
+              "manual_decision_required_rows": 26,
+              "metric": "variable_mapping_accuracy",
+              "minimum_additional_pass_count_if_denominator_unchanged": 97,
+              "missing_required_rows": 26,
+              "operator": ">=",
+              "related_evidence_tag_counts": {
+                "forecast_mapping_insufficient": 5
+              },
+              "required_pass_count": 127,
+              "suggested_decision_counts": {
+                "null": 26
+              },
+              "threshold": 0.8
+            },
+            {
+              "current_rate": 0.227848,
+              "current_true_count": 36,
+              "draft_decision_available_rows": 21,
+              "evidence_focus_rows": 5,
+              "field": "unsupported_field_false_grounded",
+              "manual_decision_required_rows": 5,
+              "max_allowed_true_count": 7,
+              "metric": "unsupported_field_false_grounding_rate",
+              "minimum_excess_true_count_if_denominator_unchanged": 29,
+              "missing_required_rows": 26,
+              "operator": "<=",
+              "related_evidence_tag_counts": {
+                "unsupported_grounding_needs_review": 5
+              },
+              "suggested_decision_counts": {
+                "false": 21,
+                "null": 5
+              },
+              "threshold": 0.05
+            },
+            {
+              "current_pass_count": 99,
+              "current_rate": 0.626582,
+              "draft_decision_available_rows": 24,
+              "evidence_focus_rows": 2,
+              "field": "direction_correct",
+              "manual_decision_required_rows": 2,
+              "metric": "direction_accuracy",
+              "minimum_additional_pass_count_if_denominator_unchanged": 36,
+              "missing_required_rows": 26,
+              "operator": ">=",
+              "related_evidence_tag_counts": {
+                "direction_text_needs_review": 2
+              },
+              "required_pass_count": 135,
+              "suggested_decision_counts": {
+                "null": 2,
+                "true": 24
+              },
+              "threshold": 0.85
+            }
+          ],
+          "mapped_metric_count": 3,
+          "policy": "public_safe_quality_gap_to_current_batch_review_fields"
+        },
+        "current_batch_review_field_action_order": {
+          "draft_decision_review_fields": [
+            {
+              "draft_decision_available_rows": 26,
+              "field": "claim_correct",
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 26
+            },
+            {
+              "draft_decision_available_rows": 26,
+              "field": "source_span_supports_claim",
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 26
+            },
+            {
+              "draft_decision_available_rows": 24,
+              "field": "direction_correct",
+              "manual_decision_required_rows": 2,
+              "missing_required_rows": 26
+            },
+            {
+              "draft_decision_available_rows": 21,
+              "field": "unsupported_field_false_grounded",
+              "manual_decision_required_rows": 5,
+              "missing_required_rows": 26
+            }
+          ],
+          "manual_review_required_fields": [
+            {
+              "draft_decision_available_rows": 0,
+              "field": "horizon_correct",
+              "manual_decision_required_rows": 26,
+              "missing_required_rows": 26
+            },
+            {
+              "draft_decision_available_rows": 0,
+              "field": "manual_claim_text",
+              "manual_decision_required_rows": 26,
+              "missing_required_rows": 26
+            },
+            {
+              "draft_decision_available_rows": 0,
+              "field": "review_date",
+              "manual_decision_required_rows": 26,
+              "missing_required_rows": 26
+            },
+            {
+              "draft_decision_available_rows": 0,
+              "field": "reviewer",
+              "manual_decision_required_rows": 26,
+              "missing_required_rows": 26
+            },
+            {
+              "draft_decision_available_rows": 0,
+              "field": "target_correct",
+              "manual_decision_required_rows": 26,
+              "missing_required_rows": 26
+            },
+            {
+              "draft_decision_available_rows": 0,
+              "field": "variable_mapping_correct",
+              "manual_decision_required_rows": 26,
+              "missing_required_rows": 26
+            },
+            {
+              "draft_decision_available_rows": 21,
+              "field": "unsupported_field_false_grounded",
+              "manual_decision_required_rows": 5,
+              "missing_required_rows": 26
+            },
+            {
+              "draft_decision_available_rows": 24,
+              "field": "direction_correct",
+              "manual_decision_required_rows": 2,
+              "missing_required_rows": 26
+            }
+          ]
+        },
+        "current_batch_review_field_workflow_groups": {
+          "decision_fields_need_review": [
+            {
+              "draft_decision_available_rows": 0,
+              "field": "horizon_correct",
+              "manual_decision_required_rows": 26,
+              "missing_required_rows": 26
+            },
+            {
+              "draft_decision_available_rows": 0,
+              "field": "target_correct",
+              "manual_decision_required_rows": 26,
+              "missing_required_rows": 26
+            },
+            {
+              "draft_decision_available_rows": 0,
+              "field": "variable_mapping_correct",
+              "manual_decision_required_rows": 26,
+              "missing_required_rows": 26
+            },
+            {
+              "draft_decision_available_rows": 21,
+              "field": "unsupported_field_false_grounded",
+              "manual_decision_required_rows": 5,
+              "missing_required_rows": 26
+            },
+            {
+              "draft_decision_available_rows": 24,
+              "field": "direction_correct",
+              "manual_decision_required_rows": 2,
+              "missing_required_rows": 26
+            }
+          ],
+          "draft_decision_fields_to_verify": [
+            {
+              "draft_decision_available_rows": 21,
+              "field": "unsupported_field_false_grounded",
+              "manual_decision_required_rows": 5,
+              "missing_required_rows": 26
+            },
+            {
+              "draft_decision_available_rows": 24,
+              "field": "direction_correct",
+              "manual_decision_required_rows": 2,
+              "missing_required_rows": 26
+            },
+            {
+              "draft_decision_available_rows": 26,
+              "field": "claim_correct",
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 26
+            },
+            {
+              "draft_decision_available_rows": 26,
+              "field": "source_span_supports_claim",
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 26
+            }
+          ],
+          "metadata_fields_need_fill": [
+            {
+              "draft_decision_available_rows": 0,
+              "field": "review_date",
+              "manual_decision_required_rows": 26,
+              "missing_required_rows": 26
+            },
+            {
+              "draft_decision_available_rows": 0,
+              "field": "reviewer",
+              "manual_decision_required_rows": 26,
+              "missing_required_rows": 26
+            }
+          ],
+          "other_fields_need_fill": [],
+          "text_fields_need_fill": [
+            {
+              "draft_decision_available_rows": 0,
+              "field": "manual_claim_text",
+              "manual_decision_required_rows": 26,
+              "missing_required_rows": 26
+            }
+          ]
+        },
+        "current_batch_review_field_workload": {
+          "claim_correct": {
+            "draft_decision_available_rows": 26,
+            "manual_decision_required_rows": 0,
+            "missing_required_rows": 26,
+            "suggested_false_rows": 0,
+            "suggested_null_rows": 0,
+            "suggested_other_rows": 0,
+            "suggested_true_rows": 26
+          },
+          "direction_correct": {
+            "draft_decision_available_rows": 24,
+            "manual_decision_required_rows": 2,
+            "missing_required_rows": 26,
+            "suggested_false_rows": 0,
+            "suggested_null_rows": 2,
+            "suggested_other_rows": 0,
+            "suggested_true_rows": 24
+          },
+          "horizon_correct": {
+            "draft_decision_available_rows": 0,
+            "manual_decision_required_rows": 26,
+            "missing_required_rows": 26,
+            "suggested_false_rows": 0,
+            "suggested_null_rows": 26,
+            "suggested_other_rows": 0,
+            "suggested_true_rows": 0
+          },
+          "manual_claim_text": {
+            "draft_decision_available_rows": 0,
+            "manual_decision_required_rows": 26,
+            "missing_required_rows": 26,
+            "suggested_false_rows": 0,
+            "suggested_null_rows": 0,
+            "suggested_other_rows": 0,
+            "suggested_true_rows": 0
+          },
+          "review_date": {
+            "draft_decision_available_rows": 0,
+            "manual_decision_required_rows": 26,
+            "missing_required_rows": 26,
+            "suggested_false_rows": 0,
+            "suggested_null_rows": 0,
+            "suggested_other_rows": 0,
+            "suggested_true_rows": 0
+          },
+          "reviewer": {
+            "draft_decision_available_rows": 0,
+            "manual_decision_required_rows": 26,
+            "missing_required_rows": 26,
+            "suggested_false_rows": 0,
+            "suggested_null_rows": 0,
+            "suggested_other_rows": 0,
+            "suggested_true_rows": 0
+          },
+          "source_span_supports_claim": {
+            "draft_decision_available_rows": 26,
+            "manual_decision_required_rows": 0,
+            "missing_required_rows": 26,
+            "suggested_false_rows": 0,
+            "suggested_null_rows": 0,
+            "suggested_other_rows": 0,
+            "suggested_true_rows": 26
+          },
+          "target_correct": {
+            "draft_decision_available_rows": 0,
+            "manual_decision_required_rows": 26,
+            "missing_required_rows": 26,
+            "suggested_false_rows": 0,
+            "suggested_null_rows": 26,
+            "suggested_other_rows": 0,
+            "suggested_true_rows": 0
+          },
+          "unsupported_field_false_grounded": {
+            "draft_decision_available_rows": 21,
+            "manual_decision_required_rows": 5,
+            "missing_required_rows": 26,
+            "suggested_false_rows": 21,
+            "suggested_null_rows": 5,
+            "suggested_other_rows": 0,
+            "suggested_true_rows": 0
+          },
+          "variable_mapping_correct": {
+            "draft_decision_available_rows": 0,
+            "manual_decision_required_rows": 26,
+            "missing_required_rows": 26,
+            "suggested_false_rows": 0,
+            "suggested_null_rows": 26,
+            "suggested_other_rows": 0,
+            "suggested_true_rows": 0
+          }
+        },
+        "current_batch_review_field_workload_summary": {
+          "draft_decision_available_cells": 97,
+          "field_count": 10,
+          "fields_with_draft_decisions": 4,
+          "fields_with_manual_review_required": 8,
+          "manual_review_required_cells": 163,
+          "missing_required_cells": 260,
+          "suggested_false_cells": 21,
+          "suggested_null_cells": 85,
+          "suggested_other_cells": 0,
+          "suggested_true_cells": 76
+        },
+        "current_batch_rows": 26,
+        "current_batch_target_aligned": true,
+        "current_batch_target_covered_rows": 26,
+        "current_batch_target_hash_mismatch_count": 0,
+        "final_batch_limit": 48,
+        "final_batch_offset": 0,
+        "next_batch_limit": 48,
+        "next_batch_offset": 0,
+        "next_batch_pending_row_end": 48,
+        "next_batch_pending_row_start": 1,
+        "pending_rows": 48,
+        "remaining_rows_after_current_batch": 22,
+        "remaining_rows_after_next_batch": 0,
+        "rerun_review_progress_after_batch_apply": true
+      },
       "batch_plan": [
         {
           "apply_effect": "merge_batch_into_target_review_template",
@@ -398,6 +805,283 @@
     },
     {
       "apply_command": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+      "batch_overview": {
+        "batch_count": 21,
+        "current_batch_covers_next_batch": true,
+        "current_batch_evidence_aligned": true,
+        "current_batch_evidence_missing_markdown_rows": 0,
+        "current_batch_evidence_path": "registry/report_intelligence/analytical_footprint_review_evidence.jsonl",
+        "current_batch_evidence_priority_metadata_refresh_recommended": false,
+        "current_batch_evidence_priority_reason_counts": {
+          "complex_multi_step_patterns": 20,
+          "missing_indicator_mentions": 33,
+          "missing_target_agent_candidates": 50
+        },
+        "current_batch_evidence_priority_reason_missing_rows": 0,
+        "current_batch_evidence_priority_reason_ready_rows": 50,
+        "current_batch_evidence_priority_score_counts": {
+          "1": 12,
+          "3": 5,
+          "4": 18,
+          "6": 15
+        },
+        "current_batch_evidence_quality_gap_focus_field_counts": {
+          "metric_mapping_correct": 35,
+          "unknowns_used_when_uncertain": 35
+        },
+        "current_batch_evidence_snippet_ready_rows": 50,
+        "current_batch_evidence_suggested_review_decision_counts": {
+          "footprint_correct": {
+            "true": 50
+          },
+          "inferred_steps_tagged_correctly": {
+            "true": 50
+          },
+          "metric_mapping_correct": {
+            "false": 35,
+            "true": 15
+          },
+          "no_proprietary_text_leakage": {
+            "true": 50
+          },
+          "source_span_supports_footprint": {
+            "true": 50
+          },
+          "unknowns_used_when_uncertain": {
+            "false": 1,
+            "true": 49
+          }
+        },
+        "current_batch_evidence_suggested_tag_counts": {
+          "metric_mapping_inference_available": 29,
+          "metric_mapping_missing": 33,
+          "metric_mapping_ungrounded": 2,
+          "metric_mapping_unknown": 2
+        },
+        "current_batch_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+        "current_batch_pending_rows": 50,
+        "current_batch_quality_gap_review_focus": {
+          "active_metric_count": 1,
+          "items": [
+            {
+              "current_pass_count": 19,
+              "current_rate": 0.558824,
+              "draft_decision_available_rows": 50,
+              "evidence_focus_rows": 35,
+              "field": "metric_mapping_correct",
+              "manual_decision_required_rows": 0,
+              "metric": "metric_mapping_accuracy",
+              "minimum_additional_pass_count_if_denominator_unchanged": 9,
+              "missing_required_rows": 50,
+              "operator": ">=",
+              "related_evidence_tag_counts": {
+                "metric_mapping_inference_available": 29,
+                "metric_mapping_missing": 33,
+                "metric_mapping_ungrounded": 2,
+                "metric_mapping_unknown": 2
+              },
+              "required_pass_count": 28,
+              "suggested_decision_counts": {
+                "false": 35,
+                "true": 15
+              },
+              "threshold": 0.8
+            }
+          ],
+          "mapped_metric_count": 1,
+          "policy": "public_safe_quality_gap_to_current_batch_review_fields"
+        },
+        "current_batch_review_field_action_order": {
+          "draft_decision_review_fields": [
+            {
+              "draft_decision_available_rows": 50,
+              "field": "footprint_correct",
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 50
+            },
+            {
+              "draft_decision_available_rows": 50,
+              "field": "inferred_steps_tagged_correctly",
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 50
+            },
+            {
+              "draft_decision_available_rows": 50,
+              "field": "metric_mapping_correct",
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 50
+            },
+            {
+              "draft_decision_available_rows": 50,
+              "field": "no_proprietary_text_leakage",
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 50
+            },
+            {
+              "draft_decision_available_rows": 50,
+              "field": "source_span_supports_footprint",
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 50
+            },
+            {
+              "draft_decision_available_rows": 50,
+              "field": "unknowns_used_when_uncertain",
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 50
+            }
+          ],
+          "manual_review_required_fields": [
+            {
+              "draft_decision_available_rows": 0,
+              "field": "review_notes",
+              "manual_decision_required_rows": 50,
+              "missing_required_rows": 50
+            }
+          ]
+        },
+        "current_batch_review_field_workflow_groups": {
+          "decision_fields_need_review": [],
+          "draft_decision_fields_to_verify": [
+            {
+              "draft_decision_available_rows": 50,
+              "field": "footprint_correct",
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 50
+            },
+            {
+              "draft_decision_available_rows": 50,
+              "field": "inferred_steps_tagged_correctly",
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 50
+            },
+            {
+              "draft_decision_available_rows": 50,
+              "field": "metric_mapping_correct",
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 50
+            },
+            {
+              "draft_decision_available_rows": 50,
+              "field": "no_proprietary_text_leakage",
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 50
+            },
+            {
+              "draft_decision_available_rows": 50,
+              "field": "source_span_supports_footprint",
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 50
+            },
+            {
+              "draft_decision_available_rows": 50,
+              "field": "unknowns_used_when_uncertain",
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 50
+            }
+          ],
+          "metadata_fields_need_fill": [],
+          "other_fields_need_fill": [],
+          "text_fields_need_fill": [
+            {
+              "draft_decision_available_rows": 0,
+              "field": "review_notes",
+              "manual_decision_required_rows": 50,
+              "missing_required_rows": 50
+            }
+          ]
+        },
+        "current_batch_review_field_workload": {
+          "footprint_correct": {
+            "draft_decision_available_rows": 50,
+            "manual_decision_required_rows": 0,
+            "missing_required_rows": 50,
+            "suggested_false_rows": 0,
+            "suggested_null_rows": 0,
+            "suggested_other_rows": 0,
+            "suggested_true_rows": 50
+          },
+          "inferred_steps_tagged_correctly": {
+            "draft_decision_available_rows": 50,
+            "manual_decision_required_rows": 0,
+            "missing_required_rows": 50,
+            "suggested_false_rows": 0,
+            "suggested_null_rows": 0,
+            "suggested_other_rows": 0,
+            "suggested_true_rows": 50
+          },
+          "metric_mapping_correct": {
+            "draft_decision_available_rows": 50,
+            "manual_decision_required_rows": 0,
+            "missing_required_rows": 50,
+            "suggested_false_rows": 35,
+            "suggested_null_rows": 0,
+            "suggested_other_rows": 0,
+            "suggested_true_rows": 15
+          },
+          "no_proprietary_text_leakage": {
+            "draft_decision_available_rows": 50,
+            "manual_decision_required_rows": 0,
+            "missing_required_rows": 50,
+            "suggested_false_rows": 0,
+            "suggested_null_rows": 0,
+            "suggested_other_rows": 0,
+            "suggested_true_rows": 50
+          },
+          "review_notes": {
+            "draft_decision_available_rows": 0,
+            "manual_decision_required_rows": 50,
+            "missing_required_rows": 50,
+            "suggested_false_rows": 0,
+            "suggested_null_rows": 0,
+            "suggested_other_rows": 0,
+            "suggested_true_rows": 0
+          },
+          "source_span_supports_footprint": {
+            "draft_decision_available_rows": 50,
+            "manual_decision_required_rows": 0,
+            "missing_required_rows": 50,
+            "suggested_false_rows": 0,
+            "suggested_null_rows": 0,
+            "suggested_other_rows": 0,
+            "suggested_true_rows": 50
+          },
+          "unknowns_used_when_uncertain": {
+            "draft_decision_available_rows": 50,
+            "manual_decision_required_rows": 0,
+            "missing_required_rows": 50,
+            "suggested_false_rows": 1,
+            "suggested_null_rows": 0,
+            "suggested_other_rows": 0,
+            "suggested_true_rows": 49
+          }
+        },
+        "current_batch_review_field_workload_summary": {
+          "draft_decision_available_cells": 300,
+          "field_count": 7,
+          "fields_with_draft_decisions": 6,
+          "fields_with_manual_review_required": 1,
+          "manual_review_required_cells": 50,
+          "missing_required_cells": 350,
+          "suggested_false_cells": 36,
+          "suggested_null_cells": 0,
+          "suggested_other_cells": 0,
+          "suggested_true_cells": 264
+        },
+        "current_batch_rows": 50,
+        "current_batch_target_aligned": true,
+        "current_batch_target_covered_rows": 50,
+        "current_batch_target_hash_mismatch_count": 0,
+        "final_batch_limit": 17,
+        "final_batch_offset": 1000,
+        "next_batch_limit": 50,
+        "next_batch_offset": 0,
+        "next_batch_pending_row_end": 50,
+        "next_batch_pending_row_start": 1,
+        "pending_rows": 1017,
+        "remaining_rows_after_current_batch": 967,
+        "remaining_rows_after_next_batch": 967,
+        "rerun_review_progress_after_batch_apply": true
+      },
       "batch_plan": [
         {
           "apply_effect": "merge_batch_into_target_review_template",
@@ -1059,6 +1743,7 @@
     },
     {
       "apply_command": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke build-license-review-import --root . --policy registry/review_batches/source_license_policy_reviewed.json --output registry/review_batches/source_license_policy_import.jsonl && MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_policy_import.jsonl",
+      "batch_overview": {},
       "batch_plan": [],
       "blockers": [],
       "complete_rows": 17529,
@@ -1080,6 +1765,7 @@
     },
     {
       "apply_command": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-lockbox-review --root . --input registry/review_batches/lockbox_reviewed.json",
+      "batch_overview": {},
       "batch_plan": [],
       "blockers": [
         "opened_at required",

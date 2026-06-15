@@ -6360,7 +6360,10 @@ def _manual_progress_allows_private_key_as_count(path: str, value: Any) -> bool:
         or ".invalid_required_fields." in path
     ):
         return type(value) is int
-    if ".review_field_workload." not in path:
+    if (
+        ".review_field_workload." not in path
+        and "_review_field_workload." not in path
+    ):
         return False
     if not isinstance(value, Mapping):
         return False
