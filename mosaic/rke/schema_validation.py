@@ -5361,6 +5361,143 @@ def _calibration_prompt_candidate_expected_evidence_refs(
     ]
 
 
+def _confidence_gate_prompt_candidate_expected_evidence_refs(
+    *,
+    root_path: Path,
+    failures: list[str],
+) -> list[dict[str, Any]]:
+    rows, row_failures = _load_mapping_jsonl(
+        root_path,
+        "registry/report_intelligence/confidence_impact_observations.jsonl",
+    )
+    failures.extend(row_failures)
+    blocked_observation_count = sum(
+        1 for row in rows if str(row.get("paper_trading_status") or "") != "passed"
+    )
+    return [
+        {
+            "artifact_path": (
+                "registry/report_intelligence/confidence_impact_observations.jsonl"
+            ),
+            "field": "paper_trading_status",
+            "blocked_observation_count": blocked_observation_count,
+        }
+    ]
+
+
+def _target_mapping_prompt_candidate_expected_evidence_refs(
+    *,
+    root_path: Path,
+    failures: list[str],
+) -> list[dict[str, Any]]:
+    readiness, readiness_failures = _read_mapping_json(
+        root_path / "registry/report_intelligence/outcome_labeling_readiness.json",
+        "registry/report_intelligence/outcome_labeling_readiness.json",
+    )
+    failures.extend(readiness_failures)
+    if not readiness:
+        return []
+    stock_readiness = (
+        readiness.get("stock_price_proxy_readiness")
+        if isinstance(readiness.get("stock_price_proxy_readiness"), Mapping)
+        else {}
+    )
+    stock_gap_counts = _positive_integer_mapping_values(
+        stock_readiness.get("data_gap_counts")
+    )
+    target_gap_keys = (
+        "stock_target_mapping_missing",
+        "stock_target_missing",
+        "stock_target_conflict",
+    )
+    target_gap_counts = {
+        key: value
+        for key, value in stock_gap_counts.items()
+        if key in target_gap_keys
+    }
+    return [
+        {
+            "artifact_path": "registry/report_intelligence/outcome_labeling_readiness.json",
+            "field": "stock_price_proxy_readiness.data_gap_counts",
+            "gap_counts": target_gap_counts,
+            "total_gap_count": sum(target_gap_counts.values()),
+        }
+    ]
+
+
+def _horizon_direction_prompt_candidate_expected_evidence_refs(
+    *,
+    root_path: Path,
+    failures: list[str],
+) -> list[dict[str, Any]]:
+    readiness, readiness_failures = _read_mapping_json(
+        root_path / "registry/report_intelligence/outcome_labeling_readiness.json",
+        "registry/report_intelligence/outcome_labeling_readiness.json",
+    )
+    failures.extend(readiness_failures)
+    if not readiness:
+        return []
+    gap_counts = _positive_integer_mapping_values(readiness.get("mapping_gap_counts"))
+    stock_readiness = (
+        readiness.get("stock_price_proxy_readiness")
+        if isinstance(readiness.get("stock_price_proxy_readiness"), Mapping)
+        else {}
+    )
+    industry_readiness = (
+        readiness.get("industry_etf_proxy_readiness")
+        if isinstance(readiness.get("industry_etf_proxy_readiness"), Mapping)
+        else {}
+    )
+    stock_gap_counts = _positive_integer_mapping_values(
+        stock_readiness.get("data_gap_counts")
+    )
+    industry_gap_counts = _positive_integer_mapping_values(
+        industry_readiness.get("data_gap_counts")
+    )
+    total_gap_count = sum(
+        gap_counts.get(key, 0)
+        + stock_gap_counts.get(key, 0)
+        + industry_gap_counts.get(key, 0)
+        for key in (
+            "direction_missing_or_unsupported",
+            "horizon",
+            "unknown_mapping_gap",
+        )
+    )
+    return [
+        {
+            "artifact_path": "registry/report_intelligence/outcome_labeling_readiness.json",
+            "field": "mapping_gap_counts",
+            "gap_counts": gap_counts,
+            "total_gap_count": total_gap_count,
+        }
+    ]
+
+
+def _markdown_quality_prompt_candidate_expected_evidence_refs(
+    *,
+    root_path: Path,
+    failures: list[str],
+) -> list[dict[str, Any]]:
+    summary, summary_failures = _read_mapping_json(
+        root_path / "registry/report_intelligence/markdown_coverage_summary.json",
+        "registry/report_intelligence/markdown_coverage_summary.json",
+    )
+    failures.extend(summary_failures)
+    if not summary:
+        return []
+    return [
+        {
+            "artifact_path": "registry/report_intelligence/markdown_coverage_summary.json",
+            "field": "markdown_quality_gap_counts",
+            "gap_counts": _positive_integer_mapping_values(
+                summary.get("markdown_quality_gap_counts")
+            ),
+            "retry_queue_count": _int_or_none(summary.get("retry_queue_count")) or 0,
+        }
+    ]
+
+
 def _prompt_mutation_matching_evidence_ref(
     row: Mapping[str, Any],
     *,
@@ -5560,6 +5697,58 @@ def _validate_prompt_mutation_governed_evidence(
                     failures.append(
                         f"{row_label}.{candidate_type}.evidence_refs.{field}.{key}: "
                         "must match confidence impact monitor public evidence"
+                    )
+    elif candidate_type in {
+        "confidence_gate_rule",
+        "target_mapping_rule",
+        "horizon_direction_rule",
+        "markdown_quality_rule",
+    }:
+        if candidate_type == "confidence_gate_rule":
+            expected_refs = _confidence_gate_prompt_candidate_expected_evidence_refs(
+                root_path=root_path,
+                failures=failures,
+            )
+            evidence_source = "confidence impact observations"
+        elif candidate_type == "target_mapping_rule":
+            expected_refs = _target_mapping_prompt_candidate_expected_evidence_refs(
+                root_path=root_path,
+                failures=failures,
+            )
+            evidence_source = "stock readiness"
+        elif candidate_type == "horizon_direction_rule":
+            expected_refs = _horizon_direction_prompt_candidate_expected_evidence_refs(
+                root_path=root_path,
+                failures=failures,
+            )
+            evidence_source = "outcome readiness mapping gaps"
+        else:
+            expected_refs = _markdown_quality_prompt_candidate_expected_evidence_refs(
+                root_path=root_path,
+                failures=failures,
+            )
+            evidence_source = "Markdown coverage summary"
+        for expected in expected_refs:
+            field = str(expected["field"])
+            evidence = _prompt_mutation_matching_evidence_ref(
+                row,
+                artifact_path=str(expected["artifact_path"]),
+                field=field,
+                row_label=row_label,
+                failures=failures,
+            )
+            if evidence is None:
+                continue
+            for key, expected_value in expected.items():
+                if key in {"artifact_path", "field"}:
+                    continue
+                if not _prompt_mutation_evidence_values_equal(
+                    evidence.get(key),
+                    expected_value,
+                ):
+                    failures.append(
+                        f"{row_label}.{candidate_type}.evidence_refs.{field}.{key}: "
+                        f"must match {evidence_source} public evidence"
                     )
     return failures
 

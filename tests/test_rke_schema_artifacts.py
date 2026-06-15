@@ -3749,6 +3749,56 @@ def test_prompt_mutation_candidate_contract_rejects_calibration_evidence_drift(
         assert any(fragment in item for item in record.failures)
 
 
+def test_prompt_mutation_candidate_contract_rejects_mapping_markdown_confidence_drift(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    candidates_path = registry / "prompt_mutation_candidates.jsonl"
+    candidates = _read_prompt_mutation_candidates(candidates_path)
+    confidence = next(
+        row for row in candidates if row["candidate_type"] == "confidence_gate_rule"
+    )
+    target = next(row for row in candidates if row["candidate_type"] == "target_mapping_rule")
+    horizon = next(
+        row for row in candidates if row["candidate_type"] == "horizon_direction_rule"
+    )
+    markdown = next(
+        row for row in candidates if row["candidate_type"] == "markdown_quality_rule"
+    )
+
+    confidence_evidence = confidence["evidence_refs"][0]
+    target_evidence = target["evidence_refs"][0]
+    horizon_evidence = horizon["evidence_refs"][0]
+    markdown_evidence = markdown["evidence_refs"][0]
+    assert isinstance(confidence_evidence, dict)
+    assert isinstance(target_evidence, dict)
+    assert isinstance(horizon_evidence, dict)
+    assert isinstance(markdown_evidence, dict)
+    confidence_evidence["blocked_observation_count"] = 0
+    target_evidence["gap_counts"] = {}
+    target_evidence["total_gap_count"] = 0
+    horizon_evidence["gap_counts"] = {"horizon": 1}
+    horizon_evidence["total_gap_count"] = 1
+    markdown_evidence["gap_counts"] = {}
+    markdown_evidence["retry_queue_count"] = 0
+    _write_prompt_mutation_candidates(candidates_path, candidates)
+
+    record = _prompt_mutation_candidate_contract_record(tmp_path)
+
+    assert not record.accepted
+    expected_fragments = [
+        "confidence_gate_rule.evidence_refs.paper_trading_status.blocked_observation_count",
+        "target_mapping_rule.evidence_refs.stock_price_proxy_readiness.data_gap_counts.gap_counts",
+        "target_mapping_rule.evidence_refs.stock_price_proxy_readiness.data_gap_counts.total_gap_count",
+        "horizon_direction_rule.evidence_refs.mapping_gap_counts.gap_counts",
+        "horizon_direction_rule.evidence_refs.mapping_gap_counts.total_gap_count",
+        "markdown_quality_rule.evidence_refs.markdown_quality_gap_counts.gap_counts",
+        "markdown_quality_rule.evidence_refs.markdown_quality_gap_counts.retry_queue_count",
+    ]
+    for fragment in expected_fragments:
+        assert any(fragment in item for item in record.failures)
+
+
 def _copy_registry_for_manual_progress(tmp_path: Path) -> Path:
     registry = tmp_path / "registry"
     shutil.copytree(Path("registry"), registry, dirs_exist_ok=True)
