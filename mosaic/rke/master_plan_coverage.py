@@ -117,17 +117,38 @@ def _exists(root_path: Path, relative: str) -> bool:
     )
 
 
-def _all_exist(root_path: Path, evidence_paths: Sequence[str]) -> tuple[bool, str]:
+def _evidence_status(
+    root_path: Path, evidence_paths: Sequence[str]
+) -> tuple[bool, bool, str]:
     public_evidence_paths = [
         path for path in evidence_paths if is_public_registry_artifact(path)
     ]
     missing = [path for path in public_evidence_paths if not _exists(root_path, path)]
     if missing:
-        return False, f"missing evidence: {', '.join(missing)}"
+        return False, False, f"missing evidence: {', '.join(missing)}"
     malformed = _evidence_content_errors(root_path, public_evidence_paths)
     if malformed:
-        return False, "; ".join(malformed)
-    return True, ""
+        return False, _evidence_errors_are_blocking_gate_failures(malformed), "; ".join(
+            malformed
+        )
+    return True, False, ""
+
+
+def _evidence_errors_are_blocking_gate_failures(errors: Sequence[str]) -> bool:
+    return bool(errors) and all(
+        " accepted must be true" in error
+        or " blocker_count must be zero" in error
+        or " blocked phases:" in error
+        or " must be deferred_by_rollout" in error
+        for error in errors
+    )
+
+
+def _all_exist(root_path: Path, evidence_paths: Sequence[str]) -> tuple[bool, str]:
+    evidence_ok, _content_error, evidence_blocker = _evidence_status(
+        root_path, evidence_paths
+    )
+    return evidence_ok, evidence_blocker
 
 
 def _evidence_content_errors(
@@ -314,13 +335,25 @@ def _record(
     evidence_paths: Sequence[str],
     status: CoverageStatus | None = None,
     blocker: str = "",
+    blocked_if_evidence_content_error: bool = False,
 ) -> MasterPlanCoverageRecord:
-    evidence_ok, evidence_blocker = _all_exist(root_path, evidence_paths)
+    evidence_ok, evidence_content_error, evidence_blocker = _evidence_status(
+        root_path, evidence_paths
+    )
     final_status: CoverageStatus = status or ("passed" if evidence_ok else "missing")
     final_blocker = blocker
     if not evidence_ok:
-        final_status = "missing"
-        final_blocker = evidence_blocker
+        if final_status == "missing" and blocker:
+            final_status = "missing"
+        else:
+            final_status = (
+                "blocked"
+                if evidence_content_error and blocked_if_evidence_content_error
+                else "missing"
+            )
+        final_blocker = "; ".join(
+            item for item in (blocker, evidence_blocker) if item
+        )
     return MasterPlanCoverageRecord(
         section_id=section_id,
         requirement=requirement,
@@ -339,6 +372,7 @@ def _completion_record(
     requirement: str,
     evidence_paths: Sequence[str],
     blocked_if_failed: bool = False,
+    blocked_if_evidence_content_error: bool = False,
     completion_error: str = "",
 ) -> MasterPlanCoverageRecord:
     row = completion.get(criterion_id, {})
@@ -361,6 +395,7 @@ def _completion_record(
         evidence_paths=evidence_paths,
         status=status,
         blocker=blocker,
+        blocked_if_evidence_content_error=blocked_if_evidence_content_error,
     )
 
 
@@ -761,7 +796,8 @@ def _claim_checker_record(root_path: Path) -> MasterPlanCoverageRecord:
         "registry/claim_checks/claim_variable_validation_report.json",
         "registry/claim_checks/claim_grounding_validation_report.json",
     )
-    failures: list[str] = []
+    missing_failures: list[str] = []
+    gate_failures: list[str] = []
     for relative, label in (
         (
             "registry/schemas/rke_schema_validation_report.json",
@@ -778,9 +814,10 @@ def _claim_checker_record(root_path: Path) -> MasterPlanCoverageRecord:
     ):
         report, error = _load_mapping_evidence(root_path, relative, label)
         if error:
-            failures.append(error)
+            missing_failures.append(error)
         elif report is not None and report.get("accepted") is not True:
-            failures.append(f"{label} accepted must be true")
+            gate_failures.append(f"{label} accepted must be true")
+    failures = [*missing_failures, *gate_failures]
     return _content_record(
         root_path,
         section_id="MVP-D3",
@@ -788,6 +825,7 @@ def _claim_checker_record(root_path: Path) -> MasterPlanCoverageRecord:
         evidence_paths=evidence_paths,
         passed=not failures,
         blocker="; ".join(failures),
+        blocked_if_failed=bool(gate_failures) and not missing_failures,
     )
 
 
@@ -1053,6 +1091,7 @@ def build_master_plan_coverage_report(
                     REPORT_INTELLIGENCE_PATCH_COVERAGE_REPORT_PATH,
                 ),
                 blocked_if_failed=True,
+                blocked_if_evidence_content_error=True,
                 completion_error=completion_error,
             ),
             _record(
@@ -1264,9 +1303,13 @@ def build_master_plan_coverage_report(
         final_acceptance_section=MASTER_PLAN_ACCEPTANCE_SECTION,
         coverage_complete=(
             missing_count == 0
+            and blocked_count == 0
             and mvp_deliverable_missing_count == 0
+            and mvp_deliverable_blocked_count == 0
             and mvp_exit_missing_count == 0
+            and mvp_exit_blocked_count == 0
             and final_missing_count == 0
+            and final_blocked_count == 0
         ),
         ready_for_broad_rollout=(
             missing_count == 0

@@ -23,27 +23,28 @@ def test_master_plan_coverage_reports_current_registry_ready():
     assert report.report_id == "RKE-MASTER-PLAN-COVERAGE-REPORT-20260606"
     assert not report.coverage_complete
     assert not report.ready_for_broad_rollout
-    assert report.missing_count == 1
-    assert report.blocked_count == 0
+    assert report.missing_count == 0
+    assert report.blocked_count == 1
     assert report.mvp_deliverables_section == "16.3"
     assert report.mvp_exit_criteria_section == "16.4"
-    assert report.mvp_deliverables_passed_count == 9
-    assert report.mvp_deliverables_blocked_count == 0
-    assert report.mvp_deliverables_missing_count == 1
+    assert report.mvp_deliverables_passed_count == 8
+    assert report.mvp_deliverables_blocked_count == 2
+    assert report.mvp_deliverables_missing_count == 0
     assert not report.mvp_deliverables_ready
-    assert report.mvp_exit_passed_count == 13
-    assert report.mvp_exit_blocked_count == 0
+    assert report.mvp_exit_passed_count == 12
+    assert report.mvp_exit_blocked_count == 1
     assert report.mvp_exit_missing_count == 0
-    assert report.mvp_exit_ready
+    assert not report.mvp_exit_ready
     assert report.final_acceptance_section == "22"
-    assert report.final_acceptance_passed_count == 12
-    assert report.final_acceptance_blocked_count == 0
+    assert report.final_acceptance_passed_count == 11
+    assert report.final_acceptance_blocked_count == 1
     assert report.final_acceptance_missing_count == 0
-    assert report.final_acceptance_ready
+    assert not report.final_acceptance_ready
     phase_1b = next(
         record for record in report.records if record.section_id == "Phase-1B"
     )
-    assert phase_1b.status == "missing"
+    assert phase_1b.status == "blocked"
+    assert "gold set requires >= 50 documents" in phase_1b.blocker
     assert "patch_v1_5_coverage_report.json accepted must be true" in phase_1b.blocker
     assert "blocked phases: B, D" in phase_1b.blocker
     assert all(
@@ -54,17 +55,44 @@ def test_master_plan_coverage_reports_current_registry_ready():
     assert all(
         record.status == "passed"
         for record in report.mvp_deliverable_records
-        if record.section_id != "MVP-D3"
+        if record.section_id not in {"MVP-D2", "MVP-D3"}
     )
+    mvp_d2 = next(
+        record
+        for record in report.mvp_deliverable_records
+        if record.section_id == "MVP-D2"
+    )
+    assert mvp_d2.status == "blocked"
+    assert "gold set requires >= 50 documents" in mvp_d2.blocker
     mvp_d3 = next(
         record
         for record in report.mvp_deliverable_records
         if record.section_id == "MVP-D3"
     )
-    assert mvp_d3.status == "missing"
+    assert mvp_d3.status == "blocked"
     assert "schema validation report accepted must be true" in mvp_d3.blocker
-    assert all(record.status == "passed" for record in report.mvp_exit_records)
-    assert all(record.status == "passed" for record in report.final_acceptance_records)
+    assert all(
+        record.status == "passed"
+        for record in report.mvp_exit_records
+        if record.section_id != "MVP-E01"
+    )
+    assert (
+        next(record for record in report.mvp_exit_records if record.section_id == "MVP-E01").status
+        == "blocked"
+    )
+    assert all(
+        record.status == "passed"
+        for record in report.final_acceptance_records
+        if record.section_id != "FinalAcceptance-C02"
+    )
+    assert (
+        next(
+            record
+            for record in report.final_acceptance_records
+            if record.section_id == "FinalAcceptance-C02"
+        ).status
+        == "blocked"
+    )
     assert all(
         record.evidence_paths == ("registry/audits/rke_completion_audit.json",)
         for record in report.final_acceptance_records
@@ -199,7 +227,7 @@ def test_master_plan_coverage_rejects_blocked_report_intelligence_patch(
     )
 
     assert not report.coverage_complete
-    assert phase_1b.status == "missing"
+    assert phase_1b.status == "blocked"
     assert "patch_v1_5_coverage_report.json accepted must be true" in phase_1b.blocker
     assert "blocked phases: B" in phase_1b.blocker
 
@@ -225,10 +253,10 @@ def test_master_plan_coverage_reports_invalid_direct_jsonl_evidence(tmp_path: Pa
 
 def test_master_plan_coverage_malformed_blocked_evidence_is_missing(tmp_path: Path):
     _copy_registry_and_schemas(tmp_path)
-    gold_import = (
-        tmp_path / "registry/review_batches/gold_set_next_import_template.jsonl"
+    patch_coverage = (
+        tmp_path / "registry/report_intelligence/patch_v1_5_coverage_report.json"
     )
-    gold_import.write_text("{\n", encoding="utf-8")
+    patch_coverage.write_text("{\n", encoding="utf-8")
 
     report = build_master_plan_coverage_report(tmp_path)
     phase_1b = next(
@@ -237,8 +265,7 @@ def test_master_plan_coverage_malformed_blocked_evidence_is_missing(tmp_path: Pa
 
     assert not report.coverage_complete
     assert phase_1b.status == "missing"
-    assert "patch_v1_5_coverage_report.json accepted must be true" in phase_1b.blocker
-    assert "blocked phases: B, D" in phase_1b.blocker
+    assert "patch_v1_5_coverage_report.json must contain valid JSON" in phase_1b.blocker
 
 
 def test_master_plan_coverage_reports_invalid_completion_audit_json(tmp_path: Path):
@@ -427,11 +454,11 @@ def test_master_plan_coverage_writer_and_cli(tmp_path: Path, capsys):
     assert code == 2
     assert output["coverage_complete"] is False
     assert output["ready_for_broad_rollout"] is False
-    assert output["blocked_count"] == 0
-    assert output["missing_count"] == 1
+    assert output["blocked_count"] == 1
+    assert output["missing_count"] == 0
     assert output["mvp_deliverables_section"] == "16.3"
-    assert output["mvp_deliverables_blocked_count"] == 0
-    assert output["mvp_deliverables_missing_count"] == 1
+    assert output["mvp_deliverables_blocked_count"] == 1
+    assert output["mvp_deliverables_missing_count"] == 0
     assert output["mvp_exit_criteria_section"] == "16.4"
     assert output["mvp_exit_blocked_count"] == 0
     assert output["final_acceptance_section"] == "22"

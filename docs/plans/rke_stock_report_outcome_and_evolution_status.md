@@ -152,7 +152,10 @@ public-safe `next_actions` that point to `schema-status --failures-only`,
 reuses the same schema/manual-review actions and field contracts. This makes the
 MVP-D3 `schema validation report accepted must be true` blocker traceable to the
 underlying manual review gates without editing master-plan coverage artifacts
-directly. `promotion-status --no-write` now also includes public-safe
+directly. Master-plan coverage now distinguishes missing evidence from blocked
+evidence: existing but non-passing gold/schema/patch gates report as `blocked`,
+while absent or malformed artifacts remain `missing`. `promotion-status
+--no-write` now also includes public-safe
 `next_actions` for PG02 manual gold-set review and PG09 lockbox review, with
 lockbox commands explicitly marked as dependent on upstream manual gates. Its
 promotion dry-run action and the manual review runbook now follow the same

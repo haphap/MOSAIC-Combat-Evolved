@@ -46,13 +46,14 @@ def test_dashboard_report_summarizes_completion_and_monitoring():
     assert report["completion"]["total"] == 12
     assert report["master_plan_coverage"]["coverage_complete"] is False
     assert report["master_plan_coverage"]["ready_for_broad_rollout"] is False
-    assert report["master_plan_coverage"]["missing_count"] == 1
-    assert report["master_plan_coverage"]["blocked_count"] == 0
-    assert report["master_plan_coverage"]["blocked_sections"] == ()
+    assert report["master_plan_coverage"]["missing_count"] == 0
+    assert report["master_plan_coverage"]["blocked_count"] == 1
+    assert report["master_plan_coverage"]["blocked_sections"] == ("Phase-1B",)
     assert report["master_plan_coverage"]["mvp_deliverables"]["section"] == "16.3"
-    assert report["master_plan_coverage"]["mvp_deliverables"]["blocked_count"] == 1
+    assert report["master_plan_coverage"]["mvp_deliverables"]["blocked_count"] == 2
     assert report["master_plan_coverage"]["mvp_deliverables"]["blocked_sections"] == (
         "MVP-D2",
+        "MVP-D3",
     )
     assert report["master_plan_coverage"]["mvp_exit_criteria"]["section"] == "16.4"
     assert report["master_plan_coverage"]["mvp_exit_criteria"]["blocked_count"] == 1
@@ -261,11 +262,11 @@ def test_dashboard_markdown_renders_blockers():
     assert "# RKE Dashboard" in markdown
     assert "Broad rollout ready: false" in markdown
     assert "Dashboard artifact errors: 0" in markdown
-    assert "Master-plan coverage missing: 1" in markdown
-    assert "Master-plan coverage blocked: 0" in markdown
-    assert "Master-plan blocked sections: none" in markdown
-    assert "MVP deliverables blocked: 1" in markdown
-    assert "MVP deliverable blocked sections: MVP-D2" in markdown
+    assert "Master-plan coverage missing: 0" in markdown
+    assert "Master-plan coverage blocked: 1" in markdown
+    assert "Master-plan blocked sections: Phase-1B" in markdown
+    assert "MVP deliverables blocked: 2" in markdown
+    assert "MVP deliverable blocked sections: MVP-D2, MVP-D3" in markdown
     assert "MVP exit criteria blocked: 1" in markdown
     assert "MVP exit blocked sections: MVP-E01" in markdown
     assert "Final acceptance blocked: 1" in markdown

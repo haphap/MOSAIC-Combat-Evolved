@@ -1,5 +1,5 @@
 {
-  "blocked_count": 0,
+  "blocked_count": 1,
   "coverage_complete": false,
   "final_acceptance_blocked_count": 1,
   "final_acceptance_missing_count": 0,
@@ -117,7 +117,7 @@
   ],
   "final_acceptance_section": "22",
   "master_plan_path": "docs/plans/master_plan_v1_1.md",
-  "missing_count": 1,
+  "missing_count": 0,
   "mvp_deliverable_records": [
     {
       "blocker": "",
@@ -150,7 +150,7 @@
       ],
       "requirement": "Source-grounded claim schema and verifier.",
       "section_id": "MVP-D3",
-      "status": "missing"
+      "status": "blocked"
     },
     {
       "blocker": "",
@@ -227,8 +227,8 @@
       "status": "passed"
     }
   ],
-  "mvp_deliverables_blocked_count": 1,
-  "mvp_deliverables_missing_count": 1,
+  "mvp_deliverables_blocked_count": 2,
+  "mvp_deliverables_missing_count": 0,
   "mvp_deliverables_passed_count": 8,
   "mvp_deliverables_ready": false,
   "mvp_deliverables_section": "16.3",
@@ -390,7 +390,7 @@
       "status": "passed"
     },
     {
-      "blocker": "registry/report_intelligence/patch_v1_5_coverage_report.json accepted must be true; registry/report_intelligence/patch_v1_5_coverage_report.json blocker_count must be zero; registry/report_intelligence/patch_v1_5_coverage_report.json blocked phases: B, D",
+      "blocker": "gold set requires >= 50 documents; direction_accuracy below 0.85; variable_mapping_accuracy below 0.80; unsupported_field_false_grounding_rate above 0.05; registry/report_intelligence/patch_v1_5_coverage_report.json accepted must be true; registry/report_intelligence/patch_v1_5_coverage_report.json blocker_count must be zero; registry/report_intelligence/patch_v1_5_coverage_report.json blocked phases: B, D",
       "evidence_paths": [
         "registry/gold_sets/tushare_research_reports.review_template.jsonl",
         "registry/gold_sets/tushare_research_reports.candidate_claims.jsonl",
@@ -407,7 +407,7 @@
       ],
       "requirement": "Claim extraction reliability has 50-document / 100-claim manual gold-set gate.",
       "section_id": "Phase-1B",
-      "status": "missing"
+      "status": "blocked"
     },
     {
       "blocker": "",

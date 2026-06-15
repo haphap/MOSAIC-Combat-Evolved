@@ -148,8 +148,8 @@ def test_rke_cli_master_plan_status_writes_coverage(tmp_path: Path, capsys):
     assert code == 2
     assert output["coverage_complete"] is False
     assert output["ready_for_broad_rollout"] is False
-    assert output["blocked_count"] == 0
-    assert output["missing_count"] == 1
+    assert output["blocked_count"] == 1
+    assert output["missing_count"] == 0
     next_actions = {action["action_id"]: action for action in output["next_actions"]}
     assert {
         "inspect_master_plan_schema_blockers",
