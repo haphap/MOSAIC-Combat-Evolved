@@ -43,7 +43,7 @@ contracts.
 | `registry/report_intelligence/confidence_impact_monitor.json` and `registry/report_intelligence/monitoring_report.json` | 33 paper-trading validated recipes are monitored across 2031 confidence-impact observations; unvalidated confidence impact count is 0; alpha-decay and calibration-drift observations remain shadow-only. The alpha-decay blocker now uses the latest/tail non-positive after-cost streak while retaining the historical max streak as a diagnostic, so recovered short-window misses do not block long-window evidence. `schemas/report_intelligence_alpha_decay_monitoring_rules` now also checks monitoring report corpus counts, tooling-loop counts, tool-gap priority counts, evidence-coverage counts, and source/viewpoint/method effective-N summaries against the underlying public registry artifacts. |
 | `registry/report_intelligence/evolution_readiness_gate.json` | blocked; 7 blockers remain across schema/audit-history readiness and manual forecast gold-set quality metrics. The semantic contract now hard-checks P13 machine thresholds in the committed gate evidence, including outcome coverage, stock/industry/macro proxy counts, paper-trading counts and after-cost summary, monitor stability, audit refresh evidence, gap-distribution stability, and P9 coverage status. RI-EVOL-02 now passes with 33/20 validated recipes, RI-EVOL-03 now exposes recipe-level P12 actions without turning them into global blockers: 23 `freeze_recipe` and 19 `send_to_manual_review` actions are tracked under `recipe_level_monitor`, while unvalidated positive confidence impact and aggregate calibration drift remain zero. RI-EVOL-04 requires current schema/PIT/provenance/statistical evidence to match `current_schema_or_audit_gate_blocked` and trailing audit distinct/pass counts to match `audit_refresh_history_below_threshold`, RI-EVOL-05 remains blocked by human gold-set quality metrics, and RI-EVOL-07 now passes after the macro asset proxy candidate stratum was filled. `gap_distribution_history.jsonl` is also semantically checked so `total_gap_count`, `max_gap_name`, `max_gap_share`, `stable`, and `accepted` must match the committed gap counts; a single-gap share above 0.80 cannot be marked stable. |
 | `registry/report_intelligence/prompt_mutation_candidates.jsonl` | 13 shadow-only mutation candidates exist across forecast extraction, confidence gating, paper-trading recipe validation, industry mapping, refresh stability, calibration, tool-gap prioritization, Markdown quality, gold-set quality repair, and analytical-footprint quality repair; all have `promotion_state=shadow_candidate_only`, `manual_review_required=true`, `production_prompt_change_allowed=false`, and `private_text_included=false`. The industry mapping candidate now directly cites `industry_etf_proxy_pit_availability.labelability_action_summary`, so the current 38 unmapped sector-claim gaps and 1 PIT-unavailable mapping are visible to the prompt-evolution action queue instead of remaining only in the PIT-availability artifact. The calibration candidate now directly cites `confidence_impact_monitor.recipe_level_monitor` aggregate counts, so the current 23 `freeze_recipe` actions and 19 `send_to_manual_review` actions are visible to the P12 review queue without exposing recipe text or private inputs. The gold quality repair candidate now directly cites RI-EVOL-05 aggregate metrics for `direction_accuracy`, `variable_mapping_accuracy`, and `unsupported_field_false_grounding_rate`, plus the 13-document coverage gap, so gold-set failures drive a specific prompt-repair queue rather than only a manual-review queue. The analytical-footprint quality repair candidate now directly cites `analytical_footprint_review_summary.precision_recall_report`, including the `metric_mapping_accuracy` failure, 1017 pending footprint review rows, and aggregate error counts, so footprint mapping defects feed a specific prompt-repair queue without exposing source text. The semantic contract also requires the full offline validation matrix (`gold_set_review_pass`, PIT replay, schema, provenance, statistical robustness, and shadow paper-trading), rejects private or non-repo evidence paths in `evidence_refs`, requires every referenced public evidence artifact to exist, and recomputes the gold/footprint quality-repair evidence from the public gate summaries so candidate evidence cannot drift from governed aggregate artifacts. |
-| `registry/review_batches/manual_review_progress_report.json` and `registry/gold_sets/tushare_research_reports.review_summary.json` | public baseline: gold-set 158/158 reviewed but quality-blocked, analytical-footprint review 34/1051 reviewed with 1017 pending, source license 17529/17529 already applied, lockbox 0/1. Semantic validation now passes as `schemas/report_intelligence_manual_review_progress_rules`, which checks input paths, ready/simulation consistency, blocker consistency, repo-local temp command prefixes, dry-run mode, and source-text-free `current_batch_status` counts. It accepts both the current blocked state and a future completed state where all gates have zero pending rows and no blockers. The public gold-set review summary is also checked as `schemas/report_intelligence_gold_review_gate_rules`: the current 158/158 reviewed state is complete at row level but blocked by document coverage and below-threshold human review metrics; false pass states, count drift, missing metrics, and below-threshold metrics are rejected. Synthetic pytest fixtures can mark manual rows complete for contract tests, but current target hashes in the real scratch still require human review. The action queue distinguishes already-applied gates from runnable apply work: source-license now reports `action_state=already_applied`, `can_run_now=false`, and an empty command set. The report includes aggregate `current_batch_status` for the active local 17-row gold-set quality re-review scratch, 50-row analytical-footprint scratch, and lockbox scratch files, plus a public-safe footprint `batch_plan`: 21 pending analytical-footprint batches at 50 rows per batch except the final 17-row batch. Each footprint batch explicitly records `apply_effect=merge_batch_into_target_review_template`, the transient `batch_input_path` for the 50-row import, the `target_review_template_path` it merges into, and the separate `promotion_input_path` used only after full human review; schema validation also rejects batch commands that use promotion inputs and promotion commands that use transient batch inputs. Current gold quality re-review batch status is 17 rows, 0 complete, 17 pending, 0 malformed, with evidence and target hashes aligned; `write-gold-review-assist --review-input` now builds matching private assist rows for that same scratch order, and the action queue exposes `assist`, `evidence`, and `dry_run` commands for the current batch. The previous gold scratch was backed up under `.mosaic/tmp/review-backups/`. Gold remains blocked because quality metrics and document coverage are below threshold, but the immediate action is now filling the current 17-row re-review batch before dry-run. The stale analytical-footprint scratch was backed up under `.mosaic/tmp/review-backups/`, and the current analytical-footprint batch status is 50 rows, 0 complete, 50 pending, 0 malformed, with evidence and target hashes aligned. The next action is filling the current footprint batch fields, not re-preparing or applying. The target review summary still has 1017 pending rows. Current lockbox decision status is 1 row, 0 complete, 1 pending, 0 malformed; missing required fields are aggregate counts only. Full gold-set and footprint review imports still require quality-gate and human-review completion before promotion dry-run. |
+| `registry/review_batches/manual_review_progress_report.json` and `registry/gold_sets/tushare_research_reports.review_summary.json` | public baseline: gold-set 158/158 reviewed but quality-blocked, analytical-footprint review 34/1051 reviewed with 1017 pending, source license 17529/17529 already applied, lockbox 0/1. Semantic validation now passes as `schemas/report_intelligence_manual_review_progress_rules`, which checks input paths, ready/simulation consistency, blocker consistency, repo-local temp command prefixes, dry-run mode, and source-text-free `current_batch_status` counts. It accepts both the current blocked state and a future completed state where all gates have zero pending rows and no blockers. The public gold-set review summary is also checked as `schemas/report_intelligence_gold_review_gate_rules`: the current 158/158 reviewed state is complete at row level but blocked by document coverage and below-threshold human review metrics; false pass states, count drift, missing metrics, and below-threshold metrics are rejected. Synthetic pytest fixtures can mark manual rows complete for contract tests, but current target hashes in the real scratch still require human review. The action queue distinguishes already-applied gates from runnable apply work: source-license now reports `action_state=already_applied`, `can_run_now=false`, and an empty command set. The report includes aggregate `current_batch_status` for the active local 17-row gold-set quality re-review scratch, 50-row analytical-footprint scratch, and lockbox scratch files, plus a public-safe footprint `batch_plan`: 21 pending analytical-footprint batches at 50 rows per batch except the final 17-row batch. Each footprint batch explicitly records `apply_effect=merge_batch_into_target_review_template`, the transient `batch_input_path` for the 50-row import, the `target_review_template_path` it merges into, and the separate `promotion_input_path` used only after full human review; schema validation also rejects batch commands that use promotion inputs and promotion commands that use transient batch inputs. Current gold quality re-review batch status is 17 rows, 17 complete, 0 pending, 0 malformed, with evidence and target hashes aligned; the batch was backfilled from matching prior human-reviewed rows and `apply-gold-review --dry-run` accepts it with `applied_rows=0` because the target already has those manual decisions. Gold remains blocked because quality metrics and document coverage are below threshold, so the immediate action is now quality-gate work: re-review failed gold labels or refresh the candidate set to expand document coverage. The stale analytical-footprint scratch was backed up under `.mosaic/tmp/review-backups/`, and the current analytical-footprint batch status is 50 rows, 0 complete, 50 pending, 0 malformed, with evidence and target hashes aligned. The next action is filling the current footprint batch fields, not re-preparing or applying. The target review summary still has 1017 pending rows. Current lockbox decision status is 1 row, 0 complete, 1 pending, 0 malformed; missing required fields are aggregate counts only. Full gold-set and footprint review imports still require quality-gate and human-review completion before promotion dry-run. |
 | `registry/handoffs/rke_operator_handoff.json` | operator handoff semantic validation now passes as `schemas/report_intelligence_operator_handoff_rules`: command sequence order, repo-local temp prefixes, reviewed input paths, promotion dry-run inputs, and production-disabled state are checked directly against the handoff artifact |
 | `registry/handoffs/rke_operator_readiness_report.json` | operator readiness currently passes 18/18 checks: required registry valid, handoff command sequence complete, manual review runbook promotion dry-run source-license policy consistent, manual import templates sparse and provenance-tagged, batch inputs separated from promotion inputs, blank gold/lockbox/source-license templates rejected, lockbox upstream CLI guard matches manual gate readiness, blank bundle dry-run does not promote, manual review bundle manifest current, and promotion gate state matches PG01-PG10 criteria |
 | `registry/review_batches/manual_review_bundle_manifest.json` | manual review bundle manifest semantic validation now re-computes artifact bytes and SHA-256 digests, validates the embedded promotion dry-run summary against `registry/promotion/rke_promotion_dry_run_report.json`, and accepts both the current blocked dry-run summary and a future completed summary when all dry-run steps are accepted and no missing/rejected steps remain. |
@@ -62,7 +62,7 @@ contracts.
 | P5 evolution loop | Partially implemented | mutation candidates, tool-gap prioritization, paper-trading and monitor inputs exist; gold-set and analytical-footprint quality failures now generate dedicated prompt-repair candidates; promotion remains blocked by manual review gates |
 | P6 decisions | Implemented for default path | default benchmark `SH510300` from `cn_etf`; stock cost 20 bps; stock windows 5/20/60/120; no company-name fuzzy mapping |
 | P7 implementation breakdown | Implemented | qlib helpers, readiness builder, label builder, derived refresh integration, audits, schemas, tests, proxy outcome ID namespace contracts, and profile layer contracts that prevent cross-label-type/benchmark/cost aggregation from replacing stratified evidence |
-| P8 acceptance matrix | Automated acceptance passes except manual review / coverage gates | ruff, report-intelligence tests, schema-artifact tests, prompt leak guard, diff check pass; `schema-status` intentionally exits 2 until analytical footprint review, Phase B gold-set review, and Phase D footprint quality gates pass; `prepare-footprint-review` now creates a gitignored import scaffold for the footprint gate |
+| P8 acceptance matrix | Automated acceptance passes except manual review / coverage gates | ruff, report-intelligence tests, schema-artifact tests, prompt leak guard, diff check pass; `schema-status` intentionally exits 2 until analytical footprint review, gold-set quality/corpus review, and patch v1.5 Phase B/D coverage gates pass; `prepare-footprint-review` now creates a gitignored import scaffold for the footprint gate |
 | P9 PDF/Markdown coverage expansion | Implemented for current sample pool | public coverage summary exists, includes `macro_asset_proxy_candidate` coverage, and passes privacy rules; private PDF/Markdown/cache paths remain gitignored |
 | P10 industry ETF mapping/PIT availability | Implemented with action watchlist | 64-row mapping registry, PIT availability artifact, mapping contract tests; `工业金属 -> SH560860` pinned; semantic validation now rejects drift between PIT availability `labelability_summary`, `labelability_action_summary`, PIT mapping counts, and `outcome_labeling_readiness` |
 | P11 recipe paper-trading | Implemented; current aggregate threshold cleared | pre-registration hash, OOS chronological split, required data contracts, cost/benchmark protocol, 2031 paper-trading runs, 33 validated recipes against the 20-recipe threshold |
@@ -245,9 +245,11 @@ for `industry_proxy_mapping_rule` now consumes the same action summary and adds
 its next actions to `blocked_by`, keeping the P10 remediation queue connected to
 the P5 evolution loop.
 
-The current local gold-set quality re-review scratch has 17 rows, 0 complete
-rows, and 17 pending rows; its evidence and target hashes are aligned, and the
-previous gold scratch was backed up under `.mosaic/tmp/review-backups/`.
+The current local gold-set quality re-review scratch has 17 rows, 17 complete
+rows, and 0 pending rows; its evidence and target hashes are aligned. It was
+backfilled from matching prior human-reviewed rows, and
+`apply-gold-review --dry-run` accepts the scratch with `applied_rows=0` because
+the target review template already contains those manual decisions.
 The current local analytical-footprint scratch has 50 rows, 0 complete rows,
 and 50 pending rows; its evidence and target hashes are aligned. Gold-set review
 has no target-template pending rows (`158/158` complete), but it still fails the
@@ -255,8 +257,9 @@ quality gate: reviewed document
 coverage is below the 50-document threshold, `direction_accuracy=0.626582`,
 `variable_mapping_accuracy=0.189873`, and
 `unsupported_field_false_grounding_rate=0.227848`. This means the next gold-set
-work item is filling the 17-row quality re-review batch and then improving
-extraction/mapping coverage if document coverage or quality metrics remain
+work item is quality-gate work: re-review failed labels or refresh the gold
+candidate set to expand document coverage, then improve extraction/mapping if
+document coverage or quality metrics remain
 below threshold. The footprint target summary is now `34/1051` complete with
 1017 rows pending.
 
@@ -439,12 +442,12 @@ MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run mosaic-rke write-footpri
 ```
 
 These commands write private, gitignored manual handoff files. The current local
-gold-set quality re-review scratch batch has 17 rows, 0 complete rows, and 17
+gold-set quality re-review scratch batch has 17 rows, 17 complete rows, and 0
 pending rows; its private assist and evidence drafts are aligned with the same
-17 scratch rows, and the previous stale gold scratch was backed up under
-`.mosaic/tmp/review-backups/`. The promotion gold-set import remains not ready
-because document coverage and quality-metric blockers still require quality
-re-review plus pipeline/corpus improvements. The previous stale
+17 scratch rows. The batch was backfilled from matching prior human-reviewed
+rows and its dry-run import is accepted, but the promotion gold-set import
+remains not ready because document coverage and quality-metric blockers still
+require quality re-review plus pipeline/corpus improvements. The previous stale
 analytical-footprint scratch was backed up under `.mosaic/tmp/review-backups/`
 before overwrite. The current active analytical-footprint batch has 50 rows,
 0 complete rows, 50 pending rows, and no target-row-hash mismatches against the
@@ -456,7 +459,7 @@ footprint review summary still has 1017 pending rows. The
 assist command writes
 private, gitignored helper files at
 `registry/report_intelligence/analytical_footprint_review_assist.jsonl` and
-`registry/report_intelligence/analytical_footprint_review_workbook.md`; the current private footprint review assist/workbook snapshot covers 1001 pending rows and should be refreshed before the next footprint batch because the public target now has 1017 pending rows. These files are not import files and do not satisfy the review gate by themselves. The evidence command writes private, gitignored local-markdown snippets and draft review suggestions at
+`registry/report_intelligence/analytical_footprint_review_workbook.md`; the current private footprint review assist/workbook snapshot follows the active 50-row scratch batch via `--review-input`, rather than selecting a different full pending set. These files are not import files and do not satisfy the review gate by themselves. The evidence command writes private, gitignored local-markdown snippets and draft review suggestions at
 `registry/report_intelligence/analytical_footprint_review_evidence.jsonl` and
 `registry/report_intelligence/analytical_footprint_review_evidence.md`; the
 private evidence draft is aligned with the current 50-row scratch batch. It
@@ -507,10 +510,13 @@ semantic failures across three records:
 `schemas/report_intelligence_analytical_footprint_review_rules`,
 `schemas/report_intelligence_gold_review_gate_rules`, and
 `schemas/report_intelligence_patch_v1_5_coverage_rules`. These failures are
-downstream of the analytical-footprint review gate, Phase B human gold-set
-review quality metrics, and Phase D footprint quality gate. The evolution
-readiness semantic record now passes, including the paper-trading validated
-recipe threshold. All ordinary schema records, proxy outcome
+downstream of the analytical-footprint review gate, gold-set quality/corpus
+gate, and patch v1.5 Phase B/D coverage gates. Gold-set row-level review is
+complete after the current 17-row quality re-review scratch was backfilled from
+matching prior human-reviewed rows, but broader gold quality/corpus work remains
+part of the schema and patch Phase B promotion path. The evolution readiness
+semantic record now passes, including the paper-trading validated recipe
+threshold. All ordinary schema records, proxy outcome
 contracts, mapping/PIT availability contracts, recipe paper-trading contracts,
 runtime guards, PIT/provenance/statistical/tooling audits, refresh-history
 contracts, operator handoff rules, promotion dry-run rules, and
@@ -528,15 +534,15 @@ legacy BJ 8-prefix codes stay out of the stock proxy outcome channel.
 The objective is not complete until the evolution readiness gate passes. Current
 blocker families include:
 
-1. Manual/operator gates: gold-set review, analytical-footprint review, and
-   lockbox review remain pending, and schema-status still reports
-   analytical-footprint review and patch coverage semantic blockers.
-   Source-license review is applied in the manual progress report, but the
-   broader promotion path is still blocked by source-text redaction and other
-   promotion criteria. The gold-set row-level review is complete, but its quality
-   metrics fail and must be addressed through improved extraction/mapping rules
-   and a refreshed gold corpus with at least 50 reviewed documents. The footprint
-   review has 34 accepted rows and 1017 rows still pending. Validate each
+1. Manual/operator gates: analytical-footprint review and lockbox review remain
+   pending, while gold-set row-level review is complete but broader gold
+   quality/corpus work remains in the schema and patch Phase B promotion path.
+   `schema-status` still reports analytical-footprint review, gold-set quality,
+   and patch coverage semantic blockers. Source-license review is applied in the
+   manual progress report. The gold-set quality/corpus gap must be addressed through improved
+   extraction/mapping rules and a refreshed gold corpus with at least 50 reviewed
+   documents. The footprint review has 34 accepted rows and 1017 rows still
+   pending. Validate each
    footprint batch with
    `MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run`,
    then apply through the same import path.

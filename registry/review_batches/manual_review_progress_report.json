@@ -30,7 +30,7 @@
       ],
       "complete_rows": 158,
       "current_batch_status": {
-        "complete_rows": 0,
+        "complete_rows": 17,
         "evidence_status": {
           "aligned": true,
           "covered_review_rows": 17,
@@ -52,18 +52,9 @@
         },
         "exists": true,
         "malformed_rows": 0,
-        "missing_required_fields": {
-          "claim_correct": 17,
-          "direction_correct": 17,
-          "horizon_correct": 17,
-          "manual_claim_text": 17,
-          "source_span_supports_claim": 17,
-          "target_correct": 17,
-          "unsupported_field_false_grounded": 17,
-          "variable_mapping_correct": 17
-        },
+        "missing_required_fields": {},
         "path": "registry/review_batches/gold_set_reviewed.jsonl",
-        "pending_rows": 17,
+        "pending_rows": 0,
         "rows": 17,
         "target_status": {
           "aligned": true,
