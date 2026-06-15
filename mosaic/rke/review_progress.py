@@ -359,6 +359,41 @@ def _empty_review_field_workload_item() -> dict[str, int]:
     }
 
 
+def _review_field_workload_summary(workload: Mapping[str, Any]) -> Mapping[str, int]:
+    summary = {
+        "field_count": 0,
+        "fields_with_draft_decisions": 0,
+        "fields_with_manual_review_required": 0,
+        "missing_required_cells": 0,
+        "draft_decision_available_cells": 0,
+        "manual_review_required_cells": 0,
+        "suggested_true_cells": 0,
+        "suggested_false_cells": 0,
+        "suggested_null_cells": 0,
+        "suggested_other_cells": 0,
+    }
+    for item in workload.values():
+        if not isinstance(item, Mapping):
+            continue
+        summary["field_count"] += 1
+        draft_rows = int(item.get("draft_decision_available_rows") or 0)
+        manual_rows = int(item.get("manual_decision_required_rows") or 0)
+        if draft_rows:
+            summary["fields_with_draft_decisions"] += 1
+        if manual_rows:
+            summary["fields_with_manual_review_required"] += 1
+        summary["missing_required_cells"] += int(
+            item.get("missing_required_rows") or 0
+        )
+        summary["draft_decision_available_cells"] += draft_rows
+        summary["manual_review_required_cells"] += manual_rows
+        summary["suggested_true_cells"] += int(item.get("suggested_true_rows") or 0)
+        summary["suggested_false_cells"] += int(item.get("suggested_false_rows") or 0)
+        summary["suggested_null_cells"] += int(item.get("suggested_null_rows") or 0)
+        summary["suggested_other_cells"] += int(item.get("suggested_other_rows") or 0)
+    return summary
+
+
 def _missing_review_field_workload(
     review_rows: Sequence[Mapping[str, Any]],
     *,
@@ -1619,6 +1654,18 @@ def _render_batch_status_lines(label: str, status: Mapping[str, Any]) -> list[st
             )
         if isinstance(workload, Mapping):
             if workload:
+                workload_summary = _review_field_workload_summary(workload)
+                lines.append(
+                    "  Review workload summary: "
+                    "missing_required_cells="
+                    f"{int(workload_summary.get('missing_required_cells') or 0)}; "
+                    "draft_decision_available_cells="
+                    f"{int(workload_summary.get('draft_decision_available_cells') or 0)}; "
+                    "manual_review_required_cells="
+                    f"{int(workload_summary.get('manual_review_required_cells') or 0)}; "
+                    "fields_with_manual_review_required="
+                    f"{int(workload_summary.get('fields_with_manual_review_required') or 0)}"
+                )
                 rendered_workload: list[str] = []
                 for field, item in sorted(workload.items()):
                     if not isinstance(item, Mapping):
@@ -1896,6 +1943,9 @@ def _compact_current_batch_status(status: Mapping[str, Any]) -> Mapping[str, Any
                 for field, item in sorted(workload.items())
                 if isinstance(item, Mapping)
             }
+            compact["review_field_workload_summary"] = _review_field_workload_summary(
+                compact["review_field_workload"]
+            )
         else:
             missing_required = status.get("missing_required_fields")
             suggested_counts = compact["evidence_status"].get(
@@ -1911,6 +1961,9 @@ def _compact_current_batch_status(status: Mapping[str, Any]) -> Mapping[str, Any
                 )
                 if fallback_workload:
                     compact["review_field_workload"] = fallback_workload
+                    compact["review_field_workload_summary"] = (
+                        _review_field_workload_summary(fallback_workload)
+                    )
     target_status = status.get("target_status")
     if isinstance(target_status, Mapping) and target_status:
         compact["target_status"] = {
@@ -2070,6 +2123,17 @@ def _compact_batch_overview(gate: ManualReviewGateProgress) -> Mapping[str, Any]
             for field, item in sorted(review_field_workload.items())
             if isinstance(item, Mapping)
         }
+        workload_summary = current.get("review_field_workload_summary")
+        overview["current_batch_review_field_workload_summary"] = (
+            {
+                str(key): int(value)
+                for key, value in sorted(workload_summary.items())
+            }
+            if isinstance(workload_summary, Mapping) and workload_summary
+            else _review_field_workload_summary(
+                overview["current_batch_review_field_workload"]
+            )
+        )
     for field_name in (
         "quality_gap_focus_field_counts",
         "suggested_tag_counts",

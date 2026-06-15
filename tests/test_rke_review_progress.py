@@ -1461,6 +1461,18 @@ def test_review_progress_reports_current_batch_scratch_status(tmp_path: Path):
         ]["manual_decision_required_rows"]
         == 1
     )
+    assert summary_gold["current_batch_status"]["review_field_workload_summary"] == {
+        "draft_decision_available_cells": 1,
+        "field_count": 2,
+        "fields_with_draft_decisions": 1,
+        "fields_with_manual_review_required": 1,
+        "manual_review_required_cells": 1,
+        "missing_required_cells": 2,
+        "suggested_false_cells": 0,
+        "suggested_null_cells": 0,
+        "suggested_other_cells": 0,
+        "suggested_true_cells": 1,
+    }
     assert (
         summary_footprint["current_batch_status"]["evidence_status"][
             "priority_score_counts"
@@ -1543,6 +1555,23 @@ def test_review_progress_reports_current_batch_scratch_status(tmp_path: Path):
         ]["review_notes"]["manual_decision_required_rows"]
         == 1
     )
+    assert actions["gold_set"]["batch_overview"][
+        "current_batch_review_field_workload_summary"
+    ] == {
+        "draft_decision_available_cells": 1,
+        "field_count": 2,
+        "fields_with_draft_decisions": 1,
+        "fields_with_manual_review_required": 1,
+        "manual_review_required_cells": 1,
+        "missing_required_cells": 2,
+        "suggested_false_cells": 0,
+        "suggested_null_cells": 0,
+        "suggested_other_cells": 0,
+        "suggested_true_cells": 1,
+    }
+    assert actions["footprint_review"]["batch_overview"][
+        "current_batch_review_field_workload_summary"
+    ]["manual_review_required_cells"] == 1
     assert (
         actions["gold_set"]["batch_overview"][
             "current_batch_evidence_suggested_review_decision_counts"
@@ -1594,6 +1623,10 @@ def test_review_progress_reports_current_batch_scratch_status(tmp_path: Path):
     assert "refresh_recommended: true" in markdown
     assert "Suggested decision counts:" in markdown
     assert "`metric_mapping_correct`={false:2}" in markdown
+    assert "Review workload summary:" in markdown
+    assert "missing_required_cells=2" in markdown
+    assert "draft_decision_available_cells=1" in markdown
+    assert "manual_review_required_cells=1" in markdown
     assert "Review field workload:" in markdown
     assert "`claim_correct`=missing:1,draft:1,manual:0" in markdown
     assert "`manual_claim_text`=missing:1,draft:0,manual:1" in markdown

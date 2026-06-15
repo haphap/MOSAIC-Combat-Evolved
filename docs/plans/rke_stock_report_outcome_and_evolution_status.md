@@ -22,6 +22,15 @@ Markdown paths, source spans, reviewer notes, or private Tushare rows.
   source-license review is already applied and no longer appears as a runnable
   action. Synthetic pytest fixtures can mark manual rows complete for contract
   tests, but that does not open the real promotion gate.
+- Manual review action queues now expose a public-safe
+  `current_batch_review_field_workload_summary` alongside per-field workload
+  counts. In the current local scratch state, the active 26-row gold batch has
+  260 missing required review cells, 97 evidence-draft cells available for
+  human verification, and 163 cells that still require manual input. The active
+  50-row analytical-footprint batch has 350 missing required review cells, 300
+  evidence-draft cells available for human verification, and 50 cells that
+  still require manual input. These summaries are review aids only; they do not
+  auto-fill human decision fields.
 
 Current public aggregate evidence. Private report-intelligence JSONL files such
 as `report_metadata.jsonl`, `forecast_claims.jsonl`, and
