@@ -11567,7 +11567,7 @@ def test_write_analytical_footprint_review_evidence_is_private_not_import(
     assert "Sector counts" in markdown
     assert "Suggested decision counts" in markdown
     assert "## Quick Fill Checklist" in markdown
-    assert "| # | footprint_id | sector | topic | footprint | span | metric | steps | unknowns | leakage | tags |" in markdown
+    assert "| # | footprint_id | sector | topic | footprint | span | metric | steps | unknowns | leakage | focus | tags |" in markdown
     assert "| 1 | `" in markdown
     assert "Suggested decision rationales" in markdown
     assert "not an import file" in markdown
@@ -11718,6 +11718,8 @@ def test_analytical_footprint_review_evidence_flags_unknown_metric_mapping(
 
     assert row["suggested_review_decision"]["metric_mapping_correct"] is False
     assert row["suggested_review_decision"]["unknowns_used_when_uncertain"] is False
+    assert "metric_mapping_correct" in row["quality_gap_focus_fields"]
+    assert "unknowns_used_when_uncertain" in row["quality_gap_focus_fields"]
     assert "metric_mapping_unknown" in row["suggested_manual_error_tags"]
     assert "metric_mapping_ungrounded" in row["suggested_manual_error_tags"]
     assert "metric_mapping_missing" not in row["suggested_manual_error_tags"]
@@ -11759,6 +11761,8 @@ def test_analytical_footprint_review_evidence_flags_unknown_metric_mapping(
     assert "repairable by governed alias rules" in unknown_rationale["reason"]
     markdown = (tmp_path / report.markdown_path).read_text(encoding="utf-8")
     assert "Indicator mapping summary" in markdown
+    assert "Quality-gap focus field counts" in markdown
+    assert "metric_mapping_correct" in markdown
     assert "Suggested indicator candidate source counts" in markdown
     assert "review_evidence_indicator_alias_rule" in markdown
     assert "revenue_growth" in markdown
@@ -11808,6 +11812,8 @@ def test_analytical_footprint_review_evidence_flags_hidden_metric_mapping_gaps(
     row = evidence_rows[0]
 
     assert row["suggested_review_decision"]["metric_mapping_correct"] is False
+    assert "metric_mapping_correct" in row["quality_gap_focus_fields"]
+    assert "unknowns_used_when_uncertain" in row["quality_gap_focus_fields"]
     assert "metric_mapping_hidden_unknown" in row["suggested_manual_error_tags"]
     assert "metric_mapping_hidden_ungrounded" in row["suggested_manual_error_tags"]
     rationale = next(

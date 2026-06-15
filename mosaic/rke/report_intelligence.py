@@ -5892,6 +5892,42 @@ def _footprint_review_metric_mapping_diagnostics(
     }
 
 
+def _footprint_review_quality_gap_focus_fields(
+    *,
+    boilerplate_risk_footprint: bool,
+    markdown_exists: bool,
+    has_span_evidence: bool,
+    has_patterns: bool,
+    metric_mapping_diagnostics: Mapping[str, Any],
+    inferred_indicator_suggestions: Sequence[Mapping[str, Any]],
+) -> tuple[str, ...]:
+    fields: list[str] = []
+    if boilerplate_risk_footprint:
+        fields.extend(
+            (
+                "footprint_correct",
+                "metric_mapping_correct",
+                "inferred_steps_tagged_correctly",
+            )
+        )
+    if not markdown_exists or not has_span_evidence:
+        fields.append("source_span_supports_footprint")
+    if not has_patterns:
+        fields.append("inferred_steps_tagged_correctly")
+    if (
+        metric_mapping_diagnostics.get("mapping_complete") is not True
+        or bool(inferred_indicator_suggestions)
+    ):
+        fields.append("metric_mapping_correct")
+    if not bool(metric_mapping_diagnostics.get("mention_count")):
+        fields.append("unknowns_used_when_uncertain")
+    elif bool(metric_mapping_diagnostics.get("unknown_canonical_count")):
+        fields.append("unknowns_used_when_uncertain")
+    elif bool(metric_mapping_diagnostics.get("hidden_unknown_canonical_count")):
+        fields.append("unknowns_used_when_uncertain")
+    return tuple(dict.fromkeys(fields))
+
+
 FOOTPRINT_REVIEW_INDICATOR_SUGGESTION_RULES: tuple[
     tuple[str, Mapping[str, str]], ...
 ] = (
@@ -6359,6 +6395,14 @@ def _footprint_review_evidence_row(
             "requires_human_confirmation": True,
         }
     )
+    quality_gap_focus_fields = _footprint_review_quality_gap_focus_fields(
+        boilerplate_risk_footprint=boilerplate_risk_footprint,
+        markdown_exists=markdown_exists,
+        has_span_evidence=has_span_evidence,
+        has_patterns=has_patterns,
+        metric_mapping_diagnostics=metric_mapping_diagnostics,
+        inferred_indicator_suggestions=inferred_indicator_suggestions,
+    )
     return {
         "evidence_kind": "analytical_footprint_review_evidence_not_import",
         "not_apply_footprint_review_input": True,
@@ -6393,6 +6437,7 @@ def _footprint_review_evidence_row(
         "markdown_exists": markdown_exists,
         "evidence_terms": terms[:16],
         "evidence_snippets": snippets,
+        "quality_gap_focus_fields": quality_gap_focus_fields,
         "suggested_review_decision": suggested_decision,
         "suggested_review_rationales": tuple(suggested_rationales),
         "suggested_manual_error_tags": tuple(suggested_tags),
@@ -6522,6 +6567,12 @@ def render_analytical_footprint_review_evidence_markdown(
         for suggestion in _ensure_list(row.get("inferred_indicator_suggestions"))
         if isinstance(suggestion, Mapping)
     )
+    quality_focus_counts = Counter(
+        str(field)
+        for row in rows
+        for field in _ensure_list(row.get("quality_gap_focus_fields"))
+        if str(field).strip()
+    )
     decision_counts: dict[str, Counter[str]] = {
         field: Counter()
         for field in (
@@ -6573,6 +6624,9 @@ def render_analytical_footprint_review_evidence_markdown(
             quick_value(decision_map.get(field)) for field, _ in quick_field_labels
         )
         quick_cells.append(
+            _markdown_table_cell(row.get("quality_gap_focus_fields"), max_chars=120)
+        )
+        quick_cells.append(
             _markdown_table_cell(row.get("suggested_manual_error_tags"), max_chars=120)
         )
         quick_rows.append("| " + " | ".join(quick_cells) + " |")
@@ -6599,6 +6653,11 @@ def render_analytical_footprint_review_evidence_markdown(
             ),
             "- Sector counts: "
             + _markdown_table_cell(dict(sorted(sector_counts.items())), max_chars=500),
+            "- Quality-gap focus field counts: "
+            + _markdown_table_cell(
+                dict(sorted(quality_focus_counts.items())),
+                max_chars=500,
+            ),
             "- Suggested decision counts: "
             + _markdown_table_cell(
                 {field: dict(counts) for field, counts in decision_counts.items()},
@@ -6624,6 +6683,7 @@ def render_analytical_footprint_review_evidence_markdown(
             "sector",
             "topic",
             *[label for _, label in quick_field_labels],
+            "focus",
             "tags",
         ]
         lines.extend(
@@ -6669,6 +6729,7 @@ def render_analytical_footprint_review_evidence_markdown(
                 f"- Topic: {row.get('topic_preview') or '-'}",
                 f"- Priority score: {row.get('priority_score')}",
                 f"- Suggested tags: {_markdown_table_cell(row.get('suggested_manual_error_tags'), max_chars=200)}",
+                f"- Quality-gap focus fields: {_markdown_table_cell(row.get('quality_gap_focus_fields'), max_chars=200)}",
                 f"- Indicator mapping summary: {_markdown_table_cell(row.get('indicator_mentions_summary'), max_chars=500)}",
                 "",
                 "Suggested decision:",
