@@ -460,3 +460,7 @@ TMPDIR=.mosaic/tmp uv run mosaic-rke report-intelligence \
   quality-passed VLM Markdown reports by merging 5+2+3+3+3 serial small-batch
   runs; all 16 processed with no blockers, producing 21 forecast claims, 50
   analytical footprints, and 191 method patterns.
+- `2026-06-16`: Filled the current gold-review evidence Markdown gap by running
+  MinerU `vlm-auto-engine` on 14 cached Tushare PDFs in a private staging
+  registry with `--skip-llm`; all 14 were Markdown-ready and the refreshed
+  private gold evidence batch now has 0 missing Markdown rows.
