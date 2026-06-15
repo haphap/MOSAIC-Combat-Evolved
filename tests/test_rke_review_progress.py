@@ -468,6 +468,9 @@ def test_review_progress_reports_gold_quality_blockers_without_reapplying_stale_
     stale_import = dict(row)
     stale_import["claim_id"] = "GOLD-STALE-IMPORT-ROW"
     _write_jsonl(tmp_path / GOLD_FULL_REVIEWED_IMPORT_PATH, [stale_import])
+    stale_batch_row = dict(row)
+    stale_batch_row[TARGET_ROW_HASH_FIELD] = "sha256:stale-current-batch"
+    _write_jsonl(tmp_path / GOLD_REVIEWED_IMPORT_PATH, [stale_batch_row])
 
     report = build_manual_review_progress(tmp_path)
     summary = build_manual_review_progress_summary(report)
@@ -481,9 +484,17 @@ def test_review_progress_reports_gold_quality_blockers_without_reapplying_stale_
     assert gold_gate.simulation_accepted is False
     assert any("gold set requires >= 50 documents" in blocker for blocker in gold_gate.blockers)
     assert not any("claim_id missing from target review template" in blocker for blocker in gold_gate.blockers)
+    assert (
+        gold_gate.current_batch_status["target_status"][
+            "target_row_hash_mismatch_count"
+        ]
+        == 1
+    )
     assert gold_summary["next_manual_action"] == "address_quality_gate_blockers"
     assert set(gold_summary["next_batch_commands"]) == {
         "assist",
+        "backfill_dry_run",
+        "backfill_write",
         "dry_run",
         "evidence",
         "prepare_reviewed_failures",
@@ -502,6 +513,8 @@ def test_review_progress_reports_gold_quality_blockers_without_reapplying_stale_
     assert gold_action["can_run_now"] is True
     assert set(gold_action["commands"]) == {
         "assist",
+        "backfill_dry_run",
+        "backfill_write",
         "dry_run",
         "evidence",
         "prepare_reviewed_failures",
@@ -570,7 +583,13 @@ def test_review_progress_prioritizes_pending_gold_quality_batch_fields(
     )
     assert gold_action["action_state"] == "needs_human_review_fields"
     assert gold_action["current_batch_pending_rows"] == 1
-    assert set(gold_action["commands"]) == {"assist", "dry_run", "evidence"}
+    assert set(gold_action["commands"]) == {
+        "assist",
+        "backfill_dry_run",
+        "backfill_write",
+        "dry_run",
+        "evidence",
+    }
     assert "prepare_reviewed_failures" not in gold_action["commands"]
 
 

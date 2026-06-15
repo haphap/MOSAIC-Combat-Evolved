@@ -1500,6 +1500,12 @@ def _next_manual_action(
         if current.get("exists"):
             return "complete_lockbox_decision_then_dry_run"
         return "prepare_lockbox_review"
+    if (
+        gate.pending_rows == 0
+        and gate.blockers
+        and int(current.get("pending_rows") or 0) == 0
+    ):
+        return "address_quality_gate_blockers"
     target = current.get("target_status")
     if (
         current.get("exists")
@@ -1514,8 +1520,6 @@ def _next_manual_action(
         if isinstance(evidence, Mapping) and not bool(evidence.get("aligned")):
             return "repair_current_batch_evidence_alignment"
         return "fill_current_batch_review_fields_then_dry_run"
-    if gate.pending_rows == 0 and gate.blockers:
-        return "address_quality_gate_blockers"
     if gate.next_batch_commands:
         return "prepare_next_review_batch"
     return "run_prepare_command"
