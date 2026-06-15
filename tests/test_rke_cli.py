@@ -459,6 +459,184 @@ def test_rke_cli_prepare_gold_review_supports_full_and_protects_existing_file(
     assert "already exists" in second_output["blockers"][0]
 
 
+def test_rke_cli_backfill_gold_review_from_prior_human_review(
+    tmp_path: Path, capsys
+):
+    _copy_registry(tmp_path)
+    template_path = (
+        tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    )
+    template_rows = _load_jsonl(template_path)
+    for prior in template_rows:
+        if prior.get("proposed_claim_text") and prior.get(
+            "proposed_cause_variables"
+        ) and prior.get("proposed_target_variables"):
+            prior.update(
+                {
+                    "manual_claim_text": "Manual reviewed claim.",
+                    "claim_correct": True,
+                    "source_span_supports_claim": True,
+                    "direction_correct": True,
+                    "target_correct": False,
+                    "horizon_correct": True,
+                    "variable_mapping_correct": False,
+                    "unsupported_field_false_grounded": False,
+                    "reviewer": "hap",
+                    "review_date": "2026-06-15",
+                    "review_notes": "Prior human review.",
+                }
+            )
+    _write_jsonl(template_path, template_rows)
+
+    reviewed_path = tmp_path / "registry/review_batches/gold_set_reviewed.jsonl"
+    prepare_code = main(
+        (
+            "prepare-gold-review",
+            "--root",
+            str(tmp_path),
+            "--reviewed-failures",
+            "--gold-batch-size",
+            "1",
+            "--force",
+        )
+    )
+    prepare_output = json.loads(capsys.readouterr().out)
+    blank_rows = _load_jsonl(reviewed_path)
+
+    dry_code = main(
+        (
+            "backfill-gold-review",
+            "--root",
+            str(tmp_path),
+            "--input",
+            "registry/review_batches/gold_set_reviewed.jsonl",
+        )
+    )
+    dry_output = json.loads(capsys.readouterr().out)
+    dry_rows = _load_jsonl(reviewed_path)
+
+    write_code = main(
+        (
+            "backfill-gold-review",
+            "--root",
+            str(tmp_path),
+            "--input",
+            "registry/review_batches/gold_set_reviewed.jsonl",
+            "--write",
+        )
+    )
+    write_output = json.loads(capsys.readouterr().out)
+    rows = _load_jsonl(reviewed_path)
+    apply_code = main(
+        (
+            "apply-gold-review",
+            "--root",
+            str(tmp_path),
+            "--input",
+            "registry/review_batches/gold_set_reviewed.jsonl",
+            "--dry-run",
+        )
+    )
+    apply_output = json.loads(capsys.readouterr().out)
+
+    assert prepare_code == 0
+    assert prepare_output["rows"] == 1
+    assert blank_rows[0]["manual_claim_text"] == ""
+    assert dry_code == 0
+    assert dry_output["dry_run"] is True
+    assert dry_output["written"] is False
+    assert dry_output["matched_prior_rows"] == 1
+    assert dry_output["complete_after_backfill_rows"] == 1
+    assert dry_rows[0]["manual_claim_text"] == ""
+    assert write_code == 0
+    assert write_output["written"] is True
+    assert write_output["backed_up_existing_output"] is True
+    assert rows[0]["manual_claim_text"] == "Manual reviewed claim."
+    assert rows[0]["target_correct"] is False
+    assert rows[0]["target_row_hash"] == blank_rows[0]["target_row_hash"]
+    assert apply_code == 0
+    assert apply_output["accepted"] is True
+
+
+def test_rke_cli_review_progress_surfaces_gold_backfill_commands(
+    tmp_path: Path, capsys
+):
+    _copy_registry(tmp_path)
+    template_path = (
+        tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    )
+    template_rows = _load_jsonl(template_path)
+    for row in template_rows:
+        if row.get("proposed_claim_text") and row.get(
+            "proposed_cause_variables"
+        ) and row.get("proposed_target_variables"):
+            row.update(
+                {
+                    "manual_claim_text": "Manual reviewed claim.",
+                    "claim_correct": True,
+                    "source_span_supports_claim": True,
+                    "direction_correct": True,
+                    "target_correct": False,
+                    "horizon_correct": True,
+                    "variable_mapping_correct": False,
+                    "unsupported_field_false_grounded": False,
+                    "reviewer": "hap",
+                    "review_date": "2026-06-15",
+                }
+            )
+    _write_jsonl(template_path, template_rows)
+    prepare_code = main(
+        (
+            "prepare-gold-review",
+            "--root",
+            str(tmp_path),
+            "--reviewed-failures",
+            "--gold-batch-size",
+            "1",
+            "--force",
+        )
+    )
+    prepare_output = json.loads(capsys.readouterr().out)
+    assert prepare_code == 0
+    assert prepare_output["rows"] == 1
+    evidence_code = main(
+        (
+            "write-gold-review-evidence",
+            "--root",
+            str(tmp_path),
+            "--review-input",
+            "registry/review_batches/gold_set_reviewed.jsonl",
+        )
+    )
+    evidence_output = json.loads(capsys.readouterr().out)
+    assert evidence_code == 0
+    assert evidence_output["rows"] == 1
+    assert evidence_output["blockers"] == 0
+
+    code = main(
+        (
+            "review-progress",
+            "--root",
+            str(tmp_path),
+            "--actions-only",
+            "--no-write",
+            "--review-kind",
+            "gold_set",
+        )
+    )
+    output = json.loads(capsys.readouterr().out)
+    assert output["actions"][0]["evidence_aligned"] is True
+    commands = output["actions"][0]["commands"]
+
+    assert code == 2
+    assert (
+        "backfill-gold-review --root . --input "
+        "registry/review_batches/gold_set_reviewed.jsonl"
+        in commands["backfill_dry_run"]
+    )
+    assert "--write" in commands["backfill_write"]
+
+
 def test_rke_cli_prepare_lockbox_review_protects_existing_file(tmp_path: Path, capsys):
     _copy_registry(tmp_path)
     reviewed_path = tmp_path / "registry/review_batches/lockbox_reviewed.json"

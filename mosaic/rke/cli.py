@@ -46,6 +46,7 @@ from .manual_review_import import (
 from .manual_review_batches import (
     GOLD_FULL_REVIEWED_IMPORT_PATH,
     GOLD_REVIEWED_IMPORT_PATH,
+    backfill_gold_review_from_prior,
     build_manual_review_batch_status,
     write_gold_review_assist,
     write_gold_review_evidence,
@@ -836,6 +837,33 @@ def build_parser() -> argparse.ArgumentParser:
         "--review-date",
         default="",
         help="Optional YYYY-MM-DD review date to prefill in each starter row.",
+    )
+
+    backfill_gold_review = subparsers.add_parser(
+        "backfill-gold-review",
+        help="Backfill a gold-set review scratch from existing human-reviewed rows.",
+    )
+    backfill_gold_review.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
+    backfill_gold_review.add_argument(
+        "--input",
+        default=GOLD_REVIEWED_IMPORT_PATH,
+        help=f"Gold-set review scratch to backfill. Defaults to {GOLD_REVIEWED_IMPORT_PATH}.",
+    )
+    backfill_gold_review.add_argument(
+        "--prior-reviewed",
+        default="registry/gold_sets/tushare_research_reports.review_template.jsonl",
+        help="Existing human-reviewed gold-set JSONL to copy manual fields from.",
+    )
+    backfill_gold_review.add_argument(
+        "--output",
+        help="Optional output JSONL. Defaults to overwriting --input when --write is set.",
+    )
+    backfill_gold_review.add_argument(
+        "--write",
+        action="store_true",
+        help="Write the backfilled scratch. Omit for dry-run.",
     )
 
     write_gold_review_evidence = subparsers.add_parser(
@@ -1899,6 +1927,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         _print_json(asdict(result))
         return 0 if result.written else 2
+    if args.command == "backfill-gold-review":
+        result = backfill_gold_review_from_prior(
+            root,
+            input_path=args.input,
+            prior_review_path=args.prior_reviewed,
+            output_path=args.output,
+            dry_run=not args.write,
+        )
+        _print_json(asdict(result))
+        return 0 if not result.blockers else 2
     if args.command == "write-gold-review-evidence":
         result = write_gold_review_evidence(
             root,

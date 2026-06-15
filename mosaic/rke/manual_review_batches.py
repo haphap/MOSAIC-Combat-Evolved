@@ -134,6 +134,24 @@ class GoldReviewEvidenceSummary:
     review_input_path: str = ""
 
 
+@dataclass(frozen=True)
+class GoldReviewBackfillResult:
+    path: str
+    prior_review_path: str
+    output_path: str
+    dry_run: bool
+    written: bool
+    row_count: int
+    matched_prior_rows: int
+    updated_rows: int
+    copied_field_count: int
+    preserved_existing_field_count: int
+    complete_after_backfill_rows: int
+    blockers: Sequence[str]
+    backed_up_existing_output: bool = False
+    backup_path: str = ""
+
+
 def _jsonable(value: Any) -> Any:
     if hasattr(value, "__dataclass_fields__"):
         return _jsonable(asdict(value))
@@ -369,6 +387,178 @@ def _gold_template_row(row: Mapping[str, Any]) -> dict[str, Any]:
         "review_date": "",
         "review_notes": "",
     }
+
+
+GOLD_MANUAL_REVIEW_FIELDS = (
+    "manual_claim_text",
+    *GOLD_BOOL_FIELDS,
+    "reviewer",
+    "review_date",
+    "review_notes",
+)
+
+
+def _gold_manual_value_missing(field: str, value: Any) -> bool:
+    if field in GOLD_BOOL_FIELDS:
+        return not isinstance(value, bool)
+    return not str(value or "").strip()
+
+
+def _gold_prior_review_key(row: Mapping[str, Any]) -> tuple[str, str]:
+    return (
+        str(row.get("claim_id") or "").strip(),
+        str(row.get("document_id") or row.get("source_id") or "").strip(),
+    )
+
+
+def _gold_prior_review_complete(row: Mapping[str, Any]) -> bool:
+    return all(
+        not _gold_manual_value_missing(field, row.get(field))
+        for field in GOLD_MANUAL_REVIEW_FIELDS
+        if field != "review_notes"
+    )
+
+
+def backfill_gold_review_from_prior(
+    root: str | Path = ".",
+    *,
+    input_path: str | Path = GOLD_REVIEWED_IMPORT_PATH,
+    prior_review_path: str | Path = GOLD_REVIEW_TEMPLATE_PATH,
+    output_path: str | Path | None = None,
+    dry_run: bool = True,
+) -> GoldReviewBackfillResult:
+    """Backfill a gold review scratch from existing human-reviewed rows.
+
+    This only copies manual review fields from prior rows that match the current
+    scratch by claim id and document/source id. Existing manual field values in
+    the scratch are preserved, so this cannot silently replace a reviewer edit.
+    """
+    root_path = Path(root)
+    input_text = str(input_path)
+    prior_text = str(prior_review_path)
+    output_text = str(output_path or input_path)
+    input_resolved = Path(input_path)
+    if not input_resolved.is_absolute():
+        input_resolved = root_path / input_resolved
+    output_resolved = Path(output_text)
+    if not output_resolved.is_absolute():
+        output_resolved = root_path / output_resolved
+
+    _, input_rows, input_invalid_rows, input_parse_blockers, input_total = (
+        _load_review_rows(root_path, input_text, label="gold-set backfill input")
+    )
+    _, prior_rows, prior_invalid_rows, prior_parse_blockers, _ = _load_review_rows(
+        root_path,
+        prior_text,
+        label="gold-set prior review",
+    )
+    blockers: list[str] = [*input_parse_blockers, *prior_parse_blockers]
+    if input_invalid_rows:
+        blockers.append(
+            "gold-set backfill input row must be object at row(s): "
+            + ", ".join(str(row_number) for row_number in input_invalid_rows)
+        )
+    if prior_invalid_rows:
+        blockers.append(
+            "gold-set prior review row must be object at row(s): "
+            + ", ".join(str(row_number) for row_number in prior_invalid_rows)
+        )
+    if input_total == 0:
+        blockers.append("gold-set backfill input is missing or empty")
+    if not prior_rows:
+        blockers.append("gold-set prior review rows are missing or empty")
+
+    prior_by_key: dict[tuple[str, str], Mapping[str, Any]] = {}
+    duplicate_prior_keys: set[tuple[str, str]] = set()
+    for row in prior_rows:
+        key = _gold_prior_review_key(row)
+        if not key[0]:
+            continue
+        if key in prior_by_key:
+            duplicate_prior_keys.add(key)
+        else:
+            prior_by_key[key] = row
+    if duplicate_prior_keys:
+        blockers.append(
+            "gold-set prior review has duplicate claim/document keys: "
+            + ", ".join(
+                f"{claim_id}/{document_id or '-'}"
+                for claim_id, document_id in sorted(duplicate_prior_keys)
+            )
+        )
+
+    updated_rows: list[dict[str, Any]] = []
+    matched_prior_rows = 0
+    copied_field_count = 0
+    preserved_existing_field_count = 0
+    changed_row_count = 0
+    complete_after_backfill_rows = 0
+    for row_index, row in enumerate(input_rows, 1):
+        updated = dict(row)
+        key = _gold_prior_review_key(row)
+        if not key[0]:
+            blockers.append(f"gold-set backfill input row {row_index}.claim_id: required")
+            updated_rows.append(updated)
+            continue
+        prior = prior_by_key.get(key)
+        if prior is None:
+            blockers.append(
+                f"gold-set backfill input row {row_index}.claim_id: "
+                f"no prior reviewed row for {key[0]}/{key[1] or '-'}"
+            )
+            updated_rows.append(updated)
+            continue
+        matched_prior_rows += 1
+        if not _gold_prior_review_complete(prior):
+            blockers.append(
+                f"gold-set prior review row for {key[0]}/{key[1] or '-'} "
+                "is missing required manual fields"
+            )
+            updated_rows.append(updated)
+            continue
+        row_changed = False
+        for field in GOLD_MANUAL_REVIEW_FIELDS:
+            if _gold_manual_value_missing(field, updated.get(field)):
+                updated[field] = prior.get(field)
+                copied_field_count += 1
+                row_changed = True
+            else:
+                preserved_existing_field_count += 1
+        if row_changed:
+            changed_row_count += 1
+        if _gold_row_complete(updated):
+            complete_after_backfill_rows += 1
+        updated_rows.append(updated)
+
+    backed_up_existing_output = False
+    backup_path = ""
+    written = False
+    if not blockers and not dry_run:
+        if output_resolved.exists():
+            backup = _manual_review_backup_path(root_path, output_resolved)
+            backup.parent.mkdir(parents=True, exist_ok=True)
+            backup.write_bytes(output_resolved.read_bytes())
+            backed_up_existing_output = True
+            backup_path = str(backup)
+        _write_jsonl(output_resolved, updated_rows)
+        written = True
+
+    return GoldReviewBackfillResult(
+        path=str(input_resolved),
+        prior_review_path=str(root_path / prior_text),
+        output_path=str(output_resolved),
+        dry_run=dry_run,
+        written=written,
+        row_count=len(input_rows),
+        matched_prior_rows=matched_prior_rows,
+        updated_rows=changed_row_count,
+        copied_field_count=copied_field_count,
+        preserved_existing_field_count=preserved_existing_field_count,
+        complete_after_backfill_rows=complete_after_backfill_rows,
+        blockers=tuple(blockers),
+        backed_up_existing_output=backed_up_existing_output,
+        backup_path=backup_path,
+    )
 
 
 def _gold_workbook_row(index: int, row: Mapping[str, Any]) -> dict[str, Any]:

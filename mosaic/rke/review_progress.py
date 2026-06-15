@@ -586,6 +586,12 @@ def _gold_next_batch_commands(pending_rows: int) -> dict[str, str]:
                 "--reviewer <name> --review-date <YYYY-MM-DD>"
             )
         ),
+        "backfill_dry_run": operator_command(
+            f"mosaic-rke backfill-gold-review --root . --input {GOLD_REVIEWED_IMPORT_PATH}"
+        ),
+        "backfill_write": operator_command(
+            f"mosaic-rke backfill-gold-review --root . --input {GOLD_REVIEWED_IMPORT_PATH} --write"
+        ),
         "dry_run": operator_command(
             f"mosaic-rke apply-gold-review --root . --input {GOLD_REVIEWED_IMPORT_PATH} --dry-run"
         ),
@@ -609,6 +615,12 @@ def _gold_quality_gate_commands() -> dict[str, str]:
         "evidence": operator_command(
             "mosaic-rke write-gold-review-evidence --root . "
             f"--limit 50 --offset 0 --review-input {GOLD_REVIEWED_IMPORT_PATH}"
+        ),
+        "backfill_dry_run": operator_command(
+            f"mosaic-rke backfill-gold-review --root . --input {GOLD_REVIEWED_IMPORT_PATH}"
+        ),
+        "backfill_write": operator_command(
+            f"mosaic-rke backfill-gold-review --root . --input {GOLD_REVIEWED_IMPORT_PATH} --write"
         ),
         "dry_run": operator_command(
             f"mosaic-rke apply-gold-review --root . --input {GOLD_REVIEWED_IMPORT_PATH} --dry-run"
@@ -668,6 +680,12 @@ def _manual_review_batch_plan(
                     "mosaic-rke prepare-gold-review --root . "
                     f"--gold-batch-size {limit} --offset {offset} --force "
                     "--reviewer <name> --review-date <YYYY-MM-DD>"
+                ),
+                "backfill_dry_run": operator_command(
+                    f"mosaic-rke backfill-gold-review --root . --input {GOLD_REVIEWED_IMPORT_PATH}"
+                ),
+                "backfill_write": operator_command(
+                    f"mosaic-rke backfill-gold-review --root . --input {GOLD_REVIEWED_IMPORT_PATH} --write"
                 ),
                 "dry_run": operator_command(
                     f"mosaic-rke apply-gold-review --root . --input {GOLD_REVIEWED_IMPORT_PATH} --dry-run"
@@ -1164,7 +1182,15 @@ def _render_batch_plan_lines(label: str, batch_plan: Sequence[Mapping[str, Any]]
                 ),
             ]
         )
-        for command_name in ("assist", "evidence", "prepare", "dry_run", "apply"):
+        for command_name in (
+            "assist",
+            "evidence",
+            "prepare",
+            "backfill_dry_run",
+            "backfill_write",
+            "dry_run",
+            "apply",
+        ):
             command = command_map.get(command_name)
             if str(command or "").strip():
                 lines.append(f"  - {command_name}: `{command}`")
@@ -1582,7 +1608,7 @@ def _action_queue_commands(
         return {
             key: command
             for key, command in next_batch.items()
-            if key in {"assist", "evidence", "dry_run"}
+            if key in {"assist", "evidence", "backfill_dry_run", "backfill_write", "dry_run"}
         }
     if action == "repair_current_batch_evidence_alignment":
         return {
@@ -1600,7 +1626,15 @@ def _action_queue_commands(
         return {
             key: command
             for key, command in next_batch.items()
-            if key in {"assist", "prepare_reviewed_failures", "evidence", "dry_run"}
+            if key
+            in {
+                "assist",
+                "prepare_reviewed_failures",
+                "evidence",
+                "backfill_dry_run",
+                "backfill_write",
+                "dry_run",
+            }
         }
     if action == "run_prepare_command":
         return {"prepare": gate.prepare_command}
