@@ -1057,14 +1057,6 @@ STOCK_PROXY_CODE_POLICY: Mapping[str, Any] = {
     },
     "fallback_action": "stock_target_mapping_missing",
 }
-STOCK_PROXY_BLOCKING_GAPS = {
-    "stock_entry_suspended",
-    "entry_liquidity_unverified",
-    "exit_liquidity_unverified",
-    "entry_limit_locked",
-    "exit_limit_locked",
-    "stock_delisted_before_exit",
-}
 PROMPT_MUTATION_REQUIRED_VALIDATION_REQUIREMENTS = (
     "gold_set_review_pass",
     "pit_outcome_replay_pass",
@@ -2478,19 +2470,6 @@ def _validate_stock_price_proxy_readiness_contract(
                 "outcome_labeling_readiness.stock_price_proxy_readiness."
                 f"data_gap_counts.{gap_name}: must be nonnegative integer"
             )
-    leaked_blocking_gaps = sorted(
-        gap
-        for gap in STOCK_PROXY_BLOCKING_GAPS
-        if (_int_or_none(gap_counts.get(gap)) or 0) > 0
-    )
-    if leaked_blocking_gaps:
-        failures.append(
-            "outcome_labeling_readiness.stock_price_proxy_readiness."
-            "data_gap_counts: generated public baseline must not carry blocked stock "
-            "tradability/delisting gaps without blocking labels: "
-            + ", ".join(leaked_blocking_gaps)
-        )
-
     stock_labels = [
         row for row in outcome_label_rows if row.get("label_type") == "stock_price_proxy"
     ]

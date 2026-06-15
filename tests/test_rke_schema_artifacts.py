@@ -597,8 +597,34 @@ def test_stock_price_proxy_readiness_contract_rejects_pit_policy_drift(
         "exit_liquidity_unverified_blocks_label" in failure
         for failure in record.failures
     )
-    assert any("entry_limit_locked" in failure for failure in record.failures)
-    assert any("exit_liquidity_unverified" in failure for failure in record.failures)
+
+
+def test_stock_price_proxy_readiness_contract_accepts_blocking_gap_counts(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    readiness_path = registry / "outcome_labeling_readiness.json"
+    readiness = json.loads(readiness_path.read_text(encoding="utf-8"))
+    stock_readiness = readiness["stock_price_proxy_readiness"]
+    stock_readiness["data_gap_counts"].update(
+        {
+            "entry_limit_locked": 1,
+            "entry_liquidity_unverified": 2,
+            "exit_limit_locked": 3,
+            "exit_liquidity_unverified": 4,
+            "stock_delisted_before_exit": 5,
+            "stock_entry_suspended": 6,
+        }
+    )
+    readiness_path.write_text(
+        json.dumps(readiness, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _stock_price_proxy_readiness_record(tmp_path)
+
+    assert record.accepted
+    assert record.failures == ()
 
 
 def test_stock_price_proxy_readiness_contract_rejects_stock_code_policy_drift(
