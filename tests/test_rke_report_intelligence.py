@@ -2640,6 +2640,18 @@ def test_report_intelligence_prioritizes_source_grounded_footprint_metrics_in_pr
         "real_estate_sell_through_rate",
     }
     assert all(row["source_grounded"] is True for row in preview[:2])
+    assert review_rows[0]["indicator_mentions_review_summary"] == {
+        "complete_source_grounded_count": 2,
+        "hidden_count": 3,
+        "hidden_ungrounded_count": 3,
+        "hidden_unknown_canonical_count": 3,
+        "mapping_complete": False,
+        "mention_count": 8,
+        "preview_count": 5,
+        "preview_limit": 5,
+        "ungrounded_count": 6,
+        "unknown_canonical_count": 6,
+    }
 
 
 def test_report_intelligence_repairs_unknown_footprint_indicator_mentions(
@@ -11572,6 +11584,18 @@ def test_analytical_footprint_review_evidence_suggests_missing_metric_mapping(
         "valuation_multiple_analysis",
     ]
     rows[0]["indicator_mentions_review_preview"] = []
+    rows[0]["indicator_mentions_review_summary"] = {
+        "mention_count": 0,
+        "preview_count": 0,
+        "preview_limit": 5,
+        "hidden_count": 0,
+        "unknown_canonical_count": 0,
+        "ungrounded_count": 0,
+        "complete_source_grounded_count": 0,
+        "hidden_unknown_canonical_count": 0,
+        "hidden_ungrounded_count": 0,
+        "mapping_complete": False,
+    }
     _write_jsonl(template_path, rows)
 
     report = write_analytical_footprint_review_evidence(tmp_path, limit=1)
@@ -11630,6 +11654,18 @@ def test_analytical_footprint_review_evidence_flags_unknown_metric_mapping(
             "source_grounded": True,
         },
     ]
+    rows[0]["indicator_mentions_review_summary"] = {
+        "mention_count": 2,
+        "preview_count": 2,
+        "preview_limit": 5,
+        "hidden_count": 0,
+        "unknown_canonical_count": 1,
+        "ungrounded_count": 1,
+        "complete_source_grounded_count": 1,
+        "hidden_unknown_canonical_count": 0,
+        "hidden_ungrounded_count": 0,
+        "mapping_complete": False,
+    }
     _write_jsonl(template_path, rows)
 
     report = write_analytical_footprint_review_evidence(tmp_path, limit=1)
@@ -11659,8 +11695,14 @@ def test_analytical_footprint_review_evidence_flags_unknown_metric_mapping(
     assert rationale["suggested_value"] is False
     assert rationale["diagnostics"] == {
         "complete_source_grounded_count": 1,
+        "diagnostic_source": "indicator_mentions_review_summary",
+        "hidden_count": 0,
+        "hidden_ungrounded_count": 0,
+        "hidden_unknown_canonical_count": 0,
         "mapping_complete": False,
         "mention_count": 2,
+        "preview_count": 2,
+        "preview_limit": 5,
         "ungrounded_count": 1,
         "unknown_canonical_count": 1,
     }
@@ -11672,6 +11714,7 @@ def test_analytical_footprint_review_evidence_flags_unknown_metric_mapping(
     assert unknown_rationale["suggested_value"] is False
     assert "repairable by governed alias rules" in unknown_rationale["reason"]
     markdown = (tmp_path / report.markdown_path).read_text(encoding="utf-8")
+    assert "Indicator mapping summary" in markdown
     assert "Suggested indicator candidate source counts" in markdown
     assert "review_evidence_indicator_alias_rule" in markdown
     assert "revenue_growth" in markdown
