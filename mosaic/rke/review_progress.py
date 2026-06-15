@@ -349,6 +349,22 @@ def _review_evidence_alignment_status(
         for row in evidence_rows
         if str(row.get(id_field) or "").strip()
     }
+    missing_markdown_rows = sum(
+        1 for row in evidence_rows if row.get("markdown_exists") is False
+    )
+    snippet_ready_rows = sum(1 for row in evidence_rows if row.get("evidence_snippets"))
+    quality_focus_counts = Counter(
+        str(field)
+        for row in evidence_rows
+        for field in row.get("quality_gap_focus_fields") or ()
+        if str(field).strip()
+    )
+    suggested_tag_counts = Counter(
+        str(tag)
+        for row in evidence_rows
+        for tag in row.get("suggested_manual_error_tags") or ()
+        if str(tag).strip()
+    )
     hash_mismatch_count = 0
     for row in review_rows:
         row_id = str(row.get(id_field) or "").strip()
@@ -393,6 +409,12 @@ def _review_evidence_alignment_status(
             "duplicate_review_id_count": duplicate_review_id_count,
             "duplicate_evidence_id_count": duplicate_evidence_id_count,
             "target_row_hash_mismatch_count": hash_mismatch_count,
+            "missing_markdown_rows": missing_markdown_rows,
+            "snippet_ready_rows": snippet_ready_rows,
+            "quality_gap_focus_field_counts": dict(
+                sorted(quality_focus_counts.items())
+            ),
+            "suggested_tag_counts": dict(sorted(suggested_tag_counts.items())),
             "same_order": same_order,
             "aligned": aligned,
         }
@@ -1326,6 +1348,25 @@ def _render_batch_status_lines(label: str, status: Mapping[str, Any]) -> list[st
             f"same_order: {str(bool(evidence_status.get('same_order'))).lower()}; "
             f"aligned: {str(bool(evidence_status.get('aligned'))).lower()}"
         )
+        lines.append(
+            "  Evidence quality: "
+            f"snippet_ready: {int(evidence_status.get('snippet_ready_rows') or 0)}; "
+            f"missing_markdown: {int(evidence_status.get('missing_markdown_rows') or 0)}"
+        )
+        quality_focus = evidence_status.get("quality_gap_focus_field_counts")
+        if isinstance(quality_focus, Mapping) and quality_focus:
+            focus = ", ".join(
+                f"`{field}`={int(count)}"
+                for field, count in sorted(quality_focus.items())
+            )
+            lines.append(f"  Quality-gap focus fields: {focus}")
+        suggested_tags = evidence_status.get("suggested_tag_counts")
+        if isinstance(suggested_tags, Mapping) and suggested_tags:
+            tags = ", ".join(
+                f"`{tag}`={int(count)}"
+                for tag, count in sorted(suggested_tags.items())
+            )
+            lines.append(f"  Suggested evidence tags: {tags}")
         evidence_gaps: list[str] = []
         for field in (
             "missing_review_rows",
@@ -1543,7 +1584,20 @@ def _compact_current_batch_status(status: Mapping[str, Any]) -> Mapping[str, Any
             "target_row_hash_mismatch_count": int(
                 evidence_status.get("target_row_hash_mismatch_count") or 0
             ),
+            "missing_markdown_rows": int(
+                evidence_status.get("missing_markdown_rows") or 0
+            ),
+            "snippet_ready_rows": int(evidence_status.get("snippet_ready_rows") or 0),
         }
+        for field_name in (
+            "quality_gap_focus_field_counts",
+            "suggested_tag_counts",
+        ):
+            value = evidence_status.get(field_name)
+            if isinstance(value, Mapping) and value:
+                compact["evidence_status"][field_name] = {
+                    str(key): int(count) for key, count in sorted(value.items())
+                }
     target_status = status.get("target_status")
     if isinstance(target_status, Mapping) and target_status:
         compact["target_status"] = {
@@ -1674,8 +1728,23 @@ def _compact_batch_overview(gate: ManualReviewGateProgress) -> Mapping[str, Any]
         "current_batch_evidence_path": (
             str(evidence.get("path") or "") if evidence else ""
         ),
+        "current_batch_evidence_missing_markdown_rows": (
+            int(evidence.get("missing_markdown_rows") or 0) if evidence else 0
+        ),
+        "current_batch_evidence_snippet_ready_rows": (
+            int(evidence.get("snippet_ready_rows") or 0) if evidence else 0
+        ),
         "rerun_review_progress_after_batch_apply": True,
     }
+    for field_name in (
+        "quality_gap_focus_field_counts",
+        "suggested_tag_counts",
+    ):
+        value = evidence.get(field_name) if evidence else None
+        if isinstance(value, Mapping) and value:
+            overview[f"current_batch_evidence_{field_name}"] = {
+                str(key): int(count) for key, count in sorted(value.items())
+            }
     if batches:
         first = batches[0]
         last = batches[-1]

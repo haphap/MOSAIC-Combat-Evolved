@@ -1234,8 +1234,16 @@ def test_review_progress_reports_current_batch_scratch_status(tmp_path: Path):
             {
                 "claim_id": row["claim_id"],
                 "target_row_hash": row["target_row_hash"],
+                "markdown_exists": index == 0,
+                "evidence_snippets": [{"source": "fixture"}] if index == 0 else [],
+                "quality_gap_focus_fields": (
+                    ["direction_correct"] if index == 1 else []
+                ),
+                "suggested_manual_error_tags": (
+                    ["direction_text_needs_review"] if index == 1 else []
+                ),
             }
-            for row in gold_rows[:2]
+            for index, row in enumerate(gold_rows[:2])
         ],
     )
     _write_jsonl(
@@ -1245,6 +1253,10 @@ def test_review_progress_reports_current_batch_scratch_status(tmp_path: Path):
             {
                 "footprint_id": row["footprint_id"],
                 "target_row_hash": row["target_row_hash"],
+                "markdown_exists": True,
+                "evidence_snippets": [{"source": "fixture"}],
+                "quality_gap_focus_fields": ["metric_mapping_correct"],
+                "suggested_manual_error_tags": ["metric_mapping_missing"],
             }
             for row in footprint_rows
         ],
@@ -1273,6 +1285,8 @@ def test_review_progress_reports_current_batch_scratch_status(tmp_path: Path):
     lockbox_status = gates["lockbox"].current_batch_status
     markdown = render_manual_review_runbook_markdown(report)
     summary = build_manual_review_progress_summary(report)
+    action_queue = build_manual_review_action_queue(report)
+    actions = {action["review_kind"]: action for action in action_queue["actions"]}
 
     assert gold_batch["exists"] is True
     assert gold_batch["rows"] == 2
@@ -1286,6 +1300,14 @@ def test_review_progress_reports_current_batch_scratch_status(tmp_path: Path):
     assert gold_batch["evidence_status"]["covered_review_rows"] == 2
     assert gold_batch["evidence_status"]["review_input_rows"] == 2
     assert gold_batch["evidence_status"]["same_order"] is True
+    assert gold_batch["evidence_status"]["missing_markdown_rows"] == 1
+    assert gold_batch["evidence_status"]["snippet_ready_rows"] == 1
+    assert gold_batch["evidence_status"]["quality_gap_focus_field_counts"] == {
+        "direction_correct": 1
+    }
+    assert gold_batch["evidence_status"]["suggested_tag_counts"] == {
+        "direction_text_needs_review": 1
+    }
     assert gold_batch["target_status"]["aligned"] is True
     assert footprint_batch["exists"] is True
     assert footprint_batch["rows"] == 2
@@ -1299,6 +1321,14 @@ def test_review_progress_reports_current_batch_scratch_status(tmp_path: Path):
     assert footprint_batch["evidence_status"]["covered_review_rows"] == 2
     assert footprint_batch["evidence_status"]["review_input_rows"] == 2
     assert footprint_batch["evidence_status"]["same_order"] is True
+    assert footprint_batch["evidence_status"]["missing_markdown_rows"] == 0
+    assert footprint_batch["evidence_status"]["snippet_ready_rows"] == 2
+    assert footprint_batch["evidence_status"]["quality_gap_focus_field_counts"] == {
+        "metric_mapping_correct": 2
+    }
+    assert footprint_batch["evidence_status"]["suggested_tag_counts"] == {
+        "metric_mapping_missing": 2
+    }
     assert footprint_batch["target_status"]["aligned"] is True
     summary_gold = next(
         gate for gate in summary["gates"] if gate["review_kind"] == "gold_set"
@@ -1309,14 +1339,56 @@ def test_review_progress_reports_current_batch_scratch_status(tmp_path: Path):
     assert "batch_plan" not in json.dumps(summary, ensure_ascii=False)
     assert summary_gold["current_batch_status"]["evidence_status"]["aligned"] is True
     assert (
+        summary_gold["current_batch_status"]["evidence_status"][
+            "missing_markdown_rows"
+        ]
+        == 1
+    )
+    assert (
+        summary_gold["current_batch_status"]["evidence_status"][
+            "quality_gap_focus_field_counts"
+        ]
+        == {"direction_correct": 1}
+    )
+    assert (
         summary_footprint["current_batch_status"]["evidence_status"][
             "covered_review_rows"
         ]
         == 2
     )
     assert (
+        summary_footprint["current_batch_status"]["evidence_status"][
+            "suggested_tag_counts"
+        ]
+        == {"metric_mapping_missing": 2}
+    )
+    assert (
         summary_footprint["current_batch_status"]["target_status"]["aligned"]
         is True
+    )
+    assert (
+        actions["gold_set"]["batch_overview"][
+            "current_batch_evidence_missing_markdown_rows"
+        ]
+        == 1
+    )
+    assert (
+        actions["gold_set"]["batch_overview"][
+            "current_batch_evidence_quality_gap_focus_field_counts"
+        ]
+        == {"direction_correct": 1}
+    )
+    assert (
+        actions["footprint_review"]["batch_overview"][
+            "current_batch_evidence_snippet_ready_rows"
+        ]
+        == 2
+    )
+    assert (
+        actions["footprint_review"]["batch_overview"][
+            "current_batch_evidence_suggested_tag_counts"
+        ]
+        == {"metric_mapping_missing": 2}
     )
     assert lockbox_status["exists"] is True
     assert lockbox_status["rows"] == 1
@@ -1335,7 +1407,10 @@ def test_review_progress_reports_current_batch_scratch_status(tmp_path: Path):
     assert "`manual_claim_text`=1" in markdown
     assert "`review_notes`=1" in markdown
     assert "Evidence alignment:" in markdown
+    assert "Evidence quality:" in markdown
     assert "covered: 2/2" in markdown
+    assert "missing_markdown: 1" in markdown
+    assert "`metric_mapping_correct`=2" in markdown
     assert "aligned: true" in markdown
     assert "`open_count`=1" in markdown
     assert "fixture approval" not in markdown
