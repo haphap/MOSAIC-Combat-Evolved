@@ -6305,8 +6305,12 @@ def _footprint_review_evidence_row(
     elif not metric_mapping_complete:
         if metric_mapping_diagnostics["unknown_canonical_count"]:
             suggested_tags.append("metric_mapping_unknown")
+        if metric_mapping_diagnostics.get("hidden_unknown_canonical_count"):
+            suggested_tags.append("metric_mapping_hidden_unknown")
         if metric_mapping_diagnostics["ungrounded_count"]:
             suggested_tags.append("metric_mapping_ungrounded")
+        if metric_mapping_diagnostics.get("hidden_ungrounded_count"):
+            suggested_tags.append("metric_mapping_hidden_ungrounded")
         suggested_rationales.append(
             {
                 "field": "metric_mapping_correct",
