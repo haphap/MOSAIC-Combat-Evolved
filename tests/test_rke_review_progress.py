@@ -52,6 +52,8 @@ from mosaic.rke.report_intelligence import (
     ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_JSONL_PATH,
     ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_MD_PATH,
     ANALYTICAL_FOOTPRINT_REVIEW_REQUIRED_FIELDS,
+    ANALYTICAL_FOOTPRINT_REVIEW_SUMMARY_PATH,
+    ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH,
     ANALYTICAL_FOOTPRINT_REVIEW_WORKBOOK_MD_PATH,
 )
 from mosaic.rke.review_progress import (
@@ -918,6 +920,64 @@ def test_review_progress_actions_only_reports_next_manual_work(
     assert "opened_by" in actions["lockbox"]["field_contract"]["required_fields"]
     assert "passed" in actions["lockbox"]["field_contract"]["allowed_results"]
     assert actions["lockbox"]["commands"] == {}
+
+
+def test_review_progress_backfills_footprint_quality_gaps_from_template(
+    tmp_path: Path,
+):
+    _copy_registry(tmp_path)
+    template_path = tmp_path / ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH
+    summary_path = tmp_path / ANALYTICAL_FOOTPRINT_REVIEW_SUMMARY_PATH
+    _write_jsonl(
+        template_path,
+        [
+            {
+                "footprint_id": "FP-1",
+                "target_row_hash": "sha256:" + "0" * 64,
+                "review_context_ref": "registry/report_intelligence/analytical_footprints.jsonl",
+                "target_review_path": ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH,
+                "footprint_correct": True,
+                "source_span_supports_footprint": True,
+                "metric_mapping_correct": False,
+                "inferred_steps_tagged_correctly": True,
+                "unknowns_used_when_uncertain": True,
+                "no_proprietary_text_leakage": True,
+                "reviewer": "reviewer-a",
+                "review_date": "2026-06-15",
+                "review_notes": "fixture complete but metric mapping failed",
+            }
+        ],
+    )
+    summary_path.write_text(
+        json.dumps(
+            {
+                "accepted": False,
+                "review_complete": True,
+                "quality_gate_passed": False,
+                "total_rows": 1,
+                "complete_rows": 1,
+                "pending_rows": 0,
+                "blockers": ["metric_mapping_accuracy below threshold"],
+            },
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    report = build_manual_review_progress(tmp_path)
+    queue = build_manual_review_action_queue(report, review_kinds=("footprint_review",))
+    action = queue["actions"][0]
+    metric_gap = action["quality_gap_targets"]["metrics"]["metric_mapping_accuracy"]
+
+    assert action["review_kind"] == "footprint_review"
+    assert metric_gap["current_pass_count"] == 0
+    assert (
+        metric_gap["minimum_additional_pass_count_if_denominator_unchanged"]
+        == metric_gap["required_pass_count"]
+    )
 
 
 def test_review_progress_actions_only_filters_review_kind(

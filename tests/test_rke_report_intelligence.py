@@ -10792,6 +10792,18 @@ def test_analytical_footprint_review_summary_requires_quality_thresholds(
         "metric_mapping_accuracy" in blocker
         for blocker in summary["quality_gate_blockers"]
     )
+    metric_gap = summary["quality_gap_targets"]["metrics"]["metric_mapping_accuracy"]
+    assert metric_gap["current_pass_count"] == 0
+    assert (
+        metric_gap["minimum_additional_pass_count_if_denominator_unchanged"]
+        == metric_gap["required_pass_count"]
+    )
+
+    assist_report = write_analytical_footprint_review_assist(tmp_path)
+    markdown = (tmp_path / assist_report.markdown_path).read_text(encoding="utf-8")
+
+    assert assist_report.quality_gap_targets is not None
+    assert "## Quality Gate Gap Targets" in markdown
 
 
 def test_apply_analytical_footprint_review_import_rejects_stale_or_leaky_rows(

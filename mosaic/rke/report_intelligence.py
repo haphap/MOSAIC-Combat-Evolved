@@ -25,6 +25,7 @@ from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timezone
 from hashlib import sha256
+from math import ceil
 from pathlib import Path
 from typing import Any, Callable, Literal, Mapping, Sequence
 
@@ -968,6 +969,7 @@ class AnalyticalFootprintReviewAssistReport:
     row_count: int
     pending_rows: int
     blockers: Sequence[str]
+    quality_gap_targets: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -4594,6 +4596,61 @@ def _footprint_review_row_complete(row: Mapping[str, Any]) -> bool:
     )
 
 
+_ANALYTICAL_FOOTPRINT_REVIEW_FIELD_BY_METRIC = {
+    "footprint_precision": "footprint_correct",
+    "span_support_precision": "source_span_supports_footprint",
+    "metric_mapping_accuracy": "metric_mapping_correct",
+    "inferred_step_tagging_accuracy": "inferred_steps_tagged_correctly",
+    "unknown_on_ambiguity_rate": "unknowns_used_when_uncertain",
+    "proprietary_leakage_free_rate": "no_proprietary_text_leakage",
+}
+
+
+def _analytical_footprint_quality_gap_targets(
+    complete_rows: Sequence[Mapping[str, Any]],
+    precision_recall_report: Mapping[str, Any],
+) -> Mapping[str, Any] | None:
+    denominator = len(complete_rows)
+    if denominator == 0:
+        return None
+    metric_targets: dict[str, Mapping[str, Any]] = {}
+    active_gap_count = 0
+    for metric, threshold in ANALYTICAL_FOOTPRINT_REVIEW_QUALITY_THRESHOLDS.items():
+        field = _ANALYTICAL_FOOTPRINT_REVIEW_FIELD_BY_METRIC[metric]
+        current_rate = precision_recall_report.get(metric)
+        current_pass_count = sum(row.get(field) is True for row in complete_rows)
+        required_pass_count = ceil((threshold * denominator) - 1e-12)
+        minimum_gap_count = max(0, required_pass_count - current_pass_count)
+        if minimum_gap_count:
+            active_gap_count += 1
+        metric_targets[metric] = {
+            "operator": ">=",
+            "threshold": threshold,
+            "current_rate": current_rate,
+            "denominator": denominator,
+            "current_pass_count": current_pass_count,
+            "required_pass_count": required_pass_count,
+            "minimum_additional_pass_count_if_denominator_unchanged": minimum_gap_count,
+            "is_passing": minimum_gap_count == 0,
+        }
+    return {
+        "policy": (
+            "public_safe_aggregate_quality_gate_gap_targets_no_source_text"
+        ),
+        "interpretation": (
+            "count deltas are computed over currently completed footprint review "
+            "rows; use them to prioritize re-review or candidate expansion, not "
+            "as instructions to flip labels"
+        ),
+        "sample_size_completed_rows": {
+            "current_count": denominator,
+            "pending_rows_are_excluded_from_metric_denominator": True,
+        },
+        "metrics": metric_targets,
+        "active_gap_count": active_gap_count,
+    }
+
+
 def build_analytical_footprint_review_summary(
     review_rows: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
@@ -4636,6 +4693,10 @@ def build_analytical_footprint_review_summary(
         "recall_estimate": None,
         "recall_status": "requires_human_negative_examples",
     }
+    quality_gap_targets = _analytical_footprint_quality_gap_targets(
+        complete_rows,
+        precision_recall_report,
+    )
     quality_gate_blockers: list[str] = []
     for field, threshold in ANALYTICAL_FOOTPRINT_REVIEW_QUALITY_THRESHOLDS.items():
         value = precision_recall_report.get(field)
@@ -4656,6 +4717,7 @@ def build_analytical_footprint_review_summary(
         "quality_gate_thresholds": dict(
             sorted(ANALYTICAL_FOOTPRINT_REVIEW_QUALITY_THRESHOLDS.items())
         ),
+        "quality_gap_targets": quality_gap_targets,
         "quality_gate_blockers": quality_gate_blockers,
         "manual_review_required": True,
         "review_template_path": ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH,
@@ -4951,6 +5013,7 @@ def build_analytical_footprint_review_assist(
         _footprint_review_assist_row(index, row)
         for index, row in enumerate(pending_rows, 1)
     )
+    review_summary = build_analytical_footprint_review_summary(target_rows)
     blockers: list[str] = [*target_parse_blockers]
     if invalid_target_rows:
         blockers.append(
@@ -4971,6 +5034,7 @@ def build_analytical_footprint_review_assist(
             row_count=len(assist_rows),
             pending_rows=len(pending_rows),
             blockers=tuple(blockers),
+            quality_gap_targets=review_summary.get("quality_gap_targets"),
         ),
         assist_rows,
     )
@@ -4996,6 +5060,34 @@ def render_analytical_footprint_review_workbook_markdown(
     if report.blockers:
         lines.extend(["## Blockers", ""])
         lines.extend(f"- {blocker}" for blocker in report.blockers)
+        lines.append("")
+    if report.quality_gap_targets:
+        lines.extend(["## Quality Gate Gap Targets", ""])
+        lines.append(
+            "Aggregate only; these counts contain no source text and are not import decisions."
+        )
+        lines.append("")
+        sample_size = report.quality_gap_targets.get(
+            "sample_size_completed_rows",
+            {},
+        )
+        if isinstance(sample_size, Mapping):
+            lines.append(
+                "- Completed rows in denominator: "
+                f"{sample_size.get('current_count')}"
+            )
+        metrics = report.quality_gap_targets.get("metrics", {})
+        if isinstance(metrics, Mapping):
+            for metric, target in metrics.items():
+                if not isinstance(target, Mapping) or target.get("is_passing") is True:
+                    continue
+                lines.append(
+                    "- "
+                    f"{metric}: {target.get('current_rate')} / {target.get('threshold')} "
+                    f"(pass count {target.get('current_pass_count')}/"
+                    f"{target.get('required_pass_count')}, need +"
+                    f"{target.get('minimum_additional_pass_count_if_denominator_unchanged')})"
+                )
         lines.append("")
     lines.extend(
         [

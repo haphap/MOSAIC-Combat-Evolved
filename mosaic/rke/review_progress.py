@@ -54,6 +54,7 @@ from .report_intelligence import (
     ANALYTICAL_FOOTPRINT_REVIEW_WORKBOOK_MD_PATH,
     ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH,
     apply_analytical_footprint_review_import,
+    build_analytical_footprint_review_summary,
 )
 from .review_gates import summarize_gold_set_review
 from .review_gates import summarize_source_license_review
@@ -1004,13 +1005,28 @@ def _lockbox_progress(root_path: Path) -> ManualReviewGateProgress:
 
 def _footprint_review_summary(root_path: Path) -> Mapping[str, Any]:
     path = root_path / ANALYTICAL_FOOTPRINT_REVIEW_SUMMARY_PATH
-    if not path.exists():
-        return {}
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return {}
-    return payload if isinstance(payload, Mapping) else {}
+    payload: Mapping[str, Any] = {}
+    if path.exists():
+        try:
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            loaded = {}
+        payload = loaded if isinstance(loaded, Mapping) else {}
+    if payload.get("quality_gap_targets") is not None:
+        return payload
+
+    template_path = root_path / ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH
+    if not template_path.exists():
+        return payload
+    raw_rows, _ = load_jsonl_with_errors(
+        template_path,
+        label=ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH,
+    )
+    template_rows = tuple(row for row in raw_rows if isinstance(row, Mapping))
+    if not template_rows:
+        return payload
+    computed = build_analytical_footprint_review_summary(template_rows)
+    return {**computed, **payload, "quality_gap_targets": computed.get("quality_gap_targets")}
 
 
 def _footprint_review_target_rows(root_path: Path, summary: Mapping[str, Any]) -> int:
@@ -1054,6 +1070,7 @@ def _footprint_review_progress(root_path: Path) -> ManualReviewGateProgress:
             dry_run_command=dry_run_command,
             apply_command=apply_command,
             current_batch_status=current_batch_status,
+            quality_gap_targets=summary.get("quality_gap_targets"),
         )
     if not resolved_input.exists():
         return _missing_gate(
@@ -1066,6 +1083,7 @@ def _footprint_review_progress(root_path: Path) -> ManualReviewGateProgress:
             next_batch_commands=_footprint_next_batch_commands(target_rows),
             batch_plan=_manual_review_batch_plan("footprint_review", target_rows),
             current_batch_status=current_batch_status,
+            quality_gap_targets=summary.get("quality_gap_targets"),
         )
 
     input_rows = _jsonl_row_count(resolved_input)
@@ -1110,6 +1128,7 @@ def _footprint_review_progress(root_path: Path) -> ManualReviewGateProgress:
         next_batch_commands=_footprint_next_batch_commands(pending_rows),
         batch_plan=_manual_review_batch_plan("footprint_review", pending_rows),
         current_batch_status=current_batch_status,
+        quality_gap_targets=simulated_summary.get("quality_gap_targets"),
     )
 
 
