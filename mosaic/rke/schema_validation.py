@@ -3114,6 +3114,16 @@ def _recipe_preregistration_hash_from_run(row: Mapping[str, Any]) -> str:
     return "sha256:" + sha256(encoded).hexdigest()
 
 
+def _recipe_contract_stable_id(prefix: str, payload: Mapping[str, Any]) -> str:
+    encoded = json.dumps(
+        _jsonable(payload),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return f"{prefix}-{sha256(encoded).hexdigest()[:16]}"
+
+
 def _validate_recipe_paper_trading_contract(
     root_path: Path,
 ) -> tuple[int, list[str]]:
@@ -3147,6 +3157,8 @@ def _validate_recipe_paper_trading_contract(
     )
 
     runs_by_recipe_id: dict[str, Mapping[str, Any]] = {}
+    paper_trading_run_ids: dict[str, str] = {}
+    experiment_ids: dict[str, str] = {}
     recipe_instability_gap_blocker = "recipe_instability_gap"
     recipe_instability_source_blockers = {
         "window_horizon_missing",
@@ -3165,12 +3177,28 @@ def _validate_recipe_paper_trading_contract(
     for index, row in enumerate(run_rows, 1):
         row_label = f"recipe_paper_trading_runs row {index}"
         recipe_id = str(row.get("analysis_recipe_id") or "").strip()
+        paper_trading_run_id = str(row.get("paper_trading_run_id") or "").strip()
+        experiment_id = str(row.get("experiment_id") or "").strip()
         if not recipe_id:
             failures.append(f"{row_label}.analysis_recipe_id: required")
         elif recipe_id in runs_by_recipe_id:
             failures.append(f"{row_label}.analysis_recipe_id: duplicate {recipe_id}")
         else:
             runs_by_recipe_id[recipe_id] = row
+        if not paper_trading_run_id:
+            failures.append(f"{row_label}.paper_trading_run_id: required")
+        elif paper_trading_run_id in paper_trading_run_ids:
+            failures.append(
+                f"{row_label}.paper_trading_run_id: duplicate {paper_trading_run_id}"
+            )
+        else:
+            paper_trading_run_ids[paper_trading_run_id] = recipe_id
+        if not experiment_id:
+            failures.append(f"{row_label}.experiment_id: required")
+        elif experiment_id in experiment_ids:
+            failures.append(f"{row_label}.experiment_id: duplicate {experiment_id}")
+        else:
+            experiment_ids[experiment_id] = recipe_id
 
         status = str(row.get("paper_trading_status") or "")
         validation_status = str(row.get("validation_status") or "")
@@ -3199,6 +3227,29 @@ def _validate_recipe_paper_trading_contract(
             failures.append(
                 f"{row_label}.protocol_version: must be {RECIPE_PAPER_TRADING_PROTOCOL_VERSION}"
             )
+        if recipe_id:
+            expected_run_id = _recipe_contract_stable_id(
+                "RIPT",
+                {
+                    "analysis_recipe_id": recipe_id,
+                    "protocol_version": RECIPE_PAPER_TRADING_PROTOCOL_VERSION,
+                },
+            )
+            if paper_trading_run_id and paper_trading_run_id != expected_run_id:
+                failures.append(
+                    f"{row_label}.paper_trading_run_id: must bind analysis_recipe_id and protocol_version"
+                )
+            expected_experiment_id = _recipe_contract_stable_id(
+                "RIEXP",
+                {
+                    "analysis_recipe_id": recipe_id,
+                    "protocol_version": RECIPE_PAPER_TRADING_PROTOCOL_VERSION,
+                },
+            )
+            if experiment_id and experiment_id != expected_experiment_id:
+                failures.append(
+                    f"{row_label}.experiment_id: must bind analysis_recipe_id and protocol_version"
+                )
         if row.get("benchmark_source") != RECIPE_PAPER_TRADING_BENCHMARK_SOURCE:
             failures.append(
                 f"{row_label}.benchmark_source: must be {RECIPE_PAPER_TRADING_BENCHMARK_SOURCE}"

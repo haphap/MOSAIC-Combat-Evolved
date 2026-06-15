@@ -2421,6 +2421,36 @@ def test_recipe_paper_trading_contract_rejects_preregistration_payload_mismatch(
     assert any("pre_registration_hash: mismatch" in item for item in record.failures)
 
 
+def test_recipe_paper_trading_contract_rejects_experiment_id_drift(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    runs_path = registry / "recipe_paper_trading_runs.jsonl"
+    runs = [
+        json.loads(line)
+        for line in runs_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    runs[1]["experiment_id"] = runs[0]["experiment_id"]
+    runs[2]["paper_trading_run_id"] = runs[0]["paper_trading_run_id"]
+    runs[3]["experiment_id"] = "RIEXP-posthoc-override"
+    runs_path.write_text(
+        "\n".join(json.dumps(row, ensure_ascii=False, sort_keys=True) for row in runs)
+        + "\n",
+        encoding="utf-8",
+    )
+
+    record = _recipe_paper_trading_contract_record(tmp_path)
+
+    assert not record.accepted
+    assert any("experiment_id: duplicate" in item for item in record.failures)
+    assert any("paper_trading_run_id: duplicate" in item for item in record.failures)
+    assert any(
+        "experiment_id: must bind analysis_recipe_id and protocol_version" in item
+        for item in record.failures
+    )
+
+
 def test_recipe_paper_trading_contract_rejects_raw_required_data_persistence(
     tmp_path: Path,
 ):
