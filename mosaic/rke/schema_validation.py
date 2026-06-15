@@ -5161,6 +5161,47 @@ def _footprint_quality_prompt_candidate_expected_evidence(
     }
 
 
+def _stability_prompt_candidate_expected_evidence_refs(
+    gate: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    gate_thresholds = (
+        gate.get("thresholds") if isinstance(gate.get("thresholds"), Mapping) else {}
+    )
+    expected_refs: list[dict[str, Any]] = []
+    for check_id in ("RI-EVOL-03", "RI-EVOL-04", "RI-EVOL-06"):
+        check = _evolution_gate_check(gate, check_id)
+        if not check:
+            continue
+        check_blockers = _string_items(check.get("blockers"))
+        if not check_blockers:
+            continue
+        expected_refs.append(
+            {
+                "artifact_path": (
+                    "registry/report_intelligence/evolution_readiness_gate.json"
+                ),
+                "field": f"checks.{check_id}.evidence",
+                "check_id": check_id,
+                "blockers": check_blockers,
+                "evidence": (
+                    check.get("evidence")
+                    if isinstance(check.get("evidence"), Mapping)
+                    else {}
+                ),
+                "thresholds": {
+                    key: gate_thresholds.get(key)
+                    for key in (
+                        "min_consecutive_monitor_refreshes",
+                        "min_consecutive_audit_refreshes",
+                        "min_gap_distribution_refreshes",
+                    )
+                    if key in gate_thresholds
+                },
+            }
+        )
+    return expected_refs
+
+
 def _prompt_mutation_matching_evidence_ref(
     row: Mapping[str, Any],
     *,
@@ -5254,6 +5295,59 @@ def _validate_prompt_mutation_governed_evidence(
                     f"{row_label}.{candidate_type}.evidence_refs.{field}: "
                     "must match analytical footprint review summary"
                 )
+    elif candidate_type == "evolution_refresh_stability_rule":
+        expected_refs = _stability_prompt_candidate_expected_evidence_refs(gate)
+        if not expected_refs:
+            failures.append(
+                f"{row_label}.{candidate_type}: no current RI-EVOL-03/04/06 "
+                "stability blockers require a mutation candidate"
+            )
+            return failures
+        expected_fields = sorted(str(item["field"]) for item in expected_refs)
+        actual_refs = row.get("evidence_refs")
+        actual_ref_sequence = (
+            actual_refs
+            if isinstance(actual_refs, Sequence) and not isinstance(actual_refs, str)
+            else []
+        )
+        actual_fields = sorted(
+            str(evidence.get("field") or "")
+            for evidence in actual_ref_sequence
+            if isinstance(evidence, Mapping)
+            and evidence.get("artifact_path")
+            == "registry/report_intelligence/evolution_readiness_gate.json"
+            and str(evidence.get("field") or "")
+            in {
+                "checks.RI-EVOL-03.evidence",
+                "checks.RI-EVOL-04.evidence",
+                "checks.RI-EVOL-06.evidence",
+            }
+        )
+        if actual_fields != expected_fields:
+            failures.append(
+                f"{row_label}.{candidate_type}.evidence_refs: must match "
+                "current blocked RI-EVOL-03/04/06 stability checks"
+            )
+        for expected in expected_refs:
+            field = str(expected["field"])
+            evidence = _prompt_mutation_matching_evidence_ref(
+                row,
+                artifact_path=str(expected["artifact_path"]),
+                field=field,
+                row_label=row_label,
+                failures=failures,
+            )
+            if evidence is None:
+                continue
+            for key in ("check_id", "blockers", "evidence", "thresholds"):
+                if not _prompt_mutation_evidence_values_equal(
+                    evidence.get(key),
+                    expected.get(key),
+                ):
+                    failures.append(
+                        f"{row_label}.{candidate_type}.evidence_refs.{field}.{key}: "
+                        "must match current evolution readiness gate"
+                    )
     return failures
 
 

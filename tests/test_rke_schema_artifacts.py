@@ -3625,6 +3625,48 @@ def test_prompt_mutation_candidate_contract_rejects_footprint_quality_evidence_d
     )
 
 
+def test_prompt_mutation_candidate_contract_rejects_refresh_stability_evidence_drift(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    candidates_path = registry / "prompt_mutation_candidates.jsonl"
+    candidates = _read_prompt_mutation_candidates(candidates_path)
+    stability = next(
+        row
+        for row in candidates
+        if row["candidate_type"] == "evolution_refresh_stability_rule"
+    )
+    evidence_refs = stability["evidence_refs"]
+    assert isinstance(evidence_refs, list)
+    evidence = evidence_refs[0]
+    assert isinstance(evidence, dict)
+    payload = evidence["evidence"]
+    assert isinstance(payload, dict)
+    payload["data_vintage_hash"] = "sha256:" + ("0" * 64)
+    payload["current_failure_counts"] = {
+        "pit": 0,
+        "provenance": 0,
+        "schema": 999,
+        "statistical": 0,
+    }
+    evidence["blockers"] = ["audit_refresh_history_below_threshold"]
+    _write_prompt_mutation_candidates(candidates_path, candidates)
+
+    record = _prompt_mutation_candidate_contract_record(tmp_path)
+
+    assert not record.accepted
+    assert any(
+        "evolution_refresh_stability_rule.evidence_refs.checks.RI-EVOL-04.evidence.blockers"
+        in item
+        for item in record.failures
+    )
+    assert any(
+        "evolution_refresh_stability_rule.evidence_refs.checks.RI-EVOL-04.evidence.evidence"
+        in item
+        for item in record.failures
+    )
+
+
 def _copy_registry_for_manual_progress(tmp_path: Path) -> Path:
     registry = tmp_path / "registry"
     shutil.copytree(Path("registry"), registry, dirs_exist_ok=True)
