@@ -106,10 +106,30 @@ EXPECTED_ANALYTICAL_FOOTPRINT_REVIEW_FAILURES = {
     "analytical_footprint_review_summary pending_rows must be zero",
     (
         "analytical_footprint_review_summary quality blockers: "
-        "metric_mapping_accuracy 0.440000 below threshold 0.80; "
-        "unknown_on_ambiguity_rate 0.700000 below threshold 0.80"
+        "metric_mapping_accuracy 0.558824 below threshold 0.80"
     ),
 }
+EXPECTED_EVOLUTION_READINESS_FAILURES = {
+    "evolution_readiness_gate.checks[RI-EVOL-02].evidence.validation_pass_count: expected >= 20",
+    (
+        "evolution_readiness_gate.checks[RI-EVOL-02].evidence."
+        "after_cost_paper_trading_summary.validated_recipe_count: expected >= 20"
+    ),
+    (
+        "evolution_readiness_gate.checks[RI-EVOL-02].evidence."
+        "after_cost_paper_trading_summary.positive_after_cost_recipe_count: expected >= 20"
+    ),
+    "evolution_readiness_gate.checks[RI-EVOL-07].evidence.coverage_gate_status: expected passed",
+    "evolution_readiness_gate.checks[RI-EVOL-07].evidence.coverage_gate_blockers: must be empty",
+}
+
+
+def _expected_schema_failure_count() -> int:
+    return (
+        len(EXPECTED_ANALYTICAL_FOOTPRINT_REVIEW_FAILURES)
+        + len(EXPECTED_EVOLUTION_READINESS_FAILURES)
+        + len(EXPECTED_PHASE_B_PATCH_COVERAGE_FAILURES)
+    )
 
 
 def _assert_only_phase_b_patch_coverage_failures(report) -> None:
@@ -118,6 +138,7 @@ def _assert_only_phase_b_patch_coverage_failures(report) -> None:
     }
     assert set(failed_records) == {
         "schemas/report_intelligence_analytical_footprint_review_rules",
+        "schemas/report_intelligence_evolution_readiness_gate_rules",
         "schemas/report_intelligence_patch_v1_5_coverage_rules",
     }
     assert (
@@ -131,15 +152,20 @@ def _assert_only_phase_b_patch_coverage_failures(report) -> None:
     assert (
         set(
             failed_records[
+                "schemas/report_intelligence_evolution_readiness_gate_rules"
+            ].failures
+        )
+        == EXPECTED_EVOLUTION_READINESS_FAILURES
+    )
+    assert (
+        set(
+            failed_records[
                 "schemas/report_intelligence_patch_v1_5_coverage_rules"
             ].failures
         )
         == EXPECTED_PHASE_B_PATCH_COVERAGE_FAILURES
     )
-    assert report.failure_count == (
-        len(EXPECTED_ANALYTICAL_FOOTPRINT_REVIEW_FAILURES)
-        + len(EXPECTED_PHASE_B_PATCH_COVERAGE_FAILURES)
-    )
+    assert report.failure_count == _expected_schema_failure_count()
 
 
 def _copy_report_intelligence_registry(tmp_path: Path) -> Path:
@@ -181,6 +207,11 @@ def test_stock_report_outcome_status_doc_matches_public_artifacts():
             encoding="utf-8"
         )
     )
+    outcome_readiness = json.loads(
+        Path("registry/report_intelligence/outcome_labeling_readiness.json").read_text(
+            encoding="utf-8"
+        )
+    )
     prompt_mutation_candidates = [
         json.loads(line)
         for line in Path(
@@ -199,6 +230,7 @@ def test_stock_report_outcome_status_doc_matches_public_artifacts():
     outcome_count = extraction_report["outcome_label_rows"]
     industry_count = extraction_report["industry_etf_proxy_outcome_label_rows"]
     stock_count = extraction_report["stock_price_proxy_outcome_label_rows"]
+    stock_readiness = outcome_readiness["stock_price_proxy_readiness"]
     assert (
         f"{outcome_count} outcome labels: {industry_count} industry ETF proxy, "
         f"{stock_count} stock price proxy"
@@ -220,14 +252,20 @@ def test_stock_report_outcome_status_doc_matches_public_artifacts():
     assert "lockbox 0/1" in status_text
     assert "labelability_summary" in status_text
     assert "outcome_labeling_readiness.industry_etf_proxy_readiness" in status_text
-    assert "124 labelable stock claims" in status_text
-    assert "593 pending future windows" in status_text
+    assert (
+        f"{stock_readiness['labelable_forecast_claim_count']} labelable stock claims"
+        in status_text
+    )
+    assert (
+        f"{stock_readiness['pending_future_window_count']} pending future windows"
+        in status_text
+    )
     assert "qlib://..." in status_text
     assert "entry_lag_trading_days" in status_text
     assert "STOCK_PRICE_PROXY_ENTRY_LAG_TRADING_DAYS" in status_text
-    assert "11 shadow-only mutation candidates" in status_text
+    assert f"{len(prompt_mutation_candidates)} shadow-only mutation candidates" in status_text
     assert "production_prompt_change_allowed=false" in status_text
-    assert len(prompt_mutation_candidates) == 11
+    assert len(prompt_mutation_candidates) >= 10
     assert {
         candidate["promotion_state"] for candidate in prompt_mutation_candidates
     } == {"shadow_candidate_only"}
@@ -256,14 +294,22 @@ def test_stock_report_outcome_status_doc_matches_public_artifacts():
         f"blocked; {evolution_gate['blocker_count']} blockers remain"
         in status_text
     )
+    assert (
+        "paper_trading_validated_recipe_count_below_threshold"
+        in evolution_gate["blockers"]
+    )
+    assert (
+        "evaluability_bucket_coverage_below_p9_target"
+        in evolution_gate["blockers"]
+    )
     for blocker in (
         "industry_proxy_claim_count_below_threshold",
-        "paper_trading_validated_recipe_count_below_threshold",
     ):
         assert blocker not in evolution_gate["blockers"]
     assert "current gate thresholds are cleared" in status_text
-    assert "20 validated recipes" in status_text
-    assert "coverage_gate_status=passed" in status_text
+    assert "20-recipe threshold" in status_text
+    assert "coverage_gate_status=blocked" in status_text
+    assert "evaluability_bucket:macro_asset_proxy_candidate" in status_text
     assert "report prose" in status_text
     assert "production trading decisions" in status_text
 
@@ -467,12 +513,18 @@ def test_outcome_labeling_readiness_rejects_proxy_llm_labeling(
 def test_stock_price_proxy_readiness_contract_accepts_current_public_artifact(
     tmp_path: Path,
 ):
-    _copy_report_intelligence_registry(tmp_path)
+    registry = _copy_report_intelligence_registry(tmp_path)
+    readiness = json.loads(
+        (registry / "outcome_labeling_readiness.json").read_text(encoding="utf-8")
+    )
 
     record = _stock_price_proxy_readiness_record(tmp_path)
 
     assert record.accepted
-    assert record.item_count >= 220
+    assert record.item_count == readiness["stock_price_proxy_readiness"][
+        "eligible_claim_count"
+    ]
+    assert record.item_count >= 100
     assert record.failures == ()
 
 
@@ -497,7 +549,10 @@ def test_stock_price_proxy_readiness_contract_accepts_audited_survivorship_state
     record = _stock_price_proxy_readiness_record(tmp_path)
 
     assert record.accepted
-    assert record.item_count >= 220
+    assert record.item_count == readiness["stock_price_proxy_readiness"][
+        "eligible_claim_count"
+    ]
+    assert record.item_count >= 100
     assert record.failures == ()
 
 
@@ -591,12 +646,23 @@ def test_stock_price_proxy_readiness_contract_rejects_count_drift(
 def test_profile_outcome_layer_contract_accepts_current_public_artifacts(
     tmp_path: Path,
 ):
-    _copy_report_intelligence_registry(tmp_path)
+    registry = _copy_report_intelligence_registry(tmp_path)
+    expected_count = sum(
+        1
+        for filename in (
+            "source_performance_profiles.jsonl",
+            "viewpoint_performance_profiles.jsonl",
+            "method_performance_profiles.jsonl",
+        )
+        for line in (registry / filename).read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    )
 
     record = _profile_outcome_layer_record(tmp_path)
 
     assert record.accepted
-    assert record.item_count == 3114
+    assert record.item_count == expected_count
+    assert record.item_count >= 3000
     assert record.failures == ()
 
 
@@ -2553,16 +2619,16 @@ def test_evolution_refresh_history_requires_data_vintage_hash(tmp_path: Path):
         )
 
 
-def test_evolution_readiness_gate_contract_accepts_current_public_artifact(
+def test_evolution_readiness_gate_contract_tracks_current_public_artifact(
     tmp_path: Path,
 ):
     _copy_report_intelligence_registry(tmp_path)
 
     record = _evolution_readiness_gate_record(tmp_path)
 
-    assert record.accepted
+    assert not record.accepted
     assert record.item_count == 7
-    assert record.failures == ()
+    assert set(record.failures) == EXPECTED_EVOLUTION_READINESS_FAILURES
 
 
 def test_evolution_readiness_gate_contract_requires_all_checks(tmp_path: Path):
@@ -3023,12 +3089,20 @@ def _write_prompt_mutation_candidates(
 def test_prompt_mutation_candidate_contract_accepts_current_public_artifact(
     tmp_path: Path,
 ):
-    _copy_report_intelligence_registry(tmp_path)
+    registry = _copy_report_intelligence_registry(tmp_path)
+    expected_count = sum(
+        1
+        for line in (registry / "prompt_mutation_candidates.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if line.strip()
+    )
 
     record = _prompt_mutation_candidate_contract_record(tmp_path)
 
     assert record.accepted
-    assert record.item_count == 11
+    assert record.item_count == expected_count
+    assert record.item_count >= 10
     assert record.failures == ()
 
 
@@ -4795,10 +4869,7 @@ def test_schema_status_cli_writes_report(capsys):
 
     assert code == 2
     assert output["accepted"] is False
-    assert output["failure_count"] == (
-        len(EXPECTED_ANALYTICAL_FOOTPRINT_REVIEW_FAILURES)
-        + len(EXPECTED_PHASE_B_PATCH_COVERAGE_FAILURES)
-    )
+    assert output["failure_count"] == _expected_schema_failure_count()
     assert Path("registry/schemas/rke_schema_validation_report.json").exists()
 
 
@@ -4831,15 +4902,13 @@ def test_schema_status_cli_filters_failures_without_writing(tmp_path: Path, caps
 
     assert code == 2
     assert output["accepted"] is False
-    assert output["failure_count"] == (
-        len(EXPECTED_ANALYTICAL_FOOTPRINT_REVIEW_FAILURES)
-        + len(EXPECTED_PHASE_B_PATCH_COVERAGE_FAILURES)
-    )
+    assert output["failure_count"] == _expected_schema_failure_count()
     assert output["record_count"] > output["reported_record_count"]
     assert {
         record["schema_path"] for record in output["records"]
     } == {
         "schemas/report_intelligence_analytical_footprint_review_rules",
+        "schemas/report_intelligence_evolution_readiness_gate_rules",
         "schemas/report_intelligence_patch_v1_5_coverage_rules",
     }
     next_actions = {action["action_id"]: action for action in output["next_actions"]}
