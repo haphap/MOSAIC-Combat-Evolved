@@ -27,8 +27,8 @@ def test_master_plan_coverage_reports_current_registry_ready():
     assert report.blocked_count == 1
     assert report.mvp_deliverables_section == "16.3"
     assert report.mvp_exit_criteria_section == "16.4"
-    assert report.mvp_deliverables_passed_count == 8
-    assert report.mvp_deliverables_blocked_count == 2
+    assert report.mvp_deliverables_passed_count == 9
+    assert report.mvp_deliverables_blocked_count == 1
     assert report.mvp_deliverables_missing_count == 0
     assert not report.mvp_deliverables_ready
     assert report.mvp_exit_passed_count == 12
@@ -44,7 +44,7 @@ def test_master_plan_coverage_reports_current_registry_ready():
         record for record in report.records if record.section_id == "Phase-1B"
     )
     assert phase_1b.status == "blocked"
-    assert "gold set requires >= 50 documents" in phase_1b.blocker
+    assert "manual gold-set review still required" in phase_1b.blocker
     assert "patch_v1_5_coverage_report.json accepted must be true" in phase_1b.blocker
     assert "blocked phases: B, D" in phase_1b.blocker
     assert all(
@@ -55,7 +55,7 @@ def test_master_plan_coverage_reports_current_registry_ready():
     assert all(
         record.status == "passed"
         for record in report.mvp_deliverable_records
-        if record.section_id not in {"MVP-D2", "MVP-D3"}
+        if record.section_id != "MVP-D2"
     )
     mvp_d2 = next(
         record
@@ -63,14 +63,13 @@ def test_master_plan_coverage_reports_current_registry_ready():
         if record.section_id == "MVP-D2"
     )
     assert mvp_d2.status == "blocked"
-    assert "gold set requires >= 50 documents" in mvp_d2.blocker
+    assert "manual gold-set review still required" in mvp_d2.blocker
     mvp_d3 = next(
         record
         for record in report.mvp_deliverable_records
         if record.section_id == "MVP-D3"
     )
-    assert mvp_d3.status == "blocked"
-    assert "schema validation report accepted must be true" in mvp_d3.blocker
+    assert mvp_d3.status == "passed"
     assert all(
         record.status == "passed"
         for record in report.mvp_exit_records
@@ -182,6 +181,52 @@ def test_master_plan_coverage_detects_missing_phase_artifact(tmp_path: Path):
     assert report.missing_count >= 1
     assert phase_2.status == "missing"
     assert "central_bank_validation_experiment_v2.json" in phase_2.blocker
+
+
+def test_master_plan_coverage_claim_checker_ignores_unrelated_schema_gate(
+    tmp_path: Path,
+):
+    _copy_registry_and_schemas(tmp_path)
+    schema_report_path = tmp_path / "registry/schemas/rke_schema_validation_report.json"
+    schema_report = json.loads(schema_report_path.read_text(encoding="utf-8"))
+    assert schema_report["accepted"] is False
+
+    report = build_master_plan_coverage_report(tmp_path)
+    mvp_d3 = next(
+        record
+        for record in report.mvp_deliverable_records
+        if record.section_id == "MVP-D3"
+    )
+
+    assert mvp_d3.status == "passed"
+
+
+def test_master_plan_coverage_claim_checker_blocks_source_claim_schema_failure(
+    tmp_path: Path,
+):
+    _copy_registry_and_schemas(tmp_path)
+    schema_report_path = tmp_path / "registry/schemas/rke_schema_validation_report.json"
+    schema_report = json.loads(schema_report_path.read_text(encoding="utf-8"))
+    for record in schema_report["records"]:
+        if record.get("schema_path") == "schemas/source_grounded_claim.schema.json":
+            record["accepted"] = False
+            record["failures"] = ["claim row missing source span"]
+            break
+    schema_report_path.write_text(
+        json.dumps(schema_report, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    report = build_master_plan_coverage_report(tmp_path)
+    mvp_d3 = next(
+        record
+        for record in report.mvp_deliverable_records
+        if record.section_id == "MVP-D3"
+    )
+
+    assert mvp_d3.status == "blocked"
+    assert "source_grounded_claim schema failed" in mvp_d3.blocker
+    assert "claim row missing source span" in mvp_d3.blocker
 
 
 def test_master_plan_coverage_reports_invalid_direct_json_evidence(tmp_path: Path):
@@ -457,7 +502,7 @@ def test_master_plan_coverage_writer_and_cli(tmp_path: Path, capsys):
     assert output["blocked_count"] == 1
     assert output["missing_count"] == 0
     assert output["mvp_deliverables_section"] == "16.3"
-    assert output["mvp_deliverables_blocked_count"] == 1
+    assert output["mvp_deliverables_blocked_count"] == 0
     assert output["mvp_deliverables_missing_count"] == 0
     assert output["mvp_exit_criteria_section"] == "16.4"
     assert output["mvp_exit_blocked_count"] == 0

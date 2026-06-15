@@ -211,10 +211,12 @@ operators at stale or ambiguous manual work.
 `master-plan-status --no-write` now also includes
 public-safe `next_actions` that point to `schema-status --failures-only`,
 `review-progress --actions-only`, and `evolution-readiness --no-write`, then
-reuses the same schema/manual-review actions and field contracts. This makes the
-MVP-D3 `schema validation report accepted must be true` blocker traceable to the
-underlying manual review gates without editing master-plan coverage artifacts
-directly. Master-plan coverage now distinguishes missing evidence from blocked
+reuses the same schema/manual-review actions and field contracts. MVP-D3 now
+checks only the source-grounded claim schema records and the claim
+variable/grounding verifier reports, so unrelated report-intelligence manual
+review schema failures no longer make the claim-schema/verifier deliverable look
+blocked. Those manual gates remain visible in MVP-D2, Phase-1B, and final
+acceptance. Master-plan coverage now distinguishes missing evidence from blocked
 evidence: existing but non-passing gold/schema/patch gates report as `blocked`,
 while absent or malformed artifacts remain `missing`. `promotion-status
 --no-write` now also includes public-safe

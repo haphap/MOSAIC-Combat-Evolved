@@ -50,10 +50,9 @@ def test_dashboard_report_summarizes_completion_and_monitoring():
     assert report["master_plan_coverage"]["blocked_count"] == 1
     assert report["master_plan_coverage"]["blocked_sections"] == ("Phase-1B",)
     assert report["master_plan_coverage"]["mvp_deliverables"]["section"] == "16.3"
-    assert report["master_plan_coverage"]["mvp_deliverables"]["blocked_count"] == 2
+    assert report["master_plan_coverage"]["mvp_deliverables"]["blocked_count"] == 1
     assert report["master_plan_coverage"]["mvp_deliverables"]["blocked_sections"] == (
         "MVP-D2",
-        "MVP-D3",
     )
     assert report["master_plan_coverage"]["mvp_exit_criteria"]["section"] == "16.4"
     assert report["master_plan_coverage"]["mvp_exit_criteria"]["blocked_count"] == 1
@@ -160,10 +159,10 @@ def test_dashboard_report_summarizes_completion_and_monitoring():
         is True
     )
     assert (
-        report["manual_review_gates"]["review_batches"]["gold_set_pending_rows"] == 0
+        report["manual_review_gates"]["review_batches"]["gold_set_pending_rows"] == 26
     )
     assert (
-        report["manual_review_gates"]["review_batches"]["gold_set_exported_rows"] == 0
+        report["manual_review_gates"]["review_batches"]["gold_set_exported_rows"] == 26
     )
     assert (
         report["manual_review_gates"]["review_batches"]["gold_set_full_import_template"]
@@ -221,7 +220,7 @@ def test_dashboard_report_summarizes_completion_and_monitoring():
     assert report["audit_trace"]["broken_edge_count"] == 0
     assert report["audit_trace"]["agent_output_count"] == 1
     assert len(report["completion"]["blockers"]) == 1
-    assert "direction_accuracy below 0.85" in report["completion"]["blockers"][0]
+    assert "manual gold-set review still required" in report["completion"]["blockers"][0]
 
 
 def test_dashboard_report_surfaces_malformed_artifacts_without_crashing(tmp_path: Path):
@@ -265,8 +264,8 @@ def test_dashboard_markdown_renders_blockers():
     assert "Master-plan coverage missing: 0" in markdown
     assert "Master-plan coverage blocked: 1" in markdown
     assert "Master-plan blocked sections: Phase-1B" in markdown
-    assert "MVP deliverables blocked: 2" in markdown
-    assert "MVP deliverable blocked sections: MVP-D2, MVP-D3" in markdown
+    assert "MVP deliverables blocked: 1" in markdown
+    assert "MVP deliverable blocked sections: MVP-D2" in markdown
     assert "MVP exit criteria blocked: 1" in markdown
     assert "MVP exit blocked sections: MVP-E01" in markdown
     assert "Final acceptance blocked: 1" in markdown
@@ -294,7 +293,7 @@ def test_dashboard_markdown_renders_blockers():
     ]
     assert f"Gold candidate claims: {gold_candidate_count}" in markdown
     assert "License review packet pending sources:" in markdown
-    assert "Next gold review batch rows: 0" in markdown
+    assert "Next gold review batch rows: 26" in markdown
     assert (
         "Full gold review import template: registry/review_batches/gold_set_full_import_template.jsonl"
         in markdown

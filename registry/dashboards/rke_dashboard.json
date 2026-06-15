@@ -25,10 +25,9 @@
   },
   "completion": {
     "blockers": [
-      "gold set requires >= 50 documents; direction_accuracy below 0.85; variable_mapping_accuracy below 0.80; unsupported_field_false_grounding_rate above 0.05",
-      "long source text appears outside approved sandbox artifacts"
+      "manual gold-set review still required"
     ],
-    "passed": 10,
+    "passed": 11,
     "total": 12
   },
   "dashboard_id": "RKE-DASHBOARD-20260605",
@@ -71,11 +70,11 @@
   },
   "manual_review_gates": {
     "gold_candidate_claims": {
-      "candidate_available_count": 84,
-      "candidate_claim_count": 84,
+      "candidate_available_count": 152,
+      "candidate_claim_count": 152,
       "manual_fields_preserved": true,
-      "missing_variable_mapping_count": 4,
-      "review_rows_with_candidate_fields": 158
+      "missing_variable_mapping_count": 19,
+      "review_rows_with_candidate_fields": 205
     },
     "gold_review_packet": {
       "candidate_span_ref_count": 228,
@@ -105,9 +104,9 @@
     },
     "review_batches": {
       "gold_set_dry_run_command": "mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_next_import_template.jsonl --dry-run",
-      "gold_set_exported_rows": 0,
+      "gold_set_exported_rows": 26,
       "gold_set_full_import_template": "registry/review_batches/gold_set_full_import_template.jsonl",
-      "gold_set_pending_rows": 0,
+      "gold_set_pending_rows": 26,
       "gold_set_review_assist_jsonl": "registry/review_batches/gold_set_review_assist.jsonl",
       "gold_set_review_assist_markdown": "registry/review_batches/gold_set_review_assist.md",
       "gold_set_review_workbook": "registry/review_batches/gold_set_review_workbook.md",
@@ -118,7 +117,7 @@
       "source_license_review_workbook": "registry/review_batches/source_license_review_workbook.md"
     },
     "review_progress": {
-      "blocker_count": 18,
+      "blocker_count": 26,
       "gate_count": 4,
       "ready_for_promotion_dry_run": false,
       "runbook_path": "registry/review_batches/manual_review_runbook.md"
@@ -132,8 +131,10 @@
     }
   },
   "master_plan_coverage": {
-    "blocked_count": 0,
-    "blocked_sections": [],
+    "blocked_count": 1,
+    "blocked_sections": [
+      "Phase-1B"
+    ],
     "coverage_complete": false,
     "final_acceptance": {
       "blocked_count": 1,
@@ -145,14 +146,14 @@
       "ready": false,
       "section": "22"
     },
-    "missing_count": 1,
+    "missing_count": 0,
     "mvp_deliverables": {
       "blocked_count": 1,
       "blocked_sections": [
         "MVP-D2"
       ],
-      "missing_count": 1,
-      "passed_count": 8,
+      "missing_count": 0,
+      "passed_count": 9,
       "ready": false,
       "section": "16.3"
     },
@@ -173,7 +174,7 @@
     "gate_count": 4,
     "next_state": "paper_trading",
     "ready_for_operator_review": true,
-    "remaining_blocker_count": 6,
+    "remaining_blocker_count": 4,
     "run_order": [
       "review-progress-preflight",
       "prepare-gold-review",
@@ -187,10 +188,6 @@
       "fill-footprint-review",
       "dry-run-footprint-review",
       "apply-footprint-review",
-      "prepare-source-license-review",
-      "fill-source-license-policy",
-      "dry-run-source-license-review",
-      "apply-source-license-review",
       "promotion-status-before-lockbox",
       "prepare-lockbox-review",
       "fill-lockbox-review",
@@ -232,7 +229,7 @@
     "scenario_count": 6
   },
   "promotion_gate": {
-    "blocker_count": 5,
+    "blocker_count": 3,
     "direct_production_forbidden": true,
     "next_state": "paper_trading",
     "paper_trading_allowed": true,
@@ -290,7 +287,7 @@
   "schema_validation": {
     "accepted": false,
     "failure_count": 23,
-    "record_count": 86
+    "record_count": 87
   },
   "sector_demo": {
     "demo_status": "sandbox",
@@ -301,11 +298,11 @@
     "rule_pack_id": "sector.semiconductor.policy_substitution.v1"
   },
   "source_text_redaction": {
-    "accepted": false,
-    "checked_path_count": 463,
-    "failure_count": 1,
+    "accepted": true,
+    "checked_path_count": 459,
+    "failure_count": 0,
     "min_match_chars": 80,
-    "skipped_allowed_path_count": 38,
+    "skipped_allowed_path_count": 45,
     "source_text_count": 17470
   },
   "source_validation": {

@@ -2,10 +2,10 @@
 
 - Broad rollout ready: false
 - Dashboard artifact errors: 0
-- Completion: 10 / 12
-- Master-plan coverage missing: 1
-- Master-plan coverage blocked: 0
-- Master-plan blocked sections: none
+- Completion: 11 / 12
+- Master-plan coverage missing: 0
+- Master-plan coverage blocked: 1
+- Master-plan blocked sections: Phase-1B
 - MVP deliverables blocked: 1
 - MVP deliverable blocked sections: MVP-D2
 - MVP exit criteria blocked: 1
@@ -28,27 +28,27 @@
 - Experiment validation failures: 0
 - Source validation sandbox accepted: True
 - Source validation production blockers: 0
-- Source text redaction accepted: False
-- Source text redaction failures: 1
+- Source text redaction accepted: True
+- Source text redaction failures: 0
 - Sector demo: sandbox
 - Macro expansion candidates: 3
 - Phase 7 sector actionability: monitor_only
 - Gold-set review pending claims: 0
 - Gold review packet spans: 228
-- Gold candidate claims: 84
+- Gold candidate claims: 152
 - License review pending sources: 0
 - License review packet pending sources: 0
-- Next gold review batch rows: 0
+- Next gold review batch rows: 26
 - Full gold review import template: registry/review_batches/gold_set_full_import_template.jsonl
 - Gold review workbook: registry/review_batches/gold_set_review_workbook.md
 - Gold review assist: registry/review_batches/gold_set_review_assist.md
 - Next license review batch rows: 0
 - Source license review workbook: registry/review_batches/source_license_review_workbook.md
 - Manual review promotion dry-run ready: False
-- Manual review progress blockers: 18
+- Manual review progress blockers: 26
 - Manual review runbook: registry/review_batches/manual_review_runbook.md
 - Operator handoff ready: True
-- Operator handoff blockers: 6
+- Operator handoff blockers: 4
 - Operator readiness accepted: True
 - Operator readiness failures: 0
 - Experiment governance family: FAM-CB-LIQUIDITY-2026Q2
@@ -64,8 +64,7 @@
 
 ## Blockers
 
-- gold set requires >= 50 documents; direction_accuracy below 0.85; variable_mapping_accuracy below 0.80; unsupported_field_false_grounding_rate above 0.05
-- long source text appears outside approved sandbox artifacts
+- manual gold-set review still required
 
 ## Runtime
 

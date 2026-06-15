@@ -16,7 +16,7 @@
       "status": "passed"
     },
     {
-      "blocker": "gold set requires >= 50 documents; direction_accuracy below 0.85; variable_mapping_accuracy below 0.80; unsupported_field_false_grounding_rate above 0.05",
+      "blocker": "manual gold-set review still required",
       "evidence_paths": [
         "registry/audits/rke_completion_audit.json"
       ],
@@ -130,7 +130,7 @@
       "status": "passed"
     },
     {
-      "blocker": "gold set requires >= 50 documents; direction_accuracy below 0.85; variable_mapping_accuracy below 0.80; unsupported_field_false_grounding_rate above 0.05",
+      "blocker": "manual gold-set review still required",
       "evidence_paths": [
         "registry/gold_sets/tushare_research_reports.review_template.jsonl",
         "registry/gold_sets/tushare_research_reports.review_summary.json",
@@ -141,7 +141,7 @@
       "status": "blocked"
     },
     {
-      "blocker": "schema validation report accepted must be true",
+      "blocker": "",
       "evidence_paths": [
         "schemas/source_grounded_claim.schema.json",
         "registry/schemas/rke_schema_validation_report.json",
@@ -150,7 +150,7 @@
       ],
       "requirement": "Source-grounded claim schema and verifier.",
       "section_id": "MVP-D3",
-      "status": "blocked"
+      "status": "passed"
     },
     {
       "blocker": "",
@@ -227,9 +227,9 @@
       "status": "passed"
     }
   ],
-  "mvp_deliverables_blocked_count": 2,
+  "mvp_deliverables_blocked_count": 1,
   "mvp_deliverables_missing_count": 0,
-  "mvp_deliverables_passed_count": 8,
+  "mvp_deliverables_passed_count": 9,
   "mvp_deliverables_ready": false,
   "mvp_deliverables_section": "16.3",
   "mvp_exit_blocked_count": 1,
@@ -239,7 +239,7 @@
   "mvp_exit_ready": false,
   "mvp_exit_records": [
     {
-      "blocker": "gold set requires >= 50 documents; direction_accuracy below 0.85; variable_mapping_accuracy below 0.80; unsupported_field_false_grounding_rate above 0.05",
+      "blocker": "manual gold-set review still required",
       "evidence_paths": [
         "registry/gold_sets/tushare_research_reports.review_summary.json",
         "registry/audits/rke_completion_audit.json"
@@ -390,7 +390,7 @@
       "status": "passed"
     },
     {
-      "blocker": "gold set requires >= 50 documents; direction_accuracy below 0.85; variable_mapping_accuracy below 0.80; unsupported_field_false_grounding_rate above 0.05; registry/report_intelligence/patch_v1_5_coverage_report.json accepted must be true; registry/report_intelligence/patch_v1_5_coverage_report.json blocker_count must be zero; registry/report_intelligence/patch_v1_5_coverage_report.json blocked phases: B, D",
+      "blocker": "manual gold-set review still required; registry/report_intelligence/patch_v1_5_coverage_report.json accepted must be true; registry/report_intelligence/patch_v1_5_coverage_report.json blocker_count must be zero; registry/report_intelligence/patch_v1_5_coverage_report.json blocked phases: B, D",
       "evidence_paths": [
         "registry/gold_sets/tushare_research_reports.review_template.jsonl",
         "registry/gold_sets/tushare_research_reports.candidate_claims.jsonl",

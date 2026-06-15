@@ -789,6 +789,31 @@ def _pre_registered_experiment_record(root_path: Path) -> MasterPlanCoverageReco
     )
 
 
+def _source_grounded_claim_schema_failures(report: Mapping[str, Any]) -> list[str]:
+    records = report.get("records")
+    if not isinstance(records, list):
+        return ["schema validation report records must be a list"]
+    matching_records = [
+        record
+        for record in records
+        if isinstance(record, Mapping)
+        and record.get("schema_path") == "schemas/source_grounded_claim.schema.json"
+    ]
+    if not matching_records:
+        return ["schema validation report has no source_grounded_claim records"]
+    failures: list[str] = []
+    for record in matching_records:
+        artifact_path = str(record.get("artifact_path") or "<unknown>")
+        record_failures = record.get("failures")
+        if record.get("accepted") is not True:
+            failures.append(f"{artifact_path} source_grounded_claim schema failed")
+        if isinstance(record_failures, list):
+            failures.extend(str(item) for item in record_failures if item)
+        elif record_failures:
+            failures.append(f"{artifact_path} failures must be a list")
+    return failures
+
+
 def _claim_checker_record(root_path: Path) -> MasterPlanCoverageRecord:
     evidence_paths = (
         "schemas/source_grounded_claim.schema.json",
@@ -798,11 +823,17 @@ def _claim_checker_record(root_path: Path) -> MasterPlanCoverageRecord:
     )
     missing_failures: list[str] = []
     gate_failures: list[str] = []
+    schema_report, schema_error = _load_mapping_evidence(
+        root_path,
+        "registry/schemas/rke_schema_validation_report.json",
+        "schema validation report",
+    )
+    if schema_error:
+        missing_failures.append(schema_error)
+    elif schema_report is not None:
+        gate_failures.extend(_source_grounded_claim_schema_failures(schema_report))
+
     for relative, label in (
-        (
-            "registry/schemas/rke_schema_validation_report.json",
-            "schema validation report",
-        ),
         (
             "registry/claim_checks/claim_variable_validation_report.json",
             "claim variable validation report",
