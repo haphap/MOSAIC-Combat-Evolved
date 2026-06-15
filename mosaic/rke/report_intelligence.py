@@ -3485,7 +3485,48 @@ def _normalize_indicator_mentions(value: Any) -> list[dict[str, Any]]:
                 }
             )
         )
-    return records
+    return _prioritize_indicator_mentions_for_review(records)
+
+
+def _prioritize_indicator_mentions_for_review(
+    records: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    unique_records: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str, str, str]] = set()
+    for record in records:
+        mention = dict(record)
+        key = (
+            str(mention.get("indicator_text") or ""),
+            str(mention.get("canonical_metric_candidate") or ""),
+            str(mention.get("data_source_mentioned") or ""),
+            str(mention.get("transformation") or ""),
+            str(mention.get("role_in_argument") or ""),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        unique_records.append(mention)
+
+    def sort_key(item: tuple[int, Mapping[str, Any]]) -> tuple[int, int, int]:
+        index, mention = item
+        canonical_unknown = _indicator_value_unknown(
+            mention.get("canonical_metric_candidate")
+        )
+        source_grounded = mention.get("source_grounded") is True
+        if source_grounded and not canonical_unknown:
+            priority = 0
+        elif not canonical_unknown:
+            priority = 1
+        elif source_grounded:
+            priority = 2
+        else:
+            priority = 3
+        return (priority, len(str(mention.get("indicator_text") or "")), index)
+
+    return [
+        dict(mention)
+        for _, mention in sorted(enumerate(unique_records), key=sort_key)
+    ]
 
 
 TEXT_GROUNDED_INDICATOR_SEED_RULES: tuple[tuple[str, str, str], ...] = (
@@ -4773,7 +4814,9 @@ def _refresh_analytical_footprint_indicator_governance(
                 if str(mention.get("canonical_metric_candidate") or "")
                 not in seen_canonicals
             )
-        refreshed["indicator_mentions"] = indicator_mentions
+        refreshed["indicator_mentions"] = _prioritize_indicator_mentions_for_review(
+            indicator_mentions
+        )
         refreshed_rows.append(refreshed)
     return refreshed_rows
 
@@ -4806,6 +4849,9 @@ def _normalize_footprints(
                     {"topic": topic, "analysis_patterns": analysis_patterns}
                 ),
             )
+        indicator_mentions = _prioritize_indicator_mentions_for_review(
+            indicator_mentions
+        )
         record = {
             "footprint_id": _stable_id(
                 "AFP",

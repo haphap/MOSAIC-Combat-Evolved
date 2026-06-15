@@ -2543,6 +2543,105 @@ def test_report_intelligence_backfills_source_grounded_footprint_metrics_from_ch
     assert "real_estate_sell_through_rate" in refreshed_canonicals
 
 
+def test_report_intelligence_prioritizes_source_grounded_footprint_metrics_in_preview(
+    tmp_path: Path,
+):
+    source_id = _write_source(
+        tmp_path / "registry/sources/tushare_research_reports.jsonl",
+        industry="房地产开发",
+        report_type="行业研报",
+    )
+
+    def converter(pdf: Path, output_dir: Path, markdown: Path, overwrite: bool):
+        assert pdf.exists()
+        output_dir.mkdir(parents=True, exist_ok=True)
+        markdown.parent.mkdir(parents=True, exist_ok=True)
+        markdown.write_text(
+            "\n".join(
+                [
+                    "# 房地产周度跟踪",
+                    "报告按月跟踪商品房成交面积和重点项目开盘去化率。",
+                    "这些指标用于判断地产需求景气和项目销售动能。",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        return {
+            "status": "converted",
+            "path": str(markdown),
+            "bytes": markdown.stat().st_size,
+            "sha256": _sha(markdown),
+        }
+
+    unknown_mentions = [
+        {
+            "indicator_text": f"未规范指标{i}",
+            "canonical_metric_candidate": "unknown",
+            "data_source_mentioned": "unknown",
+            "frequency": "unknown",
+            "transformation": "unknown",
+            "source_grounded": False,
+        }
+        for i in range(6)
+    ]
+
+    def llm(row, chunk: str, span_id: str, chunk_index: int, chunk_count: int):
+        assert "成交面积" in chunk
+        return {
+            "status": "ok",
+            "model": "fake-vllm",
+            "payload": {
+                "forecast_claims": [],
+                "analytical_footprints": [
+                    {
+                        "topic": "Monthly real estate transaction monitoring",
+                        "indicator_mentions": unknown_mentions,
+                        "analysis_patterns": [
+                            "monthly cumulative transaction tracking",
+                            "sell-through monitoring",
+                        ],
+                        "target_agent_candidates": ["Real Estate Data Analyst"],
+                    }
+                ],
+                "metric_candidates": [],
+                "method_patterns": [],
+                "tool_gaps": [],
+            },
+        }
+
+    run_report_intelligence_refresh(
+        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        downloader=_fake_downloader,
+        converter=converter,
+        llm_extractor=llm,
+    )
+
+    footprints = _read_jsonl(
+        tmp_path / "registry/report_intelligence/analytical_footprints.jsonl"
+    )
+    mentions = footprints[0]["indicator_mentions"]
+    assert {row["canonical_metric_candidate"] for row in mentions[:2]} == {
+        "real_estate_transaction_area",
+        "real_estate_sell_through_rate",
+    }
+    assert all(row["source_grounded"] is True for row in mentions[:2])
+    assert any(
+        mention["canonical_metric_candidate"] == "unknown"
+        for mention in mentions[2:]
+    )
+
+    review_rows = _read_jsonl(
+        tmp_path
+        / "registry/report_intelligence/analytical_footprint_review_template.jsonl"
+    )
+    preview = review_rows[0]["indicator_mentions_review_preview"]
+    assert {row["canonical_metric_candidate"] for row in preview[:2]} == {
+        "real_estate_transaction_area",
+        "real_estate_sell_through_rate",
+    }
+    assert all(row["source_grounded"] is True for row in preview[:2])
+
+
 def test_report_intelligence_repairs_unknown_footprint_indicator_mentions(
     tmp_path: Path,
 ):
