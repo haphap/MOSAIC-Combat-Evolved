@@ -2033,6 +2033,36 @@ def _post_current_batch_action(
     return "apply_current_batch_then_prepare_promotion_import"
 
 
+def _after_dry_run_accepts_commands(
+    gate: ManualReviewGateProgress,
+    action: str,
+    batch_overview: Mapping[str, Any],
+) -> Mapping[str, str]:
+    if action != "fill_current_batch_review_fields_then_dry_run":
+        return {}
+    apply_command = str(gate.next_batch_commands.get("apply") or "").strip()
+    if not apply_command:
+        return {}
+    commands: dict[str, str] = {
+        "apply_current_batch": apply_command,
+        "rerun_review_progress": operator_command(
+            "mosaic-rke review-progress --root . --actions-only --no-write "
+            f"--review-kind {gate.review_kind}"
+        ),
+        "schema_after_review": operator_command(
+            "mosaic-rke schema-status --root . --failures-only --no-write"
+        ),
+    }
+    remaining_rows = int(batch_overview.get("remaining_rows_after_current_batch") or 0)
+    if remaining_rows > 0:
+        prepare_command = str(gate.next_batch_commands.get("prepare") or "").strip()
+        if prepare_command:
+            commands["prepare_next_batch_after_rerun"] = prepare_command
+    else:
+        commands["prepare_promotion_import_after_rerun"] = gate.prepare_command
+    return commands
+
+
 def _action_queue_hint(
     action: str,
     *,
@@ -2186,6 +2216,13 @@ def build_manual_review_action_queue(
                 "post_current_batch_action": _post_current_batch_action(
                     action,
                     batch_overview,
+                ),
+                "after_dry_run_accepts": dict(
+                    _after_dry_run_accepts_commands(
+                        gate,
+                        action,
+                        batch_overview,
+                    )
                 ),
                 "ready_for_promotion": gate.ready_for_promotion,
                 "blocked_by_review_kinds": list(dependency_blockers),

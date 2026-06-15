@@ -900,16 +900,26 @@ def test_review_progress_actions_only_reports_next_manual_work(
         False,
     ]
     if actions["gold_set"]["action_state"] == "needs_human_review_fields":
+        gold_after_dry_run = actions["gold_set"]["after_dry_run_accepts"]
         assert actions["gold_set"]["commands"]["dry_run"].startswith(
             RKE_OPERATOR_TMP_ENV_PREFIX
         )
         assert "evidence" in actions["gold_set"]["commands"]
         assert "prepare" not in actions["gold_set"]["commands"]
+        assert gold_after_dry_run["apply_current_batch"].startswith(
+            RKE_OPERATOR_TMP_ENV_PREFIX
+        )
+        assert "apply-gold-review" in gold_after_dry_run["apply_current_batch"]
+        assert (
+            "review-progress --root . --actions-only --no-write "
+            "--review-kind gold_set"
+        ) in gold_after_dry_run["rerun_review_progress"]
     else:
         assert actions["gold_set"]["commands"]["prepare"].startswith(
             RKE_OPERATOR_TMP_ENV_PREFIX
         )
         assert "dry_run" not in actions["gold_set"]["commands"]
+        assert actions["gold_set"]["after_dry_run_accepts"] == {}
     assert "apply" not in actions["gold_set"]["commands"]
     assert actions["footprint_review"]["next_manual_action"] in {
         "fill_current_batch_review_fields_then_dry_run",
@@ -934,6 +944,16 @@ def test_review_progress_actions_only_reports_next_manual_work(
         "field_contract"
     ]["boolean_fields"]
     assert "apply" not in actions["footprint_review"]["commands"]
+    if actions["footprint_review"]["action_state"] == "needs_human_review_fields":
+        footprint_after_dry_run = actions["footprint_review"]["after_dry_run_accepts"]
+        assert footprint_after_dry_run["apply_current_batch"].startswith(
+            RKE_OPERATOR_TMP_ENV_PREFIX
+        )
+        assert "apply-footprint-review" in footprint_after_dry_run[
+            "apply_current_batch"
+        ]
+    else:
+        assert actions["footprint_review"]["after_dry_run_accepts"] == {}
     assert (
         actions["source_license"]["next_manual_action"]
         == "review_or_apply_source_license_policy"
@@ -945,6 +965,7 @@ def test_review_progress_actions_only_reports_next_manual_work(
         == "registry/review_batches/source_license_policy_reviewed.json"
     )
     assert set(actions["source_license"]["commands"]) == {"prepare", "dry_run"}
+    assert actions["source_license"]["after_dry_run_accepts"] == {}
     assert actions["lockbox"]["next_manual_action"] == "wait_for_prior_manual_gates"
     assert actions["lockbox"]["action_state"] == "waiting_on_dependencies"
     assert actions["lockbox"]["can_run_now"] is False
@@ -965,6 +986,7 @@ def test_review_progress_actions_only_reports_next_manual_work(
     assert "opened_by" in actions["lockbox"]["field_contract"]["required_fields"]
     assert "passed" in actions["lockbox"]["field_contract"]["allowed_results"]
     assert actions["lockbox"]["commands"] == {}
+    assert actions["lockbox"]["after_dry_run_accepts"] == {}
 
 
 def test_review_progress_backfills_footprint_quality_gaps_from_template(

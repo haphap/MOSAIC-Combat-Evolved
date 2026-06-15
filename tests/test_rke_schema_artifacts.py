@@ -5319,6 +5319,16 @@ def test_schema_status_next_actions_reports_gold_quality_gaps(
                         "current_batch_evidence_aligned": True,
                         "remaining_rows_after_current_batch": 3,
                     },
+                    "after_dry_run_accepts": {
+                        "apply_current_batch": (
+                            "apply-gold-review --root . --input "
+                            "registry/review_batches/gold_set_reviewed.jsonl"
+                        ),
+                        "rerun_review_progress": (
+                            "review-progress --root . --actions-only --no-write "
+                            "--review-kind gold_set"
+                        ),
+                    },
                 }
             ]
         },
@@ -5334,6 +5344,9 @@ def test_schema_status_next_actions_reports_gold_quality_gaps(
     assert "--limit 12 --offset 0" in gold_action["commands"]["write_evidence"]
     assert gold_action["batch_overview"]["current_batch_rows"] == 12
     assert gold_action["batch_overview"]["remaining_rows_after_current_batch"] == 3
+    assert "apply-gold-review" in gold_action["after_dry_run_accepts"][
+        "apply_current_batch"
+    ]
     assert gold_action["review_aids"]["fill_import_path"] == (
         "registry/review_batches/gold_set_reviewed.jsonl"
     )

@@ -148,7 +148,10 @@ requirement to rerun `review-progress` after each accepted batch without
 expanding the full batch plan. If a gate is already ready for promotion while
 an older scratch batch file still contains blank fields, the action queue uses
 the promotion input path and marks that scratch as stale instead of showing its
-missing fields as current work.
+missing fields as current work. For current manual-batch work, the action queue
+also separates `after_dry_run_accepts` from the immediate `commands`, so apply,
+rerun, and schema-check commands are visible without inviting operators to skip
+the dry-run step.
 `master-plan-status --no-write` and `schema-status --failures-only --no-write`
 still exit 2 only because the same manual review-derived schema and patch
 coverage gates remain open. The schema-status failure payload now includes
@@ -159,7 +162,10 @@ coverage artifacts directly. The gold-set and analytical-footprint
 `schema-status` actions also include the current public-safe `batch_overview`
 from `review-progress`, so the failure entry point shows the active scratch
 path, batch coverage, evidence alignment, and remaining target rows without an
-extra discovery command. `master-plan-status --no-write` now also includes
+extra discovery command. The same schema-status actions now carry the
+`after_dry_run_accepts` command block for the active manual batch, preserving the
+same dry-run-first sequencing from the lower-level action queue.
+`master-plan-status --no-write` now also includes
 public-safe `next_actions` that point to `schema-status --failures-only`,
 `review-progress --actions-only`, and `evolution-readiness --no-write`, then
 reuses the same schema/manual-review actions and field contracts. This makes the

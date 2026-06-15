@@ -245,19 +245,28 @@ def _current_review_action_context(
     batch_overview = action.get("batch_overview")
     if isinstance(batch_overview, Mapping) and batch_overview:
         context["batch_overview"] = dict(batch_overview)
+    after_dry_run_accepts = action.get("after_dry_run_accepts")
+    if isinstance(after_dry_run_accepts, Mapping) and after_dry_run_accepts:
+        context["after_dry_run_accepts"] = dict(after_dry_run_accepts)
     return context
 
 
 def _current_review_action_context_parts(
     root: str | Path,
     review_kind: str,
-) -> tuple[dict[str, str], dict[str, Any]]:
+) -> tuple[dict[str, str], dict[str, Any], dict[str, str]]:
     context = _current_review_action_context(root, review_kind)
     commands = context.get("commands")
     batch_overview = context.get("batch_overview")
+    after_dry_run_accepts = context.get("after_dry_run_accepts")
     return (
         dict(commands) if isinstance(commands, Mapping) else {},
         dict(batch_overview) if isinstance(batch_overview, Mapping) else {},
+        (
+            dict(after_dry_run_accepts)
+            if isinstance(after_dry_run_accepts, Mapping)
+            else {}
+        ),
     )
 
 
@@ -265,7 +274,7 @@ def _current_review_action_command_overrides(
     root: str | Path,
     review_kind: str,
 ) -> dict[str, str]:
-    commands, _ = _current_review_action_context_parts(root, review_kind)
+    commands, _, _ = _current_review_action_context_parts(root, review_kind)
     return commands
 
 
@@ -282,10 +291,18 @@ def _schema_status_next_actions(
         or bool(getattr(record, "failures", ()))
     }
     quality_gaps = _schema_status_quality_gap_targets(root)
-    gold_current_commands, gold_current_batch_overview = (
+    (
+        gold_current_commands,
+        gold_current_batch_overview,
+        gold_current_after_dry_run_accepts,
+    ) = (
         _current_review_action_context_parts(root, "gold_set")
     )
-    footprint_current_commands, footprint_current_batch_overview = (
+    (
+        footprint_current_commands,
+        footprint_current_batch_overview,
+        footprint_current_after_dry_run_accepts,
+    ) = (
         _current_review_action_context_parts(root, "footprint_review")
     )
     actions: list[dict[str, Any]] = []
@@ -300,6 +317,7 @@ def _schema_status_next_actions(
         field_contract: Mapping[str, Any] | None = None,
         quality_gap_targets: Mapping[str, Any] | None = None,
         batch_overview: Mapping[str, Any] | None = None,
+        after_dry_run_accepts: Mapping[str, str] | None = None,
     ) -> None:
         if any(action["action_id"] == action_id for action in actions):
             return
@@ -317,6 +335,8 @@ def _schema_status_next_actions(
             action["quality_gap_targets"] = dict(quality_gap_targets)
         if batch_overview:
             action["batch_overview"] = dict(batch_overview)
+        if after_dry_run_accepts:
+            action["after_dry_run_accepts"] = dict(after_dry_run_accepts)
         actions.append(action)
 
     if "schemas/report_intelligence_gold_review_gate_rules" in failed_schema_paths:
@@ -375,6 +395,7 @@ def _schema_status_next_actions(
             field_contract=manual_review_field_contract("gold_set"),
             quality_gap_targets=quality_gaps.get("gold_set"),
             batch_overview=gold_current_batch_overview,
+            after_dry_run_accepts=gold_current_after_dry_run_accepts,
         )
 
     if "schemas/report_intelligence_analytical_footprint_review_rules" in failed_schema_paths:
@@ -416,6 +437,7 @@ def _schema_status_next_actions(
             field_contract=manual_review_field_contract("footprint_review"),
             quality_gap_targets=quality_gaps.get("footprint_review"),
             batch_overview=footprint_current_batch_overview,
+            after_dry_run_accepts=footprint_current_after_dry_run_accepts,
         )
 
     if "schemas/report_intelligence_patch_v1_5_coverage_rules" in failed_schema_paths:
