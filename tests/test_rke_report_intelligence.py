@@ -10314,6 +10314,43 @@ def test_prepare_analytical_footprint_review_import_batches_pending_rows(
     assert scaffold_rows[0]["footprint_correct"] is None
 
 
+def test_prepare_analytical_footprint_review_import_backs_up_overwrite(
+    tmp_path: Path,
+):
+    source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
+    run_report_intelligence_refresh(
+        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        downloader=_fake_downloader,
+        converter=_fake_converter,
+        llm_extractor=_fake_llm,
+    )
+    output_path = tmp_path / "footprint_review_existing_batch.jsonl"
+    output_path.write_text(
+        json.dumps({"footprint_id": "OLD", "review_notes": "preserve me"})
+        + "\n",
+        encoding="utf-8",
+    )
+
+    report = prepare_analytical_footprint_review_import(
+        tmp_path,
+        output_path,
+        reviewer="footprint-reviewer",
+        review_date="2026-06-12",
+        limit=1,
+        offset=0,
+        overwrite=True,
+    )
+    backup_path = Path(report.backup_path)
+
+    assert report.accepted
+    assert report.backed_up_existing_output is True
+    assert backup_path.exists()
+    assert backup_path.is_relative_to(tmp_path / ".mosaic/tmp/review-backups")
+    assert "preserve me" in backup_path.read_text(encoding="utf-8")
+    scaffold_rows = _read_jsonl(output_path)
+    assert scaffold_rows[0]["footprint_id"] != "OLD"
+
+
 def test_prepare_footprint_review_cli_limit_defaults_to_batch_path(
     tmp_path: Path,
     capsys,

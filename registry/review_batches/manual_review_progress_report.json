@@ -493,7 +493,7 @@
       ],
       "complete_rows": 34,
       "current_batch_status": {
-        "complete_rows": 50,
+        "complete_rows": 0,
         "evidence_status": {
           "aligned": true,
           "covered_review_rows": 50,
@@ -515,12 +515,20 @@
         },
         "exists": true,
         "malformed_rows": 0,
-        "missing_required_fields": {},
+        "missing_required_fields": {
+          "footprint_correct": 50,
+          "inferred_steps_tagged_correctly": 50,
+          "metric_mapping_correct": 50,
+          "no_proprietary_text_leakage": 50,
+          "review_notes": 50,
+          "source_span_supports_footprint": 50,
+          "unknowns_used_when_uncertain": 50
+        },
         "path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
-        "pending_rows": 0,
+        "pending_rows": 50,
         "rows": 50,
         "target_status": {
-          "aligned": false,
+          "aligned": true,
           "exists": true,
           "id_field": "footprint_id",
           "malformed_rows": 0,
@@ -530,7 +538,7 @@
           "review_input_rows": 50,
           "target_malformed_rows": 0,
           "target_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl",
-          "target_row_hash_mismatch_count": 16,
+          "target_row_hash_mismatch_count": 0,
           "target_rows": 1051
         }
       },

@@ -41,7 +41,7 @@ from .required_data import (
     canonical_metric_name as _canonical_metric_name,
     normalize_required_data_items,
 )
-from .temp_paths import operator_command
+from .temp_paths import RKE_OPERATOR_TMPDIR, operator_command
 
 
 TUSHARE_REPORT_SOURCE_PATH = "registry/sources/tushare_research_reports.jsonl"
@@ -954,6 +954,8 @@ class AnalyticalFootprintReviewPrepareReport:
     pending_rows: int
     pending_required_fields: Mapping[str, int]
     blockers: Sequence[str]
+    backed_up_existing_output: bool
+    backup_path: str
 
 
 @dataclass(frozen=True)
@@ -4761,6 +4763,17 @@ def _footprint_review_pending_required_fields(
     return dict(sorted(counts.items()))
 
 
+def _manual_review_backup_path(root_path: Path, source_path: Path) -> Path:
+    try:
+        relative = source_path.resolve().relative_to(root_path.resolve())
+        label = "__".join(relative.parts)
+    except ValueError:
+        label = source_path.name
+    safe_label = re.sub(r"[^A-Za-z0-9._-]+", "_", label)
+    timestamp = re.sub(r"[^0-9A-Za-z]+", "", _utc_now())
+    return root_path / RKE_OPERATOR_TMPDIR / "review-backups" / f"{timestamp}_{safe_label}"
+
+
 def prepare_analytical_footprint_review_import(
     root: str | Path,
     output_path: str | Path = ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH,
@@ -4817,7 +4830,15 @@ def prepare_analytical_footprint_review_import(
                 + ", ".join(forbidden_paths)
             )
         scaffold_rows.append(scaffold)
+    backup_path = ""
+    backed_up_existing_output = False
     if not blockers:
+        if overwrite and resolved_output_path.exists():
+            backup = _manual_review_backup_path(root_path, resolved_output_path)
+            backup.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(resolved_output_path, backup)
+            backup_path = str(backup)
+            backed_up_existing_output = True
         _write_jsonl(resolved_output_path, scaffold_rows)
     complete_rows = sum(1 for row in scaffold_rows if _footprint_review_row_complete(row))
     report = AnalyticalFootprintReviewPrepareReport(
@@ -4835,6 +4856,8 @@ def prepare_analytical_footprint_review_import(
             scaffold_rows
         ),
         blockers=tuple(blockers),
+        backed_up_existing_output=backed_up_existing_output,
+        backup_path=backup_path,
     )
     return report
 
