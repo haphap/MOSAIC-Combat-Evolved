@@ -53,6 +53,7 @@ from .report_intelligence import (
     ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH,
     ANALYTICAL_FOOTPRINT_REVIEW_WORKBOOK_MD_PATH,
     ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH,
+    _gold_review_quality_gap_targets_from_summary,
     apply_analytical_footprint_review_import,
     build_analytical_footprint_review_summary,
 )
@@ -68,6 +69,9 @@ from .temp_paths import (
 MANUAL_REVIEW_PROGRESS_REPORT_ID = "RKE-MANUAL-REVIEW-PROGRESS-20260606"
 MANUAL_REVIEW_PROGRESS_REPORT_PATH = "registry/review_batches/manual_review_progress_report.json"
 MANUAL_REVIEW_RUNBOOK_MD_PATH = "registry/review_batches/manual_review_runbook.md"
+GOLD_REVIEW_SUMMARY_PATH = (
+    "registry/gold_sets/tushare_research_reports.review_summary.json"
+)
 TEMP_COPY_IGNORED_PRIVATE_REGISTRY_PATHS = frozenset(
     {
         "registry/report_intelligence/analytical_footprints.jsonl",
@@ -184,6 +188,16 @@ def _json_object_exists(path: Path) -> int:
     except json.JSONDecodeError:
         return 1
     return 1 if isinstance(payload, Mapping) else 0
+
+
+def _read_mapping_json(path: Path) -> Mapping[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}
+    return payload if isinstance(payload, Mapping) else {}
 
 
 def _dedupe(items: Sequence[str]) -> tuple[str, ...]:
@@ -816,10 +830,28 @@ def _missing_gate(
     )
 
 
+def _gold_quality_gap_targets_from_review_summary(
+    summary: Any,
+    public_quality_gap_targets: Mapping[str, Any] | None = None,
+) -> Mapping[str, Any] | None:
+    if getattr(summary, "quality_gap_targets", None):
+        return summary.quality_gap_targets
+    if public_quality_gap_targets:
+        return public_quality_gap_targets
+    return _gold_review_quality_gap_targets_from_summary(asdict(summary))
+
+
 def _gold_progress(root_path: Path) -> ManualReviewGateProgress:
     input_path = GOLD_FULL_REVIEWED_IMPORT_PATH
     current_batch_status = _gold_batch_status(root_path)
     current_summary = summarize_gold_set_review(root_path)
+    public_quality_gap_targets = _gold_review_quality_gap_targets_from_summary(
+        _read_mapping_json(root_path / GOLD_REVIEW_SUMMARY_PATH)
+    )
+    current_quality_gap_targets = _gold_quality_gap_targets_from_review_summary(
+        current_summary,
+        public_quality_gap_targets,
+    )
     if current_summary.review_complete:
         resolved_input = _resolve(root_path, input_path)
         return ManualReviewGateProgress(
@@ -847,7 +879,7 @@ def _gold_progress(root_path: Path) -> ManualReviewGateProgress:
             ),
             batch_plan=(),
             current_batch_status=current_batch_status,
-            quality_gap_targets=current_summary.quality_gap_targets,
+            quality_gap_targets=current_quality_gap_targets,
         )
     target_rows = current_summary.total_claims
     resolved_input = _resolve(root_path, input_path)
@@ -869,7 +901,7 @@ def _gold_progress(root_path: Path) -> ManualReviewGateProgress:
             next_batch_commands=_gold_next_batch_commands(target_rows),
             batch_plan=_manual_review_batch_plan("gold_set", target_rows),
             current_batch_status=current_batch_status,
-            quality_gap_targets=current_summary.quality_gap_targets,
+            quality_gap_targets=current_quality_gap_targets,
         )
 
     input_rows = _jsonl_row_count(resolved_input)
@@ -878,6 +910,13 @@ def _gold_progress(root_path: Path) -> ManualReviewGateProgress:
         _copy_registry(root_path, temp_root)
         report = apply_gold_set_review_import(temp_root, resolved_input, dry_run=False)
         summary = summarize_gold_set_review(temp_root)
+    quality_gap_targets = (
+        _gold_quality_gap_targets_from_review_summary(
+            summary,
+            public_quality_gap_targets,
+        )
+        or current_quality_gap_targets
+    )
     blockers = _dedupe((*report.blockers, *summary.blockers))
     return ManualReviewGateProgress(
         review_kind="gold_set",
@@ -896,7 +935,7 @@ def _gold_progress(root_path: Path) -> ManualReviewGateProgress:
         next_batch_commands=_gold_next_batch_commands(summary.pending_claims),
         batch_plan=_manual_review_batch_plan("gold_set", summary.pending_claims),
         current_batch_status=current_batch_status,
-        quality_gap_targets=summary.quality_gap_targets,
+        quality_gap_targets=quality_gap_targets,
     )
 
 

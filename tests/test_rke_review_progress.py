@@ -1660,6 +1660,18 @@ def test_review_progress_reports_partial_gold_scratch(tmp_path: Path):
         "operator_hint"
     ]
     assert "prepare the remaining 430 rows" in action["operator_hint"]
+    assert action["quality_gap_targets"]["sample_size_documents"][
+        "minimum_additional_count"
+    ] >= 0
+    assert action["quality_gap_targets"]["sample_size_claims"][
+        "minimum_additional_count"
+    ] >= 0
+    assert action["quality_gap_targets"]["metrics"]["direction_accuracy"][
+        "current_rate"
+    ] is not None
+    assert action["quality_gap_targets"]["metrics"]["variable_mapping_accuracy"][
+        "current_rate"
+    ] is not None
     assert (
         "mosaic-rke write-gold-review-evidence --root . --limit 20 --offset 0 "
         "--review-input registry/review_batches/gold_set_reviewed.jsonl"
