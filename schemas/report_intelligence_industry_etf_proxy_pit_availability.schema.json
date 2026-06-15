@@ -11,7 +11,8 @@
     "mapping_records",
     "pit_available_mapping_count",
     "pit_gap_counts",
-    "labelability_summary"
+    "labelability_summary",
+    "labelability_action_summary"
   ],
   "properties": {
     "availability_id": {"type": "string", "minLength": 1},
@@ -105,6 +106,50 @@
         "data_gap_counts": {
           "type": "object",
           "additionalProperties": {"type": "integer", "minimum": 0}
+        }
+      },
+      "additionalProperties": true
+    },
+    "labelability_action_summary": {
+      "type": "object",
+      "required": [
+        "policy",
+        "coverage_gate_status",
+        "eligible_claim_count",
+        "labelable_claim_count",
+        "labelability_rate",
+        "mapping_review_claim_count",
+        "primary_mapping_coverage_rate",
+        "sector_etf_mapping_missing_count",
+        "pit_unavailable_mapping_count",
+        "remaining_action_count",
+        "data_gap_counts",
+        "pit_gap_counts",
+        "next_actions"
+      ],
+      "properties": {
+        "policy": {"type": "string", "minLength": 1},
+        "coverage_gate_status": {"enum": ["passed", "actionable_gaps_present"]},
+        "eligible_claim_count": {"type": "integer", "minimum": 0},
+        "labelable_claim_count": {"type": "integer", "minimum": 0},
+        "labelability_rate": {"type": "number", "minimum": 0},
+        "mapping_review_claim_count": {"type": "integer", "minimum": 0},
+        "primary_mapping_coverage_rate": {"type": "number", "minimum": 0},
+        "sector_etf_mapping_missing_count": {"type": "integer", "minimum": 0},
+        "pit_unavailable_mapping_count": {"type": "integer", "minimum": 0},
+        "remaining_action_count": {"type": "integer", "minimum": 0},
+        "data_gap_counts": {
+          "type": "object",
+          "additionalProperties": {"type": "integer", "minimum": 0}
+        },
+        "pit_gap_counts": {
+          "type": "object",
+          "additionalProperties": {"type": "integer", "minimum": 0}
+        },
+        "next_actions": {
+          "type": "array",
+          "items": {"type": "string"},
+          "minItems": 1
         }
       },
       "additionalProperties": true

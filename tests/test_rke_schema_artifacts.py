@@ -1705,6 +1705,17 @@ def test_industry_etf_mapping_contract_accepts_current_public_artifacts(
 
     assert record.accepted
     assert len(mapping_rows) == 64
+    action_summary = availability["labelability_action_summary"]
+    assert action_summary["sector_etf_mapping_missing_count"] == (
+        availability["labelability_summary"]["sector_etf_mapping_missing_count"]
+    )
+    assert action_summary["pit_unavailable_mapping_count"] == (
+        availability["mapping_count"] - availability["pit_available_mapping_count"]
+    )
+    assert (
+        "add_primary_etf_mapping_for_unmapped_industry_sectors"
+        in action_summary["next_actions"]
+    )
     assert record.item_count == (
         len(mapping_rows)
         + len(availability["mapping_records"])
@@ -1942,6 +1953,26 @@ def test_industry_etf_mapping_contract_rejects_labelability_gap_count_drift(
         in item
         for item in record.failures
     )
+
+
+def test_industry_etf_mapping_contract_rejects_action_summary_drift(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    availability_path = registry / "industry_etf_proxy_pit_availability.json"
+    availability = json.loads(availability_path.read_text(encoding="utf-8"))
+    availability["labelability_action_summary"]["remaining_action_count"] = 0
+    availability["labelability_action_summary"]["next_actions"] = []
+    availability_path.write_text(
+        json.dumps(availability, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _industry_etf_mapping_contract_record(tmp_path)
+
+    assert not record.accepted
+    assert any("labelability_action_summary.remaining_action_count" in item for item in record.failures)
+    assert any("labelability_action_summary.next_actions: required" in item for item in record.failures)
 
 
 def test_industry_etf_mapping_contract_rejects_unavailable_mapping_label(

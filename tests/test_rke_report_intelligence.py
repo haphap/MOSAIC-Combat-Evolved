@@ -5996,6 +5996,24 @@ def test_report_intelligence_labels_industry_claims_with_etf_proxy_windows(
         "pending_future_window_count"
     ]
     assert labelability["data_gap_counts"] == proxy_readiness["data_gap_counts"]
+    action_summary = pit_availability["labelability_action_summary"]
+    assert action_summary["coverage_gate_status"] == "actionable_gaps_present"
+    assert action_summary["eligible_claim_count"] == labelability[
+        "eligible_claim_count"
+    ]
+    assert action_summary["labelable_claim_count"] == labelability[
+        "labelable_claim_count"
+    ]
+    assert action_summary["sector_etf_mapping_missing_count"] == labelability[
+        "sector_etf_mapping_missing_count"
+    ]
+    assert action_summary["pit_unavailable_mapping_count"] == (
+        pit_availability["mapping_count"]
+        - pit_availability["pit_available_mapping_count"]
+    )
+    assert "refresh_or_replace_pit_unavailable_etf_mappings" in action_summary[
+        "next_actions"
+    ]
     availability_dump = json.dumps(pit_availability, ensure_ascii=False)
     assert "/home/hap" not in availability_dump
     assert pit_availability["qlib_etf_dir_configured"].startswith("qlib://")
@@ -6246,6 +6264,11 @@ def test_report_intelligence_industry_pit_availability_records_missing_benchmark
     assert labelability["labelable_window_count"] == 0
     assert labelability["benchmark_series_missing_count"] == 1
     assert labelability["data_gap_counts"] == {"benchmark_series_missing": 1}
+    action_summary = pit_availability["labelability_action_summary"]
+    assert action_summary["pit_unavailable_mapping_count"] > 0
+    assert "refresh_or_replace_pit_unavailable_etf_mappings" in action_summary[
+        "next_actions"
+    ]
 
 
 def test_report_intelligence_industry_readiness_records_missing_proxy_series(
@@ -6329,6 +6352,11 @@ def test_report_intelligence_industry_readiness_records_missing_proxy_series(
     assert labelability["labelable_claim_count"] == 0
     assert labelability["proxy_series_missing_count"] == 1
     assert labelability["data_gap_counts"] == {"proxy_series_missing": 1}
+    action_summary = pit_availability["labelability_action_summary"]
+    assert action_summary["pit_unavailable_mapping_count"] > 0
+    assert "refresh_or_replace_pit_unavailable_etf_mappings" in action_summary[
+        "next_actions"
+    ]
 
 
 def test_report_intelligence_industry_candidate_mapping_does_not_label(
@@ -6638,6 +6666,11 @@ def test_report_intelligence_industry_mapping_effective_from_blocks_early_claim(
     assert pit_availability["labelability_summary"]["data_gap_counts"] == {
         "sector_etf_mapping_missing": 1
     }
+    action_summary = pit_availability["labelability_action_summary"]
+    assert action_summary["sector_etf_mapping_missing_count"] == 1
+    assert "add_primary_etf_mapping_for_unmapped_industry_sectors" in action_summary[
+        "next_actions"
+    ]
 
 
 def test_report_intelligence_pit_audit_rejects_t0_industry_etf_entry():

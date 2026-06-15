@@ -9398,6 +9398,28 @@ def build_industry_etf_proxy_pit_availability(
             labelable_window_count += 1
         if claim_window_count:
             labelable_claim_count += 1
+    labelability_summary = {
+        "eligible_claim_count": eligible_claim_count,
+        "labelable_claim_count": labelable_claim_count,
+        "labelable_window_count": labelable_window_count,
+        "pending_future_window_count": pending_future_window_count,
+        "sector_etf_mapping_missing_count": label_gap_counts.get(
+            "sector_etf_mapping_missing",
+            0,
+        ),
+        "proxy_series_missing_count": label_gap_counts.get(
+            "proxy_series_missing",
+            0,
+        ),
+        "benchmark_series_missing_count": label_gap_counts.get(
+            "benchmark_series_missing",
+            0,
+        ),
+        "data_gap_counts": dict(sorted(label_gap_counts.items())),
+    }
+    pit_available_mapping_count = sum(
+        1 for record in mapping_records if record["pit_available"]
+    )
     return {
         "availability_id": "RKE-REPORT-INDUSTRY-ETF-PROXY-PIT-AVAILABILITY",
         "policy": (
@@ -9408,29 +9430,15 @@ def build_industry_etf_proxy_pit_availability(
         "windows_days": [int(value) for value in windows_days],
         "mapping_count": len(mapping_records),
         "mapping_records": mapping_records,
-        "pit_available_mapping_count": sum(
-            1 for record in mapping_records if record["pit_available"]
-        ),
+        "pit_available_mapping_count": pit_available_mapping_count,
         "pit_gap_counts": dict(sorted(aggregate_gap_counts.items())),
-        "labelability_summary": {
-            "eligible_claim_count": eligible_claim_count,
-            "labelable_claim_count": labelable_claim_count,
-            "labelable_window_count": labelable_window_count,
-            "pending_future_window_count": pending_future_window_count,
-            "sector_etf_mapping_missing_count": label_gap_counts.get(
-                "sector_etf_mapping_missing",
-                0,
-            ),
-            "proxy_series_missing_count": label_gap_counts.get(
-                "proxy_series_missing",
-                0,
-            ),
-            "benchmark_series_missing_count": label_gap_counts.get(
-                "benchmark_series_missing",
-                0,
-            ),
-            "data_gap_counts": dict(sorted(label_gap_counts.items())),
-        },
+        "labelability_summary": labelability_summary,
+        "labelability_action_summary": _industry_pit_labelability_action_summary(
+            mapping_count=len(mapping_records),
+            pit_available_mapping_count=pit_available_mapping_count,
+            pit_gap_counts=aggregate_gap_counts,
+            labelability_summary=labelability_summary,
+        ),
     }
 
 
@@ -9468,6 +9476,69 @@ def _industry_pit_labelability_summary_from_readiness(
     }
 
 
+def _industry_pit_labelability_action_summary(
+    *,
+    mapping_count: int,
+    pit_available_mapping_count: int,
+    pit_gap_counts: Mapping[str, Any],
+    labelability_summary: Mapping[str, Any],
+) -> dict[str, Any]:
+    data_gap_counts = _count_mapping_values(
+        _ensure_mapping(labelability_summary.get("data_gap_counts"))
+    )
+    eligible_claim_count = int(labelability_summary.get("eligible_claim_count") or 0)
+    labelable_claim_count = int(
+        labelability_summary.get("labelable_claim_count") or 0
+    )
+    sector_missing_count = int(
+        labelability_summary.get("sector_etf_mapping_missing_count") or 0
+    )
+    mapping_review_claim_count = eligible_claim_count + sector_missing_count
+    pit_unavailable_mapping_count = max(
+        int(mapping_count) - int(pit_available_mapping_count),
+        0,
+    )
+    action_gap_count = sector_missing_count + pit_unavailable_mapping_count
+    next_actions: list[str] = []
+    if sector_missing_count:
+        next_actions.append("add_primary_etf_mapping_for_unmapped_industry_sectors")
+    if pit_unavailable_mapping_count:
+        next_actions.append("refresh_or_replace_pit_unavailable_etf_mappings")
+    if not next_actions:
+        next_actions.append("monitor_mapping_and_pit_availability_drift")
+    return {
+        "policy": (
+            "Public-safe aggregate action summary for P10 industry ETF proxy "
+            "mapping and PIT coverage; no source rows, report text, or local "
+            "paths are included."
+        ),
+        "coverage_gate_status": (
+            "actionable_gaps_present" if action_gap_count else "passed"
+        ),
+        "eligible_claim_count": eligible_claim_count,
+        "labelable_claim_count": labelable_claim_count,
+        "labelability_rate": round(
+            labelable_claim_count / eligible_claim_count,
+            6,
+        )
+        if eligible_claim_count
+        else 0.0,
+        "mapping_review_claim_count": mapping_review_claim_count,
+        "primary_mapping_coverage_rate": round(
+            eligible_claim_count / mapping_review_claim_count,
+            6,
+        )
+        if mapping_review_claim_count
+        else 0.0,
+        "sector_etf_mapping_missing_count": sector_missing_count,
+        "pit_unavailable_mapping_count": pit_unavailable_mapping_count,
+        "remaining_action_count": action_gap_count,
+        "data_gap_counts": data_gap_counts,
+        "pit_gap_counts": _count_mapping_values(_ensure_mapping(pit_gap_counts)),
+        "next_actions": next_actions,
+    }
+
+
 def _with_industry_pit_labelability_summary(
     pit_availability: Mapping[str, Any],
     industry_etf_proxy_readiness: Mapping[str, Any],
@@ -9476,6 +9547,16 @@ def _with_industry_pit_labelability_summary(
     updated["labelability_summary"] = (
         _industry_pit_labelability_summary_from_readiness(
             industry_etf_proxy_readiness
+        )
+    )
+    updated["labelability_action_summary"] = (
+        _industry_pit_labelability_action_summary(
+            mapping_count=int(updated.get("mapping_count") or 0),
+            pit_available_mapping_count=int(
+                updated.get("pit_available_mapping_count") or 0
+            ),
+            pit_gap_counts=_ensure_mapping(updated.get("pit_gap_counts")),
+            labelability_summary=_ensure_mapping(updated.get("labelability_summary")),
         )
     )
     return updated

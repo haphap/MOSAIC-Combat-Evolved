@@ -2162,6 +2162,118 @@ def _validate_industry_etf_mapping_contract(
             failures.append(
                 "industry_etf_proxy_pit_availability.pit_available_mapping_count mismatch"
             )
+        action_summary = availability.get("labelability_action_summary")
+        if not isinstance(action_summary, Mapping):
+            failures.append(
+                "industry_etf_proxy_pit_availability.labelability_action_summary: "
+                "expected object"
+            )
+        else:
+            action_label = (
+                "industry_etf_proxy_pit_availability.labelability_action_summary"
+            )
+            eligible_count = _int_or_none(
+                labelability_summary.get("eligible_claim_count")
+            ) or 0
+            labelable_count = _int_or_none(
+                labelability_summary.get("labelable_claim_count")
+            ) or 0
+            sector_missing_count = _int_or_none(
+                labelability_summary.get("sector_etf_mapping_missing_count")
+            ) or 0
+            mapping_count = _int_or_none(availability.get("mapping_count")) or 0
+            pit_unavailable_count = max(mapping_count - pit_available_count, 0)
+            mapping_review_count = eligible_count + sector_missing_count
+            remaining_action_count = sector_missing_count + pit_unavailable_count
+            expected_labelability_rate = (
+                round(labelable_count / eligible_count, 6)
+                if eligible_count
+                else 0.0
+            )
+            expected_mapping_coverage_rate = (
+                round(eligible_count / mapping_review_count, 6)
+                if mapping_review_count
+                else 0.0
+            )
+            expected_status = (
+                "actionable_gaps_present"
+                if remaining_action_count
+                else "passed"
+            )
+            for field, expected in (
+                ("eligible_claim_count", eligible_count),
+                ("labelable_claim_count", labelable_count),
+                ("mapping_review_claim_count", mapping_review_count),
+                ("sector_etf_mapping_missing_count", sector_missing_count),
+                ("pit_unavailable_mapping_count", pit_unavailable_count),
+                ("remaining_action_count", remaining_action_count),
+            ):
+                if _int_or_none(action_summary.get(field)) != expected:
+                    failures.append(f"{action_label}.{field}: expected {expected}")
+            for field, expected in (
+                ("labelability_rate", expected_labelability_rate),
+                ("primary_mapping_coverage_rate", expected_mapping_coverage_rate),
+            ):
+                value = _float_or_none(action_summary.get(field))
+                if value is None or round(value, 6) != expected:
+                    failures.append(f"{action_label}.{field}: expected {expected}")
+            if action_summary.get("coverage_gate_status") != expected_status:
+                failures.append(
+                    f"{action_label}.coverage_gate_status: expected {expected_status}"
+                )
+            action_data_gaps = action_summary.get("data_gap_counts")
+            if isinstance(action_data_gaps, Mapping) and isinstance(
+                labelability_summary.get("data_gap_counts"),
+                Mapping,
+            ):
+                normalized_action_gaps = {
+                    str(key): _int_or_none(value)
+                    for key, value in action_data_gaps.items()
+                }
+                normalized_labelability_gaps = {
+                    str(key): _int_or_none(value)
+                    for key, value in labelability_summary[
+                        "data_gap_counts"
+                    ].items()
+                }
+                if normalized_action_gaps != normalized_labelability_gaps:
+                    failures.append(f"{action_label}.data_gap_counts mismatch")
+            else:
+                failures.append(f"{action_label}.data_gap_counts: expected object")
+            action_pit_gaps = action_summary.get("pit_gap_counts")
+            if isinstance(action_pit_gaps, Mapping) and isinstance(
+                availability.get("pit_gap_counts"),
+                Mapping,
+            ):
+                normalized_action_pit_gaps = {
+                    str(key): _int_or_none(value)
+                    for key, value in action_pit_gaps.items()
+                }
+                normalized_pit_gaps = {
+                    str(key): _int_or_none(value)
+                    for key, value in availability["pit_gap_counts"].items()
+                }
+                if normalized_action_pit_gaps != normalized_pit_gaps:
+                    failures.append(f"{action_label}.pit_gap_counts mismatch")
+            else:
+                failures.append(f"{action_label}.pit_gap_counts: expected object")
+            next_actions = _string_items(action_summary.get("next_actions"))
+            if remaining_action_count and not next_actions:
+                failures.append(f"{action_label}.next_actions: required")
+            if sector_missing_count and (
+                "add_primary_etf_mapping_for_unmapped_industry_sectors"
+                not in next_actions
+            ):
+                failures.append(
+                    f"{action_label}.next_actions: missing sector mapping action"
+                )
+            if pit_unavailable_count and (
+                "refresh_or_replace_pit_unavailable_etf_mappings"
+                not in next_actions
+            ):
+                failures.append(
+                    f"{action_label}.next_actions: missing PIT availability action"
+                )
         missing_availability_ids = sorted(
             set(mappings_by_id) - set(availability_by_id)
         )
