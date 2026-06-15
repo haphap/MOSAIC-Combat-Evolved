@@ -5707,6 +5707,10 @@ def test_report_intelligence_prompt_mutation_candidates_track_calibration_drift(
             }
         ],
         confidence_impact_monitor={
+            "alpha_decay_fail_count": 1,
+            "calibration_drift_count": 1,
+            "cost_decay_fail_count": 1,
+            "regime_fragile_alpha_count": 1,
             "drift_status_counts": {
                 "alpha_decay_watch": 1,
                 "cost_decay_fail": 1,
@@ -5718,7 +5722,12 @@ def test_report_intelligence_prompt_mutation_candidates_track_calibration_drift(
             },
             "confidence_alpha_correlation": -0.72,
             "confidence_alpha_correlation_status": "negative",
-            "recommended_action_counts": {"reduce_confidence_impact": 1},
+            "recommended_action_counts": {
+                "freeze_recipe": 2,
+                "keep_shadow": 3,
+                "reduce_confidence_impact": 1,
+                "send_to_manual_review": 1,
+            },
         },
         markdown_coverage_summary={"markdown_quality_gap_counts": {}},
         industry_etf_proxy_pit_availability={"pit_gap_counts": {}},
@@ -5737,7 +5746,31 @@ def test_report_intelligence_prompt_mutation_candidates_track_calibration_drift(
     assert rule_counts["negative_confidence_alpha_correlation"] == 1
     assert rule_counts["high_confidence_underperformance"] == 1
     assert calibration[0]["evidence_refs"][0]["confidence_alpha_correlation"] == -0.72
+    recipe_level_monitor = calibration[0]["evidence_refs"][0][
+        "recipe_level_monitor"
+    ]
+    assert recipe_level_monitor["recipe_level_risk_counts"] == {
+        "alpha_decay_fail_count": 1,
+        "calibration_drift_count": 1,
+        "cost_decay_fail_count": 1,
+        "regime_fragile_alpha_count": 1,
+    }
+    assert recipe_level_monitor["recommended_action_counts"] == {
+        "freeze_recipe": 2,
+        "keep_shadow": 3,
+        "reduce_confidence_impact": 1,
+        "send_to_manual_review": 1,
+    }
+    assert recipe_level_monitor["actionable_recipe_level_action_counts"] == {
+        "freeze_recipe": 2,
+        "reduce_confidence_impact": 1,
+        "send_to_manual_review": 1,
+    }
     assert "shadow_regime_and_cost_replay_required" in calibration[0]["blocked_by"]
+    assert (
+        "recipe_level_monitor_action_review_required"
+        in calibration[0]["blocked_by"]
+    )
     assert calibration[0]["production_prompt_change_allowed"] is False
     assert calibration[0]["private_text_included"] is False
 

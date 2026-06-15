@@ -16742,6 +16742,12 @@ def build_prompt_mutation_candidates(
     calibration_rule_counts = _count_mapping_values(
         _ensure_mapping(confidence_impact_monitor.get("calibration_drift_rule_counts"))
     )
+    monitor_recipe_level_summary = _confidence_monitor_recipe_level_summary(
+        confidence_impact_monitor
+    )
+    recipe_level_action_count = int(
+        monitor_recipe_level_summary.get("actionable_recipe_level_action_count") or 0
+    )
     drift_gap_count = sum(
         drift_counts.get(key, 0)
         for key in (
@@ -16764,7 +16770,10 @@ def build_prompt_mutation_candidates(
                 "cost decay, calibration drift, or single-regime fragility until "
                 "new shadow evidence and manual review pass."
             ),
-            trigger_sources=["confidence_impact_observations"],
+            trigger_sources=[
+                "confidence_impact_observations",
+                "confidence_impact_monitor",
+            ],
             evidence_refs=[
                 {
                     "artifact_path": "registry/report_intelligence/confidence_impact_monitor.json",
@@ -16779,12 +16788,18 @@ def build_prompt_mutation_candidates(
                             "confidence_alpha_correlation_status"
                         )
                     ),
+                    "recipe_level_monitor": monitor_recipe_level_summary,
                 }
             ],
             severity="high",
             blocked_by=[
                 "manual_calibration_review_required",
                 "shadow_regime_and_cost_replay_required",
+                *(
+                    ["recipe_level_monitor_action_review_required"]
+                    if recipe_level_action_count
+                    else []
+                ),
             ],
         )
     blocked_confidence_count = sum(
