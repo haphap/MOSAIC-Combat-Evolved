@@ -304,7 +304,11 @@ def select_gold_set_candidates(
     for domain in REQUIRED_GOLD_SET_DOMAINS:
         domain_selected = 0
         while domain_selected < per_domain_quota and len(selected) < max_documents:
-            row = _pop_next_domain_row(domain_buckets[domain], seen)
+            row = _pop_next_domain_row(
+                domain_buckets[domain],
+                seen,
+                preferred_domain=domain,
+            )
             if row is None:
                 break
             if add_row(row, domain):
@@ -431,7 +435,18 @@ def _ordered_gold_set_source_rows(rows: Sequence[Mapping[str, Any]]) -> list[Map
 def _pop_next_domain_row(
     candidates: list[Mapping[str, Any]],
     seen: set[str],
+    *,
+    preferred_domain: str | None = None,
 ) -> Mapping[str, Any] | None:
+    if preferred_domain:
+        for index, row in enumerate(candidates):
+            source_id = str(row.get("source_id") or "")
+            if (
+                source_id
+                and source_id not in seen
+                and _gold_set_domains(row)[0] == preferred_domain
+            ):
+                return candidates.pop(index)
     for index, row in enumerate(candidates):
         source_id = str(row.get("source_id") or "")
         if source_id and source_id not in seen:

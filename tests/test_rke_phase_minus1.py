@@ -156,6 +156,25 @@ def test_phase_minus1_domain_matching_requires_strong_or_multiple_weak_terms():
     assert by_id["SRC-DOLLAR-STRONG"]["gold_set_domains"][0] == "dollar"
 
 
+def test_phase_minus1_domain_quota_prefers_primary_domain_rows():
+    rows = [
+        _row("SRC-Z-MIXED", "工业金属", "行业研报")
+        | {
+            "abstract": (
+                "美元指数与美联储预期影响风险偏好，降息和利率变化只是行业估值背景。"
+            )
+        },
+        _row("SRC-A-CENTRAL", "资金面", "行业研报")
+        | {"abstract": "央行公开市场操作和MLF续作影响资金面与国债收益率。"},
+    ]
+
+    candidates = select_gold_set_candidates(rows, max_documents=1)
+
+    assert candidates[0]["source_id"] == "SRC-A-CENTRAL"
+    assert candidates[0]["gold_set_domain"] == "central_bank"
+    assert candidates[0]["gold_set_domains"][0] == "central_bank"
+
+
 def test_phase_minus1_loads_jsonl(tmp_path):
     path = tmp_path / "rows.jsonl"
     path.write_text(json.dumps(_row("SRC-1", "600519.SH"), ensure_ascii=False) + "\n", encoding="utf-8")

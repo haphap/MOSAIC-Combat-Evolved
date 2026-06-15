@@ -267,6 +267,11 @@ or conflicting direction, or non-testable direction values are no longer exporte
 by default. `sentence_fallback_requires_context_synthesis` no longer blocks
 queue entry by itself; it remains a review tag so humans can judge whether the
 larger report context supports the candidate.
+Gold-set source sampling now also prefers primary-domain matches when filling
+each domain quota; secondary matches are only used as fallback. A read-only
+diagnostic on the current private source pool still selected 75 candidates with
+15 rows in each governed bucket, while reducing assigned-domain/primary-domain
+mismatches to 0.
 Report-claim rows with `forecast_mapping_insufficient` or `forecast_not_testable`
 remain reviewable because they are useful for measuring mapping failure modes.
 Direction reconciliation now refuses to let weak local keyword rules override a
