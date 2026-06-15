@@ -69,6 +69,20 @@
       ],
       "complete_rows": 158,
       "current_batch_status": {
+        "backfill_status": {
+          "available": false,
+          "blocker_count": 26,
+          "blocker_reason_counts": {
+            "prior_review_missing_required_manual_fields": 26
+          },
+          "complete_after_backfill_rows": 0,
+          "copied_field_count": 0,
+          "matched_prior_rows": 26,
+          "preserved_existing_field_count": 0,
+          "row_count": 26,
+          "updated_rows": 0,
+          "write_command_available": false
+        },
         "complete_rows": 0,
         "evidence_status": {
           "aligned": true,
@@ -79,14 +93,157 @@
           "extra_evidence_rows": 0,
           "id_field": "claim_id",
           "malformed_rows": 0,
+          "missing_markdown_rows": 0,
           "missing_review_rows": 0,
           "path": "registry/review_batches/gold_set_review_evidence.jsonl",
+          "priority_metadata_refresh_recommended": false,
+          "priority_reason_counts": {
+            "context_synthesis_required": 20,
+            "forecast_mapping_insufficient": 5,
+            "low_extraction_confidence": 25,
+            "manual_review_required": 26
+          },
+          "priority_reason_missing_rows": 0,
+          "priority_reason_ready_rows": 26,
+          "priority_score_counts": {
+            "2": 1,
+            "5": 25
+          },
+          "quality_gap_focus_field_counts": {
+            "direction_correct": 2,
+            "unsupported_field_false_grounded": 5,
+            "variable_mapping_correct": 5
+          },
+          "review_field_workload": {
+            "claim_correct": {
+              "draft_decision_available_rows": 26,
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 26,
+              "suggested_false_rows": 0,
+              "suggested_null_rows": 0,
+              "suggested_other_rows": 0,
+              "suggested_true_rows": 26
+            },
+            "direction_correct": {
+              "draft_decision_available_rows": 24,
+              "manual_decision_required_rows": 2,
+              "missing_required_rows": 26,
+              "suggested_false_rows": 0,
+              "suggested_null_rows": 2,
+              "suggested_other_rows": 0,
+              "suggested_true_rows": 24
+            },
+            "horizon_correct": {
+              "draft_decision_available_rows": 0,
+              "manual_decision_required_rows": 26,
+              "missing_required_rows": 26,
+              "suggested_false_rows": 0,
+              "suggested_null_rows": 26,
+              "suggested_other_rows": 0,
+              "suggested_true_rows": 0
+            },
+            "manual_claim_text": {
+              "draft_decision_available_rows": 0,
+              "manual_decision_required_rows": 26,
+              "missing_required_rows": 26,
+              "suggested_false_rows": 0,
+              "suggested_null_rows": 0,
+              "suggested_other_rows": 0,
+              "suggested_true_rows": 0
+            },
+            "review_date": {
+              "draft_decision_available_rows": 0,
+              "manual_decision_required_rows": 26,
+              "missing_required_rows": 26,
+              "suggested_false_rows": 0,
+              "suggested_null_rows": 0,
+              "suggested_other_rows": 0,
+              "suggested_true_rows": 0
+            },
+            "reviewer": {
+              "draft_decision_available_rows": 0,
+              "manual_decision_required_rows": 26,
+              "missing_required_rows": 26,
+              "suggested_false_rows": 0,
+              "suggested_null_rows": 0,
+              "suggested_other_rows": 0,
+              "suggested_true_rows": 0
+            },
+            "source_span_supports_claim": {
+              "draft_decision_available_rows": 26,
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 26,
+              "suggested_false_rows": 0,
+              "suggested_null_rows": 0,
+              "suggested_other_rows": 0,
+              "suggested_true_rows": 26
+            },
+            "target_correct": {
+              "draft_decision_available_rows": 0,
+              "manual_decision_required_rows": 26,
+              "missing_required_rows": 26,
+              "suggested_false_rows": 0,
+              "suggested_null_rows": 26,
+              "suggested_other_rows": 0,
+              "suggested_true_rows": 0
+            },
+            "unsupported_field_false_grounded": {
+              "draft_decision_available_rows": 21,
+              "manual_decision_required_rows": 5,
+              "missing_required_rows": 26,
+              "suggested_false_rows": 21,
+              "suggested_null_rows": 5,
+              "suggested_other_rows": 0,
+              "suggested_true_rows": 0
+            },
+            "variable_mapping_correct": {
+              "draft_decision_available_rows": 0,
+              "manual_decision_required_rows": 26,
+              "missing_required_rows": 26,
+              "suggested_false_rows": 0,
+              "suggested_null_rows": 26,
+              "suggested_other_rows": 0,
+              "suggested_true_rows": 0
+            }
+          },
           "review_input_exists": true,
           "review_input_malformed_rows": 0,
           "review_input_path": "registry/review_batches/gold_set_reviewed.jsonl",
           "review_input_rows": 26,
           "rows": 26,
           "same_order": true,
+          "snippet_ready_rows": 26,
+          "suggested_review_decision_counts": {
+            "claim_correct": {
+              "true": 26
+            },
+            "direction_correct": {
+              "null": 2,
+              "true": 24
+            },
+            "horizon_correct": {
+              "null": 26
+            },
+            "source_span_supports_claim": {
+              "true": 26
+            },
+            "target_correct": {
+              "null": 26
+            },
+            "unsupported_field_false_grounded": {
+              "false": 21,
+              "null": 5
+            },
+            "variable_mapping_correct": {
+              "null": 26
+            }
+          },
+          "suggested_tag_counts": {
+            "context_synthesis_required": 20,
+            "direction_text_needs_review": 2,
+            "forecast_mapping_insufficient": 5,
+            "unsupported_grounding_needs_review": 5
+          },
           "target_row_hash_mismatch_count": 0
         },
         "exists": true,
@@ -129,14 +286,111 @@
         "apply": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl",
         "assist": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-gold-review-assist --root . --review-input registry/review_batches/gold_set_reviewed.jsonl",
         "backfill_dry_run": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke backfill-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl",
-        "backfill_write": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke backfill-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --write",
         "dry_run": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --dry-run",
-        "evidence": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-gold-review-evidence --root . --limit 48 --offset 0 --review-input registry/review_batches/gold_set_reviewed.jsonl",
+        "evidence": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-gold-review-evidence --root . --limit 26 --offset 0 --review-input registry/review_batches/gold_set_reviewed.jsonl",
         "prepare": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke prepare-gold-review --root . --gold-batch-size 48 --offset 0 --force --reviewer <name> --review-date <YYYY-MM-DD>"
       },
       "pending_rows": 48,
       "prepare_command": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke prepare-gold-review --root . --full",
-      "quality_gap_targets": null,
+      "quality_gap_targets": {
+        "active_gap_count": 4,
+        "count_source": "summary_rate_estimate",
+        "interpretation": "count deltas are estimated from public summary rates when exact review-row counts are absent; use them to prioritize re-review or candidate expansion, not as instructions to flip labels",
+        "metrics": {
+          "claim_precision": {
+            "count_source": "summary_rate_estimate",
+            "current_pass_count": 145,
+            "current_rate": 0.917722,
+            "denominator": 158,
+            "is_passing": true,
+            "minimum_additional_pass_count_if_denominator_unchanged": 0,
+            "operator": ">=",
+            "required_pass_count": 135,
+            "threshold": 0.85
+          },
+          "direction_accuracy": {
+            "count_source": "summary_rate_estimate",
+            "current_pass_count": 99,
+            "current_rate": 0.626582,
+            "denominator": 158,
+            "is_passing": false,
+            "minimum_additional_pass_count_if_denominator_unchanged": 36,
+            "operator": ">=",
+            "required_pass_count": 135,
+            "threshold": 0.85
+          },
+          "horizon_accuracy": {
+            "count_source": "summary_rate_estimate",
+            "current_pass_count": 148,
+            "current_rate": 0.936709,
+            "denominator": 158,
+            "is_passing": true,
+            "minimum_additional_pass_count_if_denominator_unchanged": 0,
+            "operator": ">=",
+            "required_pass_count": 135,
+            "threshold": 0.85
+          },
+          "source_span_support_precision": {
+            "count_source": "summary_rate_estimate",
+            "current_pass_count": 157,
+            "current_rate": 0.993671,
+            "denominator": 158,
+            "is_passing": true,
+            "minimum_additional_pass_count_if_denominator_unchanged": 0,
+            "operator": ">=",
+            "required_pass_count": 143,
+            "threshold": 0.9
+          },
+          "target_accuracy": {
+            "count_source": "summary_rate_estimate",
+            "current_pass_count": 135,
+            "current_rate": 0.85443,
+            "denominator": 158,
+            "is_passing": true,
+            "minimum_additional_pass_count_if_denominator_unchanged": 0,
+            "operator": ">=",
+            "required_pass_count": 135,
+            "threshold": 0.85
+          },
+          "unsupported_field_false_grounding_rate": {
+            "count_source": "summary_rate_estimate",
+            "current_rate": 0.227848,
+            "current_true_count": 36,
+            "denominator": 158,
+            "is_passing": false,
+            "max_allowed_true_count": 7,
+            "minimum_excess_true_count_if_denominator_unchanged": 29,
+            "operator": "<=",
+            "threshold": 0.05
+          },
+          "variable_mapping_accuracy": {
+            "count_source": "summary_rate_estimate",
+            "current_pass_count": 30,
+            "current_rate": 0.189873,
+            "denominator": 158,
+            "is_passing": false,
+            "minimum_additional_pass_count_if_denominator_unchanged": 97,
+            "operator": ">=",
+            "required_pass_count": 127,
+            "threshold": 0.8
+          }
+        },
+        "policy": "public_safe_aggregate_quality_gate_gap_targets_no_source_text",
+        "sample_size_claims": {
+          "current_count": 158,
+          "is_passing": true,
+          "minimum_additional_count": 0,
+          "operator": ">=",
+          "threshold": 100
+        },
+        "sample_size_documents": {
+          "current_count": 37,
+          "is_passing": false,
+          "minimum_additional_count": 13,
+          "operator": ">=",
+          "threshold": 50
+        }
+      },
       "ready_for_promotion": false,
       "review_kind": "gold_set",
       "simulation_accepted": false,
@@ -562,14 +816,127 @@
           "extra_evidence_rows": 0,
           "id_field": "footprint_id",
           "malformed_rows": 0,
+          "missing_markdown_rows": 0,
           "missing_review_rows": 0,
           "path": "registry/report_intelligence/analytical_footprint_review_evidence.jsonl",
+          "priority_metadata_refresh_recommended": false,
+          "priority_reason_counts": {
+            "complex_multi_step_patterns": 20,
+            "missing_indicator_mentions": 33,
+            "missing_target_agent_candidates": 50
+          },
+          "priority_reason_missing_rows": 0,
+          "priority_reason_ready_rows": 50,
+          "priority_score_counts": {
+            "1": 12,
+            "3": 5,
+            "4": 18,
+            "6": 15
+          },
+          "quality_gap_focus_field_counts": {
+            "metric_mapping_correct": 35,
+            "unknowns_used_when_uncertain": 35
+          },
+          "review_field_workload": {
+            "footprint_correct": {
+              "draft_decision_available_rows": 50,
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 50,
+              "suggested_false_rows": 0,
+              "suggested_null_rows": 0,
+              "suggested_other_rows": 0,
+              "suggested_true_rows": 50
+            },
+            "inferred_steps_tagged_correctly": {
+              "draft_decision_available_rows": 50,
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 50,
+              "suggested_false_rows": 0,
+              "suggested_null_rows": 0,
+              "suggested_other_rows": 0,
+              "suggested_true_rows": 50
+            },
+            "metric_mapping_correct": {
+              "draft_decision_available_rows": 50,
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 50,
+              "suggested_false_rows": 35,
+              "suggested_null_rows": 0,
+              "suggested_other_rows": 0,
+              "suggested_true_rows": 15
+            },
+            "no_proprietary_text_leakage": {
+              "draft_decision_available_rows": 50,
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 50,
+              "suggested_false_rows": 0,
+              "suggested_null_rows": 0,
+              "suggested_other_rows": 0,
+              "suggested_true_rows": 50
+            },
+            "review_notes": {
+              "draft_decision_available_rows": 0,
+              "manual_decision_required_rows": 50,
+              "missing_required_rows": 50,
+              "suggested_false_rows": 0,
+              "suggested_null_rows": 0,
+              "suggested_other_rows": 0,
+              "suggested_true_rows": 0
+            },
+            "source_span_supports_footprint": {
+              "draft_decision_available_rows": 50,
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 50,
+              "suggested_false_rows": 0,
+              "suggested_null_rows": 0,
+              "suggested_other_rows": 0,
+              "suggested_true_rows": 50
+            },
+            "unknowns_used_when_uncertain": {
+              "draft_decision_available_rows": 50,
+              "manual_decision_required_rows": 0,
+              "missing_required_rows": 50,
+              "suggested_false_rows": 1,
+              "suggested_null_rows": 0,
+              "suggested_other_rows": 0,
+              "suggested_true_rows": 49
+            }
+          },
           "review_input_exists": true,
           "review_input_malformed_rows": 0,
           "review_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
           "review_input_rows": 50,
           "rows": 50,
           "same_order": true,
+          "snippet_ready_rows": 50,
+          "suggested_review_decision_counts": {
+            "footprint_correct": {
+              "true": 50
+            },
+            "inferred_steps_tagged_correctly": {
+              "true": 50
+            },
+            "metric_mapping_correct": {
+              "false": 35,
+              "true": 15
+            },
+            "no_proprietary_text_leakage": {
+              "true": 50
+            },
+            "source_span_supports_footprint": {
+              "true": 50
+            },
+            "unknowns_used_when_uncertain": {
+              "false": 1,
+              "true": 49
+            }
+          },
+          "suggested_tag_counts": {
+            "metric_mapping_inference_available": 29,
+            "metric_mapping_missing": 33,
+            "metric_mapping_ungrounded": 2,
+            "metric_mapping_unknown": 2
+          },
           "target_row_hash_mismatch_count": 0
         },
         "exists": true,

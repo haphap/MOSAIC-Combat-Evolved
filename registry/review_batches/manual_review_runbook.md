@@ -18,10 +18,32 @@ This section reports aggregate completion counts for the current local batch or 
 - Gold-set batch: `registry/review_batches/gold_set_reviewed.jsonl`; exists: true; rows: 26; complete: 0; pending: 26; malformed: 0
   Missing required fields: `claim_correct`=26, `direction_correct`=26, `horizon_correct`=26, `manual_claim_text`=26, `review_date`=26, `reviewer`=26, `source_span_supports_claim`=26, `target_correct`=26, `unsupported_field_false_grounded`=26, `variable_mapping_correct`=26
   Evidence alignment: path=`registry/review_batches/gold_set_review_evidence.jsonl`; exists: true; rows: 26; covered: 26/26; same_order: true; aligned: true
+  Evidence quality: snippet_ready: 26; missing_markdown: 0
+  Evidence priority metadata: reason_ready: 26; missing_reason_rows: 0; refresh_recommended: false
+  Quality-gap focus fields: `direction_correct`=2, `unsupported_field_false_grounded`=5, `variable_mapping_correct`=5
+  Suggested evidence tags: `context_synthesis_required`=20, `direction_text_needs_review`=2, `forecast_mapping_insufficient`=5, `unsupported_grounding_needs_review`=5
+  Evidence priority scores: `2`=1, `5`=25
+  Evidence priority reasons: `context_synthesis_required`=20, `forecast_mapping_insufficient`=5, `low_extraction_confidence`=25, `manual_review_required`=26
+  Suggested decision counts: `claim_correct`={true:26}; `direction_correct`={null:2,true:24}; `horizon_correct`={null:26}; `source_span_supports_claim`={true:26}; `target_correct`={null:26}; `unsupported_field_false_grounded`={false:21,null:5}; `variable_mapping_correct`={null:26}
+  Review workload summary: missing_required_cells=260; draft_decision_available_cells=97; manual_review_required_cells=163; fields_with_manual_review_required=8
+  Review next fields: manual_required: `horizon_correct`=26, `manual_claim_text`=26, `review_date`=26, `reviewer`=26, `target_correct`=26, `variable_mapping_correct`=26, `unsupported_field_false_grounded`=5, `direction_correct`=2; draft_available: `claim_correct`=26, `source_span_supports_claim`=26, `direction_correct`=24, `unsupported_field_false_grounded`=21
+  Review workflow groups: decision: `horizon_correct`=26, `target_correct`=26, `variable_mapping_correct`=26, `unsupported_field_false_grounded`=5, `direction_correct`=2; metadata: `review_date`=26, `reviewer`=26; text: `manual_claim_text`=26; draft_verify: `unsupported_field_false_grounded`=21, `direction_correct`=24, `claim_correct`=26, `source_span_supports_claim`=26
+  Review field workload: `claim_correct`=missing:26,draft:26,manual:0; `direction_correct`=missing:26,draft:24,manual:2; `horizon_correct`=missing:26,draft:0,manual:26; `manual_claim_text`=missing:26,draft:0,manual:26; `review_date`=missing:26,draft:0,manual:26; `reviewer`=missing:26,draft:0,manual:26; `source_span_supports_claim`=missing:26,draft:26,manual:0; `target_correct`=missing:26,draft:0,manual:26; `unsupported_field_false_grounded`=missing:26,draft:21,manual:5; `variable_mapping_correct`=missing:26,draft:0,manual:26
 - Gold-set batch coverage: current scratch covers 26/48 pending target rows; remaining after current apply: 22; covers planned next batch: false
 - Analytical-footprint batch: `registry/report_intelligence/analytical_footprint_review_batch.jsonl`; exists: true; rows: 50; complete: 0; pending: 50; malformed: 0
   Missing required fields: `footprint_correct`=50, `inferred_steps_tagged_correctly`=50, `metric_mapping_correct`=50, `no_proprietary_text_leakage`=50, `review_notes`=50, `source_span_supports_footprint`=50, `unknowns_used_when_uncertain`=50
   Evidence alignment: path=`registry/report_intelligence/analytical_footprint_review_evidence.jsonl`; exists: true; rows: 50; covered: 50/50; same_order: true; aligned: true
+  Evidence quality: snippet_ready: 50; missing_markdown: 0
+  Evidence priority metadata: reason_ready: 50; missing_reason_rows: 0; refresh_recommended: false
+  Quality-gap focus fields: `metric_mapping_correct`=35, `unknowns_used_when_uncertain`=35
+  Suggested evidence tags: `metric_mapping_inference_available`=29, `metric_mapping_missing`=33, `metric_mapping_ungrounded`=2, `metric_mapping_unknown`=2
+  Evidence priority scores: `1`=12, `3`=5, `4`=18, `6`=15
+  Evidence priority reasons: `complex_multi_step_patterns`=20, `missing_indicator_mentions`=33, `missing_target_agent_candidates`=50
+  Suggested decision counts: `footprint_correct`={true:50}; `inferred_steps_tagged_correctly`={true:50}; `metric_mapping_correct`={false:35,true:15}; `no_proprietary_text_leakage`={true:50}; `source_span_supports_footprint`={true:50}; `unknowns_used_when_uncertain`={false:1,true:49}
+  Review workload summary: missing_required_cells=350; draft_decision_available_cells=300; manual_review_required_cells=50; fields_with_manual_review_required=1
+  Review next fields: manual_required: `review_notes`=50; draft_available: `footprint_correct`=50, `inferred_steps_tagged_correctly`=50, `metric_mapping_correct`=50, `no_proprietary_text_leakage`=50, `source_span_supports_footprint`=50, `unknowns_used_when_uncertain`=50
+  Review workflow groups: decision: none; metadata: none; text: `review_notes`=50; draft_verify: `footprint_correct`=50, `inferred_steps_tagged_correctly`=50, `metric_mapping_correct`=50, `no_proprietary_text_leakage`=50, `source_span_supports_footprint`=50, `unknowns_used_when_uncertain`=50
+  Review field workload: `footprint_correct`=missing:50,draft:50,manual:0; `inferred_steps_tagged_correctly`=missing:50,draft:50,manual:0; `metric_mapping_correct`=missing:50,draft:50,manual:0; `no_proprietary_text_leakage`=missing:50,draft:50,manual:0; `review_notes`=missing:50,draft:0,manual:50; `source_span_supports_footprint`=missing:50,draft:50,manual:0; `unknowns_used_when_uncertain`=missing:50,draft:50,manual:0
 - Analytical-footprint batch coverage: current scratch covers 50/1017 pending target rows; remaining after current apply: 967; covers planned next batch: true
 - Lockbox decision: `registry/review_batches/lockbox_reviewed.json`; exists: true; rows: 1; complete: 0; pending: 1; malformed: 0
   Missing required fields: `open_count`=1, `opened_at`=1, `opened_by`=1, `result`=1
@@ -126,7 +148,7 @@ Each gold-set row must keep the template IDs and hashes intact and must fill `ma
 Use `MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke prepare-gold-review --root . --full --force --reviewer <name> --review-date <YYYY-MM-DD>` to prefill reviewer identity and date only; claim text and boolean review decisions remain human judgments.
 For batch work, use `MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke prepare-gold-review --root . --gold-batch-size 50 --offset 0 --force --reviewer <name> --review-date <YYYY-MM-DD>`; after applying that batch, rerun with `--offset 0` because completed rows leave the pending set.
 Batch gold-set imports use `MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --dry-run`, then `MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl` after the batch is accepted.
-Use `MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-gold-review-evidence --root . --limit 50 --offset 0 --review-input registry/review_batches/gold_set_reviewed.jsonl` after preparing the current gold scratch batch to regenerate a batch-aligned private source-evidence draft.
+Use `MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-gold-review-evidence --root . --limit 26 --offset 0 --review-input registry/review_batches/gold_set_reviewed.jsonl` after preparing the current gold scratch batch to regenerate a batch-aligned private source-evidence draft.
 The resulting gold-set summary must satisfy the code-defined gate: at least 50 documents, at least 100 claims, claim precision >= 0.85, span-support precision >= 0.90, direction accuracy >= 0.85, target accuracy >= 0.85, horizon accuracy >= 0.85, variable mapping accuracy >= 0.80, and unsupported-field false grounding <= 0.05.
 
 Analytical-footprint review is accepted only when every footprint row is completed, the import dry run accepts it, and the review summary quality gate passes.
@@ -320,10 +342,9 @@ These commands operate on the current pending set. After applying an accepted ba
 ### gold_set
 
 - assist: `MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-gold-review-assist --root . --review-input registry/review_batches/gold_set_reviewed.jsonl`
-- evidence: `MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-gold-review-evidence --root . --limit 48 --offset 0 --review-input registry/review_batches/gold_set_reviewed.jsonl`
+- evidence: `MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-gold-review-evidence --root . --limit 26 --offset 0 --review-input registry/review_batches/gold_set_reviewed.jsonl`
 - prepare: `MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke prepare-gold-review --root . --gold-batch-size 48 --offset 0 --force --reviewer <name> --review-date <YYYY-MM-DD>`
 - backfill_dry_run: `MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke backfill-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl`
-- backfill_write: `MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke backfill-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --write`
 - dry_run: `MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --dry-run`
 - apply: `MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl`
 

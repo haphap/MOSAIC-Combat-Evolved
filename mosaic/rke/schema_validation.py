@@ -6332,11 +6332,10 @@ def _manual_progress_forbidden_text_failures(
                 normalized_key in REPORT_INTELLIGENCE_PUBLIC_FORBIDDEN_TEXT_KEYS
                 and bool(item)
             ):
-                allowed_missing_field_count = (
-                    ".missing_required_fields." in child_path
-                    and type(item) is int
-                )
-                if not allowed_missing_field_count:
+                if not _manual_progress_allows_private_key_as_count(
+                    child_path,
+                    item,
+                ):
                     failures.append(
                         f"{child_path}: private/source text field forbidden"
                     )
@@ -6353,6 +6352,19 @@ def _manual_progress_forbidden_text_failures(
                 )
             )
     return failures
+
+
+def _manual_progress_allows_private_key_as_count(path: str, value: Any) -> bool:
+    if (
+        ".missing_required_fields." in path
+        or ".invalid_required_fields." in path
+    ):
+        return type(value) is int
+    if ".review_field_workload." not in path:
+        return False
+    if not isinstance(value, Mapping):
+        return False
+    return all(type(item) is int for item in value.values())
 
 
 def _validate_manual_review_progress_privacy_contract(
