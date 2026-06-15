@@ -24,6 +24,7 @@ from .license_policy_import import (
     write_source_license_review_workbook,
 )
 from .manual_review_import import GOLD_BOOL_FIELDS, TARGET_ROW_HASH_FIELD, review_row_fingerprint
+from .report_intelligence import _gold_review_quality_gap_targets_from_summary
 from .review_gates import summarize_gold_set_review
 from .temp_paths import RKE_OPERATOR_TMPDIR
 
@@ -39,6 +40,7 @@ GOLD_REVIEW_EVIDENCE_JSONL_PATH = "registry/review_batches/gold_set_review_evide
 GOLD_REVIEW_EVIDENCE_MD_PATH = "registry/review_batches/gold_set_review_evidence.md"
 GOLD_REVIEWED_IMPORT_PATH = "registry/review_batches/gold_set_reviewed.jsonl"
 GOLD_FULL_REVIEWED_IMPORT_PATH = "registry/review_batches/gold_set_full_reviewed.jsonl"
+GOLD_REVIEW_SUMMARY_PATH = "registry/gold_sets/tushare_research_reports.review_summary.json"
 LICENSE_REVIEW_TEMPLATE_PATH = "registry/compliance/tushare_license_review_template.jsonl"
 LICENSE_REVIEW_PACKET_PATH = "registry/compliance/tushare_license_review_packet.json"
 LICENSE_BATCH_IMPORT_TEMPLATE_PATH = "registry/review_batches/source_license_next_import_template.jsonl"
@@ -180,6 +182,30 @@ def _write_jsonl(path: Path, rows: Sequence[Mapping[str, Any]]) -> dict[str, Any
         encoding="utf-8",
     )
     return {"path": str(path), "rows": len(rows)}
+
+
+def _read_mapping_json(path: Path) -> Mapping[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}
+    return payload if isinstance(payload, Mapping) else {}
+
+
+def _gold_quality_gap_targets_from_summary(
+    root_path: Path,
+    summary: Any,
+) -> Mapping[str, Any] | None:
+    if getattr(summary, "quality_gap_targets", None):
+        return summary.quality_gap_targets
+    public_quality_gap_targets = _gold_review_quality_gap_targets_from_summary(
+        _read_mapping_json(root_path / GOLD_REVIEW_SUMMARY_PATH)
+    )
+    if public_quality_gap_targets:
+        return public_quality_gap_targets
+    return _gold_review_quality_gap_targets_from_summary(asdict(summary))
 
 
 def _manual_review_backup_path(root_path: Path, source_path: Path) -> Path:
@@ -860,6 +886,10 @@ def build_gold_review_assist(
     )
     blockers: list[str] = [*parse_blockers, *input_blockers]
     gold_summary = summarize_gold_set_review(root_path)
+    quality_gap_targets = _gold_quality_gap_targets_from_summary(
+        root_path,
+        gold_summary,
+    )
     if invalid_rows:
         blockers.append(
             "gold-set review row must be object at row(s): "
@@ -881,7 +911,7 @@ def build_gold_review_assist(
             blockers=tuple(blockers),
             selection_source=selection_source,
             review_input_path=review_input_text,
-            quality_gap_targets=gold_summary.quality_gap_targets,
+            quality_gap_targets=quality_gap_targets,
         ),
         assist_rows,
     )

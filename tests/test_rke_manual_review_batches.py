@@ -302,7 +302,13 @@ def test_gold_review_assist_can_follow_review_input_order(tmp_path: Path):
     assert result["rows"] == 2
     assert result["selection_source"] == "review_input"
     assert result["review_input_path"] == GOLD_REVIEWED_IMPORT_PATH
+    assert result["quality_gap_targets"]["metrics"]["direction_accuracy"][
+        "current_rate"
+    ] is not None
     assert summary.selection_source == "review_input"
+    assert summary.quality_gap_targets["metrics"]["variable_mapping_accuracy"][
+        "current_rate"
+    ] is not None
     assert workbook_summary.selection_source == "review_input"
     assert [row["claim_id"] for row in assist_rows] == expected_claim_ids
     assert [row["claim_id"] for row in workbook_rows] == expected_claim_ids

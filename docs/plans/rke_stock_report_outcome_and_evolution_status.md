@@ -135,6 +135,11 @@ The same action-queue output now includes top-level public-safe
 `action_state_counts`, so operators can see the current mix of runnable,
 already-applied, and dependency-waiting gates before scanning individual
 actions.
+`write-gold-review-assist --review-input registry/review_batches/gold_set_reviewed.jsonl`
+now carries the same public-safe aggregate gold quality-gap targets as the
+action queue, so reviewers can see the current document, direction,
+variable-mapping, and unsupported-grounding gaps while working the active
+scratch batch.
 `review-progress --summary --no-write` and
 `review-progress --actions-only --no-write` now include a compact public-safe
 `batch_overview` per review gate, so operators can see total batch count,
