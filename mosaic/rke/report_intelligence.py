@@ -3070,13 +3070,103 @@ INDICATOR_METADATA_RULES: tuple[tuple[str, Mapping[str, Any]], ...] = (
         },
     ),
     (
-        r"revenue|sales|营业收入|营收|收入增长|境外收入|overseas[_\s-]*revenue",
+        r"revenue|sales|营业收入|营收|收入增长|境外收入|overseas[_\s-]*revenue|销售额|销售量|销量|成交额|gmv",
         {
             "canonical_metric_candidate": "revenue_growth",
             "data_source_mentioned": "company_financials_or_report_forecast",
             "frequency": "quarterly_or_annual",
             "transformation": "level_growth_or_forecast",
             "role_in_argument": "revenue_growth_metric",
+        },
+    ),
+    (
+        r"transaction[_\s-]*area|成交面积|成交指数|商品房成交|新房成交|二手房成交",
+        {
+            "canonical_metric_candidate": "real_estate_transaction_area",
+            "data_source_mentioned": "real_estate_transaction_database_or_report_table",
+            "frequency": "weekly_or_monthly",
+            "transformation": "area_level_or_growth_rate",
+            "role_in_argument": "real_estate_demand_activity_metric",
+        },
+    ),
+    (
+        r"sell[-_\s]*through|sellthrough|去化率|开盘去化|项目去化",
+        {
+            "canonical_metric_candidate": "real_estate_sell_through_rate",
+            "data_source_mentioned": "real_estate_project_launch_tracking",
+            "frequency": "weekly_or_monthly",
+            "transformation": "rate_or_change",
+            "role_in_argument": "real_estate_project_demand_metric",
+        },
+    ),
+    (
+        r"store[_\s-]*rank|product[_\s-]*rank|category[_\s-]*rank|top[_\s-]*store|店铺|商品排名|店铺排名|类目排名|相对排名|活跃度|搜索词",
+        {
+            "canonical_metric_candidate": "ecommerce_store_product_rank_activity",
+            "data_source_mentioned": "ecommerce_platform_category_store_product_data",
+            "frequency": "monthly",
+            "transformation": "rank_distribution_or_activity_change",
+            "role_in_argument": "ecommerce_competitive_activity_metric",
+        },
+    ),
+    (
+        r"price[_\s-]*segment|price[_\s-]*band|价格段|价格带|均价|客单价|价格调整|调价",
+        {
+            "canonical_metric_candidate": "ecommerce_price_segment_distribution",
+            "data_source_mentioned": "ecommerce_platform_price_distribution_data",
+            "frequency": "monthly",
+            "transformation": "segment_share_or_price_change",
+            "role_in_argument": "ecommerce_pricing_structure_metric",
+        },
+    ),
+    (
+        r"generation|power[_\s-]*consumption|installed[_\s-]*capacity|utilization[_\s-]*hours|power[_\s-]*engineering[_\s-]*investment|发电量|用电量|装机容量|发电装机|平均利用小时|利用小时|电源工程投资",
+        {
+            "canonical_metric_candidate": "power_operation_metric",
+            "data_source_mentioned": "energy_operation_statistics_or_report_table",
+            "frequency": "monthly",
+            "transformation": "level_or_growth_rate",
+            "role_in_argument": "power_supply_demand_operation_metric",
+        },
+    ),
+    (
+        r"delivery|deliveries|交付量|交付目标|交付达成",
+        {
+            "canonical_metric_candidate": "vehicle_delivery_volume",
+            "data_source_mentioned": "company_delivery_disclosure_or_industry_sales_data",
+            "frequency": "monthly_or_event_driven",
+            "transformation": "level_or_milestone_progress",
+            "role_in_argument": "auto_demand_and_execution_metric",
+        },
+    ),
+    (
+        r"r&d|research[_\s-]*development|研发投入|研发费用|研发比例|核心技术投入",
+        {
+            "canonical_metric_candidate": "rd_investment",
+            "data_source_mentioned": "company_financials_or_report_business_update",
+            "frequency": "quarterly_or_annual",
+            "transformation": "level_or_ratio",
+            "role_in_argument": "technology_capability_investment_metric",
+        },
+    ),
+    (
+        r"tourist|visitor|passenger[_\s-]*flow|hotel[_\s-]*occupancy|旅游收入|游客|客流|出行|入住率|文旅消费",
+        {
+            "canonical_metric_candidate": "tourism_consumption_activity",
+            "data_source_mentioned": "tourism_operation_statistics_or_survey",
+            "frequency": "monthly_or_holiday_window",
+            "transformation": "level_or_growth_rate",
+            "role_in_argument": "tourism_demand_activity_metric",
+        },
+    ),
+    (
+        r"credit[_\s-]*rating|capital[_\s-]*supplement|评级变动|信用级别|资本补充|并购重组",
+        {
+            "canonical_metric_candidate": "credit_capital_market_activity",
+            "data_source_mentioned": "rating_agency_or_capital_market_disclosure",
+            "frequency": "event_driven_or_monthly",
+            "transformation": "event_count_or_status_change",
+            "role_in_argument": "credit_and_capital_structure_metric",
         },
     ),
     (
@@ -3396,6 +3486,226 @@ def _normalize_indicator_mentions(value: Any) -> list[dict[str, Any]]:
             )
         )
     return records
+
+
+TEXT_GROUNDED_INDICATOR_SEED_RULES: tuple[tuple[str, str, str], ...] = (
+    (
+        r"7日公开市场净投放|公开市场净投放",
+        "7日公开市场净投放",
+        r"流动性|资金|公开市场|liquidity|funding",
+    ),
+    (
+        r"\bdr\s*007\b|DR007|政策利率",
+        "DR007与政策利率利差",
+        r"流动性|资金|利率|DR007|liquidity|funding|rate",
+    ),
+    (
+        r"成交面积|成交指数|商品房成交|新房成交|二手房成交",
+        "成交面积",
+        r"成交|房地产|transaction|real[_\s-]*estate|monthly[_\s-]*cumulative",
+    ),
+    (
+        r"去化率|开盘去化|项目去化|sell[-_\s]*through",
+        "去化率",
+        r"去化|开盘|项目|sell[-_\s]*through|project[_\s-]*launch",
+    ),
+    (
+        r"销售额|销售量|销量|成交额|GMV|gmv",
+        "销售额",
+        r"销售|销量|电商|店铺|商品|market[_\s-]*monitoring|growth|decline|volume",
+    ),
+    (
+        r"店铺|商品排名|店铺排名|类目排名|相对排名|活跃度|搜索词",
+        "店铺/商品排名与活跃度",
+        r"店铺|商品|排名|活跃|competitive|ranking|category|platform|store|product",
+    ),
+    (
+        r"价格段|价格带|均价|客单价|价格调整|调价",
+        "价格段与均价",
+        r"价格|price|segment|market[_\s-]*monitoring|product",
+    ),
+    (
+        r"发电量|用电量|装机容量|发电装机|平均利用小时|利用小时|电源工程投资",
+        "发电量/用电量/装机容量/利用小时",
+        r"电力|发电|用电|装机|fundamental|capacity|utilization",
+    ),
+    (
+        r"交付量|交付目标|交付达成|deliveries|delivery",
+        "交付量",
+        r"汽车|交付|delivery|milestone|auto",
+    ),
+    (
+        r"研发投入|研发费用|研发比例|核心技术投入|r&d",
+        "研发投入",
+        r"研发|技术|r&d|technology|capability",
+    ),
+    (
+        r"营收|营业收入|收入增长|revenue",
+        "营业收入",
+        r"业绩|财务|盈利|营收|收入|financial|revenue|YoY|QoQ",
+    ),
+    (
+        r"归母净利润|净利润|net[_\s-]*profit",
+        "归母净利润",
+        r"业绩|财务|盈利|利润|financial|profit|YoY|QoQ",
+    ),
+    (
+        r"毛利率|净利率|盈利能力|gross[_\s-]*margin|net[_\s-]*margin",
+        "毛利率/净利率",
+        r"业绩|财务|盈利|利润率|毛利率|净利率|financial|margin",
+    ),
+    (
+        r"沪深\s*300|指数|涨跌幅|相对收益率|板块表现|行业表现",
+        "市场或行业指数收益",
+        r"市场表现|相对|指数|排名|performance|benchmark|sector[_\s-]*ranking",
+    ),
+    (
+        r"补贴|标杆电价|全生命周期|合理利用小时|生物质发电",
+        "补贴/标杆电价/合理利用小时",
+        r"政策|补贴|电价|tariff|policy",
+    ),
+    (
+        r"绿电直连|自发自用|余电上网|输配电费",
+        "绿电直连政策参数",
+        r"政策|绿电|直连|policy",
+    ),
+    (
+        r"pipeline|申请上市|在研管线|生物类似药|Phase\s*(?:I|II|III|1|2|3)",
+        "临床管线里程碑",
+        r"pipeline|管线|clinical|drug|biosimilar",
+    ),
+    (
+        r"MACE|\bHR\b|hazard[_\s-]*ratio|risk[_\s-]*reduction|心血管|风险降低",
+        "临床终点结果",
+        r"clinical|efficacy|endpoint|心血管|疗效",
+    ),
+    (
+        r"不良事件|停药率|停止治疗|耐受性|adverse[_\s-]*event|discontinuation",
+        "不良事件停药率",
+        r"safety|tolerability|安全|耐受",
+    ),
+    (
+        r"满意度|注射装置|satisfaction",
+        "患者满意度",
+        r"satisfaction|adherence|满意|依从",
+    ),
+    (
+        r"旅游收入|游客|客流|出行|入住率|文旅消费",
+        "旅游消费活跃度",
+        r"文旅|旅游|消费|客流|tourism|consumer",
+    ),
+    (
+        r"评级变动|信用级别|资本补充|并购重组",
+        "信用与资本市场活动",
+        r"信用|资本|并购|capital|credit",
+    ),
+)
+
+
+def _text_grounded_indicator_mentions(
+    markdown_chunk: str,
+    *,
+    footprint_context: str = "",
+) -> list[dict[str, Any]]:
+    text = str(markdown_chunk or "")
+    if not text.strip():
+        return []
+    context = str(footprint_context or "")
+    records: list[dict[str, Any]] = []
+    seen_canonicals: set[str] = set()
+    for pattern, indicator_text, context_pattern in TEXT_GROUNDED_INDICATOR_SEED_RULES:
+        if not re.search(pattern, text, flags=re.IGNORECASE):
+            continue
+        if context_pattern and not re.search(
+            context_pattern, context, flags=re.IGNORECASE
+        ):
+            continue
+        mention = _apply_indicator_metadata_inference(
+            {
+                "indicator_text": indicator_text,
+                "canonical_metric_candidate": "unknown",
+                "data_source_mentioned": "unknown",
+                "frequency": "unknown",
+                "lookback_window": {},
+                "transformation": "unknown",
+                "role_in_argument": "unknown",
+                "source_grounded": True,
+                "inference_source": "source_chunk_indicator_seed_rule",
+            }
+        )
+        canonical = str(mention.get("canonical_metric_candidate") or "unknown")
+        if _indicator_value_unknown(canonical) or canonical in seen_canonicals:
+            continue
+        seen_canonicals.add(canonical)
+        records.append(mention)
+        if len(records) >= 6:
+            break
+    return records
+
+
+def _footprint_indicator_context(row: Mapping[str, Any]) -> str:
+    patterns = _ensure_list(row.get("analysis_patterns"))
+    return " ".join(
+        [
+            str(row.get("topic") or ""),
+            *[
+                str(pattern or "")
+                if isinstance(pattern, str)
+                else json.dumps(_jsonable(pattern), ensure_ascii=False, sort_keys=True)
+                for pattern in patterns
+            ],
+        ]
+    )
+
+
+def _footprint_markdown_chunk_index(row: Mapping[str, Any]) -> int | None:
+    for span_id in _ensure_list(row.get("source_span_ids")):
+        match = re.search(r":original_markdown:chunk-(\d+)\b", str(span_id or ""))
+        if match:
+            return max(1, int(match.group(1)))
+    return None
+
+
+def _metadata_markdown_path(
+    metadata: Mapping[str, Any],
+    *,
+    root_path: Path,
+) -> Path | None:
+    markdown_info = _ensure_mapping(metadata.get("markdown"))
+    markdown_path_text = str(markdown_info.get("path") or "")
+    if not markdown_path_text:
+        return None
+    markdown_path = Path(markdown_path_text)
+    if not markdown_path.is_absolute():
+        markdown_path = root_path / markdown_path
+    if not markdown_path.exists() or markdown_path.stat().st_size <= 0:
+        return None
+    return markdown_path
+
+
+def _footprint_markdown_chunk(
+    row: Mapping[str, Any],
+    *,
+    metadata_by_source: Mapping[str, Mapping[str, Any]],
+    root_path: Path,
+    chunk_chars: int,
+    max_chunks: int,
+) -> str:
+    source_id = str(row.get("source_id") or "")
+    metadata = metadata_by_source.get(source_id)
+    if not metadata:
+        return ""
+    markdown_path = _metadata_markdown_path(metadata, root_path=root_path)
+    if markdown_path is None:
+        return ""
+    chunk_index = _footprint_markdown_chunk_index(row)
+    if chunk_index is None:
+        return ""
+    markdown_text = markdown_path.read_text(encoding="utf-8", errors="ignore")
+    chunks = _chunk_text(markdown_text, chunk_chars=chunk_chars, max_chunks=max_chunks)
+    if chunk_index > len(chunks):
+        return ""
+    return chunks[chunk_index - 1]
 
 
 def _source_span_ids(value: Mapping[str, Any], fallback_span_id: str) -> list[str]:
@@ -4420,13 +4730,50 @@ def _refresh_forecast_mapping_governance(
 
 def _refresh_analytical_footprint_indicator_governance(
     footprint_rows: Sequence[Mapping[str, Any]],
+    *,
+    metadata_rows: Sequence[Mapping[str, Any]] = (),
+    root_path: Path | None = None,
+    chunk_chars: int = 60_000,
+    max_chunks: int = 8,
 ) -> list[dict[str, Any]]:
+    metadata_by_source = _source_report_metadata(metadata_rows) if metadata_rows else {}
     refreshed_rows: list[dict[str, Any]] = []
     for row in footprint_rows:
         refreshed = dict(row)
-        refreshed["indicator_mentions"] = _normalize_indicator_mentions(
+        indicator_mentions = _normalize_indicator_mentions(
             refreshed.get("indicator_mentions")
         )
+        mapping_complete = bool(indicator_mentions) and all(
+            not _indicator_value_unknown(mention.get("canonical_metric_candidate"))
+            and mention.get("source_grounded") is True
+            for mention in indicator_mentions
+        )
+        if not mapping_complete and metadata_by_source and root_path is not None:
+            chunk = _footprint_markdown_chunk(
+                refreshed,
+                metadata_by_source=metadata_by_source,
+                root_path=root_path,
+                chunk_chars=chunk_chars,
+                max_chunks=max_chunks,
+            )
+            text_grounded_mentions = _text_grounded_indicator_mentions(
+                chunk,
+                footprint_context=_footprint_indicator_context(refreshed),
+            )
+            seen_canonicals = {
+                str(mention.get("canonical_metric_candidate") or "")
+                for mention in indicator_mentions
+                if not _indicator_value_unknown(
+                    mention.get("canonical_metric_candidate")
+                )
+            }
+            indicator_mentions.extend(
+                mention
+                for mention in text_grounded_mentions
+                if str(mention.get("canonical_metric_candidate") or "")
+                not in seen_canonicals
+            )
+        refreshed["indicator_mentions"] = indicator_mentions
         refreshed_rows.append(refreshed)
     return refreshed_rows
 
@@ -4439,6 +4786,7 @@ def _normalize_footprints(
     model: str,
     report_id: str,
     chunk_span_id: str,
+    markdown_chunk: str = "",
 ) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     for item in _ensure_list(payload.get("analytical_footprints")):
@@ -4447,6 +4795,17 @@ def _normalize_footprints(
         target_agents, target_entities = _split_agent_and_entity_candidates(
             footprint.get("target_agent_candidates")
         )
+        analysis_patterns = _ensure_list(footprint.get("analysis_patterns"))
+        indicator_mentions = _normalize_indicator_mentions(
+            footprint.get("indicator_mentions")
+        )
+        if not indicator_mentions:
+            indicator_mentions = _text_grounded_indicator_mentions(
+                markdown_chunk,
+                footprint_context=_footprint_indicator_context(
+                    {"topic": topic, "analysis_patterns": analysis_patterns}
+                ),
+            )
         record = {
             "footprint_id": _stable_id(
                 "AFP",
@@ -4464,10 +4823,8 @@ def _normalize_footprints(
             "market": "CN_A_SHARE",
             "sector": _report_sector_bucket(row),
             "topic": topic,
-            "indicator_mentions": _normalize_indicator_mentions(
-                footprint.get("indicator_mentions")
-            ),
-            "analysis_patterns": _ensure_list(footprint.get("analysis_patterns")),
+            "indicator_mentions": indicator_mentions,
+            "analysis_patterns": analysis_patterns,
             "target_agent_candidates": target_agents,
             "target_entity_candidates": target_entities,
             "license_class": "operator_approved_internal_research_use",
@@ -23232,6 +23589,7 @@ def _extract_for_markdown(
             model=model,
             report_id=report_id,
             chunk_span_id=chunk_span_id,
+            markdown_chunk=chunk,
         )
         metrics = _normalize_metric_candidates(
             payload,
@@ -23344,7 +23702,11 @@ def run_report_intelligence_derived_refresh(
         blockers=blockers,
     )
     footprint_rows = _refresh_analytical_footprint_indicator_governance(
-        footprint_rows
+        footprint_rows,
+        metadata_rows=metadata_rows,
+        root_path=root_path,
+        chunk_chars=cfg.chunk_chars,
+        max_chunks=cfg.max_chunks,
     )
     metric_rows = _read_registry_jsonl(
         registry_dir / "metric_candidates.jsonl",
@@ -23729,7 +24091,10 @@ def run_report_intelligence_derived_refresh(
             _write_jsonl(registry_dir / "forecast_claims.jsonl", forecast_rows)["path"]
         ),
         "analytical_footprints": str(
-            registry_dir / "analytical_footprints.jsonl"
+            _write_jsonl(
+                registry_dir / "analytical_footprints.jsonl",
+                footprint_rows,
+            )["path"]
         ),
         **footprint_review_outputs,
         "metric_candidates": str(
@@ -24419,7 +24784,11 @@ def run_report_intelligence_refresh(
         macro_regime_calendar_rows=macro_regime_calendar_rows,
     )
     footprint_rows = _refresh_analytical_footprint_indicator_governance(
-        footprint_rows
+        footprint_rows,
+        metadata_rows=metadata_rows,
+        root_path=root_path,
+        chunk_chars=cfg.chunk_chars,
+        max_chunks=cfg.max_chunks,
     )
     tool_gap_rows = _backfill_tool_gaps_from_metric_candidates(
         tool_gap_rows,

@@ -74,6 +74,7 @@ from mosaic.rke.report_intelligence import (
     _paper_trading_train_oos_split_items,
     _select_report_forecast_claims,
     _user_prompt,
+    _refresh_analytical_footprint_indicator_governance,
     _refresh_forecast_mapping_governance,
     _infer_claim_component_roles,
     _infer_claim_mechanism_roles,
@@ -2427,6 +2428,214 @@ def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
     assert "claim_text" not in candidate_dump
     assert "source_span_ids" not in candidate_dump
     assert source_id not in candidate_dump
+
+
+def test_report_intelligence_backfills_source_grounded_footprint_metrics_from_chunk(
+    tmp_path: Path,
+):
+    source_id = _write_source(
+        tmp_path / "registry/sources/tushare_research_reports.jsonl",
+        industry="房地产开发",
+        report_type="行业研报",
+    )
+
+    def converter(pdf: Path, output_dir: Path, markdown: Path, overwrite: bool):
+        assert pdf.exists()
+        output_dir.mkdir(parents=True, exist_ok=True)
+        markdown.parent.mkdir(parents=True, exist_ok=True)
+        markdown.write_text(
+            "\n".join(
+                [
+                    "# 房地产周度跟踪",
+                    "30城月度累计成交面积同比增长，重点城市项目开盘去化率回升。",
+                    "报告同时跟踪营业收入、归母净利润和毛利率变化。",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        return {
+            "status": "converted",
+            "path": str(markdown),
+            "bytes": markdown.stat().st_size,
+            "sha256": _sha(markdown),
+        }
+
+    def llm(row, chunk: str, span_id: str, chunk_index: int, chunk_count: int):
+        assert "成交面积" in chunk
+        return {
+            "status": "ok",
+            "model": "fake-vllm",
+            "payload": {
+                "forecast_claims": [],
+                "analytical_footprints": [
+                    {
+                        "topic": (
+                            "Monthly transaction, sell-through, and financial "
+                            "performance tracking"
+                        ),
+                        "indicator_mentions": [],
+                        "analysis_patterns": [
+                            "monthly cumulative aggregation",
+                            "sell-through monitoring",
+                            "financial YoY margin analysis",
+                        ],
+                        "target_agent_candidates": ["Real Estate Data Analyst"],
+                    }
+                ],
+                "metric_candidates": [],
+                "method_patterns": [],
+                "tool_gaps": [],
+            },
+        }
+
+    run_report_intelligence_refresh(
+        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        downloader=_fake_downloader,
+        converter=converter,
+        llm_extractor=llm,
+    )
+
+    footprints = _read_jsonl(
+        tmp_path / "registry/report_intelligence/analytical_footprints.jsonl"
+    )
+    mentions = footprints[0]["indicator_mentions"]
+    by_canonical = {row["canonical_metric_candidate"]: row for row in mentions}
+    assert {
+        "real_estate_transaction_area",
+        "real_estate_sell_through_rate",
+        "revenue_growth",
+        "forecast_net_profit",
+        "forecast_gross_margin",
+    } <= set(by_canonical)
+    assert all(row["source_grounded"] is True for row in by_canonical.values())
+    assert {
+        row["inference_source"] for row in mentions if "inference_source" in row
+    } == {"source_chunk_indicator_seed_rule"}
+
+    review_rows = _read_jsonl(
+        tmp_path
+        / "registry/report_intelligence/analytical_footprint_review_template.jsonl"
+    )
+    preview_canonicals = {
+        row["canonical_metric_candidate"]
+        for row in review_rows[0]["indicator_mentions_review_preview"]
+    }
+    assert "real_estate_transaction_area" in preview_canonicals
+    assert "real_estate_sell_through_rate" in preview_canonicals
+    assert review_rows[0]["indicator_mentions_review_preview"][0][
+        "source_grounded"
+    ] is True
+
+    footprints[0]["indicator_mentions"] = []
+    metadata_rows = _read_jsonl(
+        tmp_path / "registry/report_intelligence/report_metadata.jsonl"
+    )
+    refreshed_footprints = _refresh_analytical_footprint_indicator_governance(
+        footprints,
+        metadata_rows=metadata_rows,
+        root_path=tmp_path,
+    )
+    refreshed_canonicals = {
+        row["canonical_metric_candidate"]
+        for row in refreshed_footprints[0]["indicator_mentions"]
+    }
+    assert "real_estate_transaction_area" in refreshed_canonicals
+    assert "real_estate_sell_through_rate" in refreshed_canonicals
+
+
+def test_report_intelligence_repairs_unknown_footprint_indicator_mentions(
+    tmp_path: Path,
+):
+    source_id = _write_source(
+        tmp_path / "registry/sources/tushare_research_reports.jsonl",
+        industry="公用事业",
+        report_type="行业研报",
+    )
+
+    def converter(pdf: Path, output_dir: Path, markdown: Path, overwrite: bool):
+        assert pdf.exists()
+        output_dir.mkdir(parents=True, exist_ok=True)
+        markdown.parent.mkdir(parents=True, exist_ok=True)
+        markdown.write_text(
+            "报告跟踪发电量、用电量、发电装机容量、平均利用小时和电源工程投资。",
+            encoding="utf-8",
+        )
+        return {
+            "status": "converted",
+            "path": str(markdown),
+            "bytes": markdown.stat().st_size,
+            "sha256": _sha(markdown),
+        }
+
+    def llm(row, chunk: str, span_id: str, chunk_index: int, chunk_count: int):
+        assert "发电量" in chunk
+        return {
+            "status": "ok",
+            "model": "fake-vllm",
+            "payload": {
+                "forecast_claims": [],
+                "analytical_footprints": [
+                    {
+                        "topic": "Fundamental Data Tracking",
+                        "indicator_mentions": [
+                            {
+                                "indicator_text": "发电量",
+                                "canonical_metric_candidate": "unknown",
+                                "data_source_mentioned": "unknown",
+                                "frequency": "unknown",
+                                "transformation": "unknown",
+                                "source_grounded": False,
+                            },
+                            {
+                                "indicator_text": "用电量",
+                                "canonical_metric_candidate": "unknown",
+                                "data_source_mentioned": "unknown",
+                                "frequency": "unknown",
+                                "transformation": "unknown",
+                                "source_grounded": False,
+                            },
+                        ],
+                        "analysis_patterns": [
+                            "time_series_analysis",
+                            "capacity_utilization_tracking",
+                        ],
+                        "target_agent_candidates": ["data_analyst"],
+                    }
+                ],
+                "metric_candidates": [],
+                "method_patterns": [],
+                "tool_gaps": [],
+            },
+        }
+
+    run_report_intelligence_refresh(
+        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        downloader=_fake_downloader,
+        converter=converter,
+        llm_extractor=llm,
+    )
+
+    footprints = _read_jsonl(
+        tmp_path / "registry/report_intelligence/analytical_footprints.jsonl"
+    )
+    mentions = footprints[0]["indicator_mentions"]
+    assert {row["canonical_metric_candidate"] for row in mentions} == {
+        "power_operation_metric"
+    }
+    assert {row["data_source_mentioned"] for row in mentions} == {
+        "energy_operation_statistics_or_report_table"
+    }
+    assert all(row["source_grounded"] is True for row in mentions)
+
+    review_rows = _read_jsonl(
+        tmp_path
+        / "registry/report_intelligence/analytical_footprint_review_template.jsonl"
+    )
+    preview = review_rows[0]["indicator_mentions_review_preview"]
+    assert {row["canonical_metric_candidate"] for row in preview} == {
+        "power_operation_metric"
+    }
+    assert all(row["source_grounded"] is True for row in preview)
 
 
 def test_report_intelligence_can_skip_processed_batch_source_ids(tmp_path: Path):
