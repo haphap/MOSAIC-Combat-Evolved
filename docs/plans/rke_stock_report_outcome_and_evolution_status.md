@@ -184,7 +184,10 @@ requirement. RI-EVOL-04 audit blocker summaries now exclude the
 the current schema failure count and refs, so the current no-write output
 reports the 23 true external schema failures across footprint review, gold
 review, and patch coverage instead of recursively listing the evolution gate's
-own semantic rule.
+own semantic rule. The evolution gate semantic contract also rejects future
+artifacts whose top-level `current_failure_counts` / `current_failure_refs`
+drift from `audit_history_dependency`, or whose schema failure refs reintroduce
+the evolution-readiness self schema rule.
 
 Most recent focused validation after proxy outcome ID namespace hardening:
 
@@ -363,7 +366,9 @@ refs from RI-EVOL-04 current audit summaries:
 
 ```bash
 MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run pytest tests/test_rke_report_intelligence.py::test_report_intelligence_evolution_gate_explains_schema_blocked_audit_history tests/test_rke_report_intelligence.py::test_report_intelligence_evolution_gate_ignores_self_schema_rule_for_current_audit tests/test_rke_report_intelligence.py::test_report_intelligence_evolution_gate_filters_self_schema_from_failure_refs -q --basetemp .mosaic/tmp/pytest-evolution-self-schema
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run pytest tests/test_rke_schema_artifacts.py::test_evolution_readiness_gate_contract_tracks_current_public_artifact tests/test_rke_schema_artifacts.py::test_evolution_readiness_gate_contract_rejects_self_schema_audit_ref tests/test_rke_schema_artifacts.py::test_evolution_readiness_gate_contract_rejects_audit_ref_summary_drift tests/test_rke_schema_artifacts.py::test_evolution_readiness_gate_contract_rejects_stale_audit_failure_summary -q --basetemp .mosaic/tmp/pytest-evolution-contract-self-ref
 uvx ruff@0.15.15 check mosaic/rke/report_intelligence.py tests/test_rke_report_intelligence.py
+uvx ruff@0.15.15 check mosaic/rke/schema_validation.py tests/test_rke_schema_artifacts.py
 MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run mosaic-rke evolution-readiness --root . --no-write
 MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run mosaic-rke schema-status --root . --failures-only --no-write
 ```

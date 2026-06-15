@@ -3021,6 +3021,72 @@ def test_evolution_readiness_gate_contract_rejects_stale_audit_failure_summary(
     )
 
 
+def test_evolution_readiness_gate_contract_rejects_self_schema_audit_ref(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    gate_path = registry / "evolution_readiness_gate.json"
+    gate = json.loads(gate_path.read_text(encoding="utf-8"))
+    audit_check = next(
+        check for check in gate["checks"] if check["check_id"] == "RI-EVOL-04"
+    )
+    evidence = audit_check["evidence"]
+    dependency = evidence["audit_history_dependency"]
+    self_ref = "schemas/report_intelligence_evolution_readiness_gate_rules"
+    evidence["current_failure_counts"]["schema"] += 5
+    dependency["current_failure_counts"]["schema"] += 5
+    evidence["current_failure_refs"]["schema"].append(self_ref)
+    dependency["current_failure_refs"]["schema"].append(self_ref)
+    gate_path.write_text(
+        json.dumps(gate, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _evolution_readiness_gate_record(tmp_path)
+
+    assert not record.accepted
+    assert any(
+        "current_failure_refs.schema: must exclude evolution-readiness self schema rule"
+        in item
+        for item in record.failures
+    )
+
+
+def test_evolution_readiness_gate_contract_rejects_audit_ref_summary_drift(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    gate_path = registry / "evolution_readiness_gate.json"
+    gate = json.loads(gate_path.read_text(encoding="utf-8"))
+    audit_check = next(
+        check for check in gate["checks"] if check["check_id"] == "RI-EVOL-04"
+    )
+    audit_check["evidence"]["current_failure_counts"]["schema"] = 1
+    audit_check["evidence"]["current_failure_refs"]["schema"] = [
+        "schemas/report_intelligence_gold_review_gate_rules"
+    ]
+    gate_path.write_text(
+        json.dumps(gate, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _evolution_readiness_gate_record(tmp_path)
+
+    assert not record.accepted
+    assert any(
+        "evidence.current_failure_counts: must match "
+        "audit_history_dependency.current_failure_counts"
+        in item
+        for item in record.failures
+    )
+    assert any(
+        "evidence.current_failure_refs.schema: must match "
+        "audit_history_dependency.current_failure_refs"
+        in item
+        for item in record.failures
+    )
+
+
 def test_evolution_readiness_gate_contract_rejects_stale_audit_history_blocker(
     tmp_path: Path,
 ):

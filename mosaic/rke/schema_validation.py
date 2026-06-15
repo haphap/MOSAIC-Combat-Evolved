@@ -48,6 +48,10 @@ SUPPORTED_JSON_SCHEMA_KEYWORDS = frozenset(
     }
 )
 
+REPORT_INTELLIGENCE_EVOLUTION_READINESS_GATE_SCHEMA_RULES = (
+    "schemas/report_intelligence_evolution_readiness_gate_rules"
+)
+
 
 @dataclass(frozen=True)
 class SchemaValidationRecord:
@@ -4312,6 +4316,16 @@ def _validate_evolution_readiness_gate_contract(
             row_label=f"{row_label}.evidence.audit_history_dependency.current_failure_counts",
             failures=failures,
         )
+        evidence_failure_counts = _count_mapping(
+            evidence.get("current_failure_counts"),
+            row_label=f"{row_label}.evidence.current_failure_counts",
+            failures=failures,
+        )
+        if evidence_failure_counts and evidence_failure_counts != failure_counts:
+            failures.append(
+                f"{row_label}.evidence.current_failure_counts: must match "
+                "audit_history_dependency.current_failure_counts"
+            )
         failure_refs_raw = dependency.get("current_failure_refs")
         if not isinstance(failure_refs_raw, Mapping):
             failures.append(
@@ -4319,6 +4333,10 @@ def _validate_evolution_readiness_gate_contract(
                 "current_failure_refs: expected object"
             )
             failure_refs_raw = {}
+        evidence_failure_refs_raw = evidence.get("current_failure_refs")
+        if not isinstance(evidence_failure_refs_raw, Mapping):
+            failures.append(f"{row_label}.evidence.current_failure_refs: expected object")
+            evidence_failure_refs_raw = {}
         for component in ("schema", "pit", "provenance", "statistical"):
             accepted_field = f"{component}_accepted"
             if component == "provenance":
@@ -4366,6 +4384,45 @@ def _validate_evolution_readiness_gate_contract(
                     f"{row_label}.evidence.audit_history_dependency."
                     f"current_failure_refs.{component}: expected empty refs when "
                     f"{accepted_field} is true"
+                )
+            evidence_refs = evidence_failure_refs_raw.get(component)
+            if evidence_refs is None:
+                failures.append(
+                    f"{row_label}.evidence.current_failure_refs.{component}: "
+                    "expected array"
+                )
+            elif not isinstance(evidence_refs, Sequence) or isinstance(
+                evidence_refs, str
+            ):
+                failures.append(
+                    f"{row_label}.evidence.current_failure_refs.{component}: "
+                    "expected array"
+                )
+            elif _string_items(evidence_refs) != _string_items(refs):
+                failures.append(
+                    f"{row_label}.evidence.current_failure_refs.{component}: "
+                    "must match audit_history_dependency.current_failure_refs"
+                )
+            if (
+                component == "schema"
+                and REPORT_INTELLIGENCE_EVOLUTION_READINESS_GATE_SCHEMA_RULES
+                in _string_items(refs)
+            ):
+                failures.append(
+                    f"{row_label}.evidence.audit_history_dependency."
+                    "current_failure_refs.schema: must exclude "
+                    "evolution-readiness self schema rule"
+                )
+            if (
+                component == "schema"
+                and isinstance(evidence_refs, Sequence)
+                and not isinstance(evidence_refs, str)
+                and REPORT_INTELLIGENCE_EVOLUTION_READINESS_GATE_SCHEMA_RULES
+                in _string_items(evidence_refs)
+            ):
+                failures.append(
+                    f"{row_label}.evidence.current_failure_refs.schema: must "
+                    "exclude evolution-readiness self schema rule"
                 )
         if audit_history_ready and "audit_refresh_history_below_threshold" in blockers:
             failures.append(
