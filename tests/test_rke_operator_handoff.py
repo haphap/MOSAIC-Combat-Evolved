@@ -12,6 +12,7 @@ from mosaic.rke import (
     write_operator_handoff,
 )
 from mosaic.rke.cli import main
+from mosaic.rke.review_progress import build_manual_review_progress
 from mosaic.rke.temp_paths import RKE_OPERATOR_TMP_ENV_PREFIX
 
 
@@ -21,6 +22,16 @@ def _copy_registry(dst_root: Path) -> None:
 
 def test_operator_handoff_summarizes_remaining_manual_gates():
     handoff = build_operator_handoff(".")
+    progress = build_manual_review_progress(".")
+    progress_gold = next(gate for gate in progress.gates if gate.review_kind == "gold_set")
+    expected_gold_evidence_command = progress_gold.next_batch_commands.get(
+        "evidence",
+        (
+            f"{RKE_OPERATOR_TMP_ENV_PREFIX} mosaic-rke write-gold-review-evidence "
+            "--root . --limit 50 --offset 0 --review-input "
+            "registry/review_batches/gold_set_reviewed.jsonl"
+        ),
+    )
 
     assert handoff.handoff_id == "RKE-OPERATOR-HANDOFF-20260606"
     assert handoff.paper_trading_allowed is True
@@ -76,12 +87,7 @@ def test_operator_handoff_summarizes_remaining_manual_gates():
     )
     assert any(
         step.step_id == "write-gold-review-evidence"
-        and step.command
-        == (
-            f"{RKE_OPERATOR_TMP_ENV_PREFIX} mosaic-rke write-gold-review-evidence "
-            "--root . --limit 50 --offset 0 --review-input "
-            "registry/review_batches/gold_set_reviewed.jsonl"
-        )
+        and step.command == expected_gold_evidence_command
         for step in handoff.command_sequence
     )
     assert {gate.review_kind for gate in handoff.gates} == {

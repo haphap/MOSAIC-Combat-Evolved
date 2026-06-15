@@ -254,6 +254,9 @@ def _operator_command_sequence(
     *,
     promotion_dry_run_command: str,
     source_license_review_complete: bool,
+    gold_evidence_command: str = "",
+    footprint_assist_command: str = "",
+    footprint_evidence_command: str = "",
 ) -> tuple[OperatorCommandStep, ...]:
     gate_by_kind = {gate.review_kind: gate for gate in gates}
     gold = gate_by_kind["gold_set"]
@@ -283,9 +286,10 @@ def _operator_command_sequence(
             step_id="write-gold-review-evidence",
             phase="gold_set",
             action="Write private gold-set evidence draft files.",
-            command=operator_command(
-                "mosaic-rke write-gold-review-evidence --root . --limit 50 --offset 0 "
-                f"--review-input {GOLD_REVIEWED_IMPORT_PATH}"
+            command=gold_evidence_command
+            or operator_command(
+                "mosaic-rke write-gold-review-evidence --root . "
+                f"--limit 50 --offset 0 --review-input {GOLD_REVIEWED_IMPORT_PATH}"
             ),
             manual_input_path="",
             expected_result=(
@@ -331,7 +335,8 @@ def _operator_command_sequence(
             step_id="write-footprint-review-assist",
             phase="footprint_review",
             action="Write private analytical-footprint review assist files.",
-            command=operator_command(
+            command=footprint_assist_command
+            or operator_command(
                 "mosaic-rke write-footprint-review-assist --root . --review-input "
                 f"{ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH}"
             ),
@@ -345,7 +350,8 @@ def _operator_command_sequence(
             step_id="write-footprint-review-evidence",
             phase="footprint_review",
             action="Write private analytical-footprint evidence draft files.",
-            command=operator_command(
+            command=footprint_evidence_command
+            or operator_command(
                 "mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 0 "
                 f"--review-input {ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH}"
             ),
@@ -675,6 +681,12 @@ def _write_lockbox_review_import_template_or_error(root_path: Path) -> dict[str,
 def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
     root_path = Path(root)
     batch_status, _, _ = build_manual_review_batch_status(root_path)
+    from .review_progress import build_manual_review_progress
+
+    progress_report = build_manual_review_progress(root_path)
+    progress_by_kind = {gate.review_kind: gate for gate in progress_report.gates}
+    gold_progress = progress_by_kind.get("gold_set")
+    footprint_progress = progress_by_kind.get("footprint_review")
     promotion = build_production_promotion_gate_report(root_path)
     criteria = tuple(promotion.criteria)
     pg02 = _criterion_by_id(criteria, "PG02")
@@ -857,6 +869,21 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
         gates,
         promotion_dry_run_command=promotion_dry_run_command,
         source_license_review_complete=source_license_review_complete,
+        gold_evidence_command=(
+            str((gold_progress.next_batch_commands or {}).get("evidence") or "")
+            if gold_progress
+            else ""
+        ),
+        footprint_assist_command=(
+            str((footprint_progress.next_batch_commands or {}).get("assist") or "")
+            if footprint_progress
+            else ""
+        ),
+        footprint_evidence_command=(
+            str((footprint_progress.next_batch_commands or {}).get("evidence") or "")
+            if footprint_progress
+            else ""
+        ),
     )
     remaining_blockers = tuple(
         dict.fromkeys(

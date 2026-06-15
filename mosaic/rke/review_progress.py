@@ -637,8 +637,7 @@ def _gold_next_batch_commands(pending_rows: int) -> dict[str, str]:
             f"--review-input {GOLD_REVIEWED_IMPORT_PATH}"
         ),
         "evidence": operator_command(
-            "mosaic-rke write-gold-review-evidence --root . "
-            f"--limit {batch_size} --offset 0 --review-input {GOLD_REVIEWED_IMPORT_PATH}"
+            _gold_review_evidence_command_text(batch_size)
         ),
         "prepare": (
             operator_command(
@@ -660,6 +659,46 @@ def _gold_next_batch_commands(pending_rows: int) -> dict[str, str]:
             f"mosaic-rke apply-gold-review --root . --input {GOLD_REVIEWED_IMPORT_PATH}"
         ),
     }
+
+
+def _gold_review_evidence_command_text(limit: int) -> str:
+    return (
+        "mosaic-rke write-gold-review-evidence --root . "
+        f"--limit {limit} --offset 0 --review-input {GOLD_REVIEWED_IMPORT_PATH}"
+    )
+
+
+def _current_gold_batch_target_covered_rows(
+    current_batch_status: Mapping[str, Any],
+) -> int:
+    target_status = current_batch_status.get("target_status")
+    if (
+        bool(current_batch_status.get("exists"))
+        and int(current_batch_status.get("malformed_rows") or 0) == 0
+        and isinstance(target_status, Mapping)
+        and bool(target_status.get("aligned"))
+    ):
+        return int(current_batch_status.get("rows") or 0)
+    return 0
+
+
+def _gold_commands_for_current_batch(
+    commands: Mapping[str, str],
+    current_batch_status: Mapping[str, Any],
+) -> dict[str, str]:
+    out = dict(commands)
+    covered_rows = _current_gold_batch_target_covered_rows(current_batch_status)
+    if covered_rows > 0:
+        out["evidence"] = operator_command(
+            _gold_review_evidence_command_text(covered_rows)
+        )
+    backfill_status = current_batch_status.get("backfill_status")
+    if (
+        isinstance(backfill_status, Mapping)
+        and not bool(backfill_status.get("write_command_available"))
+    ):
+        out.pop("backfill_write", None)
+    return out
 
 
 def _gold_quality_gate_commands() -> dict[str, str]:
@@ -688,8 +727,7 @@ def _gold_quality_gate_commands() -> dict[str, str]:
             "--reviewer <name> --review-date <YYYY-MM-DD>"
         ),
         "evidence": operator_command(
-            "mosaic-rke write-gold-review-evidence --root . "
-            f"--limit 50 --offset 0 --review-input {GOLD_REVIEWED_IMPORT_PATH}"
+            _gold_review_evidence_command_text(50)
         ),
         "backfill_dry_run": operator_command(
             f"mosaic-rke backfill-gold-review --root . --input {GOLD_REVIEWED_IMPORT_PATH}"
@@ -917,7 +955,10 @@ def _gold_progress(root_path: Path) -> ManualReviewGateProgress:
                 f"mosaic-rke apply-gold-review --root . --input {input_path}"
             ),
             next_batch_commands=(
-                _gold_quality_gate_commands()
+                _gold_commands_for_current_batch(
+                    _gold_quality_gate_commands(),
+                    current_batch_status,
+                )
                 if not current_summary.passed
                 else {}
             ),
@@ -942,7 +983,10 @@ def _gold_progress(root_path: Path) -> ManualReviewGateProgress:
             prepare_command=prepare_command,
             dry_run_command=dry_run_command,
             apply_command=apply_command,
-            next_batch_commands=_gold_next_batch_commands(target_rows),
+            next_batch_commands=_gold_commands_for_current_batch(
+                _gold_next_batch_commands(target_rows),
+                current_batch_status,
+            ),
             batch_plan=_manual_review_batch_plan("gold_set", target_rows),
             current_batch_status=current_batch_status,
             quality_gap_targets=current_quality_gap_targets,
@@ -976,7 +1020,10 @@ def _gold_progress(root_path: Path) -> ManualReviewGateProgress:
         prepare_command=prepare_command,
         dry_run_command=dry_run_command,
         apply_command=apply_command,
-        next_batch_commands=_gold_next_batch_commands(summary.pending_claims),
+        next_batch_commands=_gold_commands_for_current_batch(
+            _gold_next_batch_commands(summary.pending_claims),
+            current_batch_status,
+        ),
         batch_plan=_manual_review_batch_plan("gold_set", summary.pending_claims),
         current_batch_status=current_batch_status,
         quality_gap_targets=quality_gap_targets,
@@ -2237,9 +2284,10 @@ def render_manual_review_runbook_markdown(report: ManualReviewProgressReport) ->
     gold_batch_apply = operator_command(
         f"mosaic-rke apply-gold-review --root . --input {GOLD_REVIEWED_IMPORT_PATH}"
     )
-    gold_evidence = operator_command(
-        "mosaic-rke write-gold-review-evidence --root . --limit 50 --offset 0 "
-        f"--review-input {GOLD_REVIEWED_IMPORT_PATH}"
+    gold_next_batch_commands = dict(gold.next_batch_commands)
+    gold_evidence = str(
+        gold_next_batch_commands.get("evidence")
+        or operator_command(_gold_review_evidence_command_text(50))
     )
     footprint_batch_prepare = operator_command(
         "mosaic-rke prepare-footprint-review --root . --limit 50 --offset 0 "
