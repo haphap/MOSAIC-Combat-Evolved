@@ -824,6 +824,9 @@ def test_review_progress_actions_only_reports_next_manual_work(
     assert output["ready_for_promotion_dry_run"] is False
     assert output["action_count"] == 4
     assert output["total_gate_count"] == 4
+    assert sum(output["action_state_counts"].values()) == output["action_count"]
+    assert output["action_state_counts"]["needs_policy_review"] == 1
+    assert output["action_state_counts"]["waiting_on_dependencies"] == 1
     assert "gates" not in output
     assert "batch_plan" not in encoded
     assert actions["gold_set"]["action_rank"] == 1
@@ -1027,6 +1030,7 @@ def test_review_progress_actions_only_filters_review_kind(
     assert output["total_ready_for_promotion_dry_run"] is False
     assert output["reported_review_kinds"] == ["source_license"]
     assert [action["review_kind"] for action in output["actions"]] == ["source_license"]
+    assert output["action_state_counts"] == {"already_applied": 1}
     assert output["actions"][0]["next_manual_action"] == "already_applied"
     assert output["actions"][0]["action_state"] == "already_applied"
     assert output["actions"][0]["can_run_now"] is False
@@ -1061,6 +1065,7 @@ def test_review_progress_actions_only_filters_action_state(
     assert output["total_ready_for_promotion_dry_run"] is False
     assert output["reported_action_states"] == ["ready_to_apply"]
     assert output["action_count"] >= 1
+    assert output["action_state_counts"] == {"ready_to_apply": output["action_count"]}
     assert {action["action_state"] for action in output["actions"]} == {"ready_to_apply"}
     assert all(action["can_run_now"] is True for action in output["actions"])
     assert {action["review_kind"] for action in output["actions"]} == {"source_license"}
@@ -1097,6 +1102,7 @@ def test_manual_review_action_queue_is_public_safe_compact(tmp_path: Path):
     encoded = json.dumps(action_queue, ensure_ascii=False)
 
     assert action_queue["action_count"] == 4
+    assert sum(action_queue["action_state_counts"].values()) == 4
     assert "gates" not in action_queue
     assert "batch_plan" not in encoded
     assert "source_span_ids" not in encoded

@@ -2054,12 +2054,19 @@ def build_manual_review_action_queue(
     selected_ready_for_promotion = bool(actions) and all(
         bool(action.get("ready_for_promotion")) for action in actions
     )
+    action_state_counts = {
+        state: sum(1 for action in actions if action.get("action_state") == state)
+        for state in ACTION_QUEUE_STATES
+    }
     return {
         "path": path,
         "runbook_path": runbook_path,
         "ready_for_promotion_dry_run": selected_ready_for_promotion,
         "total_ready_for_promotion_dry_run": report.ready_for_promotion_dry_run,
         "action_count": len(actions),
+        "action_state_counts": {
+            state: count for state, count in action_state_counts.items() if count
+        },
         "total_gate_count": len(report.gates),
         "reported_review_kinds": [str(action["review_kind"]) for action in actions],
         "reported_action_states": list(requested_states),

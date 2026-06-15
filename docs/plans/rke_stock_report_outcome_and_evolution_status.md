@@ -131,6 +131,10 @@ uv run mosaic-rke schema-status --root . --failures-only --no-write
 `review-progress --actions-only --no-write` now reports source-license as
 `already_applied` with `can_run_now=false` and no commands; runnable action
 items remain the active gold-set and analytical-footprint review batches.
+The same action-queue output now includes top-level public-safe
+`action_state_counts`, so operators can see the current mix of runnable,
+already-applied, and dependency-waiting gates before scanning individual
+actions.
 `review-progress --summary --no-write` and
 `review-progress --actions-only --no-write` now include a compact public-safe
 `batch_overview` per review gate, so operators can see total batch count,
