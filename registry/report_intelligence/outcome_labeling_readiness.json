@@ -2,10 +2,10 @@
   "as_of_date_macro_regime_counts": {
     "china_countercyclical_policy": 19,
     "monetary_liquidity_condition": 19,
-    "us_rate_cut_cycle": 309
+    "us_rate_cut_cycle": 330
   },
   "as_of_date_macro_regime_policy": "macro regime may be supplemented from PIT as_of_datetime using predefined historical regime windows; report_text and as_of_date macro regime counts are tracked separately",
-  "blocked_count": 32,
+  "blocked_count": 46,
   "blocked_forecast_claim_ids": [
     "FC-fc743b386d9ea509",
     "FC-9de9e6ab9aa77c45",
@@ -38,28 +38,42 @@
     "FC-6afab1584bb48821",
     "FC-54269c172a7baef6",
     "FC-e62cb5291e18ab36",
-    "FC-6218e7119cb47c2e"
+    "FC-6218e7119cb47c2e",
+    "FC-0bc12c1f2cb0d436",
+    "FC-c1889abf86086bea",
+    "FC-ed592550d377cebe",
+    "FC-c46631ccc843816c",
+    "FC-ec407109b56ecde0",
+    "FC-fb9311fc9e99a8b9",
+    "FC-c5845f1be135caa8",
+    "FC-95a490cdb09bf01b",
+    "FC-1ad7c6bc2d8487e2",
+    "FC-64f23e19b37de7ee",
+    "FC-4b9be724cce15e49",
+    "FC-3699b6e80d93d687",
+    "FC-e14222c8d526a174",
+    "FC-e91bab253ec58286"
   ],
   "blocked_reason": "forecast_mapping_insufficient_for_unlabelable_claims",
-  "forecast_claim_count": 320,
-  "forecast_ledger_count": 320,
+  "forecast_claim_count": 341,
+  "forecast_ledger_count": 341,
   "industry_cycle_regime_counts": {
     "business_model_shift": 4,
     "capacity_cycle": 4,
-    "competition_cycle": 11,
-    "demand_transition": 3,
+    "competition_cycle": 12,
+    "demand_transition": 4,
     "end_market_order_cycle": 4,
     "energy_hydrology_cycle": 11,
     "globalization_export_cycle": 15,
-    "import_substitution_cycle": 6,
+    "import_substitution_cycle": 7,
     "industry_demand_growth": 20,
     "industry_policy_catalyst": 11,
     "industry_valuation_cycle": 6,
-    "inventory_cycle": 3,
-    "price_cycle": 17,
-    "prosperity_cycle": 71,
+    "inventory_cycle": 4,
+    "price_cycle": 20,
+    "prosperity_cycle": 81,
     "raw_material_cost_pressure": 6,
-    "supply_tightness": 6,
+    "supply_tightness": 8,
     "technology_cycle": 12
   },
   "industry_etf_proxy_readiness": {
@@ -430,13 +444,23 @@
     "benchmark_source": "cash_zero_return",
     "benchmark_symbol": "CASH_0",
     "cost_model_id": "macro_asset_etf_round_trip_10bps_v1",
-    "data_gap_counts": {},
-    "eligible_claim_count": 0,
-    "eligible_forecast_claim_ids": [],
+    "data_gap_counts": {
+      "direction_missing_or_unsupported": 1,
+      "macro_asset_proxy_mapping_missing": 16
+    },
+    "eligible_claim_count": 4,
+    "eligible_forecast_claim_ids": [
+      "FC-8810fafac21d8642",
+      "FC-2d2ae02896e304db",
+      "FC-1f5622f22adc6c27",
+      "FC-8b26c4a5ee4ffc9b"
+    ],
     "entry_lag_trading_days": 1,
-    "labelable_forecast_claim_count": 0,
-    "labelable_forecast_claim_ids": [],
-    "labelable_window_count": 0,
+    "labelable_forecast_claim_count": 1,
+    "labelable_forecast_claim_ids": [
+      "FC-8b26c4a5ee4ffc9b"
+    ],
+    "labelable_window_count": 1,
     "latest_calendar_date": "2026-06-09",
     "llm_outcome_labeling_allowed": false,
     "mapping_count": 11,
@@ -447,9 +471,13 @@
       "mapping_version": 1
     },
     "outcome_label_source": "pit_macro_asset_etf_price_window",
-    "pending_future_forecast_claim_count": 0,
-    "pending_future_forecast_claim_ids": [],
-    "pending_future_window_count": 0,
+    "pending_future_forecast_claim_count": 3,
+    "pending_future_forecast_claim_ids": [
+      "FC-8810fafac21d8642",
+      "FC-2d2ae02896e304db",
+      "FC-1f5622f22adc6c27"
+    ],
+    "pending_future_window_count": 15,
     "policy": "macro strategy claims can be evaluated with mapped ETF proxy returns on T+1 fixed PIT windows; LLM output extracts target and direction but cannot assign outcome labels",
     "qlib_etf_dir_configured": "qlib://cn_etf",
     "windows_days": [
@@ -459,53 +487,59 @@
       120
     ]
   },
-  "macro_proxy_label_pending_count": 0,
-  "macro_proxy_label_pending_forecast_claim_ids": [],
-  "macro_proxy_label_ready_count": 0,
-  "macro_proxy_label_ready_forecast_claim_ids": [],
+  "macro_proxy_label_pending_count": 3,
+  "macro_proxy_label_pending_forecast_claim_ids": [
+    "FC-8810fafac21d8642",
+    "FC-2d2ae02896e304db",
+    "FC-1f5622f22adc6c27"
+  ],
+  "macro_proxy_label_ready_count": 1,
+  "macro_proxy_label_ready_forecast_claim_ids": [
+    "FC-8b26c4a5ee4ffc9b"
+  ],
   "macro_regime_counts": {
-    "china_countercyclical_policy": 19,
+    "china_countercyclical_policy": 21,
     "credit_cycle": 1,
     "fiscal_policy": 5,
-    "fx_usd_cycle": 14,
-    "global_growth_inflation": 5,
-    "monetary_liquidity_condition": 22,
+    "fx_usd_cycle": 16,
+    "global_growth_inflation": 8,
+    "monetary_liquidity_condition": 25,
     "regulatory_policy": 7,
-    "us_rate_cut_cycle": 309
+    "us_rate_cut_cycle": 330
   },
   "macro_regime_source_counts": {
-    "as_of_date": 347,
-    "report_text": 37
+    "as_of_date": 368,
+    "report_text": 52
   },
   "mapping_gap_counts": {
     "benchmark": 19,
     "direction": 7,
-    "horizon": 200,
+    "horizon": 218,
     "target": 5
   },
   "mechanism_action_counts": {
-    "expand_capacity_or_coverage": 56,
-    "expand_overseas_market": 37,
-    "gain_share_or_substitute": 42,
+    "expand_capacity_or_coverage": 58,
+    "expand_overseas_market": 40,
+    "gain_share_or_substitute": 43,
     "optimize_cost_or_efficiency": 30,
-    "pass_through_price_or_cost": 10,
+    "pass_through_price_or_cost": 18,
     "receive_policy_or_liquidity_impulse": 5,
-    "reprice_valuation_or_rating": 65,
+    "reprice_valuation_or_rating": 66,
     "shift_business_mix": 11,
-    "upgrade_product_or_technology": 47
+    "upgrade_product_or_technology": 49
   },
   "mechanism_channel_counts": {
     "business_mix_shift": 28,
-    "capacity_release_or_supply": 80,
-    "demand_pull": 113,
-    "margin_expansion_or_pressure": 44,
-    "market_share_or_competition": 37,
-    "overseas_expansion": 37,
-    "policy_liquidity_transmission": 48,
-    "price_cost_pass_through": 67,
+    "capacity_release_or_supply": 89,
+    "demand_pull": 121,
+    "margin_expansion_or_pressure": 48,
+    "market_share_or_competition": 38,
+    "overseas_expansion": 40,
+    "policy_liquidity_transmission": 57,
+    "price_cost_pass_through": 75,
     "tax_or_subsidy_benefit": 6,
-    "technology_productivity": 73,
-    "valuation_repricing": 65
+    "technology_productivity": 83,
+    "valuation_repricing": 66
   },
   "mechanism_gap_counts": {
     "economic_mechanism_missing": 41,
@@ -570,25 +604,28 @@
     "PE_ratio": 1,
     "ROE": 1,
     "Token调用量": 2,
-    "bond_etf_forward_return": 2,
+    "bond_etf_forward_return": 3,
     "business_confidence": 1,
     "cash_flow": 1,
-    "commodity_price_cycle": 63,
+    "commodity_price_cycle": 72,
+    "commodity_spot_price": 1,
     "deep_sea_technology": 1,
-    "demand_growth": 116,
-    "earnings_growth": 149,
-    "equity_index_forward_return": 9,
+    "demand_growth": 125,
+    "earnings_growth": 156,
+    "equity_index_forward_return": 13,
     "forward_return_proxy": 1,
     "global_expansion": 1,
     "global_steel_capacity_utilization_rate": 2,
     "global_steel_demand_growth_rate": 1,
     "global_steel_overcapacity_mt": 1,
     "global_steel_price_index": 1,
+    "gold_etf_forward_return": 2,
     "industry_ebitda_margin": 1,
-    "industry_etf_forward_return": 30,
-    "industry_prosperity": 91,
-    "liquidity_credit_condition": 26,
-    "margin_profitability": 66,
+    "industry_etf_forward_return": 34,
+    "industry_prosperity": 102,
+    "liquidity_credit_condition": 32,
+    "macro_asset_forward_return": 3,
+    "margin_profitability": 73,
     "market_share": 4,
     "market_share_gain": 2,
     "net_profit_attributable_to_parent": 1,
@@ -602,13 +639,13 @@
     "profit_contribution": 1,
     "profitability_recovery": 1,
     "regulatory_environment": 1,
-    "relative_alpha": 14,
+    "relative_alpha": 17,
     "revenue": 1,
-    "revenue_growth": 122,
+    "revenue_growth": 127,
     "sector_return": 1,
-    "stock_forward_return": 74,
+    "stock_forward_return": 79,
     "turbine_price_stability": 1,
-    "valuation_multiple": 45,
+    "valuation_multiple": 48,
     "{'metric': '行业销售额', 'proxy': '本月销售额为8,458,194,058，环比下跌-3.4%'}": 1,
     "{'metric': '行业销量', 'proxy': '本月销售量为277千，环比下跌-5%'}": 1,
     "中国新能源汽车出口量": 1,
@@ -692,7 +729,7 @@
     "run PIT outcome labeler only after ready_for_outcome_labeling_count is positive"
   ],
   "policy": "outcome labels are generated only for source-grounded testable forecasts with target, benchmark, direction, horizon, and PIT data; industry ETF, stock price, and macro asset proxy labels may additionally evaluate governed target-direction claims on fixed PIT windows without promoting them to production use",
-  "proxy_label_only_ready_count": 94,
+  "proxy_label_only_ready_count": 95,
   "proxy_label_only_ready_forecast_claim_ids": [
     "FC-af81f94b77c7d495",
     "FC-6d89a1b2a7b7ad20",
@@ -787,9 +824,10 @@
     "FC-9387c12598555c4f",
     "FC-979038f2b5c67307",
     "FC-5b225b6d45ad869c",
-    "FC-e44d4c4df49f8211"
+    "FC-e44d4c4df49f8211",
+    "FC-8b26c4a5ee4ffc9b"
   ],
-  "proxy_label_pending_count": 119,
+  "proxy_label_pending_count": 122,
   "proxy_label_pending_forecast_claim_ids": [
     "FC-0035f001a7fa011e",
     "FC-05ccb1a9c07b1752",
@@ -801,6 +839,7 @@
     "FC-0daeb491e51fa6b4",
     "FC-10cdde8d3204e85b",
     "FC-1a240dcb20e0f0d5",
+    "FC-1f5622f22adc6c27",
     "FC-1fe681916007f918",
     "FC-2117b7019912bf74",
     "FC-22702148a6d6ee5b",
@@ -809,6 +848,7 @@
     "FC-26cdc080ba036680",
     "FC-2885e78072814fc1",
     "FC-2ce27ca4e791ba6e",
+    "FC-2d2ae02896e304db",
     "FC-2f77a58e7b73e724",
     "FC-318665cfe83519e3",
     "FC-36b5db5c587c66eb",
@@ -860,6 +900,7 @@
     "FC-8438de4128f80647",
     "FC-859b8d2e86a5c567",
     "FC-85f0485b433d88df",
+    "FC-8810fafac21d8642",
     "FC-881228a59587bb77",
     "FC-884d95e8d0b90d70",
     "FC-8a8efcc03d53e7d0",
@@ -911,7 +952,7 @@
     "FC-fc6a5ffd46bdd0fa",
     "FC-fe092378b1fb45eb"
   ],
-  "proxy_label_pending_only_count": 83,
+  "proxy_label_pending_only_count": 86,
   "proxy_label_pending_only_forecast_claim_ids": [
     "FC-5a2d13ccf391a0f8",
     "FC-80d28a2f7179eb63",
@@ -995,9 +1036,12 @@
     "FC-481e0ddc841369c3",
     "FC-5d28062815db96e5",
     "FC-0c5c21f159030124",
-    "FC-26cdc080ba036680"
+    "FC-26cdc080ba036680",
+    "FC-8810fafac21d8642",
+    "FC-2d2ae02896e304db",
+    "FC-1f5622f22adc6c27"
   ],
-  "proxy_label_ready_count": 150,
+  "proxy_label_ready_count": 151,
   "proxy_label_ready_forecast_claim_ids": [
     "FC-0055a2b598ffa06f",
     "FC-05408c1a8101ac3e",
@@ -1083,6 +1127,7 @@
     "FC-84f4537d8cc7a859",
     "FC-862f35ae8327ef4b",
     "FC-8b22e10034e57bfc",
+    "FC-8b26c4a5ee4ffc9b",
     "FC-8b31880c8103099f",
     "FC-8c0c5b3d3da8c0f0",
     "FC-8d00cc56579cf21d",
@@ -1151,7 +1196,7 @@
     "FC-ffc0de7cd5180567"
   ],
   "readiness_id": "RKE-REPORT-OUTCOME-LABELING-READINESS",
-  "ready_for_outcome_labeling_count": 111,
+  "ready_for_outcome_labeling_count": 114,
   "ready_forecast_claim_ids": [
     "FC-5f7a630eae703c1c",
     "FC-73ad7a89d6e90425",
@@ -1263,7 +1308,10 @@
     "FC-4b413f99b1d4c7c1",
     "FC-64ebb8004791b10c",
     "FC-526a01beffe4b1b1",
-    "FC-f90656a398a27606"
+    "FC-f90656a398a27606",
+    "FC-8628a037718a7359",
+    "FC-4cd5948380b1d268",
+    "FC-b452a78d0f2824e4"
   ],
   "regime_gap_counts": {
     "company_capability_only_no_regime_context": 1,
@@ -1280,15 +1328,16 @@
     "FC-fe91d4a2dd99e947"
   ],
   "source_text_macro_regime_counts": {
+    "china_countercyclical_policy": 2,
     "credit_cycle": 1,
     "fiscal_policy": 5,
-    "fx_usd_cycle": 14,
-    "global_growth_inflation": 5,
-    "monetary_liquidity_condition": 3,
+    "fx_usd_cycle": 16,
+    "global_growth_inflation": 8,
+    "monetary_liquidity_condition": 6,
     "regulatory_policy": 7,
-    "us_rate_cut_cycle": 2
+    "us_rate_cut_cycle": 7
   },
-  "standard_blocked_count": 209,
+  "standard_blocked_count": 227,
   "standard_blocked_forecast_claim_ids": [
     "FC-af81f94b77c7d495",
     "FC-5a2d13ccf391a0f8",
@@ -1498,7 +1547,25 @@
     "FC-5b225b6d45ad869c",
     "FC-e62cb5291e18ab36",
     "FC-e44d4c4df49f8211",
-    "FC-6218e7119cb47c2e"
+    "FC-6218e7119cb47c2e",
+    "FC-0bc12c1f2cb0d436",
+    "FC-8810fafac21d8642",
+    "FC-c1889abf86086bea",
+    "FC-ed592550d377cebe",
+    "FC-c46631ccc843816c",
+    "FC-ec407109b56ecde0",
+    "FC-2d2ae02896e304db",
+    "FC-fb9311fc9e99a8b9",
+    "FC-c5845f1be135caa8",
+    "FC-95a490cdb09bf01b",
+    "FC-1f5622f22adc6c27",
+    "FC-1ad7c6bc2d8487e2",
+    "FC-64f23e19b37de7ee",
+    "FC-8b26c4a5ee4ffc9b",
+    "FC-4b9be724cce15e49",
+    "FC-3699b6e80d93d687",
+    "FC-e14222c8d526a174",
+    "FC-e91bab253ec58286"
   ],
   "stock_price_proxy_readiness": {
     "benchmark_family": "CSI300_ETF_PROXY",
@@ -1508,7 +1575,7 @@
     "data_gap_counts": {
       "direction_missing_or_unsupported": 3,
       "entry_price_before_series_start": 1,
-      "stock_target_mapping_missing": 8,
+      "stock_target_mapping_missing": 13,
       "stock_target_missing": 1
     },
     "eligible_claim_count": 171,
@@ -2119,13 +2186,13 @@
     "FC-f90656a398a27606"
   ],
   "test_status_counts": {
-    "not_ready_insufficient_mapping": 209,
-    "ready_for_outcome_labeling": 111
+    "not_ready_insufficient_mapping": 227,
+    "ready_for_outcome_labeling": 114
   },
   "unlabelable_mapping_gap_counts": {
     "benchmark": 1,
     "direction": 7,
-    "horizon": 27,
+    "horizon": 41,
     "target": 3
   }
 }

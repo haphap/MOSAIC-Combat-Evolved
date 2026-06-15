@@ -1,6 +1,6 @@
 # RKE Stock Report Outcome and Evolution Status
 
-Status date: 2026-06-14
+Status date: 2026-06-15
 
 This document tracks implementation evidence for
 `docs/plans/rke_stock_report_outcome_and_evolution_plan.md`. It is public-safe:
@@ -31,19 +31,19 @@ contracts.
 
 | Artifact | Evidence |
 | --- | --- |
-| `registry/report_intelligence/extraction_report.json` | current public-safe artifact reports 320 forecast claims and 335 outcome labels: 87 industry ETF proxy, 248 stock price proxy. Semantic validation now passes as `schemas/report_intelligence_extraction_report_contract_rules`, which checks repo-relative output paths, public-text redaction, blocker-free aggregate status, public JSONL row counts, Markdown coverage counts, proxy readiness counts, and industry+stock outcome total consistency. |
+| `registry/report_intelligence/extraction_report.json` | current public-safe artifact reports 341 forecast claims and 336 outcome labels: 87 industry ETF proxy, 248 stock price proxy, 1 macro asset proxy. Semantic validation now passes as `schemas/report_intelligence_extraction_report_contract_rules`, which checks repo-relative output paths, public-text redaction, blocker-free aggregate status, public JSONL row counts, Markdown coverage counts, proxy readiness counts, and industry+stock+macro outcome total consistency. |
 | `registry/report_intelligence/report_outcome_labels.jsonl` | proxy outcome label semantic validation now requires `claim_window_set_id`, `window_role`, and `source_horizon_days` on both stock and industry proxy labels and rejects any `outcome_id`, `claim_window_set_id`, or `overlap_group_id` shared across `label_type` namespaces. It also checks `window_role` against `horizon_days`, validates `source_horizon_days`, validates `entry_datetime`/`exit_datetime` date order, pins channel-specific `decision_basis` and `evaluation_policy` values, checks per-window `effective_n_weight` against the governed stock/industry window weight table, rejects any claim window set whose total effective-N weight exceeds 1, and, when private forecast claims are present, requires every proxy label to trace to an existing forecast claim whose `signal_datetime` date is before the proxy `entry_datetime` date; stock proxy claims must cite source spans. Stock proxy labels also require `metadata_ts_code` and `llm_target_id` fields and semantically validate `target_resolution_source`: metadata-only, LLM-only, and metadata+LLM resolutions must support the same ordinary-stock `proxy_symbol`; conflicting ts_codes cannot generate labels. Both stock and industry proxy labels must use the default `SH510300`/`cn_etf`/`CSI300_ETF_PROXY` benchmark family; stock labels must use `single_stock_round_trip_20bps_v1` and `round_trip_cost=0.002`, while industry ETF labels must use `industry_etf_round_trip_10bps_v1` and `round_trip_cost=0.001`. This keeps stock-price and industry-ETF proxy outcomes stratified and source-grounded even when forecast claims, horizons, or proxy symbols overlap. |
 | `registry/report_intelligence/patch_v1_5_coverage_report.json` | public count-only fallback preserves aggregate evidence when private JSONL inputs are absent; Phase C now passes, while Phase B/D remain blocked by manual review and footprint quality gates; Phase G remains rollout-gated but now carries shadow paper-trading evidence counts from `recipe_paper_trading_summary.json` |
 | `registry/report_intelligence/industry_etf_proxy_map.jsonl` | 64 primary/governed mapping rows; `工业金属` maps to `SH560860` |
 | `registry/report_intelligence/industry_etf_proxy_pit_availability.json` | labelability summary is kept consistent with `outcome_labeling_readiness.industry_etf_proxy_readiness`: 105 eligible industry claims, 39 labelable claims, 87 labelable windows, 225 pending future windows |
-| `registry/report_intelligence/outcome_labeling_readiness.json` | stock readiness reports 171 eligible stock claims, 115 labelable stock claims, 248 labelable stock windows, and 432 pending future windows; public qlib source fields are redacted to `qlib://...` labels. Semantic validation now passes as `schemas/report_intelligence_stock_price_proxy_readiness_rules`, which hard-checks stock PIT realism policy, ordinary-stock code policy, benchmark/cost defaults, T+1 windows, public qlib redaction, labelable/pending claim counts, and stock series lifecycle totals. Entry-side and exit-side liquidity-verification gaps are tracked separately as `entry_liquidity_unverified` and `exit_liquidity_unverified`; both are blocking readiness gaps and cannot leak into generated labels. The current public artifact remains `survivorship_unverified`, but the contract now also accepts a future `delisted_inclusive_universe_audit_passed` state when the basis documents a passed delisted-inclusive audit. |
-| `registry/report_intelligence/source_performance_profiles.jsonl`, `viewpoint_performance_profiles.jsonl`, and `method_performance_profiles.jsonl` | 3045 performance profile rows carry `outcome_layer_support` so profile evidence remains stratified by `label_type`, `benchmark_family`, and `cost_model_id`; semantic validation now passes as `schemas/report_intelligence_profile_outcome_layer_rules`, which checks layer keys, layer summaries, mixed-layer flags, and effective-N sums against each profile. |
-| `registry/report_intelligence/recipe_paper_trading_runs.jsonl` | 1858 pre-registered shadow paper-trading runs |
-| `registry/report_intelligence/recipe_paper_trading_summary.json` | 13 recipes passed paper-trading validation; 536 recipes have direct PIT binding; after-cost paper-trading summary is computed from passed pre-registered runs only; 1845 recipes remain blocked by direct binding, effective-N, or shadow-tool readiness gaps |
-| `registry/report_intelligence/confidence_impact_monitor.json` and `registry/report_intelligence/monitoring_report.json` | 13 paper-trading validated recipes are monitored; unvalidated confidence impact count is 0; alpha-decay and calibration-drift observations remain shadow-only. `schemas/report_intelligence_alpha_decay_monitoring_rules` now also checks monitoring report corpus counts, tooling-loop counts, tool-gap priority counts, evidence-coverage counts, and source/viewpoint/method effective-N summaries against the underlying public registry artifacts. |
-| `registry/report_intelligence/evolution_readiness_gate.json` | blocked; 9 blockers remain across paper-trading validation count, P9 evaluability-bucket coverage, schema/audit-history readiness, and manual forecast gold-set quality metrics. The semantic contract now hard-checks P13 machine thresholds in the committed gate evidence, including outcome coverage, stock/industry proxy counts, paper-trading counts and after-cost summary, monitor stability, audit refresh evidence, gap-distribution stability, and P9 coverage status. RI-EVOL-02 remains blocked by the 13/20 validated-recipe count, RI-EVOL-04 requires current schema/PIT/provenance/statistical evidence to match `current_schema_or_audit_gate_blocked` and trailing audit distinct/pass counts to match `audit_refresh_history_below_threshold`, RI-EVOL-05 remains blocked by human gold-set quality metrics, and RI-EVOL-07 remains blocked by the missing `evaluability_bucket:macro_asset_proxy_candidate` coverage stratum. `gap_distribution_history.jsonl` is also semantically checked so `total_gap_count`, `max_gap_name`, `max_gap_share`, `stable`, and `accepted` must match the committed gap counts; a single-gap share above 0.80 cannot be marked stable. |
-| `registry/report_intelligence/prompt_mutation_candidates.jsonl` | 13 shadow-only mutation candidates exist across forecast extraction, confidence gating, paper-trading recipe validation, industry mapping, refresh stability, calibration, tool-gap prioritization, and Markdown quality; all have `promotion_state=shadow_candidate_only`, `manual_review_required=true`, `production_prompt_change_allowed=false`, and `private_text_included=false`. The semantic contract also requires the full offline validation matrix (`gold_set_review_pass`, PIT replay, schema, provenance, statistical robustness, and shadow paper-trading), rejects private or non-repo evidence paths in `evidence_refs`, and requires every referenced public evidence artifact to exist. |
-| `registry/review_batches/manual_review_progress_report.json` and `registry/gold_sets/tushare_research_reports.review_summary.json` | public baseline: gold-set 0/100, analytical-footprint review 0/1001, source license 17529/17529 already applied, lockbox 0/1. Semantic validation now passes as `schemas/report_intelligence_manual_review_progress_rules`, which checks input paths, ready/simulation consistency, blocker consistency, home-tmp command prefixes, dry-run mode, and source-text-free `current_batch_status` counts. It accepts both the current blocked state and a future completed state where all gates have zero pending rows and no blockers. The public gold-set review summary is also checked as `schemas/report_intelligence_gold_review_gate_rules`: current 0/100 pending state is accepted, but false pass states, count drift, missing metrics, and below-threshold human review metrics are rejected. Synthetic pytest fixtures can mark manual rows complete for contract tests, but current target hashes in the real scratch still require human review. The action queue distinguishes already-applied gates from runnable apply work: source-license now reports `action_state=already_applied`, `can_run_now=false`, and an empty command set. The report includes aggregate `current_batch_status` for the active local 50-row gold-set, analytical-footprint, and lockbox scratch files, plus a public-safe full pending `batch_plan`: 3 gold-set batches and 21 analytical-footprint batches at 50 rows per batch except the final 1-row gold-set and footprint batches. Each batch explicitly records `apply_effect=merge_batch_into_target_review_template`, the transient `batch_input_path` for the 50-row import, the `target_review_template_path` it merges into, and the separate `promotion_input_path` used only after full human review; schema validation also rejects batch commands that use promotion inputs and promotion commands that use transient batch inputs. Current gold batch status is 50 rows, 0 complete, 50 pending, 0 malformed; missing required fields are aggregate counts only. Current analytical-footprint batch status is 50 rows, 0 complete, 50 pending, 0 malformed; missing required fields are aggregate counts only. Current lockbox decision status is 1 row, 0 complete, 1 pending, 0 malformed; missing required fields are aggregate counts only. Full gold-set and footprint review imports still require human decisions before promotion dry-run. |
+| `registry/report_intelligence/outcome_labeling_readiness.json` | stock readiness reports 171 eligible stock claims, 115 labelable stock claims, 248 labelable stock windows, and 432 pending future windows; macro asset readiness reports 4 eligible macro asset claims, 1 labelable macro asset window, 1 macro asset proxy outcome label, and 15 pending future windows; public qlib source fields are redacted to `qlib://...` labels. Semantic validation now passes as `schemas/report_intelligence_stock_price_proxy_readiness_rules`, which hard-checks stock PIT realism policy, ordinary-stock code policy, benchmark/cost defaults, T+1 windows, public qlib redaction, labelable/pending claim counts, and stock series lifecycle totals. Entry-side and exit-side liquidity-verification gaps are tracked separately as `entry_liquidity_unverified` and `exit_liquidity_unverified`; both are blocking readiness gaps and cannot leak into generated labels. The current public artifact remains `survivorship_unverified`, but the contract now also accepts a future `delisted_inclusive_universe_audit_passed` state when the basis documents a passed delisted-inclusive audit. |
+| `registry/report_intelligence/source_performance_profiles.jsonl`, `viewpoint_performance_profiles.jsonl`, and `method_performance_profiles.jsonl` | 3246 performance profile rows carry `outcome_layer_support` so profile evidence remains stratified by `label_type`, `benchmark_family`, and `cost_model_id`; semantic validation now passes as `schemas/report_intelligence_profile_outcome_layer_rules`, which checks layer keys, layer summaries, mixed-layer flags, and effective-N sums against each profile. |
+| `registry/report_intelligence/recipe_paper_trading_runs.jsonl` | 2031 pre-registered shadow paper-trading runs |
+| `registry/report_intelligence/recipe_paper_trading_summary.json` | 13 recipes passed paper-trading validation; 542 recipes have direct PIT binding; after-cost paper-trading summary is computed from passed pre-registered runs only; 2018 recipes remain blocked by direct binding, effective-N, or shadow-tool readiness gaps |
+| `registry/report_intelligence/confidence_impact_monitor.json` and `registry/report_intelligence/monitoring_report.json` | 13 paper-trading validated recipes are monitored across 2031 confidence-impact observations; unvalidated confidence impact count is 0; alpha-decay and calibration-drift observations remain shadow-only. `schemas/report_intelligence_alpha_decay_monitoring_rules` now also checks monitoring report corpus counts, tooling-loop counts, tool-gap priority counts, evidence-coverage counts, and source/viewpoint/method effective-N summaries against the underlying public registry artifacts. |
+| `registry/report_intelligence/evolution_readiness_gate.json` | blocked; 8 blockers remain across paper-trading validation count, schema/audit-history readiness, and manual forecast gold-set quality metrics. The semantic contract now hard-checks P13 machine thresholds in the committed gate evidence, including outcome coverage, stock/industry/macro proxy counts, paper-trading counts and after-cost summary, monitor stability, audit refresh evidence, gap-distribution stability, and P9 coverage status. RI-EVOL-02 remains blocked by the 13/20 validated-recipe count, RI-EVOL-04 requires current schema/PIT/provenance/statistical evidence to match `current_schema_or_audit_gate_blocked` and trailing audit distinct/pass counts to match `audit_refresh_history_below_threshold`, RI-EVOL-05 remains blocked by human gold-set quality metrics, and RI-EVOL-07 now passes after the macro asset proxy candidate stratum was filled. `gap_distribution_history.jsonl` is also semantically checked so `total_gap_count`, `max_gap_name`, `max_gap_share`, `stable`, and `accepted` must match the committed gap counts; a single-gap share above 0.80 cannot be marked stable. |
+| `registry/report_intelligence/prompt_mutation_candidates.jsonl` | 12 shadow-only mutation candidates exist across forecast extraction, confidence gating, paper-trading recipe validation, industry mapping, refresh stability, calibration, tool-gap prioritization, and Markdown quality; all have `promotion_state=shadow_candidate_only`, `manual_review_required=true`, `production_prompt_change_allowed=false`, and `private_text_included=false`. The semantic contract also requires the full offline validation matrix (`gold_set_review_pass`, PIT replay, schema, provenance, statistical robustness, and shadow paper-trading), rejects private or non-repo evidence paths in `evidence_refs`, and requires every referenced public evidence artifact to exist. |
+| `registry/review_batches/manual_review_progress_report.json` and `registry/gold_sets/tushare_research_reports.review_summary.json` | public baseline: gold-set 158/158 reviewed but quality-blocked, analytical-footprint review 34/1051 reviewed with 1017 pending, source license 17529/17529 already applied, lockbox 0/1. Semantic validation now passes as `schemas/report_intelligence_manual_review_progress_rules`, which checks input paths, ready/simulation consistency, blocker consistency, home-tmp command prefixes, dry-run mode, and source-text-free `current_batch_status` counts. It accepts both the current blocked state and a future completed state where all gates have zero pending rows and no blockers. The public gold-set review summary is also checked as `schemas/report_intelligence_gold_review_gate_rules`: the current 158/158 reviewed state is complete at row level but blocked by document coverage and below-threshold human review metrics; false pass states, count drift, missing metrics, and below-threshold metrics are rejected. Synthetic pytest fixtures can mark manual rows complete for contract tests, but current target hashes in the real scratch still require human review. The action queue distinguishes already-applied gates from runnable apply work: source-license now reports `action_state=already_applied`, `can_run_now=false`, and an empty command set. The report includes aggregate `current_batch_status` for the active local 20-row gold-set scratch, 50-row analytical-footprint scratch, and lockbox scratch files, plus a public-safe footprint `batch_plan`: 20 analytical-footprint batches at 50 rows per batch except the final 17-row batch. Each footprint batch explicitly records `apply_effect=merge_batch_into_target_review_template`, the transient `batch_input_path` for the 50-row import, the `target_review_template_path` it merges into, and the separate `promotion_input_path` used only after full human review; schema validation also rejects batch commands that use promotion inputs and promotion commands that use transient batch inputs. Current gold batch status is 20 rows, 20 complete, 0 pending, 0 malformed. Current analytical-footprint batch status is 50 rows, 50 complete, 0 pending, 0 malformed; the target review summary still has 1017 pending rows. Current lockbox decision status is 1 row, 0 complete, 1 pending, 0 malformed; missing required fields are aggregate counts only. Full gold-set and footprint review imports still require quality-gate and human-review completion before promotion dry-run. |
 | `registry/handoffs/rke_operator_handoff.json` | operator handoff semantic validation now passes as `schemas/report_intelligence_operator_handoff_rules`: command sequence order, home-tmp prefixes, reviewed input paths, promotion dry-run inputs, and production-disabled state are checked directly against the handoff artifact |
 | `registry/handoffs/rke_operator_readiness_report.json` | operator readiness currently passes 18/18 checks: required registry valid, handoff command sequence complete, manual review runbook promotion dry-run source-license policy consistent, manual import templates sparse and provenance-tagged, batch inputs separated from promotion inputs, blank gold/lockbox/source-license templates rejected, lockbox upstream CLI guard matches manual gate readiness, blank bundle dry-run does not promote, manual review bundle manifest current, and promotion gate state matches PG01-PG10 criteria |
 | `registry/review_batches/manual_review_bundle_manifest.json` | manual review bundle manifest semantic validation now re-computes artifact bytes and SHA-256 digests, validates the embedded promotion dry-run summary against `registry/promotion/rke_promotion_dry_run_report.json`, and accepts both the current blocked dry-run summary and a future completed summary when all dry-run steps are accepted and no missing/rejected steps remain. |
@@ -63,10 +63,10 @@ contracts.
 | P6 decisions | Implemented for default path | default benchmark `SH510300` from `cn_etf`; stock cost 20 bps; stock windows 5/20/60/120; no company-name fuzzy mapping |
 | P7 implementation breakdown | Implemented | qlib helpers, readiness builder, label builder, derived refresh integration, audits, schemas, tests, proxy outcome ID namespace contracts, and profile layer contracts that prevent cross-label-type/benchmark/cost aggregation from replacing stratified evidence |
 | P8 acceptance matrix | Automated acceptance passes except manual review / coverage gates | ruff, report-intelligence tests, schema-artifact tests, prompt leak guard, diff check pass; `schema-status` intentionally exits 2 until analytical footprint review, Phase B gold-set review, and Phase D footprint quality gates pass; `prepare-footprint-review` now creates a gitignored import scaffold for the footprint gate |
-| P9 PDF/Markdown coverage expansion | Implemented for current sample pool | public coverage summary exists and passes privacy rules; private PDF/Markdown/cache paths remain gitignored |
+| P9 PDF/Markdown coverage expansion | Implemented for current sample pool | public coverage summary exists, includes `macro_asset_proxy_candidate` coverage, and passes privacy rules; private PDF/Markdown/cache paths remain gitignored |
 | P10 industry ETF mapping/PIT availability | Implemented | 64-row mapping registry, PIT availability artifact, mapping contract tests; `工业金属 -> SH560860` pinned; semantic validation now rejects drift between PIT availability `labelability_summary` and `outcome_labeling_readiness` |
-| P11 recipe paper-trading | Implemented; current aggregate threshold not cleared after forecast cap | pre-registration hash, OOS chronological split, required data contracts, cost/benchmark protocol, 1858 paper-trading runs, 13 validated recipes against the 20-recipe threshold |
-| P12 confidence impact monitor | Implemented; current validated-recipe count is below the evolution threshold | monitor rows gate confidence impact on paper-trading validation; 13 validated recipes are monitored; alpha decay and calibration drift actions are tracked; monitoring report aggregate counts are semantically checked against public registry artifacts |
+| P11 recipe paper-trading | Implemented; current aggregate threshold not cleared after forecast cap | pre-registration hash, OOS chronological split, required data contracts, cost/benchmark protocol, 2031 paper-trading runs, 13 validated recipes against the 20-recipe threshold |
+| P12 confidence impact monitor | Implemented; current validated-recipe count is below the evolution threshold | monitor rows gate confidence impact on paper-trading validation; 13 validated recipes are monitored across 2031 observations; alpha decay and calibration drift actions are tracked; monitoring report aggregate counts are semantically checked against public registry artifacts |
 
 ## Validation Commands
 
@@ -162,9 +162,8 @@ already passes, they omit `--license-input` and do not rebuild
 license-import build step.
 `evolution-readiness --no-write` also exits 2 when
 `gate_status=blocked` and includes `blocked_check_ids` / `blocked_checks` in
-stdout so operators can see that RI-EVOL-02, RI-EVOL-04, RI-EVOL-05, and
-RI-EVOL-07 are the active readiness blockers. The same read-only output now
-includes public-safe
+stdout so operators can see that RI-EVOL-02, RI-EVOL-04, and RI-EVOL-05 are
+the active readiness blockers. The same read-only output now includes public-safe
 `next_actions` with temp-prefixed commands for the current gold-set review
 batch, the current analytical-footprint review batch, the schema/audit blocker
 inspection path, and the distinct `data_vintage_hash` refresh-history
@@ -226,16 +225,16 @@ uv run pytest tests/test_rke_report_intelligence.py -q --basetemp /home/hap/tmp/
 uvx ruff@0.15.15 check mosaic/rke/report_intelligence.py tests/test_rke_report_intelligence.py
 ```
 
-The current approved scratch batches imported cleanly: 20 gold-set rows and 50
-analytical-footprint rows were accepted with zero duplicate IDs, missing target
-IDs, or invalid rows. After import, gold-set review has no pending rows
+The current local scratch batches validate cleanly: 20 gold-set rows and 50
+analytical-footprint rows have complete required fields with zero duplicate IDs,
+missing target IDs, or invalid rows. Gold-set review has no pending rows
 (`158/158` complete), but it still fails the quality gate: reviewed document
 coverage is below the 50-document threshold, `direction_accuracy=0.626582`,
 `variable_mapping_accuracy=0.189873`, and
 `unsupported_field_false_grounding_rate=0.227848`. This means the next gold-set
 work item is pipeline quality, not more approval of the old queue. The footprint
-gate is now `34/1001` complete with 967 rows pending, and the current 50-row
-batch has no missing required fields.
+target summary is now `34/1051` complete with 1017 rows pending, and the current
+50-row scratch batch has no missing required fields.
 
 The gold candidate queue now keeps full diagnostics but narrows the default
 review queue. Candidate rows with missing canonical variable mapping, ambiguous
@@ -415,23 +414,20 @@ MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv ru
 ```
 
 These commands write private, gitignored manual handoff files. The current local
-gold-set scratch batch has 20 rows, of which 10 have complete human-review
-fields and 10 still have aggregate missing-field counts for `manual_claim_text`
-and the seven boolean review fields. Its private evidence draft is aligned with
-the same 20 scratch rows and has no target-row-hash mismatches. The promotion
-gold-set import remains not ready because the remaining scratch rows and
-quality-metric blockers still require human decisions. The current active
-analytical-footprint batch has 50 pending rows and aggregate missing-field counts
-for `footprint_correct`,
-`source_span_supports_footprint`, `metric_mapping_correct`,
-`inferred_steps_tagged_correctly`, `unknowns_used_when_uncertain`,
-`no_proprietary_text_leakage`, and `review_notes`. The assist command writes
+gold-set scratch batch has 20 rows and all 20 have complete human-review fields.
+Its private evidence draft is aligned with the same 20 scratch rows and has no
+target-row-hash mismatches. The promotion gold-set import remains not ready
+because document coverage and quality-metric blockers still require pipeline
+improvements and refreshed review evidence. The current active
+analytical-footprint batch has 50 rows and all 50 have complete human-review
+fields, but the target footprint review summary still has 1017 pending rows. The
+assist command writes
 private, gitignored helper files at
 `registry/report_intelligence/analytical_footprint_review_assist.jsonl` and
-`registry/report_intelligence/analytical_footprint_review_workbook.md`; private footprint review assist/workbook cover 1001 pending rows. These files are not import files and do not satisfy the review gate by themselves. The evidence command writes private, gitignored local-markdown snippets and draft review suggestions at
+`registry/report_intelligence/analytical_footprint_review_workbook.md`; the current private footprint review assist/workbook snapshot covers 1001 pending rows and should be refreshed before the next footprint batch because the public target now has 1017 pending rows. These files are not import files and do not satisfy the review gate by themselves. The evidence command writes private, gitignored local-markdown snippets and draft review suggestions at
 `registry/report_intelligence/analytical_footprint_review_evidence.jsonl` and
 `registry/report_intelligence/analytical_footprint_review_evidence.md`; the
-private evidence draft covers 1001 rows with 0 missing local markdown rows. It
+private evidence draft is aligned with the current 50-row scratch batch. It
 now emits structured `suggested_review_rationales` for span support, metric
 mapping, inferred step tagging, uncertainty handling, and leakage checks, plus
 review-only inferred indicator candidates for missing metric mappings. These
@@ -487,7 +483,7 @@ contracts, mapping/PIT availability contracts, recipe paper-trading contracts,
 runtime guards, PIT/provenance/statistical/tooling audits, refresh-history
 contracts, operator handoff rules, promotion dry-run rules, and
 production-promotion gate semantic rules pass in the current public artifact set.
-Profile outcome-layer semantic rules now also pass for 3045 source, viewpoint,
+Profile outcome-layer semantic rules now also pass for 3246 source, viewpoint,
 and method performance profiles, ensuring mixed stock/industry proxy evidence
 stays stratified by `label_type`, `benchmark_family`, and `cost_model_id`.
 The stock readiness contract now also rejects drift in
@@ -508,27 +504,29 @@ blocker families include:
    promotion criteria. The gold-set row-level review is complete, but its quality
    metrics fail and must be addressed through improved extraction/mapping rules
    and a refreshed gold corpus with at least 50 reviewed documents. The footprint
-   review has 34 accepted rows and 967 rows still pending. Validate each
+   review has 34 accepted rows and 1017 rows still pending. Validate each
    footprint batch with
    `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run`,
    then apply through the same import path.
-2. P9 coverage watchlist: current public gate reports `coverage_gate_status=blocked`
-   because `evaluability_bucket:macro_asset_proxy_candidate` is missing. The
-   count thresholds for selected reports, Markdown-ready samples, quality-passed
-   Markdown, LLM-processed reports, stock reports, industry reports, sector
-   buckets, and 120-day stock outcome readiness are otherwise met.
-3. Outcome evidence: current gate thresholds are cleared: 150 unique PIT outcome
-   claims, 39 industry proxy claims, and 115 stock proxy claims.
+2. P9 coverage watchlist: current public gate reports `coverage_gate_status=passed`.
+   The `macro_asset_proxy_candidate` stratum is now filled by 4 candidates from
+   the cached-VLM-Markdown Mimo macro batch, and the count thresholds for
+   selected reports, Markdown-ready samples, quality-passed Markdown,
+   LLM-processed reports, stock reports, industry reports, sector buckets, and
+   120-day stock outcome readiness are met.
+3. Outcome evidence: current gate thresholds are cleared: 151 unique PIT outcome
+   claims, 39 industry proxy claims, 115 stock proxy claims, and 1 macro asset
+   proxy claim.
 4. Paper-trading evidence: current gate thresholds are not cleared after the
-   report-level forecast-claim cap: 1858 pre-registered runs remain, but only 13
+   report-level forecast-claim cap: 2031 pre-registered runs remain, but only 13
    recipes are currently validated against the 20-recipe threshold. The
    after-cost summary is computed from passed pre-registered runs only.
    Remaining recipe rows stay blocked or shadow-only when direct PIT binding,
    effective N, or shadow-tool readiness is insufficient.
 5. Confidence impact monitor: current confidence-impact leakage gate is still
    clean with no unvalidated confidence impact, but only 13 monitored validated
-   recipes remain after the forecast cap. Alpha decay and calibration drift
-   observations are tracked but remain shadow-only.
+   recipes remain across 2031 observations after the forecast cap. Alpha decay
+   and calibration drift observations are tracked but remain shadow-only.
 6. Refresh-history stability: audit history must satisfy the trailing-vintage
    gate; monitor and gap-distribution trailing-vintage gates currently pass. The
    current audit trailing blocker is downstream of `schema_accepted=false`, and

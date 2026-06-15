@@ -119,10 +119,7 @@ EXPECTED_EVOLUTION_READINESS_FAILURES = {
         "evolution_readiness_gate.checks[RI-EVOL-02].evidence."
         "after_cost_paper_trading_summary.positive_after_cost_recipe_count: expected >= 20"
     ),
-    "evolution_readiness_gate.checks[RI-EVOL-07].evidence.coverage_gate_status: expected passed",
-    "evolution_readiness_gate.checks[RI-EVOL-07].evidence.coverage_gate_blockers: must be empty",
 }
-
 
 def _expected_schema_failure_count() -> int:
     return (
@@ -230,25 +227,28 @@ def test_stock_report_outcome_status_doc_matches_public_artifacts():
     outcome_count = extraction_report["outcome_label_rows"]
     industry_count = extraction_report["industry_etf_proxy_outcome_label_rows"]
     stock_count = extraction_report["stock_price_proxy_outcome_label_rows"]
+    macro_count = extraction_report["macro_asset_proxy_outcome_label_rows"]
     stock_readiness = outcome_readiness["stock_price_proxy_readiness"]
     assert (
         f"{outcome_count} outcome labels: {industry_count} industry ETF proxy, "
-        f"{stock_count} stock price proxy"
+        f"{stock_count} stock price proxy, {macro_count} macro asset proxy"
     ) in status_text
     assert {"gold_set", "footprint_review", "source_license", "lockbox"} <= gate_kinds
-    assert "public baseline: gold-set 0/100" in status_text
-    assert "analytical-footprint review 0/1001" in status_text
+    assert "public baseline: gold-set" in status_text
+    assert "reviewed but quality-blocked" in status_text
+    assert "analytical-footprint review" in status_text
+    assert "reviewed with" in status_text
     assert "source license 17529/17529" in status_text
     assert "source license 17529/17529 already applied" in status_text
     assert "action_state=already_applied" in status_text
     assert "can_run_now=false" in status_text
-    assert "private footprint review assist/workbook cover 1001 pending rows" in status_text
+    assert "private footprint review assist/workbook snapshot covers 1001 pending rows" in status_text
     assert "gold-set scratch batch has 20 rows" in status_text
-    assert "10 still have aggregate missing-field counts" in status_text
-    assert "private evidence draft covers 1001 rows with 0 missing local markdown rows" in status_text
+    assert "all 20 have complete human-review fields" in status_text
+    assert "private evidence draft is aligned with the current 50-row scratch batch" in status_text
     assert "Synthetic pytest fixtures" in status_text
     assert "current target hashes" in status_text
-    assert "gold-set import remains not ready" in status_text
+    assert "promotion gold-set import remains not ready" in status_text
     assert "lockbox 0/1" in status_text
     assert "labelability_summary" in status_text
     assert "outcome_labeling_readiness.industry_etf_proxy_readiness" in status_text
@@ -298,18 +298,15 @@ def test_stock_report_outcome_status_doc_matches_public_artifacts():
         "paper_trading_validated_recipe_count_below_threshold"
         in evolution_gate["blockers"]
     )
-    assert (
-        "evaluability_bucket_coverage_below_p9_target"
-        in evolution_gate["blockers"]
-    )
     for blocker in (
         "industry_proxy_claim_count_below_threshold",
+        "evaluability_bucket_coverage_below_p9_target",
     ):
         assert blocker not in evolution_gate["blockers"]
     assert "current gate thresholds are cleared" in status_text
     assert "20-recipe threshold" in status_text
-    assert "coverage_gate_status=blocked" in status_text
-    assert "evaluability_bucket:macro_asset_proxy_candidate" in status_text
+    assert "coverage_gate_status=passed" in status_text
+    assert "macro_asset_proxy_candidate" in status_text
     assert "report prose" in status_text
     assert "production trading decisions" in status_text
 
