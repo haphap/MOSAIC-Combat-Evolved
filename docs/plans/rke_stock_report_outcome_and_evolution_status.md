@@ -48,6 +48,8 @@ Markdown paths, source spans, reviewer notes, or private Tushare rows.
   The same batch overview is now persisted in
   `manual_review_progress_report.json` and emitted by default `review-progress`
   output, so bundle consumers see the same focus fields as the action queue.
+  The manual review progress semantic contract now rejects batch-overview drift
+  from the persisted current-batch status and pending batch plan.
 
 Current public aggregate evidence. Private report-intelligence JSONL files such
 as `report_metadata.jsonl`, `forecast_claims.jsonl`, and

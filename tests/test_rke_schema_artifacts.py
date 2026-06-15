@@ -4046,6 +4046,19 @@ def test_manual_review_progress_contract_accepts_completed_gate_state(
         gate["blockers"] = []
         gate["current_batch_status"] = {}
         gate["batch_plan"] = []
+        gate["batch_overview"] = (
+            {
+                "batch_count": 0,
+                "pending_rows": 0,
+                "promotion_input_path": gate["input_path"],
+                "current_batch_stale_after_promotion_ready": False,
+                "stale_current_batch_path": "",
+                "stale_current_batch_pending_rows": 0,
+                "rerun_review_progress_after_batch_apply": False,
+            }
+            if gate["review_kind"] in {"gold_set", "footprint_review"}
+            else {}
+        )
     progress_path.write_text(
         json.dumps(progress, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
@@ -4163,6 +4176,50 @@ def test_manual_review_progress_contract_rejects_count_or_command_drift(
     assert any("batch_plan[1].commands.apply: must not use promotion input" in item for item in record.failures)
     assert any(
         "batch_plan[1].commands.prepare: expected --priority" in item
+        for item in record.failures
+    )
+
+
+def test_manual_review_progress_contract_rejects_batch_overview_drift(
+    tmp_path: Path,
+):
+    registry = _copy_registry_for_manual_progress(tmp_path)
+    progress_path = registry / "review_batches/manual_review_progress_report.json"
+    progress = json.loads(progress_path.read_text(encoding="utf-8"))
+    gold_gate = next(gate for gate in progress["gates"] if gate["review_kind"] == "gold_set")
+    overview = gold_gate["batch_overview"]
+    overview["current_batch_rows"] = 999
+    overview["remaining_rows_after_current_batch"] = 999
+    overview["current_batch_evidence_aligned"] = False
+    overview["current_batch_path"] = "registry/review_batches/stale.jsonl"
+    overview["next_batch_limit"] = 999
+    progress_path.write_text(
+        json.dumps(progress, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = _manual_review_progress_contract_record(tmp_path)
+
+    assert not record.accepted
+    assert any(
+        "batch_overview.current_batch_rows: expected" in item
+        for item in record.failures
+    )
+    assert any(
+        "batch_overview.remaining_rows_after_current_batch: expected" in item
+        for item in record.failures
+    )
+    assert any(
+        "batch_overview.current_batch_evidence_aligned: expected True" in item
+        for item in record.failures
+    )
+    assert any(
+        "batch_overview.current_batch_path: expected registry/review_batches/gold_set_reviewed.jsonl"
+        in item
+        for item in record.failures
+    )
+    assert any(
+        "batch_overview.next_batch_limit: expected" in item
         for item in record.failures
     )
 

@@ -6370,6 +6370,110 @@ def _manual_progress_allows_private_key_as_count(path: str, value: Any) -> bool:
     return all(type(item) is int for item in value.values())
 
 
+def _validate_manual_review_batch_overview_contract(
+    gate: Mapping[str, Any],
+    *,
+    review_kind: str,
+    batch_plan: Sequence[Mapping[str, Any]],
+    pending_rows: int | None,
+    ready: Any,
+    row_label: str,
+    failures: list[str],
+) -> None:
+    overview = gate.get("batch_overview")
+    overview_label = f"{row_label}.batch_overview"
+    if overview is None:
+        failures.append(f"{overview_label}: expected object")
+        return
+    if not isinstance(overview, Mapping):
+        failures.append(f"{overview_label}: expected object")
+        return
+    if review_kind not in {"gold_set", "footprint_review"}:
+        if overview:
+            failures.append(f"{overview_label}: expected empty object")
+        return
+
+    def require_equal(field: str, expected: Any) -> None:
+        if overview.get(field) != expected:
+            failures.append(f"{overview_label}.{field}: expected {expected}")
+
+    if ready is True:
+        require_equal("batch_count", 0)
+        require_equal("pending_rows", 0)
+        require_equal("promotion_input_path", gate.get("input_path"))
+        require_equal("rerun_review_progress_after_batch_apply", False)
+        return
+
+    expected_pending = int(pending_rows or 0)
+    current = gate.get("current_batch_status")
+    current = current if isinstance(current, Mapping) else {}
+    evidence = current.get("evidence_status")
+    evidence = evidence if isinstance(evidence, Mapping) else {}
+    target = current.get("target_status")
+    target = target if isinstance(target, Mapping) else {}
+    current_rows = int(_int_or_none(current.get("rows")) or 0)
+    target_aligned = bool(target.get("aligned")) if target else None
+    evidence_aligned = bool(evidence.get("aligned")) if evidence else None
+    covered_rows = (
+        current_rows
+        if bool(current.get("exists"))
+        and int(_int_or_none(current.get("malformed_rows")) or 0) == 0
+        and target
+        and target_aligned is True
+        else 0
+    )
+
+    require_equal("batch_count", len(batch_plan))
+    require_equal("pending_rows", expected_pending)
+    require_equal("current_batch_path", current.get("path"))
+    require_equal("current_batch_rows", current_rows)
+    require_equal(
+        "current_batch_pending_rows",
+        int(_int_or_none(current.get("pending_rows")) or 0),
+    )
+    require_equal("current_batch_target_covered_rows", covered_rows)
+    require_equal(
+        "remaining_rows_after_current_batch",
+        max(expected_pending - covered_rows, 0),
+    )
+    require_equal("current_batch_evidence_aligned", evidence_aligned)
+    require_equal("current_batch_target_aligned", target_aligned)
+    require_equal(
+        "current_batch_target_hash_mismatch_count",
+        int(_int_or_none(target.get("target_row_hash_mismatch_count")) or 0)
+        if target
+        else 0,
+    )
+    require_equal(
+        "current_batch_evidence_path",
+        str(evidence.get("path") or "") if evidence else "",
+    )
+    if batch_plan:
+        first = batch_plan[0]
+        last = batch_plan[-1]
+        first_limit = int(_int_or_none(first.get("limit")) or 0)
+        require_equal("next_batch_offset", int(_int_or_none(first.get("offset")) or 0))
+        require_equal("next_batch_limit", first_limit)
+        require_equal(
+            "next_batch_pending_row_start",
+            int(_int_or_none(first.get("pending_row_start")) or 0),
+        )
+        require_equal(
+            "next_batch_pending_row_end",
+            int(_int_or_none(first.get("pending_row_end")) or 0),
+        )
+        require_equal("final_batch_offset", int(_int_or_none(last.get("offset")) or 0))
+        require_equal("final_batch_limit", int(_int_or_none(last.get("limit")) or 0))
+        require_equal(
+            "remaining_rows_after_next_batch",
+            max(expected_pending - first_limit, 0),
+        )
+        require_equal(
+            "current_batch_covers_next_batch",
+            covered_rows >= first_limit if first_limit else False,
+        )
+
+
 def _validate_manual_review_progress_privacy_contract(
     root_path: Path,
 ) -> tuple[int, list[str]]:
@@ -6702,6 +6806,7 @@ def _validate_manual_review_progress_contract(
                                     "evidence must have zero gaps"
                                 )
         raw_batch_plan = gate.get("batch_plan")
+        batch_plan: list[Mapping[str, Any]] = []
         if raw_batch_plan is None:
             failures.append(f"{row_label}.batch_plan: expected array")
         elif not isinstance(raw_batch_plan, Sequence) or isinstance(raw_batch_plan, str):
@@ -6859,6 +6964,15 @@ def _validate_manual_review_progress_contract(
                     failures.append(
                         f"{batch_label}.commands.prepare: expected --priority"
                     )
+        _validate_manual_review_batch_overview_contract(
+            gate,
+            review_kind=review_kind,
+            batch_plan=batch_plan,
+            pending_rows=pending_rows,
+            ready=ready,
+            row_label=row_label,
+            failures=failures,
+        )
 
     expected_ready_for_promotion = bool(gates) and all(
         gate.get("ready_for_promotion") is True for gate in gates
