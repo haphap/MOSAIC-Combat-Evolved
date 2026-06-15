@@ -137,6 +137,51 @@ Operational rules:
 
 ## MinerU Smoke Status
 
+Last completed Mimo extraction smoke from cached VLM Markdown:
+
+```bash
+TMPDIR=.mosaic/tmp uv run mosaic-rke report-intelligence \
+  --root . \
+  --env-file .env \
+  --source-path registry/sources/local_macro_strategy_reports.jsonl \
+  --cache-dir .mosaic/rke/report_intelligence \
+  --registry-dir .mosaic/rke/report_intelligence/macro_mimo_vlm_extract_smoke_registry \
+  --source-id SRC-LMSR-20260609-1f86ed80b00a4cf1 \
+  --require-cached-markdown \
+  --skip-download \
+  --skip-convert \
+  --limit 1 \
+  --mineru-backend vlm-auto-engine \
+  --vllm-timeout-seconds 300 \
+  --max-chunks 2 \
+  --chunk-chars 30000
+```
+
+Result:
+
+- Run id: `RIR-20260615T004657+0000`
+- Source id: `SRC-LMSR-20260609-1f86ed80b00a4cf1`
+- Markdown status: `cached`
+- Markdown backend recorded in status: `vlm-auto-engine`
+- Markdown quality gate: `passed`
+- LLM status: `processed`
+- LLM model: `mimo-v2.5-pro`
+- Selected reports: `1`
+- LLM processed reports: `1`
+- Forecast claim rows: `2`
+- Analytical footprint rows: `2`
+- Metric candidate rows: `14`
+- Method pattern rows: `7`
+- Analysis recipe rows: `7`
+- Tool coverage match rows: `14`
+- Tool gap rows: `17`
+- Data acquisition proposal rows: `16`
+- Tool design proposal rows: `16`
+- Blockers: `0`
+- Private extraction outputs under
+  `.mosaic/rke/report_intelligence/macro_mimo_vlm_extract_smoke_registry/` are
+  gitignored and must not be committed.
+
 Last completed VLM batch:
 
 ```bash
@@ -147,7 +192,7 @@ TMPDIR=.mosaic/tmp uv run mosaic-rke report-intelligence \
   --cache-dir .mosaic/rke/report_intelligence \
   --registry-dir .mosaic/rke/report_intelligence/macro_vlm_batch_registry \
   --selection-order stratified \
-  --limit 5 \
+  --limit 20 \
   --mineru-command .venv/bin/mineru \
   --mineru-backend vlm-auto-engine \
   --mineru-timeout-seconds 3600 \
@@ -159,16 +204,22 @@ TMPDIR=.mosaic/tmp uv run mosaic-rke report-intelligence \
 
 Result:
 
-- Run id: `RIR-20260615T003823+0000`
-- Selected reports: `5`
-- PDF ready: `5`
-- Markdown ready: `5`
-- Blockers: `0`
-- MinerU backend counts: `vlm-auto-engine=5`
-- Markdown status counts: `converted=5`
-- Markdown quality gate counts: `passed=5`
-- Markdown durations: `44.517s`, `38.151s`, `39.165s`, `35.995s`,
-  `52.435s`
+- Run id: `RIR-20260615T003006+0000`
+- Selected reports: `20`
+- PDF ready: `20`
+- Markdown ready: `17`
+- Blockers: `3`
+- MinerU backend counts: `vlm-auto-engine=20`
+- Markdown status counts: `converted=17`, `blocked=3`
+- Markdown quality gate counts: `passed=16`, `blocked=4`
+- Markdown blocker counts: `mineru_failed=3`
+- Markdown quality gap counts: `mineru_failed=3`, `markdown_repeated_line_noise=1`
+- Failed source ids:
+  `SRC-LMSR-20260601-040294df2a6c0516`,
+  `SRC-LMSR-20260608-cff15a9da6922e9e`,
+  `SRC-LMSR-20260527-cfa0ef514483ee80`
+- Quality-gap source id:
+  `SRC-LMSR-20260605-f265329a148fd695`
 - Private outputs under `.mosaic/rke/report_intelligence/macro_vlm_batch_registry/`
   are gitignored and must not be committed.
 
@@ -285,5 +336,9 @@ TMPDIR=.mosaic/tmp uv run mosaic-rke report-intelligence \
 - `2026-06-15`: Updated the required MinerU mode to `vlm-auto-engine`, then ran
   one macro PDF VLM smoke; conversion passed with no blockers.
 - `2026-06-15`: Clarified local MinerU `vlm-auto-engine` versus Docker-backed
-  HTTP client modes, then ran a 5-PDF local VLM batch; all five Markdown
-  conversions passed quality gates with no blockers.
+  HTTP client modes, then ran a 20-PDF local VLM batch; 17 converted, 16 passed
+  quality gates, 3 failed in MinerU, and 1 converted output was blocked by
+  repeated-line noise.
+- `2026-06-15`: Ran one cached-VLM-Markdown Mimo extraction smoke using
+  `mimo-v2.5-pro`; extraction processed successfully with 2 forecast claims, 2
+  analytical footprints, 7 method patterns, and no blockers.
