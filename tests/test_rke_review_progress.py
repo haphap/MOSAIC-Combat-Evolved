@@ -1438,6 +1438,30 @@ def test_review_progress_reports_current_batch_scratch_status(tmp_path: Path):
         == {"null": 1, "true": 1}
     )
     assert (
+        summary_gold["current_batch_status"]["review_field_workload"][
+            "claim_correct"
+        ]["missing_required_rows"]
+        == 1
+    )
+    assert (
+        summary_gold["current_batch_status"]["review_field_workload"][
+            "claim_correct"
+        ]["draft_decision_available_rows"]
+        == 1
+    )
+    assert (
+        summary_gold["current_batch_status"]["review_field_workload"][
+            "claim_correct"
+        ]["manual_decision_required_rows"]
+        == 0
+    )
+    assert (
+        summary_gold["current_batch_status"]["review_field_workload"][
+            "manual_claim_text"
+        ]["manual_decision_required_rows"]
+        == 1
+    )
+    assert (
         summary_footprint["current_batch_status"]["evidence_status"][
             "priority_score_counts"
         ]
@@ -1496,6 +1520,30 @@ def test_review_progress_reports_current_batch_scratch_status(tmp_path: Path):
         == {"3": 2}
     )
     assert (
+        actions["gold_set"]["batch_overview"]["current_batch_review_field_workload"][
+            "claim_correct"
+        ]["manual_decision_required_rows"]
+        == 0
+    )
+    assert (
+        actions["gold_set"]["batch_overview"]["current_batch_review_field_workload"][
+            "manual_claim_text"
+        ]["manual_decision_required_rows"]
+        == 1
+    )
+    assert (
+        actions["footprint_review"]["batch_overview"][
+            "current_batch_review_field_workload"
+        ]["metric_mapping_correct"]["draft_decision_available_rows"]
+        == 1
+    )
+    assert (
+        actions["footprint_review"]["batch_overview"][
+            "current_batch_review_field_workload"
+        ]["review_notes"]["manual_decision_required_rows"]
+        == 1
+    )
+    assert (
         actions["gold_set"]["batch_overview"][
             "current_batch_evidence_suggested_review_decision_counts"
         ]["unsupported_field_false_grounded"]
@@ -1546,6 +1594,10 @@ def test_review_progress_reports_current_batch_scratch_status(tmp_path: Path):
     assert "refresh_recommended: true" in markdown
     assert "Suggested decision counts:" in markdown
     assert "`metric_mapping_correct`={false:2}" in markdown
+    assert "Review field workload:" in markdown
+    assert "`claim_correct`=missing:1,draft:1,manual:0" in markdown
+    assert "`manual_claim_text`=missing:1,draft:0,manual:1" in markdown
+    assert "`review_notes`=missing:1,draft:0,manual:1" in markdown
     assert "aligned: true" in markdown
     assert "`open_count`=1" in markdown
     assert "fixture approval" not in markdown

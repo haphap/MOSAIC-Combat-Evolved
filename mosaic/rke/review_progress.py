@@ -307,12 +307,118 @@ def _suggested_review_decision_bucket(value: Any) -> str:
     return "other"
 
 
+def _review_field_workload(
+    *,
+    missing_required_fields: Mapping[str, Any],
+    suggested_review_decision_counts: Mapping[str, Any],
+) -> Mapping[str, Any]:
+    fields = sorted(
+        {
+            str(field)
+            for field in (
+                *missing_required_fields.keys(),
+                *suggested_review_decision_counts.keys(),
+            )
+            if str(field).strip()
+        }
+    )
+    workload: dict[str, Any] = {}
+    for field_name in fields:
+        counts = suggested_review_decision_counts.get(field_name)
+        count_map = counts if isinstance(counts, Mapping) else {}
+        true_rows = int(count_map.get("true") or 0)
+        false_rows = int(count_map.get("false") or 0)
+        null_rows = int(count_map.get("null") or 0)
+        other_rows = int(count_map.get("other") or 0)
+        missing_rows = int(missing_required_fields.get(field_name) or 0)
+        draft_decision_rows = true_rows + false_rows
+        workload[field_name] = {
+            "missing_required_rows": missing_rows,
+            "suggested_true_rows": true_rows,
+            "suggested_false_rows": false_rows,
+            "suggested_null_rows": null_rows,
+            "suggested_other_rows": other_rows,
+            "draft_decision_available_rows": draft_decision_rows,
+            "manual_decision_required_rows": max(
+                missing_rows - draft_decision_rows,
+                0,
+            ),
+        }
+    return workload
+
+
+def _empty_review_field_workload_item() -> dict[str, int]:
+    return {
+        "missing_required_rows": 0,
+        "suggested_true_rows": 0,
+        "suggested_false_rows": 0,
+        "suggested_null_rows": 0,
+        "suggested_other_rows": 0,
+        "draft_decision_available_rows": 0,
+        "manual_decision_required_rows": 0,
+    }
+
+
+def _missing_review_field_workload(
+    review_rows: Sequence[Mapping[str, Any]],
+    *,
+    evidence_by_id: Mapping[str, Mapping[str, Any]],
+    id_field: str,
+    required_fields: Sequence[str],
+    boolean_fields: Sequence[str],
+) -> Mapping[str, Any]:
+    workload: dict[str, dict[str, int]] = {}
+    for row in review_rows:
+        row_id = str(row.get(id_field) or "").strip()
+        evidence_row = evidence_by_id.get(row_id) if row_id else None
+        decision = (
+            evidence_row.get("suggested_review_decision")
+            if isinstance(evidence_row, Mapping)
+            else None
+        )
+        decision_map = decision if isinstance(decision, Mapping) else {}
+        for field_name in required_fields:
+            if not _is_missing_review_field(
+                row,
+                field_name,
+                boolean_fields=boolean_fields,
+            ):
+                continue
+            item = workload.setdefault(
+                str(field_name),
+                _empty_review_field_workload_item(),
+            )
+            item["missing_required_rows"] += 1
+            if field_name not in decision_map:
+                continue
+            bucket = _suggested_review_decision_bucket(decision_map.get(field_name))
+            if bucket == "true":
+                item["suggested_true_rows"] += 1
+            elif bucket == "false":
+                item["suggested_false_rows"] += 1
+            elif bucket == "null":
+                item["suggested_null_rows"] += 1
+            else:
+                item["suggested_other_rows"] += 1
+    for item in workload.values():
+        item["draft_decision_available_rows"] = (
+            item["suggested_true_rows"] + item["suggested_false_rows"]
+        )
+        item["manual_decision_required_rows"] = max(
+            item["missing_required_rows"] - item["draft_decision_available_rows"],
+            0,
+        )
+    return {field: workload[field] for field in sorted(workload)}
+
+
 def _review_evidence_alignment_status(
     root_path: Path,
     *,
     review_input_path: str,
     evidence_path: str,
     id_field: str,
+    required_fields: Sequence[str] = (),
+    boolean_fields: Sequence[str] = (),
 ) -> Mapping[str, Any]:
     review_path = _resolve(root_path, review_input_path)
     evidence_resolved = _resolve(root_path, evidence_path)
@@ -342,6 +448,7 @@ def _review_evidence_alignment_status(
         "priority_reason_missing_rows": 0,
         "priority_metadata_refresh_recommended": False,
         "suggested_review_decision_counts": {},
+        "review_field_workload": {},
         "same_order": False,
         "aligned": False,
     }
@@ -489,6 +596,13 @@ def _review_evidence_alignment_status(
                 field: dict(sorted(counts.items()))
                 for field, counts in sorted(suggested_decision_counts.items())
             },
+            "review_field_workload": _missing_review_field_workload(
+                review_rows,
+                evidence_by_id=evidence_by_id,
+                id_field=id_field,
+                required_fields=required_fields,
+                boolean_fields=boolean_fields,
+            ),
             "same_order": same_order,
             "aligned": aligned,
         }
@@ -632,6 +746,8 @@ def _gold_batch_status(root_path: Path) -> Mapping[str, Any]:
         review_input_path=GOLD_REVIEWED_IMPORT_PATH,
         evidence_path=GOLD_REVIEW_EVIDENCE_JSONL_PATH,
         id_field="claim_id",
+        required_fields=GOLD_BATCH_REQUIRED_FIELDS,
+        boolean_fields=GOLD_BOOL_FIELDS,
     )
     status["target_status"] = _review_target_alignment_status(
         root_path,
@@ -657,6 +773,8 @@ def _footprint_batch_status(root_path: Path) -> Mapping[str, Any]:
         review_input_path=ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH,
         evidence_path=ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_JSONL_PATH,
         id_field="footprint_id",
+        required_fields=ANALYTICAL_FOOTPRINT_REVIEW_REQUIRED_FIELDS,
+        boolean_fields=ANALYTICAL_FOOTPRINT_REVIEW_BOOLEAN_FIELDS,
     )
     status["target_status"] = _review_target_alignment_status(
         root_path,
@@ -1486,6 +1604,35 @@ def _render_batch_status_lines(label: str, status: Mapping[str, Any]) -> list[st
                 lines.append(
                     "  Suggested decision counts: " + "; ".join(rendered_fields)
                 )
+        workload = evidence_status.get("review_field_workload")
+        if not isinstance(workload, Mapping) or not workload:
+            missing_required = status.get("missing_required_fields")
+            suggested_counts = evidence_status.get("suggested_review_decision_counts")
+            workload = (
+                _review_field_workload(
+                    missing_required_fields=missing_required,
+                    suggested_review_decision_counts=suggested_counts,
+                )
+                if isinstance(missing_required, Mapping)
+                and isinstance(suggested_counts, Mapping)
+                else {}
+            )
+        if isinstance(workload, Mapping):
+            if workload:
+                rendered_workload: list[str] = []
+                for field, item in sorted(workload.items()):
+                    if not isinstance(item, Mapping):
+                        continue
+                    rendered_workload.append(
+                        f"`{field}`="
+                        f"missing:{int(item.get('missing_required_rows') or 0)},"
+                        f"draft:{int(item.get('draft_decision_available_rows') or 0)},"
+                        f"manual:{int(item.get('manual_decision_required_rows') or 0)}"
+                    )
+                if rendered_workload:
+                    lines.append(
+                        "  Review field workload: " + "; ".join(rendered_workload)
+                    )
         evidence_gaps: list[str] = []
         for field in (
             "missing_review_rows",
@@ -1739,6 +1886,31 @@ def _compact_current_batch_status(status: Mapping[str, Any]) -> Mapping[str, Any
                     compact["evidence_status"][field_name] = {
                         str(key): int(count) for key, count in sorted(value.items())
                     }
+        workload = evidence_status.get("review_field_workload")
+        if isinstance(workload, Mapping) and workload:
+            compact["review_field_workload"] = {
+                str(field): {
+                    str(key): int(count)
+                    for key, count in sorted(item.items())
+                }
+                for field, item in sorted(workload.items())
+                if isinstance(item, Mapping)
+            }
+        else:
+            missing_required = status.get("missing_required_fields")
+            suggested_counts = compact["evidence_status"].get(
+                "suggested_review_decision_counts"
+            )
+            if isinstance(missing_required, Mapping) and isinstance(
+                suggested_counts,
+                Mapping,
+            ):
+                fallback_workload = _review_field_workload(
+                    missing_required_fields=missing_required,
+                    suggested_review_decision_counts=suggested_counts,
+                )
+                if fallback_workload:
+                    compact["review_field_workload"] = fallback_workload
     target_status = status.get("target_status")
     if isinstance(target_status, Mapping) and target_status:
         compact["target_status"] = {
@@ -1888,6 +2060,16 @@ def _compact_batch_overview(gate: ManualReviewGateProgress) -> Mapping[str, Any]
         ),
         "rerun_review_progress_after_batch_apply": True,
     }
+    review_field_workload = current.get("review_field_workload")
+    if isinstance(review_field_workload, Mapping) and review_field_workload:
+        overview["current_batch_review_field_workload"] = {
+            str(field): {
+                str(key): int(count)
+                for key, count in sorted(item.items())
+            }
+            for field, item in sorted(review_field_workload.items())
+            if isinstance(item, Mapping)
+        }
     for field_name in (
         "quality_gap_focus_field_counts",
         "suggested_tag_counts",
