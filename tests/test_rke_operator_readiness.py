@@ -18,6 +18,7 @@ from mosaic.rke.operator_readiness import (
     _handoff_command_sequence_complete,
     _promotion_gate_state_consistency,
 )
+from mosaic.rke.review_progress import write_manual_review_runbook
 from mosaic.rke.temp_paths import RKE_OPERATOR_TMP_ENV_PREFIX
 
 
@@ -138,6 +139,33 @@ def test_operator_readiness_accepts_current_review_bundle(tmp_path: Path):
     assert checks["manual_review_bundle_manifest_current"].passed
     assert checks["promotion_gate_state_consistent"].passed
     assert checks["source_text_redaction_clean"].passed
+
+
+def test_operator_readiness_no_write_uses_generated_temp_support_artifacts(
+    tmp_path: Path,
+    capsys,
+):
+    _copy_registry(tmp_path)
+    write_manual_review_runbook(tmp_path)
+    stale_template_paths = (
+        tmp_path / "registry/review_batches/gold_set_next_import_template.jsonl",
+        tmp_path / "registry/review_batches/gold_set_full_import_template.jsonl",
+    )
+    for path in stale_template_paths:
+        path.write_text("", encoding="utf-8")
+
+    code = main(("operator-readiness", "--root", str(tmp_path), "--no-write"))
+    output = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert output["accepted"] is True
+    assert output["failure_count"] == 0
+    checks = {check["check_id"]: check for check in output["checks"]}
+    assert checks["manual_batch_templates_match_status"]["passed"] is True
+    assert checks["manual_import_templates_have_provenance"]["passed"] is True
+    assert checks["blank_full_gold_set_import_is_rejected"]["passed"] is True
+    for path in stale_template_paths:
+        assert path.read_text(encoding="utf-8") == ""
 
 
 def test_promotion_gate_state_consistency_accepts_future_production_state():

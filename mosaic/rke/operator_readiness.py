@@ -20,6 +20,7 @@ from .manual_review_batches import (
     GOLD_REVIEW_WORKBOOK_MD_PATH,
     LICENSE_BATCH_IMPORT_TEMPLATE_PATH,
     build_manual_review_batch_status,
+    write_manual_review_batches,
     write_gold_review_assist,
 )
 from .manual_review_bundle_manifest import (
@@ -734,6 +735,9 @@ def build_operator_readiness_report(
         root_path,
         write_supporting_artifacts=write_supporting_artifacts,
     )
+    check_root = dry_run_root
+    if not write_supporting_artifacts:
+        write_manual_review_batches(check_root)
     checks: list[OperatorReadinessCheck] = []
 
     missing, empty = validate_required_registry(root_path)
@@ -788,12 +792,13 @@ def build_operator_readiness_report(
         ),
         None,
     )
+    source_license_already_passed = bool(
+        source_license_progress and source_license_progress.ready_for_promotion
+    )
     runbook_ok, runbook_evidence, runbook_blocker = (
         _manual_review_runbook_promotion_policy_consistent(
             root_path,
-            source_license_already_passed=bool(
-                source_license_progress and source_license_progress.ready_for_promotion
-            ),
+            source_license_already_passed=source_license_already_passed,
         )
     )
     checks.append(
@@ -805,10 +810,19 @@ def build_operator_readiness_report(
         )
     )
 
-    batch_status, _, _ = build_manual_review_batch_status(root_path)
-    gold_rows, gold_row_errors = _template_row_count(root_path, GOLD_BATCH_IMPORT_TEMPLATE_PATH)
-    gold_full_rows, gold_full_row_errors = _template_row_count(root_path, GOLD_FULL_IMPORT_TEMPLATE_PATH)
-    license_rows, license_row_errors = _template_row_count(root_path, LICENSE_BATCH_IMPORT_TEMPLATE_PATH)
+    batch_status, _, _ = build_manual_review_batch_status(check_root)
+    gold_rows, gold_row_errors = _template_row_count(
+        check_root,
+        GOLD_BATCH_IMPORT_TEMPLATE_PATH,
+    )
+    gold_full_rows, gold_full_row_errors = _template_row_count(
+        check_root,
+        GOLD_FULL_IMPORT_TEMPLATE_PATH,
+    )
+    license_rows, license_row_errors = _template_row_count(
+        check_root,
+        LICENSE_BATCH_IMPORT_TEMPLATE_PATH,
+    )
     batch_shape_blockers = (
         *(blocker for blocker in batch_status.blockers if "still pending" not in blocker),
         *gold_row_errors,
@@ -855,7 +869,7 @@ def build_operator_readiness_report(
         )
     )
 
-    sparse_ok, sparse_evidence, sparse_blocker = _import_templates_are_sparse(root_path)
+    sparse_ok, sparse_evidence, sparse_blocker = _import_templates_are_sparse(check_root)
     checks.append(_check("manual_import_templates_are_sparse", sparse_ok, sparse_evidence, sparse_blocker))
 
     empty_provenance_allowed = set()
@@ -870,7 +884,7 @@ def build_operator_readiness_report(
         empty_provenance_allowed.add(LICENSE_BATCH_IMPORT_TEMPLATE_PATH)
     provenance_ok, provenance_evidence, provenance_blocker = (
         _manual_review_templates_have_provenance(
-            root_path,
+            check_root,
             allow_empty_jsonl=frozenset(empty_provenance_allowed),
         )
     )
@@ -913,13 +927,13 @@ def build_operator_readiness_report(
     )
 
     lockbox_template, lockbox_template_errors = _read_mapping_json(
-        root_path,
+        check_root,
         LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH,
     )
     expected_lockbox: Mapping[str, Any] = {}
     expected_lockbox_error = ""
     try:
-        expected_lockbox = build_lockbox_review_import_template(root_path)
+        expected_lockbox = build_lockbox_review_import_template(check_root)
     except ValueError as exc:
         expected_lockbox_error = str(exc)
     checks.append(
@@ -992,10 +1006,10 @@ def build_operator_readiness_report(
     )
 
     policy_template, policy_template_errors = _read_mapping_json(
-        root_path,
+        check_root,
         SOURCE_LICENSE_POLICY_TEMPLATE_PATH,
     )
-    expected_policy = build_source_license_policy_template(root_path)
+    expected_policy = build_source_license_policy_template(check_root)
     checks.append(
         _check(
             "source_license_policy_template_requires_human_decision",
@@ -1073,7 +1087,7 @@ def build_operator_readiness_report(
         bundle_result = write_manual_review_bundle_manifest(root_path)
         bundle_manifest = _read_json(root_path / MANUAL_REVIEW_BUNDLE_MANIFEST_PATH)
     else:
-        built_bundle_manifest = build_manual_review_bundle_manifest(root_path)
+        built_bundle_manifest = build_manual_review_bundle_manifest(check_root)
         bundle_result = {
             "accepted": built_bundle_manifest.accepted,
             "artifact_count": built_bundle_manifest.artifact_count,
