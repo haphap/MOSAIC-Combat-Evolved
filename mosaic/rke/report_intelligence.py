@@ -950,6 +950,8 @@ class AnalyticalFootprintReviewPrepareReport:
     overwrite: bool
     requested_limit: int | None
     requested_offset: int
+    priority: bool
+    selection_policy: str
     output_rows: int
     complete_rows: int
     pending_rows: int
@@ -4847,6 +4849,7 @@ def prepare_analytical_footprint_review_import(
     limit: int | None = None,
     offset: int = 0,
     overwrite: bool = False,
+    priority: bool = False,
 ) -> AnalyticalFootprintReviewPrepareReport:
     root_path = Path(root)
     target_path = root_path / ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH
@@ -4871,8 +4874,24 @@ def prepare_analytical_footprint_review_import(
         blockers.append(f"output_path already exists: {resolved_output_path}")
     offset_value = max(0, int(offset))
     limit_value = None if limit is None else max(0, int(limit))
-    if limit_value is None:
+    if priority:
+        pending_indexed_rows = [
+            (index, row)
+            for index, row in enumerate(target_rows)
+            if not _footprint_review_row_complete(row)
+        ]
+        prioritized_rows = sorted(
+            pending_indexed_rows,
+            key=lambda item: (-_footprint_review_priority_score(item[1]), item[0]),
+        )
+        selected_indexed_rows = prioritized_rows[
+            offset_value : None if limit_value is None else offset_value + limit_value
+        ]
+        selected_target_rows = [row for _, row in selected_indexed_rows]
+        selection_policy = "priority_sorted_pending"
+    elif limit_value is None:
         selected_target_rows = target_rows[offset_value:] if offset_value else target_rows
+        selection_policy = "target_order"
     else:
         pending_target_rows = [
             row for row in target_rows if not _footprint_review_row_complete(row)
@@ -4880,6 +4899,7 @@ def prepare_analytical_footprint_review_import(
         selected_target_rows = pending_target_rows[
             offset_value : offset_value + limit_value
         ]
+        selection_policy = "pending_offset"
     scaffold_rows: list[dict[str, Any]] = []
     for row in selected_target_rows:
         scaffold = dict(row)
@@ -4913,6 +4933,8 @@ def prepare_analytical_footprint_review_import(
         overwrite=overwrite,
         requested_limit=limit_value,
         requested_offset=offset_value,
+        priority=bool(priority),
+        selection_policy=selection_policy,
         output_rows=len(scaffold_rows),
         complete_rows=complete_rows,
         pending_rows=len(scaffold_rows) - complete_rows,

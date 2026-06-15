@@ -399,6 +399,7 @@ def test_review_progress_reports_missing_scratch_files(tmp_path: Path, capsys):
         footprint_gate["next_batch_commands"]["dry_run"]
         == expected_footprint_dry_run
     )
+    assert "--priority" in footprint_gate["next_batch_commands"]["prepare"]
     assert source_license_gate["next_batch_commands"] == {}
     assert len(gold_gate["batch_plan"]) >= 1
     assert gold_gate["batch_plan"][0]["offset"] == 0
@@ -419,6 +420,11 @@ def test_review_progress_reports_missing_scratch_files(tmp_path: Path, capsys):
     assert len(footprint_gate["batch_plan"]) == 22
     assert footprint_gate["batch_plan"][-1]["offset"] == 1050
     assert footprint_gate["batch_plan"][-1]["limit"] == 1
+    assert (
+        footprint_gate["batch_plan"][0]["mode"]
+        == "priority_sorted_pending_batch_before_applying_any_batch"
+    )
+    assert "--priority" in footprint_gate["batch_plan"][0]["commands"]["prepare"]
     assert "source_id" not in json.dumps(gold_gate["batch_plan"])
     assert "footprint_id" not in json.dumps(footprint_gate["batch_plan"])
     assert gold_gate["current_batch_status"]["exists"] is False
@@ -1409,6 +1415,7 @@ def test_manual_review_runbook_renders_operator_checklist_without_source_text(tm
     assert "batch-aligned private source-evidence draft" in markdown
     assert "Evidence alignment:" in markdown
     assert "mosaic-rke prepare-footprint-review --root ." in markdown
+    assert "prepare-footprint-review --root . --limit 50 --offset 0 --priority" in markdown
     assert (
         "mosaic-rke write-footprint-review-assist --root . --review-input "
         "registry/report_intelligence/analytical_footprint_review_batch.jsonl"

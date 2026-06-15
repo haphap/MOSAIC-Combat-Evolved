@@ -10666,6 +10666,79 @@ def test_prepare_analytical_footprint_review_import_batches_pending_rows(
     assert scaffold_rows[0]["footprint_correct"] is None
 
 
+def test_prepare_analytical_footprint_review_import_priority_sorts_pending_rows(
+    tmp_path: Path,
+):
+    template_path = (
+        tmp_path
+        / "registry/report_intelligence/analytical_footprint_review_template.jsonl"
+    )
+    low_priority = {
+        "footprint_id": "FOOTPRINT-LOW",
+        "target_row_hash": "sha256:" + "1" * 64,
+        "source_span_ids": ["span-low"],
+        "indicator_mentions_review_preview": ["营收"],
+        "analysis_patterns_review_preview": ["single metric trend"],
+        "target_entity_candidates": ["fixture company"],
+        "target_agent_candidates": ["sector.basic_materials"],
+        "footprint_correct": None,
+        "source_span_supports_footprint": None,
+        "metric_mapping_correct": None,
+        "inferred_steps_tagged_correctly": None,
+        "unknowns_used_when_uncertain": None,
+        "no_proprietary_text_leakage": None,
+        "reviewer": "",
+        "review_date": "",
+        "review_notes": "",
+    }
+    high_priority = {
+        "footprint_id": "FOOTPRINT-HIGH",
+        "target_row_hash": "sha256:" + "2" * 64,
+        "source_span_ids": ["span-a", "span-b", "span-c", "span-d"],
+        "indicator_mentions_review_preview": [],
+        "analysis_patterns_review_preview": [
+            "macro regime",
+            "industry cycle",
+            "earnings transmission",
+        ],
+        "target_entity_candidates": [],
+        "target_agent_candidates": [],
+        "footprint_correct": None,
+        "source_span_supports_footprint": None,
+        "metric_mapping_correct": None,
+        "inferred_steps_tagged_correctly": None,
+        "unknowns_used_when_uncertain": None,
+        "no_proprietary_text_leakage": None,
+        "reviewer": "",
+        "review_date": "",
+        "review_notes": "",
+    }
+    _write_jsonl(template_path, [low_priority, high_priority])
+
+    default_output_path = tmp_path / "footprint_default_batch.jsonl"
+    default_report = prepare_analytical_footprint_review_import(
+        tmp_path,
+        default_output_path,
+        limit=1,
+    )
+    priority_output_path = tmp_path / "footprint_priority_batch.jsonl"
+    priority_report = prepare_analytical_footprint_review_import(
+        tmp_path,
+        priority_output_path,
+        limit=1,
+        priority=True,
+    )
+
+    assert default_report.accepted
+    assert default_report.priority is False
+    assert default_report.selection_policy == "pending_offset"
+    assert _read_jsonl(default_output_path)[0]["footprint_id"] == "FOOTPRINT-LOW"
+    assert priority_report.accepted
+    assert priority_report.priority is True
+    assert priority_report.selection_policy == "priority_sorted_pending"
+    assert _read_jsonl(priority_output_path)[0]["footprint_id"] == "FOOTPRINT-HIGH"
+
+
 def test_prepare_analytical_footprint_review_import_backs_up_overwrite(
     tmp_path: Path,
 ):
@@ -10724,6 +10797,7 @@ def test_prepare_footprint_review_cli_limit_defaults_to_batch_path(
             "1",
             "--offset",
             "0",
+            "--priority",
             "--reviewer",
             "footprint-reviewer",
             "--review-date",
@@ -10737,6 +10811,8 @@ def test_prepare_footprint_review_cli_limit_defaults_to_batch_path(
     assert output["output_path"] == str(batch_path)
     assert output["requested_limit"] == 1
     assert output["requested_offset"] == 0
+    assert output["priority"] is True
+    assert output["selection_policy"] == "priority_sorted_pending"
     assert output["output_rows"] == 1
     assert batch_path.exists()
     assert not (tmp_path / ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH).exists()

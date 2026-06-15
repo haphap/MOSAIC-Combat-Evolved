@@ -1730,6 +1730,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Review-row offset before applying --limit. Defaults to 0.",
     )
     prepare_footprint_review.add_argument(
+        "--priority",
+        action="store_true",
+        help=(
+            "Select pending rows by analytical-footprint review priority before "
+            "applying --offset/--limit."
+        ),
+    )
+    prepare_footprint_review.add_argument(
         "--overwrite",
         action="store_true",
         help="Overwrite an existing output scaffold.",
@@ -2439,6 +2447,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             limit=args.limit,
             offset=args.offset,
             overwrite=args.overwrite,
+            priority=args.priority,
         )
         _print_json(asdict(report))
         return 0 if report.accepted else 2

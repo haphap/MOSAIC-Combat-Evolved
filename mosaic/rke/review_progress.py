@@ -661,7 +661,7 @@ def _footprint_next_batch_commands(pending_rows: int) -> dict[str, str]:
         "prepare": (
             operator_command(
                 "mosaic-rke prepare-footprint-review --root . "
-                f"--limit {batch_size} --offset 0 "
+                f"--limit {batch_size} --offset 0 --priority "
                 "--reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
             )
         ),
@@ -727,7 +727,7 @@ def _manual_review_batch_plan(
                 ),
                 "prepare": operator_command(
                     "mosaic-rke prepare-footprint-review --root . "
-                    f"--limit {limit} --offset {offset} "
+                    f"--limit {limit} --offset {offset} --priority "
                     "--reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
                 ),
                 "dry_run": operator_command(
@@ -746,7 +746,11 @@ def _manual_review_batch_plan(
                 "limit": limit,
                 "pending_row_start": offset + 1,
                 "pending_row_end": offset + limit,
-                "mode": "pending_offset_batch_before_applying_any_batch",
+                "mode": (
+                    "pending_offset_batch_before_applying_any_batch"
+                    if review_kind == "gold_set"
+                    else "priority_sorted_pending_batch_before_applying_any_batch"
+                ),
                 "apply_effect": "merge_batch_into_target_review_template",
                 "target_review_template_path": (
                     GOLD_REVIEW_TEMPLATE_PATH
@@ -1932,7 +1936,7 @@ def render_manual_review_runbook_markdown(report: ManualReviewProgressReport) ->
     )
     footprint_batch_prepare = operator_command(
         "mosaic-rke prepare-footprint-review --root . --limit 50 --offset 0 "
-        "--reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
+        "--priority --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
     )
     footprint_batch_dry_run = operator_command(
         "mosaic-rke apply-footprint-review --root . "

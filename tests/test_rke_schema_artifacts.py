@@ -3619,6 +3619,12 @@ def test_manual_review_progress_contract_rejects_count_or_command_drift(
             "--offset 50",
         )
     )
+    progress["gates"][1]["batch_plan"][0]["commands"]["prepare"] = (
+        progress["gates"][1]["batch_plan"][0]["commands"]["prepare"].replace(
+            " --priority",
+            "",
+        )
+    )
     progress_path.write_text(
         json.dumps(progress, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
@@ -3643,6 +3649,10 @@ def test_manual_review_progress_contract_rejects_count_or_command_drift(
     assert any("batch_plan[1].commands.dry_run: must include --dry-run" in item for item in record.failures)
     assert any("batch_plan[1].commands.apply: expected batch input" in item for item in record.failures)
     assert any("batch_plan[1].commands.apply: must not use promotion input" in item for item in record.failures)
+    assert any(
+        "batch_plan[1].commands.prepare: expected --priority" in item
+        for item in record.failures
+    )
 
 
 def test_manual_review_progress_contract_rejects_bad_evidence_alignment(

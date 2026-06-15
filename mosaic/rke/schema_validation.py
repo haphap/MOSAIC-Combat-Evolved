@@ -5555,9 +5555,14 @@ def _validate_manual_review_progress_contract(
                         failures.append(
                             f"{batch_label}.pending_row_end: exceeds pending_rows"
                         )
-                if batch.get("mode") != "pending_offset_batch_before_applying_any_batch":
+                expected_mode = (
+                    "pending_offset_batch_before_applying_any_batch"
+                    if review_kind == "gold_set"
+                    else "priority_sorted_pending_batch_before_applying_any_batch"
+                )
+                if batch.get("mode") != expected_mode:
                     failures.append(
-                        f"{batch_label}.mode: expected pending_offset_batch_before_applying_any_batch"
+                        f"{batch_label}.mode: expected {expected_mode}"
                     )
                 if batch.get("apply_effect") != "merge_batch_into_target_review_template":
                     failures.append(
@@ -5656,6 +5661,13 @@ def _validate_manual_review_progress_contract(
                         )
                 elif limit is not None and f"--limit {limit}" not in prepare_command_for_batch:
                     failures.append(f"{batch_label}.commands.prepare: limit mismatch")
+                if (
+                    review_kind == "footprint_review"
+                    and "--priority" not in prepare_command_for_batch
+                ):
+                    failures.append(
+                        f"{batch_label}.commands.prepare: expected --priority"
+                    )
 
     expected_ready_for_promotion = bool(gates) and all(
         gate.get("ready_for_promotion") is True for gate in gates

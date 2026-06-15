@@ -251,7 +251,10 @@ review template now has 206 rows, with 158 complete and 48 still pending. The
 stale full reviewed import must be regenerated after the expanded batch is
 manually filled.
 The current local analytical-footprint scratch has 50 rows, 0 complete rows,
-and 50 pending rows; its evidence and target hashes are aligned. The committed
+and 50 pending rows; its evidence and target hashes are aligned. New
+analytical-footprint batches should be prepared with `--priority`, which sorts
+pending rows by the same high-risk/high-value heuristic used by the private
+evidence draft before applying `--offset` and `--limit`. The committed
 gold-set review summary still fails the quality gate:
 `direction_accuracy=0.626582`, `variable_mapping_accuracy=0.189873`, and
 `unsupported_field_false_grounding_rate=0.227848`. This means the next gold-set
@@ -438,7 +441,7 @@ MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run mosaic-rke write-gold-re
 MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run mosaic-rke write-gold-review-evidence --root . --limit 50 --offset 0 --review-input registry/review_batches/gold_set_reviewed.jsonl
 MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --dry-run
 MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run mosaic-rke prepare-gold-review --root . --full --force --reviewer hap --review-date 2026-06-12
-MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run mosaic-rke prepare-footprint-review --root . --limit 50 --offset 0 --reviewer hap --review-date 2026-06-12 --overwrite
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run mosaic-rke prepare-footprint-review --root . --limit 50 --offset 0 --priority --reviewer hap --review-date 2026-06-12 --overwrite
 MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run
 MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run mosaic-rke prepare-footprint-review --root . --output registry/report_intelligence/analytical_footprint_reviewed.jsonl --reviewer hap --review-date 2026-06-12 --overwrite
 MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run mosaic-rke write-footprint-review-assist --root . --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl
@@ -457,8 +460,11 @@ before overwrite. The current active analytical-footprint batch has 50 rows,
 current footprint review template. `review-progress --actions-only
 --review-kind footprint_review` therefore reports
 `current_batch_target_aligned=true`, `current_batch_evidence_aligned=true`, and
-the next action is filling the current batch fields before dry-run. The target
-footprint review summary still has 1017 pending rows. The
+the next action is filling the current batch fields before dry-run. When the
+current batch is accepted and applied, rerun `prepare-footprint-review` with
+`--priority --offset 0` so the next batch is selected from the remaining
+priority-sorted pending rows. The target footprint review summary still has
+1017 pending rows. The
 assist command writes
 private, gitignored helper files at
 `registry/report_intelligence/analytical_footprint_review_assist.jsonl` and
@@ -548,8 +554,9 @@ blocker families include:
    manual progress report. The gold-set quality/corpus gap must be addressed through improved
    extraction/mapping rules and a refreshed gold corpus with at least 50 reviewed
    documents. The footprint review has 34 accepted rows and 1017 rows still
-   pending. Validate each
-   footprint batch with
+   pending. Prepare each footprint batch with
+   `MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run mosaic-rke prepare-footprint-review --root . --limit 50 --offset 0 --priority --reviewer <name> --review-date <YYYY-MM-DD> --overwrite`,
+   validate it with
    `MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run`,
    then apply through the same import path.
 2. P9 coverage watchlist: current public gate reports `coverage_gate_status=passed`.
