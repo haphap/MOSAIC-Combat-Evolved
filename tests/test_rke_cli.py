@@ -1421,6 +1421,143 @@ def test_rke_cli_evolution_readiness_no_write_uses_read_only_gate(
     assert output["blocked_check_ids"] == ["RI-EVOL-05"]
 
 
+def test_rke_cli_evolution_readiness_surfaces_manual_action_context(
+    tmp_path: Path,
+    capsys,
+    monkeypatch,
+):
+    def fake_write_gate(registry_dir, *, run_id, write=True):
+        return {
+            "evolution_readiness_gate": "registry/report_intelligence/evolution_readiness_gate.json",
+            "gate_status": "blocked",
+            "blocker_count": 2,
+            "blockers": ["manual_review_pending", "schema_blocked"],
+            "blocked_check_ids": ["RI-EVOL-04", "RI-EVOL-05"],
+            "passed_check_ids": [],
+            "blocked_checks": [
+                {"check_id": "RI-EVOL-04", "blockers": ["schema_blocked"]},
+                {"check_id": "RI-EVOL-05", "blockers": ["manual_review_pending"]},
+            ],
+            "input_load_blockers": [],
+            "written": write,
+            "next_actions": [
+                {
+                    "action_id": "complete_manual_forecast_gold_review",
+                    "commands": {"inspect": "base gold inspect"},
+                },
+                {
+                    "action_id": "complete_manual_analytical_footprint_review",
+                    "commands": {"inspect": "base footprint inspect"},
+                },
+                {
+                    "action_id": "clear_current_schema_and_audit_blockers",
+                    "commands": {"manual_queue": "base manual queue"},
+                },
+            ],
+        }
+
+    def fake_action_queue(report, *, review_kinds, **kwargs):
+        review_kind = review_kinds[0]
+        if review_kind == "gold_set":
+            return {
+                "actions": [
+                    {
+                        "commands": {
+                            "assist": f"{RKE_OPERATOR_TMP_ENV_PREFIX} mosaic-rke write-gold-review-assist --root .",
+                            "evidence": f"{RKE_OPERATOR_TMP_ENV_PREFIX} mosaic-rke write-gold-review-evidence --root . --limit 7 --offset 0",
+                            "dry_run": f"{RKE_OPERATOR_TMP_ENV_PREFIX} mosaic-rke apply-gold-review --root . --dry-run",
+                        },
+                        "batch_overview": {
+                            "current_batch_rows": 7,
+                            "remaining_rows_after_current_batch": 2,
+                        },
+                        "after_dry_run_accepts": {
+                            "apply_current_batch": "apply gold batch"
+                        },
+                        "next_manual_action": "fill_current_batch_review_fields_then_dry_run",
+                        "action_state": "needs_human_review_fields",
+                        "can_run_now": True,
+                        "blocks_promotion": True,
+                        "post_current_batch_action": "apply_current_batch_then_rerun_review_progress",
+                        "manual_input_path": "registry/review_batches/gold_set_reviewed.jsonl",
+                        "promotion_input_path": "registry/review_batches/gold_set_full_reviewed.jsonl",
+                        "current_batch_pending_rows": 7,
+                        "evidence_aligned": True,
+                    }
+                ]
+            }
+        return {
+            "actions": [
+                {
+                    "commands": {
+                        "assist": f"{RKE_OPERATOR_TMP_ENV_PREFIX} mosaic-rke write-footprint-review-assist --root .",
+                        "evidence": f"{RKE_OPERATOR_TMP_ENV_PREFIX} mosaic-rke write-footprint-review-evidence --root . --limit 11 --offset 0",
+                        "dry_run": f"{RKE_OPERATOR_TMP_ENV_PREFIX} mosaic-rke apply-footprint-review --root . --dry-run",
+                    },
+                    "batch_overview": {
+                        "current_batch_rows": 11,
+                        "remaining_rows_after_current_batch": 90,
+                    },
+                    "after_dry_run_accepts": {
+                        "apply_current_batch": "apply footprint batch"
+                    },
+                    "next_manual_action": "fill_current_batch_review_fields_then_dry_run",
+                    "action_state": "needs_human_review_fields",
+                    "can_run_now": True,
+                    "blocks_promotion": True,
+                    "post_current_batch_action": "apply_current_batch_then_rerun_review_progress",
+                    "manual_input_path": (
+                        "registry/report_intelligence/"
+                        "analytical_footprint_review_batch.jsonl"
+                    ),
+                    "promotion_input_path": (
+                        "registry/report_intelligence/analytical_footprint_reviewed.jsonl"
+                    ),
+                    "current_batch_pending_rows": 11,
+                    "evidence_aligned": True,
+                }
+            ]
+        }
+
+    monkeypatch.setattr(
+        "mosaic.rke.cli.write_report_intelligence_evolution_readiness_gate",
+        fake_write_gate,
+    )
+    monkeypatch.setattr(
+        "mosaic.rke.cli.build_manual_review_progress",
+        lambda root: object(),
+    )
+    monkeypatch.setattr(
+        "mosaic.rke.cli.build_manual_review_action_queue",
+        fake_action_queue,
+    )
+
+    code = main(("evolution-readiness", "--root", str(tmp_path), "--no-write"))
+    output = json.loads(capsys.readouterr().out)
+    actions = {action["action_id"]: action for action in output["next_actions"]}
+
+    assert code == 2
+    gold_action = actions["complete_manual_forecast_gold_review"]
+    assert gold_action["action_state"] == "needs_human_review_fields"
+    assert gold_action["commands"]["write_evidence"].endswith("--limit 7 --offset 0")
+    assert gold_action["batch_overview"]["current_batch_rows"] == 7
+    assert gold_action["after_dry_run_accepts"]["apply_current_batch"] == (
+        "apply gold batch"
+    )
+    footprint_action = actions["complete_manual_analytical_footprint_review"]
+    assert footprint_action["commands"]["write_evidence"].endswith(
+        "--limit 11 --offset 0"
+    )
+    assert footprint_action["manual_input_path"] == (
+        "registry/report_intelligence/analytical_footprint_review_batch.jsonl"
+    )
+    gate_actions = actions["clear_current_schema_and_audit_blockers"][
+        "review_gate_actions"
+    ]
+    assert gate_actions["gold_set"]["current_batch_pending_rows"] == 7
+    assert gate_actions["footprint_review"]["current_batch_pending_rows"] == 11
+
+
 def test_rke_cli_evolution_readiness_no_write_rejects_prompt_mutation_refresh(
     tmp_path: Path,
     capsys,

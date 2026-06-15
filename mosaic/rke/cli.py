@@ -307,6 +307,74 @@ def _current_review_action_public_context(
     }
 
 
+def _merge_review_action_context(
+    action: Mapping[str, Any],
+    *,
+    root: str | Path,
+    review_kind: str,
+) -> dict[str, Any]:
+    merged = dict(action)
+    context = _current_review_action_context(root, review_kind)
+    context_commands = context.get("commands")
+    if isinstance(context_commands, Mapping) and context_commands:
+        merged["commands"] = {
+            **dict(merged.get("commands") if isinstance(merged.get("commands"), Mapping) else {}),
+            **dict(context_commands),
+        }
+    batch_overview = context.get("batch_overview")
+    if isinstance(batch_overview, Mapping) and batch_overview:
+        merged["batch_overview"] = dict(batch_overview)
+    after_dry_run_accepts = context.get("after_dry_run_accepts")
+    if isinstance(after_dry_run_accepts, Mapping) and after_dry_run_accepts:
+        merged["after_dry_run_accepts"] = dict(after_dry_run_accepts)
+    for key, value in _current_review_action_public_context(root, review_kind).items():
+        merged[key] = value
+    return merged
+
+
+def _augment_evolution_readiness_manual_actions(
+    result: Mapping[str, Any],
+    *,
+    root: str | Path,
+) -> dict[str, Any]:
+    actions = result.get("next_actions")
+    if not isinstance(actions, Sequence) or isinstance(actions, str):
+        return dict(result)
+    augmented_actions: list[dict[str, Any]] = []
+    for raw_action in actions:
+        if not isinstance(raw_action, Mapping):
+            continue
+        action_id = str(raw_action.get("action_id") or "")
+        if action_id == "complete_manual_forecast_gold_review":
+            action = _merge_review_action_context(
+                raw_action,
+                root=root,
+                review_kind="gold_set",
+            )
+        elif action_id == "complete_manual_analytical_footprint_review":
+            action = _merge_review_action_context(
+                raw_action,
+                root=root,
+                review_kind="footprint_review",
+            )
+        elif action_id == "clear_current_schema_and_audit_blockers":
+            action = dict(raw_action)
+            review_gate_actions = {
+                "gold_set": _current_review_action_public_context(root, "gold_set"),
+                "footprint_review": _current_review_action_public_context(
+                    root,
+                    "footprint_review",
+                ),
+            }
+            action["review_gate_actions"] = {
+                key: value for key, value in review_gate_actions.items() if value
+            }
+        else:
+            action = dict(raw_action)
+        augmented_actions.append(action)
+    return {**dict(result), "next_actions": augmented_actions}
+
+
 def _schema_status_next_actions(
     records: Sequence[Any],
     *,
@@ -2562,6 +2630,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     run_id=args.run_id,
                 ),
             }
+        result = _augment_evolution_readiness_manual_actions(result, root=root)
         _print_json(result)
         return (
             0

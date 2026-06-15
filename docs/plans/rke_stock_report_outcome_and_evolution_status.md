@@ -202,7 +202,13 @@ readiness blockers. The same read-only output now includes public-safe
 `next_actions` with temp-prefixed commands for the current gold-set review
 batch, the current analytical-footprint review batch, the schema/audit blocker
 inspection path, and the distinct `data_vintage_hash` refresh-history
-requirement. RI-EVOL-04 audit blocker summaries now exclude the
+requirement. These manual-review actions now merge the same live
+`review-progress` action-state context as `schema-status`: `next_manual_action`,
+`action_state`, `can_run_now`, `batch_overview`, `after_dry_run_accepts`, active
+manual/promotion input paths, and nested `review_gate_actions` for the schema
+and audit blocker action. This keeps RI-EVOL-04/05 operator work aligned with
+the current scratch batches instead of stale static commands. RI-EVOL-04 audit
+blocker summaries now exclude the
 `schemas/report_intelligence_evolution_readiness_gate_rules` self-check from
 the current schema failure count and refs, so the current no-write output
 reports the 23 true external schema failures across footprint review, gold
