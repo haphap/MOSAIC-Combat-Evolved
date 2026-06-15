@@ -634,7 +634,7 @@ drift to stale manual-review paths.
 `tests/test_rke_operator_handoff.py` asserts the same maps appear in the
 operator handoff dataclasses, JSON output, and Markdown output.
 
-`MOSAIC_RKE_TMPDIR=/tmp TMPDIR=/tmp uv run mosaic-rke schema-status --root .`
+`MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run mosaic-rke schema-status --root .`
 currently exits with code 2 by design. The refreshed failure-only run reports 23
 semantic failures across three records:
 `schemas/report_intelligence_analytical_footprint_review_rules`,

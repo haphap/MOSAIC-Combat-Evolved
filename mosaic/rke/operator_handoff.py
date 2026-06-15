@@ -82,6 +82,7 @@ class OperatorGateHandoff:
     required_manual_fields: Sequence[str]
     review_aids: Mapping[str, Any]
     field_contract: Mapping[str, Any]
+    batch_overview: Mapping[str, Any]
     dry_run_command: str
     apply_command: str
     operator_note: str
@@ -173,7 +174,11 @@ def _criterion_by_id(criteria: Sequence[Any], criterion_id: str) -> Mapping[str,
     return {}
 
 
-def _footprint_review_gate(root_path: Path) -> OperatorGateHandoff:
+def _footprint_review_gate(
+    root_path: Path,
+    *,
+    batch_overview: Mapping[str, Any] | None = None,
+) -> OperatorGateHandoff:
     summary_path = root_path / ANALYTICAL_FOOTPRINT_REVIEW_SUMMARY_PATH
     summary: Mapping[str, Any] = {}
     if summary_path.exists():
@@ -232,6 +237,7 @@ def _footprint_review_gate(root_path: Path) -> OperatorGateHandoff:
         ),
         review_aids=manual_review_aid_paths("footprint_review"),
         field_contract=manual_review_field_contract("footprint_review"),
+        batch_overview=dict(batch_overview or {}),
         dry_run_command=operator_command(
             "mosaic-rke apply-footprint-review --root . "
             f"--input {ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH} --dry-run"
@@ -681,12 +687,23 @@ def _write_lockbox_review_import_template_or_error(root_path: Path) -> dict[str,
 def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
     root_path = Path(root)
     batch_status, _, _ = build_manual_review_batch_status(root_path)
-    from .review_progress import build_manual_review_progress
+    from .review_progress import (
+        build_manual_review_progress,
+        manual_review_gate_batch_overview,
+    )
 
     progress_report = build_manual_review_progress(root_path)
     progress_by_kind = {gate.review_kind: gate for gate in progress_report.gates}
     gold_progress = progress_by_kind.get("gold_set")
     footprint_progress = progress_by_kind.get("footprint_review")
+    gold_batch_overview = (
+        manual_review_gate_batch_overview(gold_progress) if gold_progress else {}
+    )
+    footprint_batch_overview = (
+        manual_review_gate_batch_overview(footprint_progress)
+        if footprint_progress
+        else {}
+    )
     promotion = build_production_promotion_gate_report(root_path)
     criteria = tuple(promotion.criteria)
     pg02 = _criterion_by_id(criteria, "PG02")
@@ -715,6 +732,7 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
             required_manual_fields=tuple(gold.required_manual_fields),
             review_aids=manual_review_aid_paths("gold_set"),
             field_contract=manual_review_field_contract("gold_set"),
+            batch_overview=gold_batch_overview,
             dry_run_command=operator_command(
                 "mosaic-rke apply-gold-review --root . "
                 f"--input {GOLD_FULL_REVIEWED_IMPORT_PATH} --dry-run"
@@ -733,7 +751,10 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
                 "dry-run it, and apply accepted batches to accumulate progress."
             ),
         ),
-        _footprint_review_gate(root_path),
+        _footprint_review_gate(
+            root_path,
+            batch_overview=footprint_batch_overview,
+        ),
         OperatorGateHandoff(
             gate_id="PG03",
             review_kind="source_license",
@@ -751,6 +772,7 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
             required_manual_fields=tuple(source_license.required_manual_fields),
             review_aids=manual_review_aid_paths("source_license"),
             field_contract=manual_review_field_contract("source_license"),
+            batch_overview={},
             dry_run_command=operator_command(
                 "mosaic-rke build-license-review-import --root . "
                 f"--policy {SOURCE_LICENSE_REVIEWED_POLICY_PATH} "
@@ -805,6 +827,7 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
             ),
             review_aids=manual_review_aid_paths("lockbox"),
             field_contract=manual_review_field_contract("lockbox"),
+            batch_overview={},
             dry_run_command=operator_command(
                 "mosaic-rke apply-lockbox-review --root . "
                 f"--input {LOCKBOX_REVIEWED_IMPORT_PATH} --dry-run"
@@ -936,6 +959,52 @@ def _markdown_mapping(mapping: Mapping[str, Any]) -> str:
     ) or "none"
 
 
+def _markdown_batch_overview(mapping: Mapping[str, Any]) -> str:
+    if not mapping:
+        return "none"
+    field_order = (
+        "batch_count",
+        "pending_rows",
+        "current_batch_path",
+        "current_batch_rows",
+        "current_batch_pending_rows",
+        "current_batch_target_covered_rows",
+        "remaining_rows_after_current_batch",
+        "current_batch_evidence_aligned",
+        "current_batch_target_aligned",
+        "next_batch_offset",
+        "next_batch_limit",
+        "remaining_rows_after_next_batch",
+        "rerun_review_progress_after_batch_apply",
+    )
+    summary = {
+        field: mapping[field]
+        for field in field_order
+        if field in mapping
+    }
+    workload = mapping.get("current_batch_review_field_workload_summary")
+    if isinstance(workload, Mapping) and workload:
+        for field in (
+            "field_count",
+            "manual_review_required_cells",
+            "draft_decision_available_cells",
+        ):
+            if field in workload:
+                summary[f"workload_{field}"] = workload[field]
+    quality_focus = mapping.get("current_batch_quality_gap_review_focus")
+    if isinstance(quality_focus, Mapping) and quality_focus:
+        focus_items = quality_focus.get("items")
+        if isinstance(focus_items, Sequence) and not isinstance(focus_items, str):
+            focus_metrics = [
+                str(item.get("metric") or "")
+                for item in focus_items
+                if isinstance(item, Mapping) and str(item.get("metric") or "").strip()
+            ]
+            if focus_metrics:
+                summary["quality_focus_metrics"] = tuple(focus_metrics)
+    return _markdown_mapping(summary)
+
+
 def render_operator_handoff_markdown(handoff: OperatorHandoff) -> str:
     lines = [
         "# RKE Operator Handoff",
@@ -988,6 +1057,7 @@ def render_operator_handoff_markdown(handoff: OperatorHandoff) -> str:
                 f"- Exported rows: {gate.exported_rows}",
                 f"- Review aids: {_markdown_mapping(gate.review_aids)}",
                 f"- Field contract: {_markdown_mapping(gate.field_contract)}",
+                f"- Batch overview: {_markdown_batch_overview(gate.batch_overview)}",
                 f"- Dry run: `{gate.dry_run_command}`",
                 f"- Apply: `{gate.apply_command}`",
                 f"- Note: {gate.operator_note}",

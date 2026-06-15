@@ -7072,6 +7072,23 @@ def _validate_operator_handoff_contract(root_path: Path) -> tuple[int, list[str]
         "registry/handoffs/rke_operator_handoff.json",
     )
     failures = list(handoff_failures)
+    progress_report, _ = _read_mapping_json(
+        root_path / "registry/review_batches/manual_review_progress_report.json",
+        "registry/review_batches/manual_review_progress_report.json",
+    )
+    progress_batch_overview_by_kind: dict[str, Mapping[str, Any]] = {}
+    progress_gates = (
+        progress_report.get("gates") if isinstance(progress_report, Mapping) else None
+    )
+    if isinstance(progress_gates, Sequence) and not isinstance(progress_gates, str):
+        for progress_gate in progress_gates:
+            if not isinstance(progress_gate, Mapping):
+                continue
+            overview = progress_gate.get("batch_overview")
+            if isinstance(overview, Mapping):
+                progress_batch_overview_by_kind[
+                    str(progress_gate.get("review_kind") or "")
+                ] = overview
     steps: list[Mapping[str, Any]] = []
     if not handoff:
         return 0, failures
@@ -7235,6 +7252,24 @@ def _validate_operator_handoff_contract(root_path: Path) -> tuple[int, list[str]
                 failures.append(
                     f"operator_handoff.gates[{review_kind}].field_contract: "
                     "must match shared manual review field contract"
+                )
+            batch_overview = gate.get("batch_overview")
+            if not isinstance(batch_overview, Mapping):
+                failures.append(
+                    f"operator_handoff.gates[{review_kind}].batch_overview: "
+                    "expected object"
+                )
+                continue
+            expected_batch_overview = progress_batch_overview_by_kind.get(review_kind)
+            if expected_batch_overview is None:
+                failures.append(
+                    f"operator_handoff.gates[{review_kind}].batch_overview: "
+                    "missing manual_review_progress_report source"
+                )
+            elif batch_overview != expected_batch_overview:
+                failures.append(
+                    f"operator_handoff.gates[{review_kind}].batch_overview: "
+                    "must match manual_review_progress_report gate batch_overview"
                 )
 
     return len(steps), failures

@@ -2572,6 +2572,13 @@ def _compact_batch_overview(gate: ManualReviewGateProgress) -> Mapping[str, Any]
     return overview
 
 
+def manual_review_gate_batch_overview(
+    gate: ManualReviewGateProgress,
+) -> Mapping[str, Any]:
+    """Return the public-safe compact batch view shared by operator surfaces."""
+    return dict(_compact_batch_overview(gate))
+
+
 def _review_aid_paths(gate: ManualReviewGateProgress) -> Mapping[str, Any]:
     return manual_review_aid_paths(gate.review_kind)
 
