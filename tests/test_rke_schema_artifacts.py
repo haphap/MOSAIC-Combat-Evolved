@@ -17,6 +17,7 @@ from mosaic.rke.schema_validation import (
     validate_rule_pack_schema_artifact,
 )
 from mosaic.rke.report_intelligence import build_default_industry_etf_proxy_map_rows
+from mosaic.rke.temp_paths import RKE_OPERATOR_TMP_ENV_PREFIX
 
 
 REQUIRED_SCHEMA_FILES = {
@@ -3365,12 +3366,10 @@ def test_manual_review_progress_contract_rejects_count_or_command_drift(
     progress["gates"][1]["target_rows"] = 1001
     progress["gates"][1]["prepare_command"] = "mosaic-rke prepare-footprint-review --root ."
     progress["gates"][1]["dry_run_command"] = (
-        "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke "
-        "mosaic-rke apply-footprint-review --root ."
+        f"{RKE_OPERATOR_TMP_ENV_PREFIX} mosaic-rke apply-footprint-review --root ."
     )
     progress["gates"][1]["apply_command"] = (
-        "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke "
-        "mosaic-rke apply-footprint-review --root . "
+        f"{RKE_OPERATOR_TMP_ENV_PREFIX} mosaic-rke apply-footprint-review --root . "
         "--input registry/report_intelligence/analytical_footprint_review_batch.jsonl"
     )
     progress["gates"][1]["current_batch_status"]["pending_rows"] = 49
@@ -3380,8 +3379,7 @@ def test_manual_review_progress_contract_rejects_count_or_command_drift(
         "registry/report_intelligence/analytical_footprint_review_batch.jsonl"
     )
     progress["gates"][1]["batch_plan"][0]["commands"]["apply"] = (
-        "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke "
-        "mosaic-rke apply-footprint-review --root . "
+        f"{RKE_OPERATOR_TMP_ENV_PREFIX} mosaic-rke apply-footprint-review --root . "
         "--input registry/report_intelligence/analytical_footprint_reviewed.jsonl"
     )
     progress["gates"][1]["batch_plan"][0]["commands"]["dry_run"] = (
@@ -3639,8 +3637,7 @@ def test_operator_handoff_contract_requires_actions_only_preflight(
         if step["step_id"] == "review-progress-preflight"
     )
     preflight["command"] = (
-        "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke "
-        "TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke review-progress --root ."
+        f"{RKE_OPERATOR_TMP_ENV_PREFIX} mosaic-rke review-progress --root ."
     )
     handoff_path.write_text(
         json.dumps(handoff, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
@@ -4891,12 +4888,9 @@ def test_schema_status_cli_filters_failures_without_writing(tmp_path: Path, caps
         "complete_manual_analytical_footprint_review",
         "clear_patch_v1_5_manual_review_coverage",
     } == set(next_actions)
-    assert (
-        "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke"
-        in next_actions["complete_manual_analytical_footprint_review"]["commands"][
-            "inspect"
-        ]
-    )
+    assert next_actions["complete_manual_analytical_footprint_review"]["commands"][
+        "inspect"
+    ].startswith(RKE_OPERATOR_TMP_ENV_PREFIX)
     assert (
         "schema-status --root . --failures-only --no-write"
         in next_actions["complete_manual_analytical_footprint_review"]["commands"][

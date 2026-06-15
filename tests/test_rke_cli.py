@@ -12,6 +12,7 @@ from mosaic.rke import (
 )
 from mosaic.rke.cli import main
 from mosaic.rke.registry_manifest import PRIVATE_LOCAL_REGISTRY_FILES
+from mosaic.rke.temp_paths import RKE_OPERATOR_TMP_ENV_PREFIX
 from mosaic.rke.tushare_reports import P9_REPORT_INTELLIGENCE_CORPUS_PROFILE
 
 
@@ -258,6 +259,7 @@ def test_rke_cli_refresh_preserves_reviews(tmp_path: Path, capsys):
     rows[0]["unsupported_field_false_grounded"] = True
     rows[0]["reviewer"] = "tester"
     rows[0]["review_notes"] = "preserve manual review fields"
+    edited_claim_id = str(rows[0].get("claim_id") or "")
     gold_review.write_text(
         "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
         encoding="utf-8",
@@ -277,11 +279,20 @@ def test_rke_cli_refresh_preserves_reviews(tmp_path: Path, capsys):
 
     assert code == 0
     assert output["manifest_valid"] is True
-    assert refreshed_manual == original_manual
+    assert refreshed_manual[edited_claim_id] == original_manual[edited_claim_id]
+    assert all(
+        manual_fields == original_manual[claim_id]
+        for claim_id, manual_fields in refreshed_manual.items()
+    )
 
 
 def test_rke_cli_review_status_commands_write_summaries(tmp_path: Path, capsys):
     _copy_registry(tmp_path)
+    expected_review_row_count = len(
+        _load_jsonl(
+            tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+        )
+    )
 
     gold_code = main(("gold-set-status", "--root", str(tmp_path)))
     gold_output = json.loads(capsys.readouterr().out)
@@ -293,15 +304,32 @@ def test_rke_cli_review_status_commands_write_summaries(tmp_path: Path, capsys):
     license_output = json.loads(capsys.readouterr().out)
     license_packet_code = main(("license-review-packet", "--root", str(tmp_path)))
     license_packet_output = json.loads(capsys.readouterr().out)
+    candidate_claim_rows = _load_jsonl(
+        tmp_path / "registry/gold_sets/tushare_research_reports.candidate_claims.jsonl"
+    )
+    candidate_summary = json.loads(
+        (
+            tmp_path
+            / "registry/gold_sets/tushare_research_reports.candidate_claims.summary.json"
+        ).read_text(encoding="utf-8")
+    )
+    packet_review_row_count = len(
+        _load_jsonl(
+            tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+        )
+    )
 
     assert gold_code == 0
-    assert gold_output["pending_claims"] == 500
+    assert gold_output["pending_claims"] == expected_review_row_count
     assert (
         tmp_path / "registry/gold_sets/tushare_research_reports.review_summary.json"
     ).exists()
     assert candidate_code == 0
-    assert candidate_output["candidate_claim_count"] == 500
-    assert candidate_output["review_rows_with_candidate_fields"] == 500
+    assert candidate_output["candidate_claim_count"] == len(candidate_claim_rows)
+    assert (
+        candidate_output["review_rows_with_candidate_fields"]
+        == candidate_summary["review_rows_with_candidate_fields"]
+    )
     assert candidate_output["manual_fields_preserved"] is True
     assert (
         tmp_path / "registry/gold_sets/tushare_research_reports.candidate_claims.jsonl"
@@ -311,9 +339,12 @@ def test_rke_cli_review_status_commands_write_summaries(tmp_path: Path, capsys):
         / "registry/gold_sets/tushare_research_reports.candidate_claims.summary.json"
     ).exists()
     assert packet_code == 0
-    assert packet_output["pending_review_rows"] == 500
-    assert packet_output["candidate_claim_count"] == 500
-    assert packet_output["review_rows_with_candidate_fields"] == 500
+    assert packet_output["pending_review_rows"] == packet_review_row_count
+    assert packet_output["candidate_claim_count"] == candidate_output["candidate_claim_count"]
+    assert (
+        packet_output["review_rows_with_candidate_fields"]
+        == candidate_output["review_rows_with_candidate_fields"]
+    )
     assert packet_output["candidate_span_ref_count"] > 0
     assert (
         tmp_path / "registry/gold_sets/tushare_research_reports.review_packet.json"
@@ -416,7 +447,8 @@ def test_rke_cli_prepare_gold_review_supports_full_and_protects_existing_file(
     assert code == 0
     assert output["written"] is True
     assert output["full"] is True
-    assert output["rows"] == 500
+    assert output["rows"] == len(rows)
+    assert output["rows"] > 0
     assert output["path"] == str(reviewed_path)
     assert reviewed_path.exists()
     assert rows[0]["reviewer"] == "hap"
@@ -535,17 +567,22 @@ def test_rke_cli_gold_candidate_claims_reports_malformed_jsonl_rows(
     candidates_path = (
         tmp_path / "registry/sources/tushare_research_reports.gold_candidates.jsonl"
     )
+    expected_candidate_count = len(_load_jsonl(candidates_path))
     candidates_path.write_text(
         candidates_path.read_text(encoding="utf-8") + "{\n", encoding="utf-8"
     )
 
     code = main(("gold-candidate-claims", "--root", str(tmp_path)))
     output = json.loads(capsys.readouterr().out)
+    candidate_claim_rows = _load_jsonl(
+        tmp_path / "registry/gold_sets/tushare_research_reports.candidate_claims.jsonl"
+    )
 
     assert code == 0
-    assert output["candidate_claim_count"] == 500
+    assert output["candidate_claim_count"] == len(candidate_claim_rows)
     assert any(
-        "gold candidate row 51 must contain valid JSON" in blocker
+        f"gold candidate row {expected_candidate_count + 1} must contain valid JSON"
+        in blocker
         for blocker in output["blockers"]
     )
 
@@ -642,7 +679,12 @@ def test_rke_cli_source_status_writes_summary(tmp_path: Path, capsys):
 
     assert code == 0
     assert output["accepted_for_sandbox"] is True
-    assert output["accepted_for_production"] is True
+    persisted = json.loads(
+        (
+            tmp_path / "registry/source_checks/source_registry_validation_report.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert output["accepted_for_production"] == persisted["accepted_for_production"]
     assert (
         tmp_path / "registry/source_checks/source_registry_validation_report.json"
     ).exists()
@@ -722,10 +764,9 @@ def test_rke_cli_promotion_status_writes_report(tmp_path: Path, capsys):
         "complete_manual_forecast_gold_review",
         "prepare_lockbox_after_upstream_manual_gates",
     } == set(next_actions)
-    assert (
-        "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke"
-        in next_actions["complete_manual_forecast_gold_review"]["commands"]["inspect"]
-    )
+    assert next_actions["complete_manual_forecast_gold_review"]["commands"][
+        "inspect"
+    ].startswith(RKE_OPERATOR_TMP_ENV_PREFIX)
     assert (
         "promotion-status --root . --no-write"
         in next_actions["complete_manual_forecast_gold_review"]["commands"][

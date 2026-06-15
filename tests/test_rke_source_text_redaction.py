@@ -84,6 +84,26 @@ def test_source_text_redaction_skips_private_review_aid_text(tmp_path: Path):
     )
 
 
+def test_source_text_redaction_skips_private_review_scratch_text(tmp_path: Path):
+    _copy_registry(tmp_path)
+    snippet = _first_tushare_abstract_snippet(tmp_path)
+    private_path = tmp_path / "registry/review_batches/gold_set_reviewed.jsonl"
+    private_path.parent.mkdir(parents=True, exist_ok=True)
+    private_path.write_text(
+        json.dumps({"manual_claim_text": snippet}, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+    report = build_source_text_redaction_report(tmp_path)
+
+    assert report.accepted
+    assert report.failure_count == 0
+    assert all(
+        record.artifact_path != "registry/review_batches/gold_set_reviewed.jsonl"
+        for record in report.records
+    )
+
+
 def test_source_text_redaction_reports_malformed_source_rows(tmp_path: Path):
     _copy_registry(tmp_path)
     source_path = tmp_path / "registry/sources/tushare_research_reports.jsonl"

@@ -829,7 +829,9 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
         OPERATOR_HANDOFF_MD_PATH,
     )
     footprint_arg = f"--footprint-input {ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH}"
-    source_license_review_complete = source_license.pending_rows == 0
+    source_license_review_complete = any(
+        gate.review_kind == "source_license" and gate.passed for gate in gates
+    )
     if source_license_review_complete:
         promotion_dry_run_command = operator_command(
             "mosaic-rke promotion-dry-run --root . "

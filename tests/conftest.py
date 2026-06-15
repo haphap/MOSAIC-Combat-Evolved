@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 
 _RKE_DEFAULT_TMPDIR = Path(
-    os.environ.get("MOSAIC_RKE_TMPDIR") or "/home/hap/tmp/mosaic-rke"
+    os.environ.get("MOSAIC_RKE_TMPDIR") or ".mosaic/tmp"
 ).expanduser()
 _RKE_DEFAULT_TMPDIR.mkdir(parents=True, exist_ok=True)
 os.environ.setdefault("MOSAIC_RKE_TMPDIR", str(_RKE_DEFAULT_TMPDIR))
@@ -709,7 +709,7 @@ def _ensure_private_tushare_test_fixture(tmp_path_factory):
     backup_root = tmp_path_factory.mktemp("rke-private-tushare-backup")
     moved_paths: list[tuple[Path, Path]] = []
     tmp_root = Path(
-        os.environ.get("MOSAIC_RKE_TMPDIR") or "/home/hap/tmp/mosaic-rke"
+        os.environ.get("MOSAIC_RKE_TMPDIR") or ".mosaic/tmp"
     ).expanduser()
     tmp_root.mkdir(parents=True, exist_ok=True)
     lock_path = tmp_root / "mosaic-rke-private-tushare-fixture.lock"

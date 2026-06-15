@@ -73,24 +73,24 @@ contracts.
 Last broad local validation set:
 
 ```bash
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run python -m pytest tests/test_rke_schema_artifacts.py -q --basetemp /home/hap/tmp/mosaic-rke/pytest-rke-schema-artifacts
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run python -m pytest tests/test_rke_report_intelligence.py -q --basetemp /home/hap/tmp/mosaic-rke/pytest-rke-ri-current
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run python -m pytest tests/test_rke_*.py -q --basetemp /home/hap/tmp/mosaic-rke/pytest-rke-all-current
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run python -m pytest tests/test_rke_schema_artifacts.py -q --basetemp .mosaic/tmp/pytest-rke-schema-artifacts
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run python -m pytest tests/test_rke_report_intelligence.py -q --basetemp .mosaic/tmp/pytest-rke-ri-current
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run python -m pytest tests/test_rke_*.py -q --basetemp .mosaic/tmp/pytest-rke-all-current
 uvx ruff@0.15.15 check mosaic/rke/report_intelligence.py mosaic/rke/schema_validation.py tests/conftest.py tests/test_rke_report_intelligence.py tests/test_rke_schema_artifacts.py
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run python scripts/check_prompt_leaks.py
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run python scripts/check_prompt_leaks.py
 git diff --check
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke review-progress --root .
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke operator-readiness --root . --no-write
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke master-plan-status --root . --no-write
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run mosaic-rke review-progress --root .
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run mosaic-rke operator-readiness --root . --no-write
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run mosaic-rke master-plan-status --root . --no-write
 ```
 
 The repository pytest default is also configured to keep its `--basetemp` under
-`/home/hap/tmp/mosaic-rke/pytest-mosaic-rke`; `tests/conftest.py` uses the same
-home tmp root for the private Tushare fixture lock file. This prevents ordinary
-test runs from placing large registry copies or fixture locks in system `/tmp`
-or under the repository checkout.
+`.mosaic/tmp/pytest-mosaic-rke`; `tests/conftest.py` uses the same
+repo-local gitignored tmp root for the private Tushare fixture lock file. This
+prevents ordinary test runs from placing large registry copies or fixture locks
+in system `/tmp` or under tracked repository paths.
 `operator-readiness --no-write` also builds its temporary dry-run registry under
-`/home/hap/tmp/mosaic-rke` and now skips local-only Tushare source blobs and
+`.mosaic/tmp` and now skips local-only Tushare source blobs and
 report Markdown/PDF/cache directories when copying the dry-run root. It still
 copies the manual review templates required for blank-import safety checks, but
 does not depend on copying private source JSONL/manifest files.
@@ -98,11 +98,11 @@ does not depend on copying private source JSONL/manifest files.
 Most recent focused validation after the proxy entry-lag hardening:
 
 ```bash
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run python -m pytest tests/test_rke_report_intelligence.py::test_report_intelligence_entry_calendar_index_uses_explicit_lag tests/test_rke_report_intelligence.py::test_report_intelligence_labels_industry_claims_with_etf_proxy_windows tests/test_rke_report_intelligence.py::test_report_intelligence_labels_stock_claims_with_qlib_price_windows tests/test_rke_report_intelligence.py::test_report_intelligence_pit_audit_rejects_t0_stock_entry -q --basetemp /home/hap/tmp/mosaic-rke/pytest-entry-lag-explicit
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run python -m pytest tests/test_rke_report_intelligence.py::test_report_intelligence_entry_calendar_index_uses_explicit_lag tests/test_rke_report_intelligence.py::test_report_intelligence_labels_industry_claims_with_etf_proxy_windows tests/test_rke_report_intelligence.py::test_report_intelligence_labels_stock_claims_with_qlib_price_windows tests/test_rke_report_intelligence.py::test_report_intelligence_pit_audit_rejects_t0_stock_entry -q --basetemp .mosaic/tmp/pytest-entry-lag-explicit
 uvx ruff@0.15.15 check mosaic/rke/report_intelligence.py tests/test_rke_report_intelligence.py
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run python scripts/check_prompt_leaks.py
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run python scripts/check_prompt_leaks.py
 git diff --check
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke schema-status --root .
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run mosaic-rke schema-status --root .
 ```
 
 The helper that computes entry dates now requires an explicit
@@ -115,8 +115,8 @@ Most recent focused validation after read-only status and action-queue
 hardening:
 
 ```bash
-uv run python -m pytest tests/test_rke_cli.py::test_rke_cli_master_plan_status_writes_coverage tests/test_rke_cli.py::test_rke_cli_master_plan_status_no_write_preserves_artifacts -q --basetemp /home/hap/tmp/mosaic-rke/pytest-master-plan-no-write-cli-20260614
-uv run python -m pytest tests/test_rke_review_progress.py -q --basetemp /home/hap/tmp/mosaic-rke/pytest-review-progress-full-20260614
+uv run python -m pytest tests/test_rke_cli.py::test_rke_cli_master_plan_status_writes_coverage tests/test_rke_cli.py::test_rke_cli_master_plan_status_no_write_preserves_artifacts -q --basetemp .mosaic/tmp/pytest-master-plan-no-write-cli-20260614
+uv run python -m pytest tests/test_rke_review_progress.py -q --basetemp .mosaic/tmp/pytest-review-progress-full-20260614
 uvx ruff@0.15.15 check mosaic/rke/cli.py mosaic/rke/review_progress.py tests/test_rke_cli.py tests/test_rke_review_progress.py
 uv run python scripts/check_prompt_leaks.py
 git diff --check
@@ -172,32 +172,32 @@ requirement.
 Most recent focused validation after proxy outcome ID namespace hardening:
 
 ```bash
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run python -m pytest tests/test_rke_schema_artifacts.py::test_report_outcome_label_semantics_accept_complete_proxy_contracts tests/test_rke_schema_artifacts.py::test_report_outcome_label_semantics_reject_cross_label_type_id_collisions -q --basetemp /home/hap/tmp/mosaic-rke/pytest-id-contract
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run python -m pytest tests/test_rke_schema_artifacts.py -q --basetemp /home/hap/tmp/mosaic-rke/pytest-rke-schema-id-contract
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run python -m pytest tests/test_rke_schema_artifacts.py::test_report_outcome_label_semantics_accept_complete_proxy_contracts tests/test_rke_schema_artifacts.py::test_report_outcome_label_semantics_reject_cross_label_type_id_collisions -q --basetemp .mosaic/tmp/pytest-id-contract
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run python -m pytest tests/test_rke_schema_artifacts.py -q --basetemp .mosaic/tmp/pytest-rke-schema-id-contract
 uvx ruff@0.15.15 check mosaic/rke/schema_validation.py mosaic/rke/report_intelligence.py tests/test_rke_schema_artifacts.py
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke schema-status --root .
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run mosaic-rke schema-status --root .
 ```
 
 Most recent focused validation after analytical-footprint indicator alias
 hardening and non-research claim filter tightening:
 
 ```bash
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run pytest tests/test_rke_report_intelligence.py::test_report_intelligence_structures_string_indicator_mentions tests/test_rke_report_intelligence.py::test_report_intelligence_structures_common_report_indicator_aliases -q --basetemp /home/hap/tmp/mosaic-rke/pytest-rke-indicator-aliases
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run pytest tests/test_rke_report_intelligence.py::test_analytical_footprint_review_evidence_suggests_missing_metric_mapping tests/test_rke_report_intelligence.py::test_analytical_footprint_review_evidence_flags_risk_warning_footprints -q --basetemp /home/hap/tmp/mosaic-rke/pytest-rke-footprint-evidence-rules
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run pytest tests/test_rke_report_intelligence.py::test_analytical_footprint_review_evidence_suggests_missing_metric_mapping tests/test_rke_report_intelligence.py::test_analytical_footprint_review_evidence_flags_unknown_metric_mapping tests/test_rke_report_intelligence.py::test_analytical_footprint_review_evidence_flags_risk_warning_footprints -q --basetemp /home/hap/tmp/mosaic-rke/pytest-rke-footprint-evidence-unknown-mapping
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run pytest tests/test_rke_report_intelligence.py::test_analytical_footprint_review_evidence_flags_unknown_metric_mapping tests/test_rke_report_intelligence.py::test_analytical_footprint_review_evidence_suggests_missing_metric_mapping -q --basetemp /home/hap/tmp/mosaic-rke/pytest-rke-footprint-repair-suggestions
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run pytest tests/test_rke_report_intelligence.py::test_analytical_footprint_review_evidence_suggests_missing_metric_mapping tests/test_rke_report_intelligence.py::test_analytical_footprint_review_evidence_flags_unknown_metric_mapping -q --basetemp /home/hap/tmp/mosaic-rke/pytest-rke-footprint-candidate-summary
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run pytest tests/test_rke_report_intelligence.py::test_analytical_footprint_review_evidence_flags_unknown_metric_mapping tests/test_rke_report_intelligence.py::test_analytical_footprint_review_evidence_suggests_missing_metric_mapping -q --basetemp /home/hap/tmp/mosaic-rke/pytest-rke-footprint-unknowns-decision
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run pytest tests/test_rke_report_intelligence.py -q --basetemp /home/hap/tmp/mosaic-rke/pytest-rke-report-intelligence-indicator-rules
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run pytest tests/test_rke_report_intelligence.py -q --basetemp /home/hap/tmp/mosaic-rke/pytest-rke-report-intelligence-evidence-unknown-mapping
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run pytest tests/test_rke_report_intelligence.py -q --basetemp /home/hap/tmp/mosaic-rke/pytest-rke-report-intelligence-repair-suggestions
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run pytest tests/test_rke_report_intelligence.py -q --basetemp /home/hap/tmp/mosaic-rke/pytest-rke-report-intelligence-candidate-summary
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run pytest tests/test_rke_report_intelligence.py -q --basetemp /home/hap/tmp/mosaic-rke/pytest-rke-report-intelligence-unknowns-decision
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run pytest tests/test_rke_gold_candidate_claims.py -q --basetemp /home/hap/tmp/mosaic-rke/pytest-rke-gold-candidate-claim-filters
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run pytest tests/test_rke_manual_review_batches.py -q --basetemp /home/hap/tmp/mosaic-rke/pytest-rke-manual-review-batches-filters
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run pytest tests/test_rke_review_progress.py -q --basetemp /home/hap/tmp/mosaic-rke/pytest-rke-review-progress-current
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run pytest tests/test_rke_schema_artifacts.py -q --basetemp /home/hap/tmp/mosaic-rke/pytest-rke-schema-artifacts-current
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run pytest tests/test_rke_gold_candidate_claims.py::test_gold_candidate_claims_skip_boilerplate_risk_warning_report_claims tests/test_rke_gold_candidate_claims.py::test_gold_candidate_claims_skip_generic_risk_enumeration_report_claims tests/test_rke_gold_candidate_claims.py::test_gold_candidate_claims_skip_unprefixed_generic_risk_list_report_claims tests/test_rke_gold_candidate_claims.py::test_gold_candidate_claims_skip_boilerplate_risk_warning_markdown_sentences -q --basetemp /home/hap/tmp/mosaic-rke/pytest-rke-risk-filters
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run pytest tests/test_rke_report_intelligence.py::test_report_intelligence_structures_string_indicator_mentions tests/test_rke_report_intelligence.py::test_report_intelligence_structures_common_report_indicator_aliases -q --basetemp .mosaic/tmp/pytest-rke-indicator-aliases
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run pytest tests/test_rke_report_intelligence.py::test_analytical_footprint_review_evidence_suggests_missing_metric_mapping tests/test_rke_report_intelligence.py::test_analytical_footprint_review_evidence_flags_risk_warning_footprints -q --basetemp .mosaic/tmp/pytest-rke-footprint-evidence-rules
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run pytest tests/test_rke_report_intelligence.py::test_analytical_footprint_review_evidence_suggests_missing_metric_mapping tests/test_rke_report_intelligence.py::test_analytical_footprint_review_evidence_flags_unknown_metric_mapping tests/test_rke_report_intelligence.py::test_analytical_footprint_review_evidence_flags_risk_warning_footprints -q --basetemp .mosaic/tmp/pytest-rke-footprint-evidence-unknown-mapping
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run pytest tests/test_rke_report_intelligence.py::test_analytical_footprint_review_evidence_flags_unknown_metric_mapping tests/test_rke_report_intelligence.py::test_analytical_footprint_review_evidence_suggests_missing_metric_mapping -q --basetemp .mosaic/tmp/pytest-rke-footprint-repair-suggestions
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run pytest tests/test_rke_report_intelligence.py::test_analytical_footprint_review_evidence_suggests_missing_metric_mapping tests/test_rke_report_intelligence.py::test_analytical_footprint_review_evidence_flags_unknown_metric_mapping -q --basetemp .mosaic/tmp/pytest-rke-footprint-candidate-summary
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run pytest tests/test_rke_report_intelligence.py::test_analytical_footprint_review_evidence_flags_unknown_metric_mapping tests/test_rke_report_intelligence.py::test_analytical_footprint_review_evidence_suggests_missing_metric_mapping -q --basetemp .mosaic/tmp/pytest-rke-footprint-unknowns-decision
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run pytest tests/test_rke_report_intelligence.py -q --basetemp .mosaic/tmp/pytest-rke-report-intelligence-indicator-rules
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run pytest tests/test_rke_report_intelligence.py -q --basetemp .mosaic/tmp/pytest-rke-report-intelligence-evidence-unknown-mapping
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run pytest tests/test_rke_report_intelligence.py -q --basetemp .mosaic/tmp/pytest-rke-report-intelligence-repair-suggestions
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run pytest tests/test_rke_report_intelligence.py -q --basetemp .mosaic/tmp/pytest-rke-report-intelligence-candidate-summary
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run pytest tests/test_rke_report_intelligence.py -q --basetemp .mosaic/tmp/pytest-rke-report-intelligence-unknowns-decision
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run pytest tests/test_rke_gold_candidate_claims.py -q --basetemp .mosaic/tmp/pytest-rke-gold-candidate-claim-filters
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run pytest tests/test_rke_manual_review_batches.py -q --basetemp .mosaic/tmp/pytest-rke-manual-review-batches-filters
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run pytest tests/test_rke_review_progress.py -q --basetemp .mosaic/tmp/pytest-rke-review-progress-current
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run pytest tests/test_rke_schema_artifacts.py -q --basetemp .mosaic/tmp/pytest-rke-schema-artifacts-current
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run pytest tests/test_rke_gold_candidate_claims.py::test_gold_candidate_claims_skip_boilerplate_risk_warning_report_claims tests/test_rke_gold_candidate_claims.py::test_gold_candidate_claims_skip_generic_risk_enumeration_report_claims tests/test_rke_gold_candidate_claims.py::test_gold_candidate_claims_skip_unprefixed_generic_risk_list_report_claims tests/test_rke_gold_candidate_claims.py::test_gold_candidate_claims_skip_boilerplate_risk_warning_markdown_sentences -q --basetemp .mosaic/tmp/pytest-rke-risk-filters
 uvx ruff@0.15.15 check mosaic/rke/report_intelligence.py mosaic/rke/claim_text_filters.py tests/test_rke_report_intelligence.py tests/test_rke_schema_artifacts.py tests/test_rke_gold_candidate_claims.py tests/test_rke_manual_review_batches.py tests/test_rke_review_progress.py
 uv run python scripts/check_prompt_leaks.py
 git check-ignore registry/report_intelligence/analytical_footprint_review_evidence.jsonl registry/report_intelligence/analytical_footprint_review_evidence.md registry/report_intelligence/analytical_footprint_review_batch.jsonl registry/review_batches/gold_set_reviewed.jsonl
@@ -212,16 +212,16 @@ uv run mosaic-rke apply-gold-review --root . --input registry/review_batches/gol
 uv run mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl
 uv run mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run
 uv run mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run pytest tests/test_rke_gold_candidate_claims.py -q --basetemp /home/hap/tmp/mosaic-rke/pytest-rke-gold-candidate-tightened3
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run pytest tests/test_rke_manual_review_batches.py -q --basetemp /home/hap/tmp/mosaic-rke/pytest-rke-manual-review-tightened2
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run pytest tests/test_rke_review_progress.py -q --basetemp /home/hap/tmp/mosaic-rke/pytest-rke-review-progress-tightened
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run pytest tests/test_rke_gold_candidate_claims.py -q --basetemp .mosaic/tmp/pytest-rke-gold-candidate-tightened3
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run pytest tests/test_rke_manual_review_batches.py -q --basetemp .mosaic/tmp/pytest-rke-manual-review-tightened2
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run pytest tests/test_rke_review_progress.py -q --basetemp .mosaic/tmp/pytest-rke-review-progress-tightened
 ```
 
 Most recent focused validation after report-level forecast-claim cap hardening:
 
 ```bash
-uv run pytest tests/test_rke_report_intelligence.py::test_user_prompt_requires_context_synthesized_forecast_claims tests/test_rke_report_intelligence.py::test_select_report_forecast_claims_caps_and_preserves_source_order tests/test_rke_report_intelligence.py::test_report_intelligence_caps_forecast_claims_per_report tests/test_rke_report_intelligence.py::test_refresh_forecast_mapping_governance_caps_existing_rows_per_report -q --basetemp /home/hap/tmp/mosaic-rke/pytest-rke-forecast-cap4
-uv run pytest tests/test_rke_report_intelligence.py -q --basetemp /home/hap/tmp/mosaic-rke/pytest-rke-ri-forecast-cap-full2
+uv run pytest tests/test_rke_report_intelligence.py::test_user_prompt_requires_context_synthesized_forecast_claims tests/test_rke_report_intelligence.py::test_select_report_forecast_claims_caps_and_preserves_source_order tests/test_rke_report_intelligence.py::test_report_intelligence_caps_forecast_claims_per_report tests/test_rke_report_intelligence.py::test_refresh_forecast_mapping_governance_caps_existing_rows_per_report -q --basetemp .mosaic/tmp/pytest-rke-forecast-cap4
+uv run pytest tests/test_rke_report_intelligence.py -q --basetemp .mosaic/tmp/pytest-rke-ri-forecast-cap-full2
 uvx ruff@0.15.15 check mosaic/rke/report_intelligence.py tests/test_rke_report_intelligence.py
 ```
 
@@ -296,10 +296,10 @@ accepted.
 Most recent focused validation after RI-EVOL-04 audit blocker hardening:
 
 ```bash
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run python -m pytest tests/test_rke_schema_artifacts.py::test_evolution_readiness_gate_contract_accepts_current_public_artifact tests/test_rke_schema_artifacts.py::test_evolution_readiness_gate_contract_rejects_missing_current_audit_blocker tests/test_rke_schema_artifacts.py::test_evolution_readiness_gate_contract_rejects_stale_audit_history_blocker -q --basetemp /home/hap/tmp/mosaic-rke/pytest-evolution-audit-contract
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run python -m pytest tests/test_rke_schema_artifacts.py -q --basetemp /home/hap/tmp/mosaic-rke/pytest-rke-schema-evolution-audit
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run python -m pytest tests/test_rke_schema_artifacts.py::test_evolution_readiness_gate_contract_accepts_current_public_artifact tests/test_rke_schema_artifacts.py::test_evolution_readiness_gate_contract_rejects_missing_current_audit_blocker tests/test_rke_schema_artifacts.py::test_evolution_readiness_gate_contract_rejects_stale_audit_history_blocker -q --basetemp .mosaic/tmp/pytest-evolution-audit-contract
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run python -m pytest tests/test_rke_schema_artifacts.py -q --basetemp .mosaic/tmp/pytest-rke-schema-evolution-audit
 uvx ruff@0.15.15 check mosaic/rke/schema_validation.py tests/test_rke_schema_artifacts.py
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke schema-status --root .
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run mosaic-rke schema-status --root .
 ```
 
 `schema-status` still exits 2 only for the existing analytical-footprint review
@@ -309,10 +309,10 @@ record is accepted.
 Most recent focused validation after proxy outcome window-policy hardening:
 
 ```bash
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run python -m pytest tests/test_rke_schema_artifacts.py::test_report_outcome_label_semantics_accept_complete_proxy_contracts tests/test_rke_schema_artifacts.py::test_report_outcome_label_semantics_reject_bad_window_policy_fields -q --basetemp /home/hap/tmp/mosaic-rke/pytest-window-policy-contract
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run python -m pytest tests/test_rke_schema_artifacts.py -q --basetemp /home/hap/tmp/mosaic-rke/pytest-rke-schema-window-policy
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run python -m pytest tests/test_rke_schema_artifacts.py::test_report_outcome_label_semantics_accept_complete_proxy_contracts tests/test_rke_schema_artifacts.py::test_report_outcome_label_semantics_reject_bad_window_policy_fields -q --basetemp .mosaic/tmp/pytest-window-policy-contract
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run python -m pytest tests/test_rke_schema_artifacts.py -q --basetemp .mosaic/tmp/pytest-rke-schema-window-policy
 uvx ruff@0.15.15 check mosaic/rke/schema_validation.py tests/test_rke_schema_artifacts.py
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke schema-status --root .
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run mosaic-rke schema-status --root .
 ```
 
 `schema-status` still exits 2 only for the existing analytical-footprint review
@@ -322,10 +322,10 @@ accepted.
 Most recent focused validation after proxy outcome effective-N hardening:
 
 ```bash
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run python -m pytest tests/test_rke_schema_artifacts.py::test_report_outcome_label_semantics_accept_complete_proxy_contracts tests/test_rke_schema_artifacts.py::test_report_outcome_label_semantics_reject_bad_effective_n_weights tests/test_rke_schema_artifacts.py::test_report_outcome_label_semantics_reject_window_set_weight_sum_above_one -q --basetemp /home/hap/tmp/mosaic-rke/pytest-effective-n-contract
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run python -m pytest tests/test_rke_schema_artifacts.py -q --basetemp /home/hap/tmp/mosaic-rke/pytest-rke-schema-effective-n
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run python -m pytest tests/test_rke_schema_artifacts.py::test_report_outcome_label_semantics_accept_complete_proxy_contracts tests/test_rke_schema_artifacts.py::test_report_outcome_label_semantics_reject_bad_effective_n_weights tests/test_rke_schema_artifacts.py::test_report_outcome_label_semantics_reject_window_set_weight_sum_above_one -q --basetemp .mosaic/tmp/pytest-effective-n-contract
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run python -m pytest tests/test_rke_schema_artifacts.py -q --basetemp .mosaic/tmp/pytest-rke-schema-effective-n
 uvx ruff@0.15.15 check mosaic/rke/schema_validation.py tests/test_rke_schema_artifacts.py
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke schema-status --root .
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run mosaic-rke schema-status --root .
 ```
 
 `schema-status` still exits 2 only for the existing analytical-footprint review
@@ -335,10 +335,10 @@ accepted.
 Most recent focused validation after proxy outcome forecast-traceability hardening:
 
 ```bash
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run python -m pytest tests/test_rke_schema_artifacts.py::test_report_outcome_label_semantics_trace_proxy_labels_to_forecast_claims tests/test_rke_schema_artifacts.py::test_report_outcome_label_semantics_reject_untraceable_stock_proxy_claim -q --basetemp /home/hap/tmp/mosaic-rke/pytest-forecast-trace-contract
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run python -m pytest tests/test_rke_schema_artifacts.py -q --basetemp /home/hap/tmp/mosaic-rke/pytest-rke-schema-forecast-trace
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run python -m pytest tests/test_rke_schema_artifacts.py::test_report_outcome_label_semantics_trace_proxy_labels_to_forecast_claims tests/test_rke_schema_artifacts.py::test_report_outcome_label_semantics_reject_untraceable_stock_proxy_claim -q --basetemp .mosaic/tmp/pytest-forecast-trace-contract
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run python -m pytest tests/test_rke_schema_artifacts.py -q --basetemp .mosaic/tmp/pytest-rke-schema-forecast-trace
 uvx ruff@0.15.15 check mosaic/rke/schema_validation.py tests/test_rke_schema_artifacts.py
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke schema-status --root .
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run mosaic-rke schema-status --root .
 ```
 
 `schema-status` still exits 2 only for the existing analytical-footprint review
@@ -348,10 +348,10 @@ accepted.
 Most recent focused validation after stock target-resolution hardening:
 
 ```bash
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run python -m pytest tests/test_rke_schema_artifacts.py::test_report_outcome_label_semantics_accept_complete_proxy_contracts tests/test_rke_schema_artifacts.py::test_report_outcome_label_semantics_accept_metadata_and_llm_stock_resolution tests/test_rke_schema_artifacts.py::test_report_outcome_label_semantics_reject_bad_stock_target_resolution -q --basetemp /home/hap/tmp/mosaic-rke/pytest-target-resolution-contract
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run python -m pytest tests/test_rke_schema_artifacts.py -q --basetemp /home/hap/tmp/mosaic-rke/pytest-rke-schema-target-resolution
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run python -m pytest tests/test_rke_schema_artifacts.py::test_report_outcome_label_semantics_accept_complete_proxy_contracts tests/test_rke_schema_artifacts.py::test_report_outcome_label_semantics_accept_metadata_and_llm_stock_resolution tests/test_rke_schema_artifacts.py::test_report_outcome_label_semantics_reject_bad_stock_target_resolution -q --basetemp .mosaic/tmp/pytest-target-resolution-contract
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run python -m pytest tests/test_rke_schema_artifacts.py -q --basetemp .mosaic/tmp/pytest-rke-schema-target-resolution
 uvx ruff@0.15.15 check mosaic/rke/schema_validation.py tests/test_rke_schema_artifacts.py
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke schema-status --root .
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run mosaic-rke schema-status --root .
 ```
 
 `schema-status` still exits 2 only for the existing analytical-footprint review
@@ -361,10 +361,10 @@ accepted.
 Most recent focused validation after proxy benchmark/cost hardening:
 
 ```bash
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run python -m pytest tests/test_rke_schema_artifacts.py::test_report_outcome_label_semantics_accept_complete_proxy_contracts tests/test_rke_schema_artifacts.py::test_report_outcome_label_semantics_reject_bad_benchmark_and_cost_policy -q --basetemp /home/hap/tmp/mosaic-rke/pytest-benchmark-cost-contract
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run python -m pytest tests/test_rke_schema_artifacts.py -q --basetemp /home/hap/tmp/mosaic-rke/pytest-rke-schema-benchmark-cost
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run python -m pytest tests/test_rke_schema_artifacts.py::test_report_outcome_label_semantics_accept_complete_proxy_contracts tests/test_rke_schema_artifacts.py::test_report_outcome_label_semantics_reject_bad_benchmark_and_cost_policy -q --basetemp .mosaic/tmp/pytest-benchmark-cost-contract
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run python -m pytest tests/test_rke_schema_artifacts.py -q --basetemp .mosaic/tmp/pytest-rke-schema-benchmark-cost
 uvx ruff@0.15.15 check mosaic/rke/schema_validation.py tests/test_rke_schema_artifacts.py
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke schema-status --root .
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run mosaic-rke schema-status --root .
 ```
 
 `schema-status` still exits 2 only for the existing analytical-footprint review
@@ -374,10 +374,10 @@ accepted.
 Most recent focused validation after proxy PIT timing hardening:
 
 ```bash
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run python -m pytest tests/test_rke_schema_artifacts.py::test_report_outcome_label_semantics_accept_complete_proxy_contracts tests/test_rke_schema_artifacts.py::test_report_outcome_label_semantics_reject_bad_entry_exit_timing tests/test_rke_schema_artifacts.py::test_report_outcome_label_semantics_reject_same_day_signal_entry -q --basetemp /home/hap/tmp/mosaic-rke/pytest-pit-timing-contract
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run python -m pytest tests/test_rke_schema_artifacts.py -q --basetemp /home/hap/tmp/mosaic-rke/pytest-rke-schema-pit-timing
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run python -m pytest tests/test_rke_schema_artifacts.py::test_report_outcome_label_semantics_accept_complete_proxy_contracts tests/test_rke_schema_artifacts.py::test_report_outcome_label_semantics_reject_bad_entry_exit_timing tests/test_rke_schema_artifacts.py::test_report_outcome_label_semantics_reject_same_day_signal_entry -q --basetemp .mosaic/tmp/pytest-pit-timing-contract
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run python -m pytest tests/test_rke_schema_artifacts.py -q --basetemp .mosaic/tmp/pytest-rke-schema-pit-timing
 uvx ruff@0.15.15 check mosaic/rke/schema_validation.py tests/test_rke_schema_artifacts.py
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke schema-status --root .
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run mosaic-rke schema-status --root .
 ```
 
 `schema-status` still exits 2 only for the existing analytical-footprint review
@@ -387,8 +387,8 @@ accepted.
 Most recent focused validation after stock long-window evidence hardening:
 
 ```bash
-uv run pytest tests/test_rke_report_intelligence.py::test_report_intelligence_keeps_long_window_stock_hits -q --basetemp /home/hap/tmp/pytest-rke-stock-long-window
-uv run pytest tests/test_rke_report_intelligence.py::test_report_intelligence_labels_stock_claims_with_qlib_price_windows tests/test_rke_report_intelligence.py::test_report_intelligence_counts_stock_price_proxy_as_labelable_channel tests/test_rke_report_intelligence.py::test_report_intelligence_keeps_long_window_stock_hits -q --basetemp /home/hap/tmp/pytest-rke-stock-proxy-focused
+uv run pytest tests/test_rke_report_intelligence.py::test_report_intelligence_keeps_long_window_stock_hits -q --basetemp .mosaic/tmp/pytest-rke-stock-long-window
+uv run pytest tests/test_rke_report_intelligence.py::test_report_intelligence_labels_stock_claims_with_qlib_price_windows tests/test_rke_report_intelligence.py::test_report_intelligence_counts_stock_price_proxy_as_labelable_channel tests/test_rke_report_intelligence.py::test_report_intelligence_keeps_long_window_stock_hits -q --basetemp .mosaic/tmp/pytest-rke-stock-proxy-focused
 uvx ruff@0.15.15 check tests/test_rke_report_intelligence.py
 ```
 
@@ -402,15 +402,15 @@ instead of collapsing the claim to one outcome.
 Current manual review evidence and scaffold commands:
 
 ```bash
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke prepare-gold-review --root . --gold-batch-size 50 --offset 0 --force --reviewer hap --review-date 2026-06-12
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke write-gold-review-evidence --root . --limit 50 --offset 0 --review-input registry/review_batches/gold_set_reviewed.jsonl
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --dry-run
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke prepare-gold-review --root . --full --force --reviewer hap --review-date 2026-06-12
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke prepare-footprint-review --root . --limit 50 --offset 0 --reviewer hap --review-date 2026-06-12 --overwrite
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke prepare-footprint-review --root . --output registry/report_intelligence/analytical_footprint_reviewed.jsonl --reviewer hap --review-date 2026-06-12 --overwrite
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke write-footprint-review-assist --root .
-MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 0 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run mosaic-rke prepare-gold-review --root . --gold-batch-size 50 --offset 0 --force --reviewer hap --review-date 2026-06-12
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run mosaic-rke write-gold-review-evidence --root . --limit 50 --offset 0 --review-input registry/review_batches/gold_set_reviewed.jsonl
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --dry-run
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run mosaic-rke prepare-gold-review --root . --full --force --reviewer hap --review-date 2026-06-12
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run mosaic-rke prepare-footprint-review --root . --limit 50 --offset 0 --reviewer hap --review-date 2026-06-12 --overwrite
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run mosaic-rke prepare-footprint-review --root . --output registry/report_intelligence/analytical_footprint_reviewed.jsonl --reviewer hap --review-date 2026-06-12 --overwrite
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run mosaic-rke write-footprint-review-assist --root .
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 0 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl
 ```
 
 These commands write private, gitignored manual handoff files. The current local
@@ -506,7 +506,7 @@ blocker families include:
    and a refreshed gold corpus with at least 50 reviewed documents. The footprint
    review has 34 accepted rows and 1017 rows still pending. Validate each
    footprint batch with
-   `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run`,
+   `MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run`,
    then apply through the same import path.
 2. P9 coverage watchlist: current public gate reports `coverage_gate_status=passed`.
    The `macro_asset_proxy_candidate` stratum is now filled by 4 candidates from
@@ -539,13 +539,13 @@ blocker families include:
    gate, including nested Markdown/P9 coverage shortfalls. Use this field as the
    numeric work queue before running the matching `next_actions`.
 7. Re-run
-   `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke review-progress --root . --summary --no-write`,
-   `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke review-progress --root . --actions-only --no-write`,
-   `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke operator-readiness --root . --no-write`,
-   `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke master-plan-status --root . --no-write`,
-   `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke evolution-readiness --root . --refresh-prompt-mutations`,
+   `MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run mosaic-rke review-progress --root . --summary --no-write`,
+   `MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run mosaic-rke review-progress --root . --actions-only --no-write`,
+   `MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run mosaic-rke operator-readiness --root . --no-write`,
+   `MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run mosaic-rke master-plan-status --root . --no-write`,
+   `MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run mosaic-rke evolution-readiness --root . --refresh-prompt-mutations`,
    promotion dry-run, and
-   `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke uv run mosaic-rke schema-status --root . --failures-only --no-write`.
+   `MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run mosaic-rke schema-status --root . --failures-only --no-write`.
    For focused manual work, add `--review-kind gold_set`, `--review-kind footprint_review`, `--review-kind source_license`, or `--review-kind lockbox` to the summary or action-queue command; add `--action-state needs_human_review_fields`, `--action-state ready_to_apply`, `--action-state already_applied`, or `--action-state waiting_on_dependencies` to `--actions-only` when operators need one work class. The lockbox summary, runbook, operator handoff, and lockbox prepare/apply CLI paths are dependency-aware and should remain on `wait_for_prior_manual_gates` / `waiting_on ...` until the upstream manual review gates pass.
 
 Until those gates pass, evolution outputs remain shadow candidates and must not

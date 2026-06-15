@@ -413,8 +413,8 @@ def test_review_progress_reports_missing_scratch_files(tmp_path: Path, capsys):
     )
     gold_offsets = [batch["offset"] for batch in gold_gate["batch_plan"]]
     assert gold_offsets == sorted(gold_offsets)
-    assert len(footprint_gate["batch_plan"]) == 21
-    assert footprint_gate["batch_plan"][-1]["offset"] == 1000
+    assert len(footprint_gate["batch_plan"]) == 22
+    assert footprint_gate["batch_plan"][-1]["offset"] == 1050
     assert footprint_gate["batch_plan"][-1]["limit"] == 1
     assert "source_id" not in json.dumps(gold_gate["batch_plan"])
     assert "footprint_id" not in json.dumps(footprint_gate["batch_plan"])
@@ -523,8 +523,8 @@ def test_review_progress_summary_omits_full_batch_plan(tmp_path: Path, capsys):
     footprint_gate = next(
         gate for gate in output["gates"] if gate["review_kind"] == "footprint_review"
     )
-    assert footprint_gate["batch_overview"]["batch_count"] == 21
-    assert footprint_gate["batch_overview"]["final_batch_offset"] == 1000
+    assert footprint_gate["batch_overview"]["batch_count"] == 22
+    assert footprint_gate["batch_overview"]["final_batch_offset"] == 1050
     assert footprint_gate["batch_overview"]["final_batch_limit"] == 1
     assert lockbox_gate["next_manual_action"] == "wait_for_prior_manual_gates"
     assert lockbox_gate["batch_overview"] == {}
@@ -750,7 +750,7 @@ def test_review_progress_actions_only_reports_next_manual_work(
         "fill_current_batch_review_fields_then_dry_run",
         "prepare_next_review_batch",
     }
-    assert actions["footprint_review"]["batch_overview"]["batch_count"] == 21
+    assert actions["footprint_review"]["batch_overview"]["batch_count"] == 22
     assert actions["footprint_review"]["batch_overview"]["final_batch_limit"] == 1
     assert actions["footprint_review"]["review_aids"]["policy"] == (
         "private_review_aids_only_not_import_files"
@@ -1151,10 +1151,10 @@ def test_manual_review_runbook_renders_operator_checklist_without_source_text(tm
         in markdown
     )
     assert (
-        "Batch 21: pending rows 1001-1001; limit=1; offset=1000; "
-        "batch input=`registry/report_intelligence/analytical_footprint_review_batch.jsonl`"
-        in markdown
-    )
+            "Batch 22: pending rows 1051-1051; limit=1; offset=1050; "
+            "batch input=`registry/report_intelligence/analytical_footprint_review_batch.jsonl`"
+            in markdown
+        )
     assert "### gold_set" in markdown
     assert "### footprint_review" in markdown
     assert "After applying an accepted batch, rerun review-progress" in markdown

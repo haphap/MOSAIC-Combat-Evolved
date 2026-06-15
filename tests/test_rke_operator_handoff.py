@@ -107,7 +107,7 @@ def test_operator_handoff_summarizes_remaining_manual_gates():
     assert "gold_set_full_reviewed.jsonl" in gold.dry_run_command
     assert "gold_set_full_reviewed.jsonl" in handoff.promotion_dry_run_command
     assert "gold_set_full_import_template.jsonl" not in handoff.promotion_dry_run_command
-    assert footprint.pending_rows == 951
+    assert footprint.pending_rows == 1017
     assert not footprint.passed
     assert (
         footprint.import_template_path

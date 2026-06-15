@@ -13,6 +13,7 @@ from typing import Any, Mapping, Sequence
 from .manual_review_bundle_manifest import MANUAL_REVIEW_BUNDLE_ARTIFACTS
 from .manual_review_aids import manual_review_aid_paths, manual_review_field_contract
 from .required_data import normalize_required_data_items
+from .temp_paths import RKE_OPERATOR_TMP_ENV_PREFIX
 
 
 SUPPORTED_JSON_SCHEMA_KEYWORDS = frozenset(
@@ -64,6 +65,10 @@ class SchemaValidationReport:
     @property
     def failure_count(self) -> int:
         return sum(len(record.failures) for record in self.records)
+
+
+def _has_operator_tmp_env_prefix(command: str) -> bool:
+    return RKE_OPERATOR_TMP_ENV_PREFIX in command
 
 
 JSON_SCHEMA_TARGETS = (
@@ -4888,11 +4893,11 @@ def _validate_manual_review_progress_contract(
                 continue
             if "mosaic-rke " not in command:
                 failures.append(f"{row_label}.{command_field}: must invoke mosaic-rke")
-            if "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke" not in command:
+            if not _has_operator_tmp_env_prefix(command):
                 failures.append(
                     f"{row_label}.{command_field}: missing MOSAIC_RKE_TMPDIR prefix"
                 )
-            if "TMPDIR=/home/hap/tmp/mosaic-rke" not in command:
+            if not _has_operator_tmp_env_prefix(command):
                 failures.append(f"{row_label}.{command_field}: missing TMPDIR prefix")
         dry_run_command = str(gate.get("dry_run_command") or "")
         if "--dry-run" not in dry_run_command:
@@ -5160,11 +5165,11 @@ def _validate_manual_review_progress_contract(
                             f"{batch_label}.commands.{command_name}: must be non-empty"
                         )
                         continue
-                    if "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke" not in command:
+                    if not _has_operator_tmp_env_prefix(command):
                         failures.append(
                             f"{batch_label}.commands.{command_name}: missing MOSAIC_RKE_TMPDIR prefix"
                         )
-                    if "TMPDIR=/home/hap/tmp/mosaic-rke" not in command:
+                    if not _has_operator_tmp_env_prefix(command):
                         failures.append(
                             f"{batch_label}.commands.{command_name}: missing TMPDIR prefix"
                         )
@@ -5347,9 +5352,9 @@ def _validate_operator_handoff_contract(root_path: Path) -> tuple[int, list[str]
         if command:
             if "mosaic-rke " not in command:
                 failures.append(f"{row_label}.command: must invoke mosaic-rke")
-            if "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke" not in command:
+            if not _has_operator_tmp_env_prefix(command):
                 failures.append(f"{row_label}.command: missing MOSAIC_RKE_TMPDIR prefix")
-            if "TMPDIR=/home/hap/tmp/mosaic-rke" not in command:
+            if not _has_operator_tmp_env_prefix(command):
                 failures.append(f"{row_label}.command: missing TMPDIR prefix")
         elif not step_id.startswith("fill-"):
             failures.append(f"{row_label}.command: empty only allowed for fill steps")

@@ -7,7 +7,7 @@ import tempfile
 from pathlib import Path
 
 
-RKE_OPERATOR_TMPDIR = "/home/hap/tmp/mosaic-rke"
+RKE_OPERATOR_TMPDIR = ".mosaic/tmp"
 RKE_OPERATOR_TMP_ENV_PREFIX = (
     f"MOSAIC_RKE_TMPDIR={RKE_OPERATOR_TMPDIR} TMPDIR={RKE_OPERATOR_TMPDIR}"
 )
@@ -23,7 +23,7 @@ def operator_command(command: str) -> str:
 
 
 def rke_temporary_directory(prefix: str) -> tempfile.TemporaryDirectory[str]:
-    """Create an RKE temporary directory outside the repo and system tmpfs."""
+    """Create an RKE temporary directory in the gitignored repo-local cache."""
     tmp_parent = str(os.environ.get("MOSAIC_RKE_TMPDIR") or RKE_OPERATOR_TMPDIR).strip()
     parent = Path(tmp_parent).expanduser()
     parent.mkdir(parents=True, exist_ok=True)

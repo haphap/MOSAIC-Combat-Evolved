@@ -11,6 +11,7 @@ import pytest
 
 from mosaic.rke.cli import main
 from mosaic.rke.registry_manifest import PRIVATE_LOCAL_REGISTRY_FILES
+from mosaic.rke.temp_paths import RKE_OPERATOR_TMP_ENV_PREFIX
 from mosaic.rke.report_intelligence import (
     ANALYTICAL_FOOTPRINT_REVIEW_ASSIST_JSONL_PATH,
     ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH,
@@ -8601,10 +8602,9 @@ def test_report_intelligence_evolution_gate_writer_preserves_stock_coverage_evid
         "review-progress --root . --actions-only --no-write --review-kind gold_set"
         in next_actions["complete_manual_forecast_gold_review"]["commands"]["inspect"]
     )
-    assert (
-        "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke"
-        in next_actions["complete_manual_forecast_gold_review"]["commands"]["inspect"]
-    )
+    assert next_actions["complete_manual_forecast_gold_review"]["commands"][
+        "inspect"
+    ].startswith(RKE_OPERATOR_TMP_ENV_PREFIX)
     assert next_actions["complete_manual_forecast_gold_review"]["review_aids"][
         "evidence_markdown"
     ] == "registry/review_batches/gold_set_review_evidence.md"

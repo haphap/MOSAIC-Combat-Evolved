@@ -3,16 +3,12 @@
   "after_blockers": [
     "broad-rollout completion audit still has blockers",
     "gold set requires >= 50 documents; direction_accuracy below 0.85; variable_mapping_accuracy below 0.80; unsupported_field_false_grounding_rate above 0.05",
-    "long source text appears outside approved sandbox artifacts",
-    "source text redaction audit failed",
     "lockbox has not been opened"
   ],
   "after_next_state": "paper_trading",
   "before_blockers": [
     "broad-rollout completion audit still has blockers",
     "gold set requires >= 50 documents; direction_accuracy below 0.85; variable_mapping_accuracy below 0.80; unsupported_field_false_grounding_rate above 0.05",
-    "long source text appears outside approved sandbox artifacts",
-    "source text redaction audit failed",
     "lockbox has not been opened"
   ],
   "before_next_state": "paper_trading",
@@ -48,15 +44,13 @@
       "review_kind": "footprint_review"
     },
     {
-      "accepted": false,
+      "accepted": true,
       "applied": false,
-      "blockers": [
-        "source_license input not provided"
-      ],
-      "changed_rows": null,
+      "blockers": [],
+      "changed_rows": 0,
       "input_path": "",
       "provided": false,
-      "result": "not_provided",
+      "result": "already_applied",
       "review_kind": "source_license"
     },
     {

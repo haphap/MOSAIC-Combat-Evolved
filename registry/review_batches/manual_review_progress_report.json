@@ -5,9 +5,9 @@
     "gold_set: direction_accuracy below 0.85",
     "gold_set: variable_mapping_accuracy below 0.80",
     "gold_set: unsupported_field_false_grounding_rate above 0.05",
-    "footprint_review: 34/1001 ready",
+    "footprint_review: 34/1051 ready",
     "footprint_review: 1001 analytical footprint review rows failed validation",
-    "footprint_review: 967 analytical footprint review rows still pending",
+    "footprint_review: 1017 analytical footprint review rows still pending",
     "footprint_review: metric_mapping_accuracy 0.558824 below threshold 0.80",
     "lockbox: 0/1 ready",
     "lockbox: opened_at required",
@@ -20,7 +20,7 @@
   ],
   "gates": [
     {
-      "apply_command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl",
+      "apply_command": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl",
       "batch_plan": [],
       "blockers": [
         "gold set requires >= 50 documents",
@@ -57,31 +57,31 @@
         "pending_rows": 0,
         "rows": 20
       },
-      "dry_run_command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl --dry-run",
+      "dry_run_command": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl --dry-run",
       "input_exists": true,
       "input_path": "registry/review_batches/gold_set_full_reviewed.jsonl",
       "input_rows": 500,
       "next_batch_commands": {},
       "pending_rows": 0,
-      "prepare_command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-gold-review --root . --full",
+      "prepare_command": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke prepare-gold-review --root . --full",
       "ready_for_promotion": false,
       "review_kind": "gold_set",
       "simulation_accepted": false,
       "target_rows": 158
     },
     {
-      "apply_command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+      "apply_command": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_reviewed.jsonl",
       "batch_plan": [
         {
           "apply_effect": "merge_batch_into_target_review_template",
           "batch_index": 1,
           "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
           "commands": {
-            "apply": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
-            "assist": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .",
-            "dry_run": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
-            "evidence": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 0 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
-            "prepare": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 0 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
+            "apply": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "assist": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-footprint-review-assist --root .",
+            "dry_run": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
+            "evidence": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 0 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "prepare": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke prepare-footprint-review --root . --limit 50 --offset 0 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
           },
           "limit": 50,
           "mode": "pending_offset_batch_before_applying_any_batch",
@@ -96,11 +96,11 @@
           "batch_index": 2,
           "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
           "commands": {
-            "apply": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
-            "assist": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .",
-            "dry_run": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
-            "evidence": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 50 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
-            "prepare": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 50 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
+            "apply": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "assist": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-footprint-review-assist --root .",
+            "dry_run": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
+            "evidence": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 50 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "prepare": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke prepare-footprint-review --root . --limit 50 --offset 50 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
           },
           "limit": 50,
           "mode": "pending_offset_batch_before_applying_any_batch",
@@ -115,11 +115,11 @@
           "batch_index": 3,
           "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
           "commands": {
-            "apply": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
-            "assist": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .",
-            "dry_run": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
-            "evidence": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 100 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
-            "prepare": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 100 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
+            "apply": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "assist": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-footprint-review-assist --root .",
+            "dry_run": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
+            "evidence": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 100 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "prepare": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke prepare-footprint-review --root . --limit 50 --offset 100 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
           },
           "limit": 50,
           "mode": "pending_offset_batch_before_applying_any_batch",
@@ -134,11 +134,11 @@
           "batch_index": 4,
           "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
           "commands": {
-            "apply": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
-            "assist": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .",
-            "dry_run": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
-            "evidence": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 150 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
-            "prepare": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 150 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
+            "apply": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "assist": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-footprint-review-assist --root .",
+            "dry_run": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
+            "evidence": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 150 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "prepare": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke prepare-footprint-review --root . --limit 50 --offset 150 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
           },
           "limit": 50,
           "mode": "pending_offset_batch_before_applying_any_batch",
@@ -153,11 +153,11 @@
           "batch_index": 5,
           "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
           "commands": {
-            "apply": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
-            "assist": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .",
-            "dry_run": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
-            "evidence": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 200 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
-            "prepare": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 200 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
+            "apply": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "assist": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-footprint-review-assist --root .",
+            "dry_run": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
+            "evidence": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 200 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "prepare": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke prepare-footprint-review --root . --limit 50 --offset 200 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
           },
           "limit": 50,
           "mode": "pending_offset_batch_before_applying_any_batch",
@@ -172,11 +172,11 @@
           "batch_index": 6,
           "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
           "commands": {
-            "apply": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
-            "assist": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .",
-            "dry_run": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
-            "evidence": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 250 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
-            "prepare": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 250 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
+            "apply": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "assist": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-footprint-review-assist --root .",
+            "dry_run": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
+            "evidence": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 250 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "prepare": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke prepare-footprint-review --root . --limit 50 --offset 250 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
           },
           "limit": 50,
           "mode": "pending_offset_batch_before_applying_any_batch",
@@ -191,11 +191,11 @@
           "batch_index": 7,
           "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
           "commands": {
-            "apply": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
-            "assist": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .",
-            "dry_run": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
-            "evidence": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 300 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
-            "prepare": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 300 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
+            "apply": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "assist": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-footprint-review-assist --root .",
+            "dry_run": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
+            "evidence": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 300 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "prepare": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke prepare-footprint-review --root . --limit 50 --offset 300 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
           },
           "limit": 50,
           "mode": "pending_offset_batch_before_applying_any_batch",
@@ -210,11 +210,11 @@
           "batch_index": 8,
           "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
           "commands": {
-            "apply": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
-            "assist": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .",
-            "dry_run": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
-            "evidence": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 350 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
-            "prepare": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 350 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
+            "apply": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "assist": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-footprint-review-assist --root .",
+            "dry_run": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
+            "evidence": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 350 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "prepare": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke prepare-footprint-review --root . --limit 50 --offset 350 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
           },
           "limit": 50,
           "mode": "pending_offset_batch_before_applying_any_batch",
@@ -229,11 +229,11 @@
           "batch_index": 9,
           "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
           "commands": {
-            "apply": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
-            "assist": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .",
-            "dry_run": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
-            "evidence": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 400 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
-            "prepare": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 400 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
+            "apply": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "assist": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-footprint-review-assist --root .",
+            "dry_run": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
+            "evidence": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 400 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "prepare": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke prepare-footprint-review --root . --limit 50 --offset 400 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
           },
           "limit": 50,
           "mode": "pending_offset_batch_before_applying_any_batch",
@@ -248,11 +248,11 @@
           "batch_index": 10,
           "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
           "commands": {
-            "apply": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
-            "assist": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .",
-            "dry_run": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
-            "evidence": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 450 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
-            "prepare": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 450 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
+            "apply": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "assist": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-footprint-review-assist --root .",
+            "dry_run": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
+            "evidence": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 450 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "prepare": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke prepare-footprint-review --root . --limit 50 --offset 450 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
           },
           "limit": 50,
           "mode": "pending_offset_batch_before_applying_any_batch",
@@ -267,11 +267,11 @@
           "batch_index": 11,
           "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
           "commands": {
-            "apply": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
-            "assist": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .",
-            "dry_run": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
-            "evidence": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 500 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
-            "prepare": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 500 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
+            "apply": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "assist": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-footprint-review-assist --root .",
+            "dry_run": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
+            "evidence": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 500 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "prepare": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke prepare-footprint-review --root . --limit 50 --offset 500 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
           },
           "limit": 50,
           "mode": "pending_offset_batch_before_applying_any_batch",
@@ -286,11 +286,11 @@
           "batch_index": 12,
           "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
           "commands": {
-            "apply": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
-            "assist": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .",
-            "dry_run": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
-            "evidence": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 550 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
-            "prepare": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 550 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
+            "apply": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "assist": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-footprint-review-assist --root .",
+            "dry_run": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
+            "evidence": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 550 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "prepare": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke prepare-footprint-review --root . --limit 50 --offset 550 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
           },
           "limit": 50,
           "mode": "pending_offset_batch_before_applying_any_batch",
@@ -305,11 +305,11 @@
           "batch_index": 13,
           "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
           "commands": {
-            "apply": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
-            "assist": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .",
-            "dry_run": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
-            "evidence": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 600 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
-            "prepare": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 600 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
+            "apply": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "assist": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-footprint-review-assist --root .",
+            "dry_run": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
+            "evidence": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 600 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "prepare": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke prepare-footprint-review --root . --limit 50 --offset 600 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
           },
           "limit": 50,
           "mode": "pending_offset_batch_before_applying_any_batch",
@@ -324,11 +324,11 @@
           "batch_index": 14,
           "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
           "commands": {
-            "apply": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
-            "assist": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .",
-            "dry_run": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
-            "evidence": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 650 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
-            "prepare": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 650 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
+            "apply": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "assist": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-footprint-review-assist --root .",
+            "dry_run": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
+            "evidence": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 650 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "prepare": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke prepare-footprint-review --root . --limit 50 --offset 650 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
           },
           "limit": 50,
           "mode": "pending_offset_batch_before_applying_any_batch",
@@ -343,11 +343,11 @@
           "batch_index": 15,
           "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
           "commands": {
-            "apply": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
-            "assist": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .",
-            "dry_run": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
-            "evidence": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 700 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
-            "prepare": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 700 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
+            "apply": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "assist": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-footprint-review-assist --root .",
+            "dry_run": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
+            "evidence": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 700 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "prepare": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke prepare-footprint-review --root . --limit 50 --offset 700 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
           },
           "limit": 50,
           "mode": "pending_offset_batch_before_applying_any_batch",
@@ -362,11 +362,11 @@
           "batch_index": 16,
           "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
           "commands": {
-            "apply": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
-            "assist": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .",
-            "dry_run": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
-            "evidence": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 750 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
-            "prepare": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 750 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
+            "apply": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "assist": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-footprint-review-assist --root .",
+            "dry_run": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
+            "evidence": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 750 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "prepare": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke prepare-footprint-review --root . --limit 50 --offset 750 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
           },
           "limit": 50,
           "mode": "pending_offset_batch_before_applying_any_batch",
@@ -381,11 +381,11 @@
           "batch_index": 17,
           "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
           "commands": {
-            "apply": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
-            "assist": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .",
-            "dry_run": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
-            "evidence": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 800 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
-            "prepare": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 800 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
+            "apply": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "assist": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-footprint-review-assist --root .",
+            "dry_run": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
+            "evidence": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 800 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "prepare": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke prepare-footprint-review --root . --limit 50 --offset 800 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
           },
           "limit": 50,
           "mode": "pending_offset_batch_before_applying_any_batch",
@@ -400,11 +400,11 @@
           "batch_index": 18,
           "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
           "commands": {
-            "apply": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
-            "assist": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .",
-            "dry_run": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
-            "evidence": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 850 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
-            "prepare": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 850 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
+            "apply": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "assist": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-footprint-review-assist --root .",
+            "dry_run": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
+            "evidence": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 850 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "prepare": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke prepare-footprint-review --root . --limit 50 --offset 850 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
           },
           "limit": 50,
           "mode": "pending_offset_batch_before_applying_any_batch",
@@ -419,11 +419,11 @@
           "batch_index": 19,
           "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
           "commands": {
-            "apply": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
-            "assist": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .",
-            "dry_run": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
-            "evidence": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 900 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
-            "prepare": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 900 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
+            "apply": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "assist": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-footprint-review-assist --root .",
+            "dry_run": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
+            "evidence": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 900 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "prepare": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke prepare-footprint-review --root . --limit 50 --offset 900 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
           },
           "limit": 50,
           "mode": "pending_offset_batch_before_applying_any_batch",
@@ -438,24 +438,43 @@
           "batch_index": 20,
           "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
           "commands": {
-            "apply": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
-            "assist": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .",
-            "dry_run": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
-            "evidence": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 17 --offset 950 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
-            "prepare": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 17 --offset 950 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
+            "apply": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "assist": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-footprint-review-assist --root .",
+            "dry_run": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
+            "evidence": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 950 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "prepare": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke prepare-footprint-review --root . --limit 50 --offset 950 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
+          },
+          "limit": 50,
+          "mode": "pending_offset_batch_before_applying_any_batch",
+          "offset": 950,
+          "pending_row_end": 1000,
+          "pending_row_start": 951,
+          "promotion_input_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
+          "target_review_template_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl"
+        },
+        {
+          "apply_effect": "merge_batch_into_target_review_template",
+          "batch_index": 21,
+          "batch_input_path": "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+          "commands": {
+            "apply": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "assist": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-footprint-review-assist --root .",
+            "dry_run": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
+            "evidence": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-footprint-review-evidence --root . --limit 17 --offset 1000 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+            "prepare": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke prepare-footprint-review --root . --limit 17 --offset 1000 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
           },
           "limit": 17,
           "mode": "pending_offset_batch_before_applying_any_batch",
-          "offset": 950,
-          "pending_row_end": 967,
-          "pending_row_start": 951,
+          "offset": 1000,
+          "pending_row_end": 1017,
+          "pending_row_start": 1001,
           "promotion_input_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
           "target_review_template_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl"
         }
       ],
       "blockers": [
         "1001 analytical footprint review rows failed validation",
-        "967 analytical footprint review rows still pending",
+        "1017 analytical footprint review rows still pending",
         "metric_mapping_accuracy 0.558824 below threshold 0.80"
       ],
       "complete_rows": 34,
@@ -487,46 +506,46 @@
         "pending_rows": 0,
         "rows": 50
       },
-      "dry_run_command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_reviewed.jsonl --dry-run",
+      "dry_run_command": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_reviewed.jsonl --dry-run",
       "input_exists": true,
       "input_path": "registry/report_intelligence/analytical_footprint_reviewed.jsonl",
       "input_rows": 1001,
       "next_batch_commands": {
-        "apply": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
-        "assist": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .",
-        "dry_run": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
-        "evidence": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 0 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
-        "prepare": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 0 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
+        "apply": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+        "assist": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-footprint-review-assist --root .",
+        "dry_run": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run",
+        "evidence": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 0 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+        "prepare": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke prepare-footprint-review --root . --limit 50 --offset 0 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite"
       },
-      "pending_rows": 967,
-      "prepare_command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --output registry/report_intelligence/analytical_footprint_reviewed.jsonl --overwrite",
+      "pending_rows": 1017,
+      "prepare_command": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke prepare-footprint-review --root . --output registry/report_intelligence/analytical_footprint_reviewed.jsonl --overwrite",
       "ready_for_promotion": false,
       "review_kind": "footprint_review",
       "simulation_accepted": false,
-      "target_rows": 1001
+      "target_rows": 1051
     },
     {
-      "apply_command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke build-license-review-import --root . --policy registry/review_batches/source_license_policy_reviewed.json --output registry/review_batches/source_license_policy_import.jsonl && MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_policy_import.jsonl",
+      "apply_command": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke build-license-review-import --root . --policy registry/review_batches/source_license_policy_reviewed.json --output registry/review_batches/source_license_policy_import.jsonl && MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_policy_import.jsonl",
       "batch_plan": [],
       "blockers": [],
       "complete_rows": 17529,
       "current_batch_status": {
         "already_applied": true
       },
-      "dry_run_command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke build-license-review-import --root . --policy registry/review_batches/source_license_policy_reviewed.json --output registry/review_batches/source_license_policy_import.jsonl && MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_policy_import.jsonl --dry-run",
+      "dry_run_command": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke build-license-review-import --root . --policy registry/review_batches/source_license_policy_reviewed.json --output registry/review_batches/source_license_policy_import.jsonl && MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_policy_import.jsonl --dry-run",
       "input_exists": true,
       "input_path": "registry/review_batches/source_license_policy_reviewed.json",
       "input_rows": 1,
       "next_batch_commands": {},
       "pending_rows": 0,
-      "prepare_command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-license-policy-review --root .",
+      "prepare_command": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke prepare-license-policy-review --root .",
       "ready_for_promotion": true,
       "review_kind": "source_license",
       "simulation_accepted": true,
       "target_rows": 17529
     },
     {
-      "apply_command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-lockbox-review --root . --input registry/review_batches/lockbox_reviewed.json",
+      "apply_command": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-lockbox-review --root . --input registry/review_batches/lockbox_reviewed.json",
       "batch_plan": [],
       "blockers": [
         "opened_at required",
@@ -553,13 +572,13 @@
         "pending_rows": 1,
         "rows": 1
       },
-      "dry_run_command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-lockbox-review --root . --input registry/review_batches/lockbox_reviewed.json --dry-run",
+      "dry_run_command": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-lockbox-review --root . --input registry/review_batches/lockbox_reviewed.json --dry-run",
       "input_exists": true,
       "input_path": "registry/review_batches/lockbox_reviewed.json",
       "input_rows": 1,
       "next_batch_commands": {},
       "pending_rows": 1,
-      "prepare_command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-lockbox-review --root .",
+      "prepare_command": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke prepare-lockbox-review --root .",
       "ready_for_promotion": false,
       "review_kind": "lockbox",
       "simulation_accepted": false,

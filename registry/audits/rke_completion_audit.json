@@ -51,10 +51,9 @@
     }
   ],
   "acceptance_section": "22",
-  "blocked_count": 2,
+  "blocked_count": 1,
   "blockers": [
-    "gold set requires >= 50 documents; direction_accuracy below 0.85; variable_mapping_accuracy below 0.80; unsupported_field_false_grounding_rate above 0.05",
-    "long source text appears outside approved sandbox artifacts"
+    "gold set requires >= 50 documents; direction_accuracy below 0.85; variable_mapping_accuracy below 0.80; unsupported_field_false_grounding_rate above 0.05"
   ],
   "criteria": [
     {
@@ -128,11 +127,11 @@
       "passed": true
     },
     {
-      "blocker": "long source text appears outside approved sandbox artifacts",
+      "blocker": "",
       "criterion_id": "C11",
       "description": "Compliance gate blocks unauthorized reports from production runtime.",
-      "evidence": "17529 sources approved for production runtime; 1 source text redaction failure(s)",
-      "passed": false
+      "evidence": "17529 sources approved for production runtime; 17470 Tushare source texts checked for long-passage exposure",
+      "passed": true
     },
     {
       "blocker": "",
@@ -143,7 +142,7 @@
     }
   ],
   "master_plan_path": "docs/plans/master_plan_v1_1.md",
-  "passed_count": 10,
+  "passed_count": 11,
   "ready_for_broad_rollout": false,
   "report_id": "RKE-COMPLETION-AUDIT-20260606"
 }
