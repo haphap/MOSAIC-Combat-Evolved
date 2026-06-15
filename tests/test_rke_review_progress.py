@@ -147,6 +147,68 @@ def _write_json(path: Path, payload: dict) -> None:
     )
 
 
+def test_quality_gap_review_focus_maps_metrics_to_current_batch_fields():
+    focus = review_progress_module._quality_gap_review_focus(
+        review_kind="footprint_review",
+        quality_gap_targets={
+            "metrics": {
+                "metric_mapping_accuracy": {
+                    "current_rate": 0.55,
+                    "is_passing": False,
+                    "operator": ">=",
+                    "threshold": 0.8,
+                    "required_pass_count": 28,
+                },
+                "footprint_precision": {
+                    "current_rate": 1.0,
+                    "is_passing": True,
+                    "operator": ">=",
+                    "threshold": 0.8,
+                },
+            }
+        },
+        evidence_status={
+            "quality_gap_focus_field_counts": {"metric_mapping_correct": 2},
+            "suggested_tag_counts": {
+                "metric_mapping_missing": 2,
+                "unrelated_tag": 5,
+            },
+            "suggested_review_decision_counts": {
+                "metric_mapping_correct": {"false": 2}
+            },
+        },
+        workload={
+            "metric_mapping_correct": {
+                "missing_required_rows": 2,
+                "draft_decision_available_rows": 2,
+                "manual_decision_required_rows": 0,
+            }
+        },
+    )
+
+    assert focus == {
+        "active_metric_count": 1,
+        "items": [
+            {
+                "current_rate": 0.55,
+                "draft_decision_available_rows": 2,
+                "evidence_focus_rows": 2,
+                "field": "metric_mapping_correct",
+                "manual_decision_required_rows": 0,
+                "metric": "metric_mapping_accuracy",
+                "missing_required_rows": 2,
+                "operator": ">=",
+                "related_evidence_tag_counts": {"metric_mapping_missing": 2},
+                "required_pass_count": 28,
+                "suggested_decision_counts": {"false": 2},
+                "threshold": 0.8,
+            }
+        ],
+        "mapped_metric_count": 1,
+        "policy": "public_safe_quality_gap_to_current_batch_review_fields",
+    }
+
+
 def test_manual_review_field_contracts_match_import_validators():
     gold = manual_review_field_contract("gold_set")
     assert gold["boolean_fields"] == list(GOLD_BOOL_FIELDS)

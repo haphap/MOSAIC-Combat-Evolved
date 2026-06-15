@@ -105,6 +105,53 @@ ACTION_QUEUE_STATES = (
     "needs_operator_inspection",
 )
 
+QUALITY_GAP_REVIEW_FIELD_MAP: Mapping[str, Mapping[str, str]] = {
+    "gold_set": {
+        "claim_precision": "claim_correct",
+        "source_span_support_precision": "source_span_supports_claim",
+        "direction_accuracy": "direction_correct",
+        "target_accuracy": "target_correct",
+        "horizon_accuracy": "horizon_correct",
+        "variable_mapping_accuracy": "variable_mapping_correct",
+        "unsupported_field_false_grounding_rate": "unsupported_field_false_grounded",
+    },
+    "footprint_review": {
+        "footprint_precision": "footprint_correct",
+        "span_support_precision": "source_span_supports_footprint",
+        "metric_mapping_accuracy": "metric_mapping_correct",
+        "inferred_step_tagging_accuracy": "inferred_steps_tagged_correctly",
+        "unknown_on_ambiguity_rate": "unknowns_used_when_uncertain",
+        "proprietary_leakage_free_rate": "no_proprietary_text_leakage",
+    },
+}
+
+QUALITY_GAP_REVIEW_TAG_MAP: Mapping[str, Mapping[str, tuple[str, ...]]] = {
+    "gold_set": {
+        "claim_precision": ("context_synthesis_required",),
+        "source_span_support_precision": ("context_synthesis_required",),
+        "direction_accuracy": ("direction_text_needs_review",),
+        "target_accuracy": ("forecast_mapping_insufficient",),
+        "horizon_accuracy": ("context_synthesis_required",),
+        "variable_mapping_accuracy": ("forecast_mapping_insufficient",),
+        "unsupported_field_false_grounding_rate": (
+            "unsupported_grounding_needs_review",
+        ),
+    },
+    "footprint_review": {
+        "footprint_precision": ("complex_multi_step_patterns",),
+        "span_support_precision": ("missing_indicator_mentions",),
+        "metric_mapping_accuracy": (
+            "metric_mapping_missing",
+            "metric_mapping_unknown",
+            "metric_mapping_ungrounded",
+            "metric_mapping_inference_available",
+        ),
+        "inferred_step_tagging_accuracy": ("complex_multi_step_patterns",),
+        "unknown_on_ambiguity_rate": ("metric_mapping_unknown",),
+        "proprietary_leakage_free_rate": (),
+    },
+}
+
 
 @dataclass(frozen=True)
 class ManualReviewGateProgress:
@@ -496,6 +543,111 @@ def _review_field_workflow_groups(
             )
         )
     return groups
+
+
+def _active_quality_gap_metrics(
+    quality_gap_targets: Mapping[str, Any] | None,
+) -> Mapping[str, Mapping[str, Any]]:
+    if not isinstance(quality_gap_targets, Mapping):
+        return {}
+    metrics = quality_gap_targets.get("metrics")
+    if not isinstance(metrics, Mapping):
+        return {}
+    active: dict[str, Mapping[str, Any]] = {}
+    for metric_name, metric in sorted(metrics.items()):
+        if not isinstance(metric, Mapping):
+            continue
+        if metric.get("is_passing") is False:
+            active[str(metric_name)] = metric
+    return active
+
+
+def _quality_gap_review_focus(
+    *,
+    review_kind: ReviewProgressKind,
+    quality_gap_targets: Mapping[str, Any] | None,
+    evidence_status: Mapping[str, Any],
+    workload: Mapping[str, Any],
+) -> Mapping[str, Any]:
+    metric_to_field = QUALITY_GAP_REVIEW_FIELD_MAP.get(review_kind, {})
+    if not metric_to_field:
+        return {}
+    active_metrics = _active_quality_gap_metrics(quality_gap_targets)
+    if not active_metrics:
+        return {}
+    focus_field_counts = evidence_status.get("quality_gap_focus_field_counts")
+    focus_counts = focus_field_counts if isinstance(focus_field_counts, Mapping) else {}
+    suggested_tag_counts = evidence_status.get("suggested_tag_counts")
+    tag_counts = suggested_tag_counts if isinstance(suggested_tag_counts, Mapping) else {}
+    suggested_decision_counts = evidence_status.get("suggested_review_decision_counts")
+    decision_counts = (
+        suggested_decision_counts
+        if isinstance(suggested_decision_counts, Mapping)
+        else {}
+    )
+    tag_map = QUALITY_GAP_REVIEW_TAG_MAP.get(review_kind, {})
+    items: list[dict[str, Any]] = []
+    for metric_name, metric in active_metrics.items():
+        field_name = metric_to_field.get(metric_name)
+        if not field_name:
+            continue
+        workload_item = workload.get(field_name)
+        field_workload = workload_item if isinstance(workload_item, Mapping) else {}
+        decision_item = decision_counts.get(field_name)
+        field_decisions = decision_item if isinstance(decision_item, Mapping) else {}
+        related_tags = {
+            str(tag): int(tag_counts.get(tag) or 0)
+            for tag in tag_map.get(metric_name, ())
+            if int(tag_counts.get(tag) or 0) > 0
+        }
+        item: dict[str, Any] = {
+            "metric": metric_name,
+            "field": field_name,
+            "operator": str(metric.get("operator") or ""),
+            "threshold": metric.get("threshold"),
+            "current_rate": metric.get("current_rate"),
+            "missing_required_rows": int(
+                field_workload.get("missing_required_rows") or 0
+            ),
+            "draft_decision_available_rows": int(
+                field_workload.get("draft_decision_available_rows") or 0
+            ),
+            "manual_decision_required_rows": int(
+                field_workload.get("manual_decision_required_rows") or 0
+            ),
+            "evidence_focus_rows": int(focus_counts.get(field_name) or 0),
+            "suggested_decision_counts": {
+                str(bucket): int(count)
+                for bucket, count in sorted(field_decisions.items())
+            },
+            "related_evidence_tag_counts": related_tags,
+        }
+        for count_key in (
+            "current_pass_count",
+            "current_true_count",
+            "required_pass_count",
+            "max_allowed_true_count",
+            "minimum_additional_pass_count_if_denominator_unchanged",
+            "minimum_excess_true_count_if_denominator_unchanged",
+        ):
+            if count_key in metric:
+                item[count_key] = metric.get(count_key)
+        items.append(item)
+    if not items:
+        return {}
+    items.sort(
+        key=lambda item: (
+            -int(item.get("manual_decision_required_rows") or 0),
+            -int(item.get("evidence_focus_rows") or 0),
+            str(item.get("metric") or ""),
+        )
+    )
+    return {
+        "policy": "public_safe_quality_gap_to_current_batch_review_fields",
+        "active_metric_count": len(active_metrics),
+        "mapped_metric_count": len(items),
+        "items": items,
+    }
 
 
 def _missing_review_field_workload(
@@ -1876,7 +2028,7 @@ def _render_current_batch_coverage_lines(
         return []
     remaining_rows = int(overview.get("remaining_rows_after_current_batch") or 0)
     covers_next_batch = bool(overview.get("current_batch_covers_next_batch"))
-    return [
+    lines = [
         (
             f"- {label} coverage: current scratch covers {covered_rows}/"
             f"{pending_rows} pending target rows; remaining after current apply: "
@@ -1884,6 +2036,34 @@ def _render_current_batch_coverage_lines(
             f"{str(covers_next_batch).lower()}"
         )
     ]
+    quality_focus = overview.get("current_batch_quality_gap_review_focus")
+    rendered_quality_focus = _render_quality_gap_review_focus(quality_focus)
+    if rendered_quality_focus:
+        lines.append(f"- {label} quality-gap review focus: {rendered_quality_focus}")
+    return lines
+
+
+def _render_quality_gap_review_focus(value: Any) -> str:
+    if not isinstance(value, Mapping):
+        return ""
+    items = value.get("items")
+    if not isinstance(items, Sequence) or isinstance(items, str):
+        return ""
+    rendered: list[str] = []
+    for item in items:
+        if not isinstance(item, Mapping):
+            continue
+        metric = str(item.get("metric") or "").strip()
+        field = str(item.get("field") or "").strip()
+        if not metric or not field:
+            continue
+        rendered.append(
+            f"`{metric}`->`{field}` "
+            f"manual={int(item.get('manual_decision_required_rows') or 0)},"
+            f"draft={int(item.get('draft_decision_available_rows') or 0)},"
+            f"focus={int(item.get('evidence_focus_rows') or 0)}"
+        )
+    return "; ".join(rendered)
 
 
 def _render_batch_plan_lines(label: str, batch_plan: Sequence[Mapping[str, Any]]) -> list[str]:
@@ -2341,6 +2521,14 @@ def _compact_batch_overview(gate: ManualReviewGateProgress) -> Mapping[str, Any]
                 overview[f"current_batch_evidence_{field_name}"] = {
                     str(key): int(count) for key, count in sorted(value.items())
                 }
+    quality_focus = _quality_gap_review_focus(
+        review_kind=gate.review_kind,
+        quality_gap_targets=gate.quality_gap_targets,
+        evidence_status=evidence,
+        workload=overview.get("current_batch_review_field_workload", {}),
+    )
+    if quality_focus:
+        overview["current_batch_quality_gap_review_focus"] = quality_focus
     if batches:
         first = batches[0]
         last = batches[-1]

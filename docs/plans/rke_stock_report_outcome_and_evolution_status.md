@@ -37,6 +37,14 @@ Markdown paths, source spans, reviewer notes, or private Tushare rows.
   `current_batch_review_field_workflow_groups`, which separates boolean
   decision fields, reviewer/date metadata fields, free-text fields, and
   draft-decision verification fields.
+- The current batch overview and runbook now also expose
+  `current_batch_quality_gap_review_focus`, a public-safe metric-to-field focus
+  list that maps failing quality gates to the exact review fields and aggregate
+  evidence counts in the active scratch batch. The current gold focus is
+  `variable_mapping_accuracy -> variable_mapping_correct`,
+  `unsupported_field_false_grounding_rate -> unsupported_field_false_grounded`,
+  and `direction_accuracy -> direction_correct`; the current footprint focus is
+  `metric_mapping_accuracy -> metric_mapping_correct`.
 
 Current public aggregate evidence. Private report-intelligence JSONL files such
 as `report_metadata.jsonl`, `forecast_claims.jsonl`, and
