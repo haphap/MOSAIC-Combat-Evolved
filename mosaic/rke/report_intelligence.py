@@ -937,6 +937,7 @@ class AnalyticalFootprintReviewImportReport:
     duplicate_ids: Sequence[str]
     missing_target_ids: Sequence[str]
     invalid_rows: Sequence[AnalyticalFootprintReviewImportInvalidRow]
+    invalid_reason_counts: Mapping[str, int]
     summary_path: str
     blockers: Sequence[str]
 
@@ -6484,6 +6485,13 @@ def apply_analytical_footprint_review_import(
         duplicate_ids=duplicate_ids,
         missing_target_ids=missing_target_ids,
         invalid_rows=tuple(invalid_rows),
+        invalid_reason_counts=dict(
+            sorted(
+                Counter(
+                    reason for row in invalid_rows for reason in row.reasons
+                ).items()
+            )
+        ),
         summary_path=ANALYTICAL_FOOTPRINT_REVIEW_SUMMARY_PATH,
         blockers=tuple(blockers),
     )

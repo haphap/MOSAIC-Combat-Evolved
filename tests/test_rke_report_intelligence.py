@@ -10512,6 +10512,9 @@ def test_apply_analytical_footprint_review_import_updates_summary(tmp_path: Path
     )
 
     assert not failed_dry_run.accepted
+    assert failed_dry_run.invalid_reason_counts[
+        "metric_mapping_correct must be boolean"
+    ] == 1
     assert json.loads(report_path.read_text(encoding="utf-8")) == written_report
     summary = json.loads(
         (

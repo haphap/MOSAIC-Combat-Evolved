@@ -110,6 +110,7 @@ class ManualReviewImportReport:
     duplicate_ids: Sequence[str]
     missing_target_ids: Sequence[str]
     invalid_rows: Sequence[ManualReviewImportInvalidRow]
+    invalid_reason_counts: Mapping[str, int]
     downstream_outputs: Mapping[str, str]
     blockers: Sequence[str]
 
@@ -394,6 +395,13 @@ def _build_report(
         duplicate_ids=tuple(duplicate_ids),
         missing_target_ids=tuple(missing_target_ids),
         invalid_rows=tuple(invalid_rows),
+        invalid_reason_counts=dict(
+            sorted(
+                Counter(
+                    reason for row in invalid_rows for reason in row.reasons
+                ).items()
+            )
+        ),
         downstream_outputs=dict(downstream_outputs),
         blockers=tuple(blockers),
     )

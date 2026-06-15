@@ -307,7 +307,6 @@ def _ensure_synthetic_private_tushare_registry(root_path: Path) -> None:
         return
 
     sources = _build_synthetic_tushare_rows()
-    source_ids = {str(row["source_id"]) for row in sources}
     gold_candidates = _build_synthetic_gold_candidates(sources)
     candidate_claims = [
         _synthetic_claim_row(source, document_index, claim_index)
@@ -354,6 +353,20 @@ def _ensure_synthetic_private_tushare_registry(root_path: Path) -> None:
                 "span_preview": "synthetic fixture preview",
             }
         )
+    source_ids = {str(row["source_id"]) for row in sources}
+    public_demo_source_path = root_path / "registry/sources/semiconductor_demo_sources.jsonl"
+    if public_demo_source_path.exists():
+        for line in public_demo_source_path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            source = json.loads(line)
+            source_id = str(source.get("source_id") or "")
+            if not source_id or source_id in source_ids:
+                continue
+            if source.get("source_type") != "tushare_research_report":
+                continue
+            sources.append(source)
+            source_ids.add(source_id)
     license_rows = [
         {
             "approved_for_derived_claim_storage": True,

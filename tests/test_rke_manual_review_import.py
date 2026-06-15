@@ -17,8 +17,11 @@ from mosaic.rke import (
 )
 from mosaic.rke.cli import main
 from mosaic.rke.manual_review_import import (
+    GOLD_REVIEW_PACKET_PATH,
+    GOLD_REVIEW_TEMPLATE_PATH,
     LICENSE_REVIEW_PACKET_PATH,
     LICENSE_REVIEW_TEMPLATE_PATH,
+    MANUAL_REVIEW_IMPORT_FORBIDDEN_FIELDS,
     TARGET_ROW_HASH_FIELD,
     review_row_fingerprint,
 )
@@ -78,8 +81,14 @@ def _append_jsonl_value(path: Path, value) -> None:
 
 def _accepted_gold_template_row(row: dict) -> dict:
     out = dict(row)
+    for field in tuple(out):
+        if str(field).strip().lower() in MANUAL_REVIEW_IMPORT_FORBIDDEN_FIELDS:
+            out.pop(field, None)
     out.update(
         {
+            TARGET_ROW_HASH_FIELD: review_row_fingerprint(row),
+            "review_context_ref": GOLD_REVIEW_PACKET_PATH,
+            "target_review_path": GOLD_REVIEW_TEMPLATE_PATH,
             "manual_claim_text": row.get("proposed_claim_text") or "manual claim",
             "claim_correct": True,
             "source_span_supports_claim": True,
@@ -111,7 +120,9 @@ def _accepted_license_template_row(row: dict) -> dict:
 
 
 def _gold_import_rows(root: Path) -> list[dict]:
-    rows = _load_jsonl(root / "registry/review_batches/gold_set_full_import_template.jsonl")
+    rows = _load_jsonl(
+        root / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    )
     return [_accepted_gold_template_row(row) for row in rows]
 
 
@@ -140,7 +151,8 @@ def _license_import_rows(root: Path) -> list[dict]:
 def test_apply_gold_set_review_import_passes_c02_when_all_rows_reviewed(tmp_path: Path):
     _copy_registry(tmp_path)
     import_path = tmp_path / "gold_import.jsonl"
-    _write_jsonl(import_path, _gold_import_rows(tmp_path))
+    gold_rows = _gold_import_rows(tmp_path)
+    _write_jsonl(import_path, gold_rows)
 
     report = apply_gold_set_review_import(tmp_path, import_path)
     summary = summarize_gold_set_review(tmp_path)
@@ -148,7 +160,7 @@ def test_apply_gold_set_review_import_passes_c02_when_all_rows_reviewed(tmp_path
     by_id = {criterion.criterion_id: criterion for criterion in audit.criteria}
 
     assert report.accepted
-    assert report.applied_rows == 500
+    assert report.applied_rows == len(gold_rows)
     assert not report.blockers
     assert summary.review_complete
     assert summary.passed
@@ -206,6 +218,9 @@ def test_apply_gold_set_review_import_rejects_stale_target_row_hash(tmp_path: Pa
 
     assert not report.accepted
     assert "target_row_hash does not match target review row" in set(report.invalid_rows[0].reasons)
+    assert report.invalid_reason_counts[
+        "target_row_hash does not match target review row"
+    ] == 1
     assert any("stale target_row_hash" in blocker for blocker in report.blockers)
     assert any("prepare-gold-review --root . --full --force" in blocker for blocker in report.blockers)
 
@@ -685,8 +700,9 @@ def test_cli_apply_review_import_commands(tmp_path: Path, capsys):
     _copy_registry(tmp_path)
     gold_import = tmp_path / "gold_import.jsonl"
     license_import = tmp_path / "license_import.jsonl"
+    gold_rows = _gold_import_rows(tmp_path)
     license_rows = _license_import_rows(tmp_path)
-    _write_jsonl(gold_import, _gold_import_rows(tmp_path))
+    _write_jsonl(gold_import, gold_rows)
     _write_jsonl(license_import, license_rows)
 
     gold_code = main(("apply-gold-review", "--root", str(tmp_path), "--input", str(gold_import)))
@@ -698,7 +714,7 @@ def test_cli_apply_review_import_commands(tmp_path: Path, capsys):
 
     assert gold_code == 0
     assert gold_output["accepted"] is True
-    assert gold_output["applied_rows"] == 500
+    assert gold_output["applied_rows"] == len(gold_rows)
     assert license_code == 0
     assert license_output["accepted"] is True
     assert license_output["applied_rows"] == len(license_rows)
