@@ -251,8 +251,6 @@ def gold_candidate_reviewable(row: Mapping[str, Any]) -> bool:
         return False
     if "direction_conflict_requires_review" in proposed_flags:
         return False
-    if "sentence_fallback_requires_context_synthesis" in proposed_flags:
-        return False
     if "manual claim required" in proposed_claim_text.lower():
         return False
     if str(row.get("proposed_direction") or "").strip() in {

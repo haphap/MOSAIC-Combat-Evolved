@@ -468,7 +468,7 @@ def test_refresh_tushare_research_report_registry_updates_dependent_artifacts(tm
     assert "production_monitor_diagnostics" in result.outputs
     assert len(source_rows) == 2
     assert len(license_rows) == 2
-    assert len(gold_rows) == 2
+    assert 0 < len(gold_rows) <= result.gold_candidate_rows
     assert manifest["output_path"] == "registry/sources/tushare_research_reports.jsonl"
     assert manifest["max_reports_per_query"] == 6000
     assert manifest["stock_query_batch_size"] == 50

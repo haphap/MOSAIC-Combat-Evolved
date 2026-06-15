@@ -81,9 +81,17 @@ def test_gold_candidate_reviewable_excludes_low_confidence_pipeline_outputs():
     for flag in (
         "canonical_variable_mapping_needed",
         "direction_conflict_requires_review",
-        "sentence_fallback_requires_context_synthesis",
     ):
         assert gold_candidate_reviewable({**base_row, "proposed_review_risk_flags": [flag]}) is False
+    assert (
+        gold_candidate_reviewable(
+            {
+                **base_row,
+                "proposed_review_risk_flags": ["sentence_fallback_requires_context_synthesis"],
+            }
+        )
+        is True
+    )
     for flag in ("forecast_mapping_insufficient", "forecast_not_testable"):
         assert gold_candidate_reviewable({**base_row, "proposed_review_risk_flags": [flag]}) is True
     for direction in ("", "neutral", "ambiguous", "unknown"):

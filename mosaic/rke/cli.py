@@ -24,6 +24,7 @@ from .experiment_validation import (
     write_experiment_validation_report,
 )
 from .gold_candidate_claims import (
+    GOLD_CANDIDATES_PATH,
     write_gold_candidate_claims,
 )
 from .gold_review_packet import build_gold_review_packet, write_gold_review_packet
@@ -63,6 +64,11 @@ from .operator_handoff import (
 from .operator_readiness import (
     build_operator_readiness_report,
     write_operator_readiness_report,
+)
+from .phase_minus1 import (
+    load_jsonl,
+    select_gold_set_candidates,
+    write_gold_set_candidates,
 )
 from .master_plan_coverage import (
     build_master_plan_coverage_report,
@@ -272,7 +278,7 @@ def _schema_status_next_actions(
                 ),
                 "expand_candidate_review_rows": operator_command(
                     "mosaic-rke gold-candidate-claims --root . "
-                    "--ensure-candidate-review-rows"
+                    "--refresh-candidates-from-source --ensure-candidate-review-rows"
                 ),
                 "prepare_expanded_batch": operator_command(
                     "mosaic-rke prepare-gold-review --root . "
@@ -291,8 +297,9 @@ def _schema_status_next_actions(
                 "Assist and evidence outputs are private review aids, not import files.",
                 "If sample_size_documents is below threshold, refresh/merge private "
                 "sources if needed, then run gold-candidate-claims with "
-                "--ensure-candidate-review-rows to append missing candidate rows "
-                "without overwriting existing manual review fields.",
+                "--refresh-candidates-from-source --ensure-candidate-review-rows "
+                "to append missing candidate rows without overwriting existing "
+                "manual review fields.",
                 "Promotion uses the full reviewed import only after every gold-set batch is complete.",
             ),
             review_aids=manual_review_aid_paths("gold_set"),
@@ -541,7 +548,7 @@ def _promotion_status_next_actions(result: Any) -> list[dict[str, Any]]:
                 ),
                 "expand_candidate_review_rows": operator_command(
                     "mosaic-rke gold-candidate-claims --root . "
-                    "--ensure-candidate-review-rows"
+                    "--refresh-candidates-from-source --ensure-candidate-review-rows"
                 ),
                 "prepare_expanded_batch": operator_command(
                     "mosaic-rke prepare-gold-review --root . "
@@ -561,8 +568,8 @@ def _promotion_status_next_actions(result: Any) -> list[dict[str, Any]]:
                 "required human review fields.",
                 "If document coverage is below threshold, append missing "
                 "candidate rows with gold-candidate-claims "
-                "--ensure-candidate-review-rows before preparing the next "
-                "gold review batch.",
+                "--refresh-candidates-from-source --ensure-candidate-review-rows "
+                "before preparing the next gold review batch.",
             ),
             review_aids=manual_review_aid_paths("gold_set"),
             field_contract=manual_review_field_contract("gold_set"),
@@ -873,6 +880,23 @@ def build_parser() -> argparse.ArgumentParser:
     )
     gold_candidate_claims.add_argument(
         "--root", default=".", help="Repository root. Defaults to current directory."
+    )
+    gold_candidate_claims.add_argument(
+        "--refresh-candidates-from-source",
+        action="store_true",
+        help=(
+            "Rebuild registry/sources/tushare_research_reports.gold_candidates.jsonl "
+            "from the local source JSONL before writing candidate claims. This is "
+            "local-only and does not call Tushare."
+        ),
+    )
+    gold_candidate_claims.add_argument(
+        "--source-path",
+        default="registry/sources/tushare_research_reports.jsonl",
+        help=(
+            "Local research-report source JSONL used with "
+            "--refresh-candidates-from-source. Defaults to the Tushare source registry path."
+        ),
     )
     gold_candidate_claims.add_argument(
         "--ensure-candidate-review-rows",
@@ -1988,6 +2012,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 0
     if args.command == "gold-candidate-claims":
+        candidate_refresh: dict[str, Any] = {}
+        if args.refresh_candidates_from_source:
+            source_path = Path(args.source_path)
+            if not source_path.is_absolute():
+                source_path = root / source_path
+            candidates = select_gold_set_candidates(load_jsonl(source_path))
+            candidate_refresh = write_gold_set_candidates(
+                candidates,
+                root / GOLD_CANDIDATES_PATH,
+            )
+            candidate_refresh = {
+                "candidate_rows": int(candidate_refresh["rows"]),
+                "path": str(candidate_refresh["path"]),
+                "source_path": str(source_path),
+            }
         paths = write_gold_candidate_claims(
             root,
             ensure_candidate_review_rows=args.ensure_candidate_review_rows,
@@ -2017,6 +2056,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "candidate_review_rows_added": paths[
                     "candidate_review_rows_added"
                 ],
+                "candidate_refresh": candidate_refresh,
                 "blockers": summary.get("blockers", []),
             }
         )

@@ -1,10 +1,19 @@
 {
   "blockers": [
-    "gold_set: 158/158 ready",
-    "gold_set: gold set requires >= 50 documents",
-    "gold_set: direction_accuracy below 0.85",
-    "gold_set: variable_mapping_accuracy below 0.80",
-    "gold_set: unsupported_field_false_grounding_rate above 0.05",
+    "gold_set: 158/211 ready",
+    "gold_set: 332 review ids are missing from target",
+    "gold_set: 500 review rows failed validation",
+    "gold_set: 168 review rows have stale target_row_hash; rerun `mosaic-rke prepare-gold-review --root . --full --force` before filling reviewer decisions",
+    "gold_set: 500 review rows: manual_claim_text required",
+    "gold_set: 500 review rows: claim_correct must be boolean",
+    "gold_set: 500 review rows: source_span_supports_claim must be boolean",
+    "gold_set: 500 review rows: direction_correct must be boolean",
+    "gold_set: 500 review rows: target_correct must be boolean",
+    "gold_set: 500 review rows: horizon_correct must be boolean",
+    "gold_set: 500 review rows: variable_mapping_correct must be boolean",
+    "gold_set: 500 review rows: unsupported_field_false_grounded must be boolean",
+    "gold_set: 2 additional validation reason(s) suppressed",
+    "gold_set: 53 gold-set claim review rows still pending",
     "footprint_review: 34/1051 ready",
     "footprint_review: 1001 analytical footprint review rows failed validation",
     "footprint_review: 1017 analytical footprint review rows still pending",
@@ -21,19 +30,69 @@
   "gates": [
     {
       "apply_command": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl",
-      "batch_plan": [],
+      "batch_plan": [
+        {
+          "apply_effect": "merge_batch_into_target_review_template",
+          "batch_index": 1,
+          "batch_input_path": "registry/review_batches/gold_set_reviewed.jsonl",
+          "commands": {
+            "apply": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl",
+            "backfill_dry_run": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke backfill-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl",
+            "backfill_write": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke backfill-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --write",
+            "dry_run": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --dry-run",
+            "evidence": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-gold-review-evidence --root . --limit 50 --offset 0 --review-input registry/review_batches/gold_set_reviewed.jsonl",
+            "prepare": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke prepare-gold-review --root . --gold-batch-size 50 --offset 0 --force --reviewer <name> --review-date <YYYY-MM-DD>"
+          },
+          "limit": 50,
+          "mode": "pending_offset_batch_before_applying_any_batch",
+          "offset": 0,
+          "pending_row_end": 50,
+          "pending_row_start": 1,
+          "promotion_input_path": "registry/review_batches/gold_set_full_reviewed.jsonl",
+          "target_review_template_path": "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+        },
+        {
+          "apply_effect": "merge_batch_into_target_review_template",
+          "batch_index": 2,
+          "batch_input_path": "registry/review_batches/gold_set_reviewed.jsonl",
+          "commands": {
+            "apply": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl",
+            "backfill_dry_run": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke backfill-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl",
+            "backfill_write": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke backfill-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --write",
+            "dry_run": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --dry-run",
+            "evidence": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-gold-review-evidence --root . --limit 3 --offset 50 --review-input registry/review_batches/gold_set_reviewed.jsonl",
+            "prepare": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke prepare-gold-review --root . --gold-batch-size 3 --offset 50 --force --reviewer <name> --review-date <YYYY-MM-DD>"
+          },
+          "limit": 3,
+          "mode": "pending_offset_batch_before_applying_any_batch",
+          "offset": 50,
+          "pending_row_end": 53,
+          "pending_row_start": 51,
+          "promotion_input_path": "registry/review_batches/gold_set_full_reviewed.jsonl",
+          "target_review_template_path": "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+        }
+      ],
       "blockers": [
-        "gold set requires >= 50 documents",
-        "direction_accuracy below 0.85",
-        "variable_mapping_accuracy below 0.80",
-        "unsupported_field_false_grounding_rate above 0.05"
+        "332 review ids are missing from target",
+        "500 review rows failed validation",
+        "168 review rows have stale target_row_hash; rerun `mosaic-rke prepare-gold-review --root . --full --force` before filling reviewer decisions",
+        "500 review rows: manual_claim_text required",
+        "500 review rows: claim_correct must be boolean",
+        "500 review rows: source_span_supports_claim must be boolean",
+        "500 review rows: direction_correct must be boolean",
+        "500 review rows: target_correct must be boolean",
+        "500 review rows: horizon_correct must be boolean",
+        "500 review rows: variable_mapping_correct must be boolean",
+        "500 review rows: unsupported_field_false_grounded must be boolean",
+        "2 additional validation reason(s) suppressed",
+        "53 gold-set claim review rows still pending"
       ],
       "complete_rows": 158,
       "current_batch_status": {
-        "complete_rows": 17,
+        "complete_rows": 0,
         "evidence_status": {
           "aligned": true,
-          "covered_review_rows": 17,
+          "covered_review_rows": 30,
           "duplicate_evidence_id_count": 0,
           "duplicate_review_id_count": 0,
           "exists": true,
@@ -45,17 +104,28 @@
           "review_input_exists": true,
           "review_input_malformed_rows": 0,
           "review_input_path": "registry/review_batches/gold_set_reviewed.jsonl",
-          "review_input_rows": 17,
-          "rows": 17,
+          "review_input_rows": 30,
+          "rows": 30,
           "same_order": true,
           "target_row_hash_mismatch_count": 0
         },
         "exists": true,
         "malformed_rows": 0,
-        "missing_required_fields": {},
+        "missing_required_fields": {
+          "claim_correct": 30,
+          "direction_correct": 30,
+          "horizon_correct": 30,
+          "manual_claim_text": 30,
+          "review_date": 30,
+          "reviewer": 30,
+          "source_span_supports_claim": 30,
+          "target_correct": 30,
+          "unsupported_field_false_grounded": 30,
+          "variable_mapping_correct": 30
+        },
         "path": "registry/review_batches/gold_set_reviewed.jsonl",
-        "pending_rows": 0,
-        "rows": 17,
+        "pending_rows": 30,
+        "rows": 30,
         "target_status": {
           "aligned": true,
           "exists": true,
@@ -64,11 +134,11 @@
           "missing_target_rows": 0,
           "review_input_exists": true,
           "review_input_path": "registry/review_batches/gold_set_reviewed.jsonl",
-          "review_input_rows": 17,
+          "review_input_rows": 30,
           "target_malformed_rows": 0,
           "target_path": "registry/gold_sets/tushare_research_reports.review_template.jsonl",
           "target_row_hash_mismatch_count": 0,
-          "target_rows": 158
+          "target_rows": 211
         }
       },
       "dry_run_command": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl --dry-run",
@@ -76,113 +146,21 @@
       "input_path": "registry/review_batches/gold_set_full_reviewed.jsonl",
       "input_rows": 500,
       "next_batch_commands": {
+        "apply": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl",
         "assist": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-gold-review-assist --root . --review-input registry/review_batches/gold_set_reviewed.jsonl",
         "backfill_dry_run": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke backfill-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl",
         "backfill_write": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke backfill-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --write",
         "dry_run": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --dry-run",
         "evidence": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke write-gold-review-evidence --root . --limit 50 --offset 0 --review-input registry/review_batches/gold_set_reviewed.jsonl",
-        "expand_candidate_review_rows": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke gold-candidate-claims --root . --ensure-candidate-review-rows",
-        "prepare_expanded_batch": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke prepare-gold-review --root . --gold-batch-size 50 --offset 0 --force --reviewer <name> --review-date <YYYY-MM-DD>",
-        "prepare_reviewed_failures": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke prepare-gold-review --root . --reviewed-failures --gold-batch-size 50 --offset 0 --force --reviewer <name> --review-date <YYYY-MM-DD>",
-        "refresh_source_candidates": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke fetch-tushare-reports --root . --p9-profile --start-date <YYYY-MM-DD> --end-date <YYYY-MM-DD> --merge-existing-source"
+        "prepare": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke prepare-gold-review --root . --gold-batch-size 50 --offset 0 --force --reviewer <name> --review-date <YYYY-MM-DD>"
       },
-      "pending_rows": 0,
+      "pending_rows": 53,
       "prepare_command": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke prepare-gold-review --root . --full",
-      "quality_gap_targets": {
-        "active_gap_count": 4,
-        "interpretation": "count deltas are the minimum gaps if the reviewed denominator stays unchanged; use them to prioritize re-review or candidate expansion, not as instructions to flip labels",
-        "metrics": {
-          "claim_precision": {
-            "current_pass_count": 145,
-            "current_rate": 0.917722,
-            "denominator": 158,
-            "is_passing": true,
-            "minimum_additional_pass_count_if_denominator_unchanged": 0,
-            "operator": ">=",
-            "required_pass_count": 135,
-            "threshold": 0.85
-          },
-          "direction_accuracy": {
-            "current_pass_count": 99,
-            "current_rate": 0.626582,
-            "denominator": 158,
-            "is_passing": false,
-            "minimum_additional_pass_count_if_denominator_unchanged": 36,
-            "operator": ">=",
-            "required_pass_count": 135,
-            "threshold": 0.85
-          },
-          "horizon_accuracy": {
-            "current_pass_count": 148,
-            "current_rate": 0.936709,
-            "denominator": 158,
-            "is_passing": true,
-            "minimum_additional_pass_count_if_denominator_unchanged": 0,
-            "operator": ">=",
-            "required_pass_count": 135,
-            "threshold": 0.85
-          },
-          "source_span_support_precision": {
-            "current_pass_count": 157,
-            "current_rate": 0.993671,
-            "denominator": 158,
-            "is_passing": true,
-            "minimum_additional_pass_count_if_denominator_unchanged": 0,
-            "operator": ">=",
-            "required_pass_count": 143,
-            "threshold": 0.9
-          },
-          "target_accuracy": {
-            "current_pass_count": 135,
-            "current_rate": 0.85443,
-            "denominator": 158,
-            "is_passing": true,
-            "minimum_additional_pass_count_if_denominator_unchanged": 0,
-            "operator": ">=",
-            "required_pass_count": 135,
-            "threshold": 0.85
-          },
-          "unsupported_field_false_grounding_rate": {
-            "current_rate": 0.227848,
-            "current_true_count": 36,
-            "denominator": 158,
-            "is_passing": false,
-            "max_allowed_true_count": 7,
-            "minimum_excess_true_count_if_denominator_unchanged": 29,
-            "operator": "<=",
-            "threshold": 0.05
-          },
-          "variable_mapping_accuracy": {
-            "current_pass_count": 30,
-            "current_rate": 0.189873,
-            "denominator": 158,
-            "is_passing": false,
-            "minimum_additional_pass_count_if_denominator_unchanged": 97,
-            "operator": ">=",
-            "required_pass_count": 127,
-            "threshold": 0.8
-          }
-        },
-        "policy": "public_safe_aggregate_quality_gate_gap_targets_no_source_text",
-        "sample_size_claims": {
-          "current_count": 158,
-          "is_passing": true,
-          "minimum_additional_count": 0,
-          "operator": ">=",
-          "threshold": 100
-        },
-        "sample_size_documents": {
-          "current_count": 37,
-          "is_passing": false,
-          "minimum_additional_count": 13,
-          "operator": ">=",
-          "threshold": 50
-        }
-      },
+      "quality_gap_targets": null,
       "ready_for_promotion": false,
       "review_kind": "gold_set",
       "simulation_accepted": false,
-      "target_rows": 158
+      "target_rows": 211
     },
     {
       "apply_command": "MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_reviewed.jsonl",

@@ -122,7 +122,9 @@ GOLD_SET_DOMAIN_KEYWORDS: Mapping[str, tuple[str, ...]] = {
 }
 REQUIRED_GOLD_SET_DOMAINS = tuple(GOLD_SET_DOMAIN_KEYWORD_SPECS)
 GOLD_SET_DOMAIN_KEYWORD_WEIGHTS = {"strong": 3, "weak": 1}
-DEFAULT_GOLD_SET_DOCUMENTS = 50
+# Oversample above the 50-document review gate because downstream candidate-claim
+# filters reject non-testable or weakly grounded rows before the manual queue.
+DEFAULT_GOLD_SET_DOCUMENTS = 75
 DEFAULT_GOLD_SET_CLAIMS_PER_DOCUMENT = 3
 
 

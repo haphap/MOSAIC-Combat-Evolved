@@ -205,6 +205,10 @@ def test_stock_report_outcome_status_doc_matches_public_artifacts():
         )
     )
     gate_kinds = {gate["review_kind"] for gate in progress_report["gates"]}
+    gold_gate = next(
+        gate for gate in progress_report["gates"] if gate["review_kind"] == "gold_set"
+    )
+    gold_batch = gold_gate["current_batch_status"]
     operator_check_ids = {check["check_id"] for check in operator_readiness["checks"]}
 
     outcome_count = extraction_report["outcome_label_rows"]
@@ -230,17 +234,25 @@ def test_stock_report_outcome_status_doc_matches_public_artifacts():
         "50-row scratch batch via `--review-input`"
         in status_text
     )
-    assert "gold-set quality re-review scratch batch has 17 rows" in status_text
-    assert "17 rows, 17 complete" in status_text
-    assert "0 pending rows" in status_text
-    assert "private assist and evidence drafts are aligned with the same" in status_text
+    assert (
+        f"expanded gold review target is now {gold_gate['target_rows']} rows "
+        f"with {gold_gate['complete_rows']} complete and {gold_gate['pending_rows']} pending"
+        in status_text
+    )
+    assert (
+        f"Current gold batch status is {gold_batch['rows']} rows, "
+        f"{gold_batch['complete_rows']} complete, {gold_batch['pending_rows']} pending"
+        in status_text
+    )
+    assert "needs_human_review_fields" in status_text
+    assert "private evidence draft is aligned with the same 30 scratch rows" in status_text
     assert "write-gold-review-assist --root . --review-input" in status_text
     assert "current active analytical-footprint batch has 50 rows" in status_text
     assert "Synthetic pytest fixtures" in status_text
     assert "current target hashes" in status_text
     assert "promotion gold-set import" in status_text
-    assert "remains not ready because document coverage" in status_text
-    assert "lockbox 0/1" in status_text
+    assert "remains not ready because the expanded current batch" in status_text
+    assert "lockbox is 0/1" in status_text
     assert "labelability_summary" in status_text
     assert "outcome_labeling_readiness.industry_etf_proxy_readiness" in status_text
     assert (

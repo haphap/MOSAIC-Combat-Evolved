@@ -539,6 +539,9 @@ def test_review_progress_reports_gold_quality_blockers_without_reapplying_stale_
     assert "--ensure-candidate-review-rows" in gold_action["commands"][
         "expand_candidate_review_rows"
     ]
+    assert "--refresh-candidates-from-source" in gold_action["commands"][
+        "expand_candidate_review_rows"
+    ]
 
 
 def test_review_progress_prioritizes_pending_gold_quality_batch_fields(

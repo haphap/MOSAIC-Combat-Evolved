@@ -392,6 +392,52 @@ def test_rke_cli_review_status_commands_write_summaries(tmp_path: Path, capsys):
     assert (tmp_path / "registry/compliance/tushare_license_review_packet.md").exists()
 
 
+def test_rke_cli_gold_candidate_claims_refreshes_candidates_from_local_source(
+    tmp_path: Path,
+    capsys,
+):
+    _copy_registry(tmp_path)
+    source_path = tmp_path / "registry/sources/tushare_research_reports.jsonl"
+    source_rows = [
+        {
+            "source_id": f"SRC-LOCAL-{idx:03d}",
+            "source_span_id": f"SRC-LOCAL-{idx:03d}:abstract",
+            "source_type": "tushare_research_report",
+            "report_type": "行业研报",
+            "query_key": f"行业{idx:03d}",
+            "publish_date": f"2026-06-{1 + idx % 28:02d}",
+            "discovered_at": "2026-06-15T00:00:00+00:00",
+            "title": f"local report {idx}",
+            "abstract": "若政策支持延续，行业需求改善，行业景气有望提升。",
+            "source_hash": f"sha256:local-{idx:03d}",
+            "point_in_time_available": True,
+            "license_status": "approved",
+        }
+        for idx in range(80)
+    ]
+    _write_jsonl(source_path, source_rows)
+
+    code = main(
+        (
+            "gold-candidate-claims",
+            "--root",
+            str(tmp_path),
+            "--refresh-candidates-from-source",
+            "--ensure-candidate-review-rows",
+        )
+    )
+    output = json.loads(capsys.readouterr().out)
+    candidate_rows = _load_jsonl(
+        tmp_path / "registry/sources/tushare_research_reports.gold_candidates.jsonl"
+    )
+
+    assert code == 0
+    assert output["candidate_refresh"]["candidate_rows"] == 75
+    assert len(candidate_rows) == 75
+    assert output["ensure_candidate_review_rows"] is True
+    assert output["candidate_review_rows_added"] > 0
+
+
 def test_rke_cli_prepare_license_policy_review_protects_existing_file(
     tmp_path: Path, capsys
 ):

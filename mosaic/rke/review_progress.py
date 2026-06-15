@@ -617,7 +617,7 @@ def _gold_quality_gate_commands() -> dict[str, str]:
         ),
         "expand_candidate_review_rows": operator_command(
             "mosaic-rke gold-candidate-claims --root . "
-            "--ensure-candidate-review-rows"
+            "--refresh-candidates-from-source --ensure-candidate-review-rows"
         ),
         "prepare_reviewed_failures": operator_command(
             "mosaic-rke prepare-gold-review --root . --reviewed-failures "
@@ -845,7 +845,7 @@ def _gold_progress(root_path: Path) -> ManualReviewGateProgress:
             current_batch_status=current_batch_status,
             quality_gap_targets=current_summary.quality_gap_targets,
         )
-    target_rows = build_manual_review_batch_status(root_path)[0].gold_set.pending_rows
+    target_rows = current_summary.total_claims
     resolved_input = _resolve(root_path, input_path)
     prepare_command = operator_command("mosaic-rke prepare-gold-review --root . --full")
     dry_run_command = operator_command(
@@ -879,7 +879,7 @@ def _gold_progress(root_path: Path) -> ManualReviewGateProgress:
         review_kind="gold_set",
         input_path=input_path,
         input_exists=True,
-        target_rows=target_rows,
+        target_rows=summary.total_claims,
         input_rows=input_rows,
         complete_rows=summary.reviewed_claims,
         pending_rows=summary.pending_claims,

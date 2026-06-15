@@ -15,6 +15,7 @@ from mosaic.rke import (
     write_gold_set_candidates,
     write_gold_set_review_template,
 )
+from mosaic.rke.phase_minus1 import DEFAULT_GOLD_SET_DOCUMENTS
 
 
 def _row(source_id: str, query_key: str, report_type: str = "个股研报") -> dict:
@@ -83,6 +84,19 @@ def test_phase_minus1_selects_and_writes_gold_set_candidates(tmp_path):
     assert out["rows"] == 2
     loaded = [json.loads(line) for line in (tmp_path / "gold_candidates.jsonl").read_text(encoding="utf-8").splitlines()]
     assert {row["source_id"] for row in loaded} == {row["source_id"] for row in candidates}
+
+
+def test_phase_minus1_default_gold_set_candidates_are_oversampled():
+    rows = [
+        _row(f"SRC-{idx:03d}", f"行业{idx:03d}", "行业研报")
+        | {"publish_date": f"2026-06-{1 + idx % 28:02d}"}
+        for idx in range(DEFAULT_GOLD_SET_DOCUMENTS + 10)
+    ]
+
+    candidates = select_gold_set_candidates(rows)
+
+    assert DEFAULT_GOLD_SET_DOCUMENTS == 75
+    assert len(candidates) == DEFAULT_GOLD_SET_DOCUMENTS
 
 
 def test_phase_minus1_candidate_selection_rejects_malformed_source_rows():

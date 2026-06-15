@@ -15674,7 +15674,7 @@ def _evolution_gate_cli_next_actions(
                 ),
                 "expand_candidate_review_rows": operator_command(
                     "mosaic-rke gold-candidate-claims --root . "
-                    "--ensure-candidate-review-rows"
+                    "--refresh-candidates-from-source --ensure-candidate-review-rows"
                 ),
                 "prepare_expanded_batch": operator_command(
                     "mosaic-rke prepare-gold-review --root . "
@@ -15691,8 +15691,8 @@ def _evolution_gate_cli_next_actions(
                 "must be filled in the reviewed import.",
                 "If document coverage is below threshold, append missing "
                 "candidate rows with gold-candidate-claims "
-                "--ensure-candidate-review-rows before preparing the next "
-                "gold review batch.",
+                "--refresh-candidates-from-source --ensure-candidate-review-rows "
+                "before preparing the next gold review batch.",
                 "Promotion uses the full reviewed import only after every "
                 "gold-set batch is complete.",
             ),
