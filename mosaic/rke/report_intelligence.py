@@ -6253,7 +6253,8 @@ def apply_analytical_footprint_review_import(
         summary_path=ANALYTICAL_FOOTPRINT_REVIEW_SUMMARY_PATH,
         blockers=tuple(blockers),
     )
-    _write_json(report_path, asdict(report))
+    if not dry_run:
+        _write_json(report_path, asdict(report))
     return report
 
 

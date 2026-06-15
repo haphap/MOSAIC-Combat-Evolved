@@ -17,6 +17,7 @@ from mosaic.rke.report_intelligence import (
     ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH,
     ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_JSONL_PATH,
     ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_MD_PATH,
+    ANALYTICAL_FOOTPRINT_REVIEW_IMPORT_REPORT_PATH,
     ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH,
     ANALYTICAL_FOOTPRINT_REVIEW_WORKBOOK_MD_PATH,
     DEFAULT_MINERU_ARGS_TEMPLATE,
@@ -10148,12 +10149,30 @@ def test_apply_analytical_footprint_review_import_updates_summary(tmp_path: Path
         import_path,
         dry_run=True,
     )
+    report_path = tmp_path / ANALYTICAL_FOOTPRINT_REVIEW_IMPORT_REPORT_PATH
+
+    assert not report_path.exists()
     report = apply_analytical_footprint_review_import(tmp_path, import_path)
 
     assert dry_run.accepted
     assert dry_run.applied_rows == 0
     assert report.accepted
     assert report.applied_rows == len(reviewed_rows)
+    assert report_path.exists()
+    written_report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert written_report["dry_run"] is False
+    invalid_path = tmp_path / "registry/report_intelligence/footprint_review_invalid.jsonl"
+    invalid_row = dict(reviewed_rows[0])
+    invalid_row["metric_mapping_correct"] = None
+    _write_jsonl(invalid_path, [invalid_row])
+    failed_dry_run = apply_analytical_footprint_review_import(
+        tmp_path,
+        invalid_path,
+        dry_run=True,
+    )
+
+    assert not failed_dry_run.accepted
+    assert json.loads(report_path.read_text(encoding="utf-8")) == written_report
     summary = json.loads(
         (
             tmp_path
