@@ -11363,10 +11363,20 @@ def test_prepare_analytical_footprint_review_import_priority_sorts_pending_rows(
     assert default_report.accepted
     assert default_report.priority is False
     assert default_report.selection_policy == "pending_offset"
+    assert default_report.selected_priority_score_counts == {"0": 1}
+    assert default_report.selected_priority_reason_counts == {}
     assert _read_jsonl(default_output_path)[0]["footprint_id"] == "FOOTPRINT-LOW"
     assert priority_report.accepted
     assert priority_report.priority is True
     assert priority_report.selection_policy == "priority_sorted_pending"
+    assert priority_report.selected_priority_score_counts == {"9": 1}
+    assert priority_report.selected_priority_reason_counts == {
+        "complex_multi_step_patterns": 1,
+        "many_source_spans": 1,
+        "missing_indicator_mentions": 1,
+        "missing_target_agent_candidates": 1,
+        "missing_target_entity_candidates": 1,
+    }
     assert _read_jsonl(priority_output_path)[0]["footprint_id"] == "FOOTPRINT-HIGH"
 
 
@@ -11553,6 +11563,7 @@ def test_write_analytical_footprint_review_evidence_is_private_not_import(
     assert evidence_rows[0]["not_apply_footprint_review_input"] is True
     assert evidence_rows[0]["human_review_required"] is True
     assert evidence_rows[0]["evidence_kind"].endswith("_not_import")
+    assert isinstance(evidence_rows[0]["priority_reasons"], list)
     assert evidence_rows[0]["suggested_review_rationales"]
     assert isinstance(
         evidence_rows[0]["suggested_review_decision"]["metric_mapping_correct"],
@@ -11562,6 +11573,7 @@ def test_write_analytical_footprint_review_evidence_is_private_not_import(
     assert "source_span_ids" not in evidence_rows[0]
     markdown = (tmp_path / report.markdown_path).read_text(encoding="utf-8")
     assert "RKE Analytical Footprint Review Evidence Draft" in markdown
+    assert "Priority reasons" in markdown
     assert "## Batch Triage Summary" in markdown
     assert "Suggested tag counts" in markdown
     assert "Sector counts" in markdown
@@ -11647,6 +11659,7 @@ def test_analytical_footprint_review_evidence_suggests_missing_metric_mapping(
     row = evidence_rows[0]
 
     assert row["suggested_review_decision"]["metric_mapping_correct"] is False
+    assert "missing_indicator_mentions" in row["priority_reasons"]
     assert "metric_mapping_missing" in row["suggested_manual_error_tags"]
     assert "metric_mapping_inference_available" in row["suggested_manual_error_tags"]
     assert row["inferred_indicator_suggestions"]

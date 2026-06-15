@@ -960,6 +960,8 @@ class AnalyticalFootprintReviewPrepareReport:
     complete_rows: int
     pending_rows: int
     pending_required_fields: Mapping[str, int]
+    selected_priority_score_counts: Mapping[str, int]
+    selected_priority_reason_counts: Mapping[str, int]
     blockers: Sequence[str]
     backed_up_existing_output: bool
     backup_path: str
@@ -5430,6 +5432,14 @@ def prepare_analytical_footprint_review_import(
             backed_up_existing_output = True
         _write_jsonl(resolved_output_path, scaffold_rows)
     complete_rows = sum(1 for row in scaffold_rows if _footprint_review_row_complete(row))
+    priority_score_counts = Counter(
+        str(_footprint_review_priority_score(row)) for row in scaffold_rows
+    )
+    priority_reason_counts = Counter(
+        reason
+        for row in scaffold_rows
+        for reason in _footprint_review_priority_reasons(row)
+    )
     report = AnalyticalFootprintReviewPrepareReport(
         report_id="RKE-REPORT-INTELLIGENCE-FOOTPRINT-REVIEW-PREPARE-REPORT",
         target_path=ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH,
@@ -5446,6 +5456,8 @@ def prepare_analytical_footprint_review_import(
         pending_required_fields=_footprint_review_pending_required_fields(
             scaffold_rows
         ),
+        selected_priority_score_counts=dict(sorted(priority_score_counts.items())),
+        selected_priority_reason_counts=dict(sorted(priority_reason_counts.items())),
         blockers=tuple(blockers),
         backed_up_existing_output=backed_up_existing_output,
         backup_path=backup_path,
@@ -5755,21 +5767,37 @@ def write_analytical_footprint_review_assist(
     return report
 
 
-def _footprint_review_priority_score(row: Mapping[str, Any]) -> int:
-    score = 0
+def _footprint_review_priority_reasons(row: Mapping[str, Any]) -> tuple[str, ...]:
+    reasons: list[str] = []
     indicator_mentions = _ensure_list(row.get("indicator_mentions_review_preview"))
     analysis_patterns = _ensure_list(row.get("analysis_patterns_review_preview"))
     if not indicator_mentions:
-        score += 3
+        reasons.append("missing_indicator_mentions")
     if len(analysis_patterns) >= 3:
-        score += 2
+        reasons.append("complex_multi_step_patterns")
     if not _ensure_list(row.get("target_entity_candidates")):
-        score += 2
+        reasons.append("missing_target_entity_candidates")
     if not _ensure_list(row.get("target_agent_candidates")):
-        score += 1
+        reasons.append("missing_target_agent_candidates")
     if len(_ensure_list(row.get("source_span_ids"))) > 3:
-        score += 1
-    return score
+        reasons.append("many_source_spans")
+    return tuple(reasons)
+
+
+FOOTPRINT_REVIEW_PRIORITY_REASON_WEIGHTS: Mapping[str, int] = {
+    "missing_indicator_mentions": 3,
+    "complex_multi_step_patterns": 2,
+    "missing_target_entity_candidates": 2,
+    "missing_target_agent_candidates": 1,
+    "many_source_spans": 1,
+}
+
+
+def _footprint_review_priority_score(row: Mapping[str, Any]) -> int:
+    return sum(
+        FOOTPRINT_REVIEW_PRIORITY_REASON_WEIGHTS.get(reason, 0)
+        for reason in _footprint_review_priority_reasons(row)
+    )
 
 
 def _footprint_review_evidence_terms(row: Mapping[str, Any]) -> tuple[str, ...]:
@@ -6409,6 +6437,7 @@ def _footprint_review_evidence_row(
         "human_review_required": True,
         "index": index,
         "priority_score": _footprint_review_priority_score(row),
+        "priority_reasons": _footprint_review_priority_reasons(row),
         "footprint_id": str(row.get("footprint_id") or ""),
         "target_row_hash": str(row.get("target_row_hash") or ""),
         "source_id": source_id,
@@ -6728,6 +6757,7 @@ def render_analytical_footprint_review_evidence_markdown(
                 f"- Sector: {row.get('sector') or '-'}",
                 f"- Topic: {row.get('topic_preview') or '-'}",
                 f"- Priority score: {row.get('priority_score')}",
+                f"- Priority reasons: {_markdown_table_cell(row.get('priority_reasons'), max_chars=200)}",
                 f"- Suggested tags: {_markdown_table_cell(row.get('suggested_manual_error_tags'), max_chars=200)}",
                 f"- Quality-gap focus fields: {_markdown_table_cell(row.get('quality_gap_focus_fields'), max_chars=200)}",
                 f"- Indicator mapping summary: {_markdown_table_cell(row.get('indicator_mentions_summary'), max_chars=500)}",
