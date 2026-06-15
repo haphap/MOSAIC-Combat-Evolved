@@ -1246,6 +1246,11 @@ def test_review_progress_reports_current_batch_scratch_status(tmp_path: Path):
                 "priority_reasons": (
                     ["context_synthesis_required"] if index == 1 else []
                 ),
+                "suggested_review_decision": {
+                    "claim_correct": True,
+                    "direction_correct": None if index == 1 else True,
+                    "unsupported_field_false_grounded": False,
+                },
             }
             for index, row in enumerate(gold_rows[:2])
         ],
@@ -1263,6 +1268,11 @@ def test_review_progress_reports_current_batch_scratch_status(tmp_path: Path):
                 "suggested_manual_error_tags": ["metric_mapping_missing"],
                 "priority_score": 3,
                 "priority_reasons": ["missing_indicator_mentions"],
+                "suggested_review_decision": {
+                    "footprint_correct": True,
+                    "metric_mapping_correct": False,
+                    "unknowns_used_when_uncertain": None,
+                },
             }
             for row in footprint_rows
         ],
@@ -1327,6 +1337,11 @@ def test_review_progress_reports_current_batch_scratch_status(tmp_path: Path):
         gold_batch["evidence_status"]["priority_metadata_refresh_recommended"]
         is True
     )
+    assert gold_batch["evidence_status"]["suggested_review_decision_counts"] == {
+        "claim_correct": {"true": 2},
+        "direction_correct": {"null": 1, "true": 1},
+        "unsupported_field_false_grounded": {"false": 2},
+    }
     assert gold_batch["target_status"]["aligned"] is True
     assert footprint_batch["exists"] is True
     assert footprint_batch["rows"] == 2
@@ -1358,6 +1373,13 @@ def test_review_progress_reports_current_batch_scratch_status(tmp_path: Path):
         footprint_batch["evidence_status"]["priority_metadata_refresh_recommended"]
         is False
     )
+    assert footprint_batch["evidence_status"][
+        "suggested_review_decision_counts"
+    ] == {
+        "footprint_correct": {"true": 2},
+        "metric_mapping_correct": {"false": 2},
+        "unknowns_used_when_uncertain": {"null": 2},
+    }
     assert footprint_batch["target_status"]["aligned"] is True
     summary_gold = next(
         gate for gate in summary["gates"] if gate["review_kind"] == "gold_set"
@@ -1408,6 +1430,12 @@ def test_review_progress_reports_current_batch_scratch_status(tmp_path: Path):
             "priority_metadata_refresh_recommended"
         ]
         is True
+    )
+    assert (
+        summary_gold["current_batch_status"]["evidence_status"][
+            "suggested_review_decision_counts"
+        ]["direction_correct"]
+        == {"null": 1, "true": 1}
     )
     assert (
         summary_footprint["current_batch_status"]["evidence_status"][
@@ -1468,6 +1496,18 @@ def test_review_progress_reports_current_batch_scratch_status(tmp_path: Path):
         == {"3": 2}
     )
     assert (
+        actions["gold_set"]["batch_overview"][
+            "current_batch_evidence_suggested_review_decision_counts"
+        ]["unsupported_field_false_grounded"]
+        == {"false": 2}
+    )
+    assert (
+        actions["footprint_review"]["batch_overview"][
+            "current_batch_evidence_suggested_review_decision_counts"
+        ]["metric_mapping_correct"]
+        == {"false": 2}
+    )
+    assert (
         actions["footprint_review"]["batch_overview"][
             "current_batch_evidence_priority_reason_missing_rows"
         ]
@@ -1504,6 +1544,8 @@ def test_review_progress_reports_current_batch_scratch_status(tmp_path: Path):
     assert "Evidence priority metadata:" in markdown
     assert "missing_reason_rows: 1" in markdown
     assert "refresh_recommended: true" in markdown
+    assert "Suggested decision counts:" in markdown
+    assert "`metric_mapping_correct`={false:2}" in markdown
     assert "aligned: true" in markdown
     assert "`open_count`=1" in markdown
     assert "fixture approval" not in markdown

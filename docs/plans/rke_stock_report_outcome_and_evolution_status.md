@@ -658,7 +658,10 @@ blocker families include:
    counts, priority reason counts, and a `priority_metadata_refresh_recommended`
    flag when older private evidence files have scores but lack reason metadata;
    the corresponding action hint points reviewers to regenerate evidence before
-   filling the scratch. Prepare each
+   filling the scratch. The same batch overview now exposes aggregate
+   `suggested_review_decision_counts` by field and true/false/null bucket, so
+   reviewers can see which required manual fields have machine draft decisions
+   and which remain unresolved without opening source text. Prepare each
    footprint batch with
    `MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run mosaic-rke prepare-footprint-review --root . --limit 50 --offset 0 --priority --reviewer <name> --review-date <YYYY-MM-DD> --overwrite`,
    validate it with

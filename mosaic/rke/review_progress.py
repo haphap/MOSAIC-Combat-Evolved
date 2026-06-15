@@ -297,6 +297,16 @@ def _priority_score_is_positive(value: Any) -> bool:
         return True
 
 
+def _suggested_review_decision_bucket(value: Any) -> str:
+    if value is True:
+        return "true"
+    if value is False:
+        return "false"
+    if value is None:
+        return "null"
+    return "other"
+
+
 def _review_evidence_alignment_status(
     root_path: Path,
     *,
@@ -331,6 +341,7 @@ def _review_evidence_alignment_status(
         "priority_reason_ready_rows": 0,
         "priority_reason_missing_rows": 0,
         "priority_metadata_refresh_recommended": False,
+        "suggested_review_decision_counts": {},
         "same_order": False,
         "aligned": False,
     }
@@ -407,6 +418,18 @@ def _review_evidence_alignment_status(
         if _priority_score_is_positive(row.get("priority_score"))
         and not tuple(row.get("priority_reasons") or ())
     )
+    suggested_decision_counts: dict[str, Counter[str]] = {}
+    for row in evidence_rows:
+        decision = row.get("suggested_review_decision")
+        if not isinstance(decision, Mapping):
+            continue
+        for decision_field, value in decision.items():
+            field_name = str(decision_field)
+            if not field_name:
+                continue
+            suggested_decision_counts.setdefault(field_name, Counter())[
+                _suggested_review_decision_bucket(value)
+            ] += 1
     hash_mismatch_count = 0
     for row in review_rows:
         row_id = str(row.get(id_field) or "").strip()
@@ -462,6 +485,10 @@ def _review_evidence_alignment_status(
             "priority_reason_ready_rows": priority_reason_ready_rows,
             "priority_reason_missing_rows": priority_reason_missing_rows,
             "priority_metadata_refresh_recommended": priority_reason_missing_rows > 0,
+            "suggested_review_decision_counts": {
+                field: dict(sorted(counts.items()))
+                for field, counts in sorted(suggested_decision_counts.items())
+            },
             "same_order": same_order,
             "aligned": aligned,
         }
@@ -1444,6 +1471,21 @@ def _render_batch_status_lines(label: str, status: Mapping[str, Any]) -> list[st
                 for reason, count in sorted(priority_reasons.items())
             )
             lines.append(f"  Evidence priority reasons: {reasons}")
+        decision_counts = evidence_status.get("suggested_review_decision_counts")
+        if isinstance(decision_counts, Mapping) and decision_counts:
+            rendered_fields: list[str] = []
+            for field, counts in sorted(decision_counts.items()):
+                if not isinstance(counts, Mapping):
+                    continue
+                rendered_counts = ",".join(
+                    f"{bucket}:{int(count)}"
+                    for bucket, count in sorted(counts.items())
+                )
+                rendered_fields.append(f"`{field}`={{{rendered_counts}}}")
+            if rendered_fields:
+                lines.append(
+                    "  Suggested decision counts: " + "; ".join(rendered_fields)
+                )
         evidence_gaps: list[str] = []
         for field in (
             "missing_review_rows",
@@ -1680,12 +1722,23 @@ def _compact_current_batch_status(status: Mapping[str, Any]) -> Mapping[str, Any
             "suggested_tag_counts",
             "priority_score_counts",
             "priority_reason_counts",
+            "suggested_review_decision_counts",
         ):
             value = evidence_status.get(field_name)
             if isinstance(value, Mapping) and value:
-                compact["evidence_status"][field_name] = {
-                    str(key): int(count) for key, count in sorted(value.items())
-                }
+                if field_name == "suggested_review_decision_counts":
+                    compact["evidence_status"][field_name] = {
+                        str(field): {
+                            str(bucket): int(count)
+                            for bucket, count in sorted(counts.items())
+                        }
+                        for field, counts in sorted(value.items())
+                        if isinstance(counts, Mapping)
+                    }
+                else:
+                    compact["evidence_status"][field_name] = {
+                        str(key): int(count) for key, count in sorted(value.items())
+                    }
     target_status = status.get("target_status")
     if isinstance(target_status, Mapping) and target_status:
         compact["target_status"] = {
@@ -1840,12 +1893,23 @@ def _compact_batch_overview(gate: ManualReviewGateProgress) -> Mapping[str, Any]
         "suggested_tag_counts",
         "priority_score_counts",
         "priority_reason_counts",
+        "suggested_review_decision_counts",
     ):
         value = evidence.get(field_name) if evidence else None
         if isinstance(value, Mapping) and value:
-            overview[f"current_batch_evidence_{field_name}"] = {
-                str(key): int(count) for key, count in sorted(value.items())
-            }
+            if field_name == "suggested_review_decision_counts":
+                overview[f"current_batch_evidence_{field_name}"] = {
+                    str(field): {
+                        str(bucket): int(count)
+                        for bucket, count in sorted(counts.items())
+                    }
+                    for field, counts in sorted(value.items())
+                    if isinstance(counts, Mapping)
+                }
+            else:
+                overview[f"current_batch_evidence_{field_name}"] = {
+                    str(key): int(count) for key, count in sorted(value.items())
+                }
     if batches:
         first = batches[0]
         last = batches[-1]
