@@ -23,6 +23,8 @@ from mosaic.rke import (
     write_manual_review_batches,
     write_source_license_review_workbook,
 )
+from mosaic.rke.manual_review_batches import GOLD_REVIEWED_IMPORT_PATH
+from mosaic.rke.manual_review_import import TARGET_ROW_HASH_FIELD, review_row_fingerprint
 
 
 def _copy_registry(dst_root: Path) -> None:
@@ -209,6 +211,58 @@ def test_gold_review_assist_is_non_import_review_aid(tmp_path: Path):
         "assist_kind unexpected in manual review import" in reason
         for reason in import_report.invalid_rows[0].reasons
     )
+
+
+def test_gold_review_assist_can_follow_review_input_order(tmp_path: Path):
+    _copy_registry(tmp_path)
+    review_path = tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    rows = _load_jsonl(review_path)
+    selected = rows[1:3]
+    review_input_rows = []
+    for row in reversed(selected):
+        review_input_rows.append(
+            {
+                "claim_id": row["claim_id"],
+                TARGET_ROW_HASH_FIELD: review_row_fingerprint(row),
+                "review_context_ref": "registry/gold_sets/tushare_research_reports.review_packet.json",
+                "target_review_path": "registry/gold_sets/tushare_research_reports.review_template.jsonl",
+                "manual_claim_text": "",
+                "claim_correct": None,
+                "source_span_supports_claim": None,
+                "direction_correct": None,
+                "target_correct": None,
+                "horizon_correct": None,
+                "variable_mapping_correct": None,
+                "unsupported_field_false_grounded": None,
+                "reviewer": "hap",
+                "review_date": "2026-06-15",
+                "review_notes": "",
+            }
+        )
+    _write_jsonl(tmp_path / GOLD_REVIEWED_IMPORT_PATH, review_input_rows)
+
+    result = write_gold_review_assist(
+        tmp_path,
+        review_input_path=GOLD_REVIEWED_IMPORT_PATH,
+    )
+    summary, assist_rows = build_gold_review_assist(
+        tmp_path,
+        review_input_path=GOLD_REVIEWED_IMPORT_PATH,
+    )
+    workbook_summary, workbook_rows = build_gold_review_workbook(
+        tmp_path,
+        review_input_path=GOLD_REVIEWED_IMPORT_PATH,
+    )
+
+    expected_claim_ids = [row["claim_id"] for row in review_input_rows]
+    assert result["blockers"] == 0
+    assert result["rows"] == 2
+    assert result["selection_source"] == "review_input"
+    assert result["review_input_path"] == GOLD_REVIEWED_IMPORT_PATH
+    assert summary.selection_source == "review_input"
+    assert workbook_summary.selection_source == "review_input"
+    assert [row["claim_id"] for row in assist_rows] == expected_claim_ids
+    assert [row["claim_id"] for row in workbook_rows] == expected_claim_ids
 
 
 def test_gold_review_evidence_is_private_non_import_review_aid(tmp_path: Path):

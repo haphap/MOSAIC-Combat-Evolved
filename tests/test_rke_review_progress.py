@@ -483,6 +483,7 @@ def test_review_progress_reports_gold_quality_blockers_without_reapplying_stale_
     assert not any("claim_id missing from target review template" in blocker for blocker in gold_gate.blockers)
     assert gold_summary["next_manual_action"] == "address_quality_gate_blockers"
     assert set(gold_summary["next_batch_commands"]) == {
+        "assist",
         "dry_run",
         "evidence",
         "prepare_reviewed_failures",
@@ -500,6 +501,7 @@ def test_review_progress_reports_gold_quality_blockers_without_reapplying_stale_
     assert gold_action["action_state"] == "needs_quality_gate_work"
     assert gold_action["can_run_now"] is True
     assert set(gold_action["commands"]) == {
+        "assist",
         "dry_run",
         "evidence",
         "prepare_reviewed_failures",
@@ -568,7 +570,7 @@ def test_review_progress_prioritizes_pending_gold_quality_batch_fields(
     )
     assert gold_action["action_state"] == "needs_human_review_fields"
     assert gold_action["current_batch_pending_rows"] == 1
-    assert set(gold_action["commands"]) == {"dry_run", "evidence"}
+    assert set(gold_action["commands"]) == {"assist", "dry_run", "evidence"}
     assert "prepare_reviewed_failures" not in gold_action["commands"]
 
 

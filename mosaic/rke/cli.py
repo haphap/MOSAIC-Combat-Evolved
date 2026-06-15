@@ -47,6 +47,7 @@ from .manual_review_batches import (
     GOLD_FULL_REVIEWED_IMPORT_PATH,
     GOLD_REVIEWED_IMPORT_PATH,
     build_manual_review_batch_status,
+    write_gold_review_assist,
     write_gold_review_evidence,
     write_gold_review_starter,
     write_manual_review_batches,
@@ -856,6 +857,21 @@ def build_parser() -> argparse.ArgumentParser:
         "--review-input",
         help=(
             "Optional reviewed JSONL scratch file. When set, evidence rows follow "
+            "this input order and are matched back to the full gold review template."
+        ),
+    )
+
+    write_gold_review_assist = subparsers.add_parser(
+        "write-gold-review-assist",
+        help="Write private gold-set assist rows and workbook for the current review input.",
+    )
+    write_gold_review_assist.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
+    write_gold_review_assist.add_argument(
+        "--review-input",
+        help=(
+            "Optional reviewed JSONL scratch file. When set, assist rows follow "
             "this input order and are matched back to the full gold review template."
         ),
     )
@@ -1884,6 +1900,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             root,
             limit=args.limit,
             offset=args.offset,
+            review_input_path=args.review_input,
+        )
+        _print_json(result)
+        return 0 if result["blockers"] == 0 else 2
+    if args.command == "write-gold-review-assist":
+        result = write_gold_review_assist(
+            root,
             review_input_path=args.review_input,
         )
         _print_json(result)

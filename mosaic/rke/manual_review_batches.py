@@ -99,6 +99,8 @@ class GoldReviewWorkbookSummary:
     pending_rows: int
     row_count: int
     blockers: Sequence[str]
+    selection_source: str = "priority_sorted_pending"
+    review_input_path: str = ""
 
 
 @dataclass(frozen=True)
@@ -111,6 +113,8 @@ class GoldReviewAssistSummary:
     row_count: int
     pending_rows: int
     blockers: Sequence[str]
+    selection_source: str = "priority_sorted_pending"
+    review_input_path: str = ""
 
 
 @dataclass(frozen=True)
@@ -459,8 +463,75 @@ def _gold_assist_row(index: int, row: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _select_gold_review_rows_for_input(
+    root_path: Path,
+    template_rows: Sequence[Mapping[str, Any]],
+    review_input_path: str | Path | None,
+) -> tuple[list[Mapping[str, Any]], list[str], str, str]:
+    if review_input_path is None:
+        return (
+            _gold_reviewable_pending_rows(template_rows),
+            [],
+            "priority_sorted_pending",
+            "",
+        )
+
+    review_input_text = str(review_input_path)
+    input_raw, input_rows, input_invalid_rows, input_parse_blockers, _ = (
+        _load_review_rows(
+            root_path,
+            review_input_text,
+            label="gold-set review input",
+        )
+    )
+    blockers: list[str] = [*input_parse_blockers]
+    if input_invalid_rows:
+        blockers.append(
+            "gold-set review input row must be object at row(s): "
+            + ", ".join(str(row_number) for row_number in input_invalid_rows)
+        )
+    if not input_raw:
+        blockers.append("gold-set review input is missing or empty")
+
+    template_by_id = {
+        str(row.get("claim_id") or ""): row
+        for row in template_rows
+        if str(row.get("claim_id") or "").strip()
+    }
+    selected_rows: list[Mapping[str, Any]] = []
+    seen_claim_ids: set[str] = set()
+    for row_index, input_row in enumerate(input_rows, 1):
+        claim_id = str(input_row.get("claim_id") or "").strip()
+        if not claim_id:
+            blockers.append(f"gold-set review input row {row_index}.claim_id: required")
+            continue
+        if claim_id in seen_claim_ids:
+            blockers.append(
+                f"gold-set review input row {row_index}.claim_id: duplicate {claim_id}"
+            )
+            continue
+        seen_claim_ids.add(claim_id)
+        template_row = template_by_id.get(claim_id)
+        if template_row is None:
+            blockers.append(
+                f"gold-set review input row {row_index}.claim_id: no matching target review row"
+            )
+            continue
+        expected_hash = review_row_fingerprint(template_row)
+        input_hash = str(input_row.get(TARGET_ROW_HASH_FIELD) or "").strip()
+        if input_hash and input_hash != expected_hash:
+            blockers.append(
+                f"gold-set review input row {row_index}.{TARGET_ROW_HASH_FIELD}: "
+                "does not match target review row"
+            )
+        selected_rows.append(template_row)
+    return selected_rows, blockers, "review_input", review_input_text
+
+
 def build_gold_review_workbook(
     root: str | Path = ".",
+    *,
+    review_input_path: str | Path | None = None,
 ) -> tuple[GoldReviewWorkbookSummary, tuple[Mapping[str, Any], ...]]:
     root_path = Path(root)
     raw_rows, rows, invalid_rows, parse_blockers, total_rows = _load_review_rows(
@@ -468,12 +539,14 @@ def build_gold_review_workbook(
         GOLD_REVIEW_TEMPLATE_PATH,
         label="gold-set review",
     )
-    pending_rows = _gold_reviewable_pending_rows(rows)
+    pending_rows, input_blockers, selection_source, review_input_text = (
+        _select_gold_review_rows_for_input(root_path, rows, review_input_path)
+    )
     workbook_rows = tuple(
         _gold_workbook_row(index, row)
         for index, row in enumerate(pending_rows, 1)
     )
-    blockers: list[str] = [*parse_blockers]
+    blockers: list[str] = [*parse_blockers, *input_blockers]
     if invalid_rows:
         blockers.append(
             "gold-set review row must be object at row(s): "
@@ -493,6 +566,8 @@ def build_gold_review_workbook(
             pending_rows=len(pending_rows),
             row_count=total_rows,
             blockers=tuple(blockers),
+            selection_source=selection_source,
+            review_input_path=review_input_text,
         ),
         workbook_rows,
     )
@@ -507,6 +582,7 @@ def render_gold_review_workbook_markdown(
         "",
         f"- Workbook ID: {summary.workbook_id}",
         f"- Pending rows: {summary.pending_rows}",
+        f"- Selection source: `{summary.selection_source}`",
         f"- Review template: `{summary.review_template_path}`",
         f"- Full import template: `{summary.full_import_template_path}`",
         f"- Review packet: `{summary.review_packet_path}`",
@@ -559,9 +635,16 @@ def render_gold_review_workbook_markdown(
     return "\n".join(lines)
 
 
-def write_gold_review_workbook(root: str | Path = ".") -> dict[str, Any]:
+def write_gold_review_workbook(
+    root: str | Path = ".",
+    *,
+    review_input_path: str | Path | None = None,
+) -> dict[str, Any]:
     root_path = Path(root)
-    summary, rows = build_gold_review_workbook(root_path)
+    summary, rows = build_gold_review_workbook(
+        root_path,
+        review_input_path=review_input_path,
+    )
     path = root_path / GOLD_REVIEW_WORKBOOK_MD_PATH
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(render_gold_review_workbook_markdown(summary, rows) + "\n", encoding="utf-8")
@@ -570,6 +653,8 @@ def write_gold_review_workbook(root: str | Path = ".") -> dict[str, Any]:
 
 def build_gold_review_assist(
     root: str | Path = ".",
+    *,
+    review_input_path: str | Path | None = None,
 ) -> tuple[GoldReviewAssistSummary, tuple[Mapping[str, Any], ...]]:
     root_path = Path(root)
     raw_rows, rows, invalid_rows, parse_blockers, _ = _load_review_rows(
@@ -577,11 +662,13 @@ def build_gold_review_assist(
         GOLD_REVIEW_TEMPLATE_PATH,
         label="gold-set review",
     )
-    pending_rows = _gold_reviewable_pending_rows(rows)
+    pending_rows, input_blockers, selection_source, review_input_text = (
+        _select_gold_review_rows_for_input(root_path, rows, review_input_path)
+    )
     assist_rows = tuple(
         _gold_assist_row(index, row) for index, row in enumerate(pending_rows, 1)
     )
-    blockers: list[str] = [*parse_blockers]
+    blockers: list[str] = [*parse_blockers, *input_blockers]
     if invalid_rows:
         blockers.append(
             "gold-set review row must be object at row(s): "
@@ -601,6 +688,8 @@ def build_gold_review_assist(
             row_count=len(assist_rows),
             pending_rows=len(pending_rows),
             blockers=tuple(blockers),
+            selection_source=selection_source,
+            review_input_path=review_input_text,
         ),
         assist_rows,
     )
@@ -615,6 +704,7 @@ def render_gold_review_assist_markdown(
         "",
         f"- Assist ID: {summary.assist_id}",
         f"- Pending rows: {summary.pending_rows}",
+        f"- Selection source: `{summary.selection_source}`",
         f"- Review template: `{summary.review_template_path}`",
         f"- Reviewed import target: `{summary.reviewed_import_path}`",
         f"- JSONL assist: `{summary.jsonl_path}`",
@@ -662,9 +752,16 @@ def render_gold_review_assist_markdown(
     return "\n".join(lines)
 
 
-def write_gold_review_assist(root: str | Path = ".") -> dict[str, Any]:
+def write_gold_review_assist(
+    root: str | Path = ".",
+    *,
+    review_input_path: str | Path | None = None,
+) -> dict[str, Any]:
     root_path = Path(root)
-    summary, rows = build_gold_review_assist(root_path)
+    summary, rows = build_gold_review_assist(
+        root_path,
+        review_input_path=review_input_path,
+    )
     jsonl_result = _write_jsonl(root_path / GOLD_REVIEW_ASSIST_JSONL_PATH, rows)
     md_path = root_path / GOLD_REVIEW_ASSIST_MD_PATH
     md_path.parent.mkdir(parents=True, exist_ok=True)
@@ -677,6 +774,8 @@ def write_gold_review_assist(root: str | Path = ".") -> dict[str, Any]:
         "markdown": str(md_path),
         "rows": len(rows),
         "blockers": len(summary.blockers),
+        "selection_source": summary.selection_source,
+        "review_input_path": summary.review_input_path,
     }
 
 

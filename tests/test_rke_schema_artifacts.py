@@ -225,7 +225,8 @@ def test_stock_report_outcome_status_doc_matches_public_artifacts():
     assert "gold-set quality re-review scratch batch has 17 rows" in status_text
     assert "17 rows, 0 complete" in status_text
     assert "17 pending rows" in status_text
-    assert "private evidence draft is aligned with the same 17 scratch" in status_text
+    assert "private assist and evidence drafts are aligned with the same" in status_text
+    assert "write-gold-review-assist --review-input" in status_text
     assert "current active analytical-footprint batch has 50 rows" in status_text
     assert "Synthetic pytest fixtures" in status_text
     assert "current target hashes" in status_text

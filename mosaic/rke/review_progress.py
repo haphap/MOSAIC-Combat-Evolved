@@ -571,6 +571,10 @@ def _gold_next_batch_commands(pending_rows: int) -> dict[str, str]:
         return {}
     batch_size = min(50, int(pending_rows))
     return {
+        "assist": operator_command(
+            "mosaic-rke write-gold-review-assist --root . "
+            f"--review-input {GOLD_REVIEWED_IMPORT_PATH}"
+        ),
         "evidence": operator_command(
             "mosaic-rke write-gold-review-evidence --root . "
             f"--limit {batch_size} --offset 0 --review-input {GOLD_REVIEWED_IMPORT_PATH}"
@@ -593,6 +597,10 @@ def _gold_next_batch_commands(pending_rows: int) -> dict[str, str]:
 
 def _gold_quality_gate_commands() -> dict[str, str]:
     return {
+        "assist": operator_command(
+            "mosaic-rke write-gold-review-assist --root . "
+            f"--review-input {GOLD_REVIEWED_IMPORT_PATH}"
+        ),
         "prepare_reviewed_failures": operator_command(
             "mosaic-rke prepare-gold-review --root . --reviewed-failures "
             "--gold-batch-size 50 --offset 0 --force "
@@ -1592,7 +1600,7 @@ def _action_queue_commands(
         return {
             key: command
             for key, command in next_batch.items()
-            if key in {"prepare_reviewed_failures", "evidence", "dry_run"}
+            if key in {"assist", "prepare_reviewed_failures", "evidence", "dry_run"}
         }
     if action == "run_prepare_command":
         return {"prepare": gate.prepare_command}
