@@ -155,7 +155,11 @@ coverage gates remain open. The schema-status failure payload now includes
 public-safe `next_actions` for the analytical-footprint review summary gate and
 patch v1.5 manual coverage gate, so operators can jump from the failed schema
 records back to the review-progress/evidence/dry-run commands without editing
-coverage artifacts directly. `master-plan-status --no-write` now also includes
+coverage artifacts directly. The gold-set and analytical-footprint
+`schema-status` actions also include the current public-safe `batch_overview`
+from `review-progress`, so the failure entry point shows the active scratch
+path, batch coverage, evidence alignment, and remaining target rows without an
+extra discovery command. `master-plan-status --no-write` now also includes
 public-safe `next_actions` that point to `schema-status --failures-only`,
 `review-progress --actions-only`, and `evolution-readiness --no-write`, then
 reuses the same schema/manual-review actions and field contracts. This makes the

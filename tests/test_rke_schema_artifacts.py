@@ -5207,6 +5207,14 @@ def test_schema_status_cli_filters_failures_without_writing(tmp_path: Path, caps
     assert "review_notes" in next_actions[
         "complete_manual_analytical_footprint_review"
     ]["field_contract"]["required_fields"]
+    footprint_batch = next_actions["complete_manual_analytical_footprint_review"][
+        "batch_overview"
+    ]
+    assert footprint_batch["current_batch_path"] == (
+        "registry/report_intelligence/analytical_footprint_review_batch.jsonl"
+    )
+    assert isinstance(footprint_batch["current_batch_evidence_aligned"], bool)
+    assert footprint_batch["rerun_review_progress_after_batch_apply"] is True
     footprint_gap = next_actions["complete_manual_analytical_footprint_review"][
         "quality_gap_targets"
     ]["metrics"]["metric_mapping_accuracy"]
@@ -5302,7 +5310,15 @@ def test_schema_status_next_actions_reports_gold_quality_gaps(
                             "apply-gold-review --root . --input "
                             "registry/review_batches/gold_set_reviewed.jsonl --dry-run"
                         ),
-                    }
+                    },
+                    "batch_overview": {
+                        "current_batch_path": (
+                            "registry/review_batches/gold_set_reviewed.jsonl"
+                        ),
+                        "current_batch_rows": 12,
+                        "current_batch_evidence_aligned": True,
+                        "remaining_rows_after_current_batch": 3,
+                    },
                 }
             ]
         },
@@ -5316,6 +5332,8 @@ def test_schema_status_next_actions_reports_gold_quality_gaps(
 
     assert gold_action["commands"]["inspect"].startswith(RKE_OPERATOR_TMP_ENV_PREFIX)
     assert "--limit 12 --offset 0" in gold_action["commands"]["write_evidence"]
+    assert gold_action["batch_overview"]["current_batch_rows"] == 12
+    assert gold_action["batch_overview"]["remaining_rows_after_current_batch"] == 3
     assert gold_action["review_aids"]["fill_import_path"] == (
         "registry/review_batches/gold_set_reviewed.jsonl"
     )

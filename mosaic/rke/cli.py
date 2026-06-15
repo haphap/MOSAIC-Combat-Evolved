@@ -210,10 +210,10 @@ def _schema_status_quality_gap_targets(root: str | Path) -> dict[str, Any]:
     }
 
 
-def _current_review_action_command_overrides(
+def _current_review_action_context(
     root: str | Path,
     review_kind: str,
-) -> dict[str, str]:
+) -> dict[str, Any]:
     try:
         report = build_manual_review_progress(root)
         action_queue = build_manual_review_action_queue(
@@ -235,11 +235,38 @@ def _current_review_action_command_overrides(
         "evidence": "write_evidence",
         "dry_run": "dry_run_current_batch",
     }
-    return {
-        output_key: str(commands[source_key])
-        for source_key, output_key in key_map.items()
-        if str(commands.get(source_key) or "").strip()
+    context: dict[str, Any] = {
+        "commands": {
+            output_key: str(commands[source_key])
+            for source_key, output_key in key_map.items()
+            if str(commands.get(source_key) or "").strip()
+        }
     }
+    batch_overview = action.get("batch_overview")
+    if isinstance(batch_overview, Mapping) and batch_overview:
+        context["batch_overview"] = dict(batch_overview)
+    return context
+
+
+def _current_review_action_context_parts(
+    root: str | Path,
+    review_kind: str,
+) -> tuple[dict[str, str], dict[str, Any]]:
+    context = _current_review_action_context(root, review_kind)
+    commands = context.get("commands")
+    batch_overview = context.get("batch_overview")
+    return (
+        dict(commands) if isinstance(commands, Mapping) else {},
+        dict(batch_overview) if isinstance(batch_overview, Mapping) else {},
+    )
+
+
+def _current_review_action_command_overrides(
+    root: str | Path,
+    review_kind: str,
+) -> dict[str, str]:
+    commands, _ = _current_review_action_context_parts(root, review_kind)
+    return commands
 
 
 def _schema_status_next_actions(
@@ -255,10 +282,11 @@ def _schema_status_next_actions(
         or bool(getattr(record, "failures", ()))
     }
     quality_gaps = _schema_status_quality_gap_targets(root)
-    gold_current_commands = _current_review_action_command_overrides(root, "gold_set")
-    footprint_current_commands = _current_review_action_command_overrides(
-        root,
-        "footprint_review",
+    gold_current_commands, gold_current_batch_overview = (
+        _current_review_action_context_parts(root, "gold_set")
+    )
+    footprint_current_commands, footprint_current_batch_overview = (
+        _current_review_action_context_parts(root, "footprint_review")
     )
     actions: list[dict[str, Any]] = []
 
@@ -271,6 +299,7 @@ def _schema_status_next_actions(
         review_aids: Mapping[str, Any] | None = None,
         field_contract: Mapping[str, Any] | None = None,
         quality_gap_targets: Mapping[str, Any] | None = None,
+        batch_overview: Mapping[str, Any] | None = None,
     ) -> None:
         if any(action["action_id"] == action_id for action in actions):
             return
@@ -286,6 +315,8 @@ def _schema_status_next_actions(
             action["field_contract"] = dict(field_contract)
         if quality_gap_targets:
             action["quality_gap_targets"] = dict(quality_gap_targets)
+        if batch_overview:
+            action["batch_overview"] = dict(batch_overview)
         actions.append(action)
 
     if "schemas/report_intelligence_gold_review_gate_rules" in failed_schema_paths:
@@ -343,6 +374,7 @@ def _schema_status_next_actions(
             review_aids=manual_review_aid_paths("gold_set"),
             field_contract=manual_review_field_contract("gold_set"),
             quality_gap_targets=quality_gaps.get("gold_set"),
+            batch_overview=gold_current_batch_overview,
         )
 
     if "schemas/report_intelligence_analytical_footprint_review_rules" in failed_schema_paths:
@@ -383,6 +415,7 @@ def _schema_status_next_actions(
             review_aids=manual_review_aid_paths("footprint_review"),
             field_contract=manual_review_field_contract("footprint_review"),
             quality_gap_targets=quality_gaps.get("footprint_review"),
+            batch_overview=footprint_current_batch_overview,
         )
 
     if "schemas/report_intelligence_patch_v1_5_coverage_rules" in failed_schema_paths:
