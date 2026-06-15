@@ -9,8 +9,9 @@ from mosaic.rke import (
     build_schema_validation_report,
     validate_json_schema_artifact,
 )
-from mosaic.rke.cli import main
+from mosaic.rke.cli import _schema_status_next_actions, main
 from mosaic.rke.schema_validation import (
+    SchemaValidationRecord,
     SUPPORTED_JSON_SCHEMA_KEYWORDS,
     iter_json_schema_keywords,
     validate_report_intelligence_semantics,
@@ -4932,6 +4933,10 @@ def test_schema_status_cli_filters_failures_without_writing(tmp_path: Path, caps
     assert "review_notes" in next_actions[
         "complete_manual_analytical_footprint_review"
     ]["field_contract"]["required_fields"]
+    footprint_gap = next_actions["complete_manual_analytical_footprint_review"][
+        "quality_gap_targets"
+    ]["metrics"]["metric_mapping_accuracy"]
+    assert footprint_gap["minimum_additional_pass_count_if_denominator_unchanged"] > 0
     assert (
         "review-progress --root . --actions-only --no-write --review-kind gold_set"
         in next_actions["clear_patch_v1_5_manual_review_coverage"]["commands"][
@@ -4952,8 +4957,67 @@ def test_schema_status_cli_filters_failures_without_writing(tmp_path: Path, caps
     assert "metric_mapping_correct" in next_actions[
         "clear_patch_v1_5_manual_review_coverage"
     ]["field_contract"]["footprint_review"]["boolean_fields"]
+    assert "footprint_review" in next_actions[
+        "clear_patch_v1_5_manual_review_coverage"
+    ]["quality_gap_targets"]
     assert all(record["accepted"] is False for record in output["records"])
     assert not (registry_dir / "schemas/rke_schema_validation_report.json").exists()
+
+
+def test_schema_status_next_actions_reports_gold_quality_gaps(tmp_path: Path):
+    summary_path = tmp_path / "registry/gold_sets/tushare_research_reports.review_summary.json"
+    summary_path.parent.mkdir(parents=True, exist_ok=True)
+    summary_path.write_text(
+        json.dumps(
+            {
+                "passed": False,
+                "review_complete": True,
+                "reviewed_claims": 100,
+                "pending_claims": 0,
+                "total_documents": 40,
+                "metrics": {
+                    "claim_precision": 0.90,
+                    "source_span_support_precision": 0.95,
+                    "direction_accuracy": 0.70,
+                    "target_accuracy": 0.90,
+                    "horizon_accuracy": 0.90,
+                    "variable_mapping_accuracy": 0.60,
+                    "unsupported_field_false_grounding_rate": 0.10,
+                },
+            },
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    records = [
+        SchemaValidationRecord(
+            schema_path="schemas/report_intelligence_gold_review_gate_rules",
+            artifact_path="registry/gold_sets/tushare_research_reports.review_summary.json",
+            item_count=1,
+            accepted=False,
+            failures=("direction_accuracy below threshold",),
+        )
+    ]
+
+    actions = {
+        action["action_id"]: action
+        for action in _schema_status_next_actions(records, root=tmp_path)
+    }
+    gold_action = actions["complete_manual_forecast_gold_review"]
+
+    assert gold_action["commands"]["inspect"].startswith(RKE_OPERATOR_TMP_ENV_PREFIX)
+    assert gold_action["review_aids"]["fill_import_path"] == (
+        "registry/review_batches/gold_set_reviewed.jsonl"
+    )
+    assert gold_action["quality_gap_targets"]["sample_size_documents"][
+        "minimum_additional_count"
+    ] == 10
+    assert gold_action["quality_gap_targets"]["metrics"]["direction_accuracy"][
+        "minimum_additional_pass_count_if_denominator_unchanged"
+    ] == 15
 
 
 def test_schema_status_cli_reports_malformed_artifact(tmp_path: Path, capsys):

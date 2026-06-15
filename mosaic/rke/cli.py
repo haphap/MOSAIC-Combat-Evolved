@@ -107,6 +107,8 @@ from .report_intelligence import (
     ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH,
     DEFAULT_VLLM_TIMEOUT_SECONDS,
     ReportIntelligenceConfig,
+    _footprint_review_quality_gap_targets_from_summary,
+    _gold_review_quality_gap_targets_from_summary,
     apply_analytical_footprint_review_import,
     build_local_macro_strategy_report_sources,
     merge_report_intelligence_batch_outputs,
@@ -171,7 +173,42 @@ def _print_json(payload: Any) -> None:
     print(json.dumps(_jsonable(payload), ensure_ascii=False, indent=2, sort_keys=True))
 
 
-def _schema_status_next_actions(records: Sequence[Any]) -> list[dict[str, Any]]:
+def _read_cli_mapping_json(path: Path) -> Mapping[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}
+    return payload if isinstance(payload, Mapping) else {}
+
+
+def _schema_status_quality_gap_targets(root: str | Path) -> dict[str, Any]:
+    root_path = Path(root)
+    gold_summary = _read_cli_mapping_json(
+        root_path / "registry/gold_sets/tushare_research_reports.review_summary.json"
+    )
+    footprint_summary = _read_cli_mapping_json(
+        root_path
+        / "registry/report_intelligence/analytical_footprint_review_summary.json"
+    )
+    return {
+        key: value
+        for key, value in {
+            "gold_set": _gold_review_quality_gap_targets_from_summary(gold_summary),
+            "footprint_review": _footprint_review_quality_gap_targets_from_summary(
+                footprint_summary
+            ),
+        }.items()
+        if value
+    }
+
+
+def _schema_status_next_actions(
+    records: Sequence[Any],
+    *,
+    root: str | Path = ".",
+) -> list[dict[str, Any]]:
     """Map known schema-status failures to public-safe operator commands."""
     failed_schema_paths = {
         str(getattr(record, "schema_path", "") or "")
@@ -179,6 +216,7 @@ def _schema_status_next_actions(records: Sequence[Any]) -> list[dict[str, Any]]:
         if getattr(record, "accepted", False) is not True
         or bool(getattr(record, "failures", ()))
     }
+    quality_gaps = _schema_status_quality_gap_targets(root)
     actions: list[dict[str, Any]] = []
 
     def add_action(
@@ -189,6 +227,7 @@ def _schema_status_next_actions(records: Sequence[Any]) -> list[dict[str, Any]]:
         notes: Sequence[str] = (),
         review_aids: Mapping[str, Any] | None = None,
         field_contract: Mapping[str, Any] | None = None,
+        quality_gap_targets: Mapping[str, Any] | None = None,
     ) -> None:
         if any(action["action_id"] == action_id for action in actions):
             return
@@ -202,7 +241,46 @@ def _schema_status_next_actions(records: Sequence[Any]) -> list[dict[str, Any]]:
             action["review_aids"] = dict(review_aids)
         if field_contract:
             action["field_contract"] = dict(field_contract)
+        if quality_gap_targets:
+            action["quality_gap_targets"] = dict(quality_gap_targets)
         actions.append(action)
+
+    if "schemas/report_intelligence_gold_review_gate_rules" in failed_schema_paths:
+        add_action(
+            action_id="complete_manual_forecast_gold_review",
+            reason=(
+                "Gold-set review summary cannot pass until manual forecast "
+                "claim review rows are complete and quality metrics pass."
+            ),
+            commands={
+                "inspect": operator_command(
+                    "mosaic-rke review-progress --root . --actions-only "
+                    "--no-write --review-kind gold_set"
+                ),
+                "write_assist": operator_command(
+                    "mosaic-rke write-gold-review-assist --root . --review-input "
+                    f"{GOLD_REVIEWED_IMPORT_PATH}"
+                ),
+                "write_evidence": operator_command(
+                    "mosaic-rke write-gold-review-evidence --root . --limit 50 "
+                    f"--offset 0 --review-input {GOLD_REVIEWED_IMPORT_PATH}"
+                ),
+                "dry_run_current_batch": operator_command(
+                    "mosaic-rke apply-gold-review --root . --input "
+                    f"{GOLD_REVIEWED_IMPORT_PATH} --dry-run"
+                ),
+                "schema_after_review": operator_command(
+                    "mosaic-rke schema-status --root . --failures-only --no-write"
+                ),
+            },
+            notes=(
+                "Assist and evidence outputs are private review aids, not import files.",
+                "Promotion uses the full reviewed import only after every gold-set batch is complete.",
+            ),
+            review_aids=manual_review_aid_paths("gold_set"),
+            field_contract=manual_review_field_contract("gold_set"),
+            quality_gap_targets=quality_gaps.get("gold_set"),
+        )
 
     if "schemas/report_intelligence_analytical_footprint_review_rules" in failed_schema_paths:
         add_action(
@@ -239,6 +317,7 @@ def _schema_status_next_actions(records: Sequence[Any]) -> list[dict[str, Any]]:
             ),
             review_aids=manual_review_aid_paths("footprint_review"),
             field_contract=manual_review_field_contract("footprint_review"),
+            quality_gap_targets=quality_gaps.get("footprint_review"),
         )
 
     if "schemas/report_intelligence_patch_v1_5_coverage_rules" in failed_schema_paths:
@@ -275,6 +354,11 @@ def _schema_status_next_actions(records: Sequence[Any]) -> list[dict[str, Any]]:
             field_contract={
                 "gold_set": manual_review_field_contract("gold_set"),
                 "footprint_review": manual_review_field_contract("footprint_review"),
+            },
+            quality_gap_targets={
+                key: value
+                for key, value in quality_gaps.items()
+                if key in {"gold_set", "footprint_review"}
             },
         )
 
@@ -1699,7 +1783,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             {
                 "accepted": result.accepted,
                 "failure_count": result.failure_count,
-                "next_actions": _schema_status_next_actions(records),
+                "next_actions": _schema_status_next_actions(records, root=root),
                 "record_count": len(result.records),
                 "reported_record_count": len(records),
                 "records": [asdict(record) for record in records],
