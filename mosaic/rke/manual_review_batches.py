@@ -24,6 +24,7 @@ from .license_policy_import import (
     write_source_license_review_workbook,
 )
 from .manual_review_import import GOLD_BOOL_FIELDS, TARGET_ROW_HASH_FIELD, review_row_fingerprint
+from .review_gates import summarize_gold_set_review
 from .temp_paths import RKE_OPERATOR_TMPDIR
 
 
@@ -115,6 +116,7 @@ class GoldReviewAssistSummary:
     blockers: Sequence[str]
     selection_source: str = "priority_sorted_pending"
     review_input_path: str = ""
+    quality_gap_targets: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -859,6 +861,7 @@ def build_gold_review_assist(
         _gold_assist_row(index, row) for index, row in enumerate(pending_rows, 1)
     )
     blockers: list[str] = [*parse_blockers, *input_blockers]
+    gold_summary = summarize_gold_set_review(root_path)
     if invalid_rows:
         blockers.append(
             "gold-set review row must be object at row(s): "
@@ -880,6 +883,7 @@ def build_gold_review_assist(
             blockers=tuple(blockers),
             selection_source=selection_source,
             review_input_path=review_input_text,
+            quality_gap_targets=gold_summary.quality_gap_targets,
         ),
         assist_rows,
     )
@@ -906,6 +910,48 @@ def render_gold_review_assist_markdown(
     if summary.blockers:
         lines.extend(["## Blockers", ""])
         lines.extend(f"- {blocker}" for blocker in summary.blockers)
+        lines.append("")
+    if summary.quality_gap_targets:
+        lines.extend(["## Quality Gate Gap Targets", ""])
+        lines.append(
+            "Aggregate only; these counts contain no source text and are not import decisions."
+        )
+        lines.append("")
+        document_gap = summary.quality_gap_targets.get("sample_size_documents", {})
+        claim_gap = summary.quality_gap_targets.get("sample_size_claims", {})
+        if isinstance(document_gap, Mapping):
+            lines.append(
+                "- Documents: "
+                f"{document_gap.get('current_count')} / {document_gap.get('threshold')} "
+                f"(need +{document_gap.get('minimum_additional_count')})"
+            )
+        if isinstance(claim_gap, Mapping):
+            lines.append(
+                "- Claims: "
+                f"{claim_gap.get('current_count')} / {claim_gap.get('threshold')} "
+                f"(need +{claim_gap.get('minimum_additional_count')})"
+            )
+        metrics = summary.quality_gap_targets.get("metrics", {})
+        if isinstance(metrics, Mapping):
+            for metric, target in metrics.items():
+                if not isinstance(target, Mapping) or target.get("is_passing") is True:
+                    continue
+                if target.get("operator") == ">=":
+                    lines.append(
+                        "- "
+                        f"{metric}: {target.get('current_rate')} / {target.get('threshold')} "
+                        f"(pass count {target.get('current_pass_count')}/"
+                        f"{target.get('required_pass_count')}, need +"
+                        f"{target.get('minimum_additional_pass_count_if_denominator_unchanged')})"
+                    )
+                else:
+                    lines.append(
+                        "- "
+                        f"{metric}: {target.get('current_rate')} / {target.get('threshold')} "
+                        f"(flag count {target.get('current_true_count')}/"
+                        f"{target.get('max_allowed_true_count')}, excess "
+                        f"{target.get('minimum_excess_true_count_if_denominator_unchanged')})"
+                    )
         lines.append("")
     lines.extend(
         [
@@ -966,6 +1012,7 @@ def write_gold_review_assist(
         "blockers": len(summary.blockers),
         "selection_source": summary.selection_source,
         "review_input_path": summary.review_input_path,
+        "quality_gap_targets": summary.quality_gap_targets,
     }
 
 

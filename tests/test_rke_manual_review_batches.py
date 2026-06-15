@@ -23,7 +23,7 @@ from mosaic.rke import (
     write_manual_review_batches,
     write_source_license_review_workbook,
 )
-from mosaic.rke.manual_review_batches import GOLD_REVIEWED_IMPORT_PATH
+from mosaic.rke.manual_review_batches import GOLD_REVIEWED_IMPORT_PATH, GOLD_REVIEW_TEMPLATE_PATH
 from mosaic.rke.manual_review_import import TARGET_ROW_HASH_FIELD, review_row_fingerprint
 
 
@@ -211,6 +211,49 @@ def test_gold_review_assist_is_non_import_review_aid(tmp_path: Path):
         "assist_kind unexpected in manual review import" in reason
         for reason in import_report.invalid_rows[0].reasons
     )
+
+
+def test_gold_review_assist_reports_quality_gap_targets_for_completed_gold_set(
+    tmp_path: Path,
+):
+    review_path = tmp_path / GOLD_REVIEW_TEMPLATE_PATH
+    review_path.parent.mkdir(parents=True, exist_ok=True)
+    _write_jsonl(
+        review_path,
+        [
+            {
+                "source_id": "SRC-A",
+                "source_span_id": "SRC-A:abstract",
+                "claim_id": "GOLD-SRC-A-001",
+                "document_id": "SRC-A",
+                "claim_correct": True,
+                "source_span_supports_claim": True,
+                "direction_correct": False,
+                "target_correct": True,
+                "horizon_correct": True,
+                "variable_mapping_correct": False,
+                "unsupported_field_false_grounded": True,
+                "manual_claim_text": "manual claim",
+                "reviewer": "reviewer-a",
+                "review_date": "2026-06-06",
+                "review_notes": "fixture low quality",
+            }
+        ],
+    )
+
+    result = write_gold_review_assist(tmp_path)
+    summary, rows = build_gold_review_assist(tmp_path)
+    markdown = render_gold_review_assist_markdown(summary, rows)
+
+    assert result["rows"] == 0
+    assert result["quality_gap_targets"]["sample_size_claims"][
+        "minimum_additional_count"
+    ] == 99
+    assert summary.quality_gap_targets is not None
+    assert summary.quality_gap_targets["metrics"]["direction_accuracy"][
+        "minimum_additional_pass_count_if_denominator_unchanged"
+    ] == 1
+    assert "## Quality Gate Gap Targets" in markdown
 
 
 def test_gold_review_assist_can_follow_review_input_order(tmp_path: Path):

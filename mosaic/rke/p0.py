@@ -29,6 +29,15 @@ from typing import Any, Literal, Mapping, Sequence
 
 MIN_CLAIM_GOLD_SET_DOCUMENTS = 50
 MIN_CLAIM_GOLD_SET_CLAIMS = 100
+CLAIM_GOLD_SET_METRIC_THRESHOLDS: Mapping[str, tuple[str, float]] = {
+    "claim_precision": (">=", 0.85),
+    "source_span_support_precision": (">=", 0.90),
+    "direction_accuracy": (">=", 0.85),
+    "target_accuracy": (">=", 0.85),
+    "horizon_accuracy": (">=", 0.85),
+    "variable_mapping_accuracy": (">=", 0.80),
+    "unsupported_field_false_grounding_rate": ("<=", 0.05),
+}
 
 RULE_ID_RE = re_compile(
     r"^(?:macro|sector|superinvestor|decision)\.[a-z0-9_]+\."
@@ -281,20 +290,12 @@ class ClaimExtractionGoldSet:
             failures.append(f"gold set requires >= {MIN_CLAIM_GOLD_SET_DOCUMENTS} documents")
         if self.sample_size_claims < MIN_CLAIM_GOLD_SET_CLAIMS:
             failures.append(f"gold set requires >= {MIN_CLAIM_GOLD_SET_CLAIMS} claims")
-        if self.claim_precision < 0.85:
-            failures.append("claim_precision below 0.85")
-        if self.source_span_support_precision < 0.90:
-            failures.append("source_span_support_precision below 0.90")
-        if self.direction_accuracy < 0.85:
-            failures.append("direction_accuracy below 0.85")
-        if self.target_accuracy < 0.85:
-            failures.append("target_accuracy below 0.85")
-        if self.horizon_accuracy < 0.85:
-            failures.append("horizon_accuracy below 0.85")
-        if self.variable_mapping_accuracy < 0.80:
-            failures.append("variable_mapping_accuracy below 0.80")
-        if self.unsupported_field_false_grounding_rate > 0.05:
-            failures.append("unsupported_field_false_grounding_rate above 0.05")
+        for metric, (operator, threshold) in CLAIM_GOLD_SET_METRIC_THRESHOLDS.items():
+            value = float(getattr(self, metric))
+            if operator == ">=" and value < threshold:
+                failures.append(f"{metric} below {threshold:.2f}")
+            elif operator == "<=" and value > threshold:
+                failures.append(f"{metric} above {threshold:.2f}")
         return tuple(failures)
 
     @property

@@ -116,6 +116,7 @@ class ManualReviewGateProgress:
     next_batch_commands: Mapping[str, str] = field(default_factory=dict)
     batch_plan: Sequence[Mapping[str, Any]] = field(default_factory=tuple)
     current_batch_status: Mapping[str, Any] = field(default_factory=dict)
+    quality_gap_targets: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -766,6 +767,7 @@ def _missing_gate(
     next_batch_commands: Mapping[str, str] | None = None,
     batch_plan: Sequence[Mapping[str, Any]] | None = None,
     current_batch_status: Mapping[str, Any] | None = None,
+    quality_gap_targets: Mapping[str, Any] | None = None,
 ) -> ManualReviewGateProgress:
     return ManualReviewGateProgress(
         review_kind=review_kind,
@@ -784,6 +786,7 @@ def _missing_gate(
         next_batch_commands=dict(next_batch_commands or {}),
         batch_plan=tuple(batch_plan or ()),
         current_batch_status=dict(current_batch_status or {}),
+        quality_gap_targets=quality_gap_targets,
     )
 
 
@@ -818,6 +821,7 @@ def _gold_progress(root_path: Path) -> ManualReviewGateProgress:
             ),
             batch_plan=(),
             current_batch_status=current_batch_status,
+            quality_gap_targets=current_summary.quality_gap_targets,
         )
     target_rows = build_manual_review_batch_status(root_path)[0].gold_set.pending_rows
     resolved_input = _resolve(root_path, input_path)
@@ -839,6 +843,7 @@ def _gold_progress(root_path: Path) -> ManualReviewGateProgress:
             next_batch_commands=_gold_next_batch_commands(target_rows),
             batch_plan=_manual_review_batch_plan("gold_set", target_rows),
             current_batch_status=current_batch_status,
+            quality_gap_targets=current_summary.quality_gap_targets,
         )
 
     input_rows = _jsonl_row_count(resolved_input)
@@ -865,6 +870,7 @@ def _gold_progress(root_path: Path) -> ManualReviewGateProgress:
         next_batch_commands=_gold_next_batch_commands(summary.pending_claims),
         batch_plan=_manual_review_batch_plan("gold_set", summary.pending_claims),
         current_batch_status=current_batch_status,
+        quality_gap_targets=summary.quality_gap_targets,
     )
 
 
@@ -1577,6 +1583,7 @@ def build_manual_review_progress_summary(
                 "batch_overview": _compact_batch_overview(gate),
                 "review_aids": _review_aid_paths(gate),
                 "field_contract": _review_field_contract(gate),
+                "quality_gap_targets": gate.quality_gap_targets,
                 "next_batch_commands": dict(gate.next_batch_commands),
                 "promotion_commands": {
                     "prepare": gate.prepare_command,
@@ -1800,6 +1807,7 @@ def build_manual_review_action_queue(
                 "batch_overview": _compact_batch_overview(gate),
                 "review_aids": _review_aid_paths(gate),
                 "field_contract": _review_field_contract(gate),
+                "quality_gap_targets": gate.quality_gap_targets,
                 "missing_required_fields": dict(
                     {} if stale_current_batch else current.get("missing_required_fields") or {}
                 ),

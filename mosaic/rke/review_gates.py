@@ -4,10 +4,16 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict, dataclass
+from math import ceil, floor
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from .compliance import apply_source_license_reviews, evaluate_source_license
+from .p0 import (
+    CLAIM_GOLD_SET_METRIC_THRESHOLDS,
+    MIN_CLAIM_GOLD_SET_CLAIMS,
+    MIN_CLAIM_GOLD_SET_DOCUMENTS,
+)
 from .phase_minus1 import evaluate_gold_set_reviews, load_jsonl_with_errors
 from .review_integrity import (
     gold_review_integrity_failures,
@@ -28,6 +34,7 @@ class GoldSetReviewSummary:
     review_complete: bool
     passed: bool
     metrics: Mapping[str, float | int] | None
+    quality_gap_targets: Mapping[str, Any] | None
     blockers: Sequence[str]
 
 
@@ -74,6 +81,97 @@ def _gold_row_reviewed(row: Mapping[str, Any]) -> bool:
     return gold_review_row_complete(row)
 
 
+_GOLD_REVIEW_FIELD_BY_METRIC = {
+    "claim_precision": "claim_correct",
+    "source_span_support_precision": "source_span_supports_claim",
+    "direction_accuracy": "direction_correct",
+    "target_accuracy": "target_correct",
+    "horizon_accuracy": "horizon_correct",
+    "variable_mapping_accuracy": "variable_mapping_correct",
+    "unsupported_field_false_grounding_rate": "unsupported_field_false_grounded",
+}
+
+
+def _gold_quality_gap_targets(
+    rows: Sequence[Mapping[str, Any]],
+    metrics: Mapping[str, float | int],
+) -> Mapping[str, Any]:
+    sample_size_claims = int(metrics.get("sample_size_claims") or 0)
+    sample_size_documents = int(metrics.get("sample_size_documents") or 0)
+    metric_targets: dict[str, Mapping[str, Any]] = {}
+    active_gap_count = 0
+
+    for metric, (operator, threshold) in CLAIM_GOLD_SET_METRIC_THRESHOLDS.items():
+        field = _GOLD_REVIEW_FIELD_BY_METRIC[metric]
+        current_rate = float(metrics.get(metric) or 0.0)
+        is_passing = (
+            current_rate >= threshold if operator == ">=" else current_rate <= threshold
+        )
+        if operator == ">=":
+            current_pass_count = sum(row.get(field) is True for row in rows)
+            required_pass_count = ceil((threshold * sample_size_claims) - 1e-12)
+            minimum_gap_count = max(0, required_pass_count - current_pass_count)
+            if minimum_gap_count:
+                active_gap_count += 1
+            metric_targets[metric] = {
+                "operator": operator,
+                "threshold": threshold,
+                "current_rate": current_rate,
+                "denominator": sample_size_claims,
+                "current_pass_count": current_pass_count,
+                "required_pass_count": required_pass_count,
+                "minimum_additional_pass_count_if_denominator_unchanged": minimum_gap_count,
+                "is_passing": is_passing,
+            }
+        else:
+            current_true_count = sum(row.get(field) is True for row in rows)
+            max_allowed_true_count = floor((threshold * sample_size_claims) + 1e-12)
+            excess_true_count = max(0, current_true_count - max_allowed_true_count)
+            if excess_true_count:
+                active_gap_count += 1
+            metric_targets[metric] = {
+                "operator": operator,
+                "threshold": threshold,
+                "current_rate": current_rate,
+                "denominator": sample_size_claims,
+                "current_true_count": current_true_count,
+                "max_allowed_true_count": max_allowed_true_count,
+                "minimum_excess_true_count_if_denominator_unchanged": excess_true_count,
+                "is_passing": is_passing,
+            }
+
+    document_gap = max(0, MIN_CLAIM_GOLD_SET_DOCUMENTS - sample_size_documents)
+    claim_gap = max(0, MIN_CLAIM_GOLD_SET_CLAIMS - sample_size_claims)
+    return {
+        "policy": (
+            "public_safe_aggregate_quality_gate_gap_targets_no_source_text"
+        ),
+        "interpretation": (
+            "count deltas are the minimum gaps if the reviewed denominator stays "
+            "unchanged; use them to prioritize re-review or candidate expansion, "
+            "not as instructions to flip labels"
+        ),
+        "sample_size_documents": {
+            "operator": ">=",
+            "threshold": MIN_CLAIM_GOLD_SET_DOCUMENTS,
+            "current_count": sample_size_documents,
+            "minimum_additional_count": document_gap,
+            "is_passing": document_gap == 0,
+        },
+        "sample_size_claims": {
+            "operator": ">=",
+            "threshold": MIN_CLAIM_GOLD_SET_CLAIMS,
+            "current_count": sample_size_claims,
+            "minimum_additional_count": claim_gap,
+            "is_passing": claim_gap == 0,
+        },
+        "metrics": metric_targets,
+        "active_gap_count": active_gap_count
+        + int(document_gap > 0)
+        + int(claim_gap > 0),
+    }
+
+
 def summarize_gold_set_review(
     root: str | Path = ".",
     *,
@@ -96,6 +194,7 @@ def summarize_gold_set_review(
     pending_claims = total_claim_rows - len(reviewed)
     blockers: list[str] = []
     metrics: dict[str, float | int] | None = None
+    quality_gap_targets: Mapping[str, Any] | None = None
     passed = False
 
     if not raw_rows and not review_parse_blockers:
@@ -124,6 +223,7 @@ def summarize_gold_set_review(
             "variable_mapping_accuracy": gold_set.variable_mapping_accuracy,
             "unsupported_field_false_grounding_rate": gold_set.unsupported_field_false_grounding_rate,
         }
+        quality_gap_targets = _gold_quality_gap_targets(reviewed, metrics)
         gate_failures = gold_set.gate_failures()
         passed = not gate_failures
         blockers.extend(gate_failures)
@@ -144,6 +244,7 @@ def summarize_gold_set_review(
         ),
         passed=passed,
         metrics=metrics,
+        quality_gap_targets=quality_gap_targets,
         blockers=tuple(blockers),
     )
 

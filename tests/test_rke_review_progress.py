@@ -491,6 +491,12 @@ def test_review_progress_reports_gold_quality_blockers_without_reapplying_stale_
         == 1
     )
     assert gold_summary["next_manual_action"] == "address_quality_gate_blockers"
+    assert gold_summary["quality_gap_targets"]["sample_size_documents"][
+        "minimum_additional_count"
+    ] == 49
+    assert gold_summary["quality_gap_targets"]["metrics"]["direction_accuracy"][
+        "minimum_additional_pass_count_if_denominator_unchanged"
+    ] == 1
     assert set(gold_summary["next_batch_commands"]) == {
         "assist",
         "backfill_dry_run",
@@ -511,6 +517,9 @@ def test_review_progress_reports_gold_quality_blockers_without_reapplying_stale_
     )
     assert gold_action["action_state"] == "needs_quality_gate_work"
     assert gold_action["can_run_now"] is True
+    assert gold_action["quality_gap_targets"]["sample_size_claims"][
+        "minimum_additional_count"
+    ] == 99
     assert set(gold_action["commands"]) == {
         "assist",
         "backfill_dry_run",

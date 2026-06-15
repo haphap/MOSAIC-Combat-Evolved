@@ -12,6 +12,11 @@ from typing import Any, Mapping, Sequence
 
 from .manual_review_bundle_manifest import MANUAL_REVIEW_BUNDLE_ARTIFACTS
 from .manual_review_aids import manual_review_aid_paths, manual_review_field_contract
+from .p0 import (
+    CLAIM_GOLD_SET_METRIC_THRESHOLDS,
+    MIN_CLAIM_GOLD_SET_CLAIMS,
+    MIN_CLAIM_GOLD_SET_DOCUMENTS,
+)
 from .required_data import normalize_required_data_items
 from .temp_paths import RKE_OPERATOR_TMP_ENV_PREFIX
 
@@ -947,17 +952,9 @@ GAP_DISTRIBUTION_MAX_STABLE_SHARE = 0.80
 GOLD_REVIEW_GATE_EXPECTED_REVIEW_PATH = (
     "registry/gold_sets/tushare_research_reports.review_template.jsonl"
 )
-GOLD_REVIEW_GATE_MIN_REVIEWED_CLAIMS = 100
-GOLD_REVIEW_GATE_MIN_DOCUMENTS = 50
-GOLD_REVIEW_GATE_METRIC_THRESHOLDS = {
-    "claim_precision": (">=", 0.85),
-    "source_span_support_precision": (">=", 0.90),
-    "target_accuracy": (">=", 0.85),
-    "direction_accuracy": (">=", 0.85),
-    "horizon_accuracy": (">=", 0.85),
-    "variable_mapping_accuracy": (">=", 0.80),
-    "unsupported_field_false_grounding_rate": ("<=", 0.05),
-}
+GOLD_REVIEW_GATE_MIN_REVIEWED_CLAIMS = MIN_CLAIM_GOLD_SET_CLAIMS
+GOLD_REVIEW_GATE_MIN_DOCUMENTS = MIN_CLAIM_GOLD_SET_DOCUMENTS
+GOLD_REVIEW_GATE_METRIC_THRESHOLDS = CLAIM_GOLD_SET_METRIC_THRESHOLDS
 
 OPERATOR_READINESS_EXPECTED_CHECK_IDS = {
     "required_registry_valid",
