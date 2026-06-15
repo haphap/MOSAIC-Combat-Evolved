@@ -5667,6 +5667,24 @@ def test_schema_status_cli_filters_failures_without_writing(tmp_path: Path, caps
     assert next_actions["clear_patch_v1_5_manual_review_coverage"][
         "review_gate_actions"
     ]["footprint_review"]["action_state"] == footprint_action["action_state"]
+    footprint_gate_action = next_actions["clear_patch_v1_5_manual_review_coverage"][
+        "review_gate_actions"
+    ]["footprint_review"]
+    assert footprint_gate_action["batch_overview"]["current_batch_path"] == (
+        footprint_batch["current_batch_path"]
+    )
+    assert isinstance(
+        footprint_gate_action["batch_overview"][
+            "current_batch_evidence_missing_markdown_rows"
+        ],
+        int,
+    )
+    assert isinstance(
+        footprint_gate_action["batch_overview"][
+            "current_batch_evidence_snippet_ready_rows"
+        ],
+        int,
+    )
     assert all(record["accepted"] is False for record in output["records"])
     assert not (registry_dir / "schemas/rke_schema_validation_report.json").exists()
 

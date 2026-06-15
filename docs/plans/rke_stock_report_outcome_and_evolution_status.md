@@ -634,15 +634,21 @@ legacy BJ 8-prefix codes stay out of the stock proxy outcome channel.
 The objective is not complete until the evolution readiness gate passes. Current
 blocker families include:
 
-1. Manual/operator gates: analytical-footprint review and lockbox review remain
-   pending, while gold-set row-level review is complete but broader gold
-   quality/corpus work remains in the schema and patch Phase B promotion path.
-   `schema-status` still reports analytical-footprint review, gold-set quality,
-   and patch coverage semantic blockers. Source-license review is applied in the
-   manual progress report. The gold-set quality/corpus gap must be addressed through improved
-   extraction/mapping rules and a refreshed gold corpus with at least 50 reviewed
-   documents. The footprint review has 34 accepted rows and 1017 rows still
-   pending. Prepare each footprint batch with
+1. Manual/operator gates: analytical-footprint review, expanded gold-set review,
+   and lockbox review remain pending. The public gold-set baseline still has
+   158 reviewed but quality-blocked claims, while the expanded local gold target
+   is 206 rows with 48 pending rows; the current gold scratch covers 26 of those
+   pending rows. `schema-status` still reports analytical-footprint review,
+   gold-set quality, and patch coverage semantic blockers. Source-license review
+   is applied in the manual progress report. The gold-set quality/corpus gap
+   must be addressed through improved extraction/mapping rules and a refreshed
+   gold corpus with at least 50 reviewed documents. The footprint review has 34
+   accepted rows and 1017 rows still pending. `review-progress`,
+   `schema-status`, `evolution-readiness`, and `master-plan-status` next-action
+   payloads now all surface the same source-safe current-batch evidence quality
+   aggregates: gold has 0 missing-Markdown rows and 26 snippet-ready rows, while
+   footprint has 0 missing-Markdown rows and 50 snippet-ready rows. Prepare each
+   footprint batch with
    `MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run mosaic-rke prepare-footprint-review --root . --limit 50 --offset 0 --priority --reviewer <name> --review-date <YYYY-MM-DD> --overwrite`,
    validate it with
    `MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run`,
@@ -686,6 +692,10 @@ blocker families include:
    promotion dry-run, and
    `MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp uv run mosaic-rke schema-status --root . --failures-only --no-write`.
    For focused manual work, add `--review-kind gold_set`, `--review-kind footprint_review`, `--review-kind source_license`, or `--review-kind lockbox` to the summary or action-queue command; add `--action-state needs_human_review_fields`, `--action-state ready_to_apply`, `--action-state already_applied`, or `--action-state waiting_on_dependencies` to `--actions-only` when operators need one work class. The lockbox summary, runbook, operator handoff, and lockbox prepare/apply CLI paths are dependency-aware and should remain on `wait_for_prior_manual_gates` / `waiting_on ...` until the upstream manual review gates pass.
+   The composite actions emitted by `schema-status`, `evolution-readiness`, and
+   `master-plan-status` also include `review_gate_actions[*].batch_overview`, so
+   operators can inspect current batch coverage and evidence quality without
+   switching back to the raw `review-progress` action queue.
 
 Until those gates pass, evolution outputs remain shadow candidates and must not
 modify production prompts or production trading decisions.

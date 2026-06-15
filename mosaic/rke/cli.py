@@ -302,7 +302,7 @@ def _current_review_action_public_context(
     return {
         key: value
         for key, value in context.items()
-        if key not in {"commands", "batch_overview", "after_dry_run_accepts"}
+        if key not in {"commands", "after_dry_run_accepts"}
         and value not in ("", None, [], {})
     }
 
@@ -654,6 +654,20 @@ def _master_plan_status_next_actions(root: str | Path, result: Any) -> list[dict
             "field_contract": {
                 "gold_set": manual_review_field_contract("gold_set"),
                 "footprint_review": manual_review_field_contract("footprint_review"),
+            },
+            "review_gate_actions": {
+                key: value
+                for key, value in {
+                    "gold_set": _current_review_action_public_context(
+                        root,
+                        "gold_set",
+                    ),
+                    "footprint_review": _current_review_action_public_context(
+                        root,
+                        "footprint_review",
+                    ),
+                }.items()
+                if value
             },
         }
     ]
