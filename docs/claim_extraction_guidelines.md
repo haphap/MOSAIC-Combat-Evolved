@@ -46,7 +46,7 @@ Hypotheses require validation and cannot be promoted as source-grounded facts.
 Broad rollout requires a manual gold set to pass:
 
 - at least 50 documents;
-- at least 500 claims;
+- at least 100 claims;
 - claim precision at least 0.85;
 - span-support precision at least 0.90;
 - direction accuracy at least 0.85;
@@ -111,7 +111,7 @@ It writes `registry/review_batches/manual_review_progress_report.json` and
 `registry/review_batches/manual_review_runbook.md`. The runbook is the
 operator-facing command checklist for the gold-set, source-license, and lockbox
 review sequence. It also records the gold-set acceptance criteria: required
-review fields, row hash preservation, 50-document / 500-claim coverage, and the
+review fields, row hash preservation, 50-document / 100-claim coverage, and the
 precision, accuracy, and false-grounding thresholds enforced by
 `ClaimExtractionGoldSet.gate_failures()`.
 

@@ -51,8 +51,11 @@
     }
   ],
   "acceptance_section": "22",
-  "blocked_count": 0,
-  "blockers": [],
+  "blocked_count": 2,
+  "blockers": [
+    "gold set requires >= 50 documents; direction_accuracy below 0.85; variable_mapping_accuracy below 0.80; unsupported_field_false_grounding_rate above 0.05",
+    "long source text appears outside approved sandbox artifacts"
+  ],
   "criteria": [
     {
       "blocker": "",
@@ -62,11 +65,11 @@
       "passed": true
     },
     {
-      "blocker": "",
+      "blocker": "gold set requires >= 50 documents; direction_accuracy below 0.85; variable_mapping_accuracy below 0.80; unsupported_field_false_grounding_rate above 0.05",
       "criterion_id": "C02",
       "description": "Claim extraction gold set passes the manual precision gate.",
-      "evidence": "manual gold-set review passed",
-      "passed": true
+      "evidence": "gold-set review records present: 37 documents / 158 claims",
+      "passed": false
     },
     {
       "blocker": "",
@@ -125,11 +128,11 @@
       "passed": true
     },
     {
-      "blocker": "",
+      "blocker": "long source text appears outside approved sandbox artifacts",
       "criterion_id": "C11",
       "description": "Compliance gate blocks unauthorized reports from production runtime.",
-      "evidence": "17529 sources approved for production runtime; 17470 Tushare source texts checked for long-passage exposure",
-      "passed": true
+      "evidence": "17529 sources approved for production runtime; 1 source text redaction failure(s)",
+      "passed": false
     },
     {
       "blocker": "",
@@ -140,7 +143,7 @@
     }
   ],
   "master_plan_path": "docs/plans/master_plan_v1_1.md",
-  "passed_count": 12,
-  "ready_for_broad_rollout": true,
+  "passed_count": 10,
+  "ready_for_broad_rollout": false,
   "report_id": "RKE-COMPLETION-AUDIT-20260606"
 }

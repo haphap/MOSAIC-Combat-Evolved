@@ -89,7 +89,8 @@ def test_operator_handoff_summarizes_remaining_manual_gates():
     )
     lockbox = next(gate for gate in handoff.gates if gate.review_kind == "lockbox")
     assert gold.pending_rows == 0
-    assert gold.passed
+    assert not gold.passed
+    assert "direction_accuracy below 0.85" in gold.blocker
     assert (
         gold.full_import_template_path
         == "registry/review_batches/gold_set_full_import_template.jsonl"
@@ -106,7 +107,7 @@ def test_operator_handoff_summarizes_remaining_manual_gates():
     assert "gold_set_full_reviewed.jsonl" in gold.dry_run_command
     assert "gold_set_full_reviewed.jsonl" in handoff.promotion_dry_run_command
     assert "gold_set_full_import_template.jsonl" not in handoff.promotion_dry_run_command
-    assert footprint.pending_rows == 1001
+    assert footprint.pending_rows == 951
     assert not footprint.passed
     assert (
         footprint.import_template_path
@@ -131,7 +132,6 @@ def test_operator_handoff_summarizes_remaining_manual_gates():
     assert "gold_set_reviewed.jsonl" in gold.operator_note
     assert "analytical_footprint_review_batch.jsonl" in footprint.operator_note
     assert license_gate.pending_rows == 0
-    assert license_gate.passed
     assert (
         license_gate.workbook_path
         == "registry/review_batches/source_license_review_workbook.md"

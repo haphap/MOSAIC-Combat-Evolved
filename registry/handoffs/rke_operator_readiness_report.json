@@ -29,13 +29,13 @@
     {
       "blocker": "",
       "check_id": "manual_batch_templates_match_status",
-      "evidence": "gold_exported=50/50, gold_full=500/500, license_exported=0/0, batch_blockers=0",
+      "evidence": "gold_exported=0/0, gold_full=0/0, license_exported=0/0, batch_blockers=0",
       "passed": true
     },
     {
       "blocker": "",
       "check_id": "manual_batch_promotion_inputs_separated",
-      "evidence": "gates=2, batches=31, failures=0",
+      "evidence": "gates=2, batches=21, failures=0",
       "passed": true
     },
     {
@@ -53,7 +53,7 @@
     {
       "blocker": "",
       "check_id": "blank_full_gold_set_import_is_rejected",
-      "evidence": "accepted=False, input_rows=500, applied_rows=0, rejected_rows=500",
+      "evidence": "accepted=False, input_rows=0, applied_rows=0, rejected_rows=0",
       "passed": true
     },
     {
@@ -101,7 +101,7 @@
     {
       "blocker": "",
       "check_id": "promotion_gate_state_consistent",
-      "evidence": "next_state=paper_trading, expected_next_state=paper_trading, staged=False/False, production=False/False, direct_forbidden=True/True, blockers=2, missing=0",
+      "evidence": "next_state=paper_trading, expected_next_state=paper_trading, staged=False/False, production=False/False, direct_forbidden=True/True, blockers=3, missing=0",
       "passed": true
     },
     {

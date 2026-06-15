@@ -30,6 +30,7 @@ from mosaic.rke.report_intelligence import (
     build_confidence_impact_monitor,
     build_confidence_impact_observations,
     build_analytical_footprint_review_evidence,
+    build_local_macro_strategy_report_sources,
     build_markdown_coverage_summary,
     build_prompt_mutation_candidates,
     build_industry_etf_proxy_outcome_labels,
@@ -68,6 +69,7 @@ from mosaic.rke.report_intelligence import (
     _max_non_positive_after_cost_exit_date_streak,
     _paper_trading_chronological_split_metrics,
     _paper_trading_train_oos_split_items,
+    _select_report_forecast_claims,
     _user_prompt,
     _refresh_forecast_mapping_governance,
     _infer_claim_component_roles,
@@ -193,11 +195,295 @@ def test_user_prompt_requires_context_synthesized_forecast_claims():
     assert "Make the economic mechanism explicit" in prompt
     assert "price/cost pass-through" in prompt
     assert "macro regime" in prompt
+    assert "Emit at most two forecast_claims for this chunk" in prompt
+    assert "Prefer fewer, higher value claims" in prompt
     assert "do not leave indicator_mentions empty" in prompt
     assert "canonical metric candidate" in prompt
     assert "industry-cycle regime" in prompt
     assert "rate-cut cycle" in prompt
     assert "global copper supply is structurally tight" in prompt
+
+
+def test_select_report_forecast_claims_caps_and_preserves_source_order():
+    def claim(
+        claim_id: str,
+        *,
+        provenance: str = "unknown",
+        testability: str = "insufficient_mapping",
+        direction: str = "ambiguous",
+        target_id: str = "unknown",
+        preferred_days: int | None = None,
+        metrics: tuple[str, ...] = (),
+        mechanism: bool = False,
+        impact: bool = False,
+        regime: bool = False,
+        conviction: str = "unknown",
+    ) -> dict[str, object]:
+        return {
+            "forecast_claim_id": claim_id,
+            "claim_provenance": provenance,
+            "forecast_testability": testability,
+            "direction": direction,
+            "target": {"target_id": target_id},
+            "horizon": (
+                {"preferred_days": preferred_days} if preferred_days is not None else {}
+            ),
+            "metric_proxy_mapping": list(metrics),
+            "source_conviction": conviction,
+            "extraction_quality": {
+                "claim_component_roles": {"has_regime_context": regime},
+                "claim_mechanism_roles": {
+                    "has_economic_mechanism": mechanism,
+                    "mechanism_connects_to_evaluable_impact": impact,
+                },
+            },
+        }
+
+    records = [
+        claim("weak-early"),
+        claim(
+            "strong-1",
+            provenance="source_grounded",
+            testability="testable",
+            direction="positive",
+            target_id="000001.SZ",
+            preferred_days=60,
+            metrics=("stock_forward_return",),
+            mechanism=True,
+            impact=True,
+            regime=True,
+            conviction="high",
+        ),
+        claim(
+            "strong-2",
+            provenance="source_grounded",
+            testability="testable",
+            direction="negative",
+            target_id="000002.SZ",
+            preferred_days=20,
+            metrics=("stock_forward_return",),
+            mechanism=True,
+            impact=True,
+            regime=True,
+            conviction="medium",
+        ),
+        claim(
+            "partial",
+            provenance="source_grounded",
+            target_id="000003.SZ",
+            preferred_days=5,
+        ),
+        claim(
+            "strong-3",
+            provenance="source_grounded",
+            testability="testable",
+            direction="positive",
+            target_id="有色金属",
+            preferred_days=120,
+            metrics=("industry_etf_forward_return",),
+            mechanism=True,
+            impact=True,
+            conviction="medium",
+        ),
+        claim(
+            "strong-4",
+            provenance="source_grounded",
+            testability="testable",
+            direction="negative",
+            target_id="铜",
+            preferred_days=120,
+            metrics=("commodity_spot_price",),
+            mechanism=True,
+            impact=True,
+            regime=True,
+            conviction="low",
+        ),
+        claim(
+            "direction-only",
+            provenance="source_grounded",
+            testability="testable",
+            direction="positive",
+        ),
+        claim(
+            "strong-5",
+            provenance="source_grounded",
+            testability="testable",
+            direction="positive",
+            target_id="云计算",
+            preferred_days=60,
+            metrics=("industry_etf_forward_return",),
+            regime=True,
+            conviction="high",
+        ),
+    ]
+
+    selected = _select_report_forecast_claims(records)
+
+    assert [row["forecast_claim_id"] for row in selected] == [
+        "strong-1",
+        "strong-2",
+        "strong-3",
+        "strong-4",
+        "strong-5",
+    ]
+
+
+def test_report_intelligence_caps_forecast_claims_per_report(tmp_path: Path):
+    source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
+
+    def llm(row, chunk: str, span_id: str, chunk_index: int, chunk_count: int):
+        return {
+            "status": "ok",
+            "model": "fake-vllm",
+            "payload": {
+                "forecast_claims": [
+                    {
+                        "claim_text": (
+                            f"在需求改善和成本下降带动下，测试行业{i}盈利有望提升，"
+                            "并带来行业ETF相对收益改善。"
+                        ),
+                        "claim_provenance": "source_grounded",
+                        "forecast_testability": "testable",
+                        "forecast_type": "sector_outlook",
+                        "target": {
+                            "target_type": "sector",
+                            "target_id": f"测试行业{i}",
+                        },
+                        "direction": "positive",
+                        "horizon": {"preferred_days": 60},
+                        "metric_proxy_mapping": ["industry_etf_forward_return"],
+                        "source_conviction": "medium",
+                    }
+                    for i in range(7)
+                ],
+                "analytical_footprints": [],
+                "metric_candidates": [],
+                "method_patterns": [],
+                "tool_gaps": [],
+            },
+        }
+
+    result = run_report_intelligence_refresh(
+        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        downloader=_fake_downloader,
+        converter=_fake_converter,
+        llm_extractor=llm,
+    )
+
+    assert result.forecast_claim_rows == 5
+    forecasts = _read_jsonl(tmp_path / "registry/report_intelligence/forecast_claims.jsonl")
+    assert [row["target"]["target_id"] for row in forecasts] == [
+        "测试行业0",
+        "测试行业1",
+        "测试行业2",
+        "测试行业3",
+        "测试行业4",
+    ]
+
+
+def test_refresh_forecast_mapping_governance_caps_existing_rows_per_report():
+    def claim(report_id: str, index: int) -> dict[str, object]:
+        return {
+            "forecast_claim_id": f"{report_id}-{index}",
+            "report_id": report_id,
+            "source_id": report_id,
+            "claim_text": (
+                f"在需求改善和成本下降带动下，{report_id}测试行业{index}"
+                "盈利预计改善，未来股价有望上涨。"
+            ),
+            "claim_provenance": "source_grounded",
+            "forecast_testability": "testable",
+            "forecast_type": "stock_outlook",
+            "target": {"target_type": "stock", "target_id": f"00000{index}.SZ"},
+            "benchmark": {"benchmark_id": "SH510300"},
+            "direction": "positive",
+            "horizon": {"preferred_days": 60},
+            "metric_proxy_mapping": ["stock_forward_return"],
+            "source_conviction": "medium",
+            "extraction_quality": {},
+            "signal_datetime": "2026-06-01",
+        }
+
+    rows = [claim("R1", index) for index in range(7)] + [
+        claim("R2", index) for index in range(6)
+    ]
+
+    refreshed = _refresh_forecast_mapping_governance(rows)
+
+    assert [row["forecast_claim_id"] for row in refreshed] == [
+        "R1-0",
+        "R1-1",
+        "R1-2",
+        "R1-3",
+        "R1-4",
+        "R2-0",
+        "R2-1",
+        "R2-2",
+        "R2-3",
+        "R2-4",
+    ]
+
+
+def test_refresh_forecast_mapping_governance_keeps_structured_stock_rating_claim():
+    refreshed = _refresh_forecast_mapping_governance(
+        [
+            {
+                "forecast_claim_id": "FC-RATING",
+                "report_id": "RPT-RATING",
+                "source_id": "SRC-RATING",
+                "claim_text": "维持买入",
+                "claim_provenance": "source_grounded",
+                "forecast_testability": "insufficient_mapping",
+                "forecast_type": "investment_rating",
+                "target": {"target_type": "stock", "target_id": "603380.SH"},
+                "benchmark": {
+                    "benchmark_type": "broad_market",
+                    "benchmark_id": "沪深300",
+                },
+                "direction": "positive",
+                "horizon": {},
+                "metric_proxy_mapping": ["stock_forward_return"],
+                "source_conviction": "medium",
+                "extraction_quality": {},
+                "signal_datetime": "2025-01-01",
+            }
+        ]
+    )
+
+    assert [row["forecast_claim_id"] for row in refreshed] == ["FC-RATING"]
+    assert refreshed[0]["target"] == {"target_type": "stock", "target_id": "603380.SH"}
+    assert refreshed[0]["metric_proxy_mapping"] == ["stock_forward_return"]
+    assert refreshed[0]["forecast_testability"] == "insufficient_mapping"
+    assert "horizon" in refreshed[0]["extraction_quality"]["mapping_gaps"]
+
+
+def test_refresh_forecast_mapping_governance_drops_rating_definition_table():
+    refreshed = _refresh_forecast_mapping_governance(
+        [
+            {
+                "forecast_claim_id": "FC-RATING-DEFINITION",
+                "report_id": "RPT-RATING-DEFINITION",
+                "source_id": "SRC-RATING-DEFINITION",
+                "claim_text": (
+                    "<table><tr><td>公司评级</td><td>买入：预期未来6个月内"
+                    "股价相对市场基准指数涨幅在20%以上</td></tr></table>"
+                ),
+                "claim_provenance": "source_grounded",
+                "forecast_testability": "testable",
+                "forecast_type": "rating_definition",
+                "target": {"target_type": "stock", "target_id": "603380.SH"},
+                "benchmark": {"benchmark_type": "broad_market"},
+                "direction": "positive",
+                "horizon": {"preferred_days": 120},
+                "metric_proxy_mapping": ["stock_forward_return"],
+                "source_conviction": "medium",
+                "extraction_quality": {},
+                "signal_datetime": "2025-01-01",
+            }
+        ]
+    )
+
+    assert refreshed == []
 
 
 def test_normalize_forecast_claims_filters_boilerplate_and_descriptive_facts():
@@ -821,7 +1107,7 @@ def _passing_forecast_gold_review_summary(**overrides):
     summary = {
         "passed": True,
         "review_complete": True,
-        "reviewed_claims": 500,
+        "reviewed_claims": 100,
         "pending_claims": 0,
         "total_documents": 50,
         "metrics": {
@@ -1218,6 +1504,146 @@ def _fake_converter(pdf: Path, output_dir: Path, markdown: Path, overwrite: bool
     }
 
 
+def test_local_macro_strategy_sources_scan_pdf_folder_not_file_list(tmp_path: Path):
+    input_dir = tmp_path / "macro_pdfs"
+    nested = input_dir / "nested"
+    nested.mkdir(parents=True)
+    first_pdf = input_dir / "2026-01-02_BrokerA_宏观策略周报.pdf"
+    second_pdf = nested / "2026-01-03_BrokerB_A股市场策略.pdf"
+    first_pdf.write_bytes(b"%PDF-1.4 first")
+    second_pdf.write_bytes(b"%PDF-1.4 second")
+    (input_dir / "文件清单.txt").write_text(first_pdf.name + "\n", encoding="utf-8")
+
+    result = build_local_macro_strategy_report_sources(
+        root=tmp_path,
+        input_dir=input_dir,
+    )
+
+    assert result.scanned_pdf_count == 2
+    assert result.written_rows == 2
+    rows = _read_jsonl(tmp_path / "registry/sources/local_macro_strategy_reports.jsonl")
+    assert {Path(row["local_pdf_path"]).name for row in rows} == {
+        first_pdf.name,
+        second_pdf.name,
+    }
+    assert {row["source_type"] for row in rows} == {"local_macro_strategy_report"}
+    assert all(str(row["url"]).startswith("file://") for row in rows)
+    manifest = json.loads(
+        (tmp_path / "registry/sources/local_macro_strategy_reports.manifest.json")
+        .read_text(encoding="utf-8")
+    )
+    assert manifest["scanned_pdf_count"] == 2
+    assert manifest["privacy_policy"]
+
+
+def test_report_intelligence_labels_macro_strategy_claims_with_asset_proxy_windows(
+    tmp_path: Path,
+):
+    source_id = _write_source(
+        tmp_path / "registry/sources/tushare_research_reports.jsonl",
+        industry="宏观策略",
+        report_type="宏观策略-A股",
+        publish_date="2026-01-02",
+    )
+    qlib_etf_dir = tmp_path / "qlib_etf"
+    _write_qlib_etf_fixture(qlib_etf_dir)
+
+    def llm(row, chunk: str, span_id: str, chunk_index: int, chunk_count: int):
+        return {
+            "status": "ok",
+            "model": "fake-vllm",
+            "payload": {
+                "forecast_claims": [
+                    {
+                        "claim_text": (
+                            "国内逆周期政策加码、流动性改善的宏观环境下，"
+                            "权益风险偏好有望修复，A股宽基指数中期看多。"
+                        ),
+                        "claim_provenance": "source_grounded",
+                        "forecast_testability": "testable",
+                        "forecast_type": "macro_asset_outlook",
+                        "target": {
+                            "target_type": "macro_asset",
+                            "target_id": "CN_A_SHARE_BROAD",
+                            "target_name": "A股宽基",
+                        },
+                        "benchmark": {
+                            "benchmark_type": "cash_zero_return",
+                            "benchmark_id": "CASH_0",
+                        },
+                        "direction": "positive",
+                        "horizon": {
+                            "min_days": 20,
+                            "max_days": 120,
+                            "unit": "trading_day",
+                        },
+                        "metric_proxy_mapping": ["macro_asset_forward_return"],
+                    }
+                ],
+                "analytical_footprints": [],
+                "metric_candidates": [],
+                "method_patterns": [],
+                "tool_gaps": [],
+            },
+        }
+
+    result = run_report_intelligence_refresh(
+        ReportIntelligenceConfig(
+            root=tmp_path,
+            source_ids=(source_id,),
+            qlib_etf_dir=qlib_etf_dir,
+        ),
+        downloader=_fake_downloader,
+        converter=_fake_converter,
+        llm_extractor=llm,
+    )
+
+    assert result.macro_asset_proxy_outcome_label_rows == 4
+    assert result.macro_asset_proxy_eligible_claim_rows == 1
+    assert result.macro_asset_proxy_labelable_window_rows == 4
+    outcome_labels = sorted(
+        _read_jsonl(tmp_path / "registry/report_intelligence/report_outcome_labels.jsonl"),
+        key=lambda row: row["horizon_days"],
+    )
+    assert {row["label_type"] for row in outcome_labels} == {"macro_asset_proxy"}
+    assert [row["horizon_days"] for row in outcome_labels] == [5, 20, 60, 120]
+    assert {row["proxy_symbol"] for row in outcome_labels} == {"SH510300"}
+    assert {row["macro_asset_target_id"] for row in outcome_labels} == {
+        "CN_A_SHARE_BROAD"
+    }
+    assert {row["benchmark_symbol"] for row in outcome_labels} == {"CASH_0"}
+    assert {row["benchmark_return"] for row in outcome_labels} == {0.0}
+    assert {row["outcome_label_source"] for row in outcome_labels} == {
+        "pit_macro_asset_etf_price_window"
+    }
+    assert {row["decision_basis"] for row in outcome_labels} == {
+        "directional_macro_asset_proxy_return"
+    }
+    assert {row["llm_outcome_labeling_allowed"] for row in outcome_labels} == {False}
+    assert {row["entry_lag_trading_days"] for row in outcome_labels} == {1}
+    assert [row["effective_n_weight"] for row in outcome_labels] == [
+        0.2,
+        0.25,
+        0.25,
+        0.3,
+    ]
+    assert all(row["directional_hit"] is True for row in outcome_labels)
+
+    readiness = json.loads(
+        (tmp_path / "registry/report_intelligence/outcome_labeling_readiness.json")
+        .read_text(encoding="utf-8")
+    )
+    macro_readiness = readiness["macro_asset_proxy_readiness"]
+    assert readiness["macro_proxy_label_ready_count"] == 1
+    assert readiness["proxy_label_ready_count"] == 1
+    assert macro_readiness["qlib_etf_dir_configured"].startswith("qlib://")
+    assert macro_readiness["eligible_claim_count"] == 1
+    assert macro_readiness["labelable_forecast_claim_count"] == 1
+    assert macro_readiness["labelable_window_count"] == 4
+    assert macro_readiness["data_gap_counts"] == {}
+    assert macro_readiness["mapping_policy"]["crude_oil_mapping_enabled"] is False
+
+
 def _fake_llm(row, chunk: str, span_id: str, chunk_index: int, chunk_count: int):
     assert "摘要不能作为本测试" not in chunk
     assert "7日公开市场净投放" in chunk
@@ -1564,7 +1990,7 @@ def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
     }
     assert markdown_coverage["report_horizon_bucket_counts"] == {"20d": 1}
     assert markdown_coverage["evaluability_bucket_counts"] == {
-        "standard_evaluable_candidate": 1
+        "macro_asset_proxy_candidate": 1
     }
     assert markdown_coverage["sector_bucket_coverage_gaps"] == [
         "sector_bucket:other_sector"
@@ -1691,6 +2117,7 @@ def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
     }
     assert readiness["mechanism_impact_variable_counts"] == {
         "dr007_policy_rate_spread": 1,
+        "equity_index_forward_return": 1,
         "pboc_net_injection_7d": 1,
     }
     assert readiness["mechanism_gap_counts"] == {}
@@ -2433,11 +2860,15 @@ def test_markdown_coverage_requires_stratified_industry_and_stock_samples():
 
     def forecast_row(index: int, *, mapping_gap: bool = False) -> dict[str, object]:
         horizons = [5, 20, 60, 120]
-        target = (
-            {"target_type": "stock", "target_id": "000001.SZ"}
-            if 80 <= index < 159
-            else {"target_type": "sector", "target_id": "半导体"}
-        )
+        if 80 <= index < 159:
+            target = {"target_type": "stock", "target_id": "000001.SZ"}
+        elif index >= 159:
+            target = {
+                "target_type": "macro_asset",
+                "target_id": "CN_A_SHARE_BROAD",
+            }
+        else:
+            target = {"target_type": "sector", "target_id": "半导体"}
         return {
             "source_id": f"SRC-STRATA-{index:03d}",
             "target": {} if mapping_gap else target,
@@ -6493,6 +6924,100 @@ def test_report_intelligence_counts_stock_price_proxy_as_labelable_channel(
     assert readiness["unlabelable_mapping_gap_counts"] == {}
 
 
+def test_report_intelligence_keeps_long_window_stock_hits(
+    tmp_path: Path,
+):
+    source_id = _write_source(
+        tmp_path / "registry/sources/tushare_research_reports.jsonl",
+        industry="银行",
+        report_type="公司研报",
+        publish_date="2026-01-02",
+        ts_code="000001.SZ",
+    )
+    qlib_stock_dir = tmp_path / "qlib_stock"
+    qlib_etf_dir = tmp_path / "qlib_etf"
+    _write_qlib_stock_fixture(qlib_stock_dir)
+    _write_qlib_stock_benchmark_fixture(qlib_etf_dir)
+
+    def llm(row, chunk: str, span_id: str, chunk_index: int, chunk_count: int):
+        return {
+            "status": "ok",
+            "model": "fake-vllm",
+            "payload": {
+                "forecast_claims": [
+                    {
+                        "claim_text": "平安银行短期可能震荡，但中长期基本面改善，未来股价有望上涨。",
+                        "claim_provenance": "source_grounded",
+                        "forecast_testability": "testable",
+                        "forecast_type": "stock_outlook",
+                        "target": {"target_type": "stock", "target_id": "000001.SZ"},
+                        "benchmark": {},
+                        "direction": "positive",
+                        "horizon": {
+                            "min_days": 20,
+                            "max_days": 120,
+                            "unit": "trading_day",
+                        },
+                    }
+                ],
+                "analytical_footprints": [],
+                "metric_candidates": [],
+                "method_patterns": [],
+                "tool_gaps": [],
+            },
+        }
+
+    result = run_report_intelligence_refresh(
+        ReportIntelligenceConfig(
+            root=tmp_path,
+            source_ids=(source_id,),
+            qlib_stock_dir=qlib_stock_dir,
+            qlib_etf_dir=qlib_etf_dir,
+        ),
+        downloader=_fake_downloader,
+        converter=_fake_converter,
+        llm_extractor=llm,
+    )
+
+    assert result.stock_price_proxy_outcome_label_rows == 4
+    outcome_labels = sorted(
+        _read_jsonl(tmp_path / "registry/report_intelligence/report_outcome_labels.jsonl"),
+        key=lambda row: row["horizon_days"],
+    )
+    assert [row["label_type"] for row in outcome_labels] == [
+        "stock_price_proxy",
+        "stock_price_proxy",
+        "stock_price_proxy",
+        "stock_price_proxy",
+    ]
+    assert [row["horizon_days"] for row in outcome_labels] == [5, 20, 60, 120]
+    assert [row["window_role"] for row in outcome_labels] == [
+        "short",
+        "short",
+        "medium",
+        "long",
+    ]
+    assert outcome_labels[0]["directional_hit"] is False
+    assert outcome_labels[0]["directional_stock_return"] < 0
+    assert all(row["directional_hit"] is True for row in outcome_labels[1:])
+    assert outcome_labels[-1]["directional_stock_return"] > 0
+    assert {row["outcome_label_source"] for row in outcome_labels} == {
+        "pit_stock_price_window"
+    }
+    assert {row["llm_outcome_labeling_allowed"] for row in outcome_labels} == {False}
+
+    summary = outcome_labels[0]["temporal_validation_summary"]
+    assert summary["temporal_validation_bucket"] == "short_miss_long_hit"
+    assert summary["miss_window_days"] == [5]
+    assert summary["hit_window_days"] == [20, 60, 120]
+    assert summary["short_window_directional_hit"] is False
+    assert summary["long_window_directional_hit"] is True
+    assert summary["long_window_hit_retained"] is True
+    assert summary["window_evidence_policy"] == (
+        "do_not_collapse_multi_window_outcome_to_single_label"
+    )
+
+
 def test_report_intelligence_marks_stock_proxy_future_windows_as_pending(
     tmp_path: Path,
 ):
@@ -9416,6 +9941,66 @@ def test_report_intelligence_demotes_unmapped_forecasts_and_filters_agent_ids(
     assert [row["agent_id"] for row in weighted] == ["macro.central_bank"]
 
 
+def test_report_intelligence_filters_disclaimers_and_rating_definitions_from_forecasts(
+    tmp_path: Path,
+):
+    source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
+
+    def llm(row, chunk: str, span_id: str, chunk_index: int, chunk_count: int):
+        return {
+            "status": "ok",
+            "model": "fake-vllm",
+            "payload": {
+                "forecast_claims": [
+                    {
+                        "claim_text": "理财产品业绩比较基准及过往业绩并不预示其未来表现，亦不构成投资建议，不代表推介。",
+                        "claim_provenance": "source_grounded",
+                        "forecast_testability": "testable",
+                        "forecast_type": "source_context_requires_review",
+                        "target": {"target_type": "sector", "target_id": "银行理财"},
+                        "direction": "neutral",
+                        "metric_proxy_mapping": ["industry_etf_forward_return"],
+                    },
+                    {
+                        "claim_text": "<table><tr><td>公司评级</td><td>行业评级</td></tr><tr><td>强烈推荐</td><td>预期未来6个月内股价相对市场基准指数升幅在15%以上</td></tr></table>",
+                        "claim_provenance": "source_grounded",
+                        "forecast_testability": "testable",
+                        "forecast_type": "rating_definition",
+                        "target": {"target_type": "sector", "target_id": "计算机"},
+                        "direction": "positive",
+                        "metric_proxy_mapping": ["industry_etf_forward_return"],
+                    },
+                    {
+                        "claim_text": "央行流动性呵护和信用利差收敛将缓解银行理财破净压力，银行理财行业相对表现有望改善。",
+                        "claim_provenance": "source_grounded",
+                        "forecast_testability": "testable",
+                        "forecast_type": "sector_outlook",
+                        "target": {"target_type": "sector", "target_id": "银行理财"},
+                        "direction": "positive",
+                        "metric_proxy_mapping": ["industry_etf_forward_return"],
+                    },
+                ],
+                "analytical_footprints": [],
+                "metric_candidates": [],
+                "method_patterns": [],
+                "tool_gaps": [],
+            },
+        }
+
+    result = run_report_intelligence_refresh(
+        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        downloader=_fake_downloader,
+        converter=_fake_converter,
+        llm_extractor=llm,
+    )
+
+    assert result.forecast_claim_rows == 1
+    forecasts = _read_jsonl(tmp_path / "registry/report_intelligence/forecast_claims.jsonl")
+    assert forecasts[0]["claim_text"] == "央行流动性呵护和信用利差收敛将缓解银行理财破净压力，银行理财行业相对表现有望改善。"
+    assert "不构成投资建议" not in forecasts[0]["claim_text"]
+    assert "行业评级" not in forecasts[0]["claim_text"]
+
+
 def test_report_intelligence_normalizes_unsupported_forecast_direction(
     tmp_path: Path,
 ):
@@ -9819,6 +10404,87 @@ def test_analytical_footprint_review_evidence_suggests_missing_metric_mapping(
     markdown = (tmp_path / report.markdown_path).read_text(encoding="utf-8")
     assert "Suggested indicator mapping candidates" in markdown
     assert "forecast_net_profit" in markdown
+    assert "Suggested indicator candidate source counts" in markdown
+    assert "Suggested indicator candidate canonical counts" in markdown
+
+
+def test_analytical_footprint_review_evidence_flags_unknown_metric_mapping(
+    tmp_path: Path,
+):
+    source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
+    run_report_intelligence_refresh(
+        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        downloader=_fake_downloader,
+        converter=_fake_converter,
+        llm_extractor=_fake_llm,
+    )
+    template_path = tmp_path / "registry/report_intelligence/analytical_footprint_review_template.jsonl"
+    rows = _read_jsonl(template_path)
+    rows[0]["topic_preview"] = "Financial Projections"
+    rows[0]["analysis_patterns_review_preview"] = ["earnings_estimation"]
+    rows[0]["indicator_mentions_review_preview"] = [
+        {
+            "indicator_text": "revenue_forecast",
+            "canonical_metric_candidate": "unknown",
+            "data_source_mentioned": "unknown",
+            "frequency": "unknown",
+            "transformation": "unknown",
+            "source_grounded": False,
+        },
+        {
+            "indicator_text": "net_profit_forecast",
+            "canonical_metric_candidate": "forecast_net_profit",
+            "data_source_mentioned": "report_financial_forecast",
+            "frequency": "annual",
+            "transformation": "extract_forecast",
+            "source_grounded": True,
+        },
+    ]
+    _write_jsonl(template_path, rows)
+
+    report = write_analytical_footprint_review_evidence(tmp_path, limit=1)
+    evidence_rows = _read_jsonl(tmp_path / report.jsonl_path)
+    row = evidence_rows[0]
+
+    assert row["suggested_review_decision"]["metric_mapping_correct"] is False
+    assert row["suggested_review_decision"]["unknowns_used_when_uncertain"] is False
+    assert "metric_mapping_unknown" in row["suggested_manual_error_tags"]
+    assert "metric_mapping_ungrounded" in row["suggested_manual_error_tags"]
+    assert "metric_mapping_missing" not in row["suggested_manual_error_tags"]
+    assert row["inferred_indicator_suggestions"]
+    repair_suggestion = row["inferred_indicator_suggestions"][0]
+    assert repair_suggestion["indicator_text"] == "revenue_forecast"
+    assert repair_suggestion["canonical_metric_candidate"] == "revenue_growth"
+    assert repair_suggestion["source_grounded"] is False
+    assert (
+        repair_suggestion["inference_source"]
+        == "review_evidence_indicator_alias_rule"
+    )
+    assert repair_suggestion["original_canonical_metric_candidate"] == "unknown"
+    rationale = next(
+        item
+        for item in row["suggested_review_rationales"]
+        if item["field"] == "metric_mapping_correct"
+    )
+    assert rationale["suggested_value"] is False
+    assert rationale["diagnostics"] == {
+        "complete_source_grounded_count": 1,
+        "mapping_complete": False,
+        "mention_count": 2,
+        "ungrounded_count": 1,
+        "unknown_canonical_count": 1,
+    }
+    unknown_rationale = next(
+        item
+        for item in row["suggested_review_rationales"]
+        if item["field"] == "unknowns_used_when_uncertain"
+    )
+    assert unknown_rationale["suggested_value"] is False
+    assert "repairable by governed alias rules" in unknown_rationale["reason"]
+    markdown = (tmp_path / report.markdown_path).read_text(encoding="utf-8")
+    assert "Suggested indicator candidate source counts" in markdown
+    assert "review_evidence_indicator_alias_rule" in markdown
+    assert "revenue_growth" in markdown
 
 
 def test_analytical_footprint_review_evidence_supports_offset_batches(
@@ -10053,6 +10719,82 @@ def test_report_intelligence_structures_string_indicator_mentions(tmp_path: Path
         "source_grounded": True,
         "transformation": "spread",
     }
+
+
+def test_report_intelligence_structures_common_report_indicator_aliases(
+    tmp_path: Path,
+):
+    source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
+
+    def llm(row, chunk: str, span_id: str, chunk_index: int, chunk_count: int):
+        return {
+            "status": "ok",
+            "model": "fake-vllm",
+            "payload": {
+                "forecast_claims": [],
+                "analytical_footprints": [
+                    {
+                        "topic": "common_indicator_aliases",
+                        "indicator_mentions": [
+                            "computer_sector_return",
+                            "hs300_return",
+                            "relative_performance",
+                            "pe_ratio",
+                            "ev_ebitda",
+                            "operating_cash_flow",
+                            "自发自用比例",
+                            "Semaglutide discontinuation rate due to AEs (4.1%)",
+                            "Number of companies applying for listing",
+                        ],
+                        "analysis_patterns": [],
+                        "target_agent_candidates": ["analyst"],
+                    }
+                ],
+                "metric_candidates": [],
+                "method_patterns": [],
+                "tool_gaps": [],
+            },
+        }
+
+    run_report_intelligence_refresh(
+        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        downloader=_fake_downloader,
+        converter=_fake_converter,
+        llm_extractor=llm,
+    )
+
+    footprints = _read_jsonl(
+        tmp_path / "registry/report_intelligence/analytical_footprints.jsonl"
+    )
+    mentions = {
+        mention["indicator_text"]: mention
+        for mention in footprints[0]["indicator_mentions"]
+    }
+
+    assert mentions["computer_sector_return"]["canonical_metric_candidate"] == (
+        "market_or_sector_index_return"
+    )
+    assert mentions["hs300_return"]["canonical_metric_candidate"] == (
+        "market_or_sector_index_return"
+    )
+    assert mentions["relative_performance"]["canonical_metric_candidate"] == (
+        "market_or_sector_index_return"
+    )
+    assert mentions["pe_ratio"]["canonical_metric_candidate"] == "valuation_multiple"
+    assert mentions["ev_ebitda"]["canonical_metric_candidate"] == "valuation_multiple"
+    assert mentions["operating_cash_flow"]["canonical_metric_candidate"] == (
+        "operating_cash_flow"
+    )
+    assert mentions["自发自用比例"]["canonical_metric_candidate"] == (
+        "policy_parameter_constraint"
+    )
+    assert mentions[
+        "Semaglutide discontinuation rate due to AEs (4.1%)"
+    ]["canonical_metric_candidate"] == "adverse_event_discontinuation_rate"
+    assert mentions["Number of companies applying for listing"][
+        "canonical_metric_candidate"
+    ] == "clinical_trial_milestone_status"
+    assert all(mention["source_grounded"] is True for mention in mentions.values())
 
 
 def test_report_intelligence_bounds_stored_claim_text(tmp_path: Path):
@@ -10322,6 +11064,54 @@ def test_mineru_batch_conversion_uses_directory_input(tmp_path: Path, monkeypatc
     assert results["SRC-B"]["duration_seconds"] >= 0
     assert (tmp_path / "mineru_batch" / "input-002").exists()
     assert (tmp_path / "markdown" / "SRC-A.md").read_text(encoding="utf-8").startswith("# SRC-A")
+
+
+def test_mineru_batch_conversion_resolves_relative_command_before_changing_cwd(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.chdir(tmp_path)
+    fake_mineru = tmp_path / "tools" / "fake-mineru"
+    fake_mineru.parent.mkdir()
+    fake_mineru.write_text(
+        "\n".join(
+            [
+                "#!/usr/bin/env python3",
+                "import sys",
+                "from pathlib import Path",
+                "args = sys.argv[1:]",
+                "input_dir = Path(args[args.index('-p') + 1])",
+                "output_dir = Path(args[args.index('-o') + 1])",
+                "backend = args[args.index('-b') + 1]",
+                "for pdf in sorted(input_dir.glob('*.pdf')):",
+                "    target = output_dir / pdf.stem / backend.replace('-', '_')",
+                "    target.mkdir(parents=True, exist_ok=True)",
+                "    (target / f'{pdf.stem}.md').write_text('# ok\\n', encoding='utf-8')",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    fake_mineru.chmod(0o755)
+    pdf_path = tmp_path / "SRC-REL.pdf"
+    pdf_path.write_bytes(b"%PDF relative command")
+
+    results = convert_pdfs_with_mineru_batch(
+        (
+            MineruBatchConversionTask(
+                source_id="SRC-REL",
+                pdf_path=pdf_path,
+                markdown_path=tmp_path / "markdown" / "SRC-REL.md",
+            ),
+        ),
+        tmp_path / "mineru_batch",
+        overwrite=False,
+        command="tools/fake-mineru",
+        backend="hybrid-auto-engine",
+    )
+
+    assert results["SRC-REL"]["status"] == "converted"
+    assert (tmp_path / "markdown" / "SRC-REL.md").read_text(encoding="utf-8") == "# ok\n"
 
 
 def test_merge_report_intelligence_batch_outputs_dedupes_batch_jsonl(

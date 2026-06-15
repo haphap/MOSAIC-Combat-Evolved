@@ -488,10 +488,13 @@ def test_operator_readiness_rejects_blank_full_gold_set_import(tmp_path: Path):
     assert full_gold.passed
     assert import_report["accepted"] is False
     assert import_report["dry_run"] is True
-    assert import_report["input_rows"] == 500
     assert import_report["applied_rows"] == 0
-    assert import_report["rejected_rows"] == 500
-    assert "500 review rows failed validation" in import_report["blockers"]
+    assert import_report["input_rows"] == import_report["rejected_rows"]
+    assert import_report["input_rows"] > 0
+    assert (
+        f"{import_report['input_rows']} review rows failed validation"
+        in import_report["blockers"]
+    )
 
 
 def test_operator_readiness_rejects_blank_lockbox_import(tmp_path: Path):
@@ -655,9 +658,10 @@ def test_write_operator_readiness_report_outputs_registry_artifact(tmp_path: Pat
     assert dry_run_payload["accepted"] is False
     assert dry_run_payload["mutated_original_registry"] is False
     assert dry_run_payload["production_allowed_after_simulation"] is False
-    assert dry_run_payload["after_next_state"] == "staged_production"
+    assert dry_run_payload["after_next_state"] == "paper_trading"
     steps = {step["review_kind"]: step for step in dry_run_payload["steps"]}
-    assert steps["gold_set"]["result"] == "already_applied"
+    assert steps["gold_set"]["result"] == "not_provided"
+    assert steps["footprint_review"]["result"] == "not_provided"
     assert steps["source_license"]["result"] == "already_applied"
     assert steps["lockbox"]["result"] == "not_provided"
     assert bundle_payload["accepted"] is True

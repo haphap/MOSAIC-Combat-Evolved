@@ -106,6 +106,7 @@ from .report_intelligence import (
     DEFAULT_VLLM_TIMEOUT_SECONDS,
     ReportIntelligenceConfig,
     apply_analytical_footprint_review_import,
+    build_local_macro_strategy_report_sources,
     merge_report_intelligence_batch_outputs,
     prepare_analytical_footprint_review_import,
     run_report_intelligence_refresh,
@@ -797,6 +798,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Export all pending gold-set rows instead of the next batch.",
     )
     prepare_gold_review.add_argument(
+        "--reviewed-failures",
+        action="store_true",
+        help=(
+            "Export already reviewed gold-set rows with failed quality labels for "
+            "targeted re-review. Cannot be combined with --full."
+        ),
+    )
+    prepare_gold_review.add_argument(
         "--gold-batch-size",
         type=int,
         default=50,
@@ -1129,6 +1138,29 @@ def build_parser() -> argparse.ArgumentParser:
     fetch_reports.add_argument(
         "--env-file",
         help="Optional .env file to load before initializing the Tushare client.",
+    )
+
+    local_macro_sources = subparsers.add_parser(
+        "build-local-macro-report-sources",
+        help="Build a private local source JSONL by recursively scanning macro strategy PDFs.",
+    )
+    local_macro_sources.add_argument(
+        "--root", default=".", help="Repository root. Defaults to current directory."
+    )
+    local_macro_sources.add_argument(
+        "--input-dir",
+        required=True,
+        help="Directory containing local macro strategy PDFs. All *.pdf files are scanned recursively.",
+    )
+    local_macro_sources.add_argument(
+        "--output-path",
+        default="registry/sources/local_macro_strategy_reports.jsonl",
+        help="Private output JSONL path under the repo.",
+    )
+    local_macro_sources.add_argument(
+        "--manifest-path",
+        default="registry/sources/local_macro_strategy_reports.manifest.json",
+        help="Private manifest JSON path under the repo.",
     )
 
     report_intelligence = subparsers.add_parser(
@@ -1821,10 +1853,24 @@ def main(argv: Sequence[str] | None = None) -> int:
         _print_json(asdict(report))
         return 0 if report.accepted else 2
     if args.command == "prepare-gold-review":
+        if args.full and args.reviewed_failures:
+            _print_json(
+                {
+                    "blockers": [
+                        "--full and --reviewed-failures cannot be combined"
+                    ],
+                    "force": args.force,
+                    "full": args.full,
+                    "reviewed_failures": args.reviewed_failures,
+                    "written": False,
+                }
+            )
+            return 2
         result = write_gold_review_starter(
             root,
             output_path=args.output,
             full=args.full,
+            reviewed_failures=args.reviewed_failures,
             force=args.force,
             gold_batch_size=args.gold_batch_size,
             offset=args.offset,
@@ -2002,6 +2048,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         _print_json(asdict(result))
         return 0 if result.manifest_valid else 2
+    if args.command == "build-local-macro-report-sources":
+        result = build_local_macro_strategy_report_sources(
+            root=root,
+            input_dir=args.input_dir,
+            output_path=args.output_path,
+            manifest_path=args.manifest_path,
+        )
+        _print_json(asdict(result))
+        return 0 if not result.blockers else 2
     if args.command == "report-intelligence":
         _load_env_file(args.env_file)
         result = run_report_intelligence_refresh(

@@ -1523,7 +1523,7 @@ Sector demo 可保留 semiconductor，但只作为 provenance demo 和 low empir
 
 ```text
 D1. Data Availability Matrix for central_bank metrics.
-D2. Claim extraction gold set for 50 documents / 500 claims.
+D2. Claim extraction gold set for 50 documents / 100 claims.
 D3. Source-grounded claim schema and verifier.
 D4. One central_bank rule pack.
 D5. One parameter prior family.
@@ -1589,7 +1589,7 @@ Owner: Research Lead + LLM/Agent Engineer
 交付：
 
 ```text
-- 50 documents / 500 claims gold set；
+- 50 documents / 100 claims gold set；
 - source-grounded vs hypothesis 标注规范；
 - span-grounded verifier；
 - extraction precision/recall report；

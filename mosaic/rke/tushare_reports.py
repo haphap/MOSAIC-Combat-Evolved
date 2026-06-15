@@ -33,6 +33,8 @@ from .operator_readiness import write_operator_readiness_report
 from .master_plan_coverage import write_master_plan_coverage_report
 from .monitoring_diagnostics import write_production_monitor_diagnostics
 from .phase_minus1 import (
+    DEFAULT_GOLD_SET_CLAIMS_PER_DOCUMENT,
+    DEFAULT_GOLD_SET_DOCUMENTS,
     audit_research_report_corpus,
     load_jsonl,
     load_jsonl_with_errors,
@@ -864,7 +866,7 @@ def refresh_tushare_research_report_registry(
     report_type_counts = Counter(str(row.get("report_type") or "") for row in source_rows)
     query_key_counts = Counter(str(row.get("query_key") or "") for row in source_rows)
 
-    candidates = select_gold_set_candidates(source_rows, max_documents=50)
+    candidates = select_gold_set_candidates(source_rows, max_documents=DEFAULT_GOLD_SET_DOCUMENTS)
     gold_candidates_path = root_path / "registry/sources/tushare_research_reports.gold_candidates.jsonl"
     gold_candidates_result = write_gold_set_candidates(candidates, gold_candidates_path)
     outputs["gold_candidates"] = str(gold_candidates_result["path"])
@@ -890,7 +892,7 @@ def refresh_tushare_research_report_registry(
         gold_review_result = write_gold_set_review_template(
             candidates,
             gold_review_path,
-            claims_per_document=10,
+            claims_per_document=DEFAULT_GOLD_SET_CLAIMS_PER_DOCUMENT,
         )
         outputs["gold_review_template"] = str(gold_review_result["path"])
         gold_review_updated = True

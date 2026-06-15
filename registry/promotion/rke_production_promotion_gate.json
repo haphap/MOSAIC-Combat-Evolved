@@ -1,32 +1,35 @@
 {
   "blockers": [
-    "manual gold-set review still required",
+    "broad-rollout completion audit still has blockers",
+    "gold set requires >= 50 documents; direction_accuracy below 0.85; variable_mapping_accuracy below 0.80; unsupported_field_false_grounding_rate above 0.05",
+    "long source text appears outside approved sandbox artifacts",
+    "source text redaction audit failed",
     "lockbox has not been opened"
   ],
   "criteria": [
     {
-      "blocker": "",
+      "blocker": "broad-rollout completion audit still has blockers",
       "criterion_id": "PG01",
       "description": "Broad-rollout completion audit is green.",
-      "evidence": "12 / 12 completion criteria passed",
+      "evidence": "10 / 12 completion criteria passed",
       "evidence_path": "registry/audits/rke_completion_audit.json",
-      "passed": true
+      "passed": false
     },
     {
-      "blocker": "manual gold-set review still required",
+      "blocker": "gold set requires >= 50 documents; direction_accuracy below 0.85; variable_mapping_accuracy below 0.80; unsupported_field_false_grounding_rate above 0.05",
       "criterion_id": "PG02",
       "description": "Manual gold-set review passed before staged production.",
-      "evidence": "0 / 500 gold-set claims reviewed",
+      "evidence": "158 / 158 gold-set claims reviewed",
       "evidence_path": "registry/gold_sets/tushare_research_reports.review_summary.json",
       "passed": false
     },
     {
-      "blocker": "",
+      "blocker": "long source text appears outside approved sandbox artifacts",
       "criterion_id": "PG03",
       "description": "Source-license review approves production runtime retrieval.",
       "evidence": "17529 / 17529 sources approved for production runtime",
       "evidence_path": "registry/compliance/tushare_license_review_summary.json",
-      "passed": true
+      "passed": false
     },
     {
       "blocker": "",
@@ -37,12 +40,12 @@
       "passed": true
     },
     {
-      "blocker": "",
+      "blocker": "source text redaction audit failed",
       "criterion_id": "PG05",
       "description": "Long sell-side source text is absent from runtime and public artifacts.",
-      "evidence": "0 source-text redaction failures",
+      "evidence": "1 source-text redaction failures",
       "evidence_path": "registry/compliance/source_text_redaction_report.json",
-      "passed": true
+      "passed": false
     },
     {
       "blocker": "",

@@ -3,16 +3,16 @@
   "labelability_summary": {
     "benchmark_series_missing_count": 0,
     "data_gap_counts": {
-      "direction_missing_or_unsupported": 14,
-      "entry_date_after_latest_calendar": 3,
-      "sector_etf_mapping_missing": 45
+      "direction_missing_or_unsupported": 8,
+      "entry_date_after_latest_calendar": 1,
+      "sector_etf_mapping_missing": 38
     },
-    "eligible_claim_count": 146,
+    "eligible_claim_count": 105,
     "labelable_claim_count": 39,
     "labelable_window_count": 87,
-    "pending_future_window_count": 342,
+    "pending_future_window_count": 225,
     "proxy_series_missing_count": 0,
-    "sector_etf_mapping_missing_count": 45
+    "sector_etf_mapping_missing_count": 38
   },
   "mapping_count": 64,
   "mapping_records": [

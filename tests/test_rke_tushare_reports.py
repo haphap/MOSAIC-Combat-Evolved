@@ -32,7 +32,7 @@ class FakeTusharePro:
                     {
                         "trade_date": "20260603",
                         "title": f"Liquidity leader update {ts_code}",
-                        "abstr": "PBOC liquidity support may improve short-term risk appetite.",
+                        "abstr": "若央行流动性支持延续，银行板块风险偏好有望改善。",
                         "author": "Analyst A",
                         "inst_csname": "Broker A",
                         "ts_code": ts_code,
@@ -46,7 +46,7 @@ class FakeTusharePro:
                 {
                     "trade_date": "20260602",
                     "title": "Banking sector liquidity review",
-                    "abstr": "Liquidity injection requires confirmation from rates and flows.",
+                    "abstr": "若流动性投放改善资金面，银行板块估值有望修复。",
                     "author": "Analyst B",
                     "inst_csname": "Broker B",
                     "ts_code": "",
@@ -69,7 +69,7 @@ class LegacySingleRowFakeTusharePro:
                     {
                         "trade_date": "20260603",
                         "title": "Liquidity leader update",
-                        "abstr": "PBOC liquidity support may improve short-term risk appetite.",
+                        "abstr": "若央行流动性支持延续，银行板块风险偏好有望改善。",
                         "author": "Analyst A",
                         "inst_csname": "Broker A",
                         "ts_code": kwargs["ts_code"],
@@ -83,7 +83,7 @@ class LegacySingleRowFakeTusharePro:
                 {
                     "trade_date": "20260602",
                     "title": "Banking sector liquidity review",
-                    "abstr": "Liquidity injection requires confirmation from rates and flows.",
+                    "abstr": "若流动性投放改善资金面，银行板块估值有望修复。",
                     "author": "Analyst B",
                     "inst_csname": "Broker B",
                     "ts_code": "",
@@ -468,7 +468,7 @@ def test_refresh_tushare_research_report_registry_updates_dependent_artifacts(tm
     assert "production_monitor_diagnostics" in result.outputs
     assert len(source_rows) == 2
     assert len(license_rows) == 2
-    assert len(gold_rows) == 20
+    assert len(gold_rows) == 2
     assert manifest["output_path"] == "registry/sources/tushare_research_reports.jsonl"
     assert manifest["max_reports_per_query"] == 6000
     assert manifest["stock_query_batch_size"] == 50

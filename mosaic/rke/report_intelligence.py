@@ -21,13 +21,19 @@ import sys
 import time
 import urllib.error
 import urllib.request
-from collections import Counter
+from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timezone
 from hashlib import sha256
 from pathlib import Path
 from typing import Any, Callable, Literal, Mapping, Sequence
 
+from .claim_text_filters import (
+    is_boilerplate_risk_warning_text,
+    is_disclaimer_text,
+    is_heading_or_toc_text,
+    is_non_research_claim_text,
+)
 from .manual_review_aids import manual_review_aid_paths, manual_review_field_contract
 from .manual_review_import import manual_review_forbidden_field_paths
 from .phase_minus1 import load_jsonl_with_errors
@@ -39,6 +45,12 @@ from .temp_paths import operator_command
 
 
 TUSHARE_REPORT_SOURCE_PATH = "registry/sources/tushare_research_reports.jsonl"
+LOCAL_MACRO_STRATEGY_REPORT_SOURCE_PATH = (
+    "registry/sources/local_macro_strategy_reports.jsonl"
+)
+LOCAL_MACRO_STRATEGY_REPORT_MANIFEST_PATH = (
+    "registry/sources/local_macro_strategy_reports.manifest.json"
+)
 REPORT_INTELLIGENCE_REGISTRY_DIR = "registry/report_intelligence"
 REPORT_INTELLIGENCE_CACHE_DIR = ".mosaic/rke/report_intelligence"
 ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH = (
@@ -198,14 +210,6 @@ DEFAULT_MINERU_ENV = {
     "MINERU_TABLE_ENABLE": "true",
     "MINERU_FORMULA_ENABLE": "true",
 }
-FORECAST_CLAIM_RISK_WARNING_PREFIX_RE = re.compile(
-    r"^\s*(?:风险提示|风险因素|风险声明|免责声明)\s*[:：]"
-)
-GENERIC_RISK_WARNING_ENUM_RE = re.compile(
-    r"^\s*(?:\d+[、.)）]|[（(]\d+[）)]|[一二三四五六七八九十]+[、.)）])?\s*"
-    r".{0,24}(?:不及预期|低于预期|超预期变化|大盘系统性风险|业绩不达预期|数据误差|竞争加剧|客户依赖|政策落地)"
-    r"(?:.*风险)?\s*[。；;]?\s*$"
-)
 FORECAST_CLAIM_MECHANISM_TERMS = (
     "预计",
     "预期",
@@ -464,7 +468,7 @@ REPORT_INTELLIGENCE_PATCH_V1_5_SCHEMA_ARTIFACTS = (
     "report_intelligence_tool_design_proposal.schema.json",
     "report_intelligence_analysis_recipe.schema.json",
 )
-FORECAST_GOLD_MIN_REVIEWED_CLAIMS = 500
+FORECAST_GOLD_MIN_REVIEWED_CLAIMS = 100
 FORECAST_GOLD_MIN_DOCUMENTS = 50
 FORECAST_GOLD_REVIEW_MIN_METRICS: Mapping[str, float] = {
     "claim_precision": 0.85,
@@ -479,6 +483,7 @@ FORECAST_GOLD_REVIEW_MAX_METRICS: Mapping[str, float] = {
 }
 MAX_STORED_CLAIM_TEXT_CHARS = 512
 MAX_REASONABLE_FORECAST_HORIZON_DAYS = 3653
+MAX_FORECAST_CLAIMS_PER_REPORT = 5
 ANALYTICAL_FOOTPRINT_REVIEW_BOOLEAN_FIELDS = (
     "footprint_correct",
     "source_span_supports_footprint",
@@ -658,6 +663,82 @@ STOCK_PRICE_PROXY_CODE_POLICY: Mapping[str, Any] = {
     },
     "fallback_action": "stock_target_mapping_missing",
 }
+MACRO_ASSET_PROXY_WINDOWS_DAYS = (5, 20, 60, 120)
+MACRO_ASSET_PROXY_WINDOW_EFFECTIVE_WEIGHTS: Mapping[int, float] = {
+    5: 0.20,
+    20: 0.25,
+    60: 0.25,
+    120: 0.30,
+}
+MACRO_ASSET_PROXY_ENTRY_LAG_TRADING_DAYS = 1
+MACRO_ASSET_PROXY_ROUND_TRIP_COST = 0.001
+MACRO_ASSET_PROXY_OUTCOME_LABEL_SOURCE = "pit_macro_asset_etf_price_window"
+MACRO_ASSET_PROXY_DECISION_BASIS = "directional_macro_asset_proxy_return"
+MACRO_ASSET_PROXY_COST_MODEL_ID = "macro_asset_etf_round_trip_10bps_v1"
+MACRO_ASSET_PROXY_BENCHMARK_SOURCE = "cash_zero_return"
+MACRO_ASSET_PROXY_BENCHMARK_FAMILY = "ABSOLUTE_RETURN_PROXY"
+MACRO_ASSET_PROXY_BENCHMARK_SYMBOL = "CASH_0"
+MACRO_ASSET_PROXY_EVALUATION_POLICY = (
+    "macro_asset_t_plus_1_multi_window_proxy_retains_long_horizon_evidence"
+)
+MACRO_ASSET_PROXY_MAPPING_VERSION = 1
+MACRO_ASSET_PROXY_MAPPING: Mapping[str, Mapping[str, Any]] = {
+    "CN_A_SHARE_BROAD": {
+        "proxy_symbol": "SH510300",
+        "proxy_label": "沪深300ETF",
+        "aliases": ("A股", "中国股票", "权益市场", "沪深300", "CSI300", "宽基", "A股市场"),
+    },
+    "CN_A_SHARE_LARGE_CAP": {
+        "proxy_symbol": "SH510050",
+        "proxy_label": "上证50ETF",
+        "aliases": ("上证50", "大盘蓝筹", "大盘股", "蓝筹"),
+    },
+    "CN_A_SHARE_MID_SMALL": {
+        "proxy_symbol": "SH510500",
+        "proxy_label": "中证500ETF",
+        "aliases": ("中证500", "中小盘", "小微盘", "小盘股", "小盘"),
+    },
+    "CN_A_SHARE_GROWTH": {
+        "proxy_symbol": "SZ159915",
+        "proxy_label": "创业板ETF",
+        "aliases": ("创业板", "成长股", "成长风格", "高beta", "高 beta"),
+    },
+    "HK_EQUITY": {
+        "proxy_symbol": "SZ159920",
+        "proxy_label": "恒生ETF",
+        "aliases": ("港股", "恒生", "香港股票", "H股", "香港市场"),
+    },
+    "US_EQUITY_NASDAQ": {
+        "proxy_symbol": "SH513100",
+        "proxy_label": "纳指ETF",
+        "aliases": ("纳斯达克", "纳指", "NASDAQ", "美股科技", "美国科技股"),
+    },
+    "US_EQUITY_SP500": {
+        "proxy_symbol": "SH513500",
+        "proxy_label": "标普500ETF",
+        "aliases": ("标普500", "S&P500", "SP500", "美国股票", "美股"),
+    },
+    "CN_BOND": {
+        "proxy_symbol": "SH511010",
+        "proxy_label": "国债ETF",
+        "aliases": ("债券", "国债", "利率债", "长债", "债市", "固收"),
+    },
+    "CN_CREDIT_BOND": {
+        "proxy_symbol": "SH511220",
+        "proxy_label": "城投债ETF",
+        "aliases": ("信用债", "城投债", "信用利差"),
+    },
+    "CN_POLICY_BANK_BOND": {
+        "proxy_symbol": "SH511260",
+        "proxy_label": "十年国债ETF",
+        "aliases": ("十年国债", "10年国债", "政策性金融债", "政金债"),
+    },
+    "GOLD": {
+        "proxy_symbol": "SH518880",
+        "proxy_label": "黄金ETF",
+        "aliases": ("黄金", "金价", "贵金属"),
+    },
+}
 MARKDOWN_COVERAGE_MIN_SELECTED_REPORTS = 300
 MARKDOWN_COVERAGE_MIN_MARKDOWN_READY = 300
 MARKDOWN_COVERAGE_MIN_QUALITY_PASS = 300
@@ -684,6 +765,7 @@ MARKDOWN_COVERAGE_REQUIRED_HORIZON_BUCKETS = (
 MARKDOWN_COVERAGE_REQUIRED_EVALUABILITY_BUCKETS = (
     "stock_proxy_candidate",
     "industry_proxy_candidate",
+    "macro_asset_proxy_candidate",
     "mapping_gap_candidate",
 )
 MARKDOWN_COVERAGE_REQUIRED_STOCK_OUTCOME_AGE_BUCKETS = (
@@ -721,7 +803,7 @@ EVOLUTION_GATE_MIN_CONSECUTIVE_AUDIT_REFRESHES = 3
 EVOLUTION_GATE_MIN_GAP_DISTRIBUTION_REFRESHES = 3
 EVOLUTION_REFRESH_HISTORY_MAX_ROWS = 50
 REPORT_INTELLIGENCE_PROXY_LABEL_TYPES = frozenset(
-    {"industry_etf_proxy", "stock_price_proxy"}
+    {"industry_etf_proxy", "stock_price_proxy", "macro_asset_proxy"}
 )
 
 JsonMapping = Mapping[str, Any]
@@ -810,6 +892,10 @@ class ReportIntelligenceRunResult:
     stock_price_proxy_eligible_claim_rows: int
     stock_price_proxy_labelable_window_rows: int
     stock_price_proxy_pending_window_rows: int
+    macro_asset_proxy_outcome_label_rows: int
+    macro_asset_proxy_eligible_claim_rows: int
+    macro_asset_proxy_labelable_window_rows: int
+    macro_asset_proxy_pending_window_rows: int
     source_performance_profile_rows: int
     viewpoint_performance_profile_rows: int
     method_performance_profile_rows: int
@@ -1182,6 +1268,10 @@ def _blocked_report_intelligence_derived_refresh_result(
         stock_price_proxy_eligible_claim_rows=0,
         stock_price_proxy_labelable_window_rows=0,
         stock_price_proxy_pending_window_rows=0,
+        macro_asset_proxy_outcome_label_rows=0,
+        macro_asset_proxy_eligible_claim_rows=0,
+        macro_asset_proxy_labelable_window_rows=0,
+        macro_asset_proxy_pending_window_rows=0,
         source_performance_profile_rows=0,
         viewpoint_performance_profile_rows=0,
         method_performance_profile_rows=0,
@@ -1237,6 +1327,170 @@ def _mapping_rows(rows: Sequence[Any], blockers: list[str]) -> list[Mapping[str,
 def _source_file(root_path: Path, source_path: str | Path) -> Path:
     path = Path(source_path)
     return path if path.is_absolute() else root_path / path
+
+
+@dataclass(frozen=True)
+class LocalMacroStrategySourceResult:
+    input_dir: str
+    scanned_pdf_count: int
+    written_rows: int
+    output_path: str
+    manifest_path: str
+    report_type_counts: Mapping[str, int]
+    min_publish_date: str
+    max_publish_date: str
+    blockers: Sequence[str]
+
+
+def _infer_local_report_publish_date(path: Path) -> str:
+    candidates = [path.parent.name, path.name]
+    for value in candidates:
+        match = re.search(r"(20\d{2})[-_年.]?(\d{2})[-_月.]?(\d{2})", value)
+        if not match:
+            continue
+        year, month, day = match.groups()
+        try:
+            return date(int(year), int(month), int(day)).isoformat()
+        except ValueError:
+            continue
+    return ""
+
+
+def _infer_local_report_institution(path: Path) -> str:
+    stem = path.stem
+    parts = [part.strip() for part in stem.split("_") if part.strip()]
+    if len(parts) >= 2 and re.fullmatch(r"20\d{2}-\d{2}-\d{2}", parts[0]):
+        institution = parts[1]
+    elif len(parts) >= 3 and re.fullmatch(r"20\d{6}", parts[1]):
+        institution = parts[0]
+    else:
+        institution = parts[1] if len(parts) >= 2 else "未知"
+    if institution in {"未知", "unknown", "Unknown"}:
+        return "未知"
+    return institution[:80]
+
+
+def _infer_macro_strategy_report_type(path: Path) -> str:
+    text = path.stem
+    if any(term in text for term in ("债券", "固收", "利率债", "信用债", "长债")):
+        return "宏观策略-债券"
+    if any(term in text for term in ("大类资产", "资产配置", "多资产", "全球资产")):
+        return "宏观策略-大类资产"
+    if any(term in text for term in ("美股", "海外市场", "全球策略", "海外宏观")):
+        return "宏观策略-海外"
+    if any(term in text for term in ("A股", "市场策略", "资本市场", "权益市场")):
+        return "宏观策略-A股"
+    if any(term in text for term in ("商品", "黄金", "原油", "能源", "通胀")):
+        return "宏观策略-商品"
+    if any(term in text for term in ("宏观", "策略", "经济", "政策", "流动性")):
+        return "宏观策略"
+    return "宏观策略-待分类"
+
+
+def _local_macro_source_row(pdf_path: Path) -> dict[str, Any]:
+    publish_date = _infer_local_report_publish_date(pdf_path)
+    digest = _stable_digest(
+        {
+            "path": str(pdf_path),
+            "sha256": _file_sha256(pdf_path),
+            "bytes": pdf_path.stat().st_size,
+        },
+        length=16,
+    )
+    date_key = publish_date.replace("-", "") if publish_date else "UNKNOWN"
+    source_id = f"SRC-LMSR-{date_key}-{digest}"
+    report_type = _infer_macro_strategy_report_type(pdf_path)
+    institution = _infer_local_report_institution(pdf_path)
+    return {
+        "source_id": source_id,
+        "source_type": "local_macro_strategy_report",
+        "source_span_id": f"{source_id}:original_pdf",
+        "source_hash": _file_sha256(pdf_path),
+        "title": pdf_path.name,
+        "institution": institution,
+        "author": "",
+        "report_type": report_type,
+        "industry": "宏观策略",
+        "query_key": "宏观策略",
+        "ts_code": "",
+        "publish_date": publish_date,
+        "discovered_at": datetime.now(timezone.utc).isoformat(),
+        "point_in_time_available": bool(publish_date),
+        "license_status": "operator_approved_internal_research_use",
+        "url": pdf_path.resolve().as_uri(),
+        "local_pdf_path": str(pdf_path.resolve()),
+        "storage_policy": "local_private_pdf_source",
+        "macro_strategy_source": True,
+    }
+
+
+def build_local_macro_strategy_report_sources(
+    *,
+    input_dir: str | Path,
+    root: str | Path = ".",
+    output_path: str | Path = LOCAL_MACRO_STRATEGY_REPORT_SOURCE_PATH,
+    manifest_path: str | Path = LOCAL_MACRO_STRATEGY_REPORT_MANIFEST_PATH,
+) -> LocalMacroStrategySourceResult:
+    root_path = Path(root).resolve()
+    source_dir = Path(input_dir).expanduser().resolve()
+    blockers: list[str] = []
+    rows: list[dict[str, Any]] = []
+    if not source_dir.exists() or not source_dir.is_dir():
+        blockers.append(f"input_dir_missing: {source_dir}")
+    else:
+        pdf_paths = sorted(
+            path
+            for path in source_dir.rglob("*")
+            if path.is_file() and path.suffix.lower() == ".pdf"
+        )
+        for pdf_path in pdf_paths:
+            try:
+                if pdf_path.stat().st_size <= 0:
+                    blockers.append(f"empty_pdf: {pdf_path.name}")
+                    continue
+                rows.append(_local_macro_source_row(pdf_path))
+            except OSError as exc:
+                blockers.append(f"pdf_stat_failed: {pdf_path.name}: {exc}")
+    output = _source_file(root_path, output_path)
+    manifest = _source_file(root_path, manifest_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    _write_jsonl(output, rows)
+    report_type_counts = dict(
+        sorted(Counter(str(row.get("report_type") or "unknown") for row in rows).items())
+    )
+    publish_dates = sorted(
+        str(row.get("publish_date") or "") for row in rows if row.get("publish_date")
+    )
+    manifest_payload = {
+        "manifest_id": "RKE-LOCAL-MACRO-STRATEGY-REPORT-SOURCES",
+        "input_dir": str(source_dir),
+        "output_path": _relative_or_absolute(output, root_path),
+        "source_type": "local_macro_strategy_report",
+        "scanned_pdf_count": len(rows),
+        "written_rows": len(rows),
+        "report_type_counts": report_type_counts,
+        "min_publish_date": publish_dates[0] if publish_dates else "",
+        "max_publish_date": publish_dates[-1] if publish_dates else "",
+        "blocker_count": len(blockers),
+        "blockers": blockers,
+        "privacy_policy": (
+            "This manifest and source JSONL are private local artifacts because "
+            "they contain local PDF paths and licensed report metadata."
+        ),
+    }
+    _write_json(manifest, manifest_payload)
+    return LocalMacroStrategySourceResult(
+        input_dir=str(source_dir),
+        scanned_pdf_count=len(rows),
+        written_rows=len(rows),
+        output_path=_relative_or_absolute(output, root_path),
+        manifest_path=_relative_or_absolute(manifest, root_path),
+        report_type_counts=report_type_counts,
+        min_publish_date=publish_dates[0] if publish_dates else "",
+        max_publish_date=publish_dates[-1] if publish_dates else "",
+        blockers=tuple(blockers),
+    )
 
 
 def _processed_source_ids_from_registry_dirs(
@@ -1504,6 +1758,30 @@ def download_pdf(
     }
 
 
+def materialize_local_pdf(
+    source_path: Path,
+    pdf_path: Path,
+    overwrite: bool,
+) -> Mapping[str, Any]:
+    if pdf_path.exists() and pdf_path.stat().st_size > 0 and not overwrite:
+        return {
+            "status": "cached",
+            "path": str(pdf_path),
+            "bytes": pdf_path.stat().st_size,
+            "sha256": _file_sha256(pdf_path),
+        }
+    if not source_path.exists() or source_path.stat().st_size <= 0:
+        return {"status": "blocked", "blocker": "local_pdf_missing"}
+    pdf_path.parent.mkdir(parents=True, exist_ok=True)
+    _link_or_copy(source_path, pdf_path)
+    return {
+        "status": "downloaded",
+        "path": str(pdf_path),
+        "bytes": pdf_path.stat().st_size,
+        "sha256": _file_sha256(pdf_path),
+    }
+
+
 def _format_mineru_args(
     args_template: str,
     *,
@@ -1598,7 +1876,7 @@ def _mineru_executable(command: str) -> tuple[list[str], str | None]:
     executable = shutil.which(command_parts[0])
     if executable is None:
         return (), f"mineru_command_not_found: {command_parts[0]}"
-    return [executable, *command_parts[1:]], None
+    return [str(Path(executable).expanduser().resolve()), *command_parts[1:]], None
 
 
 def _mineru_cached_vlm_model_exists(env: Mapping[str, str]) -> bool:
@@ -2209,8 +2487,9 @@ def _system_prompt() -> str:
         "price/cost pass-through, margin expansion, capacity release, market-share "
         "gain, technology/productivity improvement, policy/liquidity transmission, "
         "or valuation repricing. For Chinese reports, write claim_text in Chinese. Do not "
-        "put boilerplate risk warnings or purely historical descriptive facts "
-        "into forecast_claims. Do not emit general scientific, clinical, public "
+        "put boilerplate risk warnings, disclaimers, rating-definition tables, "
+        "or purely historical descriptive facts into forecast_claims. Do not "
+        "emit general scientific, clinical, public "
         "health, or policy recommendations as forecast_claims unless the source "
         "connects them to company/sector demand, revenue, profit, valuation, "
         "stock return, industry prosperity, or an investment view. /no_think"
@@ -2255,6 +2534,10 @@ def _user_prompt(
         "investment view. The claim_text should be a compact synthesis over the "
         "relevant paragraph/window when needed. It does not need to be a verbatim "
         "sentence, but every element must be supported by the cited source span. "
+        "Emit at most two forecast_claims for this chunk. Prefer fewer, higher "
+        "value claims over enumerating every descriptive sentence; keep only the "
+        "claims that would still be useful for outcome labeling and prompt "
+        "evolution review. "
         "For Chinese source text, output claim_text in Chinese and keep variable "
         "or schema ids in English only where the schema requires ids. "
         "Prefer claims of the form: under <macro regime if present> and "
@@ -2277,12 +2560,15 @@ def _user_prompt(
         "view. General clinical, public-health, scientific, regulatory, or policy "
         "recommendations without such market/fundamental linkage belong in "
         "analytical_footprints, not forecast_claims. "
-        "Do not emit forecast_claims for generic boilerplate such as '风险提示：...' "
-        "or for pure historical/statistical descriptions such as price-change "
-        "tables, ROE rankings, current margins, asset-liability ratios, and "
-        "market-performance summaries unless the surrounding paragraph links "
-        "those facts to a forward impact or mechanism. Such descriptive facts may "
-        "appear in analytical_footprints as context, not forecast_claims.\n"
+        "Do not emit forecast_claims for generic boilerplate such as '风险提示：...', "
+        "disclaimers such as '不构成投资建议' or '过往业绩并不预示未来表现', "
+        "or rating-definition tables explaining 强烈推荐/推荐/中性/看淡/卖出 "
+        "rather than expressing this report's view. Do not emit forecast_claims "
+        "for pure historical/statistical descriptions such as price-change tables, "
+        "ROE rankings, current margins, asset-liability ratios, and market-performance "
+        "summaries unless the surrounding paragraph links those facts to a forward "
+        "impact or mechanism. Such descriptive facts may appear in analytical_footprints "
+        "as context, not forecast_claims.\n"
         "For stock reports, if Report metadata.ts_code is present and the chunk "
         "contains a forecast, rating, or investment view for that same company, "
         "set target.target_type='stock' and target.target_id to metadata.ts_code. "
@@ -2307,7 +2593,21 @@ def _user_prompt(
         "finance proxies such as stock_forward_return, industry_etf_forward_return, "
         "relative_alpha, revenue_growth, earnings_growth, margin_profitability, "
         "valuation_multiple, demand_growth, industry_prosperity, liquidity_credit_condition, "
-        "or commodity_price_cycle. Leave the list empty only when the claim has "
+        "or commodity_price_cycle. For macro strategy, strategy, fixed-income, "
+        "asset-allocation, or overseas-market reports, extract directional views "
+        "for marketable asset classes when the source supports them. Use "
+        "target.target_type='macro_asset', 'market_index', 'equity_index', "
+        "'bond', or 'commodity' and prefer these canonical target_ids when "
+        "supported: CN_A_SHARE_BROAD, CN_A_SHARE_LARGE_CAP, "
+        "CN_A_SHARE_MID_SMALL, CN_A_SHARE_GROWTH, HK_EQUITY, "
+        "US_EQUITY_NASDAQ, US_EQUITY_SP500, CN_BOND, CN_CREDIT_BOND, "
+        "CN_POLICY_BANK_BOND, or GOLD. For those mapped views, use proxies such "
+        "as macro_asset_forward_return, equity_index_forward_return, "
+        "bond_etf_forward_return, gold_etf_forward_return, or relative_alpha. "
+        "For crude oil, dollar index, CPI, GDP, policy-rate level, yield level, "
+        "or other macro variables without a configured price proxy, still "
+        "extract the analytical footprint and tool gap, but do not invent an "
+        "ETF proxy or canonical target_id. Leave the list empty only when the claim has "
         "no finance/fundamental/return proxy in the source text.\n"
         "analytical_footprints fields: topic, indicator_mentions, "
         "analysis_patterns, target_agent_candidates. Mark each mention/step "
@@ -2472,7 +2772,7 @@ def _bounded_claim_text(text: str) -> tuple[str, bool]:
 
 def _is_forecast_claim_candidate_text(text: str) -> bool:
     normalized = re.sub(r"\s+", " ", text).strip()
-    if not normalized or _is_boilerplate_risk_warning_text(normalized):
+    if not normalized or is_non_research_claim_text(normalized):
         return False
     lowered = normalized.lower()
     mechanism_hits = sum(
@@ -2489,6 +2789,95 @@ def _is_forecast_claim_candidate_text(text: str) -> bool:
     if not any(term.lower() in lowered for term in FORECAST_CLAIM_FINANCE_IMPACT_TERMS):
         return False
     return True
+
+
+MARKET_VIEW_FORECAST_TYPES = {
+    "investment_rating",
+    "stock_outlook",
+    "company_outlook",
+    "sector_outlook",
+    "industry_outlook",
+    "relative_outlook",
+    "asset_allocation_outlook",
+    "macro_asset_outlook",
+    "market_outlook",
+    "bond_market_outlook",
+    "commodity_outlook",
+    "target_price",
+}
+MARKET_VIEW_TARGET_TYPES = {
+    "stock",
+    "sector",
+    "industry",
+    "macro_asset",
+    "asset_class",
+    "market_index",
+    "style_index",
+    "bond",
+    "commodity",
+    "equity_index",
+    "broad_market",
+}
+MARKET_VIEW_RETURN_PROXIES = {
+    "stock_forward_return",
+    "industry_etf_forward_return",
+    "macro_asset_forward_return",
+    "equity_index_forward_return",
+    "bond_etf_forward_return",
+    "gold_etf_forward_return",
+    "forward_return_proxy",
+}
+
+
+def _is_structured_market_view_forecast_claim(
+    record: Mapping[str, Any],
+    claim_text: str,
+    *,
+    target: Mapping[str, Any],
+    metric_proxy_mapping: Sequence[Any],
+) -> bool:
+    normalized = re.sub(r"\s+", " ", claim_text).strip()
+    if not normalized:
+        return False
+    if (
+        is_boilerplate_risk_warning_text(normalized)
+        or is_disclaimer_text(normalized)
+        or is_heading_or_toc_text(normalized)
+    ):
+        return False
+    if str(record.get("claim_provenance") or "") != "source_grounded":
+        return False
+    if str(record.get("forecast_type") or "").strip() not in MARKET_VIEW_FORECAST_TYPES:
+        return False
+    target_type = str(target.get("target_type") or "").strip().lower()
+    if target_type not in MARKET_VIEW_TARGET_TYPES or _target_id(target) == "unknown":
+        return False
+    direction = _normalize_forecast_direction(record.get("direction"))
+    if direction not in {"positive", "negative"}:
+        return False
+    proxies = {
+        str(item or "").strip()
+        for item in metric_proxy_mapping
+        if str(item or "").strip()
+    }
+    return bool(proxies & MARKET_VIEW_RETURN_PROXIES)
+
+
+def _is_forecast_claim_candidate_record(
+    record: Mapping[str, Any],
+    claim_text: str,
+    *,
+    target: Mapping[str, Any],
+    metric_proxy_mapping: Sequence[Any],
+) -> bool:
+    if _is_forecast_claim_candidate_text(claim_text):
+        return True
+    return _is_structured_market_view_forecast_claim(
+        record,
+        claim_text,
+        target=target,
+        metric_proxy_mapping=metric_proxy_mapping,
+    )
 
 
 def _normalize_failure_modes(value: Any) -> list[dict[str, Any]]:
@@ -2549,6 +2938,46 @@ INDICATOR_METADATA_RULES: tuple[tuple[str, Mapping[str, Any]], ...] = (
         },
     ),
     (
+        r"sustain|soul|mace|hazard[_\s-]*ratio|\bhr\b|risk[_\s-]*reduction|心血管|风险降低",
+        {
+            "canonical_metric_candidate": "clinical_endpoint_outcome",
+            "data_source_mentioned": "clinical_trial_or_subgroup_analysis",
+            "frequency": "event_driven",
+            "transformation": "endpoint_effect_size",
+            "role_in_argument": "clinical_efficacy_endpoint",
+        },
+    ),
+    (
+        r"discontinuation|adverse[_\s-]*event|\bae\b|不良事件|停药率|停止治疗|耐受性",
+        {
+            "canonical_metric_candidate": "adverse_event_discontinuation_rate",
+            "data_source_mentioned": "clinical_trial_or_real_world_evidence",
+            "frequency": "event_driven",
+            "transformation": "rate_or_difference",
+            "role_in_argument": "clinical_safety_tolerability_metric",
+        },
+    ),
+    (
+        r"satisfaction|injection[_\s-]*device|注射装置|满意度|使用方便",
+        {
+            "canonical_metric_candidate": "patient_satisfaction_score",
+            "data_source_mentioned": "clinical_or_patient_survey",
+            "frequency": "event_driven",
+            "transformation": "survey_rate",
+            "role_in_argument": "patient_adherence_or_tolerability_metric",
+        },
+    ),
+    (
+        r"pipeline|applying[_\s-]*for[_\s-]*listing|listing[_\s-]*application|申请上市|在研管线|生物类似药",
+        {
+            "canonical_metric_candidate": "clinical_trial_milestone_status",
+            "data_source_mentioned": "company_disclosure_or_clinical_trial_registry",
+            "frequency": "event_driven",
+            "transformation": "milestone_event_or_count",
+            "role_in_argument": "competitive_pipeline_milestone",
+        },
+    ),
+    (
         r"\bdcf\b|discounted[_\s-]*cash[_\s-]*flow",
         {
             "canonical_metric_candidate": "dcf_valuation_model",
@@ -2589,6 +3018,16 @@ INDICATOR_METADATA_RULES: tuple[tuple[str, Mapping[str, Any]], ...] = (
         },
     ),
     (
+        r"revenue|sales|营业收入|营收|收入增长|境外收入|overseas[_\s-]*revenue",
+        {
+            "canonical_metric_candidate": "revenue_growth",
+            "data_source_mentioned": "company_financials_or_report_forecast",
+            "frequency": "quarterly_or_annual",
+            "transformation": "level_growth_or_forecast",
+            "role_in_argument": "revenue_growth_metric",
+        },
+    ),
+    (
         r"\beps\b|earnings[_\s-]*per[_\s-]*share",
         {
             "canonical_metric_candidate": "forecast_eps",
@@ -2606,6 +3045,26 @@ INDICATOR_METADATA_RULES: tuple[tuple[str, Mapping[str, Any]], ...] = (
             "frequency": "annual",
             "transformation": "extract_forecast",
             "role_in_argument": "profitability_forecast_metric",
+        },
+    ),
+    (
+        r"net[_\s-]*margin|operating[_\s-]*margin|roe|return[_\s-]*on[_\s-]*equity|净利率|费用率|净资产收益率|盈利质量|盈利能力",
+        {
+            "canonical_metric_candidate": "margin_profitability",
+            "data_source_mentioned": "company_financials_or_report_forecast",
+            "frequency": "quarterly_or_annual",
+            "transformation": "level_or_change",
+            "role_in_argument": "profitability_metric",
+        },
+    ),
+    (
+        r"operating[_\s-]*cash[_\s-]*flow|经营(?:活动)?现金流|现金流",
+        {
+            "canonical_metric_candidate": "operating_cash_flow",
+            "data_source_mentioned": "company_cash_flow_statement",
+            "frequency": "quarterly_or_annual",
+            "transformation": "level_or_growth",
+            "role_in_argument": "cash_generation_metric",
         },
     ),
     (
@@ -2629,6 +3088,26 @@ INDICATOR_METADATA_RULES: tuple[tuple[str, Mapping[str, Any]], ...] = (
         },
     ),
     (
+        r"sector[_\s-]*return|index[_\s-]*return|benchmark[_\s-]*return|relative[_\s-]*performance|sector[_\s-]*ranking|hs300|沪深\s*300|指数|涨跌幅|相对收益率|板块表现|行业表现",
+        {
+            "canonical_metric_candidate": "market_or_sector_index_return",
+            "data_source_mentioned": "stock_etf_or_index_price",
+            "frequency": "daily_or_monthly",
+            "transformation": "return_or_relative_return",
+            "role_in_argument": "sector_relative_performance_proxy",
+        },
+    ),
+    (
+        r"\bpe[_\s-]*ratio\b|\bpe\b|ev[/_\s-]*ebitda|pb[_\s-]*ratio|valuation[_\s-]*multiple|市盈率|市净率|估值倍数",
+        {
+            "canonical_metric_candidate": "valuation_multiple",
+            "data_source_mentioned": "market_valuation_data_or_report_forecast",
+            "frequency": "daily_or_point_in_time",
+            "transformation": "valuation_ratio",
+            "role_in_argument": "valuation_proxy",
+        },
+    ),
+    (
         r"\bpb[_\s-]*valuation\b|\bpb\b|price[_\s-]*to[_\s-]*book",
         {
             "canonical_metric_candidate": "price_to_book_ratio",
@@ -2649,6 +3128,16 @@ INDICATOR_METADATA_RULES: tuple[tuple[str, Mapping[str, Any]], ...] = (
         },
     ),
     (
+        r"m[_\s-]*and[_\s-]*a|m&a|并购|收购|new[_\s-]*market[_\s-]*entry|海外布局|国际化|新市场",
+        {
+            "canonical_metric_candidate": "strategic_expansion_milestone",
+            "data_source_mentioned": "company_disclosure_or_report_business_update",
+            "frequency": "event_driven",
+            "transformation": "milestone_event",
+            "role_in_argument": "strategic_expansion_execution_metric",
+        },
+    ),
+    (
         r"regulatory[_\s-]*approval",
         {
             "canonical_metric_candidate": "regulatory_approval_status",
@@ -2656,6 +3145,46 @@ INDICATOR_METADATA_RULES: tuple[tuple[str, Mapping[str, Any]], ...] = (
             "frequency": "event_driven",
             "transformation": "status_event",
             "role_in_argument": "policy_or_transaction_catalyst",
+        },
+    ),
+    (
+        r"green[_\s-]*power[_\s-]*direct|绿电直连|self[_\s-]*use|自发自用|surplus[_\s-]*power|余电上网|输配电费|transmission[_\s-]*distribution[_\s-]*fee",
+        {
+            "canonical_metric_candidate": "policy_parameter_constraint",
+            "data_source_mentioned": "policy_announcement",
+            "frequency": "event_driven",
+            "transformation": "policy_parameter_extraction",
+            "role_in_argument": "policy_business_model_constraint",
+        },
+    ),
+    (
+        r"subsidy|benchmark[_\s-]*tariff|feed[_\s-]*in[_\s-]*tariff|lifecycle[_\s-]*hours|补贴|标杆电价|全生命周期|合理利用小时|生物质发电",
+        {
+            "canonical_metric_candidate": "subsidy_tariff_policy_parameter",
+            "data_source_mentioned": "policy_announcement_or_report_policy_summary",
+            "frequency": "event_driven",
+            "transformation": "policy_parameter_extraction",
+            "role_in_argument": "subsidy_mechanism_metric",
+        },
+    ),
+    (
+        r"gpu[_\s-]*demand|optical[_\s-]*communication|data[_\s-]*center|ai[_\s-]*infrastructure|算力|光通信|数据中心",
+        {
+            "canonical_metric_candidate": "ai_infrastructure_demand",
+            "data_source_mentioned": "industry_news_or_company_disclosure",
+            "frequency": "event_driven_or_monthly",
+            "transformation": "event_flag_or_growth_proxy",
+            "role_in_argument": "technology_infrastructure_demand_metric",
+        },
+    ),
+    (
+        r"spectrum[_\s-]*allocation|commercial[_\s-]*deployment|connection[_\s-]*forecast|6g|6\s*ghz|频谱|商用部署|连接数",
+        {
+            "canonical_metric_candidate": "telecom_spectrum_deployment_milestone",
+            "data_source_mentioned": "policy_announcement_or_industry_forecast",
+            "frequency": "event_driven",
+            "transformation": "milestone_event_or_forecast",
+            "role_in_argument": "technology_policy_adoption_metric",
         },
     ),
     (
@@ -3087,6 +3616,10 @@ METRIC_PROXY_INFERENCE_RULES: tuple[tuple[str, str], ...] = (
     (r"景气|景气度|行业周期|超级周期|产业周期|繁荣", "industry_prosperity"),
     (r"供需|库存|产能|价格中枢|价格维持|涨价|降价|商品价格", "commodity_price_cycle"),
     (r"利率|流动性|信用|社融|信贷|货币政策|资金面", "liquidity_credit_condition"),
+    (r"A股|权益市场|沪深300|上证50|中证500|创业板|港股|美股|纳斯达克|标普", "equity_index_forward_return"),
+    (r"债券|债市|国债|利率债|信用债|城投债|政金债|固收", "bond_etf_forward_return"),
+    (r"黄金|金价|贵金属", "gold_etf_forward_return"),
+    (r"大类资产|资产配置|多资产|股债|风险资产", "macro_asset_forward_return"),
 )
 
 
@@ -3453,12 +3986,26 @@ def _target_return_metric(target: Mapping[str, Any], claim_text: str) -> str:
         return "stock_forward_return"
     if target_type in {"sector", "industry"}:
         return "industry_etf_forward_return"
+    if target_type in {"bond"}:
+        return "bond_etf_forward_return"
+    if target_type in {"market_index", "style_index", "equity_index", "broad_market"}:
+        return "equity_index_forward_return"
+    if target_type in {"macro_asset", "asset_class"}:
+        return "macro_asset_forward_return"
     if target_type == "commodity":
+        if re.search(r"黄金|金价|贵金属", claim_text):
+            return "gold_etf_forward_return"
         return "commodity_spot_price"
     if re.search(r"股价|股票|买入|增持|减持|目标价", claim_text):
         return "stock_forward_return"
     if re.search(r"板块|行业|超配|低配|跑赢|跑输", claim_text):
         return "industry_etf_forward_return"
+    if re.search(r"A股|权益市场|沪深300|上证50|中证500|创业板|港股|美股|纳斯达克|标普", claim_text):
+        return "equity_index_forward_return"
+    if re.search(r"债券|债市|国债|利率债|信用债|城投债|固收", claim_text):
+        return "bond_etf_forward_return"
+    if re.search(r"黄金|金价|贵金属", claim_text):
+        return "gold_etf_forward_return"
     return "forward_return_proxy"
 
 
@@ -3555,19 +4102,17 @@ def _normalize_forecast_claims(
         raw_claim_text = _record_text(claim, "claim_text", "text")
         if not raw_claim_text:
             continue
-        if not _is_forecast_claim_candidate_text(raw_claim_text):
-            continue
-        claim_text, claim_text_truncated = _bounded_claim_text(raw_claim_text)
-        horizon, horizon_inferred = _normalize_or_infer_horizon(
-            claim.get("horizon"),
-            claim_text=raw_claim_text,
-            publish_date=str(row.get("publish_date") or ""),
-        )
         target = _ensure_mapping(claim.get("target"))
         metric_proxy_mapping, metric_proxy_inferred = _normalize_metric_proxy_mapping(
             claim.get("metric_proxy_mapping"),
             claim_text=raw_claim_text,
             target=target,
+        )
+        claim_text, claim_text_truncated = _bounded_claim_text(raw_claim_text)
+        horizon, horizon_inferred = _normalize_or_infer_horizon(
+            claim.get("horizon"),
+            claim_text=raw_claim_text,
+            publish_date=str(row.get("publish_date") or ""),
         )
         record = {
             "forecast_claim_id": _stable_id(
@@ -3611,6 +4156,13 @@ def _normalize_forecast_claims(
                 "input_mode": "original_markdown",
             },
         }
+        if not _is_forecast_claim_candidate_record(
+            record,
+            raw_claim_text,
+            target=target,
+            metric_proxy_mapping=metric_proxy_mapping,
+        ):
+            continue
         record["extraction_quality"][
             "claim_text_truncated_for_redaction"
         ] = claim_text_truncated
@@ -3650,6 +4202,98 @@ def _normalize_forecast_claims(
     return records
 
 
+def _forecast_claim_selection_score(record: Mapping[str, Any]) -> tuple[int, ...]:
+    target = _ensure_mapping(record.get("target"))
+    horizon = _ensure_mapping(record.get("horizon"))
+    extraction_quality = _ensure_mapping(record.get("extraction_quality"))
+    component_roles = _ensure_mapping(extraction_quality.get("claim_component_roles"))
+    mechanism_roles = _ensure_mapping(extraction_quality.get("claim_mechanism_roles"))
+    conviction = str(record.get("source_conviction") or "").strip().lower()
+    conviction_rank = {
+        "very_high": 4,
+        "high": 3,
+        "strong": 3,
+        "medium": 2,
+        "moderate": 2,
+        "low": 1,
+        "weak": 1,
+    }.get(conviction, 0)
+    return (
+        int(record.get("claim_provenance") == "source_grounded"),
+        int(record.get("forecast_testability") == "testable"),
+        int(
+            _normalize_forecast_direction(record.get("direction"))
+            in {"positive", "negative"}
+        ),
+        int(_target_id(target) != "unknown"),
+        int(_horizon_bucket(horizon) != "unknown"),
+        int(bool(_ensure_list(record.get("metric_proxy_mapping")))),
+        int(mechanism_roles.get("has_economic_mechanism") is True),
+        int(
+            mechanism_roles.get("mechanism_connects_to_evaluable_impact")
+            is True
+        ),
+        int(component_roles.get("has_regime_context") is True),
+        conviction_rank,
+    )
+
+
+def _top_forecast_claim_indices(
+    indexed_records: Sequence[tuple[int, Mapping[str, Any]]],
+    *,
+    limit: int,
+) -> set[int]:
+    ranked = sorted(
+        indexed_records,
+        key=lambda item: (_forecast_claim_selection_score(item[1]), -item[0]),
+        reverse=True,
+    )
+    return {index for index, _record in ranked[:limit]}
+
+
+def _select_report_forecast_claims(
+    records: Sequence[Mapping[str, Any]],
+    *,
+    limit: int = MAX_FORECAST_CLAIMS_PER_REPORT,
+) -> list[dict[str, Any]]:
+    if limit <= 0:
+        return []
+    if len(records) <= limit:
+        return [dict(record) for record in records]
+    selected_indices = _top_forecast_claim_indices(tuple(enumerate(records)), limit=limit)
+    return [
+        dict(record)
+        for index, record in enumerate(records)
+        if index in selected_indices
+    ]
+
+
+def _select_forecast_claims_per_report(
+    records: Sequence[Mapping[str, Any]],
+    *,
+    limit: int = MAX_FORECAST_CLAIMS_PER_REPORT,
+) -> list[dict[str, Any]]:
+    if limit <= 0:
+        return []
+    buckets: dict[str, list[tuple[int, Mapping[str, Any]]]] = defaultdict(list)
+    for index, record in enumerate(records):
+        report_key = str(record.get("report_id") or record.get("source_id") or "unknown")
+        buckets[report_key].append((index, record))
+    selected_indices: set[int] = set()
+    for indexed_records in buckets.values():
+        if len(indexed_records) <= limit:
+            selected_indices.update(index for index, _record in indexed_records)
+            continue
+        selected_indices.update(
+            _top_forecast_claim_indices(tuple(indexed_records), limit=limit)
+        )
+    return [
+        dict(record)
+        for index, record in enumerate(records)
+        if index in selected_indices
+    ]
+
+
 def _refresh_forecast_mapping_governance(
     forecast_rows: Sequence[Mapping[str, Any]],
     *,
@@ -3659,7 +4303,18 @@ def _refresh_forecast_mapping_governance(
     for row in forecast_rows:
         refreshed = dict(row)
         claim_text = str(refreshed.get("claim_text") or "")
-        if not _is_forecast_claim_candidate_text(claim_text):
+        target = _ensure_mapping(refreshed.get("target"))
+        metric_proxy_mapping, metric_proxy_inferred = _normalize_metric_proxy_mapping(
+            refreshed.get("metric_proxy_mapping"),
+            claim_text=claim_text,
+            target=target,
+        )
+        if not _is_forecast_claim_candidate_record(
+            refreshed,
+            claim_text,
+            target=target,
+            metric_proxy_mapping=metric_proxy_mapping,
+        ):
             continue
         horizon, horizon_inferred = _normalize_or_infer_horizon(
             refreshed.get("horizon"),
@@ -3672,11 +4327,6 @@ def _refresh_forecast_mapping_governance(
         )
         refreshed["horizon"] = horizon
         extraction_quality = dict(_ensure_mapping(refreshed.get("extraction_quality")))
-        metric_proxy_mapping, metric_proxy_inferred = _normalize_metric_proxy_mapping(
-            refreshed.get("metric_proxy_mapping"),
-            claim_text=claim_text,
-            target=_ensure_mapping(refreshed.get("target")),
-        )
         refreshed["metric_proxy_mapping"] = metric_proxy_mapping
         if horizon_inferred:
             extraction_quality["horizon_inferred_from_claim_text"] = True
@@ -3688,7 +4338,7 @@ def _refresh_forecast_mapping_governance(
             extraction_quality["metric_proxy_mapping_inferred_from_claim_text"] = True
         extraction_quality["claim_component_roles"] = _infer_claim_component_roles(
             claim_text,
-            target=_ensure_mapping(refreshed.get("target")),
+            target=target,
             as_of_datetime=(
                 refreshed.get("signal_datetime")
                 or refreshed.get("publish_date")
@@ -3698,7 +4348,7 @@ def _refresh_forecast_mapping_governance(
         )
         extraction_quality["claim_mechanism_roles"] = _infer_claim_mechanism_roles(
             claim_text,
-            target=_ensure_mapping(refreshed.get("target")),
+            target=target,
             metric_proxy_mapping=metric_proxy_mapping,
         )
         mapping_gaps = _forecast_mapping_gaps(refreshed)
@@ -3713,7 +4363,7 @@ def _refresh_forecast_mapping_governance(
                 extraction_quality["needs_human_review"] = False
         refreshed["extraction_quality"] = extraction_quality
         refreshed_rows.append(refreshed)
-    return refreshed_rows
+    return _select_forecast_claims_per_report(refreshed_rows)
 
 
 def _refresh_analytical_footprint_indicator_governance(
@@ -4479,8 +5129,37 @@ def _footprint_review_evidence_snippets(
     return tuple(snippets)
 
 
-def _footprint_review_metric_mapping_suggestion(row: Mapping[str, Any]) -> bool:
-    return bool(_ensure_list(row.get("indicator_mentions_review_preview")))
+def _footprint_review_metric_mapping_diagnostics(
+    row: Mapping[str, Any],
+) -> dict[str, Any]:
+    mentions = tuple(
+        _ensure_mapping(item)
+        for item in _ensure_list(row.get("indicator_mentions_review_preview"))
+        if isinstance(item, Mapping)
+    )
+    unknown_count = 0
+    ungrounded_count = 0
+    complete_count = 0
+    for mention in mentions:
+        canonical_unknown = _indicator_value_unknown(
+            mention.get("canonical_metric_candidate")
+        )
+        source_ungrounded = mention.get("source_grounded") is not True
+        if canonical_unknown:
+            unknown_count += 1
+        if source_ungrounded:
+            ungrounded_count += 1
+        if not canonical_unknown and not source_ungrounded:
+            complete_count += 1
+    return {
+        "mention_count": len(mentions),
+        "unknown_canonical_count": unknown_count,
+        "ungrounded_count": ungrounded_count,
+        "complete_source_grounded_count": complete_count,
+        "mapping_complete": bool(mentions)
+        and unknown_count == 0
+        and ungrounded_count == 0,
+    }
 
 
 FOOTPRINT_REVIEW_INDICATOR_SUGGESTION_RULES: tuple[
@@ -4658,11 +5337,81 @@ def _footprint_review_inferred_indicator_suggestions(
     return tuple(suggestions)
 
 
+def _footprint_review_indicator_repair_suggestions(
+    row: Mapping[str, Any],
+    *,
+    max_items: int = 5,
+) -> tuple[dict[str, Any], ...]:
+    suggestions: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for item in _ensure_list(row.get("indicator_mentions_review_preview")):
+        if not isinstance(item, Mapping):
+            continue
+        mention = dict(item)
+        original_indicator_text = _record_text(
+            mention,
+            "indicator_text",
+            "canonical_metric_candidate",
+            "canonical_name",
+        )
+        if not original_indicator_text:
+            continue
+        normalized_items = _normalize_indicator_mentions([mention])
+        if not normalized_items:
+            continue
+        normalized = normalized_items[0]
+        canonical = str(normalized.get("canonical_metric_candidate") or "unknown")
+        if _indicator_value_unknown(canonical):
+            continue
+        original_canonical = str(
+            mention.get("canonical_metric_candidate") or "unknown"
+        )
+        original_source_grounded = mention.get("source_grounded") is True
+        if original_canonical == canonical and original_source_grounded:
+            continue
+        key = (original_indicator_text, canonical)
+        if key in seen:
+            continue
+        seen.add(key)
+        suggestion = {
+            "indicator_text": original_indicator_text,
+            "canonical_metric_candidate": canonical,
+            "data_source_mentioned": str(
+                normalized.get("data_source_mentioned") or "unknown"
+            ),
+            "frequency": str(normalized.get("frequency") or "unknown"),
+            "lookback_window": _ensure_mapping(normalized.get("lookback_window")),
+            "transformation": str(normalized.get("transformation") or "unknown"),
+            "role_in_argument": str(normalized.get("role_in_argument") or "unknown"),
+            "source_grounded": False,
+            "inference_source": "review_evidence_indicator_alias_rule",
+            "confidence": "medium",
+            "original_canonical_metric_candidate": original_canonical,
+            "original_source_grounded": original_source_grounded,
+            "review_note": (
+                "Suggested from the extracted indicator text alias only; reviewer must "
+                "confirm against local markdown before treating it as a source-grounded "
+                "mapping."
+            ),
+        }
+        suggestions.append(suggestion)
+        if len(suggestions) >= max_items:
+            break
+    return tuple(suggestions)
+
+
 def _is_boilerplate_risk_warning_text(text: str) -> bool:
-    stripped = text.strip()
-    if FORECAST_CLAIM_RISK_WARNING_PREFIX_RE.match(stripped):
-        return True
-    return len(stripped) <= 80 and bool(GENERIC_RISK_WARNING_ENUM_RE.match(stripped))
+    return is_non_research_claim_text(text)
+
+
+def _footprint_review_has_alias_repair_suggestion(
+    suggestions: Sequence[Mapping[str, Any]],
+) -> bool:
+    return any(
+        str(suggestion.get("inference_source") or "")
+        == "review_evidence_indicator_alias_rule"
+        for suggestion in suggestions
+    )
 
 
 def _is_boilerplate_risk_footprint(row: Mapping[str, Any]) -> bool:
@@ -4720,19 +5469,33 @@ def _footprint_review_evidence_row(
     snippets = _footprint_review_evidence_snippets(markdown_text, terms)
     has_span_evidence = bool(snippets and markdown_exists)
     has_patterns = bool(_ensure_list(row.get("analysis_patterns_review_preview")))
-    has_indicators = _footprint_review_metric_mapping_suggestion(row)
+    metric_mapping_diagnostics = _footprint_review_metric_mapping_diagnostics(row)
+    has_indicator_mentions = bool(metric_mapping_diagnostics["mention_count"])
+    metric_mapping_complete = bool(metric_mapping_diagnostics["mapping_complete"])
     boilerplate_risk_footprint = _is_boilerplate_risk_footprint(row)
-    inferred_indicator_suggestions = (
-        ()
-        if boilerplate_risk_footprint
-        else _footprint_review_inferred_indicator_suggestions(row)
+    inferred_indicator_suggestions: tuple[dict[str, Any], ...] = ()
+    if not boilerplate_risk_footprint:
+        inferred_indicator_suggestions = _footprint_review_indicator_repair_suggestions(
+            row
+        )
+        if not inferred_indicator_suggestions:
+            inferred_indicator_suggestions = (
+                _footprint_review_inferred_indicator_suggestions(row)
+            )
+    unknowns_used_when_uncertain = not (
+        bool(metric_mapping_diagnostics["unknown_canonical_count"])
+        and _footprint_review_has_alias_repair_suggestion(
+            inferred_indicator_suggestions
+        )
     )
     suggested_decision = {
         "footprint_correct": False if boilerplate_risk_footprint else (True if has_span_evidence and has_patterns else None),
         "source_span_supports_footprint": True if has_span_evidence else None,
-        "metric_mapping_correct": False if boilerplate_risk_footprint else has_indicators,
+        "metric_mapping_correct": False
+        if boilerplate_risk_footprint
+        else metric_mapping_complete,
         "inferred_steps_tagged_correctly": False if boilerplate_risk_footprint else (True if has_patterns else None),
-        "unknowns_used_when_uncertain": True,
+        "unknowns_used_when_uncertain": unknowns_used_when_uncertain,
         "no_proprietary_text_leakage": True,
     }
     suggested_tags: list[str] = []
@@ -4775,14 +5538,31 @@ def _footprint_review_evidence_row(
                 "requires_human_confirmation": True,
             }
         )
-    if not has_indicators:
+    if not has_indicator_mentions:
         suggested_tags.append("metric_mapping_missing")
         suggested_rationales.append(
             {
                 "field": "metric_mapping_correct",
-                "suggested_value": False if boilerplate_risk_footprint else has_indicators,
+                "suggested_value": False,
                 "reason": "extracted footprint has no source-grounded indicator mentions",
                 "requires_human_confirmation": True,
+            }
+        )
+    elif not metric_mapping_complete:
+        if metric_mapping_diagnostics["unknown_canonical_count"]:
+            suggested_tags.append("metric_mapping_unknown")
+        if metric_mapping_diagnostics["ungrounded_count"]:
+            suggested_tags.append("metric_mapping_ungrounded")
+        suggested_rationales.append(
+            {
+                "field": "metric_mapping_correct",
+                "suggested_value": False,
+                "reason": (
+                    "extracted footprint has indicator mentions, but at least one "
+                    "mention lacks a non-unknown canonical metric or source-grounded flag"
+                ),
+                "requires_human_confirmation": True,
+                "diagnostics": metric_mapping_diagnostics,
             }
         )
     if inferred_indicator_suggestions:
@@ -4828,8 +5608,12 @@ def _footprint_review_evidence_row(
     suggested_rationales.append(
         {
             "field": "unknowns_used_when_uncertain",
-            "suggested_value": True,
-            "reason": "draft suggestion preserves null/unknown decisions when metric, span, or pattern support is not proven",
+            "suggested_value": unknowns_used_when_uncertain,
+            "reason": (
+                "unknown indicator mappings appear repairable by governed alias rules"
+                if not unknowns_used_when_uncertain
+                else "draft suggestion preserves null/unknown decisions when metric, span, or pattern support is not proven"
+            ),
             "requires_human_confirmation": True,
         }
     )
@@ -5030,6 +5814,18 @@ def render_analytical_footprint_review_evidence_markdown(
     sector_counts = Counter(
         str(row.get("sector") or "unknown") for row in rows if str(row.get("sector") or "").strip()
     )
+    indicator_suggestion_source_counts = Counter(
+        str(suggestion.get("inference_source") or "unknown")
+        for row in rows
+        for suggestion in _ensure_list(row.get("inferred_indicator_suggestions"))
+        if isinstance(suggestion, Mapping)
+    )
+    indicator_suggestion_canonical_counts = Counter(
+        str(suggestion.get("canonical_metric_candidate") or "unknown")
+        for row in rows
+        for suggestion in _ensure_list(row.get("inferred_indicator_suggestions"))
+        if isinstance(suggestion, Mapping)
+    )
     decision_counts: dict[str, Counter[str]] = {
         field: Counter()
         for field in (
@@ -5079,6 +5875,16 @@ def render_analytical_footprint_review_evidence_markdown(
             + _markdown_table_cell(
                 {field: dict(counts) for field, counts in decision_counts.items()},
                 max_chars=900,
+            ),
+            "- Suggested indicator candidate source counts: "
+            + _markdown_table_cell(
+                dict(sorted(indicator_suggestion_source_counts.items())),
+                max_chars=500,
+            ),
+            "- Suggested indicator candidate canonical counts: "
+            + _markdown_table_cell(
+                dict(sorted(indicator_suggestion_canonical_counts.items())),
+                max_chars=700,
             ),
             "",
         ]
@@ -6246,6 +7052,7 @@ def build_outcome_labeling_readiness_report(
     forecast_ledger_rows: Sequence[Mapping[str, Any]],
     industry_etf_proxy_readiness: Mapping[str, Any] | None = None,
     stock_price_proxy_readiness: Mapping[str, Any] | None = None,
+    macro_asset_proxy_readiness: Mapping[str, Any] | None = None,
     macro_regime_calendar_rows: Sequence[Mapping[str, Any]] = (),
 ) -> dict[str, Any]:
     gap_counts: dict[str, int] = {}
@@ -6268,6 +7075,7 @@ def build_outcome_labeling_readiness_report(
     blocked_ids: list[str] = []
     industry_proxy = dict(industry_etf_proxy_readiness or {})
     stock_proxy = dict(stock_price_proxy_readiness or {})
+    macro_proxy = dict(macro_asset_proxy_readiness or {})
     industry_proxy_label_ready_ids = [
         str(claim_id)
         for claim_id in _ensure_list(
@@ -6292,12 +7100,28 @@ def build_outcome_labeling_readiness_report(
         for claim_id in _ensure_list(stock_proxy.get("pending_future_forecast_claim_ids"))
         if str(claim_id).strip()
     ]
+    macro_proxy_label_ready_ids = [
+        str(claim_id)
+        for claim_id in _ensure_list(macro_proxy.get("labelable_forecast_claim_ids"))
+        if str(claim_id).strip()
+    ]
+    macro_proxy_pending_ids = [
+        str(claim_id)
+        for claim_id in _ensure_list(macro_proxy.get("pending_future_forecast_claim_ids"))
+        if str(claim_id).strip()
+    ]
     proxy_label_ready_ids = sorted(
-        set(industry_proxy_label_ready_ids) | set(stock_proxy_label_ready_ids)
+        set(industry_proxy_label_ready_ids)
+        | set(stock_proxy_label_ready_ids)
+        | set(macro_proxy_label_ready_ids)
     )
     proxy_label_ready_id_set = set(proxy_label_ready_ids)
     proxy_label_pending_ids = sorted(
-        (set(industry_proxy_pending_ids) | set(stock_proxy_pending_ids))
+        (
+            set(industry_proxy_pending_ids)
+            | set(stock_proxy_pending_ids)
+            | set(macro_proxy_pending_ids)
+        )
         - proxy_label_ready_id_set
     )
     proxy_label_pending_id_set = set(proxy_label_pending_ids)
@@ -6458,10 +7282,12 @@ def build_outcome_labeling_readiness_report(
         "proxy_label_ready_count": len(proxy_label_ready_ids),
         "industry_proxy_label_ready_count": len(industry_proxy_label_ready_ids),
         "stock_proxy_label_ready_count": len(stock_proxy_label_ready_ids),
+        "macro_proxy_label_ready_count": len(macro_proxy_label_ready_ids),
         "proxy_label_only_ready_count": len(proxy_label_only_ids),
         "proxy_label_pending_count": len(proxy_label_pending_ids),
         "industry_proxy_label_pending_count": len(industry_proxy_pending_ids),
         "stock_proxy_label_pending_count": len(stock_proxy_pending_ids),
+        "macro_proxy_label_pending_count": len(macro_proxy_pending_ids),
         "proxy_label_pending_only_count": len(proxy_label_pending_only_ids),
         "test_status_counts": dict(sorted(test_status_counts.items())),
         "mapping_gap_counts": dict(sorted(gap_counts.items())),
@@ -6489,10 +7315,12 @@ def build_outcome_labeling_readiness_report(
         "proxy_label_ready_forecast_claim_ids": proxy_label_ready_ids,
         "industry_proxy_label_ready_forecast_claim_ids": industry_proxy_label_ready_ids,
         "stock_proxy_label_ready_forecast_claim_ids": stock_proxy_label_ready_ids,
+        "macro_proxy_label_ready_forecast_claim_ids": macro_proxy_label_ready_ids,
         "proxy_label_only_ready_forecast_claim_ids": proxy_label_only_ids,
         "proxy_label_pending_forecast_claim_ids": proxy_label_pending_ids,
         "industry_proxy_label_pending_forecast_claim_ids": industry_proxy_pending_ids,
         "stock_proxy_label_pending_forecast_claim_ids": stock_proxy_pending_ids,
+        "macro_proxy_label_pending_forecast_claim_ids": macro_proxy_pending_ids,
         "proxy_label_pending_only_forecast_claim_ids": proxy_label_pending_only_ids,
         "blocked_forecast_claim_ids": blocked_ids,
         "regime_gap_forecast_claim_ids": sorted(set(regime_gap_ids)),
@@ -6507,8 +7335,9 @@ def build_outcome_labeling_readiness_report(
         "policy": (
             "outcome labels are generated only for source-grounded testable "
             "forecasts with target, benchmark, direction, horizon, and PIT data; "
-            "industry ETF and stock price proxy labels may additionally evaluate "
-            "governed target-direction claims on fixed PIT windows without "
+            "industry ETF, stock price, and macro asset proxy labels may "
+            "additionally evaluate governed target-direction claims on fixed PIT "
+            "windows without "
             "promoting them to production use"
         ),
         "mechanism_policy": (
@@ -6523,11 +7352,13 @@ def build_outcome_labeling_readiness_report(
         ),
         "industry_etf_proxy_readiness": industry_proxy,
         "stock_price_proxy_readiness": stock_proxy,
+        "macro_asset_proxy_readiness": macro_proxy,
         "next_actions": [
             "improve extractor prompt to bind ts_code/title entities into target when source text supports it",
             "route unmapped claims through manual gold-set review instead of fabricating labels",
             "evaluate industry research with ETF proxy windows when sector mapping and PIT data are available",
             "evaluate stock research with qlib cn_data windows when ts_code mapping and PIT data are available",
+            "evaluate macro strategy research with mapped asset ETF proxy windows when target mapping and PIT data are available",
             "run PIT outcome labeler only after ready_for_outcome_labeling_count is positive",
         ],
     }
@@ -6718,6 +7549,18 @@ def _date_key(value: Any) -> str:
 
 def _is_industry_research_report(report_type: Any) -> bool:
     return "行业" in str(report_type or "")
+
+
+def _is_macro_strategy_report(metadata: Mapping[str, Any]) -> bool:
+    source_type = str(metadata.get("source_type") or "")
+    report_type = str(metadata.get("report_type") or "")
+    sector = str(metadata.get("sector") or metadata.get("industry") or "")
+    if source_type == "local_macro_strategy_report":
+        return True
+    return any(
+        marker in report_type or marker in sector
+        for marker in ("宏观", "策略", "大类资产", "固收", "债券", "海外")
+    )
 
 
 def _is_potential_stock_report(metadata: Mapping[str, Any]) -> bool:
@@ -7490,6 +8333,11 @@ def _coverage_evaluability_buckets_for_report(
         buckets.add("stock_proxy_candidate")
     if _is_industry_research_report(row.get("report_type")):
         buckets.add("industry_proxy_candidate")
+    if _is_macro_strategy_report(row) and any(
+        _macro_asset_proxy_for_claim(forecast, row) is not None
+        for forecast in forecast_rows
+    ):
+        buckets.add("macro_asset_proxy_candidate")
     return buckets or {"standard_evaluable_candidate"}
 
 
@@ -8062,6 +8910,130 @@ def _industry_pit_availability_gap(
     if "insufficient_window_history" in reasons:
         return "pit_availability_insufficient_window_history"
     return "pit_availability_unavailable"
+
+
+def build_default_macro_asset_proxy_map_rows() -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for target_id, mapping in MACRO_ASSET_PROXY_MAPPING.items():
+        proxy_symbol = str(mapping.get("proxy_symbol") or "")
+        rows.append(
+            {
+                "mapping_id": _stable_id(
+                    "MAETF-MAP",
+                    {
+                        "target_id": target_id,
+                        "proxy_symbol": proxy_symbol,
+                        "version": MACRO_ASSET_PROXY_MAPPING_VERSION,
+                    },
+                ),
+                "mapping_version": MACRO_ASSET_PROXY_MAPPING_VERSION,
+                "target_id": target_id,
+                "target_aliases": [
+                    str(alias)
+                    for alias in _ensure_list(mapping.get("aliases"))
+                    if str(alias).strip()
+                ],
+                "taxonomy": "operator_seeded_macro_asset_proxy",
+                "proxy_symbol": proxy_symbol,
+                "proxy_label": str(mapping.get("proxy_label") or ""),
+                "benchmark_symbol": MACRO_ASSET_PROXY_BENCHMARK_SYMBOL,
+                "benchmark_source": MACRO_ASSET_PROXY_BENCHMARK_SOURCE,
+                "benchmark_family": MACRO_ASSET_PROXY_BENCHMARK_FAMILY,
+                "cost_model_id": MACRO_ASSET_PROXY_COST_MODEL_ID,
+                "mapping_confidence": "operator_seeded_macro_asset_alias",
+                "mapping_rationale": (
+                    "Operator-seeded macro asset target to locally available ETF "
+                    "proxy used for governed macro strategy outcome labels."
+                ),
+                "effective_from": "",
+                "effective_to": "",
+                "status": "primary",
+                "review_required": False,
+            }
+        )
+    return rows
+
+
+def _macro_asset_proxy_for_claim(
+    claim: Mapping[str, Any],
+    metadata: Mapping[str, Any],
+    mapping_rows: Sequence[Mapping[str, Any]] | None = None,
+) -> Mapping[str, Any] | None:
+    target = _ensure_mapping(claim.get("target"))
+    target_type = str(target.get("target_type") or "").strip().lower()
+    if target_type in {"stock", "sector", "industry", "company"}:
+        return None
+    rows = [
+        row
+        for row in (mapping_rows or build_default_macro_asset_proxy_map_rows())
+        if str(row.get("status") or "primary") == "primary"
+        and _mapping_effective_for_datetime(row, str(claim.get("signal_datetime") or ""))
+    ]
+    target_id = str(target.get("target_id") or "").strip()
+    target_name = str(target.get("target_name") or "").strip()
+    for row in rows:
+        if target_id and target_id.upper() == str(row.get("target_id") or "").upper():
+            return row
+    text = " ".join(
+        item
+        for item in (
+            target_id,
+            target_name,
+            str(claim.get("claim_text") or ""),
+            str(metadata.get("title") or ""),
+        )
+        if item
+    )
+    alias_rows: list[tuple[int, Mapping[str, Any]]] = []
+    for row in rows:
+        aliases = [
+            str(row.get("target_id") or ""),
+            *[str(alias) for alias in _ensure_list(row.get("target_aliases"))],
+        ]
+        for alias in aliases:
+            if alias and alias in text:
+                alias_rows.append((len(alias), row))
+                break
+    if not alias_rows:
+        return None
+    return sorted(
+        alias_rows,
+        key=lambda item: (
+            item[0],
+            str(item[1].get("target_id") or ""),
+        ),
+        reverse=True,
+    )[0][1]
+
+
+def _macro_asset_window_role(horizon_days: int) -> str:
+    return _stock_price_proxy_window_role(horizon_days)
+
+
+def _macro_asset_proxy_window_effective_weight(horizon_days: int) -> float:
+    return MACRO_ASSET_PROXY_WINDOW_EFFECTIVE_WEIGHTS.get(int(horizon_days), 0.0)
+
+
+def _macro_asset_claim_window_alignment(
+    *,
+    claim_horizon: Mapping[str, Any],
+    horizon_days: int,
+) -> str:
+    return _industry_etf_claim_window_alignment(
+        claim_horizon=claim_horizon,
+        horizon_days=horizon_days,
+    )
+
+
+def _macro_asset_temporal_validation_summary(
+    records: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    summary = _stock_price_temporal_validation_summary(records)
+    summary["policy"] = (
+        "macro strategy research is validated on fixed ETF proxy windows; "
+        "short, medium, and long windows are retained as separate evidence"
+    )
+    return summary
 
 
 def _series_available_dates(
@@ -8864,6 +9836,129 @@ def build_stock_price_proxy_readiness(
     }
 
 
+def build_macro_asset_proxy_readiness(
+    *,
+    root_path: Path,
+    qlib_etf_dir: str | Path,
+    forecast_rows: Sequence[Mapping[str, Any]],
+    metadata_rows: Sequence[Mapping[str, Any]],
+    mapping_rows: Sequence[Mapping[str, Any]] | None = None,
+    windows_days: Sequence[int] = MACRO_ASSET_PROXY_WINDOWS_DAYS,
+) -> dict[str, Any]:
+    mapping_rows = tuple(mapping_rows or build_default_macro_asset_proxy_map_rows())
+    qlib_dir = _resolve_qlib_etf_dir(root_path, qlib_etf_dir)
+    qlib_source_label = _public_qlib_source_label(qlib_etf_dir)
+    calendar = _read_trading_calendar(qlib_dir)
+    metadata_by_source = _source_report_metadata(metadata_rows)
+    eligible_claim_ids: list[str] = []
+    labelable_claim_ids: list[str] = []
+    pending_future_claim_ids: list[str] = []
+    data_gap_counts: dict[str, int] = {}
+    labelable_window_count = 0
+    pending_future_window_count = 0
+
+    def add_gap(name: str) -> None:
+        data_gap_counts[name] = data_gap_counts.get(name, 0) + 1
+
+    for claim in forecast_rows:
+        metadata = metadata_by_source.get(str(claim.get("source_id") or "")) or {}
+        if not _is_macro_strategy_report(metadata):
+            continue
+        direction = str(claim.get("direction") or "unknown").lower()
+        if direction not in {"positive", "negative"}:
+            add_gap("direction_missing_or_unsupported")
+            continue
+        proxy = _macro_asset_proxy_for_claim(claim, metadata, mapping_rows)
+        if proxy is None:
+            add_gap("macro_asset_proxy_mapping_missing")
+            continue
+        forecast_claim_id = str(claim.get("forecast_claim_id") or "")
+        eligible_claim_ids.append(forecast_claim_id)
+        if not calendar:
+            add_gap("calendar_missing")
+            continue
+        proxy_start, proxy_values = _read_qlib_series(
+            qlib_dir,
+            str(proxy.get("proxy_symbol") or ""),
+        )
+        if not proxy_values:
+            add_gap("proxy_series_missing")
+            continue
+        entry_index = _entry_calendar_index(
+            calendar,
+            str(claim.get("signal_datetime") or ""),
+            entry_lag_trading_days=MACRO_ASSET_PROXY_ENTRY_LAG_TRADING_DAYS,
+        )
+        if entry_index is None:
+            add_gap("entry_date_after_latest_calendar")
+            continue
+        if _series_value_at_calendar_index(
+            start_index=proxy_start,
+            values=proxy_values,
+            calendar_index=entry_index,
+        ) is None:
+            add_gap("entry_price_missing")
+            continue
+        claim_labelable_window_count = 0
+        claim_pending_future_window_count = 0
+        claim_window_gap_count = 0
+        for horizon_days in windows_days:
+            exit_index = entry_index + int(horizon_days)
+            if exit_index >= len(calendar):
+                pending_future_window_count += 1
+                claim_pending_future_window_count += 1
+                continue
+            if _series_value_at_calendar_index(
+                start_index=proxy_start,
+                values=proxy_values,
+                calendar_index=exit_index,
+            ) is None:
+                add_gap("exit_price_missing")
+                claim_window_gap_count += 1
+                continue
+            labelable_window_count += 1
+            claim_labelable_window_count += 1
+        if claim_labelable_window_count:
+            labelable_claim_ids.append(forecast_claim_id)
+        elif claim_pending_future_window_count and not claim_window_gap_count:
+            pending_future_claim_ids.append(forecast_claim_id)
+    return {
+        "policy": (
+            "macro strategy claims can be evaluated with mapped ETF proxy returns "
+            "on T+1 fixed PIT windows; LLM output extracts target and direction "
+            "but cannot assign outcome labels"
+        ),
+        "outcome_label_source": MACRO_ASSET_PROXY_OUTCOME_LABEL_SOURCE,
+        "llm_outcome_labeling_allowed": False,
+        "windows_days": [int(value) for value in windows_days],
+        "entry_lag_trading_days": MACRO_ASSET_PROXY_ENTRY_LAG_TRADING_DAYS,
+        "benchmark_symbol": MACRO_ASSET_PROXY_BENCHMARK_SYMBOL,
+        "benchmark_source": MACRO_ASSET_PROXY_BENCHMARK_SOURCE,
+        "benchmark_family": MACRO_ASSET_PROXY_BENCHMARK_FAMILY,
+        "cost_model_id": MACRO_ASSET_PROXY_COST_MODEL_ID,
+        "qlib_etf_dir_configured": qlib_source_label,
+        "latest_calendar_date": calendar[-1] if calendar else "",
+        "mapping_count": len(mapping_rows),
+        "eligible_claim_count": len(eligible_claim_ids),
+        "eligible_forecast_claim_ids": eligible_claim_ids,
+        "labelable_forecast_claim_count": len(labelable_claim_ids),
+        "labelable_forecast_claim_ids": labelable_claim_ids,
+        "labelable_window_count": labelable_window_count,
+        "pending_future_window_count": pending_future_window_count,
+        "pending_future_forecast_claim_count": len(pending_future_claim_ids),
+        "pending_future_forecast_claim_ids": pending_future_claim_ids,
+        "data_gap_counts": dict(sorted(data_gap_counts.items())),
+        "mapping_policy": {
+            "mapping_version": MACRO_ASSET_PROXY_MAPPING_VERSION,
+            "mapping_count": len(mapping_rows),
+            "crude_oil_mapping_enabled": False,
+            "crude_oil_mapping_gap_reason": (
+                "no reviewed local cn_etf crude-oil proxy is configured"
+            ),
+        },
+    }
+
+
 def build_industry_etf_proxy_outcome_labels(
     *,
     root_path: Path,
@@ -9418,6 +10513,193 @@ def build_stock_price_proxy_outcome_labels(
     return records
 
 
+def build_macro_asset_proxy_outcome_labels(
+    *,
+    root_path: Path,
+    qlib_etf_dir: str | Path,
+    forecast_rows: Sequence[Mapping[str, Any]],
+    forecast_ledger_rows: Sequence[Mapping[str, Any]],
+    metadata_rows: Sequence[Mapping[str, Any]],
+    mapping_rows: Sequence[Mapping[str, Any]] | None = None,
+    windows_days: Sequence[int] = MACRO_ASSET_PROXY_WINDOWS_DAYS,
+) -> list[dict[str, Any]]:
+    mapping_rows = tuple(mapping_rows or build_default_macro_asset_proxy_map_rows())
+    qlib_dir = _resolve_qlib_etf_dir(root_path, qlib_etf_dir)
+    calendar = _read_trading_calendar(qlib_dir)
+    if not calendar:
+        return []
+    ledger_by_claim = {
+        str(row.get("forecast_claim_id") or ""): row for row in forecast_ledger_rows
+    }
+    metadata_by_source = _source_report_metadata(metadata_rows)
+    records: list[dict[str, Any]] = []
+    for claim in forecast_rows:
+        source_id = str(claim.get("source_id") or "")
+        metadata = metadata_by_source.get(source_id) or {}
+        if not _is_macro_strategy_report(metadata):
+            continue
+        direction = str(claim.get("direction") or "unknown").lower()
+        if direction not in {"positive", "negative"}:
+            continue
+        proxy = _macro_asset_proxy_for_claim(claim, metadata, mapping_rows)
+        if proxy is None:
+            continue
+        proxy_symbol = str(proxy.get("proxy_symbol") or "")
+        proxy_start, proxy_values = _read_qlib_series(qlib_dir, proxy_symbol)
+        if not proxy_values:
+            continue
+        entry_index = _entry_calendar_index(
+            calendar,
+            str(claim.get("signal_datetime") or ""),
+            entry_lag_trading_days=MACRO_ASSET_PROXY_ENTRY_LAG_TRADING_DAYS,
+        )
+        if entry_index is None:
+            continue
+        entry_price = _series_value_at_calendar_index(
+            start_index=proxy_start,
+            values=proxy_values,
+            calendar_index=entry_index,
+        )
+        if entry_price is None:
+            continue
+        ledger = ledger_by_claim.get(str(claim.get("forecast_claim_id") or "")) or {}
+        forecast_family_id = str(ledger.get("forecast_family_id") or "") or _stable_id(
+            "FF",
+            {
+                "forecast_type": claim.get("forecast_type") or "unknown",
+                "macro_asset_target": proxy.get("target_id") or proxy_symbol,
+                "benchmark": MACRO_ASSET_PROXY_BENCHMARK_SYMBOL,
+            },
+        )
+        claim_window_set_id = _stable_id(
+            "WSET",
+            {
+                "forecast_claim_id": claim.get("forecast_claim_id"),
+                "label_type": "macro_asset_proxy",
+                "proxy_symbol": proxy_symbol,
+            },
+        )
+        claim_horizon = _ensure_mapping(claim.get("horizon"))
+        source_horizon_days = _horizon_preferred_days(claim_horizon)
+        source_horizon_bucket = _horizon_bucket(claim_horizon)
+        market_regime_fields = _as_of_date_market_regime_fields(
+            claim.get("signal_datetime")
+        )
+        claim_records: list[dict[str, Any]] = []
+        for horizon_days in windows_days:
+            horizon_days = int(horizon_days)
+            exit_index = entry_index + horizon_days
+            if exit_index >= len(calendar):
+                continue
+            exit_price = _series_value_at_calendar_index(
+                start_index=proxy_start,
+                values=proxy_values,
+                calendar_index=exit_index,
+            )
+            if exit_price is None:
+                continue
+            proxy_return = exit_price / entry_price - 1.0
+            if direction == "positive":
+                directional_hit = proxy_return > 0
+                directional_proxy_return = proxy_return
+            else:
+                directional_hit = proxy_return < 0
+                directional_proxy_return = -proxy_return
+            relative_alpha = proxy_return
+            window_role = _macro_asset_window_role(horizon_days)
+            directional_after_cost = (
+                directional_proxy_return - MACRO_ASSET_PROXY_ROUND_TRIP_COST
+            )
+            claim_records.append(
+                {
+                    "outcome_id": _stable_id(
+                        "OUT",
+                        {
+                            "forecast_claim_id": claim.get("forecast_claim_id"),
+                            "label_type": "macro_asset_proxy",
+                            "proxy_symbol": proxy_symbol,
+                            "horizon_days": horizon_days,
+                        },
+                    ),
+                    "forecast_claim_id": str(claim.get("forecast_claim_id") or ""),
+                    "forecast_family_id": forecast_family_id,
+                    "claim_window_set_id": claim_window_set_id,
+                    "entry_datetime": f"{calendar[entry_index]}T00:00:00+08:00",
+                    "exit_datetime": f"{calendar[exit_index]}T00:00:00+08:00",
+                    "horizon_days": horizon_days,
+                    "relative_alpha": round(relative_alpha, 8),
+                    "directional_hit": bool(directional_hit),
+                    "after_cost_alpha": round(
+                        relative_alpha - MACRO_ASSET_PROXY_ROUND_TRIP_COST,
+                        8,
+                    ),
+                    "directional_proxy_return": round(directional_proxy_return, 8),
+                    "directional_after_cost_return": round(directional_after_cost, 8),
+                    "overlap_group_id": _stable_id(
+                        "OVL",
+                        {
+                            "label_type": "macro_asset_proxy",
+                            "proxy_symbol": proxy_symbol,
+                            "entry_date": calendar[entry_index],
+                            "horizon_days": horizon_days,
+                        },
+                    ),
+                    "effective_n_weight": round(
+                        _macro_asset_proxy_window_effective_weight(horizon_days),
+                        6,
+                    ),
+                    "pit_valid": True,
+                    "survivorship_safe": True,
+                    "label_type": "macro_asset_proxy",
+                    "proxy_symbol": proxy_symbol,
+                    "proxy_label": str(proxy.get("proxy_label") or ""),
+                    "proxy_asset": str(proxy.get("target_id") or ""),
+                    "macro_asset_target_id": str(proxy.get("target_id") or ""),
+                    "mapping_id": str(proxy.get("mapping_id") or ""),
+                    "mapping_version": int(proxy.get("mapping_version") or 1),
+                    "mapping_confidence": str(
+                        proxy.get("mapping_confidence")
+                        or "operator_seeded_macro_asset_alias"
+                    ),
+                    "proxy_mapping_confidence": str(
+                        proxy.get("mapping_confidence")
+                        or "operator_seeded_macro_asset_alias"
+                    ),
+                    "benchmark_symbol": MACRO_ASSET_PROXY_BENCHMARK_SYMBOL,
+                    "benchmark_source": MACRO_ASSET_PROXY_BENCHMARK_SOURCE,
+                    "benchmark_family": MACRO_ASSET_PROXY_BENCHMARK_FAMILY,
+                    "benchmark_return": 0.0,
+                    "benchmark_alignment": "cash_zero_return",
+                    "cost_model_id": MACRO_ASSET_PROXY_COST_MODEL_ID,
+                    "proxy_return": round(proxy_return, 8),
+                    "relative_directional_hit": bool(directional_hit),
+                    "direction_evaluated": direction,
+                    "decision_basis": MACRO_ASSET_PROXY_DECISION_BASIS,
+                    "outcome_label_source": MACRO_ASSET_PROXY_OUTCOME_LABEL_SOURCE,
+                    "llm_outcome_labeling_allowed": False,
+                    "performance_value_basis": "directional_after_cost_return",
+                    "window_role": window_role,
+                    "source_horizon_days": source_horizon_days,
+                    "source_horizon_bucket": source_horizon_bucket,
+                    "claim_window_alignment": _macro_asset_claim_window_alignment(
+                        claim_horizon=claim_horizon,
+                        horizon_days=horizon_days,
+                    ),
+                    "evaluation_policy": MACRO_ASSET_PROXY_EVALUATION_POLICY,
+                    "entry_lag_trading_days": MACRO_ASSET_PROXY_ENTRY_LAG_TRADING_DAYS,
+                    "round_trip_cost": MACRO_ASSET_PROXY_ROUND_TRIP_COST,
+                    "source_metadata_id": source_id,
+                    **market_regime_fields,
+                }
+            )
+        if claim_records:
+            temporal_summary = _macro_asset_temporal_validation_summary(claim_records)
+            for record in claim_records:
+                record["temporal_validation_summary"] = temporal_summary
+            records.extend(claim_records)
+    return records
+
+
 def build_outcome_label_records(
     *,
     root_path: Path,
@@ -9429,7 +10711,7 @@ def build_outcome_label_records(
     industry_etf_proxy_map_rows: Sequence[Mapping[str, Any]] | None = None,
     industry_etf_proxy_pit_availability: Mapping[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
-    """Build governed PIT outcome labels for industry and stock proxy channels."""
+    """Build governed PIT outcome labels for industry, stock, and macro proxies."""
     return [
         *build_industry_etf_proxy_outcome_labels(
             root_path=root_path,
@@ -9443,6 +10725,13 @@ def build_outcome_label_records(
         *build_stock_price_proxy_outcome_labels(
             root_path=root_path,
             qlib_stock_dir=qlib_stock_dir,
+            qlib_etf_dir=qlib_etf_dir,
+            forecast_rows=forecast_rows,
+            forecast_ledger_rows=forecast_ledger_rows,
+            metadata_rows=metadata_rows,
+        ),
+        *build_macro_asset_proxy_outcome_labels(
+            root_path=root_path,
             qlib_etf_dir=qlib_etf_dir,
             forecast_rows=forecast_rows,
             forecast_ledger_rows=forecast_ledger_rows,
@@ -16740,8 +18029,10 @@ def build_report_intelligence_extraction_provenance_audit(
     }
     invalid_industry_proxy_labels: list[str] = []
     invalid_stock_proxy_labels: list[str] = []
+    invalid_macro_proxy_labels: list[str] = []
     industry_proxy_outcome_claim_ids: set[str] = set()
     stock_proxy_outcome_claim_ids: set[str] = set()
+    macro_proxy_outcome_claim_ids: set[str] = set()
     for index, row in enumerate(outcome_label_rows, 1):
         claim_id = str(row.get("forecast_claim_id") or "")
         if row.get("label_type") == "industry_etf_proxy":
@@ -16791,8 +18082,24 @@ def build_report_intelligence_extraction_provenance_audit(
                 invalid_stock_proxy_labels.append(
                     f"report_outcome_labels row {index}: stock proxy claim must have source spans"
                 )
+        if row.get("label_type") == "macro_asset_proxy":
+            if claim_id:
+                macro_proxy_outcome_claim_ids.add(claim_id)
+            if row.get("outcome_label_source") != MACRO_ASSET_PROXY_OUTCOME_LABEL_SOURCE:
+                invalid_macro_proxy_labels.append(
+                    f"report_outcome_labels row {index}: macro asset proxy label must use {MACRO_ASSET_PROXY_OUTCOME_LABEL_SOURCE}"
+                )
+            if row.get("llm_outcome_labeling_allowed") is not False:
+                invalid_macro_proxy_labels.append(
+                    f"report_outcome_labels row {index}: macro asset proxy label must set llm_outcome_labeling_allowed=false"
+                )
+            if row.get("decision_basis") != MACRO_ASSET_PROXY_DECISION_BASIS:
+                invalid_macro_proxy_labels.append(
+                    f"report_outcome_labels row {index}: macro asset proxy label must use {MACRO_ASSET_PROXY_DECISION_BASIS}"
+                )
     scoring_failures.extend(invalid_industry_proxy_labels)
     scoring_failures.extend(invalid_stock_proxy_labels)
+    scoring_failures.extend(invalid_macro_proxy_labels)
     ready_count = 0
     standard_blocked_count = 0
     unlabelable_count = 0
@@ -16837,6 +18144,7 @@ def build_report_intelligence_extraction_provenance_audit(
             if (
                 claim_id not in industry_proxy_outcome_claim_ids
                 and claim_id not in stock_proxy_outcome_claim_ids
+                and claim_id not in macro_proxy_outcome_claim_ids
                 and claim_id not in proxy_pending_claim_ids
             ):
                 unlabelable_count += 1
@@ -16857,8 +18165,8 @@ def build_report_intelligence_extraction_provenance_audit(
             check_id="RI-PROV-04",
             requirement=(
                 "Forecasts missing target, benchmark, direction, or horizon cannot "
-                "enter standard outcome scoring; governed industry ETF proxy labels "
-                "remain a separate evidence channel."
+                "enter standard outcome scoring; governed industry ETF, stock, "
+                "and macro asset proxy labels remain separate evidence channels."
             ),
             evidence={
                 "forecast_ledger_rows": len(forecast_ledger_rows),
@@ -16872,6 +18180,9 @@ def build_report_intelligence_extraction_provenance_audit(
                 ),
                 "stock_price_proxy_outcome_claim_count": len(
                     stock_proxy_outcome_claim_ids
+                ),
+                "macro_asset_proxy_outcome_claim_count": len(
+                    macro_proxy_outcome_claim_ids
                 ),
             },
             failures=scoring_failures,
@@ -17060,6 +18371,7 @@ def build_report_intelligence_statistical_robustness_audit(
     label_failures: list[str] = []
     industry_proxy_label_count = 0
     stock_proxy_label_count = 0
+    macro_proxy_label_count = 0
     label_type_counts: dict[str, int] = {}
     for index, label in enumerate(outcome_label_rows, 1):
         label_id = str(label.get("outcome_id") or f"row-{index}")
@@ -17076,9 +18388,8 @@ def build_report_intelligence_statistical_robustness_audit(
             if not str(label.get(required_field) or "").strip():
                 label_failures.append(f"{label_id}: {required_field} required")
 
-        if label.get("label_type") != "industry_etf_proxy":
-            if label.get("label_type") != "stock_price_proxy":
-                continue
+        if label.get("label_type") not in REPORT_INTELLIGENCE_PROXY_LABEL_TYPES:
+            continue
         if label.get("label_type") == "industry_etf_proxy":
             industry_proxy_label_count += 1
             for required_field in (
@@ -17153,6 +18464,44 @@ def build_report_intelligence_statistical_robustness_audit(
                 label_failures.append(
                     f"{label_id}: evaluation_policy must retain long-horizon evidence"
                 )
+        if label.get("label_type") == "macro_asset_proxy":
+            macro_proxy_label_count += 1
+            for required_field in (
+                "proxy_symbol",
+                "macro_asset_target_id",
+                "mapping_id",
+                "benchmark_symbol",
+                "proxy_return",
+                "benchmark_return",
+                "relative_alpha",
+                "directional_proxy_return",
+                "directional_after_cost_return",
+                "decision_basis",
+                "outcome_label_source",
+                "llm_outcome_labeling_allowed",
+                "evaluation_policy",
+                "window_role",
+            ):
+                if required_field not in label:
+                    label_failures.append(
+                        f"{label_id}: macro asset proxy label missing {required_field}"
+                    )
+            if label.get("decision_basis") != MACRO_ASSET_PROXY_DECISION_BASIS:
+                label_failures.append(
+                    f"{label_id}: decision_basis must be {MACRO_ASSET_PROXY_DECISION_BASIS}"
+                )
+            if label.get("outcome_label_source") != MACRO_ASSET_PROXY_OUTCOME_LABEL_SOURCE:
+                label_failures.append(
+                    f"{label_id}: outcome_label_source must be {MACRO_ASSET_PROXY_OUTCOME_LABEL_SOURCE}"
+                )
+            if label.get("evaluation_policy") != MACRO_ASSET_PROXY_EVALUATION_POLICY:
+                label_failures.append(
+                    f"{label_id}: evaluation_policy must retain long-horizon evidence"
+                )
+            if label.get("benchmark_symbol") != MACRO_ASSET_PROXY_BENCHMARK_SYMBOL:
+                label_failures.append(
+                    f"{label_id}: macro asset proxy benchmark must be {MACRO_ASSET_PROXY_BENCHMARK_SYMBOL}"
+                )
         if label.get("label_type") in REPORT_INTELLIGENCE_PROXY_LABEL_TYPES:
             if label.get("llm_outcome_labeling_allowed") is not False:
                 label_failures.append(
@@ -17200,16 +18549,18 @@ def build_report_intelligence_statistical_robustness_audit(
             check_id="RI-STAT-01",
             requirement=(
                 "Outcome labels must be rule-based after-cost observations; industry "
-                "research labels are judged from mapped industry ETF returns, not LLM opinion."
+                "research labels are judged from mapped market data returns, not LLM opinion."
             ),
             evidence={
                 "outcome_label_rows": len(outcome_label_rows),
                 "industry_etf_proxy_label_rows": industry_proxy_label_count,
                 "stock_price_proxy_label_rows": stock_proxy_label_count,
+                "macro_asset_proxy_label_rows": macro_proxy_label_count,
                 "label_type_counts": dict(sorted(label_type_counts.items())),
                 "decision_basis": INDUSTRY_ETF_DECISION_BASIS,
                 "outcome_label_source": INDUSTRY_ETF_OUTCOME_LABEL_SOURCE,
                 "stock_outcome_label_source": STOCK_PRICE_PROXY_OUTCOME_LABEL_SOURCE,
+                "macro_outcome_label_source": MACRO_ASSET_PROXY_OUTCOME_LABEL_SOURCE,
                 "llm_outcome_labeling_allowed": False,
             },
             failures=label_failures,
@@ -17322,6 +18673,7 @@ def build_report_intelligence_statistical_robustness_audit(
         grouped_labels.setdefault(group_id, []).append(label)
     complete_window_set_count = 0
     complete_stock_window_set_count = 0
+    complete_macro_window_set_count = 0
     for group_id, labels in grouped_labels.items():
         total_weight = sum(_float_or_none(label.get("effective_n_weight")) or 0.0 for label in labels)
         if total_weight > 1.000001:
@@ -17347,6 +18699,17 @@ def build_report_intelligence_statistical_robustness_audit(
                 overlap_failures.append(
                     f"{group_id}: complete stock proxy window set must sum to effective N 1"
                 )
+        macro_window_days = {
+            int(label.get("horizon_days") or 0)
+            for label in labels
+            if label.get("label_type") == "macro_asset_proxy"
+        }
+        if macro_window_days == set(MACRO_ASSET_PROXY_WINDOWS_DAYS):
+            complete_macro_window_set_count += 1
+            if abs(total_weight - 1.0) > 0.000001:
+                overlap_failures.append(
+                    f"{group_id}: complete macro asset proxy window set must sum to effective N 1"
+                )
         for label in labels:
             role = str(label.get("window_role") or "")
             if label.get("label_type") == "industry_etf_proxy":
@@ -17355,6 +18718,12 @@ def build_report_intelligence_statistical_robustness_audit(
                 expected_weight = INDUSTRY_ETF_PROXY_WINDOW_EFFECTIVE_WEIGHTS[role]
             elif label.get("label_type") == "stock_price_proxy":
                 expected_weight = STOCK_PRICE_PROXY_WINDOW_EFFECTIVE_WEIGHTS.get(
+                    int(label.get("horizon_days") or 0)
+                )
+                if expected_weight is None:
+                    continue
+            elif label.get("label_type") == "macro_asset_proxy":
+                expected_weight = MACRO_ASSET_PROXY_WINDOW_EFFECTIVE_WEIGHTS.get(
                     int(label.get("horizon_days") or 0)
                 )
                 if expected_weight is None:
@@ -17377,8 +18746,12 @@ def build_report_intelligence_statistical_robustness_audit(
                 "outcome_window_set_count": len(grouped_labels),
                 "complete_industry_etf_window_set_count": complete_window_set_count,
                 "complete_stock_price_window_set_count": complete_stock_window_set_count,
+                "complete_macro_asset_window_set_count": complete_macro_window_set_count,
                 "window_effective_weights": dict(
                     INDUSTRY_ETF_PROXY_WINDOW_EFFECTIVE_WEIGHTS
+                ),
+                "macro_window_effective_weights": dict(
+                    MACRO_ASSET_PROXY_WINDOW_EFFECTIVE_WEIGHTS
                 ),
                 "stock_window_effective_weights": {
                     str(key): value
@@ -19246,7 +20619,8 @@ def build_report_intelligence_patch_v1_5_coverage_report(
     gold_review_passed = (
         gold_review_summary.get("passed") is True
         and gold_review_summary.get("review_complete") is True
-        and int(gold_review_summary.get("reviewed_claims") or 0) >= 500
+        and int(gold_review_summary.get("reviewed_claims") or 0)
+        >= FORECAST_GOLD_MIN_REVIEWED_CLAIMS
         and int(gold_review_summary.get("total_documents") or 0) >= 50
         and float(gold_review_metrics.get("claim_precision") or 0.0) >= 0.8
         and float(gold_review_metrics.get("source_span_support_precision") or 0.0)
@@ -20742,6 +22116,7 @@ def _extract_for_markdown(
     if not chunks:
         llm_status = "blocked"
         blockers.append(f"{row.get('source_id')}: markdown_empty")
+    all_forecasts = _select_report_forecast_claims(all_forecasts)
     return (
         {
             "forecast_claims": all_forecasts,
@@ -20904,11 +22279,18 @@ def run_report_intelligence_derived_refresh(
         forecast_rows=forecast_rows,
         metadata_rows=metadata_rows,
     )
+    macro_asset_proxy_readiness = build_macro_asset_proxy_readiness(
+        root_path=root_path,
+        qlib_etf_dir=cfg.qlib_etf_dir,
+        forecast_rows=forecast_rows,
+        metadata_rows=metadata_rows,
+    )
     outcome_labeling_readiness = build_outcome_labeling_readiness_report(
         forecast_rows=forecast_rows,
         forecast_ledger_rows=forecast_ledger_rows,
         industry_etf_proxy_readiness=industry_etf_proxy_readiness,
         stock_price_proxy_readiness=stock_price_proxy_readiness,
+        macro_asset_proxy_readiness=macro_asset_proxy_readiness,
         macro_regime_calendar_rows=macro_regime_calendar_rows,
     )
     source_performance_profile_rows = build_source_performance_profiles(
@@ -21444,6 +22826,20 @@ def run_report_intelligence_derived_refresh(
         stock_price_proxy_pending_window_rows=int(
             stock_price_proxy_readiness["pending_future_window_count"]
         ),
+        macro_asset_proxy_outcome_label_rows=sum(
+            1
+            for row in outcome_label_rows
+            if row.get("label_type") == "macro_asset_proxy"
+        ),
+        macro_asset_proxy_eligible_claim_rows=int(
+            macro_asset_proxy_readiness["eligible_claim_count"]
+        ),
+        macro_asset_proxy_labelable_window_rows=int(
+            macro_asset_proxy_readiness["labelable_window_count"]
+        ),
+        macro_asset_proxy_pending_window_rows=int(
+            macro_asset_proxy_readiness["pending_future_window_count"]
+        ),
         source_performance_profile_rows=len(source_performance_profile_rows),
         viewpoint_performance_profile_rows=len(viewpoint_performance_profile_rows),
         method_performance_profile_rows=len(method_performance_profile_rows),
@@ -21592,14 +22988,23 @@ def run_report_intelligence_refresh(
         source_id = str(row.get("source_id") or "")
         safe_id = _safe_file_id(source_id)
         url = str(row.get("url") or "").strip()
+        local_pdf_path = str(row.get("local_pdf_path") or "").strip()
         pdf_path = cache_dir / "pdfs" / f"{safe_id}.pdf"
         markdown_path = cache_dir / "markdown" / f"{safe_id}.md"
         mineru_output_dir = cache_dir / "mineru" / safe_id
         row_blockers: list[str] = []
         pdf_result: Mapping[str, Any] = {"status": "not_attempted"}
-        if not url and not markdown_path.exists():
+        if not url and not local_pdf_path and not markdown_path.exists():
             row_blockers.append(f"{source_id}: report_url_missing")
-        if not cfg.skip_download and url:
+        if not cfg.skip_download and local_pdf_path:
+            pdf_result = materialize_local_pdf(
+                Path(local_pdf_path).expanduser(),
+                pdf_path,
+                cfg.overwrite,
+            )
+            if pdf_result.get("status") == "blocked":
+                row_blockers.append(f"{source_id}: {pdf_result.get('blocker')}")
+        elif not cfg.skip_download and url:
             pdf_result = downloader(url, pdf_path, cfg.overwrite)
             if pdf_result.get("status") == "blocked":
                 row_blockers.append(f"{source_id}: {pdf_result.get('blocker')}")
@@ -21913,11 +23318,18 @@ def run_report_intelligence_refresh(
         forecast_rows=forecast_rows,
         metadata_rows=metadata_rows,
     )
+    macro_asset_proxy_readiness = build_macro_asset_proxy_readiness(
+        root_path=root_path,
+        qlib_etf_dir=cfg.qlib_etf_dir,
+        forecast_rows=forecast_rows,
+        metadata_rows=metadata_rows,
+    )
     outcome_labeling_readiness = build_outcome_labeling_readiness_report(
         forecast_rows=forecast_rows,
         forecast_ledger_rows=forecast_ledger_rows,
         industry_etf_proxy_readiness=industry_etf_proxy_readiness,
         stock_price_proxy_readiness=stock_price_proxy_readiness,
+        macro_asset_proxy_readiness=macro_asset_proxy_readiness,
         macro_regime_calendar_rows=macro_regime_calendar_rows,
     )
     source_performance_profile_rows = build_source_performance_profiles(
@@ -22453,6 +23865,20 @@ def run_report_intelligence_refresh(
         ),
         stock_price_proxy_pending_window_rows=int(
             stock_price_proxy_readiness["pending_future_window_count"]
+        ),
+        macro_asset_proxy_outcome_label_rows=sum(
+            1
+            for row in outcome_label_rows
+            if row.get("label_type") == "macro_asset_proxy"
+        ),
+        macro_asset_proxy_eligible_claim_rows=int(
+            macro_asset_proxy_readiness["eligible_claim_count"]
+        ),
+        macro_asset_proxy_labelable_window_rows=int(
+            macro_asset_proxy_readiness["labelable_window_count"]
+        ),
+        macro_asset_proxy_pending_window_rows=int(
+            macro_asset_proxy_readiness["pending_future_window_count"]
         ),
         source_performance_profile_rows=len(source_performance_profile_rows),
         viewpoint_performance_profile_rows=len(viewpoint_performance_profile_rows),

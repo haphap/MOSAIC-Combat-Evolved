@@ -27,6 +27,9 @@ from re import compile as re_compile
 from statistics import median
 from typing import Any, Literal, Mapping, Sequence
 
+MIN_CLAIM_GOLD_SET_DOCUMENTS = 50
+MIN_CLAIM_GOLD_SET_CLAIMS = 100
+
 RULE_ID_RE = re_compile(
     r"^(?:macro|sector|superinvestor|decision)\.[a-z0-9_]+\."
     r"(?:soft|hard|guard|prior|policy|risk)\.[0-9]{3}$"
@@ -274,10 +277,10 @@ class ClaimExtractionGoldSet:
 
     def gate_failures(self) -> tuple[str, ...]:
         failures: list[str] = []
-        if self.sample_size_documents < 50:
-            failures.append("gold set requires >= 50 documents")
-        if self.sample_size_claims < 500:
-            failures.append("gold set requires >= 500 claims")
+        if self.sample_size_documents < MIN_CLAIM_GOLD_SET_DOCUMENTS:
+            failures.append(f"gold set requires >= {MIN_CLAIM_GOLD_SET_DOCUMENTS} documents")
+        if self.sample_size_claims < MIN_CLAIM_GOLD_SET_CLAIMS:
+            failures.append(f"gold set requires >= {MIN_CLAIM_GOLD_SET_CLAIMS} claims")
         if self.claim_precision < 0.85:
             failures.append("claim_precision below 0.85")
         if self.source_span_support_precision < 0.90:

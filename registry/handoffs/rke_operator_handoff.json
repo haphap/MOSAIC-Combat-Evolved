@@ -27,7 +27,7 @@
     {
       "action": "Fill the gold-set reviewed scratch file.",
       "command": "",
-      "expected_result": "All 500 claim rows have required manual fields and preserved provenance hashes.",
+      "expected_result": "All current claim rows have required manual fields and preserved provenance hashes.",
       "manual_input_path": "registry/review_batches/gold_set_full_reviewed.jsonl",
       "phase": "gold_set",
       "step_id": "fill-gold-review"
@@ -157,11 +157,11 @@
   "gates": [
     {
       "apply_command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl",
-      "blocker": "manual gold-set review still required",
+      "blocker": "gold set requires >= 50 documents; direction_accuracy below 0.85; variable_mapping_accuracy below 0.80; unsupported_field_false_grounding_rate above 0.05",
       "dry_run_command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl --dry-run",
-      "evidence": "0 / 500 gold-set claims reviewed",
+      "evidence": "158 / 158 gold-set claims reviewed",
       "evidence_path": "registry/gold_sets/tushare_research_reports.review_summary.json",
-      "exported_rows": 500,
+      "exported_rows": 0,
       "field_contract": {
         "boolean_allowed_values": [
           true,
@@ -210,9 +210,9 @@
       "full_import_template_path": "registry/review_batches/gold_set_full_import_template.jsonl",
       "gate_id": "PG02",
       "import_template_path": "registry/review_batches/gold_set_next_import_template.jsonl",
-      "operator_note": "Run prepare-gold-review --full, fill the reviewed scratch JSONL, use registry/review_batches/gold_set_review_workbook.md as the read-only claim checklist, and use registry/review_batches/gold_set_review_assist.md as non-import machine assistance, use registry/review_batches/gold_set_review_evidence.md as private source evidence draft, then dry-run before applying the 500-claim gold set. For batch work, prepare registry/review_batches/gold_set_reviewed.jsonl with --gold-batch-size/--offset, dry-run it, and apply accepted batches to accumulate progress.",
+      "operator_note": "Run prepare-gold-review --full, fill the reviewed scratch JSONL, use registry/review_batches/gold_set_review_workbook.md as the read-only claim checklist, and use registry/review_batches/gold_set_review_assist.md as non-import machine assistance, use registry/review_batches/gold_set_review_evidence.md as private source evidence draft, then dry-run before applying the gold set. For batch work, prepare registry/review_batches/gold_set_reviewed.jsonl with --gold-batch-size/--offset, dry-run it, and apply accepted batches to accumulate progress.",
       "passed": false,
-      "pending_rows": 500,
+      "pending_rows": 0,
       "policy_template_path": "",
       "prepare_command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-gold-review --root . --full",
       "required_manual_fields": [
@@ -245,9 +245,9 @@
     },
     {
       "apply_command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_reviewed.jsonl",
-      "blocker": "1001 analytical footprint review rows still pending; footprint_precision unavailable; span_support_precision unavailable; metric_mapping_accuracy unavailable; inferred_step_tagging_accuracy unavailable; unknown_on_ambiguity_rate unavailable; proprietary_leakage_free_rate unavailable",
+      "blocker": "967 analytical footprint review rows still pending; metric_mapping_accuracy 0.558824 below threshold 0.80",
       "dry_run_command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_reviewed.jsonl --dry-run",
-      "evidence": "0 / 1001 analytical footprints reviewed",
+      "evidence": "34 / 1001 analytical footprints reviewed",
       "evidence_path": "registry/report_intelligence/analytical_footprint_review_summary.json",
       "exported_rows": 1001,
       "field_contract": {
@@ -296,7 +296,7 @@
       "import_template_path": "registry/report_intelligence/analytical_footprint_review_template.jsonl",
       "operator_note": "Generate the private footprint review assist/workbook and evidence draft, fill the reviewed scratch JSONL, keep hashes intact, and dry-run before applying. For batch work, prepare registry/report_intelligence/analytical_footprint_review_batch.jsonl with --limit/--offset, dry-run it, and apply accepted batches to accumulate progress.",
       "passed": false,
-      "pending_rows": 1001,
+      "pending_rows": 967,
       "policy_template_path": "",
       "prepare_command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --output registry/report_intelligence/analytical_footprint_reviewed.jsonl --overwrite",
       "required_manual_fields": [
@@ -326,7 +326,7 @@
     },
     {
       "apply_command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke build-license-review-import --root . --policy registry/review_batches/source_license_policy_reviewed.json --output registry/review_batches/source_license_policy_import.jsonl && MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_policy_import.jsonl",
-      "blocker": "",
+      "blocker": "long source text appears outside approved sandbox artifacts",
       "dry_run_command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke build-license-review-import --root . --policy registry/review_batches/source_license_policy_reviewed.json --output registry/review_batches/source_license_policy_import.jsonl && MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-license-review --root . --input registry/review_batches/source_license_policy_import.jsonl --dry-run",
       "evidence": "17529 / 17529 sources approved for production runtime",
       "evidence_path": "registry/compliance/tushare_license_review_summary.json",
@@ -367,7 +367,7 @@
       "gate_id": "PG03",
       "import_template_path": "registry/review_batches/source_license_next_import_template.jsonl",
       "operator_note": "Compliance approval is required before production runtime retrieval. Use registry/review_batches/source_license_review_workbook.md as the read-only source-class checklist. Copy registry/review_batches/source_license_policy_template.json to registry/review_batches/source_license_policy_reviewed.json, fill and sign the reviewed policy, then expand it instead of editing every source row manually.",
-      "passed": true,
+      "passed": false,
       "pending_rows": 0,
       "policy_template_path": "registry/review_batches/source_license_policy_template.json",
       "prepare_command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-license-policy-review --root .",
@@ -493,9 +493,12 @@
   "promotion_dry_run_command": "MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke promotion-dry-run --root . --gold-input registry/review_batches/gold_set_full_reviewed.jsonl --footprint-input registry/report_intelligence/analytical_footprint_reviewed.jsonl --lockbox-input registry/review_batches/lockbox_reviewed.json",
   "ready_for_operator_review": true,
   "remaining_blockers": [
-    "manual gold-set review still required",
+    "broad-rollout completion audit still has blockers",
+    "gold set requires >= 50 documents; direction_accuracy below 0.85; variable_mapping_accuracy below 0.80; unsupported_field_false_grounding_rate above 0.05",
+    "long source text appears outside approved sandbox artifacts",
+    "source text redaction audit failed",
     "lockbox has not been opened",
-    "1001 analytical footprint review rows still pending; footprint_precision unavailable; span_support_precision unavailable; metric_mapping_accuracy unavailable; inferred_step_tagging_accuracy unavailable; unknown_on_ambiguity_rate unavailable; proprietary_leakage_free_rate unavailable"
+    "967 analytical footprint review rows still pending; metric_mapping_accuracy 0.558824 below threshold 0.80"
   ],
   "run_order": [
     "review-progress-preflight",

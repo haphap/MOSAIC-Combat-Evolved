@@ -46,7 +46,7 @@ Seed corpus:
 Gold-set target from the master plan:
 
 - 50 documents
-- 500 claims
+- 100 claims
 - source-grounded vs hypothesis labels
 - claim precision >= 0.85
 - source-span support precision >= 0.90

@@ -1,7 +1,5 @@
 {
-  "blockers": [
-    "500 gold-set review rows still pending"
-  ],
+  "blockers": [],
   "generated_paths": [
     "registry/review_batches/gold_set_next_import_template.jsonl",
     "registry/review_batches/gold_set_full_import_template.jsonl",
@@ -17,12 +15,12 @@
     "apply_command": "mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_next_import_template.jsonl",
     "batch_size": 50,
     "dry_run_command": "mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_next_import_template.jsonl --dry-run",
-    "exported_rows": 50,
-    "first_pending_id": "GOLD-SRC-TSRR-20260605-566dea13371dfb10-001",
+    "exported_rows": 0,
+    "first_pending_id": null,
     "full_import_template_path": "registry/review_batches/gold_set_full_import_template.jsonl",
     "import_template_path": "registry/review_batches/gold_set_next_import_template.jsonl",
-    "last_pending_id": "GOLD-SRC-TSRR-20260513-4ff62fd16f361f99-010",
-    "pending_rows": 500,
+    "last_pending_id": null,
+    "pending_rows": 0,
     "required_manual_fields": [
       "manual_claim_text",
       "claim_correct",
@@ -39,7 +37,7 @@
     "review_kind": "gold_set",
     "review_packet_path": "registry/gold_sets/tushare_research_reports.review_packet.json",
     "target_path": "registry/gold_sets/tushare_research_reports.review_template.jsonl",
-    "total_rows": 500
+    "total_rows": 158
   },
   "ready_for_manual_review": true,
   "source_license": {

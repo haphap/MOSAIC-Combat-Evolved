@@ -163,6 +163,20 @@ DEFAULT_VARIABLES = (
         status="sandbox",
     ),
     ClaimVariableDefinition(
+        variable_id="bank_credit_growth_expectation",
+        domain="sector.bank",
+        variable_type="target",
+        description="Expected credit, loan, or social-financing growth impulse for bank and financing-sector views.",
+        status="sandbox",
+    ),
+    ClaimVariableDefinition(
+        variable_id="wealth_management_nav_pressure",
+        domain="sector.wealth_management",
+        variable_type="target",
+        description="NAV drawdown, break-even pressure, and risk-adjusted return state for wealth-management products.",
+        status="sandbox",
+    ),
+    ClaimVariableDefinition(
         variable_id="industry_policy_catalyst",
         domain="sector.cross_industry",
         variable_type="cause",

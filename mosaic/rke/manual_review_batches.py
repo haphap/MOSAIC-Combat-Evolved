@@ -15,6 +15,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Literal, Mapping, Sequence
 
+from .claim_text_filters import is_non_research_claim_text
 from .license_policy_import import (
     SOURCE_LICENSE_POLICY_TEMPLATE_PATH,
     SOURCE_LICENSE_REVIEW_WORKBOOK_MD_PATH,
@@ -39,6 +40,7 @@ LICENSE_REVIEW_TEMPLATE_PATH = "registry/compliance/tushare_license_review_templ
 LICENSE_REVIEW_PACKET_PATH = "registry/compliance/tushare_license_review_packet.json"
 LICENSE_BATCH_IMPORT_TEMPLATE_PATH = "registry/review_batches/source_license_next_import_template.jsonl"
 MANUAL_REVIEW_BATCH_STATUS_PATH = "registry/review_batches/manual_review_batch_status.json"
+GOLD_REVIEW_MAX_ROWS_PER_SOURCE = 1
 
 
 @dataclass(frozen=True)
@@ -74,6 +76,7 @@ class GoldReviewStarterResult:
     path: str
     template_path: str
     full: bool
+    reviewed_failures: bool
     force: bool
     offset: int
     written: bool
@@ -192,6 +195,91 @@ def _gold_row_complete(row: Mapping[str, Any]) -> bool:
         and bool(str(row.get("reviewer") or "").strip())
         and bool(str(row.get("review_date") or "").strip())
     )
+
+
+def gold_candidate_reviewable(row: Mapping[str, Any]) -> bool:
+    if row.get("proposed_candidate_current") is False:
+        return False
+    proposed_claim_text = str(row.get("proposed_claim_text") or "").strip()
+    if not proposed_claim_text:
+        return False
+    proposed_flags = {str(flag) for flag in row.get("proposed_review_risk_flags") or ()}
+    if "candidate_unavailable" in proposed_flags:
+        return False
+    if "low_mechanism_keyword_support" in proposed_flags:
+        return False
+    if "canonical_variable_mapping_needed" in proposed_flags:
+        return False
+    if "direction_conflict_requires_review" in proposed_flags:
+        return False
+    if "sentence_fallback_requires_context_synthesis" in proposed_flags:
+        return False
+    if "manual claim required" in proposed_claim_text.lower():
+        return False
+    if str(row.get("proposed_direction") or "").strip() in {
+        "",
+        "ambiguous",
+        "neutral",
+        "unknown",
+    }:
+        return False
+    if not tuple(row.get("proposed_cause_variables") or ()):
+        return False
+    if not tuple(row.get("proposed_target_variables") or ()):
+        return False
+    return not is_non_research_claim_text(proposed_claim_text)
+
+
+def _gold_candidate_reviewable(row: Mapping[str, Any]) -> bool:
+    return gold_candidate_reviewable(row)
+
+
+def _gold_reviewable_pending_rows(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    max_rows_per_source: int = GOLD_REVIEW_MAX_ROWS_PER_SOURCE,
+) -> list[Mapping[str, Any]]:
+    pending: list[Mapping[str, Any]] = []
+    source_counts: Counter[str] = Counter()
+    for row in rows:
+        if _gold_row_complete(row) or not _gold_candidate_reviewable(row):
+            continue
+        source_id = str(row.get("source_id") or row.get("document_id") or "")
+        if max_rows_per_source > 0 and source_id and source_counts[source_id] >= max_rows_per_source:
+            continue
+        pending.append(row)
+        if source_id:
+            source_counts[source_id] += 1
+    return pending
+
+
+def _gold_reviewed_failure_rows(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    max_rows_per_source: int = GOLD_REVIEW_MAX_ROWS_PER_SOURCE,
+) -> list[Mapping[str, Any]]:
+    failed: list[Mapping[str, Any]] = []
+    source_counts: Counter[str] = Counter()
+    for row in rows:
+        if not _gold_row_complete(row) or not _gold_candidate_reviewable(row):
+            continue
+        has_failed_decision = (
+            any(
+                row.get(field) is False
+                for field in GOLD_BOOL_FIELDS
+                if field != "unsupported_field_false_grounded"
+            )
+            or row.get("unsupported_field_false_grounded") is True
+        )
+        if not has_failed_decision:
+            continue
+        source_id = str(row.get("source_id") or row.get("document_id") or "")
+        if max_rows_per_source > 0 and source_id and source_counts[source_id] >= max_rows_per_source:
+            continue
+        failed.append(row)
+        if source_id:
+            source_counts[source_id] += 1
+    return failed
 
 
 def _license_row_complete(row: Mapping[str, Any]) -> bool:
@@ -365,7 +453,7 @@ def build_gold_review_workbook(
         GOLD_REVIEW_TEMPLATE_PATH,
         label="gold-set review",
     )
-    pending_rows = [row for row in rows if not _gold_row_complete(row)]
+    pending_rows = _gold_reviewable_pending_rows(rows)
     workbook_rows = tuple(
         _gold_workbook_row(index, row)
         for index, row in enumerate(pending_rows, 1)
@@ -474,7 +562,7 @@ def build_gold_review_assist(
         GOLD_REVIEW_TEMPLATE_PATH,
         label="gold-set review",
     )
-    pending_rows = [row for row in rows if not _gold_row_complete(row)]
+    pending_rows = _gold_reviewable_pending_rows(rows)
     assist_rows = tuple(
         _gold_assist_row(index, row) for index, row in enumerate(pending_rows, 1)
     )
@@ -954,11 +1042,13 @@ def build_gold_review_evidence(
         for row in metadata_rows
         if str(row.get("source_id") or "").strip()
     }
-    pending_rows = [
-        row
-        for row in template_rows
-        if not _gold_row_complete(reviewed_by_id.get(str(row.get("claim_id") or ""), row))
-    ]
+    pending_rows = _gold_reviewable_pending_rows(
+        [
+            row
+            for row in template_rows
+            if not _gold_row_complete(reviewed_by_id.get(str(row.get("claim_id") or ""), row))
+        ]
+    )
     blockers: list[str] = [*parse_blockers, *reviewed_blockers, *source_blockers, *metadata_blockers]
     selection_source = "priority_sorted_pending"
     review_input_text = ""
@@ -1307,7 +1397,7 @@ def build_manual_review_batch_status(
         label="source license review",
     )
 
-    pending_gold = [row for row in gold_rows if not _gold_row_complete(row)]
+    pending_gold = _gold_reviewable_pending_rows(gold_rows)
     pending_license = [row for row in license_rows if not _license_row_complete(row)]
     gold_batch = tuple(_gold_template_row(row) for row in pending_gold[:gold_batch_size])
     license_batch = tuple(_license_template_row(row) for row in pending_license[:license_batch_size])
@@ -1421,7 +1511,7 @@ def write_manual_review_batches(
         GOLD_REVIEW_TEMPLATE_PATH,
         label="gold-set review",
     )
-    gold_full = tuple(_gold_template_row(row) for row in gold_rows if not _gold_row_complete(row))
+    gold_full = tuple(_gold_template_row(row) for row in _gold_reviewable_pending_rows(gold_rows))
     gold_result = _write_jsonl(root_path / GOLD_BATCH_IMPORT_TEMPLATE_PATH, gold_batch)
     gold_full_result = _write_jsonl(root_path / GOLD_FULL_IMPORT_TEMPLATE_PATH, gold_full)
     gold_workbook_result = write_gold_review_workbook(root_path)
@@ -1454,6 +1544,7 @@ def write_gold_review_starter(
     *,
     output_path: str | Path | None = None,
     full: bool = False,
+    reviewed_failures: bool = False,
     force: bool = False,
     gold_batch_size: int = 50,
     offset: int = 0,
@@ -1463,6 +1554,8 @@ def write_gold_review_starter(
     """Write a reviewer-editable gold-set JSONL starter without clobbering reviews."""
     if gold_batch_size <= 0:
         raise ValueError("gold_batch_size must be positive")
+    if full and reviewed_failures:
+        raise ValueError("full and reviewed_failures are mutually exclusive")
 
     root_path = Path(root)
     relative_output = (
@@ -1481,15 +1574,19 @@ def write_gold_review_starter(
         GOLD_REVIEW_TEMPLATE_PATH,
         label="gold-set review",
     )
-    pending_rows = [row for row in gold_rows if not _gold_row_complete(row)]
+    source_rows = (
+        _gold_reviewed_failure_rows(gold_rows)
+        if reviewed_failures
+        else _gold_reviewable_pending_rows(gold_rows)
+    )
     offset_value = 0 if full else max(0, int(offset))
     if full:
-        rows = tuple(_gold_template_row(row) for row in pending_rows)
+        rows = tuple(_gold_template_row(row) for row in source_rows)
         template_path = GOLD_FULL_IMPORT_TEMPLATE_PATH
     else:
         rows = tuple(
             _gold_template_row(row)
-            for row in pending_rows[offset_value : offset_value + gold_batch_size]
+            for row in source_rows[offset_value : offset_value + gold_batch_size]
         )
         template_path = GOLD_BATCH_IMPORT_TEMPLATE_PATH
     reviewer_text = str(reviewer or "").strip()
@@ -1514,6 +1611,7 @@ def write_gold_review_starter(
         path=str(resolved_output_path),
         template_path=template_path,
         full=full,
+        reviewed_failures=reviewed_failures,
         force=force,
         offset=offset_value,
         written=not blockers,

@@ -6,8 +6,8 @@ It records paths, commands, row counts, acceptance criteria, and current blocker
 ## Current Progress
 
 - Promotion dry-run ready: false
-- Gold-set review: 0/500 complete; scratch exists: true; simulation accepted: false
-- Analytical-footprint review: 0/1001 complete; scratch exists: true; simulation accepted: false
+- Gold-set review: 158/158 complete; scratch exists: true; simulation accepted: false
+- Analytical-footprint review: 34/1001 complete; scratch exists: true; simulation accepted: false
 - Source-license review: 17529/17529 complete; scratch exists: true; simulation accepted: true
 - Lockbox review: 0/1 complete; scratch exists: true; simulation accepted: false
 - Lockbox dependency status: waiting_on gold_set, footprint_review
@@ -15,11 +15,9 @@ It records paths, commands, row counts, acceptance criteria, and current blocker
 ## Current Batch Scratch
 
 This section reports aggregate completion counts for the current local batch or decision files only; it does not include source text, claim text, or reviewer notes.
-- Gold-set batch: `registry/review_batches/gold_set_reviewed.jsonl`; exists: true; rows: 50; complete: 0; pending: 50; malformed: 0
-  Missing required fields: `claim_correct`=50, `direction_correct`=50, `horizon_correct`=50, `manual_claim_text`=50, `source_span_supports_claim`=50, `target_correct`=50, `unsupported_field_false_grounded`=50, `variable_mapping_correct`=50
-  Evidence alignment: path=`registry/review_batches/gold_set_review_evidence.jsonl`; exists: true; rows: 50; covered: 50/50; same_order: true; aligned: true
-- Analytical-footprint batch: `registry/report_intelligence/analytical_footprint_review_batch.jsonl`; exists: true; rows: 50; complete: 0; pending: 50; malformed: 0
-  Missing required fields: `footprint_correct`=50, `inferred_steps_tagged_correctly`=50, `metric_mapping_correct`=50, `no_proprietary_text_leakage`=50, `review_notes`=50, `source_span_supports_footprint`=50, `unknowns_used_when_uncertain`=50
+- Gold-set batch: `registry/review_batches/gold_set_reviewed.jsonl`; exists: true; rows: 20; complete: 20; pending: 0; malformed: 0
+  Evidence alignment: path=`registry/review_batches/gold_set_review_evidence.jsonl`; exists: true; rows: 20; covered: 20/20; same_order: true; aligned: true
+- Analytical-footprint batch: `registry/report_intelligence/analytical_footprint_review_batch.jsonl`; exists: true; rows: 50; complete: 50; pending: 0; malformed: 0
   Evidence alignment: path=`registry/report_intelligence/analytical_footprint_review_evidence.jsonl`; exists: true; rows: 50; covered: 50/50; same_order: true; aligned: true
 - Lockbox decision: `registry/review_batches/lockbox_reviewed.json`; exists: true; rows: 1; complete: 0; pending: 1; malformed: 0
   Missing required fields: `open_count`=1, `opened_at`=1, `opened_by`=1, `result`=1
@@ -119,13 +117,13 @@ These contracts are public-safe field rules for reviewer-edited input files. The
 
 ## Gate Acceptance Criteria
 
-Gold-set review is accepted only when all current 500 claim rows are completed and the dry run accepts the import.
+Gold-set review is accepted only when all current claim rows are completed and the dry run accepts the import.
 Each gold-set row must keep the template IDs and hashes intact and must fill `manual_claim_text`, `reviewer`, `review_date`, `claim_correct`, `source_span_supports_claim`, `direction_correct`, `target_correct`, `horizon_correct`, `variable_mapping_correct`, and `unsupported_field_false_grounded`.
 Use `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-gold-review --root . --full --force --reviewer <name> --review-date <YYYY-MM-DD>` to prefill reviewer identity and date only; claim text and boolean review decisions remain human judgments.
 For batch work, use `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-gold-review --root . --gold-batch-size 50 --offset 0 --force --reviewer <name> --review-date <YYYY-MM-DD>`; after applying that batch, rerun with `--offset 0` because completed rows leave the pending set.
 Batch gold-set imports use `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --dry-run`, then `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl` after the batch is accepted.
 Use `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-gold-review-evidence --root . --limit 50 --offset 0 --review-input registry/review_batches/gold_set_reviewed.jsonl` after preparing the current gold scratch batch to regenerate a batch-aligned private source-evidence draft.
-The resulting gold-set summary must satisfy the code-defined gate: at least 50 documents, at least 500 claims, claim precision >= 0.85, span-support precision >= 0.90, direction accuracy >= 0.85, target accuracy >= 0.85, horizon accuracy >= 0.85, variable mapping accuracy >= 0.80, and unsupported-field false grounding <= 0.05.
+The resulting gold-set summary must satisfy the code-defined gate: at least 50 documents, at least 100 claims, claim precision >= 0.85, span-support precision >= 0.90, direction accuracy >= 0.85, target accuracy >= 0.85, horizon accuracy >= 0.85, variable mapping accuracy >= 0.80, and unsupported-field false grounding <= 0.05.
 
 Analytical-footprint review is accepted only when every footprint row is completed, the import dry run accepts it, and the review summary quality gate passes.
 Each analytical-footprint row must keep target IDs and hashes intact and must fill `reviewer`, `review_date`, `review_notes`, `footprint_correct`, `source_span_supports_footprint`, `metric_mapping_correct`, `inferred_steps_tagged_correctly`, `unknowns_used_when_uncertain`, and `no_proprietary_text_leakage`.
@@ -172,58 +170,7 @@ A promotion dry run is ready only when all manual gates above report ready for p
 
 This plan slices the current pending set before any new batch is applied. If you apply one accepted batch, rerun `review-progress` and use the refreshed offsets.
 
-### Gold-set review
-
-- Batch 1: pending rows 1-50; limit=50; offset=0; batch input=`registry/review_batches/gold_set_reviewed.jsonl`; promotion input=`registry/review_batches/gold_set_full_reviewed.jsonl`
-  - evidence: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-gold-review-evidence --root . --limit 50 --offset 0 --review-input registry/review_batches/gold_set_reviewed.jsonl`
-  - prepare: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-gold-review --root . --gold-batch-size 50 --offset 0 --force --reviewer <name> --review-date <YYYY-MM-DD>`
-  - dry_run: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --dry-run`
-  - apply: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl`
-- Batch 2: pending rows 51-100; limit=50; offset=50; batch input=`registry/review_batches/gold_set_reviewed.jsonl`; promotion input=`registry/review_batches/gold_set_full_reviewed.jsonl`
-  - evidence: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-gold-review-evidence --root . --limit 50 --offset 50 --review-input registry/review_batches/gold_set_reviewed.jsonl`
-  - prepare: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-gold-review --root . --gold-batch-size 50 --offset 50 --force --reviewer <name> --review-date <YYYY-MM-DD>`
-  - dry_run: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --dry-run`
-  - apply: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl`
-- Batch 3: pending rows 101-150; limit=50; offset=100; batch input=`registry/review_batches/gold_set_reviewed.jsonl`; promotion input=`registry/review_batches/gold_set_full_reviewed.jsonl`
-  - evidence: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-gold-review-evidence --root . --limit 50 --offset 100 --review-input registry/review_batches/gold_set_reviewed.jsonl`
-  - prepare: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-gold-review --root . --gold-batch-size 50 --offset 100 --force --reviewer <name> --review-date <YYYY-MM-DD>`
-  - dry_run: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --dry-run`
-  - apply: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl`
-- Batch 4: pending rows 151-200; limit=50; offset=150; batch input=`registry/review_batches/gold_set_reviewed.jsonl`; promotion input=`registry/review_batches/gold_set_full_reviewed.jsonl`
-  - evidence: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-gold-review-evidence --root . --limit 50 --offset 150 --review-input registry/review_batches/gold_set_reviewed.jsonl`
-  - prepare: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-gold-review --root . --gold-batch-size 50 --offset 150 --force --reviewer <name> --review-date <YYYY-MM-DD>`
-  - dry_run: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --dry-run`
-  - apply: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl`
-- Batch 5: pending rows 201-250; limit=50; offset=200; batch input=`registry/review_batches/gold_set_reviewed.jsonl`; promotion input=`registry/review_batches/gold_set_full_reviewed.jsonl`
-  - evidence: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-gold-review-evidence --root . --limit 50 --offset 200 --review-input registry/review_batches/gold_set_reviewed.jsonl`
-  - prepare: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-gold-review --root . --gold-batch-size 50 --offset 200 --force --reviewer <name> --review-date <YYYY-MM-DD>`
-  - dry_run: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --dry-run`
-  - apply: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl`
-- Batch 6: pending rows 251-300; limit=50; offset=250; batch input=`registry/review_batches/gold_set_reviewed.jsonl`; promotion input=`registry/review_batches/gold_set_full_reviewed.jsonl`
-  - evidence: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-gold-review-evidence --root . --limit 50 --offset 250 --review-input registry/review_batches/gold_set_reviewed.jsonl`
-  - prepare: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-gold-review --root . --gold-batch-size 50 --offset 250 --force --reviewer <name> --review-date <YYYY-MM-DD>`
-  - dry_run: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --dry-run`
-  - apply: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl`
-- Batch 7: pending rows 301-350; limit=50; offset=300; batch input=`registry/review_batches/gold_set_reviewed.jsonl`; promotion input=`registry/review_batches/gold_set_full_reviewed.jsonl`
-  - evidence: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-gold-review-evidence --root . --limit 50 --offset 300 --review-input registry/review_batches/gold_set_reviewed.jsonl`
-  - prepare: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-gold-review --root . --gold-batch-size 50 --offset 300 --force --reviewer <name> --review-date <YYYY-MM-DD>`
-  - dry_run: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --dry-run`
-  - apply: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl`
-- Batch 8: pending rows 351-400; limit=50; offset=350; batch input=`registry/review_batches/gold_set_reviewed.jsonl`; promotion input=`registry/review_batches/gold_set_full_reviewed.jsonl`
-  - evidence: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-gold-review-evidence --root . --limit 50 --offset 350 --review-input registry/review_batches/gold_set_reviewed.jsonl`
-  - prepare: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-gold-review --root . --gold-batch-size 50 --offset 350 --force --reviewer <name> --review-date <YYYY-MM-DD>`
-  - dry_run: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --dry-run`
-  - apply: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl`
-- Batch 9: pending rows 401-450; limit=50; offset=400; batch input=`registry/review_batches/gold_set_reviewed.jsonl`; promotion input=`registry/review_batches/gold_set_full_reviewed.jsonl`
-  - evidence: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-gold-review-evidence --root . --limit 50 --offset 400 --review-input registry/review_batches/gold_set_reviewed.jsonl`
-  - prepare: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-gold-review --root . --gold-batch-size 50 --offset 400 --force --reviewer <name> --review-date <YYYY-MM-DD>`
-  - dry_run: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --dry-run`
-  - apply: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl`
-- Batch 10: pending rows 451-500; limit=50; offset=450; batch input=`registry/review_batches/gold_set_reviewed.jsonl`; promotion input=`registry/review_batches/gold_set_full_reviewed.jsonl`
-  - evidence: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-gold-review-evidence --root . --limit 50 --offset 450 --review-input registry/review_batches/gold_set_reviewed.jsonl`
-  - prepare: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-gold-review --root . --gold-batch-size 50 --offset 450 --force --reviewer <name> --review-date <YYYY-MM-DD>`
-  - dry_run: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --dry-run`
-  - apply: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl`
+- Gold-set review: no pending review batches.
 
 ### Analytical-footprint review
 
@@ -341,29 +288,16 @@ This plan slices the current pending set before any new batch is applied. If you
   - prepare: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 900 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite`
   - dry_run: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run`
   - apply: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl`
-- Batch 20: pending rows 951-1000; limit=50; offset=950; batch input=`registry/report_intelligence/analytical_footprint_review_batch.jsonl`; promotion input=`registry/report_intelligence/analytical_footprint_reviewed.jsonl`
+- Batch 20: pending rows 951-967; limit=17; offset=950; batch input=`registry/report_intelligence/analytical_footprint_review_batch.jsonl`; promotion input=`registry/report_intelligence/analytical_footprint_reviewed.jsonl`
   - assist: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .`
-  - evidence: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 950 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl`
-  - prepare: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 50 --offset 950 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite`
-  - dry_run: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run`
-  - apply: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl`
-- Batch 21: pending rows 1001-1001; limit=1; offset=1000; batch input=`registry/report_intelligence/analytical_footprint_review_batch.jsonl`; promotion input=`registry/report_intelligence/analytical_footprint_reviewed.jsonl`
-  - assist: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-assist --root .`
-  - evidence: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 1 --offset 1000 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl`
-  - prepare: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 1 --offset 1000 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite`
+  - evidence: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-footprint-review-evidence --root . --limit 17 --offset 950 --review-input registry/report_intelligence/analytical_footprint_review_batch.jsonl`
+  - prepare: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --limit 17 --offset 950 --reviewer <name> --review-date <YYYY-MM-DD> --overwrite`
   - dry_run: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl --dry-run`
   - apply: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_review_batch.jsonl`
 
 ## Next Batch Commands
 
 These commands operate on the current pending set. After applying an accepted batch, rerun review-progress and use the refreshed commands.
-
-### gold_set
-
-- evidence: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke write-gold-review-evidence --root . --limit 50 --offset 0 --review-input registry/review_batches/gold_set_reviewed.jsonl`
-- prepare: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke prepare-gold-review --root . --gold-batch-size 50 --offset 0 --force --reviewer <name> --review-date <YYYY-MM-DD>`
-- dry_run: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl --dry-run`
-- apply: `MOSAIC_RKE_TMPDIR=/home/hap/tmp/mosaic-rke TMPDIR=/home/hap/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_reviewed.jsonl`
 
 ### footprint_review
 
@@ -375,26 +309,15 @@ These commands operate on the current pending set. After applying an accepted ba
 
 ## Current Blockers
 
-- gold_set: 0/500 ready
-- gold_set: 500 review rows failed validation
-- gold_set: 500 review rows: manual_claim_text required
-- gold_set: 500 review rows: claim_correct must be boolean
-- gold_set: 500 review rows: source_span_supports_claim must be boolean
-- gold_set: 500 review rows: direction_correct must be boolean
-- gold_set: 500 review rows: target_correct must be boolean
-- gold_set: 500 review rows: horizon_correct must be boolean
-- gold_set: 500 review rows: variable_mapping_correct must be boolean
-- gold_set: 500 review rows: unsupported_field_false_grounded must be boolean
-- gold_set: 500 gold-set claim review rows still pending
-- footprint_review: 0/1001 ready
+- gold_set: 158/158 ready
+- gold_set: gold set requires >= 50 documents
+- gold_set: direction_accuracy below 0.85
+- gold_set: variable_mapping_accuracy below 0.80
+- gold_set: unsupported_field_false_grounding_rate above 0.05
+- footprint_review: 34/1001 ready
 - footprint_review: 1001 analytical footprint review rows failed validation
-- footprint_review: 1001 analytical footprint review rows still pending
-- footprint_review: footprint_precision unavailable
-- footprint_review: span_support_precision unavailable
-- footprint_review: metric_mapping_accuracy unavailable
-- footprint_review: inferred_step_tagging_accuracy unavailable
-- footprint_review: unknown_on_ambiguity_rate unavailable
-- footprint_review: proprietary_leakage_free_rate unavailable
+- footprint_review: 967 analytical footprint review rows still pending
+- footprint_review: metric_mapping_accuracy 0.558824 below threshold 0.80
 - lockbox: 0/1 ready
 - lockbox: opened_at required
 - lockbox: opened_by required

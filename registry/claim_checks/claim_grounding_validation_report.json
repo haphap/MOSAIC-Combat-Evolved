@@ -14,7 +14,7 @@
       "check_id": "CLAIM-GROUNDING-CONTRACT",
       "details": {
         "claim_count": 4,
-        "source_count": 9813,
+        "source_count": 17530,
         "span_checked_count": 3,
         "verifier_passed_count": 4
       },

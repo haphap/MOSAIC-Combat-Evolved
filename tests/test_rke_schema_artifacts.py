@@ -106,9 +106,8 @@ EXPECTED_ANALYTICAL_FOOTPRINT_REVIEW_FAILURES = {
     "analytical_footprint_review_summary pending_rows must be zero",
     (
         "analytical_footprint_review_summary quality blockers: "
-        "footprint_precision unavailable; span_support_precision unavailable; "
-        "metric_mapping_accuracy unavailable; inferred_step_tagging_accuracy unavailable; "
-        "unknown_on_ambiguity_rate unavailable; proprietary_leakage_free_rate unavailable"
+        "metric_mapping_accuracy 0.440000 below threshold 0.80; "
+        "unknown_on_ambiguity_rate 0.700000 below threshold 0.80"
     ),
 }
 
@@ -205,18 +204,19 @@ def test_stock_report_outcome_status_doc_matches_public_artifacts():
         f"{stock_count} stock price proxy"
     ) in status_text
     assert {"gold_set", "footprint_review", "source_license", "lockbox"} <= gate_kinds
-    assert "public baseline: gold-set 0/500" in status_text
+    assert "public baseline: gold-set 0/100" in status_text
     assert "analytical-footprint review 0/1001" in status_text
     assert "source license 17529/17529" in status_text
     assert "source license 17529/17529 already applied" in status_text
     assert "action_state=already_applied" in status_text
     assert "can_run_now=false" in status_text
     assert "private footprint review assist/workbook cover 1001 pending rows" in status_text
-    assert "private gold-set evidence draft now covers 500 rows" in status_text
+    assert "gold-set scratch batch has 20 rows" in status_text
+    assert "10 still have aggregate missing-field counts" in status_text
     assert "private evidence draft covers 1001 rows with 0 missing local markdown rows" in status_text
     assert "Synthetic pytest fixtures" in status_text
     assert "current target hashes" in status_text
-    assert "500 rows still require manual claim text and boolean review decisions" in status_text
+    assert "gold-set import remains not ready" in status_text
     assert "lockbox 0/1" in status_text
     assert "labelability_summary" in status_text
     assert "outcome_labeling_readiness.industry_etf_proxy_readiness" in status_text
@@ -945,15 +945,15 @@ def _copy_gold_review_summary(tmp_path: Path) -> Path:
     summary_path.write_text(
         json.dumps(
             {
-                "blockers": ["500 gold-set claim review rows still pending"],
+                "blockers": ["100 gold-set claim review rows still pending"],
                 "metrics": None,
                 "passed": False,
-                "pending_claims": 500,
+                "pending_claims": 100,
                 "review_complete": False,
                 "review_path": "registry/gold_sets/tushare_research_reports.review_template.jsonl",
                 "reviewed_claims": 0,
                 "summary_id": "RKE-GOLD-SET-REVIEW-SUMMARY-20260606",
-                "total_claims": 500,
+                "total_claims": 100,
                 "total_documents": 50,
             },
             ensure_ascii=False,
@@ -2846,7 +2846,7 @@ def test_evolution_readiness_gate_contract_rejects_tampered_gold_metrics(
     gold_check["evidence"]["gold_set_passed"] = True
     gold_check["evidence"]["review_complete"] = True
     gold_check["evidence"]["pending_claims"] = 0
-    gold_check["evidence"]["reviewed_claims"] = 500
+    gold_check["evidence"]["reviewed_claims"] = 100
     gold_check["evidence"]["metrics"]["claim_precision"] = 0.50
     gold_check["evidence"]["metrics"]["unsupported_field_false_grounding_rate"] = 0.20
     gate["blockers"] = [
@@ -2888,7 +2888,7 @@ def test_evolution_readiness_gate_contract_rejects_unexplained_stock_conflicts(
     gold_check["evidence"]["gold_set_passed"] = True
     gold_check["evidence"]["review_complete"] = True
     gold_check["evidence"]["pending_claims"] = 0
-    gold_check["evidence"]["reviewed_claims"] = 500
+    gold_check["evidence"]["reviewed_claims"] = 100
     gold_check["evidence"]["stock_target_conflict_count"] = 2
     gold_check["evidence"]["stock_target_conflict_reviewed_count"] = 1
     gold_check["evidence"]["stock_target_conflict_explained"] = False
@@ -2975,8 +2975,8 @@ def test_gold_review_gate_contract_rejects_count_or_metric_drift(tmp_path: Path)
             "passed": True,
             "pending_claims": 0,
             "review_complete": True,
-            "reviewed_claims": 499,
-            "total_claims": 500,
+            "reviewed_claims": 99,
+            "total_claims": 100,
             "total_documents": 49,
         }
     )
@@ -2992,7 +2992,7 @@ def test_gold_review_gate_contract_rejects_count_or_metric_drift(tmp_path: Path)
         "reviewed_claims + pending_claims must equal total_claims" in item
         for item in record.failures
     )
-    assert any("reviewed_claims: expected >= 500" in item for item in record.failures)
+    assert any("reviewed_claims: expected >= 100" in item for item in record.failures)
     assert any("total_documents: expected >= 50" in item for item in record.failures)
     assert any("metrics.claim_precision: expected >= 0.85" in item for item in record.failures)
     assert any(
@@ -3278,9 +3278,12 @@ def test_manual_review_progress_contract_rejects_tampered_ready_state(
     progress = json.loads(progress_path.read_text(encoding="utf-8"))
     progress["ready_for_promotion_dry_run"] = True
     progress["blockers"] = []
-    progress["gates"][0]["ready_for_promotion"] = True
-    progress["gates"][0]["simulation_accepted"] = True
-    progress["gates"][0]["blockers"] = ["still blocked"]
+    footprint_gate = next(
+        gate for gate in progress["gates"] if gate["review_kind"] == "footprint_review"
+    )
+    footprint_gate["ready_for_promotion"] = True
+    footprint_gate["simulation_accepted"] = True
+    footprint_gate["blockers"] = ["still blocked"]
     progress_path.write_text(
         json.dumps(progress, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
@@ -3295,7 +3298,7 @@ def test_manual_review_progress_contract_rejects_tampered_ready_state(
     )
     assert any("blockers: must be non-empty" in item for item in record.failures)
     assert any(
-        "gates[gold_set].pending_rows: ready gate must be zero" in item
+        "gates[footprint_review].pending_rows: ready gate must be zero" in item
         for item in record.failures
     )
     assert any("ready gate must not block" in item for item in record.failures)

@@ -253,6 +253,7 @@ def _operator_command_sequence(
     gates: Sequence[OperatorGateHandoff],
     *,
     promotion_dry_run_command: str,
+    source_license_review_complete: bool,
 ) -> tuple[OperatorCommandStep, ...]:
     gate_by_kind = {gate.review_kind: gate for gate in gates}
     gold = gate_by_kind["gold_set"]
@@ -298,7 +299,7 @@ def _operator_command_sequence(
             action="Fill the gold-set reviewed scratch file.",
             command="",
             manual_input_path=GOLD_FULL_REVIEWED_IMPORT_PATH,
-            expected_result="All 500 claim rows have required manual fields and preserved provenance hashes.",
+            expected_result="All current claim rows have required manual fields and preserved provenance hashes.",
         ),
         OperatorCommandStep(
             step_id="dry-run-gold-review",
@@ -376,7 +377,7 @@ def _operator_command_sequence(
             expected_result="Footprint summaries and downstream gates are recomputed.",
         ),
     ]
-    if not source_license.passed:
+    if not source_license_review_complete:
         steps.extend(
             [
                 OperatorCommandStep(
@@ -712,7 +713,7 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
                 f"use {GOLD_REVIEW_WORKBOOK_MD_PATH} as the read-only claim checklist, "
                 f"and use {GOLD_REVIEW_ASSIST_MD_PATH} as non-import machine assistance, "
                 f"use {GOLD_REVIEW_EVIDENCE_MD_PATH} as private source evidence draft, "
-                "then dry-run before applying the 500-claim gold set. For batch work, "
+                "then dry-run before applying the gold set. For batch work, "
                 f"prepare {GOLD_REVIEWED_IMPORT_PATH} with --gold-batch-size/--offset, "
                 "dry-run it, and apply accepted batches to accumulate progress."
             ),
@@ -827,9 +828,9 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
         OPERATOR_HANDOFF_JSON_PATH,
         OPERATOR_HANDOFF_MD_PATH,
     )
-    source_license_gate = next(gate for gate in gates if gate.review_kind == "source_license")
     footprint_arg = f"--footprint-input {ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH}"
-    if source_license_gate.passed:
+    source_license_review_complete = source_license.pending_rows == 0
+    if source_license_review_complete:
         promotion_dry_run_command = operator_command(
             "mosaic-rke promotion-dry-run --root . "
             f"--gold-input {GOLD_FULL_REVIEWED_IMPORT_PATH} "
@@ -850,6 +851,7 @@ def build_operator_handoff(root: str | Path = ".") -> OperatorHandoff:
     command_sequence = _operator_command_sequence(
         gates,
         promotion_dry_run_command=promotion_dry_run_command,
+        source_license_review_complete=source_license_review_complete,
     )
     remaining_blockers = tuple(
         dict.fromkeys(

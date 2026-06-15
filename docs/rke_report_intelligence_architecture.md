@@ -129,6 +129,27 @@ flowchart LR
 | recipe and retrieval | recipe builders | 生成 shadow analysis recipe 和 weighted research context | `analysis_recipes.jsonl`, `weighted_research_contexts.jsonl` |
 | governance audits | audit builders | 验证 runtime no-op、PIT、provenance、统计稳健性、tool feasibility、recipe gate | `*_audit.json`, `patch_v1_5_coverage_report.json` |
 
+### 3.1 本地运行约定
+
+当前 RKE 本地环境已经配置过 MinerU、vLLM 和 report-intelligence 依赖。后续批量
+转换研报时，应先复用既有环境，不要直接重装：
+
+- MinerU CLI 优先使用 `.venv/bin/mineru`；如果 shell `PATH` 中已有 `mineru`，
+  两者应指向同一套虚拟环境。
+- PDF 到 Markdown 默认使用 MinerU 的 `hybrid-auto-engine`，需要纯 VLM 解析时
+  改用 `vlm-auto-engine`。除非明确要连 MinerU HTTP 服务，否则不要临时改成
+  `pipeline`。
+- 本地 vLLM/Docker 服务优先检查并启动
+  `rke-vllm-qwen36-27b-160k-20260610`，该容器的 vLLM OpenAI 兼容端口为
+  `8020`。
+- RKE 抽取 LLM 通过 `.env` 配置，使用 `MOSAIC_RKE_VLLM_BASE_URL`、
+  `MOSAIC_RKE_VLLM_MODEL` 和 API-key env vars；文档、提交和日志不得写入密钥
+  明文。
+- 如果只需要验证 pipeline，可先运行 `--skip-convert` 或 `--skip-llm`；真正扩大
+  覆盖率时再打开 MinerU/vLLM。
+- 宏观策略本地 PDF source 以 `/home/hap/Downloads/yanbaoke/宏观策略` 目录内
+  的 PDF 为准，递归扫描 `*.pdf`，不要依赖不完整的文件清单。
+
 ## 4. Artifact 架构
 
 Report Intelligence 的主要 artifact 都集中在 `registry/report_intelligence/`：
@@ -253,7 +274,7 @@ stateDiagram-v2
 |---|---|
 | `report-intelligence --refresh-derived-only` | public-safe mode refuses to overwrite committed derived artifacts when required private inputs are absent; with local private snapshots it can recompute derived artifacts, but those private inputs must not be committed |
 | `schema-status` | exits 2 by design until analytical footprint review and patch v1.5 coverage semantic gates pass |
-| `review-progress` | source-license review ready; gold-set remains 0/500 complete, analytical-footprint review remains 0/1001 complete, and lockbox remains 0/1; active 50-row gold and footprint batches have aligned private evidence drafts but still require human decisions |
+| `review-progress` | source-license review ready; gold-set remains 0/100 complete, analytical-footprint review remains 0/1001 complete, and lockbox remains 0/1; active 50-row gold and footprint batches have aligned private evidence drafts but still require human decisions |
 | `evolution_readiness_gate` | blocked by manual forecast gold-set metrics, analytical-footprint quality gates, schema/coverage blockers downstream of manual review, and audit trailing-vintage dependency while schema is not accepted; outcome and paper-trading thresholds are currently cleared |
 | `recipe_paper_trading_summary` | committed public-safe summary has 1858 pre-registered shadow runs and 20 validated recipes; remaining recipe rows stay shadow-blocked when direct PIT binding, effective N, or shadow-tool readiness is insufficient |
 | production impact | forbidden; report-derived signals remain shadow-only until schema/audit, manual review, paper-trading, confidence-impact, and lockbox gates all pass |

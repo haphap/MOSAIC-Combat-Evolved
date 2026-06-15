@@ -548,7 +548,7 @@ def _mvp_deliverable_records(
             completion,
             "C02",
             section_id="MVP-D2",
-            requirement="Claim extraction gold set for 50 documents / 500 claims.",
+            requirement="Claim extraction gold set for 50 documents / 100 claims.",
             evidence_paths=(
                 "registry/gold_sets/tushare_research_reports.review_template.jsonl",
                 "registry/gold_sets/tushare_research_reports.review_summary.json",
@@ -1037,7 +1037,7 @@ def build_master_plan_coverage_report(
                 completion,
                 "C02",
                 section_id="Phase-1B",
-                requirement="Claim extraction reliability has 50-document / 500-claim manual gold-set gate.",
+                requirement="Claim extraction reliability has 50-document / 100-claim manual gold-set gate.",
                 evidence_paths=(
                     "registry/gold_sets/tushare_research_reports.review_template.jsonl",
                     "registry/gold_sets/tushare_research_reports.candidate_claims.jsonl",

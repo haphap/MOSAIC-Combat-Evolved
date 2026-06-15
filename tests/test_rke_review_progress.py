@@ -23,6 +23,8 @@ from mosaic.rke.manual_review_aids import (
 )
 from mosaic.rke.manual_review_batches import (
     GOLD_FULL_REVIEWED_IMPORT_PATH,
+    GOLD_REVIEW_PACKET_PATH,
+    GOLD_REVIEW_TEMPLATE_PATH,
     GOLD_REVIEWED_IMPORT_PATH,
     GOLD_REVIEW_ASSIST_JSONL_PATH,
     GOLD_REVIEW_ASSIST_MD_PATH,
@@ -34,6 +36,8 @@ from mosaic.rke.manual_review_batches import (
 from mosaic.rke.manual_review_import import (
     GOLD_BOOL_FIELDS,
     LICENSE_IMPORTED_FIELDS,
+    TARGET_ROW_HASH_FIELD,
+    review_row_fingerprint,
 )
 from mosaic.rke.operator_handoff import (
     LOCKBOX_REVIEWED_IMPORT_PATH,
@@ -265,7 +269,22 @@ def _license_review_source_count(root: Path) -> int:
 
 
 def _accepted_gold_rows(root: Path) -> list[dict]:
-    rows = _load_jsonl(root / "registry/review_batches/gold_set_full_import_template.jsonl")
+    target_rows = _load_jsonl(root / GOLD_REVIEW_TEMPLATE_PATH)
+    rows = []
+    for target_row in target_rows:
+        row = {
+            "claim_id": str(target_row.get("claim_id") or ""),
+            TARGET_ROW_HASH_FIELD: review_row_fingerprint(target_row),
+            "source_id": str(target_row.get("source_id") or ""),
+            "source_span_id": str(target_row.get("source_span_id") or ""),
+            "document_id": str(
+                target_row.get("document_id") or target_row.get("source_id") or ""
+            ),
+            "gold_set_domain": str(target_row.get("gold_set_domain") or "other"),
+            "target_review_path": GOLD_REVIEW_TEMPLATE_PATH,
+            "review_context_ref": GOLD_REVIEW_PACKET_PATH,
+        }
+        rows.append(row)
     for row in rows:
         row.update(
             {
@@ -378,7 +397,7 @@ def test_review_progress_reports_missing_scratch_files(tmp_path: Path, capsys):
         == expected_footprint_dry_run
     )
     assert source_license_gate["next_batch_commands"] == {}
-    assert len(gold_gate["batch_plan"]) == 10
+    assert len(gold_gate["batch_plan"]) >= 1
     assert gold_gate["batch_plan"][0]["offset"] == 0
     assert (
         gold_gate["batch_plan"][0]["apply_effect"]
@@ -392,7 +411,8 @@ def test_review_progress_reports_missing_scratch_files(tmp_path: Path, capsys):
         gold_gate["batch_plan"][0]["promotion_input_path"]
         == "registry/review_batches/gold_set_full_reviewed.jsonl"
     )
-    assert gold_gate["batch_plan"][-1]["offset"] == 450
+    gold_offsets = [batch["offset"] for batch in gold_gate["batch_plan"]]
+    assert gold_offsets == sorted(gold_offsets)
     assert len(footprint_gate["batch_plan"]) == 21
     assert footprint_gate["batch_plan"][-1]["offset"] == 1000
     assert footprint_gate["batch_plan"][-1]["limit"] == 1
@@ -422,6 +442,48 @@ def test_review_progress_reports_missing_scratch_files(tmp_path: Path, capsys):
     assert (tmp_path / "registry/review_batches/manual_review_progress_report.json").exists()
 
 
+def test_review_progress_reports_gold_quality_blockers_without_reapplying_stale_full_import(
+    tmp_path: Path,
+):
+    _copy_registry(tmp_path)
+    gold_path = tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    row = _load_jsonl(gold_path)[0]
+    row.update(
+        {
+            "manual_claim_text": "reviewed but low quality label",
+            "claim_correct": True,
+            "source_span_supports_claim": True,
+            "direction_correct": False,
+            "target_correct": True,
+            "horizon_correct": True,
+            "variable_mapping_correct": False,
+            "unsupported_field_false_grounded": True,
+            "reviewer": "reviewer-a",
+            "review_date": "2026-06-06",
+            "review_notes": "complete row with failing quality metrics",
+        }
+    )
+    _write_jsonl(gold_path, [row])
+    stale_import = dict(row)
+    stale_import["claim_id"] = "GOLD-STALE-IMPORT-ROW"
+    _write_jsonl(tmp_path / GOLD_FULL_REVIEWED_IMPORT_PATH, [stale_import])
+
+    report = build_manual_review_progress(tmp_path)
+    summary = build_manual_review_progress_summary(report)
+    gold_gate = next(gate for gate in report.gates if gate.review_kind == "gold_set")
+    gold_summary = next(
+        gate for gate in summary["gates"] if gate["review_kind"] == "gold_set"
+    )
+
+    assert gold_gate.pending_rows == 0
+    assert gold_gate.complete_rows == 1
+    assert gold_gate.simulation_accepted is False
+    assert any("gold set requires >= 50 documents" in blocker for blocker in gold_gate.blockers)
+    assert not any("claim_id missing from target review template" in blocker for blocker in gold_gate.blockers)
+    assert gold_summary["next_manual_action"] == "address_quality_gate_blockers"
+    assert gold_summary["next_batch_commands"] == {}
+
+
 def test_review_progress_summary_omits_full_batch_plan(tmp_path: Path, capsys):
     _copy_registry(tmp_path)
 
@@ -440,7 +502,7 @@ def test_review_progress_summary_omits_full_batch_plan(tmp_path: Path, capsys):
     assert "blockers" not in output
     assert "batch_plan" not in encoded
     assert gold_gate["blocker_count"] > 0
-    assert gold_gate["batch_overview"]["batch_count"] == 10
+    assert gold_gate["batch_overview"]["batch_count"] >= 1
     assert gold_gate["batch_overview"]["next_batch_offset"] == 0
     assert gold_gate["batch_overview"]["next_batch_limit"] == 50
     assert (
@@ -634,7 +696,7 @@ def test_review_progress_actions_only_reports_next_manual_work(
         actions["gold_set"]["current_batch_path"]
         == "registry/review_batches/gold_set_reviewed.jsonl"
     )
-    assert actions["gold_set"]["batch_overview"]["batch_count"] == 10
+    assert actions["gold_set"]["batch_overview"]["batch_count"] >= 1
     assert actions["gold_set"]["batch_overview"]["next_batch_limit"] == 50
     assert (
         actions["gold_set"]["batch_overview"]["current_batch_path"]
@@ -1084,7 +1146,7 @@ def test_manual_review_runbook_renders_operator_checklist_without_source_text(tm
     assert "## Next Batch Commands" in markdown
     assert "## Full Pending Batch Plan" in markdown
     assert (
-        "Batch 10: pending rows 451-500; limit=50; offset=450; "
+        "Batch 1: pending rows 1-50; limit=50; offset=0; "
         "batch input=`registry/review_batches/gold_set_reviewed.jsonl`"
         in markdown
     )

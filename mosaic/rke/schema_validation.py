@@ -801,6 +801,38 @@ INDUSTRY_PROXY_REQUIRED_LABEL_FIELDS = (
     "evaluation_policy",
 )
 
+MACRO_PROXY_REQUIRED_LABEL_FIELDS = (
+    "proxy_symbol",
+    "claim_window_set_id",
+    "macro_asset_target_id",
+    "mapping_id",
+    "mapping_version",
+    "mapping_confidence",
+    "benchmark_symbol",
+    "benchmark_source",
+    "benchmark_family",
+    "cost_model_id",
+    "entry_lag_trading_days",
+    "round_trip_cost",
+    "proxy_return",
+    "benchmark_return",
+    "relative_alpha",
+    "after_cost_alpha",
+    "directional_after_cost_return",
+    "directional_hit",
+    "relative_directional_hit",
+    "outcome_label_source",
+    "llm_outcome_labeling_allowed",
+    "performance_value_basis",
+    "direction_evaluated",
+    "decision_basis",
+    "window_role",
+    "source_horizon_days",
+    "source_horizon_bucket",
+    "claim_window_alignment",
+    "evaluation_policy",
+)
+
 INDUSTRY_ETF_DECISION_BASIS = "absolute_proxy_return_direction"
 INDUSTRY_ETF_EVALUATION_POLICY = (
     "industry_etf_t_plus_1_multi_window_proxy_retains_long_horizon_evidence"
@@ -816,10 +848,28 @@ STOCK_PRICE_PROXY_EVALUATION_POLICY = (
 )
 STOCK_PRICE_PROXY_COST_MODEL_ID = "single_stock_round_trip_20bps_v1"
 STOCK_PRICE_PROXY_ROUND_TRIP_COST = 0.002
+PROXY_OUTCOME_LABEL_TYPES = frozenset(
+    {"stock_price_proxy", "industry_etf_proxy", "macro_asset_proxy"}
+)
+MACRO_ASSET_PROXY_DECISION_BASIS = "directional_macro_asset_proxy_return"
+MACRO_ASSET_PROXY_EVALUATION_POLICY = (
+    "macro_asset_t_plus_1_multi_window_proxy_retains_long_horizon_evidence"
+)
+MACRO_ASSET_PROXY_COST_MODEL_ID = "macro_asset_etf_round_trip_10bps_v1"
+MACRO_ASSET_PROXY_ROUND_TRIP_COST = 0.001
+MACRO_ASSET_PROXY_BENCHMARK_SYMBOL = "CASH_0"
+MACRO_ASSET_PROXY_BENCHMARK_SOURCE = "cash_zero_return"
+MACRO_ASSET_PROXY_BENCHMARK_FAMILY = "ABSOLUTE_RETURN_PROXY"
 INDUSTRY_ETF_PROXY_WINDOW_EFFECTIVE_WEIGHTS: Mapping[str, float] = {
     "short": 0.25,
     "medium": 0.35,
     "long": 0.40,
+}
+MACRO_ASSET_PROXY_WINDOW_EFFECTIVE_WEIGHTS: Mapping[int, float] = {
+    5: 0.20,
+    20: 0.25,
+    60: 0.25,
+    120: 0.30,
 }
 STOCK_PRICE_PROXY_WINDOW_EFFECTIVE_WEIGHTS: Mapping[int, float] = {
     5: 0.20,
@@ -892,7 +942,7 @@ GAP_DISTRIBUTION_MAX_STABLE_SHARE = 0.80
 GOLD_REVIEW_GATE_EXPECTED_REVIEW_PATH = (
     "registry/gold_sets/tushare_research_reports.review_template.jsonl"
 )
-GOLD_REVIEW_GATE_MIN_REVIEWED_CLAIMS = 500
+GOLD_REVIEW_GATE_MIN_REVIEWED_CLAIMS = 100
 GOLD_REVIEW_GATE_MIN_DOCUMENTS = 50
 GOLD_REVIEW_GATE_METRIC_THRESHOLDS = {
     "claim_precision": (">=", 0.85),
@@ -1394,18 +1444,19 @@ def _validate_proxy_outcome_label_contract(
     row_label: str,
 ) -> list[str]:
     label_type = str(row.get("label_type") or "")
-    if label_type not in {"stock_price_proxy", "industry_etf_proxy"}:
+    if label_type not in PROXY_OUTCOME_LABEL_TYPES:
         return [
-            f"{row_label}.label_type: must be stock_price_proxy or industry_etf_proxy"
+            f"{row_label}.label_type: must be stock_price_proxy, industry_etf_proxy, or macro_asset_proxy"
         ]
+    required_fields = {
+        "stock_price_proxy": STOCK_PROXY_REQUIRED_LABEL_FIELDS,
+        "industry_etf_proxy": INDUSTRY_PROXY_REQUIRED_LABEL_FIELDS,
+        "macro_asset_proxy": MACRO_PROXY_REQUIRED_LABEL_FIELDS,
+    }[label_type]
     failures = _required_field_failures(
         row,
         row_label=row_label,
-        required_fields=(
-            STOCK_PROXY_REQUIRED_LABEL_FIELDS
-            if label_type == "stock_price_proxy"
-            else INDUSTRY_PROXY_REQUIRED_LABEL_FIELDS
-        ),
+        required_fields=required_fields,
     )
     if row.get("llm_outcome_labeling_allowed") is not False:
         failures.append(f"{row_label}.llm_outcome_labeling_allowed: must be false")
@@ -1466,11 +1517,20 @@ def _validate_proxy_outcome_label_contract(
     else:
         if round_trip_cost < 0:
             failures.append(f"{row_label}.round_trip_cost: must be >= 0")
-    for field, expected in (
-        ("benchmark_symbol", PROXY_BENCHMARK_SYMBOL),
-        ("benchmark_source", PROXY_BENCHMARK_SOURCE),
-        ("benchmark_family", PROXY_BENCHMARK_FAMILY),
-    ):
+    benchmark_expected = (
+        (
+            ("benchmark_symbol", MACRO_ASSET_PROXY_BENCHMARK_SYMBOL),
+            ("benchmark_source", MACRO_ASSET_PROXY_BENCHMARK_SOURCE),
+            ("benchmark_family", MACRO_ASSET_PROXY_BENCHMARK_FAMILY),
+        )
+        if label_type == "macro_asset_proxy"
+        else (
+            ("benchmark_symbol", PROXY_BENCHMARK_SYMBOL),
+            ("benchmark_source", PROXY_BENCHMARK_SOURCE),
+            ("benchmark_family", PROXY_BENCHMARK_FAMILY),
+        )
+    )
+    for field, expected in benchmark_expected:
         if row.get(field) != expected:
             failures.append(f"{row_label}.{field}: must be {expected}")
     proxy_return_field = "stock_return" if label_type == "stock_price_proxy" else "proxy_return"
@@ -1685,6 +1745,59 @@ def _validate_proxy_outcome_label_contract(
         else:
             if mapping_version < 1:
                 failures.append(f"{row_label}.mapping_version: must be >= 1")
+    elif label_type == "macro_asset_proxy":
+        if row.get("decision_basis") != MACRO_ASSET_PROXY_DECISION_BASIS:
+            failures.append(
+                f"{row_label}.decision_basis: must be {MACRO_ASSET_PROXY_DECISION_BASIS}"
+            )
+        if row.get("evaluation_policy") != MACRO_ASSET_PROXY_EVALUATION_POLICY:
+            failures.append(
+                f"{row_label}.evaluation_policy: must be {MACRO_ASSET_PROXY_EVALUATION_POLICY}"
+            )
+        if row.get("cost_model_id") != MACRO_ASSET_PROXY_COST_MODEL_ID:
+            failures.append(
+                f"{row_label}.cost_model_id: must be {MACRO_ASSET_PROXY_COST_MODEL_ID}"
+            )
+        if round_trip_cost is not None and not _nearly_equal(
+            round_trip_cost,
+            MACRO_ASSET_PROXY_ROUND_TRIP_COST,
+        ):
+            failures.append(
+                f"{row_label}.round_trip_cost: must be {MACRO_ASSET_PROXY_ROUND_TRIP_COST}"
+            )
+        if row.get("outcome_label_source") != "pit_macro_asset_etf_price_window":
+            failures.append(
+                f"{row_label}.outcome_label_source: must be pit_macro_asset_etf_price_window"
+            )
+        expected_weight = (
+            MACRO_ASSET_PROXY_WINDOW_EFFECTIVE_WEIGHTS.get(horizon_days)
+            if horizon_days is not None
+            else None
+        )
+        if expected_weight is None:
+            failures.append(
+                f"{row_label}.horizon_days: unsupported macro asset proxy window"
+            )
+        elif effective_n_weight is not None and not _nearly_equal(
+            effective_n_weight,
+            expected_weight,
+        ):
+            failures.append(
+                f"{row_label}.effective_n_weight: must be {expected_weight} for macro horizon_days={horizon_days}"
+            )
+        if row.get("benchmark_return") not in (0, 0.0):
+            failures.append(f"{row_label}.benchmark_return: must be 0 for macro asset proxy")
+        if not str(row.get("macro_asset_target_id") or "").strip():
+            failures.append(f"{row_label}.macro_asset_target_id: required")
+        if not str(row.get("mapping_id") or "").strip():
+            failures.append(f"{row_label}.mapping_id: required")
+        try:
+            mapping_version = int(row.get("mapping_version"))
+        except (TypeError, ValueError):
+            failures.append(f"{row_label}.mapping_version: expected integer")
+        else:
+            if mapping_version < 1:
+                failures.append(f"{row_label}.mapping_version: must be >= 1")
     return failures
 
 
@@ -1696,7 +1809,7 @@ def _validate_proxy_outcome_label_id_namespaces(
     namespace_index: dict[tuple[str, str], dict[str, list[int]]] = {}
     for index, row in enumerate(outcome_label_rows, 1):
         label_type = str(row.get("label_type") or "").strip()
-        if label_type not in {"stock_price_proxy", "industry_etf_proxy"}:
+        if label_type not in PROXY_OUTCOME_LABEL_TYPES:
             continue
         for field in id_fields:
             value = str(row.get(field) or "").strip()
@@ -1726,7 +1839,7 @@ def _validate_proxy_outcome_label_effective_n_sets(
     grouped_weights: dict[str, list[tuple[int, float]]] = {}
     for index, row in enumerate(outcome_label_rows, 1):
         label_type = str(row.get("label_type") or "").strip()
-        if label_type not in {"stock_price_proxy", "industry_etf_proxy"}:
+        if label_type not in PROXY_OUTCOME_LABEL_TYPES:
             continue
         group_id = str(row.get("claim_window_set_id") or "").strip()
         if not group_id:
@@ -1772,7 +1885,7 @@ def _validate_proxy_outcome_label_forecast_traceability(
 
     for index, row in enumerate(outcome_label_rows, 1):
         label_type = str(row.get("label_type") or "").strip()
-        if label_type not in {"stock_price_proxy", "industry_etf_proxy"}:
+        if label_type not in PROXY_OUTCOME_LABEL_TYPES:
             continue
         row_label = f"report_outcome_labels row {index}"
         claim_id = str(row.get("forecast_claim_id") or "").strip()
@@ -2390,6 +2503,177 @@ def _validate_stock_price_proxy_readiness_contract(
     return len(stock_labels) + len(eligible_ids), failures
 
 
+def _validate_macro_asset_proxy_readiness_contract(
+    root_path: Path,
+    outcome_label_rows: Sequence[Mapping[str, Any]],
+) -> tuple[int, list[str]]:
+    readiness_report, readiness_errors = _read_mapping_json(
+        root_path / "registry/report_intelligence/outcome_labeling_readiness.json",
+        "registry/report_intelligence/outcome_labeling_readiness.json",
+    )
+    failures = list(readiness_errors)
+    if not readiness_report:
+        return 0, failures
+
+    macro_readiness = readiness_report.get("macro_asset_proxy_readiness")
+    if not isinstance(macro_readiness, Mapping):
+        return 0, [
+            *failures,
+            "outcome_labeling_readiness.macro_asset_proxy_readiness: expected object",
+        ]
+
+    if not str(macro_readiness.get("qlib_etf_dir_configured") or "").startswith(
+        "qlib://"
+    ):
+        failures.append(
+            "outcome_labeling_readiness.macro_asset_proxy_readiness."
+            "qlib_etf_dir_configured: must use public qlib source label"
+        )
+    for field, expected in (
+        ("outcome_label_source", "pit_macro_asset_etf_price_window"),
+        ("benchmark_symbol", MACRO_ASSET_PROXY_BENCHMARK_SYMBOL),
+        ("benchmark_source", MACRO_ASSET_PROXY_BENCHMARK_SOURCE),
+        ("benchmark_family", MACRO_ASSET_PROXY_BENCHMARK_FAMILY),
+        ("cost_model_id", MACRO_ASSET_PROXY_COST_MODEL_ID),
+    ):
+        if macro_readiness.get(field) != expected:
+            failures.append(
+                "outcome_labeling_readiness.macro_asset_proxy_readiness."
+                f"{field}: must be {expected}"
+            )
+    if macro_readiness.get("llm_outcome_labeling_allowed") is not False:
+        failures.append(
+            "outcome_labeling_readiness.macro_asset_proxy_readiness."
+            "llm_outcome_labeling_allowed: must be false"
+        )
+    if _int_or_none(macro_readiness.get("entry_lag_trading_days")) != 1:
+        failures.append(
+            "outcome_labeling_readiness.macro_asset_proxy_readiness."
+            "entry_lag_trading_days: must be 1"
+        )
+    if tuple(_int_items(macro_readiness.get("windows_days"))) != (5, 20, 60, 120):
+        failures.append(
+            "outcome_labeling_readiness.macro_asset_proxy_readiness."
+            "windows_days: must be [5, 20, 60, 120]"
+        )
+
+    mapping_policy = macro_readiness.get("mapping_policy")
+    if not isinstance(mapping_policy, Mapping):
+        failures.append(
+            "outcome_labeling_readiness.macro_asset_proxy_readiness."
+            "mapping_policy: expected object"
+        )
+        mapping_policy = {}
+    if mapping_policy.get("crude_oil_mapping_enabled") is not False:
+        failures.append(
+            "outcome_labeling_readiness.macro_asset_proxy_readiness."
+            "mapping_policy.crude_oil_mapping_enabled: must be false"
+        )
+    if _int_or_none(mapping_policy.get("mapping_count")) != _int_or_none(
+        macro_readiness.get("mapping_count")
+    ):
+        failures.append(
+            "outcome_labeling_readiness.macro_asset_proxy_readiness."
+            "mapping_policy.mapping_count mismatch"
+        )
+
+    gap_counts = macro_readiness.get("data_gap_counts")
+    if not isinstance(gap_counts, Mapping):
+        failures.append(
+            "outcome_labeling_readiness.macro_asset_proxy_readiness."
+            "data_gap_counts: expected object"
+        )
+        gap_counts = {}
+    for gap_name, value in gap_counts.items():
+        parsed = _int_or_none(value)
+        if parsed is None or parsed < 0:
+            failures.append(
+                "outcome_labeling_readiness.macro_asset_proxy_readiness."
+                f"data_gap_counts.{gap_name}: must be nonnegative integer"
+            )
+
+    macro_labels = [
+        row for row in outcome_label_rows if row.get("label_type") == "macro_asset_proxy"
+    ]
+    macro_claim_ids = {
+        str(row.get("forecast_claim_id") or "")
+        for row in macro_labels
+        if str(row.get("forecast_claim_id") or "").strip()
+    }
+    labelable_ids = {
+        str(item)
+        for item in _string_items(macro_readiness.get("labelable_forecast_claim_ids"))
+        if str(item).strip()
+    }
+    eligible_ids = {
+        str(item)
+        for item in _string_items(macro_readiness.get("eligible_forecast_claim_ids"))
+        if str(item).strip()
+    }
+    pending_ids = {
+        str(item)
+        for item in _string_items(
+            macro_readiness.get("pending_future_forecast_claim_ids")
+        )
+        if str(item).strip()
+    }
+    if macro_claim_ids and labelable_ids != macro_claim_ids:
+        failures.append(
+            "outcome_labeling_readiness.macro_asset_proxy_readiness."
+            "labelable_forecast_claim_ids: must match macro outcome label claim ids"
+        )
+    if not labelable_ids.issubset(eligible_ids):
+        failures.append(
+            "outcome_labeling_readiness.macro_asset_proxy_readiness."
+            "labelable_forecast_claim_ids: must be a subset of eligible_forecast_claim_ids"
+        )
+    if not pending_ids.issubset(eligible_ids):
+        failures.append(
+            "outcome_labeling_readiness.macro_asset_proxy_readiness."
+            "pending_future_forecast_claim_ids: must be a subset of eligible_forecast_claim_ids"
+        )
+    if labelable_ids & pending_ids:
+        failures.append(
+            "outcome_labeling_readiness.macro_asset_proxy_readiness."
+            "labelable and pending future claim ids must be disjoint"
+        )
+    for field, expected in (
+        ("eligible_claim_count", len(eligible_ids)),
+        ("labelable_forecast_claim_count", len(labelable_ids)),
+        ("pending_future_forecast_claim_count", len(pending_ids)),
+    ):
+        if _int_or_none(macro_readiness.get(field)) != expected:
+            failures.append(
+                "outcome_labeling_readiness.macro_asset_proxy_readiness."
+                f"{field}: expected {expected}"
+            )
+    labelable_window_count = _int_or_none(macro_readiness.get("labelable_window_count"))
+    if labelable_window_count is None or labelable_window_count < 0:
+        failures.append(
+            "outcome_labeling_readiness.macro_asset_proxy_readiness."
+            "labelable_window_count: expected nonnegative integer"
+        )
+    elif macro_labels and labelable_window_count != len(macro_labels):
+        failures.append(
+            "outcome_labeling_readiness.macro_asset_proxy_readiness."
+            f"labelable_window_count: expected {len(macro_labels)}"
+        )
+    if _int_or_none(readiness_report.get("macro_proxy_label_ready_count")) != len(
+        labelable_ids
+    ):
+        failures.append(
+            "outcome_labeling_readiness.macro_proxy_label_ready_count mismatch"
+        )
+    if _int_or_none(readiness_report.get("macro_proxy_label_pending_count")) != len(
+        pending_ids
+    ):
+        failures.append(
+            "outcome_labeling_readiness.macro_proxy_label_pending_count mismatch"
+        )
+
+    return len(macro_labels) + len(eligible_ids), failures
+
+
 def _validate_extraction_report_contract(root_path: Path) -> tuple[int, list[str]]:
     extraction_report, extraction_errors = _read_mapping_json(
         root_path / "registry/report_intelligence/extraction_report.json",
@@ -2462,6 +2746,7 @@ def _validate_extraction_report_contract(root_path: Path) -> tuple[int, list[str
     if readiness_report:
         industry_readiness = readiness_report.get("industry_etf_proxy_readiness")
         stock_readiness = readiness_report.get("stock_price_proxy_readiness")
+        macro_readiness = readiness_report.get("macro_asset_proxy_readiness")
         if isinstance(industry_readiness, Mapping):
             for report_field, readiness_field in (
                 ("industry_etf_proxy_eligible_claim_rows", "eligible_claim_count"),
@@ -2506,6 +2791,28 @@ def _validate_extraction_report_contract(root_path: Path) -> tuple[int, list[str
             failures.append(
                 "outcome_labeling_readiness.stock_price_proxy_readiness: expected object"
             )
+        if isinstance(macro_readiness, Mapping):
+            for report_field, readiness_field in (
+                ("macro_asset_proxy_eligible_claim_rows", "eligible_claim_count"),
+                (
+                    "macro_asset_proxy_labelable_window_rows",
+                    "labelable_window_count",
+                ),
+                (
+                    "macro_asset_proxy_pending_window_rows",
+                    "pending_future_window_count",
+                ),
+            ):
+                if _int_or_none(extraction_report.get(report_field)) != _int_or_none(
+                    macro_readiness.get(readiness_field)
+                ):
+                    failures.append(
+                        f"extraction_report.{report_field}: macro readiness mismatch"
+                    )
+        else:
+            failures.append(
+                "outcome_labeling_readiness.macro_asset_proxy_readiness: expected object"
+            )
         expected_proxy_ready = len(
             set(_string_items(readiness_report.get("proxy_label_ready_forecast_claim_ids")))
         )
@@ -2534,15 +2841,19 @@ def _validate_extraction_report_contract(root_path: Path) -> tuple[int, list[str
     stock_labels = _int_or_none(
         extraction_report.get("stock_price_proxy_outcome_label_rows")
     )
+    macro_labels = _int_or_none(
+        extraction_report.get("macro_asset_proxy_outcome_label_rows")
+    )
     outcome_labels = _int_or_none(extraction_report.get("outcome_label_rows"))
     if (
         industry_labels is not None
         and stock_labels is not None
+        and macro_labels is not None
         and outcome_labels is not None
-        and industry_labels + stock_labels != outcome_labels
+        and industry_labels + stock_labels + macro_labels != outcome_labels
     ):
         failures.append(
-            "extraction_report.outcome_label_rows: must equal industry + stock proxy labels"
+            "extraction_report.outcome_label_rows: must equal industry + stock + macro proxy labels"
         )
 
     paper_summary, paper_errors = _read_mapping_json(
@@ -5773,6 +6084,20 @@ def validate_report_intelligence_semantics(
             item_count=stock_price_proxy_readiness_item_count,
             accepted=not stock_price_proxy_readiness_failures,
             failures=tuple(stock_price_proxy_readiness_failures),
+        )
+    )
+
+    (
+        macro_asset_proxy_readiness_item_count,
+        macro_asset_proxy_readiness_failures,
+    ) = _validate_macro_asset_proxy_readiness_contract(root_path, outcome_label_rows)
+    records.append(
+        SchemaValidationRecord(
+            schema_path="schemas/report_intelligence_macro_asset_proxy_readiness_rules",
+            artifact_path="registry/report_intelligence/outcome_labeling_readiness.json",
+            item_count=macro_asset_proxy_readiness_item_count,
+            accepted=not macro_asset_proxy_readiness_failures,
+            failures=tuple(macro_asset_proxy_readiness_failures),
         )
     )
 

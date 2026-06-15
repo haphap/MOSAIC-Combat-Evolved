@@ -46,6 +46,8 @@ PRIVATE_LOCAL_REGISTRY_FILES = frozenset(
         "registry/report_intelligence/report_outcome_labels.jsonl",
         "registry/report_intelligence/weighted_research_contexts.jsonl",
         "registry/source_checks/source_registry_validation_report.json",
+        "registry/sources/local_macro_strategy_reports.jsonl",
+        "registry/sources/local_macro_strategy_reports.manifest.json",
         "registry/sources/tushare_research_reports.gold_candidates.jsonl",
         "registry/sources/tushare_research_reports.jsonl",
         "registry/sources/tushare_research_reports.manifest.json",

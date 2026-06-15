@@ -3,15 +3,17 @@
     "hybrid-auto-engine": 352,
     "pipeline": 10
   },
-  "coverage_gate_blockers": [],
-  "coverage_gate_status": "passed",
+  "coverage_gate_blockers": [
+    "evaluability_bucket_coverage_below_p9_target"
+  ],
+  "coverage_gate_status": "blocked",
   "coverage_id": "RKE-REPORT-MARKDOWN-COVERAGE-SUMMARY",
   "coverage_shortfalls": {
     "coverage_strata_missing_count": {
       "blocker": "stratified_coverage_below_p9_target",
-      "current": 0,
+      "current": 1,
       "next_action": "fill_missing_time_institution_horizon_evaluability_strata",
-      "remaining": 0,
+      "remaining": 1,
       "target": 0
     },
     "industry_report_count": {
@@ -71,11 +73,14 @@
       "target": 80
     }
   },
-  "coverage_strata_missing": [],
+  "coverage_strata_missing": [
+    "evaluability_bucket:macro_asset_proxy_candidate"
+  ],
   "coverage_strata_targets": {
     "evaluability_bucket_required": [
       "stock_proxy_candidate",
       "industry_proxy_candidate",
+      "macro_asset_proxy_candidate",
       "mapping_gap_candidate"
     ],
     "horizon_bucket_required": [
@@ -108,17 +113,17 @@
     "stock_report_count_min": 80
   },
   "evaluability_bucket_counts": {
-    "industry_proxy_candidate": 65,
+    "industry_proxy_candidate": 61,
     "llm_extraction_pending": 132,
-    "mapping_gap_candidate": 117,
+    "mapping_gap_candidate": 103,
     "markdown_not_ready": 1,
-    "no_forecast_claim_extracted": 94,
-    "stock_proxy_candidate": 78
+    "no_forecast_claim_extracted": 105,
+    "stock_proxy_candidate": 71
   },
   "forecast_horizon_bucket_counts": {
-    "20d": 17,
-    "long_horizon": 114,
-    "unknown": 293
+    "20d": 16,
+    "long_horizon": 104,
+    "unknown": 200
   },
   "industry_report_count": 201,
   "institution_bucket_counts": {
@@ -142,19 +147,19 @@
   "private_artifact_redaction_policy": "public coverage summary stores aggregate counts only; no source-specific content, retrieval locator, local file reference, or report prose is allowed",
   "private_text_included": false,
   "report_horizon_bucket_counts": {
-    "20d": 69,
-    "5d": 24,
-    "60d": 59,
-    "long_horizon": 130,
-    "no_extracted_forecast_horizon": 225,
-    "unknown": 116
+    "20d": 61,
+    "5d": 17,
+    "60d": 51,
+    "long_horizon": 117,
+    "no_extracted_forecast_horizon": 237,
+    "unknown": 101
   },
   "report_type_counts": {
     "个股研报": 161,
     "行业研报": 201
   },
   "retry_queue_count": 1,
-  "run_id": "RIR-DERIVED-20260612T034638+0000",
+  "run_id": "RIR-DERIVED-20260615T001324+0000",
   "sector_bucket_below_min_count": 0,
   "sector_bucket_counts": {
     "agriculture": 12,

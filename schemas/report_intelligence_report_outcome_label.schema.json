@@ -109,6 +109,53 @@
           "mapping_version": {"type": "integer", "minimum": 1}
         }
       }
+    },
+    {
+      "if": {
+        "properties": {"label_type": {"const": "macro_asset_proxy"}},
+        "required": ["label_type"]
+      },
+      "then": {
+        "required": [
+          "proxy_symbol",
+          "macro_asset_target_id",
+          "mapping_id",
+          "mapping_version",
+          "mapping_confidence",
+          "benchmark_symbol",
+          "benchmark_source",
+          "benchmark_family",
+          "cost_model_id",
+          "entry_lag_trading_days",
+          "round_trip_cost",
+          "proxy_return",
+          "benchmark_return",
+          "relative_alpha",
+          "after_cost_alpha",
+          "directional_after_cost_return",
+          "directional_hit",
+          "relative_directional_hit",
+          "outcome_label_source",
+          "llm_outcome_labeling_allowed",
+          "performance_value_basis",
+          "direction_evaluated",
+          "decision_basis",
+          "window_role",
+          "source_horizon_days",
+          "source_horizon_bucket",
+          "claim_window_alignment",
+          "evaluation_policy"
+        ],
+        "properties": {
+          "outcome_label_source": {"const": "pit_macro_asset_etf_price_window"},
+          "llm_outcome_labeling_allowed": {"const": false},
+          "performance_value_basis": {"const": "directional_after_cost_return"},
+          "benchmark_symbol": {"const": "CASH_0"},
+          "benchmark_source": {"const": "cash_zero_return"},
+          "benchmark_family": {"const": "ABSOLUTE_RETURN_PROXY"},
+          "mapping_version": {"type": "integer", "minimum": 1}
+        }
+      }
     }
   ],
   "properties": {
@@ -126,10 +173,15 @@
     "pit_valid": {"type": "boolean"},
     "survivorship_safe": {"type": "boolean"},
     "claim_window_set_id": {"type": "string"},
-    "label_type": {"enum": ["stock_price_proxy", "industry_etf_proxy"]},
+    "label_type": {"enum": ["stock_price_proxy", "industry_etf_proxy", "macro_asset_proxy"]},
     "proxy_symbol": {"type": "string"},
     "proxy_label": {"type": "string"},
     "proxy_sector": {"type": "string"},
+    "proxy_asset": {"type": "string"},
+    "macro_asset_target_id": {"type": "string"},
+    "mapping_id": {"type": "string"},
+    "mapping_version": {"type": "integer", "minimum": 1},
+    "mapping_confidence": {"type": "string"},
     "benchmark_symbol": {"type": "string"},
     "proxy_return": {"type": "number"},
     "stock_return": {"type": "number"},

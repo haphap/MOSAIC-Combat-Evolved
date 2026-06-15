@@ -4,13 +4,13 @@
   "records": [
     {
       "accepted": true,
-      "bytes": 52504,
+      "bytes": 52679,
       "missing_markers": [],
       "path": "docs/plans/master_plan_v1_1.md"
     },
     {
       "accepted": true,
-      "bytes": 10328,
+      "bytes": 10943,
       "missing_markers": [],
       "path": "docs/plans/rke_phase_minus_1_plan.md"
     },

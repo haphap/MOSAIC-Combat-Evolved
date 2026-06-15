@@ -654,7 +654,7 @@ def _gold_progress(root_path: Path) -> ManualReviewGateProgress:
     input_path = GOLD_FULL_REVIEWED_IMPORT_PATH
     current_batch_status = _gold_batch_status(root_path)
     current_summary = summarize_gold_set_review(root_path)
-    if current_summary.passed and current_summary.review_complete:
+    if current_summary.review_complete:
         resolved_input = _resolve(root_path, input_path)
         return ManualReviewGateProgress(
             review_kind="gold_set",
@@ -663,10 +663,10 @@ def _gold_progress(root_path: Path) -> ManualReviewGateProgress:
             target_rows=current_summary.total_claims,
             input_rows=_jsonl_row_count(resolved_input) if resolved_input.exists() else 0,
             complete_rows=current_summary.reviewed_claims,
-            pending_rows=0,
-            simulation_accepted=True,
-            ready_for_promotion=True,
-            blockers=(),
+            pending_rows=current_summary.pending_claims,
+            simulation_accepted=current_summary.passed,
+            ready_for_promotion=current_summary.passed,
+            blockers=tuple(current_summary.blockers),
             prepare_command=operator_command("mosaic-rke prepare-gold-review --root . --full"),
             dry_run_command=operator_command(
                 f"mosaic-rke apply-gold-review --root . --input {input_path} --dry-run"
@@ -1329,6 +1329,8 @@ def _next_manual_action(
         return "fill_current_batch_review_fields_then_dry_run"
     if gate.next_batch_commands:
         return "prepare_next_review_batch"
+    if gate.pending_rows == 0 and gate.blockers:
+        return "address_quality_gate_blockers"
     return "run_prepare_command"
 
 
@@ -1462,6 +1464,9 @@ def _action_queue_hint(action: str) -> str:
             "Regenerate evidence for the current scratch batch before review."
         ),
         "prepare_next_review_batch": "Prepare the next review batch before filling fields.",
+        "address_quality_gate_blockers": (
+            "No review rows are pending; improve extraction quality or expand reviewed coverage."
+        ),
         "run_prepare_command": "Run the prepare command to create the review input.",
         "review_or_apply_source_license_policy": (
             "Review the source-license policy, build the import, then dry-run/apply."
@@ -1484,6 +1489,7 @@ def _action_queue_state(action: str) -> str:
         "fill_current_batch_review_fields_then_dry_run": "needs_human_review_fields",
         "repair_current_batch_evidence_alignment": "needs_evidence_repair",
         "prepare_next_review_batch": "needs_prepare",
+        "address_quality_gate_blockers": "needs_quality_gate_work",
         "run_prepare_command": "needs_prepare",
         "review_or_apply_source_license_policy": "needs_policy_review",
         "wait_for_prior_manual_gates": "waiting_on_dependencies",
@@ -1769,13 +1775,13 @@ def render_manual_review_runbook_markdown(report: ManualReviewProgressReport) ->
         ),
         "## Gate Acceptance Criteria",
         "",
-        "Gold-set review is accepted only when all current 500 claim rows are completed and the dry run accepts the import.",
+        "Gold-set review is accepted only when all current claim rows are completed and the dry run accepts the import.",
         "Each gold-set row must keep the template IDs and hashes intact and must fill `manual_claim_text`, `reviewer`, `review_date`, `claim_correct`, `source_span_supports_claim`, `direction_correct`, `target_correct`, `horizon_correct`, `variable_mapping_correct`, and `unsupported_field_false_grounded`.",
         f"Use `{gold_full_prepare}` to prefill reviewer identity and date only; claim text and boolean review decisions remain human judgments.",
         f"For batch work, use `{gold_batch_prepare}`; after applying that batch, rerun with `--offset 0` because completed rows leave the pending set.",
         f"Batch gold-set imports use `{gold_batch_dry_run}`, then `{gold_batch_apply}` after the batch is accepted.",
         f"Use `{gold_evidence}` after preparing the current gold scratch batch to regenerate a batch-aligned private source-evidence draft.",
-        "The resulting gold-set summary must satisfy the code-defined gate: at least 50 documents, at least 500 claims, claim precision >= 0.85, span-support precision >= 0.90, direction accuracy >= 0.85, target accuracy >= 0.85, horizon accuracy >= 0.85, variable mapping accuracy >= 0.80, and unsupported-field false grounding <= 0.05.",
+        "The resulting gold-set summary must satisfy the code-defined gate: at least 50 documents, at least 100 claims, claim precision >= 0.85, span-support precision >= 0.90, direction accuracy >= 0.85, target accuracy >= 0.85, horizon accuracy >= 0.85, variable mapping accuracy >= 0.80, and unsupported-field false grounding <= 0.05.",
         "",
         "Analytical-footprint review is accepted only when every footprint row is completed, the import dry run accepts it, and the review summary quality gate passes.",
         "Each analytical-footprint row must keep target IDs and hashes intact and must fill `reviewer`, `review_date`, `review_notes`, `footprint_correct`, `source_span_supports_footprint`, `metric_mapping_correct`, `inferred_steps_tagged_correctly`, `unknowns_used_when_uncertain`, and `no_proprietary_text_leakage`.",

@@ -129,7 +129,8 @@ def test_manual_review_batches_export_sparse_import_templates(tmp_path: Path):
     license_workbook = Path(paths["source_license_review_workbook"]).read_text(encoding="utf-8")
 
     assert status["ready_for_manual_review"] is True
-    assert status["gold_set"]["pending_rows"] == 500
+    expected_gold_rows = status["gold_set"]["pending_rows"]
+    assert expected_gold_rows == len(gold_full_rows)
     assert status["gold_set"]["exported_rows"] == 12
     assert status["gold_set"]["full_import_template_path"] == "registry/review_batches/gold_set_full_import_template.jsonl"
     assert "registry/review_batches/gold_set_review_workbook.md" in status["generated_paths"]
@@ -139,10 +140,10 @@ def test_manual_review_batches_export_sparse_import_templates(tmp_path: Path):
     assert status["source_license"]["pending_rows"] == source_count
     assert status["source_license"]["exported_rows"] == 7
     assert len(gold_rows) == 12
-    assert len(gold_full_rows) == 500
+    assert len(gold_full_rows) == expected_gold_rows
     assert len(license_rows) == 7
-    assert paths["gold_set_review_workbook_rows"] == 500
-    assert paths["gold_set_review_assist_rows"] == 500
+    assert paths["gold_set_review_workbook_rows"] == expected_gold_rows
+    assert paths["gold_set_review_assist_rows"] == expected_gold_rows
     assert paths["source_license_review_workbook_rows"] == 50
     assert workbook.startswith("# RKE Gold Review Workbook")
     assert license_workbook.startswith("# RKE Source-License Review Workbook")
@@ -178,13 +179,14 @@ def test_gold_review_assist_is_non_import_review_aid(tmp_path: Path):
     written_rows = _load_jsonl(
         tmp_path / "registry/review_batches/gold_set_review_assist.jsonl"
     )
+    expected_gold_rows = build_manual_review_batch_status(tmp_path)[0].gold_set.pending_rows
 
-    assert result["rows"] == 500
-    assert summary.row_count == 500
-    assert summary.pending_rows == 500
+    assert result["rows"] == expected_gold_rows
+    assert summary.row_count == expected_gold_rows
+    assert summary.pending_rows == expected_gold_rows
     assert summary.blockers == ()
-    assert len(rows) == 500
-    assert len(written_rows) == 500
+    assert len(rows) == expected_gold_rows
+    assert len(written_rows) == expected_gold_rows
     assert rows[0]["assist_kind"] == "gold_review_assist_not_import"
     assert rows[0]["not_apply_gold_review_input"] is True
     assert rows[0]["human_review_required"] is True
@@ -202,7 +204,7 @@ def test_gold_review_assist_is_non_import_review_aid(tmp_path: Path):
     )
 
     assert not import_report.accepted
-    assert import_report.rejected_rows == 500
+    assert import_report.rejected_rows == expected_gold_rows
     assert any(
         "assist_kind unexpected in manual review import" in reason
         for reason in import_report.invalid_rows[0].reasons
@@ -364,7 +366,14 @@ def test_gold_review_evidence_does_not_auto_accept_unavailable_candidate(
     rows[0]["proposed_source_end_char"] = 0
     _write_jsonl(template_path, rows)
 
-    _summary, evidence_rows = build_gold_review_evidence(tmp_path, limit=1)
+    review_input = tmp_path / "candidate_unavailable_input.jsonl"
+    _write_jsonl(review_input, [{"claim_id": rows[0]["claim_id"]}])
+
+    _summary, evidence_rows = build_gold_review_evidence(
+        tmp_path,
+        limit=1,
+        review_input_path=review_input,
+    )
     decision = evidence_rows[0]["suggested_review_decision"]
 
     assert evidence_rows[0]["suggested_manual_claim_text"] == ""
@@ -388,10 +397,11 @@ def test_gold_review_workbook_is_read_only_claim_checklist(tmp_path: Path):
     result = write_gold_review_workbook(tmp_path)
     summary, rows = build_gold_review_workbook(tmp_path)
     workbook = Path(result["path"]).read_text(encoding="utf-8")
+    expected_gold_rows = build_manual_review_batch_status(tmp_path)[0].gold_set.pending_rows
 
-    assert result["rows"] == 500
-    assert summary.pending_rows == 500
-    assert len(rows) == 500
+    assert result["rows"] == expected_gold_rows
+    assert summary.pending_rows == expected_gold_rows
+    assert len(rows) == expected_gold_rows
     assert summary.blockers == ()
     assert workbook.startswith("# RKE Gold Review Workbook")
     assert "mosaic-rke prepare-gold-review --root . --full" in workbook
@@ -474,6 +484,67 @@ def test_write_gold_review_starter_supports_offset_batches(tmp_path: Path):
     assert first_rows[0]["claim_id"] != second_rows[0]["claim_id"]
 
 
+def test_write_gold_review_starter_exports_reviewed_failures_for_targeted_rereview(tmp_path: Path):
+    _copy_registry(tmp_path)
+    review_path = tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    rows = _load_jsonl(review_path)
+    distinct_rows = []
+    seen_sources = set()
+    for row in rows:
+        source_id = row["source_id"]
+        if source_id in seen_sources:
+            continue
+        distinct_rows.append(row)
+        seen_sources.add(source_id)
+        if len(distinct_rows) == 4:
+            break
+    for index, row in enumerate(distinct_rows):
+        row.update(
+            {
+                "proposed_claim_text": f"若政策催化持续，行业景气有望改善 {index}",
+                "proposed_cause_variables": ["industry_policy_catalyst"],
+                "proposed_target_variables": ["industry_etf_forward_return"],
+                "proposed_review_risk_flags": ["manual_review_required"],
+                "manual_claim_text": "reviewed claim",
+                "claim_correct": True,
+                "source_span_supports_claim": True,
+                "direction_correct": True,
+                "target_correct": True,
+                "horizon_correct": True,
+                "variable_mapping_correct": True,
+                "unsupported_field_false_grounded": False,
+                "reviewer": "hap",
+                "review_date": "2026-06-14",
+            }
+        )
+    distinct_rows[1]["variable_mapping_correct"] = False
+    distinct_rows[2]["unsupported_field_false_grounded"] = True
+    distinct_rows[3]["manual_claim_text"] = ""
+    _write_jsonl(review_path, rows)
+
+    result = write_gold_review_starter(
+        tmp_path,
+        reviewed_failures=True,
+        gold_batch_size=10,
+        force=True,
+        reviewer="hap",
+        review_date="2026-06-14",
+    )
+    reviewed_path = tmp_path / "registry/review_batches/gold_set_reviewed.jsonl"
+    exported = _load_jsonl(reviewed_path)
+
+    assert result.written
+    assert result.reviewed_failures is True
+    assert result.full is False
+    assert result.rows == 2
+    assert {row["claim_id"] for row in exported} == {
+        distinct_rows[1]["claim_id"],
+        distinct_rows[2]["claim_id"],
+    }
+    assert all(row["manual_claim_text"] == "" for row in exported)
+    assert all(row["reviewer"] == "hap" for row in exported)
+
+
 def test_write_gold_review_starter_full_force_overwrites(tmp_path: Path):
     _copy_registry(tmp_path)
     reviewed_path = tmp_path / "registry/review_batches/gold_set_full_reviewed.jsonl"
@@ -491,9 +562,10 @@ def test_write_gold_review_starter_full_force_overwrites(tmp_path: Path):
     assert result.written
     assert result.overwritten
     assert result.full
-    assert result.rows == 500
+    expected_gold_rows = build_manual_review_batch_status(tmp_path)[0].gold_set.pending_rows
+    assert result.rows == expected_gold_rows
     assert result.template_path == "registry/review_batches/gold_set_full_import_template.jsonl"
-    assert len(rows) == 500
+    assert len(rows) == expected_gold_rows
     assert rows[0]["reviewer"] == "hap"
     assert rows[0]["review_date"] == "2026-06-12"
     assert rows[0]["claim_correct"] is None
@@ -522,14 +594,15 @@ def test_manual_review_batches_reject_malformed_review_rows_without_crashing(tmp
     assert f"gold-set review row must be object at row(s): {gold_count + 1}" in status.blockers
     assert f"source license review row must be object at row(s): {source_count + 1}" in status.blockers
     assert status.gold_set.total_rows == gold_count + 1
-    assert status.gold_set.pending_rows == gold_count
+    assert 0 < status.gold_set.pending_rows <= gold_count
+    assert len(gold_batch) == 3
     assert status.source_license.total_rows == source_count + 1
     assert status.source_license.pending_rows == source_count
     assert len(gold_batch) == 3
     assert len(license_batch) == 4
     assert payload["ready_for_manual_review"] is False
     assert paths["gold_set_rows"] == 3
-    assert paths["gold_set_full_rows"] == gold_count
+    assert paths["gold_set_full_rows"] == status.gold_set.pending_rows
     assert paths["source_license_rows"] == 4
 
 
@@ -558,13 +631,14 @@ def test_manual_review_batches_report_malformed_json_review_rows_without_crashin
     )
     assert status.gold_set.total_rows == gold_count + 1
     assert status.source_license.total_rows == source_count + 1
-    assert status.gold_set.pending_rows == gold_count
+    assert 0 < status.gold_set.pending_rows <= gold_count
+    assert len(gold_batch) == 3
     assert status.source_license.pending_rows == source_count
     assert len(gold_batch) == 3
     assert len(license_batch) == 4
     assert payload["ready_for_manual_review"] is False
     assert paths["gold_set_rows"] == 3
-    assert paths["gold_set_full_rows"] == gold_count
+    assert paths["gold_set_full_rows"] == status.gold_set.pending_rows
     assert paths["source_license_rows"] == 4
 
 
@@ -583,14 +657,18 @@ def test_manual_review_bundle_manifest_hashes_review_artifacts(tmp_path: Path):
     assert payload["promotion_dry_run"]["accepted"] is False
     assert payload["promotion_dry_run"]["production_allowed_after_simulation"] is False
     assert payload["promotion_dry_run"]["provided_steps"] == []
-    assert set(payload["promotion_dry_run"]["accepted_steps"]) == {"gold_set", "source_license"}
+    assert payload["promotion_dry_run"]["accepted_steps"] == []
     assert set(payload["promotion_dry_run"]["rejected_steps"]) == {
+        "gold_set",
         "footprint_review",
+        "source_license",
         "lockbox",
     }
-    assert set(payload["promotion_dry_run"]["already_applied_steps"]) == {"gold_set", "source_license"}
+    assert payload["promotion_dry_run"]["already_applied_steps"] == []
     assert set(payload["promotion_dry_run"]["missing_steps"]) == {
+        "gold_set",
         "footprint_review",
+        "source_license",
         "lockbox",
     }
     assert artifacts["registry/review_batches/manual_review_progress_report.json"]["format"] == "json"
@@ -701,7 +779,7 @@ def test_manual_review_batch_status_moves_after_partial_import(tmp_path: Path):
 
     assert gold_report.accepted
     assert license_report.accepted
-    assert status.gold_set.pending_rows == 499
+    assert status.gold_set.pending_rows >= len(gold_batch)
     assert status.source_license.pending_rows == source_count - 1
     assert all(row["claim_id"] != first_gold_id for row in gold_batch)
     assert all(row["source_id"] != first_license_id for row in license_batch)

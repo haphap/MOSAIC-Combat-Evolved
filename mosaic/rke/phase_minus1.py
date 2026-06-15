@@ -7,6 +7,7 @@ gold-set sampling so the team can decide whether schema freeze is justified.
 from __future__ import annotations
 
 import json
+import re
 from collections import Counter
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -121,6 +122,8 @@ GOLD_SET_DOMAIN_KEYWORDS: Mapping[str, tuple[str, ...]] = {
 }
 REQUIRED_GOLD_SET_DOMAINS = tuple(GOLD_SET_DOMAIN_KEYWORD_SPECS)
 GOLD_SET_DOMAIN_KEYWORD_WEIGHTS = {"strong": 3, "weak": 1}
+DEFAULT_GOLD_SET_DOCUMENTS = 50
+DEFAULT_GOLD_SET_CLAIMS_PER_DOCUMENT = 3
 
 
 @dataclass(frozen=True)
@@ -245,7 +248,7 @@ def audit_research_report_corpus(rows: Sequence[Any]) -> CorpusAudit:
 def select_gold_set_candidates(
     rows: Sequence[Any],
     *,
-    max_documents: int = 50,
+    max_documents: int = DEFAULT_GOLD_SET_DOCUMENTS,
 ) -> list[dict[str, Any]]:
     """Select a deterministic, domain-stratified manual-review sample.
 
@@ -355,7 +358,7 @@ def _gold_set_domain_evidence(row: Mapping[str, Any]) -> dict[str, dict[str, Any
         for strength, candidates in spec.items():
             weight = GOLD_SET_DOMAIN_KEYWORD_WEIGHTS[strength]
             for keyword in candidates:
-                if keyword.lower() in lowered:
+                if _gold_set_keyword_matches(domain, keyword, text, lowered):
                     score += weight
                     has_strong = has_strong or strength == "strong"
                     keywords.append(keyword)
@@ -365,6 +368,48 @@ def _gold_set_domain_evidence(row: Mapping[str, Any]) -> dict[str, dict[str, Any
                 "keywords": tuple(dict.fromkeys(keywords)),
             }
     return evidence
+
+
+def _gold_set_keyword_matches(
+    domain: str,
+    keyword: str,
+    text: str,
+    lowered: str,
+) -> bool:
+    keyword_lower = keyword.lower()
+    if domain == "dollar" and keyword == "美元":
+        return _dollar_keyword_matches_macro_context(text)
+    return keyword_lower in lowered
+
+
+def _dollar_keyword_matches_macro_context(text: str) -> bool:
+    """Avoid classifying foreign revenue amounts like 351亿美元 as dollar macro."""
+    if "美元" not in text:
+        return False
+    macro_terms = (
+        "美元指数",
+        "美元流动性",
+        "美元兑",
+        "美元汇率",
+        "美元走强",
+        "美元走弱",
+        "美联储",
+        "中美利差",
+        "美债",
+        "USDCNY",
+        "USDCNH",
+        "DXY",
+        "Fed",
+        "FED",
+    )
+    if any(term in text for term in macro_terms):
+        return True
+    for match in re.finditer("美元", text):
+        previous = text[max(0, match.start() - 1) : match.start()]
+        if previous and (previous.isdigit() or previous in {"亿", "万", "千", "百"}):
+            continue
+        return True
+    return False
 
 
 def _ordered_gold_set_source_rows(rows: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
@@ -408,7 +453,7 @@ def write_gold_set_candidates(
 def build_gold_set_review_template(
     candidates: Sequence[Any],
     *,
-    claims_per_document: int = 10,
+    claims_per_document: int = DEFAULT_GOLD_SET_CLAIMS_PER_DOCUMENT,
     span_preview_chars: int = 600,
 ) -> list[dict[str, Any]]:
     """Create blank manual-review rows from sampled source documents."""
@@ -450,7 +495,7 @@ def write_gold_set_review_template(
     candidates: Sequence[Any],
     output_path: str | Path,
     *,
-    claims_per_document: int = 10,
+    claims_per_document: int = DEFAULT_GOLD_SET_CLAIMS_PER_DOCUMENT,
 ) -> dict[str, Any]:
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
