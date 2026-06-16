@@ -8393,12 +8393,11 @@ def validate_report_intelligence_semantics(
                         "markdown_coverage_summary.coverage_strata_missing must "
                         "include " + ", ".join(sorted(missing_delta))
                     )
-        if (
-            markdown_coverage.get("coverage_gate_status") == "passed"
-            and coverage_blockers
-        ):
+        expected_coverage_status = "blocked" if coverage_blockers else "passed"
+        if markdown_coverage.get("coverage_gate_status") != expected_coverage_status:
             markdown_coverage_failures.append(
-                "markdown_coverage_summary.coverage_gate_status passed with blockers"
+                "markdown_coverage_summary.coverage_gate_status: expected "
+                f"{expected_coverage_status}"
             )
     records.append(
         SchemaValidationRecord(

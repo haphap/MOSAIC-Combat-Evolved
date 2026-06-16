@@ -2252,6 +2252,33 @@ def test_markdown_coverage_privacy_rules_require_strata_blockers(
     )
 
 
+def test_markdown_coverage_privacy_rules_reject_stale_blocked_status(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    coverage_path = registry / "markdown_coverage_summary.json"
+    coverage = json.loads(coverage_path.read_text(encoding="utf-8"))
+    coverage["coverage_gate_status"] = "blocked"
+    coverage["coverage_gate_blockers"] = []
+    coverage_path.write_text(
+        json.dumps(coverage, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    record = next(
+        item
+        for item in validate_report_intelligence_semantics(tmp_path)
+        if item.schema_path
+        == "schemas/report_intelligence_markdown_coverage_privacy_rules"
+    )
+
+    assert not record.accepted
+    assert any(
+        "markdown_coverage_summary.coverage_gate_status: expected passed" in failure
+        for failure in record.failures
+    )
+
+
 def test_markdown_coverage_privacy_rules_require_strata_missing_entries(
     tmp_path: Path,
 ):
