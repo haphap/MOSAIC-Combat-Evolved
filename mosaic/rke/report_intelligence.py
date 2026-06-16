@@ -19207,6 +19207,7 @@ def build_report_intelligence_pit_leakage_audit(
                 "exit_liquidity_unverified",
                 "entry_limit_locked",
                 "exit_limit_locked",
+                "stock_long_suspension_window",
                 "stock_delisted_before_exit",
             }
             label_gaps = set(str(item) for item in _ensure_list(label.get("readiness_gaps")))

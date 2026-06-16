@@ -9033,6 +9033,65 @@ def test_report_intelligence_pit_audit_rejects_stock_exit_limit_locked_label():
     assert any("exit_limit_locked" in item for item in audit["blockers"])
 
 
+def test_report_intelligence_pit_audit_rejects_stock_long_suspension_label():
+    audit = build_report_intelligence_pit_leakage_audit(
+        run_id="RIR-PIT-STOCK-LONG-SUSPENSION-TEST",
+        feature_flags={
+            "rollout_mode": "shadow_tooling",
+            "flags": {"production_use_of_weighted_reports": False},
+        },
+        metadata_rows=[
+            {
+                "source_id": "SRC-STOCK-LONG-SUSPENSION",
+                "accessible_datetime": "2026-01-02T00:00:00+08:00",
+            }
+        ],
+        forecast_rows=[
+            {
+                "forecast_claim_id": "FC-STOCK-LONG-SUSPENSION",
+                "source_id": "SRC-STOCK-LONG-SUSPENSION",
+                "signal_datetime": "2026-01-02T00:00:00+08:00",
+            }
+        ],
+        forecast_ledger_rows=[
+            {
+                "forecast_claim_id": "FC-STOCK-LONG-SUSPENSION",
+                "as_of_datetime": "2026-01-02T00:00:00+08:00",
+            }
+        ],
+        outcome_label_rows=[
+            {
+                "outcome_id": "OUT-STOCK-LONG-SUSPENSION",
+                "forecast_claim_id": "FC-STOCK-LONG-SUSPENSION",
+                "entry_datetime": "2026-01-03T00:00:00+08:00",
+                "exit_datetime": "2026-01-08T00:00:00+08:00",
+                "pit_valid": True,
+                "survivorship_safe": False,
+                "survivorship_check": "survivorship_unverified_qlib_cn_data",
+                "label_type": "stock_price_proxy",
+                "entry_lag_trading_days": 1,
+                "benchmark_source": "cn_etf",
+                "benchmark_alignment": "date_key_cross_qlib_dir",
+                "latest_calendar_date": "2026-05-31",
+                "readiness_gaps": ["stock_long_suspension_window"],
+                "entry_tradable": True,
+                "exit_tradable": True,
+                "entry_limit_locked": False,
+                "exit_limit_locked": False,
+                "entry_liquidity_check": "positive_volume_and_limit_lock_screen",
+                "exit_liquidity_check": "positive_volume_and_limit_lock_screen",
+            }
+        ],
+        source_performance_profile_rows=[],
+        tool_coverage_match_rows=[],
+        analysis_recipe_rows=[],
+        weighted_research_context_rows=[],
+    )
+
+    assert audit["accepted"] is False
+    assert any("stock_long_suspension_window" in item for item in audit["blockers"])
+
+
 def test_report_intelligence_pit_audit_allows_shadow_stock_survivorship_unverified():
     audit = build_report_intelligence_pit_leakage_audit(
         run_id="RIR-PIT-STOCK-SURVIVORSHIP-SHADOW-TEST",

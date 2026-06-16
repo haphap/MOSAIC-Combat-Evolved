@@ -692,6 +692,7 @@ def test_stock_price_proxy_readiness_contract_accepts_blocking_gap_counts(
             "exit_liquidity_unverified": 4,
             "stock_delisted_before_exit": 5,
             "stock_entry_suspended": 6,
+            "stock_long_suspension_window": 7,
         }
     )
     readiness_path.write_text(
