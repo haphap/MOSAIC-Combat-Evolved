@@ -8266,6 +8266,11 @@ def validate_report_intelligence_semantics(
                         "markdown_coverage_summary.coverage_gate_blockers must "
                         f"include {blocker}"
                     )
+                if count >= target and blocker in coverage_blockers:
+                    markdown_coverage_failures.append(
+                        "markdown_coverage_summary.coverage_gate_blockers includes "
+                        f"stale {blocker}"
+                    )
             sector_bucket_counts = _count_mapping(
                 markdown_coverage.get("sector_bucket_counts"),
                 row_label="markdown_coverage_summary.sector_bucket_counts",
