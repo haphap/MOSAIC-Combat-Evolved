@@ -6472,6 +6472,161 @@ def _validate_manual_review_batch_overview_contract(
             "current_batch_covers_next_batch",
             covered_rows >= first_limit if first_limit else False,
         )
+    workload = overview.get("current_batch_review_field_workload")
+    if isinstance(workload, Mapping) and workload:
+        expected_action_order = _expected_review_field_action_order(workload)
+        if (
+            overview.get("current_batch_review_field_action_order")
+            != expected_action_order
+        ):
+            failures.append(
+                f"{overview_label}.current_batch_review_field_action_order: "
+                "must match current_batch_review_field_workload"
+            )
+        expected_workflow_groups = _expected_review_field_workflow_groups(
+            workload,
+            manual_review_field_contract(review_kind),
+        )
+        if (
+            overview.get("current_batch_review_field_workflow_groups")
+            != expected_workflow_groups
+        ):
+            failures.append(
+                f"{overview_label}.current_batch_review_field_workflow_groups: "
+                "must match current_batch_review_field_workload"
+            )
+
+
+def _expected_review_field_action_order(
+    workload: Mapping[str, Any],
+) -> Mapping[str, Any]:
+    manual_fields: list[dict[str, Any]] = []
+    draft_fields: list[dict[str, Any]] = []
+    draft_text_fields: list[dict[str, Any]] = []
+    for field_name, item in sorted(workload.items()):
+        if not isinstance(item, Mapping):
+            continue
+        missing_rows = int(_int_or_none(item.get("missing_required_rows")) or 0)
+        draft_rows = int(_int_or_none(item.get("draft_decision_available_rows")) or 0)
+        draft_text_rows = int(_int_or_none(item.get("draft_text_available_rows")) or 0)
+        manual_rows = int(_int_or_none(item.get("manual_decision_required_rows")) or 0)
+        field_summary = {
+            "field": str(field_name),
+            "missing_required_rows": missing_rows,
+            "draft_decision_available_rows": draft_rows,
+            "manual_decision_required_rows": manual_rows,
+        }
+        if manual_rows:
+            manual_fields.append(dict(field_summary))
+        if draft_rows:
+            draft_fields.append(dict(field_summary))
+        if draft_text_rows:
+            draft_text_fields.append(
+                {
+                    **field_summary,
+                    "draft_text_available_rows": draft_text_rows,
+                }
+            )
+    manual_fields.sort(
+        key=lambda item: (
+            -int(item["manual_decision_required_rows"]),
+            -int(item["missing_required_rows"]),
+            str(item["field"]),
+        )
+    )
+    draft_fields.sort(
+        key=lambda item: (
+            -int(item["draft_decision_available_rows"]),
+            -int(item["missing_required_rows"]),
+            str(item["field"]),
+        )
+    )
+    draft_text_fields.sort(
+        key=lambda item: (
+            -int(item["draft_text_available_rows"]),
+            -int(item["missing_required_rows"]),
+            str(item["field"]),
+        )
+    )
+    return {
+        "manual_review_required_fields": manual_fields,
+        "draft_decision_review_fields": draft_fields,
+        "draft_text_review_fields": draft_text_fields,
+    }
+
+
+def _expected_review_field_workflow_groups(
+    workload: Mapping[str, Any],
+    field_contract: Mapping[str, Any],
+) -> Mapping[str, Any]:
+    boolean_fields = {str(field) for field in field_contract.get("boolean_fields") or ()}
+    date_fields = {
+        str(field)
+        for field in (
+            field_contract.get("date_fields").keys()
+            if isinstance(field_contract.get("date_fields"), Mapping)
+            else ()
+        )
+    }
+    text_fields = {str(field) for field in field_contract.get("text_fields") or ()}
+    metadata_fields = date_fields | {
+        "opened_at",
+        "opened_by",
+        "open_count",
+        "review_date",
+        "reviewer",
+    }
+    groups: dict[str, list[dict[str, Any]]] = {
+        "decision_fields_need_review": [],
+        "metadata_fields_need_fill": [],
+        "text_fields_need_fill": [],
+        "other_fields_need_fill": [],
+        "draft_decision_fields_to_verify": [],
+        "draft_text_fields_to_verify": [],
+    }
+    for field_name, item in sorted(workload.items()):
+        if not isinstance(item, Mapping):
+            continue
+        field = str(field_name)
+        field_summary = {
+            "field": field,
+            "missing_required_rows": int(
+                _int_or_none(item.get("missing_required_rows")) or 0
+            ),
+            "draft_decision_available_rows": int(
+                _int_or_none(item.get("draft_decision_available_rows")) or 0
+            ),
+            "manual_decision_required_rows": int(
+                _int_or_none(item.get("manual_decision_required_rows")) or 0
+            ),
+            "draft_text_available_rows": int(
+                _int_or_none(item.get("draft_text_available_rows")) or 0
+            ),
+        }
+        if field_summary["draft_decision_available_rows"] and field in boolean_fields:
+            groups["draft_decision_fields_to_verify"].append(dict(field_summary))
+        if field_summary["draft_text_available_rows"] and field in text_fields:
+            groups["draft_text_fields_to_verify"].append(dict(field_summary))
+        if not field_summary["manual_decision_required_rows"]:
+            continue
+        if field in boolean_fields:
+            groups["decision_fields_need_review"].append(dict(field_summary))
+        elif field in metadata_fields:
+            groups["metadata_fields_need_fill"].append(dict(field_summary))
+        elif field in text_fields:
+            groups["text_fields_need_fill"].append(dict(field_summary))
+        else:
+            groups["other_fields_need_fill"].append(dict(field_summary))
+    for group_items in groups.values():
+        group_items.sort(
+            key=lambda item: (
+                -int(item["manual_decision_required_rows"]),
+                -int(item["draft_decision_available_rows"]),
+                -int(item["draft_text_available_rows"]),
+                str(item["field"]),
+            )
+        )
+    return groups
 
 
 def _validate_manual_review_progress_privacy_contract(
