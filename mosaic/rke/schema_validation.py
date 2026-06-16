@@ -8206,6 +8206,36 @@ def validate_report_intelligence_semantics(
         coverage_blockers = set(
             _string_items(markdown_coverage.get("coverage_gate_blockers"))
         )
+        coverage_shortfalls = markdown_coverage.get("coverage_shortfalls")
+        if not isinstance(coverage_shortfalls, Mapping):
+            markdown_coverage_failures.append(
+                "markdown_coverage_summary.coverage_shortfalls: expected object"
+            )
+            coverage_shortfalls = {}
+
+        def require_coverage_shortfall(
+            key: str,
+            *,
+            current: int,
+            target: int,
+            blocker: str,
+        ) -> None:
+            row = coverage_shortfalls.get(key)
+            row_label = f"markdown_coverage_summary.coverage_shortfalls.{key}"
+            if not isinstance(row, Mapping):
+                markdown_coverage_failures.append(f"{row_label}: expected object")
+                return
+            for field, expected in (
+                ("current", current),
+                ("target", target),
+                ("remaining", max(target - current, 0)),
+                ("blocker", blocker),
+            ):
+                if row.get(field) != expected:
+                    markdown_coverage_failures.append(
+                        f"{row_label}.{field}: expected {expected}"
+                    )
+
         if not isinstance(coverage_targets, Mapping):
             markdown_coverage_failures.append(
                 "markdown_coverage_summary.coverage_targets: expected object"
@@ -8261,6 +8291,12 @@ def validate_report_intelligence_semantics(
                         f"{target_field}: expected integer"
                     )
                     continue
+                require_coverage_shortfall(
+                    count_field,
+                    current=count,
+                    target=target,
+                    blocker=blocker,
+                )
                 if count < target and blocker not in coverage_blockers:
                     markdown_coverage_failures.append(
                         "markdown_coverage_summary.coverage_gate_blockers must "
@@ -8322,6 +8358,13 @@ def validate_report_intelligence_semantics(
                 if sector_gap_count != len(expected_sector_gaps):
                     markdown_coverage_failures.append(
                         "markdown_coverage_summary.sector_bucket_below_min_count mismatch"
+                    )
+                if sector_gap_count is not None:
+                    require_coverage_shortfall(
+                        "sector_bucket_below_min_count",
+                        current=sector_gap_count,
+                        target=0,
+                        blocker="sector_bucket_coverage_below_p9_target",
                     )
         coverage_strata_targets = markdown_coverage.get("coverage_strata_targets")
         coverage_strata_missing = set(
@@ -8398,6 +8441,12 @@ def validate_report_intelligence_semantics(
                         "markdown_coverage_summary.coverage_strata_missing must "
                         "include " + ", ".join(sorted(missing_delta))
                     )
+            require_coverage_shortfall(
+                "coverage_strata_missing_count",
+                current=len(coverage_strata_missing),
+                target=0,
+                blocker="stratified_coverage_below_p9_target",
+            )
         expected_coverage_status = "blocked" if coverage_blockers else "passed"
         if markdown_coverage.get("coverage_gate_status") != expected_coverage_status:
             markdown_coverage_failures.append(
