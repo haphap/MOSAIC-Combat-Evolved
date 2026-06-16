@@ -402,6 +402,7 @@ def _empty_review_field_workload_item() -> dict[str, int]:
         "suggested_null_rows": 0,
         "suggested_other_rows": 0,
         "draft_decision_available_rows": 0,
+        "draft_text_available_rows": 0,
         "manual_decision_required_rows": 0,
     }
 
@@ -410,9 +411,11 @@ def _review_field_workload_summary(workload: Mapping[str, Any]) -> Mapping[str, 
     summary = {
         "field_count": 0,
         "fields_with_draft_decisions": 0,
+        "fields_with_draft_text": 0,
         "fields_with_manual_review_required": 0,
         "missing_required_cells": 0,
         "draft_decision_available_cells": 0,
+        "draft_text_available_cells": 0,
         "manual_review_required_cells": 0,
         "suggested_true_cells": 0,
         "suggested_false_cells": 0,
@@ -424,15 +427,19 @@ def _review_field_workload_summary(workload: Mapping[str, Any]) -> Mapping[str, 
             continue
         summary["field_count"] += 1
         draft_rows = int(item.get("draft_decision_available_rows") or 0)
+        draft_text_rows = int(item.get("draft_text_available_rows") or 0)
         manual_rows = int(item.get("manual_decision_required_rows") or 0)
         if draft_rows:
             summary["fields_with_draft_decisions"] += 1
+        if draft_text_rows:
+            summary["fields_with_draft_text"] += 1
         if manual_rows:
             summary["fields_with_manual_review_required"] += 1
         summary["missing_required_cells"] += int(
             item.get("missing_required_rows") or 0
         )
         summary["draft_decision_available_cells"] += draft_rows
+        summary["draft_text_available_cells"] += draft_text_rows
         summary["manual_review_required_cells"] += manual_rows
         summary["suggested_true_cells"] += int(item.get("suggested_true_rows") or 0)
         summary["suggested_false_cells"] += int(item.get("suggested_false_rows") or 0)
@@ -478,6 +485,19 @@ def _review_field_action_order(workload: Mapping[str, Any]) -> Mapping[str, Any]
         "manual_review_required_fields": manual_fields,
         "draft_decision_review_fields": draft_fields,
     }
+
+
+def _suggested_text_draft_available(
+    evidence_row: Mapping[str, Any] | None,
+    field_name: str,
+) -> bool:
+    if not isinstance(evidence_row, Mapping):
+        return False
+    evidence_fields = {
+        "manual_claim_text": ("suggested_manual_claim_text",),
+        "review_notes": ("suggested_review_notes",),
+    }.get(str(field_name), ())
+    return any(str(evidence_row.get(field) or "").strip() for field in evidence_fields)
 
 
 def _review_field_workflow_groups(
@@ -680,6 +700,8 @@ def _missing_review_field_workload(
                 _empty_review_field_workload_item(),
             )
             item["missing_required_rows"] += 1
+            if _suggested_text_draft_available(evidence_row, str(field_name)):
+                item["draft_text_available_rows"] += 1
             if field_name not in decision_map:
                 continue
             bucket = _suggested_review_decision_bucket(decision_map.get(field_name))
@@ -1922,6 +1944,8 @@ def _render_batch_status_lines(
                     f"{int(workload_summary.get('missing_required_cells') or 0)}; "
                     "draft_decision_available_cells="
                     f"{int(workload_summary.get('draft_decision_available_cells') or 0)}; "
+                    "draft_text_available_cells="
+                    f"{int(workload_summary.get('draft_text_available_cells') or 0)}; "
                     "manual_review_required_cells="
                     f"{int(workload_summary.get('manual_review_required_cells') or 0)}; "
                     "fields_with_manual_review_required="
@@ -1991,6 +2015,7 @@ def _render_batch_status_lines(
                         f"`{field}`="
                         f"missing:{int(item.get('missing_required_rows') or 0)},"
                         f"draft:{int(item.get('draft_decision_available_rows') or 0)},"
+                        f"text_draft:{int(item.get('draft_text_available_rows') or 0)},"
                         f"manual:{int(item.get('manual_decision_required_rows') or 0)}"
                     )
                 if rendered_workload:

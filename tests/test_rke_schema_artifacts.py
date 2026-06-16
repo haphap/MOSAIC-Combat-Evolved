@@ -223,12 +223,21 @@ def test_stock_report_outcome_status_doc_matches_public_artifacts():
     gold_gate = next(
         gate for gate in progress_report["gates"] if gate["review_kind"] == "gold_set"
     )
+    footprint_gate = next(
+        gate
+        for gate in progress_report["gates"]
+        if gate["review_kind"] == "footprint_review"
+    )
     gold_batch = gold_gate["current_batch_status"]
     gold_batch_overview = gold_gate["batch_overview"]
     gold_workload_summary = gold_batch_overview[
         "current_batch_review_field_workload_summary"
     ]
     gold_field_workload = gold_batch_overview["current_batch_review_field_workload"]
+    footprint_batch_overview = footprint_gate["batch_overview"]
+    footprint_workload_summary = footprint_batch_overview[
+        "current_batch_review_field_workload_summary"
+    ]
     operator_check_ids = {check["check_id"] for check in operator_readiness["checks"]}
 
     outcome_count = extraction_report["outcome_label_rows"]
@@ -272,6 +281,14 @@ def test_stock_report_outcome_status_doc_matches_public_artifacts():
         f"{gold_workload_summary['missing_required_cells']} missing required review cells, "
         f"{gold_workload_summary['draft_decision_available_cells']} evidence-draft cells "
         "available for"
+    ) in status_text
+    assert (
+        f"{gold_workload_summary['draft_text_available_cells']} evidence text-draft cells "
+        "available for\n  `manual_claim_text`"
+    ) in status_text
+    assert (
+        f"{footprint_workload_summary['draft_text_available_cells']} evidence text-draft\n"
+        "  cells available for `review_notes`"
     ) in status_text
     assert (
         f"{gold_workload_summary['manual_review_required_cells']} cells that still "

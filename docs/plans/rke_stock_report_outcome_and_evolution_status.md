@@ -26,11 +26,13 @@ Markdown paths, source spans, reviewer notes, or private Tushare rows.
   `current_batch_review_field_workload_summary` alongside per-field workload
   counts. In the current local scratch state, the active 26-row gold batch has
   208 missing required review cells, 164 evidence-draft cells available for
-  human verification, and 44 cells that still require manual input. The active
+  human verification, 26 evidence text-draft cells available for
+  `manual_claim_text`, and 44 cells that still require manual input. The active
   50-row analytical-footprint batch has 350 missing required review cells, 300
-  evidence-draft cells available for human verification, and 50 cells that
-  still require manual input. These summaries are review aids only; they do not
-  auto-fill human decision fields. The same queue now includes
+  evidence-draft cells available for human verification, 50 evidence text-draft
+  cells available for `review_notes`, and 50 cells that still require manual
+  input. These summaries are review aids only; they do not auto-fill human
+  decision or text fields. The same queue now includes
   `current_batch_review_field_action_order`, which sorts fields that still need
   manual input separately from fields with evidence-draft decisions available
   for human verification, and

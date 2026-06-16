@@ -328,6 +328,7 @@
         "current_batch_review_field_workload": {
           "claim_correct": {
             "draft_decision_available_rows": 26,
+            "draft_text_available_rows": 0,
             "manual_decision_required_rows": 0,
             "missing_required_rows": 26,
             "suggested_false_rows": 0,
@@ -337,6 +338,7 @@
           },
           "direction_correct": {
             "draft_decision_available_rows": 24,
+            "draft_text_available_rows": 0,
             "manual_decision_required_rows": 2,
             "missing_required_rows": 26,
             "suggested_false_rows": 0,
@@ -346,6 +348,7 @@
           },
           "horizon_correct": {
             "draft_decision_available_rows": 24,
+            "draft_text_available_rows": 0,
             "manual_decision_required_rows": 2,
             "missing_required_rows": 26,
             "suggested_false_rows": 1,
@@ -355,6 +358,7 @@
           },
           "manual_claim_text": {
             "draft_decision_available_rows": 0,
+            "draft_text_available_rows": 26,
             "manual_decision_required_rows": 26,
             "missing_required_rows": 26,
             "suggested_false_rows": 0,
@@ -364,6 +368,7 @@
           },
           "source_span_supports_claim": {
             "draft_decision_available_rows": 26,
+            "draft_text_available_rows": 0,
             "manual_decision_required_rows": 0,
             "missing_required_rows": 26,
             "suggested_false_rows": 0,
@@ -373,6 +378,7 @@
           },
           "target_correct": {
             "draft_decision_available_rows": 17,
+            "draft_text_available_rows": 0,
             "manual_decision_required_rows": 9,
             "missing_required_rows": 26,
             "suggested_false_rows": 1,
@@ -382,6 +388,7 @@
           },
           "unsupported_field_false_grounded": {
             "draft_decision_available_rows": 21,
+            "draft_text_available_rows": 0,
             "manual_decision_required_rows": 5,
             "missing_required_rows": 26,
             "suggested_false_rows": 21,
@@ -391,6 +398,7 @@
           },
           "variable_mapping_correct": {
             "draft_decision_available_rows": 26,
+            "draft_text_available_rows": 0,
             "manual_decision_required_rows": 0,
             "missing_required_rows": 26,
             "suggested_false_rows": 15,
@@ -401,8 +409,10 @@
         },
         "current_batch_review_field_workload_summary": {
           "draft_decision_available_cells": 164,
+          "draft_text_available_cells": 26,
           "field_count": 8,
           "fields_with_draft_decisions": 7,
+          "fields_with_draft_text": 1,
           "fields_with_manual_review_required": 5,
           "manual_review_required_cells": 44,
           "missing_required_cells": 208,
@@ -513,6 +523,7 @@
           "review_field_workload": {
             "claim_correct": {
               "draft_decision_available_rows": 26,
+              "draft_text_available_rows": 0,
               "manual_decision_required_rows": 0,
               "missing_required_rows": 26,
               "suggested_false_rows": 0,
@@ -522,6 +533,7 @@
             },
             "direction_correct": {
               "draft_decision_available_rows": 24,
+              "draft_text_available_rows": 0,
               "manual_decision_required_rows": 2,
               "missing_required_rows": 26,
               "suggested_false_rows": 0,
@@ -531,6 +543,7 @@
             },
             "horizon_correct": {
               "draft_decision_available_rows": 24,
+              "draft_text_available_rows": 0,
               "manual_decision_required_rows": 2,
               "missing_required_rows": 26,
               "suggested_false_rows": 1,
@@ -540,6 +553,7 @@
             },
             "manual_claim_text": {
               "draft_decision_available_rows": 0,
+              "draft_text_available_rows": 26,
               "manual_decision_required_rows": 26,
               "missing_required_rows": 26,
               "suggested_false_rows": 0,
@@ -549,6 +563,7 @@
             },
             "source_span_supports_claim": {
               "draft_decision_available_rows": 26,
+              "draft_text_available_rows": 0,
               "manual_decision_required_rows": 0,
               "missing_required_rows": 26,
               "suggested_false_rows": 0,
@@ -558,6 +573,7 @@
             },
             "target_correct": {
               "draft_decision_available_rows": 17,
+              "draft_text_available_rows": 0,
               "manual_decision_required_rows": 9,
               "missing_required_rows": 26,
               "suggested_false_rows": 1,
@@ -567,6 +583,7 @@
             },
             "unsupported_field_false_grounded": {
               "draft_decision_available_rows": 21,
+              "draft_text_available_rows": 0,
               "manual_decision_required_rows": 5,
               "missing_required_rows": 26,
               "suggested_false_rows": 21,
@@ -576,6 +593,7 @@
             },
             "variable_mapping_correct": {
               "draft_decision_available_rows": 26,
+              "draft_text_available_rows": 0,
               "manual_decision_required_rows": 0,
               "missing_required_rows": 26,
               "suggested_false_rows": 15,
@@ -969,6 +987,7 @@
         "current_batch_review_field_workload": {
           "footprint_correct": {
             "draft_decision_available_rows": 50,
+            "draft_text_available_rows": 0,
             "manual_decision_required_rows": 0,
             "missing_required_rows": 50,
             "suggested_false_rows": 0,
@@ -978,6 +997,7 @@
           },
           "inferred_steps_tagged_correctly": {
             "draft_decision_available_rows": 50,
+            "draft_text_available_rows": 0,
             "manual_decision_required_rows": 0,
             "missing_required_rows": 50,
             "suggested_false_rows": 0,
@@ -987,6 +1007,7 @@
           },
           "metric_mapping_correct": {
             "draft_decision_available_rows": 50,
+            "draft_text_available_rows": 0,
             "manual_decision_required_rows": 0,
             "missing_required_rows": 50,
             "suggested_false_rows": 35,
@@ -996,6 +1017,7 @@
           },
           "no_proprietary_text_leakage": {
             "draft_decision_available_rows": 50,
+            "draft_text_available_rows": 0,
             "manual_decision_required_rows": 0,
             "missing_required_rows": 50,
             "suggested_false_rows": 0,
@@ -1005,6 +1027,7 @@
           },
           "review_notes": {
             "draft_decision_available_rows": 0,
+            "draft_text_available_rows": 50,
             "manual_decision_required_rows": 50,
             "missing_required_rows": 50,
             "suggested_false_rows": 0,
@@ -1014,6 +1037,7 @@
           },
           "source_span_supports_footprint": {
             "draft_decision_available_rows": 50,
+            "draft_text_available_rows": 0,
             "manual_decision_required_rows": 0,
             "missing_required_rows": 50,
             "suggested_false_rows": 0,
@@ -1023,6 +1047,7 @@
           },
           "unknowns_used_when_uncertain": {
             "draft_decision_available_rows": 50,
+            "draft_text_available_rows": 0,
             "manual_decision_required_rows": 0,
             "missing_required_rows": 50,
             "suggested_false_rows": 1,
@@ -1033,8 +1058,10 @@
         },
         "current_batch_review_field_workload_summary": {
           "draft_decision_available_cells": 300,
+          "draft_text_available_cells": 50,
           "field_count": 7,
           "fields_with_draft_decisions": 6,
+          "fields_with_draft_text": 1,
           "fields_with_manual_review_required": 1,
           "manual_review_required_cells": 50,
           "missing_required_cells": 350,
@@ -1500,6 +1527,7 @@
           "review_field_workload": {
             "footprint_correct": {
               "draft_decision_available_rows": 50,
+              "draft_text_available_rows": 0,
               "manual_decision_required_rows": 0,
               "missing_required_rows": 50,
               "suggested_false_rows": 0,
@@ -1509,6 +1537,7 @@
             },
             "inferred_steps_tagged_correctly": {
               "draft_decision_available_rows": 50,
+              "draft_text_available_rows": 0,
               "manual_decision_required_rows": 0,
               "missing_required_rows": 50,
               "suggested_false_rows": 0,
@@ -1518,6 +1547,7 @@
             },
             "metric_mapping_correct": {
               "draft_decision_available_rows": 50,
+              "draft_text_available_rows": 0,
               "manual_decision_required_rows": 0,
               "missing_required_rows": 50,
               "suggested_false_rows": 35,
@@ -1527,6 +1557,7 @@
             },
             "no_proprietary_text_leakage": {
               "draft_decision_available_rows": 50,
+              "draft_text_available_rows": 0,
               "manual_decision_required_rows": 0,
               "missing_required_rows": 50,
               "suggested_false_rows": 0,
@@ -1536,6 +1567,7 @@
             },
             "review_notes": {
               "draft_decision_available_rows": 0,
+              "draft_text_available_rows": 50,
               "manual_decision_required_rows": 50,
               "missing_required_rows": 50,
               "suggested_false_rows": 0,
@@ -1545,6 +1577,7 @@
             },
             "source_span_supports_footprint": {
               "draft_decision_available_rows": 50,
+              "draft_text_available_rows": 0,
               "manual_decision_required_rows": 0,
               "missing_required_rows": 50,
               "suggested_false_rows": 0,
@@ -1554,6 +1587,7 @@
             },
             "unknowns_used_when_uncertain": {
               "draft_decision_available_rows": 50,
+              "draft_text_available_rows": 0,
               "manual_decision_required_rows": 0,
               "missing_required_rows": 50,
               "suggested_false_rows": 1,

@@ -1306,6 +1306,9 @@ def test_review_progress_reports_current_batch_scratch_status(tmp_path: Path):
                 "suggested_manual_error_tags": (
                     ["direction_text_needs_review"] if index == 1 else []
                 ),
+                "suggested_manual_claim_text": (
+                    "fixture manual claim draft" if index == 1 else ""
+                ),
                 "priority_score": 2 if index == 1 else 1,
                 "priority_reasons": (
                     ["context_synthesis_required"] if index == 1 else []
@@ -1330,6 +1333,7 @@ def test_review_progress_reports_current_batch_scratch_status(tmp_path: Path):
                 "evidence_snippets": [{"source": "fixture"}],
                 "quality_gap_focus_fields": ["metric_mapping_correct"],
                 "suggested_manual_error_tags": ["metric_mapping_missing"],
+                "suggested_review_notes": "fixture review note draft",
                 "priority_score": 3,
                 "priority_reasons": ["missing_indicator_mentions"],
                 "suggested_review_decision": {
@@ -1525,10 +1529,18 @@ def test_review_progress_reports_current_batch_scratch_status(tmp_path: Path):
         ]["manual_decision_required_rows"]
         == 1
     )
+    assert (
+        summary_gold["current_batch_status"]["review_field_workload"][
+            "manual_claim_text"
+        ]["draft_text_available_rows"]
+        == 1
+    )
     assert summary_gold["current_batch_status"]["review_field_workload_summary"] == {
         "draft_decision_available_cells": 1,
+        "draft_text_available_cells": 1,
         "field_count": 2,
         "fields_with_draft_decisions": 1,
+        "fields_with_draft_text": 1,
         "fields_with_manual_review_required": 1,
         "manual_review_required_cells": 1,
         "missing_required_cells": 2,
@@ -1637,12 +1649,20 @@ def test_review_progress_reports_current_batch_scratch_status(tmp_path: Path):
         ]["review_notes"]["manual_decision_required_rows"]
         == 1
     )
+    assert (
+        actions["footprint_review"]["batch_overview"][
+            "current_batch_review_field_workload"
+        ]["review_notes"]["draft_text_available_rows"]
+        == 1
+    )
     assert actions["gold_set"]["batch_overview"][
         "current_batch_review_field_workload_summary"
     ] == {
         "draft_decision_available_cells": 1,
+        "draft_text_available_cells": 1,
         "field_count": 2,
         "fields_with_draft_decisions": 1,
+        "fields_with_draft_text": 1,
         "fields_with_manual_review_required": 1,
         "manual_review_required_cells": 1,
         "missing_required_cells": 2,
@@ -1687,6 +1707,9 @@ def test_review_progress_reports_current_batch_scratch_status(tmp_path: Path):
     assert actions["footprint_review"]["batch_overview"][
         "current_batch_review_field_workload_summary"
     ]["manual_review_required_cells"] == 1
+    assert actions["footprint_review"]["batch_overview"][
+        "current_batch_review_field_workload_summary"
+    ]["draft_text_available_cells"] == 1
     assert actions["footprint_review"]["batch_overview"][
         "current_batch_review_field_action_order"
     ]["draft_decision_review_fields"] == [
@@ -1761,6 +1784,7 @@ def test_review_progress_reports_current_batch_scratch_status(tmp_path: Path):
     assert "Review workload summary:" in markdown
     assert "missing_required_cells=2" in markdown
     assert "draft_decision_available_cells=1" in markdown
+    assert "draft_text_available_cells=1" in markdown
     assert "manual_review_required_cells=1" in markdown
     assert "Review next fields:" in markdown
     assert "manual_required: `manual_claim_text`=1" in markdown
@@ -1773,9 +1797,9 @@ def test_review_progress_reports_current_batch_scratch_status(tmp_path: Path):
     assert "text: `review_notes`=1" in markdown
     assert "draft_verify: `metric_mapping_correct`=1" in markdown
     assert "Review field workload:" in markdown
-    assert "`claim_correct`=missing:1,draft:1,manual:0" in markdown
-    assert "`manual_claim_text`=missing:1,draft:0,manual:1" in markdown
-    assert "`review_notes`=missing:1,draft:0,manual:1" in markdown
+    assert "`claim_correct`=missing:1,draft:1,text_draft:0,manual:0" in markdown
+    assert "`manual_claim_text`=missing:1,draft:0,text_draft:1,manual:1" in markdown
+    assert "`review_notes`=missing:1,draft:0,text_draft:1,manual:1" in markdown
     assert "aligned: true" in markdown
     assert "`open_count`=1" in markdown
     assert "fixture approval" not in markdown
