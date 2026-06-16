@@ -210,6 +210,15 @@
               "missing_required_rows": 26
             }
           ],
+          "draft_text_review_fields": [
+            {
+              "draft_decision_available_rows": 0,
+              "draft_text_available_rows": 26,
+              "field": "manual_claim_text",
+              "manual_decision_required_rows": 26,
+              "missing_required_rows": 26
+            }
+          ],
           "manual_review_required_fields": [
             {
               "draft_decision_available_rows": 0,
@@ -247,24 +256,28 @@
           "decision_fields_need_review": [
             {
               "draft_decision_available_rows": 17,
+              "draft_text_available_rows": 0,
               "field": "target_correct",
               "manual_decision_required_rows": 9,
               "missing_required_rows": 26
             },
             {
               "draft_decision_available_rows": 21,
+              "draft_text_available_rows": 0,
               "field": "unsupported_field_false_grounded",
               "manual_decision_required_rows": 5,
               "missing_required_rows": 26
             },
             {
               "draft_decision_available_rows": 24,
+              "draft_text_available_rows": 0,
               "field": "direction_correct",
               "manual_decision_required_rows": 2,
               "missing_required_rows": 26
             },
             {
               "draft_decision_available_rows": 24,
+              "draft_text_available_rows": 0,
               "field": "horizon_correct",
               "manual_decision_required_rows": 2,
               "missing_required_rows": 26
@@ -273,44 +286,60 @@
           "draft_decision_fields_to_verify": [
             {
               "draft_decision_available_rows": 17,
+              "draft_text_available_rows": 0,
               "field": "target_correct",
               "manual_decision_required_rows": 9,
               "missing_required_rows": 26
             },
             {
               "draft_decision_available_rows": 21,
+              "draft_text_available_rows": 0,
               "field": "unsupported_field_false_grounded",
               "manual_decision_required_rows": 5,
               "missing_required_rows": 26
             },
             {
               "draft_decision_available_rows": 24,
+              "draft_text_available_rows": 0,
               "field": "direction_correct",
               "manual_decision_required_rows": 2,
               "missing_required_rows": 26
             },
             {
               "draft_decision_available_rows": 24,
+              "draft_text_available_rows": 0,
               "field": "horizon_correct",
               "manual_decision_required_rows": 2,
               "missing_required_rows": 26
             },
             {
               "draft_decision_available_rows": 26,
+              "draft_text_available_rows": 0,
               "field": "claim_correct",
               "manual_decision_required_rows": 0,
               "missing_required_rows": 26
             },
             {
               "draft_decision_available_rows": 26,
+              "draft_text_available_rows": 0,
               "field": "source_span_supports_claim",
               "manual_decision_required_rows": 0,
               "missing_required_rows": 26
             },
             {
               "draft_decision_available_rows": 26,
+              "draft_text_available_rows": 0,
               "field": "variable_mapping_correct",
               "manual_decision_required_rows": 0,
+              "missing_required_rows": 26
+            }
+          ],
+          "draft_text_fields_to_verify": [
+            {
+              "draft_decision_available_rows": 0,
+              "draft_text_available_rows": 26,
+              "field": "manual_claim_text",
+              "manual_decision_required_rows": 26,
               "missing_required_rows": 26
             }
           ],
@@ -319,6 +348,7 @@
           "text_fields_need_fill": [
             {
               "draft_decision_available_rows": 0,
+              "draft_text_available_rows": 26,
               "field": "manual_claim_text",
               "manual_decision_required_rows": 26,
               "missing_required_rows": 26
@@ -924,6 +954,15 @@
               "missing_required_rows": 50
             }
           ],
+          "draft_text_review_fields": [
+            {
+              "draft_decision_available_rows": 0,
+              "draft_text_available_rows": 50,
+              "field": "review_notes",
+              "manual_decision_required_rows": 50,
+              "missing_required_rows": 50
+            }
+          ],
           "manual_review_required_fields": [
             {
               "draft_decision_available_rows": 0,
@@ -938,38 +977,53 @@
           "draft_decision_fields_to_verify": [
             {
               "draft_decision_available_rows": 50,
+              "draft_text_available_rows": 0,
               "field": "footprint_correct",
               "manual_decision_required_rows": 0,
               "missing_required_rows": 50
             },
             {
               "draft_decision_available_rows": 50,
+              "draft_text_available_rows": 0,
               "field": "inferred_steps_tagged_correctly",
               "manual_decision_required_rows": 0,
               "missing_required_rows": 50
             },
             {
               "draft_decision_available_rows": 50,
+              "draft_text_available_rows": 0,
               "field": "metric_mapping_correct",
               "manual_decision_required_rows": 0,
               "missing_required_rows": 50
             },
             {
               "draft_decision_available_rows": 50,
+              "draft_text_available_rows": 0,
               "field": "no_proprietary_text_leakage",
               "manual_decision_required_rows": 0,
               "missing_required_rows": 50
             },
             {
               "draft_decision_available_rows": 50,
+              "draft_text_available_rows": 0,
               "field": "source_span_supports_footprint",
               "manual_decision_required_rows": 0,
               "missing_required_rows": 50
             },
             {
               "draft_decision_available_rows": 50,
+              "draft_text_available_rows": 0,
               "field": "unknowns_used_when_uncertain",
               "manual_decision_required_rows": 0,
+              "missing_required_rows": 50
+            }
+          ],
+          "draft_text_fields_to_verify": [
+            {
+              "draft_decision_available_rows": 0,
+              "draft_text_available_rows": 50,
+              "field": "review_notes",
+              "manual_decision_required_rows": 50,
               "missing_required_rows": 50
             }
           ],
@@ -978,6 +1032,7 @@
           "text_fields_need_fill": [
             {
               "draft_decision_available_rows": 0,
+              "draft_text_available_rows": 50,
               "field": "review_notes",
               "manual_decision_required_rows": 50,
               "missing_required_rows": 50

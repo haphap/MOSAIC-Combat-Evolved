@@ -290,6 +290,8 @@ def test_stock_report_outcome_status_doc_matches_public_artifacts():
         f"{footprint_workload_summary['draft_text_available_cells']} evidence text-draft\n"
         "  cells available for `review_notes`"
     ) in status_text
+    assert "fields with evidence text drafts available" in status_text
+    assert "draft-decision / draft-text verification fields" in status_text
     assert (
         f"{gold_workload_summary['manual_review_required_cells']} cells that still "
         "require manual input"

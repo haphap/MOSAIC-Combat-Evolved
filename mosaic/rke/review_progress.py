@@ -451,11 +451,13 @@ def _review_field_workload_summary(workload: Mapping[str, Any]) -> Mapping[str, 
 def _review_field_action_order(workload: Mapping[str, Any]) -> Mapping[str, Any]:
     manual_fields: list[dict[str, Any]] = []
     draft_fields: list[dict[str, Any]] = []
+    draft_text_fields: list[dict[str, Any]] = []
     for field_name, item in sorted(workload.items()):
         if not isinstance(item, Mapping):
             continue
         missing_rows = int(item.get("missing_required_rows") or 0)
         draft_rows = int(item.get("draft_decision_available_rows") or 0)
+        draft_text_rows = int(item.get("draft_text_available_rows") or 0)
         manual_rows = int(item.get("manual_decision_required_rows") or 0)
         field_summary = {
             "field": str(field_name),
@@ -467,6 +469,13 @@ def _review_field_action_order(workload: Mapping[str, Any]) -> Mapping[str, Any]
             manual_fields.append(dict(field_summary))
         if draft_rows:
             draft_fields.append(dict(field_summary))
+        if draft_text_rows:
+            draft_text_fields.append(
+                {
+                    **field_summary,
+                    "draft_text_available_rows": draft_text_rows,
+                }
+            )
     manual_fields.sort(
         key=lambda item: (
             -int(item["manual_decision_required_rows"]),
@@ -481,9 +490,17 @@ def _review_field_action_order(workload: Mapping[str, Any]) -> Mapping[str, Any]
             str(item["field"]),
         )
     )
+    draft_text_fields.sort(
+        key=lambda item: (
+            -int(item["draft_text_available_rows"]),
+            -int(item["missing_required_rows"]),
+            str(item["field"]),
+        )
+    )
     return {
         "manual_review_required_fields": manual_fields,
         "draft_decision_review_fields": draft_fields,
+        "draft_text_review_fields": draft_text_fields,
     }
 
 
@@ -527,6 +544,7 @@ def _review_field_workflow_groups(
         "text_fields_need_fill": [],
         "other_fields_need_fill": [],
         "draft_decision_fields_to_verify": [],
+        "draft_text_fields_to_verify": [],
     }
     for field_name, item in sorted(workload.items()):
         if not isinstance(item, Mapping):
@@ -541,9 +559,14 @@ def _review_field_workflow_groups(
             "manual_decision_required_rows": int(
                 item.get("manual_decision_required_rows") or 0
             ),
+            "draft_text_available_rows": int(
+                item.get("draft_text_available_rows") or 0
+            ),
         }
         if field_summary["draft_decision_available_rows"] and field in boolean_fields:
             groups["draft_decision_fields_to_verify"].append(dict(field_summary))
+        if field_summary["draft_text_available_rows"] and field in text_fields:
+            groups["draft_text_fields_to_verify"].append(dict(field_summary))
         if not field_summary["manual_decision_required_rows"]:
             continue
         if field in boolean_fields:
@@ -559,6 +582,7 @@ def _review_field_workflow_groups(
             key=lambda item: (
                 -int(item["manual_decision_required_rows"]),
                 -int(item["draft_decision_available_rows"]),
+                -int(item["draft_text_available_rows"]),
                 str(item["field"]),
             )
         )
@@ -1954,6 +1978,7 @@ def _render_batch_status_lines(
                 action_order = _review_field_action_order(workload)
                 manual_fields = action_order.get("manual_review_required_fields")
                 draft_fields = action_order.get("draft_decision_review_fields")
+                draft_text_fields = action_order.get("draft_text_review_fields")
                 rendered_manual_fields = (
                     ", ".join(
                         f"`{item.get('field')}`="
@@ -1974,11 +1999,26 @@ def _render_batch_status_lines(
                     if isinstance(draft_fields, Sequence)
                     else ""
                 )
-                if rendered_manual_fields or rendered_draft_fields:
+                rendered_draft_text_fields = (
+                    ", ".join(
+                        f"`{item.get('field')}`="
+                        f"{int(item.get('draft_text_available_rows') or 0)}"
+                        for item in draft_text_fields
+                        if isinstance(item, Mapping)
+                    )
+                    if isinstance(draft_text_fields, Sequence)
+                    else ""
+                )
+                if (
+                    rendered_manual_fields
+                    or rendered_draft_fields
+                    or rendered_draft_text_fields
+                ):
                     lines.append(
                         "  Review next fields: "
                         f"manual_required: {rendered_manual_fields or 'none'}; "
-                        f"draft_available: {rendered_draft_fields or 'none'}"
+                        f"draft_available: {rendered_draft_fields or 'none'}; "
+                        f"text_draft_available: {rendered_draft_text_fields or 'none'}"
                     )
                 if review_kind:
                     workflow_groups = _review_field_workflow_groups(
@@ -2005,7 +2045,9 @@ def _render_batch_status_lines(
                         f"{_render_group('metadata_fields_need_fill', 'manual_decision_required_rows')}; "
                         f"text: {_render_group('text_fields_need_fill', 'manual_decision_required_rows')}; "
                         "draft_verify: "
-                        f"{_render_group('draft_decision_fields_to_verify', 'draft_decision_available_rows')}"
+                        f"{_render_group('draft_decision_fields_to_verify', 'draft_decision_available_rows')}; "
+                        "text_draft_verify: "
+                        f"{_render_group('draft_text_fields_to_verify', 'draft_text_available_rows')}"
                     )
                 rendered_workload: list[str] = []
                 for field, item in sorted(workload.items()):

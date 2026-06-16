@@ -35,10 +35,11 @@ Markdown paths, source spans, reviewer notes, or private Tushare rows.
   decision or text fields. The same queue now includes
   `current_batch_review_field_action_order`, which sorts fields that still need
   manual input separately from fields with evidence-draft decisions available
-  for human verification, and
+  for human verification and fields with evidence text drafts available for
+  human confirmation, and
   `current_batch_review_field_workflow_groups`, which separates boolean
   decision fields, reviewer/date metadata fields, free-text fields, and
-  draft-decision verification fields.
+  draft-decision / draft-text verification fields.
 - The current batch overview and runbook now also expose
   `current_batch_quality_gap_review_focus`, a public-safe metric-to-field focus
   list that maps failing quality gates to the exact review fields and aggregate
