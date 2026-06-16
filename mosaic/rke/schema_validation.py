@@ -8219,6 +8219,7 @@ def validate_report_intelligence_semantics(
             current: int,
             target: int,
             blocker: str,
+            next_action: str,
         ) -> None:
             row = coverage_shortfalls.get(key)
             row_label = f"markdown_coverage_summary.coverage_shortfalls.{key}"
@@ -8230,6 +8231,7 @@ def validate_report_intelligence_semantics(
                 ("target", target),
                 ("remaining", max(target - current, 0)),
                 ("blocker", blocker),
+                ("next_action", next_action),
             ):
                 if row.get(field) != expected:
                     markdown_coverage_failures.append(
@@ -8241,41 +8243,48 @@ def validate_report_intelligence_semantics(
                 "markdown_coverage_summary.coverage_targets: expected object"
             )
         else:
-            for count_field, target_field, blocker in (
+            for count_field, target_field, blocker, next_action in (
                 (
                     "selected_report_count",
                     "selected_report_count_min",
                     "selected_report_count_below_p9_target",
+                    "add_stratified_real_reports_to_private_source_pool",
                 ),
                 (
                     "markdown_ready_count",
                     "markdown_ready_count_min",
                     "markdown_ready_count_below_p9_target",
+                    "download_pdfs_and_convert_quality_gated_markdown",
                 ),
                 (
                     "markdown_quality_pass_count",
                     "markdown_quality_pass_count_min",
                     "markdown_quality_pass_count_below_p9_target",
+                    "resolve_markdown_quality_gaps_before_llm_extraction",
                 ),
                 (
                     "llm_extraction_processed_count",
                     "llm_extraction_processed_count_min",
                     "llm_extraction_processed_count_below_p9_target",
+                    "run_llm_extraction_on_quality_passed_markdown",
                 ),
                 (
                     "industry_report_count",
                     "industry_report_count_min",
                     "industry_report_count_below_p9_target",
+                    "add_more_industry_research_reports_to_stratified_pool",
                 ),
                 (
                     "stock_report_count",
                     "stock_report_count_min",
                     "stock_report_count_below_p9_target",
+                    "add_more_stock_research_reports_with_ts_code",
                 ),
                 (
                     "stock_outcome_120d_ready_report_count",
                     "stock_outcome_120d_ready_report_count_min",
                     "stock_outcome_120d_ready_count_below_p9_target",
+                    "prefer_historical_stock_reports_with_120d_outcome_windows",
                 ),
             ):
                 count = _int_or_none(markdown_coverage.get(count_field))
@@ -8296,6 +8305,7 @@ def validate_report_intelligence_semantics(
                     current=count,
                     target=target,
                     blocker=blocker,
+                    next_action=next_action,
                 )
                 if count < target and blocker not in coverage_blockers:
                     markdown_coverage_failures.append(
@@ -8365,6 +8375,7 @@ def validate_report_intelligence_semantics(
                         current=sector_gap_count,
                         target=0,
                         blocker="sector_bucket_coverage_below_p9_target",
+                        next_action="fill_aggregate_sector_bucket_coverage_gaps",
                     )
         coverage_strata_targets = markdown_coverage.get("coverage_strata_targets")
         coverage_strata_missing = set(
@@ -8446,6 +8457,9 @@ def validate_report_intelligence_semantics(
                 current=len(coverage_strata_missing),
                 target=0,
                 blocker="stratified_coverage_below_p9_target",
+                next_action=(
+                    "fill_missing_time_institution_horizon_evaluability_strata"
+                ),
             )
         expected_coverage_status = "blocked" if coverage_blockers else "passed"
         if markdown_coverage.get("coverage_gate_status") != expected_coverage_status:
