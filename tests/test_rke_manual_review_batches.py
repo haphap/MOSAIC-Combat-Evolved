@@ -782,6 +782,8 @@ def test_write_gold_review_starter_exports_reviewed_failures_for_targeted_rerevi
 
 
 def test_write_gold_review_starter_full_force_overwrites(tmp_path: Path):
+    from mosaic.rke.temp_paths import rke_tmp_root
+
     _copy_registry(tmp_path)
     reviewed_path = tmp_path / "registry/review_batches/gold_set_full_reviewed.jsonl"
     _write_jsonl(reviewed_path, [{"reviewer": "stale", "review_notes": "preserve me"}])
@@ -801,7 +803,7 @@ def test_write_gold_review_starter_full_force_overwrites(tmp_path: Path):
     assert result.backup_path
     backup_path = Path(result.backup_path)
     assert backup_path.is_file()
-    assert backup_path.is_relative_to(tmp_path / ".mosaic/tmp/review-backups")
+    assert backup_path.is_relative_to(rke_tmp_root() / "review-backups")
     assert "preserve me" in backup_path.read_text(encoding="utf-8")
     assert result.full
     expected_gold_rows = build_manual_review_batch_status(tmp_path)[0].gold_set.pending_rows

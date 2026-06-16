@@ -26,7 +26,7 @@ from .license_policy_import import (
 from .manual_review_import import GOLD_BOOL_FIELDS, TARGET_ROW_HASH_FIELD, review_row_fingerprint
 from .report_intelligence import _gold_review_quality_gap_targets_from_summary
 from .review_gates import summarize_gold_set_review
-from .temp_paths import RKE_OPERATOR_TMPDIR
+from .temp_paths import rke_tmp_root
 
 
 GOLD_REVIEW_TEMPLATE_PATH = "registry/gold_sets/tushare_research_reports.review_template.jsonl"
@@ -221,7 +221,7 @@ def _manual_review_backup_path(root_path: Path, source_path: Path) -> Path:
         label = source_path.name
     safe_label = re.sub(r"[^A-Za-z0-9._-]+", "_", label)
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
-    return root_path / RKE_OPERATOR_TMPDIR / "review-backups" / f"{timestamp}_{safe_label}"
+    return rke_tmp_root() / "review-backups" / f"{timestamp}_{safe_label}"
 
 
 def _load_review_rows(

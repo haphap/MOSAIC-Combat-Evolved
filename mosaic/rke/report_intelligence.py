@@ -42,7 +42,7 @@ from .required_data import (
     canonical_metric_name as _canonical_metric_name,
     normalize_required_data_items,
 )
-from .temp_paths import RKE_OPERATOR_TMPDIR, operator_command
+from .temp_paths import operator_command, rke_tmp_root
 
 
 TUSHARE_REPORT_SOURCE_PATH = "registry/sources/tushare_research_reports.jsonl"
@@ -5346,7 +5346,7 @@ def _manual_review_backup_path(root_path: Path, source_path: Path) -> Path:
         label = source_path.name
     safe_label = re.sub(r"[^A-Za-z0-9._-]+", "_", label)
     timestamp = re.sub(r"[^0-9A-Za-z]+", "", _utc_now())
-    return root_path / RKE_OPERATOR_TMPDIR / "review-backups" / f"{timestamp}_{safe_label}"
+    return rke_tmp_root() / "review-backups" / f"{timestamp}_{safe_label}"
 
 
 def prepare_analytical_footprint_review_import(

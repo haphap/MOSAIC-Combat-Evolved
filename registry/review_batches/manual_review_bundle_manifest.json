@@ -3,22 +3,22 @@
   "artifact_count": 11,
   "artifacts": [
     {
-      "bytes": 51069,
+      "bytes": 51457,
       "exists": true,
       "format": "json",
       "path": "registry/handoffs/rke_operator_handoff.json",
       "role": "operator_handoff_json",
       "row_count": null,
-      "sha256": "sha256:e41542db8c8574af24f34f29a91d97f10f3e2648481f18f5f9100cdea7cca401"
+      "sha256": "sha256:496ebbcc5f3e309cf5cd1cea21b9c8af66c52615aadabe22b205912a7127c530"
     },
     {
-      "bytes": 21086,
+      "bytes": 21474,
       "exists": true,
       "format": "markdown",
       "path": "registry/handoffs/rke_operator_handoff.md",
       "role": "operator_handoff_markdown",
       "row_count": null,
-      "sha256": "sha256:5fc3fda4feaae51877b7daa1e19da6fb43b671d9fa434011e0f532cc97e843d1"
+      "sha256": "sha256:aff637a0215887024453d723e35fa0fbb4ae2a62e3c1b099569ff0b948a35605"
     },
     {
       "bytes": 3009,
@@ -30,22 +30,22 @@
       "sha256": "sha256:67e06c3f49c14eccbae436d21d27a29f9b2af3afbf2bcc7fa162fe73cdfb2b14"
     },
     {
-      "bytes": 91270,
+      "bytes": 92630,
       "exists": true,
       "format": "json",
       "path": "registry/review_batches/manual_review_progress_report.json",
       "role": "manual_review_progress_report",
       "row_count": null,
-      "sha256": "sha256:665fba4d0c993e30a8bc3affa407946f700717b78fae4ee3062e80fd3309cf27"
+      "sha256": "sha256:b090ca02f997770fc193405e1b4a63b1e40530bd758978db3fc3d8736948282f"
     },
     {
-      "bytes": 51660,
+      "bytes": 53140,
       "exists": true,
       "format": "markdown",
       "path": "registry/review_batches/manual_review_runbook.md",
       "role": "manual_review_runbook_markdown",
       "row_count": null,
-      "sha256": "sha256:0119875db236aa6e8b8e80fe304206881a95d13518a7f9a5e213229989683766"
+      "sha256": "sha256:4315fe9a35fded422e6df8212917a279ee25e77387221a249b58e73384a72da7"
     },
     {
       "bytes": 1339,
@@ -66,13 +66,13 @@
       "sha256": "sha256:41cd02824912d25f633a9b5c54eccfc4e4bf0a2417fe6eac0d16edcb89335dc3"
     },
     {
-      "bytes": 2150,
+      "bytes": 2180,
       "exists": true,
       "format": "markdown",
       "path": "registry/review_batches/lockbox_review_checklist.md",
       "role": "lockbox_review_checklist",
       "row_count": null,
-      "sha256": "sha256:9382b236ef3b4a16d9bced5642e89d45e9246264b8d96eb991541a13da90f1e4"
+      "sha256": "sha256:61bbb339846e4c15ef6c10cf462a0e5f1ffba5b25269848417d5e9cff9086957"
     },
     {
       "bytes": 613,
@@ -93,13 +93,13 @@
       "sha256": "sha256:ccd4ec73bfdf2da39a4689070f5fb6605702ac379e21d44cdf6551bc898af7c8"
     },
     {
-      "bytes": 1966,
+      "bytes": 2044,
       "exists": true,
       "format": "json",
       "path": "registry/promotion/rke_promotion_dry_run_report.json",
       "role": "promotion_dry_run_report",
       "row_count": null,
-      "sha256": "sha256:49aad76bdc8758087190b8483e9d61de44338bf64448292764b2fbbfc8cee0dd"
+      "sha256": "sha256:bf6a7ffc3ee06265735dbf506d315c575da90acd611322beae1c096c205ab6f6"
     }
   ],
   "blockers": [],

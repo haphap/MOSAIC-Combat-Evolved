@@ -11383,6 +11383,8 @@ def test_prepare_analytical_footprint_review_import_priority_sorts_pending_rows(
 def test_prepare_analytical_footprint_review_import_backs_up_overwrite(
     tmp_path: Path,
 ):
+    from mosaic.rke.temp_paths import rke_tmp_root
+
     source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
     run_report_intelligence_refresh(
         ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
@@ -11411,7 +11413,7 @@ def test_prepare_analytical_footprint_review_import_backs_up_overwrite(
     assert report.accepted
     assert report.backed_up_existing_output is True
     assert backup_path.exists()
-    assert backup_path.is_relative_to(tmp_path / ".mosaic/tmp/review-backups")
+    assert backup_path.is_relative_to(rke_tmp_root() / "review-backups")
     assert "preserve me" in backup_path.read_text(encoding="utf-8")
     scaffold_rows = _read_jsonl(output_path)
     assert scaffold_rows[0]["footprint_id"] != "OLD"

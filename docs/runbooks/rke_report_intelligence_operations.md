@@ -9,7 +9,7 @@ Markdown excerpts here.
 
 - Repository: `/home/hap/Project/MOSAIC-RKE`
 - Private runtime/cache root: `.mosaic/rke/report_intelligence/`
-- Local temp root: `.mosaic/tmp/`
+- Local temp root: `~/tmp/mosaic-rke/`
 - MinerU CLI: `.venv/bin/mineru`
 - Required MinerU backend for report conversion: `vlm-auto-engine`
 - Previous `hybrid-auto-engine` smoke is useful only as environment proof; do
@@ -88,7 +88,7 @@ Mode distinction:
 Preferred smoke command:
 
 ```bash
-TMPDIR=.mosaic/tmp uv run mosaic-rke report-intelligence \
+TMPDIR=~/tmp/mosaic-rke uv run mosaic-rke report-intelligence \
   --root . \
   --env-file .env \
   --source-path registry/sources/local_macro_strategy_reports.jsonl \
@@ -106,7 +106,7 @@ TMPDIR=.mosaic/tmp uv run mosaic-rke report-intelligence \
 Preferred batch command:
 
 ```bash
-TMPDIR=.mosaic/tmp uv run mosaic-rke report-intelligence \
+TMPDIR=~/tmp/mosaic-rke uv run mosaic-rke report-intelligence \
   --root . \
   --env-file .env \
   --source-path registry/sources/local_macro_strategy_reports.jsonl \
@@ -194,7 +194,7 @@ Aggregate result:
   and must not be committed.
 
 Operational note: in restricted Codex/sandbox runs, set
-`UV_CACHE_DIR=.mosaic/tmp/uv-cache` along with `TMPDIR=.mosaic/tmp` so `uv` does
+`UV_CACHE_DIR=~/tmp/mosaic-rke/uv-cache` along with `TMPDIR=~/tmp/mosaic-rke` so `uv` does
 not try to write under the home-level cache directory. Keep Mimo extraction
 batches small, typically 2-3 reports after the initial 5-report smoke, because
 some reports split into two chunks and can wait on the model endpoint for
@@ -203,7 +203,7 @@ several minutes.
 Batch smoke:
 
 ```bash
-TMPDIR=.mosaic/tmp uv run mosaic-rke report-intelligence \
+TMPDIR=~/tmp/mosaic-rke uv run mosaic-rke report-intelligence \
   --root . \
   --env-file .env \
   --source-path registry/sources/local_macro_strategy_reports.jsonl \
@@ -251,7 +251,7 @@ Result:
 Single-report smoke:
 
 ```bash
-TMPDIR=.mosaic/tmp uv run mosaic-rke report-intelligence \
+TMPDIR=~/tmp/mosaic-rke uv run mosaic-rke report-intelligence \
   --root . \
   --env-file .env \
   --source-path registry/sources/local_macro_strategy_reports.jsonl \
@@ -296,7 +296,7 @@ Result:
 Last completed VLM batch:
 
 ```bash
-TMPDIR=.mosaic/tmp uv run mosaic-rke report-intelligence \
+TMPDIR=~/tmp/mosaic-rke uv run mosaic-rke report-intelligence \
   --root . \
   --env-file .env \
   --source-path registry/sources/local_macro_strategy_reports.jsonl \
@@ -337,7 +337,7 @@ Result:
 Last completed vLLM/VLM smoke:
 
 ```bash
-TMPDIR=.mosaic/tmp uv run mosaic-rke report-intelligence \
+TMPDIR=~/tmp/mosaic-rke uv run mosaic-rke report-intelligence \
   --root . \
   --env-file .env \
   --source-path registry/sources/local_macro_strategy_reports.jsonl \
@@ -368,7 +368,7 @@ Last completed smoke run used `hybrid-auto-engine` before the vLLM-only
 requirement was clarified:
 
 ```bash
-TMPDIR=.mosaic/tmp uv run mosaic-rke report-intelligence \
+TMPDIR=~/tmp/mosaic-rke uv run mosaic-rke report-intelligence \
   --root . \
   --env-file .env \
   --source-path registry/sources/local_macro_strategy_reports.jsonl \
@@ -413,7 +413,7 @@ wc -l registry/sources/local_macro_strategy_reports.jsonl
 2. Run a small VLM Markdown conversion batch without LLM:
 
 ```bash
-TMPDIR=.mosaic/tmp uv run mosaic-rke report-intelligence \
+TMPDIR=~/tmp/mosaic-rke uv run mosaic-rke report-intelligence \
   --root . \
   --env-file .env \
   --source-path registry/sources/local_macro_strategy_reports.jsonl \
