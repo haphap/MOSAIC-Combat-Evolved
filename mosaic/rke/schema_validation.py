@@ -6474,6 +6474,15 @@ def _validate_manual_review_batch_overview_contract(
         )
     workload = overview.get("current_batch_review_field_workload")
     if isinstance(workload, Mapping) and workload:
+        expected_summary = _expected_review_field_workload_summary(workload)
+        if (
+            overview.get("current_batch_review_field_workload_summary")
+            != expected_summary
+        ):
+            failures.append(
+                f"{overview_label}.current_batch_review_field_workload_summary: "
+                "must match current_batch_review_field_workload"
+            )
         expected_action_order = _expected_review_field_action_order(workload)
         if (
             overview.get("current_batch_review_field_action_order")
@@ -6495,6 +6504,57 @@ def _validate_manual_review_batch_overview_contract(
                 f"{overview_label}.current_batch_review_field_workflow_groups: "
                 "must match current_batch_review_field_workload"
             )
+
+
+def _expected_review_field_workload_summary(
+    workload: Mapping[str, Any],
+) -> Mapping[str, int]:
+    summary = {
+        "field_count": 0,
+        "fields_with_draft_decisions": 0,
+        "fields_with_draft_text": 0,
+        "fields_with_manual_review_required": 0,
+        "missing_required_cells": 0,
+        "draft_decision_available_cells": 0,
+        "draft_text_available_cells": 0,
+        "manual_review_required_cells": 0,
+        "suggested_true_cells": 0,
+        "suggested_false_cells": 0,
+        "suggested_null_cells": 0,
+        "suggested_other_cells": 0,
+    }
+    for item in workload.values():
+        if not isinstance(item, Mapping):
+            continue
+        summary["field_count"] += 1
+        draft_rows = int(_int_or_none(item.get("draft_decision_available_rows")) or 0)
+        draft_text_rows = int(_int_or_none(item.get("draft_text_available_rows")) or 0)
+        manual_rows = int(_int_or_none(item.get("manual_decision_required_rows")) or 0)
+        if draft_rows:
+            summary["fields_with_draft_decisions"] += 1
+        if draft_text_rows:
+            summary["fields_with_draft_text"] += 1
+        if manual_rows:
+            summary["fields_with_manual_review_required"] += 1
+        summary["missing_required_cells"] += int(
+            _int_or_none(item.get("missing_required_rows")) or 0
+        )
+        summary["draft_decision_available_cells"] += draft_rows
+        summary["draft_text_available_cells"] += draft_text_rows
+        summary["manual_review_required_cells"] += manual_rows
+        summary["suggested_true_cells"] += int(
+            _int_or_none(item.get("suggested_true_rows")) or 0
+        )
+        summary["suggested_false_cells"] += int(
+            _int_or_none(item.get("suggested_false_rows")) or 0
+        )
+        summary["suggested_null_cells"] += int(
+            _int_or_none(item.get("suggested_null_rows")) or 0
+        )
+        summary["suggested_other_cells"] += int(
+            _int_or_none(item.get("suggested_other_rows")) or 0
+        )
+    return summary
 
 
 def _expected_review_field_action_order(

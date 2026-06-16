@@ -4252,6 +4252,9 @@ def test_manual_review_progress_contract_rejects_batch_overview_drift(
     overview["current_batch_evidence_aligned"] = False
     overview["current_batch_path"] = "registry/review_batches/stale.jsonl"
     overview["next_batch_limit"] = 999
+    overview["current_batch_review_field_workload_summary"][
+        "draft_text_available_cells"
+    ] = 999
     overview["current_batch_review_field_action_order"]["draft_text_review_fields"] = []
     overview["current_batch_review_field_workflow_groups"][
         "draft_text_fields_to_verify"
@@ -4283,6 +4286,12 @@ def test_manual_review_progress_contract_rejects_batch_overview_drift(
     )
     assert any(
         "batch_overview.next_batch_limit: expected" in item
+        for item in record.failures
+    )
+    assert any(
+        "batch_overview.current_batch_review_field_workload_summary: must match "
+        "current_batch_review_field_workload"
+        in item
         for item in record.failures
     )
     assert any(
