@@ -455,6 +455,120 @@ def test_gold_review_evidence_flags_direction_text_mismatch(tmp_path: Path):
     assert "variable_mapping_correct" in row["quality_gap_focus_fields"]
 
 
+def test_gold_review_evidence_suggests_forward_stock_target_and_variables(
+    tmp_path: Path,
+):
+    _copy_registry(tmp_path)
+    template_path = (
+        tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    )
+    rows = _load_jsonl(template_path)
+    rows[0]["proposed_claim_text"] = (
+        "在下游需求旺盛、产能扩张和现金流改善的背景下，公司有望提升市占率并带动收入和盈利增长。"
+    )
+    rows[0]["proposed_direction"] = "positive"
+    rows[0]["proposed_cause_variables"] = [
+        "industry_demand_cycle",
+        "industry_supply_constraint",
+        "company_fundamental_momentum",
+    ]
+    rows[0]["proposed_target_variables"] = ["stock_forward_excess_return"]
+    rows[0]["proposed_review_risk_flags"] = ["manual_review_required"]
+    _write_jsonl(template_path, rows)
+    review_input = tmp_path / "gold_forward_stock_input.jsonl"
+    _write_jsonl(review_input, [{"claim_id": rows[0]["claim_id"]}])
+
+    _summary, evidence_rows = build_gold_review_evidence(
+        tmp_path,
+        review_input_path=review_input.relative_to(tmp_path),
+    )
+    row = evidence_rows[0]
+    decision = row["suggested_review_decision"]
+
+    assert decision["target_correct"] is True
+    assert decision["horizon_correct"] is True
+    assert decision["variable_mapping_correct"] is True
+    assert row["target_mapping_diagnostics"]["status"] == (
+        "stock_forward_target_supported_by_text"
+    )
+    assert row["horizon_diagnostics"]["status"] == (
+        "implicit_forward_horizon_from_forecast_terms"
+    )
+    assert row["variable_mapping_diagnostics"]["missing_expected_cause_variables"] == ()
+    assert row["variable_mapping_diagnostics"]["questionable_cause_variables"] == ()
+
+
+def test_gold_review_evidence_flags_historical_stock_fact_without_forward_target(
+    tmp_path: Path,
+):
+    _copy_registry(tmp_path)
+    template_path = (
+        tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    )
+    rows = _load_jsonl(template_path)
+    rows[0]["proposed_claim_text"] = "经营方面，26Q1公司销售回款改善，经营性现金流增长。"
+    rows[0]["proposed_direction"] = "positive"
+    rows[0]["proposed_cause_variables"] = ["company_fundamental_momentum"]
+    rows[0]["proposed_target_variables"] = ["stock_forward_excess_return"]
+    rows[0]["proposed_review_risk_flags"] = ["manual_review_required"]
+    _write_jsonl(template_path, rows)
+    review_input = tmp_path / "gold_historical_stock_input.jsonl"
+    _write_jsonl(review_input, [{"claim_id": rows[0]["claim_id"]}])
+
+    _summary, evidence_rows = build_gold_review_evidence(
+        tmp_path,
+        review_input_path=review_input.relative_to(tmp_path),
+    )
+    row = evidence_rows[0]
+    decision = row["suggested_review_decision"]
+
+    assert decision["target_correct"] is False
+    assert decision["horizon_correct"] is False
+    assert "historical_fact_without_forward_stock_target" in row[
+        "target_mapping_diagnostics"
+    ]["blockers"]
+    assert "historical_fact_without_forward_horizon" in row["horizon_diagnostics"][
+        "blockers"
+    ]
+
+
+def test_gold_review_evidence_flags_questionable_cause_mapping(tmp_path: Path):
+    _copy_registry(tmp_path)
+    template_path = (
+        tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    )
+    rows = _load_jsonl(template_path)
+    rows[0]["proposed_claim_text"] = (
+        "在不干胶标签行业市场规模增长、下游需求旺盛、公司产能扩张的背景下，"
+        "公司有望带动收入增长。"
+    )
+    rows[0]["proposed_direction"] = "positive"
+    rows[0]["proposed_cause_variables"] = ["commodity_price_cycle"]
+    rows[0]["proposed_target_variables"] = ["stock_forward_excess_return"]
+    rows[0]["proposed_review_risk_flags"] = ["manual_review_required"]
+    _write_jsonl(template_path, rows)
+    review_input = tmp_path / "gold_bad_cause_input.jsonl"
+    _write_jsonl(review_input, [{"claim_id": rows[0]["claim_id"]}])
+
+    _summary, evidence_rows = build_gold_review_evidence(
+        tmp_path,
+        review_input_path=review_input.relative_to(tmp_path),
+    )
+    row = evidence_rows[0]
+
+    assert row["suggested_review_decision"]["variable_mapping_correct"] is False
+    assert "variable_mapping_missing_expected_cause" in row[
+        "suggested_manual_error_tags"
+    ]
+    assert "variable_mapping_questionable_cause" in row["suggested_manual_error_tags"]
+    assert "commodity_price_cycle" in row["variable_mapping_diagnostics"][
+        "questionable_cause_variables"
+    ]
+    assert "industry_demand_cycle" in row["variable_mapping_diagnostics"][
+        "missing_expected_cause_variables"
+    ]
+
+
 def test_gold_review_evidence_supports_offset_batches(tmp_path: Path):
     _copy_registry(tmp_path)
 

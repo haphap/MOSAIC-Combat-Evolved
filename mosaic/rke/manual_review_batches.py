@@ -1193,6 +1193,77 @@ GOLD_GROUNDING_RISK_FLAGS = {
     "forecast_not_testable",
     "not_source_grounded",
 }
+GOLD_STOCK_TARGET_TERMS = (
+    "公司",
+    "股价",
+    "目标价",
+    "归母",
+    "净利润",
+    "营收",
+    "收入",
+    "盈利",
+    "利润",
+    "现金流",
+    "市占率",
+    "订单",
+    "毛利",
+    "EPS",
+)
+GOLD_INDUSTRY_TARGET_TERMS = (
+    "行业",
+    "板块",
+    "产业链",
+    "景气",
+    "市场",
+    "供需",
+    "运价",
+    "油运",
+    "航运",
+    "ETF",
+)
+GOLD_STRONG_FORECAST_TERMS = (
+    "看好",
+    "有望",
+    "预计",
+    "预期",
+    "未来",
+    "后续",
+    "将",
+    "建议",
+    "目标价",
+    "维持",
+    "上调",
+    "下调",
+    "承压",
+    "受益",
+    "驱动",
+    "带动",
+    "开启",
+)
+GOLD_EXPLICIT_HORIZON_TERMS = (
+    "短期",
+    "中期",
+    "长期",
+    "中长期",
+    "未来",
+    "后续",
+    "2026",
+    "2027",
+    "2028",
+    "三年",
+    "两年",
+    "一年",
+)
+GOLD_HISTORICAL_FACT_TERMS = (
+    "本月",
+    "当月",
+    "环比",
+    "同比",
+    "26Q1",
+    "25Q4",
+    "24Q4",
+    "2026年5月",
+)
 
 
 def _matched_gold_direction_terms(
@@ -1245,6 +1316,57 @@ def _gold_direction_text_diagnostics(
     }
 
 
+def _gold_term_hits(text: str, terms: Sequence[str], *, limit: int = 12) -> tuple[str, ...]:
+    normalized = str(text or "")
+    hits: list[str] = []
+    for term in terms:
+        if term in normalized and term not in hits:
+            hits.append(term)
+        if len(hits) >= limit:
+            break
+    return tuple(hits)
+
+
+def _gold_expected_cause_variables(text: str) -> tuple[str, ...]:
+    expected: list[str] = []
+
+    def append(variable: str) -> None:
+        if variable not in expected:
+            expected.append(variable)
+
+    if _gold_term_hits(
+        text,
+        (
+            "需求",
+            "订单",
+            "市场规模",
+            "增长",
+            "复苏",
+            "景气",
+            "运价",
+            "销量",
+        ),
+    ):
+        append("industry_demand_cycle")
+    if _gold_term_hits(text, ("供给", "产能", "库存", "短缺", "瓶颈", "运力", "投产")):
+        append("industry_supply_constraint")
+    if _gold_term_hits(text, ("收入", "营收", "盈利", "利润", "现金流", "回款", "毛利", "市占率")):
+        append("company_fundamental_momentum")
+    if _gold_term_hits(text, ("铜", "铝", "锂", "黄金", "金价", "铝价", "铜价", "油价", "原油")):
+        append("commodity_price_cycle")
+    if _gold_term_hits(text, ("美联储", "美国通胀", "加息", "降息", "美元", "美债")):
+        append("global_dollar_liquidity_pressure")
+    if _gold_term_hits(text, ("地缘", "关税", "出口管制", "贸易摩擦")):
+        append("trade_friction_intensity")
+    if _gold_term_hits(text, ("政策", "监管", "补贴", "供给侧改革")):
+        append("industry_policy_catalyst")
+    if _gold_term_hits(text, ("技术", "创新", "研发", "产品迭代")):
+        append("technology_innovation_cycle")
+    if _gold_term_hits(text, ("竞争", "同质化", "价格战", "低于预期", "不及预期", "亏损")):
+        append("competitive_intensity_pressure")
+    return tuple(expected)
+
+
 def _gold_variable_mapping_diagnostics(
     row: Mapping[str, Any],
     proposed_flags: Sequence[str],
@@ -1266,14 +1388,119 @@ def _gold_variable_mapping_diagnostics(
     if not target_variables:
         blockers.append("missing_target_variables")
     blockers.extend(sorted(flag_set & GOLD_MAPPING_RISK_FLAGS))
+    claim_text = str(row.get("proposed_claim_text") or "")
+    expected_cause_variables = _gold_expected_cause_variables(claim_text)
+    missing_expected = tuple(
+        variable for variable in expected_cause_variables if variable not in cause_variables
+    )
+    questionable: list[str] = []
+    if "commodity_price_cycle" in cause_variables and not _gold_term_hits(
+        claim_text,
+        ("铜", "铝", "锂", "黄金", "金价", "铝价", "铜价", "油价", "原油", "商品", "大宗"),
+    ):
+        questionable.append("commodity_price_cycle")
+    if "competitive_intensity_pressure" in cause_variables and not _gold_term_hits(
+        claim_text,
+        ("竞争", "同质化", "价格战", "低于预期", "不及预期", "亏损"),
+    ):
+        questionable.append("competitive_intensity_pressure")
     return {
         "cause_variable_count": len(cause_variables),
         "target_variable_count": len(target_variables),
         "cause_variables": cause_variables,
         "target_variables": target_variables,
+        "expected_cause_variables": expected_cause_variables,
+        "missing_expected_cause_variables": missing_expected,
+        "questionable_cause_variables": tuple(questionable),
         "mapping_risk_flags": tuple(sorted(flag_set & GOLD_MAPPING_RISK_FLAGS)),
         "blockers": tuple(dict.fromkeys(blockers)),
+        "needs_review": bool(blockers or missing_expected or questionable),
+    }
+
+
+def _gold_target_diagnostics(row: Mapping[str, Any]) -> dict[str, Any]:
+    text = str(row.get("proposed_claim_text") or "")
+    target_variables = tuple(
+        str(item)
+        for item in row.get("proposed_target_variables") or ()
+        if str(item).strip()
+    )
+    stock_hits = _gold_term_hits(text, GOLD_STOCK_TARGET_TERMS)
+    industry_hits = _gold_term_hits(text, GOLD_INDUSTRY_TARGET_TERMS)
+    forecast_hits = _gold_term_hits(text, GOLD_STRONG_FORECAST_TERMS)
+    historical_hits = _gold_term_hits(text, GOLD_HISTORICAL_FACT_TERMS)
+    blockers: list[str] = []
+    suggested: bool | None = None
+    status = "needs_human_review"
+    if not target_variables:
+        blockers.append("missing_target_variables")
+        status = "missing_target_variables"
+    elif "stock_forward_excess_return" in target_variables:
+        if historical_hits and not forecast_hits:
+            blockers.append("historical_fact_without_forward_stock_target")
+            suggested = False
+            status = "historical_fact_without_forward_stock_target"
+        elif stock_hits and forecast_hits:
+            suggested = True
+            status = "stock_forward_target_supported_by_text"
+        elif stock_hits:
+            blockers.append("stock_target_without_explicit_forward_view")
+            status = "stock_target_without_explicit_forward_view"
+        else:
+            blockers.append("stock_target_without_stock_context")
+            status = "stock_target_without_stock_context"
+    elif "industry_etf_forward_return" in target_variables:
+        if industry_hits or forecast_hits:
+            suggested = True
+            status = "industry_forward_target_supported_by_text"
+        else:
+            blockers.append("industry_target_without_industry_context")
+            status = "industry_target_without_industry_context"
+    else:
+        blockers.append("unknown_target_variable")
+        status = "unknown_target_variable"
+    return {
+        "target_variables": target_variables,
+        "stock_target_term_hits": stock_hits,
+        "industry_target_term_hits": industry_hits,
+        "forecast_term_hits": forecast_hits,
+        "historical_fact_term_hits": historical_hits,
+        "status": status,
+        "blockers": tuple(dict.fromkeys(blockers)),
         "needs_review": bool(blockers),
+        "suggested_correct": suggested,
+    }
+
+
+def _gold_horizon_diagnostics(row: Mapping[str, Any]) -> dict[str, Any]:
+    text = str(row.get("proposed_claim_text") or "")
+    explicit_hits = _gold_term_hits(text, GOLD_EXPLICIT_HORIZON_TERMS)
+    forecast_hits = _gold_term_hits(text, GOLD_STRONG_FORECAST_TERMS)
+    historical_hits = _gold_term_hits(text, GOLD_HISTORICAL_FACT_TERMS)
+    blockers: list[str] = []
+    suggested: bool | None = None
+    status = "needs_human_review"
+    if explicit_hits:
+        suggested = True
+        status = "explicit_horizon_or_period_text"
+    elif historical_hits and not forecast_hits:
+        blockers.append("historical_fact_without_forward_horizon")
+        suggested = False
+        status = "historical_fact_without_forward_horizon"
+    elif forecast_hits:
+        suggested = True
+        status = "implicit_forward_horizon_from_forecast_terms"
+    else:
+        blockers.append("horizon_not_obvious_from_claim_text")
+        status = "horizon_not_obvious_from_claim_text"
+    return {
+        "explicit_horizon_term_hits": explicit_hits,
+        "forecast_term_hits": forecast_hits,
+        "historical_fact_term_hits": historical_hits,
+        "status": status,
+        "blockers": tuple(dict.fromkeys(blockers)),
+        "needs_review": bool(blockers),
+        "suggested_correct": suggested,
     }
 
 
@@ -1444,6 +1671,8 @@ def _gold_evidence_row(
         proposed_direction,
     )
     variable_diagnostics = _gold_variable_mapping_diagnostics(row, proposed_flags)
+    target_diagnostics = _gold_target_diagnostics(row)
+    horizon_diagnostics = _gold_horizon_diagnostics(row)
     unsupported_diagnostics = _gold_unsupported_grounding_diagnostics(
         non_research_claim=non_research_claim,
         has_source_evidence=has_source_evidence,
@@ -1454,6 +1683,9 @@ def _gold_evidence_row(
         or "direction_conflict_requires_review" in proposed_flags
     )
     unsupported_needs_review = unsupported_diagnostics.get("needs_review") is True
+    variable_needs_review = variable_diagnostics.get("needs_review") is True
+    target_suggested_correct = target_diagnostics.get("suggested_correct")
+    horizon_suggested_correct = horizon_diagnostics.get("suggested_correct")
     suggested_decision = {
         "claim_correct": (
             False
@@ -1473,9 +1705,17 @@ def _gold_evidence_row(
             or direction_needs_review
             else True
         ),
-        "target_correct": None,
-        "horizon_correct": None,
-        "variable_mapping_correct": None,
+        "target_correct": (
+            None if candidate_unavailable or non_research_claim else target_suggested_correct
+        ),
+        "horizon_correct": (
+            None if candidate_unavailable or non_research_claim else horizon_suggested_correct
+        ),
+        "variable_mapping_correct": (
+            None
+            if candidate_unavailable or non_research_claim
+            else (False if variable_needs_review else True)
+        ),
         "unsupported_field_false_grounded": (
             True
             if non_research_claim
@@ -1581,6 +1821,31 @@ def _gold_evidence_row(
                 "requires_human_confirmation": True,
             }
         )
+    if not candidate_unavailable and not non_research_claim:
+        if target_suggested_correct is not None:
+            rationales.append(
+                {
+                    "field": "target_correct",
+                    "suggested_value": target_suggested_correct,
+                    "reason": (
+                        "target diagnostic is "
+                        f"{target_diagnostics.get('status')}"
+                    ),
+                    "requires_human_confirmation": True,
+                }
+            )
+        if horizon_suggested_correct is not None:
+            rationales.append(
+                {
+                    "field": "horizon_correct",
+                    "suggested_value": horizon_suggested_correct,
+                    "reason": (
+                        "horizon diagnostic is "
+                        f"{horizon_diagnostics.get('status')}"
+                    ),
+                    "requires_human_confirmation": True,
+                }
+            )
     if "canonical_variable_mapping_needed" in proposed_flags:
         tags.append("variable_mapping_needs_review")
         rationales.append(
@@ -1595,6 +1860,35 @@ def _gold_evidence_row(
         tags.append("variable_mapping_missing_cause")
     if not variable_diagnostics.get("target_variable_count"):
         tags.append("variable_mapping_missing_target")
+    if variable_diagnostics.get("missing_expected_cause_variables"):
+        tags.append("variable_mapping_missing_expected_cause")
+    if variable_diagnostics.get("questionable_cause_variables"):
+        tags.append("variable_mapping_questionable_cause")
+    if (
+        not candidate_unavailable
+        and not non_research_claim
+        and variable_diagnostics.get("needs_review") is True
+    ):
+        rationales.append(
+            {
+                "field": "variable_mapping_correct",
+                "suggested_value": False,
+                "reason": (
+                    "variable mapping diagnostic found blockers, missing expected "
+                    "cause variables, or questionable cause variables"
+                ),
+                "requires_human_confirmation": True,
+            }
+        )
+    elif not candidate_unavailable and not non_research_claim:
+        rationales.append(
+            {
+                "field": "variable_mapping_correct",
+                "suggested_value": True,
+                "reason": "proposed cause and target variables match the claim text diagnostics",
+                "requires_human_confirmation": True,
+            }
+        )
     if "forecast_mapping_insufficient" in proposed_flags:
         tags.append("forecast_mapping_insufficient")
         rationales.append(
@@ -1675,6 +1969,8 @@ def _gold_evidence_row(
         "evidence_terms": terms,
         "evidence_snippets": tuple(snippets),
         "direction_text_diagnostics": direction_diagnostics,
+        "target_mapping_diagnostics": target_diagnostics,
+        "horizon_diagnostics": horizon_diagnostics,
         "variable_mapping_diagnostics": variable_diagnostics,
         "unsupported_grounding_diagnostics": unsupported_diagnostics,
         "quality_gap_focus_fields": quality_gap_focus_fields,
