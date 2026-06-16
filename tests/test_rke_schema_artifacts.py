@@ -265,6 +265,10 @@ def test_stock_report_outcome_status_doc_matches_public_artifacts():
         in status_text
     )
     assert (
+        f"write-gold-review-evidence --root . --limit {gold_batch['rows']} --offset 0 "
+        "--review-input registry/review_batches/gold_set_reviewed.jsonl"
+    ) in status_text
+    assert (
         f"{gold_workload_summary['missing_required_cells']} missing required review cells, "
         f"{gold_workload_summary['draft_decision_available_cells']} evidence-draft cells "
         "available for"
