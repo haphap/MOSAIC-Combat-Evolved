@@ -224,6 +224,11 @@ def test_stock_report_outcome_status_doc_matches_public_artifacts():
         gate for gate in progress_report["gates"] if gate["review_kind"] == "gold_set"
     )
     gold_batch = gold_gate["current_batch_status"]
+    gold_batch_overview = gold_gate["batch_overview"]
+    gold_workload_summary = gold_batch_overview[
+        "current_batch_review_field_workload_summary"
+    ]
+    gold_field_workload = gold_batch_overview["current_batch_review_field_workload"]
     operator_check_ids = {check["check_id"] for check in operator_readiness["checks"]}
 
     outcome_count = extraction_report["outcome_label_rows"]
@@ -259,6 +264,37 @@ def test_stock_report_outcome_status_doc_matches_public_artifacts():
         f"{gold_batch['complete_rows']} complete, {gold_batch['pending_rows']} pending"
         in status_text
     )
+    assert (
+        f"{gold_workload_summary['missing_required_cells']} missing required review cells, "
+        f"{gold_workload_summary['draft_decision_available_cells']} evidence-draft cells "
+        "available for"
+    ) in status_text
+    assert (
+        f"{gold_workload_summary['manual_review_required_cells']} cells that still "
+        "require manual input"
+    ) in status_text
+    assert (
+        f"active scratch evidence has draft decisions for "
+        f"{gold_workload_summary['draft_decision_available_cells']} required cells "
+        f"and {gold_workload_summary['manual_review_required_cells']}"
+    ) in status_text
+    assert (
+        "`target_correct` "
+        f"true={gold_field_workload['target_correct']['suggested_true_rows']}/"
+        f"false={gold_field_workload['target_correct']['suggested_false_rows']}/"
+        f"null={gold_field_workload['target_correct']['suggested_null_rows']}"
+    ) in status_text
+    assert (
+        "`horizon_correct`\n"
+        f"true={gold_field_workload['horizon_correct']['suggested_true_rows']}/"
+        f"false={gold_field_workload['horizon_correct']['suggested_false_rows']}/"
+        f"null={gold_field_workload['horizon_correct']['suggested_null_rows']}"
+    ) in status_text
+    assert (
+        "`variable_mapping_correct` "
+        f"true={gold_field_workload['variable_mapping_correct']['suggested_true_rows']}/"
+        f"false={gold_field_workload['variable_mapping_correct']['suggested_false_rows']}"
+    ) in status_text
     assert "needs_human_review_fields" in status_text
     assert (
         "private evidence draft is aligned with the same "
