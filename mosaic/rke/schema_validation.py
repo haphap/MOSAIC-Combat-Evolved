@@ -2295,6 +2295,7 @@ def _validate_industry_etf_mapping_contract(
         for label_field, mapping_field in (
             ("mapping_version", "mapping_version"),
             ("mapping_confidence", "mapping_confidence"),
+            ("proxy_sector", "sector_name"),
             ("proxy_symbol", "etf_symbol"),
             ("benchmark_symbol", "benchmark_symbol"),
             ("benchmark_source", "benchmark_source"),

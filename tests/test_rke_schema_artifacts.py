@@ -2151,6 +2151,53 @@ def test_industry_etf_mapping_contract_rejects_unavailable_mapping_label(
     assert any("pit_availability_status" in item for item in record.failures)
 
 
+def test_industry_etf_mapping_contract_rejects_proxy_sector_drift(
+    tmp_path: Path,
+):
+    registry = _copy_report_intelligence_registry(tmp_path)
+    mapping_rows = [
+        json.loads(line)
+        for line in (registry / "industry_etf_proxy_map.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if line.strip()
+    ]
+    availability = json.loads(
+        (registry / "industry_etf_proxy_pit_availability.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    available_mapping_ids = {
+        record["mapping_id"]
+        for record in availability["mapping_records"]
+        if record.get("pit_available") is True
+    }
+    mapping = next(
+        row for row in mapping_rows if row["mapping_id"] in available_mapping_ids
+    )
+    label = _base_outcome_label("industry_etf_proxy")
+    label.update(
+        {
+            "benchmark_family": mapping["benchmark_family"],
+            "benchmark_source": mapping["benchmark_source"],
+            "benchmark_symbol": mapping["benchmark_symbol"],
+            "cost_model_id": mapping["cost_model_id"],
+            "mapping_confidence": mapping["mapping_confidence"],
+            "mapping_id": mapping["mapping_id"],
+            "mapping_version": mapping["mapping_version"],
+            "pit_availability_status": "available",
+            "proxy_sector": "stale-sector-name",
+            "proxy_symbol": mapping["etf_symbol"],
+        }
+    )
+    _write_proxy_outcome_labels(tmp_path, [label])
+
+    record = _industry_etf_mapping_contract_record(tmp_path)
+
+    assert not record.accepted
+    assert any("proxy_sector: mapping mismatch" in item for item in record.failures)
+
+
 def test_markdown_coverage_privacy_rules_reject_public_pdf_url(
     tmp_path: Path,
 ):
