@@ -683,6 +683,7 @@ def test_gold_candidate_claim_maps_date_macro_regimes_to_agents():
             "source_span_id": "SRC-1:original_markdown",
             "query_key": "通信设备",
             "industry": "通信设备",
+            "publish_date": "2026-01-02",
             "license_status": "approved",
         },
         {
@@ -752,6 +753,80 @@ def test_gold_candidate_claim_maps_date_macro_regimes_to_agents():
         "macro.dollar",
         "macro.emerging_markets",
     )
+    assert claim.claim_regime_trace["as_of_date"] == "2026-01-02"
+    assert set(claim.claim_regime_trace["macro"]) >= {
+        "macro.central_bank",
+        "macro.china",
+        "macro.dollar",
+        "macro.yield_curve",
+        "macro.volatility",
+    }
+    volatility_trace = claim.claim_regime_trace["macro"]["macro.volatility"]
+    assert volatility_trace["background_only"] is True
+    assert "pit_metric_requirements" not in volatility_trace
+
+
+def test_gold_candidate_claim_maps_volatility_context_to_regime_trace():
+    claim = _candidate_claim_from_report_intelligence(
+        {
+            "source_id": "SRC-1",
+            "source_span_id": "SRC-1:original_markdown",
+            "query_key": "有色金属",
+            "industry": "有色金属",
+            "publish_date": "2026-01-02",
+            "license_status": "approved",
+        },
+        {
+            "claim_id": "GOLD-SRC-1-001",
+            "gold_set_domain": "commodity",
+            "gold_set_domains": ("commodity",),
+        },
+        {
+            "claim_text": "若市场波动率回落、风险偏好修复，有色金属板块未来有望上涨。",
+            "forecast_claim_id": "FC-1",
+            "metric_proxy_mapping": [
+                "market_volatility_regime",
+                "industry_etf_forward_return",
+            ],
+            "target": {"target_type": "sector", "target_id": "有色金属"},
+            "direction": "positive",
+            "forecast_testability": "testable",
+            "extraction_quality": {
+                "claim_component_roles": {
+                    "has_macro_regime_context": True,
+                    "macro_regime_context_types": ["volatility_shock"],
+                    "source_text_macro_regime_context_types": ["volatility_shock"],
+                    "industry_cycle_regime_context_types": ["prosperity_cycle"],
+                },
+                "claim_mechanism_roles": {
+                    "has_economic_mechanism": True,
+                    "channels": ["valuation_repricing"],
+                    "actions": ["reprice_valuation_or_rating"],
+                },
+            },
+            "claim_provenance": "source_grounded",
+        },
+        0,
+        {
+            "market_volatility_regime",
+            "industry_etf_forward_return",
+        },
+        {
+            "market_volatility_regime": "cause",
+            "industry_etf_forward_return": "target",
+        },
+        {"SRC-1"},
+        {
+            "market_volatility_regime": "macro.volatility",
+            "industry_etf_forward_return": "sector.cross_industry",
+        },
+    )
+
+    assert claim.cause_variables == ("market_volatility_regime",)
+    assert claim.mosaic_agent_trace["macro_agents"] == ("macro.volatility",)
+    volatility_trace = claim.claim_regime_trace["macro"]["macro.volatility"]
+    assert volatility_trace["source_text_regime_types"] == ("volatility_shock",)
+    assert volatility_trace["background_only"] is True
 
 
 def test_gold_candidate_claim_rejects_short_sentence_and_fallback_review_rows():

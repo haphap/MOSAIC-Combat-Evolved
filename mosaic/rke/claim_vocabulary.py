@@ -212,6 +212,13 @@ DEFAULT_VARIABLES = (
         status="sandbox",
     ),
     ClaimVariableDefinition(
+        variable_id="market_volatility_regime",
+        domain="macro.volatility",
+        variable_type="cause",
+        description="Realized volatility, VIX/iVX, drawdown, or risk-off market regime.",
+        status="sandbox",
+    ),
+    ClaimVariableDefinition(
         variable_id="recent_price_momentum",
         domain="market.microstructure",
         variable_type="cause",

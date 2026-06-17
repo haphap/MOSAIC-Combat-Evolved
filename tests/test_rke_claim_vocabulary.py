@@ -28,6 +28,7 @@ def test_default_claim_variable_vocabulary_contains_current_claim_variables():
         "valuation_percentile",
         "forward_alpha_after_policy_catalyst",
         "trade_friction_intensity",
+        "market_volatility_regime",
         "semiconductor_policy_substitution_alpha",
         "ev_battery_technology_iteration",
         "battery_profitability_expectation",

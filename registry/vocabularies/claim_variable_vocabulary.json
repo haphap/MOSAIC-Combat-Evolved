@@ -155,6 +155,13 @@
       "variable_type": "cause"
     },
     {
+      "description": "Realized volatility, VIX/iVX, drawdown, or risk-off market regime.",
+      "domain": "macro.volatility",
+      "status": "sandbox",
+      "variable_id": "market_volatility_regime",
+      "variable_type": "cause"
+    },
+    {
       "description": "Recent stock, sector, or index price momentum used as report context.",
       "domain": "market.microstructure",
       "status": "sandbox",

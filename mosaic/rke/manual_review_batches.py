@@ -468,6 +468,7 @@ def _gold_template_row(row: Mapping[str, Any]) -> dict[str, Any]:
         "proposed_review_risk_flags": tuple(row.get("proposed_review_risk_flags") or ()),
         "proposed_research_layers": dict(row.get("proposed_research_layers") or {}),
         "proposed_mosaic_agent_trace": dict(row.get("proposed_mosaic_agent_trace") or {}),
+        "proposed_claim_regime_trace": dict(row.get("proposed_claim_regime_trace") or {}),
         "proposed_source_start_char": row.get("proposed_source_start_char"),
         "proposed_source_end_char": row.get("proposed_source_end_char"),
         "proposed_source_span_ref_id": row.get("proposed_source_span_ref_id"),

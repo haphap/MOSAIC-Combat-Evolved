@@ -232,6 +232,20 @@ DOLLAR_MACRO_CONTEXT_LOWER_TERMS = (
     "tips",
     "treasury",
 )
+VOLATILITY_MACRO_CONTEXT_TERMS = (
+    "波动率",
+    "风险偏好",
+    "回撤",
+    "避险",
+    "risk-off",
+    "risk on",
+    "risk_on",
+    "risk_off",
+    "VIX",
+    "iVX",
+    "IVX",
+    "realized volatility",
+)
 AI_COMPUTE_CONTEXT_TERMS = (
     "AI",
     "AIGC",
@@ -386,8 +400,16 @@ SUPPORTED_CLAIM_MACRO_AGENT_DOMAINS = {
     "macro.dollar",
     "macro.emerging_markets",
     "macro.geopolitical",
+    "macro.volatility",
     "macro.yield_curve",
 }
+DEFAULT_CLAIM_REGIME_TRACE_MACRO_AGENT_DOMAINS = (
+    "macro.central_bank",
+    "macro.china",
+    "macro.dollar",
+    "macro.yield_curve",
+    "macro.volatility",
+)
 LEGACY_MACRO_AGENT_DOMAIN_ALIASES = {
     "macro.geopolitics": "macro.geopolitical",
 }
@@ -408,6 +430,8 @@ MACRO_REGIME_AGENT_DOMAINS = {
         "macro.emerging_markets",
     ),
     "commodity_price_cycle": ("macro.commodities",),
+    "volatility_shock": ("macro.volatility",),
+    "market_volatility_regime": ("macro.volatility",),
 }
 
 
@@ -434,6 +458,7 @@ class GoldCandidateClaim:
     review_risk_flags: Sequence[str]
     research_layers: Mapping[str, Any]
     mosaic_agent_trace: Mapping[str, Any]
+    claim_regime_trace: Mapping[str, Any]
 
 
 @dataclass(frozen=True)
@@ -711,6 +736,77 @@ def _macro_agents_from_regime_types(regime_types: Sequence[str]) -> tuple[str, .
     )
 
 
+def _agent_regime_types(agent: str, regime_types: Sequence[str]) -> tuple[str, ...]:
+    return tuple(
+        regime_type
+        for regime_type in regime_types
+        if agent in _macro_agents_from_regime_types((regime_type,))
+    )
+
+
+def _claim_as_of_date(candidate: Mapping[str, Any], report_claim: Mapping[str, Any]) -> str:
+    for key in ("signal_datetime", "as_of_datetime", "publish_date", "trade_date"):
+        text = str(report_claim.get(key) or candidate.get(key) or "").strip()
+        if match := re.search(r"\d{4}-\d{2}-\d{2}", text):
+            return match.group(0)
+        if match := re.fullmatch(r"(\d{4})(\d{2})(\d{2})", text):
+            return f"{match.group(1)}-{match.group(2)}-{match.group(3)}"
+    return ""
+
+
+def _claim_regime_trace(
+    *,
+    candidate: Mapping[str, Any],
+    report_claim: Mapping[str, Any],
+    component_roles: Mapping[str, Any],
+    macro_agents: Sequence[str],
+    sector_agents: Sequence[str],
+    industry_types: Sequence[str],
+) -> dict[str, Any]:
+    macro_types = _string_sequence(component_roles.get("macro_regime_context_types"))
+    as_of_types = _string_sequence(component_roles.get("as_of_date_macro_regime_context_types"))
+    source_text_types = _string_sequence(component_roles.get("source_text_macro_regime_context_types"))
+    raw_details = component_roles.get("as_of_date_macro_regime_context_details")
+    details = [dict(item) for item in raw_details or () if isinstance(item, Mapping)]
+    details_by_type = {str(item.get("regime_type") or ""): item for item in details}
+    macro_scope = tuple(
+        dict.fromkeys((*DEFAULT_CLAIM_REGIME_TRACE_MACRO_AGENT_DOMAINS, *macro_agents))
+    )
+    macro_trace = {}
+    for agent in macro_scope:
+        regime_types = _agent_regime_types(agent, macro_types)
+        macro_trace[agent] = {
+            "as_of_date": _claim_as_of_date(candidate, report_claim),
+            "regime_types": regime_types,
+            "as_of_date_regime_types": _agent_regime_types(agent, as_of_types),
+            "source_text_regime_types": _agent_regime_types(agent, source_text_types),
+            "regime_details": tuple(
+                details_by_type[regime_type]
+                for regime_type in regime_types
+                if regime_type in details_by_type
+            ),
+            "background_only": True,
+        }
+    return {
+        "schema_version": "claim_regime_trace_v1",
+        "as_of_date": _claim_as_of_date(candidate, report_claim),
+        "policy": (
+            "PIT regime trace is background only. Claim extraction records the "
+            "as-of-date regime context for later outcome/backtest stratification; "
+            "it does not validate claim correctness."
+        ),
+        "macro": macro_trace,
+        "industry": {
+            "regime_types": tuple(industry_types),
+            "mosaic_agent_ids": tuple(sector_agents),
+            "industry": str(candidate.get("industry") or ""),
+        },
+        "company": {
+            "target_id": str(candidate.get("ts_code") or candidate.get("query_key") or ""),
+        },
+    }
+
+
 def _explicit_stock_subject_present(
     claim_text: str,
     candidate: Mapping[str, Any],
@@ -752,7 +848,7 @@ def _layered_research_context(
     cause_variables: Sequence[str],
     target_variables: Sequence[str],
     variable_domain_by_id: Mapping[str, str] | None,
-) -> tuple[dict[str, Any], dict[str, Any]]:
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     report_claim = report_claim or {}
     target = report_claim.get("target")
     target_mapping = target if isinstance(target, Mapping) else {}
@@ -851,7 +947,15 @@ def _layered_research_context(
         ),
         "variable_domains": all_domains,
     }
-    return layers, trace
+    regime_trace = _claim_regime_trace(
+        candidate=candidate,
+        report_claim=report_claim,
+        component_roles=component_roles,
+        macro_agents=macro_agents,
+        sector_agents=sector_agents,
+        industry_types=industry_types,
+    )
+    return layers, trace, regime_trace
 
 
 def _thesis_quality_risk_flags(
@@ -935,6 +1039,15 @@ def _has_dollar_macro_context(text: str) -> bool:
             continue
         return True
     return False
+
+
+def _has_volatility_macro_context(text: str) -> bool:
+    text_lower = text.lower()
+    if any(term.lower() in text_lower for term in VOLATILITY_MACRO_CONTEXT_TERMS):
+        return True
+    return "波动" in text and any(
+        term in text for term in ("市场", "权益", "股债", "资产", "风险偏好", "回撤")
+    )
 
 
 def _stock_like_identifier(value: str) -> bool:
@@ -1222,6 +1335,8 @@ def _variable_pair(
         _append_known(cause, "commodity_price_cycle", known_variable_ids)
     if _has_dollar_macro_context(text):
         _append_known(cause, "global_dollar_liquidity_pressure", known_variable_ids)
+    if _has_volatility_macro_context(text):
+        _append_known(cause, "market_volatility_regime", known_variable_ids)
 
     stock_like = _stock_like_identifier(query_key) or _stock_like_identifier(ts_code)
     has_target_view = _contains_any(
@@ -1413,7 +1528,7 @@ def _candidate_claim_for_review_row(
         risk_flags.append("long_candidate_sentence")
 
     claim_type = _claim_type(claim_text, keywords)
-    research_layers, mosaic_agent_trace = _layered_research_context(
+    research_layers, mosaic_agent_trace, claim_regime_trace = _layered_research_context(
         claim_text,
         candidate=candidate,
         report_claim=None,
@@ -1455,6 +1570,7 @@ def _candidate_claim_for_review_row(
         review_risk_flags=tuple(dict.fromkeys(risk_flags)),
         research_layers=research_layers,
         mosaic_agent_trace=mosaic_agent_trace,
+        claim_regime_trace=claim_regime_trace,
     )
 
 
@@ -1684,7 +1800,7 @@ def _candidate_claim_from_report_intelligence(
         report_claim.get("direction"),
     )
     risk_flags.extend(direction_flags)
-    research_layers, mosaic_agent_trace = _layered_research_context(
+    research_layers, mosaic_agent_trace, claim_regime_trace = _layered_research_context(
         claim_text,
         candidate=candidate,
         report_claim=report_claim,
@@ -1735,6 +1851,7 @@ def _candidate_claim_from_report_intelligence(
         review_risk_flags=tuple(dict.fromkeys(risk_flags)),
         research_layers=research_layers,
         mosaic_agent_trace=mosaic_agent_trace,
+        claim_regime_trace=claim_regime_trace,
     )
 
 
@@ -1900,6 +2017,7 @@ def merge_candidate_claims_into_review_template(
                     "proposed_review_risk_flags": list(claim.review_risk_flags),
                     "proposed_research_layers": _jsonable(claim.research_layers),
                     "proposed_mosaic_agent_trace": _jsonable(claim.mosaic_agent_trace),
+                    "proposed_claim_regime_trace": _jsonable(claim.claim_regime_trace),
                     "proposed_verifier_status": claim.verifier_status,
                     "proposed_candidate_current": True,
                 }
@@ -1976,6 +2094,7 @@ def _review_template_row_from_candidate_claim(claim: GoldCandidateClaim) -> dict
         "proposed_review_risk_flags": list(claim.review_risk_flags),
         "proposed_research_layers": _jsonable(claim.research_layers),
         "proposed_mosaic_agent_trace": _jsonable(claim.mosaic_agent_trace),
+        "proposed_claim_regime_trace": _jsonable(claim.claim_regime_trace),
         "proposed_verifier_status": claim.verifier_status,
         "proposed_candidate_current": True,
     }
