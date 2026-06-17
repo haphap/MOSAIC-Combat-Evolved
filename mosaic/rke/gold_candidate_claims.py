@@ -15,7 +15,7 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from .claim_text_filters import is_non_research_claim_text, strip_trailing_rating_suffix
+from .claim_text_filters import is_gold_candidate_noise_text, strip_trailing_rating_suffix
 from .claim_vocabulary import load_claim_variable_vocabulary
 from .manual_review_batches import gold_candidate_reviewable
 from .phase_minus1 import build_gold_set_review_template, load_jsonl_with_errors
@@ -215,6 +215,8 @@ DOLLAR_MACRO_CONTEXT_TERMS = (
     "跨境资金",
     "中美利差",
     "美联储",
+    "联储",
+    "FOMC",
     "美债",
     "DXY",
     "USDCNY",
@@ -222,6 +224,7 @@ DOLLAR_MACRO_CONTEXT_TERMS = (
 )
 DOLLAR_MACRO_CONTEXT_LOWER_TERMS = (
     "fed",
+    "fomc",
     "dxy",
     "usd",
     "fx",
@@ -292,6 +295,7 @@ TRADE_OR_GEOPOLITICAL_TERMS = (
     "封锁",
     "制裁",
     "地缘",
+    "关税",
     "贸易摩擦",
     "中美",
     "国产",
@@ -321,6 +325,60 @@ MANUAL_REVIEW_DECISION_FIELDS = (
 )
 SUPPORTED_DIRECTIONS = {"positive", "negative", "neutral", "ambiguous", "unknown"}
 TESTABLE_DIRECTIONS = {"positive", "negative"}
+MIN_FULL_THESIS_CHARS = 36
+LOGIC_CHAIN_TERMS = (
+    "在",
+    "随着",
+    "由于",
+    "因为",
+    "受益于",
+    "叠加",
+    "推动",
+    "带动",
+    "导致",
+    "通过",
+    "使得",
+    "从而",
+    "进而",
+    "支撑",
+    "压制",
+    "传导",
+)
+VALUATION_OR_FORECAST_TERMS = (
+    "盈利预测",
+    "业绩预测",
+    "收入预测",
+    "净利润预测",
+    "EPS",
+    "eps",
+    "营收",
+    "收入",
+    "利润",
+    "盈利",
+    "毛利",
+    "现金流",
+    "估值",
+    "PE",
+    "PB",
+    "DCF",
+    "目标价",
+    "评级",
+)
+COMPANY_LAYER_VARIABLES = {
+    "company_fundamental_momentum",
+    "stock_forward_excess_return",
+}
+STOCK_TARGET_VARIABLES = {"stock_forward_excess_return"}
+THESIS_BLOCKING_RISK_FLAGS = {
+    "sentence_fallback_not_reviewable",
+    "fragment_or_sentence_level_claim",
+    "full_text_thesis_logic_chain_missing",
+    "layered_regime_or_company_logic_missing",
+    "economic_mechanism_missing",
+    "mosaic_agent_trace_missing",
+    "stock_target_missing_company_subject",
+    "stock_prediction_or_valuation_logic_missing",
+}
 
 
 @dataclass(frozen=True)
@@ -344,6 +402,8 @@ class GoldCandidateClaim:
     verifier_status: str
     extraction_confidence_bin: str
     review_risk_flags: Sequence[str]
+    research_layers: Mapping[str, Any]
+    mosaic_agent_trace: Mapping[str, Any]
 
 
 @dataclass(frozen=True)
@@ -434,7 +494,7 @@ def _similar_to_existing_claim(text: str, existing_texts: Sequence[str]) -> bool
 
 
 def _is_boilerplate_risk_warning(text: str) -> bool:
-    return is_non_research_claim_text(text)
+    return is_gold_candidate_noise_text(text)
 
 
 def _claim_sentence_score(sentence: str, keywords: Sequence[str]) -> int | None:
@@ -577,6 +637,211 @@ def _reconciled_direction(
     return inferred if inferred in SUPPORTED_DIRECTIONS else raw, tuple(flags)
 
 
+def _variable_domains(
+    variables: Sequence[str],
+    variable_domain_by_id: Mapping[str, str] | None,
+) -> tuple[str, ...]:
+    domains: list[str] = []
+    if not variable_domain_by_id:
+        return ()
+    for variable in variables:
+        domain = str(variable_domain_by_id.get(str(variable)) or "").strip()
+        if domain and domain not in domains:
+            domains.append(domain)
+    return tuple(domains)
+
+
+def _agent_domains_for_prefix(domains: Sequence[str], prefix: str) -> tuple[str, ...]:
+    return tuple(domain for domain in domains if domain.startswith(prefix))
+
+
+def _explicit_stock_subject_present(
+    claim_text: str,
+    candidate: Mapping[str, Any],
+    target_id: str,
+) -> bool:
+    text = str(claim_text or "")
+    if target_id and target_id in text:
+        return True
+    for field in ("name", "stock_name", "company_name"):
+        value = str(candidate.get(field) or "").strip()
+        if len(value) >= 2 and value in text:
+            return True
+    title = str(candidate.get("title") or "").strip()
+    if title:
+        title_head = re.split(r"[:：,，|｜/\\-]|--|——", title, maxsplit=1)[0].strip()
+        while True:
+            cleaned = re.sub(
+                r"(深度|点评|跟踪|更新|首次覆盖|研究|报告|周报|月报|策略|行业|公司|证券|研报)$",
+                "",
+                title_head,
+            ).strip()
+            if cleaned == title_head:
+                break
+            title_head = cleaned
+        if 2 <= len(title_head) <= 12 and title_head in text:
+            return True
+    return False
+
+
+def _valuation_or_forecast_terms(text: str) -> tuple[str, ...]:
+    return tuple(term for term in VALUATION_OR_FORECAST_TERMS if term in text)
+
+
+def _layered_research_context(
+    claim_text: str,
+    *,
+    candidate: Mapping[str, Any],
+    report_claim: Mapping[str, Any] | None,
+    cause_variables: Sequence[str],
+    target_variables: Sequence[str],
+    variable_domain_by_id: Mapping[str, str] | None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    report_claim = report_claim or {}
+    target = report_claim.get("target")
+    target_mapping = target if isinstance(target, Mapping) else {}
+    target_type = str(target_mapping.get("target_type") or "").strip().lower()
+    target_id = str(target_mapping.get("target_id") or target_mapping.get("target_name") or "").strip()
+    if not target_id:
+        target_id = str(candidate.get("ts_code") or candidate.get("query_key") or "").strip()
+    extraction_quality = report_claim.get("extraction_quality")
+    extraction_quality = extraction_quality if isinstance(extraction_quality, Mapping) else {}
+    component_roles = extraction_quality.get("claim_component_roles")
+    component_roles = component_roles if isinstance(component_roles, Mapping) else {}
+    mechanism_roles = extraction_quality.get("claim_mechanism_roles")
+    mechanism_roles = mechanism_roles if isinstance(mechanism_roles, Mapping) else {}
+    cause_domains = _variable_domains(cause_variables, variable_domain_by_id)
+    target_domains = _variable_domains(target_variables, variable_domain_by_id)
+    all_domains = tuple(dict.fromkeys((*cause_domains, *target_domains)))
+    macro_agents = _agent_domains_for_prefix(all_domains, "macro.")
+    sector_agents = _agent_domains_for_prefix(all_domains, "sector.")
+    company_layer_present = (
+        bool(component_roles.get("has_company_capability_or_action"))
+        or bool(set(cause_variables) & COMPANY_LAYER_VARIABLES)
+        or bool(set(target_variables) & STOCK_TARGET_VARIABLES)
+    )
+    valuation_terms = _valuation_or_forecast_terms(claim_text)
+    macro_types = _string_sequence(component_roles.get("macro_regime_context_types"))
+    industry_types = _string_sequence(
+        component_roles.get("industry_cycle_regime_context_types")
+    )
+    mechanism_channels = _string_sequence(mechanism_roles.get("channels"))
+    mechanism_actions = _string_sequence(mechanism_roles.get("actions"))
+    layers = {
+        "macro_regime": {
+            "present": bool(macro_types or macro_agents),
+            "regime_types": macro_types,
+            "mosaic_agent_ids": macro_agents,
+        },
+        "industry_regime": {
+            "present": bool(industry_types or sector_agents),
+            "regime_types": industry_types,
+            "mosaic_agent_ids": sector_agents,
+            "industry": str(candidate.get("industry") or ""),
+        },
+        "company_layer": {
+            "present": company_layer_present,
+            "target_id": target_id,
+            "metadata_ts_code": str(candidate.get("ts_code") or ""),
+            "explicit_subject_in_claim": _explicit_stock_subject_present(
+                claim_text,
+                candidate,
+                target_id,
+            ),
+        },
+        "valuation_or_forecast_layer": {
+            "present": bool(valuation_terms),
+            "terms": valuation_terms,
+        },
+        "mechanism_layer": {
+            "present": bool(
+                mechanism_roles.get("has_economic_mechanism")
+                or mechanism_channels
+                or mechanism_actions
+                or cause_variables
+            ),
+            "channels": mechanism_channels,
+            "actions": mechanism_actions,
+        },
+        "prediction_layer": {
+            "target_type": target_type or "unknown",
+            "target_id": target_id,
+            "target_variables": tuple(target_variables),
+        },
+    }
+    trace = {
+        "macro_agents": macro_agents,
+        "sector_agents": sector_agents,
+        "company_or_single_name_layer": (
+            ("equity.single_name",)
+            if company_layer_present or "equity.single_name" in all_domains
+            else ()
+        ),
+        "valuation_layer": (
+            ("cross_asset.valuation",)
+            if valuation_terms or "cross_asset.valuation" in all_domains
+            else ()
+        ),
+        "decision_use": (
+            "outcome_labeling",
+            "prompt_evolution_review",
+        ),
+        "variable_domains": all_domains,
+    }
+    return layers, trace
+
+
+def _thesis_quality_risk_flags(
+    claim_text: str,
+    *,
+    research_layers: Mapping[str, Any],
+    mosaic_agent_trace: Mapping[str, Any],
+    target_variables: Sequence[str],
+) -> tuple[str, ...]:
+    flags: list[str] = []
+    text = re.sub(r"\s+", " ", str(claim_text or "")).strip()
+    if len(text) < MIN_FULL_THESIS_CHARS:
+        flags.append("fragment_or_sentence_level_claim")
+    if not any(term in text for term in LOGIC_CHAIN_TERMS):
+        flags.append("full_text_thesis_logic_chain_missing")
+    macro_layer = research_layers.get("macro_regime")
+    industry_layer = research_layers.get("industry_regime")
+    company_layer = research_layers.get("company_layer")
+    mechanism_layer = research_layers.get("mechanism_layer")
+    valuation_layer = research_layers.get("valuation_or_forecast_layer")
+    macro_present = isinstance(macro_layer, Mapping) and macro_layer.get("present") is True
+    industry_present = isinstance(industry_layer, Mapping) and industry_layer.get("present") is True
+    company_present = isinstance(company_layer, Mapping) and company_layer.get("present") is True
+    mechanism_present = isinstance(mechanism_layer, Mapping) and mechanism_layer.get("present") is True
+    valuation_present = isinstance(valuation_layer, Mapping) and valuation_layer.get("present") is True
+    if not (macro_present or industry_present or company_present):
+        flags.append("layered_regime_or_company_logic_missing")
+    if not mechanism_present:
+        flags.append("economic_mechanism_missing")
+    has_agent_trace = any(
+        mosaic_agent_trace.get(field)
+        for field in (
+            "macro_agents",
+            "sector_agents",
+            "company_or_single_name_layer",
+            "valuation_layer",
+        )
+    )
+    if not has_agent_trace:
+        flags.append("mosaic_agent_trace_missing")
+    is_stock_target = bool(set(target_variables) & STOCK_TARGET_VARIABLES)
+    if is_stock_target:
+        explicit_subject = (
+            isinstance(company_layer, Mapping)
+            and company_layer.get("explicit_subject_in_claim") is True
+        )
+        if not explicit_subject:
+            flags.append("stock_target_missing_company_subject")
+        if not valuation_present:
+            flags.append("stock_prediction_or_valuation_logic_missing")
+    return tuple(flags)
+
+
 def _append_known(target: list[str], variable_id: str, known_variable_ids: set[str]) -> None:
     if variable_id in known_variable_ids and variable_id not in target:
         target.append(variable_id)
@@ -588,6 +853,10 @@ def _contains_any(text: str, keywords: Sequence[str]) -> bool:
 
 def _has_dollar_macro_context(text: str) -> bool:
     if any(term in text for term in DOLLAR_MACRO_CONTEXT_TERMS):
+        return True
+    if any(term in text for term in ("加息", "降息", "美国通胀")) and any(
+        term in text for term in ("黄金", "金价", "贵金属", "美元", "美债")
+    ):
         return True
     text_lower = text.lower()
     if any(term in text_lower for term in DOLLAR_MACRO_CONTEXT_LOWER_TERMS):
@@ -768,6 +1037,10 @@ def _variable_pair(
             "收入",
             "营收",
             "利润",
+            "盈利",
+            "盈利能力",
+            "盈利修复",
+            "业绩",
             "现金流",
             "出租率",
             "融资成本",
@@ -784,26 +1057,11 @@ def _variable_pair(
         )
     ):
         _append_known(cause, "company_fundamental_momentum", known_variable_ids)
-    if any(
+    has_competition_pressure_context = any(
         keyword in text
-        for keyword in (
-            "竞争",
-            "低于预期",
-            "不及预期",
-            "放缓",
-            "下行",
-            "压力",
-            "承压",
-            "亏损",
-            "封锁",
-            "危机",
-            "冲突",
-            "管制",
-            "competition",
-            "risk",
-            "pressure",
-        )
-    ) or ("风险" in text and "风险管理" not in text):
+        for keyword in ("竞争", "同质化", "价格战", "竞品", "competition")
+    )
+    if "short_term_liquidity_pressure" not in target and has_competition_pressure_context:
         _append_known(cause, "competitive_intensity_pressure", known_variable_ids)
     if any(
         keyword in text
@@ -856,6 +1114,8 @@ def _variable_pair(
             "紧平衡",
             "缺口",
             "限产",
+            "运力",
+            "偏紧",
             "出口",
             "封锁",
             "管制",
@@ -877,6 +1137,7 @@ def _variable_pair(
             "锌",
             "铅",
             "黄金",
+            "金价",
             "白银",
             "贵金属",
             "金属价格",
@@ -885,6 +1146,9 @@ def _variable_pair(
             "锑",
             "商品",
             "大宗",
+            "油价",
+            "原油",
+            "油运",
             "commodity",
             "gold",
             "copper",
@@ -928,32 +1192,43 @@ def _variable_pair(
     )
     if stock_like and (cause or has_target_view):
         _append_known(target, "stock_forward_excess_return", known_variable_ids)
-    elif construction_proxy_view or any(
-        keyword in text
-        for keyword in (
-            "行业",
-            "指数",
-            "ETF",
-            "板块",
-            "主题",
-            "景气",
-            "市场基准",
-            "沪深300",
-            "优于市场",
-            "强于大市",
-            "看好",
-            "增持",
-            "跑赢",
-            "跑输",
-            "后续",
-            "未来",
-            "有望",
-            "预期",
-            "预计",
+    elif not target and (
+        construction_proxy_view
+        or any(
+            keyword in text
+            for keyword in (
+                "行业",
+                "指数",
+                "ETF",
+                "板块",
+                "主题",
+                "景气",
+                "市场基准",
+                "沪深300",
+                "优于市场",
+                "强于大市",
+                "看好",
+                "增持",
+                "跑赢",
+                "跑输",
+                "后续",
+                "未来",
+                "有望",
+                "预期",
+                "预计",
+            )
         )
-    ) or any(keyword in text_lower for keyword in ("industry", "sector", "market benchmark", "outperform")):
+        or any(
+            keyword in text_lower
+            for keyword in ("industry", "sector", "market benchmark", "outperform")
+        )
+    ):
         _append_known(target, "industry_etf_forward_return", known_variable_ids)
-    elif cause and _contains_any(text, ("政策", "催化", "流动性", "风险偏好", "市场", "指数")):
+    elif (
+        cause
+        and not target
+        and _contains_any(text, ("政策", "催化", "流动性", "风险偏好", "市场", "指数"))
+    ):
         _append_known(target, "forward_alpha_after_policy_catalyst", known_variable_ids)
 
     target = list(
@@ -1060,6 +1335,7 @@ def _candidate_claim_for_review_row(
     risk_flags = [
         "manual_review_required",
         "sentence_fallback_requires_context_synthesis",
+        "sentence_fallback_not_reviewable",
         *extra_risk_flags,
         *variable_flags,
         *direction_flags,
@@ -1074,6 +1350,22 @@ def _candidate_claim_for_review_row(
         risk_flags.append("long_candidate_sentence")
 
     claim_type = _claim_type(claim_text, keywords)
+    research_layers, mosaic_agent_trace = _layered_research_context(
+        claim_text,
+        candidate=candidate,
+        report_claim=None,
+        cause_variables=cause_variables,
+        target_variables=target_variables,
+        variable_domain_by_id=None,
+    )
+    risk_flags.extend(
+        _thesis_quality_risk_flags(
+            claim_text,
+            research_layers=research_layers,
+            mosaic_agent_trace=mosaic_agent_trace,
+            target_variables=target_variables,
+        )
+    )
     return GoldCandidateClaim(
         claim_id=str(review_row.get("claim_id") or f"GOLD-{source_id}-{row_index + 1:03d}"),
         source_id=source_id,
@@ -1098,6 +1390,8 @@ def _candidate_claim_for_review_row(
         verifier_status="requires_review",
         extraction_confidence_bin="low",
         review_risk_flags=tuple(dict.fromkeys(risk_flags)),
+        research_layers=research_layers,
+        mosaic_agent_trace=mosaic_agent_trace,
     )
 
 
@@ -1245,6 +1539,7 @@ def _candidate_claim_from_report_intelligence(
     known_variable_ids: set[str],
     variable_type_by_id: Mapping[str, str],
     approved_license_source_ids: set[str],
+    variable_domain_by_id: Mapping[str, str] | None = None,
 ) -> GoldCandidateClaim:
     source_id = str(candidate.get("source_id") or review_row.get("source_id") or "")
     source_span_id = str(
@@ -1288,8 +1583,14 @@ def _candidate_claim_from_report_intelligence(
         ts_code=str(candidate.get("ts_code") or ""),
         known_variable_ids=known_variable_ids,
     )
-    cause_variables = llm_cause_variables or fallback_cause_variables
-    target_variables = llm_target_variables or llm_target_candidates or fallback_target_variables
+    cause_variables = tuple(
+        dict.fromkeys((*llm_cause_variables, *fallback_cause_variables))
+    )
+    target_variables = tuple(
+        dict.fromkeys(
+            (*llm_target_variables, *llm_target_candidates, *fallback_target_variables)
+        )
+    )
     target_variables = _normalize_targets_for_context(
         target_variables,
         text=claim_text,
@@ -1320,6 +1621,22 @@ def _candidate_claim_from_report_intelligence(
         report_claim.get("direction"),
     )
     risk_flags.extend(direction_flags)
+    research_layers, mosaic_agent_trace = _layered_research_context(
+        claim_text,
+        candidate=candidate,
+        report_claim=report_claim,
+        cause_variables=cause_variables,
+        target_variables=target_variables,
+        variable_domain_by_id=variable_domain_by_id,
+    )
+    risk_flags.extend(
+        _thesis_quality_risk_flags(
+            claim_text,
+            research_layers=research_layers,
+            mosaic_agent_trace=mosaic_agent_trace,
+            target_variables=target_variables,
+        )
+    )
     return GoldCandidateClaim(
         claim_id=str(
             review_row.get("claim_id")
@@ -1353,6 +1670,8 @@ def _candidate_claim_from_report_intelligence(
             "medium" if not mapping_gaps else "low"
         ),
         review_risk_flags=tuple(dict.fromkeys(risk_flags)),
+        research_layers=research_layers,
+        mosaic_agent_trace=mosaic_agent_trace,
     )
 
 
@@ -1371,6 +1690,12 @@ def _build_gold_candidate_claims_with_blockers(
     candidates, invalid_candidate_rows = _split_mapping_rows(raw_candidates)
     review_rows, invalid_review_rows = _split_mapping_rows(raw_review_rows)
     review_by_source = _review_rows_by_source(review_rows)
+    starter_review_by_source = _review_rows_by_source(
+        build_gold_set_review_template(
+            candidates,
+            claims_per_document=MAX_REVIEW_CLAIMS_PER_SOURCE,
+        )
+    )
     report_claims_by_source, report_claim_blockers = _source_report_claims(root_path)
     markdown_sentences_by_source, markdown_sentence_blockers = _source_markdown_sentences(root_path)
     approved_license_source_ids, license_review_blockers = _approved_license_source_ids(root_path)
@@ -1381,15 +1706,22 @@ def _build_gold_candidate_claims_with_blockers(
         variable_type_by_id = {
             variable.variable_id: variable.variable_type for variable in vocabulary.variables
         }
+        variable_domain_by_id = {
+            variable.variable_id: variable.domain for variable in vocabulary.variables
+        }
     except ValueError as exc:
         known_variable_ids = set()
         variable_type_by_id = {}
+        variable_domain_by_id = {}
         vocabulary_blockers = (str(exc),)
     claims: list[GoldCandidateClaim] = []
     for candidate in candidates:
         source_id = str(candidate.get("source_id") or "")
         sentence_rows = _source_sentences(str(candidate.get("abstract") or candidate.get("source_span_text") or ""))
-        review_rows_for_source = tuple(review_by_source.get(source_id, ()))[:MAX_REVIEW_CLAIMS_PER_SOURCE]
+        review_rows_for_source = tuple(
+            review_by_source.get(source_id)
+            or starter_review_by_source.get(source_id, ())
+        )[:MAX_REVIEW_CLAIMS_PER_SOURCE]
         report_claims = report_claims_by_source.get(source_id, ())[:MAX_REVIEW_CLAIMS_PER_SOURCE]
         markdown_sentence_rows = markdown_sentences_by_source.get(source_id, ())
         fallback_sentence_rows = _non_duplicate_sentence_rows(
@@ -1408,6 +1740,7 @@ def _build_gold_candidate_claims_with_blockers(
                         known_variable_ids,
                         variable_type_by_id,
                         approved_license_source_ids,
+                        variable_domain_by_id,
                     )
                 )
             else:
@@ -1502,6 +1835,8 @@ def merge_candidate_claims_into_review_template(
                     "proposed_source_text_hash": claim.source_text_hash,
                     "proposed_extraction_confidence_bin": claim.extraction_confidence_bin,
                     "proposed_review_risk_flags": list(claim.review_risk_flags),
+                    "proposed_research_layers": _jsonable(claim.research_layers),
+                    "proposed_mosaic_agent_trace": _jsonable(claim.mosaic_agent_trace),
                     "proposed_verifier_status": claim.verifier_status,
                     "proposed_candidate_current": True,
                 }
@@ -1538,6 +1873,74 @@ def merge_candidate_claims_into_review_template(
         "manual_fields_preserved": retained_manual_fields_preserved and not dropped_manual_claim_ids,
         "applied": not blockers,
         "blockers": tuple(blockers),
+    }
+
+
+def _review_template_row_from_candidate_claim(claim: GoldCandidateClaim) -> dict[str, Any]:
+    return {
+        "source_id": claim.source_id,
+        "source_span_id": claim.source_span_id,
+        "claim_id": claim.claim_id,
+        "document_id": claim.source_id,
+        "gold_set_domain": claim.gold_set_domain,
+        "gold_set_domains": list(claim.gold_set_domains),
+        "gold_set_domain_matches": {},
+        "gold_set_domain_scores": {},
+        "span_preview": claim.claim_text[:600],
+        "manual_claim_text": "",
+        "claim_correct": None,
+        "source_span_supports_claim": None,
+        "direction_correct": None,
+        "target_correct": None,
+        "horizon_correct": None,
+        "variable_mapping_correct": None,
+        "unsupported_field_false_grounded": None,
+        "reviewer": "",
+        "review_date": "",
+        "review_notes": "",
+        "proposed_claim_text": claim.claim_text,
+        "proposed_claim_type": claim.claim_type,
+        "proposed_gold_set_domain": claim.gold_set_domain,
+        "proposed_gold_set_domains": list(claim.gold_set_domains),
+        "proposed_cause_variables": list(claim.cause_variables),
+        "proposed_target_variables": list(claim.target_variables),
+        "proposed_direction": claim.direction,
+        "proposed_source_span_ref_id": claim.source_span_ref_id,
+        "proposed_source_start_char": claim.source_start_char,
+        "proposed_source_end_char": claim.source_end_char,
+        "proposed_source_text_hash": claim.source_text_hash,
+        "proposed_extraction_confidence_bin": claim.extraction_confidence_bin,
+        "proposed_review_risk_flags": list(claim.review_risk_flags),
+        "proposed_research_layers": _jsonable(claim.research_layers),
+        "proposed_mosaic_agent_trace": _jsonable(claim.mosaic_agent_trace),
+        "proposed_verifier_status": claim.verifier_status,
+        "proposed_candidate_current": True,
+    }
+
+
+def rebuild_review_template_from_candidate_claims(
+    root: str | Path = ".",
+    *,
+    candidate_claims: Sequence[GoldCandidateClaim],
+    pre_rebuild_blockers: Sequence[str] = (),
+) -> dict[str, Any]:
+    root_path = Path(root)
+    review_path = root_path / GOLD_REVIEW_TEMPLATE_PATH
+    candidate_rows = [
+        _review_template_row_from_candidate_claim(claim) for claim in candidate_claims
+    ]
+    reviewable_rows = [row for row in candidate_rows if gold_candidate_reviewable(row)]
+    blockers = tuple(pre_rebuild_blockers)
+    if not blockers:
+        _write_jsonl(review_path, reviewable_rows)
+    return {
+        "path": str(review_path),
+        "rows": len(reviewable_rows),
+        "rows_with_candidate_fields": len(reviewable_rows),
+        "manual_fields_preserved": False,
+        "applied": not blockers,
+        "blockers": blockers,
+        "dropped_unreviewable_candidate_claims": len(candidate_rows) - len(reviewable_rows),
     }
 
 
@@ -1648,20 +2051,28 @@ def write_gold_candidate_claims(
     root: str | Path = ".",
     *,
     ensure_candidate_review_rows: bool = False,
+    rebuild_review_template_from_candidates: bool = False,
 ) -> dict[str, Any]:
     root_path = Path(root)
     ensure_result: Mapping[str, Any] = {}
     ensure_blockers: tuple[str, ...] = ()
-    if ensure_candidate_review_rows:
+    if ensure_candidate_review_rows and not rebuild_review_template_from_candidates:
         ensure_result = _ensure_candidate_review_rows(root_path)
         ensure_blockers = tuple(str(blocker) for blocker in ensure_result.get("blockers") or ())
     claims, build_blockers = _build_gold_candidate_claims_with_blockers(root_path)
     claims_result = _write_jsonl(root_path / GOLD_CANDIDATE_CLAIMS_PATH, [asdict(claim) for claim in claims])
-    merge_result = merge_candidate_claims_into_review_template(
-        root_path,
-        candidate_claims=claims,
-        pre_merge_blockers=(*ensure_blockers, *build_blockers),
-    )
+    if rebuild_review_template_from_candidates:
+        merge_result = rebuild_review_template_from_candidate_claims(
+            root_path,
+            candidate_claims=claims,
+            pre_rebuild_blockers=(*ensure_blockers, *build_blockers),
+        )
+    else:
+        merge_result = merge_candidate_claims_into_review_template(
+            root_path,
+            candidate_claims=claims,
+            pre_merge_blockers=(*ensure_blockers, *build_blockers),
+        )
     blockers = tuple(
         dict.fromkeys((*ensure_blockers, *build_blockers, *(merge_result.get("blockers") or ())))
     )
@@ -1677,6 +2088,11 @@ def write_gold_candidate_claims(
         "summary": str(summary_result["path"]),
         "review_template": str(merge_result["path"]),
         "ensure_candidate_review_rows": ensure_candidate_review_rows,
+        "review_template_rebuilt": rebuild_review_template_from_candidates,
+        "review_template_rebuilt_rows": int(merge_result.get("rows") or 0),
+        "dropped_unreviewable_candidate_claims": int(
+            merge_result.get("dropped_unreviewable_candidate_claims") or 0
+        ),
         "candidate_review_documents_added": int(
             ensure_result.get("candidate_review_documents_added") or 0
         ),

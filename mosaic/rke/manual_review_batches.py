@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal, Mapping, Sequence
 
-from .claim_text_filters import is_non_research_claim_text
+from .claim_text_filters import is_gold_candidate_noise_text, is_non_research_claim_text
 from .license_policy_import import (
     SOURCE_LICENSE_POLICY_TEMPLATE_PATH,
     SOURCE_LICENSE_REVIEW_WORKBOOK_MD_PATH,
@@ -267,6 +267,20 @@ def _gold_row_complete(row: Mapping[str, Any]) -> bool:
     )
 
 
+_GENERIC_COMPANY_SUBJECT_RE = re.compile(r"(^|[，,。；;\s])公司(?=\S)")
+_GENERIC_COMPANY_EFFECT_RE = re.compile(r"(?:推动|带动|支撑|改善|影响|增厚|强化|拖累)公司")
+
+
+def _generic_company_stock_target(row: Mapping[str, Any], claim_text: str) -> bool:
+    target_variables = {str(value) for value in row.get("proposed_target_variables") or ()}
+    if "stock_forward_excess_return" not in target_variables:
+        return False
+    return bool(
+        _GENERIC_COMPANY_SUBJECT_RE.search(claim_text)
+        or _GENERIC_COMPANY_EFFECT_RE.search(claim_text)
+    )
+
+
 def gold_candidate_reviewable(row: Mapping[str, Any]) -> bool:
     if row.get("proposed_candidate_current") is False:
         return False
@@ -282,6 +296,19 @@ def gold_candidate_reviewable(row: Mapping[str, Any]) -> bool:
         return False
     if "direction_conflict_requires_review" in proposed_flags:
         return False
+    if proposed_flags & {
+        "sentence_fallback_not_reviewable",
+        "sentence_fallback_requires_context_synthesis",
+        "original_markdown_sentence_fallback",
+        "fragment_or_sentence_level_claim",
+        "full_text_thesis_logic_chain_missing",
+        "layered_regime_or_company_logic_missing",
+        "economic_mechanism_missing",
+        "mosaic_agent_trace_missing",
+        "stock_target_missing_company_subject",
+        "stock_prediction_or_valuation_logic_missing",
+    }:
+        return False
     if "manual claim required" in proposed_claim_text.lower():
         return False
     if str(row.get("proposed_direction") or "").strip() in {
@@ -295,7 +322,9 @@ def gold_candidate_reviewable(row: Mapping[str, Any]) -> bool:
         return False
     if not tuple(row.get("proposed_target_variables") or ()):
         return False
-    return not is_non_research_claim_text(proposed_claim_text)
+    if _generic_company_stock_target(row, proposed_claim_text):
+        return False
+    return not is_gold_candidate_noise_text(proposed_claim_text)
 
 
 def _gold_candidate_reviewable(row: Mapping[str, Any]) -> bool:
@@ -324,12 +353,12 @@ def _gold_reviewable_pending_rows(
 def _gold_reviewed_failure_rows(
     rows: Sequence[Mapping[str, Any]],
     *,
-    max_rows_per_source: int = GOLD_REVIEW_MAX_ROWS_PER_SOURCE,
+    max_rows_per_source: int = 0,
 ) -> list[Mapping[str, Any]]:
     failed: list[Mapping[str, Any]] = []
     source_counts: Counter[str] = Counter()
     for row in rows:
-        if not _gold_row_complete(row) or not _gold_candidate_reviewable(row):
+        if not _gold_row_complete(row):
             continue
         has_failed_decision = (
             any(
@@ -377,6 +406,42 @@ def _markdown_cell(value: Any, *, max_chars: int = 72) -> str:
     return text.replace("|", "\\|") or "-"
 
 
+def _layer_trace_preview(row: Mapping[str, Any]) -> str:
+    layers = row.get("proposed_research_layers")
+    if not isinstance(layers, Mapping):
+        return ""
+    parts: list[str] = []
+    for key, label in (
+        ("macro_regime", "macro"),
+        ("industry_regime", "industry"),
+        ("company_layer", "company"),
+        ("valuation_or_forecast_layer", "valuation"),
+        ("mechanism_layer", "mechanism"),
+    ):
+        layer = layers.get(key)
+        if isinstance(layer, Mapping) and layer.get("present") is True:
+            parts.append(label)
+    return ",".join(parts)
+
+
+def _agent_trace_preview(row: Mapping[str, Any]) -> str:
+    trace = row.get("proposed_mosaic_agent_trace")
+    if not isinstance(trace, Mapping):
+        return ""
+    agents: list[str] = []
+    for field in (
+        "macro_agents",
+        "sector_agents",
+        "company_or_single_name_layer",
+        "valuation_layer",
+    ):
+        for value in trace.get(field) or ():
+            text = str(value or "").strip()
+            if text and text not in agents:
+                agents.append(text)
+    return ", ".join(agents)
+
+
 def _gold_template_row(row: Mapping[str, Any]) -> dict[str, Any]:
     proposed_claim_text = str(row.get("proposed_claim_text") or "").strip()
     return {
@@ -401,6 +466,8 @@ def _gold_template_row(row: Mapping[str, Any]) -> dict[str, Any]:
         "proposed_cause_variables": tuple(row.get("proposed_cause_variables") or ()),
         "proposed_target_variables": tuple(row.get("proposed_target_variables") or ()),
         "proposed_review_risk_flags": tuple(row.get("proposed_review_risk_flags") or ()),
+        "proposed_research_layers": dict(row.get("proposed_research_layers") or {}),
+        "proposed_mosaic_agent_trace": dict(row.get("proposed_mosaic_agent_trace") or {}),
         "proposed_source_start_char": row.get("proposed_source_start_char"),
         "proposed_source_end_char": row.get("proposed_source_end_char"),
         "proposed_source_span_ref_id": row.get("proposed_source_span_ref_id"),
@@ -457,6 +524,7 @@ def backfill_gold_review_from_prior(
     prior_review_path: str | Path = GOLD_REVIEW_TEMPLATE_PATH,
     output_path: str | Path | None = None,
     dry_run: bool = True,
+    allow_missing_prior: bool = False,
 ) -> GoldReviewBackfillResult:
     """Backfill a gold review scratch from existing human-reviewed rows.
 
@@ -533,11 +601,12 @@ def backfill_gold_review_from_prior(
             continue
         prior = prior_by_key.get(key)
         if prior is None:
-            blockers.append(
-                f"gold-set backfill input row {row_index}.claim_id: "
-                f"no prior reviewed row for {key[0]}/{key[1] or '-'}"
-            )
             updated_rows.append(updated)
+            if not allow_missing_prior:
+                blockers.append(
+                    f"gold-set backfill input row {row_index}.claim_id: "
+                    f"no prior reviewed row for {key[0]}/{key[1] or '-'}"
+                )
             continue
         matched_prior_rows += 1
         if not _gold_prior_review_complete(prior):
@@ -618,6 +687,8 @@ def _gold_workbook_row(index: int, row: Mapping[str, Any]) -> dict[str, Any]:
         "proposed_source_text_hash": str(row.get("proposed_source_text_hash") or ""),
         "proposed_source_span_ref_id": str(row.get("proposed_source_span_ref_id") or ""),
         "proposed_review_risk_flags": tuple(row.get("proposed_review_risk_flags") or ()),
+        "proposed_layer_trace": _layer_trace_preview(row),
+        "proposed_agent_trace": _agent_trace_preview(row),
         "claim_preview": _short_review_preview(row.get("proposed_claim_text"), max_chars=72),
     }
 
@@ -673,6 +744,8 @@ def _gold_assist_row(index: int, row: Mapping[str, Any]) -> dict[str, Any]:
         "proposed_review_risk_flags": tuple(
             row.get("proposed_review_risk_flags") or ()
         ),
+        "proposed_layer_trace": _layer_trace_preview(row),
+        "proposed_agent_trace": _agent_trace_preview(row),
         "human_required_fields": (
             "manual_claim_text",
             *GOLD_BOOL_FIELDS,
@@ -817,6 +890,8 @@ def render_gold_review_workbook_markdown(
         "This workbook is a read-only checklist. Fill reviewer decisions only in the reviewed JSONL scratch file.",
         "",
     ]
+    if summary.review_input_path:
+        lines.insert(8, f"- Review input: `{summary.review_input_path}`")
     if summary.blockers:
         lines.extend(["## Blockers", ""])
         lines.extend(f"- {blocker}" for blocker in summary.blockers)
@@ -827,9 +902,9 @@ def render_gold_review_workbook_markdown(
             "",
             (
                 "| # | claim_id | target_hash | domain | source_id | offsets | type | "
-                "direction | confidence | variables | risk_flags | claim_preview |"
+                "direction | confidence | layers | agents | variables | risk_flags | claim_preview |"
             ),
-            "|---|---|---|---|---|---|---|---|---|---|---|---|",
+            "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
         ]
     )
     for row in rows:
@@ -846,6 +921,8 @@ def render_gold_review_workbook_markdown(
                     _markdown_cell(row.get("proposed_claim_type"), max_chars=32),
                     _markdown_cell(row.get("proposed_direction"), max_chars=16),
                     _markdown_cell(row.get("proposed_extraction_confidence_bin"), max_chars=16),
+                    _markdown_cell(row.get("proposed_layer_trace"), max_chars=48),
+                    _markdown_cell(row.get("proposed_agent_trace"), max_chars=72),
                     _markdown_cell(row.get("proposed_variables"), max_chars=72),
                     _markdown_cell(row.get("proposed_review_risk_flags"), max_chars=72),
                     _markdown_cell(row.get("claim_preview"), max_chars=72),
@@ -940,6 +1017,8 @@ def render_gold_review_assist_markdown(
         "Use it to copy short claim previews and hashes while filling the reviewed JSONL scratch file by hand.",
         "",
     ]
+    if summary.review_input_path:
+        lines.insert(8, f"- Review input: `{summary.review_input_path}`")
     if summary.blockers:
         lines.extend(["## Blockers", ""])
         lines.extend(f"- {blocker}" for blocker in summary.blockers)
@@ -992,9 +1071,9 @@ def render_gold_review_assist_markdown(
             "",
             (
                 "| # | claim_id | target_hash | domain | type | direction | "
-                "variables | risk_flags | manual_claim_preview |"
+                "layers | agents | variables | risk_flags | manual_claim_preview |"
             ),
-            "|---|---|---|---|---|---|---|---|---|",
+            "|---|---|---|---|---|---|---|---|---|---|---|",
         ]
     )
     for row in rows:
@@ -1008,6 +1087,8 @@ def render_gold_review_assist_markdown(
                     _markdown_cell(row.get("gold_set_domain"), max_chars=24),
                     _markdown_cell(row.get("proposed_claim_type"), max_chars=32),
                     _markdown_cell(row.get("proposed_direction"), max_chars=16),
+                    _markdown_cell(row.get("proposed_layer_trace"), max_chars=48),
+                    _markdown_cell(row.get("proposed_agent_trace"), max_chars=72),
                     _markdown_cell(row.get("proposed_variables"), max_chars=72),
                     _markdown_cell(row.get("proposed_review_risk_flags"), max_chars=72),
                     _markdown_cell(
@@ -1129,6 +1210,8 @@ def _gold_evidence_terms(row: Mapping[str, Any]) -> tuple[str, ...]:
         row.get("gold_set_domain"),
         row.get("proposed_claim_type"),
         row.get("proposed_direction"),
+        _layer_trace_preview(row),
+        _agent_trace_preview(row),
         *(row.get("proposed_cause_variables") or ()),
         *(row.get("proposed_target_variables") or ()),
     ):
@@ -1185,8 +1268,6 @@ GOLD_NEGATIVE_DIRECTION_TERMS = (
 )
 GOLD_MAPPING_RISK_FLAGS = {
     "canonical_variable_mapping_needed",
-    "forecast_mapping_insufficient",
-    "forecast_not_testable",
 }
 GOLD_GROUNDING_RISK_FLAGS = {
     "forecast_mapping_insufficient",
@@ -1354,7 +1435,10 @@ def _gold_expected_cause_variables(text: str) -> tuple[str, ...]:
         append("company_fundamental_momentum")
     if _gold_term_hits(text, ("铜", "铝", "锂", "黄金", "金价", "铝价", "铜价", "油价", "原油")):
         append("commodity_price_cycle")
-    if _gold_term_hits(text, ("美联储", "美国通胀", "加息", "降息", "美元", "美债")):
+    if _gold_term_hits(
+        text,
+        ("美联储", "联储", "FOMC", "美国通胀", "加息", "降息", "美元指数", "美元汇率", "美债"),
+    ):
         append("global_dollar_liquidity_pressure")
     if _gold_term_hits(text, ("地缘", "关税", "出口管制", "贸易摩擦")):
         append("trade_friction_intensity")
@@ -1362,7 +1446,7 @@ def _gold_expected_cause_variables(text: str) -> tuple[str, ...]:
         append("industry_policy_catalyst")
     if _gold_term_hits(text, ("技术", "创新", "研发", "产品迭代")):
         append("technology_innovation_cycle")
-    if _gold_term_hits(text, ("竞争", "同质化", "价格战", "低于预期", "不及预期", "亏损")):
+    if _gold_term_hits(text, ("竞争", "同质化", "价格战", "竞品")):
         append("competitive_intensity_pressure")
     return tuple(expected)
 
@@ -1401,7 +1485,12 @@ def _gold_variable_mapping_diagnostics(
         questionable.append("commodity_price_cycle")
     if "competitive_intensity_pressure" in cause_variables and not _gold_term_hits(
         claim_text,
-        ("竞争", "同质化", "价格战", "低于预期", "不及预期", "亏损"),
+        (
+            "竞争",
+            "同质化",
+            "价格战",
+            "竞品",
+        ),
     ):
         questionable.append("competitive_intensity_pressure")
     return {
@@ -2207,6 +2296,9 @@ def render_gold_review_evidence_markdown(
             "unsupported_field_false_grounded",
         )
     }
+    decision_row_indexes: dict[str, dict[str, list[Any]]] = {
+        field: {"false": [], "null": []} for field in decision_counts
+    }
     for row in rows:
         decision = row.get("suggested_review_decision")
         decision_map = dict(decision) if isinstance(decision, Mapping) else {}
@@ -2216,8 +2308,50 @@ def render_gold_review_evidence_markdown(
                 counts["true"] += 1
             elif value is False:
                 counts["false"] += 1
+                decision_row_indexes[field]["false"].append(row.get("index"))
             else:
                 counts["null"] += 1
+                decision_row_indexes[field]["null"].append(row.get("index"))
+
+    def quick_value(value: Any) -> str:
+        if value is True:
+            return "true"
+        if value is False:
+            return "false"
+        return "review"
+
+    quick_field_labels = (
+        ("claim_correct", "claim"),
+        ("source_span_supports_claim", "span"),
+        ("direction_correct", "dir"),
+        ("target_correct", "target"),
+        ("horizon_correct", "horizon"),
+        ("variable_mapping_correct", "vars"),
+        ("unsupported_field_false_grounded", "false_ground"),
+    )
+    quick_rows: list[str] = []
+    for row in rows:
+        decision_map = (
+            dict(row.get("suggested_review_decision"))
+            if isinstance(row.get("suggested_review_decision"), Mapping)
+            else {}
+        )
+        quick_cells = [
+            _markdown_cell(row.get("index"), max_chars=12),
+            f"`{_markdown_cell(row.get('claim_id'), max_chars=48)}`",
+            _markdown_cell(row.get("gold_set_domain") or "-", max_chars=24),
+            _markdown_cell(row.get("proposed_direction") or "-", max_chars=16),
+        ]
+        quick_cells.extend(
+            quick_value(decision_map.get(field)) for field, _ in quick_field_labels
+        )
+        quick_cells.append(
+            _markdown_cell(row.get("quality_gap_focus_fields"), max_chars=120)
+        )
+        quick_cells.append(
+            _markdown_cell(row.get("suggested_manual_error_tags"), max_chars=120)
+        )
+        quick_rows.append("| " + " | ".join(quick_cells) + " |")
     lines = [
         "# RKE Gold Review Evidence Draft",
         "",
@@ -2264,6 +2398,125 @@ def render_gold_review_evidence_markdown(
             "",
         ]
     )
+    field_meanings = (
+        (
+            "manual_claim_text",
+            "human-entered compact claim label; keep it private and source-supported.",
+        ),
+        (
+            "claim_correct",
+            "whether the extracted text is a valid forecast or research claim, not a generic investment suggestion, valuation comment, disclaimer, heading, or unrelated statement.",
+        ),
+        (
+            "source_span_supports_claim",
+            "whether the cited local context supports the reviewed claim without unsupported inference.",
+        ),
+        (
+            "direction_correct",
+            "whether the extracted direction matches the claim's forecast direction.",
+        ),
+        (
+            "target_correct",
+            "whether the forecast target entity, asset, industry, or variable is the one actually forecast.",
+        ),
+        (
+            "horizon_correct",
+            "whether the extracted horizon matches the stated or implied forecast window.",
+        ),
+        (
+            "variable_mapping_correct",
+            "whether cause and target variables map to governed canonical variables; missing, broad, or unrelated mappings are false.",
+        ),
+        (
+            "unsupported_field_false_grounded",
+            "defect flag for an extracted field falsely grounded in the source; true means a grounding problem was found.",
+        ),
+        ("reviewer", "human reviewer identifier."),
+        ("review_date", "human review date in YYYY-MM-DD format."),
+        (
+            "review_notes",
+            "optional private rationale for overrides, false values, uncertain rows, or quality-gap cases.",
+        ),
+    )
+    review_order = (
+        (
+            "unsupported_field_false_grounded",
+            "review first because it directly controls the false-grounding excess blocker.",
+        ),
+        (
+            "target_correct",
+            "review next because the current quality gap can close if enough target decisions are confirmed.",
+        ),
+        (
+            "direction_correct",
+            "review next because direction accuracy remains below threshold.",
+        ),
+        (
+            "horizon_correct",
+            "review for consistency even though the aggregate metric is currently passing.",
+        ),
+        (
+            "variable_mapping_correct",
+            "verify every drafted value because this is the largest remaining quality gap.",
+        ),
+        (
+            "claim_correct",
+            "verify drafted values after the active quality-gap fields.",
+        ),
+        (
+            "source_span_supports_claim",
+            "verify drafted values against local evidence snippets.",
+        ),
+        (
+            "manual_claim_text",
+            "fill or edit every row after confirming the source-supported claim.",
+        ),
+    )
+    lines.extend(["## Field Meaning And Review Order", ""])
+    lines.extend(f"- `{field}`: {meaning}" for field, meaning in field_meanings)
+    lines.extend(["", "Recommended order:", ""])
+    for field, reason in review_order:
+        row_notes: list[str] = []
+        if field in decision_row_indexes:
+            null_rows = decision_row_indexes[field]["null"]
+            false_rows = decision_row_indexes[field]["false"]
+            if null_rows:
+                row_notes.append(
+                    "suggested null rows: "
+                    + _markdown_cell(null_rows, max_chars=240)
+                )
+            if false_rows:
+                row_notes.append(
+                    "suggested false rows: "
+                    + _markdown_cell(false_rows, max_chars=240)
+                )
+        elif field == "manual_claim_text":
+            row_notes.append("all rows require human text verification")
+        suffix = " " + "; ".join(row_notes) if row_notes else ""
+        lines.append(f"- `{field}`: {reason}{suffix}")
+    lines.append("")
+    if rows:
+        quick_headers = [
+            "#",
+            "claim_id",
+            "domain",
+            "direction",
+            *[label for _, label in quick_field_labels],
+            "focus",
+            "tags",
+        ]
+        lines.extend(
+            [
+                "## Quick Fill Checklist",
+                "",
+                "Machine suggestions below are a navigation aid only. Confirm each field against the evidence snippets before copying values into the reviewed JSONL scratch.",
+                "",
+                "| " + " | ".join(quick_headers) + " |",
+                "| " + " | ".join("---" for _ in quick_headers) + " |",
+                *quick_rows,
+                "",
+            ]
+        )
     if summary.blockers:
         lines.extend(["## Blockers", ""])
         lines.extend(f"- {blocker}" for blocker in summary.blockers)
@@ -2611,8 +2864,19 @@ def write_manual_review_batches(
     gold_full = tuple(_gold_template_row(row) for row in _gold_reviewable_pending_rows(gold_rows))
     gold_result = _write_jsonl(root_path / GOLD_BATCH_IMPORT_TEMPLATE_PATH, gold_batch)
     gold_full_result = _write_jsonl(root_path / GOLD_FULL_IMPORT_TEMPLATE_PATH, gold_full)
-    gold_workbook_result = write_gold_review_workbook(root_path)
-    gold_assist_result = write_gold_review_assist(root_path)
+    gold_review_input_path = (
+        GOLD_REVIEWED_IMPORT_PATH
+        if (root_path / GOLD_REVIEWED_IMPORT_PATH).exists()
+        else None
+    )
+    gold_workbook_result = write_gold_review_workbook(
+        root_path,
+        review_input_path=gold_review_input_path,
+    )
+    gold_assist_result = write_gold_review_assist(
+        root_path,
+        review_input_path=gold_review_input_path,
+    )
     license_result = _write_jsonl(root_path / LICENSE_BATCH_IMPORT_TEMPLATE_PATH, license_batch)
     license_policy_template_result = write_source_license_policy_template(root_path)
     license_workbook_result = write_source_license_review_workbook(root_path)

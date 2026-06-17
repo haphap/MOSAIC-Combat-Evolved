@@ -7,6 +7,16 @@ from pathlib import Path
 import pandas as pd
 
 from mosaic.rke.cli import build_parser
+from mosaic.rke.gold_candidate_claims import (
+    _candidate_claim_for_review_row,
+    _candidate_claim_from_report_intelligence,
+    _review_template_row_from_candidate_claim,
+    _variable_pair,
+)
+from mosaic.rke.manual_review_batches import (
+    _gold_variable_mapping_diagnostics,
+    gold_candidate_reviewable,
+)
 from mosaic.rke.tushare_reports import (
     P9_REPORT_INTELLIGENCE_CORPUS_PROFILE,
     P9_REPORT_INTELLIGENCE_REPORT_TYPES,
@@ -468,7 +478,7 @@ def test_refresh_tushare_research_report_registry_updates_dependent_artifacts(tm
     assert "production_monitor_diagnostics" in result.outputs
     assert len(source_rows) == 2
     assert len(license_rows) == 2
-    assert 0 < len(gold_rows) <= result.gold_candidate_rows
+    assert len(gold_rows) == 0
     assert manifest["output_path"] == "registry/sources/tushare_research_reports.jsonl"
     assert manifest["max_reports_per_query"] == 6000
     assert manifest["stock_query_batch_size"] == 50
@@ -526,6 +536,301 @@ def test_refresh_tushare_research_report_registry_imports_local_file_without_tus
     assert manifest["query_window"] == {"start_date": "2026-06-02", "end_date": "2026-06-03"}
     assert manifest["report_type_counts"] == {"个股研报": 1, "行业研报": 1}
     assert manifest["skipped_empty_abstract_rows"] == 0
+
+
+def test_gold_candidate_claim_merges_llm_and_fallback_variable_mapping():
+    claim = _candidate_claim_from_report_intelligence(
+        {
+            "source_id": "SRC-1",
+            "source_span_id": "SRC-1:original_markdown",
+            "query_key": "600000.SH",
+            "ts_code": "600000.SH",
+            "license_status": "approved",
+        },
+        {
+            "claim_id": "GOLD-SRC-1-001",
+            "gold_set_domain": "semiconductor",
+            "gold_set_domains": ("semiconductor",),
+        },
+        {
+            "claim_text": "公司营收和利润改善，股价未来有望上涨。",
+            "forecast_claim_id": "FC-1",
+            "metric_proxy_mapping": ["industry_demand_cycle"],
+            "target": {"target_type": "stock", "target_id": "600000.SH"},
+            "direction": "positive",
+            "forecast_testability": "insufficient_mapping",
+            "extraction_quality": {"mapping_gaps": ["horizon"]},
+            "claim_provenance": "source_grounded",
+        },
+        0,
+        {
+            "industry_demand_cycle",
+            "company_fundamental_momentum",
+            "stock_forward_excess_return",
+        },
+        {
+            "industry_demand_cycle": "cause",
+            "company_fundamental_momentum": "cause",
+            "stock_forward_excess_return": "target",
+        },
+        {"SRC-1"},
+    )
+
+    assert claim.cause_variables == (
+        "industry_demand_cycle",
+        "company_fundamental_momentum",
+    )
+    assert claim.target_variables == ("stock_forward_excess_return",)
+
+
+def test_gold_candidate_claim_review_requires_layered_full_text_thesis():
+    claim = _candidate_claim_from_report_intelligence(
+        {
+            "source_id": "SRC-1",
+            "source_span_id": "SRC-1:original_markdown",
+            "query_key": "000001.SZ",
+            "ts_code": "000001.SZ",
+            "title": "平安银行深度报告",
+            "industry": "银行",
+            "license_status": "approved",
+        },
+        {
+            "claim_id": "GOLD-SRC-1-001",
+            "gold_set_domain": "bank",
+            "gold_set_domains": ("bank",),
+        },
+        {
+            "claim_text": (
+                "在央行流动性边际改善和银行信贷供给修复的宏观环境下，"
+                "平安银行零售资产质量企稳与净息差压力缓解将带动营收、利润和估值修复，"
+                "未来一个季度股价相对市场有望上涨。"
+            ),
+            "forecast_claim_id": "FC-1",
+            "metric_proxy_mapping": [
+                "pboc_net_injection",
+                "bank_credit_supply",
+                "company_fundamental_momentum",
+                "valuation_percentile",
+                "stock_forward_excess_return",
+            ],
+            "target": {"target_type": "stock", "target_id": "000001.SZ"},
+            "direction": "positive",
+            "forecast_testability": "testable",
+            "extraction_quality": {
+                "claim_component_roles": {
+                    "has_macro_regime_context": True,
+                    "has_industry_cycle_regime_context": True,
+                    "macro_regime_context_types": ["domestic_liquidity_easing"],
+                    "industry_cycle_regime_context_types": ["bank_credit_cycle"],
+                    "has_company_capability_or_action": True,
+                },
+                "claim_mechanism_roles": {
+                    "has_economic_mechanism": True,
+                    "channels": [
+                        "policy_liquidity_transmission",
+                        "valuation_repricing",
+                    ],
+                    "actions": ["receive_policy_or_liquidity_impulse"],
+                },
+            },
+            "claim_provenance": "source_grounded",
+        },
+        0,
+        {
+            "pboc_net_injection",
+            "bank_credit_supply",
+            "company_fundamental_momentum",
+            "valuation_percentile",
+            "stock_forward_excess_return",
+        },
+        {
+            "pboc_net_injection": "cause",
+            "bank_credit_supply": "cause",
+            "company_fundamental_momentum": "cause",
+            "valuation_percentile": "cause",
+            "stock_forward_excess_return": "target",
+        },
+        {"SRC-1"},
+        {
+            "pboc_net_injection": "macro.central_bank",
+            "bank_credit_supply": "sector.bank",
+            "company_fundamental_momentum": "equity.single_name",
+            "valuation_percentile": "cross_asset.valuation",
+            "stock_forward_excess_return": "equity.single_name",
+        },
+    )
+    row = _review_template_row_from_candidate_claim(claim)
+
+    assert "fragment_or_sentence_level_claim" not in claim.review_risk_flags
+    assert "stock_target_missing_company_subject" not in claim.review_risk_flags
+    assert claim.research_layers["macro_regime"]["present"] is True
+    assert claim.research_layers["industry_regime"]["present"] is True
+    assert claim.mosaic_agent_trace["macro_agents"] == ("macro.central_bank",)
+    assert gold_candidate_reviewable(row) is True
+
+
+def test_gold_candidate_claim_rejects_short_sentence_and_fallback_review_rows():
+    claim = _candidate_claim_from_report_intelligence(
+        {
+            "source_id": "SRC-1",
+            "source_span_id": "SRC-1:original_markdown",
+            "query_key": "000001.SZ",
+            "ts_code": "000001.SZ",
+            "license_status": "approved",
+        },
+        {
+            "claim_id": "GOLD-SRC-1-001",
+            "gold_set_domain": "bank",
+            "gold_set_domains": ("bank",),
+        },
+        {
+            "claim_text": "公司营收和利润改善，股价未来有望上涨。",
+            "forecast_claim_id": "FC-1",
+            "metric_proxy_mapping": [
+                "company_fundamental_momentum",
+                "stock_forward_excess_return",
+            ],
+            "target": {"target_type": "stock", "target_id": "000001.SZ"},
+            "direction": "positive",
+            "forecast_testability": "testable",
+            "extraction_quality": {},
+            "claim_provenance": "source_grounded",
+        },
+        0,
+        {
+            "company_fundamental_momentum",
+            "stock_forward_excess_return",
+        },
+        {
+            "company_fundamental_momentum": "cause",
+            "stock_forward_excess_return": "target",
+        },
+        {"SRC-1"},
+        {
+            "company_fundamental_momentum": "equity.single_name",
+            "stock_forward_excess_return": "equity.single_name",
+        },
+    )
+    row = _review_template_row_from_candidate_claim(claim)
+
+    assert "fragment_or_sentence_level_claim" in claim.review_risk_flags
+    assert "stock_target_missing_company_subject" in claim.review_risk_flags
+    assert gold_candidate_reviewable(row) is False
+
+    fallback = _candidate_claim_for_review_row(
+        {
+            "source_id": "SRC-1",
+            "source_span_id": "SRC-1:original_markdown",
+            "query_key": "有色金属",
+            "industry": "有色金属",
+            "license_status": "approved",
+        },
+        {
+            "claim_id": "GOLD-SRC-1-002",
+            "gold_set_domain": "basic_materials",
+            "gold_set_domains": ("basic_materials",),
+        },
+        [(0, 32, "受益于供需改善，行业景气度有望提升。", ("供给", "需求", "景气"))],
+        0,
+        {
+            "industry_demand_cycle",
+            "industry_supply_constraint",
+            "industry_etf_forward_return",
+        },
+        {"SRC-1"},
+    )
+    fallback_row = _review_template_row_from_candidate_claim(fallback)
+
+    assert "sentence_fallback_not_reviewable" in fallback.review_risk_flags
+    assert gold_candidate_reviewable(fallback_row) is False
+
+
+def test_gold_variable_mapping_ignores_horizon_only_testability_flags():
+    diagnostics = _gold_variable_mapping_diagnostics(
+        {
+            "proposed_claim_text": "公司营收和利润改善，股价未来有望上涨。",
+            "proposed_cause_variables": ("company_fundamental_momentum",),
+            "proposed_target_variables": ("stock_forward_excess_return",),
+        },
+        ("forecast_mapping_insufficient", "forecast_not_testable"),
+    )
+
+    assert diagnostics["blockers"] == ()
+    assert diagnostics["mapping_risk_flags"] == ()
+    assert diagnostics["needs_review"] is False
+
+
+def test_gold_candidate_variable_pair_covers_common_macro_commodity_terms():
+    cause_variables, target_variables, flags = _variable_pair(
+        "FOMC联储降息措辞、原油油价和关税变化推动航运行业景气。",
+        query_key="航运",
+        industry="航运",
+        ts_code="",
+        known_variable_ids={
+            "commodity_price_cycle",
+            "global_dollar_liquidity_pressure",
+            "industry_demand_cycle",
+            "industry_etf_forward_return",
+            "trade_friction_intensity",
+        },
+    )
+
+    assert "commodity_price_cycle" in cause_variables
+    assert "global_dollar_liquidity_pressure" in cause_variables
+    assert "trade_friction_intensity" in cause_variables
+    assert target_variables == ("industry_etf_forward_return",)
+    assert flags == ()
+
+    profitability_causes, _, _ = _variable_pair(
+        "运力偏紧叠加盈利修复，行业景气有望延续。",
+        query_key="航运",
+        industry="航运",
+        ts_code="",
+        known_variable_ids={
+            "company_fundamental_momentum",
+            "industry_demand_cycle",
+            "industry_etf_forward_return",
+            "industry_supply_constraint",
+        },
+    )
+    assert "company_fundamental_momentum" in profitability_causes
+    assert "industry_supply_constraint" in profitability_causes
+
+
+def test_gold_variable_mapping_does_not_treat_usd_amount_as_macro_liquidity():
+    diagnostics = _gold_variable_mapping_diagnostics(
+        {
+            "proposed_claim_text": "在手订单50.9亿美元，盈利和规模预计进一步释放。",
+            "proposed_cause_variables": (
+                "company_fundamental_momentum",
+                "industry_demand_cycle",
+            ),
+            "proposed_target_variables": ("stock_forward_excess_return",),
+        },
+        (),
+    )
+
+    assert "global_dollar_liquidity_pressure" not in diagnostics[
+        "missing_expected_cause_variables"
+    ]
+    assert diagnostics["needs_review"] is False
+
+
+def test_gold_variable_mapping_accepts_competitive_pressure_terms():
+    diagnostics = _gold_variable_mapping_diagnostics(
+        {
+            "proposed_claim_text": "行业竞争加剧导致盈利能力承压，但龙头公司抗风险能力更强。",
+            "proposed_cause_variables": (
+                "competitive_intensity_pressure",
+                "company_fundamental_momentum",
+            ),
+            "proposed_target_variables": ("stock_forward_excess_return",),
+        },
+        (),
+    )
+
+    assert diagnostics["questionable_cause_variables"] == ()
+    assert diagnostics["needs_review"] is False
 
 
 def test_refresh_tushare_research_report_registry_skips_empty_abstract_rows(

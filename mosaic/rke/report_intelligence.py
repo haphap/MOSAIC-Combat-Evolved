@@ -2523,12 +2523,16 @@ def _system_prompt() -> str:
         "ambiguous; use unknown or insufficient_mapping instead. Return only a "
         "single JSON object. Do not include thinking text, commentary, Markdown, "
         "or code fences. Metadata may identify the report entity, but source text "
-        "must still support each forecast. Extract forecast_claims as concise "
-        "source-grounded research claims synthesized from the whole Markdown "
-        "chunk or a coherent paragraph, not as isolated sentence snippets. A "
-        "valid claim should connect background/regime, mechanism/action, company "
-        "capability when relevant, and potential market or fundamental impact "
-        "when the source supports that connection. Split regime into macro "
+        "must still support each forecast. Extract forecast_claims as complete "
+        "source-grounded report theses synthesized from the supplied Markdown "
+        "context, not as isolated sentence snippets, headings, bullets, or table "
+        "rows. If the supplied chunk is only partial context and does not support "
+        "a full thesis, leave forecast_claims empty and put measurable context in "
+        "analytical_footprints instead. A valid thesis should connect "
+        "background/regime, mechanism/action, company capability when relevant, "
+        "valuation or earnings logic when relevant, and potential market or "
+        "fundamental impact when the source supports that connection. Split "
+        "regime into macro "
         "environment and industry-cycle regime when the source supports both: "
         "macro regime includes rate-cut cycles, monetary/liquidity stance, "
         "credit cycle, fiscal or regulatory policy, FX/dollar cycle, and growth "
@@ -2584,22 +2588,27 @@ def _user_prompt(
         "benchmark, direction (positive|negative|neutral|ambiguous|unknown), "
         "horizon, explicitness (explicit|inferred|unknown), source_conviction, "
         "metric_proxy_mapping, failure_modes, extraction_quality.\n"
-        "Only emit forecast_claims for source-grounded research claims with at "
-        "least one of: causal/economic mechanism, regime condition, explicit or "
-        "clearly implied forward view, expected target impact, or actionable "
-        "investment view. The claim_text should be a compact synthesis over the "
-        "relevant paragraph/window when needed. It does not need to be a verbatim "
-        "sentence, but every element must be supported by the cited source span. "
-        "Emit at most two forecast_claims for this chunk. Prefer fewer, higher "
-        "value claims over enumerating every descriptive sentence; keep only the "
-        "claims that would still be useful for outcome labeling and prompt "
-        "evolution review. "
+        "Only emit forecast_claims for source-grounded research theses with a "
+        "complete economic chain. The claim_text must be a compact synthesis over "
+        "the full supported report context or a coherent multi-paragraph window: "
+        "macro regime when present, industry regime when present, transmission "
+        "mechanism, company capability/action for stock reports, valuation or "
+        "earnings forecast logic when present, and the expected target impact. It "
+        "does not need to be a verbatim sentence, but every element must be "
+        "supported by the cited source span. Emit at most two forecast_claims for "
+        "this chunk, and emit none when the text only provides local facts, a "
+        "half-sentence, a heading, a pure recommendation list, or a claim that "
+        "cannot be tied back to Mosaic macro/sector/company layers. Prefer fewer, "
+        "higher value claims over enumerating every descriptive sentence; keep "
+        "only the theses that would still be useful for outcome labeling and "
+        "prompt evolution review. "
         "For Chinese source text, output claim_text in Chinese and keep variable "
         "or schema ids in English only where the schema requires ids. "
         "Prefer claims of the form: under <macro regime if present> and "
         "<industry-cycle regime if present>, <mechanism/action> "
-        "and, for stock reports, <company capability/action> are expected to "
-        "affect <target/fundamental/return> through <channel>. Do not merge "
+        "and, for stock reports, <specific company capability/action plus "
+        "earnings or valuation logic> are expected to affect "
+        "<target/fundamental/return> through <channel>. Do not merge "
         "macro regime, industry-cycle regime, and company capability into one "
         "undifferentiated cause: 'the Fed entered a rate-cut cycle' or 'China "
         "stepped up counter-cyclical monetary policy' is macro regime; 'global "
@@ -3084,6 +3093,106 @@ INDICATOR_METADATA_RULES: tuple[tuple[str, Mapping[str, Any]], ...] = (
         },
     ),
     (
+        r"市场规模|市场空间|规模测算|market[_\s-]*(?:size|sizing)|addressable[_\s-]*market",
+        {
+            "canonical_metric_candidate": "industry_demand_cycle",
+            "data_source_mentioned": "industry_operation_statistics_or_report_table",
+            "frequency": "monthly_or_annual",
+            "transformation": "level_growth_or_forecast",
+            "role_in_argument": "industry_market_size_metric",
+        },
+    ),
+    (
+        r"需求|订单|在手订单|新增订单|出货|出货量|产销|开工率|产能利用率|景气度|utilization[_\s-]*rate|order[_\s-]*(?:book|backlog|intake)",
+        {
+            "canonical_metric_candidate": "industry_demand_cycle",
+            "data_source_mentioned": "industry_operation_statistics_or_company_disclosure",
+            "frequency": "monthly_or_quarterly",
+            "transformation": "level_growth_or_cycle_state",
+            "role_in_argument": "industry_demand_cycle_metric",
+        },
+    ),
+    (
+        r"供需|供给|产能|库存|产量|价格中枢|涨价|降价|商品价格|油价|煤价|钢价|铜价|铝价|锂价|原油|crude[_\s-]*oil|capacity|inventory|production|commodity[_\s-]*price",
+        {
+            "canonical_metric_candidate": "commodity_price_cycle",
+            "data_source_mentioned": "commodity_price_supply_demand_inventory_data",
+            "frequency": "daily_or_weekly_or_monthly",
+            "transformation": "price_level_or_supply_demand_change",
+            "role_in_argument": "commodity_supply_demand_cycle_metric",
+        },
+    ),
+    (
+        r"出口|进口|贸易|进出口|海关|外贸|export|import|trade[_\s-]*(?:flow|volume|value)",
+        {
+            "canonical_metric_candidate": "export_import_trade_flow",
+            "data_source_mentioned": "customs_trade_statistics_or_report_table",
+            "frequency": "monthly_or_quarterly",
+            "transformation": "value_or_volume_growth",
+            "role_in_argument": "external_demand_trade_metric",
+        },
+    ),
+    (
+        r"产品结构|业务结构|收入结构|品类结构|区域结构|客户结构|product[_\s-]*mix|business[_\s-]*mix|revenue[_\s-]*mix",
+        {
+            "canonical_metric_candidate": "business_mix_structure",
+            "data_source_mentioned": "company_financials_or_report_segment_table",
+            "frequency": "quarterly_or_annual",
+            "transformation": "segment_share_or_growth",
+            "role_in_argument": "business_mix_metric",
+        },
+    ),
+    (
+        r"市场份额|市占率|竞争格局|集中度|cr\d|份额提升|market[_\s-]*share|competitive[_\s-]*landscape",
+        {
+            "canonical_metric_candidate": "market_share_competitive_position",
+            "data_source_mentioned": "industry_statistics_or_report_competitive_table",
+            "frequency": "quarterly_or_annual",
+            "transformation": "share_level_or_change",
+            "role_in_argument": "competitive_position_metric",
+        },
+    ),
+    (
+        r"信息化|数字化|数据治理|数据中心|智慧城市|医院信息化|ETL|集成平台|digitali[sz]ation|data[_\s-]*governance|smart[_\s-]*city",
+        {
+            "canonical_metric_candidate": "digitalization_project_adoption",
+            "data_source_mentioned": "project_disclosure_or_industry_digitalization_data",
+            "frequency": "event_driven_or_quarterly",
+            "transformation": "project_milestone_or_adoption_rate",
+            "role_in_argument": "digitalization_adoption_metric",
+        },
+    ),
+    (
+        r"技术路线|工艺|良率|产品迭代|新品|商业化|量产|technology[_\s-]*roadmap|commerciali[sz]ation|product[_\s-]*(?:launch|iteration)|yield[_\s-]*rate",
+        {
+            "canonical_metric_candidate": "technology_product_milestone",
+            "data_source_mentioned": "company_disclosure_or_report_business_update",
+            "frequency": "event_driven_or_quarterly",
+            "transformation": "milestone_event_or_rate",
+            "role_in_argument": "technology_product_execution_metric",
+        },
+    ),
+    (
+        r"资产质量|不良率|不良贷款|拨备|减值|坏账|信用风险|non[_\s-]*performing|npl",
+        {
+            "canonical_metric_candidate": "asset_quality_nonperforming_ratio",
+            "data_source_mentioned": "company_financials_or_regulatory_disclosure",
+            "frequency": "quarterly_or_annual",
+            "transformation": "ratio_level_or_change",
+            "role_in_argument": "asset_quality_metric",
+        },
+    ),
+    (
+        r"净息差|\bnim\b|贷款|存款|社融|信贷|m2|credit[_\s-]*growth|loan[_\s-]*growth",
+        {
+            "canonical_metric_candidate": "bank_credit_supply",
+            "data_source_mentioned": "bank_financials_or_money_credit_data",
+            "frequency": "monthly_or_quarterly",
+            "transformation": "growth_rate_or_spread",
+            "role_in_argument": "bank_credit_and_margin_metric",
+        },
+    ),
+    (
         r"transaction[_\s-]*area|成交面积|成交指数|商品房成交|新房成交|二手房成交",
         {
             "canonical_metric_candidate": "real_estate_transaction_area",
@@ -3344,6 +3453,16 @@ INDICATOR_METADATA_RULES: tuple[tuple[str, Mapping[str, Any]], ...] = (
         },
     ),
     (
+        r"保费|寿险保费|财险保费|新业务价值|nbv",
+        {
+            "canonical_metric_candidate": "insurance_premium_income",
+            "data_source_mentioned": "insurance_company_or_regulatory_disclosure",
+            "frequency": "monthly_or_quarterly",
+            "transformation": "growth_rate_or_value_change",
+            "role_in_argument": "insurance_business_growth_metric",
+        },
+    ),
+    (
         r"claim[_\s-]*payout",
         {
             "canonical_metric_candidate": "insurance_claim_payouts",
@@ -3354,7 +3473,27 @@ INDICATOR_METADATA_RULES: tuple[tuple[str, Mapping[str, Any]], ...] = (
         },
     ),
     (
+        r"赔付|赔款|赔付率|综合成本率",
+        {
+            "canonical_metric_candidate": "insurance_claim_payouts",
+            "data_source_mentioned": "insurance_company_or_regulatory_disclosure",
+            "frequency": "monthly_or_quarterly",
+            "transformation": "rate_or_growth_rate",
+            "role_in_argument": "insurance_loss_ratio_proxy",
+        },
+    ),
+    (
         r"insurance[_\s-]*assets",
+        {
+            "canonical_metric_candidate": "insurance_total_assets",
+            "data_source_mentioned": "insurance_company_or_regulatory_disclosure",
+            "frequency": "quarterly",
+            "transformation": "level_or_growth",
+            "role_in_argument": "insurance_balance_sheet_metric",
+        },
+    ),
+    (
+        r"保险资产|总资产|投资收益率",
         {
             "canonical_metric_candidate": "insurance_total_assets",
             "data_source_mentioned": "insurance_company_or_regulatory_disclosure",
@@ -3590,6 +3729,46 @@ TEXT_GROUNDED_INDICATOR_SEED_RULES: tuple[tuple[str, str, str], ...] = (
         r"业绩|财务|盈利|营收|收入|financial|revenue|YoY|QoQ",
     ),
     (
+        r"市场规模|市场空间|规模测算|market[_\s-]*(?:size|sizing)",
+        "市场规模/市场空间",
+        r"市场|行业|规模|空间|需求|market|industry|demand|sizing",
+    ),
+    (
+        r"需求|订单|在手订单|新增订单|出货|出货量|产销|开工率|产能利用率|景气度",
+        "需求/订单/产销景气",
+        r"需求|订单|出货|产销|开工|利用率|景气|行业|demand|order|utilization",
+    ),
+    (
+        r"供需|供给|产能|库存|产量|价格中枢|涨价|降价|商品价格|油价|煤价|钢价|铜价|铝价|锂价|原油",
+        "供需/库存/商品价格",
+        r"供需|供给|产能|库存|产量|价格|原油|煤炭|钢铁|有色|commodity|supply|inventory|capacity",
+    ),
+    (
+        r"出口|进口|贸易|进出口|海关|外贸",
+        "进出口贸易流量",
+        r"出口|进口|贸易|外贸|海关|全球贸易|区域|export|import|trade",
+    ),
+    (
+        r"产品结构|业务结构|收入结构|品类结构|区域结构|客户结构",
+        "产品/业务结构",
+        r"产品|业务|收入|品类|区域|客户|结构|segment|mix",
+    ),
+    (
+        r"市场份额|市占率|竞争格局|集中度|份额提升",
+        "市场份额/竞争格局",
+        r"份额|竞争|格局|集中度|优势|market|share|competitive",
+    ),
+    (
+        r"信息化|数字化|数据治理|数据中心|智慧城市|医院信息化|ETL|集成平台",
+        "信息化/数据治理项目",
+        r"信息化|数字化|数据|医院|智慧|城市|ETL|集成|digital|data|smart",
+    ),
+    (
+        r"技术路线|工艺|良率|产品迭代|新品|商业化|量产",
+        "技术/产品里程碑",
+        r"技术|工艺|产品|新品|商业化|量产|研发|technology|product",
+    ),
+    (
         r"归母净利润|净利润|net[_\s-]*profit",
         "归母净利润",
         r"业绩|财务|盈利|利润|financial|profit|YoY|QoQ",
@@ -3643,6 +3822,21 @@ TEXT_GROUNDED_INDICATOR_SEED_RULES: tuple[tuple[str, str, str], ...] = (
         r"评级变动|信用级别|资本补充|并购重组",
         "信用与资本市场活动",
         r"信用|资本|并购|capital|credit",
+    ),
+    (
+        r"资产质量|不良率|不良贷款|拨备|减值|坏账|信用风险",
+        "资产质量/不良率",
+        r"资产质量|不良|拨备|减值|信用|银行|金融|asset|credit",
+    ),
+    (
+        r"净息差|贷款|存款|社融|信贷|M2|m2",
+        "净息差/贷款社融",
+        r"净息差|贷款|存款|社融|信贷|银行|流动性|credit|loan|deposit",
+    ),
+    (
+        r"保费|寿险保费|财险保费|新业务价值|赔付|赔款|赔付率|综合成本率|保险资产|投资收益率",
+        "保险保费/赔付/资产指标",
+        r"保险|保费|赔付|资产|寿险|财险|insurance|premium|claim",
     ),
 )
 
@@ -4788,12 +4982,12 @@ def _refresh_analytical_footprint_indicator_governance(
         indicator_mentions = _normalize_indicator_mentions(
             refreshed.get("indicator_mentions")
         )
-        mapping_complete = bool(indicator_mentions) and all(
+        has_complete_mapping = bool(indicator_mentions) and any(
             not _indicator_value_unknown(mention.get("canonical_metric_candidate"))
             and mention.get("source_grounded") is True
             for mention in indicator_mentions
         )
-        if not mapping_complete and metadata_by_source and root_path is not None:
+        if not has_complete_mapping and metadata_by_source and root_path is not None:
             chunk = _footprint_markdown_chunk(
                 refreshed,
                 metadata_by_source=metadata_by_source,
@@ -4969,6 +5163,7 @@ def _indicator_review_summary(mentions: Any, *, preview_limit: int = 5) -> dict[
             complete_count += 1
     mention_count = len(mention_maps)
     hidden_count = max(0, mention_count - preview_limit)
+    all_mentions_complete = bool(mention_maps) and unknown_count == 0 and ungrounded_count == 0
     return {
         "mention_count": mention_count,
         "preview_count": min(mention_count, preview_limit),
@@ -4979,9 +5174,8 @@ def _indicator_review_summary(mentions: Any, *, preview_limit: int = 5) -> dict[
         "complete_source_grounded_count": complete_count,
         "hidden_unknown_canonical_count": hidden_unknown_count,
         "hidden_ungrounded_count": hidden_ungrounded_count,
-        "mapping_complete": bool(mention_maps)
-        and unknown_count == 0
-        and ungrounded_count == 0,
+        "mapping_complete": complete_count > 0,
+        "all_mentions_complete": all_mentions_complete,
     }
 
 
@@ -5915,9 +6109,8 @@ def _footprint_review_metric_mapping_diagnostics(
             summary.get("hidden_unknown_canonical_count") or 0
         ),
         "hidden_ungrounded_count": int(summary.get("hidden_ungrounded_count") or 0),
-        "mapping_complete": bool(mention_count)
-        and unknown_count == 0
-        and ungrounded_count == 0,
+        "mapping_complete": complete_count > 0,
+        "all_mentions_complete": bool(summary.get("all_mentions_complete")),
         "diagnostic_source": str(summary.get("summary_source") or "unknown"),
     }
 
@@ -6365,16 +6558,43 @@ def _footprint_review_evidence_row(
                 "diagnostics": metric_mapping_diagnostics,
             }
         )
-    if inferred_indicator_suggestions:
-        suggested_tags.append("metric_mapping_inference_available")
+    elif metric_mapping_complete:
+        if metric_mapping_diagnostics["unknown_canonical_count"]:
+            suggested_tags.append("metric_mapping_unknown")
+        if metric_mapping_diagnostics.get("hidden_unknown_canonical_count"):
+            suggested_tags.append("metric_mapping_hidden_unknown")
+        if metric_mapping_diagnostics["ungrounded_count"]:
+            suggested_tags.append("metric_mapping_ungrounded")
+        if metric_mapping_diagnostics.get("hidden_ungrounded_count"):
+            suggested_tags.append("metric_mapping_hidden_ungrounded")
         suggested_rationales.append(
             {
                 "field": "metric_mapping_correct",
-                "suggested_value": False,
-                "reason": "context-derived indicator candidates are available, but they are review aids and not source-grounded mappings",
+                "suggested_value": True,
+                "reason": (
+                    "source-grounded metric mapping exists, while additional "
+                    "unknown or ungrounded mentions remain separate review aids"
+                    if (
+                        metric_mapping_diagnostics["unknown_canonical_count"]
+                        or metric_mapping_diagnostics["ungrounded_count"]
+                    )
+                    else "source-grounded metric mapping exists"
+                ),
                 "requires_human_confirmation": True,
+                "diagnostics": metric_mapping_diagnostics,
             }
         )
+    if inferred_indicator_suggestions:
+        suggested_tags.append("metric_mapping_inference_available")
+        if not metric_mapping_complete:
+            suggested_rationales.append(
+                {
+                    "field": "metric_mapping_correct",
+                    "suggested_value": False,
+                    "reason": "context-derived indicator candidates are available, but they are review aids and not source-grounded mappings",
+                    "requires_human_confirmation": True,
+                }
+            )
     if not has_patterns:
         suggested_tags.append("analysis_pattern_missing")
         suggested_rationales.append(
@@ -6626,6 +6846,9 @@ def render_analytical_footprint_review_evidence_markdown(
             "no_proprietary_text_leakage",
         )
     }
+    decision_row_indexes: dict[str, dict[str, list[Any]]] = {
+        field: {"false": [], "null": []} for field in decision_counts
+    }
     for row in rows:
         decision = row.get("suggested_review_decision")
         decision_map = _ensure_mapping(decision)
@@ -6635,8 +6858,10 @@ def render_analytical_footprint_review_evidence_markdown(
                 counts["true"] += 1
             elif value is False:
                 counts["false"] += 1
+                decision_row_indexes[field]["false"].append(row.get("index"))
             else:
                 counts["null"] += 1
+                decision_row_indexes[field]["null"].append(row.get("index"))
     quick_field_labels = (
         ("footprint_correct", "footprint"),
         ("source_span_supports_footprint", "span"),
@@ -6718,6 +6943,91 @@ def render_analytical_footprint_review_evidence_markdown(
             "",
         ]
     )
+    field_meanings = (
+        (
+            "footprint_correct",
+            "whether the analytical footprint accurately represents the report's analytical method, reasoning pattern, or research view.",
+        ),
+        (
+            "source_span_supports_footprint",
+            "whether the cited local context supports the footprint without unsupported inference.",
+        ),
+        (
+            "metric_mapping_correct",
+            "whether referenced metrics and variables are mapped to governed metrics correctly.",
+        ),
+        (
+            "inferred_steps_tagged_correctly",
+            "whether inferred reasoning steps are tagged as inferred instead of source-stated.",
+        ),
+        (
+            "unknowns_used_when_uncertain",
+            "whether uncertain metric, span, target, or pattern support remains unknown instead of forced into an unsupported label.",
+        ),
+        (
+            "no_proprietary_text_leakage",
+            "whether the reviewed import avoids proprietary report prose; evidence files may contain private snippets, but imports should not.",
+        ),
+        ("reviewer", "human reviewer identifier."),
+        ("review_date", "human review date in YYYY-MM-DD format."),
+        (
+            "review_notes",
+            "required private rationale or verification note for the row; keep it concise and do not paste long source prose.",
+        ),
+    )
+    review_order = (
+        (
+            "metric_mapping_correct",
+            "review first because metric mapping is the active footprint quality blocker.",
+        ),
+        (
+            "footprint_correct",
+            "review false or uncertain footprint validity before broad true-value verification.",
+        ),
+        (
+            "inferred_steps_tagged_correctly",
+            "review false or uncertain inference tagging before accepting analysis steps.",
+        ),
+        (
+            "unknowns_used_when_uncertain",
+            "review focus rows where uncertainty handling carries diagnostic risk.",
+        ),
+        (
+            "source_span_supports_footprint",
+            "verify drafted source-support decisions against local snippets.",
+        ),
+        (
+            "no_proprietary_text_leakage",
+            "verify that final review notes do not copy proprietary source prose.",
+        ),
+        (
+            "review_notes",
+            "fill or edit every row after confirming the evidence and boolean decisions.",
+        ),
+    )
+    lines.extend(["## Field Meaning And Review Order", ""])
+    lines.extend(f"- `{field}`: {meaning}" for field, meaning in field_meanings)
+    lines.extend(["", "Recommended order:", ""])
+    for field, reason in review_order:
+        row_notes: list[str] = []
+        if field in decision_row_indexes:
+            null_rows = decision_row_indexes[field]["null"]
+            false_rows = decision_row_indexes[field]["false"]
+            if null_rows:
+                row_notes.append(
+                    "suggested null rows: "
+                    + _markdown_table_cell(null_rows, max_chars=240)
+                )
+            if false_rows:
+                row_notes.append(
+                    "suggested false rows: "
+                    + _markdown_table_cell(false_rows, max_chars=240)
+                )
+        elif field == "review_notes":
+            row_notes.append("all rows require a human verification note")
+        suffix = " " + "; ".join(row_notes) if row_notes else ""
+        lines.append(f"- `{field}`: {reason}{suffix}")
+    lines.append("")
     if rows:
         quick_headers = [
             "#",
@@ -16409,6 +16719,11 @@ def _evolution_gate_cli_next_actions(
                     "--gold-batch-size 50 --offset 0 --force "
                     "--reviewer <name> --review-date <YYYY-MM-DD>"
                 ),
+                "prepare_reviewed_failures": operator_command(
+                    "mosaic-rke prepare-gold-review --root . "
+                    "--reviewed-failures --gold-batch-size 300 --offset 0 "
+                    "--force --reviewer <name> --review-date <YYYY-MM-DD>"
+                ),
                 "dry_run_current_batch": operator_command(
                     "mosaic-rke apply-gold-review --root . --input "
                     "registry/review_batches/gold_set_reviewed.jsonl --dry-run"
@@ -16421,6 +16736,9 @@ def _evolution_gate_cli_next_actions(
                 "candidate rows with gold-candidate-claims "
                 "--refresh-candidates-from-source --ensure-candidate-review-rows "
                 "before preparing the next gold review batch.",
+                "If row-level review is complete but quality metrics still fail, "
+                "prepare a reviewed-failures batch and re-review the failed "
+                "decision fields instead of repeatedly preparing pending rows.",
                 "Promotion uses the full reviewed import only after every "
                 "gold-set batch is complete.",
             ),
@@ -16513,24 +16831,48 @@ def _evolution_gate_cli_next_actions(
             },
         )
     if "audit_refresh_history_below_threshold" in audit_blockers:
-        add_action(
-            action_id="build_distinct_clean_audit_refresh_history",
-            reason=(
-                "RI-EVOL-04 requires three distinct data vintages whose current "
-                "schema, PIT, provenance, and statistical gates all pass."
-            ),
-            commands={
+        current_gate_blocked = "current_schema_or_audit_gate_blocked" in audit_blockers
+        if current_gate_blocked:
+            audit_history_commands = {
+                "schema_failures": operator_command(
+                    "mosaic-rke schema-status --root . --failures-only --no-write"
+                ),
+                "manual_queue": operator_command(
+                    "mosaic-rke review-progress --root . --actions-only --no-write"
+                ),
+                "check_evolution": operator_command(
+                    "mosaic-rke evolution-readiness --root . --no-write"
+                ),
+            }
+            audit_history_notes = (
+                "Current schema/PIT/provenance/statistical gates must pass before "
+                "audit refresh history can count.",
+                "Do not use refresh-derived-only to satisfy this gate while "
+                "current_schema_or_audit_gate_blocked is present.",
+                "Repeated refreshes on identical data_vintage_hash values are "
+                "deduplicated and do not satisfy the consecutive-vintage gate.",
+            )
+        else:
+            audit_history_commands = {
                 "refresh_derived": operator_command(
                     "mosaic-rke report-intelligence --root . --refresh-derived-only"
                 ),
                 "check_evolution": operator_command(
                     "mosaic-rke evolution-readiness --root . --no-write"
                 ),
-            },
-            notes=(
+            }
+            audit_history_notes = (
                 "Repeated refreshes on identical data_vintage_hash values are "
                 "deduplicated and do not satisfy the consecutive-vintage gate.",
+            )
+        add_action(
+            action_id="build_distinct_clean_audit_refresh_history",
+            reason=(
+                "RI-EVOL-04 requires three distinct data vintages whose current "
+                "schema, PIT, provenance, and statistical gates all pass."
             ),
+            commands=audit_history_commands,
+            notes=audit_history_notes,
         )
 
     if "RI-EVOL-07" in blocked_by_id:

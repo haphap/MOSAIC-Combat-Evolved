@@ -576,10 +576,6 @@ def test_review_progress_reports_gold_quality_blockers_without_reapplying_stale_
         "updated_rows"
     ] == 0
     assert set(gold_summary["next_batch_commands"]) == {
-        "assist",
-        "backfill_dry_run",
-        "dry_run",
-        "evidence",
         "expand_candidate_review_rows",
         "prepare_expanded_batch",
         "prepare_reviewed_failures",
@@ -601,10 +597,6 @@ def test_review_progress_reports_gold_quality_blockers_without_reapplying_stale_
         "minimum_additional_count"
     ] == 99
     assert set(gold_action["commands"]) == {
-        "assist",
-        "backfill_dry_run",
-        "dry_run",
-        "evidence",
         "expand_candidate_review_rows",
         "prepare_expanded_batch",
         "prepare_reviewed_failures",
@@ -616,6 +608,143 @@ def test_review_progress_reports_gold_quality_blockers_without_reapplying_stale_
     assert "--refresh-candidates-from-source" in gold_action["commands"][
         "expand_candidate_review_rows"
     ]
+
+
+def test_review_progress_ignores_stale_incomplete_gold_scratch_after_review_complete(
+    tmp_path: Path,
+):
+    _copy_registry(tmp_path)
+    gold_path = tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    row = _load_jsonl(gold_path)[0]
+    row.update(
+        {
+            "manual_claim_text": "reviewed but low quality label",
+            "claim_correct": True,
+            "source_span_supports_claim": True,
+            "direction_correct": False,
+            "target_correct": True,
+            "horizon_correct": True,
+            "variable_mapping_correct": False,
+            "unsupported_field_false_grounded": True,
+            "reviewer": "reviewer-a",
+            "review_date": "2026-06-06",
+            "review_notes": "complete row with failing quality metrics",
+        }
+    )
+    _write_jsonl(gold_path, [row])
+    stale_batch_row = {
+        "claim_id": row["claim_id"],
+        TARGET_ROW_HASH_FIELD: "sha256:stale-current-batch",
+        "review_context_ref": GOLD_REVIEW_PACKET_PATH,
+        "target_review_path": GOLD_REVIEW_TEMPLATE_PATH,
+        "manual_claim_text": "",
+        "claim_correct": None,
+        "source_span_supports_claim": None,
+        "direction_correct": None,
+        "target_correct": None,
+        "horizon_correct": None,
+        "variable_mapping_correct": None,
+        "unsupported_field_false_grounded": None,
+        "reviewer": "",
+        "review_date": "",
+    }
+    _write_jsonl(tmp_path / GOLD_REVIEWED_IMPORT_PATH, [stale_batch_row])
+
+    report = build_manual_review_progress(tmp_path)
+    summary = build_manual_review_progress_summary(report, review_kinds=("gold_set",))
+    action_queue = build_manual_review_action_queue(report, review_kinds=("gold_set",))
+    gold_summary = summary["gates"][0]
+    gold_action = action_queue["actions"][0]
+
+    assert gold_summary["complete_rows"] == 1
+    assert gold_summary["pending_rows"] == 0
+    assert gold_summary["next_manual_action"] == "address_quality_gate_blockers"
+    assert gold_summary["batch_overview"] == {
+        "batch_count": 0,
+        "current_batch_stale_after_review_complete": True,
+        "pending_rows": 0,
+        "promotion_input_path": "registry/review_batches/gold_set_full_reviewed.jsonl",
+        "rerun_review_progress_after_batch_apply": False,
+        "stale_current_batch_path": "registry/review_batches/gold_set_reviewed.jsonl",
+        "stale_current_batch_pending_rows": 1,
+    }
+    assert gold_action["action_state"] == "needs_quality_gate_work"
+    assert gold_action["current_batch_pending_rows"] == 0
+    assert gold_action["current_batch_stale_after_promotion_ready"] is False
+    assert gold_action["current_batch_stale_after_review_complete"] is True
+    assert gold_action["missing_required_fields"] == {}
+    assert gold_action["evidence_aligned"] is None
+    assert set(gold_summary["next_batch_commands"]) == {
+        "expand_candidate_review_rows",
+        "prepare_expanded_batch",
+        "prepare_reviewed_failures",
+        "refresh_source_candidates",
+    }
+    assert set(gold_action["commands"]) == {
+        "expand_candidate_review_rows",
+        "prepare_expanded_batch",
+        "prepare_reviewed_failures",
+        "refresh_source_candidates",
+    }
+
+
+def test_review_progress_ignores_stale_complete_gold_scratch_after_review_complete(
+    tmp_path: Path,
+):
+    _copy_registry(tmp_path)
+    gold_path = tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    row = _load_jsonl(gold_path)[0]
+    row.update(
+        {
+            "manual_claim_text": "reviewed but low quality label",
+            "claim_correct": True,
+            "source_span_supports_claim": True,
+            "direction_correct": False,
+            "target_correct": True,
+            "horizon_correct": True,
+            "variable_mapping_correct": False,
+            "unsupported_field_false_grounded": True,
+            "reviewer": "reviewer-a",
+            "review_date": "2026-06-06",
+            "review_notes": "complete row with failing quality metrics",
+        }
+    )
+    _write_jsonl(gold_path, [row])
+    _write_jsonl(
+        tmp_path / GOLD_REVIEWED_IMPORT_PATH,
+        [
+            {
+                "claim_id": row["claim_id"],
+                TARGET_ROW_HASH_FIELD: "sha256:stale-current-batch",
+                "review_context_ref": GOLD_REVIEW_PACKET_PATH,
+                "target_review_path": GOLD_REVIEW_TEMPLATE_PATH,
+                "manual_claim_text": "complete stale scratch row",
+                "claim_correct": True,
+                "source_span_supports_claim": True,
+                "direction_correct": True,
+                "target_correct": True,
+                "horizon_correct": True,
+                "variable_mapping_correct": False,
+                "unsupported_field_false_grounded": False,
+                "reviewer": "reviewer-a",
+                "review_date": "2026-06-06",
+                "review_notes": "",
+            }
+        ],
+    )
+
+    report = build_manual_review_progress(tmp_path)
+    action_queue = build_manual_review_action_queue(report, review_kinds=("gold_set",))
+    action = action_queue["actions"][0]
+
+    assert action["action_state"] == "needs_quality_gate_work"
+    assert action["current_batch_stale_after_review_complete"] is True
+    assert set(action["commands"]) == {
+        "expand_candidate_review_rows",
+        "prepare_expanded_batch",
+        "prepare_reviewed_failures",
+        "refresh_source_candidates",
+    }
 
 
 def test_review_progress_prioritizes_pending_gold_quality_batch_fields(
@@ -1926,6 +2055,48 @@ def test_review_progress_reports_stale_footprint_batch_hashes(tmp_path: Path):
     assert action["batch_overview"]["current_batch_target_hash_mismatch_count"] == 1
 
 
+def test_review_progress_uses_active_footprint_batch_size_for_evidence_command(
+    tmp_path: Path,
+):
+    _copy_registry(tmp_path)
+    footprint_rows = _load_jsonl(
+        tmp_path / "registry/report_intelligence/analytical_footprint_review_template.jsonl"
+    )[:75]
+    _write_jsonl(
+        tmp_path / "registry/report_intelligence/analytical_footprint_review_batch.jsonl",
+        footprint_rows,
+    )
+
+    report = build_manual_review_progress(tmp_path)
+    footprint = next(gate for gate in report.gates if gate.review_kind == "footprint_review")
+    summary = build_manual_review_progress_summary(
+        report,
+        review_kinds=("footprint_review",),
+    )
+    result = write_manual_review_progress_report(tmp_path)
+    payload = json.loads(Path(result["path"]).read_text(encoding="utf-8"))
+    payload_footprint = next(
+        gate for gate in payload["gates"] if gate["review_kind"] == "footprint_review"
+    )
+    runbook = render_manual_review_runbook_markdown(report)
+
+    assert footprint.current_batch_status["rows"] == 75
+    assert "--limit 75 --offset 0" in footprint.next_batch_commands["evidence"]
+    assert "--limit 50 --offset 0" in footprint.next_batch_commands["prepare"]
+    assert (
+        "--limit 75 --offset 0"
+        in summary["gates"][0]["next_batch_commands"]["evidence"]
+    )
+    assert (
+        "--limit 75 --offset 0"
+        in payload_footprint["next_batch_commands"]["evidence"]
+    )
+    assert (
+        "mosaic-rke write-footprint-review-evidence --root . --limit 75 --offset 0"
+        in runbook
+    )
+
+
 def test_write_manual_review_progress_report_outputs_registry_artifact(tmp_path: Path):
     _copy_registry(tmp_path)
 
@@ -1999,6 +2170,26 @@ def test_manual_review_runbook_renders_operator_checklist_without_source_text(tm
     assert "Lockbox decision" in markdown
     assert "registry/review_batches/gold_set_full_reviewed.jsonl" in markdown
     assert "registry/report_intelligence/analytical_footprint_reviewed.jsonl" in markdown
+    assert (
+        "Gold-set active batch scratch: `registry/review_batches/gold_set_reviewed.jsonl`"
+        in markdown
+    )
+    assert (
+        "Gold-set full promotion import: "
+        "`registry/review_batches/gold_set_full_reviewed.jsonl`"
+        in markdown
+    )
+    assert (
+        "Analytical-footprint active batch scratch: "
+        "`registry/report_intelligence/analytical_footprint_review_batch.jsonl`"
+        in markdown
+    )
+    assert (
+        "Analytical-footprint full promotion import: "
+        "`registry/report_intelligence/analytical_footprint_reviewed.jsonl`"
+        in markdown
+    )
+    assert "Active batch scratch files are the only files to edit" in markdown
     assert "registry/review_batches/gold_set_review_evidence.jsonl" in markdown
     assert "registry/review_batches/gold_set_review_evidence.md" in markdown
     assert "registry/report_intelligence/analytical_footprint_review_assist.jsonl" in markdown
@@ -2009,6 +2200,17 @@ def test_manual_review_runbook_renders_operator_checklist_without_source_text(tm
     assert "registry/review_batches/lockbox_reviewed.json" in markdown
     assert "registry/review_batches/gold_set_review_workbook.md" in markdown
     assert "registry/review_batches/source_license_review_workbook.md" in markdown
+    assert (
+        "Start current Gold-set batch review from "
+        "`registry/review_batches/gold_set_review_evidence.md`"
+        in markdown
+    )
+    assert (
+        "Start current analytical-footprint batch review from "
+        "`registry/report_intelligence/analytical_footprint_review_evidence.md`"
+        in markdown
+    )
+    assert "`Field Meaning And Review Order` and `Quick Fill Checklist`" in markdown
     assert "## Manual Field Contracts" in markdown
     assert "### Gold-set review" in markdown
     assert "- Optional fields: `review_notes`" in markdown

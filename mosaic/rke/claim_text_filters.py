@@ -9,10 +9,18 @@ RISK_WARNING_PREFIX_RE = re.compile(
     r"^\s*(?:[①②③④⑤⑥⑦⑧⑨⑩]|\d+[、.)）]|[（(]\d+[）)])?\s*"
     r"(?:风险提示|风险因素|风险声明|免责声明)\s*[:：.。]"
 )
+RISK_ITEM_PREFIX_RE = re.compile(
+    r"^\s*(?:[①②③④⑤⑥⑦⑧⑨⑩]|\d+[、.)）]|[（(]\d+[）)])?\s*"
+    r"[^。；;]{0,32}风险\s*[:：]"
+)
 GENERIC_RISK_WARNING_ENUM_RE = re.compile(
     r"^\s*(?:\d+[、.)）]|[（(]\d+[）)]|[一二三四五六七八九十]+[、.)）])?\s*"
     r".{0,24}(?:不及预期|低于预期|超预期变化|大盘系统性风险|业绩不达预期|数据误差|竞争加剧|客户依赖|政策落地)"
     r"(?:.*风险)?\s*[。；;]?\s*$"
+)
+GENERIC_RISK_SCENARIO_RE = re.compile(
+    r"^\s*.{0,40}(?:竞争加剧|价格波动|需求不及预期|进展不及预期|成本上升|毛利率下降)"
+    r".{0,80}(?:不及预期|下降|下滑|承压|风险)\s*[。；;]?\s*$"
 )
 
 DISCLAIMER_TERMS = (
@@ -87,8 +95,15 @@ GENERIC_VIEW_LABELS = {
     "优于大市",
 }
 INVESTMENT_RECOMMENDATION_RE = re.compile(
-    r"^\s*(?:建议关注|建议重点关注|维持|给予|首次覆盖|上调至|下调至).{0,120}"
-    r"(?:标的|公司|评级|买入|增持|推荐|目标价)"
+    r"^\s*(?:投资建议|投资方向上|建议关注|建议重点关注|建议聚焦|建议布局|"
+    r"重点关注|短期需关注|长期布局|维持|给予|首次覆盖|上调至|下调至).{0,160}"
+    r"(?:标的|公司|评级|买入|增持|推荐|目标价|机会|方向|主线|盈利预测)"
+)
+FORECAST_VALUATION_HEADING_RE = re.compile(
+    r"^\s*(?:盈利预测[、,，]?\s*估值与评级|盈利预测与投资评级|投资建议[：:]?\s*维持盈利预测)\s*[。；;]?\s*$"
+)
+ATTENTION_OR_ALLOCATION_RE = re.compile(
+    r"^\s*(?:后续需|短期需|长期需|重点关注|需重点关注|建议关注|建议聚焦|建议布局|长期布局).{0,120}\s*[。；;]?\s*$"
 )
 TRAILING_RATING_SUFFIX_RE = re.compile(
     r"(?:[，,；;。]\s*)?"
@@ -137,6 +152,137 @@ RESEARCH_LOGIC_TERMS = (
     "压制",
 )
 FRAGMENT_SEPARATOR_TERMS = ("·", "+", " / ", "｜", "|")
+EARNINGS_FORECAST_VALUE_ACTION_TERMS = ("上调", "下调", "调整", "维持", "预计", "预测")
+EARNINGS_FORECAST_VALUE_METRIC_TERMS = (
+    "盈利预测",
+    "业绩预测",
+    "净利润预测",
+    "归母净利润预测",
+    "扣非归母净利润",
+    "归母净利润",
+    "净利润",
+    "每股收益",
+)
+EARNINGS_FORECAST_MECHANISM_TERMS = (
+    "因为",
+    "由于",
+    "若",
+    "如果",
+    "随着",
+    "受益",
+    "推动",
+    "带动",
+    "导致",
+    "催化",
+    "景气",
+    "需求",
+    "供给",
+    "价格",
+    "订单",
+    "政策",
+    "竞争",
+    "出海",
+    "库存",
+    "产能",
+    "利率",
+    "流动性",
+)
+EARNINGS_FORECAST_PERIOD_RE = re.compile(
+    r"(?:20)?2\d\s*(?:[-~至—－]\s*(?:20)?2\d)?\s*(?:年|E|e)"
+)
+HISTORICAL_OPERATING_PERIOD_RE = re.compile(
+    r"(?:20)?\d{2}\s*Q[1-4]|Q[1-4]|[一二三四]季度|上半年|下半年|前三季度|"
+    r"报告期|本期|期内|本周|上周|近期|目前|当前|已经|已|同比|环比"
+)
+HISTORICAL_OPERATING_METRIC_TERMS = (
+    "销售回款",
+    "经营性现金流",
+    "现金流",
+    "营收",
+    "营业收入",
+    "收入",
+    "利润",
+    "净利润",
+    "毛利率",
+    "费用率",
+    "订单",
+    "出货",
+    "交付",
+    "产量",
+    "销量",
+    "库存",
+    "回款",
+    "周转",
+    "市占率",
+    "资产质量",
+    "不良率",
+)
+HISTORICAL_RESULT_TERMS = (
+    "量价齐升",
+    "驱动增长",
+    "实现营收",
+    "实现营业收入",
+    "实现归母净利润",
+    "同比增长",
+    "同比提高",
+    "同比减少",
+    "同比下降",
+    "同比下滑",
+)
+HISTORICAL_RESULT_YEAR_RE = re.compile(r"20\d{2}年")
+STRICT_FORWARD_CLAIM_TERMS = (
+    "预计",
+    "预期",
+    "预测",
+    "未来",
+    "后续",
+    "有望",
+    "将",
+    "可能",
+    "若",
+    "如果",
+    "随着",
+    "受益",
+    "推动",
+    "带动",
+    "导致",
+    "展望",
+    "看好",
+    "催化",
+)
+EXPLICIT_FORWARD_CLAIM_TERMS = (
+    "预计",
+    "预期",
+    "预测",
+    "未来",
+    "后续",
+    "有望",
+    "将",
+    "可能",
+    "若",
+    "如果",
+    "随着",
+    "展望",
+)
+CURRENT_MARKET_STATUS_TERMS = (
+    "本周",
+    "上周",
+    "近期",
+    "截至",
+    "当前",
+    "目前",
+)
+MARKET_STATUS_NOUNS = (
+    "价格",
+    "金价",
+    "油价",
+    "市场",
+    "板块",
+    "行业",
+    "格局",
+    "走势",
+)
+TRUNCATED_CLAIM_SUFFIXES = ("并", "同时", "以及", "叠加", "且", "和", "及", "、", "，", ",")
 
 
 def _normalized_text(text: str) -> str:
@@ -177,9 +323,11 @@ def is_boilerplate_risk_warning_text(text: str) -> bool:
     stripped = _normalized_text(text)
     if not stripped:
         return False
-    if RISK_WARNING_PREFIX_RE.match(stripped):
+    if RISK_WARNING_PREFIX_RE.match(stripped) or RISK_ITEM_PREFIX_RE.match(stripped):
         return True
     if len(stripped) <= 80 and GENERIC_RISK_WARNING_ENUM_RE.match(stripped):
+        return True
+    if len(stripped) <= 120 and GENERIC_RISK_SCENARIO_RE.match(stripped):
         return True
     risk_term_hits = _non_overlapping_risk_term_hits(stripped)
     return len(risk_term_hits) >= 2 and ("风险" in stripped or stripped.endswith("等"))
@@ -194,9 +342,14 @@ def is_rating_definition_text(text: str) -> bool:
     normalized = _normalized_text(text)
     if not normalized:
         return False
+    compact = re.sub(r"\s+", "", normalized)
     if normalized in GENERIC_VIEW_LABELS:
         return True
+    if FORECAST_VALUATION_HEADING_RE.match(normalized):
+        return True
     if INVESTMENT_RECOMMENDATION_RE.search(normalized):
+        return True
+    if ATTENTION_OR_ALLOCATION_RE.match(normalized):
         return True
     if SHORT_VIEW_SLOGAN_RE.search(normalized):
         return True
@@ -206,12 +359,14 @@ def is_rating_definition_text(text: str) -> bool:
         term in normalized for term in FORWARD_LOOKING_TERMS
     ):
         return True
-    if "预期未来6个月内" in normalized and any(
-        term in normalized
+    if "预期未来6个月内" in compact and any(
+        term in compact
         for term in (
             "行业指数优于市场指数",
             "行业指数弱于市场指数",
             "行业指数相对市场指数",
+            "行业指数相对强于基准",
+            "相对强于市场表现",
             "股价相对市场基准指数",
         )
     ):
@@ -237,9 +392,58 @@ def is_heading_or_toc_text(text: str) -> bool:
         return True
     if TOC_DOT_LEADER_RE.match(normalized):
         return True
-    if normalized.startswith("#") and len(normalized) <= 80 and not has_research_logic:
+    if normalized.startswith("#") and len(normalized) <= 120:
         return True
     return bool(HEADING_PREFIX_RE.match(normalized) and not has_research_logic)
+
+
+def is_pure_earnings_forecast_value_text(text: str) -> bool:
+    normalized = _normalized_text(text)
+    if not normalized:
+        return False
+    lower = normalized.lower()
+    has_metric = any(term in normalized for term in EARNINGS_FORECAST_VALUE_METRIC_TERMS) or "eps" in lower
+    if not has_metric:
+        return False
+    if not any(term in normalized for term in EARNINGS_FORECAST_VALUE_ACTION_TERMS):
+        return False
+    if any(term in normalized for term in EARNINGS_FORECAST_MECHANISM_TERMS):
+        return False
+    numeric_count = len(re.findall(r"\d+(?:\.\d+)?", normalized))
+    return numeric_count >= 2 and bool(EARNINGS_FORECAST_PERIOD_RE.search(normalized))
+
+
+def is_historical_operating_fact_text(text: str) -> bool:
+    normalized = _normalized_text(text)
+    if not normalized:
+        return False
+    if any(term in normalized for term in EXPLICIT_FORWARD_CLAIM_TERMS):
+        return False
+    if HISTORICAL_RESULT_YEAR_RE.search(normalized) and any(
+        term in normalized for term in HISTORICAL_RESULT_TERMS
+    ):
+        return True
+    if not HISTORICAL_OPERATING_PERIOD_RE.search(normalized):
+        return False
+    return any(term in normalized for term in HISTORICAL_OPERATING_METRIC_TERMS) or any(
+        term in normalized for term in HISTORICAL_RESULT_TERMS
+    )
+
+
+def is_truncated_claim_fragment_text(text: str) -> bool:
+    normalized = _normalized_text(text).rstrip("。；;")
+    return bool(normalized and normalized.endswith(TRUNCATED_CLAIM_SUFFIXES))
+
+
+def is_current_market_status_text(text: str) -> bool:
+    normalized = _normalized_text(text)
+    if not normalized:
+        return False
+    if any(term in normalized for term in EXPLICIT_FORWARD_CLAIM_TERMS):
+        return False
+    return any(term in normalized for term in CURRENT_MARKET_STATUS_TERMS) and any(
+        term in normalized for term in MARKET_STATUS_NOUNS
+    )
 
 
 def is_non_research_claim_text(text: str) -> bool:
@@ -248,4 +452,14 @@ def is_non_research_claim_text(text: str) -> bool:
         or is_disclaimer_text(text)
         or is_rating_definition_text(text)
         or is_heading_or_toc_text(text)
+        or is_truncated_claim_fragment_text(text)
+    )
+
+
+def is_gold_candidate_noise_text(text: str) -> bool:
+    return (
+        is_non_research_claim_text(text)
+        or is_pure_earnings_forecast_value_text(text)
+        or is_historical_operating_fact_text(text)
+        or is_current_market_status_text(text)
     )

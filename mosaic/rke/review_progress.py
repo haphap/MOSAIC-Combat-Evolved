@@ -259,6 +259,10 @@ GOLD_BATCH_REQUIRED_FIELDS = (
     "reviewer",
     "review_date",
 )
+GOLD_REVIEW_MODE_NONE = "none"
+GOLD_REVIEW_MODE_PENDING_BATCH = "pending_review_batch"
+GOLD_REVIEW_MODE_REVIEWED_FAILURES_RECHECK = "reviewed_failures_recheck"
+GOLD_REVIEW_MODE_MIXED_BATCH = "mixed_review_batch"
 
 
 def _is_missing_review_field(
@@ -1069,6 +1073,79 @@ def _gold_backfill_status(root_path: Path) -> Mapping[str, Any]:
     }
 
 
+def _gold_review_row_complete(row: Mapping[str, Any]) -> bool:
+    return (
+        bool(str(row.get("manual_claim_text") or "").strip())
+        and all(isinstance(row.get(field), bool) for field in GOLD_BOOL_FIELDS)
+        and bool(str(row.get("reviewer") or "").strip())
+        and bool(str(row.get("review_date") or "").strip())
+    )
+
+
+def _gold_review_row_has_failed_decision(row: Mapping[str, Any]) -> bool:
+    return (
+        any(
+            row.get(field) is False
+            for field in GOLD_BOOL_FIELDS
+            if field != "unsupported_field_false_grounded"
+        )
+        or row.get("unsupported_field_false_grounded") is True
+    )
+
+
+def _gold_current_batch_review_mode_status(root_path: Path) -> Mapping[str, Any]:
+    review_path = _resolve(root_path, GOLD_REVIEWED_IMPORT_PATH)
+    target_path = _resolve(root_path, GOLD_REVIEW_TEMPLATE_PATH)
+    status: dict[str, Any] = {
+        "review_mode": GOLD_REVIEW_MODE_NONE,
+        "reviewed_failure_rows": 0,
+    }
+    if not review_path.exists():
+        return status
+    status["review_mode"] = GOLD_REVIEW_MODE_PENDING_BATCH
+    if not target_path.exists():
+        return status
+
+    review_raw_rows, review_errors = load_jsonl_with_errors(
+        review_path,
+        label=GOLD_REVIEWED_IMPORT_PATH,
+    )
+    target_raw_rows, target_errors = load_jsonl_with_errors(
+        target_path,
+        label=GOLD_REVIEW_TEMPLATE_PATH,
+    )
+    if review_errors or target_errors:
+        return status
+
+    review_rows = [row for row in review_raw_rows if isinstance(row, Mapping)]
+    target_rows = [row for row in target_raw_rows if isinstance(row, Mapping)]
+    if not review_rows or len(review_rows) != len(review_raw_rows):
+        return status
+
+    target_by_claim_id = {
+        str(row.get("claim_id") or "").strip(): row
+        for row in target_rows
+        if str(row.get("claim_id") or "").strip()
+    }
+    reviewed_failure_rows = 0
+    for row in review_rows:
+        claim_id = str(row.get("claim_id") or "").strip()
+        target_row = target_by_claim_id.get(claim_id)
+        if (
+            target_row is not None
+            and _gold_review_row_complete(target_row)
+            and _gold_review_row_has_failed_decision(target_row)
+        ):
+            reviewed_failure_rows += 1
+
+    status["reviewed_failure_rows"] = reviewed_failure_rows
+    if reviewed_failure_rows == len(review_rows):
+        status["review_mode"] = GOLD_REVIEW_MODE_REVIEWED_FAILURES_RECHECK
+    elif reviewed_failure_rows > 0:
+        status["review_mode"] = GOLD_REVIEW_MODE_MIXED_BATCH
+    return status
+
+
 def _gold_batch_status(root_path: Path) -> Mapping[str, Any]:
     status = dict(
         _review_batch_status(
@@ -1093,6 +1170,7 @@ def _gold_batch_status(root_path: Path) -> Mapping[str, Any]:
         id_field="claim_id",
     )
     status["backfill_status"] = _gold_backfill_status(root_path)
+    status.update(_gold_current_batch_review_mode_status(root_path))
     return status
 
 
@@ -1219,6 +1297,14 @@ def _gold_review_evidence_command_text(limit: int) -> str:
     )
 
 
+def _gold_reviewed_failures_prepare_command() -> str:
+    return operator_command(
+        "mosaic-rke prepare-gold-review --root . --reviewed-failures "
+        "--gold-batch-size 300 --offset 0 --force "
+        "--reviewer <name> --review-date <YYYY-MM-DD>"
+    )
+
+
 def _current_gold_batch_target_covered_rows(
     current_batch_status: Mapping[str, Any],
 ) -> int:
@@ -1243,6 +1329,14 @@ def _gold_commands_for_current_batch(
         out["evidence"] = operator_command(
             _gold_review_evidence_command_text(covered_rows)
         )
+    if str(current_batch_status.get("review_mode") or "") in {
+        GOLD_REVIEW_MODE_REVIEWED_FAILURES_RECHECK,
+        GOLD_REVIEW_MODE_MIXED_BATCH,
+    }:
+        pending_prepare_command = out.pop("prepare", "")
+        out["prepare_reviewed_failures"] = _gold_reviewed_failures_prepare_command()
+        if pending_prepare_command:
+            out["prepare_pending_batch_after_recheck"] = pending_prepare_command
     backfill_status = current_batch_status.get("backfill_status")
     if (
         isinstance(backfill_status, Mapping)
@@ -1267,11 +1361,7 @@ def _gold_quality_gate_commands() -> dict[str, str]:
             "mosaic-rke gold-candidate-claims --root . "
             "--refresh-candidates-from-source --ensure-candidate-review-rows"
         ),
-        "prepare_reviewed_failures": operator_command(
-            "mosaic-rke prepare-gold-review --root . --reviewed-failures "
-            "--gold-batch-size 50 --offset 0 --force "
-            "--reviewer <name> --review-date <YYYY-MM-DD>"
-        ),
+        "prepare_reviewed_failures": _gold_reviewed_failures_prepare_command(),
         "prepare_expanded_batch": operator_command(
             "mosaic-rke prepare-gold-review --root . "
             "--gold-batch-size 50 --offset 0 --force "
@@ -1292,6 +1382,14 @@ def _gold_quality_gate_commands() -> dict[str, str]:
     }
 
 
+def _footprint_review_evidence_command_text(limit: int) -> str:
+    return (
+        "mosaic-rke write-footprint-review-evidence --root . "
+        f"--limit {limit} --offset 0 "
+        f"--review-input {ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH}"
+    )
+
+
 def _footprint_next_batch_commands(pending_rows: int) -> dict[str, str]:
     if pending_rows <= 0:
         return {}
@@ -1302,8 +1400,7 @@ def _footprint_next_batch_commands(pending_rows: int) -> dict[str, str]:
             f"--review-input {ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH}"
         ),
         "evidence": operator_command(
-            "mosaic-rke write-footprint-review-evidence --root . "
-            f"--limit {batch_size} --offset 0 --review-input {ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH}"
+            _footprint_review_evidence_command_text(batch_size)
         ),
         "prepare": (
             operator_command(
@@ -1321,6 +1418,33 @@ def _footprint_next_batch_commands(pending_rows: int) -> dict[str, str]:
             f"--input {ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH}"
         ),
     }
+
+
+def _current_footprint_batch_target_covered_rows(
+    current_batch_status: Mapping[str, Any],
+) -> int:
+    target_status = current_batch_status.get("target_status")
+    if (
+        bool(current_batch_status.get("exists"))
+        and int(current_batch_status.get("malformed_rows") or 0) == 0
+        and isinstance(target_status, Mapping)
+        and bool(target_status.get("aligned"))
+    ):
+        return int(current_batch_status.get("rows") or 0)
+    return 0
+
+
+def _footprint_commands_for_current_batch(
+    commands: Mapping[str, str],
+    current_batch_status: Mapping[str, Any],
+) -> dict[str, str]:
+    out = dict(commands)
+    covered_rows = _current_footprint_batch_target_covered_rows(current_batch_status)
+    if covered_rows > 0:
+        out["evidence"] = operator_command(
+            _footprint_review_evidence_command_text(covered_rows)
+        )
+    return out
 
 
 def _manual_review_batch_plan(
@@ -1786,7 +1910,10 @@ def _footprint_review_progress(root_path: Path) -> ManualReviewGateProgress:
             prepare_command=prepare_command,
             dry_run_command=dry_run_command,
             apply_command=apply_command,
-            next_batch_commands=_footprint_next_batch_commands(target_rows),
+            next_batch_commands=_footprint_commands_for_current_batch(
+                _footprint_next_batch_commands(target_rows),
+                current_batch_status,
+            ),
             batch_plan=_manual_review_batch_plan("footprint_review", target_rows),
             current_batch_status=current_batch_status,
             quality_gap_targets=summary.get("quality_gap_targets"),
@@ -1831,7 +1958,10 @@ def _footprint_review_progress(root_path: Path) -> ManualReviewGateProgress:
         prepare_command=prepare_command,
         dry_run_command=dry_run_command,
         apply_command=apply_command,
-        next_batch_commands=_footprint_next_batch_commands(pending_rows),
+        next_batch_commands=_footprint_commands_for_current_batch(
+            _footprint_next_batch_commands(pending_rows),
+            current_batch_status,
+        ),
         batch_plan=_manual_review_batch_plan("footprint_review", pending_rows),
         current_batch_status=current_batch_status,
         quality_gap_targets=simulated_summary.get("quality_gap_targets"),
@@ -2297,6 +2427,12 @@ def _compact_current_batch_status(status: Mapping[str, Any]) -> Mapping[str, Any
         "pending_rows": int(status.get("pending_rows") or 0),
         "malformed_rows": int(status.get("malformed_rows") or 0),
     }
+    if "review_mode" in status:
+        compact["review_mode"] = str(status.get("review_mode") or "")
+    if "reviewed_failure_rows" in status:
+        compact["reviewed_failure_rows"] = int(
+            status.get("reviewed_failure_rows") or 0
+        )
     for field_name in ("missing_required_fields", "invalid_required_fields"):
         value = status.get(field_name)
         if isinstance(value, Mapping) and value:
@@ -2464,6 +2600,26 @@ def _current_batch_stale_after_promotion_ready(
     )
 
 
+def _current_batch_stale_after_review_complete(
+    gate: ManualReviewGateProgress,
+) -> bool:
+    current = (
+        gate.current_batch_status
+        if isinstance(gate.current_batch_status, Mapping)
+        else {}
+    )
+    target = current.get("target_status")
+    return (
+        not gate.ready_for_promotion
+        and gate.pending_rows == 0
+        and bool(gate.blockers)
+        and bool(current.get("exists"))
+        and isinstance(target, Mapping)
+        and bool(target.get("exists"))
+        and not bool(target.get("aligned"))
+    )
+
+
 def _compact_batch_overview(gate: ManualReviewGateProgress) -> Mapping[str, Any]:
     if gate.review_kind not in {"gold_set", "footprint_review"}:
         return {}
@@ -2480,6 +2636,19 @@ def _compact_batch_overview(gate: ManualReviewGateProgress) -> Mapping[str, Any]
             ),
             "stale_current_batch_pending_rows": (
                 int(current.get("pending_rows") or 0) if stale_current_batch else 0
+            ),
+            "rerun_review_progress_after_batch_apply": False,
+        }
+    stale_after_review_complete = _current_batch_stale_after_review_complete(gate)
+    if stale_after_review_complete:
+        return {
+            "batch_count": 0,
+            "pending_rows": 0,
+            "promotion_input_path": gate.input_path,
+            "current_batch_stale_after_review_complete": True,
+            "stale_current_batch_path": str(current.get("path") or ""),
+            "stale_current_batch_pending_rows": int(
+                current.get("pending_rows") or 0
             ),
             "rerun_review_progress_after_batch_apply": False,
         }
@@ -2504,15 +2673,37 @@ def _compact_batch_overview(gate: ManualReviewGateProgress) -> Mapping[str, Any]
         and bool(target.get("aligned"))
     ):
         current_batch_target_covered_rows = int(current.get("rows") or 0)
+    current_batch_review_mode = str(current.get("review_mode") or "")
+    current_batch_reviewed_failure_rows = int(
+        current.get("reviewed_failure_rows") or 0
+    )
+    current_batch_pending_target_covered_rows = current_batch_target_covered_rows
+    if (
+        gate.review_kind == "gold_set"
+        and current_batch_review_mode
+        in {
+            GOLD_REVIEW_MODE_REVIEWED_FAILURES_RECHECK,
+            GOLD_REVIEW_MODE_MIXED_BATCH,
+        }
+    ):
+        current_batch_pending_target_covered_rows = max(
+            current_batch_target_covered_rows - current_batch_reviewed_failure_rows,
+            0,
+        )
     overview: dict[str, Any] = {
         "batch_count": len(batches),
         "pending_rows": gate.pending_rows,
         "current_batch_path": current.get("path"),
         "current_batch_rows": int(current.get("rows") or 0),
         "current_batch_pending_rows": int(current.get("pending_rows") or 0),
+        "current_batch_review_mode": current_batch_review_mode,
+        "current_batch_reviewed_failure_rows": current_batch_reviewed_failure_rows,
         "current_batch_target_covered_rows": current_batch_target_covered_rows,
+        "current_batch_pending_target_covered_rows": (
+            current_batch_pending_target_covered_rows
+        ),
         "remaining_rows_after_current_batch": max(
-            int(gate.pending_rows) - current_batch_target_covered_rows,
+            int(gate.pending_rows) - current_batch_pending_target_covered_rows,
             0,
         ),
         "current_batch_evidence_aligned": (
@@ -2630,7 +2821,7 @@ def _compact_batch_overview(gate: ManualReviewGateProgress) -> Mapping[str, Any]
                     0,
                 ),
                 "current_batch_covers_next_batch": (
-                    current_batch_target_covered_rows >= first_limit
+                    current_batch_pending_target_covered_rows >= first_limit
                     if first_limit
                     else False
                 ),
@@ -2709,6 +2900,8 @@ def _next_manual_action(
         if current.get("exists"):
             return "complete_lockbox_decision_then_dry_run"
         return "prepare_lockbox_review"
+    if _current_batch_stale_after_review_complete(gate):
+        return "address_quality_gate_blockers"
     if (
         gate.pending_rows == 0
         and gate.blockers
@@ -2847,6 +3040,21 @@ def _summary_next_batch_commands(
     batch_overview: Mapping[str, Any],
 ) -> dict[str, str]:
     commands = _apply_backfill_command_policy(gate, gate.next_batch_commands)
+    if (
+        next_manual_action == "address_quality_gate_blockers"
+        and batch_overview.get("current_batch_stale_after_review_complete") is True
+    ):
+        return {
+            key: command
+            for key, command in commands.items()
+            if key
+            in {
+                "refresh_source_candidates",
+                "expand_candidate_review_rows",
+                "prepare_reviewed_failures",
+                "prepare_expanded_batch",
+            }
+        }
     if next_manual_action in {
         "fill_current_batch_review_fields_then_dry_run",
         "repair_current_batch_evidence_alignment",
@@ -2926,21 +3134,33 @@ def _action_queue_commands(
             if key in {"assist", "prepare", "evidence"}
         }
     if action == "address_quality_gate_blockers":
+        stale_after_review_complete = bool(
+            (batch_overview or {}).get("current_batch_stale_after_review_complete")
+        )
         commands = {
             key: command
             for key, command in next_batch.items()
             if key
-            in {
-                "assist",
-                "refresh_source_candidates",
-                "expand_candidate_review_rows",
-                "prepare_reviewed_failures",
-                "prepare_expanded_batch",
-                "evidence",
-                "backfill_dry_run",
-                "backfill_write",
-                "dry_run",
-            }
+            in (
+                {
+                    "refresh_source_candidates",
+                    "expand_candidate_review_rows",
+                    "prepare_reviewed_failures",
+                    "prepare_expanded_batch",
+                }
+                if stale_after_review_complete
+                else {
+                    "assist",
+                    "refresh_source_candidates",
+                    "expand_candidate_review_rows",
+                    "prepare_reviewed_failures",
+                    "prepare_expanded_batch",
+                    "evidence",
+                    "backfill_dry_run",
+                    "backfill_write",
+                    "dry_run",
+                }
+            )
         }
         return _apply_backfill_command_policy(gate, commands)
     if action == "run_prepare_command":
@@ -2998,6 +3218,11 @@ def _after_dry_run_accepts_commands(
     remaining_rows = int(batch_overview.get("remaining_rows_after_current_batch") or 0)
     if remaining_rows > 0:
         prepare_command = str(gate.next_batch_commands.get("prepare") or "").strip()
+        if not prepare_command:
+            prepare_command = str(
+                gate.next_batch_commands.get("prepare_pending_batch_after_recheck")
+                or ""
+            ).strip()
         if prepare_command:
             commands["prepare_next_batch_after_rerun"] = prepare_command
     else:
@@ -3042,8 +3267,15 @@ def _action_queue_hint(
         return hint
     overview = batch_overview if isinstance(batch_overview, Mapping) else {}
     covered_rows = int(overview.get("current_batch_target_covered_rows") or 0)
+    pending_covered_rows = int(
+        overview.get("current_batch_pending_target_covered_rows") or covered_rows
+    )
     pending_rows = int(overview.get("pending_rows") or 0)
     remaining_rows = int(overview.get("remaining_rows_after_current_batch") or 0)
+    review_mode = str(overview.get("current_batch_review_mode") or "")
+    reviewed_failure_rows = int(
+        overview.get("current_batch_reviewed_failure_rows") or 0
+    )
     priority_missing_rows = int(
         overview.get("current_batch_evidence_priority_reason_missing_rows") or 0
     )
@@ -3053,11 +3285,24 @@ def _action_queue_hint(
         if priority_missing_rows > 0
         else ""
     )
+    if review_mode == GOLD_REVIEW_MODE_REVIEWED_FAILURES_RECHECK:
+        if pending_rows > 0:
+            return (
+                f"{hint} Current scratch is a {reviewed_failure_rows}-row "
+                "reviewed-failures recheck, so it does not close ordinary pending "
+                f"target rows. After applying it, rerun review-progress and prepare "
+                f"the remaining {remaining_rows} pending rows.{priority_hint}"
+            )
+        return (
+            f"{hint} Current scratch is a {reviewed_failure_rows}-row "
+            "reviewed-failures recheck; after applying it, rerun review-progress "
+            f"before promotion work.{priority_hint}"
+        )
     if covered_rows <= 0 or pending_rows <= 0:
         return f"{hint}{priority_hint}"
     if remaining_rows > 0:
         return (
-            f"{hint} Current scratch covers {covered_rows} of {pending_rows} "
+            f"{hint} Current scratch covers {pending_covered_rows} of {pending_rows} "
             f"pending target rows; after applying it, rerun review-progress and "
             f"prepare the remaining {remaining_rows} rows.{priority_hint}"
         )
@@ -3144,7 +3389,9 @@ def build_manual_review_action_queue(
             dependency_blockers=dependency_blockers,
         )
         current_batch_path = str(current.get("path") or "")
-        stale_current_batch = _current_batch_stale_after_promotion_ready(gate)
+        stale_after_promotion_ready = _current_batch_stale_after_promotion_ready(gate)
+        stale_after_review_complete = _current_batch_stale_after_review_complete(gate)
+        stale_current_batch = stale_after_promotion_ready or stale_after_review_complete
         active_manual_input_path = (
             gate.input_path
             if gate.ready_for_promotion
@@ -3191,7 +3438,12 @@ def build_manual_review_action_queue(
                 "current_batch_malformed_rows": int(
                     current.get("malformed_rows") or 0
                 ),
-                "current_batch_stale_after_promotion_ready": stale_current_batch,
+                "current_batch_stale_after_promotion_ready": (
+                    stale_after_promotion_ready
+                ),
+                "current_batch_stale_after_review_complete": (
+                    stale_after_review_complete
+                ),
                 "batch_overview": batch_overview,
                 "backfill_status": compact_current_batch_status.get(
                     "backfill_status",
@@ -3293,9 +3545,10 @@ def render_manual_review_runbook_markdown(report: ManualReviewProgressReport) ->
         "mosaic-rke write-footprint-review-assist --root . "
         f"--review-input {ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH}"
     )
-    footprint_evidence = operator_command(
-        "mosaic-rke write-footprint-review-evidence --root . --limit 50 --offset 0 "
-        f"--review-input {ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH}"
+    footprint_next_batch_commands = dict(footprint.next_batch_commands)
+    footprint_evidence = str(
+        footprint_next_batch_commands.get("evidence")
+        or operator_command(_footprint_review_evidence_command_text(50))
     )
     lines = [
         "# RKE Manual Review Runbook",
@@ -3362,11 +3615,20 @@ def render_manual_review_runbook_markdown(report: ManualReviewProgressReport) ->
         "",
         "## Reviewer Inputs",
         "",
-        f"- Gold-set reviewed scratch: `{GOLD_FULL_REVIEWED_IMPORT_PATH}`",
-        f"- Analytical-footprint reviewed scratch: `{ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH}`",
+        f"- Gold-set active batch scratch: `{GOLD_REVIEWED_IMPORT_PATH}`",
+        f"- Gold-set full promotion import: `{GOLD_FULL_REVIEWED_IMPORT_PATH}`",
+        (
+            "- Analytical-footprint active batch scratch: "
+            f"`{ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH}`"
+        ),
+        (
+            "- Analytical-footprint full promotion import: "
+            f"`{ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH}`"
+        ),
         f"- Source-license reviewed policy: `{SOURCE_LICENSE_REVIEWED_POLICY_PATH}`",
         f"- Lockbox reviewed scratch: `{LOCKBOX_REVIEWED_IMPORT_PATH}`",
         "",
+        "Active batch scratch files are the only files to edit for current-batch work. Full promotion imports are used after all batches are complete.",
         "Reviewed scratch files are operator-local decision files. Do not commit them unless the operator explicitly chooses to publish signed review decisions.",
         "",
         "## Read-Only Checklists",
@@ -3387,7 +3649,16 @@ def render_manual_review_runbook_markdown(report: ManualReviewProgressReport) ->
         f"- Analytical-footprint evidence draft JSONL: `{ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_JSONL_PATH}`",
         "- Lockbox policy packet: `registry/evaluation/lockbox/lockbox_policy.json`",
         "",
-        "These checklist files are not import files. Use them to inspect IDs, hashes, counts, and short previews only.",
+        "These checklist files are not import files. Use them to inspect IDs, hashes, counts, field meanings, review order, and quick-fill suggestions only.",
+        (
+            f"Start current Gold-set batch review from `{GOLD_REVIEW_EVIDENCE_MD_PATH}`; "
+            "it contains `Field Meaning And Review Order` and `Quick Fill Checklist`."
+        ),
+        (
+            "Start current analytical-footprint batch review from "
+            f"`{ANALYTICAL_FOOTPRINT_REVIEW_EVIDENCE_MD_PATH}`; it contains "
+            "`Field Meaning And Review Order` and `Quick Fill Checklist`."
+        ),
         "",
         "## Manual Field Contracts",
         "",
