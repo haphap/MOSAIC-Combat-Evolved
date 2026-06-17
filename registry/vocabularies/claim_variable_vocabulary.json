@@ -149,7 +149,7 @@
     },
     {
       "description": "Dollar, Fed-rate, FX, and global liquidity pressure affecting non-CNY assets.",
-      "domain": "macro.global_liquidity",
+      "domain": "macro.dollar",
       "status": "sandbox",
       "variable_id": "global_dollar_liquidity_pressure",
       "variable_type": "cause"

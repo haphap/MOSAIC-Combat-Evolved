@@ -601,13 +601,14 @@ def test_gold_candidate_claim_review_requires_layered_full_text_thesis():
         },
         {
             "claim_text": (
-                "在央行流动性边际改善和银行信贷供给修复的宏观环境下，"
+                "在央行流动性边际改善、美元流动性压力缓解和银行信贷供给修复的宏观环境下，"
                 "平安银行零售资产质量企稳与净息差压力缓解将带动营收、利润和估值修复，"
                 "未来一个季度股价相对市场有望上涨。"
             ),
             "forecast_claim_id": "FC-1",
             "metric_proxy_mapping": [
                 "pboc_net_injection",
+                "global_dollar_liquidity_pressure",
                 "bank_credit_supply",
                 "company_fundamental_momentum",
                 "valuation_percentile",
@@ -638,6 +639,7 @@ def test_gold_candidate_claim_review_requires_layered_full_text_thesis():
         0,
         {
             "pboc_net_injection",
+            "global_dollar_liquidity_pressure",
             "bank_credit_supply",
             "company_fundamental_momentum",
             "valuation_percentile",
@@ -645,6 +647,7 @@ def test_gold_candidate_claim_review_requires_layered_full_text_thesis():
         },
         {
             "pboc_net_injection": "cause",
+            "global_dollar_liquidity_pressure": "cause",
             "bank_credit_supply": "cause",
             "company_fundamental_momentum": "cause",
             "valuation_percentile": "cause",
@@ -653,6 +656,7 @@ def test_gold_candidate_claim_review_requires_layered_full_text_thesis():
         {"SRC-1"},
         {
             "pboc_net_injection": "macro.central_bank",
+            "global_dollar_liquidity_pressure": "macro.dollar",
             "bank_credit_supply": "sector.bank",
             "company_fundamental_momentum": "equity.single_name",
             "valuation_percentile": "cross_asset.valuation",
@@ -665,7 +669,10 @@ def test_gold_candidate_claim_review_requires_layered_full_text_thesis():
     assert "stock_target_missing_company_subject" not in claim.review_risk_flags
     assert claim.research_layers["macro_regime"]["present"] is True
     assert claim.research_layers["industry_regime"]["present"] is True
-    assert claim.mosaic_agent_trace["macro_agents"] == ("macro.central_bank",)
+    assert claim.mosaic_agent_trace["macro_agents"] == (
+        "macro.central_bank",
+        "macro.dollar",
+    )
     assert gold_candidate_reviewable(row) is True
 
 

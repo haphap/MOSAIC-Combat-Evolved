@@ -206,7 +206,7 @@ DEFAULT_VARIABLES = (
     ),
     ClaimVariableDefinition(
         variable_id="global_dollar_liquidity_pressure",
-        domain="macro.global_liquidity",
+        domain="macro.dollar",
         variable_type="cause",
         description="Dollar, Fed-rate, FX, and global liquidity pressure affecting non-CNY assets.",
         status="sandbox",
