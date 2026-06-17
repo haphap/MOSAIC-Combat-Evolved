@@ -379,6 +379,36 @@ THESIS_BLOCKING_RISK_FLAGS = {
     "stock_target_missing_company_subject",
     "stock_prediction_or_valuation_logic_missing",
 }
+SUPPORTED_CLAIM_MACRO_AGENT_DOMAINS = {
+    "macro.central_bank",
+    "macro.china",
+    "macro.commodities",
+    "macro.dollar",
+    "macro.emerging_markets",
+    "macro.geopolitical",
+    "macro.yield_curve",
+}
+LEGACY_MACRO_AGENT_DOMAIN_ALIASES = {
+    "macro.geopolitics": "macro.geopolitical",
+}
+MACRO_REGIME_AGENT_DOMAINS = {
+    "us_rate_cut_cycle": ("macro.central_bank", "macro.yield_curve"),
+    "china_countercyclical_policy": ("macro.china", "macro.central_bank"),
+    "monetary_liquidity_condition": ("macro.central_bank", "macro.china"),
+    "china_monetary_easing_cycle": ("macro.central_bank", "macro.china"),
+    "credit_cycle": ("macro.central_bank", "macro.yield_curve"),
+    "fx_usd_cycle": ("macro.dollar", "macro.emerging_markets"),
+    "rmb_fx_stability_window": ("macro.dollar", "macro.china", "macro.emerging_markets"),
+    "global_growth_inflation": ("macro.commodities", "macro.yield_curve"),
+    "fiscal_policy": ("macro.china", "macro.central_bank"),
+    "regulatory_policy": ("macro.china",),
+    "trade_friction_intensity": (
+        "macro.geopolitical",
+        "macro.dollar",
+        "macro.emerging_markets",
+    ),
+    "commodity_price_cycle": ("macro.commodities",),
+}
 
 
 @dataclass(frozen=True)
@@ -655,6 +685,32 @@ def _agent_domains_for_prefix(domains: Sequence[str], prefix: str) -> tuple[str,
     return tuple(domain for domain in domains if domain.startswith(prefix))
 
 
+def _normalized_macro_agent_domain(domain: str) -> str:
+    normalized = LEGACY_MACRO_AGENT_DOMAIN_ALIASES.get(domain, domain)
+    return normalized if normalized in SUPPORTED_CLAIM_MACRO_AGENT_DOMAINS else ""
+
+
+def _macro_agent_domains(domains: Sequence[str]) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            normalized
+            for domain in domains
+            if (normalized := _normalized_macro_agent_domain(domain))
+        )
+    )
+
+
+def _macro_agents_from_regime_types(regime_types: Sequence[str]) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            normalized
+            for regime_type in regime_types
+            for agent in MACRO_REGIME_AGENT_DOMAINS.get(str(regime_type), ())
+            if (normalized := _normalized_macro_agent_domain(agent))
+        )
+    )
+
+
 def _explicit_stock_subject_present(
     claim_text: str,
     candidate: Mapping[str, Any],
@@ -713,7 +769,15 @@ def _layered_research_context(
     cause_domains = _variable_domains(cause_variables, variable_domain_by_id)
     target_domains = _variable_domains(target_variables, variable_domain_by_id)
     all_domains = tuple(dict.fromkeys((*cause_domains, *target_domains)))
-    macro_agents = _agent_domains_for_prefix(all_domains, "macro.")
+    macro_types = _string_sequence(component_roles.get("macro_regime_context_types"))
+    macro_agents = tuple(
+        dict.fromkeys(
+            (
+                *_macro_agent_domains(all_domains),
+                *_macro_agents_from_regime_types(macro_types),
+            )
+        )
+    )
     sector_agents = _agent_domains_for_prefix(all_domains, "sector.")
     company_layer_present = (
         bool(component_roles.get("has_company_capability_or_action"))
@@ -721,7 +785,6 @@ def _layered_research_context(
         or bool(set(target_variables) & STOCK_TARGET_VARIABLES)
     )
     valuation_terms = _valuation_or_forecast_terms(claim_text)
-    macro_types = _string_sequence(component_roles.get("macro_regime_context_types"))
     industry_types = _string_sequence(
         component_roles.get("industry_cycle_regime_context_types")
     )

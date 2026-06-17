@@ -44,7 +44,7 @@
     },
     {
       "description": "External trade or technology-friction intensity that can cap policy-substitution themes.",
-      "domain": "macro.geopolitics",
+      "domain": "macro.geopolitical",
       "status": "sandbox",
       "variable_id": "trade_friction_intensity",
       "variable_type": "cause"

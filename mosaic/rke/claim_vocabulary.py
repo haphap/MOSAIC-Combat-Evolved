@@ -101,7 +101,7 @@ DEFAULT_VARIABLES = (
     ),
     ClaimVariableDefinition(
         variable_id="trade_friction_intensity",
-        domain="macro.geopolitics",
+        domain="macro.geopolitical",
         variable_type="cause",
         description="External trade or technology-friction intensity that can cap policy-substitution themes.",
         status="sandbox",

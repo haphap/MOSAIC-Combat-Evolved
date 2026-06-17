@@ -4308,6 +4308,34 @@ DEFAULT_MACRO_REGIME_CALENDAR_ROWS: tuple[Mapping[str, Any], ...] = (
         ),
         "version": 1,
     },
+    {
+        "regime_id": "MACRO-REGIME-CN-MONETARY-EASING-20260101",
+        "regime_type": "china_monetary_easing_cycle",
+        "start_date": "2026-01-01",
+        "end_date": "2026-12-31",
+        "source": "China monetary policy remained in a moderately loose support window in 2026",
+        "pit_available": True,
+        "policy": (
+            "macro regime calendar is public aggregate governance metadata; it may "
+            "supplement forecast claims by PIT as_of_datetime but must not claim "
+            "source-text grounding"
+        ),
+        "version": 1,
+    },
+    {
+        "regime_id": "MACRO-REGIME-RMB-FX-STABILITY-20260101",
+        "regime_type": "rmb_fx_stability_window",
+        "start_date": "2026-01-01",
+        "end_date": "2026-12-31",
+        "source": "RMB exchange-rate policy remained in a managed-stability window in 2026",
+        "pit_available": True,
+        "policy": (
+            "macro regime calendar is public aggregate governance metadata; it may "
+            "supplement forecast claims by PIT as_of_datetime but must not claim "
+            "source-text grounding"
+        ),
+        "version": 1,
+    },
 )
 CLAIM_INDUSTRY_CYCLE_REGIME_RULES: tuple[tuple[str, str], ...] = (
     (

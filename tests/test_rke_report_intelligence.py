@@ -642,15 +642,36 @@ def test_normalize_forecast_claims_infers_horizon_and_metric_proxy_mapping():
         "has_regime_context": True,
         "has_macro_regime_context": True,
         "has_industry_cycle_regime_context": True,
-        "regime_context_types": ["us_rate_cut_cycle", "industry_demand_growth"],
-        "macro_regime_context_types": ["us_rate_cut_cycle"],
+        "regime_context_types": [
+            "us_rate_cut_cycle",
+            "china_monetary_easing_cycle",
+            "rmb_fx_stability_window",
+            "industry_demand_growth",
+        ],
+        "macro_regime_context_types": [
+            "us_rate_cut_cycle",
+            "china_monetary_easing_cycle",
+            "rmb_fx_stability_window",
+        ],
         "source_text_macro_regime_context_types": [],
-        "as_of_date_macro_regime_context_types": ["us_rate_cut_cycle"],
+        "as_of_date_macro_regime_context_types": [
+            "us_rate_cut_cycle",
+            "china_monetary_easing_cycle",
+            "rmb_fx_stability_window",
+        ],
         "macro_regime_context_sources": {
             "us_rate_cut_cycle": (
                 "as_of_date:2026-06-11; US policy-rate cycle remained in a "
                 "post-cut/easing-evaluation window after 2025 cuts"
-            )
+            ),
+            "china_monetary_easing_cycle": (
+                "as_of_date:2026-06-11; China monetary policy remained in a "
+                "moderately loose support window in 2026"
+            ),
+            "rmb_fx_stability_window": (
+                "as_of_date:2026-06-11; RMB exchange-rate policy remained in a "
+                "managed-stability window in 2026"
+            ),
         },
         "industry_cycle_regime_context_types": ["industry_demand_growth"],
         "has_company_capability_or_action": True,
@@ -912,6 +933,31 @@ def test_infer_claim_component_roles_adds_pit_as_of_macro_regime():
             "source-text grounding"
         ),
     }
+
+
+def test_infer_claim_component_roles_adds_2026_china_macro_regimes():
+    roles = _infer_claim_component_roles(
+        "公司加快推进数字化转型和智能化升级，有助于提质增效并支撑业绩增长。",
+        target={"target_type": "stock", "target_id": "300797.SZ"},
+        as_of_datetime="2026-01-15",
+    )
+
+    assert roles["source_text_macro_regime_context_types"] == []
+    assert set(roles["as_of_date_macro_regime_context_types"]) >= {
+        "us_rate_cut_cycle",
+        "china_monetary_easing_cycle",
+        "rmb_fx_stability_window",
+    }
+    detail_by_type = {
+        detail["regime_type"]: detail
+        for detail in roles["as_of_date_macro_regime_context_details"]
+    }
+    assert detail_by_type["china_monetary_easing_cycle"]["regime_id"] == (
+        "MACRO-REGIME-CN-MONETARY-EASING-20260101"
+    )
+    assert detail_by_type["rmb_fx_stability_window"]["regime_id"] == (
+        "MACRO-REGIME-RMB-FX-STABILITY-20260101"
+    )
 
 
 def test_infer_claim_component_roles_uses_governed_macro_regime_calendar():
@@ -2102,15 +2148,21 @@ def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
     assert readiness["blocked_count"] == 0
     assert readiness["mapping_gap_counts"] == {}
     assert readiness["macro_regime_counts"] == {
+        "china_monetary_easing_cycle": 1,
         "monetary_liquidity_condition": 1,
+        "rmb_fx_stability_window": 1,
         "us_rate_cut_cycle": 1,
     }
     assert readiness["source_text_macro_regime_counts"] == {
         "monetary_liquidity_condition": 1
     }
-    assert readiness["as_of_date_macro_regime_counts"] == {"us_rate_cut_cycle": 1}
+    assert readiness["as_of_date_macro_regime_counts"] == {
+        "china_monetary_easing_cycle": 1,
+        "rmb_fx_stability_window": 1,
+        "us_rate_cut_cycle": 1,
+    }
     assert readiness["macro_regime_source_counts"] == {
-        "as_of_date": 1,
+        "as_of_date": 3,
         "report_text": 1,
     }
     assert readiness["industry_cycle_regime_counts"] == {}
@@ -6714,10 +6766,14 @@ def test_report_intelligence_labels_industry_claims_with_etf_proxy_windows(
     assert {row["entry_lag_trading_days"] for row in outcome_labels} == {1}
     assert {row["round_trip_cost"] for row in outcome_labels} == {0.001}
     assert {row["market_regime"] for row in outcome_labels} == {
-        "us_rate_cut_cycle"
+        "us_rate_cut_cycle|china_monetary_easing_cycle|rmb_fx_stability_window"
     }
     assert {tuple(row["market_regime_types"]) for row in outcome_labels} == {
-        ("us_rate_cut_cycle",)
+        (
+            "us_rate_cut_cycle",
+            "china_monetary_easing_cycle",
+            "rmb_fx_stability_window",
+        )
     }
     assert {row["market_regime_source"] for row in outcome_labels} == {"as_of_date"}
     assert {row["market_regime_source_text_grounded"] for row in outcome_labels} == {
@@ -7628,10 +7684,14 @@ def test_report_intelligence_labels_stock_claims_with_qlib_price_windows(
         "positive_volume_and_limit_lock_screen"
     }
     assert {row["market_regime"] for row in outcome_labels} == {
-        "us_rate_cut_cycle"
+        "us_rate_cut_cycle|china_monetary_easing_cycle|rmb_fx_stability_window"
     }
     assert {tuple(row["market_regime_types"]) for row in outcome_labels} == {
-        ("us_rate_cut_cycle",)
+        (
+            "us_rate_cut_cycle",
+            "china_monetary_easing_cycle",
+            "rmb_fx_stability_window",
+        )
     }
     assert {row["market_regime_source"] for row in outcome_labels} == {"as_of_date"}
     assert {row["market_regime_source_text_grounded"] for row in outcome_labels} == {

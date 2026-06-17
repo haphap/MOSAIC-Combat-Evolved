@@ -676,6 +676,84 @@ def test_gold_candidate_claim_review_requires_layered_full_text_thesis():
     assert gold_candidate_reviewable(row) is True
 
 
+def test_gold_candidate_claim_maps_date_macro_regimes_to_agents():
+    claim = _candidate_claim_from_report_intelligence(
+        {
+            "source_id": "SRC-1",
+            "source_span_id": "SRC-1:original_markdown",
+            "query_key": "通信设备",
+            "industry": "通信设备",
+            "license_status": "approved",
+        },
+        {
+            "claim_id": "GOLD-SRC-1-001",
+            "gold_set_domain": "semiconductor",
+            "gold_set_domains": ("semiconductor",),
+        },
+        {
+            "claim_text": (
+                "在Token经济爆发式增长和算力网政策支持下，通信行业从信息管道向算力总线升级，"
+                "预计将提升运营商和光通信公司的网络价值与盈利增长潜力。"
+            ),
+            "forecast_claim_id": "FC-1",
+            "metric_proxy_mapping": [
+                "industry_demand_cycle",
+                "industry_etf_forward_return",
+            ],
+            "target": {"target_type": "sector", "target_id": "通信设备"},
+            "direction": "positive",
+            "forecast_testability": "testable",
+            "extraction_quality": {
+                "claim_component_roles": {
+                    "has_macro_regime_context": True,
+                    "macro_regime_context_types": [
+                        "us_rate_cut_cycle",
+                        "china_monetary_easing_cycle",
+                        "rmb_fx_stability_window",
+                    ],
+                    "industry_cycle_regime_context_types": ["technology_cycle"],
+                    "has_company_capability_or_action": True,
+                },
+                "claim_mechanism_roles": {
+                    "has_economic_mechanism": True,
+                    "channels": ["demand_pull", "technology_productivity"],
+                    "actions": ["upgrade_product_or_technology"],
+                },
+            },
+            "claim_provenance": "source_grounded",
+        },
+        0,
+        {
+            "industry_demand_cycle",
+            "industry_etf_forward_return",
+        },
+        {
+            "industry_demand_cycle": "cause",
+            "industry_etf_forward_return": "target",
+        },
+        {"SRC-1"},
+        {
+            "industry_demand_cycle": "sector.cross_industry",
+            "industry_etf_forward_return": "sector.cross_industry",
+        },
+    )
+
+    assert claim.research_layers["macro_regime"]["mosaic_agent_ids"] == (
+        "macro.central_bank",
+        "macro.yield_curve",
+        "macro.china",
+        "macro.dollar",
+        "macro.emerging_markets",
+    )
+    assert claim.mosaic_agent_trace["macro_agents"] == (
+        "macro.central_bank",
+        "macro.yield_curve",
+        "macro.china",
+        "macro.dollar",
+        "macro.emerging_markets",
+    )
+
+
 def test_gold_candidate_claim_rejects_short_sentence_and_fallback_review_rows():
     claim = _candidate_claim_from_report_intelligence(
         {
