@@ -4243,6 +4243,33 @@ CLAIM_MACRO_REGIME_RULES: tuple[tuple[str, str], ...] = (
     ("fiscal_policy", r"财政|专项债|国债|赤字|税收|补贴"),
     ("regulatory_policy", r"监管|产业政策|政策支持|政策约束|政策放松"),
 )
+CLAIM_REGIME_TRACE_DEFAULT_MACRO_AGENTS = (
+    "macro.central_bank",
+    "macro.china",
+    "macro.dollar",
+    "macro.yield_curve",
+    "macro.volatility",
+)
+CLAIM_REGIME_TRACE_AGENT_BY_REGIME: Mapping[str, tuple[str, ...]] = {
+    "us_rate_cut_cycle": ("macro.central_bank", "macro.yield_curve"),
+    "china_countercyclical_policy": ("macro.china", "macro.central_bank"),
+    "monetary_liquidity_condition": ("macro.central_bank", "macro.china"),
+    "china_monetary_easing_cycle": ("macro.central_bank", "macro.china"),
+    "credit_cycle": ("macro.central_bank", "macro.yield_curve"),
+    "fx_usd_cycle": ("macro.dollar", "macro.emerging_markets"),
+    "rmb_fx_stability_window": ("macro.dollar", "macro.china", "macro.emerging_markets"),
+    "global_growth_inflation": ("macro.commodities", "macro.yield_curve"),
+    "fiscal_policy": ("macro.china", "macro.central_bank"),
+    "regulatory_policy": ("macro.china",),
+    "trade_friction_intensity": (
+        "macro.geopolitical",
+        "macro.dollar",
+        "macro.emerging_markets",
+    ),
+    "commodity_price_cycle": ("macro.commodities",),
+    "volatility_shock": ("macro.volatility",),
+    "market_volatility_regime": ("macro.volatility",),
+}
 DEFAULT_MACRO_REGIME_CALENDAR_ROWS: tuple[Mapping[str, Any], ...] = (
     {
         "regime_id": "MACRO-REGIME-US-RATE-CUT-20240918",
@@ -4437,6 +4464,102 @@ def _as_of_date_macro_regime_context(
         seen_details.add(key)
         deduped_details.append(detail)
     return deduped_types, sources, deduped_details
+
+
+def _claim_regime_trace_agents_for_types(regime_types: Sequence[Any]) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            agent
+            for regime_type in regime_types
+            for agent in CLAIM_REGIME_TRACE_AGENT_BY_REGIME.get(str(regime_type), ())
+        )
+    )
+
+
+def _claim_regime_trace_types_for_agent(
+    agent: str,
+    regime_types: Sequence[Any],
+) -> tuple[str, ...]:
+    return tuple(
+        str(regime_type)
+        for regime_type in regime_types
+        if agent in _claim_regime_trace_agents_for_types((regime_type,))
+    )
+
+
+def _build_claim_regime_trace(
+    *,
+    as_of_datetime: Any,
+    target: Mapping[str, Any],
+    component_roles: Mapping[str, Any],
+) -> dict[str, Any]:
+    macro_types = _ensure_list(component_roles.get("macro_regime_context_types"))
+    as_of_types = _ensure_list(
+        component_roles.get("as_of_date_macro_regime_context_types")
+    )
+    source_text_types = _ensure_list(
+        component_roles.get("source_text_macro_regime_context_types")
+    )
+    details = [
+        dict(item)
+        for item in _ensure_list(
+            component_roles.get("as_of_date_macro_regime_context_details")
+        )
+        if isinstance(item, Mapping)
+    ]
+    details_by_type = {str(item.get("regime_type") or ""): item for item in details}
+    macro_scope = tuple(
+        dict.fromkeys(
+            (
+                *CLAIM_REGIME_TRACE_DEFAULT_MACRO_AGENTS,
+                *_claim_regime_trace_agents_for_types(macro_types),
+            )
+        )
+    )
+    macro = {}
+    as_of_date = _as_of_date_key(as_of_datetime)
+    for agent in macro_scope:
+        regime_types = _claim_regime_trace_types_for_agent(agent, macro_types)
+        macro[agent] = {
+            "as_of_date": as_of_date,
+            "regime_types": regime_types,
+            "as_of_date_regime_types": _claim_regime_trace_types_for_agent(
+                agent,
+                as_of_types,
+            ),
+            "source_text_regime_types": _claim_regime_trace_types_for_agent(
+                agent,
+                source_text_types,
+            ),
+            "regime_details": tuple(
+                details_by_type[regime_type]
+                for regime_type in regime_types
+                if regime_type in details_by_type
+            ),
+            "background_only": True,
+        }
+    return {
+        "schema_version": "claim_regime_trace_v1",
+        "as_of_date": as_of_date,
+        "policy": (
+            "PIT regime trace is background only. Claim extraction records the "
+            "as-of-date regime context for later outcome/backtest stratification; "
+            "it does not validate claim correctness."
+        ),
+        "macro": macro,
+        "industry": {
+            "regime_types": tuple(
+                str(item)
+                for item in _ensure_list(
+                    component_roles.get("industry_cycle_regime_context_types")
+                )
+            ),
+            "industry": str(target.get("target_id") or target.get("target_name") or ""),
+        },
+        "company": {
+            "target_id": str(target.get("target_id") or target.get("target_name") or ""),
+        },
+    }
 CLAIM_COMPANY_CAPABILITY_RE = re.compile(
     r"公司|自身|实验室|投产|达效|全国布局|产能利用|渠道|客户|订单|技术|研发|产品|费用管控|降本|管理|执行|市占率|份额",
     flags=re.IGNORECASE,
@@ -4797,13 +4920,17 @@ def _normalize_forecast_claims(
         ] = claim_text_truncated
         if record["claim_provenance"] == "source_grounded":
             record["extraction_quality"].setdefault("span_grounded", True)
-        record["extraction_quality"]["claim_component_roles"] = (
-            _infer_claim_component_roles(
-                raw_claim_text,
-                target=target,
-                as_of_datetime=row.get("publish_date"),
-                macro_regime_calendar_rows=macro_regime_calendar_rows,
-            )
+        component_roles = _infer_claim_component_roles(
+            raw_claim_text,
+            target=target,
+            as_of_datetime=row.get("publish_date"),
+            macro_regime_calendar_rows=macro_regime_calendar_rows,
+        )
+        record["extraction_quality"]["claim_component_roles"] = component_roles
+        record["claim_regime_trace"] = _build_claim_regime_trace(
+            as_of_datetime=row.get("publish_date"),
+            target=target,
+            component_roles=component_roles,
         )
         record["extraction_quality"]["claim_mechanism_roles"] = (
             _infer_claim_mechanism_roles(
@@ -4965,7 +5092,7 @@ def _refresh_forecast_mapping_governance(
             )
         if metric_proxy_inferred:
             extraction_quality["metric_proxy_mapping_inferred_from_claim_text"] = True
-        extraction_quality["claim_component_roles"] = _infer_claim_component_roles(
+        component_roles = _infer_claim_component_roles(
             claim_text,
             target=target,
             as_of_datetime=(
@@ -4974,6 +5101,16 @@ def _refresh_forecast_mapping_governance(
                 or ""
             ),
             macro_regime_calendar_rows=macro_regime_calendar_rows,
+        )
+        extraction_quality["claim_component_roles"] = component_roles
+        refreshed["claim_regime_trace"] = _build_claim_regime_trace(
+            as_of_datetime=(
+                refreshed.get("signal_datetime")
+                or refreshed.get("publish_date")
+                or ""
+            ),
+            target=target,
+            component_roles=component_roles,
         )
         extraction_quality["claim_mechanism_roles"] = _infer_claim_mechanism_roles(
             claim_text,

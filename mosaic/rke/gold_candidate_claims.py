@@ -947,13 +947,18 @@ def _layered_research_context(
         ),
         "variable_domains": all_domains,
     }
-    regime_trace = _claim_regime_trace(
-        candidate=candidate,
-        report_claim=report_claim,
-        component_roles=component_roles,
-        macro_agents=macro_agents,
-        sector_agents=sector_agents,
-        industry_types=industry_types,
+    upstream_regime_trace = report_claim.get("claim_regime_trace")
+    regime_trace = (
+        dict(upstream_regime_trace)
+        if isinstance(upstream_regime_trace, Mapping)
+        else _claim_regime_trace(
+            candidate=candidate,
+            report_claim=report_claim,
+            component_roles=component_roles,
+            macro_agents=macro_agents,
+            sector_agents=sector_agents,
+            industry_types=industry_types,
+        )
     )
     return layers, trace, regime_trace
 

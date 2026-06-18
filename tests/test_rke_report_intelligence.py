@@ -692,6 +692,16 @@ def test_normalize_forecast_claims_infers_horizon_and_metric_proxy_mapping():
     assert details[0]["as_of_date"] == "2026-06-11"
     assert details[0]["source_basis"] == "as_of_date"
     assert details[0]["source_text_grounded"] is False
+    regime_trace = record["claim_regime_trace"]
+    assert regime_trace["schema_version"] == "claim_regime_trace_v1"
+    assert regime_trace["as_of_date"] == "2026-06-11"
+    assert regime_trace["macro"]["macro.central_bank"]["as_of_date_regime_types"] == (
+        "us_rate_cut_cycle",
+        "china_monetary_easing_cycle",
+    )
+    assert regime_trace["macro"]["macro.volatility"]["background_only"] is True
+    assert regime_trace["macro"]["macro.volatility"]["regime_types"] == ()
+    assert "validate claim correctness" in regime_trace["policy"]
     mechanism = record["extraction_quality"]["claim_mechanism_roles"]
     assert set(mechanism["channels"]) >= {
         "demand_pull",
