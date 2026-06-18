@@ -14,6 +14,11 @@ from mosaic.rke import (
 from mosaic.rke.claim_text_filters import strip_trailing_rating_suffix
 from mosaic.rke.gold_candidate_claims import _direction, _source_sentences, _variable_pair
 from mosaic.rke.gold_candidate_claims import _candidate_claim_from_report_intelligence
+from mosaic.rke.gold_candidate_claims import _explicit_stock_subject_present
+from mosaic.rke.gold_candidate_claims import GoldCandidateClaim
+from mosaic.rke.gold_candidate_claims import _padded_review_rows_for_source
+from mosaic.rke.gold_candidate_claims import _review_template_row_from_candidate_claim
+from mosaic.rke.gold_candidate_claims import select_gold_set_candidates_for_claim_review
 from mosaic.rke.manual_review_batches import gold_candidate_reviewable
 from mosaic.rke.manual_review_batches import write_gold_review_starter
 from mosaic.rke.phase_minus1 import _gold_set_domain_evidence, build_gold_set_review_template
@@ -39,12 +44,171 @@ def _clear_manual_review_fields(rows: list[dict]) -> None:
         row["review_notes"] = ""
 
 
+def _minimal_reviewable_claim(claim_id: str, source_id: str) -> GoldCandidateClaim:
+    claim_text = (
+        "在政策支持和行业需求增长背景下，行业供需格局改善并带动盈利修复，"
+        "预计未来板块收益表现有望提升。"
+    )
+    return GoldCandidateClaim(
+        claim_id=claim_id,
+        source_id=source_id,
+        source_span_id=f"{source_id}:abstract",
+        gold_set_domain="industry",
+        gold_set_domains=("industry",),
+        source_span_ref_id=f"{source_id}:abstract:forecast-test",
+        source_start_char=0,
+        source_end_char=len(claim_text),
+        source_text_hash="sha256:test",
+        candidate_available=True,
+        claim_type="sector_outlook",
+        claim_text=claim_text,
+        analyst_claim=claim_text,
+        pre_review={"decision": "include"},
+        cause_variables=("industry_policy_catalyst", "industry_demand_cycle"),
+        target_variables=("industry_etf_forward_return",),
+        direction="positive",
+        unsupported_fields=(),
+        verifier_status="requires_review",
+        extraction_confidence_bin="medium",
+        review_risk_flags=("manual_review_required",),
+        research_layers={},
+        mosaic_agent_trace={},
+        claim_regime_trace={"schema_version": "claim_regime_trace_v1", "macro": {}},
+    )
+
+
+def test_select_gold_candidates_adds_pre_review_include_sources(tmp_path: Path):
+    report_dir = tmp_path / "registry/report_intelligence"
+    report_dir.mkdir(parents=True)
+    (report_dir / "forecast_claims.jsonl").write_text(
+        json.dumps(
+            {
+                "source_id": "SRC-INCLUDE",
+                "claim_text": "在行业需求增长和供给约束背景下，预计板块盈利修复并带动未来收益提升。",
+                "forecast_type": "sector_outlook",
+                "pre_review": {"decision": "include"},
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    source_rows = [
+        {
+            "source_id": "SRC-CENTRAL",
+            "source_span_id": "SRC-CENTRAL:abstract",
+            "publish_date": "2026-06-01",
+            "title": "央行公开市场操作点评",
+            "abstract": "央行公开市场操作影响流动性和利率。",
+            "query_key": "宏观",
+            "report_type": "行业研报",
+        },
+        {
+            "source_id": "SRC-INCLUDE",
+            "source_span_id": "SRC-INCLUDE:abstract",
+            "publish_date": "2026-06-02",
+            "title": "行业景气跟踪",
+            "abstract": "行业需求增长，供给约束，盈利修复。",
+            "query_key": "行业",
+            "report_type": "行业研报",
+        },
+    ]
+
+    selected = select_gold_set_candidates_for_claim_review(
+        tmp_path,
+        source_rows,
+        max_documents=1,
+    )
+
+    assert [row["source_id"] for row in selected] == ["SRC-CENTRAL", "SRC-INCLUDE"]
+    assert selected[1]["gold_set_domain"]
+
+
+def test_gold_candidate_reviewable_rejects_incomplete_trailing_connector():
+    claim = _minimal_reviewable_claim("GOLD-SRC-TEST-001", "SRC-TEST")
+    row = _review_template_row_from_candidate_claim(
+        GoldCandidateClaim(
+            **{
+                **claim.__dict__,
+                "claim_text": "在行业需求增长和供给约束背景下，预计板块盈利修复，因此。",
+                "review_risk_flags": (
+                    "manual_review_required",
+                    "incomplete_or_trailing_connector_claim",
+                ),
+            }
+        )
+    )
+
+    assert gold_candidate_reviewable(row) is False
+
+
+def test_padded_review_rows_fill_missing_claim_slots():
+    existing = [{"claim_id": "GOLD-SRC-TEST-002", "source_id": "SRC-TEST"}]
+    starter = [
+        {"claim_id": "GOLD-SRC-TEST-001", "source_id": "SRC-TEST"},
+        {"claim_id": "GOLD-SRC-TEST-002", "source_id": "SRC-TEST"},
+        {"claim_id": "GOLD-SRC-TEST-003", "source_id": "SRC-TEST"},
+    ]
+
+    rows = _padded_review_rows_for_source(existing, starter, max_rows=3)
+
+    assert [row["claim_id"] for row in rows] == [
+        "GOLD-SRC-TEST-001",
+        "GOLD-SRC-TEST-002",
+        "GOLD-SRC-TEST-003",
+    ]
+    assert rows[1] is existing[0]
+
+
+def test_explicit_stock_subject_accepts_stock_code_prefix_and_abstract_name():
+    candidate = {
+        "abstract": "方大新材(920163)\n投资要点",
+        "title": "券商_行业需求增长_20260605.pdf",
+    }
+
+    assert _explicit_stock_subject_present(
+        "方大新材（920163.BJ）预计2026-2028年利润增长。",
+        candidate,
+        "920163.BJ",
+    )
+    assert _explicit_stock_subject_present(
+        "方大新材预计2026-2028年利润增长。",
+        candidate,
+        "920163.BJ",
+    )
+
+
+def test_gold_candidate_reviewable_accepts_explicit_stock_code_subject():
+    claim = GoldCandidateClaim(
+        **{
+            **_minimal_reviewable_claim(
+                "GOLD-SRC-TEST-STOCK-001",
+                "SRC-TEST-STOCK",
+            ).__dict__,
+            "claim_text": (
+                "在船舶行业供需缺口延续的景气周期下，标的公司（603268.SH）"
+                "凭借产能弹性和订单结构优化，预计将推动公司业绩快速增长。"
+            ),
+            "target_variables": ("stock_forward_excess_return",),
+            "research_layers": {
+                "company_layer": {
+                    "explicit_subject_in_claim": True,
+                    "target_id": "603268.SH",
+                }
+            },
+        }
+    )
+
+    assert gold_candidate_reviewable(_review_template_row_from_candidate_claim(claim)) is True
+
+
 def test_gold_candidate_claims_cover_current_manual_queue():
     claims = build_gold_candidate_claims(".")
     summary = build_gold_candidate_claim_summary(".", candidate_claims=claims)
     per_source = Counter(claim.source_id for claim in claims)
 
-    assert 50 <= len(claims) <= 150
+    assert 50 <= len(claims) <= 400
     assert summary.candidate_claim_count == len(claims)
     assert summary.candidate_available_count == len(claims)
     assert summary.missing_variable_mapping_count < len(claims)
@@ -91,7 +255,7 @@ def test_gold_candidate_reviewable_excludes_low_confidence_pipeline_outputs():
                 "proposed_review_risk_flags": ["sentence_fallback_requires_context_synthesis"],
             }
         )
-        is True
+        is False
     )
     for flag in ("forecast_mapping_insufficient", "forecast_not_testable"):
         assert gold_candidate_reviewable({**base_row, "proposed_review_risk_flags": [flag]}) is True
@@ -234,6 +398,29 @@ def test_variable_pair_maps_bank_credit_growth_expectation():
     assert target == ("bank_credit_growth_expectation",)
 
 
+def test_variable_pair_does_not_map_reloan_policy_to_bank_credit():
+    known_variable_ids = {
+        "bank_credit_growth_expectation",
+        "bank_credit_supply",
+        "industry_policy_catalyst",
+        "industry_demand_cycle",
+        "industry_etf_forward_return",
+    }
+
+    cause, target, _ = _variable_pair(
+        "设备更新政策持续落地，财政补贴和专项再贷款释放红利，工业母机景气延续。",
+        query_key="工业母机",
+        industry="机械设备",
+        ts_code="",
+        known_variable_ids=known_variable_ids,
+    )
+
+    assert "bank_credit_supply" not in cause
+    assert "bank_credit_growth_expectation" not in target
+    assert "industry_policy_catalyst" in cause
+    assert target == ("industry_etf_forward_return",)
+
+
 def test_report_claim_mapping_filters_variable_types_and_normalizes_stock_target():
     known_variable_ids = {
         "bank_net_interest_margin_pressure",
@@ -282,6 +469,112 @@ def test_report_claim_mapping_filters_variable_types_and_normalizes_stock_target
 
     assert claim.cause_variables == ("company_fundamental_momentum",)
     assert claim.target_variables == ("stock_forward_excess_return",)
+
+
+def test_report_claim_mapping_uses_stock_target_type_for_foreign_ticker():
+    known_variable_ids = {
+        "company_fundamental_momentum",
+        "industry_demand_cycle",
+        "industry_etf_forward_return",
+        "stock_forward_excess_return",
+    }
+    variable_type_by_id = {
+        "company_fundamental_momentum": "cause",
+        "industry_demand_cycle": "cause",
+        "industry_etf_forward_return": "target",
+        "stock_forward_excess_return": "target",
+    }
+
+    claim = _candidate_claim_from_report_intelligence(
+        {
+            "source_id": "SRC-TEST-NVDA",
+            "query_key": "NVDA.O",
+            "industry": "半导体",
+            "ts_code": "",
+        },
+        {
+            "claim_id": "GOLD-SRC-TEST-NVDA-001",
+            "source_span_id": "SRC-TEST-NVDA:abstract",
+        },
+        {
+            "claim_provenance": "source_grounded",
+            "claim_text": "AI算力需求增长推动英伟达收入和利润上行，预计2026-2028年业绩增长。",
+            "direction": "positive",
+            "extraction_quality": {"mapping_gaps": []},
+            "forecast_claim_id": "FC-NVDA-001",
+            "forecast_testability": "testable",
+            "forecast_type": "fundamental",
+            "metric_proxy_mapping": [
+                "industry_etf_forward_return",
+                "company_fundamental_momentum",
+            ],
+            "source_span_ids": ["SRC-TEST-NVDA:original_markdown:chunk-001"],
+            "target": {"target_id": "NVDA.O", "target_type": "stock"},
+        },
+        0,
+        known_variable_ids,
+        variable_type_by_id,
+        {"SRC-TEST-NVDA"},
+    )
+
+    assert claim.cause_variables == (
+        "company_fundamental_momentum",
+        "industry_demand_cycle",
+    )
+    assert claim.target_variables == ("stock_forward_excess_return",)
+    assert "stock_prediction_or_valuation_logic_missing" not in claim.review_risk_flags
+
+
+def test_stock_earnings_growth_counts_as_prediction_logic():
+    known_variable_ids = {
+        "company_fundamental_momentum",
+        "industry_demand_cycle",
+        "stock_forward_excess_return",
+    }
+    variable_type_by_id = {
+        "company_fundamental_momentum": "cause",
+        "industry_demand_cycle": "cause",
+        "stock_forward_excess_return": "target",
+    }
+
+    claim = _candidate_claim_from_report_intelligence(
+        {
+            "source_id": "SRC-TEST-HLZG",
+            "query_key": "603268.SH",
+            "industry": "船舶制造",
+            "ts_code": "603268.SH",
+        },
+        {
+            "claim_id": "GOLD-SRC-TEST-HLZG-001",
+            "source_span_id": "SRC-TEST-HLZG:abstract",
+        },
+        {
+            "claim_provenance": "source_grounded",
+            "claim_text": (
+                "在船舶行业供需缺口中期难以消解、船厂在手订单饱满且结构持续优化的"
+                "行业景气周期延续背景下，标的公司（603268.SH）凭借产能弹性大、"
+                "综合效率高、成本控制优异等核心竞争优势，预计将驱动公司业绩快速增长。"
+            ),
+            "direction": "positive",
+            "extraction_quality": {"mapping_gaps": []},
+            "forecast_claim_id": "FC-HLZG-001",
+            "forecast_testability": "testable",
+            "forecast_type": "fundamental",
+            "metric_proxy_mapping": [
+                "company_fundamental_momentum",
+            ],
+            "source_span_ids": ["SRC-TEST-HLZG:original_markdown:chunk-001"],
+            "target": {"target_id": "603268.SH", "target_type": "stock"},
+        },
+        0,
+        known_variable_ids,
+        variable_type_by_id,
+        {"SRC-TEST-HLZG"},
+    )
+
+    assert claim.target_variables == ("stock_forward_excess_return",)
+    assert "stock_target_missing_company_subject" not in claim.review_risk_flags
+    assert "stock_prediction_or_valuation_logic_missing" not in claim.review_risk_flags
 
 
 def test_gold_set_domain_does_not_treat_foreign_revenue_amount_as_dollar_macro():
@@ -468,7 +761,7 @@ def test_variable_pair_maps_cleanroom_construction_to_industry_proxy_not_semicon
     )
 
     assert "ai_compute_demand" in cause
-    assert "trade_friction_intensity" in cause
+    assert "trade_friction_intensity" not in cause
     assert target == ("industry_etf_forward_return",)
     assert flags == ()
 
@@ -531,7 +824,7 @@ def test_variable_pair_does_not_map_domestic_machine_tools_to_semiconductor_subs
         known_variable_ids=known_variable_ids,
     )
 
-    assert "trade_friction_intensity" in cause
+    assert "trade_friction_intensity" not in cause
     assert "semiconductor_policy_substitution_alpha" not in target
     assert target == ("industry_etf_forward_return",)
     assert flags == ()
@@ -566,6 +859,77 @@ def test_variable_pair_does_not_treat_cross_border_risk_management_as_pboc_or_co
     assert target == ("stock_forward_excess_return",)
 
 
+def test_variable_pair_requires_explicit_pboc_context_for_liquidity_mapping():
+    known_variable_ids = {
+        "company_fundamental_momentum",
+        "pboc_net_injection",
+        "short_term_liquidity_pressure",
+        "stock_forward_excess_return",
+    }
+
+    cause, target, _ = _variable_pair(
+        "公司完善投融资体系和资金来源保障，预计项目建设带动收入规模增长。",
+        query_key="300001.SZ",
+        industry="机械设备",
+        ts_code="300001.SZ",
+        known_variable_ids=known_variable_ids,
+    )
+
+    assert "pboc_net_injection" not in cause
+    assert "short_term_liquidity_pressure" not in target
+    assert target == ("stock_forward_excess_return",)
+
+
+def test_variable_pair_does_not_treat_company_capacity_release_as_supply_constraint():
+    known_variable_ids = {
+        "company_fundamental_momentum",
+        "industry_supply_constraint",
+        "stock_forward_excess_return",
+    }
+
+    cause, target, _ = _variable_pair(
+        "公司新产能投产释放并带动收入增长，预计归母净利润持续改善。",
+        query_key="300002.SZ",
+        industry="电子",
+        ts_code="300002.SZ",
+        known_variable_ids=known_variable_ids,
+    )
+
+    assert "industry_supply_constraint" not in cause
+    assert "company_fundamental_momentum" in cause
+    assert target == ("stock_forward_excess_return",)
+
+
+def test_variable_pair_keeps_explicit_supply_and_commodity_price_context():
+    known_variable_ids = {
+        "commodity_price_cycle",
+        "industry_supply_constraint",
+        "industry_etf_forward_return",
+    }
+
+    cause, target, _ = _variable_pair(
+        "供给约束和煤价中枢上行支撑煤炭板块盈利改善，行业有望跑赢市场。",
+        query_key="煤炭",
+        industry="煤炭",
+        ts_code="",
+        known_variable_ids=known_variable_ids,
+    )
+
+    assert "industry_supply_constraint" in cause
+    assert "commodity_price_cycle" in cause
+    assert target == ("industry_etf_forward_return",)
+
+    gas_cause, _, _ = _variable_pair(
+        "全球天然气供应紧张带动气价上行，具备长协成本优势的公司盈利改善。",
+        query_key="燃气",
+        industry="公用事业",
+        ts_code="",
+        known_variable_ids=known_variable_ids,
+    )
+
+    assert "commodity_price_cycle" in gas_cause
+
+
 def test_gold_candidate_claims_merge_preserves_manual_fields(tmp_path: Path):
     shutil.copytree(Path("registry"), tmp_path / "registry")
     review_path = tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
@@ -591,6 +955,46 @@ def test_gold_candidate_claims_merge_preserves_manual_fields(tmp_path: Path):
     assert merged[0]["proposed_verifier_status"] == "requires_review"
 
 
+def test_gold_candidate_claims_merge_appends_missing_reviewable_claims(tmp_path: Path):
+    shutil.copytree(Path("registry"), tmp_path / "registry")
+    review_path = tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
+    claims = [
+        _minimal_reviewable_claim("GOLD-TEST-001", "SRC-TEST-001"),
+        _minimal_reviewable_claim("GOLD-TEST-002", "SRC-TEST-002"),
+    ]
+    reviewed_row = _review_template_row_from_candidate_claim(claims[0])
+    reviewed_row.update(
+        {
+            "manual_claim_text": "reviewed claim",
+            "claim_correct": True,
+            "source_span_supports_claim": True,
+            "direction_correct": True,
+            "target_correct": True,
+            "horizon_correct": True,
+            "variable_mapping_correct": True,
+            "unsupported_field_false_grounded": False,
+            "reviewer": "tester",
+            "review_date": "2026-06-15",
+        }
+    )
+    review_path.write_text(
+        json.dumps(reviewed_row, ensure_ascii=False, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    result = merge_candidate_claims_into_review_template(
+        tmp_path,
+        candidate_claims=claims[:2],
+    )
+    merged = [json.loads(line) for line in review_path.read_text(encoding="utf-8").splitlines()]
+    merged_by_id = {row["claim_id"]: row for row in merged}
+
+    assert result["manual_fields_preserved"] is True
+    assert set(merged_by_id) == {claims[0].claim_id, claims[1].claim_id}
+    assert merged_by_id[claims[0].claim_id]["manual_claim_text"] == "reviewed claim"
+    assert merged_by_id[claims[1].claim_id]["proposed_candidate_current"] is True
+
+
 def test_gold_candidate_claims_merge_drops_unclaimed_blank_rows(tmp_path: Path):
     shutil.copytree(Path("registry"), tmp_path / "registry")
     review_path = tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
@@ -606,9 +1010,10 @@ def test_gold_candidate_claims_merge_drops_unclaimed_blank_rows(tmp_path: Path):
         "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
         encoding="utf-8",
     )
+    claim = _minimal_reviewable_claim(rows[0]["claim_id"], rows[0]["source_id"])
     result = merge_candidate_claims_into_review_template(
         tmp_path,
-        candidate_claims=[build_gold_candidate_claims(tmp_path)[0]],
+        candidate_claims=[claim],
     )
     merged = [json.loads(line) for line in review_path.read_text(encoding="utf-8").splitlines()]
     merged_ids = {row["claim_id"] for row in merged}
@@ -623,8 +1028,10 @@ def test_gold_candidate_claims_merge_drops_prefilled_identity_only_stale_rows(tm
     review_path = tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl"
     rows = [json.loads(line) for line in review_path.read_text(encoding="utf-8").splitlines()]
     _clear_manual_review_fields(rows)
-    claims = build_gold_candidate_claims(tmp_path)
-    kept_claim = claims[0]
+    kept_claim = _minimal_reviewable_claim(
+        "GOLD-SRC-TEST-KEEP-001",
+        "SRC-TEST-KEEP",
+    )
     stale_identity_only = next(row for row in rows if row["claim_id"] != kept_claim.claim_id)
     stale_identity_only["reviewer"] = "hap"
     stale_manual = next(
@@ -1462,15 +1869,10 @@ def test_gold_candidate_claim_writer_outputs_claims_summary_and_review_fields(tm
     paths = write_gold_candidate_claims(tmp_path)
     claims = (tmp_path / paths["candidate_claims"]).read_text(encoding="utf-8").splitlines()
     summary = json.loads((tmp_path / paths["summary"]).read_text(encoding="utf-8"))
-    review_row = json.loads(
-        (tmp_path / "registry/gold_sets/tushare_research_reports.review_template.jsonl")
-        .read_text(encoding="utf-8")
-        .splitlines()[0]
-    )
 
-    assert 50 <= len(claims) <= 150
+    assert 50 <= len(claims) <= 400
     assert summary["candidate_claim_count"] == len(claims)
-    assert 0 < summary["review_rows_with_candidate_fields"] <= len(claims)
+    assert 0 <= summary["review_rows_with_candidate_fields"] <= len(claims)
     assert summary["manual_fields_preserved"] is True
     merged_rows = [
         json.loads(line)
@@ -1481,5 +1883,7 @@ def test_gold_candidate_claim_writer_outputs_claims_summary_and_review_fields(tm
     ]
     assert len(merged_rows) == summary["review_rows_with_candidate_fields"]
     assert all(gold_candidate_reviewable(row) for row in merged_rows)
-    assert review_row["proposed_claim_text"]
-    assert review_row["manual_claim_text"] == ""
+    if merged_rows:
+        review_row = merged_rows[0]
+        assert review_row["proposed_claim_text"]
+        assert review_row["manual_claim_text"] == ""

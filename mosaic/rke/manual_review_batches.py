@@ -269,11 +269,29 @@ def _gold_row_complete(row: Mapping[str, Any]) -> bool:
 
 _GENERIC_COMPANY_SUBJECT_RE = re.compile(r"(^|[，,。；;\s])公司(?=\S)")
 _GENERIC_COMPANY_EFFECT_RE = re.compile(r"(?:推动|带动|支撑|改善|影响|增厚|强化|拖累)公司")
+_EXPLICIT_STOCK_CODE_RE = re.compile(
+    r"(?:标的公司|公司)?[（(]?(?:\d{5,6}|[A-Z]{1,5})\.(?:SH|SZ|BJ|HK|US|O|N)[）)]?"
+)
+
+
+def _explicit_stock_subject_in_review_row(row: Mapping[str, Any], claim_text: str) -> bool:
+    layers = row.get("proposed_research_layers")
+    company_layer = layers.get("company_layer") if isinstance(layers, Mapping) else None
+    if isinstance(company_layer, Mapping):
+        if company_layer.get("explicit_subject_in_claim") is True:
+            return True
+        for key in ("target_id", "metadata_ts_code"):
+            value = str(company_layer.get(key) or "").strip()
+            if value and value in claim_text:
+                return True
+    return bool(_EXPLICIT_STOCK_CODE_RE.search(claim_text))
 
 
 def _generic_company_stock_target(row: Mapping[str, Any], claim_text: str) -> bool:
     target_variables = {str(value) for value in row.get("proposed_target_variables") or ()}
     if "stock_forward_excess_return" not in target_variables:
+        return False
+    if _explicit_stock_subject_in_review_row(row, claim_text):
         return False
     return bool(
         _GENERIC_COMPANY_SUBJECT_RE.search(claim_text)
@@ -286,6 +304,9 @@ def gold_candidate_reviewable(row: Mapping[str, Any]) -> bool:
         return False
     proposed_claim_text = str(row.get("proposed_claim_text") or "").strip()
     if not proposed_claim_text:
+        return False
+    proposed_pre_review = row.get("proposed_pre_review")
+    if isinstance(proposed_pre_review, Mapping) and proposed_pre_review.get("decision") == "exclude":
         return False
     proposed_flags = {str(flag) for flag in row.get("proposed_review_risk_flags") or ()}
     if "candidate_unavailable" in proposed_flags:
@@ -301,6 +322,7 @@ def gold_candidate_reviewable(row: Mapping[str, Any]) -> bool:
         "sentence_fallback_requires_context_synthesis",
         "original_markdown_sentence_fallback",
         "fragment_or_sentence_level_claim",
+        "incomplete_or_trailing_connector_claim",
         "full_text_thesis_logic_chain_missing",
         "layered_regime_or_company_logic_missing",
         "economic_mechanism_missing",
@@ -458,6 +480,11 @@ def _gold_template_row(row: Mapping[str, Any]) -> dict[str, Any]:
         "target_review_path": GOLD_REVIEW_TEMPLATE_PATH,
         "proposed_claim_text": _short_review_preview(proposed_claim_text),
         "proposed_claim_text_truncated": len(proposed_claim_text) > 72,
+        "proposed_analyst_claim": _short_review_preview(
+            row.get("proposed_analyst_claim"),
+            max_chars=180,
+        ),
+        "proposed_pre_review": dict(row.get("proposed_pre_review") or {}),
         "proposed_claim_type": row.get("proposed_claim_type"),
         "proposed_extraction_confidence_bin": row.get("proposed_extraction_confidence_bin"),
         "proposed_gold_set_domain": row.get("proposed_gold_set_domain"),
@@ -2041,6 +2068,8 @@ def _gold_evidence_row(
         "document_id": str(row.get("document_id") or row.get("source_id") or ""),
         "gold_set_domain": str(row.get("gold_set_domain") or "other"),
         "proposed_claim_text": proposed_claim_text,
+        "proposed_analyst_claim": str(row.get("proposed_analyst_claim") or "").strip(),
+        "proposed_pre_review": dict(row.get("proposed_pre_review") or {}),
         "proposed_claim_type": row.get("proposed_claim_type"),
         "proposed_direction": proposed_direction,
         "proposed_cause_variables": tuple(row.get("proposed_cause_variables") or ()),
@@ -2748,9 +2777,10 @@ def build_manual_review_batch_status(
         label="source license review",
     )
 
-    pending_gold = _gold_reviewable_pending_rows(gold_rows)
+    pending_gold = _gold_reviewable_pending_rows(gold_rows, max_rows_per_source=0)
+    batch_gold = _gold_reviewable_pending_rows(gold_rows)
     pending_license = [row for row in license_rows if not _license_row_complete(row)]
-    gold_batch = tuple(_gold_template_row(row) for row in pending_gold[:gold_batch_size])
+    gold_batch = tuple(_gold_template_row(row) for row in batch_gold[:gold_batch_size])
     license_batch = tuple(_license_template_row(row) for row in pending_license[:license_batch_size])
     gold_pending_ids = tuple(str(row.get("claim_id") or "") for row in pending_gold)
     license_pending_ids = tuple(str(row.get("source_id") or "") for row in pending_license)
@@ -2862,13 +2892,16 @@ def write_manual_review_batches(
         GOLD_REVIEW_TEMPLATE_PATH,
         label="gold-set review",
     )
-    gold_full = tuple(_gold_template_row(row) for row in _gold_reviewable_pending_rows(gold_rows))
+    gold_full = tuple(
+        _gold_template_row(row)
+        for row in _gold_reviewable_pending_rows(gold_rows, max_rows_per_source=0)
+    )
     gold_result = _write_jsonl(root_path / GOLD_BATCH_IMPORT_TEMPLATE_PATH, gold_batch)
     gold_full_result = _write_jsonl(root_path / GOLD_FULL_IMPORT_TEMPLATE_PATH, gold_full)
     gold_review_input_path = (
         GOLD_REVIEWED_IMPORT_PATH
         if (root_path / GOLD_REVIEWED_IMPORT_PATH).exists()
-        else None
+        else GOLD_BATCH_IMPORT_TEMPLATE_PATH
     )
     gold_workbook_result = write_gold_review_workbook(
         root_path,
@@ -2939,7 +2972,10 @@ def write_gold_review_starter(
     source_rows = (
         _gold_reviewed_failure_rows(gold_rows)
         if reviewed_failures
-        else _gold_reviewable_pending_rows(gold_rows)
+        else _gold_reviewable_pending_rows(
+            gold_rows,
+            max_rows_per_source=0 if full else GOLD_REVIEW_MAX_ROWS_PER_SOURCE,
+        )
     )
     offset_value = 0 if full else max(0, int(offset))
     if full:

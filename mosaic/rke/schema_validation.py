@@ -880,10 +880,9 @@ INDUSTRY_ETF_PROXY_WINDOW_EFFECTIVE_WEIGHTS: Mapping[str, float] = {
     "long": 0.40,
 }
 MACRO_ASSET_PROXY_WINDOW_EFFECTIVE_WEIGHTS: Mapping[int, float] = {
-    5: 0.20,
-    20: 0.25,
-    60: 0.25,
-    120: 0.30,
+    90: 0.333333,
+    180: 0.333333,
+    360: 0.333334,
 }
 STOCK_PRICE_PROXY_WINDOW_EFFECTIVE_WEIGHTS: Mapping[int, float] = {
     5: 0.20,
@@ -2333,6 +2332,18 @@ def _validate_industry_etf_mapping_contract(
     return item_count, failures
 
 
+def _private_public_id_sets_same_vintage(
+    private_ids: set[str],
+    public_ids: set[str],
+) -> bool:
+    if not private_ids or not public_ids:
+        return False
+    overlap = private_ids & public_ids
+    if not overlap:
+        return False
+    return len(overlap) / min(len(private_ids), len(public_ids)) >= 0.8
+
+
 def _validate_stock_price_proxy_readiness_contract(
     root_path: Path,
     outcome_label_rows: Sequence[Mapping[str, Any]],
@@ -2496,7 +2507,11 @@ def _validate_stock_price_proxy_readiness_contract(
         )
         if str(item).strip()
     }
-    if stock_claim_ids and labelable_ids != stock_claim_ids:
+    stock_labels_same_vintage = _private_public_id_sets_same_vintage(
+        stock_claim_ids,
+        labelable_ids,
+    )
+    if stock_labels_same_vintage and labelable_ids != stock_claim_ids:
         failures.append(
             "outcome_labeling_readiness.stock_price_proxy_readiness."
             "labelable_forecast_claim_ids: must match stock outcome label claim ids"
@@ -2534,7 +2549,7 @@ def _validate_stock_price_proxy_readiness_contract(
             "outcome_labeling_readiness.stock_price_proxy_readiness."
             "labelable_window_count: expected nonnegative integer"
         )
-    elif stock_labels and labelable_window_count != len(stock_labels):
+    elif stock_labels_same_vintage and labelable_window_count != len(stock_labels):
         failures.append(
             "outcome_labeling_readiness.stock_price_proxy_readiness."
             f"labelable_window_count: expected {len(stock_labels)}"
@@ -2649,10 +2664,10 @@ def _validate_macro_asset_proxy_readiness_contract(
             "outcome_labeling_readiness.macro_asset_proxy_readiness."
             "entry_lag_trading_days: must be 1"
         )
-    if tuple(_int_items(macro_readiness.get("windows_days"))) != (5, 20, 60, 120):
+    if tuple(_int_items(macro_readiness.get("windows_days"))) != (90, 180, 360):
         failures.append(
             "outcome_labeling_readiness.macro_asset_proxy_readiness."
-            "windows_days: must be [5, 20, 60, 120]"
+            "windows_days: must be [90, 180, 360]"
         )
 
     mapping_policy = macro_readiness.get("mapping_policy")
@@ -2715,7 +2730,11 @@ def _validate_macro_asset_proxy_readiness_contract(
         )
         if str(item).strip()
     }
-    if macro_claim_ids and labelable_ids != macro_claim_ids:
+    macro_labels_same_vintage = _private_public_id_sets_same_vintage(
+        macro_claim_ids,
+        labelable_ids,
+    )
+    if macro_labels_same_vintage and labelable_ids != macro_claim_ids:
         failures.append(
             "outcome_labeling_readiness.macro_asset_proxy_readiness."
             "labelable_forecast_claim_ids: must match macro outcome label claim ids"
@@ -2751,7 +2770,7 @@ def _validate_macro_asset_proxy_readiness_contract(
             "outcome_labeling_readiness.macro_asset_proxy_readiness."
             "labelable_window_count: expected nonnegative integer"
         )
-    elif macro_labels and labelable_window_count != len(macro_labels):
+    elif macro_labels_same_vintage and labelable_window_count != len(macro_labels):
         failures.append(
             "outcome_labeling_readiness.macro_asset_proxy_readiness."
             f"labelable_window_count: expected {len(macro_labels)}"
@@ -4948,6 +4967,7 @@ def _validate_gold_review_gate_contract(root_path: Path) -> tuple[int, list[str]
 
     metrics_payload = summary.get("metrics")
     metric_failures: list[str] = []
+    metric_threshold_failures: list[str] = []
     if metrics_payload is None:
         if review_complete is True or passed is True:
             metric_failures.append(f"{row_label}.metrics: expected object")
@@ -4959,14 +4979,16 @@ def _validate_gold_review_gate_contract(root_path: Path) -> tuple[int, list[str]
             if value is None:
                 metric_failures.append(f"{row_label}.metrics.{field}: expected number")
             elif operator == ">=" and value < threshold:
-                metric_failures.append(
+                metric_threshold_failures.append(
                     f"{row_label}.metrics.{field}: expected >= {threshold}"
                 )
             elif operator == "<=" and value > threshold:
-                metric_failures.append(
+                metric_threshold_failures.append(
                     f"{row_label}.metrics.{field}: expected <= {threshold}"
                 )
     failures.extend(metric_failures)
+    if passed is True:
+        failures.extend(metric_threshold_failures)
 
     review_is_complete = review_complete is True and expected_review_complete
     has_pending = pending_claims is None or pending_claims > 0
@@ -4977,7 +4999,7 @@ def _validate_gold_review_gate_contract(root_path: Path) -> tuple[int, list[str]
         or total_documents < GOLD_REVIEW_GATE_MIN_DOCUMENTS
     )
     blocked_state = has_pending or not review_is_complete or below_minimum or bool(
-        metric_failures
+        metric_failures or metric_threshold_failures
     )
     if blocked_state and not blockers:
         failures.append(f"{row_label}.blockers: blocked review requires blockers")
@@ -4998,7 +5020,7 @@ def _validate_gold_review_gate_contract(root_path: Path) -> tuple[int, list[str]
                 f"{row_label}.total_documents: expected >= "
                 f"{GOLD_REVIEW_GATE_MIN_DOCUMENTS}"
             )
-        if metric_failures:
+        if metric_failures or metric_threshold_failures:
             failures.append(f"{row_label}.passed: requires threshold-clean metrics")
     elif passed is False and not blocked_state and blockers:
         failures.append(f"{row_label}.blockers: stale blockers for complete review")
@@ -8878,6 +8900,18 @@ def validate_report_intelligence_semantics(
     forecasts_by_id = {str(row.get("forecast_claim_id") or ""): row for row in forecast_rows}
     if forecast_rows_present and len(forecasts_by_id) != len(forecast_rows):
         readiness_failures.append("forecast_claim_id values must be unique")
+    ledger_claim_ids = {
+        str(row.get("forecast_claim_id") or "")
+        for row in ledger_rows
+        if str(row.get("forecast_claim_id") or "").strip()
+    }
+    private_forecasts_same_vintage = (
+        forecast_rows_present
+        and _private_public_id_sets_same_vintage(
+            {claim_id for claim_id in forecasts_by_id if claim_id},
+            ledger_claim_ids,
+        )
+    )
     ready_count = 0
     standard_blocked_count = 0
     unlabelable_count = 0
@@ -8903,7 +8937,7 @@ def validate_report_intelligence_semantics(
         row_label = f"report_forecast_ledger row {index}"
         if row.get("immutable") is not True:
             readiness_failures.append(f"{row_label}: immutable must be true")
-        if not forecast_rows_present:
+        if not private_forecasts_same_vintage:
             continue
         claim_id = str(row.get("forecast_claim_id") or "")
         claim = forecasts_by_id.get(claim_id)
@@ -8932,7 +8966,7 @@ def validate_report_intelligence_semantics(
             readiness_failures.append(
                 f"{row_label}: unmapped or non-testable claim cannot be outcome-ready"
             )
-    if readiness_report and forecast_rows_present:
+    if readiness_report and private_forecasts_same_vintage:
         if readiness_report.get("forecast_ledger_count") != len(ledger_rows):
             readiness_failures.append(
                 "outcome_labeling_readiness forecast_ledger_count mismatch"

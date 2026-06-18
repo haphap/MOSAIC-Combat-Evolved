@@ -18,7 +18,12 @@ from typing import Any, Mapping, Sequence
 from .claim_text_filters import is_gold_candidate_noise_text, strip_trailing_rating_suffix
 from .claim_vocabulary import load_claim_variable_vocabulary
 from .manual_review_batches import gold_candidate_reviewable
-from .phase_minus1 import build_gold_set_review_template, load_jsonl_with_errors
+from .phase_minus1 import (
+    DEFAULT_GOLD_SET_DOCUMENTS,
+    build_gold_set_review_template,
+    load_jsonl_with_errors,
+    select_gold_set_candidates,
+)
 from .review_integrity import license_review_row_complete
 
 
@@ -303,17 +308,135 @@ SEMICONDUCTOR_POLICY_TERMS = (
     "封测",
 )
 TRADE_OR_GEOPOLITICAL_TERMS = (
-    "出口",
-    "限制",
-    "管制",
-    "封锁",
+    "出口管制",
+    "出口限制",
+    "技术封锁",
+    "实体清单",
     "制裁",
     "地缘",
     "关税",
     "贸易摩擦",
-    "中美",
-    "国产",
-    "替代",
+    "反倾销",
+    "反补贴",
+    "中美贸易",
+    "中美摩擦",
+    "中美关系",
+)
+TRADE_OR_GEOPOLITICAL_LOWER_TERMS = (
+    "export control",
+    "sanction",
+    "tariff",
+    "geopolitical",
+    "trade friction",
+)
+PBOC_MONETARY_CONTEXT_TERMS = (
+    "央行",
+    "人行",
+    "人民银行",
+    "公开市场",
+    "逆回购",
+    "MLF",
+    "LPR",
+    "降准",
+    "降息",
+    "货币政策",
+    "资金面",
+    "流动性投放",
+    "净投放",
+)
+DOMESTIC_BOND_LIQUIDITY_TERMS = (
+    "利率债",
+    "债市",
+    "债券市场",
+    "国债收益率",
+    "资金面",
+    "短端利率",
+    "长端利率",
+    "DR007",
+    "R007",
+)
+EXPLICIT_SUPPLY_CONSTRAINT_TERMS = (
+    "供给约束",
+    "供应紧缺",
+    "供应偏紧",
+    "供给紧张",
+    "供需缺口",
+    "新增供给有限",
+    "供给增量有限",
+    "短缺",
+    "瓶颈",
+    "紧平衡",
+    "限产",
+    "开采指标",
+    "库存低位",
+    "库存去化",
+    "运力紧张",
+    "运力偏紧",
+    "出口管制",
+    "封锁",
+    "制裁",
+    "产能过剩",
+)
+SUPPLY_CONSTRAINT_MODIFIERS = (
+    "供需",
+    "供给",
+    "供应",
+    "短缺",
+    "紧平衡",
+    "过剩",
+    "约束",
+    "受限",
+    "瓶颈",
+    "缺口",
+)
+COMMODITY_PRICE_TERMS = (
+    "铜",
+    "铜价",
+    "铝",
+    "铝价",
+    "锂",
+    "锂价",
+    "钴",
+    "钴价",
+    "镍",
+    "镍价",
+    "锌",
+    "锌价",
+    "铅",
+    "铅价",
+    "黄金",
+    "金价",
+    "白银",
+    "银价",
+    "贵金属",
+    "金属价格",
+    "稀土",
+    "钨",
+    "钨价",
+    "锑",
+    "锑价",
+    "煤炭",
+    "煤价",
+    "动力煤",
+    "焦煤",
+    "焦炭",
+    "铁矿",
+    "铁矿石",
+    "钢价",
+    "天然气",
+    "气价",
+    "LNG",
+    "氦气",
+    "商品价格",
+    "大宗商品",
+    "油价",
+    "原油",
+    "油运",
+    "commodity",
+    "gold",
+    "copper",
+    "aluminum",
+    "lithium",
 )
 MANUAL_REVIEW_FIELDS = (
     "manual_claim_text",
@@ -358,6 +481,17 @@ LOGIC_CHAIN_TERMS = (
     "压制",
     "传导",
 )
+INCOMPLETE_TRAILING_TERMS = (
+    "因此",
+    "从而",
+    "进而",
+    "导致",
+    "使得",
+    "由于",
+    "因为",
+    "建议",
+    "预计",
+)
 VALUATION_OR_FORECAST_TERMS = (
     "盈利预测",
     "业绩预测",
@@ -365,12 +499,17 @@ VALUATION_OR_FORECAST_TERMS = (
     "净利润预测",
     "EPS",
     "eps",
+    "业绩",
     "营收",
     "收入",
+    "订单",
     "利润",
     "盈利",
     "毛利",
     "现金流",
+    "市占率",
+    "市场份额",
+    "成长",
     "估值",
     "PE",
     "PB",
@@ -386,6 +525,7 @@ STOCK_TARGET_VARIABLES = {"stock_forward_excess_return"}
 THESIS_BLOCKING_RISK_FLAGS = {
     "sentence_fallback_not_reviewable",
     "fragment_or_sentence_level_claim",
+    "incomplete_or_trailing_connector_claim",
     "full_text_thesis_logic_chain_missing",
     "layered_regime_or_company_logic_missing",
     "economic_mechanism_missing",
@@ -449,6 +589,8 @@ class GoldCandidateClaim:
     candidate_available: bool
     claim_type: str
     claim_text: str
+    analyst_claim: str
+    pre_review: Mapping[str, Any]
     cause_variables: Sequence[str]
     target_variables: Sequence[str]
     direction: str
@@ -512,6 +654,77 @@ def _split_mapping_rows(rows: Sequence[Any]) -> tuple[list[Mapping[str, Any]], t
         else:
             invalid_row_numbers.append(index)
     return valid_rows, tuple(invalid_row_numbers)
+
+
+def _forecast_claim_review_source_ids(root_path: Path) -> tuple[str, ...]:
+    path = root_path / REPORT_FORECAST_CLAIMS_PATH
+    if not path.exists():
+        return ()
+    raw_rows, _ = load_jsonl_with_errors(path, label="report-intelligence forecast claim")
+    rows, _ = _split_mapping_rows(raw_rows)
+    out: list[str] = []
+    seen: set[str] = set()
+    for row in rows:
+        source_id = str(row.get("source_id") or "").strip()
+        if not source_id or source_id in seen:
+            continue
+        pre_review = row.get("pre_review")
+        decision = (
+            str(pre_review.get("decision") or "")
+            if isinstance(pre_review, Mapping)
+            else ""
+        )
+        if decision not in {"include", "rewrite_needed"}:
+            continue
+        claim_text = strip_trailing_rating_suffix(
+            str(row.get("claim_text") or "").strip()
+        )
+        forecast_type = str(row.get("forecast_type") or "").lower()
+        if (
+            not claim_text
+            or any(term in forecast_type for term in ("rating", "recommendation"))
+            or _is_boilerplate_risk_warning(claim_text)
+        ):
+            continue
+        seen.add(source_id)
+        out.append(source_id)
+    return tuple(out)
+
+
+def select_gold_set_candidates_for_claim_review(
+    root: str | Path,
+    source_rows: Sequence[Any],
+    *,
+    max_documents: int = DEFAULT_GOLD_SET_DOCUMENTS,
+) -> list[dict[str, Any]]:
+    selected = select_gold_set_candidates(source_rows, max_documents=max_documents)
+    claim_source_ids = _forecast_claim_review_source_ids(Path(root))
+    if not claim_source_ids:
+        return selected
+
+    all_annotated = select_gold_set_candidates(
+        source_rows,
+        max_documents=max(len(source_rows), max_documents),
+    )
+    by_source_id = {
+        str(row.get("source_id") or ""): row
+        for row in all_annotated
+        if str(row.get("source_id") or "").strip()
+    }
+    seen = {
+        str(row.get("source_id") or "")
+        for row in selected
+        if str(row.get("source_id") or "").strip()
+    }
+    for source_id in claim_source_ids:
+        if source_id in seen:
+            continue
+        row = by_source_id.get(source_id)
+        if row is None:
+            continue
+        selected.append(dict(row))
+        seen.add(source_id)
+    return selected
 
 
 def _malformed_row_blocker(label: str, row_numbers: Sequence[int]) -> str:
@@ -596,6 +809,36 @@ def _review_rows_by_source(review_rows: Sequence[Mapping[str, Any]]) -> dict[str
         if source_id:
             grouped.setdefault(source_id, []).append(row)
     return grouped
+
+
+def _review_row_slot_index(row: Mapping[str, Any], fallback_index: int) -> int:
+    match = re.search(r"-(\d{3})$", str(row.get("claim_id") or ""))
+    if not match:
+        return fallback_index
+    return max(0, int(match.group(1)) - 1)
+
+
+def _padded_review_rows_for_source(
+    existing_rows: Sequence[Mapping[str, Any]],
+    starter_rows: Sequence[Mapping[str, Any]],
+    *,
+    max_rows: int,
+) -> tuple[Mapping[str, Any], ...]:
+    out = list(existing_rows)
+    seen = {str(row.get("claim_id") or "") for row in out}
+    for row in starter_rows:
+        if len(out) >= max_rows:
+            break
+        claim_id = str(row.get("claim_id") or "")
+        if claim_id and claim_id not in seen:
+            out.append(row)
+            seen.add(claim_id)
+    return tuple(
+        sorted(
+            out[:max_rows],
+            key=lambda row: _review_row_slot_index(row, max_rows),
+        )
+    )
 
 
 def _source_sentences(text: str) -> list[tuple[int, int, str, tuple[str, ...]]]:
@@ -815,10 +1058,20 @@ def _explicit_stock_subject_present(
     text = str(claim_text or "")
     if target_id and target_id in text:
         return True
+    stock_code = target_id.split(".", 1)[0] if "." in target_id else ""
+    if stock_code and stock_code in text:
+        return True
     for field in ("name", "stock_name", "company_name"):
         value = str(candidate.get(field) or "").strip()
         if len(value) >= 2 and value in text:
             return True
+    abstract_head = str(candidate.get("abstract") or "").strip().splitlines()[:1]
+    if abstract_head:
+        match = re.match(r"\s*([\u4e00-\u9fa5A-Za-z0-9·（）()]+)[（(]\d{6}", abstract_head[0])
+        if match:
+            value = match.group(1).strip()
+            if 2 <= len(value) <= 12 and value in text:
+                return True
     title = str(candidate.get("title") or "").strip()
     if title:
         title_head = re.split(r"[:：,，|｜/\\-]|--|——", title, maxsplit=1)[0].strip()
@@ -838,6 +1091,13 @@ def _explicit_stock_subject_present(
 
 def _valuation_or_forecast_terms(text: str) -> tuple[str, ...]:
     return tuple(term for term in VALUATION_OR_FORECAST_TERMS if term in text)
+
+
+def _looks_incomplete_claim_text(text: str) -> bool:
+    stripped = str(text or "").strip().rstrip("。！？!?；;，,、：: ")
+    return bool(stripped) and any(
+        stripped.endswith(term) for term in INCOMPLETE_TRAILING_TERMS
+    )
 
 
 def _layered_research_context(
@@ -974,6 +1234,8 @@ def _thesis_quality_risk_flags(
     text = re.sub(r"\s+", " ", str(claim_text or "")).strip()
     if len(text) < MIN_FULL_THESIS_CHARS:
         flags.append("fragment_or_sentence_level_claim")
+    if _looks_incomplete_claim_text(text):
+        flags.append("incomplete_or_trailing_connector_claim")
     if not any(term in text for term in LOGIC_CHAIN_TERMS):
         flags.append("full_text_thesis_logic_chain_missing")
     macro_layer = research_layers.get("macro_regime")
@@ -1023,6 +1285,13 @@ def _contains_any(text: str, keywords: Sequence[str]) -> bool:
     return any(keyword in text for keyword in keywords)
 
 
+def _has_trade_or_geopolitical_context(text: str) -> bool:
+    if any(term in text for term in TRADE_OR_GEOPOLITICAL_TERMS):
+        return True
+    text_lower = text.lower()
+    return any(term in text_lower for term in TRADE_OR_GEOPOLITICAL_LOWER_TERMS)
+
+
 def _has_dollar_macro_context(text: str) -> bool:
     if any(term in text for term in DOLLAR_MACRO_CONTEXT_TERMS):
         return True
@@ -1056,7 +1325,10 @@ def _has_volatility_macro_context(text: str) -> bool:
 
 
 def _stock_like_identifier(value: str) -> bool:
-    return bool(re.search(r"\b(?:00|30|60|68|90|92)\d{4}\.(?:SZ|SH|BJ)\b", value))
+    return bool(
+        re.search(r"\b(?:00|30|60|68|90|92)\d{4}\.(?:SZ|SH|BJ)\b", value)
+        or re.search(r"\b[A-Z]{1,5}\.(?:O|N|US|NASDAQ|NYSE)\b", value)
+    )
 
 
 def _variable_pair(
@@ -1095,7 +1367,6 @@ def _variable_pair(
         keyword in text
         for keyword in (
             "社融",
-            "贷款",
             "信贷",
             "居民中长期",
             "企业中长期",
@@ -1103,6 +1374,8 @@ def _variable_pair(
             "融资规模",
         )
     )
+    if "贷款" in text and "再贷款" not in text:
+        bank_credit_growth_context = True
     has_ai_compute_context = any(keyword in text for keyword in AI_COMPUTE_CONTEXT_TERMS)
     has_semiconductor_context = any(keyword in text for keyword in SEMICONDUCTOR_CONTEXT_TERMS)
     has_storage_cycle_context = any(keyword in text_upper for keyword in SEMICONDUCTOR_STORAGE_CYCLE_TERMS)
@@ -1111,7 +1384,7 @@ def _variable_pair(
         _append_known(cause, "ai_compute_demand", known_variable_ids)
     if has_storage_cycle_context and not construction_proxy_view:
         _append_known(target, "semiconductor_storage_cycle", known_variable_ids)
-    if any(keyword in text for keyword in TRADE_OR_GEOPOLITICAL_TERMS):
+    if _has_trade_or_geopolitical_context(text):
         _append_known(cause, "trade_friction_intensity", known_variable_ids)
     if (
         has_semiconductor_context
@@ -1130,13 +1403,27 @@ def _variable_pair(
     ):
         _append_known(cause, "liquor_demand_recovery", known_variable_ids)
         _append_known(target, "consumer_leader_profitability_expectation", known_variable_ids)
+    foreign_rate_context = any(
+        keyword in text
+        for keyword in (
+            "美元",
+            "美联储",
+            "Fed",
+            "FED",
+            "PCE",
+            "TIPS",
+            "美债",
+            "汇率",
+            "跨境",
+            "境外",
+            "全球",
+        )
+    )
     if (
-        any(keyword in text for keyword in ("流动性", "央行", "利率", "资金"))
+        any(keyword in text for keyword in PBOC_MONETARY_CONTEXT_TERMS)
         and not wealth_management_context
         and not bank_credit_growth_context
-        and not any(
-        keyword in text for keyword in ("美元", "美联储", "Fed", "FED", "PCE", "TIPS", "美债", "汇率", "跨境", "境外", "全球")
-        )
+        and not foreign_rate_context
     ):
         _append_known(cause, "pboc_net_injection", known_variable_ids)
         _append_known(target, "short_term_liquidity_pressure", known_variable_ids)
@@ -1146,7 +1433,9 @@ def _variable_pair(
         if any(keyword in text for keyword in ("配置", "多资产", "收益", "增长", "改善", "提升")):
             _append_known(cause, "industry_demand_cycle", known_variable_ids)
         _append_known(target, "wealth_management_nav_pressure", known_variable_ids)
-    elif any(keyword in text for keyword in ("银行", "信贷", "贷款", "利差", "净息差", "息差")):
+    elif any(keyword in text for keyword in ("银行", "信贷", "利差", "净息差", "息差")) or (
+        "贷款" in text and "再贷款" not in text
+    ):
         _append_known(cause, "bank_credit_supply", known_variable_ids)
         if bank_credit_growth_context:
             _append_known(target, "bank_credit_growth_expectation", known_variable_ids)
@@ -1155,7 +1444,11 @@ def _variable_pair(
     elif bank_credit_growth_context:
         _append_known(cause, "bank_credit_supply", known_variable_ids)
         _append_known(target, "bank_credit_growth_expectation", known_variable_ids)
-    if any(keyword in text for keyword in ("利率债", "收益率", "资金面", "短端", "长端利率", "债券市场")):
+    if (
+        any(keyword in text for keyword in DOMESTIC_BOND_LIQUIDITY_TERMS)
+        and not wealth_management_context
+        and not foreign_rate_context
+    ):
         _append_known(cause, "pboc_net_injection", known_variable_ids)
         _append_known(target, "short_term_liquidity_pressure", known_variable_ids)
     if any(keyword in text for keyword in ("估值", "PE", "PB", "分位")):
@@ -1284,59 +1577,16 @@ def _variable_pair(
         )
     ):
         _append_known(cause, "industry_demand_cycle", known_variable_ids)
-    if any(
-        keyword in text
-        for keyword in (
-            "供给",
-            "产能",
-            "库存",
-            "短缺",
-            "瓶颈",
-            "紧平衡",
-            "缺口",
-            "限产",
-            "运力",
-            "偏紧",
-            "出口",
-            "封锁",
-            "管制",
-            "capacity",
-            "inventory",
-            "shortage",
-            "supply",
+    if (
+        any(keyword in text for keyword in EXPLICIT_SUPPLY_CONSTRAINT_TERMS)
+        or (
+            any(keyword in text for keyword in ("供给", "供应", "库存", "产能"))
+            and any(keyword in text for keyword in SUPPLY_CONSTRAINT_MODIFIERS)
         )
+        or any(keyword in text_lower for keyword in ("inventory", "shortage", "supply constraint"))
     ):
         _append_known(cause, "industry_supply_constraint", known_variable_ids)
-    if any(
-        keyword in text
-        for keyword in (
-            "铜",
-            "铝",
-            "锂",
-            "钴",
-            "镍",
-            "锌",
-            "铅",
-            "黄金",
-            "金价",
-            "白银",
-            "贵金属",
-            "金属价格",
-            "稀土",
-            "钨",
-            "锑",
-            "商品",
-            "大宗",
-            "油价",
-            "原油",
-            "油运",
-            "commodity",
-            "gold",
-            "copper",
-            "aluminum",
-            "lithium",
-        )
-    ):
+    if any(keyword in text for keyword in COMMODITY_PRICE_TERMS):
         _append_known(cause, "commodity_price_cycle", known_variable_ids)
     if _has_dollar_macro_context(text):
         _append_known(cause, "global_dollar_liquidity_pressure", known_variable_ids)
@@ -1566,6 +1816,8 @@ def _candidate_claim_for_review_row(
         candidate_available=candidate_available,
         claim_type=claim_type,
         claim_text=claim_text,
+        analyst_claim=claim_text,
+        pre_review={},
         cause_variables=cause_variables,
         target_variables=target_variables,
         direction=direction,
@@ -1734,6 +1986,11 @@ def _candidate_claim_from_report_intelligence(
     claim_text = strip_trailing_rating_suffix(
         str(report_claim.get("claim_text") or "").strip()
     )
+    analyst_claim = strip_trailing_rating_suffix(
+        str(report_claim.get("analyst_claim") or claim_text).strip()
+    )
+    pre_review = report_claim.get("pre_review")
+    pre_review = dict(pre_review) if isinstance(pre_review, Mapping) else {}
     span_ref_id = _source_span_ref_id_from_report_claim(
         report_claim,
         source_span_id,
@@ -1755,10 +2012,21 @@ def _candidate_claim_from_report_intelligence(
         if isinstance(target, Mapping)
         else ""
     )
+    target_type = (
+        str(target.get("target_type") or "")
+        if isinstance(target, Mapping)
+        else ""
+    )
     llm_target_variables = (
-        (target_id,)
-        if target_id and target_id in known_variable_ids and variable_type_by_id.get(target_id) == "target"
-        else ()
+        ("stock_forward_excess_return",)
+        if target_type == "stock" and "stock_forward_excess_return" in known_variable_ids
+        else (
+            (target_id,)
+            if target_id
+            and target_id in known_variable_ids
+            and variable_type_by_id.get(target_id) == "target"
+            else ()
+        )
     )
     fallback_cause_variables, fallback_target_variables, _ = _variable_pair(
         claim_text,
@@ -1770,9 +2038,14 @@ def _candidate_claim_from_report_intelligence(
     cause_variables = tuple(
         dict.fromkeys((*llm_cause_variables, *fallback_cause_variables))
     )
+    fallback_targets = (
+        ()
+        if llm_target_variables or llm_target_candidates
+        else fallback_target_variables
+    )
     target_variables = tuple(
         dict.fromkeys(
-            (*llm_target_variables, *llm_target_candidates, *fallback_target_variables)
+            (*llm_target_variables, *llm_target_candidates, *fallback_targets)
         )
     )
     target_variables = _normalize_targets_for_context(
@@ -1783,6 +2056,8 @@ def _candidate_claim_from_report_intelligence(
         ts_code=str(candidate.get("ts_code") or ""),
         known_variable_ids=known_variable_ids,
     )
+    if target_type == "stock" and "stock_forward_excess_return" in known_variable_ids:
+        target_variables = ("stock_forward_excess_return",)
     extraction_quality = report_claim.get("extraction_quality")
     mapping_gaps = _string_sequence(extraction_quality.get("mapping_gaps")) if isinstance(extraction_quality, Mapping) else ()
     risk_flags = [
@@ -1845,6 +2120,8 @@ def _candidate_claim_from_report_intelligence(
         candidate_available=True,
         claim_type=str(report_claim.get("forecast_type") or "forecast_claim"),
         claim_text=claim_text,
+        analyst_claim=analyst_claim or claim_text,
+        pre_review=pre_review,
         cause_variables=cause_variables,
         target_variables=target_variables,
         direction=direction,
@@ -1903,10 +2180,11 @@ def _build_gold_candidate_claims_with_blockers(
     for candidate in candidates:
         source_id = str(candidate.get("source_id") or "")
         sentence_rows = _source_sentences(str(candidate.get("abstract") or candidate.get("source_span_text") or ""))
-        review_rows_for_source = tuple(
-            review_by_source.get(source_id)
-            or starter_review_by_source.get(source_id, ())
-        )[:MAX_REVIEW_CLAIMS_PER_SOURCE]
+        review_rows_for_source = _padded_review_rows_for_source(
+            review_by_source.get(source_id, ()),
+            starter_review_by_source.get(source_id, ()),
+            max_rows=MAX_REVIEW_CLAIMS_PER_SOURCE,
+        )
         report_claims = report_claims_by_source.get(source_id, ())[:MAX_REVIEW_CLAIMS_PER_SOURCE]
         markdown_sentence_rows = markdown_sentences_by_source.get(source_id, ())
         fallback_sentence_rows = _non_duplicate_sentence_rows(
@@ -1914,14 +2192,15 @@ def _build_gold_candidate_claims_with_blockers(
             tuple(str(row.get("claim_text") or "") for row in report_claims),
         )
         for idx, review_row in enumerate(review_rows_for_source):
+            claim_slot_index = _review_row_slot_index(review_row, idx)
             source_claims_added = sum(1 for claim in claims if claim.source_id == source_id)
-            if idx < len(report_claims):
+            if claim_slot_index < len(report_claims):
                 claims.append(
                     _candidate_claim_from_report_intelligence(
                         candidate,
                         review_row,
-                        report_claims[idx],
-                        idx,
+                        report_claims[claim_slot_index],
+                        claim_slot_index,
                         known_variable_ids,
                         variable_type_by_id,
                         approved_license_source_ids,
@@ -1929,7 +2208,7 @@ def _build_gold_candidate_claims_with_blockers(
                     )
                 )
             else:
-                fallback_row_index = idx - len(report_claims)
+                fallback_row_index = claim_slot_index - len(report_claims)
                 if fallback_row_index >= len(fallback_sentence_rows):
                     break
                 fallback_span_id = (
@@ -1999,15 +2278,19 @@ def merge_candidate_claims_into_review_template(
         for row in rows
     }
     merged: list[dict[str, Any]] = []
+    merged_claim_ids: set[str] = set()
     for row in rows:
         out = dict(row)
-        claim = by_claim_id.get(str(row.get("claim_id") or ""))
+        claim_id = str(row.get("claim_id") or "")
+        claim = by_claim_id.get(claim_id)
         if claim is not None:
             out.update(
                 {
                     "gold_set_domain": claim.gold_set_domain,
                     "gold_set_domains": list(claim.gold_set_domains),
                     "proposed_claim_text": claim.claim_text,
+                    "proposed_analyst_claim": claim.analyst_claim,
+                    "proposed_pre_review": _jsonable(claim.pre_review),
                     "proposed_claim_type": claim.claim_type,
                     "proposed_gold_set_domain": claim.gold_set_domain,
                     "proposed_gold_set_domains": list(claim.gold_set_domains),
@@ -2029,11 +2312,19 @@ def merge_candidate_claims_into_review_template(
             )
             if not _manual_review_value_present(out) and not gold_candidate_reviewable(out):
                 continue
+            merged_claim_ids.add(claim.claim_id)
         elif not _manual_review_value_present(row):
             continue
         else:
             out["proposed_candidate_current"] = False
         merged.append(out)
+    for claim in claims:
+        if claim.claim_id in merged_claim_ids:
+            continue
+        out = _review_template_row_from_candidate_claim(claim)
+        if gold_candidate_reviewable(out):
+            merged.append(out)
+            merged_claim_ids.add(claim.claim_id)
     blockers = [*pre_merge_blockers, *review_parse_blockers]
     if invalid_review_rows:
         blockers.append(_malformed_row_blocker("gold-set review", invalid_review_rows))
@@ -2046,6 +2337,7 @@ def merge_candidate_claims_into_review_template(
     retained_manual_fields_preserved = all(
         manual_before.get(claim_id) == fields
         for claim_id, fields in manual_after.items()
+        if claim_id in manual_before
     )
     dropped_manual_claim_ids = [
         claim_id
@@ -2085,6 +2377,8 @@ def _review_template_row_from_candidate_claim(claim: GoldCandidateClaim) -> dict
         "review_date": "",
         "review_notes": "",
         "proposed_claim_text": claim.claim_text,
+        "proposed_analyst_claim": claim.analyst_claim,
+        "proposed_pre_review": _jsonable(claim.pre_review),
         "proposed_claim_type": claim.claim_type,
         "proposed_gold_set_domain": claim.gold_set_domain,
         "proposed_gold_set_domains": list(claim.gold_set_domains),

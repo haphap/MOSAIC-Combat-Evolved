@@ -5993,11 +5993,13 @@ def test_schema_status_cli_filters_failures_without_writing(tmp_path: Path, caps
     assert footprint_action["action_state"] in {
         "needs_evidence_repair",
         "needs_human_review_fields",
+        "needs_prepare",
     }
     assert footprint_action["can_run_now"] is True
     assert footprint_action["next_manual_action"] in {
         "repair_current_batch_evidence_alignment",
         "fill_current_batch_review_fields_then_dry_run",
+        "prepare_next_review_batch",
     }
     if footprint_action["action_state"] == "needs_human_review_fields":
         assert footprint_action["post_current_batch_action"] == (

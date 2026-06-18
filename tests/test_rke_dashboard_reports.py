@@ -132,7 +132,13 @@ def test_dashboard_report_summarizes_completion_and_monitoring():
         report["manual_review_gates"]["gold_candidate_claims"][
             "review_rows_with_candidate_fields"
         ]
-        >= gold_candidate_count
+        <= gold_candidate_count
+    )
+    assert (
+        report["manual_review_gates"]["gold_candidate_claims"][
+            "review_rows_with_candidate_fields"
+        ]
+        > 0
     )
     assert (
         report["manual_review_gates"]["gold_candidate_claims"][
@@ -220,7 +226,8 @@ def test_dashboard_report_summarizes_completion_and_monitoring():
     assert report["audit_trace"]["broken_edge_count"] == 0
     assert report["audit_trace"]["agent_output_count"] == 1
     assert len(report["completion"]["blockers"]) == 1
-    assert "manual gold-set review still required" in report["completion"]["blockers"][0]
+    assert "horizon_accuracy below 0.85" in report["completion"]["blockers"][0]
+    assert "variable_mapping_accuracy below 0.80" in report["completion"]["blockers"][0]
 
 
 def test_dashboard_report_surfaces_malformed_artifacts_without_crashing(tmp_path: Path):

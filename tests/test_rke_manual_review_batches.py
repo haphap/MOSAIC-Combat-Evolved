@@ -144,8 +144,8 @@ def test_manual_review_batches_export_sparse_import_templates(tmp_path: Path):
     assert len(gold_rows) == 12
     assert len(gold_full_rows) == expected_gold_rows
     assert len(license_rows) == 7
-    assert paths["gold_set_review_workbook_rows"] == expected_gold_rows
-    assert paths["gold_set_review_assist_rows"] == expected_gold_rows
+    assert paths["gold_set_review_workbook_rows"] == len(gold_rows)
+    assert paths["gold_set_review_assist_rows"] == len(gold_rows)
     assert paths["source_license_review_workbook_rows"] == 50
     assert workbook.startswith("# RKE Gold Review Workbook")
     assert license_workbook.startswith("# RKE Source-License Review Workbook")
@@ -181,7 +181,7 @@ def test_gold_review_assist_is_non_import_review_aid(tmp_path: Path):
     written_rows = _load_jsonl(
         tmp_path / "registry/review_batches/gold_set_review_assist.jsonl"
     )
-    expected_gold_rows = build_manual_review_batch_status(tmp_path)[0].gold_set.pending_rows
+    expected_gold_rows = build_manual_review_batch_status(tmp_path)[0].gold_set.exported_rows
 
     assert result["rows"] == expected_gold_rows
     assert summary.row_count == expected_gold_rows
@@ -708,7 +708,7 @@ def test_gold_review_workbook_is_read_only_claim_checklist(tmp_path: Path):
     result = write_gold_review_workbook(tmp_path)
     summary, rows = build_gold_review_workbook(tmp_path)
     workbook = Path(result["path"]).read_text(encoding="utf-8")
-    expected_gold_rows = build_manual_review_batch_status(tmp_path)[0].gold_set.pending_rows
+    expected_gold_rows = build_manual_review_batch_status(tmp_path)[0].gold_set.exported_rows
 
     assert result["rows"] == expected_gold_rows
     assert summary.pending_rows == expected_gold_rows
@@ -810,9 +810,21 @@ def test_write_gold_review_starter_reports_priority_reason_counts(tmp_path: Path
             "proposed_target_variables": ["company_forward_earnings"],
             "proposed_review_risk_flags": [
                 "manual_review_required",
-                "sentence_fallback_requires_context_synthesis",
                 "forecast_mapping_insufficient",
+                "long_candidate_sentence",
             ],
+            "proposed_research_layers": {
+                "macro_regime": {"present": True},
+                "industry_regime": {"present": True},
+                "company_layer": {"present": True, "explicit_subject_in_claim": True},
+                "valuation_or_forecast_layer": {"present": True},
+                "mechanism_layer": {"present": True},
+            },
+            "proposed_mosaic_agent_trace": {
+                "macro_agents": ["macro.china"],
+                "sector_agents": ["sector.policy"],
+                "company_or_single_name_layer": ["company.forward_earnings"],
+            },
         }
     )
     _write_jsonl(review_path, rows)
@@ -825,10 +837,10 @@ def test_write_gold_review_starter_reports_priority_reason_counts(tmp_path: Path
 
     assert result.written
     assert result.rows == 1
-    assert result.selected_priority_score_counts == {"7": 1}
+    assert result.selected_priority_score_counts == {"6": 1}
     assert result.selected_priority_reason_counts == {
-        "context_synthesis_required": 1,
         "forecast_mapping_insufficient": 1,
+        "long_candidate_sentence": 1,
         "low_extraction_confidence": 1,
         "manual_review_required": 1,
     }

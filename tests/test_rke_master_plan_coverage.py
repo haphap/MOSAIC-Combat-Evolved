@@ -44,7 +44,8 @@ def test_master_plan_coverage_reports_current_registry_ready():
         record for record in report.records if record.section_id == "Phase-1B"
     )
     assert phase_1b.status == "blocked"
-    assert "manual gold-set review still required" in phase_1b.blocker
+    assert "horizon_accuracy below 0.85" in phase_1b.blocker
+    assert "variable_mapping_accuracy below 0.80" in phase_1b.blocker
     assert "patch_v1_5_coverage_report.json accepted must be true" in phase_1b.blocker
     assert "blocked phases: B, D" in phase_1b.blocker
     assert all(
@@ -63,7 +64,7 @@ def test_master_plan_coverage_reports_current_registry_ready():
         if record.section_id == "MVP-D2"
     )
     assert mvp_d2.status == "blocked"
-    assert "manual gold-set review still required" in mvp_d2.blocker
+    assert "horizon_accuracy below 0.85" in mvp_d2.blocker
     mvp_d3 = next(
         record
         for record in report.mvp_deliverable_records

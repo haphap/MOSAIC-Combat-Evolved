@@ -135,6 +135,154 @@ Operational rules:
   or terminate only that specific `report-intelligence`/MinerU process before
   launching the VLM batch.
 
+## Forecast Claim Pre-Review Rule
+
+Before manual gold-set review, keep the source-grounded `claim_text` unchanged
+and add a separate `analyst_claim` for the financial-practitioner rewrite. The
+rewrite may clarify the macro regime, industry regime, transmission mechanism,
+company/sector capability, earnings or valuation logic, target, direction, and
+horizon, but it must not add facts or causal links unsupported by the report
+chunk.
+
+Each forecast claim should also carry `pre_review` with
+`perspective=financial_practitioner` and `decision` in
+`include|exclude|rewrite_needed`. Deterministic guardrails must override model
+suggestions and exclude claims that are not source-grounded, have no actionable
+direction or target, lack a finance-relevant market/fundamental impact, or lack
+an economic mechanism linked to the target impact. Mapping gaps or missing
+regime context should normally be marked `rewrite_needed`, not silently accepted.
+
+`claim_regime_trace` is PIT background only. It records Mosaic macro/industry/
+company regime context by the report as-of date for later outcome and backtest
+stratification; it must not be used to validate claim correctness during
+extraction or manual review.
+
+Report-level rating, target-price, or industry-rating definitions may supply a
+missing horizon for source-grounded forward claims with an evaluable market
+proxy. For example, if the full Markdown contains a broker rating definition
+such as a future 6-month relative-performance window, the extractor may mark the
+claim with `horizon.source=report_level_rating_definition` and
+`extraction_quality.horizon_inferred_from_report_level=true`. Do not inherit
+that report-level horizon into descriptive current-state claims, incomplete
+fragments, unsupported investment suggestions, or claims without an evaluable
+target/proxy.
+
+## Macro Claim Backtest Rule
+
+Macro research claim performance is evaluated with non-LLM PIT outcome labels,
+not during extraction or manual review. Keep `claim_regime_trace` as background
+regime context only.
+
+Default macro-research evaluation windows are T+1 entry, then 90, 180, and 360
+trading days after entry. Keep `claim_horizon` as the report's stated forecast
+window; do not copy the fixed evaluation windows into claim horizon unless the
+report itself states them.
+
+Backtest mapping:
+
+- Equity/asset-allocation claims: compare mapped ETF proxy price return after
+  cost, for example broad A-share, Hong Kong equity, US equity, gold, or bond
+  ETFs.
+- Bond price or duration-positive claims: use bond ETF price return. Positive
+  bond-price direction is correct when the ETF return is positive.
+- Interest-rate/yield claims: use the yield series directly when PIT yield data
+  is available. Falling-yield claims are correct when the 90/180/360-day yield
+  change is negative; rising-yield claims are correct when the change is
+  positive. Do not invert a bond ETF proxy silently for yield claims.
+- FX claims: use the quoted FX series direction explicitly, for example
+  USD/CNY up means RMB depreciation and USD strength. Store the quote convention
+  in the outcome label.
+- Commodity claims: use the commodity ETF, futures, or spot series named by the
+  mapping. If only an ETF proxy exists, label it as a proxy, not the commodity
+  spot itself.
+
+Current first-pass local ETF proxies are available for broad A-shares, large
+caps, mid/small caps, ChiNext growth, Hong Kong equity, Nasdaq, S&P 500, China
+government bonds, credit bonds, 10-year government-bond ETF, and gold. Treat
+direct interest-rate/yield, FX, and non-gold commodity claims as pending until
+their PIT series are wired into the outcome labeler.
+
+The outcome row must record `outcome_label_source`, `target_series_id`,
+`comparison_type`, `quote_convention` when relevant, `entry_datetime`,
+`exit_datetime`, `horizon_days`, raw change/return, directional hit, and
+`performance_value_basis`. Missing PIT data should produce a pending or blocked
+label reason, not a guessed result.
+
+## Claim Horizon Extraction Rule
+
+Extract claim horizon from the full report context before judging a single claim
+as horizon-missing. Use this order:
+
+1. Claim text explicit horizon.
+2. Section heading or nearby section context.
+3. Report title, abstract, or core-view temporal context.
+4. Rating definition or report-level investment-horizon definition.
+5. Report type default, with low confidence.
+
+Store inherited context in `extraction_quality.report_temporal_context` and mark
+`horizon_inferred_from_report_temporal_context=true`. This context can make a
+source-grounded financial claim testable, but it is not outcome evidence and is
+not the same as the fixed `90/180/360` evaluation windows.
+
+Also preserve non-horizon report context under
+`extraction_quality.report_context`:
+
+- `subject_context`: covered company, sector, or asset universe from report
+  metadata and title context.
+- `section_context`: nearest chunk section title and any section-level horizon.
+- `benchmark_context`: report-level benchmark wording such as market benchmark
+  index, HS300, S&P 500, or Nasdaq.
+- `rating_context`: rating terms and rating-horizon definitions.
+- `frequency_context`: report cadence inferred from title or report type, such
+  as weekly, monthly, quarterly, semiannual, or annual, with low confidence.
+
+These contexts may disambiguate generic claim language during extraction and
+manual review, but they must not validate claim correctness or override a
+claim's source-grounded target, direction, or benchmark.
+
+## Dual-Model Claim Expansion Rule
+
+For gold-set sample expansion, run the same cached-Markdown source batch through
+both the local qwen/vLLM extractor and Mimo, then compare public-safe aggregate
+quality before merging anything into `registry/report_intelligence`.
+
+Operational steps:
+
+1. Freeze one source-id batch under `.mosaic/tmp/`, excluding already processed
+   sources and requiring cached Markdown. Reuse the exact same source-id file for
+   both models.
+2. Copy `registry/report_intelligence/macro_regime_calendar.jsonl` into each
+   temporary output registry before extraction, so new claims receive the same
+   PIT `claim_regime_trace` background.
+3. Run local qwen/vLLM into a private temp registry, for example
+   `.mosaic/tmp/report_intelligence_qwen_<batch>/`, with `--skip-download`,
+   `--skip-convert`, `--require-cached-markdown`, and the frozen source ids.
+   Start the existing Docker container
+   `rke-vllm-qwen36-27b-160k-20260610` only when needed, then stop it after the
+   qwen run to release GPU memory.
+4. Run Mimo into a separate private temp registry, for example
+   `.mosaic/tmp/report_intelligence_mimo_<batch>/`, using `--env-file .env` and
+   the same frozen source ids. Do not print or commit endpoint URLs, API keys,
+   source prose, or claim text.
+5. Compare only no-source-text metrics: processed reports, blockers, forecast
+   claim count, `pre_review.decision` counts, testable claims, complete
+   `claim_regime_trace` count, target/direction distributions, and
+   gold-candidate reviewable count.
+6. A claim is eligible for manual gold review only when
+   `pre_review.decision == "include"` and `gold_candidate_reviewable(...)` is
+   true. Model agreement is useful but not sufficient; disagreement must not be
+   auto-labeled.
+7. Merge into the main private registry only after the batch produces enough
+   reviewable claims to justify human review. Otherwise keep the temp outputs as
+   comparison evidence and run another frozen batch.
+
+Current empirical guidance from the 2026-06-18 20-report Tushare comparison:
+Mimo was more stable (`20/20` processed, `0` blockers) and produced more
+footprints/method patterns, while local qwen produced one more forecast claim and
+one more gold-reviewable claim. Use dual-model extraction for expansion; do not
+switch gold-claim extraction to Mimo-only unless later batches improve
+gold-reviewable yield.
+
 ## MinerU Smoke Status
 
 Last completed Mimo extraction smoke from cached VLM Markdown:

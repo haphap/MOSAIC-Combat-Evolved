@@ -51,6 +51,24 @@ MANUAL_REVIEW_PROVENANCE_FIELDS = (
 )
 GOLD_IMPORT_TEMPLATE_ONLY_FIELDS = (
     "proposed_claim_text_truncated",
+    "proposed_analyst_claim",
+    "proposed_pre_review",
+    "proposed_claim_type",
+    "proposed_extraction_confidence_bin",
+    "proposed_gold_set_domain",
+    "proposed_gold_set_domains",
+    "proposed_direction",
+    "proposed_cause_variables",
+    "proposed_target_variables",
+    "proposed_review_risk_flags",
+    "proposed_research_layers",
+    "proposed_mosaic_agent_trace",
+    "proposed_claim_regime_trace",
+    "proposed_source_start_char",
+    "proposed_source_end_char",
+    "proposed_source_span_ref_id",
+    "proposed_source_text_hash",
+    "proposed_verifier_status",
 )
 MANUAL_REVIEW_IMPORT_FORBIDDEN_FIELDS = frozenset(
     {

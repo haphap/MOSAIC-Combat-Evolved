@@ -605,6 +605,16 @@ def test_gold_candidate_claim_review_requires_layered_full_text_thesis():
                 "平安银行零售资产质量企稳与净息差压力缓解将带动营收、利润和估值修复，"
                 "未来一个季度股价相对市场有望上涨。"
             ),
+            "analyst_claim": (
+                "在流动性和信贷环境改善背景下，平安银行资产质量和净息差改善"
+                "有望带动未来一个季度相对收益。"
+            ),
+            "pre_review": {
+                "schema_version": "forecast_claim_pre_review_v1",
+                "perspective": "financial_practitioner",
+                "decision": "include",
+                "reason": "机制、方向、目标和期限均可评审。",
+            },
             "forecast_claim_id": "FC-1",
             "metric_proxy_mapping": [
                 "pboc_net_injection",
@@ -666,6 +676,10 @@ def test_gold_candidate_claim_review_requires_layered_full_text_thesis():
     row = _review_template_row_from_candidate_claim(claim)
 
     assert "fragment_or_sentence_level_claim" not in claim.review_risk_flags
+    assert claim.analyst_claim.startswith("在流动性和信贷环境改善背景下")
+    assert claim.pre_review["decision"] == "include"
+    assert row["proposed_analyst_claim"] == claim.analyst_claim
+    assert row["proposed_pre_review"]["perspective"] == "financial_practitioner"
     assert "stock_target_missing_company_subject" not in claim.review_risk_flags
     assert claim.research_layers["macro_regime"]["present"] is True
     assert claim.research_layers["industry_regime"]["present"] is True
@@ -674,6 +688,9 @@ def test_gold_candidate_claim_review_requires_layered_full_text_thesis():
         "macro.dollar",
     )
     assert gold_candidate_reviewable(row) is True
+    blocked_row = dict(row)
+    blocked_row["proposed_pre_review"] = {"decision": "exclude"}
+    assert gold_candidate_reviewable(blocked_row) is False
 
 
 def test_gold_candidate_claim_maps_date_macro_regimes_to_agents():

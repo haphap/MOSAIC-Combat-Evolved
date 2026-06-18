@@ -25,6 +25,7 @@ from .experiment_validation import (
 )
 from .gold_candidate_claims import (
     GOLD_CANDIDATES_PATH,
+    select_gold_set_candidates_for_claim_review,
     write_gold_candidate_claims,
 )
 from .gold_review_packet import build_gold_review_packet, write_gold_review_packet
@@ -67,7 +68,6 @@ from .operator_readiness import (
 )
 from .phase_minus1 import (
     load_jsonl,
-    select_gold_set_candidates,
     write_gold_set_candidates,
 )
 from .master_plan_coverage import (
@@ -1998,6 +1998,14 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     prepare_footprint_review.add_argument(
+        "--quality-gap-only",
+        action="store_true",
+        help=(
+            "Select completed analytical-footprint review rows with at least one "
+            "failed quality-gate field for re-review."
+        ),
+    )
+    prepare_footprint_review.add_argument(
         "--overwrite",
         action="store_true",
         help="Overwrite an existing output scaffold.",
@@ -2290,7 +2298,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             source_path = Path(args.source_path)
             if not source_path.is_absolute():
                 source_path = root / source_path
-            candidates = select_gold_set_candidates(load_jsonl(source_path))
+            candidates = select_gold_set_candidates_for_claim_review(
+                root,
+                load_jsonl(source_path),
+            )
             candidate_refresh = write_gold_set_candidates(
                 candidates,
                 root / GOLD_CANDIDATES_PATH,
@@ -2714,6 +2725,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             offset=args.offset,
             overwrite=args.overwrite,
             priority=args.priority,
+            quality_gap_only=args.quality_gap_only,
         )
         _print_json(asdict(report))
         return 0 if report.accepted else 2

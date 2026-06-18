@@ -78,6 +78,7 @@ from mosaic.rke.report_intelligence import (
     _refresh_forecast_mapping_governance,
     _infer_claim_component_roles,
     _infer_claim_mechanism_roles,
+    _infer_report_temporal_context_from_markdown,
 )
 
 
@@ -184,13 +185,15 @@ def test_user_prompt_requires_context_synthesized_forecast_claims():
         1,
     )
 
-    assert "compact synthesis over the relevant paragraph/window" in prompt
+    assert "compact synthesis over the full supported report context" in prompt
     assert "does not need to be a verbatim sentence" in prompt
     assert "For Chinese source text, output claim_text in Chinese" in prompt
     assert "under <macro regime if present>" in prompt
     assert "finance-relevant target impact" in prompt
     assert "analytical_footprints, not forecast_claims" in prompt
     assert "pure historical/statistical descriptions" in prompt
+    assert "Check report temporal context before leaving horizon empty" in prompt
+    assert "90/180/360 days" in prompt
     assert "2026-2028年" in prompt
     assert "metric_proxy_mapping" in prompt
     assert "stock_forward_return" in prompt
@@ -206,6 +209,57 @@ def test_user_prompt_requires_context_synthesized_forecast_claims():
     assert "industry-cycle regime" in prompt
     assert "rate-cut cycle" in prompt
     assert "global copper supply is structurally tight" in prompt
+
+
+def test_user_prompt_includes_stock_subject_metadata_for_stock_reports():
+    prompt = _user_prompt(
+        {
+            "source_id": "SRC-STOCK-SUBJECT",
+            "title": "方大新材点评报告",
+            "publish_date": "2026-06-11",
+            "report_type": "个股研报",
+            "ts_code": "920163.BJ",
+            "abstract": "方大新材(920163)\n高端复合材料业务持续放量。",
+        },
+        "公司高端复合材料业务持续放量，预计2026-2028年利润增长。",
+        "SRC-STOCK-SUBJECT:chunk-1",
+        0,
+        1,
+    )
+
+    assert '"stock_subject"' in prompt
+    assert "方大新材" in prompt
+    assert "920163.BJ" in prompt
+    assert "Do not output a stock forecast_claim whose subject is only 公司" in prompt
+
+
+def test_user_prompt_includes_report_context_metadata():
+    prompt = _user_prompt(
+        {
+            "source_id": "SRC-CONTEXT",
+            "title": "2026年度宏观策略",
+            "publish_date": "2025-11-24",
+            "report_context": {
+                "benchmark_context": {
+                    "default_benchmark": {
+                        "benchmark_type": "market_index",
+                        "benchmark_id": "沪深300",
+                    }
+                },
+                "rating_context": {"rating_terms": ["买入"]},
+            },
+            "section_context": {"section_title": "展望2026年"},
+        },
+        "展望2026年，A股风险偏好有望修复。",
+        "SRC-CONTEXT:chunk-1",
+        0,
+        1,
+    )
+
+    assert '"report_context"' in prompt
+    assert '"section_context"' in prompt
+    assert "沪深300" in prompt
+    assert "展望2026年" in prompt
 
 
 def test_select_report_forecast_claims_caps_and_preserves_source_order():
@@ -461,6 +515,54 @@ def test_refresh_forecast_mapping_governance_keeps_structured_stock_rating_claim
     assert "horizon" in refreshed[0]["extraction_quality"]["mapping_gaps"]
 
 
+def test_refresh_forecast_mapping_governance_binds_stock_subject_from_metadata():
+    refreshed = _refresh_forecast_mapping_governance(
+        [
+            {
+                "forecast_claim_id": "FC-OLD",
+                "claim_id": "CLAIM-OLD",
+                "report_id": "RPT-STOCK-SUBJECT-REFRESH",
+                "source_id": "SRC-STOCK-SUBJECT-REFRESH",
+                "source_span_ids": ["SRC-STOCK-SUBJECT-REFRESH:chunk-001"],
+                "claim_text": (
+                    "在复合材料行业需求改善、公司高端产品放量的背景下，"
+                    "公司预计2026-2028年收入和归母净利润将保持增长。"
+                ),
+                "claim_provenance": "source_grounded",
+                "forecast_testability": "testable",
+                "forecast_type": "earnings",
+                "target": {"target_id": "920163.BJ"},
+                "benchmark": {"benchmark_type": "broad_market"},
+                "direction": "positive",
+                "horizon": {},
+                "metric_proxy_mapping": ["earnings_growth"],
+                "source_conviction": "medium",
+                "extraction_quality": {},
+                "signal_datetime": "2026-06-11",
+            }
+        ],
+        metadata_rows=[
+            {
+                "source_id": "SRC-STOCK-SUBJECT-REFRESH",
+                "stock_subject": {
+                    "target_id": "920163.BJ",
+                    "target_name": "方大新材",
+                    "subject_label": "方大新材（920163.BJ）",
+                },
+            }
+        ],
+    )
+
+    assert len(refreshed) == 1
+    record = refreshed[0]
+    assert "方大新材（920163.BJ）" in record["claim_text"]
+    assert record["target"]["target_type"] == "stock"
+    assert record["target"]["target_name"] == "方大新材"
+    assert record["forecast_claim_id"] != "FC-OLD"
+    assert record["claim_id"] != "CLAIM-OLD"
+    assert record["extraction_quality"]["stock_subject_bound_from_metadata"] is True
+
+
 def test_refresh_forecast_mapping_governance_drops_rating_definition_table():
     refreshed = _refresh_forecast_mapping_governance(
         [
@@ -607,6 +709,12 @@ def test_normalize_forecast_claims_infers_horizon_and_metric_proxy_mapping():
                         "在金属材料检测行业需求持续增长、公司全国布局实验室投产达效的背景下，"
                         "公司预计2026-2028年营业收入和归母净利润将保持增长，维持买入评级。"
                     ),
+                    "analyst_claim": (
+                        "在行业需求增长和公司实验室投产达效背景下，"
+                        "300797.SZ的收入与利润预计在2026-2028年继续增长。"
+                    ),
+                    "pre_review_decision": "include",
+                    "pre_review_reason": "机制、公司能力、盈利影响和期限均完整。",
                     "claim_provenance": "source_grounded",
                     "direction": "positive",
                     "forecast_testability": "testable",
@@ -634,6 +742,14 @@ def test_normalize_forecast_claims_infers_horizon_and_metric_proxy_mapping():
     assert len(records) == 1
     record = records[0]
     assert record["forecast_testability"] == "testable"
+    assert record["analyst_claim"].startswith("在行业需求增长和公司实验室投产达效背景下")
+    assert record["pre_review"]["decision"] == "include"
+    assert record["pre_review"]["perspective"] == "financial_practitioner"
+    assert record["pre_review"]["quality_checks"]["analyst_claim_adjusted"] is True
+    assert (
+        record["pre_review"]["claim_regime_trace_policy"]
+        == "background_only_not_claim_validation"
+    )
     assert record["horizon"]["max_days"] > 900
     assert record["horizon"]["source_text"] == "2026-2028年"
     component_roles = record["extraction_quality"]["claim_component_roles"]
@@ -721,10 +837,96 @@ def test_normalize_forecast_claims_infers_horizon_and_metric_proxy_mapping():
         "earnings_growth",
         "stock_forward_return",
     }
+    assert "commodity_price_cycle" not in record["metric_proxy_mapping"]
     assert (
         record["extraction_quality"]["metric_proxy_mapping_inferred_from_claim_text"]
         is True
     )
+
+
+def test_normalize_forecast_claims_filters_generic_price_from_commodity_proxy():
+    records = _normalize_forecast_claims(
+        {
+            "forecast_claims": [
+                {
+                    "claim_text": (
+                        "AI高容MLCC供需错配带动产品涨价和毛利率改善，"
+                        "预计电子元件板块盈利上行。"
+                    ),
+                    "claim_provenance": "source_grounded",
+                    "direction": "positive",
+                    "forecast_testability": "testable",
+                    "target": {"target_id": "电子元件", "target_type": "sector"},
+                    "benchmark": {"benchmark_type": "broad_market"},
+                    "horizon": {},
+                    "metric_proxy_mapping": [
+                        "commodity_price_cycle",
+                        "margin_profitability",
+                    ],
+                }
+            ]
+        },
+        {
+            "source_id": "SRC-GENERIC-PRICE-MAPPING",
+            "publish_date": "2026-06-11",
+        },
+        run_id="RUN-GENERIC-PRICE-MAPPING",
+        model="fake-vllm",
+        report_id="RPT-GENERIC-PRICE-MAPPING",
+        chunk_span_id="SRC-GENERIC-PRICE-MAPPING:chunk-1",
+    )
+
+    assert "commodity_price_cycle" not in records[0]["metric_proxy_mapping"]
+    assert "liquidity_credit_condition" not in records[0]["metric_proxy_mapping"]
+    assert "margin_profitability" in records[0]["metric_proxy_mapping"]
+
+
+def test_normalize_forecast_claims_binds_stock_subject_from_report_metadata():
+    records = _normalize_forecast_claims(
+        {
+            "forecast_claims": [
+                {
+                    "claim_text": (
+                        "在复合材料行业需求改善、公司高端产品放量的背景下，"
+                        "公司预计2026-2028年收入和归母净利润将保持增长。"
+                    ),
+                    "analyst_claim": (
+                        "在行业需求改善和公司高端产品放量背景下，"
+                        "公司收入与利润预计在2026-2028年继续增长。"
+                    ),
+                    "claim_provenance": "source_grounded",
+                    "direction": "positive",
+                    "forecast_testability": "testable",
+                    "forecast_type": "earnings",
+                    "horizon": {},
+                    "metric_proxy_mapping": ["earnings_growth"],
+                    "target": {"target_id": "920163.BJ"},
+                }
+            ]
+        },
+        {
+            "source_id": "SRC-STOCK-SUBJECT-BIND",
+            "publish_date": "2026-06-11",
+            "report_type": "个股研报",
+            "ts_code": "920163.BJ",
+            "abstract": "方大新材(920163)\n高端复合材料业务持续放量。",
+        },
+        run_id="RUN-STOCK-SUBJECT-BIND",
+        model="fake-vllm",
+        report_id="RPT-STOCK-SUBJECT-BIND",
+        chunk_span_id="SRC-STOCK-SUBJECT-BIND:chunk-1",
+    )
+
+    assert len(records) == 1
+    record = records[0]
+    assert "方大新材（920163.BJ）" in record["claim_text"]
+    assert "方大新材（920163.BJ）" in record["analyst_claim"]
+    assert record["target"]["target_type"] == "stock"
+    assert record["target"]["target_name"] == "方大新材"
+    assert record["extraction_quality"]["stock_target_bound_from_metadata"] is True
+    assert record["extraction_quality"]["stock_subject_bound_from_metadata"] is True
+    assert record["extraction_quality"]["claim_text_stock_subject_bound"] is True
+    assert record["extraction_quality"]["analyst_claim_stock_subject_bound"] is True
 
 
 def test_normalize_forecast_claims_infers_chinese_relative_and_qualitative_horizon():
@@ -777,6 +979,62 @@ def test_normalize_forecast_claims_infers_chinese_relative_and_qualitative_horiz
     }
 
 
+def test_normalize_forecast_claims_prefers_forward_year_horizon_over_history():
+    records = _normalize_forecast_claims(
+        {
+            "forecast_claims": [
+                {
+                    "claim_text": (
+                        "公司2021-2025年收入CAGR较高，预计2026-2028年营业收入"
+                        "和归母净利润继续增长。"
+                    ),
+                    "claim_provenance": "source_grounded",
+                    "direction": "positive",
+                    "forecast_testability": "testable",
+                    "target": {"target_id": "300797.SZ", "target_type": "stock"},
+                    "benchmark": {"benchmark_type": "broad_market"},
+                    "horizon": {},
+                },
+                {
+                    "claim_text": "预计26-28年归母净利润分别增长，盈利能力持续改善。",
+                    "claim_provenance": "source_grounded",
+                    "direction": "positive",
+                    "forecast_testability": "testable",
+                    "target": {"target_id": "300797.SZ", "target_type": "stock"},
+                    "benchmark": {"benchmark_type": "broad_market"},
+                    "horizon": {},
+                },
+                {
+                    "claim_text": (
+                        "预计2027年公司净利润恢复增长，2028年盈利中枢进一步抬升。"
+                    ),
+                    "claim_provenance": "source_grounded",
+                    "direction": "positive",
+                    "forecast_testability": "testable",
+                    "target": {"target_id": "300797.SZ", "target_type": "stock"},
+                    "benchmark": {"benchmark_type": "broad_market"},
+                    "horizon": {},
+                },
+            ]
+        },
+        {
+            "source_id": "SRC-FORWARD-HORIZON",
+            "publish_date": "2026-06-11",
+        },
+        run_id="RUN-FORWARD-HORIZON",
+        model="fake-vllm",
+        report_id="RPT-FORWARD-HORIZON",
+        chunk_span_id="SRC-FORWARD-HORIZON:chunk-1",
+    )
+
+    assert records[0]["horizon"]["source_text"] == "2026-2028年"
+    assert records[0]["horizon"]["max_days"] > 900
+    assert records[1]["horizon"]["source_text"] == "26-28年"
+    assert records[1]["horizon"]["max_days"] > 900
+    assert records[2]["horizon"]["source_text"] == "2028年"
+    assert records[2]["horizon"]["max_days"] > 900
+
+
 def test_normalize_forecast_claims_replaces_unreasonable_model_horizon():
     records = _normalize_forecast_claims(
         {
@@ -809,6 +1067,361 @@ def test_normalize_forecast_claims_replaces_unreasonable_model_horizon():
     assert records[0]["horizon"]["max_days"] == 365
     assert records[0]["horizon"]["invalid_model_horizon_replaced"] is True
     assert records[0]["extraction_quality"]["horizon_inferred_from_claim_text"] is True
+
+
+def test_normalize_forecast_claims_inherits_report_level_stock_rating_horizon():
+    report_level_horizon = {
+        "max_days": 183,
+        "unit": "calendar_day",
+        "source": "report_level_rating_definition",
+        "source_text": "未来6个月内",
+    }
+    records = _normalize_forecast_claims(
+        {
+            "forecast_claims": [
+                {
+                    "claim_text": "维持公司买入评级，预计公司股价表现优于市场基准指数。",
+                    "claim_provenance": "source_grounded",
+                    "forecast_testability": "testable",
+                    "forecast_type": "investment_rating",
+                    "target": {"target_type": "stock", "target_id": "000001.SZ"},
+                    "benchmark": {
+                        "benchmark_type": "market_index",
+                        "benchmark_id": "沪深300",
+                    },
+                    "direction": "positive",
+                    "horizon": {},
+                    "metric_proxy_mapping": ["stock_forward_return"],
+                }
+            ]
+        },
+        {
+            "source_id": "SRC-REPORT-LEVEL-HORIZON",
+            "publish_date": "2026-01-02",
+        },
+        run_id="RUN-REPORT-LEVEL-HORIZON",
+        model="fake-vllm",
+        report_id="RPT-REPORT-LEVEL-HORIZON",
+        chunk_span_id="SRC-REPORT-LEVEL-HORIZON:chunk-1",
+        report_level_horizon=report_level_horizon,
+    )
+
+    assert len(records) == 1
+    assert records[0]["horizon"]["max_days"] == 183
+    assert records[0]["horizon"]["source"] == "report_level_rating_definition"
+    assert records[0]["horizon"]["inherited_from_report_level"] is True
+    quality = records[0]["extraction_quality"]
+    assert quality["horizon_inferred_from_report_level"] is True
+    assert quality["report_level_horizon"]["source_text"] == "未来6个月内"
+    assert "horizon_inferred_from_claim_text" not in quality
+
+
+def test_normalize_forecast_claims_inherits_report_level_industry_horizon():
+    records = _normalize_forecast_claims(
+        {
+            "forecast_claims": [
+                {
+                    "claim_text": "供需改善推动有色金属行业景气度上行，板块盈利有望改善。",
+                    "claim_provenance": "source_grounded",
+                    "forecast_testability": "testable",
+                    "forecast_type": "industry_outlook",
+                    "target": {"target_type": "sector", "target_id": "有色金属"},
+                    "benchmark": {"benchmark_type": "broad_market"},
+                    "direction": "positive",
+                    "horizon": {},
+                    "metric_proxy_mapping": ["industry_etf_forward_return"],
+                }
+            ]
+        },
+        {
+            "source_id": "SRC-REPORT-LEVEL-INDUSTRY",
+            "publish_date": "2026-01-02",
+        },
+        run_id="RUN-REPORT-LEVEL-INDUSTRY",
+        model="fake-vllm",
+        report_id="RPT-REPORT-LEVEL-INDUSTRY",
+        chunk_span_id="SRC-REPORT-LEVEL-INDUSTRY:chunk-1",
+        report_level_horizon={
+            "max_days": 183,
+            "unit": "calendar_day",
+            "source": "report_level_rating_definition",
+            "source_text": "未来6个月内",
+        },
+    )
+
+    assert len(records) == 1
+    assert records[0]["horizon"]["max_days"] == 183
+    assert records[0]["horizon"]["source"] == "report_level_rating_definition"
+    assert records[0]["extraction_quality"]["horizon_inferred_from_report_level"] is True
+    assert "mapping_gaps" not in records[0]["extraction_quality"]
+
+
+def test_normalize_forecast_claims_inherits_report_temporal_context_horizon():
+    report_temporal_context = _infer_report_temporal_context_from_markdown(
+        "# 2026年度宏观策略\n\n## 展望2026年\nA股风险偏好有望修复。",
+        "2025-11-24",
+        title="2026年度宏观策略",
+        report_type="年度策略",
+    )
+
+    records = _normalize_forecast_claims(
+        {
+            "forecast_claims": [
+                {
+                    "claim_text": "政策宽松和风险偏好修复将支撑A股震荡上行。",
+                    "claim_provenance": "source_grounded",
+                    "forecast_testability": "testable",
+                    "forecast_type": "macro_asset_outlook",
+                    "target": {
+                        "target_type": "macro_asset",
+                        "target_id": "CN_A_SHARE_BROAD",
+                    },
+                    "benchmark": {"benchmark_type": "cash_zero_return"},
+                    "direction": "positive",
+                    "horizon": {},
+                    "metric_proxy_mapping": ["macro_asset_forward_return"],
+                }
+            ]
+        },
+        {
+            "source_id": "SRC-REPORT-TEMPORAL-CONTEXT",
+            "publish_date": "2025-11-24",
+        },
+        run_id="RUN-REPORT-TEMPORAL-CONTEXT",
+        model="fake-vllm",
+        report_id="RPT-REPORT-TEMPORAL-CONTEXT",
+        chunk_span_id="SRC-REPORT-TEMPORAL-CONTEXT:chunk-1",
+        report_temporal_context=report_temporal_context,
+    )
+
+    assert len(records) == 1
+    assert records[0]["horizon"]["source"] == "report_temporal_context"
+    assert records[0]["horizon"]["source_text"] == "2026年"
+    assert records[0]["horizon"]["inherited_from_report_context"] is True
+    assert records[0]["extraction_quality"][
+        "horizon_inferred_from_report_temporal_context"
+    ] is True
+    assert "mapping_gaps" not in records[0]["extraction_quality"]
+
+
+def test_normalize_forecast_claims_records_report_and_section_context():
+    records = _normalize_forecast_claims(
+        {
+            "forecast_claims": [
+                {
+                    "claim_text": "政策宽松和风险偏好修复将支撑A股震荡上行。",
+                    "claim_provenance": "source_grounded",
+                    "forecast_testability": "testable",
+                    "forecast_type": "macro_asset_outlook",
+                    "target": {
+                        "target_type": "macro_asset",
+                        "target_id": "CN_A_SHARE_BROAD",
+                    },
+                    "benchmark": {"benchmark_type": "cash_zero_return"},
+                    "direction": "positive",
+                    "horizon": {"max_days": 365, "unit": "calendar_day"},
+                    "metric_proxy_mapping": ["macro_asset_forward_return"],
+                }
+            ]
+        },
+        {
+            "source_id": "SRC-REPORT-CONTEXT",
+            "publish_date": "2025-11-24",
+        },
+        run_id="RUN-REPORT-CONTEXT",
+        model="fake-vllm",
+        report_id="RPT-REPORT-CONTEXT",
+        chunk_span_id="SRC-REPORT-CONTEXT:chunk-1",
+        report_context={
+            "subject_context": {"covered_asset_universe": ["A股"]},
+            "benchmark_context": {
+                "default_benchmark": {
+                    "benchmark_type": "market_index",
+                    "benchmark_id": "沪深300",
+                }
+            },
+            "rating_context": {"rating_terms": ["买入"]},
+            "frequency_context": {"frequency": "annual"},
+        },
+        section_context={"section_title": "展望2026年"},
+    )
+
+    context = records[0]["extraction_quality"]["report_context"]
+    assert context["subject_context"]["covered_asset_universe"] == ["A股"]
+    assert context["benchmark_context"]["default_benchmark"]["benchmark_id"] == "沪深300"
+    assert context["rating_context"]["rating_terms"] == ["买入"]
+    assert context["frequency_context"]["frequency"] == "annual"
+    assert context["section_context"]["section_title"] == "展望2026年"
+
+
+def test_refresh_forecast_mapping_governance_reads_report_level_horizon_from_markdown(
+    tmp_path: Path,
+):
+    markdown_path = tmp_path / ".mosaic/rke/report_intelligence/markdown/SRC-RATING.md"
+    markdown_path.parent.mkdir(parents=True)
+    markdown_path.write_text(
+        "公司评级 买入：预期未来6个月内股价相对市场基准指数涨幅在20%以上。",
+        encoding="utf-8",
+    )
+
+    refreshed = _refresh_forecast_mapping_governance(
+        [
+            {
+                "forecast_claim_id": "FC-RATING-HORIZON",
+                "report_id": "RPT-RATING-HORIZON",
+                "source_id": "SRC-RATING-HORIZON",
+                "claim_text": "维持买入评级，公司股价相对市场基准指数有望跑赢。",
+                "claim_provenance": "source_grounded",
+                "forecast_testability": "insufficient_mapping",
+                "forecast_type": "investment_rating",
+                "target": {"target_type": "stock", "target_id": "000001.SZ"},
+                "benchmark": {
+                    "benchmark_type": "market_index",
+                    "benchmark_id": "沪深300",
+                },
+                "direction": "positive",
+                "horizon": {},
+                "metric_proxy_mapping": ["stock_forward_return"],
+                "source_conviction": "medium",
+                "extraction_quality": {},
+                "signal_datetime": "2026-01-02",
+            }
+        ],
+        metadata_rows=[
+            {
+                "source_id": "SRC-RATING-HORIZON",
+                "publish_datetime": "2026-01-02T00:00:00+08:00",
+                "markdown": {
+                    "path": str(markdown_path.relative_to(tmp_path)),
+                },
+            }
+        ],
+        root_path=tmp_path,
+    )
+
+    assert len(refreshed) == 1
+    assert refreshed[0]["horizon"]["max_days"] == 183
+    assert refreshed[0]["horizon"]["source"] == "report_level_rating_definition"
+    assert refreshed[0]["forecast_testability"] == "testable"
+    assert "mapping_gaps" not in refreshed[0]["extraction_quality"]
+
+
+def test_refresh_forecast_mapping_governance_reads_report_temporal_context(
+    tmp_path: Path,
+):
+    markdown_path = tmp_path / ".mosaic/rke/report_intelligence/markdown/SRC-MACRO.md"
+    markdown_path.parent.mkdir(parents=True)
+    markdown_path.write_text(
+        "# 2026年度宏观策略\n\n展望2026年，A股风险偏好有望修复。",
+        encoding="utf-8",
+    )
+
+    refreshed = _refresh_forecast_mapping_governance(
+        [
+            {
+                "forecast_claim_id": "FC-MACRO-HORIZON",
+                "report_id": "RPT-MACRO-HORIZON",
+                "source_id": "SRC-MACRO-HORIZON",
+                "claim_text": "政策宽松和风险偏好修复将支撑A股震荡上行。",
+                "claim_provenance": "source_grounded",
+                "forecast_testability": "insufficient_mapping",
+                "forecast_type": "macro_asset_outlook",
+                "target": {
+                    "target_type": "macro_asset",
+                    "target_id": "CN_A_SHARE_BROAD",
+                },
+                "benchmark": {"benchmark_type": "cash_zero_return"},
+                "direction": "positive",
+                "horizon": {},
+                "metric_proxy_mapping": ["macro_asset_forward_return"],
+                "source_conviction": "medium",
+                "extraction_quality": {},
+                "signal_datetime": "2025-11-24",
+            }
+        ],
+        metadata_rows=[
+            {
+                "source_id": "SRC-MACRO-HORIZON",
+                "publish_datetime": "2025-11-24T00:00:00+08:00",
+                "title": "2026年度宏观策略",
+                "report_type": "年度策略",
+                "markdown": {
+                    "path": str(markdown_path.relative_to(tmp_path)),
+                },
+            }
+        ],
+        root_path=tmp_path,
+    )
+
+    assert len(refreshed) == 1
+    assert refreshed[0]["horizon"]["source"] == "report_temporal_context"
+    assert refreshed[0]["horizon"]["source_text"] == "2026年"
+    assert refreshed[0]["horizon"]["inherited_from_report_context"] is True
+    assert refreshed[0]["extraction_quality"][
+        "horizon_inferred_from_report_temporal_context"
+    ] is True
+    assert (
+        refreshed[0]["extraction_quality"]["report_context"]["frequency_context"][
+            "frequency"
+        ]
+        == "annual"
+    )
+    assert refreshed[0]["forecast_testability"] == "testable"
+    assert "mapping_gaps" not in refreshed[0]["extraction_quality"]
+
+
+def test_refresh_forecast_mapping_governance_records_report_context(
+    tmp_path: Path,
+):
+    markdown_path = tmp_path / ".mosaic/rke/report_intelligence/markdown/SRC-CONTEXT.md"
+    markdown_path.parent.mkdir(parents=True)
+    markdown_path.write_text(
+        "公司评级 买入：预期未来6个月内股价相对沪深300涨幅在20%以上。",
+        encoding="utf-8",
+    )
+
+    refreshed = _refresh_forecast_mapping_governance(
+        [
+            {
+                "forecast_claim_id": "FC-CONTEXT",
+                "report_id": "RPT-CONTEXT",
+                "source_id": "SRC-CONTEXT",
+                "claim_text": "维持公司买入评级，公司股价相对市场基准指数有望跑赢。",
+                "claim_provenance": "source_grounded",
+                "forecast_testability": "insufficient_mapping",
+                "forecast_type": "investment_rating",
+                "target": {"target_type": "stock", "target_id": "000001.SZ"},
+                "benchmark": {
+                    "benchmark_type": "market_index",
+                    "benchmark_id": "沪深300",
+                },
+                "direction": "positive",
+                "horizon": {},
+                "metric_proxy_mapping": ["stock_forward_return"],
+                "source_conviction": "medium",
+                "extraction_quality": {},
+                "signal_datetime": "2026-01-02",
+            }
+        ],
+        metadata_rows=[
+            {
+                "source_id": "SRC-CONTEXT",
+                "publish_datetime": "2026-01-02T00:00:00+08:00",
+                "title": "平安银行点评报告",
+                "report_type": "个股研报",
+                "ts_code": "000001.SZ",
+                "markdown": {
+                    "path": str(markdown_path.relative_to(tmp_path)),
+                },
+            }
+        ],
+        root_path=tmp_path,
+    )
+
+    context = refreshed[0]["extraction_quality"]["report_context"]
+    assert context["subject_context"]["covered_entity"]["target_id"] == "000001.SZ"
+    assert context["benchmark_context"]["default_benchmark"]["benchmark_id"] == "沪深300"
+    assert context["rating_context"]["rating_terms"] == ["买入"]
 
 
 def test_refresh_forecast_mapping_governance_drops_stale_non_financial_claims():
@@ -1438,13 +2051,22 @@ def _write_misaligned_qlib_stock_benchmark_fixture(root: Path) -> None:
     _write_qlib_series(root, "SH510300", values)
 
 
-def _write_qlib_etf_fixture(root: Path) -> None:
+def _write_qlib_etf_fixture(root: Path, *, long_calendar: bool = False) -> None:
     (root / "calendars").mkdir(parents=True, exist_ok=True)
     dates = [f"2026-01-{day:02d}" for day in range(1, 32)]
     dates += [f"2026-02-{day:02d}" for day in range(1, 29)]
     dates += [f"2026-03-{day:02d}" for day in range(1, 32)]
     dates += [f"2026-04-{day:02d}" for day in range(1, 31)]
     dates += [f"2026-05-{day:02d}" for day in range(1, 32)]
+    if long_calendar:
+        dates += [f"2026-06-{day:02d}" for day in range(1, 31)]
+        dates += [f"2026-07-{day:02d}" for day in range(1, 32)]
+        dates += [f"2026-08-{day:02d}" for day in range(1, 32)]
+        dates += [f"2026-09-{day:02d}" for day in range(1, 31)]
+        dates += [f"2026-10-{day:02d}" for day in range(1, 32)]
+        dates += [f"2026-11-{day:02d}" for day in range(1, 31)]
+        dates += [f"2026-12-{day:02d}" for day in range(1, 32)]
+        dates += [f"2027-01-{day:02d}" for day in range(1, 32)]
     (root / "calendars/day.txt").write_text("\n".join(dates) + "\n", encoding="utf-8")
     _write_qlib_series(root, "SH560860", [1.00 + index * 0.002 for index in range(len(dates))])
     _write_qlib_series(root, "SH512400", [1.00 + index * 0.002 for index in range(len(dates))])
@@ -1606,7 +2228,7 @@ def test_report_intelligence_labels_macro_strategy_claims_with_asset_proxy_windo
         publish_date="2026-01-02",
     )
     qlib_etf_dir = tmp_path / "qlib_etf"
-    _write_qlib_etf_fixture(qlib_etf_dir)
+    _write_qlib_etf_fixture(qlib_etf_dir, long_calendar=True)
 
     def llm(row, chunk: str, span_id: str, chunk_index: int, chunk_count: int):
         return {
@@ -1658,15 +2280,15 @@ def test_report_intelligence_labels_macro_strategy_claims_with_asset_proxy_windo
         llm_extractor=llm,
     )
 
-    assert result.macro_asset_proxy_outcome_label_rows == 4
+    assert result.macro_asset_proxy_outcome_label_rows == 3
     assert result.macro_asset_proxy_eligible_claim_rows == 1
-    assert result.macro_asset_proxy_labelable_window_rows == 4
+    assert result.macro_asset_proxy_labelable_window_rows == 3
     outcome_labels = sorted(
         _read_jsonl(tmp_path / "registry/report_intelligence/report_outcome_labels.jsonl"),
         key=lambda row: row["horizon_days"],
     )
     assert {row["label_type"] for row in outcome_labels} == {"macro_asset_proxy"}
-    assert [row["horizon_days"] for row in outcome_labels] == [5, 20, 60, 120]
+    assert [row["horizon_days"] for row in outcome_labels] == [90, 180, 360]
     assert {row["proxy_symbol"] for row in outcome_labels} == {"SH510300"}
     assert {row["macro_asset_target_id"] for row in outcome_labels} == {
         "CN_A_SHARE_BROAD"
@@ -1682,10 +2304,9 @@ def test_report_intelligence_labels_macro_strategy_claims_with_asset_proxy_windo
     assert {row["llm_outcome_labeling_allowed"] for row in outcome_labels} == {False}
     assert {row["entry_lag_trading_days"] for row in outcome_labels} == {1}
     assert [row["effective_n_weight"] for row in outcome_labels] == [
-        0.2,
-        0.25,
-        0.25,
-        0.3,
+        0.333333,
+        0.333333,
+        0.333334,
     ]
     assert all(row["directional_hit"] is True for row in outcome_labels)
 
@@ -1699,7 +2320,7 @@ def test_report_intelligence_labels_macro_strategy_claims_with_asset_proxy_windo
     assert macro_readiness["qlib_etf_dir_configured"].startswith("qlib://")
     assert macro_readiness["eligible_claim_count"] == 1
     assert macro_readiness["labelable_forecast_claim_count"] == 1
-    assert macro_readiness["labelable_window_count"] == 4
+    assert macro_readiness["labelable_window_count"] == 3
     assert macro_readiness["data_gap_counts"] == {}
     assert macro_readiness["mapping_policy"]["crude_oil_mapping_enabled"] is False
 
@@ -10213,6 +10834,85 @@ def test_report_intelligence_infers_explicit_horizon_from_claim_text(
     assert ledger[0]["forecast_family_id"].startswith("FF-")
 
 
+def test_report_intelligence_infers_report_level_rating_horizon_from_markdown(
+    tmp_path: Path,
+):
+    source_id = _write_source(
+        tmp_path / "registry/sources/tushare_research_reports.jsonl",
+        report_type="公司研报",
+        publish_date="2026-01-02",
+        ts_code="000001.SZ",
+    )
+
+    def converter(pdf: Path, output_dir: Path, markdown: Path, overwrite: bool):
+        assert pdf.exists()
+        output_dir.mkdir(parents=True, exist_ok=True)
+        markdown.parent.mkdir(parents=True, exist_ok=True)
+        markdown.write_text(
+            "\n".join(
+                [
+                    "# 公司深度",
+                    "公司评级 买入：预期未来6个月内股价相对市场基准指数涨幅在20%以上。",
+                    "受益于订单增长和费用率下降，公司盈利能力有望改善。",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        return {
+            "status": "converted",
+            "path": str(markdown),
+            "bytes": markdown.stat().st_size,
+            "sha256": _sha(markdown),
+        }
+
+    def llm(row, chunk: str, span_id: str, chunk_index: int, chunk_count: int):
+        return {
+            "status": "ok",
+            "model": "fake-vllm",
+            "payload": {
+                "forecast_claims": [
+                    {
+                        "claim_text": "维持买入评级，公司股价相对市场基准指数有望跑赢。",
+                        "claim_provenance": "source_grounded",
+                        "forecast_testability": "testable",
+                        "forecast_type": "investment_rating",
+                        "target": {
+                            "target_type": "stock",
+                            "target_id": "000001.SZ",
+                        },
+                        "benchmark": {
+                            "benchmark_type": "market_index",
+                            "benchmark_id": "沪深300",
+                        },
+                        "direction": "positive",
+                        "horizon": {},
+                        "metric_proxy_mapping": ["stock_forward_return"],
+                    }
+                ],
+                "analytical_footprints": [],
+                "metric_candidates": [],
+                "method_patterns": [],
+                "tool_gaps": [],
+            },
+        }
+
+    run_report_intelligence_refresh(
+        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        downloader=_fake_downloader,
+        converter=converter,
+        llm_extractor=llm,
+    )
+
+    forecasts = _read_jsonl(tmp_path / "registry/report_intelligence/forecast_claims.jsonl")
+    assert forecasts[0]["forecast_testability"] == "testable"
+    assert forecasts[0]["horizon"]["max_days"] == 183
+    assert forecasts[0]["horizon"]["source"] == "report_level_rating_definition"
+    assert forecasts[0]["horizon"]["inherited_from_report_level"] is True
+    assert forecasts[0]["extraction_quality"]["horizon_inferred_from_report_level"] is True
+    assert "horizon_inferred_from_claim_text" not in forecasts[0]["extraction_quality"]
+    assert "mapping_gaps" not in forecasts[0]["extraction_quality"]
+
+
 def test_report_intelligence_derived_refresh_backfills_explicit_horizon(
     tmp_path: Path,
 ):
@@ -11426,6 +12126,62 @@ def test_prepare_analytical_footprint_review_import_batches_pending_rows(
     assert scaffold_rows[0]["footprint_correct"] is None
 
 
+def test_prepare_analytical_footprint_review_import_selects_quality_gap_rows(
+    tmp_path: Path,
+):
+    source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
+    run_report_intelligence_refresh(
+        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        downloader=_fake_downloader,
+        converter=_fake_converter,
+        llm_extractor=_fake_llm,
+    )
+    template_path = tmp_path / "registry/report_intelligence/analytical_footprint_review_template.jsonl"
+    rows = _read_jsonl(template_path)
+    passed = dict(rows[0])
+    passed["footprint_id"] = "FOOTPRINT-PASSED"
+    failed = dict(rows[0])
+    failed["footprint_id"] = "FOOTPRINT-FAILED"
+    pending = dict(rows[0])
+    pending["footprint_id"] = "FOOTPRINT-PENDING"
+    for row in (passed, failed):
+        row.update(
+            {
+                "footprint_correct": True,
+                "source_span_supports_footprint": True,
+                "metric_mapping_correct": True,
+                "inferred_steps_tagged_correctly": True,
+                "unknowns_used_when_uncertain": True,
+                "no_proprietary_text_leakage": True,
+                "manual_error_tags": [],
+                "reviewer": "footprint-reviewer",
+                "review_date": "2026-06-12",
+                "review_notes": "fixture review",
+            }
+        )
+    failed["source_span_supports_footprint"] = False
+    pending["footprint_correct"] = None
+    _write_jsonl(template_path, [passed, failed, pending])
+    output_path = tmp_path / "footprint_review_quality_gap_batch.jsonl"
+
+    report = prepare_analytical_footprint_review_import(
+        tmp_path,
+        output_path,
+        reviewer="footprint-reviewer",
+        review_date="2026-06-18",
+        limit=10,
+        quality_gap_only=True,
+    )
+    scaffold_rows = _read_jsonl(output_path)
+
+    assert report.accepted
+    assert report.selection_policy == "quality_gap_target_order"
+    assert report.output_rows == 1
+    assert report.complete_rows == 1
+    assert scaffold_rows[0]["footprint_id"] == "FOOTPRINT-FAILED"
+    assert scaffold_rows[0]["source_span_supports_footprint"] is False
+
+
 def test_prepare_analytical_footprint_review_import_priority_sorts_pending_rows(
     tmp_path: Path,
 ):
@@ -11722,6 +12478,32 @@ def test_write_analytical_footprint_review_evidence_is_private_not_import(
     assert "Suggested decision rationales" in markdown
     assert "not an import file" in markdown
     assert "Confirm each field against the evidence snippets" in markdown
+
+
+def test_analytical_footprint_review_evidence_falls_back_to_cached_markdown(
+    tmp_path: Path,
+):
+    source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
+    run_report_intelligence_refresh(
+        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        downloader=_fake_downloader,
+        converter=_fake_converter,
+        llm_extractor=_fake_llm,
+    )
+    _write_jsonl(
+        tmp_path / "registry/report_intelligence/report_metadata.jsonl",
+        [{"source_id": "SRC-UNRELATED"}],
+    )
+
+    report = write_analytical_footprint_review_evidence(tmp_path, limit=1)
+    evidence_rows = _read_jsonl(tmp_path / report.jsonl_path)
+
+    assert report.row_count == 1
+    assert report.evidence_rows == 1
+    assert report.missing_markdown_rows == 0
+    assert evidence_rows[0]["markdown_exists"] is True
+    assert "markdown_missing" not in evidence_rows[0]["suggested_manual_error_tags"]
+    assert evidence_rows[0]["evidence_snippets"]
 
 
 def test_analytical_footprint_review_evidence_flags_risk_warning_footprints(

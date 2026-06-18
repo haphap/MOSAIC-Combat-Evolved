@@ -481,10 +481,9 @@
     "policy": "macro strategy claims can be evaluated with mapped ETF proxy returns on T+1 fixed PIT windows; LLM output extracts target and direction but cannot assign outcome labels",
     "qlib_etf_dir_configured": "qlib://cn_etf",
     "windows_days": [
-      5,
-      20,
-      60,
-      120
+      90,
+      180,
+      360
     ]
   },
   "macro_proxy_label_pending_count": 3,
