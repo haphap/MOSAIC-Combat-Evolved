@@ -3743,6 +3743,62 @@ def test_report_intelligence_repairs_specialized_indicator_sources():
                 "transformation": "unknown",
                 "source_grounded": False,
             },
+            {
+                "indicator_text": "Data silos between hospital systems",
+                "canonical_metric_candidate": "unknown",
+                "data_source_mentioned": "unknown",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
+            {
+                "indicator_text": "轻资产模式",
+                "canonical_metric_candidate": "unknown",
+                "data_source_mentioned": "unknown",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
+            {
+                "indicator_text": "市场竞争加剧",
+                "canonical_metric_candidate": "unknown",
+                "data_source_mentioned": "unknown",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
+            {
+                "indicator_text": "税收优惠金额",
+                "canonical_metric_candidate": "unknown",
+                "data_source_mentioned": "unknown",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
+            {
+                "indicator_text": "中国氦气对外依存度（2025年84%）",
+                "canonical_metric_candidate": "unknown",
+                "data_source_mentioned": "unknown",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
+            {
+                "indicator_text": "氦气中游（精制提纯、液化储运）是利润集中区",
+                "canonical_metric_candidate": "unknown",
+                "data_source_mentioned": "unknown",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
+            {
+                "indicator_text": "上市时间",
+                "canonical_metric_candidate": "unknown",
+                "data_source_mentioned": "unknown",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
         ]
     )
 
@@ -3896,6 +3952,48 @@ def test_report_intelligence_repairs_specialized_indicator_sources():
     )
     assert by_text["科技股挖掘"]["data_source_mentioned"] == (
         "asset_management_product_disclosure"
+    )
+    assert by_text["Data silos between hospital systems"][
+        "data_source_mentioned"
+    ] == "project_disclosure_or_industry_digitalization_data"
+    assert by_text["Data silos between hospital systems"][
+        "canonical_metric_candidate"
+    ] == "data_governance_maturity_metric"
+    assert by_text["轻资产模式"]["data_source_mentioned"] == (
+        "ai_platform_usage_or_cost_benchmark"
+    )
+    assert by_text["轻资产模式"]["canonical_metric_candidate"] == (
+        "ai_token_platform_operation_metric"
+    )
+    assert by_text["市场竞争加剧"]["data_source_mentioned"] == (
+        "industry_survey_or_association_index"
+    )
+    assert by_text["市场竞争加剧"]["canonical_metric_candidate"] == (
+        "industry_execution_risk_metric"
+    )
+    assert by_text["税收优惠金额"]["data_source_mentioned"] == (
+        "company_financials_or_regulatory_disclosure"
+    )
+    assert by_text["税收优惠金额"]["canonical_metric_candidate"] == (
+        "tax_policy_benefit_metric"
+    )
+    assert by_text["中国氦气对外依存度（2025年84%）"]["data_source_mentioned"] == (
+        "resource_reserve_or_company_project_disclosure"
+    )
+    assert by_text["中国氦气对外依存度（2025年84%）"][
+        "canonical_metric_candidate"
+    ] == "resource_supply_concentration_metric"
+    assert by_text["氦气中游（精制提纯、液化储运）是利润集中区"][
+        "data_source_mentioned"
+    ] == "industry_operation_statistics_or_report_table"
+    assert by_text["氦气中游（精制提纯、液化储运）是利润集中区"][
+        "canonical_metric_candidate"
+    ] == "industry_value_chain_structure"
+    assert by_text["上市时间"]["data_source_mentioned"] == (
+        "company_disclosure_or_report_business_update"
+    )
+    assert by_text["上市时间"]["canonical_metric_candidate"] == (
+        "strategic_expansion_milestone"
     )
     assert all(row["source_grounded"] is True for row in by_text.values())
 

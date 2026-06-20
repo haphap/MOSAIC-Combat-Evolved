@@ -3455,6 +3455,82 @@ INDICATOR_METADATA_RULES: tuple[tuple[str, Mapping[str, Any]], ...] = (
         },
     ),
     (
+        r"全球铝供应偏紧|中国氦气对外依存度|全球氦气资源分布|"
+        r"国际.*工业气体公司.*主导|国际厂商主导",
+        {
+            "canonical_metric_candidate": "resource_supply_concentration_metric",
+            "data_source_mentioned": "resource_reserve_or_company_project_disclosure",
+            "frequency": "annual_or_quarterly",
+            "transformation": "share_concentration_or_dependency_ratio",
+            "role_in_argument": "resource_supply_security_metric",
+        },
+    ),
+    (
+        r"data[_\s-]*silos?|inconsistent[_\s-]*data[_\s-]*reporting|"
+        r"lack[_\s-]*of[_\s-]*data[_\s-]*support|support[_\s-]*for[_\s-]*management[_\s-]*decisions|"
+        r"patient[_\s-]*experience|medical[_\s-]*research|medical[_\s-]*service[_\s-]*quality|"
+        r"数据孤岛|数据标准不一致|管理决策支持|患者体验|医疗服务质量",
+        {
+            "canonical_metric_candidate": "data_governance_maturity_metric",
+            "data_source_mentioned": "project_disclosure_or_industry_digitalization_data",
+            "frequency": "survey_window_or_project_window",
+            "transformation": "maturity_score_or_project_outcome",
+            "role_in_argument": "data_governance_value_metric",
+        },
+    ),
+    (
+        r"轻资产模式|批量采购.*分销|统一接口|合规支付|网络互通",
+        {
+            "canonical_metric_candidate": "ai_token_platform_operation_metric",
+            "data_source_mentioned": "ai_platform_usage_or_cost_benchmark",
+            "frequency": "monthly_or_quarterly",
+            "transformation": "business_model_or_usage_cost_metric",
+            "role_in_argument": "ai_token_platform_business_model_metric",
+        },
+    ),
+    (
+        r"市场竞争加剧|技术发展不及预期|要素成本攀升|转型路径模糊",
+        {
+            "canonical_metric_candidate": "industry_execution_risk_metric",
+            "data_source_mentioned": "industry_survey_or_association_index",
+            "frequency": "event_driven_or_survey_window",
+            "transformation": "risk_flag_or_pressure_level",
+            "role_in_argument": "industry_risk_pressure_metric",
+        },
+    ),
+    (
+        r"税收优惠金额|高新技术企业所得税率|所得税率|tax[_\s-]*(?:benefit|rate)",
+        {
+            "canonical_metric_candidate": "tax_policy_benefit_metric",
+            "data_source_mentioned": "company_financials_or_regulatory_disclosure",
+            "frequency": "annual_or_quarterly",
+            "transformation": "amount_or_effective_tax_rate",
+            "role_in_argument": "tax_advantage_metric",
+        },
+    ),
+    (
+        r"氦气中游|精制提纯|液化储运|中游壁垒|长协锁价|"
+        r"低温储运|全球调度|多源长协|自有储运|电子大宗气体收入占比|"
+        r"高端电子特气|asml|gigaphoton|产业链布局",
+        {
+            "canonical_metric_candidate": "industry_value_chain_structure",
+            "data_source_mentioned": "industry_operation_statistics_or_report_table",
+            "frequency": "annual_or_quarterly",
+            "transformation": "value_chain_segment_or_share_change",
+            "role_in_argument": "industry_value_chain_metric",
+        },
+    ),
+    (
+        r"事关.*安全|半导体.*军工.*航天安全|上市时间",
+        {
+            "canonical_metric_candidate": "strategic_expansion_milestone",
+            "data_source_mentioned": "company_disclosure_or_report_business_update",
+            "frequency": "event_driven_or_annual",
+            "transformation": "milestone_event_or_strategic_status",
+            "role_in_argument": "company_strategy_or_project_metric",
+        },
+    ),
+    (
         r"gdp[_\s-]*deflator|nominal[_\s-]*gdp|fixed[_\s-]*asset[_\s-]*investment|"
         r"special[_\s-]*bond[_\s-]*issuance|direct[_\s-]*financing|tsf|"
         r"劳动参与率|财政支出|财政节奏|财政政策|财政信用|投资结构|名义GDP|平减指数|专项债|直接融资",
@@ -4898,16 +4974,19 @@ INDICATOR_METADATA_INDEX_PROXY_SOURCES = {
 }
 
 INDICATOR_METADATA_SPECIALIZED_NON_INDEX_SOURCES = {
+    "ai_platform_usage_or_cost_benchmark",
     "asset_management_product_disclosure",
     "auto_industry_operation_statistics",
     "carbon_market_exchange_statistics",
     "company_channel_or_segment_operation_disclosure",
     "company_disclosure_or_report_business_update",
     "company_equity_incentive_disclosure",
+    "company_financials_or_regulatory_disclosure",
     "commodity_price_supply_demand_inventory_data",
     "customs_trade_statistics_or_report_table",
     "exchange_connect_or_fund_flow_data",
     "industry_survey_or_association_index",
+    "industry_operation_statistics_or_report_table",
     "livestock_operation_statistics",
     "movie_ticketing_platform_pre_sale_data",
     "project_disclosure_or_industry_digitalization_data",
@@ -4932,18 +5011,23 @@ INDICATOR_METADATA_COMPANY_SOURCE_OVERRIDES = {
 }
 
 INDICATOR_METADATA_COMPANY_METRIC_OVERRIDES = {
-    "domestic_substitution_rate",
+    "ai_token_platform_operation_metric",
     "business_mix_or_channel_operation_metric",
+    "data_governance_maturity_metric",
+    "domestic_substitution_rate",
     "financial_ratio_or_risk_metric",
     "industry_capacity_supply",
+    "industry_execution_risk_metric",
     "industry_value_chain_structure",
     "insurance_operation_or_solvency_metric",
     "product_performance_metric",
     "private_market_financing_valuation",
     "resource_quality_metric",
+    "resource_supply_concentration_metric",
     "renewable_installation_or_project_pipeline",
     "shareholder_return_metric",
     "strategic_expansion_milestone",
+    "tax_policy_benefit_metric",
     "technology_adoption_or_market_share",
 }
 
