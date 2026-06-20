@@ -3211,6 +3211,542 @@ INDICATOR_METADATA_RULES: tuple[tuple[str, Mapping[str, Any]], ...] = (
         },
     ),
     (
+        r"PBOC[_\s-]*7DAY[_\s-]*REPO[_\s-]*RATE|央行逆回购|7天逆回购|公开市场",
+        {
+            "canonical_metric_candidate": "pboc_open_market_policy_rate",
+            "data_source_mentioned": "central_bank_open_market_operation_data",
+            "frequency": "daily",
+            "transformation": "rate_level_or_operation_change",
+            "role_in_argument": "central_bank_liquidity_regime_metric",
+        },
+    ),
+    (
+        r"gdp[_\s-]*deflator|nominal[_\s-]*gdp|fixed[_\s-]*asset[_\s-]*investment|"
+        r"special[_\s-]*bond[_\s-]*issuance|direct[_\s-]*financing|tsf|"
+        r"劳动参与率|财政支出|财政节奏|财政政策|财政信用|投资结构|名义GDP|平减指数|专项债|直接融资",
+        {
+            "canonical_metric_candidate": "macro_activity_or_credit_metric",
+            "data_source_mentioned": "macroeconomic_statistics_or_policy_report",
+            "frequency": "monthly_or_quarterly",
+            "transformation": "level_growth_or_share_change",
+            "role_in_argument": "macro_regime_metric",
+        },
+    ),
+    (
+        r"fx[_\s-]*reserves|汇率|外汇储备|人民币汇率|美元指数|usdcny|cny",
+        {
+            "canonical_metric_candidate": "fx_liquidity_regime_metric",
+            "data_source_mentioned": "fx_market_or_official_reserve_data",
+            "frequency": "daily_or_monthly",
+            "transformation": "level_or_change",
+            "role_in_argument": "dollar_liquidity_or_currency_regime_metric",
+        },
+    ),
+    (
+        r"CN[_\s-]*US[_\s-]*10Y[_\s-]*bond[_\s-]*spread|中美利差|10年期利差",
+        {
+            "canonical_metric_candidate": "china_us_bond_yield_spread",
+            "data_source_mentioned": "bond_market_yield_curve",
+            "frequency": "daily",
+            "transformation": "spread",
+            "role_in_argument": "yield_curve_regime_metric",
+        },
+    ),
+    (
+        r"股基成交额|日均股基交易额|沪深股基成交额|market[_\s-]*turnover|turnover",
+        {
+            "canonical_metric_candidate": "market_turnover",
+            "data_source_mentioned": "exchange_market_trading_data",
+            "frequency": "daily_or_monthly",
+            "transformation": "turnover_level_or_growth",
+            "role_in_argument": "capital_market_activity_metric",
+        },
+    ),
+    (
+        r"sector[_\s-]*pe|industry[_\s-]*pe|pe[_\s-]*ttm|pb[_\s-]*lf|"
+        r"valuation[_\s-]*percentile|historical[_\s-]*valuation|PE估值|历史估值分位",
+        {
+            "canonical_metric_candidate": "valuation_multiple",
+            "data_source_mentioned": "market_valuation_data_or_report_forecast",
+            "frequency": "daily_or_point_in_time",
+            "transformation": "valuation_ratio_or_percentile",
+            "role_in_argument": "valuation_proxy",
+        },
+    ),
+    (
+        r"market[_\s-]*performance|sector[_\s-]*performance|relative[_\s-]*performance|"
+        r"weekly[_\s-]*market[_\s-]*performance|行情回顾|行情复盘|市场表现|板块表现|相对强弱|板块轮动",
+        {
+            "canonical_metric_candidate": "market_or_sector_index_return",
+            "data_source_mentioned": "stock_etf_or_index_price",
+            "frequency": "daily_or_weekly",
+            "transformation": "return_or_relative_return",
+            "role_in_argument": "sector_relative_performance_proxy",
+        },
+    ),
+    (
+        r"sector[_\s-]*rank|industry[_\s-]*rank|industry[_\s-]*ranking|"
+        r"sector[_\s-]*ranking|子板块.*(?:上涨|下跌)|(?:上涨|下跌)\s*\d+(?:\.\d+)?%",
+        {
+            "canonical_metric_candidate": "market_or_sector_index_return",
+            "data_source_mentioned": "stock_etf_or_index_price",
+            "frequency": "daily_or_weekly",
+            "transformation": "return_or_rank_change",
+            "role_in_argument": "sector_relative_performance_proxy",
+        },
+    ),
+    (
+        r"wind[_\s-]*(?:power[_\s-]*)?(?:tender|bidding|bid)|winning[_\s-]*bid|"
+        r"bidding[_\s-]*volume|winning[_\s-]*bid[_\s-]*volume|"
+        r"(?:max|min|lowest|average)[_\s-]*winning[_\s-]*price|竞价|中标价|中标量|招标量",
+        {
+            "canonical_metric_candidate": "renewable_tender_price_volume",
+            "data_source_mentioned": "energy_project_or_tender_statistics",
+            "frequency": "weekly_or_monthly",
+            "transformation": "volume_or_price_level_change",
+            "role_in_argument": "renewable_project_demand_and_price_metric",
+        },
+    ),
+    (
+        r"installed[_\s-]*capacity|capacity[_\s-]*(?:utili[sz]ation|expansion)|"
+        r"new[_\s-]*capacity|secured[_\s-]*capacity|production[_\s-]*volume|"
+        r"产能|核定产能|权益产能|在建产能|新增产能|产能利用率|产量",
+        {
+            "canonical_metric_candidate": "industry_capacity_supply",
+            "data_source_mentioned": "industry_capacity_or_production_statistics",
+            "frequency": "monthly_or_annual",
+            "transformation": "capacity_or_output_level_change",
+            "role_in_argument": "supply_capacity_metric",
+        },
+    ),
+    (
+        r"subsidy|benchmark[_\s-]*tariff|feed[_\s-]*in[_\s-]*tariff|"
+        r"lifecycle[_\s-]*hours|补贴|标杆电价|全生命周期|合理利用小时|生物质发电",
+        {
+            "canonical_metric_candidate": "subsidy_tariff_policy_parameter",
+            "data_source_mentioned": "policy_announcement_or_report_policy_summary",
+            "frequency": "event_driven",
+            "transformation": "policy_parameter_extraction",
+            "role_in_argument": "subsidy_mechanism_metric",
+        },
+    ),
+    (
+        r"market[_\s-]*electricity[_\s-]*price|上网电价|丰枯电价|市场化电价|电价",
+        {
+            "canonical_metric_candidate": "power_market_price",
+            "data_source_mentioned": "power_market_price_or_tariff_data",
+            "frequency": "monthly_or_event_driven",
+            "transformation": "price_level_or_policy_parameter",
+            "role_in_argument": "power_price_metric",
+        },
+    ),
+    (
+        r"发电量|用电量|发电装机|装机容量|平均利用小时|利用小时|电源工程投资",
+        {
+            "canonical_metric_candidate": "power_operation_metric",
+            "data_source_mentioned": "energy_operation_statistics_or_report_table",
+            "frequency": "monthly",
+            "transformation": "level_or_growth_rate",
+            "role_in_argument": "power_supply_demand_operation_metric",
+        },
+    ),
+    (
+        r"overseas[_\s-]*approval|regulatory[_\s-]*approvals?|policy[_\s-]*approval|"
+        r"PRASHAD.*approved|Swadesh.*approved|审批|获批|批准",
+        {
+            "canonical_metric_candidate": "regulatory_approval_status",
+            "data_source_mentioned": "regulatory_disclosure_or_policy_project_list",
+            "frequency": "event_driven",
+            "transformation": "approval_status_or_project_count",
+            "role_in_argument": "policy_or_transaction_catalyst",
+        },
+    ),
+    (
+        r"dividend[_\s-]*payout|dividend[_\s-]*to[_\s-]*financing|股息率|分红率|派息率",
+        {
+            "canonical_metric_candidate": "shareholder_return_metric",
+            "data_source_mentioned": "company_financials_or_dividend_disclosure",
+            "frequency": "annual_or_quarterly",
+            "transformation": "ratio_level_or_change",
+            "role_in_argument": "shareholder_return_metric",
+        },
+    ),
+    (
+        r"water[_\s-]*supply|wastewater|penetration[_\s-]*rate|供水|污水|渗透率",
+        {
+            "canonical_metric_candidate": "utility_operation_metric",
+            "data_source_mentioned": "utility_operation_statistics_or_company_disclosure",
+            "frequency": "monthly_or_annual",
+            "transformation": "volume_or_rate_change",
+            "role_in_argument": "utility_demand_or_penetration_metric",
+        },
+    ),
+    (
+        r"ride[_\s-]*hailing|express[_\s-]*parcel|platform[_\s-]*order|网约车|快递件量",
+        {
+            "canonical_metric_candidate": "transport_logistics_operation_metric",
+            "data_source_mentioned": "transportation_operation_statistics_or_report_table",
+            "frequency": "daily_or_monthly",
+            "transformation": "order_or_volume_growth",
+            "role_in_argument": "transport_logistics_activity_metric",
+        },
+    ),
+    (
+        r"tourism[_\s-]*revenue|tourism[_\s-]*activity|forex[_\s-]*earnings|"
+        r"旅游消费活跃度|旅游收入|旅游外汇|入境游客",
+        {
+            "canonical_metric_candidate": "tourism_consumption_activity",
+            "data_source_mentioned": "tourism_operation_statistics_or_survey",
+            "frequency": "monthly_or_annual",
+            "transformation": "level_or_growth_rate",
+            "role_in_argument": "tourism_demand_activity_metric",
+        },
+    ),
+    (
+        r"airport[_\s-]*operations|airport[_\s-]*count|metro[_\s-]*network|"
+        r"highway[_\s-]*network|digital[_\s-]*infrastructure[_\s-]*usage|"
+        r"机场运营|机场数量|地铁里程|高速公路|数字基础设施",
+        {
+            "canonical_metric_candidate": "transport_infrastructure_capacity",
+            "data_source_mentioned": "transport_infrastructure_statistics",
+            "frequency": "annual_or_monthly",
+            "transformation": "level_or_growth",
+            "role_in_argument": "tourism_or_transport_capacity_metric",
+        },
+    ),
+    (
+        r"clinical[_\s-]*endpoint|epidemiology|disease[_\s-]*incidence|"
+        r"syphilis|流行病学|发病率|患病率|临床终点",
+        {
+            "canonical_metric_candidate": "clinical_or_epidemiology_metric",
+            "data_source_mentioned": "clinical_trial_or_epidemiology_statistics",
+            "frequency": "event_driven_or_annual",
+            "transformation": "rate_or_endpoint_effect_size",
+            "role_in_argument": "healthcare_demand_or_clinical_evidence_metric",
+        },
+    ),
+    (
+        r"ai[_\s-]*assistant[_\s-]*adoption|ai[_\s-]*adoption|workplace[_\s-]*ai|"
+        r"AI助手|AI采用|智能体治理|模型发展",
+        {
+            "canonical_metric_candidate": "ai_adoption_activity",
+            "data_source_mentioned": "industry_survey_or_platform_usage_data",
+            "frequency": "monthly_or_survey_window",
+            "transformation": "adoption_rate_or_usage_change",
+            "role_in_argument": "ai_software_demand_metric",
+        },
+    ),
+    (
+        r"票房|box[_\s-]*office",
+        {
+            "canonical_metric_candidate": "box_office_revenue",
+            "data_source_mentioned": "box_office_platform_statistics",
+            "frequency": "daily_or_holiday_window",
+            "transformation": "revenue_level_or_forecast",
+            "role_in_argument": "media_consumption_demand_metric",
+        },
+    ),
+    (
+        r"预售|想看|片单|影片供给|pre[-_\s]*sale|movie[_\s-]*supply",
+        {
+            "canonical_metric_candidate": "box_office_pre_sale_activity",
+            "data_source_mentioned": "movie_ticketing_platform_pre_sale_data",
+            "frequency": "daily_or_holiday_window",
+            "transformation": "pre_sale_or_supply_count",
+            "role_in_argument": "media_supply_and_demand_heat_metric",
+        },
+    ),
+    (
+        r"capex|资本开支|资本支出",
+        {
+            "canonical_metric_candidate": "industry_capex_cycle",
+            "data_source_mentioned": "industry_capex_or_company_guidance",
+            "frequency": "quarterly_or_annual",
+            "transformation": "level_growth_or_cycle_state",
+            "role_in_argument": "supply_capacity_investment_metric",
+        },
+    ),
+    (
+        r"carbon[_\s-]*market|carbon[_\s-]*price|碳市场|碳价|碳配额|CCER",
+        {
+            "canonical_metric_candidate": "carbon_market_price_volume",
+            "data_source_mentioned": "carbon_market_exchange_statistics",
+            "frequency": "daily_or_weekly",
+            "transformation": "price_volume_or_turnover_change",
+            "role_in_argument": "carbon_market_activity_metric",
+        },
+    ),
+    (
+        r"mine|矿山|矿权|储量|资源量|自给率|锂矿|铝土矿|煤层气储量",
+        {
+            "canonical_metric_candidate": "resource_reserve_supply",
+            "data_source_mentioned": "resource_reserve_or_company_project_disclosure",
+            "frequency": "annual_or_event_driven",
+            "transformation": "reserve_level_or_growth",
+            "role_in_argument": "resource_supply_security_metric",
+        },
+    ),
+    (
+        r"token|日均token|token调用|单位token|reasoning[_\s-]*stability|iaas|maas|词元|推理稳定性",
+        {
+            "canonical_metric_candidate": "ai_token_usage_economics",
+            "data_source_mentioned": "ai_platform_usage_or_cost_benchmark",
+            "frequency": "daily_or_monthly",
+            "transformation": "usage_cost_or_efficiency_change",
+            "role_in_argument": "ai_token_economics_metric",
+        },
+    ),
+    (
+        r"agreement[_\s-]*rate|worried[_\s-]*rate|very[_\s-]*worried|weight[_\s-]*loss|appetite[_\s-]*suppression|减重|焦虑",
+        {
+            "canonical_metric_candidate": "consumer_survey_metric",
+            "data_source_mentioned": "consumer_survey_or_platform_research",
+            "frequency": "survey_window",
+            "transformation": "survey_rate",
+            "role_in_argument": "consumer_health_demand_metric",
+        },
+    ),
+    (
+        r"国产化|国产替代|domestic[_\s-]*substitution|locali[sz]ation|技术差距|technology[_\s-]*gap",
+        {
+            "canonical_metric_candidate": "domestic_substitution_rate",
+            "data_source_mentioned": "industry_policy_or_company_localization_disclosure",
+            "frequency": "event_driven_or_annual",
+            "transformation": "rate_or_milestone_progress",
+            "role_in_argument": "import_substitution_progress_metric",
+        },
+    ),
+    (
+        r"集采|带量采购|centralized[_\s-]*procurement|generic[_\s-]*drug|仿制药",
+        {
+            "canonical_metric_candidate": "medical_procurement_policy_exposure",
+            "data_source_mentioned": "healthcare_policy_or_drug_procurement_disclosure",
+            "frequency": "event_driven",
+            "transformation": "policy_event_or_sales_exposure",
+            "role_in_argument": "healthcare_policy_pressure_metric",
+        },
+    ),
+    (
+        r"\bcpi\b|\bppi\b|\bpmi\b|\bm2\b|社融|信贷|通胀|宏观经济|macro[_\s-]*economic|financial[_\s-]*cycle|tech[_\s-]*investment[_\s-]*cycle|infrastructure[_\s-]*investment",
+        {
+            "canonical_metric_candidate": "macro_activity_or_inflation_metric",
+            "data_source_mentioned": "macroeconomic_statistics_or_policy_report",
+            "frequency": "monthly_or_quarterly",
+            "transformation": "level_growth_or_cycle_state",
+            "role_in_argument": "macro_regime_metric",
+        },
+    ),
+    (
+        r"联邦基金利率期货|fed[_\s-]*funds[_\s-]*futures|加息概率|降息概率",
+        {
+            "canonical_metric_candidate": "policy_rate_expectation",
+            "data_source_mentioned": "rates_futures_market_data",
+            "frequency": "daily",
+            "transformation": "implied_probability",
+            "role_in_argument": "monetary_policy_expectation_metric",
+        },
+    ),
+    (
+        r"国九条|再融资|保证金比例|十五五|十四五|规划|纲要|tariff|关税|policy[_\s-]*(?:stance|implementation)|regulatory[_\s-]*environment|fiscal[_\s-]*stimulus",
+        {
+            "canonical_metric_candidate": "policy_regime_event",
+            "data_source_mentioned": "policy_announcement_or_regulatory_disclosure",
+            "frequency": "event_driven",
+            "transformation": "event_or_parameter_change",
+            "role_in_argument": "policy_regime_metric",
+        },
+    ),
+    (
+        r"军费|国防开支|作战力量|military[_\s-]*spending|defense[_\s-]*budget",
+        {
+            "canonical_metric_candidate": "defense_spending_policy",
+            "data_source_mentioned": "public_budget_or_defense_policy_plan",
+            "frequency": "annual_or_event_driven",
+            "transformation": "budget_growth_or_policy_event",
+            "role_in_argument": "defense_industry_policy_demand_metric",
+        },
+    ),
+    (
+        r"理财|aum|存量规模|理财子|港股打新|债券久期|净值|wealth[_\s-]*management|multi[_\s-]*asset[_\s-]*strategy",
+        {
+            "canonical_metric_candidate": "asset_management_product_activity",
+            "data_source_mentioned": "asset_management_product_disclosure",
+            "frequency": "monthly_or_quarterly",
+            "transformation": "aum_strategy_or_return_change",
+            "role_in_argument": "wealth_management_activity_metric",
+        },
+    ),
+    (
+        r"不良率|不良贷款|应收租赁款不良|资产负债率|leverage[_\s-]*ratio|roa|roe|expense[_\s-]*ratio|financial[_\s-]*expense|财务费用|费用率",
+        {
+            "canonical_metric_candidate": "financial_ratio_or_risk_metric",
+            "data_source_mentioned": "company_financials_or_regulatory_disclosure",
+            "frequency": "quarterly_or_annual",
+            "transformation": "ratio_level_or_change",
+            "role_in_argument": "financial_quality_or_risk_metric",
+        },
+    ),
+    (
+        r"earnings[_\s-]*growth|profit[_\s-]*growth|利润增长|业绩增长",
+        {
+            "canonical_metric_candidate": "earnings_growth",
+            "data_source_mentioned": "company_financials_or_report_forecast",
+            "frequency": "quarterly_or_annual",
+            "transformation": "growth_rate_or_forecast",
+            "role_in_argument": "earnings_growth_metric",
+        },
+    ),
+    (
+        r"forward[_\s-]*return|weekly[_\s-]*return|sector[_\s-]*return|stock[_\s-]*price|股价|周度收益|行业收益",
+        {
+            "canonical_metric_candidate": "market_or_sector_index_return",
+            "data_source_mentioned": "stock_etf_or_index_price",
+            "frequency": "daily_or_weekly",
+            "transformation": "return_or_price_change",
+            "role_in_argument": "market_performance_proxy",
+        },
+    ),
+    (
+        r"市场成交额|market[_\s-]*turnover|turnover",
+        {
+            "canonical_metric_candidate": "market_turnover",
+            "data_source_mentioned": "exchange_market_trading_data",
+            "frequency": "daily_or_monthly",
+            "transformation": "turnover_level_or_growth",
+            "role_in_argument": "capital_market_activity_metric",
+        },
+    ),
+    (
+        r"行业.*(?:发展|信心|预警).*指数|展业状况评价|confidence[_\s-]*index|warning[_\s-]*index|development[_\s-]*index",
+        {
+            "canonical_metric_candidate": "industry_confidence_warning_index",
+            "data_source_mentioned": "industry_survey_or_association_index",
+            "frequency": "monthly_or_quarterly",
+            "transformation": "index_level_or_change",
+            "role_in_argument": "industry_sentiment_or_risk_metric",
+        },
+    ),
+    (
+        r"来水|水库水位|丰枯|厄尔尼诺|el[_\s-]*nino|hydrology",
+        {
+            "canonical_metric_candidate": "hydrology_power_generation_condition",
+            "data_source_mentioned": "hydrology_weather_or_power_operation_data",
+            "frequency": "monthly_or_seasonal",
+            "transformation": "level_deviation_or_forecast",
+            "role_in_argument": "hydropower_supply_condition_metric",
+        },
+    ),
+    (
+        r"霍尔木兹|美伊|停火|geopolitical[_\s-]*risk|地缘",
+        {
+            "canonical_metric_candidate": "geopolitical_supply_risk",
+            "data_source_mentioned": "geopolitical_event_or_shipping_channel_monitor",
+            "frequency": "event_driven",
+            "transformation": "event_or_risk_state",
+            "role_in_argument": "geopolitical_supply_chain_risk_metric",
+        },
+    ),
+    (
+        r"舱位|附加费|绕航|好望角|ship[_\s-]*rental|newbuild[_\s-]*price|发运量|铁路发运|机票搜索|酒店预订",
+        {
+            "canonical_metric_candidate": "transport_logistics_operation_metric",
+            "data_source_mentioned": "transportation_operation_statistics_or_report_table",
+            "frequency": "daily_or_weekly_or_monthly",
+            "transformation": "level_growth_or_price_change",
+            "role_in_argument": "transport_logistics_activity_metric",
+        },
+    ),
+    (
+        r"airport[_\s-]*count|metro[_\s-]*network|highway[_\s-]*network|infrastructure[_\s-]*capacity|机场数量|地铁里程|高速公路",
+        {
+            "canonical_metric_candidate": "transport_infrastructure_capacity",
+            "data_source_mentioned": "transport_infrastructure_statistics",
+            "frequency": "annual",
+            "transformation": "level_or_growth",
+            "role_in_argument": "tourism_or_transport_capacity_metric",
+        },
+    ),
+    (
+        r"ttdi|arrivals|foreign[_\s-]*exchange[_\s-]*earnings|旅游外汇|入境",
+        {
+            "canonical_metric_candidate": "tourism_consumption_activity",
+            "data_source_mentioned": "tourism_operation_statistics_or_survey",
+            "frequency": "monthly_or_annual",
+            "transformation": "level_or_growth_rate",
+            "role_in_argument": "tourism_demand_activity_metric",
+        },
+    ),
+    (
+        r"展会|exhibition|industry[_\s-]*event|参展|cimes",
+        {
+            "canonical_metric_candidate": "industry_event_participation",
+            "data_source_mentioned": "industry_event_or_exhibition_disclosure",
+            "frequency": "event_driven",
+            "transformation": "event_scale_or_participation",
+            "role_in_argument": "industry_trend_window_metric",
+        },
+    ),
+    (
+        r"客户集中度|customer[_\s-]*concentration",
+        {
+            "canonical_metric_candidate": "customer_concentration",
+            "data_source_mentioned": "company_customer_structure_disclosure",
+            "frequency": "annual_or_quarterly",
+            "transformation": "share_or_concentration_change",
+            "role_in_argument": "customer_structure_risk_metric",
+        },
+    ),
+    (
+        r"土地市场|land[_\s-]*market|房价|housing[_\s-]*price|库存去化|房地产库存",
+        {
+            "canonical_metric_candidate": "real_estate_market_activity",
+            "data_source_mentioned": "real_estate_transaction_database_or_report_table",
+            "frequency": "weekly_or_monthly",
+            "transformation": "price_volume_or_inventory_change",
+            "role_in_argument": "real_estate_cycle_metric",
+        },
+    ),
+    (
+        r"private[_\s-]*company[_\s-]*valuation|corporate[_\s-]*financing|融资事件|公司估值",
+        {
+            "canonical_metric_candidate": "private_market_financing_valuation",
+            "data_source_mentioned": "private_financing_or_company_disclosure",
+            "frequency": "event_driven",
+            "transformation": "valuation_or_financing_event",
+            "role_in_argument": "industry_financing_sentiment_metric",
+        },
+    ),
+    (
+        r"digital[_\s-]*industry|intelligent[_\s-]*computing|算力|数字产业|智能算力",
+        {
+            "canonical_metric_candidate": "digital_economy_operation_metric",
+            "data_source_mentioned": "digital_economy_statistics_or_industry_report",
+            "frequency": "quarterly_or_annual",
+            "transformation": "level_growth_or_capacity_change",
+            "role_in_argument": "digital_industry_activity_metric",
+        },
+    ),
+    (
+        r"pv[_\s-]*new[_\s-]*installation|installation[_\s-]*capacity|wind[_\s-]*installation|offshore[_\s-]*wind|装机|风电|光伏",
+        {
+            "canonical_metric_candidate": "renewable_installation_or_project_pipeline",
+            "data_source_mentioned": "energy_project_or_installation_statistics",
+            "frequency": "monthly_or_event_driven",
+            "transformation": "capacity_level_or_project_progress",
+            "role_in_argument": "renewable_energy_project_metric",
+        },
+    ),
+    (
+        r"rare[_\s-]*metal|precious[_\s-]*metal|glass[_\s-]*fiber[_\s-]*price|lithium[_\s-]*carbonate|electrolyte|ternary[_\s-]*material|碳酸锂|电解液|三元材料|煤炭价格指数|能源价格|有色|贵金属|稀有金属|玻纤价格",
+        {
+            "canonical_metric_candidate": "commodity_price_cycle",
+            "data_source_mentioned": "commodity_price_supply_demand_inventory_data",
+            "frequency": "daily_or_weekly_or_monthly",
+            "transformation": "price_level_or_change",
+            "role_in_argument": "commodity_input_cost_metric",
+        },
+    ),
+    (
         r"\bphase\s*(i|ii|iii|1|2|3)\b|clinical|trial|registration|asco",
         {
             "canonical_metric_candidate": "clinical_trial_milestone_status",
@@ -3301,6 +3837,135 @@ INDICATOR_METADATA_RULES: tuple[tuple[str, Mapping[str, Any]], ...] = (
         },
     ),
     (
+        r"category.*sales|store.*sales|product.*sales|platform.*sales|"
+        r"gmv|电商|平台|店铺|品类|类目|商品排名|商品销售|热销商品",
+        {
+            "canonical_metric_candidate": "ecommerce_store_product_rank_activity",
+            "data_source_mentioned": "ecommerce_platform_category_store_product_data",
+            "frequency": "monthly",
+            "transformation": "sales_rank_or_volume_value_change",
+            "role_in_argument": "ecommerce_demand_and_competition_metric",
+        },
+    ),
+    (
+        r"industry[_\s-]*(?:revenue|sales|market[_\s-]*size|output[_\s-]*value|output[_\s-]*volume)|"
+        r"market[_\s-]*size|市场规模|市场空间|行业收入|行业销售|行业产值|行业产量",
+        {
+            "canonical_metric_candidate": "industry_demand_cycle",
+            "data_source_mentioned": "industry_operation_statistics_or_report_table",
+            "frequency": "monthly_or_annual",
+            "transformation": "level_growth_or_forecast",
+            "role_in_argument": "industry_market_size_metric",
+        },
+    ),
+    (
+        r"demand[_\s-]*growth|industry[_\s-]*prosperity|industry[_\s-]*volume|"
+        r"(?:global|regional|china|latam|europe|motorcycle|vehicle|auto|industry)[_\s-].*sales[_\s-]*volume|"
+        r"需求增长|行业景气|行业销量",
+        {
+            "canonical_metric_candidate": "industry_demand_cycle",
+            "data_source_mentioned": "industry_operation_statistics_or_report_table",
+            "frequency": "monthly_or_quarterly_or_annual",
+            "transformation": "level_growth_or_cycle_state",
+            "role_in_argument": "industry_demand_cycle_metric",
+        },
+    ),
+    (
+        r"export[_\s-]*revenue|import[_\s-]*revenue|trade[_\s-]*balance|unit[_\s-]*price|"
+        r"出口收入|进口收入|贸易差额|进出口均价|进出口单价",
+        {
+            "canonical_metric_candidate": "export_import_trade_flow",
+            "data_source_mentioned": "customs_trade_statistics_or_report_table",
+            "frequency": "monthly_or_quarterly",
+            "transformation": "value_volume_or_unit_price_change",
+            "role_in_argument": "external_demand_trade_metric",
+        },
+    ),
+    (
+        r"express[_\s-]*delivery|freight|shipping|tanker|vlcc|bdi|ctfi|ask|load[_\s-]*factor|"
+        r"passenger[_\s-]*volume|railway[_\s-]*freight|road[_\s-]*logistics|truck[_\s-]*traffic|"
+        r"快递|运价|货运|客运|铁路货运|公路物流|货车通行|可用座公里|客座率",
+        {
+            "canonical_metric_candidate": "transport_logistics_operation_metric",
+            "data_source_mentioned": "transportation_operation_statistics_or_report_table",
+            "frequency": "daily_or_weekly_or_monthly",
+            "transformation": "level_growth_or_index_change",
+            "role_in_argument": "transport_logistics_activity_metric",
+        },
+    ),
+    (
+        r"consumer[_\s-]*survey|survey[_\s-]*metric|health[_\s-]*awareness|消费者调研|消费意愿|健康意识",
+        {
+            "canonical_metric_candidate": "consumer_survey_metric",
+            "data_source_mentioned": "consumer_survey_or_platform_research",
+            "frequency": "monthly_or_quarterly",
+            "transformation": "survey_rate_or_index_change",
+            "role_in_argument": "consumer_demand_intention_metric",
+        },
+    ),
+    (
+        r"policy[_\s-]*event|regulatory[_\s-]*action|policy[_\s-]*regime|政策|监管|标准",
+        {
+            "canonical_metric_candidate": "policy_regime_event",
+            "data_source_mentioned": "policy_announcement_or_regulatory_disclosure",
+            "frequency": "event_driven",
+            "transformation": "event_or_parameter_change",
+            "role_in_argument": "policy_regime_metric",
+        },
+    ),
+    (
+        r"aum|asset[_\s-]*under[_\s-]*management|product[_\s-]*return|product[_\s-]*yield|"
+        r"理财规模|产品收益|产品收益率",
+        {
+            "canonical_metric_candidate": "asset_management_product_activity",
+            "data_source_mentioned": "asset_management_product_disclosure",
+            "frequency": "monthly_or_quarterly",
+            "transformation": "aum_flow_or_return_change",
+            "role_in_argument": "wealth_management_activity_metric",
+        },
+    ),
+    (
+        r"funding[_\s-]*cost|financing[_\s-]*cost|融资成本|资金成本",
+        {
+            "canonical_metric_candidate": "credit_capital_market_activity",
+            "data_source_mentioned": "rating_agency_or_capital_market_disclosure",
+            "frequency": "monthly_or_quarterly",
+            "transformation": "rate_or_spread_change",
+            "role_in_argument": "financing_condition_metric",
+        },
+    ),
+    (
+        r"10y[_\s-]*(?:govt|government)[_\s-]*bond[_\s-]*yield|bond[_\s-]*yield|yield[_\s-]*curve|"
+        r"国债收益率|收益率曲线",
+        {
+            "canonical_metric_candidate": "bond_yield_curve",
+            "data_source_mentioned": "bond_market_yield_curve",
+            "frequency": "daily",
+            "transformation": "yield_level_or_change",
+            "role_in_argument": "interest_rate_regime_metric",
+        },
+    ),
+    (
+        r"sales[_\s-]*(?:volume|revenue|amount)|销售额|销售量|销量|成交额|mom|month[-_\s]*over[-_\s]*month|环比",
+        {
+            "canonical_metric_candidate": "reported_sales_volume_or_value",
+            "data_source_mentioned": "industry_or_platform_operation_report_table",
+            "frequency": "monthly_or_quarterly",
+            "transformation": "level_growth_or_change_amplitude",
+            "role_in_argument": "reported_demand_or_sales_metric",
+        },
+    ),
+    (
+        r"average[_\s-]*price|均价|价格段|价格带|客单价",
+        {
+            "canonical_metric_candidate": "reported_average_price",
+            "data_source_mentioned": "industry_or_platform_price_report_table",
+            "frequency": "daily_or_monthly",
+            "transformation": "price_level_or_change",
+            "role_in_argument": "reported_price_metric",
+        },
+    ),
+    (
         r"revenue|sales|营业收入|营收|收入增长|境外收入|overseas[_\s-]*revenue|销售额|销售量|销量|成交额|gmv",
         {
             "canonical_metric_candidate": "revenue_growth",
@@ -3311,7 +3976,7 @@ INDICATOR_METADATA_RULES: tuple[tuple[str, Mapping[str, Any]], ...] = (
         },
     ),
     (
-        r"市场规模|市场空间|规模测算|market[_\s-]*(?:size|sizing)|addressable[_\s-]*market",
+        r"规模测算|addressable[_\s-]*market",
         {
             "canonical_metric_candidate": "industry_demand_cycle",
             "data_source_mentioned": "industry_operation_statistics_or_report_table",
@@ -3321,7 +3986,8 @@ INDICATOR_METADATA_RULES: tuple[tuple[str, Mapping[str, Any]], ...] = (
         },
     ),
     (
-        r"需求|订单|在手订单|新增订单|出货|出货量|产销|开工率|产能利用率|景气度|utilization[_\s-]*rate|order[_\s-]*(?:book|backlog|intake)",
+        r"需求|订单|在手订单|新增订单|出货|出货量|产销|开工率|产能利用率|景气度|"
+        r"demand|prosperity|utilization[_\s-]*rate|order[_\s-]*(?:book|backlog|intake)",
         {
             "canonical_metric_candidate": "industry_demand_cycle",
             "data_source_mentioned": "industry_operation_statistics_or_company_disclosure",
@@ -3331,7 +3997,8 @@ INDICATOR_METADATA_RULES: tuple[tuple[str, Mapping[str, Any]], ...] = (
         },
     ),
     (
-        r"供需|供给|产能|库存|产量|价格中枢|涨价|降价|商品价格|油价|煤价|钢价|铜价|铝价|锂价|原油|crude[_\s-]*oil|capacity|inventory|production|commodity[_\s-]*price",
+        r"供需|供给|产能|库存|产量|价格中枢|涨价|降价|商品价格|油价|煤价|钢价|铜价|铝价|锂价|原油|"
+        r"brent|london[_\s-]*gold|gold[_\s-]*spot|crude[_\s-]*oil|capacity|inventory|production|commodity[_\s-]*price",
         {
             "canonical_metric_candidate": "commodity_price_cycle",
             "data_source_mentioned": "commodity_price_supply_demand_inventory_data",
@@ -3361,7 +4028,8 @@ INDICATOR_METADATA_RULES: tuple[tuple[str, Mapping[str, Any]], ...] = (
         },
     ),
     (
-        r"市场份额|市占率|竞争格局|集中度|cr\d|份额提升|market[_\s-]*share|competitive[_\s-]*landscape",
+        r"市场份额|市占率|竞争格局|集中度|cr\d|份额提升|market[_\s-]*share|"
+        r"share[_\s-]*of[_\s-]*total|competitive[_\s-]*landscape",
         {
             "canonical_metric_candidate": "market_share_competitive_position",
             "data_source_mentioned": "industry_statistics_or_report_competitive_table",
@@ -3391,7 +4059,7 @@ INDICATOR_METADATA_RULES: tuple[tuple[str, Mapping[str, Any]], ...] = (
         },
     ),
     (
-        r"资产质量|不良率|不良贷款|拨备|减值|坏账|信用风险|non[_\s-]*performing|npl",
+        r"asset[_\s-]*quality|资产质量|不良率|不良贷款|拨备|减值|坏账|信用风险|non[_\s-]*performing|npl",
         {
             "canonical_metric_candidate": "asset_quality_nonperforming_ratio",
             "data_source_mentioned": "company_financials_or_regulatory_disclosure",
@@ -3441,7 +4109,7 @@ INDICATOR_METADATA_RULES: tuple[tuple[str, Mapping[str, Any]], ...] = (
         },
     ),
     (
-        r"price[_\s-]*segment|price[_\s-]*band|价格段|价格带|均价|客单价|价格调整|调价",
+        r"price[_\s-]*segment|price[_\s-]*band|average[_\s-]*price|\basp\b|价格段|价格带|均价|客单价|价格调整|调价",
         {
             "canonical_metric_candidate": "ecommerce_price_segment_distribution",
             "data_source_mentioned": "ecommerce_platform_price_distribution_data",
@@ -3471,7 +4139,7 @@ INDICATOR_METADATA_RULES: tuple[tuple[str, Mapping[str, Any]], ...] = (
         },
     ),
     (
-        r"r&d|research[_\s-]*development|研发投入|研发费用|研发比例|核心技术投入",
+        r"r&d|rd[_\s-]*intensity|research[_\s-]*development|研发投入|研发费用|研发比例|核心技术投入",
         {
             "canonical_metric_candidate": "rd_investment",
             "data_source_mentioned": "company_financials_or_report_business_update",
@@ -3521,7 +4189,7 @@ INDICATOR_METADATA_RULES: tuple[tuple[str, Mapping[str, Any]], ...] = (
         },
     ),
     (
-        r"net[_\s-]*margin|operating[_\s-]*margin|roe|return[_\s-]*on[_\s-]*equity|净利率|费用率|净资产收益率|盈利质量|盈利能力",
+        r"net[_\s-]*margin|operating[_\s-]*margin|profitability|roe|return[_\s-]*on[_\s-]*equity|净利率|费用率|净资产收益率|盈利质量|盈利能力",
         {
             "canonical_metric_candidate": "margin_profitability",
             "data_source_mentioned": "company_financials_or_report_forecast",
@@ -3681,6 +4349,16 @@ INDICATOR_METADATA_RULES: tuple[tuple[str, Mapping[str, Any]], ...] = (
         },
     ),
     (
+        r"solvency|偿付能力|综合偿付|核心偿付|资本补充",
+        {
+            "canonical_metric_candidate": "insurance_solvency_ratio",
+            "data_source_mentioned": "insurance_company_or_regulatory_disclosure",
+            "frequency": "quarterly_or_event_driven",
+            "transformation": "ratio_or_capital_event",
+            "role_in_argument": "insurance_capital_adequacy_metric",
+        },
+    ),
+    (
         r"claim[_\s-]*payout",
         {
             "canonical_metric_candidate": "insurance_claim_payouts",
@@ -3698,6 +4376,46 @@ INDICATOR_METADATA_RULES: tuple[tuple[str, Mapping[str, Any]], ...] = (
             "frequency": "monthly_or_quarterly",
             "transformation": "rate_or_growth_rate",
             "role_in_argument": "insurance_loss_ratio_proxy",
+        },
+    ),
+    (
+        r"fund[_\s-]*flow|northbound|southbound|沪深港通|资金流|持股变动|持股比例",
+        {
+            "canonical_metric_candidate": "institutional_flow_metric",
+            "data_source_mentioned": "exchange_connect_or_fund_flow_data",
+            "frequency": "daily_or_weekly",
+            "transformation": "holding_or_flow_change",
+            "role_in_argument": "market_flow_metric",
+        },
+    ),
+    (
+        r"equity[_\s-]*incentive|股权激励|授予股票|总股本比例|考核目标",
+        {
+            "canonical_metric_candidate": "equity_incentive_plan_metric",
+            "data_source_mentioned": "company_equity_incentive_disclosure",
+            "frequency": "event_driven",
+            "transformation": "grant_size_or_performance_target",
+            "role_in_argument": "management_incentive_metric",
+        },
+    ),
+    (
+        r"hog[_\s-]*price|pig[_\s-]*price|hog[_\s-]*output|生猪价格|养殖成本|出栏规模|出栏量",
+        {
+            "canonical_metric_candidate": "livestock_price_cost_volume",
+            "data_source_mentioned": "livestock_operation_statistics",
+            "frequency": "weekly_or_monthly",
+            "transformation": "price_cost_or_volume_change",
+            "role_in_argument": "livestock_cycle_metric",
+        },
+    ),
+    (
+        r"vehicle[_\s-]*ownership|replacement[_\s-]*cycle|sales[_\s-]*midpoint|保有量|更新周期|销量中枢",
+        {
+            "canonical_metric_candidate": "vehicle_sales_cycle",
+            "data_source_mentioned": "auto_industry_operation_statistics",
+            "frequency": "monthly_or_annual",
+            "transformation": "stock_cycle_or_sales_forecast",
+            "role_in_argument": "auto_replacement_demand_metric",
         },
     ),
     (
@@ -3721,7 +4439,7 @@ INDICATOR_METADATA_RULES: tuple[tuple[str, Mapping[str, Any]], ...] = (
         },
     ),
     (
-        r"equity[_\s-]*financing[_\s-]*scale|ipo[_\s-]*amount|refinancing[_\s-]*amount",
+        r"equity[_\s-]*financing[_\s-]*scale|ipo[_\s-]*amount|refinancing[_\s-]*amount|leverage[_\s-]*ratio",
         {
             "canonical_metric_candidate": "equity_financing_scale",
             "data_source_mentioned": "exchange_or_wind_financing_data",
@@ -3773,6 +4491,102 @@ INDICATOR_METADATA_RULES: tuple[tuple[str, Mapping[str, Any]], ...] = (
 )
 
 
+INDICATOR_METADATA_GENERIC_SOURCES = {
+    "unknown",
+    "company_financials_or_report_forecast",
+    "report_financial_forecast",
+    "commodity_price_supply_demand_inventory_data",
+    "ecommerce_platform_category_store_product_data",
+    "ecommerce_platform_price_distribution_data",
+    "industry_or_platform_operation_report_table",
+    "industry_or_platform_price_report_table",
+}
+
+INDICATOR_METADATA_INDEX_PROXY_SOURCES = {
+    "exchange_index_price",
+    "stock_etf_or_index_price",
+}
+
+INDICATOR_METADATA_SPECIALIZED_NON_INDEX_SOURCES = {
+    "auto_industry_operation_statistics",
+    "carbon_market_exchange_statistics",
+    "company_equity_incentive_disclosure",
+    "commodity_price_supply_demand_inventory_data",
+    "customs_trade_statistics_or_report_table",
+    "exchange_connect_or_fund_flow_data",
+    "industry_survey_or_association_index",
+    "livestock_operation_statistics",
+    "movie_ticketing_platform_pre_sale_data",
+    "report_valuation_output",
+    "transportation_operation_statistics_or_report_table",
+    "exchange_market_trading_data",
+    "industry_capacity_or_production_statistics",
+    "energy_project_or_tender_statistics",
+    "power_market_price_or_tariff_data",
+    "tourism_operation_statistics_or_survey",
+    "transport_infrastructure_statistics",
+}
+
+INDICATOR_METADATA_COMPANY_SOURCE_OVERRIDES = {
+    "digital_economy_statistics_or_industry_report",
+    "energy_project_or_installation_statistics",
+    "industry_capex_or_company_guidance",
+    "industry_policy_or_company_localization_disclosure",
+    "private_financing_or_company_disclosure",
+    "resource_reserve_or_company_project_disclosure",
+}
+
+INDICATOR_METADATA_COMPANY_METRIC_OVERRIDES = {
+    "domestic_substitution_rate",
+    "financial_ratio_or_risk_metric",
+    "industry_capacity_supply",
+    "private_market_financing_valuation",
+    "renewable_installation_or_project_pipeline",
+    "shareholder_return_metric",
+}
+
+INDICATOR_METADATA_DERIVED_INFERENCE_SOURCES = {
+    "source_chunk_indicator_seed_rule",
+    "footprint_context_indicator_seed_rule",
+    "footprint_context_metadata_rule",
+}
+
+
+def _indicator_inference_should_override(
+    normalized: Mapping[str, Any],
+    inferred: Mapping[str, Any],
+) -> bool:
+    current_source = str(normalized.get("data_source_mentioned") or "unknown")
+    inferred_source = str(inferred.get("data_source_mentioned") or "")
+    inferred_metric = str(inferred.get("canonical_metric_candidate") or "")
+    if not inferred_source or inferred_source == current_source:
+        return False
+    if current_source in INDICATOR_METADATA_GENERIC_SOURCES:
+        return True
+    if (
+        current_source in INDICATOR_METADATA_INDEX_PROXY_SOURCES
+        and inferred_source in INDICATOR_METADATA_SPECIALIZED_NON_INDEX_SOURCES
+    ):
+        return True
+    if (
+        current_source == "market_valuation_data_or_report_forecast"
+        and inferred_metric == "market_or_sector_index_return"
+    ):
+        return True
+    if (
+        current_source.startswith("company_")
+        and (
+            inferred_source in INDICATOR_METADATA_COMPANY_SOURCE_OVERRIDES
+            or inferred_metric in INDICATOR_METADATA_COMPANY_METRIC_OVERRIDES
+        )
+    ):
+        return True
+    return bool(
+        current_source.startswith("company_")
+        and not inferred_source.startswith("company_")
+    )
+
+
 def _infer_indicator_metadata(indicator_text: str) -> dict[str, Any]:
     for pattern, metadata in INDICATOR_METADATA_RULES:
         if re.search(pattern, indicator_text, flags=re.IGNORECASE):
@@ -3791,6 +4605,7 @@ def _apply_indicator_metadata_inference(mention: Mapping[str, Any]) -> dict[str,
         "canonical_name",
     )
     inferred = _infer_indicator_metadata(indicator_text)
+    override_existing = _indicator_inference_should_override(normalized, inferred)
     for field in (
         "canonical_metric_candidate",
         "data_source_mentioned",
@@ -3798,7 +4613,9 @@ def _apply_indicator_metadata_inference(mention: Mapping[str, Any]) -> dict[str,
         "transformation",
         "role_in_argument",
     ):
-        if _indicator_value_unknown(normalized.get(field)) and field in inferred:
+        if field not in inferred:
+            continue
+        if _indicator_value_unknown(normalized.get(field)) or override_existing:
             normalized[field] = inferred[field]
     if inferred and normalized.get("source_grounded") is not True:
         normalized["source_grounded"] = True
@@ -3902,6 +4719,11 @@ TEXT_GROUNDED_INDICATOR_SEED_RULES: tuple[tuple[str, str, str], ...] = (
         r"流动性|资金|利率|DR007|liquidity|funding|rate",
     ),
     (
+        r"宏观经济|PMI|财政政策|投资结构|专项债|社融|信贷|GDP|通胀",
+        "宏观经济/财政信用指标",
+        r"宏观|财政|投资|PMI|社融|信贷|GDP|通胀|macro|fiscal|credit",
+    ),
+    (
         r"成交面积|成交指数|商品房成交|新房成交|二手房成交",
         "成交面积",
         r"成交|房地产|transaction|real[_\s-]*estate|monthly[_\s-]*cumulative",
@@ -3912,9 +4734,35 @@ TEXT_GROUNDED_INDICATOR_SEED_RULES: tuple[tuple[str, str, str], ...] = (
         r"去化|开盘|项目|sell[-_\s]*through|project[_\s-]*launch",
     ),
     (
-        r"销售额|销售量|销量|成交额|GMV|gmv",
-        "销售额",
-        r"销售|销量|电商|店铺|商品|market[_\s-]*monitoring|growth|decline|volume",
+        r"GMV|gmv|电商销售|平台销售|店铺销售|商品销售|品类销售|类目销售",
+        "电商平台品类销售额/销量",
+        r"电商|店铺|商品|品类|类目|platform|store|product|category",
+    ),
+    (
+        r"快递|运价|货运|客运|铁路货运|公路物流|货车通行|可用座公里|客座率|"
+        r"express[_\s-]*delivery|freight|shipping|bdi|ctfi|ask|load[_\s-]*factor",
+        "交通物流运营指标",
+        r"物流|交通|航运|航空|快递|货运|客运|transport|shipping|airline|express",
+    ),
+    (
+        r"消费者调研|消费意愿|健康意识|consumer[_\s-]*survey|survey[_\s-]*metric",
+        "消费者调研指标",
+        r"消费|消费者|需求|调研|survey|consumer|demand",
+    ),
+    (
+        r"政策|监管|标准|policy[_\s-]*event|regulatory[_\s-]*action",
+        "政策监管事件",
+        r"政策|监管|标准|policy|regulatory",
+    ),
+    (
+        r"国债收益率|收益率曲线|bond[_\s-]*yield|yield[_\s-]*curve",
+        "债券收益率曲线",
+        r"利率|收益率|债券|yield|rate|bond",
+    ),
+    (
+        r"股基成交额|日均股基交易额|沪深股基成交额|市场成交额",
+        "市场成交额",
+        r"证券|市场|成交|交易|turnover|brokerage",
     ),
     (
         r"店铺|商品排名|店铺排名|类目排名|相对排名|活跃度|搜索词",
@@ -3930,6 +4778,16 @@ TEXT_GROUNDED_INDICATOR_SEED_RULES: tuple[tuple[str, str, str], ...] = (
         r"发电量|用电量|装机容量|发电装机|平均利用小时|利用小时|电源工程投资",
         "发电量/用电量/装机容量/利用小时",
         r"电力|发电|用电|装机|fundamental|capacity|utilization",
+    ),
+    (
+        r"上网电价|丰枯电价|市场化电价|market[_\s-]*electricity[_\s-]*price",
+        "电力市场电价",
+        r"电力|电价|power|tariff|electricity",
+    ),
+    (
+        r"竞价|招标|中标|bidding|winning[_\s-]*bid|tender",
+        "风电竞价量/中标价",
+        r"风电|光伏|新能源|竞价|招标|中标|wind|renewable|tender|bidding",
     ),
     (
         r"交付量|交付目标|交付达成|deliveries|delivery",
@@ -3952,14 +4810,62 @@ TEXT_GROUNDED_INDICATOR_SEED_RULES: tuple[tuple[str, str, str], ...] = (
         r"市场|行业|规模|空间|需求|market|industry|demand|sizing",
     ),
     (
-        r"需求|订单|在手订单|新增订单|出货|出货量|产销|开工率|产能利用率|景气度",
-        "需求/订单/产销景气",
-        r"需求|订单|出货|产销|开工|利用率|景气|行业|demand|order|utilization",
+        r"市场表现|行情回顾|行情复盘|相对强弱|板块轮动|"
+        r"market[_\s-]*performance|sector[_\s-]*performance|relative[_\s-]*performance",
+        "市场或行业指数收益",
+        r"市场|表现|行情|相对|板块|performance|benchmark|sector",
     ),
     (
-        r"供需|供给|产能|库存|产量|价格中枢|涨价|降价|商品价格|油价|煤价|钢价|铜价|铝价|锂价|原油",
+        r"业绩|财务表现|历史财务|业绩预告|盈利预测|财务预测|"
+        r"company[_\s-]*financials|financial[_\s-]*performance|earnings[_\s-]*forecast",
+        "营业收入",
+        r"业绩|财务|盈利|收入|financial|earnings|forecast",
+    ),
+    (
+        r"业绩|净利润|盈利预测|财务预测|业绩预告|"
+        r"net[_\s-]*profit|earnings[_\s-]*forecast",
+        "归母净利润",
+        r"业绩|财务|盈利|利润|financial|earnings|forecast",
+    ),
+    (
+        r"估值|市盈率|市净率|\bpe\b|\bpb\b|valuation",
+        "PE估值",
+        r"估值|目标价|valuation|pe|pb|multiple",
+    ),
+    (
+        r"现金流|经营现金流|偿债|债务结构|信用利差|cash[_\s-]*flow|credit[_\s-]*spread",
+        "经营性现金流",
+        r"现金流|偿债|债务|信用|cash|debt|credit",
+    ),
+    (
+        r"需求|订单|在手订单|新增订单|出货|出货量|产销|开工率|景气度",
+        "需求/订单/产销景气",
+        r"需求|订单|出货|产销|开工|景气|行业|demand|order",
+    ),
+    (
+        r"产能|核定产能|权益产能|在建产能|产能利用率|产量|production[_\s-]*volume",
+        "产能/产量",
+        r"产能|产量|供给|资源|生产|capacity|production|supply",
+    ),
+    (
+        r"供需|供给|库存|价格中枢|涨价|降价|商品价格|油价|煤价|煤炭价格|钢价|铜价|铝价|锂价|原油|crude[_\s-]*oil",
         "供需/库存/商品价格",
-        r"供需|供给|产能|库存|产量|价格|原油|煤炭|钢铁|有色|commodity|supply|inventory|capacity",
+        r"供需|供给|库存|价格|原油|煤炭|钢铁|有色|commodity|supply|inventory",
+    ),
+    (
+        r"价格趋势|价格走势|现货价|基价|批价|负债成本|price[_\s-]*(?:trend|review|forecast)|spot[_\s-]*price",
+        "供需/库存/商品价格",
+        r"价格|成本|价差|price|cost|spread",
+    ),
+    (
+        r"碳市场|碳价|碳配额|carbon[_\s-]*market|carbon[_\s-]*price",
+        "碳市场价格与成交量",
+        r"碳|carbon|price|volume|market",
+    ),
+    (
+        r"资源量|储量|煤层气储量|矿权|矿区|探矿权",
+        "资源储量",
+        r"资源|储量|矿|煤层气|reserve|resource|mine",
     ),
     (
         r"出口|进口|贸易|进出口|海关|外贸",
@@ -4004,7 +4910,7 @@ TEXT_GROUNDED_INDICATOR_SEED_RULES: tuple[tuple[str, str, str], ...] = (
     (
         r"补贴|标杆电价|全生命周期|合理利用小时|生物质发电",
         "补贴/标杆电价/合理利用小时",
-        r"政策|补贴|电价|tariff|policy",
+        r"电力|电价|发电|能源|补贴|生物质|power|tariff|renewable|subsidy",
     ),
     (
         r"绿电直连|自发自用|余电上网|输配电费",
@@ -4037,9 +4943,39 @@ TEXT_GROUNDED_INDICATOR_SEED_RULES: tuple[tuple[str, str, str], ...] = (
         r"文旅|旅游|消费|客流|tourism|consumer",
     ),
     (
+        r"资金流|持股变动|沪深港通|fund[_\s-]*flow|northbound|southbound",
+        "资金流向/持股变动",
+        r"资金|持股|流向|flow|holding",
+    ),
+    (
         r"评级变动|信用级别|资本补充|并购重组",
         "信用与资本市场活动",
         r"信用|资本|并购|capital|credit",
+    ),
+    (
+        r"偿付能力|综合偿付|核心偿付|solvency",
+        "保险偿付能力充足率",
+        r"保险|偿付|资本|solvency|insurance",
+    ),
+    (
+        r"股权激励|授予股票|总股本比例|考核目标|equity[_\s-]*incentive",
+        "股权激励计划指标",
+        r"股权|激励|考核|grant|incentive",
+    ),
+    (
+        r"生猪价格|养殖成本|出栏规模|出栏量|hog[_\s-]*price|pig[_\s-]*price",
+        "生猪价格/成本/出栏量",
+        r"生猪|养殖|出栏|hog|pig|livestock",
+    ),
+    (
+        r"保有量|更新周期|销量中枢|vehicle[_\s-]*ownership|replacement[_\s-]*cycle",
+        "汽车保有量/更新周期",
+        r"汽车|客车|重卡|销量|auto|vehicle|sales",
+    ),
+    (
+        r"并购|收购|merger|acquisition|m&a|ma[_\s-]*events",
+        "并购/收购事件",
+        r"并购|收购|整合|交易|merger|acquisition|m&a",
     ),
     (
         r"资产质量|不良率|不良贷款|拨备|减值|坏账|信用风险",
@@ -4056,6 +4992,16 @@ TEXT_GROUNDED_INDICATOR_SEED_RULES: tuple[tuple[str, str, str], ...] = (
         "保险保费/赔付/资产指标",
         r"保险|保费|赔付|资产|寿险|财险|insurance|premium|claim",
     ),
+    (
+        r"票房|box[_\s-]*office",
+        "票房收入",
+        r"电影|传媒|票房|春节档|box[_\s-]*office",
+    ),
+    (
+        r"预售|想看|片单|影片供给|pre[-_\s]*sale|movie[_\s-]*supply",
+        "影片预售/供给热度",
+        r"电影|传媒|票房|春节档|pre[-_\s]*sale|movie",
+    ),
 )
 
 
@@ -4063,6 +5009,7 @@ def _text_grounded_indicator_mentions(
     markdown_chunk: str,
     *,
     footprint_context: str = "",
+    inference_source: str = "source_chunk_indicator_seed_rule",
 ) -> list[dict[str, Any]]:
     text = str(markdown_chunk or "")
     if not text.strip():
@@ -4087,7 +5034,7 @@ def _text_grounded_indicator_mentions(
                 "transformation": "unknown",
                 "role_in_argument": "unknown",
                 "source_grounded": True,
-                "inference_source": "source_chunk_indicator_seed_rule",
+                "inference_source": inference_source,
             }
         )
         canonical = str(mention.get("canonical_metric_candidate") or "unknown")
@@ -4098,6 +5045,35 @@ def _text_grounded_indicator_mentions(
         if len(records) >= 6:
             break
     return records
+
+
+def _context_seed_indicator_mentions(context: str) -> list[dict[str, Any]]:
+    text = str(context or "").strip()
+    if not text:
+        return []
+    records = _text_grounded_indicator_mentions(
+        text,
+        footprint_context=text,
+        inference_source="footprint_context_indicator_seed_rule",
+    )
+    if records:
+        return records
+    inferred = _apply_indicator_metadata_inference(
+        {
+            "indicator_text": _bounded_metadata_text(text),
+            "canonical_metric_candidate": "unknown",
+            "data_source_mentioned": "unknown",
+            "frequency": "unknown",
+            "lookback_window": {},
+            "transformation": "unknown",
+            "role_in_argument": "unknown",
+            "source_grounded": True,
+            "inference_source": "footprint_context_metadata_rule",
+        }
+    )
+    if _indicator_value_unknown(inferred.get("canonical_metric_candidate")):
+        return []
+    return [inferred]
 
 
 def _footprint_indicator_context(row: Mapping[str, Any]) -> str:
@@ -6298,15 +7274,18 @@ def _refresh_analytical_footprint_indicator_governance(
     refreshed_rows: list[dict[str, Any]] = []
     for row in footprint_rows:
         refreshed = dict(row)
-        indicator_mentions = _normalize_indicator_mentions(
+        original_indicator_mentions = _normalize_indicator_mentions(
             refreshed.get("indicator_mentions")
         )
-        has_complete_mapping = bool(indicator_mentions) and any(
-            not _indicator_value_unknown(mention.get("canonical_metric_candidate"))
-            and mention.get("source_grounded") is True
-            for mention in indicator_mentions
-        )
-        if not has_complete_mapping and metadata_by_source and root_path is not None:
+        base_indicator_mentions = [
+            mention
+            for mention in original_indicator_mentions
+            if str(mention.get("inference_source") or "")
+            not in INDICATOR_METADATA_DERIVED_INFERENCE_SOURCES
+        ]
+        indicator_mentions = list(original_indicator_mentions)
+        text_grounded_mentions: list[dict[str, Any]] = []
+        if metadata_by_source and root_path is not None:
             chunk = _footprint_markdown_chunk(
                 refreshed,
                 metadata_by_source=metadata_by_source,
@@ -6318,6 +7297,8 @@ def _refresh_analytical_footprint_indicator_governance(
                 chunk,
                 footprint_context=_footprint_indicator_context(refreshed),
             )
+            if text_grounded_mentions:
+                indicator_mentions = list(base_indicator_mentions)
             seen_canonicals = {
                 str(mention.get("canonical_metric_candidate") or "")
                 for mention in indicator_mentions
@@ -6328,6 +7309,28 @@ def _refresh_analytical_footprint_indicator_governance(
             indicator_mentions.extend(
                 mention
                 for mention in text_grounded_mentions
+                if str(mention.get("canonical_metric_candidate") or "")
+                not in seen_canonicals
+            )
+        has_complete_mapping = bool(indicator_mentions) and any(
+            not _indicator_value_unknown(mention.get("canonical_metric_candidate"))
+            and mention.get("source_grounded") is True
+            for mention in indicator_mentions
+        )
+        if not has_complete_mapping:
+            context_mentions = _context_seed_indicator_mentions(
+                _footprint_indicator_context(refreshed)
+            )
+            seen_canonicals = {
+                str(mention.get("canonical_metric_candidate") or "")
+                for mention in indicator_mentions
+                if not _indicator_value_unknown(
+                    mention.get("canonical_metric_candidate")
+                )
+            }
+            indicator_mentions.extend(
+                mention
+                for mention in context_mentions
                 if str(mention.get("canonical_metric_candidate") or "")
                 not in seen_canonicals
             )
@@ -6365,6 +7368,12 @@ def _normalize_footprints(
                 footprint_context=_footprint_indicator_context(
                     {"topic": topic, "analysis_patterns": analysis_patterns}
                 ),
+            )
+        if not indicator_mentions:
+            indicator_mentions = _context_seed_indicator_mentions(
+                _footprint_indicator_context(
+                    {"topic": topic, "analysis_patterns": analysis_patterns}
+                )
             )
         indicator_mentions = _prioritize_indicator_mentions_for_review(
             indicator_mentions
@@ -6633,19 +7642,29 @@ _ANALYTICAL_FOOTPRINT_REVIEW_FIELD_BY_METRIC = {
 }
 
 
+def _analytical_footprint_quality_metric_rows(
+    metric: str, complete_rows: Sequence[Mapping[str, Any]]
+) -> list[Mapping[str, Any]]:
+    if metric == "metric_mapping_accuracy":
+        return [row for row in complete_rows if row.get("footprint_correct") is True]
+    return list(complete_rows)
+
+
 def _analytical_footprint_quality_gap_targets(
     complete_rows: Sequence[Mapping[str, Any]],
     precision_recall_report: Mapping[str, Any],
 ) -> Mapping[str, Any] | None:
-    denominator = len(complete_rows)
-    if denominator == 0:
+    complete_denominator = len(complete_rows)
+    if complete_denominator == 0:
         return None
     metric_targets: dict[str, Mapping[str, Any]] = {}
     active_gap_count = 0
     for metric, threshold in ANALYTICAL_FOOTPRINT_REVIEW_QUALITY_THRESHOLDS.items():
         field = _ANALYTICAL_FOOTPRINT_REVIEW_FIELD_BY_METRIC[metric]
+        metric_rows = _analytical_footprint_quality_metric_rows(metric, complete_rows)
+        denominator = len(metric_rows)
         current_rate = precision_recall_report.get(metric)
-        current_pass_count = sum(row.get(field) is True for row in complete_rows)
+        current_pass_count = sum(row.get(field) is True for row in metric_rows)
         required_pass_count = ceil((threshold * denominator) - 1e-12)
         minimum_gap_count = max(0, required_pass_count - current_pass_count)
         if minimum_gap_count:
@@ -6655,6 +7674,11 @@ def _analytical_footprint_quality_gap_targets(
             "threshold": threshold,
             "current_rate": current_rate,
             "denominator": denominator,
+            "denominator_policy": (
+                "footprint_correct_true_rows"
+                if metric == "metric_mapping_accuracy"
+                else "completed_review_rows"
+            ),
             "current_pass_count": current_pass_count,
             "required_pass_count": required_pass_count,
             "minimum_additional_pass_count_if_denominator_unchanged": minimum_gap_count,
@@ -6665,12 +7689,12 @@ def _analytical_footprint_quality_gap_targets(
             "public_safe_aggregate_quality_gate_gap_targets_no_source_text"
         ),
         "interpretation": (
-            "count deltas are computed over currently completed footprint review "
-            "rows; use them to prioritize re-review or candidate expansion, not "
-            "as instructions to flip labels"
+            "count deltas are computed over each metric denominator; metric "
+            "mapping is evaluated only on footprint_correct=true rows so rejected "
+            "footprints are not double-counted as mapping failures"
         ),
         "sample_size_completed_rows": {
-            "current_count": denominator,
+            "current_count": complete_denominator,
             "pending_rows_are_excluded_from_metric_denominator": True,
         },
         "metrics": metric_targets,
@@ -6684,12 +7708,17 @@ def build_analytical_footprint_review_summary(
     complete_rows = [row for row in review_rows if _footprint_review_row_complete(row)]
     pending_rows = len(review_rows) - len(complete_rows)
 
-    def rate(field: str) -> float | None:
-        if not complete_rows:
+    def rate(field: str, *, metric: str | None = None) -> float | None:
+        denominator_rows = (
+            _analytical_footprint_quality_metric_rows(metric, complete_rows)
+            if metric is not None
+            else complete_rows
+        )
+        if not denominator_rows:
             return None
         return round(
-            sum(1 for row in complete_rows if row.get(field) is True)
-            / len(complete_rows),
+            sum(1 for row in denominator_rows if row.get(field) is True)
+            / len(denominator_rows),
             6,
         )
 
@@ -6709,7 +7738,9 @@ def build_analytical_footprint_review_summary(
     precision_recall_report = {
         "footprint_precision": rate("footprint_correct"),
         "span_support_precision": rate("source_span_supports_footprint"),
-        "metric_mapping_accuracy": rate("metric_mapping_correct"),
+        "metric_mapping_accuracy": rate(
+            "metric_mapping_correct", metric="metric_mapping_accuracy"
+        ),
         "inferred_step_tagging_accuracy": rate(
             "inferred_steps_tagged_correctly"
         ),
@@ -7801,6 +8832,7 @@ def _footprint_review_evidence_row(
     has_patterns = bool(_ensure_list(row.get("analysis_patterns_review_preview")))
     metric_mapping_diagnostics = _footprint_review_metric_mapping_diagnostics(row)
     has_indicator_mentions = bool(metric_mapping_diagnostics["mention_count"])
+    low_information_footprint = not has_indicator_mentions
     metric_mapping_complete = bool(metric_mapping_diagnostics["mapping_complete"])
     boilerplate_risk_footprint = _is_boilerplate_risk_footprint(row)
     inferred_indicator_suggestions: tuple[dict[str, Any], ...] = ()
@@ -7819,12 +8851,18 @@ def _footprint_review_evidence_row(
         )
     )
     suggested_decision = {
-        "footprint_correct": False if boilerplate_risk_footprint else (True if has_span_evidence and has_patterns else None),
-        "source_span_supports_footprint": True if has_span_evidence else None,
+        "footprint_correct": False
+        if boilerplate_risk_footprint or low_information_footprint
+        else (True if has_span_evidence and has_patterns else None),
+        "source_span_supports_footprint": False
+        if low_information_footprint
+        else (True if has_span_evidence else None),
         "metric_mapping_correct": False
         if boilerplate_risk_footprint
         else metric_mapping_complete,
-        "inferred_steps_tagged_correctly": False if boilerplate_risk_footprint else (True if has_patterns else None),
+        "inferred_steps_tagged_correctly": False
+        if boilerplate_risk_footprint or low_information_footprint
+        else (True if has_patterns else None),
         "unknowns_used_when_uncertain": unknowns_used_when_uncertain,
         "no_proprietary_text_leakage": True,
     }
@@ -7869,7 +8907,19 @@ def _footprint_review_evidence_row(
             }
         )
     if not has_indicator_mentions:
+        suggested_tags.append("low_information_footprint")
         suggested_tags.append("metric_mapping_missing")
+        suggested_rationales.append(
+            {
+                "field": "footprint_correct",
+                "suggested_value": False,
+                "reason": (
+                    "footprint has no source-grounded indicator mentions, so it is "
+                    "too low-information to include as reusable analytical logic"
+                ),
+                "requires_human_confirmation": True,
+            }
+        )
         suggested_rationales.append(
             {
                 "field": "metric_mapping_correct",

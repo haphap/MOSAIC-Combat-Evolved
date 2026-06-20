@@ -32,6 +32,7 @@ from mosaic.rke.report_intelligence import (
     build_confidence_impact_monitor,
     build_confidence_impact_observations,
     build_analytical_footprint_review_evidence,
+    build_analytical_footprint_review_summary,
     build_local_macro_strategy_report_sources,
     build_markdown_coverage_summary,
     build_prompt_mutation_candidates,
@@ -62,10 +63,12 @@ from mosaic.rke.report_intelligence import (
     _append_evolution_history_record,
     _append_unique_method_patterns,
     _backfill_tool_gaps_from_metric_candidates,
+    _context_seed_indicator_mentions,
     _direct_pit_binding_gap_details,
     _entry_calendar_index,
     _read_industry_etf_proxy_map_rows,
     _markdown_quality_gap,
+    _normalize_indicator_mentions,
     _normalize_method_patterns,
     _normalize_forecast_claims,
     _max_non_positive_after_cost_exit_date_streak,
@@ -3337,6 +3340,269 @@ def test_report_intelligence_prioritizes_source_grounded_footprint_metrics_in_pr
     }
 
 
+def test_report_intelligence_repairs_specialized_indicator_sources():
+    mentions = _normalize_indicator_mentions(
+        [
+            {
+                "indicator_text": "industry_revenue",
+                "canonical_metric_candidate": "industry_revenue",
+                "data_source_mentioned": "company_financials_or_report_forecast",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
+            {
+                "indicator_text": "category_sales_revenue",
+                "canonical_metric_candidate": "category_sales_revenue",
+                "data_source_mentioned": "company_financials_or_report_forecast",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
+            {
+                "indicator_text": "express_delivery_monthly_revenue",
+                "canonical_metric_candidate": "express_delivery_monthly_revenue",
+                "data_source_mentioned": "company_financials_or_report_forecast",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
+            {
+                "indicator_text": "policy_event",
+                "canonical_metric_candidate": "policy_event",
+                "data_source_mentioned": "unknown",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
+            {
+                "indicator_text": "供需/库存/商品价格",
+                "canonical_metric_candidate": "unknown",
+                "data_source_mentioned": "unknown",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
+            {
+                "indicator_text": "CTFI指数",
+                "canonical_metric_candidate": "CTFI指数",
+                "data_source_mentioned": "stock_etf_or_index_price",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
+            {
+                "indicator_text": "category_monthly_sales_revenue",
+                "canonical_metric_candidate": "category_monthly_sales_revenue",
+                "data_source_mentioned": "company_financials_or_report_forecast",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
+            {
+                "indicator_text": "碳酸锂均价",
+                "canonical_metric_candidate": "ecommerce_price_segment_distribution",
+                "data_source_mentioned": "ecommerce_platform_price_distribution_data",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
+            {
+                "indicator_text": "offshore_wind_project_pipeline",
+                "canonical_metric_candidate": "clinical_trial_milestone_status",
+                "data_source_mentioned": "company_disclosure_or_clinical_trial_registry",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
+            {
+                "indicator_text": "应收租赁款不良率",
+                "canonical_metric_candidate": "technology_product_milestone",
+                "data_source_mentioned": "company_disclosure_or_report_business_update",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
+            {
+                "indicator_text": "日均Token调用量",
+                "canonical_metric_candidate": "unknown",
+                "data_source_mentioned": "unknown",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
+            {
+                "indicator_text": "sector_pe_ttm",
+                "canonical_metric_candidate": "unknown",
+                "data_source_mentioned": "unknown",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
+            {
+                "indicator_text": "wind_turbine_bidding_volume",
+                "canonical_metric_candidate": "unknown",
+                "data_source_mentioned": "unknown",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
+            {
+                "indicator_text": "沪深股基成交额",
+                "canonical_metric_candidate": "reported_sales_volume_or_value",
+                "data_source_mentioned": "industry_or_platform_operation_report_table",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
+            {
+                "indicator_text": "核定产能",
+                "canonical_metric_candidate": "commodity_price_cycle",
+                "data_source_mentioned": "commodity_price_supply_demand_inventory_data",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
+            {
+                "indicator_text": "旅游消费活跃度",
+                "canonical_metric_candidate": "ecommerce_store_product_rank_activity",
+                "data_source_mentioned": "ecommerce_platform_category_store_product_data",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
+            {
+                "indicator_text": "股息率",
+                "canonical_metric_candidate": "unknown",
+                "data_source_mentioned": "unknown",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
+            {
+                "indicator_text": "Weekly Market Performance",
+                "canonical_metric_candidate": "valuation_multiple",
+                "data_source_mentioned": "market_valuation_data_or_report_forecast",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
+            {
+                "indicator_text": "碳市场价格与成交量",
+                "canonical_metric_candidate": "unknown",
+                "data_source_mentioned": "unknown",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
+            {
+                "indicator_text": "保险偿付能力充足率",
+                "canonical_metric_candidate": "unknown",
+                "data_source_mentioned": "unknown",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
+            {
+                "indicator_text": "股权激励授予股票数量",
+                "canonical_metric_candidate": "unknown",
+                "data_source_mentioned": "unknown",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
+            {
+                "indicator_text": "生猪价格和出栏规模",
+                "canonical_metric_candidate": "unknown",
+                "data_source_mentioned": "unknown",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
+            {
+                "indicator_text": "影片预售/供给热度",
+                "canonical_metric_candidate": "unknown",
+                "data_source_mentioned": "unknown",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
+        ]
+    )
+
+    by_text = {row["indicator_text"]: row for row in mentions}
+    assert by_text["industry_revenue"]["data_source_mentioned"] == (
+        "industry_operation_statistics_or_report_table"
+    )
+    assert by_text["category_sales_revenue"]["data_source_mentioned"] == (
+        "ecommerce_platform_category_store_product_data"
+    )
+    assert by_text["express_delivery_monthly_revenue"]["data_source_mentioned"] == (
+        "transportation_operation_statistics_or_report_table"
+    )
+    assert by_text["policy_event"]["data_source_mentioned"] == (
+        "policy_announcement_or_regulatory_disclosure"
+    )
+    assert by_text["供需/库存/商品价格"]["data_source_mentioned"] == (
+        "commodity_price_supply_demand_inventory_data"
+    )
+    assert by_text["CTFI指数"]["data_source_mentioned"] == (
+        "transportation_operation_statistics_or_report_table"
+    )
+    assert by_text["category_monthly_sales_revenue"]["data_source_mentioned"] == (
+        "ecommerce_platform_category_store_product_data"
+    )
+    assert by_text["碳酸锂均价"]["data_source_mentioned"] == (
+        "commodity_price_supply_demand_inventory_data"
+    )
+    assert by_text["offshore_wind_project_pipeline"]["data_source_mentioned"] == (
+        "energy_project_or_installation_statistics"
+    )
+    assert by_text["应收租赁款不良率"]["data_source_mentioned"] == (
+        "company_financials_or_regulatory_disclosure"
+    )
+    assert by_text["日均Token调用量"]["data_source_mentioned"] == (
+        "ai_platform_usage_or_cost_benchmark"
+    )
+    assert by_text["sector_pe_ttm"]["data_source_mentioned"] == (
+        "market_valuation_data_or_report_forecast"
+    )
+    assert by_text["wind_turbine_bidding_volume"]["data_source_mentioned"] == (
+        "energy_project_or_tender_statistics"
+    )
+    assert by_text["沪深股基成交额"]["data_source_mentioned"] == (
+        "exchange_market_trading_data"
+    )
+    assert by_text["核定产能"]["data_source_mentioned"] == (
+        "industry_capacity_or_production_statistics"
+    )
+    assert by_text["旅游消费活跃度"]["data_source_mentioned"] == (
+        "tourism_operation_statistics_or_survey"
+    )
+    assert by_text["股息率"]["data_source_mentioned"] == (
+        "company_financials_or_dividend_disclosure"
+    )
+    assert by_text["Weekly Market Performance"]["data_source_mentioned"] == (
+        "stock_etf_or_index_price"
+    )
+    assert by_text["碳市场价格与成交量"]["data_source_mentioned"] == (
+        "carbon_market_exchange_statistics"
+    )
+    assert by_text["保险偿付能力充足率"]["data_source_mentioned"] == (
+        "insurance_company_or_regulatory_disclosure"
+    )
+    assert by_text["股权激励授予股票数量"]["data_source_mentioned"] == (
+        "company_equity_incentive_disclosure"
+    )
+    assert by_text["生猪价格和出栏规模"]["data_source_mentioned"] == (
+        "livestock_operation_statistics"
+    )
+    assert by_text["影片预售/供给热度"]["data_source_mentioned"] == (
+        "movie_ticketing_platform_pre_sale_data"
+    )
+    assert all(row["source_grounded"] is True for row in by_text.values())
+
+
 def test_report_intelligence_repairs_unknown_footprint_indicator_mentions(
     tmp_path: Path,
 ):
@@ -3430,6 +3696,39 @@ def test_report_intelligence_repairs_unknown_footprint_indicator_mentions(
         "power_operation_metric"
     }
     assert all(row["source_grounded"] is True for row in preview)
+
+
+def test_report_intelligence_adds_context_seed_for_empty_footprint_indicators():
+    mentions = _context_seed_indicator_mentions(
+        "宏观经济与政策环境 PMI分项分析 财政政策节奏分析 投资结构分析"
+    )
+
+    assert mentions
+    assert mentions[0]["canonical_metric_candidate"] == (
+        "macro_activity_or_credit_metric"
+    )
+    assert mentions[0]["data_source_mentioned"] == (
+        "macroeconomic_statistics_or_policy_report"
+    )
+    assert mentions[0]["source_grounded"] is True
+    assert mentions[0]["inference_source"] == "footprint_context_indicator_seed_rule"
+
+    finance_mentions = _context_seed_indicator_mentions(
+        "财务预测与估值 财务建模 相对估值法"
+    )
+    finance_canonicals = {
+        mention["canonical_metric_candidate"] for mention in finance_mentions
+    }
+    assert {"revenue_growth", "forecast_net_profit", "valuation_multiple"} <= (
+        finance_canonicals
+    )
+
+    performance_mentions = _context_seed_indicator_mentions(
+        "市场表现回顾 相对强弱比较 板块轮动"
+    )
+    assert {
+        mention["canonical_metric_candidate"] for mention in performance_mentions
+    } == {"market_or_sector_index_return"}
 
 
 def test_report_intelligence_can_skip_processed_batch_source_ids(tmp_path: Path):
@@ -12578,8 +12877,12 @@ def test_analytical_footprint_review_evidence_suggests_missing_metric_mapping(
     evidence_rows = _read_jsonl(tmp_path / report.jsonl_path)
     row = evidence_rows[0]
 
+    assert row["suggested_review_decision"]["footprint_correct"] is False
+    assert row["suggested_review_decision"]["source_span_supports_footprint"] is False
     assert row["suggested_review_decision"]["metric_mapping_correct"] is False
+    assert row["suggested_review_decision"]["inferred_steps_tagged_correctly"] is False
     assert "missing_indicator_mentions" in row["priority_reasons"]
+    assert "low_information_footprint" in row["suggested_manual_error_tags"]
     assert "metric_mapping_missing" in row["suggested_manual_error_tags"]
     assert "metric_mapping_inference_available" in row["suggested_manual_error_tags"]
     assert row["inferred_indicator_suggestions"]
@@ -12988,6 +13291,39 @@ def test_analytical_footprint_review_summary_requires_quality_thresholds(
         == metric_gap["minimum_additional_pass_count_if_denominator_unchanged"]
     )
     assert "## Quality Gate Gap Targets" in evidence_markdown
+
+
+def test_analytical_footprint_review_summary_maps_only_accepted_footprints():
+    base = {
+        "source_span_supports_footprint": True,
+        "unknowns_used_when_uncertain": True,
+        "no_proprietary_text_leakage": True,
+        "reviewer": "footprint-reviewer",
+        "review_date": "2026-06-19",
+        "review_notes": "fixture",
+    }
+    summary = build_analytical_footprint_review_summary(
+        [
+            {
+                **base,
+                "footprint_correct": True,
+                "metric_mapping_correct": True,
+                "inferred_steps_tagged_correctly": True,
+            },
+            {
+                **base,
+                "footprint_correct": False,
+                "metric_mapping_correct": False,
+                "inferred_steps_tagged_correctly": False,
+            },
+        ]
+    )
+
+    metric = summary["quality_gap_targets"]["metrics"]["metric_mapping_accuracy"]
+    assert summary["precision_recall_report"]["footprint_precision"] == 0.5
+    assert summary["precision_recall_report"]["metric_mapping_accuracy"] == 1.0
+    assert metric["denominator"] == 1
+    assert metric["denominator_policy"] == "footprint_correct_true_rows"
 
 
 def test_apply_analytical_footprint_review_import_rejects_stale_or_leaky_rows(
