@@ -3599,6 +3599,78 @@ def test_report_intelligence_repairs_specialized_indicator_sources():
                 "transformation": "unknown",
                 "source_grounded": False,
             },
+            {
+                "indicator_text": "HIS system",
+                "canonical_metric_candidate": "unknown",
+                "data_source_mentioned": "unknown",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
+            {
+                "indicator_text": "煤炭价格",
+                "canonical_metric_candidate": "unknown",
+                "data_source_mentioned": "unknown",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
+            {
+                "indicator_text": "AD/CVD调查数量",
+                "canonical_metric_candidate": "unknown",
+                "data_source_mentioned": "unknown",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
+            {
+                "indicator_text": "城中村改造数量",
+                "canonical_metric_candidate": "unknown",
+                "data_source_mentioned": "unknown",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
+            {
+                "indicator_text": "青年旅游消费占比37.51%",
+                "canonical_metric_candidate": "unknown",
+                "data_source_mentioned": "unknown",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
+            {
+                "indicator_text": "FLDI行业发展指数",
+                "canonical_metric_candidate": "market_or_sector_index_return",
+                "data_source_mentioned": "stock_etf_or_index_price",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
+            {
+                "indicator_text": "偿付能力与资本补充",
+                "canonical_metric_candidate": "financial_ratio_or_risk_metric",
+                "data_source_mentioned": "company_financials_or_regulatory_disclosure",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
+            {
+                "indicator_text": "产业协同",
+                "canonical_metric_candidate": "unknown",
+                "data_source_mentioned": "unknown",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
+            {
+                "indicator_text": "2026年春节档影片供给与预售情况",
+                "canonical_metric_candidate": "commodity_price_cycle",
+                "data_source_mentioned": "commodity_price_supply_demand_inventory_data",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
         ]
     )
 
@@ -3698,6 +3770,33 @@ def test_report_intelligence_repairs_specialized_indicator_sources():
     )
     assert by_text["30k_ton_carbonate"]["data_source_mentioned"] == (
         "commodity_price_supply_demand_inventory_data"
+    )
+    assert by_text["HIS system"]["data_source_mentioned"] == (
+        "project_disclosure_or_industry_digitalization_data"
+    )
+    assert by_text["煤炭价格"]["data_source_mentioned"] == (
+        "commodity_price_supply_demand_inventory_data"
+    )
+    assert by_text["AD/CVD调查数量"]["data_source_mentioned"] == (
+        "customs_trade_statistics_or_report_table"
+    )
+    assert by_text["城中村改造数量"]["data_source_mentioned"] == (
+        "macroeconomic_statistics_or_policy_report"
+    )
+    assert by_text["青年旅游消费占比37.51%"]["data_source_mentioned"] == (
+        "consumer_survey_or_platform_research"
+    )
+    assert by_text["FLDI行业发展指数"]["data_source_mentioned"] == (
+        "industry_survey_or_association_index"
+    )
+    assert by_text["偿付能力与资本补充"]["data_source_mentioned"] == (
+        "insurance_company_or_regulatory_disclosure"
+    )
+    assert by_text["产业协同"]["data_source_mentioned"] == (
+        "company_disclosure_or_report_business_update"
+    )
+    assert by_text["2026年春节档影片供给与预售情况"]["data_source_mentioned"] == (
+        "movie_ticketing_platform_pre_sale_data"
     )
     assert all(row["source_grounded"] is True for row in by_text.values())
 

@@ -3231,6 +3231,115 @@ INDICATOR_METADATA_RULES: tuple[tuple[str, Mapping[str, Any]], ...] = (
         },
     ),
     (
+        r"brain[-_\s]*computer|bci|technology[_\s-]*roadmap|application[_\s-]*scenario|"
+        r"supply[_\s-]*chain[_\s-]*mapping|产业链价值分配|产业链结构|产业链拆解|"
+        r"商业模式演进|商业模式对比",
+        {
+            "canonical_metric_candidate": "technology_adoption_or_market_share",
+            "data_source_mentioned": "industry_statistics_or_report_competitive_table",
+            "frequency": "quarterly_or_annual",
+            "transformation": "adoption_share_or_value_chain_change",
+            "role_in_argument": "technology_industry_structure_metric",
+        },
+    ),
+    (
+        r"\bhis\b|\blis\b|\bpacs\b|clinical[_\s-]*data[_\s-]*center|"
+        r"research[_\s-]*data[_\s-]*center|management[_\s-]*data[_\s-]*center|"
+        r"smart[_\s-]*service|multimodal[_\s-]*medical[_\s-]*data|"
+        r"data[_\s-]*element.*healthcare|医院信息化|医疗数据中心",
+        {
+            "canonical_metric_candidate": "digitalization_project_adoption",
+            "data_source_mentioned": "project_disclosure_or_industry_digitalization_data",
+            "frequency": "event_driven_or_quarterly",
+            "transformation": "project_milestone_or_adoption_level",
+            "role_in_argument": "healthcare_it_project_metric",
+        },
+    ),
+    (
+        r"煤炭价格|铜现货价|国内氦气价格|主营炼厂毛利|涤纶长丝毛利|"
+        r"聚酯瓶片利润|pta加工费|负债融资平均成本|lpr息差|负债成本",
+        {
+            "canonical_metric_candidate": "commodity_price_margin_or_funding_cost",
+            "data_source_mentioned": "commodity_price_supply_demand_inventory_data",
+            "frequency": "daily_or_weekly_or_monthly",
+            "transformation": "price_margin_spread_or_cost_change",
+            "role_in_argument": "price_margin_or_funding_cost_metric",
+        },
+    ),
+    (
+        r"规避案例|ad/cvd|反倾销|反补贴|贸易措施|措施数量|调查数量",
+        {
+            "canonical_metric_candidate": "trade_policy_measure_count",
+            "data_source_mentioned": "customs_trade_statistics_or_report_table",
+            "frequency": "event_driven_or_monthly",
+            "transformation": "case_count_or_policy_event",
+            "role_in_argument": "trade_policy_pressure_metric",
+        },
+    ),
+    (
+        r"危旧房|城中村|城市更新|地下管网|老旧小区|总投资|reits|专项债",
+        {
+            "canonical_metric_candidate": "urban_renewal_project_kpi",
+            "data_source_mentioned": "macroeconomic_statistics_or_policy_report",
+            "frequency": "monthly_or_annual_or_event_driven",
+            "transformation": "project_count_investment_or_policy_parameter",
+            "role_in_argument": "urban_renewal_investment_metric",
+        },
+    ),
+    (
+        r"青年.*消费占比|中年.*支出占比|银发.*消费占比|情绪价值|情价比|"
+        r"幸福感驱动|微度假|康养旅居|养老需求|代际消费",
+        {
+            "canonical_metric_candidate": "consumer_survey_metric",
+            "data_source_mentioned": "consumer_survey_or_platform_research",
+            "frequency": "survey_window",
+            "transformation": "survey_rate_or_rank_change",
+            "role_in_argument": "consumer_preference_survey_metric",
+        },
+    ),
+    (
+        r"fldi|flci|flewi|cflei|行业发展指数|行业信心指数|行业预警指数|"
+        r"行业展望指数|展望指数|信心指数|预警指数",
+        {
+            "canonical_metric_candidate": "industry_confidence_warning_index",
+            "data_source_mentioned": "industry_survey_or_association_index",
+            "frequency": "monthly_or_quarterly",
+            "transformation": "index_level_or_change",
+            "role_in_argument": "industry_sentiment_or_risk_metric",
+        },
+    ),
+    (
+        r"偿付能力|综合偿付|核心偿付|资本补充|资金运用|资产配置|投资收益率|保费收入",
+        {
+            "canonical_metric_candidate": "insurance_operation_or_solvency_metric",
+            "data_source_mentioned": "insurance_company_or_regulatory_disclosure",
+            "frequency": "quarterly_or_annual",
+            "transformation": "ratio_level_or_allocation_change",
+            "role_in_argument": "insurance_operation_or_capital_metric",
+        },
+    ),
+    (
+        r"自研设备|在建.*项目|战略投资者|一体化项目|产业协同|客户重合度|"
+        r"业绩承诺|品牌力|技术突破|融资事件|公司战略合作|合作伙伴",
+        {
+            "canonical_metric_candidate": "strategic_expansion_milestone",
+            "data_source_mentioned": "company_disclosure_or_report_business_update",
+            "frequency": "event_driven_or_quarterly",
+            "transformation": "milestone_event_or_project_status",
+            "role_in_argument": "company_strategy_or_project_metric",
+        },
+    ),
+    (
+        r"影片供给|春节档|片单|预售|想看|movie[_\s-]*supply|pre[-_\s]*sale",
+        {
+            "canonical_metric_candidate": "box_office_pre_sale_activity",
+            "data_source_mentioned": "movie_ticketing_platform_pre_sale_data",
+            "frequency": "daily_or_holiday_window",
+            "transformation": "pre_sale_or_supply_count",
+            "role_in_argument": "media_supply_and_demand_heat_metric",
+        },
+    ),
+    (
         r"gdp[_\s-]*deflator|nominal[_\s-]*gdp|fixed[_\s-]*asset[_\s-]*investment|"
         r"special[_\s-]*bond[_\s-]*issuance|direct[_\s-]*financing|tsf|"
         r"劳动参与率|财政支出|财政节奏|财政政策|财政信用|投资结构|名义GDP|平减指数|专项债|直接融资",
@@ -4683,6 +4792,7 @@ INDICATOR_METADATA_SPECIALIZED_NON_INDEX_SOURCES = {
     "industry_survey_or_association_index",
     "livestock_operation_statistics",
     "movie_ticketing_platform_pre_sale_data",
+    "project_disclosure_or_industry_digitalization_data",
     "report_valuation_output",
     "transportation_operation_statistics_or_report_table",
     "exchange_market_trading_data",
@@ -4706,9 +4816,12 @@ INDICATOR_METADATA_COMPANY_METRIC_OVERRIDES = {
     "domestic_substitution_rate",
     "financial_ratio_or_risk_metric",
     "industry_capacity_supply",
+    "insurance_operation_or_solvency_metric",
     "private_market_financing_valuation",
     "renewable_installation_or_project_pipeline",
     "shareholder_return_metric",
+    "strategic_expansion_milestone",
+    "technology_adoption_or_market_share",
 }
 
 INDICATOR_METADATA_DERIVED_INFERENCE_SOURCES = {
