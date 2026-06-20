@@ -3201,6 +3201,16 @@ def _indicator_value_unknown(value: Any) -> bool:
 
 INDICATOR_METADATA_RULES: tuple[tuple[str, Mapping[str, Any]], ...] = (
     (
+        r"7日公开市场净投放|公开市场净投放",
+        {
+            "canonical_metric_candidate": "pboc_net_injection_7d",
+            "data_source_mentioned": "central_bank_open_market_operation_data",
+            "frequency": "daily",
+            "transformation": "rolling_sum",
+            "role_in_argument": "central_bank_liquidity_regime_metric",
+        },
+    ),
+    (
         r"\bdr\s*007\b|dr007|policy[_\s-]*rate|政策利率",
         {
             "canonical_metric_candidate": "dr007_policy_rate_spread",
@@ -4488,6 +4498,162 @@ INDICATOR_METADATA_RULES: tuple[tuple[str, Mapping[str, Any]], ...] = (
             "role_in_argument": "equity_pledge_risk_metric",
         },
     ),
+    (
+        r"营业总收入|total[_\s-]*revenue|eps(?:预测|[_\s-]*forecast)?|每股股利|"
+        r"合同负债|contract[_\s-]*liabilit(?:y|ies)",
+        {
+            "canonical_metric_candidate": "report_financial_statement_or_forecast_metric",
+            "data_source_mentioned": "company_financials_or_report_forecast",
+            "frequency": "quarterly_or_annual",
+            "transformation": "level_ratio_or_forecast",
+            "role_in_argument": "financial_forecast_or_quality_metric",
+        },
+    ),
+    (
+        r"comparable[_\s-]*compan(?:y|ies)|\bvaluation\b|可比公司",
+        {
+            "canonical_metric_candidate": "valuation_multiple",
+            "data_source_mentioned": "market_valuation_data_or_report_forecast",
+            "frequency": "daily_or_point_in_time",
+            "transformation": "valuation_ratio_or_percentile",
+            "role_in_argument": "valuation_proxy",
+        },
+    ),
+    (
+        r"(?:highest|max)[_\s-]*winning[_\s-]*price|最高中标价",
+        {
+            "canonical_metric_candidate": "renewable_tender_price_volume",
+            "data_source_mentioned": "energy_project_or_tender_statistics",
+            "frequency": "weekly_or_monthly",
+            "transformation": "volume_or_price_level_change",
+            "role_in_argument": "renewable_project_demand_and_price_metric",
+        },
+    ),
+    (
+        r"csi[_\s-]*300[_\s-]*index|power[_\s-]*equipment[_\s-]*index|"
+        r"\b[a-z0-9]+(?:[_\s-][a-z0-9]+)*[_\s-]*index\b|沪深\s*300",
+        {
+            "canonical_metric_candidate": "market_or_sector_index_return",
+            "data_source_mentioned": "stock_etf_or_index_price",
+            "frequency": "daily_or_weekly",
+            "transformation": "return_or_relative_return",
+            "role_in_argument": "sector_relative_performance_proxy",
+        },
+    ),
+    (
+        r"igbt|igct|thyristors?|ceramic[_\s-]*tube[_\s-]*shells?|"
+        r"packaging[_\s-]*heat[_\s-]*dissipation[_\s-]*substrates?|"
+        r"\beda\b|自动驾驶|滚珠丝杠|复合耐高压防腐膜|全链条自研|"
+        r"新产品|新设备|\btws\b|手机主板|服务器主板|灵巧手空心杯电机|"
+        r"\b(?:i?cvd|ald|pvd)\b|产品技术升级|技术优势|工业自动化水平",
+        {
+            "canonical_metric_candidate": "technology_product_milestone",
+            "data_source_mentioned": "company_disclosure_or_report_business_update",
+            "frequency": "event_driven_or_quarterly",
+            "transformation": "milestone_event_or_rate",
+            "role_in_argument": "technology_or_product_progress_metric",
+        },
+    ),
+    (
+        r"下游应用领域|按用途分类|油墨定义|产品组合|产品线|品类结构|"
+        r"市场重心转移|欧洲市场机遇与挑战|新兴市场布局|海外经营模式|"
+        r"terminal[_\s-]*network[_\s-]*coverage|new[_\s-]*channels?|"
+        r"single[_\s-]*store[_\s-]*output",
+        {
+            "canonical_metric_candidate": "business_mix_or_channel_operation_metric",
+            "data_source_mentioned": "company_channel_or_segment_operation_disclosure",
+            "frequency": "quarterly_or_annual",
+            "transformation": "share_level_or_operation_change",
+            "role_in_argument": "business_mix_or_channel_metric",
+        },
+    ),
+    (
+        r"repurchase|share[_\s-]*increase|actual[_\s-]*controller.*increase|回购|增持",
+        {
+            "canonical_metric_candidate": "shareholder_return_metric",
+            "data_source_mentioned": "company_financials_or_dividend_disclosure",
+            "frequency": "event_driven",
+            "transformation": "amount_or_share_change",
+            "role_in_argument": "shareholder_return_metric",
+        },
+    ),
+    (
+        r"ipo[_\s-]*(?:filing|plans?)|policy[_\s-]*funding|contract[_\s-]*value|"
+        r"fundraising|融资计划|合同金额|签约金额",
+        {
+            "canonical_metric_candidate": "project_contract_or_funding_value",
+            "data_source_mentioned": "company_disclosure_or_project_contract_data",
+            "frequency": "event_driven",
+            "transformation": "amount_or_event_status",
+            "role_in_argument": "project_financing_or_contract_metric",
+        },
+    ),
+    (
+        r"launch[_\s-]*frequency|commercial[_\s-]*space|商业航天|发射频次",
+        {
+            "canonical_metric_candidate": "commercial_space_launch_activity",
+            "data_source_mentioned": "industry_operation_statistics_or_report_table",
+            "frequency": "monthly_or_annual",
+            "transformation": "count_or_frequency_change",
+            "role_in_argument": "commercial_space_activity_metric",
+        },
+    ),
+    (
+        r"cfo[_\s-]*cpo[_\s-]*adoption|silicon[_\s-]*photonics[_\s-]*share|"
+        r"adoption|渗透率",
+        {
+            "canonical_metric_candidate": "technology_adoption_or_market_share",
+            "data_source_mentioned": "industry_statistics_or_report_competitive_table",
+            "frequency": "quarterly_or_annual",
+            "transformation": "adoption_rate_or_share_change",
+            "role_in_argument": "technology_adoption_metric",
+        },
+    ),
+    (
+        r"pet[_\s-]*usage|原材料价格波动|非洲矿业活动|lithium[_\s-]*resource|"
+        r"hydroxide[_\s-]*lithium|carbonate|ton[_\s-]*capacity|碳酸锂|氢氧化锂",
+        {
+            "canonical_metric_candidate": "resource_capacity_or_commodity_cost",
+            "data_source_mentioned": "commodity_price_supply_demand_inventory_data",
+            "frequency": "daily_or_weekly_or_monthly",
+            "transformation": "price_capacity_or_supply_change",
+            "role_in_argument": "resource_supply_or_input_cost_metric",
+        },
+    ),
+    (
+        r"ind[_\s-]*approvals?|nda[_\s-]*approvals?|license[_\s-]*out[_\s-]*deals?|"
+        r"医保谈判|保险报销|insurance[_\s-]*reimbursement|"
+        r"volume[_\s-]*based[_\s-]*procurement|hospital[_\s-]*prescription[_\s-]*flow|"
+        r"price[_\s-]*governance",
+        {
+            "canonical_metric_candidate": "healthcare_policy_or_clinical_milestone",
+            "data_source_mentioned": "healthcare_policy_or_drug_procurement_disclosure",
+            "frequency": "event_driven",
+            "transformation": "policy_or_approval_event",
+            "role_in_argument": "healthcare_policy_or_clinical_catalyst",
+        },
+    ),
+    (
+        r"lvef|不良反应|疗效|安全性|给药方案|clinical[_\s-]*efficacy",
+        {
+            "canonical_metric_candidate": "clinical_endpoint_or_safety_metric",
+            "data_source_mentioned": "clinical_trial_or_real_world_evidence",
+            "frequency": "event_driven",
+            "transformation": "endpoint_rate_or_safety_event",
+            "role_in_argument": "clinical_efficacy_or_safety_metric",
+        },
+    ),
+    (
+        r"gdp[_\s-]*contribution|total[_\s-]*output[_\s-]*value|专家问卷比例|"
+        r"公司问卷比例|国内排名|行业头部集中趋势|国内.*方案商",
+        {
+            "canonical_metric_candidate": "industry_scale_survey_or_rank_metric",
+            "data_source_mentioned": "industry_survey_or_association_index",
+            "frequency": "monthly_or_annual_or_survey_window",
+            "transformation": "level_share_rank_or_survey_rate",
+            "role_in_argument": "industry_scale_or_competitive_position_metric",
+        },
+    ),
 )
 
 
@@ -4750,7 +4916,7 @@ TEXT_GROUNDED_INDICATOR_SEED_RULES: tuple[tuple[str, str, str], ...] = (
         r"消费|消费者|需求|调研|survey|consumer|demand",
     ),
     (
-        r"政策|监管|标准|policy[_\s-]*event|regulatory[_\s-]*action",
+        r"政策事件|政策监管|监管|标准|policy[_\s-]*event|regulatory[_\s-]*action",
         "政策监管事件",
         r"政策|监管|标准|policy|regulatory",
     ),

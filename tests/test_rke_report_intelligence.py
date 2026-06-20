@@ -3527,6 +3527,78 @@ def test_report_intelligence_repairs_specialized_indicator_sources():
                 "transformation": "unknown",
                 "source_grounded": False,
             },
+            {
+                "indicator_text": "Comparable Companies",
+                "canonical_metric_candidate": "unknown",
+                "data_source_mentioned": "unknown",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
+            {
+                "indicator_text": "csi_300_index",
+                "canonical_metric_candidate": "unknown",
+                "data_source_mentioned": "unknown",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
+            {
+                "indicator_text": "IGBT",
+                "canonical_metric_candidate": "unknown",
+                "data_source_mentioned": "unknown",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
+            {
+                "indicator_text": "Single-store output",
+                "canonical_metric_candidate": "unknown",
+                "data_source_mentioned": "unknown",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
+            {
+                "indicator_text": "1-2 billion RMB A-share repurchase",
+                "canonical_metric_candidate": "unknown",
+                "data_source_mentioned": "unknown",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
+            {
+                "indicator_text": "launch_frequency",
+                "canonical_metric_candidate": "unknown",
+                "data_source_mentioned": "unknown",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
+            {
+                "indicator_text": "IND_approvals",
+                "canonical_metric_candidate": "unknown",
+                "data_source_mentioned": "unknown",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
+            {
+                "indicator_text": "LVEF改善数据",
+                "canonical_metric_candidate": "unknown",
+                "data_source_mentioned": "unknown",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
+            {
+                "indicator_text": "30k_ton_carbonate",
+                "canonical_metric_candidate": "unknown",
+                "data_source_mentioned": "unknown",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
         ]
     )
 
@@ -3599,6 +3671,33 @@ def test_report_intelligence_repairs_specialized_indicator_sources():
     )
     assert by_text["影片预售/供给热度"]["data_source_mentioned"] == (
         "movie_ticketing_platform_pre_sale_data"
+    )
+    assert by_text["Comparable Companies"]["data_source_mentioned"] == (
+        "market_valuation_data_or_report_forecast"
+    )
+    assert by_text["csi_300_index"]["data_source_mentioned"] == (
+        "stock_etf_or_index_price"
+    )
+    assert by_text["IGBT"]["data_source_mentioned"] == (
+        "company_disclosure_or_report_business_update"
+    )
+    assert by_text["Single-store output"]["data_source_mentioned"] == (
+        "company_channel_or_segment_operation_disclosure"
+    )
+    assert by_text["1-2 billion RMB A-share repurchase"][
+        "data_source_mentioned"
+    ] == "company_financials_or_dividend_disclosure"
+    assert by_text["launch_frequency"]["data_source_mentioned"] == (
+        "industry_operation_statistics_or_report_table"
+    )
+    assert by_text["IND_approvals"]["data_source_mentioned"] == (
+        "healthcare_policy_or_drug_procurement_disclosure"
+    )
+    assert by_text["LVEF改善数据"]["data_source_mentioned"] == (
+        "clinical_trial_or_real_world_evidence"
+    )
+    assert by_text["30k_ton_carbonate"]["data_source_mentioned"] == (
+        "commodity_price_supply_demand_inventory_data"
     )
     assert all(row["source_grounded"] is True for row in by_text.values())
 
