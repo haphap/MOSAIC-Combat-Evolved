@@ -12540,9 +12540,11 @@ def test_prepare_analytical_footprint_review_import_selects_quality_gap_rows(
     passed["footprint_id"] = "FOOTPRINT-PASSED"
     failed = dict(rows[0])
     failed["footprint_id"] = "FOOTPRINT-FAILED"
+    rejected = dict(rows[0])
+    rejected["footprint_id"] = "FOOTPRINT-REJECTED"
     pending = dict(rows[0])
     pending["footprint_id"] = "FOOTPRINT-PENDING"
-    for row in (passed, failed):
+    for row in (passed, failed, rejected):
         row.update(
             {
                 "footprint_correct": True,
@@ -12558,8 +12560,10 @@ def test_prepare_analytical_footprint_review_import_selects_quality_gap_rows(
             }
         )
     failed["source_span_supports_footprint"] = False
+    rejected["footprint_correct"] = False
+    rejected["metric_mapping_correct"] = False
     pending["footprint_correct"] = None
-    _write_jsonl(template_path, [passed, failed, pending])
+    _write_jsonl(template_path, [passed, failed, rejected, pending])
     output_path = tmp_path / "footprint_review_quality_gap_batch.jsonl"
 
     report = prepare_analytical_footprint_review_import(

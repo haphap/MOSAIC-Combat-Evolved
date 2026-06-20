@@ -8100,6 +8100,7 @@ def prepare_analytical_footprint_review_import(
             (index, row)
             for index, row in enumerate(target_rows)
             if _footprint_review_row_complete(row)
+            and row.get("footprint_correct") is True
             and any(
                 row.get(field) is False
                 for field in ANALYTICAL_FOOTPRINT_REVIEW_BOOLEAN_FIELDS
