@@ -8415,12 +8415,24 @@ def prepare_analytical_footprint_review_import(
         blockers.append(f"output_path already exists: {resolved_output_path}")
     offset_value = max(0, int(offset))
     limit_value = None if limit is None else max(0, int(limit))
+    existing_output_ids: set[str] = set()
+    if quality_gap_only and overwrite and resolved_output_path.exists():
+        existing_output_rows, _ = load_jsonl_with_errors(
+            resolved_output_path,
+            label="existing analytical footprint review output",
+        )
+        existing_output_ids = {
+            str(row.get("footprint_id") or "")
+            for row in existing_output_rows
+            if isinstance(row, Mapping) and str(row.get("footprint_id") or "").strip()
+        }
     if quality_gap_only:
         selected_indexed_rows = [
             (index, row)
             for index, row in enumerate(target_rows)
             if _footprint_review_row_complete(row)
             and row.get("footprint_correct") is True
+            and str(row.get("footprint_id") or "") not in existing_output_ids
             and any(
                 row.get(field) is False
                 for field in ANALYTICAL_FOOTPRINT_REVIEW_BOOLEAN_FIELDS

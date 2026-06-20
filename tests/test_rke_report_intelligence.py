@@ -12880,6 +12880,58 @@ def test_prepare_analytical_footprint_review_import_selects_quality_gap_rows(
     assert scaffold_rows[0]["source_span_supports_footprint"] is False
 
 
+def test_prepare_analytical_footprint_review_import_skips_existing_quality_gap_batch(
+    tmp_path: Path,
+):
+    source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
+    run_report_intelligence_refresh(
+        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        downloader=_fake_downloader,
+        converter=_fake_converter,
+        llm_extractor=_fake_llm,
+    )
+    template_path = tmp_path / "registry/report_intelligence/analytical_footprint_review_template.jsonl"
+    base = _read_jsonl(template_path)[0]
+    failed_a = dict(base)
+    failed_a["footprint_id"] = "FOOTPRINT-FAILED-A"
+    failed_b = dict(base)
+    failed_b["footprint_id"] = "FOOTPRINT-FAILED-B"
+    for row in (failed_a, failed_b):
+        row.update(
+            {
+                "footprint_correct": True,
+                "source_span_supports_footprint": True,
+                "metric_mapping_correct": False,
+                "inferred_steps_tagged_correctly": True,
+                "unknowns_used_when_uncertain": True,
+                "no_proprietary_text_leakage": True,
+                "manual_error_tags": [],
+                "reviewer": "footprint-reviewer",
+                "review_date": "2026-06-12",
+                "review_notes": "fixture mapping gap",
+            }
+        )
+    _write_jsonl(template_path, [failed_a, failed_b])
+    output_path = tmp_path / "footprint_review_quality_gap_batch.jsonl"
+    _write_jsonl(output_path, [failed_a])
+
+    report = prepare_analytical_footprint_review_import(
+        tmp_path,
+        output_path,
+        reviewer="footprint-reviewer",
+        review_date="2026-06-18",
+        limit=10,
+        overwrite=True,
+        quality_gap_only=True,
+    )
+    scaffold_rows = _read_jsonl(output_path)
+
+    assert report.accepted
+    assert report.output_rows == 1
+    assert report.backed_up_existing_output is True
+    assert scaffold_rows[0]["footprint_id"] == "FOOTPRINT-FAILED-B"
+
+
 def test_prepare_analytical_footprint_review_import_priority_sorts_pending_rows(
     tmp_path: Path,
 ):
