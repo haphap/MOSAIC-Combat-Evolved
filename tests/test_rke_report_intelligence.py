@@ -3671,6 +3671,78 @@ def test_report_intelligence_repairs_specialized_indicator_sources():
                 "transformation": "unknown",
                 "source_grounded": False,
             },
+            {
+                "indicator_text": "行业排名",
+                "canonical_metric_candidate": "unknown",
+                "data_source_mentioned": "unknown",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
+            {
+                "indicator_text": "Machine tools",
+                "canonical_metric_candidate": "unknown",
+                "data_source_mentioned": "unknown",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
+            {
+                "indicator_text": "煤质特性",
+                "canonical_metric_candidate": "unknown",
+                "data_source_mentioned": "unknown",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
+            {
+                "indicator_text": "DRAM合约价",
+                "canonical_metric_candidate": "unknown",
+                "data_source_mentioned": "unknown",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
+            {
+                "indicator_text": "地面兵装下跌",
+                "canonical_metric_candidate": "unknown",
+                "data_source_mentioned": "unknown",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
+            {
+                "indicator_text": "upstream_raw_materials",
+                "canonical_metric_candidate": "unknown",
+                "data_source_mentioned": "unknown",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
+            {
+                "indicator_text": "durability",
+                "canonical_metric_candidate": "unknown",
+                "data_source_mentioned": "unknown",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
+            {
+                "indicator_text": "PRASHAD scheme projects",
+                "canonical_metric_candidate": "unknown",
+                "data_source_mentioned": "unknown",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
+            {
+                "indicator_text": "科技股挖掘",
+                "canonical_metric_candidate": "unknown",
+                "data_source_mentioned": "unknown",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
         ]
     )
 
@@ -3797,6 +3869,33 @@ def test_report_intelligence_repairs_specialized_indicator_sources():
     )
     assert by_text["2026年春节档影片供给与预售情况"]["data_source_mentioned"] == (
         "movie_ticketing_platform_pre_sale_data"
+    )
+    assert by_text["行业排名"]["data_source_mentioned"] == (
+        "ecommerce_platform_category_store_product_data"
+    )
+    assert by_text["Machine tools"]["data_source_mentioned"] == (
+        "company_channel_or_segment_operation_disclosure"
+    )
+    assert by_text["煤质特性"]["data_source_mentioned"] == (
+        "resource_reserve_or_company_project_disclosure"
+    )
+    assert by_text["DRAM合约价"]["data_source_mentioned"] == (
+        "commodity_price_supply_demand_inventory_data"
+    )
+    assert by_text["地面兵装下跌"]["data_source_mentioned"] == (
+        "stock_etf_or_index_price"
+    )
+    assert by_text["upstream_raw_materials"]["data_source_mentioned"] == (
+        "industry_operation_statistics_or_report_table"
+    )
+    assert by_text["durability"]["data_source_mentioned"] == (
+        "company_disclosure_or_report_business_update"
+    )
+    assert by_text["PRASHAD scheme projects"]["data_source_mentioned"] == (
+        "tourism_operation_statistics_or_survey"
+    )
+    assert by_text["科技股挖掘"]["data_source_mentioned"] == (
+        "asset_management_product_disclosure"
     )
     assert all(row["source_grounded"] is True for row in by_text.values())
 

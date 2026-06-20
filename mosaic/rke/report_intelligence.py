@@ -3340,6 +3340,121 @@ INDICATOR_METADATA_RULES: tuple[tuple[str, Mapping[str, Any]], ...] = (
         },
     ),
     (
+        r"行业排名|volume[_\s-]*rank|sales[_\s-]*rank|商品排名|店铺排名|类目排名",
+        {
+            "canonical_metric_candidate": "ecommerce_store_product_rank_activity",
+            "data_source_mentioned": "ecommerce_platform_category_store_product_data",
+            "frequency": "monthly",
+            "transformation": "sales_rank_or_volume_value_change",
+            "role_in_argument": "platform_rank_activity_metric",
+        },
+    ),
+    (
+        r"international[_\s-]*business[_\s-]*layout|国际业务布局|"
+        r"machine[_\s-]*tools?|semiconductor|linear[_\s-]*guideways?|"
+        r"mining[_\s-]*equipment|special[_\s-]*equipment|superhard[_\s-]*materials?",
+        {
+            "canonical_metric_candidate": "business_mix_or_channel_operation_metric",
+            "data_source_mentioned": "company_channel_or_segment_operation_disclosure",
+            "frequency": "quarterly_or_annual",
+            "transformation": "segment_share_or_operation_change",
+            "role_in_argument": "business_segment_or_channel_metric",
+        },
+    ),
+    (
+        r"煤质特性|ore[_\s-]*grade|resource[_\s-]*quality|资源品位",
+        {
+            "canonical_metric_candidate": "resource_quality_metric",
+            "data_source_mentioned": "resource_reserve_or_company_project_disclosure",
+            "frequency": "annual_or_event_driven",
+            "transformation": "quality_grade_or_property_level",
+            "role_in_argument": "resource_quality_advantage_metric",
+        },
+    ),
+    (
+        r"(?<!资产)负债$|负债结构|有息负债|债务结构",
+        {
+            "canonical_metric_candidate": "financial_ratio_or_risk_metric",
+            "data_source_mentioned": "company_financials_or_regulatory_disclosure",
+            "frequency": "quarterly_or_annual",
+            "transformation": "ratio_level_or_change",
+            "role_in_argument": "financial_quality_or_risk_metric",
+        },
+    ),
+    (
+        r"brand[_\s-]*building.*urban[_\s-]*renewal|"
+        r"shift[_\s-]*from[_\s-]*developer[_\s-]*to[_\s-]*city[_\s-]*operator|"
+        r"城市运营|城市更新品牌",
+        {
+            "canonical_metric_candidate": "strategic_expansion_milestone",
+            "data_source_mentioned": "company_disclosure_or_report_business_update",
+            "frequency": "event_driven_or_quarterly",
+            "transformation": "milestone_event_or_project_status",
+            "role_in_argument": "company_strategy_or_project_metric",
+        },
+    ),
+    (
+        r"dram.*合约价|nand(?:[_\s-]*flash)?.*合约价|memory[_\s-]*contract[_\s-]*price",
+        {
+            "canonical_metric_candidate": "semiconductor_memory_contract_price",
+            "data_source_mentioned": "commodity_price_supply_demand_inventory_data",
+            "frequency": "monthly_or_quarterly",
+            "transformation": "contract_price_level_or_change",
+            "role_in_argument": "semiconductor_price_cycle_metric",
+        },
+    ),
+    (
+        r"(?:地面兵装|航海装备|航空装备|子板块).*(?:上涨|下跌)",
+        {
+            "canonical_metric_candidate": "market_or_sector_index_return",
+            "data_source_mentioned": "stock_etf_or_index_price",
+            "frequency": "daily_or_weekly",
+            "transformation": "return_or_rank_change",
+            "role_in_argument": "sector_relative_performance_proxy",
+        },
+    ),
+    (
+        r"upstream[_\s-]*raw[_\s-]*materials?|downstream[_\s-]*application|"
+        r"深加工|终端应用|氧化铝冶炼|电解铝冶炼",
+        {
+            "canonical_metric_candidate": "industry_value_chain_structure",
+            "data_source_mentioned": "industry_operation_statistics_or_report_table",
+            "frequency": "annual_or_quarterly",
+            "transformation": "value_chain_segment_or_share_change",
+            "role_in_argument": "industry_value_chain_metric",
+        },
+    ),
+    (
+        r"durability|shock[_\s-]*absorption|耐久性|减震",
+        {
+            "canonical_metric_candidate": "product_performance_metric",
+            "data_source_mentioned": "company_disclosure_or_report_business_update",
+            "frequency": "event_driven_or_quarterly",
+            "transformation": "performance_level_or_milestone",
+            "role_in_argument": "product_performance_metric",
+        },
+    ),
+    (
+        r"prashad[_\s-]*scheme|swadesh[_\s-]*darshan|旅游项目|文旅项目",
+        {
+            "canonical_metric_candidate": "tourism_policy_project_metric",
+            "data_source_mentioned": "tourism_operation_statistics_or_survey",
+            "frequency": "event_driven_or_annual",
+            "transformation": "project_count_or_policy_status",
+            "role_in_argument": "tourism_policy_project_metric",
+        },
+    ),
+    (
+        r"科技股挖掘|港股打新|拉长债券久期|平滑净值曲线",
+        {
+            "canonical_metric_candidate": "asset_management_product_activity",
+            "data_source_mentioned": "asset_management_product_disclosure",
+            "frequency": "monthly_or_quarterly",
+            "transformation": "aum_strategy_or_return_change",
+            "role_in_argument": "wealth_management_activity_metric",
+        },
+    ),
+    (
         r"gdp[_\s-]*deflator|nominal[_\s-]*gdp|fixed[_\s-]*asset[_\s-]*investment|"
         r"special[_\s-]*bond[_\s-]*issuance|direct[_\s-]*financing|tsf|"
         r"劳动参与率|财政支出|财政节奏|财政政策|财政信用|投资结构|名义GDP|平减指数|专项债|直接融资",
@@ -4783,8 +4898,11 @@ INDICATOR_METADATA_INDEX_PROXY_SOURCES = {
 }
 
 INDICATOR_METADATA_SPECIALIZED_NON_INDEX_SOURCES = {
+    "asset_management_product_disclosure",
     "auto_industry_operation_statistics",
     "carbon_market_exchange_statistics",
+    "company_channel_or_segment_operation_disclosure",
+    "company_disclosure_or_report_business_update",
     "company_equity_incentive_disclosure",
     "commodity_price_supply_demand_inventory_data",
     "customs_trade_statistics_or_report_table",
@@ -4799,6 +4917,7 @@ INDICATOR_METADATA_SPECIALIZED_NON_INDEX_SOURCES = {
     "industry_capacity_or_production_statistics",
     "energy_project_or_tender_statistics",
     "power_market_price_or_tariff_data",
+    "resource_reserve_or_company_project_disclosure",
     "tourism_operation_statistics_or_survey",
     "transport_infrastructure_statistics",
 }
@@ -4814,10 +4933,14 @@ INDICATOR_METADATA_COMPANY_SOURCE_OVERRIDES = {
 
 INDICATOR_METADATA_COMPANY_METRIC_OVERRIDES = {
     "domestic_substitution_rate",
+    "business_mix_or_channel_operation_metric",
     "financial_ratio_or_risk_metric",
     "industry_capacity_supply",
+    "industry_value_chain_structure",
     "insurance_operation_or_solvency_metric",
+    "product_performance_metric",
     "private_market_financing_valuation",
+    "resource_quality_metric",
     "renewable_installation_or_project_pipeline",
     "shareholder_return_metric",
     "strategic_expansion_milestone",
