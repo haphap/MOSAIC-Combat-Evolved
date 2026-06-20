@@ -3799,6 +3799,54 @@ def test_report_intelligence_repairs_specialized_indicator_sources():
                 "transformation": "unknown",
                 "source_grounded": False,
             },
+            {
+                "indicator_text": "同比上涨3.4%",
+                "canonical_metric_candidate": "market_or_sector_index_return",
+                "data_source_mentioned": "stock_etf_or_index_price",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
+            {
+                "indicator_text": "目标股价",
+                "canonical_metric_candidate": "market_or_sector_index_return",
+                "data_source_mentioned": "stock_etf_or_index_price",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
+            {
+                "indicator_text": "收盘价",
+                "canonical_metric_candidate": "unknown",
+                "data_source_mentioned": "unknown",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
+            {
+                "indicator_text": "2026年1-4月前十目的地",
+                "canonical_metric_candidate": "unknown",
+                "data_source_mentioned": "unknown",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
+            {
+                "indicator_text": "投产时间",
+                "canonical_metric_candidate": "unknown",
+                "data_source_mentioned": "unknown",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
+            {
+                "indicator_text": "置换比",
+                "canonical_metric_candidate": "unknown",
+                "data_source_mentioned": "unknown",
+                "frequency": "unknown",
+                "transformation": "unknown",
+                "source_grounded": False,
+            },
         ]
     )
 
@@ -3994,6 +4042,34 @@ def test_report_intelligence_repairs_specialized_indicator_sources():
     )
     assert by_text["上市时间"]["canonical_metric_candidate"] == (
         "strategic_expansion_milestone"
+    )
+    assert by_text["同比上涨3.4%"]["data_source_mentioned"] == (
+        "industry_operation_statistics_or_report_table"
+    )
+    assert by_text["同比上涨3.4%"]["canonical_metric_candidate"] == (
+        "reported_operation_growth_rate"
+    )
+    assert by_text["目标股价"]["data_source_mentioned"] == "report_valuation_output"
+    assert by_text["目标股价"]["canonical_metric_candidate"] == "target_price"
+    assert by_text["收盘价"]["data_source_mentioned"] == "stock_etf_or_index_price"
+    assert by_text["收盘价"]["canonical_metric_candidate"] == "stock_price"
+    assert by_text["2026年1-4月前十目的地"]["data_source_mentioned"] == (
+        "customs_trade_statistics_or_report_table"
+    )
+    assert by_text["2026年1-4月前十目的地"]["canonical_metric_candidate"] == (
+        "export_import_trade_flow"
+    )
+    assert by_text["投产时间"]["data_source_mentioned"] == (
+        "company_disclosure_or_report_business_update"
+    )
+    assert by_text["投产时间"]["canonical_metric_candidate"] == (
+        "strategic_expansion_milestone"
+    )
+    assert by_text["置换比"]["data_source_mentioned"] == (
+        "company_disclosure_or_report_business_update"
+    )
+    assert by_text["置换比"]["canonical_metric_candidate"] == (
+        "product_performance_metric"
     )
     assert all(row["source_grounded"] is True for row in by_text.values())
 

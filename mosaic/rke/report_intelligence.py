@@ -3521,7 +3521,7 @@ INDICATOR_METADATA_RULES: tuple[tuple[str, Mapping[str, Any]], ...] = (
         },
     ),
     (
-        r"事关.*安全|半导体.*军工.*航天安全|上市时间",
+        r"事关.*安全|半导体.*军工.*航天安全|上市时间|投产时间|投产进度",
         {
             "canonical_metric_candidate": "strategic_expansion_milestone",
             "data_source_mentioned": "company_disclosure_or_report_business_update",
@@ -3592,6 +3592,17 @@ INDICATOR_METADATA_RULES: tuple[tuple[str, Mapping[str, Any]], ...] = (
             "frequency": "daily_or_weekly",
             "transformation": "return_or_relative_return",
             "role_in_argument": "sector_relative_performance_proxy",
+        },
+    ),
+    (
+        r"同比(?:上涨|下降|增长|减少|增速)|环比(?:上涨|下降|增长|减少|增速)|"
+        r"yoy[_\s-]*(?:growth|change)|mom[_\s-]*(?:growth|change)",
+        {
+            "canonical_metric_candidate": "reported_operation_growth_rate",
+            "data_source_mentioned": "industry_operation_statistics_or_report_table",
+            "frequency": "monthly_or_annual",
+            "transformation": "growth_rate",
+            "role_in_argument": "reported_operation_growth_metric",
         },
     ),
     (
@@ -3907,7 +3918,7 @@ INDICATOR_METADATA_RULES: tuple[tuple[str, Mapping[str, Any]], ...] = (
         },
     ),
     (
-        r"forward[_\s-]*return|weekly[_\s-]*return|sector[_\s-]*return|stock[_\s-]*price|股价|周度收益|行业收益",
+        r"forward[_\s-]*return|weekly[_\s-]*return|sector[_\s-]*return|stock[_\s-]*price|(?<!目标)股价|周度收益|行业收益",
         {
             "canonical_metric_candidate": "market_or_sector_index_return",
             "data_source_mentioned": "stock_etf_or_index_price",
@@ -4127,13 +4138,23 @@ INDICATOR_METADATA_RULES: tuple[tuple[str, Mapping[str, Any]], ...] = (
         },
     ),
     (
-        r"target[_\s-]*price|price[_\s-]*target|目标价",
+        r"target[_\s-]*price|price[_\s-]*target|目标价|目标股价",
         {
             "canonical_metric_candidate": "target_price",
             "data_source_mentioned": "report_valuation_output",
             "frequency": "point_in_time",
             "transformation": "extract_forecast",
             "role_in_argument": "valuation_output",
+        },
+    ),
+    (
+        r"收盘价|closing[_\s-]*price|close[_\s-]*price",
+        {
+            "canonical_metric_candidate": "stock_price",
+            "data_source_mentioned": "stock_etf_or_index_price",
+            "frequency": "daily",
+            "transformation": "price_level",
+            "role_in_argument": "market_price_metric",
         },
     ),
     (
@@ -4182,7 +4203,7 @@ INDICATOR_METADATA_RULES: tuple[tuple[str, Mapping[str, Any]], ...] = (
     ),
     (
         r"export[_\s-]*revenue|import[_\s-]*revenue|trade[_\s-]*balance|unit[_\s-]*price|"
-        r"出口收入|进口收入|贸易差额|进出口均价|进出口单价",
+        r"出口收入|进口收入|贸易差额|进出口均价|进出口单价|主要目的地|前十目的地|占比合计",
         {
             "canonical_metric_candidate": "export_import_trade_flow",
             "data_source_mentioned": "customs_trade_statistics_or_report_table",
@@ -4263,6 +4284,16 @@ INDICATOR_METADATA_RULES: tuple[tuple[str, Mapping[str, Any]], ...] = (
             "frequency": "monthly_or_quarterly",
             "transformation": "level_growth_or_change_amplitude",
             "role_in_argument": "reported_demand_or_sales_metric",
+        },
+    ),
+    (
+        r"置换比|可磨性|技术性能指标|单位产出|能耗",
+        {
+            "canonical_metric_candidate": "product_performance_metric",
+            "data_source_mentioned": "company_disclosure_or_report_business_update",
+            "frequency": "event_driven_or_quarterly",
+            "transformation": "performance_level_or_efficiency_change",
+            "role_in_argument": "product_performance_metric",
         },
     ),
     (
