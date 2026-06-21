@@ -96,11 +96,11 @@ MACRO_SERIES_BACKFILL_SPECS: Mapping[str, MacroSeriesBackfillSpec] = {
     ),
     "VIX": MacroSeriesBackfillSpec(
         series_id="VIX",
-        fetch_kind="realized_volatility",
-        source="akshare",
-        endpoint_name="article_oman_rv",
-        instrument="oman:FTSE:rk_th2",
-        value_columns=("rk_th2", "realized_vol", "value"),
+        fetch_kind="yfinance_index",
+        source="yfinance",
+        endpoint_name="download",
+        instrument="^VIX",
+        value_columns=("close", "value"),
     ),
 }
 
@@ -196,6 +196,9 @@ def _fetch_markdown_csv(
     if spec.fetch_kind == "realized_volatility":
         fetcher = fetchers.get(spec.fetch_kind, macro_data.get_realized_volatility)
         return fetcher(end_date, top_n=max(look_back_days + 7, 30))
+    if spec.fetch_kind == "yfinance_index":
+        fetcher = fetchers.get(spec.fetch_kind, macro_data.get_ivx)
+        return fetcher(end_date, look_back_days=look_back_days, index_symbol=spec.instrument)
     raise DataVendorUnavailable(f"unsupported macro series fetch kind: {spec.fetch_kind}")
 
 

@@ -52,7 +52,7 @@
         "supportive_evidence",
         "contradictory_evidence",
         "mixed_evidence",
-        "pending_insufficient_market_feedback"
+        "pending_or_unrated"
       ]
     },
     "rating_source": {"const": "non_llm_viewpoint_performance_profile"},

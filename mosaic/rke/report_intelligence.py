@@ -17777,7 +17777,12 @@ def build_macro_regime_snapshots(
             or f"row-{index}"
         )
         trace_as_of_date = _claim_trace_as_of_date(claim)
-        for agent_id, agent_trace in _macro_trace_agent_context(claim).items():
+        trace_context = _macro_trace_agent_context(claim)
+        agent_ids = tuple(
+            dict.fromkeys((*trace_context.keys(), *_claim_macro_agent_candidates(claim)))
+        )
+        for agent_id in agent_ids:
+            agent_trace = trace_context.get(agent_id, {})
             as_of_date = str(agent_trace.get("as_of_date") or trace_as_of_date).strip()
             if not as_of_date:
                 continue
@@ -17790,9 +17795,12 @@ def build_macro_regime_snapshots(
                     "_as_of_date_regime_types": set(),
                     "_source_text_regime_types": set(),
                     "_regime_detail_ids": set(),
+                    "_trace_claim_markers": set(),
                 },
             )
             aggregate["_claim_markers"].add(claim_marker)
+            if agent_id in trace_context:
+                aggregate["_trace_claim_markers"].add(claim_marker)
             aggregate["_regime_types"].update(
                 str(item).strip()
                 for item in _ensure_list(agent_trace.get("regime_types"))
@@ -17826,11 +17834,19 @@ def build_macro_regime_snapshots(
         source_claim_count = len(aggregate["_claim_markers"])
         regime_family = agent_id.removeprefix("macro.")
         source_series_ids = list(MACRO_REGIME_AGENT_SOURCE_SERIES_IDS.get(agent_id, ()))
+        missing_feature_reasons = []
+        if not source_series_ids:
+            missing_feature_reasons.append("agent_source_series_catalog_missing")
+        if not aggregate["_trace_claim_markers"]:
+            missing_feature_reasons.append("agent_regime_trace_missing")
+        if not regime_types:
+            missing_feature_reasons.append("no_macro_regime_type_observed")
         regime_features = {
             "regime_type_count": len(regime_types),
             "as_of_date_regime_type_count": len(as_of_date_regime_types),
             "source_text_regime_type_count": len(source_text_regime_types),
             "source_claim_count": source_claim_count,
+            "trace_source_claim_count": len(aggregate["_trace_claim_markers"]),
         }
         record = {
             "snapshot_id": _stable_id(
@@ -17852,11 +17868,10 @@ def build_macro_regime_snapshots(
                 "as_of_date_regime_type_count": "count",
                 "source_text_regime_type_count": "count",
                 "source_claim_count": "count",
+                "trace_source_claim_count": "count",
             },
             "source_series_ids": source_series_ids,
-            "missing_feature_reasons": []
-            if source_series_ids
-            else ["agent_source_series_catalog_missing"],
+            "missing_feature_reasons": missing_feature_reasons,
             "regime_types": list(regime_types),
             "as_of_date_regime_types": list(as_of_date_regime_types),
             "source_text_regime_types": list(source_text_regime_types),
@@ -17883,7 +17898,7 @@ def build_macro_regime_snapshots(
 
 def _macro_prior_rating_bucket(profile: Mapping[str, Any]) -> str:
     if profile.get("insufficient_data") is True:
-        return "pending_insufficient_market_feedback"
+        return "pending_or_unrated"
     bucket = str(profile.get("shrunk_performance_bucket") or "")
     shrunk_alpha = _float_or_none(profile.get("shrunk_after_cost_alpha"))
     shrunk_hit_rate = _float_or_none(profile.get("shrunk_hit_rate"))
@@ -17903,7 +17918,7 @@ def _macro_prior_rating_bucket(profile: Mapping[str, Any]) -> str:
         return "contradictory_evidence"
     if bucket.startswith("neutral_") or shrunk_alpha is not None or shrunk_hit_rate is not None:
         return "mixed_evidence"
-    return "pending_insufficient_market_feedback"
+    return "pending_or_unrated"
 
 
 def _macro_prior_target_series_family(

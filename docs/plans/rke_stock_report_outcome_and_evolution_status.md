@@ -26,10 +26,11 @@ Markdown paths, source spans, reviewer notes, or private Tushare rows.
   failures, all downstream of the incomplete footprint manual review and patch
   v1.5 coverage gate.
 - `operator-readiness --root .` is accepted with 18/18 checks passing.
-- `evolution-readiness --root . --no-write` is currently blocked only by
-  RI-EVOL-04 audit refresh history: the current PIT, provenance, schema, and
-  statistical audit evidence is clean, but the trailing clean audit refresh count
-  is 1/3 distinct required vintages.
+- `evolution-readiness --root . --no-write` is currently blocked by RI-EVOL-04:
+  current PIT, provenance, and statistical audit evidence is clean, but schema
+  still has 17 failures from the incomplete footprint review / patch coverage
+  gates. Because current schema is blocked, the trailing clean audit refresh
+  count is 0/3 distinct required vintages.
 - Prompt mutation output currently has 10 shadow-only candidates. All keep
   `promotion_state=shadow_candidate_only`,
   `production_prompt_change_allowed=false`, `manual_review_required=true`, and
@@ -45,7 +46,7 @@ Markdown paths, source spans, reviewer notes, or private Tushare rows.
 | --- | --- | --- |
 | P0-P3 stock outcome contract/builders/audits | Implemented | Stock proxy labels use PIT T+1 windows, `SH510300` benchmark, 20 bps cost, stock target resolution, and readiness gaps for missing/conflicting data. |
 | P4 tests | Implemented | Focused stock/macro/schema tests are maintained; current final verification commands are listed below. |
-| P5 evolution loop | Implemented for shadow evolution, history gate still blocked | Prompt mutation candidates, paper-trading, confidence monitor, gold review, footprint review, and audit refresh history feed the evolution gate. RI-EVOL-04 needs 3 distinct clean audit vintages; current clean count is 1. |
+| P5 evolution loop | Implemented for shadow evolution, schema/history gate still blocked | Prompt mutation candidates, paper-trading, confidence monitor, gold review, footprint review, and audit refresh history feed the evolution gate. RI-EVOL-04 needs current schema acceptance plus 3 distinct clean audit vintages; current clean count is 0 while schema remains blocked. |
 | P8 acceptance matrix | Partially complete | Operator readiness passes, and PIT/provenance/statistical audits pass. Full schema and patch coverage remain blocked by incomplete footprint manual review. |
 | P9-P12 coverage/mapping/paper-trading/monitor | Implemented for current sample pool, promotion blocked | Public aggregate artifacts exist; private PDFs, Markdown, source rows, claim text, and reviewed imports remain uncommitted. Patch coverage stays blocked until footprint review completion. |
 
@@ -67,7 +68,7 @@ git diff --check
    production promotion approvals explicitly allow production changes.
 2. Complete the remaining 259 analytical-footprint manual review rows before
    claiming full schema or patch v1.5 coverage acceptance.
-3. Collect two more distinct clean audit refresh vintages before claiming
-   RI-EVOL-04 acceptance.
+3. After schema acceptance is restored, collect three distinct clean audit
+   refresh vintages before claiming RI-EVOL-04 acceptance.
 4. Re-run schema, operator, evolution, privacy, and test checks before each
    future public artifact update.

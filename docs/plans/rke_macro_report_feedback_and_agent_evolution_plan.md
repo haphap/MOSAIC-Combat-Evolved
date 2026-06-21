@@ -985,6 +985,51 @@ git rev-list --objects origin/main..HEAD | rg 'tushare_research_reports|report_i
 9. public artifacts 不包含 source prose、claim text、source span、PDF/Markdown/cache。
 10. 运行 `export-macro-agent-priors` 能生成下游可消费的 shadow research prior。
 
+### P12 当前验收状态（2026-06-22）
+
+当前分支已经满足大部分宏观闭环的功能性条件，但还不能宣称本计划全部完成：
+
+- 条件 1：已满足。当前 public-safe extraction summary 有 999 条 forecast claims；
+  宏观演化检查中有 109 条 macro forecast/claim-leg rows，超过 50 条 parent claim 和
+  80 条可评价 legs 的首轮门槛。
+- 条件 2：已满足类型覆盖。`macro_asset_proxy=75`、`macro_series_directional=31`、
+  `macro_curve_directional=3` 已进入 outcome label summary；测试中保留三类 fixture，
+  真实样本通过当前私有 claim/outcome labels 路径生成。
+- 条件 3：部分满足。利率/收益率、FX、commodity direct-series label 已有真实宏观样本；
+  VIX 波动率序列已通过 `macro-series-backfill --series-id VIX` 写入本地
+  `scorecard.db` 并在 `macro_market_series_catalog.jsonl` 标记为 ready。当前 claim pool
+  尚未抽到可完成的真实 volatility claim leg，因此 volatility 还停留在数据/fixture ready，
+  真实 completed label 需要后续宏观语料出现明确波动率方向观点。
+- 条件 4：已满足。8 个 macro agents 都有 regime snapshot 或 deferred snapshot：
+  `macro.central_bank`、`macro.china`、`macro.commodities`、`macro.dollar`、
+  `macro.emerging_markets`、`macro.geopolitical`、`macro.volatility`、
+  `macro.yield_curve`。
+- 条件 5：已满足最低门槛。7 个 macro agents 已有 redacted research priors：
+  `macro.central_bank`、`macro.china`、`macro.commodities`、`macro.dollar`、
+  `macro.emerging_markets`、`macro.geopolitical`、`macro.yield_curve`。
+  `macro.volatility` 当前无 prior 输出，原因是缺少可评价 volatility claim leg，而不是缺少
+  VIX 数据。
+- 条件 6：已满足。outcome/readiness 区分 completed、pending window 和 readiness gap；
+  evolution gate 的 RI-MACRO-02 也记录 macro pending/gap counts。
+- 条件 7：已满足。`macro_agent_research_priors.jsonl` 的 rating buckets 已标准化为
+  `supportive_evidence`、`mixed_evidence`、`contradictory_evidence`、
+  `pending_or_unrated`；当前分布为 supportive 40、mixed 66、contradictory 16、
+  pending 3281。
+- 条件 8：未满足。PIT、provenance、statistical 检查通过，但全局
+  `schema-status --root . --failures-only --no-write` 仍有 17 个失败，来源是
+  incomplete analytical-footprint manual review 和 patch v1.5 coverage gate。
+- 条件 9：已验证当前宏观 public artifacts。`macro_agent_research_priors.jsonl`、
+  `macro_market_series_catalog.jsonl`、`macro_regime_snapshots.jsonl`、
+  `extraction_report.json`、`outcome_labeling_readiness.json` 未命中
+  `claim_text`、`source_span_ids`、`abstract`、`pdf_url`、`markdown_path`。
+- 条件 10：已满足。`export-macro-agent-priors --agent-id macro.dollar
+  --as-of-date 2026-06-18 --no-source-prose` 可输出 491 条 shadow prior，
+  `production_signal_allowed=false`，且不含 claim text/source span。
+
+因此当前状态是：宏观研报观点已经可评级、可导出 shadow prior、可进入 evolution gate；
+但全局 schema gate 仍被 footprint review / patch coverage 阻塞，不能标记为 plan
+fully delivered，也不能进入任何生产 promotion。
+
 ## P13：首轮不做的事
 
 为控制风险，首轮明确不做：

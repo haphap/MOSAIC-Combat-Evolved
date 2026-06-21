@@ -93,6 +93,7 @@ from mosaic.rke.report_intelligence import (
     _paper_trading_chronological_split_metrics,
     _paper_trading_train_oos_split_items,
     _select_report_forecast_claims,
+    _stable_id,
     _user_prompt,
     _refresh_analytical_footprint_indicator_governance,
     _refresh_forecast_mapping_governance,
@@ -1072,8 +1073,10 @@ def test_report_intelligence_builds_public_safe_macro_regime_snapshots():
         "as_of_date_regime_type_count": 1,
         "source_text_regime_type_count": 1,
         "source_claim_count": 1,
+        "trace_source_claim_count": 1,
     }
     assert dollar["feature_units"]["source_claim_count"] == "count"
+    assert dollar["feature_units"]["trace_source_claim_count"] == "count"
     assert set(dollar["source_series_ids"]) == {"CN10Y", "US10Y", "USDCNY"}
     assert dollar["missing_feature_reasons"] == []
     assert dollar["source_claim_count"] == 1
@@ -1085,6 +1088,49 @@ def test_report_intelligence_builds_public_safe_macro_regime_snapshots():
     assert "claim_text" not in snapshot_dump
     assert "source_span_ids" not in snapshot_dump
     assert "FC-MACRO-TRACE-1" not in snapshot_dump
+
+
+def test_report_intelligence_builds_deferred_snapshot_for_candidate_macro_agent():
+    forecast_rows = [
+        {
+            "forecast_claim_id": "FC-MACRO-GEO-1",
+            "claim_id": "CLAIM-PRIVATE-GEO-1",
+            "claim_text": "地缘风险可能推升黄金和原油。",
+            "source_span_ids": ["SRC-PRIVATE:chunk-geo"],
+            "target": {
+                "target_type": "macro_asset",
+                "target_id": "GOLD",
+                "metric_family": "gold_etf_forward_return",
+            },
+            "direction": "positive",
+            "metric_proxy_mapping": ["gold_etf_forward_return"],
+            "claim_regime_trace": {
+                "schema_version": "claim_regime_trace_v1",
+                "as_of_date": "2026-01-15",
+                "macro": {},
+            },
+        }
+    ]
+
+    snapshots = build_macro_regime_snapshots(forecast_rows)
+    geopolitical = next(
+        row for row in snapshots if row["agent_id"] == "macro.geopolitical"
+    )
+
+    assert geopolitical["as_of_date"] == "2026-01-15"
+    assert geopolitical["regime_bucket"] == "no_macro_regime_type_observed"
+    assert geopolitical["source_series_ids"] == ["GOLD_SPOT", "CRUDE_OIL", "VIX"]
+    assert geopolitical["regime_features"]["source_claim_count"] == 1
+    assert geopolitical["regime_features"]["trace_source_claim_count"] == 0
+    assert geopolitical["missing_feature_reasons"] == [
+        "agent_regime_trace_missing",
+        "no_macro_regime_type_observed",
+    ]
+    assert geopolitical["background_only"] is True
+    assert geopolitical["claim_validation_allowed"] is False
+    snapshot_dump = json.dumps(snapshots, ensure_ascii=False)
+    assert "claim_text" not in snapshot_dump
+    assert "source_span_ids" not in snapshot_dump
 
 
 def test_report_intelligence_builds_redacted_macro_agent_research_priors():
@@ -1175,6 +1221,71 @@ def test_report_intelligence_builds_redacted_macro_agent_research_priors():
     assert "source_span_ids" not in prior_dump
     assert "若政策干预超预期" not in prior_dump
     assert "FC-MACRO-PRIOR-1" not in prior_dump
+
+
+def test_report_intelligence_macro_prior_uses_plan_pending_bucket():
+    priors = build_macro_agent_research_priors(
+        [
+            {
+                "forecast_claim_id": "FC-MACRO-PENDING-1",
+                "target": {
+                    "target_type": "macro_series",
+                    "target_id": "VIX",
+                    "metric_family": "volatility_index",
+                },
+                "benchmark": {"benchmark_type": "direct_macro_series"},
+                "direction": "positive",
+                "metric_proxy_mapping": ["volatility_index"],
+                "claim_regime_trace": {
+                    "schema_version": "claim_regime_trace_v1",
+                    "as_of_date": "2026-01-15",
+                    "macro": {
+                        "macro.volatility": {
+                            "as_of_date": "2026-01-15",
+                            "regime_types": ["market_volatility_regime"],
+                            "background_only": True,
+                        }
+                    },
+                },
+            }
+        ],
+        viewpoint_performance_profile_rows=[
+            {
+                "viewpoint_profile_id": _stable_id(
+                    "VPP",
+                    {
+                        "viewpoint_cluster_id": _stable_id(
+                            "VIEW",
+                            {
+                                "mechanism_chain": ("volatility_index",),
+                                "direction": "positive",
+                            },
+                        )
+                    },
+                ),
+                "viewpoint_cluster_id": _stable_id(
+                    "VIEW",
+                    {
+                        "mechanism_chain": ("volatility_index",),
+                        "direction": "positive",
+                    },
+                ),
+                "mechanism_chain": ["volatility_index"],
+                "insufficient_data": True,
+                "n_effective": 0.0,
+                "statistical_reliability_bucket": "insufficient_data",
+                "shrunk_performance_bucket": "insufficient_data",
+                "viewpoint_weight_multiplier": 1.0,
+            }
+        ],
+        macro_regime_snapshot_rows=[],
+    )
+
+    volatility_prior = next(
+        row for row in priors if row["agent_id"] == "macro.volatility"
+    )
+    assert volatility_prior["rating_bucket"] == "pending_or_unrated"
+    assert volatility_prior["target_series_family"] == "volatility"
 
 
 def test_report_intelligence_export_macro_agent_priors_cli(capsys, tmp_path: Path):
@@ -3384,6 +3495,46 @@ def test_macro_series_backfill_writes_dataflow_rows_to_scorecard(
         ("US10Y", "2026-01-01", 3.01, "tushare", "us_tycr", "2026-01-01"),
         ("US10Y", "2026-01-02", 3.02, "tushare", "us_tycr", "2026-01-02"),
         ("US10Y", "2026-01-03", 3.03, "tushare", "us_tycr", "2026-01-03"),
+    ]
+
+
+def test_macro_series_backfill_writes_vix_from_yfinance_index(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "scorecard.db"
+
+    def fake_yfinance_index(curr_date, *, look_back_days, index_symbol):
+        assert curr_date == "2026-01-03"
+        assert look_back_days == 2
+        assert index_symbol == "^VIX"
+        return (
+            "# VIX fixture\n"
+            "# Source: fixture\n"
+            "date,close\n"
+            "2026-01-01,18.1\n"
+            "2026-01-02,18.4\n"
+            "2026-01-03,17.9\n"
+        )
+
+    result = backfill_macro_series(
+        start_date="2026-01-01",
+        end_date="2026-01-03",
+        series_ids=("VIX",),
+        db_path=db_path,
+        fetchers={"yfinance_index": fake_yfinance_index},
+    )
+
+    assert result["accepted"] is True
+    assert result["inserted_rows"] == 3
+    with sqlite3.connect(db_path) as conn:
+        rows = conn.execute(
+            "select series_id, date, value, source, endpoint_name, instrument "
+            "from macro_series order by date"
+        ).fetchall()
+    assert rows == [
+        ("VIX", "2026-01-01", 18.1, "yfinance", "download", "^VIX"),
+        ("VIX", "2026-01-02", 18.4, "yfinance", "download", "^VIX"),
+        ("VIX", "2026-01-03", 17.9, "yfinance", "download", "^VIX"),
     ]
 
 

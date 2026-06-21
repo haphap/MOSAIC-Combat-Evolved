@@ -132,7 +132,7 @@
     "RECIPE-fd197c28a477e490"
   ],
   "alpha_decay_watch_count": 14,
-  "as_of_datetime": "2026-06-21T16:36:20+00:00",
+  "as_of_datetime": "2026-06-21T18:49:52+00:00",
   "blocked_recipe_count": 6440,
   "blocker_counts": {
     "after_cost_alpha_non_positive": 76,
@@ -351,7 +351,7 @@
   "regime_fragile_alpha_count": 0,
   "regime_fragile_recipe_ids": [],
   "retire_recipe_ids": [],
-  "run_id": "RIR-DERIVED-20260621T163534+0000",
+  "run_id": "RIR-DERIVED-20260621T184905+0000",
   "tracked_recipe_ids": [
     "RECIPE-0013bd5f2468073a",
     "RECIPE-001b9e3698907b50",

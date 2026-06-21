@@ -1,6 +1,6 @@
 {
   "accepted": true,
-  "as_of_datetime": "2026-06-21T16:36:21+00:00",
+  "as_of_datetime": "2026-06-21T18:49:52+00:00",
   "audit_id": "RKE-REPORT-INTELLIGENCE-RUNTIME-SAFETY-AUDIT",
   "blocker_count": 0,
   "blockers": [],
@@ -140,5 +140,5 @@
     }
   ],
   "policy": "report intelligence may rank research priors, recipes, and tool gaps in shadow mode only; it cannot create current market evidence, actionable recommendations, sector scores, sizing, orders, or contrarian signals without current tool data, validation, paper trading, and promotion gates",
-  "run_id": "RIR-DERIVED-20260621T163534+0000"
+  "run_id": "RIR-DERIVED-20260621T184905+0000"
 }

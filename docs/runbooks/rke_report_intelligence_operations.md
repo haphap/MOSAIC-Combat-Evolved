@@ -68,6 +68,52 @@ uv run mosaic-rke build-local-macro-report-sources \
   `宏观策略=329`, `A股=22`, `债券=7`, `商品=33`, `大类资产=20`,
   `海外=11`, `待分类=366`
 
+## Macro Series Backfill
+
+RKE report-intelligence reads macro time series from the local scorecard
+`macro_series` table; it does not commit raw market observations. The local DB
+path used in this checkout is:
+
+```text
+data/scorecard.db
+```
+
+This path is gitignored and must remain private/local. After adding or refreshing
+macro observations, rebuild derived report-intelligence artifacts with:
+
+```bash
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp \
+  uv run python -m mosaic.rke.cli report-intelligence \
+  --root . \
+  --refresh-derived-only \
+  --scorecard-db-path data/scorecard.db
+```
+
+Volatility/VIX status:
+
+- `2026-06-22`: AKShare/Oxford Man VIX endpoint failed with an SSL EOF both
+  inside and outside the sandbox, so it is not a sandbox permission issue.
+- VIX backfill now uses the existing `mosaic.dataflows.macro_data.get_ivx`
+  yfinance adapter with instrument `^VIX`.
+- Successful command:
+
+```bash
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp \
+  uv run python -m mosaic.rke.cli macro-series-backfill \
+  --root . \
+  --start-date 2025-01-01 \
+  --end-date 2026-06-18 \
+  --series-id VIX \
+  --scorecard-db-path data/scorecard.db
+```
+
+Observed result: `accepted=true`, `fetched_rows=367`, `inserted_rows=367`.
+After the derived refresh, `macro_market_series_catalog.jsonl` marks `VIX` as
+`ready` with observations through `2026-06-18`. Current public macro outcome
+labels still have no completed real volatility leg because the present claim
+pool has no clear labelable volatility claim; this is a corpus/extraction gap,
+not a VIX data gap.
+
 ## MinerU Usage
 
 User requirement: run MinerU in vLLM/VLM mode. For the current installed MinerU

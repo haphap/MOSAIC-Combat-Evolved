@@ -1,6 +1,6 @@
 {
   "accepted": false,
-  "as_of_datetime": "2026-06-21T16:36:21+00:00",
+  "as_of_datetime": "2026-06-21T18:49:53+00:00",
   "blocked_phase_ids": [
     "B",
     "D"
@@ -512,6 +512,6 @@
       "status": "deferred_by_rollout"
     }
   ],
-  "run_id": "RIR-DERIVED-20260621T163534+0000",
+  "run_id": "RIR-DERIVED-20260621T184905+0000",
   "source_plan_path": "MOSAIC_RKE_REPORT_INTELLIGENCE_LOOP_PATCH_V1_5_MERGED.md"
 }

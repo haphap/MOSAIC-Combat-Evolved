@@ -1,6 +1,6 @@
 {
   "accepted": true,
-  "as_of_datetime": "2026-06-21T16:36:21+00:00",
+  "as_of_datetime": "2026-06-21T18:49:52+00:00",
   "audit_id": "RKE-REPORT-INTELLIGENCE-STATISTICAL-ROBUSTNESS-AUDIT",
   "blocker_count": 0,
   "blockers": [],
@@ -142,5 +142,5 @@
     }
   ],
   "policy": "report intelligence statistical evidence must be PIT, after-cost, overlap-adjusted, grouped by forecast family, deduplicated by consensus clusters, and kept shadow-only until effective-N, multiple-testing, calibration, paper-trading, and promotion gates pass",
-  "run_id": "RIR-DERIVED-20260621T163534+0000"
+  "run_id": "RIR-DERIVED-20260621T184905+0000"
 }

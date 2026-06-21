@@ -366,14 +366,21 @@ def test_stock_report_outcome_status_doc_matches_public_artifacts():
     assert "operator-readiness --root .` is accepted with 18/18 checks" in status_text
     assert "evolution-readiness --root . --no-write` is currently blocked" in status_text
     assert evolution_gate["gate_status"] == "blocked"
-    assert evolution_gate["blockers"] == ["audit_refresh_history_below_threshold"]
-    assert audit_check["blockers"] == ["audit_refresh_history_below_threshold"]
-    assert audit_evidence["schema_accepted"] is True
+    assert evolution_gate["blockers"] == [
+        "audit_refresh_history_below_threshold",
+        "current_schema_or_audit_gate_blocked",
+    ]
+    assert audit_check["blockers"] == [
+        "current_schema_or_audit_gate_blocked",
+        "audit_refresh_history_below_threshold",
+    ]
+    assert audit_evidence["schema_accepted"] is False
     assert audit_evidence["pit_accepted"] is True
     assert audit_evidence["provenance_accepted"] is True
     assert audit_evidence["statistical_accepted"] is True
-    assert audit_evidence["trailing_audit_pass_count"] == 1
-    assert audit_evidence["trailing_audit_distinct_vintage_count"] == 1
+    assert audit_evidence["current_failure_counts"]["schema"] == 17
+    assert audit_evidence["trailing_audit_pass_count"] == 0
+    assert audit_evidence["trailing_audit_distinct_vintage_count"] == 0
     assert (
         f"trailing clean audit refresh count is "
         f"{audit_evidence['trailing_audit_pass_count']}/3"
@@ -3455,6 +3462,9 @@ def test_evolution_readiness_gate_contract_rejects_blocker_count_mismatch(
     registry = _copy_report_intelligence_registry(tmp_path)
     gate_path = registry / "evolution_readiness_gate.json"
     gate = json.loads(gate_path.read_text(encoding="utf-8"))
+    for check in gate["checks"]:
+        if check["check_id"] == "RI-EVOL-04":
+            check["blockers"] = ["audit_refresh_history_below_threshold"]
     gate["blockers"] = ["audit_refresh_history_below_threshold"]
     gate["blocker_count"] = 0
     gate["gate_status"] = "passed"

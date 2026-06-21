@@ -616,7 +616,7 @@
     "pending_future_forecast_claim_ids": [],
     "pending_future_window_count": 0,
     "policy": "macro curve claims are evaluated with PIT-aligned long/short series spreads on T+1 fixed windows; LLM output extracts target and direction but cannot assign outcome labels",
-    "series_count": 7,
+    "series_count": 8,
     "windows_days": [
       90,
       180,
@@ -784,7 +784,7 @@
     ],
     "pending_future_window_count": 38,
     "policy": "macro direct-series claims are evaluated with PIT macro series observations on T+1 fixed windows; LLM output extracts target and direction but cannot assign outcome labels",
-    "series_count": 7,
+    "series_count": 8,
     "windows_days": [
       90,
       180,
