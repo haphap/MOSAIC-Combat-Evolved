@@ -3,14 +3,13 @@
   "labelability_action_summary": {
     "coverage_gate_status": "actionable_gaps_present",
     "data_gap_counts": {
-      "direction_missing_or_unsupported": 8,
-      "entry_date_after_latest_calendar": 1,
-      "sector_etf_mapping_missing": 38
+      "direction_missing_or_unsupported": 11,
+      "sector_etf_mapping_missing": 48
     },
-    "eligible_claim_count": 105,
-    "labelability_rate": 0.371429,
-    "labelable_claim_count": 39,
-    "mapping_review_claim_count": 143,
+    "eligible_claim_count": 109,
+    "labelability_rate": 0.302752,
+    "labelable_claim_count": 33,
+    "mapping_review_claim_count": 157,
     "next_actions": [
       "add_primary_etf_mapping_for_unmapped_industry_sectors",
       "refresh_or_replace_pit_unavailable_etf_mappings"
@@ -20,23 +19,22 @@
     },
     "pit_unavailable_mapping_count": 1,
     "policy": "Public-safe aggregate action summary for P10 industry ETF proxy mapping and PIT coverage; no source rows, report text, or local paths are included.",
-    "primary_mapping_coverage_rate": 0.734266,
-    "remaining_action_count": 39,
-    "sector_etf_mapping_missing_count": 38
+    "primary_mapping_coverage_rate": 0.694268,
+    "remaining_action_count": 49,
+    "sector_etf_mapping_missing_count": 48
   },
   "labelability_summary": {
     "benchmark_series_missing_count": 0,
     "data_gap_counts": {
-      "direction_missing_or_unsupported": 8,
-      "entry_date_after_latest_calendar": 1,
-      "sector_etf_mapping_missing": 38
+      "direction_missing_or_unsupported": 11,
+      "sector_etf_mapping_missing": 48
     },
-    "eligible_claim_count": 105,
-    "labelable_claim_count": 39,
-    "labelable_window_count": 87,
-    "pending_future_window_count": 225,
+    "eligible_claim_count": 109,
+    "labelable_claim_count": 33,
+    "labelable_window_count": 78,
+    "pending_future_window_count": 249,
     "proxy_series_missing_count": 0,
-    "sector_etf_mapping_missing_count": 38
+    "sector_etf_mapping_missing_count": 48
   },
   "mapping_count": 64,
   "mapping_records": [

@@ -13181,7 +13181,11 @@ def _macro_asset_proxy_for_claim(
 
 
 def _macro_asset_window_role(horizon_days: int) -> str:
-    return _stock_price_proxy_window_role(horizon_days)
+    if horizon_days <= MACRO_ASSET_PROXY_WINDOWS_DAYS[0]:
+        return "short"
+    if horizon_days <= MACRO_ASSET_PROXY_WINDOWS_DAYS[1]:
+        return "medium"
+    return "long"
 
 
 def _macro_asset_proxy_window_effective_weight(horizon_days: int) -> float:

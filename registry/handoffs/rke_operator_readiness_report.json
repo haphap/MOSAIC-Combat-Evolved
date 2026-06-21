@@ -11,7 +11,7 @@
     {
       "blocker": "",
       "check_id": "handoff_ready_for_operator",
-      "evidence": "gates=['footprint_review', 'gold_set', 'lockbox', 'source_license'], next_state=paper_trading",
+      "evidence": "gates=['footprint_review', 'gold_set', 'lockbox', 'source_license'], next_state=staged_production",
       "passed": true
     },
     {
@@ -29,13 +29,13 @@
     {
       "blocker": "",
       "check_id": "manual_batch_templates_match_status",
-      "evidence": "gold_exported=26/26, gold_full=26/26, license_exported=0/0, batch_blockers=0",
+      "evidence": "gold_exported=0/0, gold_full=0/0, license_exported=0/0, batch_blockers=0",
       "passed": true
     },
     {
       "blocker": "",
       "check_id": "manual_batch_promotion_inputs_separated",
-      "evidence": "gates=2, batches=22, failures=0",
+      "evidence": "gates=2, batches=0, failures=0",
       "passed": true
     },
     {
@@ -53,7 +53,7 @@
     {
       "blocker": "",
       "check_id": "blank_full_gold_set_import_is_rejected",
-      "evidence": "accepted=False, input_rows=26, applied_rows=0, rejected_rows=26",
+      "evidence": "accepted=False, input_rows=0, applied_rows=0, rejected_rows=0",
       "passed": true
     },
     {
@@ -71,7 +71,7 @@
     {
       "blocker": "",
       "check_id": "lockbox_upstream_cli_guard_enforced",
-      "evidence": "pending=gold_set,footprint_review; ready=source_license; blockers=2",
+      "evidence": "pending=none; ready=gold_set,footprint_review,source_license; blockers=0",
       "passed": true
     },
     {
@@ -89,7 +89,7 @@
     {
       "blocker": "",
       "check_id": "blank_bundle_dry_run_does_not_promote",
-      "evidence": "accepted=False, after_next_state=paper_trading",
+      "evidence": "accepted=False, before_next_state=staged_production, after_next_state=staged_production",
       "passed": true
     },
     {
@@ -101,7 +101,7 @@
     {
       "blocker": "",
       "check_id": "promotion_gate_state_consistent",
-      "evidence": "next_state=paper_trading, expected_next_state=paper_trading, staged=False/False, production=False/False, direct_forbidden=True/True, blockers=3, missing=0",
+      "evidence": "next_state=staged_production, expected_next_state=staged_production, staged=True/True, production=False/False, direct_forbidden=True/True, blockers=1, missing=0",
       "passed": true
     },
     {

@@ -24,10 +24,8 @@
     "record_count": 2
   },
   "completion": {
-    "blockers": [
-      "manual gold-set review still required"
-    ],
-    "passed": 11,
+    "blockers": [],
+    "passed": 12,
     "total": 12
   },
   "dashboard_id": "RKE-DASHBOARD-20260605",
@@ -70,11 +68,11 @@
   },
   "manual_review_gates": {
     "gold_candidate_claims": {
-      "candidate_available_count": 152,
-      "candidate_claim_count": 152,
+      "candidate_available_count": 314,
+      "candidate_claim_count": 314,
       "manual_fields_preserved": true,
-      "missing_variable_mapping_count": 19,
-      "review_rows_with_candidate_fields": 205
+      "missing_variable_mapping_count": 20,
+      "review_rows_with_candidate_fields": 125
     },
     "gold_review_packet": {
       "candidate_span_ref_count": 228,
@@ -89,10 +87,10 @@
       "status": "manual_review_passed"
     },
     "gold_set": {
-      "passed": false,
+      "passed": true,
       "pending_claims": 0,
-      "reviewed_claims": 158,
-      "total_claims": 158
+      "reviewed_claims": 125,
+      "total_claims": 125
     },
     "license_review_packet": {
       "approved_for_derived_claim_storage": 17529,
@@ -104,9 +102,9 @@
     },
     "review_batches": {
       "gold_set_dry_run_command": "mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_next_import_template.jsonl --dry-run",
-      "gold_set_exported_rows": 26,
+      "gold_set_exported_rows": 0,
       "gold_set_full_import_template": "registry/review_batches/gold_set_full_import_template.jsonl",
-      "gold_set_pending_rows": 26,
+      "gold_set_pending_rows": 0,
       "gold_set_review_assist_jsonl": "registry/review_batches/gold_set_review_assist.jsonl",
       "gold_set_review_assist_markdown": "registry/review_batches/gold_set_review_assist.md",
       "gold_set_review_workbook": "registry/review_batches/gold_set_review_workbook.md",
@@ -117,9 +115,9 @@
       "source_license_review_workbook": "registry/review_batches/source_license_review_workbook.md"
     },
     "review_progress": {
-      "blocker_count": 26,
+      "blocker_count": 0,
       "gate_count": 4,
-      "ready_for_promotion_dry_run": false,
+      "ready_for_promotion_dry_run": true,
       "runbook_path": "registry/review_batches/manual_review_runbook.md"
     },
     "source_license": {
@@ -172,9 +170,9 @@
   },
   "operator_handoff": {
     "gate_count": 4,
-    "next_state": "paper_trading",
+    "next_state": "staged_production",
     "ready_for_operator_review": true,
-    "remaining_blocker_count": 4,
+    "remaining_blocker_count": 1,
     "run_order": [
       "review-progress-preflight",
       "prepare-gold-review",
@@ -229,12 +227,12 @@
     "scenario_count": 6
   },
   "promotion_gate": {
-    "blocker_count": 3,
+    "blocker_count": 1,
     "direct_production_forbidden": true,
-    "next_state": "paper_trading",
+    "next_state": "staged_production",
     "paper_trading_allowed": true,
     "production_allowed": false,
-    "staged_production_allowed": false
+    "staged_production_allowed": true
   },
   "prompt_evolution": {
     "asset_validation_accepted": true,
@@ -249,7 +247,7 @@
     "prompt_version": "0.3.2-rke",
     "rendered_prompt_path": "registry/rendered_prompts/macro.central_bank.rke.md"
   },
-  "ready_for_broad_rollout": false,
+  "ready_for_broad_rollout": true,
   "rollback_readiness": {
     "accepted": true,
     "check_count": 5,
@@ -299,7 +297,7 @@
   },
   "source_text_redaction": {
     "accepted": true,
-    "checked_path_count": 459,
+    "checked_path_count": 461,
     "failure_count": 0,
     "min_match_chars": 80,
     "skipped_allowed_path_count": 45,

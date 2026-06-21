@@ -1,8 +1,8 @@
 # RKE Dashboard
 
-- Broad rollout ready: false
+- Broad rollout ready: true
 - Dashboard artifact errors: 0
-- Completion: 11 / 12
+- Completion: 12 / 12
 - Master-plan coverage missing: 0
 - Master-plan coverage blocked: 1
 - Master-plan blocked sections: Phase-1B
@@ -21,7 +21,7 @@
 - Rollback readiness accepted: True
 - Rollback readiness failures: 0
 - Lockbox result: not_opened
-- Promotion next state: paper_trading
+- Promotion next state: staged_production
 - Promotion production allowed: False
 - Validation ablations accepted: True
 - Validation statistical significance accepted: True
@@ -35,20 +35,20 @@
 - Phase 7 sector actionability: monitor_only
 - Gold-set review pending claims: 0
 - Gold review packet spans: 228
-- Gold candidate claims: 152
+- Gold candidate claims: 314
 - License review pending sources: 0
 - License review packet pending sources: 0
-- Next gold review batch rows: 26
+- Next gold review batch rows: 0
 - Full gold review import template: registry/review_batches/gold_set_full_import_template.jsonl
 - Gold review workbook: registry/review_batches/gold_set_review_workbook.md
 - Gold review assist: registry/review_batches/gold_set_review_assist.md
 - Next license review batch rows: 0
 - Source license review workbook: registry/review_batches/source_license_review_workbook.md
-- Manual review promotion dry-run ready: False
-- Manual review progress blockers: 26
+- Manual review promotion dry-run ready: True
+- Manual review progress blockers: 0
 - Manual review runbook: registry/review_batches/manual_review_runbook.md
 - Operator handoff ready: True
-- Operator handoff blockers: 4
+- Operator handoff blockers: 1
 - Operator readiness accepted: True
 - Operator readiness failures: 0
 - Experiment governance family: FAM-CB-LIQUIDITY-2026Q2
@@ -64,7 +64,7 @@
 
 ## Blockers
 
-- manual gold-set review still required
+- none
 
 ## Runtime
 

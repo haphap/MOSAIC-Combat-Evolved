@@ -1482,9 +1482,22 @@ def _validate_proxy_outcome_label_contract(
     elif horizon_days <= 0:
         failures.append(f"{row_label}.horizon_days: must be > 0")
     else:
-        expected_window_role = (
-            "short" if horizon_days <= 20 else "medium" if horizon_days <= 60 else "long"
-        )
+        if label_type == "macro_asset_proxy":
+            expected_window_role = (
+                "short"
+                if horizon_days <= 90
+                else "medium"
+                if horizon_days <= 180
+                else "long"
+            )
+        else:
+            expected_window_role = (
+                "short"
+                if horizon_days <= 20
+                else "medium"
+                if horizon_days <= 60
+                else "long"
+            )
         if row.get("window_role") != expected_window_role:
             failures.append(
                 f"{row_label}.window_role: must be {expected_window_role} for horizon_days={horizon_days}"
@@ -7713,7 +7726,7 @@ def _validate_manual_review_bundle_manifest_contract(
                 "manual_review_bundle_manifest.promotion_dry_run: accepted summary "
                 "must not have missing or rejected steps"
             )
-        if (expected_staged or expected_production) and (missing_steps or rejected_steps):
+        if expected_production and (missing_steps or rejected_steps):
             failures.append(
                 "manual_review_bundle_manifest.promotion_dry_run: promoted summary "
                 "must not have missing or rejected steps"

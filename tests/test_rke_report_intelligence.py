@@ -2293,6 +2293,11 @@ def test_report_intelligence_labels_macro_strategy_claims_with_asset_proxy_windo
     )
     assert {row["label_type"] for row in outcome_labels} == {"macro_asset_proxy"}
     assert [row["horizon_days"] for row in outcome_labels] == [90, 180, 360]
+    assert [row["window_role"] for row in outcome_labels] == [
+        "short",
+        "medium",
+        "long",
+    ]
     assert {row["proxy_symbol"] for row in outcome_labels} == {"SH510300"}
     assert {row["macro_asset_target_id"] for row in outcome_labels} == {
         "CN_A_SHARE_BROAD"
@@ -2313,6 +2318,14 @@ def test_report_intelligence_labels_macro_strategy_claims_with_asset_proxy_windo
         0.333334,
     ]
     assert all(row["directional_hit"] is True for row in outcome_labels)
+    assert {
+        row["temporal_validation_summary"]["temporal_validation_bucket"]
+        for row in outcome_labels
+    } == {"consistent_hit"}
+    assert {
+        tuple(row["temporal_validation_summary"]["available_window_days"])
+        for row in outcome_labels
+    } == {(90, 180, 360)}
 
     readiness = json.loads(
         (tmp_path / "registry/report_intelligence/outcome_labeling_readiness.json")

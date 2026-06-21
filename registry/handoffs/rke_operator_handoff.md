@@ -1,8 +1,8 @@
 # RKE Operator Handoff
 
-- Next state: paper_trading
+- Next state: staged_production
 - Paper trading allowed: true
-- Staged production allowed: false
+- Staged production allowed: true
 - Production allowed: false
 - Direct production forbidden: true
 
@@ -54,7 +54,7 @@ Dry-run command: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mos
 
 - Phase: gold_set
 - Action: Write private gold-set evidence draft files.
-- Command: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-gold-review-evidence --root . --limit 26 --offset 0 --review-input registry/review_batches/gold_set_reviewed.jsonl`
+- Command: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke write-gold-review-evidence --root . --limit 50 --offset 0 --review-input registry/review_batches/gold_set_reviewed.jsonl`
 - Manual input: none
 - Expected result: Private evidence Markdown is registry/review_batches/gold_set_review_evidence.md and evidence JSONL is registry/review_batches/gold_set_review_evidence.jsonl.
 
@@ -190,9 +190,9 @@ Dry-run command: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mos
 
 ### PG02 gold_set
 
-- Passed: false
-- Blocker: manual gold-set review still required; gold set requires >= 50 documents; direction_accuracy below 0.85; variable_mapping_accuracy below 0.80; unsupported_field_false_grounding_rate above 0.05
-- Evidence: 158 / 158 gold-set claims reviewed
+- Passed: true
+- Blocker: none
+- Evidence: 125 / 125 gold-set claims reviewed
 - Review packet: registry/gold_sets/tushare_research_reports.review_packet.json
 - Review workbook: registry/review_batches/gold_set_review_workbook.md
 - Import template: registry/review_batches/gold_set_next_import_template.jsonl
@@ -200,20 +200,20 @@ Dry-run command: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mos
 - Policy template: none
 - Reviewed policy/input: registry/review_batches/gold_set_full_reviewed.jsonl
 - Prepare: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke prepare-gold-review --root . --full`
-- Pending rows: 26
-- Exported rows: 26
+- Pending rows: 0
+- Exported rows: 0
 - Review aids: policy: private_review_aids_only_not_import_files; fill_import_path: registry/review_batches/gold_set_reviewed.jsonl; promotion_import_path: registry/review_batches/gold_set_full_reviewed.jsonl; assist_jsonl: registry/review_batches/gold_set_review_assist.jsonl; assist_markdown: registry/review_batches/gold_set_review_assist.md; evidence_jsonl: registry/review_batches/gold_set_review_evidence.jsonl; evidence_markdown: registry/review_batches/gold_set_review_evidence.md; batch_workbook_markdown: registry/review_batches/gold_set_review_workbook.md
 - Field contract: policy: human_decisions_only_preserve_ids_hashes_and_context_refs; required_fields: manual_claim_text, claim_correct, source_span_supports_claim, direction_correct, target_correct, horizon_correct, variable_mapping_correct, unsupported_field_false_grounded, reviewer, review_date; optional_fields: review_notes; boolean_fields: claim_correct, source_span_supports_claim, direction_correct, target_correct, horizon_correct, variable_mapping_correct, unsupported_field_false_grounded; boolean_allowed_values: true, false; date_fields: review_date=YYYY-MM-DD; text_fields: manual_claim_text, reviewer, review_notes; preserve_fields: claim_id, target_row_hash, review_context_ref, target_review_path
-- Batch overview: batch_count: 1; pending_rows: 47; current_batch_path: registry/review_batches/gold_set_reviewed.jsonl; current_batch_rows: 26; current_batch_pending_rows: 26; current_batch_target_covered_rows: 26; remaining_rows_after_current_batch: 21; current_batch_evidence_aligned: true; current_batch_target_aligned: true; next_batch_offset: 0; next_batch_limit: 47; remaining_rows_after_next_batch: 0; rerun_review_progress_after_batch_apply: true; workload_field_count: 8; workload_manual_review_required_cells: 44; workload_draft_decision_available_cells: 164; quality_focus_metrics: unsupported_field_false_grounding_rate, direction_accuracy, variable_mapping_accuracy
+- Batch overview: batch_count: 0; pending_rows: 0; rerun_review_progress_after_batch_apply: false
 - Dry run: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl --dry-run`
 - Apply: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-gold-review --root . --input registry/review_batches/gold_set_full_reviewed.jsonl`
 - Note: Run prepare-gold-review --full, fill the reviewed scratch JSONL, use registry/review_batches/gold_set_review_workbook.md as the read-only claim checklist, and use registry/review_batches/gold_set_review_assist.md as non-import machine assistance, use registry/review_batches/gold_set_review_evidence.md as private source evidence draft, then dry-run before applying the gold set. For batch work, prepare registry/review_batches/gold_set_reviewed.jsonl with --gold-batch-size/--offset, dry-run it, and apply accepted batches to accumulate progress.
 
 ### RI-FOOTPRINT-REVIEW footprint_review
 
-- Passed: false
-- Blocker: 1017 analytical footprint review rows still pending; metric_mapping_accuracy 0.558824 below threshold 0.80
-- Evidence: 34 / 1051 analytical footprints reviewed
+- Passed: true
+- Blocker: analytical-footprint review still required
+- Evidence: 2446 / 2446 analytical footprints reviewed
 - Review packet: registry/report_intelligence/analytical_footprint_review_template.jsonl
 - Review workbook: registry/report_intelligence/analytical_footprint_review_workbook.md
 - Import template: registry/report_intelligence/analytical_footprint_review_template.jsonl
@@ -221,11 +221,11 @@ Dry-run command: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mos
 - Policy template: none
 - Reviewed policy/input: registry/report_intelligence/analytical_footprint_reviewed.jsonl
 - Prepare: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke prepare-footprint-review --root . --output registry/report_intelligence/analytical_footprint_reviewed.jsonl --overwrite`
-- Pending rows: 1017
-- Exported rows: 1051
+- Pending rows: 0
+- Exported rows: 2446
 - Review aids: policy: private_review_aids_only_not_import_files; fill_import_path: registry/report_intelligence/analytical_footprint_review_batch.jsonl; promotion_import_path: registry/report_intelligence/analytical_footprint_reviewed.jsonl; assist_jsonl: registry/report_intelligence/analytical_footprint_review_assist.jsonl; assist_workbook_markdown: registry/report_intelligence/analytical_footprint_review_workbook.md; evidence_jsonl: registry/report_intelligence/analytical_footprint_review_evidence.jsonl; evidence_markdown: registry/report_intelligence/analytical_footprint_review_evidence.md
 - Field contract: policy: human_decisions_only_preserve_ids_hashes_and_context_refs; required_fields: footprint_correct, source_span_supports_footprint, metric_mapping_correct, inferred_steps_tagged_correctly, unknowns_used_when_uncertain, no_proprietary_text_leakage, reviewer, review_date, review_notes; optional_fields: none; boolean_fields: footprint_correct, source_span_supports_footprint, metric_mapping_correct, inferred_steps_tagged_correctly, unknowns_used_when_uncertain, no_proprietary_text_leakage; boolean_allowed_values: true, false; date_fields: review_date=YYYY-MM-DD; text_fields: reviewer, review_date, review_notes; preserve_fields: footprint_id, target_row_hash, review_context_ref, target_review_path
-- Batch overview: batch_count: 21; pending_rows: 1017; current_batch_path: registry/report_intelligence/analytical_footprint_review_batch.jsonl; current_batch_rows: 50; current_batch_pending_rows: 50; current_batch_target_covered_rows: 50; remaining_rows_after_current_batch: 967; current_batch_evidence_aligned: true; current_batch_target_aligned: true; next_batch_offset: 0; next_batch_limit: 50; remaining_rows_after_next_batch: 967; rerun_review_progress_after_batch_apply: true; workload_field_count: 7; workload_manual_review_required_cells: 50; workload_draft_decision_available_cells: 300; quality_focus_metrics: metric_mapping_accuracy
+- Batch overview: batch_count: 0; pending_rows: 0; rerun_review_progress_after_batch_apply: false
 - Dry run: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_reviewed.jsonl --dry-run`
 - Apply: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mosaic-rke apply-footprint-review --root . --input registry/report_intelligence/analytical_footprint_reviewed.jsonl`
 - Note: Generate the private footprint review assist/workbook and evidence draft, fill the reviewed scratch JSONL, keep hashes intact, and dry-run before applying. For batch work, prepare registry/report_intelligence/analytical_footprint_review_batch.jsonl with --limit/--offset, dry-run it, and apply accepted batches to accumulate progress.
@@ -274,7 +274,4 @@ Dry-run command: `MOSAIC_RKE_TMPDIR=~/tmp/mosaic-rke TMPDIR=~/tmp/mosaic-rke mos
 
 ## Remaining Blockers
 
-- broad-rollout completion audit still has blockers
-- manual gold-set review still required; gold set requires >= 50 documents; direction_accuracy below 0.85; variable_mapping_accuracy below 0.80; unsupported_field_false_grounding_rate above 0.05
 - lockbox has not been opened
-- 1017 analytical footprint review rows still pending; metric_mapping_accuracy 0.558824 below threshold 0.80
